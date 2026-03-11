@@ -28,6 +28,7 @@ import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import BreakIcon from "../icons/break.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
+import ConfigIcon from "../icons/config.svg";
 import DeleteIcon from "../icons/clear.svg";
 import PinIcon from "../icons/pin.svg";
 import ConfirmIcon from "../icons/confirm.svg";
@@ -1713,6 +1714,15 @@ function _Chat() {
             </div>
           </div>
           <div className="window-actions">
+            <div className="window-action-button">
+              <IconButton
+                icon={<ConfigIcon />}
+                bordered
+                title="API 配置"
+                aria="API 配置"
+                onClick={() => navigate(Path.ApiConfig)}
+              />
+            </div>
             <div className="window-action-button">
               <IconButton
                 icon={<ReloadIcon />}

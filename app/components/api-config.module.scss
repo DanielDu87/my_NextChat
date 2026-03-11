@@ -1,0 +1,292 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  padding: 20px;
+  overflow: auto;
+}
+
+.hint {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: var(--border-in-light);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--black);
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+}
+
+.fieldItem {
+  width: 100%;
+}
+
+.fieldLabel {
+  margin-bottom: 8px;
+  color: var(--black);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.fieldSubTitle {
+  margin-bottom: 8px;
+  color: var(--black);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+
+.textInput {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: var(--border-in-light);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--black);
+  padding: 12px 14px;
+  outline: none;
+  font: inherit;
+  line-height: 1.5;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.textInput::placeholder {
+  color: var(--black);
+  opacity: 0.45;
+}
+
+.textInput:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+.textInput:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.syncCard {
+  margin-top: 16px;
+}
+
+.profileSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.addProfileButton {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 !important;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  :global(svg) {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.addProfileButton :global(.icon-button-text) {
+  display: none;
+}
+
+.profileList {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.profileTable {
+  width: 100%;
+  max-width: 100%;
+  border: var(--border-in-light);
+  border-radius: 14px;
+  background: var(--white);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.profileTableHeader,
+.profileRow {
+  display: grid;
+  /* 使用 fr 实现自适应，平台:名称:BaseUrl:ApiKey:兼容:启用:操作 */
+  grid-template-columns: 1fr 1.5fr 1.5fr 3fr 1fr 1fr 1fr;
+  column-gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: var(--border-in-light);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.profileColProvider { grid-column: 1; }
+.profileColName { grid-column: 2; }
+.profileColBaseUrl { grid-column: 3; }
+.profileColApiKey { grid-column: 4; }
+.profileColCompatible { grid-column: 5; }
+.profileColToggle { grid-column: 6; }
+.profileColActions { grid-column: 7; }
+
+.profileTableHeader {
+  background: color-mix(in srgb, var(--gray) 55%, var(--white));
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--black);
+  padding: 12px;
+
+  & > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    padding: 0 4px;
+  }
+}
+
+.profileRow:last-child {
+  border-bottom: 0;
+}
+
+.profileCell {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.profileColName,
+.profileColBaseUrl,
+.profileColApiKey {
+  justify-content: center;
+
+  .textInput {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+}
+
+.profileColCompatible,
+.profileColToggle,
+.profileColActions {
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+.profileColProvider {
+  justify-content: center;
+
+  :global(.select-with-icon) {
+    max-width: unset;
+    width: 100%;
+  }
+  :global(.select-with-icon-select) {
+    width: 100%;
+    text-align: center;
+    padding-left: 14px;
+  }
+
+  // 隐藏下拉箭头
+  :global(.select-with-icon-icon) {
+    display: none !important;
+  }
+}
+
+.profileCellLabel {
+  display: none;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.profileCheck {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.profileCheck input {
+  margin: 0;
+}
+
+.profileRowActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profileRow :global(.icon-button) {
+  min-height: 38px;
+}
+
+.profileRow :global(.icon-button-text) {
+  font-size: 12px;
+}
+
+.profileColActions :global(.icon-button) {
+  min-width: 64px;
+  padding: 6px 8px;
+}
+
+.profileRow :global(.icon-button.danger:hover),
+.profileRow :global(.icon-button.danger:focus) {
+  border-color: red;
+}
+
+.profileRow .textInput {
+  font-size: 12px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.profileNameHighlight {
+  color: var(--primary);
+  font-weight: 600;
+
+  @media (prefers-color-scheme: dark) {
+    color: #60a5fa;
+  }
+}

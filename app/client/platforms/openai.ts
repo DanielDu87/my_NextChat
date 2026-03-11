@@ -84,6 +84,9 @@ export class ChatGPTApi implements LLMApi {
 
   path(path: string): string {
     const accessStore = useAccessStore.getState();
+    const configStore = useChatStore.getState();
+    const currentProvider =
+      configStore.currentSession().mask.modelConfig.providerName;
 
     let baseUrl = "";
 
@@ -95,7 +98,14 @@ export class ChatGPTApi implements LLMApi {
         );
       }
 
-      baseUrl = isAzure ? accessStore.azureUrl : accessStore.openaiUrl;
+      if (
+        currentProvider === ServiceProvider.Custom &&
+        accessStore.customOpenAICompatible
+      ) {
+        baseUrl = accessStore.customUrl;
+      } else {
+        baseUrl = isAzure ? accessStore.azureUrl : accessStore.openaiUrl;
+      }
     }
 
     if (baseUrl.length === 0) {

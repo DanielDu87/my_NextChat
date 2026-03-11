@@ -3,7 +3,9 @@ services:
   chatgpt-next-web:
     profiles: [ "no-proxy" ]
     container_name: chatgpt-next-web
-    image: yidadaa/chatgpt-next-web
+    image: nextchat-local
+    build:
+      context: .
     ports:
       - 3000:3000
     environment:
@@ -17,11 +19,45 @@ services:
       - ENABLE_BALANCE_QUERY=$ENABLE_BALANCE_QUERY
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
+      - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
+
+  chatgpt-next-web-dev:
+    profiles: [ "dev" ]
+    container_name: chatgpt-next-web-dev
+    image: nextchat-local
+    build:
+      context: .
+      target: deps
+    working_dir: /app
+    command: sh -c "yarn install && (yarn mask:watch &) && yarn next dev -H 0.0.0.0"
+    ports:
+      - 3000:3000
+    environment:
+      - HOSTNAME=0.0.0.0
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - OPENAI_API_KEY=$OPENAI_API_KEY
+      - GOOGLE_API_KEY=$GOOGLE_API_KEY
+      - CODE=$CODE
+      - BASE_URL=$BASE_URL
+      - OPENAI_ORG_ID=$OPENAI_ORG_ID
+      - HIDE_USER_API_KEY=$HIDE_USER_API_KEY
+      - DISABLE_GPT4=$DISABLE_GPT4
+      - ENABLE_BALANCE_QUERY=$ENABLE_BALANCE_QUERY
+      - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
+      - OPENAI_SB=$OPENAI_SB
+      - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
+    volumes:
+      - .:/app
+      - nextchat_node_modules:/app/node_modules
+      - nextchat_next_cache:/app/.next
 
   chatgpt-next-web-proxy:
     profiles: [ "proxy" ]
     container_name: chatgpt-next-web-proxy
-    image: yidadaa/chatgpt-next-web
+    image: nextchat-local
+    build:
+      context: .
     ports:
       - 3000:3000
     environment:
@@ -36,3 +72,8 @@ services:
       - ENABLE_BALANCE_QUERY=$ENABLE_BALANCE_QUERY
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
+      - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
+
+volumes:
+  nextchat_node_modules:
+  nextchat_next_cache:

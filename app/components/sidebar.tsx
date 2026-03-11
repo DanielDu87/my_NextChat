@@ -5,6 +5,11 @@ import styles from "./home.module.scss";
 import { IconButton } from "./button";
 import SettingsIcon from "../icons/settings.svg";
 import GithubIcon from "../icons/github.svg";
+import MaxIcon from "../icons/max.svg";
+import MinIcon from "../icons/min.svg";
+import LightIcon from "../icons/light.svg";
+import DarkIcon from "../icons/dark.svg";
+import AutoIcon from "../icons/auto.svg";
 import ChatGptIcon from "../icons/chatgpt.svg";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/delete.svg";
@@ -16,6 +21,7 @@ import DiscoveryIcon from "../icons/discovery.svg";
 import Locale from "../locales";
 
 import { useAppConfig, useChatStore } from "../store";
+import { Theme } from "../store/config";
 
 import {
   DEFAULT_SIDEBAR_WIDTH,
@@ -67,15 +73,16 @@ export function useDragSideBar() {
 
   const config = useAppConfig();
   const startX = useRef(0);
-  const startDragWidth = useRef(config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
+  const startDragWidth = useRef(config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH);
   const lastUpdateTime = useRef(Date.now());
 
   const toggleSideBar = () => {
+    const currentWidth = config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH;
     config.update((config) => {
-      if (config.sidebarWidth < MIN_SIDEBAR_WIDTH) {
-        config.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
+      if (currentWidth < MIN_SIDEBAR_WIDTH) {
+        config.setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
       } else {
-        config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
+        config.setSidebarWidth(NARROW_SIDEBAR_WIDTH);
       }
     });
   };
@@ -83,7 +90,7 @@ export function useDragSideBar() {
   const onDragStart = (e: MouseEvent) => {
     // Remembers the initial width each time the mouse is pressed
     startX.current = e.clientX;
-    startDragWidth.current = config.sidebarWidth;
+    startDragWidth.current = config.getSidebarWidth();
     const dragStartTime = Date.now();
 
     const handleDragMove = (e: MouseEvent) => {
@@ -95,9 +102,9 @@ export function useDragSideBar() {
       const nextWidth = limit(startDragWidth.current + d);
       config.update((config) => {
         if (nextWidth < MIN_SIDEBAR_WIDTH) {
-          config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
+          config.setSidebarWidth(NARROW_SIDEBAR_WIDTH);
         } else {
-          config.sidebarWidth = nextWidth;
+          config.setSidebarWidth(nextWidth);
         }
       });
     };
@@ -119,16 +126,41 @@ export function useDragSideBar() {
   };
 
   const isMobileScreen = useMobileScreen();
+  const [sidebarWidth, setSidebarWidthState] = useState(
+    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH
+  );
+
   const shouldNarrow =
-    !isMobileScreen && config.sidebarWidth < MIN_SIDEBAR_WIDTH;
+    !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
+
+  // 监听 localStorage 和自定义事件（跨标签页同步和本地更新）
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'sidebarWidth' && e.newValue) {
+        setSidebarWidthState(parseInt(e.newValue));
+      }
+    };
+
+    const handleSidebarWidthChanged = (e: CustomEvent) => {
+      setSidebarWidthState(e.detail);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('sidebarWidthChanged', handleSidebarWidthChanged as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('sidebarWidthChanged', handleSidebarWidthChanged as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     const barWidth = shouldNarrow
       ? NARROW_SIDEBAR_WIDTH
-      : limit(config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
+      : limit(sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
     const sideBarWidth = isMobileScreen ? "100vw" : `${barWidth}px`;
     document.documentElement.style.setProperty("--sidebar-width", sideBarWidth);
-  }, [config.sidebarWidth, isMobileScreen, shouldNarrow]);
+  }, [sidebarWidth, isMobileScreen, shouldNarrow]);
 
   return {
     onDragStart,
@@ -148,6 +180,7 @@ export function SideBarContainer(props: {
     [isMobileScreen],
   );
   const { children, className, onDragStart, shouldNarrow } = props;
+
   return (
     <div
       className={clsx(styles.sidebar, className, {
@@ -228,6 +261,7 @@ export function SideBar(props: { className?: string }) {
   useHotKey();
   const { onDragStart, shouldNarrow } = useDragSideBar();
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
+  const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();
   const config = useAppConfig();
   const chatStore = useChatStore();
@@ -337,13 +371,69 @@ export function SideBar(props: { className?: string }) {
               </Link>
             </div>
             <div className={styles["sidebar-action"]}>
-              <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              <IconButton
+                aria="切换宽度"
+                icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
+                shadow
+                onClick={() => {
+                  config.update((config) => {
+                    config.tightBorder = !config.tightBorder;
+                  });
+                }}
+              />
+            </div>
+            <div className={styles["sidebar-action"]}>
+              <div
+                className={styles["theme-selector"]}
+                onMouseEnter={() => setShowThemeSelector(true)}
+                onMouseLeave={() => setShowThemeSelector(false)}
+              >
                 <IconButton
-                  aria={Locale.Export.MessageFromChatGPT}
-                  icon={<GithubIcon />}
+                  aria="切换主题"
+                  icon={config.theme === Theme.Dark ? <DarkIcon /> : <LightIcon />}
                   shadow
                 />
-              </a>
+                {showThemeSelector && (
+                  <div className={styles["theme-dropdown"]}>
+                    <div
+                      className={styles["theme-option"]}
+                      onClick={() => {
+                        config.update((config) => {
+                          config.theme = Theme.Light;
+                        });
+                        setShowThemeSelector(false);
+                      }}
+                    >
+                      <LightIcon />
+                      <span>Light</span>
+                    </div>
+                    <div
+                      className={styles["theme-option"]}
+                      onClick={() => {
+                        config.update((config) => {
+                          config.theme = Theme.Dark;
+                        });
+                        setShowThemeSelector(false);
+                      }}
+                    >
+                      <DarkIcon />
+                      <span>Dark</span>
+                    </div>
+                    <div
+                      className={styles["theme-option"]}
+                      onClick={() => {
+                        config.update((config) => {
+                          config.theme = Theme.Auto;
+                        });
+                        setShowThemeSelector(false);
+                      }}
+                    >
+                      <AutoIcon />
+                      <span>Auto</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         }

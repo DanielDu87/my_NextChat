@@ -192,6 +192,22 @@ export const useAppConfig = createPersistStore(
     },
 
     allModels() {},
+
+    // localStorage 专用方法：获取/设置 sidebarWidth
+    getSidebarWidth() {
+      const stored = localStorage.getItem('sidebarWidth');
+      if (stored) {
+        return parseInt(stored);
+      }
+      return get().sidebarWidth;
+    },
+
+    setSidebarWidth(width: number) {
+      localStorage.setItem('sidebarWidth', width.toString());
+      set({ sidebarWidth: width });
+      // 触发自定义事件，让组件知道 sidebarWidth 已更新
+      window.dispatchEvent(new CustomEvent('sidebarWidthChanged', { detail: width }));
+    },
   }),
   {
     name: StoreKey.Config,

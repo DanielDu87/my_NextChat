@@ -240,6 +240,8 @@
 }
 
 .narrow-sidebar {
+  padding: 10px;
+
   .sidebar-title,
   .sidebar-sub-title {
     display: none;
@@ -254,16 +256,21 @@
     flex-direction: column;
 
     .sidebar-bar-button {
-      &:not(:last-child) {
-        margin-right: 0;
-        margin-bottom: 10px;
+      margin-bottom: 8px;
+
+      :global(.icon-button) {
+        --button-icon-size: 18px;
+        --button-padding: 6px;
+        min-height: 32px;
+        min-width: 32px;
+        font-size: 12px;
       }
     }
   }
 
   .chat-item {
     padding: 0;
-    min-height: 50px;
+    min-height: 40px;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -308,6 +315,7 @@
   .sidebar-tail {
     flex-direction: column-reverse;
     align-items: center;
+    padding-top: 8px;
 
     .sidebar-actions {
       flex-direction: column-reverse;
@@ -315,7 +323,33 @@
 
       .sidebar-action {
         margin-right: 0;
-        margin-top: 15px;
+        margin-top: 8px;
+
+        :global(.icon-button) {
+          --button-icon-size: 18px;
+          --button-padding: 6px;
+          min-height: 32px;
+          min-width: 32px;
+          font-size: 12px;
+        }
+      }
+    }
+
+    .theme-selector {
+      .theme-dropdown {
+        bottom: calc(100% + 4px);
+        min-width: 90px;
+        padding: 6px;
+
+        .theme-option {
+          padding: 8px 10px;
+          font-size: 12px;
+
+          :global(svg) {
+            width: 16px;
+            height: 16px;
+          }
+        }
       }
     }
   }
@@ -342,6 +376,59 @@
   align-items: center;
   height: 100%;
   width: 100%;
+}
+
+// 主题选择器
+.theme-selector {
+  position: relative;
+}
+
+.theme-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--white);
+  border: var(--border-in-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 8px;
+  min-width: 100px;
+  z-index: 100;
+  animation: fadeIn 0.2s ease;
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-size: 13px;
+  color: var(--black);
+  white-space: nowrap;
+
+  :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+  }
 }
 
 .rtl-screen {

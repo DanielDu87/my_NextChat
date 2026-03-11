@@ -45,6 +45,7 @@ export enum Path {
   Home = "/",
   Chat = "/chat",
   Settings = "/settings",
+  ApiConfig = "/api-config",
   NewChat = "/new-chat",
   Masks = "/masks",
   Plugins = "/plugins",
@@ -118,6 +119,7 @@ export const REQUEST_TIMEOUT_MS_FOR_THINKING = REQUEST_TIMEOUT_MS * 5;
 export const EXPORT_MESSAGE_CLASS_NAME = "export-markdown";
 
 export enum ServiceProvider {
+  Custom = "Custom",
   OpenAI = "OpenAI",
   Azure = "Azure",
   Google = "Google",

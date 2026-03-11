@@ -256,6 +256,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
 
   function getConfig() {
     const modelConfig = chatStore.currentSession().mask.modelConfig;
+    const isCustom = modelConfig.providerName === ServiceProvider.Custom;
     const isGoogle = modelConfig.providerName === ServiceProvider.Google;
     const isAzure = modelConfig.providerName === ServiceProvider.Azure;
     const isAnthropic = modelConfig.providerName === ServiceProvider.Anthropic;
@@ -271,7 +272,9 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       modelConfig.providerName === ServiceProvider.SiliconFlow;
     const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
     const isEnabledAccessControl = accessStore.enabledAccessControl();
-    const apiKey = isGoogle
+    const apiKey = isCustom
+      ? accessStore.customApiKey
+      : isGoogle
       ? accessStore.googleApiKey
       : isAzure
       ? accessStore.azureApiKey
@@ -299,6 +302,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       ? accessStore.ai302ApiKey
       : accessStore.openaiApiKey;
     return {
+      isCustom,
       isGoogle,
       isAzure,
       isAnthropic,
@@ -327,7 +331,8 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       : "Authorization";
   }
 
-  const {
+    const {
+    isCustom,
     isGoogle,
     isAzure,
     isAnthropic,

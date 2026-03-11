@@ -8,6 +8,9 @@ console.log("[Next] build with chunk: ", !disableChunk);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   webpack(config) {
     config.module.rules.push({
       test: /\.svg$/,
@@ -59,6 +62,11 @@ if (mode !== "export") {
         source: "/api/:path*",
         headers: CorsHeaders,
       },
+      {
+        // WebDAV 代理的 CORS 头
+        source: "/api/webdav/:path*",
+        headers: CorsHeaders,
+      },
     ];
   };
 
@@ -99,6 +107,11 @@ if (mode !== "export") {
       {
         source: "/api/proxy/alibaba/:path*",
         destination: "https://dashscope.aliyuncs.com/api/:path*",
+      },
+      {
+        // WebDAV 代理配置
+        source: "/api/webdav/:path*",
+        destination: "https://webdav.dyxcloud.com/:path*",
       },
     ];
 

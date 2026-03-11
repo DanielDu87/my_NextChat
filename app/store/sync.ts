@@ -12,6 +12,7 @@ import { downloadAs, readFromFile } from "../utils";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
+import { useAppConfig } from "./config";
 
 export interface WebDavConfig {
   server: string;
@@ -25,7 +26,7 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.WebDAV,
   useProxy: true,
-  proxyUrl: ApiPath.Cors as string,
+  proxyUrl: "/api/webdav",  // 使用 WebDAV 代理路径
 
   webdav: {
     endpoint: "",
@@ -107,7 +108,21 @@ export const useSyncStore = createPersistStore(
             await client.get(config.username),
           ) as AppState;
           mergeAppState(localState, parsedRemoteState);
+
+          // 保存本地 UI 偏好设置
+          const appConfig = useAppConfig.getState();
+          const localSidebarWidth = localStorage.getItem('sidebarWidth');
+          const localTightBorder = appConfig.tightBorder;
+
           setLocalAppState(localState);
+
+          // 恢复本地 UI 偏好设置
+          if (localSidebarWidth && appConfig.setSidebarWidth) {
+            appConfig.setSidebarWidth(parseInt(localSidebarWidth));
+          }
+          if (localTightBorder !== undefined) {
+            useAppConfig.setState({ tightBorder: localTightBorder });
+          }
         }
       } catch (e) {
         console.log("[Sync] failed to get remote state", e);

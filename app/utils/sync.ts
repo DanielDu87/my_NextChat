@@ -41,7 +41,12 @@ const LocalStateSetters = {
 const LocalStateGetters = {
   [StoreKey.Chat]: () => getNonFunctionFileds(useChatStore.getState()),
   [StoreKey.Access]: () => getNonFunctionFileds(useAccessStore.getState()),
-  [StoreKey.Config]: () => getNonFunctionFileds(useAppConfig.getState()),
+  [StoreKey.Config]: () => {
+    const config = getNonFunctionFileds(useAppConfig.getState());
+    // 排除 sidebarWidth 和 tightBorder，不参与同步（本地UI偏好设置）
+    const { sidebarWidth, tightBorder, ...configToSync } = config as any;
+    return configToSync;
+  },
   [StoreKey.Mask]: () => getNonFunctionFileds(useMaskStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
 } as const;

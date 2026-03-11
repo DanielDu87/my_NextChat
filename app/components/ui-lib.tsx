@@ -52,7 +52,7 @@ export function Card(props: { children: JSX.Element[]; className?: string }) {
 }
 
 export function ListItem(props: {
-  title?: string;
+  title?: string | JSX.Element;
   subTitle?: string | JSX.Element;
   children?: JSX.Element | JSX.Element[];
   icon?: JSX.Element;
@@ -323,7 +323,7 @@ export function Select(
 
 export function showConfirm(content: any) {
   const div = document.createElement("div");
-  div.className = "modal-mask";
+  div.className = "modal-mask modal-mask-small";
   document.body.appendChild(div);
 
   const root = createRoot(div);

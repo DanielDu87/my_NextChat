@@ -67,6 +67,20 @@ const DEFAULT_ACCESS_STATE = {
   useCustomConfig: false,
 
   provider: ServiceProvider.OpenAI,
+  apiProfiles: [] as Array<{
+    id: string;
+    name: string;
+    provider: ServiceProvider;
+    baseUrl: string;
+    apiKey: string;
+    enabled: boolean;
+    openAICompatible?: boolean;
+  }>,
+
+  // custom
+  customUrl: "",
+  customApiKey: "",
+  customOpenAICompatible: true,
 
   // openai
   openaiUrl: DEFAULT_OPENAI_URL,
@@ -176,6 +190,10 @@ export const useAccessStore = createPersistStore(
       return ensure(get(), ["openaiApiKey"]);
     },
 
+    isValidCustom() {
+      return ensure(get(), ["customUrl", "customApiKey"]);
+    },
+
     isValidAzure() {
       return ensure(get(), ["azureUrl", "azureApiKey", "azureApiVersion"]);
     },
@@ -231,6 +249,7 @@ export const useAccessStore = createPersistStore(
 
       // has token or has code or disabled access control
       return (
+        this.isValidCustom() ||
         this.isValidOpenAI() ||
         this.isValidAzure() ||
         this.isValidGoogle() ||
@@ -284,7 +303,7 @@ export const useAccessStore = createPersistStore(
   }),
   {
     name: StoreKey.Access,
-    version: 2,
+    version: 4,
     migrate(persistedState, version) {
       if (version < 2) {
         const state = persistedState as {
@@ -295,6 +314,19 @@ export const useAccessStore = createPersistStore(
         };
         state.openaiApiKey = state.token;
         state.azureApiVersion = "2023-08-01-preview";
+      }
+
+      if (version < 3) {
+        const state = persistedState as typeof DEFAULT_ACCESS_STATE;
+        state.customUrl = state.customUrl ?? "";
+        state.customApiKey = state.customApiKey ?? "";
+        state.customOpenAICompatible =
+          state.customOpenAICompatible ?? true;
+      }
+
+      if (version < 4) {
+        const state = persistedState as typeof DEFAULT_ACCESS_STATE;
+        state.apiProfiles = state.apiProfiles ?? [];
       }
 
       return persistedState as any;
