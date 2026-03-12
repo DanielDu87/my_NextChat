@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     title: "NextChat",
     statusBarStyle: "default",
+    capable: true,
   },
 };
 
@@ -42,6 +43,7 @@ export default function RootLayout({
           name="viewport"
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
         />
+        <meta name="mobile-web-app-capable" content="yes" />
         <link
           rel="manifest"
           href="/site.webmanifest"

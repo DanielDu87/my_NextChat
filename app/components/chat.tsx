@@ -594,119 +594,121 @@ export function ChatActions(props: {
 
   return (
     <div
-      className={`${styles["chat-input-actions"]} ${styles["chat-input-actions-main"]}`}
+      className={clsx(
+        styles["chat-input-actions"],
+        styles["chat-input-actions-main"],
+        styles["chat-actions-row-container"],
+      )}
     >
-      {/* 第一行 */}
-      <div className={styles["chat-input-actions-row"]}>
-        {couldStop && (
-          <ChatAction
-            onClick={stopAll}
-            text={Locale.Chat.InputActions.Stop}
-            icon={<StopIcon />}
-          />
-        )}
-        {!props.hitBottom && (
-          <ChatAction
-            onClick={props.scrollToBottom}
-            text={Locale.Chat.InputActions.ToBottom}
-            icon={<BottomIcon />}
-          />
-        )}
-        {props.hitBottom && (
-          <ChatAction
-            onClick={props.showPromptModal}
-            text={Locale.Chat.InputActions.Settings}
-            icon={<SettingsIcon />}
-          />
-        )}
-
+      {/* 模型设置 - 第一个按钮，始终显示模型名称 */}
+      <div className={clsx(styles["chat-action-always-show-text"])}>
         <ChatAction
           onClick={() => setShowModelSelector(true)}
-          text="模型设置"
+          text={currentModelName}
+          icon={<RobotIcon />}
+        />
+      </div>
+
+      {/* 其他功能按钮 */}
+      {couldStop && (
+        <ChatAction
+          onClick={stopAll}
+          text={Locale.Chat.InputActions.Stop}
+          icon={<StopIcon />}
+        />
+      )}
+      {!props.hitBottom && (
+        <ChatAction
+          onClick={props.scrollToBottom}
+          text={Locale.Chat.InputActions.ToBottom}
+          icon={<BottomIcon />}
+        />
+      )}
+      {props.hitBottom && (
+        <ChatAction
+          onClick={props.showPromptModal}
+          text={Locale.Chat.InputActions.Settings}
           icon={<SettingsIcon />}
         />
+      )}
 
-        <ChatAction
-          onClick={props.uploadImage}
-          text={Locale.Chat.InputActions.UploadImage}
-          icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
-        />
-        <ChatAction
-          onClick={props.showPromptHints}
-          text={Locale.Chat.InputActions.Prompt}
-          icon={<PromptIcon />}
-        />
+      <ChatAction
+        onClick={props.uploadImage}
+        text={Locale.Chat.InputActions.UploadImage}
+        icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
+      />
+      <ChatAction
+        onClick={props.showPromptHints}
+        text={Locale.Chat.InputActions.Prompt}
+        icon={<PromptIcon />}
+      />
 
-        <ChatAction
-          onClick={() => {
-            navigate(Path.Masks);
-          }}
-          text={Locale.Chat.InputActions.Masks}
-          icon={<MaskIcon />}
-        />
-      </div>
+      <ChatAction
+        onClick={() => {
+          navigate(Path.Masks);
+        }}
+        text={Locale.Chat.InputActions.Masks}
+        icon={<MaskIcon />}
+      />
 
-      {/* 第二行 */}
-      <div className={styles["chat-input-actions-row"]}>
-        <ChatAction
-          onClick={nextTheme}
-          text={Locale.Chat.InputActions.Theme[theme]}
-          icon={
-            <>
-              {theme === Theme.Auto ? (
-                <AutoIcon />
-              ) : theme === Theme.Light ? (
-                <LightIcon />
-              ) : theme === Theme.Dark ? (
-                <DarkIcon />
-              ) : null}
-            </>
+      <ChatAction
+        onClick={nextTheme}
+        text={Locale.Chat.InputActions.Theme[theme]}
+        icon={
+          <>
+            {theme === Theme.Auto ? (
+              <AutoIcon />
+            ) : theme === Theme.Light ? (
+              <LightIcon />
+            ) : theme === Theme.Dark ? (
+              <DarkIcon />
+            ) : null}
+          </>
+        }
+      />
+      <ChatAction
+        text={Locale.Chat.InputActions.Clear}
+        icon={<BreakIcon />}
+        onClick={async () => {
+          if (await showConfirm("确认清除当前对话的所有消息？")) {
+            chatStore.updateTargetSession(session, (session) => {
+              session.messages = [];
+              session.memoryPrompt = "";
+              session.clearContextIndex = undefined;
+            });
           }
-        />
-        <ChatAction
-          text={Locale.Chat.InputActions.Clear}
-          icon={<BreakIcon />}
-          onClick={async () => {
-            if (await showConfirm("确认清除当前对话的所有消息？")) {
-              chatStore.updateTargetSession(session, (session) => {
-                session.messages = [];
-                session.memoryPrompt = "";
-                session.clearContextIndex = undefined;
-              });
-            }
-          }}
-        />
+        }}
+      />
 
-        <ChatAction
-          onClick={() => setShowSizeSelector(true)}
-          text={currentSize}
-          icon={<SizeIcon />}
-        />
+      <ChatAction
+        onClick={() => setShowSizeSelector(true)}
+        text={currentSize}
+        icon={<SizeIcon />}
+      />
 
-        <ChatAction
-          onClick={() => setShowQualitySelector(true)}
-          text={currentQuality}
-          icon={<QualityIcon />}
-        />
+      <ChatAction
+        onClick={() => setShowQualitySelector(true)}
+        text={currentQuality}
+        icon={<QualityIcon />}
+      />
 
-        <ChatAction
-          onClick={() => {
-            if (pluginStore.getAll().length == 0) {
-              navigate(Path.Plugins);
-            } else {
-              setShowPluginSelector(true);
-            }
-          }}
-          text={Locale.Plugin.Name}
-          icon={<PluginIcon />}
-        />
+      <ChatAction
+        onClick={() => {
+          if (pluginStore.getAll().length == 0) {
+            navigate(Path.Plugins);
+          } else {
+            setShowPluginSelector(true);
+          }
+        }}
+        text={Locale.Plugin.Name}
+        icon={<PluginIcon />}
+      />
 
-        <ChatAction
-          onClick={() => props.setShowShortcutKeyModal(true)}
-          text={Locale.Chat.ShortcutKey.Title}
-          icon={<ShortcutkeyIcon />}
-        />
-      </div>
+      <ChatAction
+        onClick={() => props.setShowShortcutKeyModal(true)}
+        text={Locale.Chat.ShortcutKey.Title}
+        icon={<ShortcutkeyIcon />}
+      />
 
       {/* 各种选择器（隐藏） */}
       {showModelSelector && (
@@ -2117,7 +2119,6 @@ function _Chat() {
                   }
 
                   inputRef.current?.focus();
-                  setUserInput("/");
                   onSearch("");
                 }}
                 setShowShortcutKeyModal={setShowShortcutKeyModal}
