@@ -136,6 +136,11 @@
   }
 }
 
+.selector-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .prompt-toast {
   position: absolute;
   bottom: -50px;
@@ -791,6 +796,5 @@
     }
   }
 }
-
 
 

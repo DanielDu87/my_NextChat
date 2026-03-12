@@ -42,6 +42,11 @@ import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
 
 type AccessState = ReturnType<typeof useAccessStore.getState>;
+type ModelFetchStatus = {
+  count?: number;
+  fetching?: boolean;
+  error?: string;
+};
 
 type ProviderField = {
   key: keyof AccessState;
@@ -476,6 +481,9 @@ export function ApiConfigPage() {
   const [downloading, setDownloading] = useState(false);
   const [cleaningUp, setCleaningUp] = useState(false);
   const [isTightMode, setIsTightMode] = useState(false);
+  const [modelFetchStatusMap, setModelFetchStatusMap] = useState<
+    Partial<Record<ServiceProvider, ModelFetchStatus>>
+  >({});
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
   // 检测是否是沾满模式
@@ -578,9 +586,70 @@ export function ApiConfigPage() {
     /\/?$/,
     "/",
   )}${STORAGE_KEY}/`;
+  const activeProfile = accessStore.apiProfiles.find(
+    (profile) => profile.enabled,
+  );
+  const activeProvider = activeProfile?.provider ?? accessStore.provider;
+  const activeProviderModelFetchStatus = modelFetchStatusMap[activeProvider];
+  const modelFetchCount = activeProviderModelFetchStatus?.count;
+  const modelFetchHint = activeProviderModelFetchStatus?.fetching
+    ? "远程模型获取中..."
+    : activeProviderModelFetchStatus?.error
+    ? "远程模型获取失败"
+    : typeof modelFetchCount === "number"
+    ? "已获取"
+    : fetchingModels
+    ? "远程模型获取中..."
+    : "远程模型尚未获取";
   // const customProviderUnsupported =
   //   accessStore.provider === ServiceProvider.Custom &&
   //   !accessStore.customOpenAICompatible;
+
+  const refreshModelsForProvider = (
+    provider: ServiceProvider,
+    baseUrl?: string,
+    apiKey?: string,
+  ) => {
+    console.log("[API Config] 正在从供应商获取模型列表...");
+    setModelFetchStatusMap((prev) => ({
+      ...prev,
+      [provider]: {
+        ...prev[provider],
+        fetching: true,
+        error: undefined,
+      },
+    }));
+
+    void fetchFromProvider(provider, baseUrl, apiKey, { silent: true })
+      .then((result) => {
+        setModelFetchStatusMap((prev) => ({
+          ...prev,
+          [provider]: {
+            count: result.total,
+            fetching: false,
+            error: undefined,
+          },
+        }));
+        if (result.total > 0) {
+          console.log(`[API Config] 成功获取 ${result.total} 个模型`);
+        } else {
+          console.log(
+            "[API Config] 未获取到模型，可能该供应商不支持模型列表API",
+          );
+        }
+      })
+      .catch((error) => {
+        setModelFetchStatusMap((prev) => ({
+          ...prev,
+          [provider]: {
+            count: 0,
+            fetching: false,
+            error: error instanceof Error ? error.message : "获取模型失败",
+          },
+        }));
+        console.error("[API Config] 自动获取模型失败:", error);
+      });
+  };
 
   const syncProfileToAccess = (profileId: string) => {
     const selectedProfile = accessStore.apiProfiles.find(
@@ -707,27 +776,11 @@ export function ApiConfigPage() {
     // 同时更新当前会话的模型提供商
     if (selectedProfile) {
       applyProviderToChat(selectedProfile.provider);
-
-      // 自动从供应商获取模型列表
-      console.log("[API Config] 正在从供应商获取模型列表...");
-      fetchFromProvider(
+      refreshModelsForProvider(
         selectedProfile.provider,
         selectedProfile.baseUrl,
         selectedProfile.apiKey,
-        { silent: true },
-      )
-        .then((models) => {
-          if (models.length > 0) {
-            console.log(`[API Config] 成功获取 ${models.length} 个模型`);
-          } else {
-            console.log(
-              "[API Config] 未获取到模型，可能该供应商不支持模型列表API",
-            );
-          }
-        })
-        .catch((error) => {
-          console.error("[API Config] 自动获取模型失败:", error);
-        });
+      );
     }
   };
 
@@ -1260,6 +1313,35 @@ export function ApiConfigPage() {
                   void cleanupLegacyBackup();
                 }}
               />
+              <button
+                type="button"
+                className={styles.modelFetchHint}
+                aria-live="polite"
+                disabled={activeProviderModelFetchStatus?.fetching}
+                onClick={() => {
+                  const latestActiveProfile = useAccessStore
+                    .getState()
+                    .apiProfiles.find((profile) => profile.enabled);
+                  const provider =
+                    latestActiveProfile?.provider ??
+                    useAccessStore.getState().provider;
+                  const baseUrl = latestActiveProfile?.baseUrl;
+                  const apiKey = latestActiveProfile?.apiKey;
+                  refreshModelsForProvider(provider, baseUrl, apiKey);
+                }}
+                title="点击重新获取远程模型"
+              >
+                {fetchingModels && <LoadingIcon />}
+                <span>
+                  {typeof modelFetchCount === "number" ? (
+                    <>
+                      已获取 <strong>{modelFetchCount}</strong> 个远程模型
+                    </>
+                  ) : (
+                    modelFetchHint
+                  )}
+                </span>
+              </button>
             </div>
           </ListItem>
         </List>

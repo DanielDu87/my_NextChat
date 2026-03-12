@@ -526,5 +526,48 @@
         }
       }
     }
+
+    .selector-item-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .selector-item-selected {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+
+      svg,
+      path {
+        fill: currentColor;
+      }
+    }
+
+    .selector-item-action {
+      border: var(--border-in-light);
+      border-radius: 8px;
+      background: var(--white);
+      color: var(--black);
+      font-size: 12px;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease;
+
+      &:hover,
+      &:focus {
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+    }
+
+    .selector-footer {
+      display: flex;
+      justify-content: flex-end;
+    }
   }
 }

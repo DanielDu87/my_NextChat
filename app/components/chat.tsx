@@ -591,26 +591,74 @@ export function ChatActions(props: {
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
 
   // 只显示从服务器获取的模型（accessStore.customModels）
-  // 直接访问 customModels 而不是整个 store，以确保订阅正确
-  const customModels = useAccessStore((state) => state.customModels);
+  // 同时合并全局自定义模型和远程拉取模型
+  const globalCustomModels = useAppConfig((state) => state.customModels);
+  const remoteCustomModels = useAccessStore((state) => state.customModels);
   const accessStore = useAccessStore();
   console.log(
     "[ChatActions] customModels from store:",
-    customModels?.substring(0, 100),
+    remoteCustomModels?.substring(0, 100),
   );
   console.log(
     "[ChatActions] accessStore.customModels:",
     accessStore.customModels?.substring(0, 100),
   );
+  console.log(
+    "[ChatActions] configStore.customModels:",
+    globalCustomModels?.substring(0, 100),
+  );
+  const customModels = [globalCustomModels, remoteCustomModels]
+    .filter(Boolean)
+    .join(",");
+  const globalCustomModelEntries = useMemo(
+    () =>
+      globalCustomModels
+        .split(",")
+        .map((v) => v.trim())
+        .filter((v) => !!v),
+    [globalCustomModels],
+  );
+  const globalCustomModelEntryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    globalCustomModelEntries.forEach((entry) => {
+      const normalizedEntry =
+        entry.startsWith("+") || entry.startsWith("-") ? entry.slice(1) : entry;
+      const [name] = normalizedEntry.split("=");
+      if (!map.has(name)) {
+        map.set(name, entry);
+      }
+    });
+    return map;
+  }, [globalCustomModelEntries]);
+  const globalCustomModelValueSet = useMemo(
+    () =>
+      new Set(
+        globalCustomModelEntries.map((entry) => {
+          const normalizedEntry =
+            entry.startsWith("+") || entry.startsWith("-")
+              ? entry.slice(1)
+              : entry;
+          const [name] = normalizedEntry.split("=");
+          return name;
+        }),
+      ),
+    [globalCustomModelEntries],
+  );
+  const currentCustomModelKey = `${currentModel}@${currentProviderName}`;
 
   const serverModels = useMemo(() => {
     if (!customModels) {
       console.log("[ChatActions] No customModels found");
       return [];
     }
-    const customModelList = customModels
-      .split(",")
-      .filter((v) => !!v && v.length > 0 && !v.startsWith("-"));
+    const customModelList = Array.from(
+      new Set(
+        customModels
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => !!v && v.length > 0 && !v.startsWith("-")),
+      ),
+    );
 
     console.log(
       "[ChatActions] customModelList length:",
@@ -649,6 +697,29 @@ export function ChatActions(props: {
     const filteredModels = serverModels.filter((m) => m.available);
     return filteredModels;
   }, [serverModels]);
+  const latestOpenAIModel = useMemo(() => {
+    const openAIModels = config.models.filter(
+      (item) => item?.provider?.providerName === ServiceProvider.OpenAI,
+    );
+    const preferredPatterns = [
+      /^gpt-5/i,
+      /^gpt-4\.1/i,
+      /^o4-mini/i,
+      /^o3/i,
+      /^gpt-4o$/i,
+      /^gpt-4o-mini$/i,
+      /^o1/i,
+    ];
+
+    for (const pattern of preferredPatterns) {
+      const matched = openAIModels.find((item) => pattern.test(item.name));
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return openAIModels[0];
+  }, [config.models]);
   const currentModelName = useMemo(() => {
     const model = models.find(
       (m) =>
@@ -658,6 +729,12 @@ export function ChatActions(props: {
     return model?.displayName ?? currentModel;
   }, [models, currentModel, currentProviderName]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
+    string | undefined
+  >(undefined);
+  const [modelSelectorDefaultGroup, setModelSelectorDefaultGroup] = useState<
+    string | undefined
+  >(undefined);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
 
@@ -718,6 +795,8 @@ export function ChatActions(props: {
               models.length,
             );
             console.log("[Chat] models:", models);
+            setModelSelectorDefaultValue(undefined);
+            setModelSelectorDefaultGroup(undefined);
             setShowModelSelector(true);
           }}
           text={currentModelName}
@@ -829,17 +908,114 @@ export function ChatActions(props: {
       {/* 各种选择器（隐藏） */}
       {showModelSelector && (
         <Selector
-          defaultSelectedValue={`${currentModel}@${currentProviderName}`}
-          items={models.map((m) => ({
-            title: `${m.displayName}`,
-            value: `${m.name}@${m?.provider?.providerName}`,
-            group: getModelGroup(m.name, m?.provider?.providerName),
-            order: m.sorted,
-          }))}
+          defaultSelectedValue={
+            modelSelectorDefaultValue ??
+            `${currentModel}@${currentProviderName}`
+          }
+          defaultGroup={modelSelectorDefaultGroup}
+          items={[
+            ...models.map((m) => ({
+              title: `${m.displayName}`,
+              value: `${m.name}@${m?.provider?.providerName}`,
+              group: globalCustomModelValueSet.has(
+                `${m.name}@${m?.provider?.providerName}`,
+              )
+                ? "自定义模型"
+                : getModelGroup(m.name, m?.provider?.providerName),
+              order: m.sorted,
+              rightAction: globalCustomModelValueSet.has(
+                `${m.name}@${m?.provider?.providerName}`,
+              )
+                ? {
+                    text: "删除",
+                    onClick: (value) => {
+                      const modelValue = String(value);
+                      const matchedEntry =
+                        globalCustomModelEntryMap.get(modelValue);
+                      if (!matchedEntry) {
+                        return;
+                      }
+                      const remainingItems = globalCustomModels
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean)
+                        .filter((item) => item !== matchedEntry);
+                      config.update((config) => {
+                        config.customModels = remainingItems.join(",");
+                      });
+                      if (modelValue === currentCustomModelKey) {
+                        chatStore.updateTargetSession(session, (session) => {
+                          if (latestOpenAIModel) {
+                            session.mask.modelConfig.model =
+                              latestOpenAIModel.name as ModelType;
+                            session.mask.modelConfig.providerName =
+                              latestOpenAIModel.provider
+                                ?.providerName as ServiceProvider;
+                          }
+                          session.mask.syncGlobalConfig = false;
+                        });
+                        showToast(`已删除 ${currentModel}`);
+                      } else {
+                        showToast("已删除自定义模型");
+                      }
+                    },
+                  }
+                : undefined,
+            })),
+          ]}
           showGroupFilter={true}
           showSearch={true}
+          extraGroups={["自定义模型"]}
+          footer={({ selectedGroup }) =>
+            selectedGroup === "自定义模型" ? (
+              <div className={styles["selector-footer"]}>
+                <IconButton
+                  text="新增自定义模型"
+                  bordered
+                  onClick={async () => {
+                    setShowModelSelector(false);
+                    const customModelName = (
+                      await showPrompt("输入自定义模型名称", "", 1, {
+                        isSmall: true,
+                        submitOnEnter: true,
+                      })
+                    ).trim();
+                    if (!customModelName) {
+                      return;
+                    }
+                    const customEntry = `${customModelName}@${currentProviderName}`;
+                    if (globalCustomModelEntries.includes(customEntry)) {
+                      showToast("自定义模型已存在");
+                      return;
+                    }
+                    config.update((config) => {
+                      const items = config.customModels
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                      if (!items.includes(customEntry)) {
+                        items.unshift(customEntry);
+                      }
+                      config.customModels = items.join(",");
+                    });
+                    chatStore.updateTargetSession(session, (session) => {
+                      session.mask.modelConfig.model =
+                        customModelName as ModelType;
+                      session.mask.modelConfig.providerName =
+                        currentProviderName as ServiceProvider;
+                      session.mask.syncGlobalConfig = false;
+                    });
+                    setModelSelectorDefaultValue(customEntry);
+                    setModelSelectorDefaultGroup("自定义模型");
+                    setShowModelSelector(true);
+                    showToast(customModelName);
+                  }}
+                />
+              </div>
+            ) : null
+          }
           onClose={() => setShowModelSelector(false)}
-          onSelection={(s) => {
+          onSelection={async (s) => {
             if (s.length === 0) return;
             const [model, providerName] = getModelProvider(s[0]);
             chatStore.updateTargetSession(session, (session) => {

@@ -1,7 +1,10 @@
 import { useState, useCallback } from "react";
 import { ServiceProvider } from "../constant";
-import { fetchModelsFromProvider, updateModelsInStore } from "./models";
-import { LLMModel } from "../client/api";
+import {
+  fetchModelsFromProvider,
+  updateModelsInStore,
+  FetchModelsResult,
+} from "./models";
 
 export function useModelFetcher() {
   const [loading, setLoading] = useState(false);
@@ -18,25 +21,25 @@ export function useModelFetcher() {
       options?: {
         silent?: boolean;
       },
-    ): Promise<LLMModel[]> => {
+    ): Promise<FetchModelsResult> => {
       setLoading(true);
       setError(null);
 
       try {
-        const models = await fetchModelsFromProvider(provider, baseUrl, apiKey);
+        const result = await fetchModelsFromProvider(provider, baseUrl, apiKey);
 
-        await updateModelsInStore(models);
+        await updateModelsInStore(result.models);
 
         if (!options?.silent) {
-          console.log(`[Model Fetcher] 已成功获取 ${models.length} 个模型`);
+          console.log(`[Model Fetcher] 已成功获取 ${result.total} 个模型`);
         }
 
-        return models;
+        return result;
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "获取模型失败";
         setError(errorMsg);
         console.error("[Model Fetcher] 获取模型失败:", errorMsg);
-        return [];
+        return { models: [], total: 0 };
       } finally {
         setLoading(false);
       }

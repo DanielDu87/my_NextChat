@@ -379,6 +379,8 @@ function PromptInput(props: {
   value: string;
   onChange: (value: string) => void;
   rows?: number;
+  submitOnEnter?: boolean;
+  onSubmit?: (value: string) => void;
 }) {
   const [input, setInput] = useState(props.value);
   const onInput = (value: string) => {
@@ -392,12 +394,31 @@ function PromptInput(props: {
       autoFocus
       value={input}
       onInput={(e) => onInput(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (
+          props.submitOnEnter &&
+          e.key === "Enter" &&
+          !e.shiftKey &&
+          !e.nativeEvent.isComposing
+        ) {
+          e.preventDefault();
+          props.onSubmit?.(input);
+        }
+      }}
       rows={props.rows ?? 3}
     ></textarea>
   );
 }
 
-export function showPrompt(content: any, value = "", rows = 3) {
+export function showPrompt(
+  content: any,
+  value = "",
+  rows = 3,
+  options?: {
+    isSmall?: boolean;
+    submitOnEnter?: boolean;
+  },
+) {
   const div = document.createElement("div");
   div.className = "modal-mask";
   document.body.appendChild(div);
@@ -414,6 +435,7 @@ export function showPrompt(content: any, value = "", rows = 3) {
     root.render(
       <Modal
         title={content}
+        isSmall={options?.isSmall}
         actions={[
           <IconButton
             key="cancel"
@@ -446,6 +468,11 @@ export function showPrompt(content: any, value = "", rows = 3) {
           onChange={(val) => (userInput = val)}
           value={value}
           rows={rows}
+          submitOnEnter={options?.submitOnEnter}
+          onSubmit={(value) => {
+            resolve(value);
+            closeModal();
+          }}
         ></PromptInput>
       </Modal>,
     );
@@ -485,6 +512,10 @@ export function Selector<T>(props: {
     disable?: boolean;
     group?: string;
     order?: number;
+    rightAction?: {
+      text: string;
+      onClick: (value: T) => void;
+    };
   }>;
   defaultSelectedValue?: T[] | T;
   onSelection?: (selection: T[]) => void;
@@ -492,6 +523,11 @@ export function Selector<T>(props: {
   multiple?: boolean;
   showSearch?: boolean;
   showGroupFilter?: boolean;
+  extraGroups?: string[];
+  defaultGroup?: string;
+  footer?:
+    | React.ReactNode
+    | ((ctx: { selectedGroup: string }) => React.ReactNode);
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -501,7 +537,9 @@ export function Selector<T>(props: {
       : [],
   );
   const [searchText, setSearchText] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState("All");
+  const [selectedGroup, setSelectedGroup] = useState(
+    props.defaultGroup ?? "All",
+  );
 
   const preferredGroupOrder = [
     "OpenAI",
@@ -546,10 +584,13 @@ export function Selector<T>(props: {
     const groups = Array.from(
       new Set(props.items.map((item) => item.group?.trim()).filter(Boolean)),
     ) as string[];
+    const mergedGroups = Array.from(
+      new Set([...groups, ...(props.extraGroups ?? [])]),
+    );
 
     return [
-      ...preferredGroupOrder.filter((group) => groups.includes(group)),
-      ...groups.filter((group) => !preferredGroupOrder.includes(group)),
+      ...preferredGroupOrder.filter((group) => mergedGroups.includes(group)),
+      ...mergedGroups.filter((group) => !preferredGroupOrder.includes(group)),
     ];
   })();
 
@@ -871,23 +912,33 @@ export function Selector<T>(props: {
                     }
                   }}
                 >
-                  {selected ? (
-                    <div
-                      style={{
-                        height: 10,
-                        width: 10,
-                        backgroundColor: "var(--primary)",
-                        borderRadius: 10,
-                      }}
-                    ></div>
-                  ) : (
-                    <></>
-                  )}
+                  <div className={styles["selector-item-actions"]}>
+                    {selected ? (
+                      <div className={styles["selector-item-selected"]}>
+                        <ConfirmIcon />
+                      </div>
+                    ) : null}
+                    {item.rightAction ? (
+                      <button
+                        type="button"
+                        className={styles["selector-item-action"]}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          item.rightAction?.onClick(item.value);
+                        }}
+                      >
+                        {item.rightAction.text}
+                      </button>
+                    ) : null}
+                  </div>
                 </ListItem>
               );
             })}
           </List>
         )}
+        {typeof props.footer === "function"
+          ? props.footer({ selectedGroup })
+          : props.footer}
       </div>
     </div>
   );

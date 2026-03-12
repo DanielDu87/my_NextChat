@@ -1,6 +1,73 @@
 import { ServiceProvider } from "../constant";
 import { LLMModel } from "../client/api";
 
+export type FetchModelsResult = {
+  models: LLMModel[];
+  total: number;
+};
+
+function normalizeBaseUrl(baseUrl: string) {
+  return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function isAiHubMixUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+
+  try {
+    return new URL(baseUrl).hostname === "aihubmix.com";
+  } catch {
+    return false;
+  }
+}
+
+function mapModels(
+  models: any[],
+  providerId: string,
+  providerName: string,
+  providerType: string,
+  sorted: number,
+) {
+  let seq = 1000;
+  return models.map((m: any) => ({
+    name: m.id || m.name || m.model_id,
+    available: true,
+    sorted: seq++,
+    provider: {
+      id: providerId,
+      providerName: providerName,
+      providerType: providerType,
+      sorted: sorted,
+    },
+  }));
+}
+
+async function fetchJsonWithCandidates(
+  urls: string[],
+  headers: Record<string, string>,
+) {
+  let lastError: Error | null = null;
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`${response.status} ${response.statusText}`);
+        continue;
+      }
+
+      return await response.json();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("请求失败");
+    }
+  }
+
+  throw lastError ?? new Error("未找到可用的模型接口");
+}
+
 /**
  * 从指定供应商获取模型列表
  */
@@ -8,7 +75,7 @@ export async function fetchModelsFromProvider(
   provider: ServiceProvider,
   baseUrl?: string,
   apiKey?: string,
-): Promise<LLMModel[]> {
+): Promise<FetchModelsResult> {
   // 构建API路径
   let apiPath = "";
   let providerId = "";
@@ -26,7 +93,7 @@ export async function fetchModelsFromProvider(
       break;
     case ServiceProvider.Anthropic:
       // Anthropic 暂不支持公开模型列表API，返回空
-      return [];
+      return { models: [], total: 0 };
     case ServiceProvider.Azure:
       apiPath = "/api/azure/openai/deployments";
       providerId = "azure";
@@ -71,11 +138,11 @@ export async function fetchModelsFromProvider(
         providerType = "openai";
         sorted = 0;
       } else {
-        return [];
+        return { models: [], total: 0 };
       }
       break;
     default:
-      return [];
+      return { models: [], total: 0 };
   }
 
   try {
@@ -84,57 +151,101 @@ export async function fetchModelsFromProvider(
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    // 对于自定义供应商，通过代理请求，需要设置 x-base-url header
-    const url =
-      provider === ServiceProvider.Custom && baseUrl
-        ? apiPath // 使用代理路径
-        : baseUrl
-        ? `${baseUrl}${apiPath}`
-        : apiPath;
+    let data: any;
 
-    // 为自定义供应商设置 x-base-url header
-    if (provider === ServiceProvider.Custom && baseUrl) {
-      headers["x-base-url"] = baseUrl;
+    if (
+      baseUrl &&
+      [ServiceProvider.OpenAI, ServiceProvider.Custom].includes(provider)
+    ) {
+      const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+      const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
+
+      // 为自定义供应商设置 x-base-url header
+      if (provider === ServiceProvider.Custom) {
+        headers["x-base-url"] = baseUrl;
+      }
+
+      const candidateUrls = isAiHubMixUrl(baseUrl)
+        ? [
+            `${new URL(baseUrl).origin}/api/v1/models`,
+            `${baseWithoutV1}/v1/models`,
+          ]
+        : [
+            `${baseWithoutV1}/api/v1/models`,
+            `${baseWithoutV1}/v1/models`,
+            `${baseWithoutV1}/models`,
+            apiPath,
+          ];
+
+      data = await fetchJsonWithCandidates(candidateUrls, headers);
+    } else {
+      const url = baseUrl ? `${normalizeBaseUrl(baseUrl)}${apiPath}` : apiPath;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+      });
+
+      if (!response.ok) {
+        console.error(
+          `[Fetch Models] Failed to fetch from ${provider}:`,
+          response.status,
+        );
+        return { models: [], total: 0 };
+      }
+
+      data = await response.json();
     }
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-    });
-
-    if (!response.ok) {
-      console.error(
-        `[Fetch Models] Failed to fetch from ${provider}:`,
-        response.status,
-      );
-      return [];
-    }
-
-    const data = await response.json();
 
     // 标准化模型列表响应
     let models: any[] = [];
+    let total = 0;
     if (data.data && Array.isArray(data.data)) {
       models = data.data;
+      total = data.data.length;
     } else if (data.object === "list" && data.data) {
       models = data.data;
+      total = data.data.length;
+    } else if (data.models && Array.isArray(data.models)) {
+      models = data.models;
+      total = data.models.length;
     }
 
-    let seq = 1000;
-    return models.map((m: any) => ({
-      name: m.id || m.name,
-      available: true,
-      sorted: seq++,
-      provider: {
-        id: providerId,
-        providerName: providerName,
-        providerType: providerType,
-        sorted: sorted,
-      },
-    }));
+    if (isAiHubMixUrl(baseUrl)) {
+      const normalizedModels = models.filter((model) => {
+        const modelType = String(
+          model.model_type || model.type || "",
+        ).toLowerCase();
+        const supportedType = String(
+          model.supported_endpoint_type || "",
+        ).toLowerCase();
+        return (
+          !modelType ||
+          modelType.includes("llm") ||
+          modelType.includes("chat") ||
+          supportedType.includes("chat")
+        );
+      });
+
+      return {
+        models: mapModels(
+          normalizedModels,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+        ),
+        total: total || normalizedModels.length,
+      };
+    }
+
+    return {
+      models: mapModels(models, providerId, providerName, providerType, sorted),
+      total: total || models.length,
+    };
   } catch (error) {
     console.error(`[Fetch Models] Error fetching from ${provider}:`, error);
-    return [];
+    return { models: [], total: 0 };
   }
 }
 
@@ -203,9 +314,12 @@ export async function fetchAndUpdateModels(
   baseUrl?: string,
   apiKey?: string,
 ): Promise<string> {
-  const models = await fetchModelsFromProvider(provider, baseUrl, apiKey);
+  const result = await fetchModelsFromProvider(provider, baseUrl, apiKey);
 
-  console.log("[fetchAndUpdateModels] Fetched models count:", models.length);
+  console.log(
+    "[fetchAndUpdateModels] Fetched models count:",
+    result.models.length,
+  );
 
-  return updateModelsInStore(models);
+  return updateModelsInStore(result.models);
 }
