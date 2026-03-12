@@ -31,10 +31,12 @@ import {
   Tencent,
   XAI,
 } from "../constant";
+import { STORAGE_KEY } from "../constant";
 import { StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
+import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
@@ -68,6 +70,14 @@ const PROVIDER_OPTIONS = [
   ServiceProvider.SiliconFlow,
   ServiceProvider["302.AI"],
 ] as const;
+
+const SYNC_STORE_KEYS: StoreKey[] = [
+  StoreKey.Chat,
+  StoreKey.Access,
+  StoreKey.Config,
+  StoreKey.Mask,
+  StoreKey.Prompt,
+];
 
 const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
   [ServiceProvider.OpenAI]: [
@@ -556,6 +566,18 @@ export function ApiConfigPage() {
   const profileManagedFields = providerFields.filter((f) => f.profileManaged);
   const extraFields = providerFields.filter((f) => !f.profileManaged);
   const providerProfiles = accessStore.apiProfiles;
+  const webdavEndpoint = syncStore.webdav.endpoint.trim();
+  const allowedWebDavEndpoints = accessStore.allowedWebDavEndpoints ?? [];
+  const fallbackWebdavEndpoint =
+    allowedWebDavEndpoints
+      .find((endpoint) => endpoint.trim().length > 0)
+      ?.trim() ?? "";
+  const webdavBasePath =
+    webdavEndpoint || fallbackWebdavEndpoint || "未获取到 WebDAV 地址";
+  const webdavFolderPath = `${webdavBasePath.replace(
+    /\/?$/,
+    "/",
+  )}${STORAGE_KEY}/`;
   // const customProviderUnsupported =
   //   accessStore.provider === ServiceProvider.Custom &&
   //   !accessStore.customOpenAICompatible;
@@ -745,7 +767,7 @@ export function ApiConfigPage() {
       }
 
       await syncStore.sync();
-      showToast("API 配置已保存并同步到 WebDAV");
+      showToast("已通过 WebDAV 同步全部配置和对话记录");
     } catch (error) {
       console.error("[API Config Sync]", error);
       showToast("同步到 WebDAV 失败，请检查网络或凭据");
@@ -758,16 +780,18 @@ export function ApiConfigPage() {
     try {
       setBackingUp(true);
       const client = syncStore.getClient() as any;
+      const localState = getLocalAppState();
 
-      // 分文件上传：只上传 Access Store (API 配置)
-      const accessState = { ...useAccessStore.getState() };
-      await client.set(StoreKey.Access, JSON.stringify(accessState));
+      for (const key of SYNC_STORE_KEYS) {
+        const storeData = localState[key as keyof AppState];
+        await client.set(key, JSON.stringify(storeData));
+      }
 
       syncStore.markSyncTime();
-      showToast("已上传 API 配置到云端");
+      showToast("已通过 WebDAV 备份全部配置和对话记录");
     } catch (error) {
       console.error("[Backup]", error);
-      showToast("上传配置到云端失败");
+      showToast("上传全部配置到云端失败");
     } finally {
       setBackingUp(false);
     }
@@ -777,31 +801,37 @@ export function ApiConfigPage() {
     try {
       setDownloading(true);
 
-      // 使用 syncStore 的客户端获取云端 API 配置
       const client = syncStore.getClient() as any;
+      const localState = getLocalAppState();
+      const nextState = { ...localState } as AppState;
+      let hasRemoteData = false;
 
-      const remoteStateText = await client.get(StoreKey.Access);
+      for (const key of SYNC_STORE_KEYS) {
+        const remoteStateText = await client.get(key);
+        if (!remoteStateText || remoteStateText === "") {
+          continue;
+        }
 
-      if (!remoteStateText || remoteStateText === "") {
+        const parsedState = JSON.parse(remoteStateText);
+        if (!parsedState || typeof parsedState !== "object") {
+          throw new Error(`${key} 格式不正确`);
+        }
+
+        nextState[key as keyof AppState] = parsedState;
+        hasRemoteData = true;
+      }
+
+      if (!hasRemoteData) {
         throw new Error("云端配置为空");
       }
 
-      // 解析云端状态
-      const parsedAccessState = JSON.parse(remoteStateText);
-
-      // 验证是否为有效的格式
-      if (!parsedAccessState || typeof parsedAccessState !== "object") {
-        throw new Error("云端配置格式不正确");
-      }
-
-      // 更新 access store
-      useAccessStore.setState(parsedAccessState);
+      setLocalAppState(nextState);
 
       syncStore.markSyncTime();
-      showToast("已从云端下载 API 配置");
+      showToast("已通过 WebDAV 下载并恢复全部配置和对话记录");
     } catch (error) {
       console.error("[Download Cloud Config]", error);
-      showToast("从云端下载配置失败: " + (error as Error).message);
+      showToast("从云端下载全部配置失败: " + (error as Error).message);
     } finally {
       setDownloading(false);
     }
@@ -1169,21 +1199,30 @@ export function ApiConfigPage() {
           <ListItem
             className={styles.syncCard}
             title="WebDAV 同步"
-            subTitle={`默认同步到 ${syncStore.webdav.endpoint} ，账号 ${syncStore.webdav.username}`}
+            subTitle={
+              <>
+                <div>
+                  同步方式：通过 WebDAV 按文件读写远程目录，不使用单个压缩包。
+                </div>
+                <div>远程地址与目录：{webdavFolderPath}</div>
+                <div>
+                  上传到云端：通过 WebDAV 写入
+                  chat.json、config.json、mask.json、prompt.json、access.json，备份全部配置和对话记录。
+                </div>
+                <div>
+                  保存并同步：先启用当前 API 配置，再通过 WebDAV
+                  合并并回写上述全部远程文件。
+                </div>
+                <div>
+                  从云端下载：通过 WebDAV
+                  读取上述全部远程文件，解析后分别写回本地聊天、设置、提示词和
+                  API 配置。
+                </div>
+              </>
+            }
             vertical
           >
             <div className={styles.actions}>
-              <IconButton
-                icon={<ResetIcon />}
-                text="恢复默认"
-                bordered
-                onClick={() => {
-                  accessStore.update((access) => {
-                    access.useCustomConfig = false;
-                  });
-                  showToast("已恢复为服务端默认配置");
-                }}
-              />
               <IconButton
                 icon={backingUp ? <LoadingIcon /> : <ConfirmIcon />}
                 text={backingUp ? "上传中..." : "上传到云端"}

@@ -162,6 +162,7 @@ const DEFAULT_ACCESS_STATE = {
   customModels: "",
   defaultModel: "",
   visionModels: "",
+  allowedWebDavEndpoints: [] as string[],
 
   // tts config
   edgeTTSVoiceName: "zh-CN-YunxiNeural",
@@ -279,6 +280,8 @@ export const useAccessStore = createPersistStore(
             customModels: res.customModels || state.customModels,
             defaultModel: res.defaultModel || state.defaultModel,
             visionModels: res.visionModels || state.visionModels,
+            allowedWebDavEndpoints:
+              res.allowedWebDavEndpoints || state.allowedWebDavEndpoints,
           }));
         })
         .catch(() => {
