@@ -34,6 +34,7 @@ import {
 import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
+import { getLocalAppState, setLocalAppState } from "../utils/sync";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 
@@ -339,7 +340,10 @@ const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
   ],
 };
 
-function getProfileBaseUrl(provider: ServiceProvider, accessStore: AccessState) {
+function getProfileBaseUrl(
+  provider: ServiceProvider,
+  accessStore: AccessState,
+) {
   switch (provider) {
     case ServiceProvider.Custom:
       return accessStore.customUrl;
@@ -417,10 +421,7 @@ function getProfileApiKey(provider: ServiceProvider, accessStore: AccessState) {
   }
 }
 
-function createProfile(
-  provider: ServiceProvider,
-  accessStore: AccessState,
-) {
+function createProfile(provider: ServiceProvider, accessStore: AccessState) {
   return {
     id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     name: `${provider} ${new Date().toLocaleTimeString()}`,
@@ -446,9 +447,8 @@ function getDefaultModelForProvider(
       )?.name ?? "gpt-4o-mini"
     );
   }
-  const fromStore = models.find(
-    (m) => m.provider?.providerName === provider,
-  )?.name;
+  const fromStore = models.find((m) => m.provider?.providerName === provider)
+    ?.name;
   if (fromStore) return fromStore;
   return DEFAULT_MODELS.find((m) => m.provider?.providerName === provider)
     ?.name;
@@ -469,8 +469,9 @@ export function ApiConfigPage() {
   useEffect(() => {
     const checkTightMode = () => {
       // 全局查询 tight-container 类
-      const hasTightContainer = document.querySelector('[class*="tight-container"]') !== null;
-      console.log('[API Config] 检测到 tight-container:', hasTightContainer);
+      const hasTightContainer =
+        document.querySelector('[class*="tight-container"]') !== null;
+      console.log("[API Config] 检测到 tight-container:", hasTightContainer);
       setIsTightMode(!!hasTightContainer);
     };
 
@@ -506,17 +507,21 @@ export function ApiConfigPage() {
   // 注入全局样式 - 只影响 API 配置页面的表格
   useEffect(() => {
     const styleId = "api-config-styles";
-    const styleElement = document.getElementById(styleId) as HTMLStyleElement || document.createElement("style");
+    const styleElement =
+      (document.getElementById(styleId) as HTMLStyleElement) ||
+      document.createElement("style");
     styleElement.id = styleId;
 
-    console.log('[API Config] isTightMode:', isTightMode);
+    console.log("[API Config] isTightMode:", isTightMode);
 
     // 只在非沾满模式下（有留白）应用样式
     styleElement.textContent = `
-      /* 当前模式: ${isTightMode ? '沾满' : '有留白'} */
+      /* 当前模式: ${isTightMode ? "沾满" : "有留白"} */
       .api-config_profileTable,
       div[class*="api-config_profileTable"] {
-        ${!isTightMode ? `
+        ${
+          !isTightMode
+            ? `
         /* 隐藏 select 下拉箭头 - 有留白模式 */
         .select-with-icon-icon,
         [class*="select-with-icon-icon"] {
@@ -529,9 +534,11 @@ export function ApiConfigPage() {
           padding-left: 0 !important;
           padding-right: 0 !important;
         }
-        ` : `
+        `
+            : `
         /* 沾满模式 - 不修改样式 */
-        `}
+        `
+        }
       }
     `;
 
@@ -663,7 +670,9 @@ export function ApiConfigPage() {
         state.provider = ProviderType.WebDAV;
       });
 
-      const activeProfile = accessStore.apiProfiles.find((profile) => profile.enabled);
+      const activeProfile = accessStore.apiProfiles.find(
+        (profile) => profile.enabled,
+      );
       if (activeProfile) {
         syncProfileToAccess(activeProfile.id);
       }
@@ -681,7 +690,14 @@ export function ApiConfigPage() {
   const backupToWebDav = async () => {
     try {
       setBackingUp(true);
-      await syncStore.backup();
+      const client = syncStore.getClient();
+      const config = syncStore[syncStore.provider] as any;
+      const username = config?.username || "next-chat";
+
+      // 获取本地状态并上传
+      const localState = getLocalAppState();
+      await client.set(username, JSON.stringify(localState));
+      syncStore.markSyncTime();
       showToast("已上传本地配置到云端");
     } catch (error) {
       console.error("[Backup]", error);
@@ -695,45 +711,46 @@ export function ApiConfigPage() {
     try {
       setDownloading(true);
 
-      // 从云端获取配置并覆盖本地
-      const provider = syncStore.provider;
-      const config = syncStore[provider as keyof typeof syncStore] as any;
+      // 使用 syncStore 的客户端获取云端配置
+      const client = syncStore.getClient();
+      const config = syncStore[syncStore.provider] as any;
       const username = config?.username || "next-chat";
 
-      // 使用代理获取 WebDAV 数据（避免 CORS 问题）
-      const webdavEndpoint = syncStore.webdav.endpoint.replace(/^https?:\/\//, '');
-      const response = await fetch(`/api/webdav/${webdavEndpoint}/${username}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Basic ${btoa(`${syncStore.webdav.username}:${syncStore.webdav.password}`)}`,
-        },
-      });
+      const remoteStateText = await client.get(username);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch from WebDAV");
-      }
-
-      const remoteState = await response.text();
-
-      if (!remoteState || remoteState === "") {
+      if (!remoteStateText || remoteStateText === "") {
         throw new Error("云端配置为空");
       }
 
-      // 解析云端状态并覆盖本地
-      const parsedState = JSON.parse(remoteState) as any;
+      // 解析云端状态
+      const parsedState = JSON.parse(remoteStateText) as any;
 
-      // 更新 access store 中的 apiProfiles
-      if (parsedState.access && parsedState.access.apiProfiles) {
-        accessStore.update((access) => {
-          access.apiProfiles = parsedState.access.apiProfiles;
-        });
-        showToast("已从云端覆盖本地配置");
-      } else {
-        showToast("云端配置格式不正确");
+      // 验证是否为有效的 AppState 格式
+      if (!parsedState || typeof parsedState !== "object") {
+        throw new Error("云端配置格式不正确");
       }
+
+      // 保存本地 UI 偏好设置
+      const appConfig = useAppConfig.getState();
+      const localSidebarWidth = localStorage.getItem("sidebarWidth");
+      const localTightBorder = appConfig.tightBorder;
+
+      // 恢复完整的应用状态
+      setLocalAppState(parsedState);
+
+      // 恢复本地 UI 偏好设置
+      if (localSidebarWidth && appConfig.setSidebarWidth) {
+        appConfig.setSidebarWidth(parseInt(localSidebarWidth));
+      }
+      if (localTightBorder !== undefined) {
+        useAppConfig.setState({ tightBorder: localTightBorder });
+      }
+
+      syncStore.markSyncTime();
+      showToast("已从云端覆盖本地配置");
     } catch (error) {
       console.error("[Download Cloud Config]", error);
-      showToast("从云端下载配置失败");
+      showToast("从云端下载配置失败: " + (error as Error).message);
     } finally {
       setDownloading(false);
     }
@@ -774,7 +791,8 @@ export function ApiConfigPage() {
                 <>
                   已启用自定义配置，当前配置：
                   <span className={styles.profileNameHighlight}>
-                    {accessStore.apiProfiles.find((p) => p.enabled)?.name || accessStore.provider}
+                    {accessStore.apiProfiles.find((p) => p.enabled)?.name ||
+                      accessStore.provider}
                   </span>
                 </>
               ) : (
@@ -814,7 +832,9 @@ export function ApiConfigPage() {
                     <div className={styles.profileColName}>名称</div>
                     <div className={styles.profileColBaseUrl}>Base URL</div>
                     <div className={styles.profileColApiKey}>API Key</div>
-                    <div className={styles.profileColCompatible}>兼容OPENAI</div>
+                    <div className={styles.profileColCompatible}>
+                      兼容OPENAI
+                    </div>
                     <div className={styles.profileColToggle}>是否启用</div>
                     <div className={styles.profileColActions}>操作</div>
                   </div>
@@ -828,28 +848,30 @@ export function ApiConfigPage() {
                         <Select
                           value={profile.provider}
                           onChange={(e) => {
-                            const provider = e.currentTarget.value as ServiceProvider;
+                            const provider = e.currentTarget
+                              .value as ServiceProvider;
                             accessStore.update((access) => {
                               const nextAccess = access as AccessState;
-                              access.apiProfiles = access.apiProfiles.map((item) =>
-                                item.id === profile.id
-                                  ? {
-                                      ...item,
-                                      provider,
-                                      baseUrl: getProfileBaseUrl(
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? {
+                                        ...item,
                                         provider,
-                                        nextAccess,
-                                      ),
-                                      apiKey: getProfileApiKey(
-                                        provider,
-                                        nextAccess,
-                                      ),
-                                      openAICompatible:
-                                        provider === ServiceProvider.Custom
-                                          ? nextAccess.customOpenAICompatible
-                                          : undefined,
-                                    }
-                                  : item,
+                                        baseUrl: getProfileBaseUrl(
+                                          provider,
+                                          nextAccess,
+                                        ),
+                                        apiKey: getProfileApiKey(
+                                          provider,
+                                          nextAccess,
+                                        ),
+                                        openAICompatible:
+                                          provider === ServiceProvider.Custom
+                                            ? nextAccess.customOpenAICompatible
+                                            : undefined,
+                                      }
+                                    : item,
                               );
                             });
                             if (profile.enabled) {
@@ -876,10 +898,11 @@ export function ApiConfigPage() {
                           value={profile.name}
                           onChange={(e) => {
                             accessStore.update((access) => {
-                              access.apiProfiles = access.apiProfiles.map((item) =>
-                                item.id === profile.id
-                                  ? { ...item, name: e.currentTarget.value }
-                                  : item,
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? { ...item, name: e.currentTarget.value }
+                                    : item,
                               );
                             });
                           }}
@@ -894,18 +917,20 @@ export function ApiConfigPage() {
                           className={styles.textInput}
                           type="text"
                           placeholder={
-                            (PROVIDER_FIELDS[profile.provider] ?? []).find((f) =>
-                              String(f.key).toLowerCase().includes("url"),
+                            (PROVIDER_FIELDS[profile.provider] ?? []).find(
+                              (f) =>
+                                String(f.key).toLowerCase().includes("url"),
                             )?.placeholder
                           }
                           value={profile.baseUrl}
                           onChange={(e) => {
                             const nextValue = e.currentTarget.value;
                             accessStore.update((access) => {
-                              access.apiProfiles = access.apiProfiles.map((item) =>
-                                item.id === profile.id
-                                  ? { ...item, baseUrl: nextValue }
-                                  : item,
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? { ...item, baseUrl: nextValue }
+                                    : item,
                               );
                             });
                             if (profile.enabled) {
@@ -927,10 +952,11 @@ export function ApiConfigPage() {
                           onChange={(e) => {
                             const nextValue = e.currentTarget.value;
                             accessStore.update((access) => {
-                              access.apiProfiles = access.apiProfiles.map((item) =>
-                                item.id === profile.id
-                                  ? { ...item, apiKey: nextValue }
-                                  : item,
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? { ...item, apiKey: nextValue }
+                                    : item,
                               );
                             });
                             if (profile.enabled) {
@@ -950,10 +976,15 @@ export function ApiConfigPage() {
                             checked={profile.openAICompatible ?? true}
                             onChange={(e) => {
                               accessStore.update((access) => {
-                                access.apiProfiles = access.apiProfiles.map((item) =>
-                                  item.id === profile.id
-                                    ? { ...item, openAICompatible: e.currentTarget.checked }
-                                    : item,
+                                access.apiProfiles = access.apiProfiles.map(
+                                  (item) =>
+                                    item.id === profile.id
+                                      ? {
+                                          ...item,
+                                          openAICompatible:
+                                            e.currentTarget.checked,
+                                        }
+                                      : item,
                                 );
                               });
                               if (profile.enabled) {
@@ -961,7 +992,9 @@ export function ApiConfigPage() {
                               }
                             }}
                           />
-                          <span>{profile.openAICompatible ?? true ? "是" : "否"}</span>
+                          <span>
+                            {profile.openAICompatible ?? true ? "是" : "否"}
+                          </span>
                         </label>
                       </div>
 
@@ -976,10 +1009,11 @@ export function ApiConfigPage() {
                             onChange={(e) => {
                               if (!e.currentTarget.checked) {
                                 accessStore.update((access) => {
-                                  access.apiProfiles = access.apiProfiles.map((item) =>
-                                    item.id === profile.id
-                                      ? { ...item, enabled: false }
-                                      : item,
+                                  access.apiProfiles = access.apiProfiles.map(
+                                    (item) =>
+                                      item.id === profile.id
+                                        ? { ...item, enabled: false }
+                                        : item,
                                   );
                                 });
                                 return;
@@ -1007,9 +1041,10 @@ export function ApiConfigPage() {
                               );
                               if (confirmed) {
                                 accessStore.update((access) => {
-                                  access.apiProfiles = access.apiProfiles.filter(
-                                    (item) => item.id !== profile.id,
-                                  );
+                                  access.apiProfiles =
+                                    access.apiProfiles.filter(
+                                      (item) => item.id !== profile.id,
+                                    );
                                 });
                               }
                             }}
@@ -1027,31 +1062,31 @@ export function ApiConfigPage() {
             <ListItem title="附加配置" subTitle="当前平台的额外字段" vertical>
               <div className={styles.fieldGroup}>
                 {extraFields.map((field) => {
-                const value = String(accessStore[field.key] ?? "");
+                  const value = String(accessStore[field.key] ?? "");
 
-                return (
-                  <div key={String(field.key)} className={styles.fieldItem}>
-                    <div className={styles.fieldLabel}>{field.label}</div>
-                    {field.subTitle && (
-                      <div className={styles.fieldSubTitle}>
-                        {field.subTitle}
-                      </div>
-                    )}
-                    <input
-                      className={styles.textInput}
-                      aria-label={field.label}
-                      type="text"
-                      placeholder={field.placeholder}
-                      value={value}
-                      onChange={(e) => {
-                        accessStore.update((access) => {
-                          (access as any)[field.key] = e.currentTarget.value;
-                        });
-                      }}
-                    />
-                  </div>
-                );
-              })}
+                  return (
+                    <div key={String(field.key)} className={styles.fieldItem}>
+                      <div className={styles.fieldLabel}>{field.label}</div>
+                      {field.subTitle && (
+                        <div className={styles.fieldSubTitle}>
+                          {field.subTitle}
+                        </div>
+                      )}
+                      <input
+                        className={styles.textInput}
+                        aria-label={field.label}
+                        type="text"
+                        placeholder={field.placeholder}
+                        value={value}
+                        onChange={(e) => {
+                          accessStore.update((access) => {
+                            (access as any)[field.key] = e.currentTarget.value;
+                          });
+                        }}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </ListItem>
           )}

@@ -120,7 +120,43 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.Config]: mergeWithUpdate<AppState[StoreKey.Config]>,
-  [StoreKey.Access]: mergeWithUpdate<AppState[StoreKey.Access]>,
+  [StoreKey.Access]: (localState, remoteState) => {
+    // 双向合并 apiProfiles：
+    // - 本地有、远程没有的 → 保留
+    // - 远程有、本地没有的 → 添加
+    // - 都有的 → 本地优先（因为用户正在本地操作）
+
+    const localProfileMap = new Map(
+      (localState.apiProfiles || []).map((p) => [p.id, p]),
+    );
+    const remoteProfileMap = new Map(
+      (remoteState.apiProfiles || []).map((p) => [p.id, p]),
+    );
+
+    // 合并：保留本地所有 + 添加远程独有的
+    const mergedProfiles = [...(localState.apiProfiles || [])];
+    remoteProfileMap.forEach((profile, id) => {
+      if (!localProfileMap.has(id)) {
+        mergedProfiles.push(profile);
+      }
+    });
+
+    // 先保存合并后的 apiProfiles
+    const savedProfiles = mergedProfiles;
+    const savedUpdateTime = Date.now();
+
+    // 合并其他字段（排除 apiProfiles 和 lastUpdateTime）
+    const remoteCopy = { ...remoteState };
+    delete (remoteCopy as any).apiProfiles;
+    delete (remoteCopy as any).lastUpdateTime;
+    merge(localState, remoteCopy);
+
+    // 恢复 apiProfiles 和 lastUpdateTime
+    localState.apiProfiles = savedProfiles;
+    localState.lastUpdateTime = savedUpdateTime;
+
+    return localState;
+  },
 };
 
 export function getLocalAppState() {
@@ -158,7 +194,7 @@ export function mergeWithUpdate<T extends { lastUpdateTime?: number }>(
   remoteState: T,
 ) {
   const localUpdateTime = localState.lastUpdateTime ?? 0;
-  const remoteUpdateTime = localState.lastUpdateTime ?? 1;
+  const remoteUpdateTime = remoteState.lastUpdateTime ?? 0;
 
   if (localUpdateTime < remoteUpdateTime) {
     merge(remoteState, localState);
