@@ -39,12 +39,13 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
   console.log("[User IP] ", getIP(req));
   console.log("[Time] ", new Date().toLocaleString());
 
-  if (serverConfig.needCode && !serverConfig.codes.has(hashedCode) && !apiKey) {
-    return {
-      error: true,
-      msg: !accessCode ? "empty access code" : "wrong access code",
-    };
-  }
+  // 已禁用访问码检查，使用自定义API配置
+  // if (serverConfig.needCode && !serverConfig.codes.has(hashedCode) && !apiKey) {
+  //   return {
+  //     error: true,
+  //     msg: !accessCode ? "empty access code" : "wrong access code",
+  //   };
+  // }
 
   if (serverConfig.hideUserApiKey && !!apiKey) {
     return {

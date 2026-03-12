@@ -4,7 +4,6 @@ import styles from "./home.module.scss";
 
 import { IconButton } from "./button";
 import SettingsIcon from "../icons/settings.svg";
-import GithubIcon from "../icons/github.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import LightIcon from "../icons/light.svg";
@@ -29,7 +28,6 @@ import {
   MIN_SIDEBAR_WIDTH,
   NARROW_SIDEBAR_WIDTH,
   Path,
-  REPO_URL,
 } from "../constant";
 
 import { Link, useNavigate } from "react-router-dom";
@@ -73,16 +71,18 @@ export function useDragSideBar() {
 
   const config = useAppConfig();
   const startX = useRef(0);
-  const startDragWidth = useRef(config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH);
+  const startDragWidth = useRef(
+    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH,
+  );
   const lastUpdateTime = useRef(Date.now());
 
   const toggleSideBar = () => {
     const currentWidth = config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH;
     config.update((config) => {
       if (currentWidth < MIN_SIDEBAR_WIDTH) {
-        config.setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+        config.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
       } else {
-        config.setSidebarWidth(NARROW_SIDEBAR_WIDTH);
+        config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
       }
     });
   };
@@ -102,9 +102,9 @@ export function useDragSideBar() {
       const nextWidth = limit(startDragWidth.current + d);
       config.update((config) => {
         if (nextWidth < MIN_SIDEBAR_WIDTH) {
-          config.setSidebarWidth(NARROW_SIDEBAR_WIDTH);
+          config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
         } else {
-          config.setSidebarWidth(nextWidth);
+          config.sidebarWidth = nextWidth;
         }
       });
     };
@@ -127,16 +127,15 @@ export function useDragSideBar() {
 
   const isMobileScreen = useMobileScreen();
   const [sidebarWidth, setSidebarWidthState] = useState(
-    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH
+    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH,
   );
 
-  const shouldNarrow =
-    !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
+  const shouldNarrow = !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
 
   // 监听 localStorage 和自定义事件（跨标签页同步和本地更新）
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'sidebarWidth' && e.newValue) {
+      if (e.key === "sidebarWidth" && e.newValue) {
         setSidebarWidthState(parseInt(e.newValue));
       }
     };
@@ -145,12 +144,18 @@ export function useDragSideBar() {
       setSidebarWidthState(e.detail);
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('sidebarWidthChanged', handleSidebarWidthChanged as EventListener);
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener(
+      "sidebarWidthChanged",
+      handleSidebarWidthChanged as EventListener,
+    );
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('sidebarWidthChanged', handleSidebarWidthChanged as EventListener);
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener(
+        "sidebarWidthChanged",
+        handleSidebarWidthChanged as EventListener,
+      );
     };
   }, []);
 
@@ -267,12 +272,31 @@ export function SideBar(props: { className?: string }) {
   const chatStore = useChatStore();
   const [mcpEnabled, setMcpEnabled] = useState(false);
 
+  const themeSelectorRef = useRef<HTMLDivElement>(null);
+  const themeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 延迟关闭主题选择器
+  const handleMouseLeave = () => {
+    themeTimerRef.current = setTimeout(() => {
+      setShowThemeSelector(false);
+    }, 300); // 300ms延迟
+  };
+
+  const handleMouseEnter = () => {
+    // 清除关闭定时器
+    if (themeTimerRef.current) {
+      clearTimeout(themeTimerRef.current);
+      themeTimerRef.current = null;
+    }
+    setShowThemeSelector(true);
+  };
+
   useEffect(() => {
     // 检查 MCP 是否启用
     const checkMcpStatus = async () => {
       const enabled = await isMcpEnabled();
       setMcpEnabled(enabled);
-      console.log("[SideBar] MCP enabled:", enabled);
+      // console.log("[SideBar] MCP enabled:", enabled);
     };
     checkMcpStatus();
   }, []);
@@ -385,16 +409,23 @@ export function SideBar(props: { className?: string }) {
             <div className={styles["sidebar-action"]}>
               <div
                 className={styles["theme-selector"]}
-                onMouseEnter={() => setShowThemeSelector(true)}
-                onMouseLeave={() => setShowThemeSelector(false)}
+                ref={themeSelectorRef}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
               >
                 <IconButton
                   aria="切换主题"
-                  icon={config.theme === Theme.Dark ? <DarkIcon /> : <LightIcon />}
+                  icon={
+                    config.theme === Theme.Dark ? <DarkIcon /> : <LightIcon />
+                  }
                   shadow
                 />
                 {showThemeSelector && (
-                  <div className={styles["theme-dropdown"]}>
+                  <div
+                    className={styles["theme-dropdown"]}
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                  >
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {

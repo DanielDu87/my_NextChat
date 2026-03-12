@@ -116,6 +116,7 @@ interface ModalProps {
   children?: any;
   actions?: React.ReactNode[];
   defaultMax?: boolean;
+  isSmall?: boolean;
   footer?: React.ReactNode;
   onClose?: () => void;
 }
@@ -141,6 +142,7 @@ export function Modal(props: ModalProps) {
     <div
       className={clsx(styles["modal-container"], {
         [styles["modal-container-max"]]: isMax,
+        [styles["modal-container-small"]]: props.isSmall,
       })}
     >
       <div className={styles["modal-header"]}>
@@ -336,6 +338,7 @@ export function showConfirm(content: any) {
     root.render(
       <Modal
         title={Locale.UI.Confirm}
+        isSmall={true}
         actions={[
           <IconButton
             key="cancel"

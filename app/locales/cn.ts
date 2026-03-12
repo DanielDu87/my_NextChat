@@ -1,21 +1,10 @@
-import { getClientConfig } from "../config/client";
 import { SubmitKey } from "../store/config";
-import { SAAS_CHAT_UTM_URL } from "@/app/constant";
-
-const isApp = !!getClientConfig()?.isApp;
 
 const cn = {
   WIP: "该功能仍在开发中……",
   Error: {
-    Unauthorized: isApp
-      ? `😆 对话遇到了一些问题，不用慌:
-       \\ 1️⃣ 想要零配置开箱即用，[点击这里立刻开启对话 🚀](${SAAS_CHAT_UTM_URL})
-       \\ 2️⃣ 如果你想消耗自己的 OpenAI 资源，点击[这里](/#/settings)修改设置 ⚙️`
-      : `😆 对话遇到了一些问题，不用慌:
-       \ 1️⃣ 想要零配置开箱即用，[点击这里立刻开启对话 🚀](${SAAS_CHAT_UTM_URL})
-       \ 2️⃣ 如果你正在使用私有部署版本，点击[这里](/#/auth)输入访问秘钥 🔑
-       \ 3️⃣ 如果你想消耗自己的 OpenAI 资源，点击[这里](/#/settings)修改设置 ⚙️
-       `,
+    Unauthorized:
+      "👋 欢迎使用！\n\n请先配置 API 后开始对话：\n点击右上角「API配置」按钮\n添加你的配置并勾选「是否启用」\n配置好后即可开始使用 ✨",
   },
   Auth: {
     Return: "返回",
@@ -35,7 +24,7 @@ const cn = {
   Chat: {
     SubTitle: (count: number) => `共 ${count} 条对话`,
     EditMessage: {
-      Title: "编辑消息记录",
+      Title: "编辑",
       Topic: {
         Title: "聊天主题",
         SubTitle: "更改当前聊天主题",
@@ -44,7 +33,7 @@ const cn = {
     Actions: {
       ChatList: "查看消息列表",
       CompressedHistory: "查看压缩后的历史 Prompt",
-      Export: "导出聊天记录",
+      Export: "导出",
       Copy: "复制",
       Stop: "停止",
       Retry: "重试",
@@ -54,7 +43,7 @@ const cn = {
       Delete: "删除",
       Edit: "编辑",
       FullScreen: "全屏",
-      RefreshTitle: "刷新标题",
+      RefreshTitle: "刷新",
       RefreshToast: "已发送刷新标题请求",
       Speech: "朗读",
       StopSpeech: "停止",

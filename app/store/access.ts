@@ -247,26 +247,9 @@ export const useAccessStore = createPersistStore(
     isAuthorized() {
       this.fetch();
 
-      // has token or has code or disabled access control
-      return (
-        this.isValidCustom() ||
-        this.isValidOpenAI() ||
-        this.isValidAzure() ||
-        this.isValidGoogle() ||
-        this.isValidAnthropic() ||
-        this.isValidBaidu() ||
-        this.isValidByteDance() ||
-        this.isValidAlibaba() ||
-        this.isValidTencent() ||
-        this.isValidMoonshot() ||
-        this.isValidIflytek() ||
-        this.isValidDeepSeek() ||
-        this.isValidXAI() ||
-        this.isValidChatGLM() ||
-        this.isValidSiliconFlow() ||
-        !this.enabledAccessControl() ||
-        (this.enabledAccessControl() && ensure(get(), ["accessCode"]))
-      );
+      // 已禁用访问码检查，始终返回授权状态
+      // 用户通过 API 配置页面设置自定义 API
+      return true;
     },
     fetch() {
       if (fetchState > 0 || getClientConfig()?.buildMode === "export") return;
@@ -290,7 +273,7 @@ export const useAccessStore = createPersistStore(
           return res;
         })
         .then((res: DangerConfig) => {
-          console.log("[Config] got config from server", res);
+          // console.log("[Config] got config from server", res);
           set(() => ({ ...res }));
         })
         .catch(() => {
@@ -320,8 +303,7 @@ export const useAccessStore = createPersistStore(
         const state = persistedState as typeof DEFAULT_ACCESS_STATE;
         state.customUrl = state.customUrl ?? "";
         state.customApiKey = state.customApiKey ?? "";
-        state.customOpenAICompatible =
-          state.customOpenAICompatible ?? true;
+        state.customOpenAICompatible = state.customOpenAICompatible ?? true;
       }
 
       if (version < 4) {

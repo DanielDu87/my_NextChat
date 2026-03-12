@@ -554,9 +554,9 @@ export function ApiConfigPage() {
   const profileManagedFields = providerFields.filter((f) => f.profileManaged);
   const extraFields = providerFields.filter((f) => !f.profileManaged);
   const providerProfiles = accessStore.apiProfiles;
-  const customProviderUnsupported =
-    accessStore.provider === ServiceProvider.Custom &&
-    !accessStore.customOpenAICompatible;
+  // const customProviderUnsupported =
+  //   accessStore.provider === ServiceProvider.Custom &&
+  //   !accessStore.customOpenAICompatible;
 
   const syncProfileToAccess = (profileId: string) => {
     accessStore.update((access) => {
@@ -564,15 +564,34 @@ export function ApiConfigPage() {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
 
+        console.log(
+          "[API Config] Enabling profile:",
+          profile.name,
+          "Provider:",
+          profile.provider,
+        );
+        console.log("[API Config] Base URL:", profile.baseUrl);
+        console.log("[API Config] API Key:", profile.apiKey ? "***" : "EMPTY");
+
         switch (profile.provider) {
           case ServiceProvider.Custom:
             access.customUrl = profile.baseUrl;
             access.customApiKey = profile.apiKey;
             access.customOpenAICompatible = profile.openAICompatible ?? true;
+            console.log("[API Config] Set customUrl:", access.customUrl);
+            console.log(
+              "[API Config] Set customApiKey:",
+              access.customApiKey ? "***" : "EMPTY",
+            );
             break;
           case ServiceProvider.OpenAI:
             access.openaiUrl = profile.baseUrl;
             access.openaiApiKey = profile.apiKey;
+            console.log("[API Config] Set openaiUrl:", access.openaiUrl);
+            console.log(
+              "[API Config] Set openaiApiKey:",
+              access.openaiApiKey ? "***" : "EMPTY",
+            );
             break;
           case ServiceProvider.Azure:
             access.azureUrl = profile.baseUrl;
@@ -641,6 +660,23 @@ export function ApiConfigPage() {
         return { ...profile, enabled: true };
       });
     });
+
+    // 延迟检查，确保值已保存
+    setTimeout(() => {
+      const access = useAccessStore.getState();
+      console.log("[API Config] After update - customUrl:", access.customUrl);
+      console.log(
+        "[API Config] After update - customApiKey:",
+        access.customApiKey ? "***" : "EMPTY",
+      );
+      console.log("[API Config] After update - provider:", access.provider);
+    }, 100);
+
+    // 同时更新当前会话的模型提供商
+    const enabledProfile = accessStore.apiProfiles.find((p) => p.enabled);
+    if (enabledProfile) {
+      applyProviderToChat(enabledProfile.provider);
+    }
   };
 
   const applyProviderToChat = (provider: ServiceProvider) => {

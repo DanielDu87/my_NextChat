@@ -100,6 +100,11 @@
 
   --modal-padding: 20px;
 
+  &-small {
+    width: 300px;
+    max-width: 80vw;
+  }
+
   &-max {
     width: 95vw;
     max-width: unset;

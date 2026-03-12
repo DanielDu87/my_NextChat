@@ -272,35 +272,52 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       modelConfig.providerName === ServiceProvider.SiliconFlow;
     const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
     const isEnabledAccessControl = accessStore.enabledAccessControl();
-    const apiKey = isCustom
-      ? accessStore.customApiKey
-      : isGoogle
-      ? accessStore.googleApiKey
-      : isAzure
-      ? accessStore.azureApiKey
-      : isAnthropic
-      ? accessStore.anthropicApiKey
-      : isByteDance
-      ? accessStore.bytedanceApiKey
-      : isAlibaba
-      ? accessStore.alibabaApiKey
-      : isMoonshot
-      ? accessStore.moonshotApiKey
-      : isXAI
-      ? accessStore.xaiApiKey
-      : isDeepSeek
-      ? accessStore.deepseekApiKey
-      : isChatGLM
-      ? accessStore.chatglmApiKey
-      : isSiliconFlow
-      ? accessStore.siliconflowApiKey
-      : isIflytek
-      ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
-        ? accessStore.iflytekApiKey + ":" + accessStore.iflytekApiSecret
-        : ""
-      : isAI302
-      ? accessStore.ai302ApiKey
-      : accessStore.openaiApiKey;
+
+    // 调试信息
+    // console.log("[API Request] Session Provider:", modelConfig.providerName);
+    // console.log("[API Request] AccessStore Provider:", accessStore.provider);
+    // console.log("[API Request] customApiKey:", accessStore.customApiKey ? "***" : "EMPTY");
+    // console.log("[API Request] openaiApiKey:", accessStore.openaiApiKey ? "***" : "EMPTY");
+
+    // 使用当前会话的 provider，或者是全局设置的 Custom provider
+    const effectiveProvider =
+      accessStore.provider === ServiceProvider.Custom
+        ? ServiceProvider.Custom
+        : modelConfig.providerName;
+
+    const apiKey =
+      effectiveProvider === ServiceProvider.Custom
+        ? accessStore.customApiKey
+        : effectiveProvider === ServiceProvider.Google
+        ? accessStore.googleApiKey
+        : effectiveProvider === ServiceProvider.Azure
+        ? accessStore.azureApiKey
+        : effectiveProvider === ServiceProvider.Anthropic
+        ? accessStore.anthropicApiKey
+        : effectiveProvider === ServiceProvider.ByteDance
+        ? accessStore.bytedanceApiKey
+        : effectiveProvider === ServiceProvider.Alibaba
+        ? accessStore.alibabaApiKey
+        : effectiveProvider === ServiceProvider.Moonshot
+        ? accessStore.moonshotApiKey
+        : effectiveProvider === ServiceProvider.XAI
+        ? accessStore.xaiApiKey
+        : effectiveProvider === ServiceProvider.DeepSeek
+        ? accessStore.deepseekApiKey
+        : effectiveProvider === ServiceProvider.ChatGLM
+        ? accessStore.chatglmApiKey
+        : effectiveProvider === ServiceProvider.SiliconFlow
+        ? accessStore.siliconflowApiKey
+        : effectiveProvider === ServiceProvider.Iflytek
+        ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
+          ? accessStore.iflytekApiKey + ":" + accessStore.iflytekApiSecret
+          : ""
+        : effectiveProvider === ServiceProvider["302.AI"]
+        ? accessStore.ai302ApiKey
+        : accessStore.openaiApiKey;
+
+    // console.log("[API Request] Effective Provider:", effectiveProvider);
+    // console.log("[API Request] API Key:", apiKey ? "***" : "EMPTY");
     return {
       isCustom,
       isGoogle,
@@ -331,7 +348,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       : "Authorization";
   }
 
-    const {
+  const {
     isCustom,
     isGoogle,
     isAzure,
