@@ -1,5 +1,5 @@
 import { getClientConfig } from "../config/client";
-import { ApiPath, STORAGE_KEY, StoreKey } from "../constant";
+import { STORAGE_KEY, StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
 import {
   AppState,
@@ -26,7 +26,7 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.WebDAV,
   useProxy: true,
-  proxyUrl: "/api/webdav",  // 使用 WebDAV 代理路径
+  proxyUrl: "/api/webdav", // 使用 WebDAV 代理路径
 
   webdav: {
     endpoint: "",
@@ -90,46 +90,219 @@ export const useSyncStore = createPersistStore(
     },
 
     async sync() {
-      const localState = getLocalAppState();
       const provider = get().provider;
       const config = get()[provider];
-      const client = this.getClient();
+      const client = this.getClient() as any;
+
+      // 需要同步的 store 类型
+      const storeKeys: StoreKey[] = [
+        StoreKey.Chat,
+        StoreKey.Access,
+        StoreKey.Config,
+        StoreKey.Mask,
+        StoreKey.Prompt,
+      ];
+
+      // 保存本地 UI 偏好设置
+      const appConfig = useAppConfig.getState();
+      const localSidebarWidth = localStorage.getItem("sidebarWidth");
+      const localTightBorder = appConfig.tightBorder;
 
       try {
-        const remoteState = await client.get(config.username);
-        if (!remoteState || remoteState === "") {
-          await client.set(config.username, JSON.stringify(localState));
-          console.log(
-            "[Sync] Remote state is empty, using local state instead.",
-          );
-          return;
-        } else {
-          const parsedRemoteState = JSON.parse(
-            await client.get(config.username),
-          ) as AppState;
-          mergeAppState(localState, parsedRemoteState);
+        // 检查是否有旧的备份数据需要迁移
+        if (client.getLegacy && client.deleteLegacy) {
+          const legacyData = await client.getLegacy();
+          if (legacyData && legacyData !== "") {
+            console.log("[Sync] 检测到旧备份数据，开始迁移...");
+            try {
+              const parsedLegacy = JSON.parse(legacyData) as AppState;
 
-          // 保存本地 UI 偏好设置
-          const appConfig = useAppConfig.getState();
-          const localSidebarWidth = localStorage.getItem('sidebarWidth');
-          const localTightBorder = appConfig.tightBorder;
+              // 将旧数据分别存储到新文件
+              for (const key of storeKeys) {
+                const storeData = (parsedLegacy as any)[key];
+                if (storeData) {
+                  await client.set(key, JSON.stringify(storeData));
+                }
+              }
 
-          setLocalAppState(localState);
-
-          // 恢复本地 UI 偏好设置
-          if (localSidebarWidth && appConfig.setSidebarWidth) {
-            appConfig.setSidebarWidth(parseInt(localSidebarWidth));
-          }
-          if (localTightBorder !== undefined) {
-            useAppConfig.setState({ tightBorder: localTightBorder });
+              // 删除旧备份文件
+              await client.deleteLegacy();
+              console.log("[Sync] 旧数据迁移完成");
+            } catch (e) {
+              console.error("[Sync] 迁移旧数据失败", e);
+            }
           }
         }
+
+        // 分文件同步：分别处理每个 store
+        for (const key of storeKeys) {
+          try {
+            // 获取本地该 store 的状态
+            const localStoreGetter: any = {
+              [StoreKey.Chat]: () => {
+                const state = require("../store/chat").useChatStore.getState();
+                return { ...state };
+              },
+              [StoreKey.Access]: () => {
+                const state =
+                  require("../store/access").useAccessStore.getState();
+                return { ...state };
+              },
+              [StoreKey.Config]: () => {
+                const fullState =
+                  require("../store/config").useAppConfig.getState();
+                const { sidebarWidth, tightBorder, ...state } =
+                  fullState as any;
+                return state;
+              },
+              [StoreKey.Mask]: () => {
+                const state = require("../store/mask").useMaskStore.getState();
+                return { ...state };
+              },
+              [StoreKey.Prompt]: () => {
+                const state =
+                  require("../store/prompt").usePromptStore.getState();
+                return { ...state };
+              },
+            };
+
+            const getter = localStoreGetter[key];
+            if (!getter) continue;
+            const localStoreData = getter();
+
+            // 获取远程该 store 的数据
+            const remoteDataText = await client.get(key);
+
+            if (!remoteDataText || remoteDataText === "") {
+              // 远程没有数据，上传本地数据
+              await client.set(key, JSON.stringify(localStoreData));
+              console.log(`[Sync] ${key}: 远程为空，已上传本地数据`);
+            } else {
+              // 远程有数据，进行合并
+              const remoteStoreData = JSON.parse(remoteDataText);
+
+              // 使用对应的合并策略
+              const mergeFunc: any = {
+                [StoreKey.Chat]: (local: any, remote: any) => {
+                  const localSessions: Record<string, any> = {};
+                  local.sessions?.forEach(
+                    (s: any) => (localSessions[s.id] = s),
+                  );
+
+                  remote.sessions?.forEach((remoteSession: any) => {
+                    if (remoteSession.messages?.length === 0) return;
+
+                    const localSession = localSessions[remoteSession.id];
+                    if (!localSession) {
+                      local.sessions = local.sessions || [];
+                      local.sessions.push(remoteSession);
+                    } else {
+                      const localMessageIds = new Set(
+                        localSession.messages.map((v: any) => v.id),
+                      );
+                      remoteSession.messages?.forEach((m: any) => {
+                        if (!localMessageIds.has(m.id)) {
+                          localSession.messages.push(m);
+                        }
+                      });
+                    }
+                  });
+
+                  local.sessions?.sort(
+                    (a: any, b: any) =>
+                      new Date(b.lastUpdate).getTime() -
+                      new Date(a.lastUpdate).getTime(),
+                  );
+                },
+                [StoreKey.Access]: (local: any, remote: any) => {
+                  const localProfileMap = new Map(
+                    (local.apiProfiles || []).map((p: any) => [p.id, p]),
+                  );
+                  const remoteProfileMap = new Map(
+                    (remote.apiProfiles || []).map((p: any) => [p.id, p]),
+                  );
+
+                  const mergedProfiles = [...(local.apiProfiles || [])];
+                  remoteProfileMap.forEach((profile: any) => {
+                    if (!localProfileMap.has(profile.id)) {
+                      mergedProfiles.push(profile);
+                    }
+                  });
+
+                  local.apiProfiles = mergedProfiles;
+                  local.lastUpdateTime = Date.now();
+
+                  // 合并其他字段
+                  const remoteCopy = { ...remote };
+                  delete (remoteCopy as any).apiProfiles;
+                  delete (remoteCopy as any).lastUpdateTime;
+                  Object.assign(local, remoteCopy);
+                },
+                [StoreKey.Config]: (local: any, remote: any) => {
+                  const localTime = local.lastUpdateTime ?? 0;
+                  const remoteTime = remote.lastUpdateTime ?? 0;
+
+                  if (remoteTime > localTime) {
+                    Object.assign(local, remote);
+                  }
+                  local.lastUpdateTime = Date.now();
+                },
+                [StoreKey.Mask]: (local: any, remote: any) => {
+                  local.masks = { ...remote.masks, ...local.masks };
+                },
+                [StoreKey.Prompt]: (local: any, remote: any) => {
+                  local.prompts = { ...remote.prompts, ...local.prompts };
+                },
+              }[key];
+
+              mergeFunc(localStoreData, remoteStoreData);
+
+              // 应用合并后的数据到本地 store
+              const storeSetter: any = {
+                [StoreKey.Chat]: () =>
+                  require("../store/chat").useChatStore.setState(
+                    localStoreData,
+                  ),
+                [StoreKey.Access]: () =>
+                  require("../store/access").useAccessStore.setState(
+                    localStoreData,
+                  ),
+                [StoreKey.Config]: () =>
+                  require("../store/config").useAppConfig.setState(
+                    localStoreData,
+                  ),
+                [StoreKey.Mask]: () =>
+                  require("../store/mask").useMaskStore.setState(
+                    localStoreData,
+                  ),
+                [StoreKey.Prompt]: () =>
+                  require("../store/prompt").usePromptStore.setState(
+                    localStoreData,
+                  ),
+              }[key];
+
+              storeSetter?.();
+
+              // 上传合并后的数据
+              await client.set(key, JSON.stringify(localStoreData));
+              console.log(`[Sync] ${key}: 合并完成并上传`);
+            }
+          } catch (e) {
+            console.error(`[Sync] ${key} 同步失败:`, e);
+          }
+        }
+
+        // 恢复本地 UI 偏好设置
+        if (localSidebarWidth && appConfig.setSidebarWidth) {
+          appConfig.setSidebarWidth(parseInt(localSidebarWidth));
+        }
+        if (localTightBorder !== undefined) {
+          useAppConfig.setState({ tightBorder: localTightBorder });
+        }
       } catch (e) {
-        console.log("[Sync] failed to get remote state", e);
+        console.log("[Sync] failed", e);
         throw e;
       }
-
-      await client.set(config.username, JSON.stringify(localState));
 
       this.markSyncTime();
     },

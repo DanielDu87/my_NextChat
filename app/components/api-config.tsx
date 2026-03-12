@@ -31,10 +31,10 @@ import {
   Tencent,
   XAI,
 } from "../constant";
+import { StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
-import { getLocalAppState, setLocalAppState } from "../utils/sync";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 
@@ -463,6 +463,7 @@ export function ApiConfigPage() {
   const [syncing, setSyncing] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [cleaningUp, setCleaningUp] = useState(false);
   const [isTightMode, setIsTightMode] = useState(false);
 
   // 检测是否是沾满模式
@@ -690,15 +691,14 @@ export function ApiConfigPage() {
   const backupToWebDav = async () => {
     try {
       setBackingUp(true);
-      const client = syncStore.getClient();
-      const config = syncStore[syncStore.provider] as any;
-      const username = config?.username || "next-chat";
+      const client = syncStore.getClient() as any;
 
-      // 获取本地状态并上传
-      const localState = getLocalAppState();
-      await client.set(username, JSON.stringify(localState));
+      // 分文件上传：只上传 Access Store (API 配置)
+      const accessState = { ...useAccessStore.getState() };
+      await client.set(StoreKey.Access, JSON.stringify(accessState));
+
       syncStore.markSyncTime();
-      showToast("已上传本地配置到云端");
+      showToast("已上传 API 配置到云端");
     } catch (error) {
       console.error("[Backup]", error);
       showToast("上传配置到云端失败");
@@ -711,48 +711,57 @@ export function ApiConfigPage() {
     try {
       setDownloading(true);
 
-      // 使用 syncStore 的客户端获取云端配置
-      const client = syncStore.getClient();
-      const config = syncStore[syncStore.provider] as any;
-      const username = config?.username || "next-chat";
+      // 使用 syncStore 的客户端获取云端 API 配置
+      const client = syncStore.getClient() as any;
 
-      const remoteStateText = await client.get(username);
+      const remoteStateText = await client.get(StoreKey.Access);
 
       if (!remoteStateText || remoteStateText === "") {
         throw new Error("云端配置为空");
       }
 
       // 解析云端状态
-      const parsedState = JSON.parse(remoteStateText) as any;
+      const parsedAccessState = JSON.parse(remoteStateText);
 
-      // 验证是否为有效的 AppState 格式
-      if (!parsedState || typeof parsedState !== "object") {
+      // 验证是否为有效的格式
+      if (!parsedAccessState || typeof parsedAccessState !== "object") {
         throw new Error("云端配置格式不正确");
       }
 
-      // 保存本地 UI 偏好设置
-      const appConfig = useAppConfig.getState();
-      const localSidebarWidth = localStorage.getItem("sidebarWidth");
-      const localTightBorder = appConfig.tightBorder;
-
-      // 恢复完整的应用状态
-      setLocalAppState(parsedState);
-
-      // 恢复本地 UI 偏好设置
-      if (localSidebarWidth && appConfig.setSidebarWidth) {
-        appConfig.setSidebarWidth(parseInt(localSidebarWidth));
-      }
-      if (localTightBorder !== undefined) {
-        useAppConfig.setState({ tightBorder: localTightBorder });
-      }
+      // 更新 access store
+      useAccessStore.setState(parsedAccessState);
 
       syncStore.markSyncTime();
-      showToast("已从云端覆盖本地配置");
+      showToast("已从云端下载 API 配置");
     } catch (error) {
       console.error("[Download Cloud Config]", error);
       showToast("从云端下载配置失败: " + (error as Error).message);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // 清理云端的旧备份文件
+  const cleanupLegacyBackup = async () => {
+    try {
+      setCleaningUp(true);
+      const client = syncStore.getClient() as any;
+
+      if (client.deleteLegacy) {
+        const deleted = await client.deleteLegacy();
+        if (deleted) {
+          showToast("已清理云端旧备份文件");
+        } else {
+          showToast("云端没有旧备份文件或清理失败");
+        }
+      } else {
+        showToast("当前同步方式不支持清理旧文件");
+      }
+    } catch (error) {
+      console.error("[Cleanup]", error);
+      showToast("清理旧备份文件失败");
+    } finally {
+      setCleaningUp(false);
     }
   };
 
@@ -1120,7 +1129,7 @@ export function ApiConfigPage() {
               />
               <IconButton
                 icon={syncing ? <LoadingIcon /> : <ConfirmIcon />}
-                text={syncing ? "同步中..." : "双向同步"}
+                text={syncing ? "同步中..." : "保存并同步"}
                 type="primary"
                 bordered
                 disabled={syncing || backingUp || downloading}
@@ -1135,6 +1144,15 @@ export function ApiConfigPage() {
                 disabled={downloading || syncing || backingUp}
                 onClick={() => {
                   void downloadFromWebDav();
+                }}
+              />
+              <IconButton
+                icon={cleaningUp ? <LoadingIcon /> : <ResetIcon />}
+                text={cleaningUp ? "清理中..." : "清理旧文件"}
+                bordered
+                disabled={cleaningUp || syncing || backingUp || downloading}
+                onClick={() => {
+                  void cleanupLegacyBackup();
                 }}
               />
             </div>

@@ -1,12 +1,23 @@
-import { STORAGE_KEY } from "@/app/constant";
+import { STORAGE_KEY, StoreKey } from "@/app/constant";
 import { SyncStore } from "@/app/store/sync";
 
 export type WebDAVConfig = SyncStore["webdav"];
 export type WebDavClient = ReturnType<typeof createWebDavClient>;
 
+// 分文件存储的文件名映射
+const FILE_NAMES = {
+  [StoreKey.Chat]: "chat.json",
+  [StoreKey.Access]: "access.json",
+  [StoreKey.Config]: "config.json",
+  [StoreKey.Mask]: "mask.json",
+  [StoreKey.Prompt]: "prompt.json",
+};
+
+// 旧的单文件名
+const LEGACY_FILE_NAME = "backup.json";
+
 export function createWebDavClient(store: SyncStore) {
   const folder = STORAGE_KEY;
-  const fileName = `${folder}/backup.json`;
   const config = store.webdav;
   const proxyUrl =
     store.useProxy && store.proxyUrl.length > 0 ? store.proxyUrl : undefined;
@@ -35,12 +46,24 @@ export function createWebDavClient(store: SyncStore) {
     },
 
     async get(key: string) {
-      const res = await fetch(this.path(fileName, proxyUrl), {
+      // 根据不同的 store key 获取对应的文件
+      const fileName =
+        FILE_NAMES[key as keyof typeof FILE_NAMES] || LEGACY_FILE_NAME;
+      const filePath = `${folder}/${fileName}`;
+
+      const res = await fetch(this.path(filePath, proxyUrl), {
         method: "GET",
         headers: this.headers(),
       });
 
-      console.log("[WebDav] get key = ", key, res.status, res.statusText);
+      console.log(
+        "[WebDav] get key = ",
+        key,
+        "file = ",
+        fileName,
+        res.status,
+        res.statusText,
+      );
 
       if (404 == res.status) {
         return "";
@@ -50,13 +73,52 @@ export function createWebDavClient(store: SyncStore) {
     },
 
     async set(key: string, value: string) {
-      const res = await fetch(this.path(fileName, proxyUrl), {
+      // 根据不同的 store key 存储到对应的文件
+      const fileName =
+        FILE_NAMES[key as keyof typeof FILE_NAMES] || LEGACY_FILE_NAME;
+      const filePath = `${folder}/${fileName}`;
+
+      const res = await fetch(this.path(filePath, proxyUrl), {
         method: "PUT",
         headers: this.headers(),
         body: value,
       });
 
-      console.log("[WebDav] set key = ", key, res.status, res.statusText);
+      console.log(
+        "[WebDav] set key = ",
+        key,
+        "file = ",
+        fileName,
+        res.status,
+        res.statusText,
+      );
+    },
+
+    // 新增：获取旧的备份数据（用于迁移）
+    async getLegacy() {
+      const filePath = `${folder}/${LEGACY_FILE_NAME}`;
+      const res = await fetch(this.path(filePath, proxyUrl), {
+        method: "GET",
+        headers: this.headers(),
+      });
+
+      if (404 == res.status) {
+        return "";
+      }
+
+      return await res.text();
+    },
+
+    // 新增：删除旧的备份文件
+    async deleteLegacy() {
+      const filePath = `${folder}/${LEGACY_FILE_NAME}`;
+      const res = await fetch(this.path(filePath, proxyUrl, "DELETE"), {
+        method: "DELETE",
+        headers: this.headers(),
+      });
+
+      console.log("[WebDav] delete legacy file", res.status, res.statusText);
+      return res.ok;
     },
 
     headers() {

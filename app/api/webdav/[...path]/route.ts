@@ -17,6 +17,16 @@ const normalizeUrl = (url: string) => {
   }
 };
 
+// 允许的文件名（分文件存储）
+const ALLOWED_FILES = [
+  "chat.json",
+  "access.json",
+  "config.json",
+  "mask.json",
+  "prompt.json",
+  "backup.json", // 旧的单文件，用于迁移和清理
+];
+
 async function handle(
   req: NextRequest,
   { params }: { params: { path: string[] } },
@@ -25,7 +35,6 @@ async function handle(
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
   const folder = STORAGE_KEY;
-  const fileName = `${folder}/backup.json`;
 
   const requestUrl = new URL(req.url);
   let endpoint = requestUrl.searchParams.get("endpoint");
@@ -65,16 +74,13 @@ async function handle(
   const endpointPath = params.path.join("/");
   const targetPath = `${endpoint}${endpointPath}`;
 
-  // only allow MKCOL, GET, PUT
-  if (
-    proxy_method !== "MKCOL" &&
-    proxy_method !== "GET" &&
-    proxy_method !== "PUT"
-  ) {
+  // only allow MKCOL, GET, PUT, DELETE
+  const allowedMethods = ["MKCOL", "GET", "PUT", "DELETE"];
+  if (!allowedMethods.includes(proxy_method)) {
     return NextResponse.json(
       {
         error: true,
-        msg: "you are not allowed to request " + targetPath,
+        msg: "Method not allowed: " + proxy_method,
       },
       {
         status: 403,
@@ -95,25 +101,20 @@ async function handle(
     );
   }
 
-  // for GET request, only allow request ending with fileName
-  if (proxy_method === "GET" && !targetPath.endsWith(fileName)) {
-    return NextResponse.json(
-      {
-        error: true,
-        msg: "you are not allowed to request " + targetPath,
-      },
-      {
-        status: 403,
-      },
-    );
-  }
+  // 检查文件名是否在允许列表中
+  const fileName = endpointPath.split("/").pop();
+  const isAllowedFile = ALLOWED_FILES.includes(fileName || "");
 
-  //   for PUT request, only allow request ending with fileName
-  if (proxy_method === "PUT" && !targetPath.endsWith(fileName)) {
+  if (
+    !isAllowedFile &&
+    (proxy_method === "GET" ||
+      proxy_method === "PUT" ||
+      proxy_method === "DELETE")
+  ) {
     return NextResponse.json(
       {
         error: true,
-        msg: "you are not allowed to request " + targetPath,
+        msg: "File not allowed: " + fileName,
       },
       {
         status: 403,
@@ -162,6 +163,7 @@ async function handle(
 
 export const PUT = handle;
 export const GET = handle;
+export const DELETE = handle;
 export const OPTIONS = handle;
 
 export const runtime = "edge";
