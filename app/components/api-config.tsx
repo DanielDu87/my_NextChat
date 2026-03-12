@@ -37,6 +37,7 @@ import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
+import { useModelFetcher } from "../utils/useModelFetcher";
 
 type AccessState = ReturnType<typeof useAccessStore.getState>;
 
@@ -465,6 +466,7 @@ export function ApiConfigPage() {
   const [downloading, setDownloading] = useState(false);
   const [cleaningUp, setCleaningUp] = useState(false);
   const [isTightMode, setIsTightMode] = useState(false);
+  const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
   // 检测是否是沾满模式
   useEffect(() => {
@@ -559,7 +561,15 @@ export function ApiConfigPage() {
   //   !accessStore.customOpenAICompatible;
 
   const syncProfileToAccess = (profileId: string) => {
+    const selectedProfile = accessStore.apiProfiles.find(
+      (p) => p.id === profileId,
+    );
+    if (!selectedProfile) {
+      return;
+    }
+
     accessStore.update((access) => {
+      access.customModels = "";
       access.apiProfiles = access.apiProfiles.map((profile) => {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
@@ -673,9 +683,29 @@ export function ApiConfigPage() {
     }, 100);
 
     // 同时更新当前会话的模型提供商
-    const enabledProfile = accessStore.apiProfiles.find((p) => p.enabled);
-    if (enabledProfile) {
-      applyProviderToChat(enabledProfile.provider);
+    if (selectedProfile) {
+      applyProviderToChat(selectedProfile.provider);
+
+      // 自动从供应商获取模型列表
+      console.log("[API Config] 正在从供应商获取模型列表...");
+      fetchFromProvider(
+        selectedProfile.provider,
+        selectedProfile.baseUrl,
+        selectedProfile.apiKey,
+        { silent: true },
+      )
+        .then((models) => {
+          if (models.length > 0) {
+            console.log(`[API Config] 成功获取 ${models.length} 个模型`);
+          } else {
+            console.log(
+              "[API Config] 未获取到模型，可能该供应商不支持模型列表API",
+            );
+          }
+        })
+        .catch((error) => {
+          console.error("[API Config] 自动获取模型失败:", error);
+        });
     }
   };
 

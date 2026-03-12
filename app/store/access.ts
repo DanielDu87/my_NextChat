@@ -273,8 +273,13 @@ export const useAccessStore = createPersistStore(
           return res;
         })
         .then((res: DangerConfig) => {
-          // console.log("[Config] got config from server", res);
-          set(() => ({ ...res }));
+          // 服务端危险配置只覆盖服务端明确下发的字段，避免空 customModels 清掉本地拉取的模型列表。
+          set((state) => ({
+            ...res,
+            customModels: res.customModels || state.customModels,
+            defaultModel: res.defaultModel || state.defaultModel,
+            visionModels: res.visionModels || state.visionModels,
+          }));
         })
         .catch(() => {
           console.error("[Config] failed to fetch config");

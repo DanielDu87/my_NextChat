@@ -483,11 +483,13 @@ export function Selector<T>(props: {
     subTitle?: string;
     value: T;
     disable?: boolean;
+    group?: string;
   }>;
   defaultSelectedValue?: T[] | T;
   onSelection?: (selection: T[]) => void;
   onClose?: () => void;
   multiple?: boolean;
+  showSearch?: boolean;
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -496,6 +498,7 @@ export function Selector<T>(props: {
       ? [props.defaultSelectedValue]
       : [],
   );
+  const [searchText, setSearchText] = useState("");
 
   const handleSelection = (e: MouseEvent, value: T) => {
     if (props.multiple) {
@@ -512,45 +515,187 @@ export function Selector<T>(props: {
     }
   };
 
+  const filteredItems = searchText.trim()
+    ? props.items.filter((item) =>
+        item.title.toLowerCase().includes(searchText.toLowerCase()),
+      )
+    : props.items;
+
+  const groupedItems = (() => {
+    const buckets = new Map<string, typeof filteredItems>();
+    const groupOrder: string[] = [];
+    const preferredGroupOrder = [
+      "OpenAI",
+      "Google",
+      "Anthropic",
+      "xAI",
+      "ByteDance",
+      "Qwen",
+      "Moonshot AI",
+      "Mistral",
+      "Baidu",
+      "Yi",
+      "Flux",
+      "Meituan",
+      "StepFun",
+      "InclusionAI",
+      "Fal.ai",
+      "Ideogram",
+      "Jina",
+      "Luma",
+      "Meta",
+      "Midjourney",
+      "Nvidia",
+      "BAAI",
+      "Minimax",
+      "Xiaomi",
+      "DeepSeek",
+      "OpenRouter",
+      "Perplexity",
+      "Pika",
+      "PixVerse",
+      "Recraft",
+      "Runway",
+      "Stability",
+      "Suno",
+      "Vidu",
+      "Viggle",
+      "Kuaishou",
+      "Zhipu",
+      "Tencent",
+      "Alibaba",
+      "Baichuan",
+      "AI21",
+      "Microsoft",
+      "Cohere",
+      "SiliconFlow",
+      "302.AI",
+      "AIHUBMIX",
+    ];
+    const entries: Array<
+      | { type: "group"; key: string; label: string }
+      | {
+          type: "item";
+          key: string;
+          item: (typeof filteredItems)[number];
+        }
+    > = [];
+
+    filteredItems.forEach((item) => {
+      const groupKey = item.group?.trim() || "__default__";
+      if (!buckets.has(groupKey)) {
+        buckets.set(groupKey, []);
+        groupOrder.push(groupKey);
+      }
+      buckets.get(groupKey)!.push(item);
+    });
+
+    const sortedGroupOrder = [
+      ...preferredGroupOrder.filter((groupKey) => buckets.has(groupKey)),
+      ...groupOrder.filter(
+        (groupKey) => !preferredGroupOrder.includes(groupKey),
+      ),
+    ];
+
+    sortedGroupOrder.forEach((groupKey) => {
+      const items = buckets.get(groupKey) ?? [];
+      const groupLabel = groupKey === "__default__" ? "" : groupKey;
+
+      if (groupLabel) {
+        entries.push({ type: "group", key: groupKey, label: groupLabel });
+      }
+
+      items.forEach((item, index) => {
+        entries.push({
+          type: "item",
+          key: `${groupKey}-${String(item.value)}-${index}`,
+          item,
+        });
+      });
+    });
+
+    return entries;
+  })();
+
+  console.log(
+    "[Selector] items:",
+    props.items.length,
+    "filtered:",
+    filteredItems.length,
+    "searchText:",
+    searchText,
+  );
+
   return (
     <div className={styles["selector"]} onClick={() => props.onClose?.()}>
-      <div className={styles["selector-content"]}>
-        <List>
-          {props.items.map((item, i) => {
-            const selected = selectedValues.includes(item.value);
-            return (
-              <ListItem
-                className={clsx(styles["selector-item"], {
-                  [styles["selector-item-disabled"]]: item.disable,
-                })}
-                key={i}
-                title={item.title}
-                subTitle={item.subTitle}
-                icon={<Avatar model={item.value as string} />}
-                onClick={(e) => {
-                  if (item.disable) {
-                    e.stopPropagation();
-                  } else {
-                    handleSelection(e, item.value);
-                  }
-                }}
-              >
-                {selected ? (
-                  <div
-                    style={{
-                      height: 10,
-                      width: 10,
-                      backgroundColor: "var(--primary)",
-                      borderRadius: 10,
-                    }}
-                  ></div>
-                ) : (
-                  <></>
-                )}
-              </ListItem>
-            );
-          })}
-        </List>
+      <div
+        className={styles["selector-content"]}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {props.showSearch && (
+          <input
+            type="text"
+            className={styles["selector-search"]}
+            placeholder="搜索模型..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        )}
+        {filteredItems.length === 0 ? (
+          <div className={styles["selector-empty"]}>
+            <div className={styles["selector-empty-icon"]}>🔍</div>
+            <div className={styles["selector-empty-text"]}>
+              没有找到匹配的模型
+            </div>
+          </div>
+        ) : (
+          <List>
+            {groupedItems.map((entry) => {
+              if (entry.type === "group") {
+                return (
+                  <div className={styles["selector-group"]} key={entry.key}>
+                    <span>{entry.label}</span>
+                  </div>
+                );
+              }
+
+              const { item } = entry;
+              const selected = selectedValues.includes(item.value);
+
+              return (
+                <ListItem
+                  className={clsx(styles["selector-item"], {
+                    [styles["selector-item-disabled"]]: item.disable,
+                  })}
+                  key={entry.key}
+                  title={item.title}
+                  subTitle={item.subTitle}
+                  icon={<Avatar model={item.value as string} />}
+                  onClick={(e) => {
+                    if (item.disable) {
+                      e.stopPropagation();
+                    } else {
+                      handleSelection(e, item.value);
+                    }
+                  }}
+                >
+                  {selected ? (
+                    <div
+                      style={{
+                        height: 10,
+                        width: 10,
+                        backgroundColor: "var(--primary)",
+                        borderRadius: 10,
+                      }}
+                    ></div>
+                  ) : (
+                    <></>
+                  )}
+                </ListItem>
+              );
+            })}
+          </List>
+        )}
       </div>
     </div>
   );

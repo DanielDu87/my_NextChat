@@ -111,7 +111,6 @@ import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
-import { useAllModels } from "../utils/hooks";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
@@ -506,6 +505,98 @@ export function ChatActions(props: {
   const pluginStore = usePluginStore();
   const session = chatStore.currentSession();
 
+  const getModelGroup = (modelName: string, providerName?: string) => {
+    const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
+
+    const groupByKeywords = (
+      label: string,
+      keywords: string[],
+      matcher?: (name: string) => boolean,
+    ) => {
+      if (keywords.some((keyword) => fullName.includes(keyword))) {
+        return label;
+      }
+      if (matcher?.(modelName.toLowerCase())) {
+        return label;
+      }
+      return null;
+    };
+
+    if (fullName.includes("aihubmix")) {
+      return "AIHUBMIX";
+    }
+
+    return (
+      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
+      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin"]) ||
+      groupByKeywords(
+        "OpenAI",
+        ["gpt", "chatgpt", "openai", "codex"],
+        (name) =>
+          /^o[1345](?:$|[^a-z])/i.test(name) ||
+          name.includes("o1-") ||
+          name.includes("o3-") ||
+          name.includes("o4-") ||
+          name.includes("o5-"),
+      ) ||
+      groupByKeywords("Yi", ["yi-", " yi", "lingyi", "01-ai", "01ai"]) ||
+      groupByKeywords("Flux", ["flux"]) ||
+      groupByKeywords("Anthropic", ["claude", "anthropic"]) ||
+      groupByKeywords("Moonshot AI", ["moonshot", "kimi"]) ||
+      groupByKeywords("Meituan", ["meituan", "longcat"]) ||
+      groupByKeywords("Google", ["gemini", "google"]) ||
+      groupByKeywords("StepFun", ["stepfun", "step-", "step "]) ||
+      groupByKeywords("InclusionAI", ["inclusionai", "inclusion"]) ||
+      groupByKeywords("xAI", ["grok", "xai", "x.ai"]) ||
+      groupByKeywords("Nvidia", ["nvidia", "nemotron"]) ||
+      groupByKeywords("BAAI", ["baai", "bge-", "bge_", "reranker"]) ||
+      groupByKeywords("Qwen", ["qwen"]) ||
+      groupByKeywords("Minimax", ["minimax", "abab"]) ||
+      groupByKeywords("Xiaomi", ["xiaomi", "mi-"]) ||
+      groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
+      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
+      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+      groupByKeywords("ByteDance", [
+        "doubao",
+        "seed",
+        "bytedance",
+        "volc",
+        "字节",
+      ]) ||
+      groupByKeywords("Baichuan", ["baichuan"]) ||
+      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
+      groupByKeywords("Ideogram", ["ideogram"]) ||
+      groupByKeywords("AI21", ["ai21", "jamba"]) ||
+      groupByKeywords("Jina", ["jina", "jinaai"]) ||
+      groupByKeywords("Microsoft", ["microsoft", "wizardlm", "phi-"]) ||
+      groupByKeywords("Cohere", ["cohere", "command-r"]) ||
+      groupByKeywords("Stability", [
+        "stable-diffusion",
+        "stability",
+        "sdxl",
+        "sd3",
+      ]) ||
+      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
+      groupByKeywords("Alibaba", ["alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("OpenRouter", ["openrouter"]) ||
+      groupByKeywords("Fal.ai", ["fal.ai", "fal-"]) ||
+      groupByKeywords("Luma", ["luma"]) ||
+      groupByKeywords("Midjourney", ["midjourney"]) ||
+      groupByKeywords("Pika", ["pika"]) ||
+      groupByKeywords("PixVerse", ["pixverse"]) ||
+      groupByKeywords("Recraft", ["recraft"]) ||
+      groupByKeywords("Runway", ["runway"]) ||
+      groupByKeywords("Suno", ["suno"]) ||
+      groupByKeywords("Vidu", ["vidu"]) ||
+      groupByKeywords("Viggle", ["viggle"]) ||
+      groupByKeywords("Kuaishou", ["快手", "kling"]) ||
+      groupByKeywords("SiliconFlow", ["siliconflow", "silicon"]) ||
+      groupByKeywords("302.AI", ["302.ai", "302ai"]) ||
+      providerName ||
+      "Other"
+    );
+  };
+
   // switch themes
   const theme = config.theme;
 
@@ -525,21 +616,66 @@ export function ChatActions(props: {
   const currentModel = session.mask.modelConfig.model;
   const currentProviderName =
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
-  const allModels = useAllModels();
-  const models = useMemo(() => {
-    const filteredModels = allModels.filter((m) => m.available);
-    const defaultModel = filteredModels.find((m) => m.isDefault);
 
-    if (defaultModel) {
-      const arr = [
-        defaultModel,
-        ...filteredModels.filter((m) => m !== defaultModel),
-      ];
-      return arr;
-    } else {
-      return filteredModels;
+  // 只显示从服务器获取的模型（accessStore.customModels）
+  // 直接访问 customModels 而不是整个 store，以确保订阅正确
+  const customModels = useAccessStore((state) => state.customModels);
+  const accessStore = useAccessStore();
+  console.log(
+    "[ChatActions] customModels from store:",
+    customModels?.substring(0, 100),
+  );
+  console.log(
+    "[ChatActions] accessStore.customModels:",
+    accessStore.customModels?.substring(0, 100),
+  );
+
+  const serverModels = useMemo(() => {
+    if (!customModels) {
+      console.log("[ChatActions] No customModels found");
+      return [];
     }
-  }, [allModels]);
+    const customModelList = customModels
+      .split(",")
+      .filter((v) => !!v && v.length > 0 && !v.startsWith("-"));
+
+    console.log(
+      "[ChatActions] customModelList length:",
+      customModelList.length,
+    );
+
+    return customModelList.map((modelStr) => {
+      const [name, displayName] = modelStr.split("=");
+      const [modelName, providerName] = getModelProvider(name);
+      const provider = providerName
+        ? {
+            id: providerName.toLowerCase(),
+            providerName,
+            providerType: "custom",
+            sorted: 0,
+          }
+        : {
+            id: modelName.toLowerCase(),
+            providerName: modelName,
+            providerType: "custom",
+            sorted: 0,
+          };
+
+      return {
+        name: modelName,
+        displayName: displayName || modelName,
+        available: true,
+        provider,
+        sorted: 0,
+        isDefault: false,
+      };
+    });
+  }, [customModels]);
+
+  const models = useMemo(() => {
+    const filteredModels = serverModels.filter((m) => m.available);
+    return filteredModels;
+  }, [serverModels]);
   const currentModelName = useMemo(() => {
     const model = models.find(
       (m) =>
@@ -603,7 +739,14 @@ export function ChatActions(props: {
       {/* 模型设置 - 第一个按钮，始终显示模型名称 */}
       <div className={clsx(styles["chat-action-always-show-text"])}>
         <ChatAction
-          onClick={() => setShowModelSelector(true)}
+          onClick={() => {
+            console.log(
+              "[Chat] Model selector button clicked, models count:",
+              models.length,
+            );
+            console.log("[Chat] models:", models);
+            setShowModelSelector(true);
+          }}
           text={currentModelName}
           icon={<RobotIcon />}
         />
@@ -715,13 +858,11 @@ export function ChatActions(props: {
         <Selector
           defaultSelectedValue={`${currentModel}@${currentProviderName}`}
           items={models.map((m) => ({
-            title: `${m.displayName}${
-              m?.provider?.providerName
-                ? " (" + m?.provider?.providerName + ")"
-                : ""
-            }`,
+            title: `${m.displayName}`,
             value: `${m.name}@${m?.provider?.providerName}`,
+            group: getModelGroup(m.name, m?.provider?.providerName),
           }))}
+          showSearch={true}
           onClose={() => setShowModelSelector(false)}
           onSelection={(s) => {
             if (s.length === 0) return;
@@ -1013,15 +1154,9 @@ function _Chat() {
   const currentModel = session.mask.modelConfig.model;
   const currentProviderName =
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
-  const allModels = useAllModels();
   const currentModelName = useMemo(() => {
-    const model = allModels.find(
-      (m) =>
-        m.name == currentModel &&
-        m?.provider?.providerName == currentProviderName,
-    );
-    return model?.displayName ?? currentModel;
-  }, [allModels, currentModel, currentProviderName]);
+    return currentModel;
+  }, [currentModel]);
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -1743,7 +1878,7 @@ function _Chat() {
             </div>
           </div>
           <div className="window-actions">
-            <div className="window-action-button">
+            <div className="window-action-button disabled-button">
               <IconButton
                 icon={<RobotIcon />}
                 bordered

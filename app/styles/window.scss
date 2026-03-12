@@ -35,8 +35,8 @@
   margin-left: 10px;
 }
 
-// 第一个按钮（模型按钮）禁用hover效果
-.window-action-button:first-child {
+// 聊天页面的第一个按钮（模型按钮）禁用hover效果
+.window-action-button.disabled-button {
   cursor: not-allowed;
   pointer-events: none;
 
