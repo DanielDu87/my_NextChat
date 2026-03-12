@@ -484,12 +484,14 @@ export function Selector<T>(props: {
     value: T;
     disable?: boolean;
     group?: string;
+    order?: number;
   }>;
   defaultSelectedValue?: T[] | T;
   onSelection?: (selection: T[]) => void;
   onClose?: () => void;
   multiple?: boolean;
   showSearch?: boolean;
+  showGroupFilter?: boolean;
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -499,6 +501,31 @@ export function Selector<T>(props: {
       : [],
   );
   const [searchText, setSearchText] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("All");
+
+  const preferredGroupOrder = [
+    "OpenAI",
+    "Google",
+    "Anthropic",
+    "Grok",
+    "DeepSeek",
+    "ByteDance",
+    "Qwen",
+    "Moonshot",
+    "Baidu",
+    "Meta",
+    "Mistral",
+    "Tencent",
+    "Zhipu",
+    "Minimax",
+    "Cohere",
+    "Perplexity",
+    "Stability",
+    "OpenRouter",
+    "Microsoft",
+    "Aihubmix",
+    "Other",
+  ];
 
   const handleSelection = (e: MouseEvent, value: T) => {
     if (props.multiple) {
@@ -515,63 +542,31 @@ export function Selector<T>(props: {
     }
   };
 
-  const filteredItems = searchText.trim()
-    ? props.items.filter((item) =>
-        item.title.toLowerCase().includes(searchText.toLowerCase()),
-      )
-    : props.items;
+  const availableGroups = (() => {
+    const groups = Array.from(
+      new Set(props.items.map((item) => item.group?.trim()).filter(Boolean)),
+    ) as string[];
+
+    return [
+      ...preferredGroupOrder.filter((group) => groups.includes(group)),
+      ...groups.filter((group) => !preferredGroupOrder.includes(group)),
+    ];
+  })();
+
+  const filteredItems = props.items.filter((item) => {
+    const matchGroup =
+      !props.showGroupFilter ||
+      selectedGroup === "All" ||
+      (item.group?.trim() || "__default__") === selectedGroup;
+    const matchSearch =
+      !searchText.trim() ||
+      item.title.toLowerCase().includes(searchText.toLowerCase());
+    return matchGroup && matchSearch;
+  });
 
   const groupedItems = (() => {
     const buckets = new Map<string, typeof filteredItems>();
     const groupOrder: string[] = [];
-    const preferredGroupOrder = [
-      "OpenAI",
-      "Google",
-      "Anthropic",
-      "xAI",
-      "ByteDance",
-      "Qwen",
-      "Moonshot AI",
-      "Mistral",
-      "Baidu",
-      "Yi",
-      "Flux",
-      "Meituan",
-      "StepFun",
-      "InclusionAI",
-      "Fal.ai",
-      "Ideogram",
-      "Jina",
-      "Luma",
-      "Meta",
-      "Midjourney",
-      "Nvidia",
-      "BAAI",
-      "Minimax",
-      "Xiaomi",
-      "DeepSeek",
-      "OpenRouter",
-      "Perplexity",
-      "Pika",
-      "PixVerse",
-      "Recraft",
-      "Runway",
-      "Stability",
-      "Suno",
-      "Vidu",
-      "Viggle",
-      "Kuaishou",
-      "Zhipu",
-      "Tencent",
-      "Alibaba",
-      "Baichuan",
-      "AI21",
-      "Microsoft",
-      "Cohere",
-      "SiliconFlow",
-      "302.AI",
-      "AIHUBMIX",
-    ];
     const entries: Array<
       | { type: "group"; key: string; label: string }
       | {
@@ -590,6 +585,140 @@ export function Selector<T>(props: {
       buckets.get(groupKey)!.push(item);
     });
 
+    const publishedModelSeries: Record<
+      string,
+      Array<{ pattern: RegExp; publishedAt: number }>
+    > = {
+      OpenAI: [
+        { pattern: /\bgpt-5\b/i, publishedAt: 20250807 },
+        { pattern: /\bgpt-4\.1\b/i, publishedAt: 20250414 },
+        { pattern: /\bo4-mini\b/i, publishedAt: 20250416 },
+        { pattern: /\bo3\b/i, publishedAt: 20250416 },
+        { pattern: /\bgpt-4o\b/i, publishedAt: 20240513 },
+        { pattern: /\bgpt-4o-mini\b/i, publishedAt: 20240718 },
+        { pattern: /\bo1\b/i, publishedAt: 20240912 },
+      ],
+      Google: [
+        { pattern: /\bgemini-2\.5-pro\b/i, publishedAt: 20250325 },
+        { pattern: /\bgemini-2\.5-flash\b/i, publishedAt: 20250417 },
+        { pattern: /\bgemini-2\.0-flash\b/i, publishedAt: 20241211 },
+        { pattern: /\bgemini-1\.5-pro\b/i, publishedAt: 20240215 },
+        { pattern: /\bgemini-1\.5-flash\b/i, publishedAt: 20240514 },
+      ],
+      Anthropic: [
+        { pattern: /\bclaude-sonnet-4\b/i, publishedAt: 20250522 },
+        { pattern: /\bclaude-opus-4\b/i, publishedAt: 20250522 },
+        { pattern: /\bclaude-3\.7-sonnet\b/i, publishedAt: 20250224 },
+        { pattern: /\bclaude-3\.5-sonnet\b/i, publishedAt: 20240620 },
+        { pattern: /\bclaude-3\.5-haiku\b/i, publishedAt: 20241022 },
+      ],
+      Grok: [
+        { pattern: /\bgrok-3\b/i, publishedAt: 20250217 },
+        { pattern: /\bgrok-2\b/i, publishedAt: 20240813 },
+      ],
+      DeepSeek: [
+        { pattern: /\bdeepseek-v3\b/i, publishedAt: 20241226 },
+        { pattern: /\bdeepseek-r1\b/i, publishedAt: 20250120 },
+        { pattern: /\bdeepseek-chat\b/i, publishedAt: 20241226 },
+      ],
+      ByteDance: [
+        { pattern: /\bdoubao-1\.5\b/i, publishedAt: 20250122 },
+        { pattern: /\bseed-oss\b/i, publishedAt: 20250115 },
+        { pattern: /\bdoubao\b/i, publishedAt: 20240515 },
+      ],
+      Qwen: [
+        { pattern: /\bqwen3\b/i, publishedAt: 20250429 },
+        { pattern: /\bqwq-32b\b/i, publishedAt: 20250306 },
+        { pattern: /\bqwen2\.5\b/i, publishedAt: 20240919 },
+        { pattern: /\bqwen2\b/i, publishedAt: 20240607 },
+      ],
+      Moonshot: [
+        { pattern: /\bkimi-k2\b/i, publishedAt: 20250711 },
+        { pattern: /\bkimi\b/i, publishedAt: 20240318 },
+        { pattern: /\bmoonshot\b/i, publishedAt: 20240318 },
+      ],
+      Baidu: [
+        { pattern: /\bernie-4\.5\b/i, publishedAt: 20250316 },
+        { pattern: /\bernie-4\.0\b/i, publishedAt: 20231017 },
+        { pattern: /\bernie\b/i, publishedAt: 20231017 },
+      ],
+    };
+
+    const getPublishedAt = (groupKey: string, title: string) => {
+      const rules = publishedModelSeries[groupKey];
+      if (!rules) return 0;
+      const matched = rules.find((rule) => rule.pattern.test(title));
+      return matched?.publishedAt ?? 0;
+    };
+
+    const getSortTokens = (text: string) => {
+      const normalized = text.toLowerCase();
+      const dateMatch = normalized.match(
+        /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/,
+      );
+      const versionMatches = Array.from(
+        normalized.matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
+      ).map((match) => match[0]);
+      const previewBoost =
+        normalized.includes("latest") ||
+        normalized.includes("preview") ||
+        normalized.includes("pro") ||
+        normalized.includes("sonnet") ||
+        normalized.includes("opus")
+          ? 1
+          : 0;
+
+      return {
+        date: dateMatch ? Number(dateMatch[0].replace(/[-_.]/g, "")) : 0,
+        versions: versionMatches.map((value) =>
+          value.split(".").map((part) => Number(part)),
+        ),
+        previewBoost,
+        normalized,
+      };
+    };
+
+    const compareVersionLists = (left: number[][], right: number[][]) => {
+      const maxLength = Math.max(left.length, right.length);
+      for (let i = 0; i < maxLength; i += 1) {
+        const leftParts = left[i] ?? [];
+        const rightParts = right[i] ?? [];
+        const maxParts = Math.max(leftParts.length, rightParts.length);
+        for (let j = 0; j < maxParts; j += 1) {
+          const diff = (rightParts[j] ?? -1) - (leftParts[j] ?? -1);
+          if (diff !== 0) return diff;
+        }
+      }
+      return 0;
+    };
+
+    const getPrimaryVersion = (versions: number[][]) => {
+      if (versions.length === 0) return [];
+
+      const semanticVersions = versions.filter((parts) => parts.length > 1);
+      const candidates =
+        semanticVersions.length > 0 ? semanticVersions : versions;
+
+      return candidates.reduce((best, current) => {
+        const maxParts = Math.max(best.length, current.length);
+        for (let i = 0; i < maxParts; i += 1) {
+          const diff = (current[i] ?? -1) - (best[i] ?? -1);
+          if (diff > 0) return current;
+          if (diff < 0) return best;
+        }
+        return best;
+      }, candidates[0]);
+    };
+
+    const comparePrimaryVersion = (left: number[], right: number[]) => {
+      const maxLength = Math.max(left.length, right.length);
+      for (let i = 0; i < maxLength; i += 1) {
+        const diff = (right[i] ?? -1) - (left[i] ?? -1);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    };
+
     const sortedGroupOrder = [
       ...preferredGroupOrder.filter((groupKey) => buckets.has(groupKey)),
       ...groupOrder.filter(
@@ -598,7 +727,56 @@ export function Selector<T>(props: {
     ];
 
     sortedGroupOrder.forEach((groupKey) => {
-      const items = buckets.get(groupKey) ?? [];
+      const items = (buckets.get(groupKey) ?? []).slice().sort((a, b) => {
+        const left = getSortTokens(a.title);
+        const right = getSortTokens(b.title);
+        const leftPublishedAt = getPublishedAt(groupKey, a.title);
+        const rightPublishedAt = getPublishedAt(groupKey, b.title);
+        const primaryVersionDiff = comparePrimaryVersion(
+          getPrimaryVersion(left.versions),
+          getPrimaryVersion(right.versions),
+        );
+
+        if (groupKey === "Google" && primaryVersionDiff !== 0) {
+          return primaryVersionDiff;
+        }
+
+        // 命中已知发布时间表时，优先按发布时间；未命中时再按主版本号排序。
+        if (leftPublishedAt > 0 || rightPublishedAt > 0) {
+          const publishedDiff = rightPublishedAt - leftPublishedAt;
+          if (publishedDiff !== 0) {
+            return publishedDiff;
+          }
+        } else {
+          if (primaryVersionDiff !== 0) {
+            return primaryVersionDiff;
+          }
+        }
+
+        if (right.date !== left.date) {
+          return right.date - left.date;
+        }
+
+        const versionDiff = compareVersionLists(left.versions, right.versions);
+        if (versionDiff !== 0) {
+          return versionDiff;
+        }
+
+        const leftOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        if (right.previewBoost !== left.previewBoost) {
+          return right.previewBoost - left.previewBoost;
+        }
+
+        return a.title.localeCompare(b.title, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
       const groupLabel = groupKey === "__default__" ? "" : groupKey;
 
       if (groupLabel) {
@@ -632,6 +810,20 @@ export function Selector<T>(props: {
         className={styles["selector-content"]}
         onClick={(e) => e.stopPropagation()}
       >
+        {props.showGroupFilter && (
+          <select
+            className={styles["selector-group-filter"]}
+            value={selectedGroup}
+            onChange={(e) => setSelectedGroup(e.target.value)}
+          >
+            <option value="All">All</option>
+            {availableGroups.map((group) => (
+              <option key={group} value={group}>
+                {group}
+              </option>
+            ))}
+          </select>
+        )}
         {props.showSearch && (
           <input
             type="text"
@@ -670,7 +862,7 @@ export function Selector<T>(props: {
                   key={entry.key}
                   title={item.title}
                   subTitle={item.subTitle}
-                  icon={<Avatar model={item.value as string} />}
+                  icon={<Avatar model={(item.group || item.value) as string} />}
                   onClick={(e) => {
                     if (item.disable) {
                       e.stopPropagation();

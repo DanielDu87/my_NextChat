@@ -523,12 +523,10 @@ export function ChatActions(props: {
     };
 
     if (fullName.includes("aihubmix")) {
-      return "AIHUBMIX";
+      return "Aihubmix";
     }
 
     return (
-      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
-      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin"]) ||
       groupByKeywords(
         "OpenAI",
         ["gpt", "chatgpt", "openai", "codex"],
@@ -539,23 +537,13 @@ export function ChatActions(props: {
           name.includes("o4-") ||
           name.includes("o5-"),
       ) ||
-      groupByKeywords("Yi", ["yi-", " yi", "lingyi", "01-ai", "01ai"]) ||
-      groupByKeywords("Flux", ["flux"]) ||
       groupByKeywords("Anthropic", ["claude", "anthropic"]) ||
-      groupByKeywords("Moonshot AI", ["moonshot", "kimi"]) ||
-      groupByKeywords("Meituan", ["meituan", "longcat"]) ||
       groupByKeywords("Google", ["gemini", "google"]) ||
-      groupByKeywords("StepFun", ["stepfun", "step-", "step "]) ||
-      groupByKeywords("InclusionAI", ["inclusionai", "inclusion"]) ||
-      groupByKeywords("xAI", ["grok", "xai", "x.ai"]) ||
-      groupByKeywords("Nvidia", ["nvidia", "nemotron"]) ||
-      groupByKeywords("BAAI", ["baai", "bge-", "bge_", "reranker"]) ||
-      groupByKeywords("Qwen", ["qwen"]) ||
       groupByKeywords("Minimax", ["minimax", "abab"]) ||
-      groupByKeywords("Xiaomi", ["xiaomi", "mi-"]) ||
+      groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
+      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
+      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
       groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
-      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
       groupByKeywords("ByteDance", [
         "doubao",
         "seed",
@@ -563,36 +551,21 @@ export function ChatActions(props: {
         "volc",
         "字节",
       ]) ||
-      groupByKeywords("Baichuan", ["baichuan"]) ||
-      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
-      groupByKeywords("Ideogram", ["ideogram"]) ||
-      groupByKeywords("AI21", ["ai21", "jamba"]) ||
-      groupByKeywords("Jina", ["jina", "jinaai"]) ||
-      groupByKeywords("Microsoft", ["microsoft", "wizardlm", "phi-"]) ||
+      groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
+      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin"]) ||
+      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+      groupByKeywords("Moonshot", ["moonshot", "kimi"]) ||
       groupByKeywords("Cohere", ["cohere", "command-r"]) ||
+      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
       groupByKeywords("Stability", [
         "stable-diffusion",
         "stability",
         "sdxl",
         "sd3",
       ]) ||
-      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("Alibaba", ["alibaba", "tongyi", "阿里"]) ||
       groupByKeywords("OpenRouter", ["openrouter"]) ||
-      groupByKeywords("Fal.ai", ["fal.ai", "fal-"]) ||
-      groupByKeywords("Luma", ["luma"]) ||
-      groupByKeywords("Midjourney", ["midjourney"]) ||
-      groupByKeywords("Pika", ["pika"]) ||
-      groupByKeywords("PixVerse", ["pixverse"]) ||
-      groupByKeywords("Recraft", ["recraft"]) ||
-      groupByKeywords("Runway", ["runway"]) ||
-      groupByKeywords("Suno", ["suno"]) ||
-      groupByKeywords("Vidu", ["vidu"]) ||
-      groupByKeywords("Viggle", ["viggle"]) ||
-      groupByKeywords("Kuaishou", ["快手", "kling"]) ||
-      groupByKeywords("SiliconFlow", ["siliconflow", "silicon"]) ||
-      groupByKeywords("302.AI", ["302.ai", "302ai"]) ||
-      providerName ||
+      groupByKeywords("Microsoft", ["microsoft", "wizardlm", "phi-"]) ||
       "Other"
     );
   };
@@ -644,7 +617,7 @@ export function ChatActions(props: {
       customModelList.length,
     );
 
-    return customModelList.map((modelStr) => {
+    return customModelList.map((modelStr, index) => {
       const [name, displayName] = modelStr.split("=");
       const [modelName, providerName] = getModelProvider(name);
       const provider = providerName
@@ -666,7 +639,7 @@ export function ChatActions(props: {
         displayName: displayName || modelName,
         available: true,
         provider,
-        sorted: 0,
+        sorted: index,
         isDefault: false,
       };
     });
@@ -861,7 +834,9 @@ export function ChatActions(props: {
             title: `${m.displayName}`,
             value: `${m.name}@${m?.provider?.providerName}`,
             group: getModelGroup(m.name, m?.provider?.providerName),
+            order: m.sorted,
           }))}
+          showGroupFilter={true}
           showSearch={true}
           onClose={() => setShowModelSelector(false)}
           onSelection={(s) => {
