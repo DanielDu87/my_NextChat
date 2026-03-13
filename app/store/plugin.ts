@@ -9,6 +9,17 @@ import { useAccessStore } from "./access";
 
 const isApp = getClientConfig()?.isApp !== false;
 
+function fetchPluginSchema(schemaUrl: string) {
+  return fetch(schemaUrl).catch(() => {
+    const url = new URL(schemaUrl);
+    return fetch(`/api/proxy/${url.pathname}?${url.search}`, {
+      headers: {
+        "X-Base-URL": url.origin,
+      },
+    });
+  });
+}
+
 export type Plugin = {
   id: string;
   createdAt: number;
@@ -244,7 +255,7 @@ export const usePluginStore = createPersistStore(
               // skip get schema
               state.get(item.id)
                 ? item
-                : fetch(item.schema)
+                : fetchPluginSchema(item.schema)
                     .then((res) => res.text())
                     .then((content) => ({
                       ...item,

@@ -73,6 +73,7 @@ import {
   selectOrCopy,
 } from "../utils";
 
+import { useAllModels } from "../utils/hooks";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
@@ -594,19 +595,6 @@ export function ChatActions(props: {
   // 同时合并全局自定义模型和远程拉取模型
   const globalCustomModels = useAppConfig((state) => state.customModels);
   const remoteCustomModels = useAccessStore((state) => state.customModels);
-  const accessStore = useAccessStore();
-  console.log(
-    "[ChatActions] customModels from store:",
-    remoteCustomModels?.substring(0, 100),
-  );
-  console.log(
-    "[ChatActions] accessStore.customModels:",
-    accessStore.customModels?.substring(0, 100),
-  );
-  console.log(
-    "[ChatActions] configStore.customModels:",
-    globalCustomModels?.substring(0, 100),
-  );
   const customModels = [globalCustomModels, remoteCustomModels]
     .filter(Boolean)
     .join(",");
@@ -646,10 +634,12 @@ export function ChatActions(props: {
   );
   const currentCustomModelKey = `${currentModel}@${currentProviderName}`;
 
+  // 使用 useAllModels 获取完整的模型列表（包括从 API 获取的模型）
+  const allModels = useAllModels();
+
   const serverModels = useMemo(() => {
     if (!customModels) {
-      console.log("[ChatActions] No customModels found");
-      return [];
+      return allModels;
     }
     const customModelList = Array.from(
       new Set(
@@ -665,33 +655,39 @@ export function ChatActions(props: {
       customModelList.length,
     );
 
-    return customModelList.map((modelStr, index) => {
-      const [name, displayName] = modelStr.split("=");
-      const [modelName, providerName] = getModelProvider(name);
-      const provider = providerName
-        ? {
-            id: providerName.toLowerCase(),
-            providerName,
-            providerType: "custom",
-            sorted: 0,
-          }
-        : {
-            id: modelName.toLowerCase(),
-            providerName: modelName,
-            providerType: "custom",
-            sorted: 0,
-          };
+    // 如果有自定义模型字符串，优先使用自定义模型
+    // 否则使用 allModels（包含从 API 获取的模型）
+    if (customModelList.length > 0) {
+      return customModelList.map((modelStr, index) => {
+        const [name, displayName] = modelStr.split("=");
+        const [modelName, providerName] = getModelProvider(name);
+        const provider = providerName
+          ? {
+              id: providerName.toLowerCase(),
+              providerName,
+              providerType: "custom",
+              sorted: 0,
+            }
+          : {
+              id: ServiceProvider.Custom.toLowerCase(),
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            };
 
-      return {
-        name: modelName,
-        displayName: displayName || modelName,
-        available: true,
-        provider,
-        sorted: index,
-        isDefault: false,
-      };
-    });
-  }, [customModels]);
+        return {
+          name: modelName,
+          displayName: displayName || modelName,
+          available: true,
+          provider,
+          sorted: index,
+          isDefault: false,
+        };
+      });
+    }
+
+    return allModels;
+  }, [customModels, allModels]);
 
   const models = useMemo(() => {
     const filteredModels = serverModels.filter((m) => m.available);
@@ -928,7 +924,7 @@ export function ChatActions(props: {
               )
                 ? {
                     text: "删除",
-                    onClick: (value) => {
+                    onClick: (value: string) => {
                       const modelValue = String(value);
                       const matchedEntry =
                         globalCustomModelEntryMap.get(modelValue);
@@ -1018,6 +1014,10 @@ export function ChatActions(props: {
           onSelection={async (s) => {
             if (s.length === 0) return;
             const [model, providerName] = getModelProvider(s[0]);
+            config.update((config) => {
+              config.modelConfig.model = model as ModelType;
+              config.modelConfig.providerName = providerName as ServiceProvider;
+            });
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.model = model as ModelType;
               session.mask.modelConfig.providerName =

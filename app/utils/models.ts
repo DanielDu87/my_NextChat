@@ -1,5 +1,6 @@
 import { ServiceProvider } from "../constant";
 import { LLMModel } from "../client/api";
+import { writeAccessSnapshot } from "./access-snapshot";
 
 export type FetchModelsResult = {
   models: LLMModel[];
@@ -280,19 +281,44 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
 
   // 动态导入store（避免循环依赖）
   const { useAccessStore } = await import("../store/access");
+  const { useAppConfig } = await import("../store/config");
   const accessStore = useAccessStore.getState();
+  const configStore = useAppConfig.getState();
 
   console.log(
     "[updateModelsInStore] Before update - accessStore.customModels:",
     accessStore.customModels?.substring(0, 100),
   );
 
+  // 更新 configStore.models 数组，确保模型在选择器中可用
+  configStore.mergeModels(models);
+
   // 走 store.update，确保持久化格式和更新时间与其他配置写入保持一致。
   accessStore.update((state) => {
     state.customModels = modelsString;
+    state.apiProfiles = (state.apiProfiles || []).map((profile) =>
+      profile.enabled ? { ...profile, cachedModels: modelsString } : profile,
+    );
   });
 
   console.log("[updateModelsInStore] Updated accessStore.customModels");
+  const enabledProfile = useAccessStore
+    .getState()
+    .apiProfiles.find((profile) => profile.enabled);
+  console.log("[updateModelsInStore] Enabled profile cache length:", {
+    name: enabledProfile?.name,
+    cachedModelsLength: enabledProfile?.cachedModels?.length ?? 0,
+  });
+  const latestAccessState = useAccessStore.getState();
+  writeAccessSnapshot({
+    useCustomConfig: latestAccessState.useCustomConfig,
+    provider: latestAccessState.provider,
+    apiProfiles: latestAccessState.apiProfiles,
+    customModels: latestAccessState.customModels,
+    customUrl: latestAccessState.customUrl,
+    customApiKey: latestAccessState.customApiKey,
+    customOpenAICompatible: latestAccessState.customOpenAICompatible,
+  });
 
   // 等待一下让持久化完成
   await new Promise((resolve) => setTimeout(resolve, 300));

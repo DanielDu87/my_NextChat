@@ -12,7 +12,7 @@ class IndexedDBStorage implements StateStorage {
       return localValue;
     }
     try {
-      return await get(name);
+      return (await get<string>(name)) ?? null;
     } catch (error) {
       return null;
     }

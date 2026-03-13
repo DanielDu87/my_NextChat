@@ -186,16 +186,27 @@ export const useAppConfig = createPersistStore(
         modelMap[`${model.name}@${model?.provider?.id}`] = model;
       }
 
+      const mergedModels = Object.values(modelMap);
+      console.log(
+        "[mergeModels] Merging",
+        newModels.length,
+        "models, total:",
+        mergedModels.length,
+      );
+
       set(() => ({
-        models: Object.values(modelMap),
+        models: mergedModels,
       }));
+
+      // 确保持久化触发
+      get().markUpdate();
     },
 
     allModels() {},
 
     // localStorage 专用方法：获取/设置 sidebarWidth
     getSidebarWidth() {
-      const stored = localStorage.getItem('sidebarWidth');
+      const stored = localStorage.getItem("sidebarWidth");
       if (stored) {
         return parseInt(stored);
       }
@@ -203,10 +214,12 @@ export const useAppConfig = createPersistStore(
     },
 
     setSidebarWidth(width: number) {
-      localStorage.setItem('sidebarWidth', width.toString());
+      localStorage.setItem("sidebarWidth", width.toString());
       set({ sidebarWidth: width });
       // 触发自定义事件，让组件知道 sidebarWidth 已更新
-      window.dispatchEvent(new CustomEvent('sidebarWidthChanged', { detail: width }));
+      window.dispatchEvent(
+        new CustomEvent("sidebarWidthChanged", { detail: width }),
+      );
     },
   }),
   {
@@ -219,7 +232,7 @@ export const useAppConfig = createPersistStore(
       const models = currentState.models.slice();
       state.models.forEach((pModel) => {
         const idx = models.findIndex(
-          (v) => v.name === pModel.name && v.provider === pModel.provider,
+          (v) => v.name === pModel.name && v.provider.id === pModel.provider.id,
         );
         if (idx !== -1) models[idx] = pModel;
         else models.push(pModel);

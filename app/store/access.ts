@@ -23,8 +23,15 @@ import { getHeaders } from "../client/api";
 import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { ensure } from "../utils/clone";
+import { safeLocalStorage } from "../utils";
 import { DEFAULT_CONFIG } from "./config";
 import { getModelProvider } from "../utils/model";
+import { createJSONStorage } from "zustand/middleware";
+import {
+  readAccessSnapshot,
+  writeAccessSnapshot as persistAccessSnapshot,
+  type AccessSnapshot,
+} from "../utils/access-snapshot";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
@@ -75,6 +82,7 @@ const DEFAULT_ACCESS_STATE = {
     apiKey: string;
     enabled: boolean;
     openAICompatible?: boolean;
+    cachedModels?: string;
   }>,
 
   // custom
@@ -168,6 +176,35 @@ const DEFAULT_ACCESS_STATE = {
   edgeTTSVoiceName: "zh-CN-YunxiNeural",
 };
 
+function writeAccessSnapshot(
+  state: typeof DEFAULT_ACCESS_STATE & { _hasHydrated?: boolean },
+) {
+  if (typeof window === "undefined") return;
+  if (!state._hasHydrated) return;
+
+  const hasUsefulData =
+    state.useCustomConfig ||
+    state.customModels.length > 0 ||
+    state.apiProfiles.length > 0 ||
+    state.customUrl.length > 0 ||
+    state.customApiKey.length > 0;
+
+  if (!hasUsefulData) {
+    return;
+  }
+
+  const snapshot: AccessSnapshot = {
+    useCustomConfig: state.useCustomConfig,
+    provider: state.provider,
+    apiProfiles: state.apiProfiles,
+    customModels: state.customModels,
+    customUrl: state.customUrl,
+    customApiKey: state.customApiKey,
+    customOpenAICompatible: state.customOpenAICompatible,
+  };
+  persistAccessSnapshot(snapshot);
+}
+
 export const useAccessStore = createPersistStore(
   { ...DEFAULT_ACCESS_STATE },
 
@@ -254,6 +291,16 @@ export const useAccessStore = createPersistStore(
     },
     fetch() {
       if (fetchState > 0 || getClientConfig()?.buildMode === "export") return;
+      if (!get()._hasHydrated) {
+        // 等持久化状态恢复后再拉服务端配置，避免用默认值覆盖本地已保存的自定义模型。
+        setTimeout(() => {
+          if (fetchState === 0) {
+            get().fetch();
+          }
+        }, 50);
+        return;
+      }
+
       fetchState = 1;
       fetch("/api/config", {
         method: "post",
@@ -274,14 +321,22 @@ export const useAccessStore = createPersistStore(
           return res;
         })
         .then((res: DangerConfig) => {
-          // 服务端危险配置只覆盖服务端明确下发的字段，避免空 customModels 清掉本地拉取的模型列表。
+          // Docker / Web 部署优先以服务端配置为准，避免浏览器残留的旧模型列表继续污染当前实例。
+          // 仅在显式启用自定义配置时保留本地字段，兼容用户手动维护的自定义 endpoint。
           set((state) => ({
             ...res,
-            customModels: res.customModels || state.customModels,
-            defaultModel: res.defaultModel || state.defaultModel,
-            visionModels: res.visionModels || state.visionModels,
-            allowedWebDavEndpoints:
-              res.allowedWebDavEndpoints || state.allowedWebDavEndpoints,
+            customModels: state.useCustomConfig
+              ? res.customModels ?? state.customModels
+              : res.customModels ?? "",
+            defaultModel: state.useCustomConfig
+              ? res.defaultModel ?? state.defaultModel
+              : res.defaultModel ?? "",
+            visionModels: state.useCustomConfig
+              ? res.visionModels ?? state.visionModels
+              : res.visionModels ?? "",
+            allowedWebDavEndpoints: state.useCustomConfig
+              ? res.allowedWebDavEndpoints ?? state.allowedWebDavEndpoints
+              : res.allowedWebDavEndpoints ?? [],
           }));
         })
         .catch(() => {
@@ -295,6 +350,52 @@ export const useAccessStore = createPersistStore(
   {
     name: StoreKey.Access,
     version: 4,
+    storage: createJSONStorage(() => safeLocalStorage()),
+    onRehydrateStorage(state) {
+      return () => {
+        const snapshot = readAccessSnapshot();
+        if (
+          snapshot &&
+          !state.useCustomConfig &&
+          state.apiProfiles.length === 0 &&
+          state.customModels.length === 0
+        ) {
+          state.update((draft) => {
+            draft.useCustomConfig = snapshot.useCustomConfig;
+            draft.provider = snapshot.provider;
+            draft.apiProfiles = snapshot.apiProfiles;
+            draft.customModels = snapshot.customModels;
+            draft.customUrl = snapshot.customUrl;
+            draft.customApiKey = snapshot.customApiKey;
+            draft.customOpenAICompatible = snapshot.customOpenAICompatible;
+          });
+        }
+
+        const activeProfile = state.apiProfiles.find(
+          (profile) => profile.enabled,
+        );
+        console.log("[Access Rehydrate]", {
+          useCustomConfig: state.useCustomConfig,
+          customModelsLength: state.customModels.length,
+          activeProfileName: activeProfile?.name,
+          activeProfileCachedModelsLength:
+            activeProfile?.cachedModels?.length ?? 0,
+        });
+        if (
+          state.useCustomConfig &&
+          state.customModels.length === 0 &&
+          activeProfile?.cachedModels
+        ) {
+          state.update((draft) => {
+            draft.customModels = activeProfile.cachedModels ?? "";
+          });
+          console.log(
+            "[Access Rehydrate] restored customModels from active profile cache",
+            activeProfile.cachedModels.length,
+          );
+        }
+      };
+    },
     migrate(persistedState, version) {
       if (version < 2) {
         const state = persistedState as {
@@ -323,3 +424,9 @@ export const useAccessStore = createPersistStore(
     },
   },
 );
+
+if (typeof window !== "undefined") {
+  useAccessStore.subscribe((state) => {
+    writeAccessSnapshot(state);
+  });
+}

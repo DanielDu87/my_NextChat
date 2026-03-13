@@ -166,7 +166,7 @@ export const useSyncStore = createPersistStore(
               },
             };
 
-            const getter = localStoreGetter[key];
+            const getter = (localStoreGetter as Record<string, () => any>)[key];
             if (!getter) continue;
             const localStoreData = getter();
 
@@ -182,104 +182,108 @@ export const useSyncStore = createPersistStore(
               const remoteStoreData = JSON.parse(remoteDataText);
 
               // 使用对应的合并策略
-              const mergeFunc: any = {
-                [StoreKey.Chat]: (local: any, remote: any) => {
-                  const localSessions: Record<string, any> = {};
-                  local.sessions?.forEach(
-                    (s: any) => (localSessions[s.id] = s),
-                  );
+              const mergeFunc = (
+                {
+                  [StoreKey.Chat]: (local: any, remote: any) => {
+                    const localSessions: Record<string, any> = {};
+                    local.sessions?.forEach(
+                      (s: any) => (localSessions[s.id] = s),
+                    );
 
-                  remote.sessions?.forEach((remoteSession: any) => {
-                    if (remoteSession.messages?.length === 0) return;
+                    remote.sessions?.forEach((remoteSession: any) => {
+                      if (remoteSession.messages?.length === 0) return;
 
-                    const localSession = localSessions[remoteSession.id];
-                    if (!localSession) {
-                      local.sessions = local.sessions || [];
-                      local.sessions.push(remoteSession);
-                    } else {
-                      const localMessageIds = new Set(
-                        localSession.messages.map((v: any) => v.id),
-                      );
-                      remoteSession.messages?.forEach((m: any) => {
-                        if (!localMessageIds.has(m.id)) {
-                          localSession.messages.push(m);
-                        }
-                      });
+                      const localSession = localSessions[remoteSession.id];
+                      if (!localSession) {
+                        local.sessions = local.sessions || [];
+                        local.sessions.push(remoteSession);
+                      } else {
+                        const localMessageIds = new Set(
+                          localSession.messages.map((v: any) => v.id),
+                        );
+                        remoteSession.messages?.forEach((m: any) => {
+                          if (!localMessageIds.has(m.id)) {
+                            localSession.messages.push(m);
+                          }
+                        });
+                      }
+                    });
+
+                    local.sessions?.sort(
+                      (a: any, b: any) =>
+                        new Date(b.lastUpdate).getTime() -
+                        new Date(a.lastUpdate).getTime(),
+                    );
+                  },
+                  [StoreKey.Access]: (local: any, remote: any) => {
+                    const localProfileMap = new Map(
+                      (local.apiProfiles || []).map((p: any) => [p.id, p]),
+                    );
+                    const remoteProfileMap = new Map(
+                      (remote.apiProfiles || []).map((p: any) => [p.id, p]),
+                    );
+
+                    const mergedProfiles = [...(local.apiProfiles || [])];
+                    remoteProfileMap.forEach((profile: any) => {
+                      if (!localProfileMap.has(profile.id)) {
+                        mergedProfiles.push(profile);
+                      }
+                    });
+
+                    local.apiProfiles = mergedProfiles;
+                    local.lastUpdateTime = Date.now();
+
+                    // 合并其他字段
+                    const remoteCopy = { ...remote };
+                    delete (remoteCopy as any).apiProfiles;
+                    delete (remoteCopy as any).lastUpdateTime;
+                    Object.assign(local, remoteCopy);
+                  },
+                  [StoreKey.Config]: (local: any, remote: any) => {
+                    const localTime = local.lastUpdateTime ?? 0;
+                    const remoteTime = remote.lastUpdateTime ?? 0;
+
+                    if (remoteTime > localTime) {
+                      Object.assign(local, remote);
                     }
-                  });
-
-                  local.sessions?.sort(
-                    (a: any, b: any) =>
-                      new Date(b.lastUpdate).getTime() -
-                      new Date(a.lastUpdate).getTime(),
-                  );
-                },
-                [StoreKey.Access]: (local: any, remote: any) => {
-                  const localProfileMap = new Map(
-                    (local.apiProfiles || []).map((p: any) => [p.id, p]),
-                  );
-                  const remoteProfileMap = new Map(
-                    (remote.apiProfiles || []).map((p: any) => [p.id, p]),
-                  );
-
-                  const mergedProfiles = [...(local.apiProfiles || [])];
-                  remoteProfileMap.forEach((profile: any) => {
-                    if (!localProfileMap.has(profile.id)) {
-                      mergedProfiles.push(profile);
-                    }
-                  });
-
-                  local.apiProfiles = mergedProfiles;
-                  local.lastUpdateTime = Date.now();
-
-                  // 合并其他字段
-                  const remoteCopy = { ...remote };
-                  delete (remoteCopy as any).apiProfiles;
-                  delete (remoteCopy as any).lastUpdateTime;
-                  Object.assign(local, remoteCopy);
-                },
-                [StoreKey.Config]: (local: any, remote: any) => {
-                  const localTime = local.lastUpdateTime ?? 0;
-                  const remoteTime = remote.lastUpdateTime ?? 0;
-
-                  if (remoteTime > localTime) {
-                    Object.assign(local, remote);
-                  }
-                  local.lastUpdateTime = Date.now();
-                },
-                [StoreKey.Mask]: (local: any, remote: any) => {
-                  local.masks = { ...remote.masks, ...local.masks };
-                },
-                [StoreKey.Prompt]: (local: any, remote: any) => {
-                  local.prompts = { ...remote.prompts, ...local.prompts };
-                },
-              }[key];
+                    local.lastUpdateTime = Date.now();
+                  },
+                  [StoreKey.Mask]: (local: any, remote: any) => {
+                    local.masks = { ...remote.masks, ...local.masks };
+                  },
+                  [StoreKey.Prompt]: (local: any, remote: any) => {
+                    local.prompts = { ...remote.prompts, ...local.prompts };
+                  },
+                } as Record<string, (local: any, remote: any) => void>
+              )[key];
 
               mergeFunc(localStoreData, remoteStoreData);
 
               // 应用合并后的数据到本地 store
-              const storeSetter: any = {
-                [StoreKey.Chat]: () =>
-                  require("../store/chat").useChatStore.setState(
-                    localStoreData,
-                  ),
-                [StoreKey.Access]: () =>
-                  require("../store/access").useAccessStore.setState(
-                    localStoreData,
-                  ),
-                [StoreKey.Config]: () =>
-                  require("../store/config").useAppConfig.setState(
-                    localStoreData,
-                  ),
-                [StoreKey.Mask]: () =>
-                  require("../store/mask").useMaskStore.setState(
-                    localStoreData,
-                  ),
-                [StoreKey.Prompt]: () =>
-                  require("../store/prompt").usePromptStore.setState(
-                    localStoreData,
-                  ),
-              }[key];
+              const storeSetter = (
+                {
+                  [StoreKey.Chat]: () =>
+                    require("../store/chat").useChatStore.setState(
+                      localStoreData,
+                    ),
+                  [StoreKey.Access]: () =>
+                    require("../store/access").useAccessStore.setState(
+                      localStoreData,
+                    ),
+                  [StoreKey.Config]: () =>
+                    require("../store/config").useAppConfig.setState(
+                      localStoreData,
+                    ),
+                  [StoreKey.Mask]: () =>
+                    require("../store/mask").useMaskStore.setState(
+                      localStoreData,
+                    ),
+                  [StoreKey.Prompt]: () =>
+                    require("../store/prompt").usePromptStore.setState(
+                      localStoreData,
+                    ),
+                } as Record<string, () => void>
+              )[key];
 
               storeSetter?.();
 

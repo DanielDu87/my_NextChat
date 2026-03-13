@@ -37,6 +37,7 @@ import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
+import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
@@ -660,7 +661,7 @@ export function ApiConfigPage() {
     }
 
     accessStore.update((access) => {
-      access.customModels = "";
+      access.customModels = selectedProfile.cachedModels ?? "";
       access.apiProfiles = access.apiProfiles.map((profile) => {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
@@ -760,6 +761,17 @@ export function ApiConfigPage() {
         access.provider = profile.provider;
         return { ...profile, enabled: true };
       });
+    });
+
+    const latestAccessState = useAccessStore.getState();
+    writeAccessSnapshot({
+      useCustomConfig: latestAccessState.useCustomConfig,
+      provider: latestAccessState.provider,
+      apiProfiles: latestAccessState.apiProfiles,
+      customModels: latestAccessState.customModels,
+      customUrl: latestAccessState.customUrl,
+      customApiKey: latestAccessState.customApiKey,
+      customOpenAICompatible: latestAccessState.customOpenAICompatible,
     });
 
     // 延迟检查，确保值已保存
@@ -870,7 +882,7 @@ export function ApiConfigPage() {
           throw new Error(`${key} 格式不正确`);
         }
 
-        nextState[key as keyof AppState] = parsedState;
+        (nextState as Record<string, unknown>)[key] = parsedState;
         hasRemoteData = true;
       }
 
@@ -879,6 +891,17 @@ export function ApiConfigPage() {
       }
 
       setLocalAppState(nextState);
+      const latestAccessState = useAccessStore.getState();
+      const latestActiveProfile = latestAccessState.apiProfiles.find(
+        (profile) => profile.enabled,
+      );
+
+      if (latestActiveProfile) {
+        syncProfileToAccess(latestActiveProfile.id);
+      } else {
+        applyProviderToChat(latestAccessState.provider);
+        refreshModelsForProvider(latestAccessState.provider);
+      }
 
       syncStore.markSyncTime();
       showToast("已通过 WebDAV 下载并恢复全部配置和对话记录");

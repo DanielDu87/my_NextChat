@@ -79,14 +79,30 @@ export interface DalleRequestPayload {
   style: DalleStyle;
 }
 
+function normalizeServiceProvider(
+  providerName: string | undefined,
+  useCustomConfig: boolean,
+) {
+  if (
+    providerName &&
+    Object.values(ServiceProvider).includes(providerName as ServiceProvider)
+  ) {
+    return providerName as ServiceProvider;
+  }
+
+  return useCustomConfig ? ServiceProvider.Custom : ServiceProvider.OpenAI;
+}
+
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
   path(path: string): string {
     const accessStore = useAccessStore.getState();
     const configStore = useChatStore.getState();
-    const currentProvider =
-      configStore.currentSession().mask.modelConfig.providerName;
+    const currentProvider = normalizeServiceProvider(
+      configStore.currentSession().mask.modelConfig.providerName,
+      accessStore.useCustomConfig,
+    );
 
     let baseUrl = "";
 
@@ -96,6 +112,16 @@ export class ChatGPTApi implements LLMApi {
         throw Error(
           "incomplete azure config, please check it in your settings page",
         );
+      }
+
+      // Docker / Web 部署下如果本地没有配置 OpenAI Key，就优先回退到服务端路由，
+      // 避免浏览器残留的旧 endpoint 持续导致超时。
+      if (
+        !isAzure &&
+        currentProvider === ServiceProvider.OpenAI &&
+        !accessStore.openaiApiKey.trim()
+      ) {
+        return ApiPath.OpenAI + "/" + path;
       }
 
       if (
@@ -210,7 +236,10 @@ export class ChatGPTApi implements LLMApi {
       ...useChatStore.getState().currentSession().mask.modelConfig,
       ...{
         model: options.config.model,
-        providerName: options.config.providerName,
+        providerName: normalizeServiceProvider(
+          options.config.providerName,
+          useAccessStore.getState().useCustomConfig,
+        ),
       },
     };
 
@@ -290,8 +319,10 @@ export class ChatGPTApi implements LLMApi {
     const controller = new AbortController();
     options.onController?.(controller);
 
+    let chatPath = "";
+    let currentBaseUrl = "";
+
     try {
-      let chatPath = "";
       if (modelConfig.providerName === ServiceProvider.Azure) {
         // find model, and get displayName as deployName
         const { models: configModels, customModels: configCustomModels } =
@@ -322,6 +353,23 @@ export class ChatGPTApi implements LLMApi {
           isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
         );
       }
+
+      const accessState = useAccessStore.getState();
+      currentBaseUrl =
+        modelConfig.providerName === ServiceProvider.Custom
+          ? accessState.customUrl
+          : modelConfig.providerName === ServiceProvider.Azure
+          ? accessState.azureUrl
+          : accessState.openaiUrl;
+      console.log("[Chat Request]", {
+        provider: modelConfig.providerName,
+        model: modelConfig.model,
+        useCustomConfig: accessState.useCustomConfig,
+        baseUrl: currentBaseUrl,
+        chatPath,
+        stream: shouldStream,
+      });
+
       if (shouldStream) {
         let index = -1;
         const [tools, funcs] = usePluginStore
@@ -444,6 +492,15 @@ export class ChatGPTApi implements LLMApi {
       }
     } catch (e) {
       console.log("[Request] failed to make a chat request", e);
+      console.error("[Chat Request Error]", {
+        provider: modelConfig.providerName,
+        model: modelConfig.model,
+        useCustomConfig: useAccessStore.getState().useCustomConfig,
+        baseUrl: currentBaseUrl,
+        chatPath,
+        stream: shouldStream,
+        error: e,
+      });
       options.onError?.(e as Error);
     }
   }

@@ -319,6 +319,17 @@ export const useChatStore = createPersistStore(
             },
           };
           session.topic = mask.name;
+        } else {
+          const currentSession = get().currentSession();
+          if (currentSession) {
+            session.mask = {
+              ...session.mask,
+              syncGlobalConfig: currentSession.mask.syncGlobalConfig,
+              modelConfig: {
+                ...currentSession.mask.modelConfig,
+              },
+            };
+          }
         }
 
         set((state) => ({
