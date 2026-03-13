@@ -60,6 +60,7 @@ export function collectModelTable(
       displayName: string;
       sorted: number;
       provider?: LLMModel["provider"]; // Marked as optional
+      vendor?: LLMModel["vendor"]; // 供应商信息
       isDefault?: boolean;
     }
   > = {};

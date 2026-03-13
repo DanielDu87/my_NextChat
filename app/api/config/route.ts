@@ -16,6 +16,8 @@ const DANGER_CONFIG = {
   defaultModel: serverConfig.defaultModel,
   visionModels: serverConfig.visionModels,
   allowedWebDavEndpoints: serverConfig.allowedWebDavEndpoints,
+  webdavUsername: serverConfig.webdavUsername,
+  webdavPassword: serverConfig.webdavPassword,
 };
 
 declare global {

@@ -47,6 +47,8 @@ services:
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
       - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
+      - WEBDAV_USERNAME=$WEBDAV_USERNAME
+      - WEBDAV_PASSWORD=$WEBDAV_PASSWORD
     volumes:
       - .:/app
       - nextchat_node_modules:/app/node_modules

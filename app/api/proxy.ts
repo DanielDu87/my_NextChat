@@ -17,10 +17,30 @@ export async function handle(
   req.nextUrl.searchParams.delete("provider");
 
   const subpath = params.path.join("/");
-  const fetchUrl = `${req.headers.get(
-    "x-base-url",
-  )}/${subpath}?${req.nextUrl.searchParams.toString()}`;
+  const baseUrl = req.headers.get("x-base-url");
+
+  // YutoAPI 和 Ocoolai pricing 接口特殊处理
+  const isPricingApi =
+    subpath === "v1/pricing" &&
+    (baseUrl?.includes("gptapi.asia") ||
+      baseUrl?.includes("ocoolai.com") ||
+      baseUrl?.includes("ooo.cool"));
+
+  const fetchUrl = isPricingApi
+    ? `${baseUrl}/api/pricing`
+    : `${baseUrl}/${subpath}${
+        req.nextUrl.searchParams.toString()
+          ? "?" + req.nextUrl.searchParams.toString()
+          : ""
+      }`;
+
   const skipHeaders = ["connection", "host", "origin", "referer", "cookie"];
+
+  // Pricing API 不需要 Authorization header
+  if (isPricingApi) {
+    skipHeaders.push("authorization");
+  }
+
   const headers = new Headers(
     Array.from(req.headers.entries()).filter((item) => {
       if (
@@ -34,16 +54,15 @@ export async function handle(
     }),
   );
   // if dalle3 use openai api key
-    const baseUrl = req.headers.get("x-base-url");
-    if (baseUrl?.includes("api.openai.com")) {
-      if (!serverConfig.apiKey) {
-        return NextResponse.json(
-          { error: "OpenAI API key not configured" },
-          { status: 500 },
-        );
-      }
-      headers.set("Authorization", `Bearer ${serverConfig.apiKey}`);
+  if (baseUrl?.includes("api.openai.com")) {
+    if (!serverConfig.apiKey) {
+      return NextResponse.json(
+        { error: "OpenAI API key not configured" },
+        { status: 500 },
+      );
     }
+    headers.set("Authorization", `Bearer ${serverConfig.apiKey}`);
+  }
 
   const controller = new AbortController();
   const fetchOptions: RequestInit = {

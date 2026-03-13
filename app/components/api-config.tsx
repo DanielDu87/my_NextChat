@@ -1,11 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 import styles from "./api-config.module.scss";
 
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
-import ResetIcon from "../icons/reload.svg";
 import LoadingIcon from "../icons/three-dots.svg";
+import UploadIcon from "../icons/upload.svg";
+import DownloadIcon from "../icons/download.svg";
+import RobotIcon from "../icons/robot.svg";
+import TrashIcon from "../icons/trash.svg";
 
 import { IconButton } from "./button";
 import { List, ListItem, Select, showToast, showConfirm } from "./ui-lib";
@@ -41,6 +44,7 @@ import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
+import { getProviderDisplayName } from "../utils/models";
 
 type AccessState = ReturnType<typeof useAccessStore.getState>;
 type ModelFetchStatus = {
@@ -480,10 +484,9 @@ export function ApiConfigPage() {
   const [syncing, setSyncing] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [cleaningUp, setCleaningUp] = useState(false);
   const [isTightMode, setIsTightMode] = useState(false);
   const [modelFetchStatusMap, setModelFetchStatusMap] = useState<
-    Partial<Record<ServiceProvider, ModelFetchStatus>>
+    Partial<Record<string, ModelFetchStatus>>
   >({});
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
@@ -493,7 +496,6 @@ export function ApiConfigPage() {
       // 全局查询 tight-container 类
       const hasTightContainer =
         document.querySelector('[class*="tight-container"]') !== null;
-      console.log("[API Config] 检测到 tight-container:", hasTightContainer);
       setIsTightMode(!!hasTightContainer);
     };
 
@@ -534,8 +536,6 @@ export function ApiConfigPage() {
       document.createElement("style");
     styleElement.id = styleId;
 
-    console.log("[API Config] isTightMode:", isTightMode);
-
     // 只在非沾满模式下（有留白）应用样式
     styleElement.textContent = `
       /* 当前模式: ${isTightMode ? "沾满" : "有留白"} */
@@ -572,7 +572,6 @@ export function ApiConfigPage() {
   const usingCustomConfig = accessStore.useCustomConfig;
 
   const providerFields = PROVIDER_FIELDS[accessStore.provider] ?? [];
-  const profileManagedFields = providerFields.filter((f) => f.profileManaged);
   const extraFields = providerFields.filter((f) => !f.profileManaged);
   const providerProfiles = accessStore.apiProfiles;
   const webdavEndpoint = syncStore.webdav.endpoint.trim();
@@ -587,21 +586,220 @@ export function ApiConfigPage() {
     /\/?$/,
     "/",
   )}${STORAGE_KEY}/`;
-  const activeProfile = accessStore.apiProfiles.find(
-    (profile) => profile.enabled,
+
+  // 计算所有已配置供应商的模型总数（从持久化的 modelCount 计算）
+  const allProfiles = accessStore.apiProfiles;
+
+  // 从持久化的 modelCount 计算总数（优先从 cachedModels 计算）
+  const totalModelCountFromCache = allProfiles.reduce((sum, profile) => {
+    // 优先使用 cachedModels 计算实际数量
+    if (profile.cachedModels) {
+      return sum + profile.cachedModels.split(",").filter(Boolean).length;
+    }
+    return sum + (profile.modelCount ?? 0);
+  }, 0);
+
+  // 页面加载时输出缓存的模型数量（延迟到云端同步完成后）
+  const cacheLoggedRef = useRef(false);
+  const logModelCount = () => {
+    if (cacheLoggedRef.current) return;
+    cacheLoggedRef.current = true;
+
+    const currentProfiles = useAccessStore.getState().apiProfiles;
+    const totalCount = currentProfiles.reduce((sum, profile) => {
+      const count = profile.cachedModels
+        ? profile.cachedModels.split(",").filter(Boolean).length
+        : profile.modelCount ?? 0;
+      return sum + count;
+    }, 0);
+
+    if (totalCount > 0) {
+      console.log(`[API Config] 📦 已加载 ${totalCount} 个远程模型`);
+      currentProfiles.forEach((p) => {
+        const count = p.cachedModels
+          ? p.cachedModels.split(",").filter(Boolean).length
+          : p.modelCount ?? 0;
+        if (count > 0) {
+          console.log(`[API Config]   - ${p.name}: ${count} 个`);
+        }
+      });
+    }
+  };
+
+  // 云端同步逻辑（提取为函数以复用）
+  const performCloudSync = async () => {
+    const client = syncStore.getClient() as any;
+
+    // 尝试下载远程配置
+    const remoteConfigJson = await client.get(StoreKey.Config);
+    if (remoteConfigJson) {
+      const remoteConfig = JSON.parse(remoteConfigJson);
+      const remoteModels = remoteConfig.models || [];
+      if (remoteModels.length > 0) {
+        console.log(
+          `[API Config] 📦 云端有 ${remoteModels.length} 个模型，开始合并...`,
+        );
+
+        // 合并云端模型到本地
+        const localModels = appConfig.models || [];
+        const modelMap = new Map<string, (typeof localModels)[0]>();
+
+        // 先添加本地所有模型
+        localModels.forEach((m: any) => {
+          const key = `${m.name}@${m.provider?.id}`;
+          modelMap.set(key, m);
+        });
+
+        // 添加云端独有的模型
+        remoteModels.forEach((m: any) => {
+          const key = `${m.name}@${m.provider?.id}`;
+          if (!modelMap.has(key)) {
+            modelMap.set(key, m);
+          } else {
+            // 同名模型：如果本地不可用但云端可用，更新为可用
+            const existing = modelMap.get(key)!;
+            if (!existing.available && m.available) {
+              modelMap.set(key, { ...existing, available: true });
+            }
+          }
+        });
+
+        const mergedModels = [...modelMap.values()];
+        appConfig.mergeModels(mergedModels);
+        console.log(
+          `[API Config] ✅ 云端模型合并完成，共 ${mergedModels.length} 个模型`,
+        );
+      }
+    }
+
+    // 同样处理 Access store 中的 apiProfiles
+    const remoteAccessJson = await client.get(StoreKey.Access);
+    if (remoteAccessJson) {
+      const remoteAccess = JSON.parse(remoteAccessJson);
+      const remoteProfiles = remoteAccess.apiProfiles || [];
+      if (remoteProfiles.length > 0) {
+        console.log(
+          `[API Config] 📦 云端有 ${remoteProfiles.length} 个配置，开始合并...`,
+        );
+
+        // 合并云端配置到本地
+        accessStore.update((state) => {
+          const localProfileMap = new Map(
+            (state.apiProfiles || []).map((p: any) => [p.id, p]),
+          );
+          const mergedProfiles = [...(state.apiProfiles || [])];
+
+          remoteProfiles.forEach((remoteProfile: any) => {
+            if (!localProfileMap.has(remoteProfile.id)) {
+              mergedProfiles.push(remoteProfile);
+            } else {
+              // 同 ID 配置：合并 cachedModels
+              const localIndex = mergedProfiles.findIndex(
+                (p: any) => p.id === remoteProfile.id,
+              );
+              if (localIndex >= 0) {
+                const local = mergedProfiles[localIndex];
+                const localModels = new Set(
+                  (local.cachedModels || "").split(",").filter(Boolean),
+                );
+                const remoteModels = new Set(
+                  (remoteProfile.cachedModels || "").split(",").filter(Boolean),
+                );
+                remoteModels.forEach((m: unknown) =>
+                  localModels.add(m as string),
+                );
+                mergedProfiles[localIndex] = {
+                  ...local,
+                  cachedModels: [...localModels].join(","),
+                  modelCount: Math.max(
+                    local.modelCount || 0,
+                    remoteProfile.modelCount || 0,
+                  ),
+                };
+              }
+            }
+          });
+
+          state.apiProfiles = mergedProfiles;
+        });
+        console.log(`[API Config] ✅ 云端配置合并完成`);
+      }
+    }
+
+    // 同步完成后输出最终的模型数量
+    logModelCount();
+  };
+
+  // 页面加载时从云端同步模型数据（只同步，不上传）
+  const initialSyncRef = useRef(false);
+  useEffect(() => {
+    const syncFromCloudOnLoad = async () => {
+      if (initialSyncRef.current) return;
+      initialSyncRef.current = true;
+
+      // 等待 syncStore 完成水合后再检查 WebDAV 配置
+      const checkInterval = setInterval(() => {
+        const state = useSyncStore.getState() as any;
+        const hasHydrated = state?._hasHydrated;
+        console.log(
+          `[API Config] 🔍 等待 store 水合... _hasHydrated=${hasHydrated}, webdav.endpoint=${
+            state?.webdav?.endpoint || "(空)"
+          }`,
+        );
+
+        if (hasHydrated) {
+          clearInterval(checkInterval);
+
+          // 自动配置 WebDAV（如果环境变量有配置）
+          ensureWebDavEndpoint();
+
+          const endpoint = useSyncStore.getState().webdav?.endpoint;
+
+          if (endpoint) {
+            console.log(`[API Config] 🔄 页面加载，从云端同步模型数据...`);
+            performCloudSync().catch((error) => {
+              console.log("[API Config] ℹ️ 云端同步跳过或失败:", error);
+              logModelCount();
+            });
+          } else {
+            console.log("[API Config] ℹ️ WebDAV 未配置，跳过云端同步");
+            logModelCount();
+          }
+        }
+      }, 200);
+
+      // 30秒后停止检查（防止无限等待）
+      setTimeout(() => clearInterval(checkInterval), 30000);
+    };
+
+    syncFromCloudOnLoad();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 从当前获取状态计算总数
+  const totalModelCountFromStatus = Object.values(modelFetchStatusMap).reduce(
+    (sum, status) => sum + (status?.count ?? 0),
+    0,
   );
-  const activeProvider = activeProfile?.provider ?? accessStore.provider;
-  const activeProviderModelFetchStatus = modelFetchStatusMap[activeProvider];
-  const modelFetchCount = activeProviderModelFetchStatus?.count;
-  const modelFetchHint = activeProviderModelFetchStatus?.fetching
-    ? "远程模型获取中..."
-    : activeProviderModelFetchStatus?.error
-    ? "远程模型获取失败"
-    : typeof modelFetchCount === "number"
-    ? "已获取"
+
+  // 使用当前状态的数量（如果正在获取或刚获取完），否则使用缓存的数量
+  const totalModelCount = Object.values(modelFetchStatusMap).some(
+    (s) => s?.fetching === true || s?.count !== undefined,
+  )
+    ? totalModelCountFromStatus
+    : totalModelCountFromCache;
+
+  const anyFetching = Object.values(modelFetchStatusMap).some(
+    (status) => status?.fetching === true,
+  );
+
+  const modelFetchCount = totalModelCount > 0 ? totalModelCount : undefined;
+  const modelFetchHint = anyFetching
+    ? "正在获取模型..."
+    : totalModelCount > 0
+    ? `已获取 ${totalModelCount} 个模型`
     : fetchingModels
-    ? "远程模型获取中..."
-    : "远程模型尚未获取";
+    ? "正在获取模型..."
+    : "点击获取模型数据";
   // const customProviderUnsupported =
   //   accessStore.provider === ServiceProvider.Custom &&
   //   !accessStore.customOpenAICompatible;
@@ -610,12 +808,13 @@ export function ApiConfigPage() {
     provider: ServiceProvider,
     baseUrl?: string,
     apiKey?: string,
+    profileId?: string,
   ) => {
-    console.log("[API Config] 正在从供应商获取模型列表...");
+    const key = profileId ?? provider;
     setModelFetchStatusMap((prev) => ({
       ...prev,
-      [provider]: {
-        ...prev[provider],
+      [key]: {
+        ...prev[key],
         fetching: true,
         error: undefined,
       },
@@ -625,34 +824,50 @@ export function ApiConfigPage() {
       .then((result) => {
         setModelFetchStatusMap((prev) => ({
           ...prev,
-          [provider]: {
+          [key]: {
             count: result.total,
             fetching: false,
             error: undefined,
           },
         }));
-        if (result.total > 0) {
-          console.log(`[API Config] 成功获取 ${result.total} 个模型`);
-        } else {
+
+        // 🆕 保存模型数量到对应 profile 的 modelCount
+        if (profileId) {
+          accessStore.update((state) => {
+            state.apiProfiles = state.apiProfiles.map((p) =>
+              p.id === profileId ? { ...p, modelCount: result.total } : p,
+            );
+          });
+        }
+
+        if (result.total === 0) {
+          const displayName = getProviderDisplayName(provider, baseUrl);
           console.log(
-            "[API Config] 未获取到模型，可能该供应商不支持模型列表API",
+            `[API Config] ⚠️ 从 ${displayName} 未获取到模型，可能该供应商不支持模型列表API`,
           );
         }
       })
       .catch((error) => {
         setModelFetchStatusMap((prev) => ({
           ...prev,
-          [provider]: {
+          [key]: {
             count: 0,
             fetching: false,
             error: error instanceof Error ? error.message : "获取模型失败",
           },
         }));
-        console.error("[API Config] 自动获取模型失败:", error);
+        const displayName = getProviderDisplayName(provider, baseUrl);
+        console.error(
+          `[API Config] ❌ 从 ${displayName} 自动获取模型失败:`,
+          error,
+        );
       });
   };
 
-  const syncProfileToAccess = (profileId: string) => {
+  const syncProfileToAccess = (
+    profileId: string,
+    options?: { skipFetchModels?: boolean },
+  ) => {
     const selectedProfile = accessStore.apiProfiles.find(
       (p) => p.id === profileId,
     );
@@ -666,34 +881,15 @@ export function ApiConfigPage() {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
 
-        console.log(
-          "[API Config] Enabling profile:",
-          profile.name,
-          "Provider:",
-          profile.provider,
-        );
-        console.log("[API Config] Base URL:", profile.baseUrl);
-        console.log("[API Config] API Key:", profile.apiKey ? "***" : "EMPTY");
-
         switch (profile.provider) {
           case ServiceProvider.Custom:
             access.customUrl = profile.baseUrl;
             access.customApiKey = profile.apiKey;
             access.customOpenAICompatible = profile.openAICompatible ?? true;
-            console.log("[API Config] Set customUrl:", access.customUrl);
-            console.log(
-              "[API Config] Set customApiKey:",
-              access.customApiKey ? "***" : "EMPTY",
-            );
             break;
           case ServiceProvider.OpenAI:
             access.openaiUrl = profile.baseUrl;
             access.openaiApiKey = profile.apiKey;
-            console.log("[API Config] Set openaiUrl:", access.openaiUrl);
-            console.log(
-              "[API Config] Set openaiApiKey:",
-              access.openaiApiKey ? "***" : "EMPTY",
-            );
             break;
           case ServiceProvider.Azure:
             access.azureUrl = profile.baseUrl;
@@ -775,24 +971,16 @@ export function ApiConfigPage() {
     });
 
     // 延迟检查，确保值已保存
-    setTimeout(() => {
-      const access = useAccessStore.getState();
-      console.log("[API Config] After update - customUrl:", access.customUrl);
-      console.log(
-        "[API Config] After update - customApiKey:",
-        access.customApiKey ? "***" : "EMPTY",
-      );
-      console.log("[API Config] After update - provider:", access.provider);
-    }, 100);
-
     // 同时更新当前会话的模型提供商
     if (selectedProfile) {
       applyProviderToChat(selectedProfile.provider);
-      refreshModelsForProvider(
-        selectedProfile.provider,
-        selectedProfile.baseUrl,
-        selectedProfile.apiKey,
-      );
+      if (!options?.skipFetchModels) {
+        refreshModelsForProvider(
+          selectedProfile.provider,
+          selectedProfile.baseUrl,
+          selectedProfile.apiKey,
+        );
+      }
     }
   };
 
@@ -820,6 +1008,9 @@ export function ApiConfigPage() {
         access.useCustomConfig = true;
       });
 
+      // 🆕 如果 WebDAV 未配置，自动使用 allowedWebDavEndpoints 中的第一个地址
+      ensureWebDavEndpoint();
+
       syncStore.update((state) => {
         state.provider = ProviderType.WebDAV;
       });
@@ -828,34 +1019,173 @@ export function ApiConfigPage() {
         (profile) => profile.enabled,
       );
       if (activeProfile) {
-        syncProfileToAccess(activeProfile.id);
+        syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+      }
+
+      // 🆕 在同步前获取所有平台的模型
+      const accessState = useAccessStore.getState();
+      const allProfiles = accessState.apiProfiles;
+
+      let totalFetched = 0;
+      const results: Array<{ name: string; count: number; success: boolean }> =
+        [];
+
+      if (allProfiles.length > 0) {
+        console.log("=".repeat(200));
+        for (const profile of allProfiles) {
+          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
+          // 设置获取状态
+          setModelFetchStatusMap((prev) => ({
+            ...prev,
+            [profile.id]: {
+              ...prev[profile.id],
+              fetching: true,
+              error: undefined,
+            },
+          }));
+
+          try {
+            const result = await fetchFromProvider(
+              profile.provider,
+              profile.baseUrl,
+              profile.apiKey,
+              { silent: true, profileName: profile.name },
+            );
+            totalFetched += result.total;
+            results.push({
+              name: profile.name,
+              count: result.total,
+              success: true,
+            });
+
+            // 🆕 保存模型数量到对应 profile 的 modelCount
+            accessStore.update((state) => {
+              state.apiProfiles = state.apiProfiles.map((p) =>
+                p.id === profile.id ? { ...p, modelCount: result.total } : p,
+              );
+            });
+
+            // 更新成功状态
+            setModelFetchStatusMap((prev) => ({
+              ...prev,
+              [profile.id]: {
+                count: result.total,
+                fetching: false,
+                error: undefined,
+              },
+            }));
+            console.log(
+              `[API Config] ✅ ${profile.name} 获取了 ${result.total} 个模型`,
+            );
+            console.log("=".repeat(200));
+          } catch (error) {
+            results.push({ name: profile.name, count: 0, success: false });
+            // 获取失败时，不更新 modelCount，保留云端/缓存的值
+            // 更新失败状态（count 设为 undefined 表示使用缓存值）
+            setModelFetchStatusMap((prev) => ({
+              ...prev,
+              [profile.id]: {
+                count: undefined, // undefined 表示使用缓存的 modelCount
+                fetching: false,
+                error: error instanceof Error ? error.message : "获取模型失败",
+              },
+            }));
+            console.error(
+              `[API Config] ❌ ${profile.name}: 获取失败，保留云端数据`,
+              error,
+            );
+            console.log("=".repeat(200));
+          }
+        }
       }
 
       await syncStore.sync();
+      console.log("[API Config] ✅ 同步完成");
+
+      // 汇总放在最后
+      if (results.length > 0) {
+        const totalFetched = results.reduce(
+          (sum, r) => sum + (r.success ? r.count : 0),
+          0,
+        );
+
+        console.log("=".repeat(200));
+        console.log(`[API Config] 📦 本次获取模型总数: ${totalFetched} 个`);
+        console.log(`[API Config] 📊 各平台获取数量:`);
+        results.forEach(({ name, count, success }) => {
+          console.log(
+            `[API Config]   - ${name}: ${success ? count : "失败"} 个`,
+          );
+        });
+      }
+
       showToast("已通过 WebDAV 同步全部配置和对话记录");
     } catch (error) {
-      console.error("[API Config Sync]", error);
+      console.error("[API Config] ❌ 同步失败:", error);
       showToast("同步到 WebDAV 失败，请检查网络或凭据");
     } finally {
       setSyncing(false);
     }
   };
 
+  const ensureWebDavEndpoint = () => {
+    const currentEndpoint = syncStore.webdav.endpoint.trim();
+    const currentUsername = syncStore.webdav.username.trim();
+    const currentPassword = syncStore.webdav.password.trim();
+
+    if (!currentEndpoint && allowedWebDavEndpoints.length > 0) {
+      const fallbackEndpoint = allowedWebDavEndpoints
+        .find((e) => e.trim().length > 0)
+        ?.trim();
+      if (fallbackEndpoint) {
+        console.log(
+          `[API Config] 🔧 自动配置 WebDAV 地址: ${fallbackEndpoint}`,
+        );
+        syncStore.update((state) => {
+          state.webdav.endpoint = fallbackEndpoint;
+        });
+      }
+    }
+
+    // 自动设置用户名和密码（如果环境变量有配置）
+    if (!currentUsername && accessStore.webdavUsername) {
+      console.log(`[API Config] 🔧 自动配置 WebDAV 用户名`);
+      syncStore.update((state) => {
+        state.webdav.username = accessStore.webdavUsername;
+      });
+    }
+
+    if (!currentPassword && accessStore.webdavPassword) {
+      console.log(`[API Config] 🔧 自动配置 WebDAV 密码`);
+      syncStore.update((state) => {
+        state.webdav.password = accessStore.webdavPassword;
+      });
+    }
+  };
+
   const backupToWebDav = async () => {
+    console.log("[API Config] ⬆️ 开始上传到云端...");
     try {
       setBackingUp(true);
+      ensureWebDavEndpoint();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
 
+      console.log(
+        `[API Config] 📦 准备上传 ${SYNC_STORE_KEYS.length} 个数据块`,
+      );
+
       for (const key of SYNC_STORE_KEYS) {
         const storeData = localState[key as keyof AppState];
+        console.log(`[API Config] 📤 正在上传: ${key}...`);
         await client.set(key, JSON.stringify(storeData));
       }
 
       syncStore.markSyncTime();
+      console.log("[API Config] ✅ 上传完成");
       showToast("已通过 WebDAV 备份全部配置和对话记录");
     } catch (error) {
-      console.error("[Backup]", error);
+      console.error("[API Config] ❌ 上传失败:", error);
       showToast("上传全部配置到云端失败");
     } finally {
       setBackingUp(false);
@@ -863,17 +1193,24 @@ export function ApiConfigPage() {
   };
 
   const downloadFromWebDav = async () => {
+    console.log("[API Config] ⬇️ 开始从云端下载...");
     try {
       setDownloading(true);
-
+      ensureWebDavEndpoint();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
       const nextState = { ...localState } as AppState;
       let hasRemoteData = false;
 
+      console.log(
+        `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
+      );
+
       for (const key of SYNC_STORE_KEYS) {
+        console.log(`[API Config] 📥 正在下载: ${key}...`);
         const remoteStateText = await client.get(key);
         if (!remoteStateText || remoteStateText === "") {
+          console.log(`[API Config] ℹ️ ${key}: 云端无数据，跳过`);
           continue;
         }
 
@@ -884,12 +1221,14 @@ export function ApiConfigPage() {
 
         (nextState as Record<string, unknown>)[key] = parsedState;
         hasRemoteData = true;
+        console.log(`[API Config] ✅ ${key}: 下载成功`);
       }
 
       if (!hasRemoteData) {
         throw new Error("云端配置为空");
       }
 
+      console.log("[API Config] 🔧 正在应用下载的配置...");
       setLocalAppState(nextState);
       const latestAccessState = useAccessStore.getState();
       const latestActiveProfile = latestAccessState.apiProfiles.find(
@@ -904,36 +1243,43 @@ export function ApiConfigPage() {
       }
 
       syncStore.markSyncTime();
+      console.log("[API Config] ✅ 下载并恢复完成");
       showToast("已通过 WebDAV 下载并恢复全部配置和对话记录");
     } catch (error) {
-      console.error("[Download Cloud Config]", error);
+      console.error("[API Config] ❌ 下载失败:", error);
       showToast("从云端下载全部配置失败: " + (error as Error).message);
     } finally {
       setDownloading(false);
     }
   };
 
-  // 清理云端的旧备份文件
-  const cleanupLegacyBackup = async () => {
-    try {
-      setCleaningUp(true);
-      const client = syncStore.getClient() as any;
+  const clearCloudModels = async () => {
+    const confirmed = await showConfirm(
+      "确定要清空所有云端模型数据吗？\n此操作不可恢复。",
+    );
+    if (!confirmed) return;
 
-      if (client.deleteLegacy) {
-        const deleted = await client.deleteLegacy();
-        if (deleted) {
-          showToast("已清理云端旧备份文件");
-        } else {
-          showToast("云端没有旧备份文件或清理失败");
-        }
-      } else {
-        showToast("当前同步方式不支持清理旧文件");
-      }
+    console.log("[API Config] 🗑️ 开始清空云端模型数据...");
+    try {
+      // 清空本地 apiProfiles 的 cachedModels
+      accessStore.update((state) => {
+        state.apiProfiles = state.apiProfiles.map((p) => ({
+          ...p,
+          cachedModels: "",
+          modelCount: 0,
+        }));
+      });
+
+      // 清空 appConfig 的 models
+      appConfig.update((state) => {
+        state.models = [];
+      });
+
+      console.log("[API Config] ✅ 云端模型数据已清空");
+      showToast("已清空所有云端模型数据");
     } catch (error) {
-      console.error("[Cleanup]", error);
-      showToast("清理旧备份文件失败");
-    } finally {
-      setCleaningUp(false);
+      console.error("[API Config] ❌ 清空失败:", error);
+      showToast("清空云端模型失败");
     }
   };
 
@@ -1299,72 +1645,176 @@ export function ApiConfigPage() {
             vertical
           >
             <div className={styles.actions}>
-              <IconButton
-                icon={backingUp ? <LoadingIcon /> : <ConfirmIcon />}
-                text={backingUp ? "上传中..." : "上传到云端"}
-                bordered
-                disabled={backingUp || syncing || downloading}
-                onClick={() => {
-                  void backupToWebDav();
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                  flex: 1,
                 }}
-              />
-              <IconButton
-                icon={syncing ? <LoadingIcon /> : <ConfirmIcon />}
-                text={syncing ? "同步中..." : "保存并同步"}
-                type="primary"
-                bordered
-                disabled={syncing || backingUp || downloading}
-                onClick={() => {
-                  void syncToWebDav();
-                }}
-              />
-              <IconButton
-                icon={downloading ? <LoadingIcon /> : <ConfirmIcon />}
-                text={downloading ? "下载中..." : "从云端下载"}
-                bordered
-                disabled={downloading || syncing || backingUp}
-                onClick={() => {
-                  void downloadFromWebDav();
-                }}
-              />
-              <IconButton
-                icon={cleaningUp ? <LoadingIcon /> : <ResetIcon />}
-                text={cleaningUp ? "清理中..." : "清理旧文件"}
-                bordered
-                disabled={cleaningUp || syncing || backingUp || downloading}
-                onClick={() => {
-                  void cleanupLegacyBackup();
-                }}
-              />
-              <button
-                type="button"
-                className={styles.modelFetchHint}
-                aria-live="polite"
-                disabled={activeProviderModelFetchStatus?.fetching}
-                onClick={() => {
-                  const latestActiveProfile = useAccessStore
-                    .getState()
-                    .apiProfiles.find((profile) => profile.enabled);
-                  const provider =
-                    latestActiveProfile?.provider ??
-                    useAccessStore.getState().provider;
-                  const baseUrl = latestActiveProfile?.baseUrl;
-                  const apiKey = latestActiveProfile?.apiKey;
-                  refreshModelsForProvider(provider, baseUrl, apiKey);
-                }}
-                title="点击重新获取远程模型"
               >
-                {fetchingModels && <LoadingIcon />}
-                <span>
-                  {typeof modelFetchCount === "number" ? (
-                    <>
-                      已获取 <strong>{modelFetchCount}</strong> 个远程模型
-                    </>
-                  ) : (
-                    modelFetchHint
-                  )}
-                </span>
-              </button>
+                <IconButton
+                  icon={backingUp ? <LoadingIcon /> : <UploadIcon />}
+                  text={backingUp ? "上传中..." : "上传到云端"}
+                  bordered
+                  disabled={backingUp || syncing || downloading}
+                  onClick={() => {
+                    void backupToWebDav();
+                  }}
+                />
+                <IconButton
+                  icon={syncing ? <LoadingIcon /> : <ConfirmIcon />}
+                  text={syncing ? "同步中..." : "保存并同步"}
+                  type="primary"
+                  bordered
+                  disabled={syncing || backingUp || downloading}
+                  onClick={() => {
+                    void syncToWebDav();
+                  }}
+                />
+                <IconButton
+                  icon={downloading ? <LoadingIcon /> : <DownloadIcon />}
+                  text={downloading ? "下载中..." : "从云端下载"}
+                  bordered
+                  disabled={downloading || syncing || backingUp}
+                  onClick={() => {
+                    void downloadFromWebDav();
+                  }}
+                />
+                <button
+                  type="button"
+                  className={styles.modelFetchHint}
+                  aria-live="polite"
+                  disabled={anyFetching}
+                  onClick={async () => {
+                    console.log("[API Config] 🔄 开始获取所有配置的模型...");
+
+                    const accessState = useAccessStore.getState();
+                    const allProfiles = accessState.apiProfiles;
+
+                    if (allProfiles.length === 0) {
+                      // 如果没有配置 profile，使用默认 provider
+                      const provider = accessState.provider;
+                      refreshModelsForProvider(provider);
+                      return;
+                    }
+
+                    // 遍历所有配置的 profile 并获取模型
+                    let totalFetched = 0;
+                    const results: Array<{
+                      name: string;
+                      count: number;
+                      success: boolean;
+                    }> = [];
+
+                    for (const profile of allProfiles) {
+                      console.log(
+                        `[API Config] 📋 正在获取 ${profile.name} 的模型...`,
+                      );
+                      // 设置获取状态
+                      setModelFetchStatusMap((prev) => ({
+                        ...prev,
+                        [profile.id]: {
+                          ...prev[profile.id],
+                          fetching: true,
+                          error: undefined,
+                        },
+                      }));
+                      try {
+                        const result = await fetchFromProvider(
+                          profile.provider,
+                          profile.baseUrl,
+                          profile.apiKey,
+                          { silent: true },
+                        );
+                        totalFetched += result.total;
+                        results.push({
+                          name: profile.name,
+                          count: result.total,
+                          success: true,
+                        });
+
+                        // 🆕 保存模型数量到对应 profile 的 modelCount
+                        accessStore.update((state) => {
+                          state.apiProfiles = state.apiProfiles.map((p) =>
+                            p.id === profile.id
+                              ? { ...p, modelCount: result.total }
+                              : p,
+                          );
+                        });
+
+                        // 更新成功状态
+                        setModelFetchStatusMap((prev) => ({
+                          ...prev,
+                          [profile.id]: {
+                            count: result.total,
+                            fetching: false,
+                            error: undefined,
+                          },
+                        }));
+                        console.log(
+                          `[API Config] ✅ ${profile.name}: 获取到 ${result.total} 个模型`,
+                        );
+                      } catch (error) {
+                        results.push({
+                          name: profile.name,
+                          count: 0,
+                          success: false,
+                        });
+                        // 更新失败状态
+                        setModelFetchStatusMap((prev) => ({
+                          ...prev,
+                          [profile.id]: {
+                            count: 0,
+                            fetching: false,
+                            error:
+                              error instanceof Error
+                                ? error.message
+                                : "获取模型失败",
+                          },
+                        }));
+                        console.error(
+                          `[API Config] ❌ ${profile.name}: 获取失败`,
+                          error,
+                        );
+                      }
+                    }
+
+                    console.log(`[API Config] 📊 模型获取汇总:`);
+                    results.forEach(({ name, count, success }) => {
+                      console.log(
+                        `[API Config]   - ${name}: ${
+                          success ? count : "失败"
+                        } 个`,
+                      );
+                    });
+                    console.log(
+                      `[API Config] ✅ 所有模型获取完成，共获取 ${totalFetched} 个模型`,
+                    );
+                  }}
+                  title="点击获取模型数据"
+                >
+                  {anyFetching ? <LoadingIcon /> : <RobotIcon />}
+                  <span>
+                    {typeof modelFetchCount === "number" ? (
+                      <>
+                        已获取 <strong>{modelFetchCount}</strong> 个远程模型
+                      </>
+                    ) : (
+                      modelFetchHint
+                    )}
+                  </span>
+                </button>
+              </div>
+              <IconButton
+                icon={<TrashIcon />}
+                text="清空模型数据"
+                bordered
+                className={styles.dangerButton}
+                onClick={() => {
+                  void clearCloudModels();
+                }}
+              />
             </div>
           </ListItem>
         </List>

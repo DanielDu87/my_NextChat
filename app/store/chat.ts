@@ -420,8 +420,21 @@ export const useChatStore = createPersistStore(
         attachImages?: string[],
         isMcpResponse?: boolean,
       ) {
+        console.log("[Chat] 💬 用户输入:", {
+          contentLength: content.length,
+          hasImages: attachImages && attachImages.length > 0,
+          isMcpResponse,
+        });
+
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
+
+        console.log(
+          "[Chat] 🤖 使用模型:",
+          modelConfig.model,
+          "提供商:",
+          modelConfig.providerName,
+        );
 
         // MCP Response no need to fill template
         let mContent: string | MultimodalContent[] = isMcpResponse
@@ -455,6 +468,11 @@ export const useChatStore = createPersistStore(
         const sendMessages = recentMessages.concat(userMessage);
         const messageIndex = session.messages.length + 1;
 
+        console.log("[Chat] 📨 发送消息:", {
+          contextMessages: recentMessages.length,
+          totalMessages: sendMessages.length,
+        });
+
         // save user's and bot's message
         get().updateTargetSession(session, (session) => {
           const savedUserMessage = {
@@ -468,6 +486,7 @@ export const useChatStore = createPersistStore(
         });
 
         const api: ClientApi = getClientApi(modelConfig.providerName);
+        console.log("[Chat] 🚀 开始 API 调用...");
         // make request
         api.llm.chat({
           messages: sendMessages,
@@ -486,11 +505,13 @@ export const useChatStore = createPersistStore(
             if (message) {
               botMessage.content = message;
               botMessage.date = new Date().toLocaleString();
+              console.log("[Chat] ✅ API 调用完成, 响应长度:", message.length);
               get().onNewMessage(botMessage, session);
             }
             ChatControllerPool.remove(session.id, botMessage.id);
           },
           onBeforeTool(tool: ChatMessageTool) {
+            console.log("[Chat] 🔧 工具调用:", tool.function?.name);
             (botMessage.tools = botMessage?.tools || []).push(tool);
             get().updateTargetSession(session, (session) => {
               session.messages = session.messages.concat();
@@ -508,6 +529,11 @@ export const useChatStore = createPersistStore(
           },
           onError(error) {
             const isAborted = error.message?.includes?.("aborted");
+            console.error(
+              "[Chat] ❌ API 调用失败:",
+              error.message,
+              isAborted ? "(已中止)" : "",
+            );
             botMessage.content +=
               "\n\n" +
               prettyObject({

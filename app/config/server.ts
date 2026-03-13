@@ -180,6 +180,9 @@ export const getServerSideConfig = () => {
     process.env.WHITE_WEBDAV_ENDPOINTS ?? ""
   ).split(",");
 
+  const webdavUsername = process.env.WEBDAV_USERNAME ?? "";
+  const webdavPassword = process.env.WEBDAV_PASSWORD ?? "";
+
   return {
     baseUrl: process.env.BASE_URL,
     apiKey: getApiKey(process.env.OPENAI_API_KEY),
@@ -256,7 +259,9 @@ export const getServerSideConfig = () => {
     ai302ApiKey: getApiKey(process.env.AI302_API_KEY),
 
     gtmId: process.env.GTM_ID,
-    gaId: process.env.GA_ID || DEFAULT_GA_ID,
+    gaId:
+      process.env.GA_ID ||
+      (process.env.NODE_ENV === "development" ? "" : DEFAULT_GA_ID),
 
     needCode: ACCESS_CODES.size > 0,
     code: process.env.CODE,
@@ -273,6 +278,8 @@ export const getServerSideConfig = () => {
     defaultModel,
     visionModels,
     allowedWebDavEndpoints,
+    webdavUsername,
+    webdavPassword,
     enableMcp: process.env.ENABLE_MCP === "true",
   };
 };

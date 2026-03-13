@@ -83,6 +83,7 @@ const DEFAULT_ACCESS_STATE = {
     enabled: boolean;
     openAICompatible?: boolean;
     cachedModels?: string;
+    modelCount?: number; // 🆕 存储该平台获取的模型数量
   }>,
 
   // custom
@@ -171,6 +172,8 @@ const DEFAULT_ACCESS_STATE = {
   defaultModel: "",
   visionModels: "",
   allowedWebDavEndpoints: [] as string[],
+  webdavUsername: "",
+  webdavPassword: "",
 
   // tts config
   edgeTTSVoiceName: "zh-CN-YunxiNeural",
@@ -337,6 +340,12 @@ export const useAccessStore = createPersistStore(
             allowedWebDavEndpoints: state.useCustomConfig
               ? res.allowedWebDavEndpoints ?? state.allowedWebDavEndpoints
               : res.allowedWebDavEndpoints ?? [],
+            webdavUsername: state.useCustomConfig
+              ? res.webdavUsername ?? state.webdavUsername
+              : res.webdavUsername ?? "",
+            webdavPassword: state.useCustomConfig
+              ? res.webdavPassword ?? state.webdavPassword
+              : res.webdavPassword ?? "",
           }));
         })
         .catch(() => {
@@ -374,13 +383,6 @@ export const useAccessStore = createPersistStore(
         const activeProfile = state.apiProfiles.find(
           (profile) => profile.enabled,
         );
-        console.log("[Access Rehydrate]", {
-          useCustomConfig: state.useCustomConfig,
-          customModelsLength: state.customModels.length,
-          activeProfileName: activeProfile?.name,
-          activeProfileCachedModelsLength:
-            activeProfile?.cachedModels?.length ?? 0,
-        });
         if (
           state.useCustomConfig &&
           state.customModels.length === 0 &&
@@ -389,10 +391,6 @@ export const useAccessStore = createPersistStore(
           state.update((draft) => {
             draft.customModels = activeProfile.cachedModels ?? "";
           });
-          console.log(
-            "[Access Rehydrate] restored customModels from active profile cache",
-            activeProfile.cachedModels.length,
-          );
         }
       };
     },

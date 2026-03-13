@@ -127,9 +127,9 @@ export const useUpdateStore = createPersistStore(
               }
             });
         }
-        console.log("[Got Upstream] ", remoteId);
+        console.log("[Got Upstream] ✅ ", remoteId);
       } catch (error) {
-        console.error("[Fetch Upstream Commit Id]", error);
+        console.error("[Fetch Upstream Commit Id] ❌", error);
       }
     },
 

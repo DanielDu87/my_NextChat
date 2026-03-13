@@ -96,6 +96,7 @@ export interface LLMModel {
   available: boolean;
   provider: LLMModelProvider;
   sorted: number;
+  vendor?: LLMModelVendor; // 供应商信息
 }
 
 export interface LLMModelProvider {
@@ -103,6 +104,12 @@ export interface LLMModelProvider {
   providerName: string;
   providerType: string;
   sorted: number;
+}
+
+export interface LLMModelVendor {
+  id: number;
+  name: string;
+  icon?: string;
 }
 
 export abstract class LLMApi {

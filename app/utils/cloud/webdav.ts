@@ -5,7 +5,7 @@ export type WebDAVConfig = SyncStore["webdav"];
 export type WebDavClient = ReturnType<typeof createWebDavClient>;
 
 // 分文件存储的文件名映射
-const FILE_NAMES = {
+const FILE_NAMES: Record<string, string> = {
   [StoreKey.Chat]: "chat.json",
   [StoreKey.Access]: "access.json",
   [StoreKey.Config]: "config.json",
@@ -13,8 +13,14 @@ const FILE_NAMES = {
   [StoreKey.Prompt]: "prompt.json",
 };
 
-// 旧的单文件名
-const LEGACY_FILE_NAME = "backup.json";
+// 文件显示名称映射
+const FILE_DISPLAY_NAMES: Record<string, string> = {
+  "chat.json": "聊天记录",
+  "access.json": "访问配置",
+  "config.json": "应用配置",
+  "mask.json": "Prompt模板",
+  "prompt.json": "自定义Prompt",
+};
 
 export function createWebDavClient(store: SyncStore) {
   const folder = STORAGE_KEY;
@@ -24,6 +30,7 @@ export function createWebDavClient(store: SyncStore) {
 
   return {
     async check() {
+      console.log("[WebDav] 🔍 正在检查连接...");
       try {
         const res = await fetch(this.path(folder, proxyUrl, "MKCOL"), {
           method: "GET",
@@ -32,99 +39,89 @@ export function createWebDavClient(store: SyncStore) {
         const success = [201, 200, 404, 405, 301, 302, 307, 308].includes(
           res.status,
         );
-        console.log(
-          `[WebDav] check ${success ? "success" : "failed"}, ${res.status} ${
-            res.statusText
-          }`,
-        );
+        if (success) {
+          console.log("[WebDav] ✅ 连接成功");
+        } else {
+          console.error(
+            `[WebDav] ❌ 连接失败: ${res.status} ${res.statusText}`,
+          );
+        }
         return success;
       } catch (e) {
-        console.error("[WebDav] failed to check", e);
+        console.error("[WebDav] ❌ 连接异常:", e);
       }
 
       return false;
     },
 
     async get(key: string) {
-      // 根据不同的 store key 获取对应的文件
-      const fileName =
-        FILE_NAMES[key as keyof typeof FILE_NAMES] || LEGACY_FILE_NAME;
-      const filePath = `${folder}/${fileName}`;
-
-      const res = await fetch(this.path(filePath, proxyUrl), {
-        method: "GET",
-        headers: this.headers(),
-      });
-
-      console.log(
-        "[WebDav] get key = ",
-        key,
-        "file = ",
-        fileName,
-        res.status,
-        res.statusText,
-      );
-
-      if (404 == res.status) {
+      const fileName = FILE_NAMES[key];
+      if (!fileName) {
+        console.warn(`[WebDav] ⚠️ 未知的 store key: ${key}`);
         return "";
       }
-
-      return await res.text();
-    },
-
-    async set(key: string, value: string) {
-      // 根据不同的 store key 存储到对应的文件
-      const fileName =
-        FILE_NAMES[key as keyof typeof FILE_NAMES] || LEGACY_FILE_NAME;
+      const displayName = FILE_DISPLAY_NAMES[fileName] || fileName;
       const filePath = `${folder}/${fileName}`;
 
-      const res = await fetch(this.path(filePath, proxyUrl), {
-        method: "PUT",
-        headers: this.headers(),
-        body: value,
-      });
+      console.log(`[WebDav] ⬇️ 正在下载: ${displayName} (${fileName})...`);
 
-      console.log(
-        "[WebDav] set key = ",
-        key,
-        "file = ",
-        fileName,
-        res.status,
-        res.statusText,
-      );
-    },
-
-    // 新增：获取旧的备份数据（用于迁移）
-    async getLegacy() {
-      const filePath = `${folder}/${LEGACY_FILE_NAME}`;
       try {
-        // 先用 HEAD 检查文件是否存在，避免 404 日志
-        const headRes = await fetch(this.path(filePath, proxyUrl), {
-          method: "HEAD",
-          headers: this.headers(),
-        });
-
-        if (headRes.status === 404) {
-          return "";
-        }
-
-        // 文件存在，再获取内容
         const res = await fetch(this.path(filePath, proxyUrl), {
           method: "GET",
           headers: this.headers(),
         });
 
-        return await res.text();
+        if (res.status === 404) {
+          console.log(`[WebDav] ℹ️ 文件不存在: ${displayName}`);
+          return "";
+        }
+
+        if (res.ok) {
+          const content = await res.text();
+          const sizeKB = (content.length / 1024).toFixed(1);
+          console.log(`[WebDav] ✅ 下载成功: ${displayName} (${sizeKB}KB)`);
+          return content;
+        }
+
+        console.error(
+          `[WebDav] ❌ 下载失败: ${displayName} - ${res.status} ${res.statusText}`,
+        );
+        return "";
       } catch (e) {
-        // 静默处理错误，返回空字符串
+        console.error(`[WebDav] ❌ 下载异常: ${displayName}`, e);
         return "";
       }
     },
 
-    // 新增：删除旧的备份文件（已废弃，旧备份模式不再使用）
-    async deleteLegacy() {
-      // 旧的单文件备份模式已废弃，直接返回成功
-      return true;
+    async set(key: string, value: string) {
+      const fileName = FILE_NAMES[key];
+      if (!fileName) {
+        console.warn(`[WebDav] ⚠️ 未知的 store key: ${key}`);
+        return;
+      }
+      const displayName = FILE_DISPLAY_NAMES[fileName] || fileName;
+      const filePath = `${folder}/${fileName}`;
+      const sizeKB = (value.length / 1024).toFixed(1);
+
+      console.log(`[WebDav] ⬆️ 正在上传: ${displayName} (${sizeKB}KB)...`);
+
+      try {
+        const res = await fetch(this.path(filePath, proxyUrl), {
+          method: "PUT",
+          headers: this.headers(),
+          body: value,
+        });
+
+        if (res.ok) {
+          console.log(`[WebDav] ✅ 上传成功: ${displayName}`);
+        } else {
+          console.error(
+            `[WebDav] ❌ 上传失败: ${displayName} - ${res.status} ${res.statusText}`,
+          );
+        }
+      } catch (e) {
+        console.error(`[WebDav] ❌ 上传异常: ${displayName}`, e);
+      }
     },
 
     headers() {

@@ -173,12 +173,49 @@ export const useAppConfig = createPersistStore(
         return;
       }
 
+      // 收集新模型涉及的 provider id
+      const newProviderIds = new Set(
+        newModels.map((m) => m?.provider?.id).filter(Boolean),
+      );
+
       const oldModels = get().models;
       const modelMap: Record<string, LLMModel> = {};
 
       for (const model of oldModels) {
-        model.available = false;
-        modelMap[`${model.name}@${model?.provider?.id}`] = model;
+        const pid = model?.provider?.id;
+        // 跳过即将被新模型替换的 provider 的旧模型
+        if (pid && newProviderIds.has(pid)) {
+          continue;
+        }
+        // 清理旧的 "custom" provider 模型（已迁移为 custom_XXX）
+        if (pid === "custom") {
+          continue;
+        }
+        // 清理内置供应商的旧模型（用户只用自定义供应商）
+        const builtinProviders = [
+          "openai",
+          "azure",
+          "claude",
+          "palm",
+          "google",
+          "anthropic",
+          "baidu",
+          "bytedance",
+          "alibaba",
+          "tencent",
+          "moonshot",
+          "stability",
+          "iflytek",
+          "xai",
+          "chatglm",
+          "deepseek",
+          "siliconflow",
+          "302ai",
+        ];
+        if (pid && builtinProviders.includes(pid.toLowerCase())) {
+          continue;
+        }
+        modelMap[`${model.name}@${pid}`] = model;
       }
 
       for (const model of newModels) {

@@ -90,6 +90,8 @@ export const useSyncStore = createPersistStore(
     },
 
     async sync() {
+      console.log("[Sync] 🔄 开始同步...");
+
       const provider = get().provider;
       const config = get()[provider];
       const client = this.getClient() as any;
@@ -103,44 +105,17 @@ export const useSyncStore = createPersistStore(
         StoreKey.Prompt,
       ];
 
+      console.log(
+        `[Sync] 📋 准备同步 ${storeKeys.length} 个数据块:`,
+        storeKeys.join(", "),
+      );
+
       // 保存本地 UI 偏好设置
       const appConfig = useAppConfig.getState();
       const localSidebarWidth = localStorage.getItem("sidebarWidth");
       const localTightBorder = appConfig.tightBorder;
 
       try {
-        // 检查是否有旧的备份数据需要迁移（只检查一次）
-        const legacyCheckedKey = "webdav-legacy-migration-checked";
-        if (
-          client.getLegacy &&
-          client.deleteLegacy &&
-          !localStorage.getItem(legacyCheckedKey)
-        ) {
-          const legacyData = await client.getLegacy();
-          if (legacyData && legacyData !== "") {
-            console.log("[Sync] 检测到旧备份数据，开始迁移...");
-            try {
-              const parsedLegacy = JSON.parse(legacyData) as AppState;
-
-              // 将旧数据分别存储到新文件
-              for (const key of storeKeys) {
-                const storeData = (parsedLegacy as any)[key];
-                if (storeData) {
-                  await client.set(key, JSON.stringify(storeData));
-                }
-              }
-
-              // 删除旧备份文件
-              await client.deleteLegacy();
-              console.log("[Sync] 旧数据迁移完成");
-            } catch (e) {
-              console.error("[Sync] 迁移旧数据失败", e);
-            }
-          }
-          // 标记已检查过，避免每次都请求
-          localStorage.setItem(legacyCheckedKey, "true");
-        }
-
         // 分文件同步：分别处理每个 store
         for (const key of storeKeys) {
           try {
@@ -182,8 +157,9 @@ export const useSyncStore = createPersistStore(
 
             if (!remoteDataText || remoteDataText === "") {
               // 远程没有数据，上传本地数据
+              console.log(`[Sync] 📤 ${key}: 远程为空，正在上传本地数据...`);
               await client.set(key, JSON.stringify(localStoreData));
-              console.log(`[Sync] ${key}: 远程为空，已上传本地数据`);
+              console.log(`[Sync] ✅ ${key}: 本地数据已上传`);
             } else {
               // 远程有数据，进行合并
               const remoteStoreData = JSON.parse(remoteDataText);
@@ -296,10 +272,10 @@ export const useSyncStore = createPersistStore(
 
               // 上传合并后的数据
               await client.set(key, JSON.stringify(localStoreData));
-              console.log(`[Sync] ${key}: 合并完成并上传`);
+              console.log(`[Sync] ✅ ${key}: 合并完成并上传`);
             }
           } catch (e) {
-            console.error(`[Sync] ${key} 同步失败:`, e);
+            console.error(`[Sync] ❌ ${key} 同步失败:`, e);
           }
         }
 
@@ -310,8 +286,10 @@ export const useSyncStore = createPersistStore(
         if (localTightBorder !== undefined) {
           useAppConfig.setState({ tightBorder: localTightBorder });
         }
+
+        console.log("[Sync] ✅ 同步完成");
       } catch (e) {
-        console.log("[Sync] failed", e);
+        console.error("[Sync] ❌ 同步失败:", e);
         throw e;
       }
 

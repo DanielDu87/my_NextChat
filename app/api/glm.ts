@@ -65,7 +65,7 @@ async function request(req: NextRequest) {
   );
 
   const fetchUrl = `${baseUrl}${path}`;
-  console.log("[Fetch Url] ", fetchUrl);
+  console.log("[Fetch Url] 🔗 ", fetchUrl);
   const fetchOptions: RequestInit = {
     headers: {
       "Content-Type": "application/json",

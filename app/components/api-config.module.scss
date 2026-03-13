@@ -22,11 +22,35 @@
 
 .actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 20px;
+  width: 100%;
+}
+
+.dangerButton {
+  color: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+  margin-left: auto !important;
+
+  &:hover,
+  &:focus {
+    background-color: #ff4d4f !important;
+    color: white !important;
+    border-color: #ff4d4f !important;
+
+    :global(svg) {
+      fill: white !important;
+      color: white !important;
+    }
+  }
+
+  :global(svg) {
+    fill: #ff4d4f;
+    color: #ff4d4f;
+  }
 }
 
 .fieldGroup {

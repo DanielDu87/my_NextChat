@@ -96,7 +96,7 @@ async function request(req: NextRequest, apiKey: string) {
     req?.nextUrl?.searchParams?.get("alt") === "sse" ? "?alt=sse" : ""
   }`;
 
-  console.log("[Fetch Url] ", fetchUrl);
+  console.log("[Fetch Url] 🔗 ", fetchUrl);
   const fetchOptions: RequestInit = {
     headers: {
       "Content-Type": "application/json",

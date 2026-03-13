@@ -4,6 +4,7 @@ import {
   useAppConfig,
   useChatStore,
 } from "../store";
+import { LLMModel } from "../client/api";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { StoreKey } from "../constant";
@@ -119,12 +120,47 @@ const MergeStates: StateMerger = {
     };
     return localState;
   },
-  [StoreKey.Config]: mergeWithUpdate<AppState[StoreKey.Config]>,
+  [StoreKey.Config]: (localState, remoteState) => {
+    // 合并 models：只增不减，取并集
+    const localModels = localState.models || [];
+    const remoteModels = remoteState.models || [];
+
+    const modelMap = new Map<string, LLMModel>();
+
+    // 先添加本地所有模型
+    localModels.forEach((m: LLMModel) => {
+      const key = `${m.name}@${m.provider?.id}`;
+      modelMap.set(key, m);
+    });
+
+    // 添加远程独有的模型（如果 key 不同则视为新增）
+    remoteModels.forEach((m: LLMModel) => {
+      const key = `${m.name}@${m.provider?.id}`;
+      if (!modelMap.has(key)) {
+        modelMap.set(key, m);
+      } else {
+        // 同名模型：如果本地不可用但远程可用，更新为可用
+        const existing = modelMap.get(key)!;
+        if (!existing.available && m.available) {
+          modelMap.set(key, { ...existing, available: true });
+        }
+      }
+    });
+
+    // 合并后的 models
+    const mergedModels = [...modelMap.values()];
+
+    // 其他字段用时间戳比较合并
+    const baseResult = mergeWithUpdate(localState, remoteState);
+    baseResult.models = mergedModels;
+
+    return baseResult;
+  },
   [StoreKey.Access]: (localState, remoteState) => {
     // 双向合并 apiProfiles：
     // - 本地有、远程没有的 → 保留
     // - 远程有、本地没有的 → 添加
-    // - 都有的 → 本地优先（因为用户正在本地操作）
+    // - 都有的 → 合并 cachedModels（只增不减，取并集）
 
     const localProfileMap = new Map(
       (localState.apiProfiles || []).map((p) => [p.id, p]),
@@ -133,8 +169,39 @@ const MergeStates: StateMerger = {
       (remoteState.apiProfiles || []).map((p) => [p.id, p]),
     );
 
-    // 合并：保留本地所有 + 添加远程独有的
-    const mergedProfiles = [...(localState.apiProfiles || [])];
+    const mergedProfiles: typeof localState.apiProfiles = [];
+
+    // 处理本地有的 profile
+    localProfileMap.forEach((localProfile, id) => {
+      const remoteProfile = remoteProfileMap.get(id);
+      if (remoteProfile) {
+        // 双方都有：合并 cachedModels（去重并集）
+        const localModels = new Set(
+          (localProfile.cachedModels || "").split(",").filter(Boolean),
+        );
+        const remoteModels = new Set(
+          (remoteProfile.cachedModels || "").split(",").filter(Boolean),
+        );
+        // 添加远程独有的模型
+        remoteModels.forEach((m) => localModels.add(m));
+        const mergedCachedModels = [...localModels].join(",");
+
+        mergedProfiles.push({
+          ...localProfile,
+          cachedModels: mergedCachedModels,
+          // modelCount 取较大值
+          modelCount: Math.max(
+            localProfile.modelCount || 0,
+            remoteProfile.modelCount || 0,
+          ),
+        });
+      } else {
+        // 本地独有：直接保留
+        mergedProfiles.push(localProfile);
+      }
+    });
+
+    // 添加远程独有的 profile
     remoteProfileMap.forEach((profile, id) => {
       if (!localProfileMap.has(id)) {
         mergedProfiles.push(profile);

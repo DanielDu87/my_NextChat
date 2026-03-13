@@ -14,10 +14,38 @@ export function ModelConfigList(props: {
   updateConfig: (updater: (config: ModelConfig) => void) => void;
 }) {
   const allModels = useAllModels();
+
+  // 按供应商分组，如果没有供应商信息则按 provider 分组
   const groupModels = groupBy(
     allModels.filter((v) => v.available),
-    "provider.providerName",
+    (model) => {
+      // 优先使用 vendor.name 分组
+      if (model.vendor?.name) {
+        return model.vendor.name;
+      }
+      // 降级使用 provider.providerName 分组
+      return model.provider.providerName;
+    },
   );
+
+  // 按供应商名称排序（把常用供应商放前面）
+  const sortedGroupNames = Object.keys(groupModels).sort((a, b) => {
+    const vendorOrder = [
+      "OpenAI",
+      "Anthropic",
+      "Google",
+      "DeepSeek",
+      "xAI",
+      "Alibaba",
+    ];
+    const aIndex = vendorOrder.indexOf(a);
+    const bIndex = vendorOrder.indexOf(b);
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
   const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
   const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
 
@@ -38,13 +66,18 @@ export function ModelConfigList(props: {
             });
           }}
         >
-          {Object.keys(groupModels).map((providerName, index) => (
-            <optgroup label={providerName} key={index}>
-              {groupModels[providerName].map((v, i) => (
-                <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                  {v.displayName}
-                </option>
-              ))}
+          {sortedGroupNames.map((vendorName, index) => (
+            <optgroup label={vendorName} key={index}>
+              {groupModels[vendorName]
+                .sort((a, b) => a.sorted - b.sorted)
+                .map((v, i) => (
+                  <option
+                    value={`${v.name}@${v.provider?.providerName}`}
+                    key={i}
+                  >
+                    {v.displayName}
+                  </option>
+                ))}
             </optgroup>
           ))}
         </Select>
