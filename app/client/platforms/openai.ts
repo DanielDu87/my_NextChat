@@ -3,7 +3,6 @@
 import {
   ApiPath,
   OPENAI_BASE_URL,
-  DEFAULT_MODELS,
   OpenaiPath,
   Azure,
   REQUEST_TIMEOUT_MS,
@@ -97,7 +96,7 @@ export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
   path(path: string): string {
-    const accessStore = useAccessStore.getState();
+    const accessStore = useAccessStore.getState() as any;
     const configStore = useChatStore.getState();
     const currentProvider = normalizeServiceProvider(
       configStore.currentSession().mask.modelConfig.providerName,
@@ -572,7 +571,7 @@ export class ChatGPTApi implements LLMApi {
 
   async models(): Promise<LLMModel[]> {
     if (this.disableListModels) {
-      return DEFAULT_MODELS.slice();
+      return [];
     }
 
     const res = await fetch(this.path(OpenaiPath.ListModelPath), {

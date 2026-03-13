@@ -160,7 +160,7 @@ const MergeStates: StateMerger = {
     // 双向合并 apiProfiles：
     // - 本地有、远程没有的 → 保留
     // - 远程有、本地没有的 → 添加
-    // - 都有的 → 合并 cachedModels（只增不减，取并集）
+    // - 都有的 → 保留本地运行态字段，以 config.models 为真实模型来源
 
     const localProfileMap = new Map(
       (localState.apiProfiles || []).map((p) => [p.id, p]),
@@ -175,25 +175,11 @@ const MergeStates: StateMerger = {
     localProfileMap.forEach((localProfile, id) => {
       const remoteProfile = remoteProfileMap.get(id);
       if (remoteProfile) {
-        // 双方都有：合并 cachedModels（去重并集）
-        const localModels = new Set(
-          (localProfile.cachedModels || "").split(",").filter(Boolean),
-        );
-        const remoteModels = new Set(
-          (remoteProfile.cachedModels || "").split(",").filter(Boolean),
-        );
-        // 添加远程独有的模型
-        remoteModels.forEach((m) => localModels.add(m));
-        const mergedCachedModels = [...localModels].join(",");
-
         mergedProfiles.push({
           ...localProfile,
-          cachedModels: mergedCachedModels,
-          // modelCount 取较大值
-          modelCount: Math.max(
-            localProfile.modelCount || 0,
-            remoteProfile.modelCount || 0,
-          ),
+          ...remoteProfile,
+          cachedModels: localProfile.cachedModels ?? "",
+          modelCount: localProfile.modelCount ?? 0,
         });
       } else {
         // 本地独有：直接保留

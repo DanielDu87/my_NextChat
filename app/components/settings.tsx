@@ -640,7 +640,7 @@ export function Settings() {
   const customCount = promptStore.getUserPrompts().length ?? 0;
   const [shouldShowPromptModal, setShowPromptModal] = useState(false);
 
-  const showUsage = accessStore.isAuthorized();
+  const showUsage = (accessStore as any).isAuthorized();
   useEffect(() => {
     // checks per minutes
     checkUpdate();
@@ -656,7 +656,7 @@ export function Settings() {
     };
     if (clientConfig?.isApp) {
       // Force to set custom endpoint to true if it's app
-      accessStore.update((state) => {
+      accessStore.update((state: any) => {
         state.useCustomConfig = true;
       });
     }

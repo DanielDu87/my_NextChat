@@ -213,16 +213,16 @@ export const useAccessStore = createPersistStore(
 
   (set, get) => ({
     enabledAccessControl() {
-      this.fetch();
+      (get() as any).fetch();
 
       return get().needCode;
     },
     getVisionModels() {
-      this.fetch();
+      (get() as any).fetch();
       return get().visionModels;
     },
     edgeVoiceName() {
-      this.fetch();
+      (get() as any).fetch();
 
       return get().edgeTTSVoiceName;
     },
@@ -286,7 +286,7 @@ export const useAccessStore = createPersistStore(
     },
 
     isAuthorized() {
-      this.fetch();
+      (get() as any).fetch();
 
       // 已禁用访问码检查，始终返回授权状态
       // 用户通过 API 配置页面设置自定义 API
@@ -298,7 +298,7 @@ export const useAccessStore = createPersistStore(
         // 等持久化状态恢复后再拉服务端配置，避免用默认值覆盖本地已保存的自定义模型。
         setTimeout(() => {
           if (fetchState === 0) {
-            get().fetch();
+            (get() as any).fetch();
           }
         }, 50);
         return;
@@ -359,7 +359,7 @@ export const useAccessStore = createPersistStore(
   {
     name: StoreKey.Access,
     version: 4,
-    storage: createJSONStorage(() => safeLocalStorage()),
+    storage: createJSONStorage(() => safeLocalStorage()) as any,
     onRehydrateStorage(state) {
       return () => {
         const snapshot = readAccessSnapshot();
@@ -371,25 +371,15 @@ export const useAccessStore = createPersistStore(
         ) {
           state.update((draft) => {
             draft.useCustomConfig = snapshot.useCustomConfig;
-            draft.provider = snapshot.provider;
-            draft.apiProfiles = snapshot.apiProfiles;
+            draft.provider = snapshot.provider as ServiceProvider;
+            draft.apiProfiles = snapshot.apiProfiles.map((profile) => ({
+              ...profile,
+              provider: profile.provider as ServiceProvider,
+            }));
             draft.customModels = snapshot.customModels;
             draft.customUrl = snapshot.customUrl;
             draft.customApiKey = snapshot.customApiKey;
             draft.customOpenAICompatible = snapshot.customOpenAICompatible;
-          });
-        }
-
-        const activeProfile = state.apiProfiles.find(
-          (profile) => profile.enabled,
-        );
-        if (
-          state.useCustomConfig &&
-          state.customModels.length === 0 &&
-          activeProfile?.cachedModels
-        ) {
-          state.update((draft) => {
-            draft.customModels = activeProfile.cachedModels ?? "";
           });
         }
       };

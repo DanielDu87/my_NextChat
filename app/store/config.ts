@@ -3,7 +3,6 @@ import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { getClientConfig } from "../config/client";
 import {
   DEFAULT_INPUT_TEMPLATE,
-  DEFAULT_MODELS,
   DEFAULT_SIDEBAR_WIDTH,
   DEFAULT_TTS_ENGINE,
   DEFAULT_TTS_ENGINES,
@@ -61,7 +60,7 @@ export const DEFAULT_CONFIG = {
   hideBuiltinMasks: false, // dont add builtin masks
 
   customModels: "",
-  models: DEFAULT_MODELS as any as LLMModel[],
+  models: [] as LLMModel[],
 
   modelConfig: {
     model: "gpt-4o-mini" as ModelType,
@@ -168,7 +167,10 @@ export const useAppConfig = createPersistStore(
       set(() => ({ ...DEFAULT_CONFIG }));
     },
 
-    mergeModels(newModels: LLMModel[]) {
+    mergeModels(
+      newModels: LLMModel[],
+      options?: { silent?: boolean; allowedProviderIds?: string[] },
+    ) {
       if (!newModels || newModels.length === 0) {
         return;
       }
@@ -180,9 +182,21 @@ export const useAppConfig = createPersistStore(
 
       const oldModels = get().models;
       const modelMap: Record<string, LLMModel> = {};
+      const allowedProviderIds = options?.allowedProviderIds
+        ? new Set(
+            options.allowedProviderIds.map((id) => String(id).toLowerCase()),
+          )
+        : undefined;
 
       for (const model of oldModels) {
         const pid = model?.provider?.id;
+        if (
+          allowedProviderIds &&
+          pid &&
+          !allowedProviderIds.has(String(pid).toLowerCase())
+        ) {
+          continue;
+        }
         // 跳过即将被新模型替换的 provider 的旧模型
         if (pid && newProviderIds.has(pid)) {
           continue;
@@ -224,12 +238,14 @@ export const useAppConfig = createPersistStore(
       }
 
       const mergedModels = Object.values(modelMap);
-      console.log(
-        "[mergeModels] Merging",
-        newModels.length,
-        "models, total:",
-        mergedModels.length,
-      );
+      if (!options?.silent) {
+        console.log(
+          "[mergeModels] 正在合并模型",
+          newModels.length,
+          "个，合并后总数：",
+          mergedModels.length,
+        );
+      }
 
       set(() => ({
         models: mergedModels,

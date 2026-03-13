@@ -183,6 +183,8 @@ export const getServerSideConfig = () => {
   const webdavUsername = process.env.WEBDAV_USERNAME ?? "";
   const webdavPassword = process.env.WEBDAV_PASSWORD ?? "";
 
+  const isVercel = !!process.env.VERCEL;
+
   return {
     baseUrl: process.env.BASE_URL,
     apiKey: getApiKey(process.env.OPENAI_API_KEY),
@@ -259,16 +261,14 @@ export const getServerSideConfig = () => {
     ai302ApiKey: getApiKey(process.env.AI302_API_KEY),
 
     gtmId: process.env.GTM_ID,
-    gaId:
-      process.env.GA_ID ||
-      (process.env.NODE_ENV === "development" ? "" : DEFAULT_GA_ID),
+    gaId: process.env.GA_ID || (isVercel ? DEFAULT_GA_ID : ""),
 
     needCode: ACCESS_CODES.size > 0,
     code: process.env.CODE,
     codes: ACCESS_CODES,
 
     proxyUrl: process.env.PROXY_URL,
-    isVercel: !!process.env.VERCEL,
+    isVercel,
 
     hideUserApiKey: !!process.env.HIDE_USER_API_KEY,
     disableGPT4,

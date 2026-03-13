@@ -13,6 +13,7 @@ import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
+import { LLMModel } from "../client/api";
 
 export interface WebDavConfig {
   server: string;
@@ -43,6 +44,40 @@ const DEFAULT_SYNC_STATE = {
   lastSyncTime: 0,
   lastProvider: "",
 };
+
+function mergeModelEntries(
+  localModels: LLMModel[] = [],
+  remoteModels: LLMModel[] = [],
+) {
+  const modelMap = new Map<string, LLMModel>();
+
+  localModels.forEach((model) => {
+    modelMap.set(`${model.name}@${model.provider?.id}`, model);
+  });
+
+  remoteModels.forEach((model) => {
+    const key = `${model.name}@${model.provider?.id}`;
+    const existing = modelMap.get(key);
+    if (!existing) {
+      modelMap.set(key, model);
+      return;
+    }
+    if (!existing.available && model.available) {
+      modelMap.set(key, { ...existing, available: true });
+    }
+  });
+
+  return [...modelMap.values()];
+}
+
+function mergeCachedModels(existing?: string, incoming?: string) {
+  const merged = new Set((existing || "").split(",").filter(Boolean));
+  (incoming || "")
+    .split(",")
+    .filter(Boolean)
+    .forEach((model) => merged.add(model));
+  return [...merged].join(",");
+}
 
 export const useSyncStore = createPersistStore(
   DEFAULT_SYNC_STATE,
@@ -199,16 +234,31 @@ export const useSyncStore = createPersistStore(
                     );
                   },
                   [StoreKey.Access]: (local: any, remote: any) => {
-                    const localProfileMap = new Map(
+                    const localProfileMap = new Map<any, any>(
                       (local.apiProfiles || []).map((p: any) => [p.id, p]),
                     );
-                    const remoteProfileMap = new Map(
+                    const remoteProfileMap = new Map<any, any>(
                       (remote.apiProfiles || []).map((p: any) => [p.id, p]),
                     );
 
-                    const mergedProfiles = [...(local.apiProfiles || [])];
-                    remoteProfileMap.forEach((profile: any) => {
-                      if (!localProfileMap.has(profile.id)) {
+                    const mergedProfiles: any[] = [];
+                    localProfileMap.forEach((localProfile: any, id) => {
+                      const remoteProfile = remoteProfileMap.get(id);
+                      if (!remoteProfile) {
+                        mergedProfiles.push(localProfile);
+                        return;
+                      }
+
+                      mergedProfiles.push({
+                        ...localProfile,
+                        ...remoteProfile,
+                        cachedModels: localProfile.cachedModels ?? "",
+                        modelCount: localProfile.modelCount ?? 0,
+                      });
+                    });
+
+                    remoteProfileMap.forEach((profile: any, id) => {
+                      if (!localProfileMap.has(id)) {
                         mergedProfiles.push(profile);
                       }
                     });
@@ -223,12 +273,19 @@ export const useSyncStore = createPersistStore(
                     Object.assign(local, remoteCopy);
                   },
                   [StoreKey.Config]: (local: any, remote: any) => {
+                    const mergedModels = mergeModelEntries(
+                      local.models || [],
+                      remote.models || [],
+                    );
                     const localTime = local.lastUpdateTime ?? 0;
                     const remoteTime = remote.lastUpdateTime ?? 0;
 
                     if (remoteTime > localTime) {
                       Object.assign(local, remote);
+                    } else {
+                      Object.assign(local, { ...remote, ...local });
                     }
+                    local.models = mergedModels;
                     local.lastUpdateTime = Date.now();
                   },
                   [StoreKey.Mask]: (local: any, remote: any) => {

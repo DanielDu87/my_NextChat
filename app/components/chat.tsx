@@ -591,13 +591,8 @@ export function ChatActions(props: {
   const currentProviderName =
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
 
-  // 只显示从服务器获取的模型（accessStore.customModels）
-  // 同时合并全局自定义模型和远程拉取模型
+  // 只使用真实模型集合和用户手动维护的全局自定义模型。
   const globalCustomModels = useAppConfig((state) => state.customModels);
-  const remoteCustomModels = useAccessStore((state) => state.customModels);
-  const customModels = [globalCustomModels, remoteCustomModels]
-    .filter(Boolean)
-    .join(",");
   const globalCustomModelEntries = useMemo(
     () =>
       globalCustomModels
@@ -634,65 +629,13 @@ export function ChatActions(props: {
   );
   const currentCustomModelKey = `${currentModel}@${currentProviderName}`;
 
-  // 使用 useAllModels 获取完整的模型列表（包括从 API 获取的模型）
+  // 使用 useAllModels 获取完整的真实模型列表。
   const allModels = useAllModels();
 
-  const serverModels = useMemo(() => {
-    if (!customModels) {
-      return allModels;
-    }
-    const customModelList = Array.from(
-      new Set(
-        customModels
-          .split(",")
-          .map((v) => v.trim())
-          .filter((v) => !!v && v.length > 0 && !v.startsWith("-")),
-      ),
-    );
-
-    console.log(
-      "[ChatActions] customModelList length:",
-      customModelList.length,
-    );
-
-    // 如果有自定义模型字符串，优先使用自定义模型
-    // 否则使用 allModels（包含从 API 获取的模型）
-    if (customModelList.length > 0) {
-      return customModelList.map((modelStr, index) => {
-        const [name, displayName] = modelStr.split("=");
-        const [modelName, providerName] = getModelProvider(name);
-        const provider = providerName
-          ? {
-              id: providerName.toLowerCase(),
-              providerName,
-              providerType: "custom",
-              sorted: 0,
-            }
-          : {
-              id: ServiceProvider.Custom.toLowerCase(),
-              providerName: ServiceProvider.Custom,
-              providerType: "custom",
-              sorted: 0,
-            };
-
-        return {
-          name: modelName,
-          displayName: displayName || modelName,
-          available: true,
-          provider,
-          sorted: index,
-          isDefault: false,
-        };
-      });
-    }
-
-    return allModels;
-  }, [customModels, allModels]);
-
   const models = useMemo(() => {
-    const filteredModels = serverModels.filter((m) => m.available);
+    const filteredModels = allModels.filter((m) => m.available);
     return filteredModels;
-  }, [serverModels]);
+  }, [allModels]);
   const latestOpenAIModel = useMemo(() => {
     const openAIModels = config.models.filter(
       (item) => item?.provider?.providerName === ServiceProvider.OpenAI,
@@ -1579,7 +1522,7 @@ function _Chat() {
     });
   };
 
-  const accessStore = useAccessStore();
+  const accessStore = useAccessStore() as any;
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
 
@@ -1767,7 +1710,7 @@ function _Chat() {
       console.log("[Command] got code from url: ", text);
       showConfirm(Locale.URLCommand.Code + `code = ${text}`).then((res) => {
         if (res) {
-          accessStore.update((access) => (access.accessCode = text));
+          accessStore.update((access: any) => (access.accessCode = text));
         }
       });
     },
@@ -1790,13 +1733,17 @@ function _Chat() {
             if (!res) return;
             if (payload.key) {
               accessStore.update(
-                (access) => (access.openaiApiKey = payload.key!),
+                (access: any) => (access.openaiApiKey = payload.key!),
               );
             }
             if (payload.url) {
-              accessStore.update((access) => (access.openaiUrl = payload.url!));
+              accessStore.update(
+                (access: any) => (access.openaiUrl = payload.url!),
+              );
             }
-            accessStore.update((access) => (access.useCustomConfig = true));
+            accessStore.update(
+              (access: any) => (access.useCustomConfig = true),
+            );
           });
         }
       } catch {

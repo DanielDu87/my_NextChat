@@ -127,7 +127,7 @@ export class ErnieApi implements LLMApi {
 
       // getAccessToken can not run in browser, because cors error
       if (!!getClientConfig()?.isApp) {
-        const accessStore = useAccessStore.getState();
+        const accessStore = useAccessStore.getState() as any;
         if (accessStore.useCustomConfig) {
           if (accessStore.isValidBaidu()) {
             const { access_token } = await getAccessToken(

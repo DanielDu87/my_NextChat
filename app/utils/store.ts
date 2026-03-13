@@ -38,9 +38,11 @@ export function createPersistStore<T extends object, M>(
     persistOptions.storage ?? createJSONStorage(() => indexedDBStorage);
   const oldOonRehydrateStorage = persistOptions?.onRehydrateStorage;
   persistOptions.onRehydrateStorage = (state) => {
-    const postRehydrate = oldOonRehydrateStorage?.(state);
+    const postRehydrate = oldOonRehydrateStorage?.(state) as
+      | ((...args: any[]) => void)
+      | undefined;
     return (...args: unknown[]) => {
-      postRehydrate?.(...args);
+      postRehydrate?.(...(args as any[]));
       state.setHasHydrated(true);
     };
   };

@@ -24,7 +24,7 @@ export function ModelConfigList(props: {
         return model.vendor.name;
       }
       // 降级使用 provider.providerName 分组
-      return model.provider.providerName;
+      return model.provider?.providerName || "Unknown";
     },
   );
 

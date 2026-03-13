@@ -126,11 +126,10 @@ function getSummarizeModel(
   // if it is using gpt-* models, force to use 4o-mini to summarize
   if (currentModel.startsWith("gpt") || currentModel.startsWith("chatgpt")) {
     const configStore = useAppConfig.getState();
-    const accessStore = useAccessStore.getState();
     const allModel = collectModelsWithDefaultModel(
       configStore.models,
-      [configStore.customModels, accessStore.customModels].join(","),
-      accessStore.defaultModel,
+      configStore.customModels,
+      useAccessStore.getState().defaultModel,
     );
     const summarizeModel = allModel.find(
       (m) => m.name === SUMMARIZE_MODEL && m.available,

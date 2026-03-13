@@ -22,7 +22,6 @@ import {
   ByteDance,
   ChatGLM,
   DeepSeek,
-  DEFAULT_MODELS,
   Google,
   Iflytek,
   Moonshot,
@@ -44,7 +43,10 @@ import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
-import { getProviderDisplayName } from "../utils/models";
+import {
+  getProviderDisplayName,
+  modelsToCustomModelsString,
+} from "../utils/models";
 
 type AccessState = ReturnType<typeof useAccessStore.getState>;
 type ModelFetchStatus = {
@@ -60,6 +62,132 @@ type ProviderField = {
   subTitle?: string;
   profileManaged?: boolean;
 };
+
+const LOG_SEPARATOR = "=".repeat(40);
+const BUILTIN_PROVIDER_IDS = new Set([
+  "openai",
+  "azure",
+  "claude",
+  "palm",
+  "google",
+  "anthropic",
+  "baidu",
+  "bytedance",
+  "alibaba",
+  "tencent",
+  "moonshot",
+  "stability",
+  "iflytek",
+  "xai",
+  "chatglm",
+  "deepseek",
+  "siliconflow",
+  "302ai",
+]);
+
+function mergeCachedModels(existing: string | undefined, incoming: string) {
+  const merged = new Set((existing || "").split(",").filter(Boolean));
+  incoming
+    .split(",")
+    .filter(Boolean)
+    .forEach((model) => merged.add(model));
+  return [...merged].join(",");
+}
+
+function countCachedModels(cachedModels?: string, fallbackCount?: number) {
+  if (cachedModels) {
+    return cachedModels.split(",").filter(Boolean).length;
+  }
+  return fallbackCount ?? 0;
+}
+
+function getManagedProviderIds(profiles: AccessState["apiProfiles"] = []) {
+  return new Set(
+    profiles.map((profile) => getProfileProviderId(profile).toLowerCase()),
+  );
+}
+
+function getManagedCloudModels(
+  models: LLMModel[] = [],
+  profiles: AccessState["apiProfiles"] = [],
+) {
+  const managedProviderIds = getManagedProviderIds(profiles);
+  return models.filter((model) => {
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    return (
+      providerId.length > 0 &&
+      !BUILTIN_PROVIDER_IDS.has(providerId) &&
+      managedProviderIds.has(providerId)
+    );
+  });
+}
+
+function getManagedProviderIdList(profiles: AccessState["apiProfiles"] = []) {
+  return [...getManagedProviderIds(profiles)];
+}
+
+function countCloudMergedModels(
+  models: LLMModel[] = [],
+  profiles: AccessState["apiProfiles"] = [],
+) {
+  return getManagedCloudModels(models, profiles).length;
+}
+
+function getProfileProviderId(profile: {
+  provider: ServiceProvider;
+  name: string;
+}) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`
+    : String(profile.provider).toLowerCase();
+}
+
+function getCloudMergedPlatformCounts(
+  models: LLMModel[] = [],
+  profiles: AccessState["apiProfiles"] = [],
+) {
+  const counts = new Map<string, number>();
+
+  models.forEach((model) => {
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    if (!providerId || BUILTIN_PROVIDER_IDS.has(providerId)) {
+      return;
+    }
+    counts.set(providerId, (counts.get(providerId) ?? 0) + 1);
+  });
+
+  return profiles.map((profile) => ({
+    name: profile.name,
+    count: counts.get(`custom_${profile.name}`.toLowerCase()) ?? 0,
+  }));
+}
+
+function getProfileActualModelsString(
+  profile: {
+    provider: ServiceProvider;
+    name: string;
+  },
+  models: LLMModel[] = [],
+) {
+  const providerId = getProfileProviderId(profile).toLowerCase();
+  const profileModels = models.filter(
+    (model) => String(model.provider?.id || "").toLowerCase() === providerId,
+  );
+  return modelsToCustomModelsString(profileModels);
+}
+
+function getProfileActualCount(
+  profile: {
+    provider: ServiceProvider;
+    name: string;
+  },
+  models: LLMModel[] = [],
+) {
+  const providerId = getProfileProviderId(profile).toLowerCase();
+  return models.filter(
+    (model) => String(model.provider?.id || "").toLowerCase() === providerId,
+  ).length;
+}
 
 const PROVIDER_OPTIONS = [
   ServiceProvider.Custom,
@@ -461,18 +589,15 @@ function getDefaultModelForProvider(
   provider: ServiceProvider,
   models: LLMModel[],
 ): string | undefined {
-  if (provider === ServiceProvider.Custom) {
-    return (
-      DEFAULT_MODELS.find(
-        (m) => m.provider?.providerName === ServiceProvider.OpenAI,
-      )?.name ?? "gpt-4o-mini"
-    );
-  }
   const fromStore = models.find((m) => m.provider?.providerName === provider)
     ?.name;
   if (fromStore) return fromStore;
-  return DEFAULT_MODELS.find((m) => m.provider?.providerName === provider)
-    ?.name;
+  if (provider === ServiceProvider.Custom) {
+    return models.find(
+      (m) => m.provider?.providerName === ServiceProvider.Custom,
+    )?.name;
+  }
+  return undefined;
 }
 
 export function ApiConfigPage() {
@@ -587,17 +712,11 @@ export function ApiConfigPage() {
     "/",
   )}${STORAGE_KEY}/`;
 
-  // 计算所有已配置供应商的模型总数（从持久化的 modelCount 计算）
   const allProfiles = accessStore.apiProfiles;
-
-  // 从持久化的 modelCount 计算总数（优先从 cachedModels 计算）
-  const totalModelCountFromCache = allProfiles.reduce((sum, profile) => {
-    // 优先使用 cachedModels 计算实际数量
-    if (profile.cachedModels) {
-      return sum + profile.cachedModels.split(",").filter(Boolean).length;
-    }
-    return sum + (profile.modelCount ?? 0);
-  }, 0);
+  const mergedModelTotal = countCloudMergedModels(
+    appConfig.models || [],
+    allProfiles,
+  );
 
   // 页面加载时输出缓存的模型数量（延迟到云端同步完成后）
   const cacheLoggedRef = useRef(false);
@@ -605,70 +724,52 @@ export function ApiConfigPage() {
     if (cacheLoggedRef.current) return;
     cacheLoggedRef.current = true;
 
-    const currentProfiles = useAccessStore.getState().apiProfiles;
-    const totalCount = currentProfiles.reduce((sum, profile) => {
-      const count = profile.cachedModels
-        ? profile.cachedModels.split(",").filter(Boolean).length
-        : profile.modelCount ?? 0;
-      return sum + count;
-    }, 0);
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const currentModels = useAppConfig.getState().models || [];
+    const totalCount = countCloudMergedModels(currentModels, currentProfiles);
+    const platformCounts = getCloudMergedPlatformCounts(
+      currentModels,
+      currentProfiles,
+    );
 
-    if (totalCount > 0) {
-      console.log(`[API Config] 📦 已加载 ${totalCount} 个远程模型`);
-      currentProfiles.forEach((p) => {
-        const count = p.cachedModels
-          ? p.cachedModels.split(",").filter(Boolean).length
-          : p.modelCount ?? 0;
-        if (count > 0) {
-          console.log(`[API Config]   - ${p.name}: ${count} 个`);
-        }
-      });
-    }
+    console.log(`[API Config] 📦 已加载云端合并总数: ${totalCount} 个模型`);
+    console.log(`[API Config] 📊 云端分平台数量:`);
+    platformCounts.forEach(({ name, count }) => {
+      console.log(`[API Config]   - ${name}: ${count} 个模型`);
+    });
   };
 
   // 云端同步逻辑（提取为函数以复用）
   const performCloudSync = async () => {
     const client = syncStore.getClient() as any;
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const managedProviderIds = getManagedProviderIds(currentProfiles);
 
     // 尝试下载远程配置
     const remoteConfigJson = await client.get(StoreKey.Config);
     if (remoteConfigJson) {
       const remoteConfig = JSON.parse(remoteConfigJson);
-      const remoteModels = remoteConfig.models || [];
+      const remoteModels = (remoteConfig.models || []).filter((model: any) =>
+        managedProviderIds.has(String(model?.provider?.id || "").toLowerCase()),
+      );
       if (remoteModels.length > 0) {
         console.log(
           `[API Config] 📦 云端有 ${remoteModels.length} 个模型，开始合并...`,
         );
 
-        // 合并云端模型到本地
-        const localModels = appConfig.models || [];
-        const modelMap = new Map<string, (typeof localModels)[0]>();
-
-        // 先添加本地所有模型
-        localModels.forEach((m: any) => {
-          const key = `${m.name}@${m.provider?.id}`;
-          modelMap.set(key, m);
+        appConfig.mergeModels(remoteModels, {
+          allowedProviderIds: getManagedProviderIdList(currentProfiles),
         });
-
-        // 添加云端独有的模型
-        remoteModels.forEach((m: any) => {
-          const key = `${m.name}@${m.provider?.id}`;
-          if (!modelMap.has(key)) {
-            modelMap.set(key, m);
-          } else {
-            // 同名模型：如果本地不可用但云端可用，更新为可用
-            const existing = modelMap.get(key)!;
-            if (!existing.available && m.available) {
-              modelMap.set(key, { ...existing, available: true });
-            }
-          }
-        });
-
-        const mergedModels = [...modelMap.values()];
-        appConfig.mergeModels(mergedModels);
         console.log(
-          `[API Config] ✅ 云端模型合并完成，共 ${mergedModels.length} 个模型`,
+          `[API Config] ✅ 云端模型合并完成，共 ${
+            getManagedCloudModels(
+              useAppConfig.getState().models || [],
+              currentProfiles,
+            ).length
+          } 个模型`,
         );
+      } else {
+        console.log(`[API Config] ℹ️ 云端模型为空，共 0 个模型`);
       }
     }
 
@@ -775,28 +876,15 @@ export function ApiConfigPage() {
     syncFromCloudOnLoad();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 从当前获取状态计算总数
-  const totalModelCountFromStatus = Object.values(modelFetchStatusMap).reduce(
-    (sum, status) => sum + (status?.count ?? 0),
-    0,
-  );
-
-  // 使用当前状态的数量（如果正在获取或刚获取完），否则使用缓存的数量
-  const totalModelCount = Object.values(modelFetchStatusMap).some(
-    (s) => s?.fetching === true || s?.count !== undefined,
-  )
-    ? totalModelCountFromStatus
-    : totalModelCountFromCache;
-
   const anyFetching = Object.values(modelFetchStatusMap).some(
     (status) => status?.fetching === true,
   );
 
-  const modelFetchCount = totalModelCount > 0 ? totalModelCount : undefined;
+  const modelFetchCount = mergedModelTotal > 0 ? mergedModelTotal : undefined;
   const modelFetchHint = anyFetching
     ? "正在获取模型..."
-    : totalModelCount > 0
-    ? `已获取 ${totalModelCount} 个模型`
+    : mergedModelTotal > 0
+    ? `云端合并总数 ${mergedModelTotal} 个模型`
     : fetchingModels
     ? "正在获取模型..."
     : "点击获取模型数据";
@@ -822,23 +910,26 @@ export function ApiConfigPage() {
 
     void fetchFromProvider(provider, baseUrl, apiKey, { silent: true })
       .then((result) => {
+        const currentProfile = profileId
+          ? useAccessStore
+              .getState()
+              .apiProfiles.find((p) => p.id === profileId)
+          : undefined;
+        const actualCount = currentProfile
+          ? getProfileActualCount(
+              currentProfile,
+              useAppConfig.getState().models,
+            )
+          : result.total;
+
         setModelFetchStatusMap((prev) => ({
           ...prev,
           [key]: {
-            count: result.total,
+            count: actualCount,
             fetching: false,
             error: undefined,
           },
         }));
-
-        // 🆕 保存模型数量到对应 profile 的 modelCount
-        if (profileId) {
-          accessStore.update((state) => {
-            state.apiProfiles = state.apiProfiles.map((p) =>
-              p.id === profileId ? { ...p, modelCount: result.total } : p,
-            );
-          });
-        }
 
         if (result.total === 0) {
           const displayName = getProviderDisplayName(provider, baseUrl);
@@ -875,8 +966,13 @@ export function ApiConfigPage() {
       return;
     }
 
+    const actualProfileModels = getProfileActualModelsString(
+      selectedProfile,
+      useAppConfig.getState().models || [],
+    );
+
     accessStore.update((access) => {
-      access.customModels = selectedProfile.cachedModels ?? "";
+      access.customModels = actualProfileModels;
       access.apiProfiles = access.apiProfiles.map((profile) => {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
@@ -1000,6 +1096,149 @@ export function ApiConfigPage() {
     });
   };
 
+  const refreshAllProfilesForSync = async () => {
+    const accessState = useAccessStore.getState();
+    const allProfiles = accessState.apiProfiles;
+    const previousCloudModels = getManagedCloudModels(
+      useAppConfig.getState().models || [],
+      allProfiles,
+    );
+    const previousCloudKeys = new Set(
+      previousCloudModels.map((model) => `${model.name}@${model.provider?.id}`),
+    );
+    const fetchedModelEntries = new Map<
+      string,
+      { name: string; profileName: string }
+    >();
+    let totalFetched = 0;
+
+    if (allProfiles.length > 0) {
+      console.log(LOG_SEPARATOR);
+      for (const profile of allProfiles) {
+        console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
+        setModelFetchStatusMap((prev) => ({
+          ...prev,
+          [profile.id]: {
+            ...prev[profile.id],
+            fetching: true,
+            error: undefined,
+          },
+        }));
+
+        try {
+          const result = await fetchFromProvider(
+            profile.provider,
+            profile.baseUrl,
+            profile.apiKey,
+            { silent: true, profileName: profile.name },
+          );
+          totalFetched += result.total;
+          result.models.forEach((model) => {
+            fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
+              name: model.name,
+              profileName: profile.name,
+            });
+          });
+          const fetchedModels = modelsToCustomModelsString(result.models);
+          const previousProfileCount = getProfileActualCount(
+            profile,
+            previousCloudModels,
+          );
+          accessStore.update((state) => {
+            state.apiProfiles = state.apiProfiles.map((p) =>
+              p.id === profile.id
+                ? {
+                    ...p,
+                    cachedModels: fetchedModels,
+                    modelCount: result.total,
+                  }
+                : p,
+            );
+            if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
+              state.customModels = fetchedModels;
+            }
+          });
+          const mergedCount = getProfileActualCount(
+            profile,
+            useAppConfig.getState().models,
+          );
+
+          setModelFetchStatusMap((prev) => ({
+            ...prev,
+            [profile.id]: {
+              count: mergedCount,
+              fetching: false,
+              error: undefined,
+            },
+          }));
+          console.log(
+            `[API Config] ✅ ${profile.name} 下载了 ${result.total} 个模型，云端原有 ${previousProfileCount} 个，合并后共 ${mergedCount} 个`,
+          );
+          console.log(LOG_SEPARATOR);
+        } catch (error) {
+          setModelFetchStatusMap((prev) => ({
+            ...prev,
+            [profile.id]: {
+              count: undefined,
+              fetching: false,
+              error: error instanceof Error ? error.message : "获取模型失败",
+            },
+          }));
+          console.error(
+            `[API Config] ❌ ${profile.name}: 获取失败，保留云端数据`,
+            error,
+          );
+          console.log(LOG_SEPARATOR);
+        }
+      }
+    }
+
+    const managedProviderIds = getManagedProviderIdList(allProfiles);
+    appConfig.mergeModels(
+      getManagedCloudModels(useAppConfig.getState().models || [], allProfiles),
+      {
+        silent: true,
+        allowedProviderIds: managedProviderIds,
+      },
+    );
+
+    return { previousCloudKeys, fetchedModelEntries, totalFetched };
+  };
+
+  const logSyncSummary = (
+    previousCloudKeys: Set<string>,
+    fetchedModelEntries: Map<string, { name: string; profileName: string }>,
+    totalFetched: number,
+  ) => {
+    if (fetchedModelEntries.size === 0) return;
+
+    const addedModels = [...fetchedModelEntries.entries()]
+      .filter(([key]) => !previousCloudKeys.has(key))
+      .map(([, entry]) => `${entry.name} @ ${entry.profileName}`);
+    const mergedProfiles = getCloudMergedPlatformCounts(
+      useAppConfig.getState().models || [],
+      useAccessStore.getState().apiProfiles,
+    );
+    console.log(LOG_SEPARATOR);
+    console.log(
+      `[API Config] 📦 云端之前总数: ${previousCloudKeys.size} 个模型`,
+    );
+    console.log(`[API Config] 📥 本次获取总数: ${totalFetched} 个模型`);
+    console.log(`[API Config] 🆕 本次新增总数: ${addedModels.length} 个模型`);
+    console.log(`[API Config] 📦 云端合并总数（分平台）:`);
+    mergedProfiles.forEach(({ name, count }) => {
+      console.log(`[API Config]   - ${name}: ${count} 个模型`);
+    });
+    if (addedModels.length > 0) {
+      console.log(`[API Config] 📝 新增模型名称:`);
+      addedModels.forEach((name) => {
+        console.log(`[API Config]   - ${name}`);
+      });
+    } else {
+      console.log(`[API Config] 📝 新增模型名称：无`);
+    }
+  };
+
   const syncToWebDav = async () => {
     try {
       setSyncing(true);
@@ -1022,102 +1261,12 @@ export function ApiConfigPage() {
         syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
       }
 
-      // 🆕 在同步前获取所有平台的模型
-      const accessState = useAccessStore.getState();
-      const allProfiles = accessState.apiProfiles;
-
-      let totalFetched = 0;
-      const results: Array<{ name: string; count: number; success: boolean }> =
-        [];
-
-      if (allProfiles.length > 0) {
-        console.log("=".repeat(200));
-        for (const profile of allProfiles) {
-          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
-          // 设置获取状态
-          setModelFetchStatusMap((prev) => ({
-            ...prev,
-            [profile.id]: {
-              ...prev[profile.id],
-              fetching: true,
-              error: undefined,
-            },
-          }));
-
-          try {
-            const result = await fetchFromProvider(
-              profile.provider,
-              profile.baseUrl,
-              profile.apiKey,
-              { silent: true, profileName: profile.name },
-            );
-            totalFetched += result.total;
-            results.push({
-              name: profile.name,
-              count: result.total,
-              success: true,
-            });
-
-            // 🆕 保存模型数量到对应 profile 的 modelCount
-            accessStore.update((state) => {
-              state.apiProfiles = state.apiProfiles.map((p) =>
-                p.id === profile.id ? { ...p, modelCount: result.total } : p,
-              );
-            });
-
-            // 更新成功状态
-            setModelFetchStatusMap((prev) => ({
-              ...prev,
-              [profile.id]: {
-                count: result.total,
-                fetching: false,
-                error: undefined,
-              },
-            }));
-            console.log(
-              `[API Config] ✅ ${profile.name} 获取了 ${result.total} 个模型`,
-            );
-            console.log("=".repeat(200));
-          } catch (error) {
-            results.push({ name: profile.name, count: 0, success: false });
-            // 获取失败时，不更新 modelCount，保留云端/缓存的值
-            // 更新失败状态（count 设为 undefined 表示使用缓存值）
-            setModelFetchStatusMap((prev) => ({
-              ...prev,
-              [profile.id]: {
-                count: undefined, // undefined 表示使用缓存的 modelCount
-                fetching: false,
-                error: error instanceof Error ? error.message : "获取模型失败",
-              },
-            }));
-            console.error(
-              `[API Config] ❌ ${profile.name}: 获取失败，保留云端数据`,
-              error,
-            );
-            console.log("=".repeat(200));
-          }
-        }
-      }
+      const { previousCloudKeys, fetchedModelEntries, totalFetched } =
+        await refreshAllProfilesForSync();
 
       await syncStore.sync();
       console.log("[API Config] ✅ 同步完成");
-
-      // 汇总放在最后
-      if (results.length > 0) {
-        const totalFetched = results.reduce(
-          (sum, r) => sum + (r.success ? r.count : 0),
-          0,
-        );
-
-        console.log("=".repeat(200));
-        console.log(`[API Config] 📦 本次获取模型总数: ${totalFetched} 个`);
-        console.log(`[API Config] 📊 各平台获取数量:`);
-        results.forEach(({ name, count, success }) => {
-          console.log(
-            `[API Config]   - ${name}: ${success ? count : "失败"} 个`,
-          );
-        });
-      }
+      logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
 
       showToast("已通过 WebDAV 同步全部配置和对话记录");
     } catch (error) {
@@ -1168,6 +1317,14 @@ export function ApiConfigPage() {
     try {
       setBackingUp(true);
       ensureWebDavEndpoint();
+      const activeProfile = accessStore.apiProfiles.find(
+        (profile) => profile.enabled,
+      );
+      if (activeProfile) {
+        syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+      }
+      const { previousCloudKeys, fetchedModelEntries, totalFetched } =
+        await refreshAllProfilesForSync();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
 
@@ -1183,6 +1340,7 @@ export function ApiConfigPage() {
 
       syncStore.markSyncTime();
       console.log("[API Config] ✅ 上传完成");
+      logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
       showToast("已通过 WebDAV 备份全部配置和对话记录");
     } catch (error) {
       console.error("[API Config] ❌ 上传失败:", error);
@@ -1236,10 +1394,11 @@ export function ApiConfigPage() {
       );
 
       if (latestActiveProfile) {
-        syncProfileToAccess(latestActiveProfile.id);
+        syncProfileToAccess(latestActiveProfile.id, {
+          skipFetchModels: true,
+        });
       } else {
         applyProviderToChat(latestAccessState.provider);
-        refreshModelsForProvider(latestAccessState.provider);
       }
 
       syncStore.markSyncTime();
@@ -1261,6 +1420,9 @@ export function ApiConfigPage() {
 
     console.log("[API Config] 🗑️ 开始清空云端模型数据...");
     try {
+      ensureWebDavEndpoint();
+      const client = syncStore.getClient() as any;
+
       // 清空本地 apiProfiles 的 cachedModels
       accessStore.update((state) => {
         state.apiProfiles = state.apiProfiles.map((p) => ({
@@ -1274,6 +1436,28 @@ export function ApiConfigPage() {
       appConfig.update((state) => {
         state.models = [];
       });
+
+      const latestAccessState = useAccessStore.getState();
+      writeAccessSnapshot({
+        useCustomConfig: latestAccessState.useCustomConfig,
+        provider: latestAccessState.provider,
+        apiProfiles: latestAccessState.apiProfiles,
+        customModels: latestAccessState.customModels,
+        customUrl: latestAccessState.customUrl,
+        customApiKey: latestAccessState.customApiKey,
+        customOpenAICompatible: latestAccessState.customOpenAICompatible,
+      });
+
+      const latestAppState = getLocalAppState();
+      await client.set(
+        StoreKey.Access,
+        JSON.stringify(latestAppState[StoreKey.Access]),
+      );
+      await client.set(
+        StoreKey.Config,
+        JSON.stringify(latestAppState[StoreKey.Config]),
+      );
+      syncStore.markSyncTime();
 
       console.log("[API Config] ✅ 云端模型数据已清空");
       showToast("已清空所有云端模型数据");
@@ -1727,33 +1911,54 @@ export function ApiConfigPage() {
                           profile.apiKey,
                           { silent: true },
                         );
-                        totalFetched += result.total;
-                        results.push({
-                          name: profile.name,
-                          count: result.total,
-                          success: true,
-                        });
+                        const previousProfileCount = getProfileActualCount(
+                          profile,
+                          useAppConfig.getState().models,
+                        );
+                        const fetchedModels = modelsToCustomModelsString(
+                          result.models,
+                        );
 
-                        // 🆕 保存模型数量到对应 profile 的 modelCount
+                        // 当前平台的可用模型只跟随真实获取结果。
                         accessStore.update((state) => {
                           state.apiProfiles = state.apiProfiles.map((p) =>
                             p.id === profile.id
-                              ? { ...p, modelCount: result.total }
+                              ? {
+                                  ...p,
+                                  cachedModels: fetchedModels,
+                                  modelCount: result.total,
+                                }
                               : p,
                           );
+                          if (
+                            state.apiProfiles.find((p) => p.id === profile.id)
+                              ?.enabled
+                          ) {
+                            state.customModels = fetchedModels;
+                          }
+                        });
+                        const mergedCount = getProfileActualCount(
+                          profile,
+                          useAppConfig.getState().models,
+                        );
+                        totalFetched += mergedCount;
+                        results.push({
+                          name: profile.name,
+                          count: mergedCount,
+                          success: true,
                         });
 
                         // 更新成功状态
                         setModelFetchStatusMap((prev) => ({
                           ...prev,
                           [profile.id]: {
-                            count: result.total,
+                            count: mergedCount,
                             fetching: false,
                             error: undefined,
                           },
                         }));
                         console.log(
-                          `[API Config] ✅ ${profile.name}: 获取到 ${result.total} 个模型`,
+                          `[API Config] ✅ ${profile.name} 下载了 ${result.total} 个模型，云端原有 ${previousProfileCount} 个，合并后共 ${mergedCount} 个`,
                         );
                       } catch (error) {
                         results.push({

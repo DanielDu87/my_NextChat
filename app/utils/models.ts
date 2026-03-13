@@ -101,6 +101,34 @@ function inferVendorFromModelName(
   return null;
 }
 
+function inferVendorFromOcoolaiModel(
+  modelName: string,
+): { name: string; icon?: string } | null {
+  const [prefix] = modelName.split("/", 1);
+  const normalizedPrefix = prefix.trim().toLowerCase();
+
+  const prefixVendorMap: Record<string, { name: string; icon?: string }> = {
+    "01-ai": { name: "01.AI", icon: "Yi" },
+    ascend: { name: "Ascend", icon: "Box" },
+    azure: { name: "Microsoft", icon: "Azure" },
+    baai: { name: "BAAI", icon: "Box" },
+    "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
+    "ibm-granite": { name: "IBM", icon: "Box" },
+    "meta-llama": { name: "Meta", icon: "Ollama" },
+    meta: { name: "Meta", icon: "Ollama" },
+    mistralai: { name: "Mistral", icon: "Mistral.Color" },
+    ocoolai: { name: "Ocoolai", icon: "Box" },
+    qwen: { name: "Alibaba", icon: "Qwen.Color" },
+    web: { name: "Web", icon: "Globe" },
+  };
+
+  if (modelName.includes("/") && prefixVendorMap[normalizedPrefix]) {
+    return prefixVendorMap[normalizedPrefix];
+  }
+
+  return inferVendorFromModelName(modelName);
+}
+
 export type FetchModelsResult = {
   models: LLMModel[];
   total: number;
@@ -226,9 +254,9 @@ function mapModels(
         };
       }
     }
-    // Ocoolai: 通过模型名推断
+    // Ocoolai / 其他：优先按命名空间前缀分类，再降级到模型名前缀推断
     else {
-      const inferred = inferVendorFromModelName(modelName);
+      const inferred = inferVendorFromOcoolaiModel(modelName);
       if (inferred) {
         vendor = {
           id: -1, // 推断的供应商没有固定 ID
@@ -463,7 +491,6 @@ export async function fetchModelsFromProvider(
 
     // 标准化模型列表响应
     let models: any[] = [];
-    let total = 0;
 
     // 提取供应商映射
     let vendorsMap: Record<number, { name: string; icon?: string }> | undefined;
@@ -499,13 +526,11 @@ export async function fetchModelsFromProvider(
       data.data[0].model_name
     ) {
       models = data.data;
-      total = data.data.length;
       console.log(`[Fetch Models] 🎯 检测到 YutoAPI 格式`);
     }
     // Ocoolai 格式: {data: {Models: ["...", "..."]}}
     else if (data.data?.Models && Array.isArray(data.data.Models)) {
       models = data.data.Models.map((name: string) => ({ id: name }));
-      total = data.data.Models.length;
     }
     // AiHubMix 格式: {data: [{model_id: "...", model_name: "...", developer_id: ...}]}
     else if (
@@ -516,31 +541,28 @@ export async function fetchModelsFromProvider(
       data.data[0].developer_id !== undefined
     ) {
       models = data.data;
-      total = data.data.length;
     }
     // 标准 OpenAI 格式
     else if (data.data && Array.isArray(data.data)) {
       models = data.data;
-      total = data.data.length;
     } else if (data.object === "list" && data.data) {
       models = data.data;
-      total = data.data.length;
     } else if (data.models && Array.isArray(data.models)) {
       models = data.models;
-      total = data.models.length;
     }
 
     if (isYutoApiUrl(baseUrl)) {
+      const mappedModels = mapModels(
+        models,
+        providerId,
+        providerName,
+        providerType,
+        sorted,
+        vendorsMap,
+      );
       return {
-        models: mapModels(
-          models,
-          providerId,
-          providerName,
-          providerType,
-          sorted,
-          vendorsMap,
-        ),
-        total: total || models.length,
+        models: mappedModels,
+        total: mappedModels.length,
       };
     }
 
@@ -560,43 +582,46 @@ export async function fetchModelsFromProvider(
         );
       });
 
+      const mappedModels = mapModels(
+        normalizedModels,
+        providerId,
+        providerName,
+        providerType,
+        sorted,
+        vendorsMap,
+      );
       return {
-        models: mapModels(
-          normalizedModels,
-          providerId,
-          providerName,
-          providerType,
-          sorted,
-          vendorsMap,
-        ),
-        total: total || normalizedModels.length,
+        models: mappedModels,
+        total: mappedModels.length,
       };
     }
 
     if (isOcoolaiUrl(baseUrl)) {
-      return {
-        models: mapModels(
-          models,
-          providerId,
-          providerName,
-          providerType,
-          sorted,
-          vendorsMap,
-        ),
-        total: total || models.length,
-      };
-    }
-
-    return {
-      models: mapModels(
+      const mappedModels = mapModels(
         models,
         providerId,
         providerName,
         providerType,
         sorted,
         vendorsMap,
-      ),
-      total: total || models.length,
+      );
+      return {
+        models: mappedModels,
+        total: mappedModels.length,
+      };
+    }
+
+    const mappedModels = mapModels(
+      models,
+      providerId,
+      providerName,
+      providerType,
+      sorted,
+      vendorsMap,
+    );
+    return {
+      models: mappedModels,
+      total: mappedModels.length,
     };
   } catch (error) {
     console.error(`[Fetch Models] ❌ 从 ${provider} 获取模型时出错:`, error);
@@ -660,22 +685,18 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
   const mergedModels = [...modelMap.values()];
 
   // 更新 configStore.models 数组
-  configStore.mergeModels(mergedModels);
+  configStore.mergeModels(mergedModels, { silent: true });
 
-  // 🔥 合并 cachedModels 字符串（只增不减）
-  const existingModelsSet = new Set(
-    (accessStore.customModels || "").split(",").filter(Boolean),
-  );
-  const newModelsSet = new Set(modelsString.split(",").filter(Boolean));
-  newModelsSet.forEach((m) => existingModelsSet.add(m));
-  const mergedModelsString = [...existingModelsSet].join(",");
-
-  // 走 store.update，确保持久化格式和更新时间与其他配置写入保持一致。
+  // 当前启用平台的可用模型只跟随本次真实获取结果，不再叠加历史缓存。
   accessStore.update((state) => {
-    state.customModels = mergedModelsString;
+    state.customModels = modelsString;
     state.apiProfiles = (state.apiProfiles || []).map((profile) =>
       profile.enabled
-        ? { ...profile, cachedModels: mergedModelsString }
+        ? {
+            ...profile,
+            cachedModels: modelsString,
+            modelCount: models.length,
+          }
         : profile,
     );
   });
