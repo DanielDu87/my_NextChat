@@ -109,8 +109,13 @@ export const useSyncStore = createPersistStore(
       const localTightBorder = appConfig.tightBorder;
 
       try {
-        // 检查是否有旧的备份数据需要迁移
-        if (client.getLegacy && client.deleteLegacy) {
+        // 检查是否有旧的备份数据需要迁移（只检查一次）
+        const legacyCheckedKey = "webdav-legacy-migration-checked";
+        if (
+          client.getLegacy &&
+          client.deleteLegacy &&
+          !localStorage.getItem(legacyCheckedKey)
+        ) {
           const legacyData = await client.getLegacy();
           if (legacyData && legacyData !== "") {
             console.log("[Sync] 检测到旧备份数据，开始迁移...");
@@ -132,6 +137,8 @@ export const useSyncStore = createPersistStore(
               console.error("[Sync] 迁移旧数据失败", e);
             }
           }
+          // 标记已检查过，避免每次都请求
+          localStorage.setItem(legacyCheckedKey, "true");
         }
 
         // 分文件同步：分别处理每个 store

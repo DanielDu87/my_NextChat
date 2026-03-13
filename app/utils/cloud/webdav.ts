@@ -97,28 +97,34 @@ export function createWebDavClient(store: SyncStore) {
     // 新增：获取旧的备份数据（用于迁移）
     async getLegacy() {
       const filePath = `${folder}/${LEGACY_FILE_NAME}`;
-      const res = await fetch(this.path(filePath, proxyUrl), {
-        method: "GET",
-        headers: this.headers(),
-      });
+      try {
+        // 先用 HEAD 检查文件是否存在，避免 404 日志
+        const headRes = await fetch(this.path(filePath, proxyUrl), {
+          method: "HEAD",
+          headers: this.headers(),
+        });
 
-      if (404 == res.status) {
+        if (headRes.status === 404) {
+          return "";
+        }
+
+        // 文件存在，再获取内容
+        const res = await fetch(this.path(filePath, proxyUrl), {
+          method: "GET",
+          headers: this.headers(),
+        });
+
+        return await res.text();
+      } catch (e) {
+        // 静默处理错误，返回空字符串
         return "";
       }
-
-      return await res.text();
     },
 
-    // 新增：删除旧的备份文件
+    // 新增：删除旧的备份文件（已废弃，旧备份模式不再使用）
     async deleteLegacy() {
-      const filePath = `${folder}/${LEGACY_FILE_NAME}`;
-      const res = await fetch(this.path(filePath, proxyUrl, "DELETE"), {
-        method: "DELETE",
-        headers: this.headers(),
-      });
-
-      console.log("[WebDav] delete legacy file", res.status, res.statusText);
-      return res.ok;
+      // 旧的单文件备份模式已废弃，直接返回成功
+      return true;
     },
 
     headers() {
