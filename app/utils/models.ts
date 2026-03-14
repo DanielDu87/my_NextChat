@@ -228,6 +228,7 @@ function mapModels(
   let seq = 1000;
   return models.map((m: any) => {
     const modelName = m.id || m.name || m.model_id || m.model_name;
+    const normalizedCapabilities = normalizeAiHubMixModelMetadata(m);
 
     // 提取供应商信息
     let vendor: { id: number; name: string; icon?: string } | undefined;
@@ -270,21 +271,10 @@ function mapModels(
       name: modelName,
       available: true,
       sorted: seq++,
-      type:
-        typeof m.type === "string"
-          ? m.type
-          : typeof m.model_type === "string"
-          ? m.model_type
-          : undefined,
-      types: Array.isArray(m.types)
-        ? m.types.filter((v: unknown) => typeof v === "string")
-        : undefined,
-      features: Array.isArray(m.features)
-        ? m.features.filter((v: unknown) => typeof v === "string")
-        : undefined,
-      capabilities: Array.isArray(m.capabilities)
-        ? m.capabilities.filter((v: unknown) => typeof v === "string")
-        : undefined,
+      type: normalizedCapabilities.type,
+      types: normalizedCapabilities.types,
+      features: normalizedCapabilities.features,
+      capabilities: normalizedCapabilities.capabilities,
       provider: {
         id: providerId,
         providerName: providerName,
@@ -294,6 +284,75 @@ function mapModels(
       vendor,
     };
   });
+}
+
+export function normalizeAiHubMixModelMetadata(model: any): {
+  type?: string;
+  types?: string[];
+  features?: string[];
+  capabilities?: string[];
+} {
+  const add = (target: Set<string>, value: unknown) => {
+    if (typeof value === "string" && value.trim()) {
+      target.add(value.trim().toLowerCase());
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => add(target, item));
+    }
+  };
+
+  const types = new Set<string>();
+  const features = new Set<string>();
+  const capabilities = new Set<string>();
+
+  add(types, model.types);
+  add(features, model.features);
+  add(capabilities, model.capabilities);
+
+  add(types, model.type);
+  add(types, model.model_type);
+  add(capabilities, model.supported_endpoint_type);
+
+  const lowerModelName = String(
+    model.id || model.name || model.model_id || model.model_name || "",
+  ).toLowerCase();
+  const modelType = String(model.model_type || model.type || "").toLowerCase();
+  const endpointType = String(
+    model.supported_endpoint_type || "",
+  ).toLowerCase();
+
+  const isVideo =
+    modelType.includes("video") ||
+    endpointType.includes("video") ||
+    /(runway|vidu|pixverse|sora|veo|jimeng|wanx|i2v|t2v)/.test(lowerModelName);
+  const isImage =
+    !isVideo &&
+    (modelType.includes("image") ||
+      endpointType.includes("image") ||
+      /(gpt-image|dall-e|dalle|recraft|ideogram|flux|nano-banana|seedream|qwen-image|cogview)/.test(
+        lowerModelName,
+      ));
+
+  if (isVideo) {
+    types.add("video");
+    capabilities.add("generate-video");
+  }
+  if (isImage) {
+    types.add("image");
+    capabilities.add("generate-image");
+  }
+
+  const normalizedTypes = [...types];
+  const normalizedFeatures = [...features];
+  const normalizedCapabilities = [...capabilities];
+
+  return {
+    type: isVideo ? "video" : isImage ? "image" : normalizedTypes[0],
+    types: normalizedTypes.length > 0 ? normalizedTypes : undefined,
+    features: normalizedFeatures.length > 0 ? normalizedFeatures : undefined,
+    capabilities:
+      normalizedCapabilities.length > 0 ? normalizedCapabilities : undefined,
+  };
 }
 
 /**
@@ -582,23 +641,8 @@ export async function fetchModelsFromProvider(
     }
 
     if (isAiHubMixUrl(baseUrl)) {
-      const normalizedModels = models.filter((model) => {
-        const modelType = String(
-          model.model_type || model.type || "",
-        ).toLowerCase();
-        const supportedType = String(
-          model.supported_endpoint_type || "",
-        ).toLowerCase();
-        return (
-          !modelType ||
-          modelType.includes("llm") ||
-          modelType.includes("chat") ||
-          supportedType.includes("chat")
-        );
-      });
-
       const mappedModels = mapModels(
-        normalizedModels,
+        models,
         providerId,
         providerName,
         providerType,

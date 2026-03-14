@@ -181,14 +181,17 @@ export function inferModelCapability(model: string): Capability {
     lowerModel.startsWith("imagen-") ||
     lowerModel.includes("image-preview") ||
     lowerModel.includes("image-generation") ||
+    lowerModel.includes("nano-banana") ||
     lowerModel.includes("qwen-image") ||
     lowerModel.startsWith("irag-") ||
     lowerModel.startsWith("ernie-irag-") ||
     lowerModel.startsWith("flux-") ||
+    lowerModel.startsWith("flux/") ||
     lowerModel.startsWith("doubao-seedream-") ||
     lowerModel.startsWith("cogview-") ||
     lowerModel === "v3" ||
-    lowerModel.includes("ideogram")
+    lowerModel.includes("ideogram") ||
+    lowerModel.includes("recraft")
   ) {
     return "image";
   }
@@ -199,6 +202,13 @@ export function inferModelCapability(model: string): Capability {
     lowerModel.includes("seedance") ||
     lowerModel.includes("veo") ||
     lowerModel.includes("sora") ||
+    lowerModel.includes("runway") ||
+    lowerModel.includes("pixverse") ||
+    lowerModel.includes("vidu") ||
+    lowerModel.includes("ray-2") ||
+    lowerModel.includes("jimeng") ||
+    lowerModel.includes("t2v") ||
+    lowerModel.includes("i2v") ||
     lowerModel.includes("wanx2.1-t2v") ||
     lowerModel.includes("wanx2.1-i2v")
   ) {
@@ -368,6 +378,7 @@ export function sanitizeModelConfigForCapability<
     size?: string;
     quality?: string;
     style?: string;
+    seconds?: string;
     webSearchContextSize?: string;
     structuredOutput?: boolean;
     jsonSchema?: string;
@@ -428,7 +439,7 @@ export function sanitizeModelConfigForCapability<
 
   if (capability !== "image") {
     if ("size" in nextConfig) {
-      nextConfig.size = "1024x1024";
+      nextConfig.size = capability === "video" ? "720x1280" : "1024x1024";
     }
     if ("quality" in nextConfig) {
       nextConfig.quality = "standard";
@@ -436,6 +447,17 @@ export function sanitizeModelConfigForCapability<
     if ("style" in nextConfig) {
       nextConfig.style = "vivid";
     }
+  }
+
+  if ("seconds" in nextConfig && capability !== "video") {
+    nextConfig.seconds = "4";
+  }
+
+  if ("seconds" in nextConfig && capability === "video") {
+    const normalized = String(nextConfig.seconds || "").trim();
+    nextConfig.seconds = ["4", "8", "12"].includes(normalized)
+      ? normalized
+      : "4";
   }
 
   if ("structuredOutput" in nextConfig && !support.structured_output) {

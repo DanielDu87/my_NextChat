@@ -14,7 +14,13 @@ export type DalleSize =
   | "1024x1792"
   | "1024x1536"
   | "1536x1024";
-export type DalleQuality = "standard" | "hd";
+export type DalleQuality =
+  | "standard"
+  | "hd"
+  | "auto"
+  | "low"
+  | "medium"
+  | "high";
 export type DalleStyle = "vivid" | "natural";
 
 export type ModelSize =
@@ -23,6 +29,8 @@ export type ModelSize =
   | "1024x1792"
   | "1024x1536"
   | "1536x1024"
+  | "1280x720"
+  | "720x1280"
   | "768x1344"
   | "864x1152"
   | "1344x768"

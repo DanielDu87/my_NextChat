@@ -3,34 +3,45 @@ import { get, set, del, clear } from "idb-keyval";
 import { safeLocalStorage } from "@/app/utils";
 
 const localStorage = safeLocalStorage();
+const MAX_LOCALSTORAGE_MIRROR_SIZE = 100 * 1024;
+
+function shouldMirrorToLocalStorage(value: string) {
+  return (
+    value.length <= MAX_LOCALSTORAGE_MIRROR_SIZE &&
+    !value.includes("data:image/") &&
+    !value.includes("base64,")
+  );
+}
 
 class IndexedDBStorage implements StateStorage {
   public async getItem(name: string): Promise<string | null> {
-    // 优先从 localStorage 读取，确保数据一致性
-    const localValue = localStorage.getItem(name);
-    if (localValue) {
-      return localValue;
-    }
     try {
-      return (await get<string>(name)) ?? null;
+      const indexedValue = (await get<string>(name)) ?? null;
+      if (indexedValue) {
+        return indexedValue;
+      }
     } catch (error) {
-      return null;
+      // ignore and fallback to localStorage
     }
+    return localStorage.getItem(name);
   }
 
   public async setItem(name: string, value: string): Promise<void> {
-    // 同时保存到 IndexedDB 和 localStorage
-    // localStorage 作为主要存储，确保数据不会丢失
-    localStorage.setItem(name, value);
-
     try {
       await set(name, value);
     } catch (error) {
-      // IndexedDB 失败时，localStorage 已经保存了
       console.warn(
-        "[IndexedDBStorage] Failed to save to IndexedDB, using localStorage:",
+        "[IndexedDBStorage] Failed to save to IndexedDB, trying localStorage fallback:",
         error,
       );
+      localStorage.setItem(name, value);
+      return;
+    }
+
+    if (shouldMirrorToLocalStorage(value)) {
+      localStorage.setItem(name, value);
+    } else {
+      localStorage.removeItem(name);
     }
   }
 

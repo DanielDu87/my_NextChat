@@ -587,13 +587,21 @@ export const useChatStore = createPersistStore(
           },
           async onFinish(message, responseRes) {
             botMessage.streaming = false;
-            if (message) {
-              botMessage.content = message;
+            const finalMessage = message || getMessageTextContent(botMessage);
+            if (finalMessage) {
+              botMessage.content = finalMessage;
               botMessage.date = new Date().toLocaleString();
               botMessage.reasoning_details = (responseRes as any)
                 ?.__reasoning_details;
-              console.log("[Chat] ✅ API 调用完成, 响应长度:", message.length);
+              console.log(
+                "[Chat] ✅ API 调用完成, 响应长度:",
+                finalMessage.length,
+              );
               get().onNewMessage(botMessage, session);
+            } else {
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
             }
             ChatControllerPool.remove(session.id, botMessage.id);
           },

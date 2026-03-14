@@ -41,6 +41,7 @@ import DarkIcon from "../icons/dark.svg";
 import AutoIcon from "../icons/auto.svg";
 import BottomIcon from "../icons/bottom.svg";
 import StopIcon from "../icons/pause.svg";
+import PlayIcon from "../icons/play.svg";
 import RobotIcon from "../icons/robot.svg";
 import SizeIcon from "../icons/size.svg";
 import QualityIcon from "../icons/hd.svg";
@@ -69,11 +70,16 @@ import {
   isVisionModel,
   safeLocalStorage,
   getModelSizes,
+  getSupportedVideoDurations,
+  getSupportedImageQualityOptions,
+  getSupportedImageStyleOptions,
   normalizeModelSize,
   normalizeImageQuality,
   supportsCustomSize,
   supportsImageQualityControl,
   supportsImageStyleControl,
+  supportsVideoDurationControl,
+  supportsVideoImageReference,
   useMobileScreen,
   selectOrCopy,
 } from "../utils";
@@ -84,7 +90,6 @@ import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
-import { DalleQuality, DalleStyle } from "../typing";
 import { Prompt, usePromptStore } from "../store/prompt";
 import Locale from "../locales";
 
@@ -118,6 +123,7 @@ import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
 import { ClientApi, MultimodalContent } from "../client/api";
+import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 import {
@@ -845,9 +851,11 @@ export function ChatActions(props: {
   const [showSizeSelector, setShowSizeSelector] = useState(false);
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [showStyleSelector, setShowStyleSelector] = useState(false);
+  const [showDurationSelector, setShowDurationSelector] = useState(false);
   const modelSizes = getModelSizes(currentModel);
-  const dalle3Qualitys: DalleQuality[] = ["standard", "hd"];
-  const dalle3Styles: DalleStyle[] = ["vivid", "natural"];
+  const videoDurationOptions = getSupportedVideoDurations(currentModel);
+  const imageQualityOptions = getSupportedImageQualityOptions(currentModel);
+  const imageStyleOptions = getSupportedImageStyleOptions(currentModel);
   const currentSize = normalizeModelSize(
     currentModel,
     session.mask.modelConfig?.size,
@@ -856,24 +864,33 @@ export function ChatActions(props: {
   const autoAdjustedQualityRef = useRef<string>("");
   const currentQuality = session.mask.modelConfig?.quality ?? "standard";
   const currentStyle = session.mask.modelConfig?.style ?? "vivid";
+  const currentSeconds = session.mask.modelConfig?.seconds ?? "4";
   const currentModelSupport = getModelParameterSupport(currentModel);
   const supportsImageGenerationControls =
     currentModelSupport.capability === "image";
+  const supportsVideoGenerationControls =
+    currentModelSupport.capability === "video";
   const canUseImageAttachments =
     isVisionModel(currentModel) && !supportsImageGenerationControls;
+  const previousShowUploadImageRef = useRef<boolean>(canUseImageAttachments);
   const supportsSizeControl = supportsCustomSize(currentModel);
   const supportsQualityControl = supportsImageQualityControl(currentModel);
   const supportsStyleControl = supportsImageStyleControl(currentModel);
+  const supportsVideoDuration = supportsVideoDurationControl(currentModel);
+  const supportsVideoReference = supportsVideoImageReference(currentModel);
 
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
     const show = canUseImageAttachments;
-    setShowUploadImage(show);
-    if (!show) {
+    if (showUploadImage !== show) {
+      setShowUploadImage(show);
+    }
+    if (!show && previousShowUploadImageRef.current) {
       props.setAttachImages([]);
       props.setUploading(false);
     }
+    previousShowUploadImageRef.current = show;
     if (session.mask.modelConfig.size !== currentSize) {
       const previousSize = session.mask.modelConfig.size;
       chatStore.updateTargetSession(session, (session) => {
@@ -925,7 +942,16 @@ export function ChatActions(props: {
           : nextModel.name,
       );
     }
-  }, [canUseImageAttachments, chatStore, currentModel, models, props, session]);
+  }, [
+    canUseImageAttachments,
+    chatStore,
+    currentModel,
+    currentSize,
+    models,
+    props,
+    session,
+    showUploadImage,
+  ]);
 
   return (
     <div
@@ -1049,6 +1075,65 @@ export function ChatActions(props: {
               onClick={() => setShowStyleSelector(true)}
               text={`风格 ${currentStyle}`}
               icon={<ImageIcon />}
+            />
+          )}
+        </>
+      )}
+
+      {supportsVideoGenerationControls && (
+        <>
+          {supportsVideoReference && (
+            <ChatAction
+              onClick={props.uploadImage}
+              text={
+                props.uploading
+                  ? "上传参考图中"
+                  : props.hitBottom
+                  ? "参考图 / i2v"
+                  : "参考图 / i2v"
+              }
+              icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
+            />
+          )}
+          {supportsSizeControl && (
+            <ChatAction
+              onClick={() => setShowSizeSelector(true)}
+              text={`尺寸 ${currentSize}`}
+              icon={<SizeIcon />}
+            />
+          )}
+          {supportsSizeControl && (
+            <ChatAction
+              onClick={() => {
+                const nextSize =
+                  currentSize === "720x1280"
+                    ? "1280x720"
+                    : currentSize === "1280x720"
+                    ? "720x1280"
+                    : "720x1280";
+                chatStore.updateTargetSession(session, (session) => {
+                  session.mask.modelConfig.size = nextSize as any;
+                });
+                showToast(
+                  nextSize === "720x1280" || nextSize === "1024x1792"
+                    ? "已切换竖版"
+                    : "已切换横版",
+                );
+              }}
+              text={
+                currentSize.startsWith("720x") ||
+                currentSize.startsWith("1024x")
+                  ? "横竖版切换"
+                  : "横竖版切换"
+              }
+              icon={<ReturnIcon />}
+            />
+          )}
+          {supportsVideoDuration && (
+            <ChatAction
+              onClick={() => setShowDurationSelector(true)}
+              text={`时长 ${currentSeconds}s`}
+              icon={<PlayIcon />}
             />
           )}
         </>
@@ -1296,7 +1381,7 @@ export function ChatActions(props: {
           centerContent={true}
           title="选择画质"
           defaultSelectedValue={currentQuality}
-          items={dalle3Qualitys.map((m) => ({
+          items={imageQualityOptions.map((m) => ({
             title: m,
             value: m,
           }))}
@@ -1317,7 +1402,7 @@ export function ChatActions(props: {
           centerContent={true}
           title="选择风格"
           defaultSelectedValue={currentStyle}
-          items={dalle3Styles.map((m) => ({
+          items={imageStyleOptions.map((m) => ({
             title: m,
             value: m,
           }))}
@@ -1329,6 +1414,27 @@ export function ChatActions(props: {
               session.mask.modelConfig.style = style;
             });
             showToast(style);
+          }}
+        />
+      )}
+
+      {showDurationSelector && (
+        <Selector
+          centerContent={true}
+          title="选择视频时长"
+          defaultSelectedValue={currentSeconds}
+          items={videoDurationOptions.map((m) => ({
+            title: `${m} 秒`,
+            value: m,
+          }))}
+          onClose={() => setShowDurationSelector(false)}
+          onSelection={(s) => {
+            if (s.length === 0) return;
+            const seconds = s[0];
+            chatStore.updateTargetSession(session, (session) => {
+              session.mask.modelConfig.seconds = seconds;
+            });
+            showToast(`${seconds} 秒`);
           }}
         />
       )}
@@ -1424,6 +1530,48 @@ export function DeleteImageButton(props: { deleteImage: () => void }) {
       <DeleteIcon />
     </div>
   );
+}
+
+function renderGeneratedMedia(
+  url: string,
+  className: string,
+  key?: string | number,
+) {
+  const isExpiredSignedImageUrl = (() => {
+    try {
+      const parsed = new URL(url);
+      const expiresAt = parsed.searchParams.get("se");
+      return expiresAt ? Date.parse(expiresAt) < Date.now() : false;
+    } catch {
+      return false;
+    }
+  })();
+
+  if (isExpiredSignedImageUrl) {
+    return (
+      <div className={className} key={key}>
+        媒体链接已过期
+      </div>
+    );
+  }
+
+  if (/^blob:/i.test(url) && !isRememberedRuntimeBlobUrl(url)) {
+    return (
+      <div className={className} key={key}>
+        本地媒体缓存已失效
+      </div>
+    );
+  }
+
+  if (/^blob:/i.test(url)) {
+    return (
+      <video className={className} key={key} controls src={url}>
+        <track kind="captions" />
+      </video>
+    );
+  }
+
+  return <img className={className} key={key} src={url} alt="" />;
 }
 
 export function ShortcutKeyModal(props: { onClose: () => void }) {
@@ -2584,13 +2732,11 @@ function _Chat() {
                               parentRef={scrollRef}
                               defaultShow={i >= messages.length - 6}
                             />
-                            {getMessageImages(message).length == 1 && (
-                              <img
-                                className={styles["chat-message-item-image"]}
-                                src={getMessageImages(message)[0]}
-                                alt=""
-                              />
-                            )}
+                            {getMessageImages(message).length == 1 &&
+                              renderGeneratedMedia(
+                                getMessageImages(message)[0],
+                                styles["chat-message-item-image"],
+                              )}
                             {getMessageImages(message).length > 1 && (
                               <div
                                 className={styles["chat-message-item-images"]}
@@ -2603,17 +2749,10 @@ function _Chat() {
                               >
                                 {getMessageImages(message).map(
                                   (image, index) => {
-                                    return (
-                                      <img
-                                        className={
-                                          styles[
-                                            "chat-message-item-image-multi"
-                                          ]
-                                        }
-                                        key={index}
-                                        src={image}
-                                        alt=""
-                                      />
+                                    return renderGeneratedMedia(
+                                      image,
+                                      styles["chat-message-item-image-multi"],
+                                      index,
                                     );
                                   },
                                 )}

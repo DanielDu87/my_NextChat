@@ -307,13 +307,33 @@ export function isImageGenerationModel(model: string) {
   return (
     lowerModel.includes("image") ||
     lowerModel.includes("imagen") ||
+    lowerModel.includes("nano-banana") ||
     lowerModel.startsWith("dall-e") ||
     lowerModel.startsWith("dalle") ||
     lowerModel.includes("seedream") ||
-    lowerModel.includes("jimeng") ||
     lowerModel.includes("qwen-image") ||
     lowerModel.includes("cogview") ||
-    lowerModel.includes("flux")
+    lowerModel.includes("flux") ||
+    lowerModel.includes("ideogram") ||
+    lowerModel.includes("recraft")
+  );
+}
+
+export function isVideoGenerationModel(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    lowerModel.includes("video-gen") ||
+    lowerModel.includes("seedance") ||
+    lowerModel.includes("veo") ||
+    lowerModel.includes("sora") ||
+    lowerModel.includes("runway") ||
+    lowerModel.includes("pixverse") ||
+    lowerModel.includes("vidu") ||
+    lowerModel.includes("ray-2") ||
+    lowerModel.includes("jimeng") ||
+    lowerModel.includes("wanx") ||
+    lowerModel.includes("t2v") ||
+    lowerModel.includes("i2v")
   );
 }
 
@@ -321,6 +341,7 @@ export function getTimeoutMSByModel(model: string) {
   model = model.toLowerCase();
   if (
     isImageGenerationModel(model) ||
+    isVideoGenerationModel(model) ||
     model.startsWith("o1") ||
     model.startsWith("o3") ||
     model.includes("deepseek-r") ||
@@ -332,11 +353,11 @@ export function getTimeoutMSByModel(model: string) {
 
 export function getModelSizes(model: string): ModelSize[] {
   const lowerModel = model.toLowerCase();
-  if (lowerModel.includes("gpt-image-1.5")) {
-    return ["1024x1024", "1024x1536", "1536x1024"];
-  }
-  if (isImageGenerationModel(model)) {
-    return ["1024x1024", "1792x1024", "1024x1792"];
+  if (isVideoGenerationModel(model)) {
+    if (lowerModel.includes("sora")) {
+      return ["720x1280", "1280x720"];
+    }
+    return ["720x1280", "1280x720"];
   }
   if (lowerModel.includes("cogview")) {
     return [
@@ -349,7 +370,53 @@ export function getModelSizes(model: string): ModelSize[] {
       "720x1440",
     ];
   }
+  if (lowerModel.includes("gpt-image-1.5")) {
+    return ["1024x1024", "1024x1536", "1536x1024"];
+  }
+  if (
+    lowerModel.startsWith("dall-e-") ||
+    lowerModel.startsWith("dalle-") ||
+    lowerModel.startsWith("gpt-image-") ||
+    lowerModel.includes("qwen-image") ||
+    lowerModel.startsWith("irag-") ||
+    lowerModel.startsWith("ernie-irag-")
+  ) {
+    return ["1024x1024", "1792x1024", "1024x1792"];
+  }
   return [];
+}
+
+export function getSupportedImageQualityOptions(model: string): DalleQuality[] {
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.includes("gpt-image-1.5")) {
+    return ["auto", "low", "medium", "high"];
+  }
+  if (lowerModel.includes("dall-e-3")) {
+    return ["standard", "hd"];
+  }
+  return [];
+}
+
+export function getSupportedImageStyleOptions(model: string): DalleStyle[] {
+  return model.toLowerCase().includes("dall-e-3") ? ["vivid", "natural"] : [];
+}
+
+export function getSupportedVideoDurations(model: string): string[] {
+  const lowerModel = model.toLowerCase();
+  if (isVideoGenerationModel(model)) {
+    if (lowerModel.includes("sora")) {
+      return ["4", "8", "12"];
+    }
+    return ["4", "8"];
+  }
+  return [];
+}
+
+export function supportsVideoImageReference(model: string): boolean {
+  const lowerModel = model.toLowerCase();
+  return (
+    isVideoGenerationModel(model) && /i2v|vidu|jimeng|wanx/.test(lowerModel)
+  );
 }
 
 function parseModelSize(size: string): [number, number] | null {
@@ -441,15 +508,19 @@ export function normalizeImageQuality(
 }
 
 export function supportsImageQualityControl(model: string): boolean {
-  return normalizeImageQuality(model, "standard").length > 0;
+  return getSupportedImageQualityOptions(model).length > 0;
 }
 
 export function supportsImageStyleControl(model: string): boolean {
-  return model.toLowerCase().includes("dall-e-3");
+  return getSupportedImageStyleOptions(model).length > 0;
 }
 
 export function supportsCustomSize(model: string): boolean {
   return getModelSizes(model).length > 0;
+}
+
+export function supportsVideoDurationControl(model: string): boolean {
+  return getSupportedVideoDurations(model).length > 0;
 }
 
 export function showPlugins(provider: ServiceProvider, model: string) {
@@ -526,7 +597,14 @@ export function safeLocalStorage(): {
     },
     setItem(key: string, value: string): void {
       if (storage) {
-        storage.setItem(key, value);
+        try {
+          storage.setItem(key, value);
+        } catch (error) {
+          console.warn(
+            `[safeLocalStorage] Failed to set item "${key}", skipping localStorage write:`,
+            error,
+          );
+        }
       } else {
         console.warn(
           `Attempted to set item "${key}" in localStorage, but localStorage is not available.`,

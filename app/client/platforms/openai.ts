@@ -43,9 +43,11 @@ import Locale from "../../locales";
 import { getClientConfig } from "@/app/config/client";
 import {
   getMessageTextContent,
+  getMessageImages,
   isVisionModel,
   isDalle3 as _isDalle3,
   isImageGenerationModel,
+  isVideoGenerationModel,
   getTimeoutMSByModel,
   normalizeModelSize,
   normalizeImageQuality,
@@ -124,9 +126,10 @@ function normalizeServiceProvider(
 function isGeminiImagePreviewModel(model: string) {
   const lowerModel = model.toLowerCase();
   return (
-    lowerModel.startsWith("gemini-") &&
-    (lowerModel.includes("image-preview") ||
-      lowerModel.includes("image-generation"))
+    lowerModel.includes("nano-banana") ||
+    (lowerModel.startsWith("gemini-") &&
+      (lowerModel.includes("image-preview") ||
+        lowerModel.includes("image-generation")))
   );
 }
 
@@ -145,10 +148,11 @@ function normalizeAiHubMixModelId(model: string) {
   if (lowerModel.endsWith("/gpt-image-test")) return "gpt-image-test";
   if (lowerModel.endsWith("/dall-e-3")) return "dall-e-3";
   if (lowerModel.endsWith("/dall-e-2")) return "dall-e-2";
+  if (lowerModel.includes("ideogram")) return "V3";
   return model;
 }
 
-function getAiHubMixPredictionModelPath(model: string) {
+export function getAiHubMixPredictionModelPath(model: string) {
   const normalizedModel = normalizeAiHubMixModelId(model);
   const lowerModel = normalizedModel.toLowerCase();
 
@@ -174,15 +178,20 @@ function getAiHubMixPredictionModelPath(model: string) {
   }
   if (
     lowerModel.startsWith("flux-2-") ||
-    lowerModel.startsWith("flux-kontext-")
+    lowerModel.startsWith("flux-kontext-") ||
+    lowerModel.startsWith("flux/")
   ) {
     return `bfl/${normalizedModel}`;
   }
-  if (normalizedModel === "V3") {
+  if (normalizedModel === "V3" || lowerModel.includes("ideogram")) {
     return `ideogram/${normalizedModel}`;
   }
 
   return null;
+}
+
+export function isAiHubMixVideoModel(model: string) {
+  return isVideoGenerationModel(model);
 }
 
 export function buildAiHubMixPredictionPayload(
@@ -260,7 +269,7 @@ export function buildAiHubMixPredictionPayload(
       prompt,
       n: 1,
       size: normalizedSize,
-      ...(isGptImage15
+      ...(lowerModel === "dall-e-2" || isGptImage15
         ? {}
         : { quality: normalizeImageQuality(model, options.config?.quality) }),
       ...(lowerModel === "dall-e-3"
@@ -269,6 +278,265 @@ export function buildAiHubMixPredictionPayload(
     },
   };
 }
+
+export function buildAiHubMixVideoPayload(
+  model: string,
+  options: ChatOptions,
+): Record<string, unknown> {
+  const prompt = getMessageTextContent(
+    options.messages.slice(-1)?.pop() as any,
+  );
+  const latestMessage = options.messages.slice(-1)?.pop() as any;
+  const imageUrls = latestMessage ? getMessageImages(latestMessage) : [];
+
+  return {
+    model,
+    prompt,
+    size: options.config?.size || "720x1280",
+    seconds: options.config?.seconds || "4",
+    ...(imageUrls[0] ? { image_url: imageUrls[0] } : {}),
+  };
+}
+
+async function buildAiHubMixVideoRequestBody(
+  model: string,
+  options: ChatOptions,
+): Promise<FormData | Record<string, unknown>> {
+  const payload = buildAiHubMixVideoPayload(model, options);
+  const imageUrl = String((payload as any).image_url || "");
+
+  if (!imageUrl) {
+    return payload;
+  }
+
+  const formData = new FormData();
+  formData.append("model", String((payload as any).model || model));
+  formData.append("prompt", String((payload as any).prompt || ""));
+
+  const imageBlob = await fetch(imageUrl).then((res) => res.blob());
+  const extension = imageBlob.type.split("/")[1] || "png";
+  formData.append(
+    "input_reference",
+    imageBlob,
+    `reference.${extension.replace(/[^a-z0-9]/gi, "") || "png"}`,
+  );
+
+  return formData;
+}
+
+function isVideoUrl(url: string) {
+  return (
+    /^blob:/i.test(url) || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i.test(url)
+  );
+}
+
+function toVideoMarkdown(url: string) {
+  return `[Generated Video](${url})`;
+}
+
+const runtimeBlobUrls = new Set<string>();
+
+export function rememberRuntimeBlobUrl(url: string) {
+  if (/^blob:/i.test(url)) {
+    runtimeBlobUrls.add(url);
+  }
+}
+
+export function isRememberedRuntimeBlobUrl(url: string) {
+  return /^blob:/i.test(url) && runtimeBlobUrls.has(url);
+}
+
+const AIHUBMIX_VIDEO_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const AIHUBMIX_VIDEO_POLL_INTERVAL_MS = 3000;
+
+function getTaskStatus(payload: any) {
+  return String(
+    payload?.status ||
+      payload?.data?.[0]?.status ||
+      payload?.output?.[0]?.status ||
+      "",
+  ).toLowerCase();
+}
+
+function isPendingTaskStatus(status: string) {
+  return ["queued", "pending", "processing", "in_progress", "running"].includes(
+    status,
+  );
+}
+
+function getVideoTaskId(payload: any) {
+  return String(payload?.id || payload?.data?.[0]?.id || "").trim();
+}
+
+function getTaskProgress(payload: any) {
+  const progress = payload?.progress ?? payload?.data?.[0]?.progress;
+  return typeof progress === "number" ? progress : 0;
+}
+
+function formatVideoTaskStatus(payload: any) {
+  const status = getTaskStatus(payload) || "queued";
+  const taskId = getVideoTaskId(payload);
+  const progress = getTaskProgress(payload);
+  return `视频生成中：${status}${progress > 0 ? `，进度 ${progress}%` : ""}${
+    taskId ? `\n任务 ID：${taskId}` : ""
+  }`;
+}
+
+async function pollAiHubMixTask(
+  pollingUrl: string,
+  requestHeaders: Record<string, string>,
+  controller: AbortController,
+  onProgress?: (payload: any) => void,
+) {
+  const startedAt = Date.now();
+  let targetUrl = pollingUrl;
+  let lastPayload: any = null;
+
+  while (Date.now() - startedAt < AIHUBMIX_VIDEO_POLL_TIMEOUT_MS) {
+    const pollRes = await fetch(targetUrl, {
+      method: "GET",
+      signal: controller.signal,
+      headers: requestHeaders,
+    });
+    const pollText = await pollRes.text();
+    const pollJson = parseJsonOrSSEPayload(pollText);
+    lastPayload = pollJson;
+    onProgress?.(pollJson);
+    const status = getTaskStatus(pollJson);
+
+    if (["succeeded", "completed", "success"].includes(status)) {
+      return pollJson;
+    }
+
+    if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+      return pollJson;
+    }
+
+    const nextPollingUrl =
+      pollJson?.polling_url ||
+      pollJson?.data?.[0]?.polling_url ||
+      pollJson?.output?.[0]?.polling_url;
+    if (typeof nextPollingUrl === "string" && nextPollingUrl.length > 0) {
+      targetUrl = nextPollingUrl;
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, AIHUBMIX_VIDEO_POLL_INTERVAL_MS),
+    );
+  }
+
+  return (
+    lastPayload || {
+      output: [{ polling_url: targetUrl }],
+    }
+  );
+}
+
+async function attachCompletedVideoContent(
+  payload: any,
+  contentUrl: string,
+  requestHeaders: Record<string, string>,
+  controller: AbortController,
+) {
+  if (typeof window === "undefined" || !contentUrl) {
+    return payload;
+  }
+
+  try {
+    const res = await fetch(contentUrl, {
+      method: "GET",
+      signal: controller.signal,
+      headers: requestHeaders,
+    });
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.startsWith("video/")) {
+      const responseText = await res.text();
+      if (responseText.trim().length > 0) {
+        let errorPayload: unknown = responseText;
+        try {
+          errorPayload = JSON.parse(responseText);
+        } catch {
+          // keep plain text
+        }
+        return {
+          ...payload,
+          output: {
+            ...(payload?.output || {}),
+            content_error: {
+              message: `视频内容接口返回非视频响应：HTTP ${res.status}`,
+              response: errorPayload,
+            },
+          },
+        };
+      }
+    }
+    if (contentType.includes("application/json")) {
+      const errorPayload = await res.json();
+      return {
+        ...payload,
+        output: {
+          ...(payload?.output || {}),
+          content_error: {
+            message: `视频内容接口返回 JSON 响应：HTTP ${res.status}`,
+            response: errorPayload,
+          },
+        },
+      };
+    }
+    if (!res.ok) {
+      const errorText = await res.text();
+      let errorPayload: unknown = errorText;
+      try {
+        errorPayload = JSON.parse(errorText);
+      } catch {
+        // keep plain text
+      }
+      return {
+        ...payload,
+        output: {
+          ...(payload?.output || {}),
+          content_error: {
+            message: `视频内容拉取失败：HTTP ${res.status}`,
+            response: errorPayload,
+          },
+        },
+      };
+    }
+
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) {
+      return {
+        ...payload,
+        output: {
+          ...(payload?.output || {}),
+          content_error: {
+            message: "视频内容接口返回空响应",
+            response: null,
+          },
+        },
+      };
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    rememberRuntimeBlobUrl(objectUrl);
+    return {
+      ...payload,
+      output: {
+        ...(payload?.output || {}),
+        video_url: objectUrl,
+      },
+    };
+  } catch (error) {
+    console.warn(
+      "[Video Content] Failed to fetch completed video content:",
+      error,
+    );
+    return payload;
+  }
+}
+
+export const __testables = {
+  attachCompletedVideoContent,
+};
 
 function parseJsonOrSSEPayload(text: string) {
   const trimmed = text.trim();
@@ -392,7 +660,14 @@ export class ChatGPTApi implements LLMApi {
     // dalle3 model return url, using url create image message
     if (res.data) {
       let url = res.data?.at(0)?.url ?? "";
+      const videoUrl =
+        res.data?.at(0)?.video_url ||
+        res.data?.at(0)?.videoUrl ||
+        (isVideoUrl(url) ? url : "");
       const b64_json = res.data?.at(0)?.b64_json ?? "";
+      if (videoUrl) {
+        return toVideoMarkdown(videoUrl);
+      }
       if (!url && b64_json) {
         // uploadImage
         url = await uploadImage(base64Image2Blob(b64_json, "image/png"));
@@ -413,7 +688,15 @@ export class ChatGPTApi implements LLMApi {
         first?.image_url ||
         first?.imageUrl ||
         (typeof first === "string" && first.startsWith("http") ? first : "");
+      const videoUrl =
+        first?.video_url ||
+        first?.videoUrl ||
+        (typeof first === "string" && isVideoUrl(first) ? first : "") ||
+        (typeof url === "string" && isVideoUrl(url) ? url : "");
       const b64_json = first?.b64_json || first?.b64 || "";
+      if (videoUrl) {
+        return toVideoMarkdown(videoUrl);
+      }
       if (url) {
         return [
           {
@@ -436,6 +719,67 @@ export class ChatGPTApi implements LLMApi {
       }
       if (first?.polling_url) {
         return `图像生成任务已创建：${first.polling_url}`;
+      }
+    }
+    if (res.output && typeof res.output === "object") {
+      const outputVideoUrl =
+        res.output?.video_url || res.output?.videoUrl || "";
+      const outputUrl =
+        res.output?.url ||
+        res.output?.image_url ||
+        res.output?.imageUrl ||
+        res.output?.urls?.[0] ||
+        "";
+      const outputError = res.output?.content_error;
+      const outputB64 =
+        res.output?.b64_json?.[0] ||
+        res.output?.b64_json ||
+        res.output?.b64?.[0] ||
+        res.output?.b64 ||
+        "";
+      if (typeof outputVideoUrl === "string" && outputVideoUrl.length > 0) {
+        return toVideoMarkdown(outputVideoUrl);
+      }
+      if (typeof outputUrl === "string" && outputUrl.length > 0) {
+        if (isVideoUrl(outputUrl)) {
+          return toVideoMarkdown(outputUrl);
+        }
+        return [
+          {
+            type: "image_url",
+            image_url: {
+              url: outputUrl,
+            },
+          },
+        ];
+      }
+      if (typeof outputB64 === "string" && outputB64.length > 0) {
+        return [
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/png;base64,${outputB64}`,
+            },
+          },
+        ];
+      }
+      if (outputError) {
+        const errorPayload =
+          typeof outputError === "object"
+            ? outputError
+            : { message: String(outputError) };
+        return `视频内容拉取失败${
+          res.id ? `\n任务 ID：${res.id}` : ""
+        }\n\`\`\`json\n${JSON.stringify(errorPayload, null, 2)}\n\`\`\``;
+      }
+    }
+    if (res.object === "video" && res.id) {
+      const status = getTaskStatus(res);
+      const progress = getTaskProgress(res);
+      if (status) {
+        return `视频任务状态：${status} (${res.id})${
+          progress > 0 ? `，进度 ${progress}%` : ""
+        }`;
       }
     }
     const multiModContent = res.choices?.at(0)?.message?.multi_mod_content;
@@ -524,6 +868,7 @@ export class ChatGPTApi implements LLMApi {
 
     const isDalle3 = _isDalle3(options.config.model);
     const isImageModel = isImageGenerationModel(options.config.model);
+    const isVideoModel = isVideoGenerationModel(options.config.model);
     const isGeminiImagePreview = isGeminiImagePreviewModel(
       options.config.model,
     );
@@ -540,6 +885,10 @@ export class ChatGPTApi implements LLMApi {
       isAiHubMixBaseUrl(currentBaseUrlForRequest)
         ? getAiHubMixPredictionModelPath(options.config.model)
         : null;
+    const aiHubMixVideoPath =
+      isVideoModel && isAiHubMixBaseUrl(currentBaseUrlForRequest)
+        ? "v1/videos"
+        : null;
     const isReasoningOpenAIModel =
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
@@ -549,6 +898,11 @@ export class ChatGPTApi implements LLMApi {
     const parameterSupport = getModelParameterSupport(modelConfig.model);
     if (aiHubMixPredictionPath) {
       requestPayload = buildAiHubMixPredictionPayload(
+        options.config.model,
+        options,
+      );
+    } else if (aiHubMixVideoPath) {
+      requestPayload = await buildAiHubMixVideoRequestBody(
         options.config.model,
         options,
       );
@@ -696,7 +1050,8 @@ export class ChatGPTApi implements LLMApi {
     // console.log("[Request] openai payload: ", requestPayload);
 
     const shouldStream =
-      isGeminiImagePreview || (!isImageModel && !!options.config.stream);
+      isGeminiImagePreview ||
+      (!isImageModel && !isVideoModel && !!options.config.stream);
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -735,6 +1090,8 @@ export class ChatGPTApi implements LLMApi {
         chatPath = this.path(
           aiHubMixPredictionPath
             ? `v1/models/${aiHubMixPredictionPath}/predictions`
+            : aiHubMixVideoPath
+            ? aiHubMixVideoPath
             : isImageModel && !isGeminiImagePreview
             ? OpenaiPath.ImagePath
             : OpenaiPath.ChatPath,
@@ -743,7 +1100,7 @@ export class ChatGPTApi implements LLMApi {
 
       currentBaseUrl = currentBaseUrlForRequest;
       const requestHeaders = {
-        ...getHeaders(),
+        ...getHeaders(requestPayload instanceof FormData),
         ...(modelConfig.anthropicBeta?.trim()
           ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
           : {}),
@@ -900,7 +1257,10 @@ export class ChatGPTApi implements LLMApi {
       } else {
         const chatPayload = {
           method: "POST",
-          body: JSON.stringify(requestPayload),
+          body:
+            requestPayload instanceof FormData
+              ? requestPayload
+              : JSON.stringify(requestPayload),
           signal: controller.signal,
           headers: requestHeaders,
         };
@@ -915,7 +1275,60 @@ export class ChatGPTApi implements LLMApi {
         clearTimeout(requestTimeoutId);
 
         const resText = await res.text();
-        const resJson = parseJsonOrSSEPayload(resText);
+        let resJson = parseJsonOrSSEPayload(resText);
+        const pollingUrl =
+          resJson?.polling_url ||
+          resJson?.data?.[0]?.polling_url ||
+          resJson?.output?.[0]?.polling_url;
+        if (typeof pollingUrl === "string" && pollingUrl.length > 0) {
+          options.onUpdate?.(formatVideoTaskStatus(resJson), "");
+          resJson = await pollAiHubMixTask(
+            pollingUrl,
+            requestHeaders,
+            controller,
+            (payload) => {
+              if (aiHubMixVideoPath) {
+                options.onUpdate?.(formatVideoTaskStatus(payload), "");
+              }
+            },
+          );
+        } else if (aiHubMixVideoPath) {
+          const status = getTaskStatus(resJson);
+          const videoTaskId = getVideoTaskId(resJson);
+          if (videoTaskId && isPendingTaskStatus(status)) {
+            options.onUpdate?.(formatVideoTaskStatus(resJson), "");
+          }
+          if (videoTaskId && isPendingTaskStatus(status)) {
+            resJson = await pollAiHubMixTask(
+              this.path(`v1/videos/${videoTaskId}`),
+              requestHeaders,
+              controller,
+              (payload) => {
+                options.onUpdate?.(formatVideoTaskStatus(payload), "");
+              },
+            );
+          }
+          const completedStatus = getTaskStatus(resJson);
+          const completedVideoTaskId = getVideoTaskId(resJson);
+          if (
+            completedVideoTaskId &&
+            ["succeeded", "completed", "success"].includes(completedStatus)
+          ) {
+            const contentUrl = this.path(
+              `v1/videos/${completedVideoTaskId}/content`,
+            );
+            options.onUpdate?.(
+              `视频任务已完成，正在拉取内容...\n${contentUrl}`,
+              "",
+            );
+            resJson = await attachCompletedVideoContent(
+              resJson,
+              contentUrl,
+              requestHeaders,
+              controller,
+            );
+          }
+        }
         const reasoningDetails =
           resJson?.choices?.[0]?.message?.reasoning_details ??
           resJson?.choices?.[0]?.delta?.reasoning_details;

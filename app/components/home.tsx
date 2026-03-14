@@ -152,6 +152,15 @@ const loadAsyncGoogleFont = () => {
     "/css2?family=" +
     encodeURIComponent("Noto Sans:wght@300;400;700;900") +
     "&display=swap";
+  linkEl.onerror = () => {
+    if (linkEl.href.includes(proxyFontUrl)) {
+      linkEl.href =
+        remoteFontUrl +
+        "/css2?family=" +
+        encodeURIComponent("Noto Sans:wght@300;400;700;900") +
+        "&display=swap";
+    }
+  };
   document.head.appendChild(linkEl);
 };
 

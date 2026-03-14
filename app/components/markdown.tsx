@@ -19,6 +19,7 @@ import {
   HTMLPreview,
   HTMLPreviewHandler,
 } from "./artifacts";
+import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
 import { useChatStore } from "../store";
 import { IconButton } from "./button";
 
@@ -272,9 +273,17 @@ function _MarkDownContent(props: { content: string }) {
     return tryWrapHtmlCode(escapeBrackets(props.content));
   }, [props.content]);
 
+  const transformLinkUri = (href: string) => {
+    if (/^blob:/i.test(href) && isRememberedRuntimeBlobUrl(href)) {
+      return href;
+    }
+    return href;
+  };
+
   return (
     <ReactMarkdown
       remarkPlugins={[RemarkMath, RemarkGfm, RemarkBreaks]}
+      transformLinkUri={transformLinkUri}
       rehypePlugins={[
         RehypeKatex,
         [
@@ -291,6 +300,9 @@ function _MarkDownContent(props: { content: string }) {
         p: (pProps) => <p {...pProps} dir="auto" />,
         a: (aProps) => {
           const href = aProps.href || "";
+          if (/^blob:/i.test(href) && !isRememberedRuntimeBlobUrl(href)) {
+            return <span>本地媒体缓存已失效</span>;
+          }
           if (/\.(aac|mp3|opus|wav)$/.test(href)) {
             return (
               <figure>
@@ -298,7 +310,10 @@ function _MarkDownContent(props: { content: string }) {
               </figure>
             );
           }
-          if (/\.(3gp|3g2|webm|ogv|mpeg|mp4|avi)$/.test(href)) {
+          if (
+            /^blob:/i.test(href) ||
+            /\.(3gp|3g2|webm|ogv|mpeg|mp4|avi)$/.test(href)
+          ) {
             return (
               <video controls width="99.9%">
                 <source src={href} />
