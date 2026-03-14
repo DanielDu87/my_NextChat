@@ -22,6 +22,7 @@ export function useModelFetcher() {
       options?: {
         silent?: boolean;
         profileName?: string;
+        apiKeyGroups?: Record<string, string>;
       },
     ): Promise<FetchModelsResult> => {
       const displayName = getProviderDisplayName(provider, baseUrl);
@@ -40,6 +41,7 @@ export function useModelFetcher() {
           baseUrl,
           apiKey,
           options?.profileName,
+          options?.apiKeyGroups,
         );
 
         await updateModelsInStore(result.models);

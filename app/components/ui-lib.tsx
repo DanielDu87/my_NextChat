@@ -141,10 +141,14 @@ export function Modal(props: ModalProps) {
 
   return (
     <div
-      className={clsx(styles["modal-container"], {
-        [styles["modal-container-max"]]: isMax,
-        [styles["modal-container-small"]]: props.isSmall,
-      })}
+      className={clsx(
+        styles["modal-container"],
+        {
+          [styles["modal-container-max"]]: isMax,
+          [styles["modal-container-small"]]: props.isSmall,
+        },
+        props.className,
+      )}
     >
       <div className={styles["modal-header"]}>
         <div className={styles["modal-title"]}>{props.title}</div>

@@ -12,6 +12,7 @@ export type AccessSnapshot = {
     provider: string;
     baseUrl: string;
     apiKey: string;
+    apiKeyGroups?: Record<string, string>;
     enabled: boolean;
     openAICompatible?: boolean;
     cachedModels?: string;

@@ -81,6 +81,7 @@ const DEFAULT_ACCESS_STATE = {
     provider: ServiceProvider;
     baseUrl: string;
     apiKey: string;
+    apiKeyGroups?: Record<string, string>;
     enabled: boolean;
     openAICompatible?: boolean;
     cachedModels?: string;

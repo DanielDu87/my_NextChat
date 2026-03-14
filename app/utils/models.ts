@@ -224,6 +224,7 @@ function mapModels(
   providerType: string,
   sorted: number,
   vendorsMap?: Record<number, { name: string; icon?: string }>,
+  apiKeyGroup?: string,
 ) {
   let seq = 1000;
   return models.map((m: any) => {
@@ -275,6 +276,7 @@ function mapModels(
       types: normalizedCapabilities.types,
       features: normalizedCapabilities.features,
       capabilities: normalizedCapabilities.capabilities,
+      apiKeyGroup,
       provider: {
         id: providerId,
         providerName: providerName,
@@ -425,6 +427,7 @@ export async function fetchModelsFromProvider(
   baseUrl?: string,
   apiKey?: string,
   profileName?: string,
+  apiKeyGroups?: Record<string, string>,
 ): Promise<FetchModelsResult> {
   // 构建API路径
   let apiPath = "";
@@ -626,14 +629,62 @@ export async function fetchModelsFromProvider(
     }
 
     if (isYutoApiUrl(baseUrl)) {
-      const mappedModels = mapModels(
-        models,
-        providerId,
-        providerName,
-        providerType,
-        sorted,
-        vendorsMap,
+      const candidateUrls = ["/api/proxy/v1/pricing"];
+      const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
+        ([, value]) => Boolean(value?.trim()),
       );
+      const fetchEntries =
+        groupedEntries.length > 0
+          ? groupedEntries
+          : [["default", apiKey || ""]];
+      const mergedModelMap = new Map<string, LLMModel>();
+
+      for (const [groupName, groupApiKey] of fetchEntries) {
+        if (!groupApiKey) continue;
+        const groupedHeaders: Record<string, string> = {
+          Authorization: `Bearer ${groupApiKey}`,
+          ...(baseUrl ? { "x-base-url": baseUrl } : {}),
+        };
+        const groupedData = await fetchJsonWithCandidates(
+          candidateUrls,
+          groupedHeaders,
+          baseUrl,
+        );
+        const groupedModels =
+          groupedData?.vendors &&
+          Array.isArray(groupedData.vendors) &&
+          groupedData?.data &&
+          Array.isArray(groupedData.data)
+            ? groupedData.data
+            : [];
+        const groupedVendorsMap: Record<
+          number,
+          { name: string; icon?: string }
+        > = {};
+        (groupedData?.vendors || []).forEach((vendor: any) => {
+          groupedVendorsMap[vendor.id] = {
+            name: vendor.name,
+            icon: vendor.icon,
+          };
+        });
+
+        mapModels(
+          groupedModels,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+          groupedVendorsMap,
+          groupName,
+        ).forEach((model) => {
+          const key = `${model.name}@${model.provider?.id}`;
+          if (!mergedModelMap.has(key)) {
+            mergedModelMap.set(key, model);
+          }
+        });
+      }
+
+      const mappedModels = [...mergedModelMap.values()];
       return {
         models: mappedModels,
         total: mappedModels.length,
@@ -733,8 +784,7 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
     const key = `${m.name}@${m.provider?.id}`;
     const existing = modelMap.get(key);
     if (existing) {
-      // 存在则更新可用状态
-      modelMap.set(key, { ...existing, available: m.available });
+      modelMap.set(key, { ...existing, ...m, available: m.available });
     } else {
       // 不存在则添加
       modelMap.set(key, m);

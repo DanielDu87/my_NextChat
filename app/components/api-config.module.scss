@@ -344,6 +344,112 @@
   flex-wrap: wrap;
 }
 
+.profileApiKeyEditor {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.profileYutoKeyGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.profileYutoModalBody {
+  display: flex;
+  justify-content: flex-start;
+  width: 550px;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.profileYutoModalContainer {
+  box-shadow: var(--card-shadow);
+  background-color: var(--white);
+  border-radius: 12px;
+  width: 550px;
+  max-width: calc(100vw - 80px);
+  min-width: 0 !important;
+  overflow: hidden;
+}
+
+.profileYutoModalHeader {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: var(--border-in-light);
+}
+
+.profileYutoModalTitle {
+  font-weight: bolder;
+  font-size: 16px;
+}
+
+.profileYutoModalClose {
+  border: 0;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profileYutoKeyItem {
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  justify-items: start;
+}
+
+.profileYutoKeyInner {
+  display: grid;
+  gap: 4px;
+  width: 1000px;
+}
+
+.profileYutoKeyDescription {
+  font-size: 12px;
+  opacity: 0.7;
+  line-height: 1.4;
+}
+
+.profileYutoModalBody .profileYutoKeyGrid {
+  width: 100%;
+  justify-items: start;
+}
+
+.profileYutoModalFooter {
+  padding: 20px;
+  border-top: var(--border-in-light);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.profileApiKeyButton {
+  min-height: 38px;
+  padding: 6px 8px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.profileYutoKeyInner .textInput {
+  width: 100% !important;
+}
+
+.profileYutoKeyInner .profileCellLabel,
+.profileYutoKeyInner .profileYutoKeyDescription {
+  width: 100%;
+  text-align: left;
+  padding-left: 4px;
+  box-sizing: border-box;
+}
+
+.profileYutoKeyInner .profileCellLabel {
+  font-size: 13px;
+}
+
 .profileRow :global(.icon-button) {
   min-height: 38px;
 }

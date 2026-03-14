@@ -9,6 +9,7 @@ import {
   ChatMessage,
   ModelType,
   useAccessStore,
+  useAppConfig,
   useChatStore,
 } from "../store";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
@@ -112,6 +113,7 @@ export interface LLMModel {
   types?: string[];
   features?: string[];
   capabilities?: string[];
+  apiKeyGroup?: string;
 }
 
 export interface LLMModelProvider {
@@ -265,6 +267,7 @@ export function validString(x: string): boolean {
 
 export function getHeaders(ignoreHeaders: boolean = false) {
   const accessStore = useAccessStore.getState();
+  const appConfigStore = useAppConfig.getState();
   const chatStore = useChatStore.getState();
   let headers: Record<string, string> = {};
   if (!ignoreHeaders) {
@@ -307,9 +310,47 @@ export function getHeaders(ignoreHeaders: boolean = false) {
         ? ServiceProvider.Custom
         : modelConfig.providerName;
 
+    const enabledCustomProfile = accessStore.apiProfiles.find(
+      (profile) =>
+        profile.enabled &&
+        profile.provider === ServiceProvider.Custom &&
+        profile.baseUrl,
+    );
+
+    const resolveCustomApiKey = () => {
+      if (!enabledCustomProfile) {
+        return accessStore.customApiKey;
+      }
+
+      const profileProviderId = `custom_${enabledCustomProfile.name}`;
+      const matchedModel = (appConfigStore.models || []).find(
+        (model) =>
+          model.name === modelConfig.model &&
+          model.provider?.id === profileProviderId,
+      );
+
+      const groupedKeys = enabledCustomProfile.apiKeyGroups || {};
+      if (matchedModel?.apiKeyGroup && groupedKeys[matchedModel.apiKeyGroup]) {
+        return groupedKeys[matchedModel.apiKeyGroup];
+      }
+
+      if (
+        modelConfig.model.toLowerCase().startsWith("claude") &&
+        groupedKeys.anthropic
+      ) {
+        return groupedKeys.anthropic;
+      }
+
+      return (
+        groupedKeys.default ||
+        enabledCustomProfile.apiKey ||
+        accessStore.customApiKey
+      );
+    };
+
     const apiKey =
       effectiveProvider === ServiceProvider.Custom
-        ? accessStore.customApiKey
+        ? resolveCustomApiKey()
         : effectiveProvider === ServiceProvider.Google
         ? accessStore.googleApiKey
         : effectiveProvider === ServiceProvider.Azure

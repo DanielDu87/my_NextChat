@@ -49,6 +49,47 @@ import {
   modelsToCustomModelsString,
 } from "../utils/models";
 
+const YUTO_API_KEY_GROUPS = {
+  default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
+  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
+  discount: "sk-JcPXIRfVD27TqRmBEFGsbtZ5zWpsppiMQCFjQRUpri5u7nLv",
+  anthropic: "sk-g8N4StogM4emnJvcLZ37TxTUcL71xPDWlQH0sZpQtMztkHEt",
+  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
+} as const;
+
+const YUTO_API_KEY_GROUP_LABELS: Record<
+  keyof typeof YUTO_API_KEY_GROUPS,
+  { title: string; description: string }
+> = {
+  default: {
+    title: "Default 组",
+    description: "默认分组，未命中其他分组时使用",
+  },
+  enterprise: {
+    title: "Enterprise 组",
+    description: "企业分组模型使用",
+  },
+  discount: {
+    title: "Discount 组",
+    description: "折扣分组模型使用",
+  },
+  anthropic: {
+    title: "Anthropic 组",
+    description: "Claude / Anthropic 系模型优先使用",
+  },
+  user: {
+    title: "User 组",
+    description: "普通用户分组模型使用",
+  },
+};
+
+function isYutoProfile(profile: { name: string; baseUrl: string }) {
+  return (
+    profile.name.toLowerCase().includes("yuto") ||
+    profile.baseUrl.includes("gptapi.asia")
+  );
+}
+
 type AccessState = ReturnType<typeof useAccessStore.getState>;
 type ModelFetchStatus = {
   count?: number;
@@ -572,12 +613,16 @@ function getProfileApiKey(provider: ServiceProvider, accessStore: AccessState) {
 }
 
 function createProfile(provider: ServiceProvider, accessStore: AccessState) {
+  const name = `${provider} ${new Date().toLocaleTimeString()}`;
   return {
     id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name: `${provider} ${new Date().toLocaleTimeString()}`,
+    name,
     provider,
     baseUrl: getProfileBaseUrl(provider, accessStore),
     apiKey: getProfileApiKey(provider, accessStore),
+    apiKeyGroups: name.toLowerCase().includes("yuto")
+      ? { ...YUTO_API_KEY_GROUPS }
+      : undefined,
     enabled: false,
     openAICompatible:
       provider === ServiceProvider.Custom
@@ -614,6 +659,7 @@ export function ApiConfigPage() {
   const [modelFetchStatusMap, setModelFetchStatusMap] = useState<
     Partial<Record<string, ModelFetchStatus>>
   >({});
+  const [editingYutoProfileId, setEditingYutoProfileId] = useState("");
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
   // 检测是否是沾满模式
@@ -641,13 +687,46 @@ export function ApiConfigPage() {
   }, []);
 
   useEffect(() => {
+    const hasMissingYutoGroups = accessStore.apiProfiles.some(
+      (profile) => isYutoProfile(profile) && !profile.apiKeyGroups,
+    );
+    if (!hasMissingYutoGroups) return;
+
+    accessStore.update((access) => {
+      access.apiProfiles = access.apiProfiles.map((profile) =>
+        isYutoProfile(profile) && !profile.apiKeyGroups
+          ? {
+              ...profile,
+              apiKeyGroups: { ...YUTO_API_KEY_GROUPS },
+              apiKey: YUTO_API_KEY_GROUPS.default,
+            }
+          : profile,
+      );
+    });
+  }, [accessStore]);
+
+  useEffect(() => {
     const styleId = "small-modal-style";
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style");
       style.id = styleId;
       style.textContent = `
         .modal-mask .modal-container {
-          max-width: 400px !important;
+          width: 550px !important;
+          max-width: unset !important;
+          min-width: unset !important;
+          margin: 0 auto !important;
+        }
+        .modal-mask .modal-header-action {
+          opacity: 1 !important;
+          padding: 8px !important;
+          background: rgba(0, 0, 0, 0.05) !important;
+          border-radius: 8px !important;
+          transition: all 0.2s !important;
+        }
+        .modal-mask .modal-header-action:hover {
+          background: rgba(0, 0, 0, 0.1) !important;
+          transform: scale(1.1) !important;
         }
       `;
       document.head.appendChild(style);
@@ -915,7 +994,13 @@ export function ApiConfigPage() {
       },
     }));
 
-    void fetchFromProvider(provider, baseUrl, apiKey, { silent: true })
+    void fetchFromProvider(provider, baseUrl, apiKey, {
+      silent: true,
+      apiKeyGroups: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.apiKeyGroups
+        : undefined,
+    })
       .then((result) => {
         const currentProfile = profileId
           ? useAccessStore
@@ -1142,7 +1227,11 @@ export function ApiConfigPage() {
             profile.provider,
             profile.baseUrl,
             profile.apiKey,
-            { silent: true, profileName: profile.name },
+            {
+              silent: true,
+              profileName: profile.name,
+              apiKeyGroups: profile.apiKeyGroups,
+            },
           );
           totalFetched += result.total;
           result.models.forEach((model) => {
@@ -1667,26 +1756,40 @@ export function ApiConfigPage() {
                         className={`${styles.profileCell} ${styles.profileColApiKey}`}
                       >
                         <div className={styles.profileCellLabel}>API Key</div>
-                        <input
-                          className={styles.textInput}
-                          type="text"
-                          placeholder="API Key"
-                          value={profile.apiKey}
-                          onChange={(e) => {
-                            const nextValue = e.currentTarget.value;
-                            accessStore.update((access) => {
-                              access.apiProfiles = access.apiProfiles.map(
-                                (item) =>
-                                  item.id === profile.id
-                                    ? { ...item, apiKey: nextValue }
-                                    : item,
-                              );
-                            });
-                            if (profile.enabled) {
-                              syncProfileToAccess(profile.id);
-                            }
-                          }}
-                        />
+                        {isYutoProfile(profile) ? (
+                          <div className={styles.profileApiKeyEditor}>
+                            <button
+                              type="button"
+                              className={`${styles.textInput} ${styles.profileApiKeyButton}`}
+                              onClick={() =>
+                                setEditingYutoProfileId(profile.id)
+                              }
+                            >
+                              点击编辑
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            className={styles.textInput}
+                            type="text"
+                            placeholder="API Key"
+                            value={profile.apiKey}
+                            onChange={(e) => {
+                              const nextValue = e.currentTarget.value;
+                              accessStore.update((access) => {
+                                access.apiProfiles = access.apiProfiles.map(
+                                  (item) =>
+                                    item.id === profile.id
+                                      ? { ...item, apiKey: nextValue }
+                                      : item,
+                                );
+                              });
+                              if (profile.enabled) {
+                                syncProfileToAccess(profile.id);
+                              }
+                            }}
+                          />
+                        )}
                       </div>
 
                       <div
@@ -1778,6 +1881,104 @@ export function ApiConfigPage() {
                   ))}
                 </div>
               </div>
+              {editingYutoProfileId &&
+                (() => {
+                  const editingProfile = providerProfiles.find(
+                    (profile) => profile.id === editingYutoProfileId,
+                  );
+                  if (!editingProfile) return null;
+
+                  return (
+                    <div
+                      className={`modal-mask ${styles.profileYutoModalMask}`}
+                    >
+                      <div className={styles.profileYutoModalContainer}>
+                        <div className={styles.profileYutoModalHeader}>
+                          <div className={styles.profileYutoModalTitle}>
+                            {`${editingProfile.name} 分组 API Key`}
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.profileYutoModalClose}
+                            onClick={() => setEditingYutoProfileId("")}
+                          >
+                            <CloseIcon />
+                          </button>
+                        </div>
+                        <div className={styles.profileYutoModalBody}>
+                          <div className={styles.profileYutoKeyGrid}>
+                            {Object.keys(YUTO_API_KEY_GROUPS).map((group) => (
+                              <div
+                                key={group}
+                                className={styles.profileYutoKeyItem}
+                              >
+                                <div className={styles.profileYutoKeyInner}>
+                                  <div className={styles.profileCellLabel}>
+                                    {
+                                      YUTO_API_KEY_GROUP_LABELS[
+                                        group as keyof typeof YUTO_API_KEY_GROUPS
+                                      ].title
+                                    }
+                                  </div>
+                                  <div
+                                    className={styles.profileYutoKeyDescription}
+                                  >
+                                    {
+                                      YUTO_API_KEY_GROUP_LABELS[
+                                        group as keyof typeof YUTO_API_KEY_GROUPS
+                                      ].description
+                                    }
+                                  </div>
+                                  <input
+                                    className={styles.textInput}
+                                    type="text"
+                                    placeholder={`${group} API Key`}
+                                    value={
+                                      editingProfile.apiKeyGroups?.[group] ?? ""
+                                    }
+                                    onChange={(e) => {
+                                      const nextValue = e.currentTarget.value;
+                                      accessStore.update((access) => {
+                                        access.apiProfiles =
+                                          access.apiProfiles.map((item) =>
+                                            item.id === editingProfile.id
+                                              ? {
+                                                  ...item,
+                                                  apiKeyGroups: {
+                                                    ...(item.apiKeyGroups ||
+                                                      {}),
+                                                    [group]: nextValue,
+                                                  },
+                                                  apiKey:
+                                                    group === "default"
+                                                      ? nextValue
+                                                      : item.apiKey,
+                                                }
+                                              : item,
+                                          );
+                                      });
+                                      if (editingProfile.enabled) {
+                                        syncProfileToAccess(editingProfile.id);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className={styles.profileYutoModalFooter}>
+                          <IconButton
+                            type="primary"
+                            text="关闭"
+                            icon={<ConfirmIcon />}
+                            onClick={() => setEditingYutoProfileId("")}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
             </ListItem>
           )}
 
@@ -1921,7 +2122,10 @@ export function ApiConfigPage() {
                           profile.provider,
                           profile.baseUrl,
                           profile.apiKey,
-                          { silent: true },
+                          {
+                            silent: true,
+                            apiKeyGroups: profile.apiKeyGroups,
+                          },
                         );
                         const previousProfileCount = getProfileActualCount(
                           profile,
