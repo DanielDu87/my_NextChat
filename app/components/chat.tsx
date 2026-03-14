@@ -628,14 +628,29 @@ export function ChatActions(props: {
     [globalCustomModelEntries],
   );
   const currentCustomModelKey = `${currentModel}@${currentProviderName}`;
+  const activeProfile = useAccessStore((state) =>
+    state.apiProfiles.find((profile) => profile.enabled),
+  );
+  const currentProviderId = useMemo(() => {
+    if (activeProfile) {
+      return activeProfile.provider === ServiceProvider.Custom
+        ? `custom_${activeProfile.name}`.toLowerCase()
+        : String(activeProfile.provider).toLowerCase();
+    }
+    return String(currentProviderName).toLowerCase();
+  }, [activeProfile, currentProviderName]);
 
   // 使用 useAllModels 获取完整的真实模型列表。
   const allModels = useAllModels();
 
   const models = useMemo(() => {
-    const filteredModels = allModels.filter((m) => m.available);
+    const filteredModels = allModels.filter(
+      (m) =>
+        m.available &&
+        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
+    );
     return filteredModels;
-  }, [allModels]);
+  }, [allModels, currentProviderId]);
   const latestOpenAIModel = useMemo(() => {
     const openAIModels = config.models.filter(
       (item) => item?.provider?.providerName === ServiceProvider.OpenAI,
@@ -852,6 +867,9 @@ export function ChatActions(props: {
             `${currentModel}@${currentProviderName}`
           }
           defaultGroup={modelSelectorDefaultGroup}
+          headerHint={`当前供应商：${
+            activeProfile?.name || currentProviderName
+          }，共 ${models.length} 个模型可用`}
           items={[
             ...models.map((m) => ({
               title: `${m.displayName}`,
@@ -2099,47 +2117,53 @@ function _Chat() {
                         <div className={styles["chat-message-container"]}>
                           <div className={styles["chat-message-header"]}>
                             <div className={styles["chat-message-avatar"]}>
-                              <div className={styles["chat-message-edit"]}>
-                                <IconButton
-                                  icon={<EditIcon />}
-                                  aria={Locale.Chat.Actions.Edit}
-                                  onClick={async () => {
-                                    const newMessage = await showPrompt(
-                                      Locale.Chat.Actions.Edit,
-                                      getMessageTextContent(message),
-                                      10,
-                                    );
-                                    let newContent:
-                                      | string
-                                      | MultimodalContent[] = newMessage;
-                                    const images = getMessageImages(message);
-                                    if (images.length > 0) {
-                                      newContent = [
-                                        { type: "text", text: newMessage },
-                                      ];
-                                      for (let i = 0; i < images.length; i++) {
-                                        newContent.push({
-                                          type: "image_url",
-                                          image_url: {
-                                            url: images[i],
-                                          },
-                                        });
-                                      }
-                                    }
-                                    chatStore.updateTargetSession(
-                                      session,
-                                      (session) => {
-                                        const m = session.mask.context
-                                          .concat(session.messages)
-                                          .find((m) => m.id === message.id);
-                                        if (m) {
-                                          m.content = newContent;
+                              {isUser && (
+                                <div className={styles["chat-message-edit"]}>
+                                  <IconButton
+                                    icon={<EditIcon />}
+                                    aria={Locale.Chat.Actions.Edit}
+                                    onClick={async () => {
+                                      const newMessage = await showPrompt(
+                                        Locale.Chat.Actions.Edit,
+                                        getMessageTextContent(message),
+                                        10,
+                                      );
+                                      let newContent:
+                                        | string
+                                        | MultimodalContent[] = newMessage;
+                                      const images = getMessageImages(message);
+                                      if (images.length > 0) {
+                                        newContent = [
+                                          { type: "text", text: newMessage },
+                                        ];
+                                        for (
+                                          let i = 0;
+                                          i < images.length;
+                                          i++
+                                        ) {
+                                          newContent.push({
+                                            type: "image_url",
+                                            image_url: {
+                                              url: images[i],
+                                            },
+                                          });
                                         }
-                                      },
-                                    );
-                                  }}
-                                ></IconButton>
-                              </div>
+                                      }
+                                      chatStore.updateTargetSession(
+                                        session,
+                                        (session) => {
+                                          const m = session.mask.context
+                                            .concat(session.messages)
+                                            .find((m) => m.id === message.id);
+                                          if (m) {
+                                            m.content = newContent;
+                                          }
+                                        },
+                                      );
+                                    }}
+                                  ></IconButton>
+                                </div>
+                              )}
                               {isUser ? (
                                 <Avatar avatar={config.avatar} />
                               ) : (

@@ -732,7 +732,7 @@ export function ApiConfigPage() {
       currentProfiles,
     );
 
-    console.log(`[API Config] 📦 已加载云端合并总数: ${totalCount} 个模型`);
+    console.log(`[API Config] 📦 共 ${totalCount} 个远程模型可用`);
     console.log(`[API Config] 📊 云端分平台数量:`);
     platformCounts.forEach(({ name, count }) => {
       console.log(`[API Config]   - ${name}: ${count} 个模型`);
@@ -879,12 +879,18 @@ export function ApiConfigPage() {
   const anyFetching = Object.values(modelFetchStatusMap).some(
     (status) => status?.fetching === true,
   );
+  const syncActionDisabled = syncing || backingUp || downloading;
+  const fetchedProgressCount = Object.values(modelFetchStatusMap).reduce(
+    (sum, status) => sum + (status?.count ?? 0),
+    0,
+  );
+  const shouldShowFetchedProgress = syncing || anyFetching;
 
   const modelFetchCount = mergedModelTotal > 0 ? mergedModelTotal : undefined;
-  const modelFetchHint = anyFetching
-    ? "正在获取模型..."
+  const modelFetchHint = shouldShowFetchedProgress
+    ? `已获取 ${fetchedProgressCount} 个远程模型`
     : mergedModelTotal > 0
-    ? `云端合并总数 ${mergedModelTotal} 个模型`
+    ? `共 ${mergedModelTotal} 个远程模型可用`
     : fetchingModels
     ? "正在获取模型..."
     : "点击获取模型数据";
@@ -1099,6 +1105,7 @@ export function ApiConfigPage() {
   const refreshAllProfilesForSync = async () => {
     const accessState = useAccessStore.getState();
     const allProfiles = accessState.apiProfiles;
+    setModelFetchStatusMap({});
     const previousCloudModels = getManagedCloudModels(
       useAppConfig.getState().models || [],
       allProfiles,
@@ -1166,7 +1173,7 @@ export function ApiConfigPage() {
           setModelFetchStatusMap((prev) => ({
             ...prev,
             [profile.id]: {
-              count: mergedCount,
+              count: result.total,
               fetching: false,
               error: undefined,
             },
@@ -1268,7 +1275,7 @@ export function ApiConfigPage() {
       console.log("[API Config] ✅ 同步完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
 
-      showToast("已通过 WebDAV 同步全部配置和对话记录");
+      showToast("已通过 WebDAV 同步全部配置、模型和对话记录");
     } catch (error) {
       console.error("[API Config] ❌ 同步失败:", error);
       showToast("同步到 WebDAV 失败，请检查网络或凭据");
@@ -1341,7 +1348,7 @@ export function ApiConfigPage() {
       syncStore.markSyncTime();
       console.log("[API Config] ✅ 上传完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
-      showToast("已通过 WebDAV 备份全部配置和对话记录");
+      showToast("已通过 WebDAV 上传全部配置、模型和对话记录");
     } catch (error) {
       console.error("[API Config] ❌ 上传失败:", error);
       showToast("上传全部配置到云端失败");
@@ -1403,7 +1410,7 @@ export function ApiConfigPage() {
 
       syncStore.markSyncTime();
       console.log("[API Config] ✅ 下载并恢复完成");
-      showToast("已通过 WebDAV 下载并恢复全部配置和对话记录");
+      showToast("已通过 WebDAV 下载并恢复全部配置、模型和对话记录");
     } catch (error) {
       console.error("[API Config] ❌ 下载失败:", error);
       showToast("从云端下载全部配置失败: " + (error as Error).message);
@@ -1841,7 +1848,7 @@ export function ApiConfigPage() {
                   icon={backingUp ? <LoadingIcon /> : <UploadIcon />}
                   text={backingUp ? "上传中..." : "上传到云端"}
                   bordered
-                  disabled={backingUp || syncing || downloading}
+                  disabled={syncActionDisabled}
                   onClick={() => {
                     void backupToWebDav();
                   }}
@@ -1851,7 +1858,7 @@ export function ApiConfigPage() {
                   text={syncing ? "同步中..." : "保存并同步"}
                   type="primary"
                   bordered
-                  disabled={syncing || backingUp || downloading}
+                  disabled={syncActionDisabled}
                   onClick={() => {
                     void syncToWebDav();
                   }}
@@ -1860,7 +1867,7 @@ export function ApiConfigPage() {
                   icon={downloading ? <LoadingIcon /> : <DownloadIcon />}
                   text={downloading ? "下载中..." : "从云端下载"}
                   bordered
-                  disabled={downloading || syncing || backingUp}
+                  disabled={syncActionDisabled}
                   onClick={() => {
                     void downloadFromWebDav();
                   }}
@@ -1869,7 +1876,7 @@ export function ApiConfigPage() {
                   type="button"
                   className={styles.modelFetchHint}
                   aria-live="polite"
-                  disabled={anyFetching}
+                  disabled={anyFetching || syncActionDisabled}
                   onClick={async () => {
                     console.log("[API Config] 🔄 开始获取所有配置的模型...");
 
@@ -1999,11 +2006,16 @@ export function ApiConfigPage() {
                   }}
                   title="点击获取模型数据"
                 >
-                  {anyFetching ? <LoadingIcon /> : <RobotIcon />}
+                  {anyFetching || syncing ? <LoadingIcon /> : <RobotIcon />}
                   <span>
-                    {typeof modelFetchCount === "number" ? (
+                    {shouldShowFetchedProgress ? (
                       <>
-                        已获取 <strong>{modelFetchCount}</strong> 个远程模型
+                        已获取 <strong>{fetchedProgressCount}</strong>
+                        {" 个远程模型"}
+                      </>
+                    ) : typeof modelFetchCount === "number" ? (
+                      <>
+                        共 <strong>{modelFetchCount}</strong> 个远程模型可用
                       </>
                     ) : (
                       modelFetchHint

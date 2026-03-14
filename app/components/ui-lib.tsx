@@ -525,6 +525,7 @@ export function Selector<T>(props: {
   showGroupFilter?: boolean;
   extraGroups?: string[];
   defaultGroup?: string;
+  headerHint?: React.ReactNode;
   footer?:
     | React.ReactNode
     | ((ctx: { selectedGroup: string }) => React.ReactNode);
@@ -851,6 +852,11 @@ export function Selector<T>(props: {
         className={styles["selector-content"]}
         onClick={(e) => e.stopPropagation()}
       >
+        {props.headerHint ? (
+          <div className={styles["selector-header-hint"]}>
+            {props.headerHint}
+          </div>
+        ) : null}
         {props.showGroupFilter && (
           <select
             className={styles["selector-group-filter"]}

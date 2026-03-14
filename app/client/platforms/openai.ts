@@ -107,37 +107,50 @@ function isAiHubMixBaseUrl(baseUrl: string) {
   return baseUrl.includes("aihubmix.com");
 }
 
-function getAiHubMixPredictionModelPath(model: string) {
+function normalizeAiHubMixModelId(model: string) {
   const lowerModel = model.toLowerCase();
+  if (lowerModel.endsWith("/qwen-image")) return "qwen-image";
+  if (lowerModel.endsWith("/qwen-image-edit")) return "qwen-image-edit";
+  if (lowerModel.endsWith("/qwen-image-plus")) return "qwen-image-plus";
+  if (lowerModel.endsWith("/gpt-image-1")) return "gpt-image-1";
+  if (lowerModel.endsWith("/gpt-image-1-mini")) return "gpt-image-1-mini";
+  if (lowerModel.endsWith("/dall-e-3")) return "dall-e-3";
+  if (lowerModel.endsWith("/dall-e-2")) return "dall-e-2";
+  return model;
+}
+
+function getAiHubMixPredictionModelPath(model: string) {
+  const normalizedModel = normalizeAiHubMixModelId(model);
+  const lowerModel = normalizedModel.toLowerCase();
 
   if (
     lowerModel.startsWith("gpt-image-") ||
     lowerModel.startsWith("dall-e-") ||
     lowerModel.startsWith("dalle-")
   ) {
-    return `openai/${model}`;
+    return `openai/${normalizedModel}`;
   }
   if (lowerModel.startsWith("imagen-")) {
-    return `google/${model}`;
+    return `google/${normalizedModel}`;
   }
   if (
-    lowerModel.startsWith("qwen-image") ||
+    lowerModel.includes("qwen-image") ||
     lowerModel.startsWith("irag-") ||
     lowerModel.startsWith("ernie-irag-")
   ) {
-    return `qianfan/${model}`;
+    return `qianfan/${normalizedModel}`;
   }
   if (lowerModel.startsWith("doubao-seedream-")) {
-    return `doubao/${model}`;
+    return `doubao/${normalizedModel}`;
   }
   if (
     lowerModel.startsWith("flux-2-") ||
     lowerModel.startsWith("flux-kontext-")
   ) {
-    return `bfl/${model}`;
+    return `bfl/${normalizedModel}`;
   }
-  if (model === "V3") {
-    return `ideogram/${model}`;
+  if (normalizedModel === "V3") {
+    return `ideogram/${normalizedModel}`;
   }
 
   return null;
@@ -147,7 +160,8 @@ function buildAiHubMixPredictionPayload(
   model: string,
   options: ChatOptions,
 ): Record<string, unknown> {
-  const lowerModel = model.toLowerCase();
+  const normalizedModel = normalizeAiHubMixModelId(model);
+  const lowerModel = normalizedModel.toLowerCase();
   const prompt = getMessageTextContent(
     options.messages.slice(-1)?.pop() as any,
   );
