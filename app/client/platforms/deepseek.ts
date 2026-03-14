@@ -24,6 +24,7 @@ import {
 } from "@/app/utils";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 
 export class DeepSeekApi implements LLMApi {
   private disableListModels = true;
@@ -103,17 +104,20 @@ export class DeepSeekApi implements LLMApi {
       },
     };
 
-    const requestPayload: RequestPayload = {
-      messages: filteredMessages,
-      stream: options.config.stream,
-      model: modelConfig.model,
-      temperature: modelConfig.temperature,
-      presence_penalty: modelConfig.presence_penalty,
-      frequency_penalty: modelConfig.frequency_penalty,
-      top_p: modelConfig.top_p,
-      // max_tokens: Math.max(modelConfig.max_tokens, 1024),
-      // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
-    };
+    const requestPayload: RequestPayload = applyModelSamplingRules(
+      modelConfig.model,
+      {
+        messages: filteredMessages,
+        stream: options.config.stream,
+        model: modelConfig.model,
+        temperature: modelConfig.temperature,
+        presence_penalty: modelConfig.presence_penalty,
+        frequency_penalty: modelConfig.frequency_penalty,
+        top_p: modelConfig.top_p,
+        // max_tokens: Math.max(modelConfig.max_tokens, 1024),
+        // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
+      },
+    );
 
     console.log("[Request] openai payload: ", requestPayload);
 

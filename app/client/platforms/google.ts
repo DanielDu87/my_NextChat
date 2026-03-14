@@ -26,6 +26,7 @@ import {
 } from "@/app/utils";
 import { preProcessImageContent } from "@/app/utils/chat";
 import { nanoid } from "nanoid";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 
@@ -175,7 +176,7 @@ export class GeminiProApi implements LLMApi {
     };
     const requestPayload = {
       contents: messages,
-      generationConfig: {
+      generationConfig: applyModelSamplingRules(options.config.model, {
         // stopSequences: [
         //   "Title"
         // ],
@@ -183,7 +184,7 @@ export class GeminiProApi implements LLMApi {
         maxOutputTokens: modelConfig.max_tokens,
         topP: modelConfig.top_p,
         // "topK": modelConfig.top_k,
-      },
+      }),
       safetySettings: [
         {
           category: "HARM_CATEGORY_HARASSMENT",

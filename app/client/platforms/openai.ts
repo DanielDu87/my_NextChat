@@ -34,6 +34,10 @@ import {
   MultimodalContent,
   SpeechOptions,
 } from "../api";
+import {
+  applyModelSamplingRules,
+  getModelParameterSupport,
+} from "../model-parameter-rules";
 import Locale from "../../locales";
 import { getClientConfig } from "@/app/config/client";
 import {
@@ -487,11 +491,13 @@ export class ChatGPTApi implements LLMApi {
       isAiHubMixBaseUrl(currentBaseUrlForRequest)
         ? getAiHubMixPredictionModelPath(options.config.model)
         : null;
-    const isO1OrO3 =
+    const isReasoningOpenAIModel =
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
-      options.config.model.startsWith("o4-mini");
+      options.config.model.startsWith("o4") ||
+      options.config.model.startsWith("o5");
     const isGpt5 = options.config.model.startsWith("gpt-5");
+    const parameterSupport = getModelParameterSupport(modelConfig.model);
     if (aiHubMixPredictionPath) {
       requestPayload = buildAiHubMixPredictionPayload(
         options.config.model,
@@ -518,7 +524,7 @@ export class ChatGPTApi implements LLMApi {
         const content = visionModel
           ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
-        if (!(isO1OrO3 && v.role === "system"))
+        if (!(isReasoningOpenAIModel && v.role === "system"))
           messages.push({ role: v.role, content });
       }
 
@@ -528,20 +534,30 @@ export class ChatGPTApi implements LLMApi {
         ...(isGeminiImagePreview ? { modalities: ["text", "image"] } : {}),
         stream: options.config.stream,
         model: modelConfig.model,
-        temperature: !isO1OrO3 && !isGpt5 ? modelConfig.temperature : 1,
-        presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
-        frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
-        top_p: !isO1OrO3 ? modelConfig.top_p : 1,
+        temperature:
+          !isReasoningOpenAIModel && !isGpt5 ? modelConfig.temperature : 1,
+        presence_penalty: !isReasoningOpenAIModel
+          ? modelConfig.presence_penalty
+          : 0,
+        frequency_penalty: !isReasoningOpenAIModel
+          ? modelConfig.frequency_penalty
+          : 0,
+        top_p: !isReasoningOpenAIModel ? modelConfig.top_p : 1,
         // max_tokens: Math.max(modelConfig.max_tokens, 1024),
         // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
       };
+
+      requestPayload = applyModelSamplingRules(
+        modelConfig.model,
+        requestPayload,
+      );
 
       if (isGpt5) {
         // Remove max_tokens if present
         delete requestPayload.max_tokens;
         // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
         requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
-      } else if (isO1OrO3) {
+      } else if (isReasoningOpenAIModel) {
         // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
         // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
         // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
@@ -555,7 +571,7 @@ export class ChatGPTApi implements LLMApi {
       }
 
       // add max_tokens to vision model
-      if (visionModel && !isO1OrO3 && !isGpt5) {
+      if (visionModel && !parameterSupport.max_completion_tokens) {
         requestPayload["max_tokens"] = Math.max(modelConfig.max_tokens, 4000);
       }
     }

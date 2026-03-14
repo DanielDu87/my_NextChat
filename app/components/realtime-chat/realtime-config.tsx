@@ -6,6 +6,7 @@ import { ListItem, Select, PasswordInput } from "@/app/components/ui-lib";
 import { InputRange } from "@/app/components/input-range";
 import { Voice } from "rt-client";
 import { ServiceProvider } from "@/app/constant";
+import { getModelParameterSupport } from "@/app/client/model-parameter-rules";
 
 const providers = [ServiceProvider.OpenAI, ServiceProvider.Azure];
 
@@ -17,6 +18,7 @@ export function RealtimeConfigList(props: {
   realtimeConfig: RealtimeConfig;
   updateConfig: (updater: (config: RealtimeConfig) => void) => void;
 }) {
+  const parameterSupport = getModelParameterSupport(props.realtimeConfig.model);
   const azureConfigComponent = props.realtimeConfig.provider ===
     ServiceProvider.Azure && (
     <>
@@ -148,24 +150,26 @@ export function RealtimeConfigList(props: {
               ))}
             </Select>
           </ListItem>
-          <ListItem
-            title={Locale.Settings.Realtime.Temperature.Title}
-            subTitle={Locale.Settings.Realtime.Temperature.SubTitle}
-          >
-            <InputRange
-              aria={Locale.Settings.Temperature.Title}
-              value={props.realtimeConfig?.temperature?.toFixed(1)}
-              min="0.6"
-              max="1"
-              step="0.1"
-              onChange={(e) => {
-                props.updateConfig(
-                  (config) =>
-                    (config.temperature = e.currentTarget.valueAsNumber),
-                );
-              }}
-            ></InputRange>
-          </ListItem>
+          {parameterSupport.temperature && (
+            <ListItem
+              title={Locale.Settings.Realtime.Temperature.Title}
+              subTitle={Locale.Settings.Realtime.Temperature.SubTitle}
+            >
+              <InputRange
+                aria={Locale.Settings.Temperature.Title}
+                value={props.realtimeConfig?.temperature?.toFixed(1)}
+                min="0.6"
+                max="1"
+                step="0.1"
+                onChange={(e) => {
+                  props.updateConfig(
+                    (config) =>
+                      (config.temperature = e.currentTarget.valueAsNumber),
+                  );
+                }}
+              ></InputRange>
+            </ListItem>
+          )}
         </>
       )}
     </>

@@ -25,6 +25,7 @@ import {
   getTimeoutMSByModel,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -103,15 +104,18 @@ export class DoubaoApi implements LLMApi {
     };
 
     const shouldStream = !!options.config.stream;
-    const requestPayload: RequestPayloadForByteDance = {
-      messages,
-      stream: shouldStream,
-      model: modelConfig.model,
-      temperature: modelConfig.temperature,
-      presence_penalty: modelConfig.presence_penalty,
-      frequency_penalty: modelConfig.frequency_penalty,
-      top_p: modelConfig.top_p,
-    };
+    const requestPayload: RequestPayloadForByteDance = applyModelSamplingRules(
+      modelConfig.model,
+      {
+        messages,
+        stream: shouldStream,
+        model: modelConfig.model,
+        temperature: modelConfig.temperature,
+        presence_penalty: modelConfig.presence_penalty,
+        frequency_penalty: modelConfig.frequency_penalty,
+        top_p: modelConfig.top_p,
+      },
+    );
 
     const controller = new AbortController();
     options.onController?.(controller);

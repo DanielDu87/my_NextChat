@@ -20,6 +20,7 @@ import { prettyObject } from "@/app/utils/format";
 import { getClientConfig } from "@/app/config/client";
 import { getMessageTextContent, getTimeoutMSByModel } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -107,15 +108,18 @@ export class ErnieApi implements LLMApi {
     };
 
     const shouldStream = !!options.config.stream;
-    const requestPayload: RequestPayload = {
-      messages,
-      stream: shouldStream,
-      model: modelConfig.model,
-      temperature: modelConfig.temperature,
-      presence_penalty: modelConfig.presence_penalty,
-      frequency_penalty: modelConfig.frequency_penalty,
-      top_p: modelConfig.top_p,
-    };
+    const requestPayload: RequestPayload = applyModelSamplingRules(
+      modelConfig.model,
+      {
+        messages,
+        stream: shouldStream,
+        model: modelConfig.model,
+        temperature: modelConfig.temperature,
+        presence_penalty: modelConfig.presence_penalty,
+        frequency_penalty: modelConfig.frequency_penalty,
+        top_p: modelConfig.top_p,
+      },
+    );
 
     console.log("[Request] Baidu payload: ", requestPayload);
 

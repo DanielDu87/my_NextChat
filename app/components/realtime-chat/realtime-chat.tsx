@@ -21,6 +21,7 @@ import {
 import { AudioHandler } from "@/app/lib/audio";
 import { uploadImage } from "@/app/utils/chat";
 import { VoicePrint } from "@/app/components/voice-print";
+import { applyModelSamplingRules } from "@/app/client/model-parameter-rules";
 
 interface RealtimeChatProps {
   onClose?: () => void;
@@ -73,13 +74,16 @@ export function RealtimeChat({
         const turnDetection: TurnDetection = useVAD
           ? { type: "server_vad" }
           : null;
+        const realtimeSampling = applyModelSamplingRules(model, {
+          temperature,
+        });
         await clientRef.current.configure({
           instructions: "",
           voice,
           input_audio_transcription: { model: "whisper-1" },
           turn_detection: turnDetection,
           tools: [],
-          temperature,
+          temperature: realtimeSampling.temperature,
           modalities,
         });
         startResponseListener();
@@ -313,8 +317,13 @@ export function RealtimeChat({
     clientRef.current?.configure({ voice });
   }, [voice]);
   useEffect(() => {
-    clientRef.current?.configure({ temperature });
-  }, [temperature]);
+    const realtimeSampling = applyModelSamplingRules(model, {
+      temperature,
+    });
+    clientRef.current?.configure({
+      temperature: realtimeSampling.temperature,
+    });
+  }, [model, temperature]);
 
   const handleClose = async () => {
     onClose?.();

@@ -27,6 +27,7 @@ import mapValues from "lodash-es/mapValues";
 import isArray from "lodash-es/isArray";
 import isObject from "lodash-es/isObject";
 import { fetch } from "@/app/utils/stream";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -113,13 +114,15 @@ export class HunyuanApi implements LLMApi {
       },
     };
 
-    const requestPayload: RequestPayload = capitalizeKeys({
-      model: modelConfig.model,
-      messages,
-      temperature: modelConfig.temperature,
-      top_p: modelConfig.top_p,
-      stream: options.config.stream,
-    });
+    const requestPayload: RequestPayload = capitalizeKeys(
+      applyModelSamplingRules(modelConfig.model, {
+        model: modelConfig.model,
+        messages,
+        temperature: modelConfig.temperature,
+        top_p: modelConfig.top_p,
+        stream: options.config.stream,
+      }),
+    );
 
     console.log("[Request] Tencent payload: ", requestPayload);
 

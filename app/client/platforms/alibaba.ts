@@ -27,6 +27,7 @@ import {
   getTimeoutMSByModel,
   isVisionModel,
 } from "@/app/utils";
+import { applyModelSamplingRules } from "../model-parameter-rules";
 import { fetch } from "@/app/utils/stream";
 
 export interface OpenAIListModelResponse {
@@ -123,13 +124,13 @@ export class QwenApi implements LLMApi {
       input: {
         messages,
       },
-      parameters: {
+      parameters: applyModelSamplingRules(modelConfig.model, {
         result_format: "message",
         incremental_output: shouldStream,
         temperature: modelConfig.temperature,
         // max_tokens: modelConfig.max_tokens,
         top_p: modelConfig.top_p === 1 ? 0.99 : modelConfig.top_p, // qwen top_p is should be < 1
-      },
+      }),
     };
 
     const controller = new AbortController();

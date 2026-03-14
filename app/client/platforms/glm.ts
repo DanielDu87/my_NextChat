@@ -24,6 +24,10 @@ import {
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { preProcessImageContent } from "@/app/utils/chat";
+import {
+  applyModelSamplingRules,
+  inferModelCapability,
+} from "../model-parameter-rules";
 
 interface BasePayload {
   model: string;
@@ -57,8 +61,9 @@ export class ChatGLMApi implements LLMApi {
   private disableListModels = true;
 
   private getModelType(model: string): ModelType {
-    if (model.startsWith("cogview-")) return "image";
-    if (model.startsWith("cogvideo-")) return "video";
+    const capability = inferModelCapability(model);
+    if (capability === "image") return "image";
+    if (capability === "video") return "video";
     return "chat";
   }
 
@@ -93,7 +98,7 @@ export class ChatGLMApi implements LLMApi {
           size: options.config.size,
         } as ImageGenerationPayload;
       default:
-        return {
+        return applyModelSamplingRules(modelConfig.model, {
           messages,
           stream: options.config.stream,
           model: modelConfig.model,
@@ -101,7 +106,7 @@ export class ChatGLMApi implements LLMApi {
           presence_penalty: modelConfig.presence_penalty,
           frequency_penalty: modelConfig.frequency_penalty,
           top_p: modelConfig.top_p,
-        } as ChatPayload;
+        }) as ChatPayload;
     }
   }
 
