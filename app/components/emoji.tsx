@@ -47,9 +47,23 @@ export function AvatarPicker(props: {
 
 export function Avatar(props: { model?: ModelType; avatar?: string }) {
   let LlmIcon = BotIconDefault;
+  let localIcon: string | undefined;
 
   if (props.model) {
     const modelName = props.model.toLowerCase();
+    const localIconMap: Record<string, string> = {
+      aihubmix: "/provider-icons/aihubmix.ico",
+      cohere: "/provider-icons/cohere.ico",
+      microsoft: "/provider-icons/microsoft.ico",
+      minimax: "/provider-icons/minimax.ico",
+      perplexity: "/provider-icons/perplexity.ico",
+      stability: "/provider-icons/stability.webp",
+      xiaomi: "/provider-icons/xiaomi.svg",
+      alibaba: "/provider-icons/alibaba.svg",
+      iflytek: "/provider-icons/iflytek.svg",
+      "01.ai": "/provider-icons/lingyi.svg",
+      stepfun: "/provider-icons/stepfun.svg",
+    };
 
     if (
       modelName.startsWith("gpt") ||
@@ -116,6 +130,24 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
       modelName === "zhipu"
     ) {
       LlmIcon = BotIconChatglm;
+    } else if (modelName === "other") {
+      LlmIcon = BotIconOpenAI;
+    } else {
+      localIcon = localIconMap[modelName];
+    }
+
+    if (localIcon) {
+      return (
+        <div className="no-dark">
+          <img
+            className="user-avatar"
+            src={localIcon}
+            alt={`${props.model} icon`}
+            width={30}
+            height={30}
+          />
+        </div>
+      );
     }
 
     return (

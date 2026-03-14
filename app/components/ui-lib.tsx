@@ -516,6 +516,13 @@ export function Selector<T>(props: {
       text: string;
       onClick: (value: T) => void;
     };
+    meta?: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+      vendorName?: string;
+    };
   }>;
   defaultSelectedValue?: T[] | T;
   onSelection?: (selection: T[]) => void;
@@ -523,6 +530,29 @@ export function Selector<T>(props: {
   multiple?: boolean;
   showSearch?: boolean;
   showGroupFilter?: boolean;
+  quickFilters?: Array<{
+    key: string;
+    label: string;
+    match: (item: {
+      title: string;
+      subTitle?: string;
+      value: T;
+      disable?: boolean;
+      group?: string;
+      order?: number;
+      rightAction?: {
+        text: string;
+        onClick: (value: T) => void;
+      };
+      meta?: {
+        type?: string;
+        types?: string[];
+        features?: string[];
+        capabilities?: string[];
+        vendorName?: string;
+      };
+    }) => boolean;
+  }>;
   extraGroups?: string[];
   defaultGroup?: string;
   headerHint?: React.ReactNode;
@@ -541,6 +571,7 @@ export function Selector<T>(props: {
   const [selectedGroup, setSelectedGroup] = useState(
     props.defaultGroup ?? "All",
   );
+  const [selectedQuickFilter, setSelectedQuickFilter] = useState("all");
   const [isGroupFilterOpen, setIsGroupFilterOpen] = useState(false);
   const groupFilterButtonRef = useRef<HTMLButtonElement>(null);
   const initialViewportScrollYRef = useRef(0);
@@ -551,25 +582,17 @@ export function Selector<T>(props: {
 
   const preferredGroupOrder = [
     "OpenAI",
+    "DeepSeek",
     "Google",
     "Anthropic",
-    "Grok",
-    "DeepSeek",
+    "xAI",
     "ByteDance",
     "Qwen",
     "Moonshot",
-    "Baidu",
-    "Meta",
-    "Mistral",
     "Tencent",
     "Zhipu",
     "Minimax",
-    "Cohere",
-    "Perplexity",
-    "Stability",
-    "OpenRouter",
     "Microsoft",
-    "Aihubmix",
     "Other",
   ];
 
@@ -611,6 +634,11 @@ export function Selector<T>(props: {
     minimax: "/provider-icons/minimax.ico",
     perplexity: "/provider-icons/perplexity.ico",
     stability: "/provider-icons/stability.webp",
+    xiaomi: "/provider-icons/xiaomi.svg",
+    alibaba: "/provider-icons/alibaba.svg",
+    iflytek: "/provider-icons/iflytek.svg",
+    "01.ai": "/provider-icons/lingyi.svg",
+    stepfun: "/provider-icons/stepfun.svg",
   };
   const currentSelectedItem = props.items.find((item) =>
     selectedValues.includes(item.value),
@@ -682,14 +710,18 @@ export function Selector<T>(props: {
   };
 
   const filteredItems = props.items.filter((item) => {
+    const quickFilter = props.quickFilters?.find(
+      (filter) => filter.key === selectedQuickFilter,
+    );
     const matchGroup =
       !props.showGroupFilter ||
       selectedGroup === "All" ||
       (item.group?.trim() || "__default__") === selectedGroup;
+    const matchQuickFilter = !quickFilter || quickFilter.match(item);
     const matchSearch =
       !searchText.trim() ||
       item.title.toLowerCase().includes(searchText.toLowerCase());
-    return matchGroup && matchSearch;
+    return matchGroup && matchQuickFilter && matchSearch;
   });
 
   const groupedItems = (() => {
@@ -727,9 +759,26 @@ export function Selector<T>(props: {
         { pattern: /\bo1\b/i, publishedAt: 20240912 },
       ],
       Google: [
-        { pattern: /\bgemini-2\.5-pro\b/i, publishedAt: 20250325 },
-        { pattern: /\bgemini-2\.5-flash\b/i, publishedAt: 20250417 },
-        { pattern: /\bgemini-2\.0-flash\b/i, publishedAt: 20241211 },
+        { pattern: /\bgemini-3(?:$|[^.\d])/i, publishedAt: 20251118 },
+        { pattern: /\bgemini-3-(?:pro|flash)\b/i, publishedAt: 20251118 },
+        { pattern: /\bgemini-2\.5-flash-image\b/i, publishedAt: 20251002 },
+        { pattern: /\bgemini-2\.5-flash-lite\b/i, publishedAt: 20250722 },
+        {
+          pattern: /\bgemini-2\.5-pro-preview-05-06\b/i,
+          publishedAt: 20250506,
+        },
+        {
+          pattern: /\bgemini-2\.5-pro-preview-03-25\b/i,
+          publishedAt: 20250325,
+        },
+        { pattern: /\bgemini-2\.5-pro\b/i, publishedAt: 20250617 },
+        {
+          pattern: /\bgemini-2\.5-flash-preview-04-17\b/i,
+          publishedAt: 20250417,
+        },
+        { pattern: /\bgemini-2\.5-flash\b/i, publishedAt: 20250617 },
+        { pattern: /\bgemini-2\.0-flash-lite\b/i, publishedAt: 20250225 },
+        { pattern: /\bgemini-2\.0-flash\b/i, publishedAt: 20250205 },
         { pattern: /\bgemini-1\.5-pro\b/i, publishedAt: 20240215 },
         { pattern: /\bgemini-1\.5-flash\b/i, publishedAt: 20240514 },
       ],
@@ -745,9 +794,16 @@ export function Selector<T>(props: {
         { pattern: /\bgrok-2\b/i, publishedAt: 20240813 },
       ],
       DeepSeek: [
-        { pattern: /\bdeepseek-v3\b/i, publishedAt: 20241226 },
+        { pattern: /\bdeepseek-v3\.2-exp\b/i, publishedAt: 20250929 },
+        { pattern: /\bdeepseek-v3\.2\b/i, publishedAt: 20251201 },
+        { pattern: /\bdeepseek-v3\.1-terminus\b/i, publishedAt: 20250922 },
+        { pattern: /\bdeepseek-v3\.1\b/i, publishedAt: 20250821 },
+        { pattern: /\bdeepseek-r1-0528\b/i, publishedAt: 20250528 },
+        { pattern: /\bdeepseek-v3-0324\b/i, publishedAt: 20250324 },
         { pattern: /\bdeepseek-r1\b/i, publishedAt: 20250120 },
-        { pattern: /\bdeepseek-chat\b/i, publishedAt: 20241226 },
+        { pattern: /\bdeepseek-v3\b/i, publishedAt: 20241226 },
+        { pattern: /\bdeepseek-reasoner\b/i, publishedAt: 20250528 },
+        { pattern: /\bdeepseek-chat\b/i, publishedAt: 20250821 },
       ],
       ByteDance: [
         { pattern: /\bdoubao-1\.5\b/i, publishedAt: 20250122 },
@@ -777,6 +833,21 @@ export function Selector<T>(props: {
       if (!rules) return 0;
       const matched = rules.find((rule) => rule.pattern.test(title));
       return matched?.publishedAt ?? 0;
+    };
+
+    const getEffectivePublishedAt = (groupKey: string, title: string) => {
+      const curatedPublishedAt = getPublishedAt(groupKey, title);
+      if (curatedPublishedAt > 0) {
+        return curatedPublishedAt;
+      }
+
+      const normalized = title.toLowerCase();
+      const releaseDateMatch = normalized.match(
+        /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/,
+      );
+      return releaseDateMatch
+        ? Number(releaseDateMatch[0].replace(/[-_.]/g, ""))
+        : 0;
     };
 
     const getSortTokens = (text: string) => {
@@ -848,37 +919,38 @@ export function Selector<T>(props: {
     };
 
     const sortedGroupOrder = [
-      ...preferredGroupOrder.filter((groupKey) => buckets.has(groupKey)),
-      ...groupOrder.filter(
-        (groupKey) => !preferredGroupOrder.includes(groupKey),
-      ),
+      ...availableGroups.filter((groupKey) => buckets.has(groupKey)),
+      ...groupOrder.filter((groupKey) => !availableGroups.includes(groupKey)),
     ];
 
     sortedGroupOrder.forEach((groupKey) => {
       const items = (buckets.get(groupKey) ?? []).slice().sort((a, b) => {
         const left = getSortTokens(a.title);
         const right = getSortTokens(b.title);
-        const leftPublishedAt = getPublishedAt(groupKey, a.title);
-        const rightPublishedAt = getPublishedAt(groupKey, b.title);
+        const leftPublishedAt = getEffectivePublishedAt(groupKey, a.title);
+        const rightPublishedAt = getEffectivePublishedAt(groupKey, b.title);
         const primaryVersionDiff = comparePrimaryVersion(
           getPrimaryVersion(left.versions),
           getPrimaryVersion(right.versions),
         );
 
-        if (groupKey === "Google" && primaryVersionDiff !== 0) {
-          return primaryVersionDiff;
+        // 优先尊重上游/API 原始顺序，很多供应商本身就是按最新在前返回的。
+        const leftOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
         }
 
-        // 命中已知发布时间表时，优先按发布时间；未命中时再按主版本号排序。
+        // API 顺序不足以区分时，再按已知/可解析发布时间兜底。
         if (leftPublishedAt > 0 || rightPublishedAt > 0) {
           const publishedDiff = rightPublishedAt - leftPublishedAt;
           if (publishedDiff !== 0) {
             return publishedDiff;
           }
-        } else {
-          if (primaryVersionDiff !== 0) {
-            return primaryVersionDiff;
-          }
+        }
+
+        if (primaryVersionDiff !== 0) {
+          return primaryVersionDiff;
         }
 
         if (right.date !== left.date) {
@@ -888,12 +960,6 @@ export function Selector<T>(props: {
         const versionDiff = compareVersionLists(left.versions, right.versions);
         if (versionDiff !== 0) {
           return versionDiff;
-        }
-
-        const leftOrder = a.order ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = b.order ?? Number.MAX_SAFE_INTEGER;
-        if (leftOrder !== rightOrder) {
-          return leftOrder - rightOrder;
         }
 
         if (right.previewBoost !== left.previewBoost) {
@@ -1001,7 +1067,7 @@ export function Selector<T>(props: {
             )}
           </div>
         )}
-        {props.showSearch && (
+        {props.showSearch && !isGroupFilterOpen && (
           <input
             type="text"
             className={styles["selector-search"]}
@@ -1010,14 +1076,43 @@ export function Selector<T>(props: {
             onChange={(e) => setSearchText(e.target.value)}
           />
         )}
-        {filteredItems.length === 0 ? (
+        {props.quickFilters &&
+          props.quickFilters.length > 0 &&
+          !isGroupFilterOpen && (
+            <div className={styles["selector-quick-filters"]}>
+              <button
+                type="button"
+                className={clsx(styles["selector-quick-filter"], {
+                  [styles["selector-quick-filter-active"]]:
+                    selectedQuickFilter === "all",
+                })}
+                onClick={() => setSelectedQuickFilter("all")}
+              >
+                全部
+              </button>
+              {props.quickFilters.map((filter) => (
+                <button
+                  type="button"
+                  key={filter.key}
+                  className={clsx(styles["selector-quick-filter"], {
+                    [styles["selector-quick-filter-active"]]:
+                      selectedQuickFilter === filter.key,
+                  })}
+                  onClick={() => setSelectedQuickFilter(filter.key)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          )}
+        {!isGroupFilterOpen && filteredItems.length === 0 ? (
           <div className={styles["selector-empty"]}>
             <div className={styles["selector-empty-icon"]}>🔍</div>
             <div className={styles["selector-empty-text"]}>
               没有找到匹配的模型
             </div>
           </div>
-        ) : (
+        ) : !isGroupFilterOpen ? (
           <List id="selector-list">
             {groupedItems.map((entry) => {
               if (entry.type === "group") {
@@ -1076,7 +1171,7 @@ export function Selector<T>(props: {
               );
             })}
           </List>
-        )}
+        ) : null}
         {typeof props.footer === "function"
           ? props.footer({ selectedGroup })
           : props.footer}

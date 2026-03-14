@@ -506,7 +506,15 @@ export function ChatActions(props: {
   const pluginStore = usePluginStore();
   const session = chatStore.currentSession();
 
-  const getModelGroup = (modelName: string, providerName?: string) => {
+  const getModelGroup = (
+    modelName: string,
+    providerName?: string,
+    vendorName?: string,
+  ) => {
+    if (vendorName?.trim()) {
+      return vendorName.trim();
+    }
+
     const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
 
     const groupByKeywords = (
@@ -553,6 +561,10 @@ export function ChatActions(props: {
         "字节",
       ]) ||
       groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
+      groupByKeywords("iFlytek", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+      groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+      groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
       groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
       groupByKeywords("Baidu", ["baidu", "ernie", "wenxin"]) ||
       groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
@@ -570,6 +582,135 @@ export function ChatActions(props: {
       "Other"
     );
   };
+  const hasModelKeyword = (modelName: string, keywords: string[]) => {
+    const normalized = modelName.toLowerCase();
+    return keywords.some((keyword) => normalized.includes(keyword));
+  };
+  const hasModelMetadata = (
+    meta: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+    },
+    keywords: string[],
+  ) => {
+    const values = [
+      meta.type,
+      ...(meta.types ?? []),
+      ...(meta.features ?? []),
+      ...(meta.capabilities ?? []),
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return keywords.some((keyword) =>
+      values.some((value) => value.includes(keyword)),
+    );
+  };
+  const isImageGenerationModel = (item: {
+    title: string;
+    meta?: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+    };
+  }) =>
+    hasModelMetadata(item.meta ?? {}, ["image", "vision", "generate-image"]) ||
+    hasModelKeyword(item.title, [
+      "image",
+      "vision-image",
+      "gpt-image",
+      "dall-e",
+      "dalle",
+      "stable-diffusion",
+      "sdxl",
+      "sd3",
+      "flux",
+      "midjourney",
+      "recraft",
+      "ideogram",
+      "imagen",
+      "janus",
+      "kolors",
+      "cogview",
+    ]);
+  const isThinkingModel = (item: {
+    title: string;
+    meta?: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+    };
+  }) =>
+    hasModelMetadata(item.meta ?? {}, ["reason", "thinking"]) ||
+    hasModelKeyword(item.title, [
+      "reason",
+      "reasoner",
+      "thinking",
+      "think",
+      "r1",
+      "o1",
+      "o3",
+      "o4",
+      "qwq",
+      "deepseek-r",
+      "sonnet-4",
+    ]);
+  const isVideoGenerationModel = (item: {
+    title: string;
+    meta?: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+    };
+  }) =>
+    hasModelMetadata(item.meta ?? {}, ["video", "generate-video"]) ||
+    hasModelKeyword(item.title, [
+      "video",
+      "vid",
+      "veo",
+      "sora",
+      "kling",
+      "runway",
+      "luma",
+      "pika",
+      "hailuo",
+      "cogvideo",
+      "hunyuanvideo",
+      "wanx2.1-t2v",
+      "t2v",
+      "i2v",
+    ]);
+  const isWebSearchModel = (item: {
+    title: string;
+    meta?: {
+      type?: string;
+      types?: string[];
+      features?: string[];
+      capabilities?: string[];
+    };
+  }) =>
+    hasModelMetadata(item.meta ?? {}, [
+      "search",
+      "web-search",
+      "online",
+      "retrieval",
+      "browser",
+    ]) ||
+    hasModelKeyword(item.title, [
+      "search",
+      "web",
+      "联网",
+      "sonar",
+      "perplexity",
+      "browser",
+      "online",
+      "retrieval",
+    ]);
 
   // switch themes
   const theme = config.theme;
@@ -888,7 +1029,18 @@ export function ChatActions(props: {
                 `${m.name}@${m?.provider?.providerName}`,
               )
                 ? "自定义模型"
-                : getModelGroup(m.name, m?.provider?.providerName),
+                : getModelGroup(
+                    m.name,
+                    m?.provider?.providerName,
+                    m?.vendor?.name,
+                  ),
+              meta: {
+                type: m.type,
+                types: m.types,
+                features: m.features,
+                capabilities: m.capabilities,
+                vendorName: m.vendor?.name,
+              },
               order: m.sorted,
               rightAction: globalCustomModelValueSet.has(
                 `${m.name}@${m?.provider?.providerName}`,
@@ -931,6 +1083,28 @@ export function ChatActions(props: {
             })),
           ]}
           showGroupFilter={true}
+          quickFilters={[
+            {
+              key: "image",
+              label: "图片模型",
+              match: (item) => isImageGenerationModel(item),
+            },
+            {
+              key: "video",
+              label: "视频模型",
+              match: (item) => isVideoGenerationModel(item),
+            },
+            {
+              key: "web-search",
+              label: "联网模型",
+              match: (item) => isWebSearchModel(item),
+            },
+            {
+              key: "thinking",
+              label: "思考模型",
+              match: (item) => isThinkingModel(item),
+            },
+          ]}
           showSearch={true}
           extraGroups={["自定义模型"]}
           footer={({ selectedGroup }) =>
@@ -2184,6 +2358,7 @@ function _Chat() {
                                     <MaskAvatar
                                       avatar={session.mask.avatar}
                                       model={
+                                        message.modelIcon ||
                                         message.model ||
                                         session.mask.modelConfig.model
                                       }

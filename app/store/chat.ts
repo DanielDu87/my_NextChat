@@ -58,6 +58,7 @@ export type ChatMessage = RequestMessage & {
   isError?: boolean;
   id: string;
   model?: ModelType;
+  modelIcon?: ModelType;
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
@@ -212,6 +213,29 @@ function countMessages(msgs: ChatMessage[]) {
     (pre, cur) => pre + estimateTokenLength(getMessageTextContent(cur)),
     0,
   );
+}
+
+function getMessageIconModel(
+  model: string,
+  providerName?: ServiceProvider,
+): ModelType {
+  const configStore = useAppConfig.getState();
+  const accessStore = useAccessStore.getState();
+  const allModels = collectModelsWithDefaultModel(
+    configStore.models,
+    configStore.customModels,
+    accessStore.defaultModel,
+  );
+  const matchedModel = allModels.find(
+    (item) =>
+      item.name === model && item.provider?.providerName === providerName,
+  );
+
+  if (matchedModel?.vendor?.name) {
+    return matchedModel.vendor.name as ModelType;
+  }
+
+  return (providerName || model) as ModelType;
 }
 
 function fillTemplateWith(input: string, modelConfig: ModelConfig) {
@@ -517,6 +541,10 @@ export const useChatStore = createPersistStore(
           role: "assistant",
           streaming: true,
           model: modelConfig.model,
+          modelIcon: getMessageIconModel(
+            modelConfig.model,
+            modelConfig.providerName,
+          ),
         });
 
         // get recent messages

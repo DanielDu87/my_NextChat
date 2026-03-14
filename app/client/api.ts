@@ -97,6 +97,10 @@ export interface LLMModel {
   provider: LLMModelProvider;
   sorted: number;
   vendor?: LLMModelVendor; // 供应商信息
+  type?: string;
+  types?: string[];
+  features?: string[];
+  capabilities?: string[];
 }
 
 export interface LLMModelProvider {

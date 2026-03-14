@@ -270,6 +270,21 @@ function mapModels(
       name: modelName,
       available: true,
       sorted: seq++,
+      type:
+        typeof m.type === "string"
+          ? m.type
+          : typeof m.model_type === "string"
+          ? m.model_type
+          : undefined,
+      types: Array.isArray(m.types)
+        ? m.types.filter((v: unknown) => typeof v === "string")
+        : undefined,
+      features: Array.isArray(m.features)
+        ? m.features.filter((v: unknown) => typeof v === "string")
+        : undefined,
+      capabilities: Array.isArray(m.capabilities)
+        ? m.capabilities.filter((v: unknown) => typeof v === "string")
+        : undefined,
       provider: {
         id: providerId,
         providerName: providerName,
