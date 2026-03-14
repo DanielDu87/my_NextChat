@@ -867,9 +867,19 @@ export function ChatActions(props: {
             `${currentModel}@${currentProviderName}`
           }
           defaultGroup={modelSelectorDefaultGroup}
-          headerHint={`当前供应商：${
-            activeProfile?.name || currentProviderName
-          }，共 ${models.length} 个模型可用`}
+          headerHint={
+            <div className={styles["model-selector-hint"]}>
+              <span className={styles["model-selector-hint-label"]}>
+                当前供应商
+              </span>
+              <span className={styles["model-selector-hint-provider"]}>
+                {activeProfile?.name || currentProviderName}
+              </span>
+              <span className={styles["model-selector-hint-count"]}>
+                共 {models.length} 个模型可用
+              </span>
+            </div>
+          }
           items={[
             ...models.map((m) => ({
               title: `${m.displayName}`,

@@ -541,6 +541,13 @@ export function Selector<T>(props: {
   const [selectedGroup, setSelectedGroup] = useState(
     props.defaultGroup ?? "All",
   );
+  const [isGroupFilterOpen, setIsGroupFilterOpen] = useState(false);
+  const groupFilterButtonRef = useRef<HTMLButtonElement>(null);
+  const initialViewportScrollYRef = useRef(0);
+
+  useEffect(() => {
+    initialViewportScrollYRef.current = window.scrollY;
+  }, []);
 
   const preferredGroupOrder = [
     "OpenAI",
@@ -594,6 +601,85 @@ export function Selector<T>(props: {
       ...mergedGroups.filter((group) => !preferredGroupOrder.includes(group)),
     ];
   })();
+  const groupFilterOptions = ["All", ...availableGroups];
+  const getGroupFilterLabel = (group: string) =>
+    group === "All" ? "全部模型商" : group;
+  const localGroupIconMap: Record<string, string> = {
+    aihubmix: "/provider-icons/aihubmix.ico",
+    cohere: "/provider-icons/cohere.ico",
+    microsoft: "/provider-icons/microsoft.ico",
+    minimax: "/provider-icons/minimax.ico",
+    perplexity: "/provider-icons/perplexity.ico",
+    stability: "/provider-icons/stability.webp",
+  };
+  const currentSelectedItem = props.items.find((item) =>
+    selectedValues.includes(item.value),
+  );
+  const getCustomModelProvider = () => {
+    const selectedValue = currentSelectedItem?.value;
+    if (typeof selectedValue === "string") {
+      const [, providerName] = selectedValue.split("@");
+      if (providerName) return providerName.toLowerCase();
+    }
+    return "openai";
+  };
+  const iconBackedGroups = new Set([
+    "openai",
+    "google",
+    "anthropic",
+    "deepseek",
+    "meta",
+    "mistral",
+    "moonshot",
+    "tencent",
+    "zhipu",
+    "qwen",
+    "baidu",
+    "grok",
+    "xai",
+    "bytedance",
+  ]);
+  const getGroupBadgeText = (group: string) => {
+    if (group === "自定义模型") return "自";
+    if (/^[\u4e00-\u9fa5]/.test(group)) return group.slice(0, 2);
+    const compact = group.replace(/[^a-zA-Z0-9]/g, "");
+    return compact.slice(0, 1).toUpperCase() || group.slice(0, 1);
+  };
+  const renderGroupFilterIcon = (group: string) => {
+    if (group === "All") return null;
+    if (group === "自定义模型") {
+      return <Avatar model={getCustomModelProvider() as ModelType} />;
+    }
+    if (group === "Other") {
+      return <Avatar model={"openai" as ModelType} />;
+    }
+    const normalized = group.toLowerCase();
+    const localIcon = localGroupIconMap[normalized];
+    if (localIcon) {
+      return (
+        <img
+          className={styles["selector-group-filter-icon-image"]}
+          src={localIcon}
+          alt={`${group} icon`}
+        />
+      );
+    }
+    if (iconBackedGroups.has(normalized)) {
+      return <Avatar model={normalized as ModelType} />;
+    }
+    return (
+      <span className={styles["selector-group-filter-fallback-icon"]}>
+        {getGroupBadgeText(group)}
+      </span>
+    );
+  };
+  const stabilizeSelectorPosition = () => {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: initialViewportScrollYRef.current });
+      document.getElementById("selector-list")?.scrollTo({ top: 0 });
+      groupFilterButtonRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   const filteredItems = props.items.filter((item) => {
     const matchGroup =
@@ -610,7 +696,7 @@ export function Selector<T>(props: {
     const buckets = new Map<string, typeof filteredItems>();
     const groupOrder: string[] = [];
     const entries: Array<
-      | { type: "group"; key: string; label: string }
+      | { type: "group"; key: string; label: string; count: number }
       | {
           type: "item";
           key: string;
@@ -822,7 +908,12 @@ export function Selector<T>(props: {
       const groupLabel = groupKey === "__default__" ? "" : groupKey;
 
       if (groupLabel) {
-        entries.push({ type: "group", key: groupKey, label: groupLabel });
+        entries.push({
+          type: "group",
+          key: groupKey,
+          label: groupLabel,
+          count: items.length,
+        });
       }
 
       items.forEach((item, index) => {
@@ -858,18 +949,57 @@ export function Selector<T>(props: {
           </div>
         ) : null}
         {props.showGroupFilter && (
-          <select
-            className={styles["selector-group-filter"]}
-            value={selectedGroup}
-            onChange={(e) => setSelectedGroup(e.target.value)}
-          >
-            <option value="All">All</option>
-            {availableGroups.map((group) => (
-              <option key={group} value={group}>
-                {group}
-              </option>
-            ))}
-          </select>
+          <div className={styles["selector-group-filter-wrap"]}>
+            <button
+              type="button"
+              ref={groupFilterButtonRef}
+              className={styles["selector-group-filter"]}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setIsGroupFilterOpen((prev) => !prev)}
+            >
+              {selectedGroup !== "All" ? (
+                <span className={styles["selector-group-filter-leading"]}>
+                  {renderGroupFilterIcon(selectedGroup)}
+                </span>
+              ) : null}
+              <span>{getGroupFilterLabel(selectedGroup)}</span>
+              <DownIcon />
+            </button>
+            {isGroupFilterOpen && (
+              <div className={styles["selector-group-filter-menu"]}>
+                {groupFilterOptions.map((group) => {
+                  const active = selectedGroup === group;
+                  return (
+                    <button
+                      type="button"
+                      key={group}
+                      className={clsx(styles["selector-group-filter-option"], {
+                        [styles["selector-group-filter-option-active"]]: active,
+                      })}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setSelectedGroup(group);
+                        setIsGroupFilterOpen(false);
+                        stabilizeSelectorPosition();
+                      }}
+                    >
+                      {group !== "All" ? (
+                        <span
+                          className={
+                            styles["selector-group-filter-option-leading"]
+                          }
+                        >
+                          {renderGroupFilterIcon(group)}
+                        </span>
+                      ) : null}
+                      <span>{getGroupFilterLabel(group)}</span>
+                      {active ? <ConfirmIcon /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
         {props.showSearch && (
           <input
@@ -888,12 +1018,17 @@ export function Selector<T>(props: {
             </div>
           </div>
         ) : (
-          <List>
+          <List id="selector-list">
             {groupedItems.map((entry) => {
               if (entry.type === "group") {
                 return (
                   <div className={styles["selector-group"]} key={entry.key}>
-                    <span>{entry.label}</span>
+                    <span className={styles["selector-group-label"]}>
+                      {entry.label}
+                    </span>
+                    <span className={styles["selector-group-count"]}>
+                      {entry.count} 个
+                    </span>
                   </div>
                 );
               }
