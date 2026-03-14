@@ -25,6 +25,7 @@ import React, {
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
+import { ModelType } from "../store";
 
 export function Popover(props: {
   children: JSX.Element;
@@ -555,10 +556,12 @@ export function Selector<T>(props: {
   }>;
   extraGroups?: string[];
   defaultGroup?: string;
+  title?: React.ReactNode;
   headerHint?: React.ReactNode;
   footer?:
     | React.ReactNode
     | ((ctx: { selectedGroup: string }) => React.ReactNode);
+  centerContent?: boolean;
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -1006,9 +1009,14 @@ export function Selector<T>(props: {
   return (
     <div className={styles["selector"]} onClick={() => props.onClose?.()}>
       <div
-        className={styles["selector-content"]}
+        className={clsx(styles["selector-content"], {
+          [styles["selector-content-centered"]]: props.centerContent,
+        })}
         onClick={(e) => e.stopPropagation()}
       >
+        {props.title ? (
+          <div className={styles["selector-title"]}>{props.title}</div>
+        ) : null}
         {props.headerHint ? (
           <div className={styles["selector-header-hint"]}>
             {props.headerHint}
@@ -1019,7 +1027,9 @@ export function Selector<T>(props: {
             <button
               type="button"
               ref={groupFilterButtonRef}
-              className={styles["selector-group-filter"]}
+              className={clsx(styles["selector-group-filter"], {
+                [styles["selector-group-filter-open"]]: isGroupFilterOpen,
+              })}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setIsGroupFilterOpen((prev) => !prev)}
             >
@@ -1068,13 +1078,15 @@ export function Selector<T>(props: {
           </div>
         )}
         {props.showSearch && !isGroupFilterOpen && (
-          <input
-            type="text"
-            className={styles["selector-search"]}
-            placeholder="搜索模型..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-          />
+          <div className={styles["selector-search-wrap"]}>
+            <input
+              type="text"
+              className={styles["selector-search"]}
+              placeholder="搜索模型..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
         )}
         {props.quickFilters &&
           props.quickFilters.length > 0 &&
@@ -1122,7 +1134,7 @@ export function Selector<T>(props: {
                       {entry.label}
                     </span>
                     <span className={styles["selector-group-count"]}>
-                      {entry.count} 个
+                      共 {entry.count} 个
                     </span>
                   </div>
                 );

@@ -2,6 +2,7 @@ import { LLMModel } from "../client/api";
 import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { getClientConfig } from "../config/client";
 import {
+  DEFAULT_MODELS,
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_SIDEBAR_WIDTH,
   DEFAULT_TTS_ENGINE,
@@ -81,10 +82,14 @@ export const DEFAULT_CONFIG = {
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
     webSearch: false,
+    webSearchContextSize: "",
     reasoningEffort: "",
     reasoningMaxTokens: 0,
+    includeThoughts: false,
     anthropicBeta: "",
     mediaResolution: "",
+    structuredOutput: false,
+    jsonSchema: "",
   },
 
   ttsConfig: {

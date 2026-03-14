@@ -36,6 +36,7 @@ import {
 } from "../api";
 import {
   applyModelSamplingRules,
+  getDefaultReasoningSettings,
   getModelParameterSupport,
 } from "../model-parameter-rules";
 import Locale from "../../locales";
@@ -46,6 +47,8 @@ import {
   isDalle3 as _isDalle3,
   isImageGenerationModel,
   getTimeoutMSByModel,
+  normalizeModelSize,
+  normalizeImageQuality,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 
@@ -71,6 +74,25 @@ export interface RequestPayload {
   presence_penalty: number;
   frequency_penalty: number;
   top_p: number;
+  web_search_options?: {
+    search_context_size?: string;
+  };
+  reasoning_effort?: string;
+  reasoning?: {
+    effort?: string;
+    max_tokens?: number;
+  };
+  media_resolution?: string;
+  response_format?:
+    | "url"
+    | "b64_json"
+    | {
+        type: "json_schema";
+        json_schema: {
+          name: string;
+          schema: Record<string, unknown>;
+        };
+      };
   max_tokens?: number;
   max_completion_tokens?: number;
 }
@@ -117,8 +139,10 @@ function normalizeAiHubMixModelId(model: string) {
   if (lowerModel.endsWith("/qwen-image")) return "qwen-image";
   if (lowerModel.endsWith("/qwen-image-edit")) return "qwen-image-edit";
   if (lowerModel.endsWith("/qwen-image-plus")) return "qwen-image-plus";
+  if (lowerModel.endsWith("/gpt-image-1.5")) return "gpt-image-1.5";
   if (lowerModel.endsWith("/gpt-image-1")) return "gpt-image-1";
   if (lowerModel.endsWith("/gpt-image-1-mini")) return "gpt-image-1-mini";
+  if (lowerModel.endsWith("/gpt-image-test")) return "gpt-image-test";
   if (lowerModel.endsWith("/dall-e-3")) return "dall-e-3";
   if (lowerModel.endsWith("/dall-e-2")) return "dall-e-2";
   return model;
@@ -161,7 +185,7 @@ function getAiHubMixPredictionModelPath(model: string) {
   return null;
 }
 
-function buildAiHubMixPredictionPayload(
+export function buildAiHubMixPredictionPayload(
   model: string,
   options: ChatOptions,
 ): Record<string, unknown> {
@@ -170,6 +194,8 @@ function buildAiHubMixPredictionPayload(
   const prompt = getMessageTextContent(
     options.messages.slice(-1)?.pop() as any,
   );
+  const isGptImage15 = lowerModel === "gpt-image-1.5";
+  const normalizedSize = normalizeModelSize(model, options.config?.size);
 
   if (lowerModel.startsWith("imagen-")) {
     return {
@@ -189,7 +215,7 @@ function buildAiHubMixPredictionPayload(
       input: {
         prompt,
         n: 1,
-        size: options.config?.size ?? "1024x1024",
+        size: normalizedSize,
         watermark: false,
       },
     };
@@ -233,8 +259,13 @@ function buildAiHubMixPredictionPayload(
     input: {
       prompt,
       n: 1,
-      size: options.config?.size ?? "1024x1024",
-      quality: options.config?.quality ?? "standard",
+      size: normalizedSize,
+      ...(isGptImage15
+        ? {}
+        : { quality: normalizeImageQuality(model, options.config?.quality) }),
+      ...(lowerModel === "dall-e-3"
+        ? { style: options.config?.style ?? "vivid" }
+        : {}),
     },
   };
 }
@@ -260,6 +291,23 @@ function parseJsonOrSSEPayload(text: string) {
   }
 
   return JSON.parse(ssePayload);
+}
+
+function parseStructuredOutputSchema(schemaText: string) {
+  try {
+    return JSON.parse(schemaText);
+  } catch {
+    throw new Error("JSON Schema 格式不正确，请检查结构化输出配置");
+  }
+}
+
+function normalizeSearchContextSize(size: string | undefined) {
+  const normalized = size?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["low", "medium", "high"].includes(normalized)) {
+    return normalized;
+  }
+  return undefined;
 }
 
 export class ChatGPTApi implements LLMApi {
@@ -508,15 +556,28 @@ export class ChatGPTApi implements LLMApi {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
       );
+      const lowerImageModel = options.config.model.toLowerCase();
+      const isGptImage15 = lowerImageModel === "gpt-image-1.5";
       requestPayload = {
         model: options.config.model,
         prompt,
         // URLs are only valid for 60 minutes after the image has been generated.
         response_format: "b64_json", // using b64_json, and save image in CacheStorage
         n: 1,
-        size: options.config?.size ?? "1024x1024",
-        quality: options.config?.quality ?? "standard",
-        style: options.config?.style ?? "vivid",
+        size: normalizeModelSize(options.config.model, options.config?.size),
+        ...(lowerImageModel === "dall-e-2" || isGptImage15
+          ? {}
+          : {
+              quality: normalizeImageQuality(
+                options.config.model,
+                options.config?.quality,
+              ),
+            }),
+        ...(lowerImageModel === "dall-e-3"
+          ? {
+              style: options.config?.style ?? "vivid",
+            }
+          : {}),
       };
     } else {
       const visionModel = isVisionModel(options.config.model);
@@ -558,6 +619,56 @@ export class ChatGPTApi implements LLMApi {
         requestPayload,
       );
 
+      const reasoningSettings = getDefaultReasoningSettings(
+        modelConfig.model,
+        modelConfig.max_tokens,
+        modelConfig.reasoningEffort,
+        modelConfig.reasoningMaxTokens,
+      );
+
+      if (modelConfig.webSearch) {
+        requestPayload["web_search_options"] = {
+          ...(normalizeSearchContextSize(modelConfig.webSearchContextSize)
+            ? {
+                search_context_size: normalizeSearchContextSize(
+                  modelConfig.webSearchContextSize,
+                ),
+              }
+            : {}),
+        };
+      }
+
+      const normalizedReasoningEffort = reasoningSettings.reasoningEffort;
+      if (normalizedReasoningEffort) {
+        requestPayload["reasoning_effort"] = normalizedReasoningEffort;
+        requestPayload["reasoning"] = {
+          ...(requestPayload["reasoning"] as
+            | Record<string, unknown>
+            | undefined),
+          effort: normalizedReasoningEffort,
+        };
+      } else if ((reasoningSettings.reasoningMaxTokens ?? 0) > 0) {
+        requestPayload["reasoning"] = {
+          ...(requestPayload["reasoning"] as
+            | Record<string, unknown>
+            | undefined),
+          max_tokens: reasoningSettings.reasoningMaxTokens,
+        };
+      }
+
+      if (modelConfig.mediaResolution?.trim()) {
+        requestPayload["media_resolution"] = modelConfig.mediaResolution.trim();
+      }
+      if (modelConfig.structuredOutput && modelConfig.jsonSchema?.trim()) {
+        requestPayload["response_format"] = {
+          type: "json_schema",
+          json_schema: {
+            name: "nextchat_structured_output",
+            schema: parseStructuredOutputSchema(modelConfig.jsonSchema),
+          },
+        };
+      }
+
       if (isGpt5) {
         // Remove max_tokens if present
         delete requestPayload.max_tokens;
@@ -567,7 +678,7 @@ export class ChatGPTApi implements LLMApi {
         // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
         // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
         // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
-        requestPayload["messages"].unshift({
+        (requestPayload as RequestPayload).messages.unshift({
           role: "developer",
           content: "Formatting re-enabled",
         });
@@ -631,6 +742,12 @@ export class ChatGPTApi implements LLMApi {
       }
 
       currentBaseUrl = currentBaseUrlForRequest;
+      const requestHeaders = {
+        ...getHeaders(),
+        ...(modelConfig.anthropicBeta?.trim()
+          ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
+          : {}),
+      };
       console.log("[Chat Request]", {
         provider: modelConfig.providerName,
         model: modelConfig.model,
@@ -661,7 +778,7 @@ export class ChatGPTApi implements LLMApi {
         streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          requestHeaders,
           tools as any,
           funcs,
           controller,
@@ -674,6 +791,7 @@ export class ChatGPTApi implements LLMApi {
                 content: string;
                 tool_calls: ChatMessageTool[];
                 reasoning_content: string | null;
+                reasoning_details?: Record<string, unknown>;
                 multi_mod_content?: Array<{
                   inlineData?: { mimeType?: string; data?: string };
                   inline_data?: { mime_type?: string; data?: string };
@@ -784,7 +902,7 @@ export class ChatGPTApi implements LLMApi {
           method: "POST",
           body: JSON.stringify(requestPayload),
           signal: controller.signal,
-          headers: getHeaders(),
+          headers: requestHeaders,
         };
 
         // make a fetch request

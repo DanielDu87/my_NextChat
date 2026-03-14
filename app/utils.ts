@@ -331,10 +331,14 @@ export function getTimeoutMSByModel(model: string) {
 }
 
 export function getModelSizes(model: string): ModelSize[] {
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.includes("gpt-image-1.5")) {
+    return ["1024x1024", "1024x1536", "1536x1024"];
+  }
   if (isImageGenerationModel(model)) {
     return ["1024x1024", "1792x1024", "1024x1792"];
   }
-  if (model.toLowerCase().includes("cogview")) {
+  if (lowerModel.includes("cogview")) {
     return [
       "1024x1024",
       "768x1344",
@@ -346,6 +350,102 @@ export function getModelSizes(model: string): ModelSize[] {
     ];
   }
   return [];
+}
+
+function parseModelSize(size: string): [number, number] | null {
+  const matched = size.match(/^(\d+)x(\d+)$/);
+  if (!matched) return null;
+  return [Number(matched[1]), Number(matched[2])];
+}
+
+export function normalizeModelSize(
+  model: string,
+  preferredSize?: string,
+): ModelSize {
+  const supportedSizes = getModelSizes(model);
+  if (supportedSizes.length === 0) {
+    return (preferredSize as ModelSize) || ("1024x1024" as ModelSize);
+  }
+
+  if (preferredSize && supportedSizes.includes(preferredSize as ModelSize)) {
+    return preferredSize as ModelSize;
+  }
+
+  const preferred = preferredSize ? parseModelSize(preferredSize) : null;
+  const preferredAspect =
+    preferred && preferred[1] !== 0 ? preferred[0] / preferred[1] : 1;
+
+  const sorted = [...supportedSizes].sort((left, right) => {
+    const leftSize = parseModelSize(left) ?? [0, 0];
+    const rightSize = parseModelSize(right) ?? [0, 0];
+    const leftArea = leftSize[0] * leftSize[1];
+    const rightArea = rightSize[0] * rightSize[1];
+    if (leftArea !== rightArea) {
+      return rightArea - leftArea;
+    }
+
+    const leftAspect =
+      leftSize[1] !== 0
+        ? Math.abs(leftSize[0] / leftSize[1] - preferredAspect)
+        : 0;
+    const rightAspect =
+      rightSize[1] !== 0
+        ? Math.abs(rightSize[0] / rightSize[1] - preferredAspect)
+        : 0;
+    return leftAspect - rightAspect;
+  });
+
+  return sorted[0];
+}
+
+export function normalizeImageQuality(
+  model: string,
+  preferredQuality?: string,
+): string {
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.includes("gpt-image-1.5")) {
+    if (!preferredQuality || preferredQuality === "standard") {
+      return "auto";
+    }
+    if (preferredQuality === "hd") {
+      return "high";
+    }
+    if (["low", "medium", "high", "auto"].includes(preferredQuality)) {
+      return preferredQuality;
+    }
+    return "auto";
+  }
+
+  if (lowerModel.includes("dall-e-3")) {
+    if (!preferredQuality || preferredQuality === "standard") {
+      return "standard";
+    }
+    if (preferredQuality === "high") {
+      return "hd";
+    }
+    if (["standard", "hd"].includes(preferredQuality)) {
+      return preferredQuality;
+    }
+    return "standard";
+  }
+
+  if (lowerModel.includes("dall-e-2")) {
+    return "";
+  }
+
+  if (!preferredQuality) {
+    return "standard";
+  }
+
+  return preferredQuality;
+}
+
+export function supportsImageQualityControl(model: string): boolean {
+  return normalizeImageQuality(model, "standard").length > 0;
+}
+
+export function supportsImageStyleControl(model: string): boolean {
+  return model.toLowerCase().includes("dall-e-3");
 }
 
 export function supportsCustomSize(model: string): boolean {

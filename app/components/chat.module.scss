@@ -162,9 +162,9 @@
   min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #eff6ff;
-  border: 1px solid rgba(191, 219, 254, 0.95);
-  color: #1d4ed8;
+  background: var(--second);
+  border: var(--border-in-light);
+  color: var(--primary);
   font-size: 14px;
   font-weight: 700;
 }
@@ -172,14 +172,14 @@
 .model-selector-hint-count {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
+  background: var(--gray);
+  border: var(--border-in-light);
+  color: var(--black);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .prompt-toast {

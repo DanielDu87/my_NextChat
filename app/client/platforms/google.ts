@@ -31,6 +31,21 @@ import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 
 export class GeminiProApi implements LLMApi {
+  private isAiHubMixGeminiBaseUrl(baseUrl: string) {
+    return baseUrl.includes("aihubmix.com/gemini");
+  }
+
+  private normalizeGeminiBaseUrl(baseUrl: string) {
+    const normalized = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+    if (
+      normalized.includes("aihubmix.com") &&
+      !normalized.endsWith("/gemini")
+    ) {
+      return `${normalized}/gemini`;
+    }
+    return normalized;
+  }
+
   path(path: string, shouldStream = false): string {
     const accessStore = useAccessStore.getState();
 
@@ -43,16 +58,21 @@ export class GeminiProApi implements LLMApi {
     if (baseUrl.length === 0) {
       baseUrl = isApp ? GEMINI_BASE_URL : ApiPath.Google;
     }
-    if (baseUrl.endsWith("/")) {
-      baseUrl = baseUrl.slice(0, baseUrl.length - 1);
+    if (baseUrl.startsWith("http")) {
+      baseUrl = this.normalizeGeminiBaseUrl(baseUrl);
     }
     if (!baseUrl.startsWith("http") && !baseUrl.startsWith(ApiPath.Google)) {
       baseUrl = "https://" + baseUrl;
+      baseUrl = this.normalizeGeminiBaseUrl(baseUrl);
     }
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
     let chatPath = [baseUrl, path].join("/");
+    if (this.isAiHubMixGeminiBaseUrl(baseUrl) && accessStore.googleApiKey) {
+      chatPath += chatPath.includes("?") ? "&" : "?";
+      chatPath += `key=${encodeURIComponent(accessStore.googleApiKey)}`;
+    }
     if (shouldStream) {
       chatPath += chatPath.includes("?") ? "&alt=sse" : "?alt=sse";
     }
@@ -185,6 +205,11 @@ export class GeminiProApi implements LLMApi {
         topP: modelConfig.top_p,
         // "topK": modelConfig.top_k,
       }),
+      ...(modelConfig.mediaResolution?.trim()
+        ? {
+            mediaResolution: modelConfig.mediaResolution.trim(),
+          }
+        : {}),
       safetySettings: [
         {
           category: "HARM_CATEGORY_HARASSMENT",
@@ -219,7 +244,9 @@ export class GeminiProApi implements LLMApi {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: this.isAiHubMixGeminiBaseUrl(chatPath)
+          ? { "Content-Type": "application/json" }
+          : getHeaders(),
       };
 
       const isThinking = options.config.model.includes("-thinking");

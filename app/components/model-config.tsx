@@ -9,6 +9,7 @@ import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
 import { getModelProvider } from "../utils/model";
 import { SUMMARIZE_MODEL } from "../constant";
+import { ModalConfigValidator } from "../store/config";
 import {
   getCapabilityHint,
   getModelParameterSupport,
@@ -61,21 +62,10 @@ export function ModelConfigList(props: {
   const supportsFrequencyPenalty = parameterSupport.frequency_penalty;
   const supportsMaxTokens = parameterSupport.max_tokens;
   const usesMaxCompletionTokens = parameterSupport.max_completion_tokens;
-  const isClaudeModel = props.modelConfig.model
-    .toLowerCase()
-    .startsWith("claude-");
-  const isReasoningModel =
-    props.modelConfig.model.toLowerCase().startsWith("o1") ||
-    props.modelConfig.model.toLowerCase().startsWith("o3") ||
-    props.modelConfig.model.toLowerCase().startsWith("o4") ||
-    props.modelConfig.model.toLowerCase().startsWith("o5") ||
-    props.modelConfig.model.toLowerCase().includes("-think") ||
-    isClaudeModel;
-  const isVisionCapability = parameterSupport.capability === "vision";
-  const supportsWebSearchToggle =
-    parameterSupport.capability === "chat" ||
-    parameterSupport.capability === "search" ||
-    isVisionCapability;
+  const supportsWebSearchToggle = parameterSupport.web_search;
+  const isReasoningModel = parameterSupport.reasoning;
+  const isClaudeModel = parameterSupport.anthropic_beta;
+  const supportsStructuredOutput = parameterSupport.structured_output;
   const isGenerationCapability =
     parameterSupport.capability === "image" ||
     parameterSupport.capability === "video";
@@ -188,21 +178,36 @@ export function ModelConfigList(props: {
         </ListItem>
       )}
       {supportsWebSearchToggle && (
-        <ListItem
-          title="联网搜索"
-          subTitle="为支持的模型启用 web_search_options"
-        >
-          <input
-            aria-label="联网搜索"
-            type="checkbox"
-            checked={props.modelConfig.webSearch ?? false}
-            onChange={(e) =>
-              props.updateConfig(
-                (config) => (config.webSearch = e.currentTarget.checked),
-              )
-            }
-          ></input>
-        </ListItem>
+        <>
+          <ListItem
+            title="联网搜索"
+            subTitle="为支持的模型启用 web_search_options"
+          >
+            <input
+              aria-label="联网搜索"
+              type="checkbox"
+              checked={props.modelConfig.webSearch ?? false}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) => (config.webSearch = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+          <ListItem title="搜索上下文" subTitle="可选：low / medium / high">
+            <input
+              aria-label="搜索上下文"
+              type="text"
+              value={props.modelConfig.webSearchContextSize ?? ""}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) =>
+                    (config.webSearchContextSize = e.currentTarget.value),
+                )
+              }
+            />
+          </ListItem>
+        </>
       )}
       {isReasoningModel && (
         <>
@@ -240,6 +245,22 @@ export function ModelConfigList(props: {
               }
             />
           </ListItem>
+          <ListItem
+            title="展示思考"
+            subTitle="为支持的模型启用 includeThoughts / reasoning 输出"
+          >
+            <input
+              aria-label="展示思考"
+              type="checkbox"
+              checked={props.modelConfig.includeThoughts ?? false}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) =>
+                    (config.includeThoughts = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
         </>
       )}
       {isClaudeModel && (
@@ -259,7 +280,7 @@ export function ModelConfigList(props: {
           />
         </ListItem>
       )}
-      {isVisionCapability && (
+      {parameterSupport.media_resolution && (
         <ListItem title="媒体分辨率" subTitle="可选：low / medium / high">
           <input
             aria-label="媒体分辨率"
@@ -272,6 +293,43 @@ export function ModelConfigList(props: {
             }
           />
         </ListItem>
+      )}
+      {supportsStructuredOutput && (
+        <>
+          <ListItem
+            title="结构化输出"
+            subTitle="启用 response_format=json_schema"
+          >
+            <input
+              aria-label="结构化输出"
+              type="checkbox"
+              checked={props.modelConfig.structuredOutput ?? false}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) =>
+                    (config.structuredOutput = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+          {props.modelConfig.structuredOutput && (
+            <ListItem
+              title="JSON Schema"
+              subTitle="填入 schema 字符串，按 json_schema 透传"
+            >
+              <input
+                aria-label="JSON Schema"
+                type="text"
+                value={props.modelConfig.jsonSchema ?? ""}
+                onChange={(e) =>
+                  props.updateConfig(
+                    (config) => (config.jsonSchema = e.currentTarget.value),
+                  )
+                }
+              />
+            </ListItem>
+          )}
+        </>
       )}
       {isNonConversational && capabilityHint && (
         <ListItem title="能力说明" subTitle={capabilityHint} />

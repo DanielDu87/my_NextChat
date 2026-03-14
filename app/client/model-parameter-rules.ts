@@ -62,6 +62,44 @@ function shouldUseMaxCompletionTokens(model: string) {
   return isOpenAIReasoningModel(model) || lowerModel.startsWith("gpt-5");
 }
 
+function isClaudeAdaptiveThinkingModel(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    lowerModel.includes("claude-opus-4-6") ||
+    lowerModel.includes("claude-sonnet-4-6")
+  );
+}
+
+function supportsReasoningControls(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    isOpenAIReasoningModel(model) ||
+    isClaudeModel(model) ||
+    lowerModel.endsWith("-think") ||
+    lowerModel.includes("thinking")
+  );
+}
+
+function supportsAnthropicBetaHeader(model: string) {
+  return isClaudeModel(model);
+}
+
+function supportsMediaResolutionControl(model: string) {
+  return inferModelCapability(model) === "vision";
+}
+
+function supportsWebSearchControl(model: string) {
+  const capability = inferModelCapability(model);
+  return (
+    capability === "chat" || capability === "search" || capability === "vision"
+  );
+}
+
+function supportsStructuredOutputControl(model: string) {
+  const capability = inferModelCapability(model);
+  return capability === "chat";
+}
+
 export function applyModelSamplingRules<T extends SamplingPayload>(
   model: string,
   payload: T,
@@ -232,6 +270,11 @@ export function getModelParameterSupport(model: string) {
     frequency_penalty: "frequency_penalty" in sampled,
     max_tokens: capability === "chat" || capability === "vision",
     max_completion_tokens: shouldUseMaxCompletionTokens(model),
+    web_search: supportsWebSearchControl(model),
+    reasoning: supportsReasoningControls(model),
+    anthropic_beta: supportsAnthropicBetaHeader(model),
+    media_resolution: supportsMediaResolutionControl(model),
+    structured_output: supportsStructuredOutputControl(model),
     capability,
   };
 }
@@ -266,16 +309,73 @@ export function getCapabilityHint(capability: Capability) {
   return hints[capability];
 }
 
+export function getDefaultReasoningSettings(
+  model: string,
+  maxTokens: number,
+  reasoningEffort?: string,
+  reasoningMaxTokens?: number,
+) {
+  const normalizedEffort = reasoningEffort?.trim().toLowerCase();
+  if (normalizedEffort) {
+    return {
+      reasoningEffort: normalizedEffort,
+      reasoningMaxTokens: 0,
+    };
+  }
+
+  if ((reasoningMaxTokens ?? 0) > 0) {
+    return {
+      reasoningEffort: "",
+      reasoningMaxTokens: reasoningMaxTokens ?? 0,
+    };
+  }
+
+  if (model.toLowerCase().endsWith("-think")) {
+    if (isClaudeAdaptiveThinkingModel(model)) {
+      return {
+        reasoningEffort: "medium",
+        reasoningMaxTokens: 0,
+      };
+    }
+
+    return {
+      reasoningEffort: "",
+      reasoningMaxTokens: Math.max(
+        1024,
+        Math.min((maxTokens || 4096) - 1, 10240),
+      ),
+    };
+  }
+
+  return {
+    reasoningEffort: "",
+    reasoningMaxTokens: 0,
+  };
+}
+
 export function sanitizeModelConfigForCapability<
   T extends {
     model: string;
     enableInjectSystemPrompts?: boolean;
     sendMemory?: boolean;
     historyMessageCount?: number;
+    webSearch?: boolean;
+    reasoningEffort?: string;
+    reasoningMaxTokens?: number;
+    includeThoughts?: boolean;
+    anthropicBeta?: string;
+    mediaResolution?: string;
+    size?: string;
+    quality?: string;
+    style?: string;
+    webSearchContextSize?: string;
+    structuredOutput?: boolean;
+    jsonSchema?: string;
   },
 >(config: T): T {
   const nextConfig = { ...config };
-  const capability = inferModelCapability(config.model);
+  const support = getModelParameterSupport(config.model);
+  const capability = support.capability;
 
   if (isNonConversationalCapability(capability)) {
     if ("enableInjectSystemPrompts" in nextConfig) {
@@ -287,6 +387,63 @@ export function sanitizeModelConfigForCapability<
     if ("historyMessageCount" in nextConfig) {
       nextConfig.historyMessageCount = 0;
     }
+  }
+
+  if ("webSearch" in nextConfig && !support.web_search) {
+    nextConfig.webSearch = false;
+  }
+
+  if ("webSearchContextSize" in nextConfig && !support.web_search) {
+    nextConfig.webSearchContextSize = "";
+  }
+  if ("webSearchContextSize" in nextConfig && support.web_search) {
+    const normalized = String(nextConfig.webSearchContextSize || "")
+      .trim()
+      .toLowerCase();
+    nextConfig.webSearchContextSize =
+      normalized && ["low", "medium", "high"].includes(normalized)
+        ? normalized
+        : "";
+  }
+
+  if ("reasoningEffort" in nextConfig && !support.reasoning) {
+    nextConfig.reasoningEffort = "";
+  }
+
+  if ("reasoningMaxTokens" in nextConfig && !support.reasoning) {
+    nextConfig.reasoningMaxTokens = 0;
+  }
+
+  if ("includeThoughts" in nextConfig && !support.reasoning) {
+    nextConfig.includeThoughts = false;
+  }
+
+  if ("anthropicBeta" in nextConfig && !support.anthropic_beta) {
+    nextConfig.anthropicBeta = "";
+  }
+
+  if ("mediaResolution" in nextConfig && !support.media_resolution) {
+    nextConfig.mediaResolution = "";
+  }
+
+  if (capability !== "image") {
+    if ("size" in nextConfig) {
+      nextConfig.size = "1024x1024";
+    }
+    if ("quality" in nextConfig) {
+      nextConfig.quality = "standard";
+    }
+    if ("style" in nextConfig) {
+      nextConfig.style = "vivid";
+    }
+  }
+
+  if ("structuredOutput" in nextConfig && !support.structured_output) {
+    nextConfig.structuredOutput = false;
+  }
+
+  if ("jsonSchema" in nextConfig && !support.structured_output) {
+    nextConfig.jsonSchema = "";
   }
 
   return nextConfig;

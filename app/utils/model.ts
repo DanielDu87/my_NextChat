@@ -61,6 +61,10 @@ export function collectModelTable(
       sorted: number;
       provider?: LLMModel["provider"]; // Marked as optional
       vendor?: LLMModel["vendor"]; // 供应商信息
+      type?: LLMModel["type"];
+      types?: LLMModel["types"];
+      features?: LLMModel["features"];
+      capabilities?: LLMModel["capabilities"];
       isDefault?: boolean;
     }
   > = {};

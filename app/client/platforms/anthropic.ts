@@ -15,6 +15,7 @@ import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
+import { getDefaultReasoningSettings } from "../model-parameter-rules";
 
 export type MultiBlockContent = {
   type: "image" | "text";
@@ -77,6 +78,17 @@ const ClaudeMapper = {
 } as const;
 
 const keys = ["claude-2, claude-instant-1"];
+
+function mapReasoningEffortToBudgetTokens(effort: string) {
+  const normalized = effort.trim().toLowerCase();
+  const mapping: Record<string, number> = {
+    minimal: 1024,
+    low: 1024,
+    medium: 8192,
+    high: 24576,
+  };
+  return mapping[normalized] ?? 0;
+}
 
 export class ClaudeApi implements LLMApi {
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -196,11 +208,27 @@ export class ClaudeApi implements LLMApi {
       top_k: 5,
     };
 
-    if ((modelConfig.reasoningMaxTokens ?? 0) > 0) {
+    const reasoningSettings = getDefaultReasoningSettings(
+      modelConfig.model,
+      modelConfig.max_tokens,
+      modelConfig.reasoningEffort,
+      modelConfig.reasoningMaxTokens,
+    );
+    const reasoningBudget =
+      (reasoningSettings.reasoningMaxTokens ?? 0) > 0
+        ? reasoningSettings.reasoningMaxTokens
+        : mapReasoningEffortToBudgetTokens(
+            reasoningSettings.reasoningEffort ?? "",
+          );
+
+    if (reasoningBudget > 0) {
       requestBody.thinking = {
         type: "enabled",
-        budget_tokens: modelConfig.reasoningMaxTokens,
+        budget_tokens: reasoningBudget,
       };
+      if (requestBody.max_tokens <= reasoningBudget) {
+        requestBody.max_tokens = reasoningBudget + 1;
+      }
     }
 
     Object.assign(
@@ -222,11 +250,24 @@ export class ClaudeApi implements LLMApi {
 
     if (shouldStream) {
       let index = -1;
+      let latestReasoningText = "";
       const [tools, funcs] = usePluginStore
         .getState()
         .getAsTools(
           useChatStore.getState().currentSession().mask?.plugin || [],
         );
+      const streamOptions = {
+        ...options,
+        onFinish(message: string, responseRes: Response) {
+          if (latestReasoningText.trim()) {
+            (responseRes as any).__reasoning_details = {
+              type: "thinking",
+              thinking: latestReasoningText,
+            };
+          }
+          options.onFinish(message, responseRes);
+        },
+      };
       return stream(
         path,
         requestBody,
@@ -256,8 +297,9 @@ export class ClaudeApi implements LLMApi {
                   name: string;
                 };
                 delta?: {
-                  type: "text_delta" | "input_json_delta";
+                  type: "text_delta" | "input_json_delta" | "thinking_delta";
                   text?: string;
+                  thinking?: string;
                   partial_json?: string;
                   stop_reason?: string;
                 };
@@ -296,6 +338,13 @@ export class ClaudeApi implements LLMApi {
             // @ts-ignore
             runTools[index]["function"]["arguments"] +=
               chunkJson?.delta?.partial_json;
+          }
+          if (
+            chunkJson?.delta?.type === "thinking_delta" &&
+            (chunkJson?.delta?.thinking || chunkJson?.delta?.text)
+          ) {
+            latestReasoningText +=
+              chunkJson?.delta?.thinking || chunkJson?.delta?.text || "";
           }
           return chunkJson?.delta?.text;
         },
@@ -338,7 +387,7 @@ export class ClaudeApi implements LLMApi {
             })),
           );
         },
-        options,
+        streamOptions,
       );
     } else {
       const payload = {
@@ -358,6 +407,18 @@ export class ClaudeApi implements LLMApi {
 
         const res = await fetch(path, payload);
         const resJson = await res.json();
+        const thinkingContent = Array.isArray(resJson?.content)
+          ? resJson.content
+              .filter((item: any) => item?.type === "thinking")
+              .map((item: any) => item?.thinking || item?.text || "")
+              .join("")
+          : "";
+        if (thinkingContent.trim()) {
+          (res as any).__reasoning_details = {
+            type: "thinking",
+            thinking: thinkingContent,
+          };
+        }
 
         const message = this.extractMessage(resJson);
         options.onFinish(message, res);

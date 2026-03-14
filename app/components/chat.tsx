@@ -69,6 +69,11 @@ import {
   isVisionModel,
   safeLocalStorage,
   getModelSizes,
+  normalizeModelSize,
+  normalizeImageQuality,
+  supportsCustomSize,
+  supportsImageQualityControl,
+  supportsImageStyleControl,
   useMobileScreen,
   selectOrCopy,
 } from "../utils";
@@ -79,7 +84,7 @@ import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
-import { DalleQuality, DalleStyle, ModelSize } from "../typing";
+import { DalleQuality, DalleStyle } from "../typing";
 import { Prompt, usePromptStore } from "../store/prompt";
 import Locale from "../locales";
 
@@ -115,7 +120,10 @@ import { getClientConfig } from "../config/client";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
-import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
+import {
+  getModelParameterSupport,
+  sanitizeModelConfigForCapability,
+} from "../client/model-parameter-rules";
 
 import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
@@ -840,19 +848,61 @@ export function ChatActions(props: {
   const modelSizes = getModelSizes(currentModel);
   const dalle3Qualitys: DalleQuality[] = ["standard", "hd"];
   const dalle3Styles: DalleStyle[] = ["vivid", "natural"];
-  const currentSize =
-    session.mask.modelConfig?.size ?? ("1024x1024" as ModelSize);
+  const currentSize = normalizeModelSize(
+    currentModel,
+    session.mask.modelConfig?.size,
+  );
+  const autoAdjustedSizeRef = useRef<string>("");
+  const autoAdjustedQualityRef = useRef<string>("");
   const currentQuality = session.mask.modelConfig?.quality ?? "standard";
   const currentStyle = session.mask.modelConfig?.style ?? "vivid";
+  const currentModelSupport = getModelParameterSupport(currentModel);
+  const supportsImageGenerationControls =
+    currentModelSupport.capability === "image";
+  const canUseImageAttachments =
+    isVisionModel(currentModel) && !supportsImageGenerationControls;
+  const supportsSizeControl = supportsCustomSize(currentModel);
+  const supportsQualityControl = supportsImageQualityControl(currentModel);
+  const supportsStyleControl = supportsImageStyleControl(currentModel);
 
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
-    const show = isVisionModel(currentModel);
+    const show = canUseImageAttachments;
     setShowUploadImage(show);
     if (!show) {
       props.setAttachImages([]);
       props.setUploading(false);
+    }
+    if (session.mask.modelConfig.size !== currentSize) {
+      const previousSize = session.mask.modelConfig.size;
+      chatStore.updateTargetSession(session, (session) => {
+        session.mask.modelConfig.size = currentSize;
+      });
+      const adjustKey = `${currentModel}:${previousSize ?? ""}->${currentSize}`;
+      if (autoAdjustedSizeRef.current !== adjustKey) {
+        autoAdjustedSizeRef.current = adjustKey;
+        showToast(`当前模型仅支持 ${currentSize}，已自动切换到兼容尺寸`);
+      }
+    }
+    const normalizedQuality = normalizeImageQuality(
+      currentModel,
+      session.mask.modelConfig.quality,
+    );
+    if (session.mask.modelConfig.quality !== normalizedQuality) {
+      const previousQuality = session.mask.modelConfig.quality ?? "standard";
+      chatStore.updateTargetSession(session, (session) => {
+        session.mask.modelConfig.quality = normalizedQuality as any;
+      });
+      const adjustKey = `${currentModel}:${previousQuality}->${normalizedQuality}`;
+      if (autoAdjustedQualityRef.current !== adjustKey) {
+        autoAdjustedQualityRef.current = adjustKey;
+        if (normalizedQuality) {
+          showToast(
+            `当前模型仅支持 ${normalizedQuality} 质量，已自动切换到兼容质量`,
+          );
+        }
+      }
     }
 
     // if current model is not available
@@ -875,7 +925,7 @@ export function ChatActions(props: {
           : nextModel.name,
       );
     }
-  }, [chatStore, currentModel, models, session]);
+  }, [canUseImageAttachments, chatStore, currentModel, models, props, session]);
 
   return (
     <div
@@ -926,11 +976,13 @@ export function ChatActions(props: {
         />
       )}
 
-      <ChatAction
-        onClick={props.uploadImage}
-        text={Locale.Chat.InputActions.UploadImage}
-        icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
-      />
+      {showUploadImage && (
+        <ChatAction
+          onClick={props.uploadImage}
+          text={Locale.Chat.InputActions.UploadImage}
+          icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
+        />
+      )}
       <ChatAction
         onClick={props.showPromptHints}
         text={Locale.Chat.InputActions.Prompt}
@@ -974,29 +1026,47 @@ export function ChatActions(props: {
         }}
       />
 
-      <ChatAction
-        onClick={() => setShowSizeSelector(true)}
-        text={currentSize}
-        icon={<SizeIcon />}
-      />
+      {supportsImageGenerationControls && (
+        <>
+          {supportsSizeControl && (
+            <ChatAction
+              onClick={() => setShowSizeSelector(true)}
+              text={`尺寸 ${currentSize}`}
+              icon={<SizeIcon />}
+            />
+          )}
 
-      <ChatAction
-        onClick={() => setShowQualitySelector(true)}
-        text={currentQuality}
-        icon={<QualityIcon />}
-      />
+          {supportsQualityControl && (
+            <ChatAction
+              onClick={() => setShowQualitySelector(true)}
+              text={`画质 ${currentQuality}`}
+              icon={<QualityIcon />}
+            />
+          )}
 
-      <ChatAction
-        onClick={() => {
-          if (pluginStore.getAll().length == 0) {
-            navigate(Path.Plugins);
-          } else {
-            setShowPluginSelector(true);
-          }
-        }}
-        text={Locale.Plugin.Name}
-        icon={<PluginIcon />}
-      />
+          {supportsStyleControl && (
+            <ChatAction
+              onClick={() => setShowStyleSelector(true)}
+              text={`风格 ${currentStyle}`}
+              icon={<ImageIcon />}
+            />
+          )}
+        </>
+      )}
+
+      {!supportsImageGenerationControls && (
+        <ChatAction
+          onClick={() => {
+            if (pluginStore.getAll().length == 0) {
+              navigate(Path.Plugins);
+            } else {
+              setShowPluginSelector(true);
+            }
+          }}
+          text={Locale.Plugin.Name}
+          icon={<PluginIcon />}
+        />
+      )}
 
       <ChatAction
         onClick={() => props.setShowShortcutKeyModal(true)}
@@ -1192,9 +1262,9 @@ export function ChatActions(props: {
                 (m) =>
                   m.name == model && m?.provider?.providerName == providerName,
               );
-              showToast(selectedModel?.displayName ?? "");
+              showToast(`已选择 ${selectedModel?.displayName ?? model}`);
             } else {
-              showToast(model);
+              showToast(`已选择 ${model}`);
             }
           }}
         />
@@ -1202,6 +1272,8 @@ export function ChatActions(props: {
 
       {showSizeSelector && (
         <Selector
+          centerContent={true}
+          title="选择尺寸"
           defaultSelectedValue={currentSize}
           items={modelSizes.map((m) => ({
             title: m,
@@ -1221,6 +1293,8 @@ export function ChatActions(props: {
 
       {showQualitySelector && (
         <Selector
+          centerContent={true}
+          title="选择画质"
           defaultSelectedValue={currentQuality}
           items={dalle3Qualitys.map((m) => ({
             title: m,
@@ -1240,6 +1314,8 @@ export function ChatActions(props: {
 
       {showStyleSelector && (
         <Selector
+          centerContent={true}
+          title="选择风格"
           defaultSelectedValue={currentStyle}
           items={dalle3Styles.map((m) => ({
             title: m,
@@ -1259,6 +1335,7 @@ export function ChatActions(props: {
 
       {showPluginSelector && (
         <Selector
+          centerContent={true}
           multiple
           defaultSelectedValue={chatStore.currentSession().mask?.plugin}
           items={pluginStore.getAll().map((item) => ({
@@ -1468,6 +1545,9 @@ function _Chat() {
   const currentModel = session.mask.modelConfig.model;
   const currentProviderName =
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
+  const currentModelSupport = getModelParameterSupport(currentModel);
+  const isCurrentImageGenerationModel =
+    currentModelSupport.capability === "image";
   const currentModelName = useMemo(() => {
     return currentModel;
   }, [currentModel]);
@@ -1995,7 +2075,7 @@ function _Chat() {
   const handlePaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const currentModel = chatStore.currentSession().mask.modelConfig.model;
-      if (!isVisionModel(currentModel)) {
+      if (!isVisionModel(currentModel) || isCurrentImageGenerationModel) {
         return;
       }
       const items = (event.clipboardData || window.clipboardData).items;
@@ -2032,7 +2112,7 @@ function _Chat() {
         }
       }
     },
-    [attachImages, chatStore],
+    [attachImages, chatStore, isCurrentImageGenerationModel],
   );
 
   async function uploadImage() {

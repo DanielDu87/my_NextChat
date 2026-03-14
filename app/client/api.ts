@@ -49,6 +49,7 @@ export interface MultimodalContentForAlibaba {
 export interface RequestMessage {
   role: MessageRole;
   content: string | MultimodalContent[];
+  reasoning_details?: Record<string, unknown>;
 }
 
 export interface LLMConfig {
@@ -63,10 +64,14 @@ export interface LLMConfig {
   quality?: DalleRequestPayload["quality"];
   style?: DalleRequestPayload["style"];
   webSearch?: boolean;
+  webSearchContextSize?: string;
   reasoningEffort?: string;
   reasoningMaxTokens?: number;
+  includeThoughts?: boolean;
   anthropicBeta?: string;
   mediaResolution?: string;
+  structuredOutput?: boolean;
+  jsonSchema?: string;
 }
 
 export interface SpeechOptions {
