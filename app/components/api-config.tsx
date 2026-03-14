@@ -43,6 +43,7 @@ import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
+import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import {
   getProviderDisplayName,
   modelsToCustomModelsString,
@@ -1093,12 +1094,16 @@ export function ApiConfigPage() {
     appConfig.update((config) => {
       config.modelConfig.providerName = provider;
       config.modelConfig.model = model as any;
+      config.modelConfig = sanitizeModelConfigForCapability(config.modelConfig);
     });
 
     const currentSession = chatStore.currentSession();
     chatStore.updateTargetSession(currentSession, (session) => {
       session.mask.modelConfig.providerName = provider;
       session.mask.modelConfig.model = model as any;
+      session.mask.modelConfig = sanitizeModelConfigForCapability(
+        session.mask.modelConfig,
+      );
     });
   };
 

@@ -80,6 +80,11 @@ export const DEFAULT_CONFIG = {
     size: "1024x1024" as ModelSize,
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
+    webSearch: false,
+    reasoningEffort: "",
+    reasoningMaxTokens: 0,
+    anthropicBeta: "",
+    mediaResolution: "",
   },
 
   ttsConfig: {

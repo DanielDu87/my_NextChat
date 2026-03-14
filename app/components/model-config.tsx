@@ -13,6 +13,7 @@ import {
   getCapabilityHint,
   getModelParameterSupport,
   isNonConversationalCapability,
+  sanitizeModelConfigForCapability,
 } from "../client/model-parameter-rules";
 
 export function ModelConfigList(props: {
@@ -60,6 +61,21 @@ export function ModelConfigList(props: {
   const supportsFrequencyPenalty = parameterSupport.frequency_penalty;
   const supportsMaxTokens = parameterSupport.max_tokens;
   const usesMaxCompletionTokens = parameterSupport.max_completion_tokens;
+  const isClaudeModel = props.modelConfig.model
+    .toLowerCase()
+    .startsWith("claude-");
+  const isReasoningModel =
+    props.modelConfig.model.toLowerCase().startsWith("o1") ||
+    props.modelConfig.model.toLowerCase().startsWith("o3") ||
+    props.modelConfig.model.toLowerCase().startsWith("o4") ||
+    props.modelConfig.model.toLowerCase().startsWith("o5") ||
+    props.modelConfig.model.toLowerCase().includes("-think") ||
+    isClaudeModel;
+  const isVisionCapability = parameterSupport.capability === "vision";
+  const supportsWebSearchToggle =
+    parameterSupport.capability === "chat" ||
+    parameterSupport.capability === "search" ||
+    isVisionCapability;
   const isGenerationCapability =
     parameterSupport.capability === "image" ||
     parameterSupport.capability === "video";
@@ -81,12 +97,7 @@ export function ModelConfigList(props: {
             props.updateConfig((config) => {
               config.model = ModalConfigValidator.model(model);
               config.providerName = providerName as ServiceProvider;
-              const support = getModelParameterSupport(model);
-              if (isNonConversationalCapability(support.capability)) {
-                config.enableInjectSystemPrompts = false;
-                config.sendMemory = false;
-                config.historyMessageCount = 0;
-              }
+              Object.assign(config, sanitizeModelConfigForCapability(config));
             });
           }}
         >
@@ -174,6 +185,92 @@ export function ModelConfigList(props: {
               )
             }
           ></input>
+        </ListItem>
+      )}
+      {supportsWebSearchToggle && (
+        <ListItem
+          title="联网搜索"
+          subTitle="为支持的模型启用 web_search_options"
+        >
+          <input
+            aria-label="联网搜索"
+            type="checkbox"
+            checked={props.modelConfig.webSearch ?? false}
+            onChange={(e) =>
+              props.updateConfig(
+                (config) => (config.webSearch = e.currentTarget.checked),
+              )
+            }
+          ></input>
+        </ListItem>
+      )}
+      {isReasoningModel && (
+        <>
+          <ListItem
+            title="推理强度"
+            subTitle="可选：minimal / low / medium / high"
+          >
+            <input
+              aria-label="推理强度"
+              type="text"
+              value={props.modelConfig.reasoningEffort ?? ""}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) => (config.reasoningEffort = e.currentTarget.value),
+                )
+              }
+            />
+          </ListItem>
+          <ListItem
+            title="推理 Token"
+            subTitle="可选：映射 reasoning.max_tokens 或 thinking budget"
+          >
+            <input
+              aria-label="推理 Token"
+              type="number"
+              min={0}
+              max={512000}
+              value={props.modelConfig.reasoningMaxTokens ?? 0}
+              onChange={(e) =>
+                props.updateConfig(
+                  (config) =>
+                    (config.reasoningMaxTokens =
+                      e.currentTarget.valueAsNumber || 0),
+                )
+              }
+            />
+          </ListItem>
+        </>
+      )}
+      {isClaudeModel && (
+        <ListItem
+          title="Anthropic Beta"
+          subTitle="可选：透传 anthropic-beta 请求头，多个值用逗号分隔"
+        >
+          <input
+            aria-label="Anthropic Beta"
+            type="text"
+            value={props.modelConfig.anthropicBeta ?? ""}
+            onChange={(e) =>
+              props.updateConfig(
+                (config) => (config.anthropicBeta = e.currentTarget.value),
+              )
+            }
+          />
+        </ListItem>
+      )}
+      {isVisionCapability && (
+        <ListItem title="媒体分辨率" subTitle="可选：low / medium / high">
+          <input
+            aria-label="媒体分辨率"
+            type="text"
+            value={props.modelConfig.mediaResolution ?? ""}
+            onChange={(e) =>
+              props.updateConfig(
+                (config) => (config.mediaResolution = e.currentTarget.value),
+              )
+            }
+          />
         </ListItem>
       )}
       {isNonConversational && capabilityHint && (

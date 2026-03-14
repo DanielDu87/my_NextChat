@@ -115,6 +115,7 @@ import { getClientConfig } from "../config/client";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
+import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 
 import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
@@ -864,6 +865,9 @@ export function ChatActions(props: {
         session.mask.modelConfig.model = nextModel.name;
         session.mask.modelConfig.providerName = nextModel?.provider
           ?.providerName as ServiceProvider;
+        session.mask.modelConfig = sanitizeModelConfigForCapability(
+          session.mask.modelConfig,
+        );
       });
       showToast(
         nextModel?.provider?.providerName == "ByteDance"
@@ -1070,6 +1074,10 @@ export function ChatActions(props: {
                             session.mask.modelConfig.providerName =
                               latestOpenAIModel.provider
                                 ?.providerName as ServiceProvider;
+                            session.mask.modelConfig =
+                              sanitizeModelConfigForCapability(
+                                session.mask.modelConfig,
+                              );
                           }
                           session.mask.syncGlobalConfig = false;
                         });
@@ -1144,6 +1152,10 @@ export function ChatActions(props: {
                         customModelName as ModelType;
                       session.mask.modelConfig.providerName =
                         currentProviderName as ServiceProvider;
+                      session.mask.modelConfig =
+                        sanitizeModelConfigForCapability(
+                          session.mask.modelConfig,
+                        );
                       session.mask.syncGlobalConfig = false;
                     });
                     setModelSelectorDefaultValue(customEntry);
@@ -1162,11 +1174,17 @@ export function ChatActions(props: {
             config.update((config) => {
               config.modelConfig.model = model as ModelType;
               config.modelConfig.providerName = providerName as ServiceProvider;
+              config.modelConfig = sanitizeModelConfigForCapability(
+                config.modelConfig,
+              );
             });
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.model = model as ModelType;
               session.mask.modelConfig.providerName =
                 providerName as ServiceProvider;
+              session.mask.modelConfig = sanitizeModelConfigForCapability(
+                session.mask.modelConfig,
+              );
               session.mask.syncGlobalConfig = false;
             });
             if (providerName == "ByteDance") {

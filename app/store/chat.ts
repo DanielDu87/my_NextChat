@@ -59,6 +59,7 @@ export type ChatMessage = RequestMessage & {
   id: string;
   model?: ModelType;
   modelIcon?: ModelType;
+  reasoning_details?: any;
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
@@ -584,11 +585,13 @@ export const useChatStore = createPersistStore(
               session.messages = session.messages.concat();
             });
           },
-          async onFinish(message) {
+          async onFinish(message, responseRes) {
             botMessage.streaming = false;
             if (message) {
               botMessage.content = message;
               botMessage.date = new Date().toLocaleString();
+              botMessage.reasoning_details = (responseRes as any)
+                ?.__reasoning_details;
               console.log("[Chat] ✅ API 调用完成, 响应长度:", message.length);
               get().onNewMessage(botMessage, session);
             }

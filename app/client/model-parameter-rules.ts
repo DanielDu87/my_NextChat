@@ -265,3 +265,29 @@ export function getCapabilityHint(capability: Capability) {
 
   return hints[capability];
 }
+
+export function sanitizeModelConfigForCapability<
+  T extends {
+    model: string;
+    enableInjectSystemPrompts?: boolean;
+    sendMemory?: boolean;
+    historyMessageCount?: number;
+  },
+>(config: T): T {
+  const nextConfig = { ...config };
+  const capability = inferModelCapability(config.model);
+
+  if (isNonConversationalCapability(capability)) {
+    if ("enableInjectSystemPrompts" in nextConfig) {
+      nextConfig.enableInjectSystemPrompts = false;
+    }
+    if ("sendMemory" in nextConfig) {
+      nextConfig.sendMemory = false;
+    }
+    if ("historyMessageCount" in nextConfig) {
+      nextConfig.historyMessageCount = 0;
+    }
+  }
+
+  return nextConfig;
+}

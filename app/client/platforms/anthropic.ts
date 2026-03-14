@@ -41,6 +41,10 @@ export interface AnthropicChatRequest {
   top_k?: number; // Only sample from the top K options for each subsequent token.
   metadata?: object; // An object describing metadata about the request.
   stream?: boolean; // Whether to incrementally stream the response using server-sent events.
+  thinking?: {
+    type: "enabled";
+    budget_tokens?: number;
+  };
 }
 
 export interface ChatRequest {
@@ -192,10 +196,24 @@ export class ClaudeApi implements LLMApi {
       top_k: 5,
     };
 
+    if ((modelConfig.reasoningMaxTokens ?? 0) > 0) {
+      requestBody.thinking = {
+        type: "enabled",
+        budget_tokens: modelConfig.reasoningMaxTokens,
+      };
+    }
+
     Object.assign(
       requestBody,
       applyModelSamplingRules(modelConfig.model, requestBody),
     );
+    const requestHeaders = {
+      ...getHeaders(),
+      "anthropic-version": accessStore.anthropicApiVersion,
+      ...(modelConfig.anthropicBeta?.trim()
+        ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
+        : {}),
+    };
 
     const path = this.path(Anthropic.ChatPath);
 
@@ -212,10 +230,7 @@ export class ClaudeApi implements LLMApi {
       return stream(
         path,
         requestBody,
-        {
-          ...getHeaders(),
-          "anthropic-version": accessStore.anthropicApiVersion,
-        },
+        requestHeaders,
         // @ts-ignore
         tools.map((tool) => ({
           name: tool?.function?.name,
@@ -331,8 +346,7 @@ export class ClaudeApi implements LLMApi {
         body: JSON.stringify(requestBody),
         signal: controller.signal,
         headers: {
-          ...getHeaders(), // get common headers
-          "anthropic-version": accessStore.anthropicApiVersion,
+          ...requestHeaders,
           // do not send `anthropicApiKey` in browser!!!
           // Authorization: getAuthKey(accessStore.anthropicApiKey),
         },

@@ -26,6 +26,7 @@ import { ensure } from "../utils/clone";
 import { safeLocalStorage } from "../utils";
 import { DEFAULT_CONFIG } from "./config";
 import { getModelProvider } from "../utils/model";
+import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { createJSONStorage } from "zustand/middleware";
 import {
   readAccessSnapshot,
@@ -319,6 +320,9 @@ export const useAccessStore = createPersistStore(
             const [model, providerName] = getModelProvider(defaultModel);
             DEFAULT_CONFIG.modelConfig.model = model;
             DEFAULT_CONFIG.modelConfig.providerName = providerName as any;
+            DEFAULT_CONFIG.modelConfig = sanitizeModelConfigForCapability(
+              DEFAULT_CONFIG.modelConfig,
+            );
           }
 
           return res;

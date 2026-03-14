@@ -62,6 +62,7 @@ export interface RequestPayload {
   messages: {
     role: "developer" | "system" | "user" | "assistant";
     content: string | MultimodalContent[];
+    reasoning_details?: Record<string, unknown>;
   }[];
   modalities?: string[];
   stream?: boolean;
@@ -524,8 +525,13 @@ export class ChatGPTApi implements LLMApi {
         const content = visionModel
           ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
-        if (!(isReasoningOpenAIModel && v.role === "system"))
-          messages.push({ role: v.role, content });
+        if (!(isReasoningOpenAIModel && v.role === "system")) {
+          messages.push({
+            role: v.role,
+            content,
+            reasoning_details: (v as any).reasoning_details,
+          });
+        }
       }
 
       // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.
@@ -636,12 +642,22 @@ export class ChatGPTApi implements LLMApi {
 
       if (shouldStream) {
         let index = -1;
+        let latestReasoningDetails: Record<string, unknown> | undefined;
         const [tools, funcs] = usePluginStore
           .getState()
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
           );
         // console.log("getAsTools", tools, funcs);
+        const streamOptions = {
+          ...options,
+          onFinish(message: string, responseRes: Response) {
+            if (latestReasoningDetails) {
+              (responseRes as any).__reasoning_details = latestReasoningDetails;
+            }
+            options.onFinish(message, responseRes);
+          },
+        };
         streamWithThink(
           chatPath,
           requestPayload,
@@ -668,6 +684,13 @@ export class ChatGPTApi implements LLMApi {
             if (!choices?.length) return { isThinking: false, content: "" };
 
             const tool_calls = choices[0]?.delta?.tool_calls;
+            const reasoningDetails = choices[0]?.delta?.reasoning_details;
+            if (reasoningDetails) {
+              latestReasoningDetails = {
+                ...(latestReasoningDetails || {}),
+                ...reasoningDetails,
+              };
+            }
             if (tool_calls?.length > 0) {
               const id = tool_calls[0]?.id;
               const args = tool_calls[0]?.function?.arguments;
@@ -754,7 +777,7 @@ export class ChatGPTApi implements LLMApi {
               ...toolCallResult,
             );
           },
-          options,
+          streamOptions,
         );
       } else {
         const chatPayload = {
@@ -775,6 +798,12 @@ export class ChatGPTApi implements LLMApi {
 
         const resText = await res.text();
         const resJson = parseJsonOrSSEPayload(resText);
+        const reasoningDetails =
+          resJson?.choices?.[0]?.message?.reasoning_details ??
+          resJson?.choices?.[0]?.delta?.reasoning_details;
+        if (reasoningDetails) {
+          (res as any).__reasoning_details = reasoningDetails;
+        }
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);
       }
