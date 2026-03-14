@@ -40,6 +40,7 @@ import {
   getMessageTextContent,
   isVisionModel,
   isDalle3 as _isDalle3,
+  isImageGenerationModel,
   getTimeoutMSByModel,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
@@ -58,6 +59,7 @@ export interface RequestPayload {
     role: "developer" | "system" | "user" | "assistant";
     content: string | MultimodalContent[];
   }[];
+  modalities?: string[];
   stream?: boolean;
   model: string;
   temperature: number;
@@ -90,6 +92,155 @@ function normalizeServiceProvider(
   }
 
   return useCustomConfig ? ServiceProvider.Custom : ServiceProvider.OpenAI;
+}
+
+function isGeminiImagePreviewModel(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    lowerModel.startsWith("gemini-") &&
+    (lowerModel.includes("image-preview") ||
+      lowerModel.includes("image-generation"))
+  );
+}
+
+function isAiHubMixBaseUrl(baseUrl: string) {
+  return baseUrl.includes("aihubmix.com");
+}
+
+function getAiHubMixPredictionModelPath(model: string) {
+  const lowerModel = model.toLowerCase();
+
+  if (
+    lowerModel.startsWith("gpt-image-") ||
+    lowerModel.startsWith("dall-e-") ||
+    lowerModel.startsWith("dalle-")
+  ) {
+    return `openai/${model}`;
+  }
+  if (lowerModel.startsWith("imagen-")) {
+    return `google/${model}`;
+  }
+  if (
+    lowerModel.startsWith("qwen-image") ||
+    lowerModel.startsWith("irag-") ||
+    lowerModel.startsWith("ernie-irag-")
+  ) {
+    return `qianfan/${model}`;
+  }
+  if (lowerModel.startsWith("doubao-seedream-")) {
+    return `doubao/${model}`;
+  }
+  if (
+    lowerModel.startsWith("flux-2-") ||
+    lowerModel.startsWith("flux-kontext-")
+  ) {
+    return `bfl/${model}`;
+  }
+  if (model === "V3") {
+    return `ideogram/${model}`;
+  }
+
+  return null;
+}
+
+function buildAiHubMixPredictionPayload(
+  model: string,
+  options: ChatOptions,
+): Record<string, unknown> {
+  const lowerModel = model.toLowerCase();
+  const prompt = getMessageTextContent(
+    options.messages.slice(-1)?.pop() as any,
+  );
+
+  if (lowerModel.startsWith("imagen-")) {
+    return {
+      input: {
+        prompt,
+        numberOfImages: 1,
+      },
+    };
+  }
+
+  if (
+    lowerModel.startsWith("qwen-image") ||
+    lowerModel.startsWith("irag-") ||
+    lowerModel.startsWith("ernie-irag-")
+  ) {
+    return {
+      input: {
+        prompt,
+        n: 1,
+        size: options.config?.size ?? "1024x1024",
+        watermark: false,
+      },
+    };
+  }
+
+  if (lowerModel.startsWith("doubao-seedream-")) {
+    return {
+      input: {
+        prompt,
+        size: "2K",
+        response_format: "url",
+        watermark: true,
+        stream: false,
+      },
+    };
+  }
+
+  if (
+    lowerModel.startsWith("flux-2-") ||
+    lowerModel.startsWith("flux-kontext-")
+  ) {
+    return {
+      input: {
+        prompt,
+        aspect_ratio: "1:1",
+        safety_tolerance: 2,
+      },
+    };
+  }
+
+  if (model === "V3") {
+    return {
+      input: {
+        prompt,
+        aspect_ratio: "1x1",
+      },
+    };
+  }
+
+  return {
+    input: {
+      prompt,
+      n: 1,
+      size: options.config?.size ?? "1024x1024",
+      quality: options.config?.quality ?? "standard",
+    },
+  };
+}
+
+function parseJsonOrSSEPayload(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  const ssePayload = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.replace(/^data:\s*/, ""))
+    .filter((line) => line && line !== "[DONE]")
+    .pop();
+
+  if (!ssePayload) {
+    throw new Error(`Unexpected payload: ${trimmed.slice(0, 120)}`);
+  }
+
+  return JSON.parse(ssePayload);
 }
 
 export class ChatGPTApi implements LLMApi {
@@ -188,6 +339,63 @@ export class ChatGPTApi implements LLMApi {
         },
       ];
     }
+    if (Array.isArray(res.output) && res.output.length > 0) {
+      const first = res.output[0];
+      const url =
+        first?.url ||
+        first?.image_url ||
+        first?.imageUrl ||
+        (typeof first === "string" && first.startsWith("http") ? first : "");
+      const b64_json = first?.b64_json || first?.b64 || "";
+      if (url) {
+        return [
+          {
+            type: "image_url",
+            image_url: {
+              url,
+            },
+          },
+        ];
+      }
+      if (b64_json) {
+        return [
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/png;base64,${b64_json}`,
+            },
+          },
+        ];
+      }
+      if (first?.polling_url) {
+        return `图像生成任务已创建：${first.polling_url}`;
+      }
+    }
+    const multiModContent = res.choices?.at(0)?.message?.multi_mod_content;
+    if (Array.isArray(multiModContent) && multiModContent.length > 0) {
+      const contents = multiModContent
+        .map((item: any) => {
+          const mimeType =
+            item?.inlineData?.mimeType || item?.inline_data?.mime_type;
+          const data = item?.inlineData?.data || item?.inline_data?.data;
+          if (mimeType?.startsWith("image/") && data) {
+            return {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${data}`,
+              },
+            };
+          }
+          if (item?.text) {
+            return item.text;
+          }
+          return null;
+        })
+        .filter(Boolean);
+      if (contents.length > 0) {
+        return contents;
+      }
+    }
     return res.choices?.at(0)?.message?.content ?? res;
   }
 
@@ -242,15 +450,40 @@ export class ChatGPTApi implements LLMApi {
       },
     };
 
-    let requestPayload: RequestPayload | DalleRequestPayload;
+    let requestPayload:
+      | RequestPayload
+      | DalleRequestPayload
+      | Record<string, unknown>;
 
     const isDalle3 = _isDalle3(options.config.model);
+    const isImageModel = isImageGenerationModel(options.config.model);
+    const isGeminiImagePreview = isGeminiImagePreviewModel(
+      options.config.model,
+    );
+    const currentAccessState = useAccessStore.getState();
+    const currentBaseUrlForRequest =
+      modelConfig.providerName === ServiceProvider.Custom
+        ? currentAccessState.customUrl
+        : modelConfig.providerName === ServiceProvider.Azure
+        ? currentAccessState.azureUrl
+        : currentAccessState.openaiUrl;
+    const aiHubMixPredictionPath =
+      isImageModel &&
+      !isGeminiImagePreview &&
+      isAiHubMixBaseUrl(currentBaseUrlForRequest)
+        ? getAiHubMixPredictionModelPath(options.config.model)
+        : null;
     const isO1OrO3 =
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
       options.config.model.startsWith("o4-mini");
     const isGpt5 = options.config.model.startsWith("gpt-5");
-    if (isDalle3) {
+    if (aiHubMixPredictionPath) {
+      requestPayload = buildAiHubMixPredictionPayload(
+        options.config.model,
+        options,
+      );
+    } else if (isImageModel && !isGeminiImagePreview) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
       );
@@ -278,6 +511,7 @@ export class ChatGPTApi implements LLMApi {
       // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.
       requestPayload = {
         messages,
+        ...(isGeminiImagePreview ? { modalities: ["text", "image"] } : {}),
         stream: options.config.stream,
         model: modelConfig.model,
         temperature: !isO1OrO3 && !isGpt5 ? modelConfig.temperature : 1,
@@ -314,7 +548,8 @@ export class ChatGPTApi implements LLMApi {
 
     // console.log("[Request] openai payload: ", requestPayload);
 
-    const shouldStream = !isDalle3 && !!options.config.stream;
+    const shouldStream =
+      isGeminiImagePreview || (!isImageModel && !!options.config.stream);
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -342,28 +577,28 @@ export class ChatGPTApi implements LLMApi {
             model?.provider?.providerName === ServiceProvider.Azure,
         );
         chatPath = this.path(
-          (isDalle3 ? Azure.ImagePath : Azure.ChatPath)(
+          (isImageModel && !isGeminiImagePreview
+            ? Azure.ImagePath
+            : Azure.ChatPath)(
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
         );
       } else {
         chatPath = this.path(
-          isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
+          aiHubMixPredictionPath
+            ? `v1/models/${aiHubMixPredictionPath}/predictions`
+            : isImageModel && !isGeminiImagePreview
+            ? OpenaiPath.ImagePath
+            : OpenaiPath.ChatPath,
         );
       }
 
-      const accessState = useAccessStore.getState();
-      currentBaseUrl =
-        modelConfig.providerName === ServiceProvider.Custom
-          ? accessState.customUrl
-          : modelConfig.providerName === ServiceProvider.Azure
-          ? accessState.azureUrl
-          : accessState.openaiUrl;
+      currentBaseUrl = currentBaseUrlForRequest;
       console.log("[Chat Request]", {
         provider: modelConfig.providerName,
         model: modelConfig.model,
-        useCustomConfig: accessState.useCustomConfig,
+        useCustomConfig: currentAccessState.useCustomConfig,
         baseUrl: currentBaseUrl,
         chatPath,
         stream: shouldStream,
@@ -393,6 +628,10 @@ export class ChatGPTApi implements LLMApi {
                 content: string;
                 tool_calls: ChatMessageTool[];
                 reasoning_content: string | null;
+                multi_mod_content?: Array<{
+                  inlineData?: { mimeType?: string; data?: string };
+                  inline_data?: { mime_type?: string; data?: string };
+                }>;
               };
             }>;
 
@@ -420,9 +659,23 @@ export class ChatGPTApi implements LLMApi {
 
             const reasoning = choices[0]?.delta?.reasoning_content;
             const content = choices[0]?.delta?.content;
+            const imageParts = choices[0]?.delta?.multi_mod_content;
+            const imageMarkdown = (imageParts || [])
+              .map((item) => {
+                const mimeType =
+                  item?.inlineData?.mimeType || item?.inline_data?.mime_type;
+                const data = item?.inlineData?.data || item?.inline_data?.data;
+                if (mimeType?.startsWith("image/") && data) {
+                  return `![Generated Image](data:${mimeType};base64,${data})`;
+                }
+                return "";
+              })
+              .filter(Boolean)
+              .join("\n\n");
 
             // Skip if both content and reasoning_content are empty or null
             if (
+              (!imageMarkdown || imageMarkdown.length === 0) &&
               (!reasoning || reasoning.length === 0) &&
               (!content || content.length === 0)
             ) {
@@ -436,6 +689,11 @@ export class ChatGPTApi implements LLMApi {
               return {
                 isThinking: true,
                 content: reasoning,
+              };
+            } else if (imageMarkdown && imageMarkdown.length > 0) {
+              return {
+                isThinking: false,
+                content: imageMarkdown,
               };
             } else if (content && content.length > 0) {
               return {
@@ -485,7 +743,8 @@ export class ChatGPTApi implements LLMApi {
         const res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
 
-        const resJson = await res.json();
+        const resText = await res.text();
+        const resJson = parseJsonOrSSEPayload(resText);
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);
       }

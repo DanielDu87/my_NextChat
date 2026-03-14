@@ -1,5 +1,5 @@
 import { ServiceProvider } from "@/app/constant";
-import { ModalConfigValidator, ModelConfig } from "../store";
+import { ModelConfig } from "../store";
 
 import Locale from "../locales";
 import { InputRange } from "./input-range";
@@ -8,6 +8,7 @@ import { useAllModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
 import { getModelProvider } from "../utils/model";
+import { SUMMARIZE_MODEL } from "../constant";
 
 export function ModelConfigList(props: {
   modelConfig: ModelConfig;
@@ -47,8 +48,6 @@ export function ModelConfigList(props: {
   });
 
   const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
-  const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
-
   return (
     <>
       <ListItem title={Locale.Settings.Model}>
@@ -278,28 +277,14 @@ export function ModelConfigList(props: {
         title={Locale.Settings.CompressModel.Title}
         subTitle={Locale.Settings.CompressModel.SubTitle}
       >
-        <Select
-          className={styles["select-compress-model"]}
+        <input
           aria-label={Locale.Settings.CompressModel.Title}
-          value={compressModelValue}
-          onChange={(e) => {
-            const [model, providerName] = getModelProvider(
-              e.currentTarget.value,
-            );
-            props.updateConfig((config) => {
-              config.compressModel = ModalConfigValidator.model(model);
-              config.compressProviderName = providerName as ServiceProvider;
-            });
-          }}
-        >
-          {allModels
-            .filter((v) => v.available)
-            .map((v, i) => (
-              <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                {v.displayName}({v.provider?.providerName})
-              </option>
-            ))}
-        </Select>
+          className={styles["select-compress-model"]}
+          type="text"
+          value={`${SUMMARIZE_MODEL}（固定为当前供应商，若缺失则回退 AihubMix）`}
+          disabled
+          readOnly
+        />
       </ListItem>
     </>
   );

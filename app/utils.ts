@@ -237,6 +237,9 @@ export function getMessageTextContent(message: RequestMessage) {
   if (typeof message.content === "string") {
     return message.content;
   }
+  if (!Array.isArray(message.content)) {
+    return "";
+  }
   for (const c of message.content) {
     if (c.type === "text") {
       return c.text ?? "";
@@ -250,7 +253,7 @@ export function getMessageTextContentWithoutThinking(message: RequestMessage) {
 
   if (typeof message.content === "string") {
     content = message.content;
-  } else {
+  } else if (Array.isArray(message.content)) {
     for (const c of message.content) {
       if (c.type === "text") {
         content = c.text ?? "";
@@ -269,6 +272,9 @@ export function getMessageTextContentWithoutThinking(message: RequestMessage) {
 
 export function getMessageImages(message: RequestMessage): string[] {
   if (typeof message.content === "string") {
+    return [];
+  }
+  if (!Array.isArray(message.content)) {
     return [];
   }
   const urls: string[] = [];
@@ -296,11 +302,25 @@ export function isDalle3(model: string) {
   return "dall-e-3" === model;
 }
 
+export function isImageGenerationModel(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    lowerModel.includes("image") ||
+    lowerModel.includes("imagen") ||
+    lowerModel.startsWith("dall-e") ||
+    lowerModel.startsWith("dalle") ||
+    lowerModel.includes("seedream") ||
+    lowerModel.includes("jimeng") ||
+    lowerModel.includes("qwen-image") ||
+    lowerModel.includes("cogview") ||
+    lowerModel.includes("flux")
+  );
+}
+
 export function getTimeoutMSByModel(model: string) {
   model = model.toLowerCase();
   if (
-    model.startsWith("dall-e") ||
-    model.startsWith("dalle") ||
+    isImageGenerationModel(model) ||
     model.startsWith("o1") ||
     model.startsWith("o3") ||
     model.includes("deepseek-r") ||
@@ -311,7 +331,7 @@ export function getTimeoutMSByModel(model: string) {
 }
 
 export function getModelSizes(model: string): ModelSize[] {
-  if (isDalle3(model)) {
+  if (isImageGenerationModel(model)) {
     return ["1024x1024", "1792x1024", "1024x1792"];
   }
   if (model.toLowerCase().includes("cogview")) {

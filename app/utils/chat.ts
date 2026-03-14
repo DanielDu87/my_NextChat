@@ -77,6 +77,9 @@ export async function preProcessImageContentBase(
   if (typeof content === "string") {
     return content;
   }
+  if (!Array.isArray(content)) {
+    return "";
+  }
   const result = [];
   for (const part of content) {
     if (part?.type == "image_url" && part?.image_url?.url) {

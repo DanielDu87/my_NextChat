@@ -2077,9 +2077,10 @@ function _Chat() {
                 .map((message, i) => {
                   const isUser = message.role === "user";
                   const isContext = i < context.length;
+                  const messageTextContent = getMessageTextContent(message);
                   const showActions =
                     i > 0 &&
-                    !(message.preview || message.content.length === 0) &&
+                    !(message.preview || messageTextContent.length === 0) &&
                     !isContext;
                   const showTyping = message.preview || message.streaming;
 
@@ -2260,10 +2261,10 @@ function _Chat() {
                           <div className={styles["chat-message-item"]}>
                             <Markdown
                               key={message.streaming ? "loading" : "done"}
-                              content={getMessageTextContent(message)}
+                              content={messageTextContent}
                               loading={
                                 (message.preview || message.streaming) &&
-                                message.content.length === 0 &&
+                                messageTextContent.length === 0 &&
                                 !isUser
                               }
                               //   onContextMenu={(e) => onRightClick(e, message)} // hard to use

@@ -61,6 +61,23 @@ export class GeminiProApi implements LLMApi {
   extractMessage(res: any) {
     console.log("[Response] gemini-pro response: ", res);
 
+    const getImageFromParts = (parts: any[]) => {
+      if (!Array.isArray(parts)) return "";
+
+      return parts
+        .map((part) => {
+          const inlineData = part?.inline_data || part?.inlineData;
+          const mimeType = inlineData?.mime_type || inlineData?.mimeType;
+          const data = inlineData?.data;
+          if (mimeType?.startsWith("image/") && data) {
+            return `![Generated Image](data:${mimeType};base64,${data})`;
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n\n");
+    };
+
     const getTextFromParts = (parts: any[]) => {
       if (!Array.isArray(parts)) return "";
 
@@ -71,13 +88,19 @@ export class GeminiProApi implements LLMApi {
     };
 
     let content = "";
+    let imageContent = "";
     if (Array.isArray(res)) {
       res.map((item) => {
         content += getTextFromParts(item?.candidates?.at(0)?.content?.parts);
+        imageContent += getImageFromParts(
+          item?.candidates?.at(0)?.content?.parts,
+        );
       });
     }
 
     return (
+      getImageFromParts(res?.candidates?.at(0)?.content?.parts) ||
+      imageContent ||
       getTextFromParts(res?.candidates?.at(0)?.content?.parts) ||
       content || //getTextFromParts(res?.at(0)?.candidates?.at(0)?.content?.parts) ||
       res?.error?.message ||

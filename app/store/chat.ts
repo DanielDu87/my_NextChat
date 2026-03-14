@@ -19,8 +19,6 @@ import {
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
   DEFAULT_SYSTEM_TEMPLATE,
-  GEMINI_SUMMARIZE_MODEL,
-  DEEPSEEK_SUMMARIZE_MODEL,
   KnowledgeCutOffDate,
   MCP_SYSTEM_TEMPLATE,
   MCP_TOOLS_TEMPLATE,
@@ -119,35 +117,94 @@ function createEmptySession(): ChatSession {
   };
 }
 
-function getSummarizeModel(
-  currentModel: string,
-  providerName: string,
-): string[] {
-  // if it is using gpt-* models, force to use 4o-mini to summarize
-  if (currentModel.startsWith("gpt") || currentModel.startsWith("chatgpt")) {
-    const configStore = useAppConfig.getState();
-    const allModel = collectModelsWithDefaultModel(
-      configStore.models,
-      configStore.customModels,
-      useAccessStore.getState().defaultModel,
-    );
-    const summarizeModel = allModel.find(
-      (m) => m.name === SUMMARIZE_MODEL && m.available,
-    );
-    if (summarizeModel) {
-      return [
-        summarizeModel.name,
-        summarizeModel.provider?.providerName as string,
-      ];
-    }
-  }
-  if (currentModel.startsWith("gemini")) {
-    return [GEMINI_SUMMARIZE_MODEL, ServiceProvider.Google];
-  } else if (currentModel.startsWith("deepseek-")) {
-    return [DEEPSEEK_SUMMARIZE_MODEL, ServiceProvider.DeepSeek];
+function getSummarizeTarget() {
+  const configStore = useAppConfig.getState();
+  const accessStore = useAccessStore.getState();
+  const allModel = collectModelsWithDefaultModel(
+    configStore.models,
+    configStore.customModels,
+    accessStore.defaultModel,
+  );
+  const activeProfile = accessStore.apiProfiles.find(
+    (profile) => profile.enabled,
+  );
+  const activeProviderId =
+    activeProfile?.provider === ServiceProvider.Custom
+      ? `custom_${activeProfile.name}`
+      : String(activeProfile?.provider || "").toLowerCase();
+  const currentSupplierModel = allModel.find(
+    (m) =>
+      m.name === SUMMARIZE_MODEL &&
+      m.available &&
+      String(m.provider?.id || "").toLowerCase() ===
+        activeProviderId.toLowerCase(),
+  );
+  if (currentSupplierModel) {
+    return {
+      model: currentSupplierModel.name,
+      providerName: currentSupplierModel.provider
+        ?.providerName as ServiceProvider,
+    };
   }
 
-  return [currentModel, providerName];
+  const aihubMixProfile = accessStore.apiProfiles.find(
+    (profile) => profile.name === "AihubMix",
+  );
+  const aihubMixModel = allModel.find(
+    (m) =>
+      m.name === SUMMARIZE_MODEL &&
+      m.available &&
+      String(m.provider?.id || "").toLowerCase() === "custom_aihubmix",
+  );
+  if (aihubMixProfile && aihubMixModel) {
+    return {
+      model: aihubMixModel.name,
+      providerName: ServiceProvider.Custom,
+      profile: aihubMixProfile,
+    };
+  }
+
+  return {
+    model: SUMMARIZE_MODEL,
+    providerName: activeProfile?.provider ?? ServiceProvider.Custom,
+  };
+}
+
+function withSummarizeProfile<T>(
+  profile:
+    | {
+        provider: ServiceProvider;
+        baseUrl: string;
+        apiKey: string;
+        openAICompatible?: boolean;
+      }
+    | undefined,
+  fn: () => T,
+) {
+  if (!profile || profile.provider !== ServiceProvider.Custom) {
+    return fn();
+  }
+
+  const accessStore = useAccessStore.getState();
+  const prevState = {
+    provider: accessStore.provider,
+    customUrl: accessStore.customUrl,
+    customApiKey: accessStore.customApiKey,
+    customOpenAICompatible: accessStore.customOpenAICompatible,
+  };
+
+  useAccessStore.setState({
+    provider: ServiceProvider.Custom,
+    customUrl: profile.baseUrl,
+    customApiKey: profile.apiKey,
+    customOpenAICompatible: profile.openAICompatible ?? true,
+  } as any);
+
+  try {
+    return fn();
+  } finally {
+    useAccessStore.setState(prevState as any);
+  }
 }
 
 function countMessages(msgs: ChatMessage[]) {
@@ -706,13 +763,8 @@ export const useChatStore = createPersistStore(
           return;
         }
 
-        // if not config compressModel, then using getSummarizeModel
-        const [model, providerName] = modelConfig.compressModel
-          ? [modelConfig.compressModel, modelConfig.compressProviderName]
-          : getSummarizeModel(
-              session.mask.modelConfig.model,
-              session.mask.modelConfig.providerName,
-            );
+        const summarizeTarget = getSummarizeTarget();
+        const { model, providerName } = summarizeTarget;
         const api: ClientApi = getClientApi(providerName as ServiceProvider);
 
         // remove error messages if any
@@ -741,24 +793,28 @@ export const useChatStore = createPersistStore(
                 content: Locale.Store.Prompt.Topic,
               }),
             );
-          api.llm.chat({
-            messages: topicMessages,
-            config: {
-              model,
-              stream: false,
-              providerName,
-            },
-            onFinish(message, responseRes) {
-              if (responseRes?.status === 200) {
-                get().updateTargetSession(
-                  session,
-                  (session) =>
-                    (session.topic =
-                      message.length > 0 ? trimTopic(message) : DEFAULT_TOPIC),
-                );
-              }
-            },
-          });
+          withSummarizeProfile(summarizeTarget.profile, () =>
+            api.llm.chat({
+              messages: topicMessages,
+              config: {
+                model,
+                stream: false,
+                providerName,
+              },
+              onFinish(message, responseRes) {
+                if (responseRes?.status === 200) {
+                  get().updateTargetSession(
+                    session,
+                    (session) =>
+                      (session.topic =
+                        message.length > 0
+                          ? trimTopic(message)
+                          : DEFAULT_TOPIC),
+                  );
+                }
+              },
+            }),
+          );
         }
         const summarizeIndex = Math.max(
           session.lastSummarizeIndex,
@@ -799,36 +855,38 @@ export const useChatStore = createPersistStore(
            * this param is just shit
            **/
           const { max_tokens, ...modelcfg } = modelConfig;
-          api.llm.chat({
-            messages: toBeSummarizedMsgs.concat(
-              createMessage({
-                role: "system",
-                content: Locale.Store.Prompt.Summarize,
-                date: "",
-              }),
-            ),
-            config: {
-              ...modelcfg,
-              stream: true,
-              model,
-              providerName,
-            },
-            onUpdate(message) {
-              session.memoryPrompt = message;
-            },
-            onFinish(message, responseRes) {
-              if (responseRes?.status === 200) {
-                console.log("[Memory] ", message);
-                get().updateTargetSession(session, (session) => {
-                  session.lastSummarizeIndex = lastSummarizeIndex;
-                  session.memoryPrompt = message; // Update the memory prompt for stored it in local storage
-                });
-              }
-            },
-            onError(err) {
-              console.error("[Summarize] ", err);
-            },
-          });
+          withSummarizeProfile(summarizeTarget.profile, () =>
+            api.llm.chat({
+              messages: toBeSummarizedMsgs.concat(
+                createMessage({
+                  role: "system",
+                  content: Locale.Store.Prompt.Summarize,
+                  date: "",
+                }),
+              ),
+              config: {
+                ...modelcfg,
+                stream: true,
+                model,
+                providerName,
+              },
+              onUpdate(message) {
+                session.memoryPrompt = message;
+              },
+              onFinish(message, responseRes) {
+                if (responseRes?.status === 200) {
+                  console.log("[Memory] ", message);
+                  get().updateTargetSession(session, (session) => {
+                    session.lastSummarizeIndex = lastSummarizeIndex;
+                    session.memoryPrompt = message;
+                  });
+                }
+              },
+              onError(err) {
+                console.error("[Summarize] ", err);
+              },
+            }),
+          );
         }
       },
 
