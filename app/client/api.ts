@@ -265,6 +265,14 @@ export function validString(x: string): boolean {
   return x?.length > 0;
 }
 
+function getYutoFallbackGroupOrder(modelName: string) {
+  const lowerModelName = modelName.toLowerCase();
+  if (lowerModelName.startsWith("claude")) {
+    return ["anthropic", "enterprise", "discount", "user", "default"];
+  }
+  return ["enterprise", "discount", "user", "anthropic", "default"];
+}
+
 export function getHeaders(ignoreHeaders: boolean = false) {
   const accessStore = useAccessStore.getState();
   const appConfigStore = useAppConfig.getState();
@@ -319,7 +327,11 @@ export function getHeaders(ignoreHeaders: boolean = false) {
 
     const resolveCustomApiKey = () => {
       if (!enabledCustomProfile) {
-        return accessStore.customApiKey;
+        return {
+          current: accessStore.customApiKey,
+          fallback: [],
+          fallbackGroups: [],
+        };
       }
 
       const profileProviderId = `custom_${enabledCustomProfile.name}`;
@@ -330,57 +342,95 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       );
 
       const groupedKeys = enabledCustomProfile.apiKeyGroups || {};
-      if (matchedModel?.apiKeyGroup && groupedKeys[matchedModel.apiKeyGroup]) {
-        return groupedKeys[matchedModel.apiKeyGroup];
+      const groupOrder = getYutoFallbackGroupOrder(modelConfig.model);
+
+      // 构建降级 API key 列表
+      const fallbackApiKeys: string[] = [];
+      const fallbackApiKeyGroups: string[] = [];
+
+      const pushFallbackKey = (groupName: string, key: string | undefined) => {
+        if (!key || fallbackApiKeys.includes(key)) {
+          return;
+        }
+        fallbackApiKeys.push(key);
+        fallbackApiKeyGroups.push(groupName);
+      };
+
+      const matchedGroup = matchedModel?.apiKeyGroup;
+      const hasMatchedGroup =
+        Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
+
+      // 先尝试命中分组，命中失败再按分组顺序继续降级重试
+      if (hasMatchedGroup) {
+        pushFallbackKey(
+          matchedGroup as string,
+          groupedKeys[matchedGroup as string],
+        );
       }
 
-      if (
-        modelConfig.model.toLowerCase().startsWith("claude") &&
-        groupedKeys.anthropic
-      ) {
-        return groupedKeys.anthropic;
+      for (const group of groupOrder) {
+        pushFallbackKey(group, groupedKeys[group]);
       }
 
-      return (
-        groupedKeys.default ||
-        enabledCustomProfile.apiKey ||
-        accessStore.customApiKey
-      );
+      console.log("[API] Debug:", {
+        modelConfigModel: modelConfig.model,
+        profileProviderId,
+        matchedModel: matchedModel
+          ? {
+              name: matchedModel.name,
+              apiKeyGroup: matchedModel.apiKeyGroup,
+            }
+          : null,
+        fallbackGroups: fallbackApiKeyGroups,
+        fallbackKeys: fallbackApiKeys.map((k) => k.slice(0, 10) + "..."),
+      });
+
+      return {
+        current: fallbackApiKeys[0] || "",
+        fallback: fallbackApiKeys,
+        fallbackGroups: fallbackApiKeyGroups,
+      };
     };
 
-    const apiKey =
+    const apiKeyInfo =
       effectiveProvider === ServiceProvider.Custom
         ? resolveCustomApiKey()
-        : effectiveProvider === ServiceProvider.Google
-        ? accessStore.googleApiKey
-        : effectiveProvider === ServiceProvider.Azure
-        ? accessStore.azureApiKey
-        : effectiveProvider === ServiceProvider.Anthropic
-        ? accessStore.anthropicApiKey
-        : effectiveProvider === ServiceProvider.ByteDance
-        ? accessStore.bytedanceApiKey
-        : effectiveProvider === ServiceProvider.Alibaba
-        ? accessStore.alibabaApiKey
-        : effectiveProvider === ServiceProvider.Moonshot
-        ? accessStore.moonshotApiKey
-        : effectiveProvider === ServiceProvider.XAI
-        ? accessStore.xaiApiKey
-        : effectiveProvider === ServiceProvider.DeepSeek
-        ? accessStore.deepseekApiKey
-        : effectiveProvider === ServiceProvider.ChatGLM
-        ? accessStore.chatglmApiKey
-        : effectiveProvider === ServiceProvider.SiliconFlow
-        ? accessStore.siliconflowApiKey
-        : effectiveProvider === ServiceProvider.Iflytek
-        ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
-          ? accessStore.iflytekApiKey + ":" + accessStore.iflytekApiSecret
-          : ""
-        : effectiveProvider === ServiceProvider["302.AI"]
-        ? accessStore.ai302ApiKey
-        : accessStore.openaiApiKey;
+        : {
+            current:
+              effectiveProvider === ServiceProvider.Google
+                ? accessStore.googleApiKey
+                : effectiveProvider === ServiceProvider.Azure
+                ? accessStore.azureApiKey
+                : effectiveProvider === ServiceProvider.Anthropic
+                ? accessStore.anthropicApiKey
+                : effectiveProvider === ServiceProvider.ByteDance
+                ? accessStore.bytedanceApiKey
+                : effectiveProvider === ServiceProvider.Alibaba
+                ? accessStore.alibabaApiKey
+                : effectiveProvider === ServiceProvider.Moonshot
+                ? accessStore.moonshotApiKey
+                : effectiveProvider === ServiceProvider.XAI
+                ? accessStore.xaiApiKey
+                : effectiveProvider === ServiceProvider.DeepSeek
+                ? accessStore.deepseekApiKey
+                : effectiveProvider === ServiceProvider.ChatGLM
+                ? accessStore.chatglmApiKey
+                : effectiveProvider === ServiceProvider.SiliconFlow
+                ? accessStore.siliconflowApiKey
+                : effectiveProvider === ServiceProvider.Iflytek
+                ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
+                  ? accessStore.iflytekApiKey +
+                    ":" +
+                    accessStore.iflytekApiSecret
+                  : ""
+                : effectiveProvider === ServiceProvider["302.AI"]
+                ? accessStore.ai302ApiKey
+                : accessStore.openaiApiKey,
+            fallback: [],
+          };
 
     // console.log("[API Request] Effective Provider:", effectiveProvider);
-    // console.log("[API Request] API Key:", apiKey ? "***" : "EMPTY");
+    // console.log("[API Request] API Key:", apiKeyInfo.current ? "***" : "EMPTY");
     return {
       isCustom,
       isGoogle,
@@ -396,7 +446,9 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       isChatGLM,
       isSiliconFlow,
       isAI302,
-      apiKey,
+      apiKey: apiKeyInfo.current,
+      fallbackApiKeys: apiKeyInfo.fallback,
+      fallbackApiKeyGroups: (apiKeyInfo as any).fallbackGroups || [],
       isEnabledAccessControl,
     };
   }
@@ -427,6 +479,8 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     isSiliconFlow,
     isAI302,
     apiKey,
+    fallbackApiKeys,
+    fallbackApiKeyGroups,
     isEnabledAccessControl,
   } = getConfig();
   // when using baidu api in app, not set auth header
@@ -445,6 +499,12 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     headers["Authorization"] = getBearerToken(
       ACCESS_CODE_PREFIX + accessStore.accessCode,
     );
+  }
+
+  // 添加降级 API key 列表用于重试
+  if (fallbackApiKeys && fallbackApiKeys.length > 0) {
+    (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
+    (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
   }
 
   return headers;

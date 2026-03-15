@@ -94,7 +94,74 @@ describe("AiHubMix media routing", () => {
       model: "I2V-01-live",
       prompt: "make it cinematic",
       image_url: "https://example.com/input.png",
+      size: "720x1280",
+      seconds: 4,
     });
+  });
+
+  test("should omit duration for veo text video payloads", () => {
+    const payload = buildAiHubMixVideoPayload("veo2-fast", {
+      messages: [{ role: "user", content: "a cat walking in the rain" }],
+      config: {
+        model: "veo2-fast",
+        seconds: "4",
+      },
+      onFinish() {},
+    });
+
+    expect(payload).toEqual({
+      model: "veo2-fast",
+      prompt: "a cat walking in the rain",
+      images: [],
+      enhance_prompt: true,
+      enable_upsample: false,
+    });
+  });
+
+  test("should keep image urls array for veo image to video payloads", () => {
+    const payload = buildAiHubMixVideoPayload("veo2-fast", {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: "https://example.com/input.png",
+              },
+            },
+            {
+              type: "text",
+              text: "a cat turns around slowly",
+            },
+          ],
+        },
+      ] as any,
+      config: {
+        model: "veo2-fast",
+      },
+      onFinish() {},
+    });
+
+    expect(payload).toEqual({
+      model: "veo2-fast",
+      prompt: "a cat turns around slowly",
+      images: ["https://example.com/input.png"],
+      enhance_prompt: true,
+      enable_upsample: false,
+    });
+  });
+
+  test("should reject chinese prompt for veo payloads", () => {
+    expect(() =>
+      buildAiHubMixVideoPayload("veo2-fast", {
+        messages: [{ role: "user", content: "一只猫在雨中行走" }],
+        config: {
+          model: "veo2-fast",
+        },
+        onFinish() {},
+      }),
+    ).toThrow("Veo 系列当前只接受英文提示词");
   });
 
   test("should extract image from AihubMix output urls payload", async () => {
@@ -129,6 +196,47 @@ describe("AiHubMix media routing", () => {
     });
 
     expect(message).toBe("视频任务状态：queued (video_123)，进度 12%");
+  });
+
+  test("should explain invalid veo task failure with english hint", async () => {
+    const api = new ChatGPTApi();
+    const message = await api.extractMessage({
+      id: "video_123",
+      object: "video",
+      status: "failed",
+      model: "veo2-fast",
+      prompt: "一只猫在雨中行走",
+      error: {
+        code: 400,
+        status: "INVALID_ARGUMENT",
+        message: "Request contains an invalid argument.",
+        url: "/v1/video:batchAsyncGenerateVideoText",
+      },
+    });
+
+    expect(message).toContain("视频任务失败");
+    expect(message).toContain("Veo 系列当前通常只接受英文提示词");
+    expect(message).toContain("/v1/video:batchAsyncGenerateVideoText");
+  });
+
+  test("should explain veo invalid argument as upstream issue when prompt is already english", async () => {
+    const api = new ChatGPTApi();
+    const message = await api.extractMessage({
+      id: "video_124",
+      object: "video",
+      status: "failed",
+      model: "veo2-fast",
+      prompt: "A cute cat playing in the sunshine",
+      error: {
+        code: 400,
+        status: "INVALID_ARGUMENT",
+        message: "Request contains an invalid argument.",
+        url: "/v1/video:batchAsyncGenerateVideoText",
+      },
+    });
+
+    expect(message).toContain("渠道侧或上游模型适配异常");
+    expect(message).toContain("不是当前前端独有问题");
   });
 
   test("should attach fetched blob url for completed video task", async () => {

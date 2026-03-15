@@ -51,10 +51,10 @@ import {
 
 const YUTO_API_KEY_GROUPS = {
   default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
-  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
+  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
   discount: "sk-JcPXIRfVD27TqRmBEFGsbtZ5zWpsppiMQCFjQRUpri5u7nLv",
   anthropic: "sk-g8N4StogM4emnJvcLZ37TxTUcL71xPDWlQH0sZpQtMztkHEt",
-  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
+  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
 } as const;
 
 const YUTO_API_KEY_GROUP_LABELS: Record<

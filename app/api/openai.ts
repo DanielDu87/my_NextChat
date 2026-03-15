@@ -8,6 +8,53 @@ import { requestOpenai } from "./common";
 
 const ALLOWED_PATH = new Set(Object.values(OpenaiPath));
 
+function containsCjk(text: string) {
+  return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text);
+}
+
+async function validateVeoVideoRequest(req: NextRequest, subpath: string) {
+  if (req.method !== "POST" || subpath !== OpenaiPath.VideoPath) {
+    return null;
+  }
+
+  try {
+    const payload = await req.clone().json();
+    const model = String(payload?.model || "")
+      .trim()
+      .toLowerCase();
+    const prompt = String(payload?.prompt || "").trim();
+
+    if (!model.includes("veo")) {
+      return null;
+    }
+
+    if (!prompt) {
+      return NextResponse.json(
+        {
+          error: true,
+          message: "Veo 视频提示词不能为空。",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (containsCjk(prompt)) {
+      return NextResponse.json(
+        {
+          error: true,
+          message:
+            "Veo 系列当前只接受英文提示词。检测到请求中仍包含中文，请刷新页面后改用英文提示词重试。",
+        },
+        { status: 400 },
+      );
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function getModels(remoteModelRes: OpenAIListModelResponse) {
   const config = getServerSideConfig();
 
@@ -59,6 +106,11 @@ export async function handle(
   }
 
   try {
+    const veoValidationResponse = await validateVeoVideoRequest(req, subpath);
+    if (veoValidationResponse) {
+      return veoValidationResponse;
+    }
+
     const response = await requestOpenai(req);
 
     // list models

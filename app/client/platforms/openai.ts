@@ -137,6 +137,31 @@ function isAiHubMixBaseUrl(baseUrl: string) {
   return baseUrl.includes("aihubmix.com");
 }
 
+function isVeoVideoModel(model: string) {
+  return model.toLowerCase().includes("veo");
+}
+
+function containsCjk(text: string) {
+  return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text);
+}
+
+function getVeoPromptValidationError(model: string, prompt: string) {
+  if (!isVeoVideoModel(model)) {
+    return "";
+  }
+
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) {
+    return "Veo 视频提示词不能为空。";
+  }
+
+  if (containsCjk(normalizedPrompt)) {
+    return "Veo 系列当前只接受英文提示词。当前输入包含中文，服务端通常会返回 INVALID_ARGUMENT。请改用英文提示词后重试。";
+  }
+
+  return "";
+}
+
 function normalizeAiHubMixModelId(model: string) {
   const lowerModel = model.toLowerCase();
   if (lowerModel.endsWith("/qwen-image")) return "qwen-image";
@@ -289,11 +314,32 @@ export function buildAiHubMixVideoPayload(
   const latestMessage = options.messages.slice(-1)?.pop() as any;
   const imageUrls = latestMessage ? getMessageImages(latestMessage) : [];
 
+  const veoPromptValidationError = getVeoPromptValidationError(model, prompt);
+  if (veoPromptValidationError) {
+    throw new Error(veoPromptValidationError);
+  }
+
+  // veo2-fast 特殊处理
+  const isVeofast = isVeoVideoModel(model);
+
+  if (isVeofast) {
+    // asyncdata veo 任务需要显式携带增强与图片数组字段
+    const payload: Record<string, unknown> = {
+      model,
+      prompt,
+      images: imageUrls,
+      enhance_prompt: true,
+      enable_upsample: false,
+    };
+
+    return payload;
+  }
+
   return {
     model,
     prompt,
     size: options.config?.size || "720x1280",
-    seconds: options.config?.seconds || "4",
+    seconds: parseInt(options.config?.seconds || "4"),
     ...(imageUrls[0] ? { image_url: imageUrls[0] } : {}),
   };
 }
@@ -303,6 +349,9 @@ async function buildAiHubMixVideoRequestBody(
   options: ChatOptions,
 ): Promise<FormData | Record<string, unknown>> {
   const payload = buildAiHubMixVideoPayload(model, options);
+  if (isVeoVideoModel(model)) {
+    return payload;
+  }
   const imageUrl = String((payload as any).image_url || "");
 
   if (!imageUrl) {
@@ -546,19 +595,132 @@ function parseJsonOrSSEPayload(text: string) {
     return JSON.parse(trimmed);
   } catch {}
 
-  const ssePayload = trimmed
+  // 处理 SSE 流式响应：组合所有 delta content
+  const lines = trimmed
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.replace(/^data:\s*/, ""))
-    .filter((line) => line && line !== "[DONE]")
-    .pop();
+    .filter((line) => line && line !== "[DONE]");
 
+  if (lines.length === 0) {
+    throw new Error(`Unexpected payload: ${trimmed.slice(0, 120)}`);
+  }
+
+  // 尝试组合流式响应
+  try {
+    const combined = lines
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    if (combined.length > 0) {
+      // 获取最后一个有效的响应对象
+      const last = combined[combined.length - 1];
+
+      // 组合所有 delta.content
+      const allContent = combined
+        .map((item: any) => item?.choices?.[0]?.delta?.content || "")
+        .filter(Boolean)
+        .join("");
+
+      if (allContent) {
+        // 创建一个包含组合内容的响应对象
+        return {
+          ...last,
+          choices: [
+            {
+              ...last?.choices?.[0],
+              message: {
+                ...(last?.choices?.[0]?.message || {}),
+                content: allContent,
+                role:
+                  last?.choices?.[0]?.delta?.role ||
+                  last?.choices?.[0]?.message?.role ||
+                  "assistant",
+              },
+            },
+          ],
+        };
+      }
+
+      return last;
+    }
+  } catch {}
+
+  // 降级到只取最后一个
+  const ssePayload = lines.pop();
   if (!ssePayload) {
     throw new Error(`Unexpected payload: ${trimmed.slice(0, 120)}`);
   }
 
   return JSON.parse(ssePayload);
+}
+
+function formatAiHubMixVideoFailure(payload: any) {
+  const status = getTaskStatus(payload);
+  const taskId = getVideoTaskId(payload);
+  if (!["failed", "error", "canceled", "cancelled"].includes(status)) {
+    return "";
+  }
+
+  const errorPayload =
+    payload?.error ||
+    payload?.last_error ||
+    payload?.output?.error ||
+    payload?.data?.[0]?.error ||
+    payload?.output?.[0]?.error;
+  const errorMessage = String(
+    errorPayload?.message || payload?.message || "视频任务执行失败",
+  ).trim();
+  const errorCode = String(
+    errorPayload?.status || errorPayload?.code || payload?.code || "",
+  ).trim();
+  const requestUrl = String(
+    errorPayload?.url || payload?.url || payload?.request_url || "",
+  ).trim();
+  const model = String(
+    payload?.model || payload?.data?.[0]?.model || "",
+  ).trim();
+  const isInvalidArgument = errorMessage
+    .toLowerCase()
+    .includes("invalid argument");
+  const veoPromptHint =
+    isInvalidArgument && isVeoVideoModel(model)
+      ? containsCjk(String(payload?.prompt || payload?.data?.[0]?.prompt || ""))
+        ? "\n建议：Veo 系列当前通常只接受英文提示词，请改用英文后重试。"
+        : "\n建议：当前提示词已不包含中文。如果在 YutoAPI 官方后台测试同样失败，可视为渠道侧或上游模型适配异常，不是当前前端独有问题。"
+      : "";
+
+  return `视频任务失败${taskId ? `\n任务 ID：${taskId}` : ""}\n错误：${
+    errorCode ? `[${errorCode}] ` : ""
+  }${errorMessage}${requestUrl ? `\n接口：${requestUrl}` : ""}${veoPromptHint}`;
+}
+
+function getYutoRetryableErrorMessage(payload: any) {
+  const errorCode = String(payload?.error?.code || payload?.code || "").trim();
+  const errorMessage = String(
+    payload?.error?.message || payload?.message || "",
+  ).trim();
+
+  if (!errorCode && !errorMessage) {
+    return "";
+  }
+
+  if (
+    errorCode === "model_not_found" ||
+    errorMessage.includes("无可用渠道") ||
+    errorMessage.includes("no available distributor")
+  ) {
+    return errorMessage || errorCode;
+  }
+
+  return "";
 }
 
 function parseStructuredOutputSchema(schemaText: string) {
@@ -654,6 +816,11 @@ export class ChatGPTApi implements LLMApi {
   }
 
   async extractMessage(res: any) {
+    const videoFailureMessage = formatAiHubMixVideoFailure(res);
+    if (videoFailureMessage) {
+      return videoFailureMessage;
+    }
+
     if (res.error) {
       return "```\n" + JSON.stringify(res, null, 4) + "\n```";
     }
@@ -1255,7 +1422,7 @@ export class ChatGPTApi implements LLMApi {
           streamOptions,
         );
       } else {
-        const chatPayload = {
+        let chatPayload = {
           method: "POST",
           body:
             requestPayload instanceof FormData
@@ -1271,11 +1438,75 @@ export class ChatGPTApi implements LLMApi {
           getTimeoutMSByModel(options.config.model),
         );
 
-        const res = await fetch(chatPath, chatPayload);
+        let res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
 
-        const resText = await res.text();
-        let resJson = parseJsonOrSSEPayload(resText);
+        // YutoAPI 降级重试：检测到任何失败都尝试下一个 API key
+        const fallbackApiKeys: string[] =
+          (requestHeaders as any)["x-fallback-api-keys"] || [];
+        const isYutoApi =
+          chatPath.includes("cn.gptapi.asia") ||
+          chatPath.includes("gptapi.asia");
+        let retryCount = 0;
+        let resText = "";
+        let resJson: any = null;
+
+        while (true) {
+          resText = await res.text();
+          resJson = parseJsonOrSSEPayload(resText);
+          const retryableYutoError = isYutoApi
+            ? getYutoRetryableErrorMessage(resJson)
+            : "";
+          const shouldRetry =
+            isYutoApi &&
+            retryCount < fallbackApiKeys.length - 1 &&
+            (!res.ok || Boolean(retryableYutoError));
+
+          if (!shouldRetry) {
+            break;
+          }
+
+          console.log(
+            `[Chat] YutoAPI 非流式请求失败，尝试降级重试 (${retryCount + 1}/${
+              fallbackApiKeys.length
+            })`,
+            retryableYutoError ? { retryableYutoError } : undefined,
+          );
+
+          // 使用下一个 API key 重试
+          retryCount++;
+          const nextApiKey = fallbackApiKeys[retryCount];
+
+          // 更新 headers 中的 API key
+          const authHeader = Object.keys(requestHeaders).find(
+            (k) =>
+              k.toLowerCase() === "authorization" ||
+              k.toLowerCase() === "x-api-key",
+          );
+          if (authHeader) {
+            (requestHeaders as any)[authHeader] = `Bearer ${nextApiKey}`;
+          }
+
+          // 更新 chatPayload 中的 headers
+          chatPayload = {
+            method: "POST",
+            body:
+              requestPayload instanceof FormData
+                ? requestPayload
+                : JSON.stringify(requestPayload),
+            signal: controller.signal,
+            headers: requestHeaders,
+          };
+
+          // 重试请求
+          const retryTimeoutId = setTimeout(
+            () => controller.abort(),
+            getTimeoutMSByModel(options.config.model),
+          );
+          res = await fetch(chatPath, chatPayload);
+          clearTimeout(retryTimeoutId);
+        }
+
         const pollingUrl =
           resJson?.polling_url ||
           resJson?.data?.[0]?.polling_url ||

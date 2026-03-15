@@ -510,11 +510,22 @@ export const useChatStore = createPersistStore(
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
 
+        // 获取实际提供商名称（对于 Custom provider，显示 profile 名称）
+        let displayProviderName: string = modelConfig.providerName;
+        if (modelConfig.providerName === "Custom") {
+          const enabledProfile = useAccessStore
+            .getState()
+            .apiProfiles.find((p) => p.enabled && p.provider === "Custom");
+          if (enabledProfile) {
+            displayProviderName = enabledProfile.name;
+          }
+        }
+
         console.log(
           "[Chat] 🤖 使用模型:",
           modelConfig.model,
           "提供商:",
-          modelConfig.providerName,
+          displayProviderName,
         );
 
         // MCP Response no need to fill template
@@ -589,14 +600,36 @@ export const useChatStore = createPersistStore(
             botMessage.streaming = false;
             const finalMessage = message || getMessageTextContent(botMessage);
             if (finalMessage) {
+              let isApiFailurePayload = false;
+              try {
+                const parsed = JSON.parse(finalMessage);
+                isApiFailurePayload = Boolean(parsed?.error);
+              } catch {
+                const lowerMessage = finalMessage.toLowerCase();
+                isApiFailurePayload =
+                  lowerMessage.includes("model_not_found") ||
+                  lowerMessage.includes("service unavailable") ||
+                  lowerMessage.includes('"error"');
+              }
+
               botMessage.content = finalMessage;
               botMessage.date = new Date().toLocaleString();
               botMessage.reasoning_details = (responseRes as any)
                 ?.__reasoning_details;
-              console.log(
-                "[Chat] ✅ API 调用完成, 响应长度:",
-                finalMessage.length,
-              );
+              botMessage.isError = isApiFailurePayload;
+              userMessage.isError = isApiFailurePayload;
+
+              if (isApiFailurePayload) {
+                console.error(
+                  "[Chat] ❌ API 调用失败(响应错误体), 响应长度:",
+                  finalMessage.length,
+                );
+              } else {
+                console.log(
+                  "[Chat] ✅ API 调用完成, 响应长度:",
+                  finalMessage.length,
+                );
+              }
               get().onNewMessage(botMessage, session);
             } else {
               get().updateTargetSession(session, (session) => {

@@ -288,6 +288,34 @@ function mapModels(
   });
 }
 
+function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
+  const normalizedGroup = String(groupName || "default")
+    .trim()
+    .toLowerCase();
+  const lowerModelName = modelName.toLowerCase();
+  const isClaudeModel = lowerModelName.startsWith("claude");
+
+  if (isClaudeModel) {
+    const priorityMap: Record<string, number> = {
+      anthropic: 50,
+      enterprise: 40,
+      discount: 30,
+      user: 20,
+      default: 10,
+    };
+    return priorityMap[normalizedGroup] ?? 0;
+  }
+
+  const priorityMap: Record<string, number> = {
+    enterprise: 50,
+    discount: 40,
+    user: 30,
+    anthropic: 20,
+    default: 10,
+  };
+  return priorityMap[normalizedGroup] ?? 0;
+}
+
 export function normalizeAiHubMixModelMetadata(model: any): {
   type?: string;
   types?: string[];
@@ -633,6 +661,10 @@ export async function fetchModelsFromProvider(
       const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
         ([, value]) => Boolean(value?.trim()),
       );
+      console.log(
+        "[Models] YutoAPI 分组配置:",
+        groupedEntries.map(([name]) => name),
+      );
       const fetchEntries =
         groupedEntries.length > 0
           ? groupedEntries
@@ -641,6 +673,12 @@ export async function fetchModelsFromProvider(
 
       for (const [groupName, groupApiKey] of fetchEntries) {
         if (!groupApiKey) continue;
+        console.log(
+          `[Models] 正在获取分组: ${groupName}, API Key: ${groupApiKey.slice(
+            0,
+            10,
+          )}...`,
+        );
         const groupedHeaders: Record<string, string> = {
           Authorization: `Bearer ${groupApiKey}`,
           ...(baseUrl ? { "x-base-url": baseUrl } : {}),
@@ -657,6 +695,9 @@ export async function fetchModelsFromProvider(
           Array.isArray(groupedData.data)
             ? groupedData.data
             : [];
+        console.log(
+          `[Models] 分组 ${groupName} 获取到 ${groupedModels.length} 个模型`,
+        );
         const groupedVendorsMap: Record<
           number,
           { name: string; icon?: string }
@@ -678,8 +719,34 @@ export async function fetchModelsFromProvider(
           groupName,
         ).forEach((model) => {
           const key = `${model.name}@${model.provider?.id}`;
-          if (!mergedModelMap.has(key)) {
+          const existing = mergedModelMap.get(key);
+
+          if (!existing) {
+            // 新模型，直接添加
+            console.log(`[Models] 新模型: ${model.name} -> 分组: ${groupName}`);
             mergedModelMap.set(key, model);
+          } else {
+            const existingPriority = getYutoApiKeyGroupPriority(
+              model.name,
+              existing.apiKeyGroup,
+            );
+            const nextPriority = getYutoApiKeyGroupPriority(
+              model.name,
+              groupName,
+            );
+
+            if (nextPriority > existingPriority) {
+              console.log(
+                `[Models] 更新模型 ${model.name} 分组: ${existing.apiKeyGroup} -> ${groupName}`,
+              );
+              mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+            } else {
+              console.log(
+                `[Models] 模型 ${model.name} 分组不变: ${
+                  existing.apiKeyGroup || groupName
+                }`,
+              );
+            }
           }
         });
       }

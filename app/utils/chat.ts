@@ -3,7 +3,7 @@ import {
   UPLOAD_URL,
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
-import { MultimodalContent, RequestMessage } from "@/app/client/api";
+import type { MultimodalContent, RequestMessage } from "@/app/client/api";
 import Locale from "@/app/locales";
 import {
   EventStreamContentType,
@@ -11,6 +11,36 @@ import {
 } from "@fortaine/fetch-event-source";
 import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
+
+function isYutoApiChatPath(chatPath: string) {
+  return (
+    chatPath.includes("cn.gptapi.asia") || chatPath.includes("gptapi.asia")
+  );
+}
+
+function getAuthHeaderName(headers: Record<string, string>) {
+  return Object.keys(headers).find(
+    (key) =>
+      key.toLowerCase() === "authorization" ||
+      key.toLowerCase() === "x-api-key",
+  );
+}
+
+function getYutoGroupName(
+  fallbackApiKeyGroups: string[],
+  currentKeyIndex: number,
+) {
+  return fallbackApiKeyGroups[currentKeyIndex] || `index-${currentKeyIndex}`;
+}
+
+function formatYutoFailureMessage(currentGroup: string, reason: string) {
+  const normalizedReason = String(reason || "").trim();
+  return [
+    "[YutoAPI] 全部分组重试后仍失败",
+    `最终分组: ${currentGroup}`,
+    `错误信息: ${normalizedReason || "unknown error"}`,
+  ].join("\n");
+}
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -194,16 +224,35 @@ export function stream(
   let remainText = "";
   let finished = false;
   let running = false;
+  let pendingRetry = false;
+  let lastErrorText = "";
+  let activeRequestSeq = 0;
   let runTools: any[] = [];
   let responseRes: Response;
 
   // animate response to make it looks smooth
   function animateResponseText() {
+    if (pendingRetry) {
+      requestAnimationFrame(animateResponseText);
+      return;
+    }
+    if (
+      controller.signal.aborted &&
+      currentKeyIndex < fallbackApiKeys.length - 1
+    ) {
+      requestAnimationFrame(animateResponseText);
+      return;
+    }
     if (finished || controller.signal.aborted) {
       responseText += remainText;
       // console.log("[Response Animation] finished");
       if (responseText?.length === 0) {
-        options.onError?.(new Error("empty response from server"));
+        const errorText = lastErrorText || "empty response from server";
+        if (tryYutoFallbackRetry(errorText)) {
+          requestAnimationFrame(animateResponseText);
+          return;
+        }
+        options.onError?.(new Error(errorText));
       }
       return;
     }
@@ -222,7 +271,69 @@ export function stream(
   // start animaion
   animateResponseText();
 
+  // 获取 fallback API keys（用于降级重试）
+  const fallbackApiKeys: string[] = headers["x-fallback-api-keys"] || [];
+  const fallbackApiKeyGroups: string[] =
+    headers["x-fallback-api-key-groups"] || [];
+  let currentKeyIndex = 0;
+
+  const tryYutoFallbackRetry = (reason: string) => {
+    const currentGroup = getYutoGroupName(
+      fallbackApiKeyGroups,
+      currentKeyIndex,
+    );
+
+    console.log("[Chat] YutoAPI 分组请求失败", {
+      currentGroup,
+      reason,
+    });
+
+    if (
+      !isYutoApiChatPath(chatPath) ||
+      fallbackApiKeys.length === 0 ||
+      currentKeyIndex >= fallbackApiKeys.length - 1
+    ) {
+      lastErrorText = formatYutoFailureMessage(currentGroup, reason);
+      console.log("[Chat] YutoAPI 无可用下一分组，停止重试", {
+        currentGroup,
+        totalGroups: fallbackApiKeys.length,
+      });
+      return false;
+    }
+
+    const nextGroup = getYutoGroupName(
+      fallbackApiKeyGroups,
+      currentKeyIndex + 1,
+    );
+
+    console.log(
+      `[Chat] YutoAPI 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
+        fallbackApiKeys.length
+      })`,
+      { currentGroup, nextGroup, reason },
+    );
+
+    currentKeyIndex++;
+    pendingRetry = true;
+    lastErrorText = reason;
+
+    const nextApiKey = fallbackApiKeys[currentKeyIndex];
+    const authHeader = getAuthHeaderName(headers);
+    if (authHeader) {
+      headers[authHeader] = `Bearer ${nextApiKey}`;
+    }
+
+    setTimeout(() => {
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, 0);
+
+    return true;
+  };
+
   const finish = () => {
+    if (pendingRetry) {
+      return;
+    }
     if (!finished) {
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
@@ -292,6 +403,13 @@ export function stream(
       if (running) {
         return;
       }
+      if (responseText.length + remainText.length === 0) {
+        if (
+          tryYutoFallbackRetry(lastErrorText || "empty response from server")
+        ) {
+          return;
+        }
+      }
       console.debug("[ChatAPI] end");
       finished = true;
       options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
@@ -306,6 +424,20 @@ export function stream(
     requestPayload: any,
     tools: any,
   ) {
+    // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
+    pendingRetry = false;
+    const requestSeq = ++activeRequestSeq;
+    if (isYutoApiChatPath(chatPath) && fallbackApiKeys.length > 0) {
+      const currentGroup = getYutoGroupName(
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+      );
+      console.log("[Chat] YutoAPI 开始测试分组", {
+        currentGroup,
+        attempt: currentKeyIndex + 1,
+        totalGroups: fallbackApiKeys.length,
+      });
+    }
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -323,13 +455,18 @@ export function stream(
       fetch: tauriFetch as any,
       ...chatPayload,
       async onopen(res) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
         clearTimeout(requestTimeoutId);
         const contentType = res.headers.get("content-type");
         // console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
         if (contentType?.startsWith("text/plain")) {
+          pendingRetry = false;
           responseText = await res.clone().text();
+          lastErrorText = responseText;
           return finish();
         }
 
@@ -342,6 +479,23 @@ export function stream(
         ) {
           const responseTexts = [responseText];
           let extraInfo = await res.clone().text();
+          lastErrorText =
+            extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
+
+          if (tryYutoFallbackRetry(lastErrorText)) {
+            return; // 不调用 finish，继续重试
+          }
+
+          if (isYutoApiChatPath(chatPath)) {
+            const currentGroup = getYutoGroupName(
+              fallbackApiKeyGroups,
+              currentKeyIndex,
+            );
+            responseTexts.push(
+              formatYutoFailureMessage(currentGroup, lastErrorText),
+            );
+          }
+
           try {
             const resJson = await res.clone().json();
             extraInfo = prettyObject(resJson);
@@ -356,11 +510,17 @@ export function stream(
           }
 
           responseText = responseTexts.join("\n\n");
+          lastErrorText = responseText;
 
           return finish();
         }
+
+        pendingRetry = false;
       },
       onmessage(msg) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
         if (msg.data === "[DONE]" || finished) {
           return finish();
         }
@@ -379,9 +539,29 @@ export function stream(
         }
       },
       onclose() {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
+        if (pendingRetry) {
+          return;
+        }
         finish();
       },
       onerror(e) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
+        if (
+          tryYutoFallbackRetry(
+            e?.message || e?.toString?.() || "stream connection failed",
+          )
+        ) {
+          return;
+        }
+        if (pendingRetry) {
+          return;
+        }
+        lastErrorText = e?.message || e?.toString?.() || lastErrorText;
         options?.onError?.(e);
         throw e;
       },
@@ -417,6 +597,9 @@ export function streamWithThink(
   let remainText = "";
   let finished = false;
   let running = false;
+  let pendingRetry = false;
+  let lastErrorText = "";
+  let activeRequestSeq = 0;
   let runTools: any[] = [];
   let responseRes: Response;
   let isInThinkingMode = false;
@@ -425,11 +608,27 @@ export function streamWithThink(
 
   // animate response to make it looks smooth
   function animateResponseText() {
+    if (pendingRetry) {
+      requestAnimationFrame(animateResponseText);
+      return;
+    }
+    if (
+      controller.signal.aborted &&
+      currentKeyIndex < fallbackApiKeys.length - 1
+    ) {
+      requestAnimationFrame(animateResponseText);
+      return;
+    }
     if (finished || controller.signal.aborted) {
       responseText += remainText;
       // console.log("[Response Animation] finished");
       if (responseText?.length === 0) {
-        options.onError?.(new Error("empty response from server"));
+        const errorText = lastErrorText || "empty response from server";
+        if (tryYutoFallbackRetry(errorText)) {
+          requestAnimationFrame(animateResponseText);
+          return;
+        }
+        options.onError?.(new Error(errorText));
       }
       return;
     }
@@ -448,7 +647,69 @@ export function streamWithThink(
   // start animaion
   animateResponseText();
 
+  // 获取 fallback API keys（用于降级重试）
+  const fallbackApiKeys: string[] = headers["x-fallback-api-keys"] || [];
+  const fallbackApiKeyGroups: string[] =
+    headers["x-fallback-api-key-groups"] || [];
+  let currentKeyIndex = 0;
+
+  const tryYutoFallbackRetry = (reason: string) => {
+    const currentGroup = getYutoGroupName(
+      fallbackApiKeyGroups,
+      currentKeyIndex,
+    );
+
+    console.log("[Chat] YutoAPI 分组请求失败", {
+      currentGroup,
+      reason,
+    });
+
+    if (
+      !isYutoApiChatPath(chatPath) ||
+      fallbackApiKeys.length === 0 ||
+      currentKeyIndex >= fallbackApiKeys.length - 1
+    ) {
+      lastErrorText = formatYutoFailureMessage(currentGroup, reason);
+      console.log("[Chat] YutoAPI 无可用下一分组，停止重试", {
+        currentGroup,
+        totalGroups: fallbackApiKeys.length,
+      });
+      return false;
+    }
+
+    const nextGroup = getYutoGroupName(
+      fallbackApiKeyGroups,
+      currentKeyIndex + 1,
+    );
+
+    console.log(
+      `[Chat] YutoAPI 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
+        fallbackApiKeys.length
+      })`,
+      { currentGroup, nextGroup, reason },
+    );
+
+    currentKeyIndex++;
+    pendingRetry = true;
+    lastErrorText = reason;
+
+    const nextApiKey = fallbackApiKeys[currentKeyIndex];
+    const authHeader = getAuthHeaderName(headers);
+    if (authHeader) {
+      headers[authHeader] = `Bearer ${nextApiKey}`;
+    }
+
+    setTimeout(() => {
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, 0);
+
+    return true;
+  };
+
   const finish = () => {
+    if (pendingRetry) {
+      return;
+    }
     if (!finished) {
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
@@ -518,6 +779,13 @@ export function streamWithThink(
       if (running) {
         return;
       }
+      if (responseText.length + remainText.length === 0) {
+        if (
+          tryYutoFallbackRetry(lastErrorText || "empty response from server")
+        ) {
+          return;
+        }
+      }
       console.debug("[ChatAPI] end");
       finished = true;
       options.onFinish(responseText + remainText, responseRes);
@@ -532,6 +800,20 @@ export function streamWithThink(
     requestPayload: any,
     tools: any,
   ) {
+    // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
+    pendingRetry = false;
+    const requestSeq = ++activeRequestSeq;
+    if (isYutoApiChatPath(chatPath) && fallbackApiKeys.length > 0) {
+      const currentGroup = getYutoGroupName(
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+      );
+      console.log("[Chat] YutoAPI 开始测试分组", {
+        currentGroup,
+        attempt: currentKeyIndex + 1,
+        totalGroups: fallbackApiKeys.length,
+      });
+    }
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -549,13 +831,18 @@ export function streamWithThink(
       fetch: tauriFetch as any,
       ...chatPayload,
       async onopen(res) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
         clearTimeout(requestTimeoutId);
         const contentType = res.headers.get("content-type");
         // console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
         if (contentType?.startsWith("text/plain")) {
+          pendingRetry = false;
           responseText = await res.clone().text();
+          lastErrorText = responseText;
           return finish();
         }
 
@@ -568,6 +855,23 @@ export function streamWithThink(
         ) {
           const responseTexts = [responseText];
           let extraInfo = await res.clone().text();
+          lastErrorText =
+            extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
+
+          if (tryYutoFallbackRetry(lastErrorText)) {
+            return; // 不调用 finish，继续重试
+          }
+
+          if (isYutoApiChatPath(chatPath)) {
+            const currentGroup = getYutoGroupName(
+              fallbackApiKeyGroups,
+              currentKeyIndex,
+            );
+            responseTexts.push(
+              formatYutoFailureMessage(currentGroup, lastErrorText),
+            );
+          }
+
           try {
             const resJson = await res.clone().json();
             extraInfo = prettyObject(resJson);
@@ -582,11 +886,17 @@ export function streamWithThink(
           }
 
           responseText = responseTexts.join("\n\n");
+          lastErrorText = responseText;
 
           return finish();
         }
+
+        pendingRetry = false;
       },
       onmessage(msg) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
         if (msg.data === "[DONE]" || finished) {
           return finish();
         }
@@ -656,9 +966,29 @@ export function streamWithThink(
         }
       },
       onclose() {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
+        if (pendingRetry) {
+          return;
+        }
         finish();
       },
       onerror(e) {
+        if (requestSeq !== activeRequestSeq) {
+          return;
+        }
+        if (
+          tryYutoFallbackRetry(
+            e?.message || e?.toString?.() || "stream connection failed",
+          )
+        ) {
+          return;
+        }
+        if (pendingRetry) {
+          return;
+        }
+        lastErrorText = e?.message || e?.toString?.() || lastErrorText;
         options?.onError?.(e);
         throw e;
       },
