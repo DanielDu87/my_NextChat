@@ -514,6 +514,17 @@ export function ChatActions(props: {
   setShowShortcutKeyModal: React.Dispatch<React.SetStateAction<boolean>>;
   setUserInput: (input: string) => void;
   setShowChatSidePanel: React.Dispatch<React.SetStateAction<boolean>>;
+  showModelSelector: boolean;
+  setShowModelSelector: React.Dispatch<React.SetStateAction<boolean>>;
+  modelSelectorDefaultValue: string | undefined;
+  setModelSelectorDefaultValue: React.Dispatch<
+    React.SetStateAction<string | undefined>
+  >;
+  modelSelectorDefaultGroup: string | undefined;
+  setModelSelectorDefaultGroup: React.Dispatch<
+    React.SetStateAction<string | undefined>
+  >;
+  openModelSelector: () => void;
 }) {
   const config = useAppConfig();
   const navigate = useNavigate();
@@ -838,13 +849,6 @@ export function ChatActions(props: {
     );
     return model?.displayName ?? currentModel;
   }, [models, currentModel, currentProviderName]);
-  const [showModelSelector, setShowModelSelector] = useState(false);
-  const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
-    string | undefined
-  >(undefined);
-  const [modelSelectorDefaultGroup, setModelSelectorDefaultGroup] = useState<
-    string | undefined
-  >(undefined);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
 
@@ -964,16 +968,7 @@ export function ChatActions(props: {
       {/* 模型设置 - 第一个按钮，始终显示模型名称 */}
       <div className={clsx(styles["chat-action-always-show-text"])}>
         <ChatAction
-          onClick={() => {
-            console.log(
-              "[Chat] Model selector button clicked, models count:",
-              models.length,
-            );
-            console.log("[Chat] models:", models);
-            setModelSelectorDefaultValue(undefined);
-            setModelSelectorDefaultGroup(undefined);
-            setShowModelSelector(true);
-          }}
+          onClick={props.openModelSelector}
           text={currentModelName}
           icon={<RobotIcon />}
         />
@@ -1160,201 +1155,6 @@ export function ChatActions(props: {
       />
 
       {/* 各种选择器（隐藏） */}
-      {showModelSelector && (
-        <Selector
-          defaultSelectedValue={
-            modelSelectorDefaultValue ??
-            `${currentModel}@${currentProviderName}`
-          }
-          defaultGroup={modelSelectorDefaultGroup}
-          headerHint={
-            <div className={styles["model-selector-hint"]}>
-              <span className={styles["model-selector-hint-label"]}>
-                当前供应商
-              </span>
-              <span className={styles["model-selector-hint-provider"]}>
-                {activeProfile?.name || currentProviderName}
-              </span>
-              <span className={styles["model-selector-hint-count"]}>
-                共 {models.length} 个模型可用
-              </span>
-            </div>
-          }
-          items={[
-            ...models.map((m) => ({
-              title: `${m.displayName}`,
-              value: `${m.name}@${m?.provider?.providerName}`,
-              group: globalCustomModelValueSet.has(
-                `${m.name}@${m?.provider?.providerName}`,
-              )
-                ? "自定义模型"
-                : getModelGroup(
-                    m.name,
-                    m?.provider?.providerName,
-                    m?.vendor?.name,
-                  ),
-              meta: {
-                type: m.type,
-                types: m.types,
-                features: m.features,
-                capabilities: m.capabilities,
-                vendorName: m.vendor?.name,
-              },
-              order: m.sorted,
-              rightAction: globalCustomModelValueSet.has(
-                `${m.name}@${m?.provider?.providerName}`,
-              )
-                ? {
-                    text: "删除",
-                    onClick: (value: string) => {
-                      const modelValue = String(value);
-                      const matchedEntry =
-                        globalCustomModelEntryMap.get(modelValue);
-                      if (!matchedEntry) {
-                        return;
-                      }
-                      const remainingItems = globalCustomModels
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                        .filter((item) => item !== matchedEntry);
-                      config.update((config) => {
-                        config.customModels = remainingItems.join(",");
-                      });
-                      if (modelValue === currentCustomModelKey) {
-                        chatStore.updateTargetSession(session, (session) => {
-                          if (latestOpenAIModel) {
-                            session.mask.modelConfig.model =
-                              latestOpenAIModel.name as ModelType;
-                            session.mask.modelConfig.providerName =
-                              latestOpenAIModel.provider
-                                ?.providerName as ServiceProvider;
-                            session.mask.modelConfig =
-                              sanitizeModelConfigForCapability(
-                                session.mask.modelConfig,
-                              );
-                          }
-                          session.mask.syncGlobalConfig = false;
-                        });
-                        showToast(`已删除 ${currentModel}`);
-                      } else {
-                        showToast("已删除自定义模型");
-                      }
-                    },
-                  }
-                : undefined,
-            })),
-          ]}
-          showGroupFilter={true}
-          quickFilters={[
-            {
-              key: "image",
-              label: "图片模型",
-              match: (item) => isImageGenerationModel(item),
-            },
-            {
-              key: "video",
-              label: "视频模型",
-              match: (item) => isVideoGenerationModel(item),
-            },
-            {
-              key: "web-search",
-              label: "联网模型",
-              match: (item) => isWebSearchModel(item),
-            },
-            {
-              key: "thinking",
-              label: "思考模型",
-              match: (item) => isThinkingModel(item),
-            },
-          ]}
-          showSearch={true}
-          extraGroups={["自定义模型"]}
-          footer={({ selectedGroup }) =>
-            selectedGroup === "自定义模型" ? (
-              <div className={styles["selector-footer"]}>
-                <IconButton
-                  text="新增自定义模型"
-                  bordered
-                  onClick={async () => {
-                    setShowModelSelector(false);
-                    const customModelName = (
-                      await showPrompt("输入自定义模型名称", "", 1, {
-                        isSmall: true,
-                        submitOnEnter: true,
-                      })
-                    ).trim();
-                    if (!customModelName) {
-                      return;
-                    }
-                    const customEntry = `${customModelName}@${currentProviderName}`;
-                    if (globalCustomModelEntries.includes(customEntry)) {
-                      showToast("自定义模型已存在");
-                      return;
-                    }
-                    config.update((config) => {
-                      const items = config.customModels
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean);
-                      if (!items.includes(customEntry)) {
-                        items.unshift(customEntry);
-                      }
-                      config.customModels = items.join(",");
-                    });
-                    chatStore.updateTargetSession(session, (session) => {
-                      session.mask.modelConfig.model =
-                        customModelName as ModelType;
-                      session.mask.modelConfig.providerName =
-                        currentProviderName as ServiceProvider;
-                      session.mask.modelConfig =
-                        sanitizeModelConfigForCapability(
-                          session.mask.modelConfig,
-                        );
-                      session.mask.syncGlobalConfig = false;
-                    });
-                    setModelSelectorDefaultValue(customEntry);
-                    setModelSelectorDefaultGroup("自定义模型");
-                    setShowModelSelector(true);
-                    showToast(customModelName);
-                  }}
-                />
-              </div>
-            ) : null
-          }
-          onClose={() => setShowModelSelector(false)}
-          onSelection={async (s) => {
-            if (s.length === 0) return;
-            const [model, providerName] = getModelProvider(s[0]);
-            config.update((config) => {
-              config.modelConfig.model = model as ModelType;
-              config.modelConfig.providerName = providerName as ServiceProvider;
-              config.modelConfig = sanitizeModelConfigForCapability(
-                config.modelConfig,
-              );
-            });
-            chatStore.updateTargetSession(session, (session) => {
-              session.mask.modelConfig.model = model as ModelType;
-              session.mask.modelConfig.providerName =
-                providerName as ServiceProvider;
-              session.mask.modelConfig = sanitizeModelConfigForCapability(
-                session.mask.modelConfig,
-              );
-              session.mask.syncGlobalConfig = false;
-            });
-            if (providerName == "ByteDance") {
-              const selectedModel = models.find(
-                (m) =>
-                  m.name == model && m?.provider?.providerName == providerName,
-              );
-              showToast(`已选择 ${selectedModel?.displayName ?? model}`);
-            } else {
-              showToast(`已选择 ${model}`);
-            }
-          }}
-        />
-      )}
-
       {showSizeSelector && (
         <Selector
           centerContent={true}
@@ -1651,6 +1451,13 @@ function _Chat() {
   const fontFamily = config.fontFamily;
 
   const [showExport, setShowExport] = useState(false);
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
+    string | undefined
+  >(undefined);
+  const [modelSelectorDefaultGroup, setModelSelectorDefaultGroup] = useState<
+    string | undefined
+  >(undefined);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
@@ -1699,6 +1506,135 @@ function _Chat() {
   const currentModelName = useMemo(() => {
     return currentModel;
   }, [currentModel]);
+
+  // 模型选择器所需变量
+  const allModels = useAllModels();
+  const globalCustomModels = useAppConfig((state) => state.customModels);
+  const activeProfile = useAccessStore((state) =>
+    state.apiProfiles.find((profile) => profile.enabled),
+  );
+  const currentProviderId = useMemo(() => {
+    if (activeProfile) {
+      return activeProfile.provider === ServiceProvider.Custom
+        ? `custom_${activeProfile.name}`.toLowerCase()
+        : String(activeProfile.provider).toLowerCase();
+    }
+    return String(currentProviderName).toLowerCase();
+  }, [activeProfile, currentProviderName]);
+  const models = useMemo(() => {
+    const filteredModels = allModels.filter(
+      (m) =>
+        m.available &&
+        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
+    );
+    return filteredModels;
+  }, [allModels, currentProviderId]);
+  const globalCustomModelEntries = useMemo(
+    () =>
+      globalCustomModels
+        .split(",")
+        .map((v) => v.trim())
+        .filter((v) => !!v),
+    [globalCustomModels],
+  );
+  const globalCustomModelValueSet = useMemo(() => {
+    return new Set(globalCustomModelEntries);
+  }, [globalCustomModelEntries]);
+  const globalCustomModelEntryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    globalCustomModelEntries.forEach((entry) => {
+      map.set(entry, entry);
+    });
+    return map;
+  }, [globalCustomModelEntries]);
+  const globalCustomModelKey = `${currentModel}@${currentProviderName}`;
+  const isCustomModel = globalCustomModelValueSet.has(globalCustomModelKey);
+  const openAIModels = models.filter(
+    (m) => m?.provider?.providerName === ServiceProvider.OpenAI,
+  );
+  const latestOpenAIModel = useMemo(() => {
+    if (openAIModels.length === 0) return undefined;
+
+    const preferredPatterns = [/^gpt-4o/, /^gpt-4/, /^gpt-3.5-turbo/, /^o1/];
+
+    for (const pattern of preferredPatterns) {
+      const matched = openAIModels.find((item) => pattern.test(item.name));
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return openAIModels[0];
+  }, [openAIModels]);
+  const getModelGroup = (
+    modelName: string,
+    providerName?: string,
+    vendorName?: string,
+  ) => {
+    if (vendorName?.trim()) {
+      return vendorName.trim();
+    }
+
+    const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
+
+    const groupByKeywords = (keywords: string[]) => {
+      for (const keyword of keywords) {
+        if (fullName.includes(keyword)) {
+          return keyword;
+        }
+      }
+      return null;
+    };
+
+    const providerGroups: Record<string, string[]> = {
+      [ServiceProvider.Anthropic]: ["claude"],
+      [ServiceProvider.Google]: ["gemini", "learnlm", "glm"],
+      [ServiceProvider.DeepSeek]: ["deepseek"],
+      [ServiceProvider.OpenAI]: ["gpt", "o1", "o3"],
+      [ServiceProvider.Azure]: ["gpt", "o1"],
+      [ServiceProvider.Baidu]: ["ernie"],
+      [ServiceProvider.ByteDance]: ["doubao"],
+      [ServiceProvider.Alibaba]: ["qwen", "qwq", "qvq"],
+      [ServiceProvider.Moonshot]: ["moonshot"],
+      [ServiceProvider.Tencent]: ["hunyuan"],
+      [ServiceProvider.ChatGLM]: ["glm"],
+      [ServiceProvider.XAI]: ["grok"],
+      [ServiceProvider.Stability]: ["stable"],
+      [ServiceProvider.Iflytek]: ["spark"],
+    };
+
+    if (providerName && providerGroups[providerName]) {
+      const group = groupByKeywords(providerGroups[providerName]);
+      if (group) return group;
+    }
+
+    const commonGroups = ["claude", "gpt", "gemini", "deepseek", "qwen"];
+    const group = groupByKeywords(commonGroups);
+    if (group) return group;
+
+    return modelName;
+  };
+  const isImageGenerationModel = (item: any) => {
+    return (
+      item?.meta?.capabilities?.includes("image") ||
+      item?.meta?.capability === "image"
+    );
+  };
+  const isVideoGenerationModel = (item: any) => {
+    return (
+      item?.meta?.capabilities?.includes("video") ||
+      item?.meta?.capability === "video"
+    );
+  };
+  const isWebSearchModel = (item: any) => {
+    return item?.meta?.features?.includes("web_search");
+  };
+  const isThinkingModel = (item: any) => {
+    return (
+      item?.meta?.features?.includes("thinking") ||
+      item?.meta?.type === "thinking"
+    );
+  };
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -2135,6 +2071,13 @@ function _Chat() {
     scrollDomToBottom();
   }
 
+  // 统一的打开模型选择器函数
+  const openModelSelector = useCallback(() => {
+    setModelSelectorDefaultValue(undefined);
+    setModelSelectorDefaultGroup(undefined);
+    setShowModelSelector(true);
+  }, []);
+
   // clear context index = context length + index in messages
   const clearContextIndex =
     (session.clearContextIndex ?? -1) >= 0
@@ -2424,18 +2367,14 @@ function _Chat() {
             </div>
           </div>
           <div className="window-actions">
-            <div className="window-action-button disabled-button">
+            <div className="window-action-button">
               <IconButton
                 icon={<RobotIcon />}
                 bordered
                 text={currentModelName}
                 title={currentModelName}
                 aria={currentModelName}
-                onClick={() => {
-                  // scrollToBottom
-                  setHitBottom(true);
-                  scrollDomToBottom();
-                }}
+                onClick={openModelSelector}
               />
             </div>
             <div className="window-action-button">
@@ -2804,6 +2743,13 @@ function _Chat() {
                 setShowShortcutKeyModal={setShowShortcutKeyModal}
                 setUserInput={setUserInput}
                 setShowChatSidePanel={setShowChatSidePanel}
+                showModelSelector={showModelSelector}
+                setShowModelSelector={setShowModelSelector}
+                modelSelectorDefaultValue={modelSelectorDefaultValue}
+                setModelSelectorDefaultValue={setModelSelectorDefaultValue}
+                modelSelectorDefaultGroup={modelSelectorDefaultGroup}
+                setModelSelectorDefaultGroup={setModelSelectorDefaultGroup}
+                openModelSelector={openModelSelector}
               />
               <label
                 className={clsx(styles["chat-input-panel-inner"], {
@@ -2896,6 +2842,96 @@ function _Chat() {
 
       {showShortcutKeyModal && (
         <ShortcutKeyModal onClose={() => setShowShortcutKeyModal(false)} />
+      )}
+
+      {showModelSelector && (
+        <Selector
+          defaultSelectedValue={
+            modelSelectorDefaultValue ??
+            `${currentModel}@${currentProviderName}`
+          }
+          defaultGroup={modelSelectorDefaultGroup}
+          headerHint={
+            <div className={styles["model-selector-hint"]}>
+              <span className={styles["model-selector-hint-label"]}>
+                当前供应商
+              </span>
+              <span className={styles["model-selector-hint-provider"]}>
+                {activeProfile?.name || currentProviderName}
+              </span>
+              <span className={styles["model-selector-hint-count"]}>
+                共 {models.length} 个模型可用
+              </span>
+            </div>
+          }
+          items={models.map((m) => ({
+            title: `${m.displayName}`,
+            value: `${m.name}@${m?.provider?.providerName}`,
+            group: globalCustomModelValueSet.has(
+              `${m.name}@${m?.provider?.providerName}`,
+            )
+              ? "自定义模型"
+              : getModelGroup(
+                  m.name,
+                  m?.provider?.providerName,
+                  m?.vendor?.name,
+                ),
+            meta: {
+              type: m.type,
+              types: m.types,
+              features: m.features,
+              capabilities: m.capabilities,
+              vendorName: m.vendor?.name,
+            },
+          }))}
+          showGroupFilter={true}
+          quickFilters={[
+            {
+              key: "image",
+              label: "图片模型",
+              match: (item) => isImageGenerationModel(item),
+            },
+            {
+              key: "video",
+              label: "视频模型",
+              match: (item) => isVideoGenerationModel(item),
+            },
+            {
+              key: "web-search",
+              label: "联网模型",
+              match: (item) => isWebSearchModel(item),
+            },
+            {
+              key: "thinking",
+              label: "思考模型",
+              match: (item) => isThinkingModel(item),
+            },
+          ]}
+          showSearch={true}
+          extraGroups={["自定义模型"]}
+          onClose={() => setShowModelSelector(false)}
+          onSelection={async (s) => {
+            if (s.length === 0) return;
+            const [model, providerName] = getModelProvider(s[0]);
+            config.update((config) => {
+              config.modelConfig.model = model as ModelType;
+              config.modelConfig.providerName = providerName as ServiceProvider;
+              config.modelConfig = sanitizeModelConfigForCapability(
+                config.modelConfig,
+              );
+            });
+            chatStore.updateTargetSession(session, (session) => {
+              session.mask.modelConfig.model = model as ModelType;
+              session.mask.modelConfig.providerName =
+                providerName as ServiceProvider;
+              session.mask.modelConfig = sanitizeModelConfigForCapability(
+                session.mask.modelConfig,
+              );
+              session.mask.syncGlobalConfig = false;
+            });
+            showToast(`已选择 ${model}`);
+          }}
+        />
       )}
     </>
   );
