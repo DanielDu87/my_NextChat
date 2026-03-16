@@ -28,10 +28,11 @@ import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import BreakIcon from "../icons/break.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
+import DownIcon from "../icons/down.svg";
+import ConfirmIcon from "../icons/confirm.svg";
 import ConfigIcon from "../icons/config.svg";
 import DeleteIcon from "../icons/clear.svg";
 import PinIcon from "../icons/pin.svg";
-import ConfirmIcon from "../icons/confirm.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
 import ImageIcon from "../icons/image.svg";
@@ -47,6 +48,7 @@ import SizeIcon from "../icons/size.svg";
 import QualityIcon from "../icons/hd.svg";
 import PluginIcon from "../icons/plugin.svg";
 import ShortcutkeyIcon from "../icons/shortcutkey.svg";
+import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
   BOT_HELLO,
@@ -1513,6 +1515,42 @@ function _Chat() {
   const activeProfile = useAccessStore((state) =>
     state.apiProfiles.find((profile) => profile.enabled),
   );
+
+  // 供应商选择器相关
+  const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
+  const [providerSwitchToast, setProviderSwitchToast] = useState<{
+    show: boolean;
+    message: string;
+  }>({ show: false, message: "" });
+  const lastProviderSwitchTimeRef = useRef(0);
+  const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const availableProviders = useMemo(() => {
+    // 从 apiProfiles 中获取所有供应商名称（不限制 enabled 状态）
+    const providers = apiProfiles
+      .map((profile) => profile.name || profile.provider)
+      .filter((value, index, self) => self.indexOf(value) === index);
+
+    // 如果没有配置，返回空数组
+    return providers.length > 0 ? providers : [];
+  }, [apiProfiles]);
+
+  // 点击外部关闭供应商选择器
+  useEffect(() => {
+    if (!isProviderSelectorOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest(".model-selector-hint")) {
+        setIsProviderSelectorOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isProviderSelectorOpen]);
+
   const currentProviderId = useMemo(() => {
     if (activeProfile) {
       return activeProfile.provider === ServiceProvider.Custom
@@ -2078,6 +2116,47 @@ function _Chat() {
     setShowModelSelector(true);
   }, []);
 
+  // 切换供应商
+  const handleProviderChange = useCallback(
+    (profileName: string) => {
+      const profile = apiProfiles.find((p) => p.name === profileName);
+
+      if (profile) {
+        // 记录切换时间
+        lastProviderSwitchTimeRef.current = Date.now();
+
+        // 更新 access store 中的 enabled 状态
+        const accessStore = useAccessStore.getState();
+        accessStore.updateApiProfiles(
+          accessStore.apiProfiles.map((p) => ({
+            ...p,
+            enabled: p.name === profileName,
+          })),
+        );
+
+        // 更新当前会话的模型配置
+        chatStore.updateTargetSession(session, (session) => {
+          session.mask.modelConfig.providerName =
+            profile.provider as ServiceProvider;
+          session.mask.modelConfig = sanitizeModelConfigForCapability(
+            session.mask.modelConfig,
+          );
+        });
+
+        // 显示切换成功提示
+        setProviderSwitchToast({
+          show: true,
+          message: `已切换到 ${profileName}`,
+        });
+        setTimeout(() => {
+          setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+        }, 2000);
+      }
+      setIsProviderSelectorOpen(false);
+    },
+    [chatStore, session, apiProfiles],
+  );
+
   // clear context index = context length + index in messages
   const clearContextIndex =
     (session.clearContextIndex ?? -1) >= 0
@@ -2335,6 +2414,15 @@ function _Chat() {
 
   return (
     <>
+      {/* 自定义供应商切换提示 */}
+      {providerSwitchToast.show && (
+        <div className={styles["provider-switch-toast"]}>
+          <div className={styles["provider-switch-toast-content"]}>
+            {providerSwitchToast.message}
+          </div>
+        </div>
+      )}
+
       <div className={styles.chat} key={session.id}>
         <div className="window-header" data-tauri-drag-region>
           {isMobileScreen && (
@@ -2852,18 +2940,88 @@ function _Chat() {
           }
           defaultGroup={modelSelectorDefaultGroup}
           headerHint={
-            <div className={styles["model-selector-hint"]}>
-              <span className={styles["model-selector-hint-label"]}>
-                当前供应商
-              </span>
-              <span className={styles["model-selector-hint-provider"]}>
-                {activeProfile?.name || currentProviderName}
-              </span>
-              <span className={styles["model-selector-hint-count"]}>
-                共 {models.length} 个模型可用
-              </span>
-            </div>
+            <>
+              <div className={styles["model-selector-hint"]}>
+                <span className={styles["model-selector-hint-label"]}>
+                  当前供应商
+                </span>
+                <button
+                  type="button"
+                  className={clsx(
+                    styles["model-selector-hint-provider-button"],
+                    {
+                      [styles["model-selector-provider-open"]]:
+                        isProviderSelectorOpen,
+                    },
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsProviderSelectorOpen(!isProviderSelectorOpen);
+                  }}
+                >
+                  <span>{activeProfile?.name || currentProviderName}</span>
+                  <DownIcon />
+                </button>
+                <span className={styles["model-selector-hint-count"]}>
+                  共 {models.length} 个模型可用
+                </span>
+              </div>
+              {isProviderSelectorOpen && (
+                <div className={styles["model-selector-provider-menu"]}>
+                  {availableProviders.length === 0 ? (
+                    <div
+                      style={{
+                        gridColumn: "1 / -1",
+                        textAlign: "center",
+                        padding: "20px",
+                        color: "#999",
+                      }}
+                    >
+                      没有可用的供应商配置
+                    </div>
+                  ) : (
+                    availableProviders.map((profileName) => {
+                      const isActive = profileName === activeProfile?.name;
+                      return (
+                        <button
+                          type="button"
+                          key={profileName}
+                          className={clsx(
+                            styles["model-selector-provider-option"],
+                            {
+                              [styles["model-selector-provider-option-active"]]:
+                                isActive,
+                            },
+                          )}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleProviderChange(profileName);
+                          }}
+                        >
+                          <span
+                            className={
+                              styles["model-selector-provider-option-leading"]
+                            }
+                          >
+                            <div className="no-dark">
+                              <BotIconOpenAI
+                                className="user-avatar"
+                                width={16}
+                                height={16}
+                              />
+                            </div>
+                          </span>
+                          <span>{profileName}</span>
+                          {isActive ? <ConfirmIcon /> : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </>
           }
+          footer={null}
           items={models.map((m) => ({
             title: `${m.displayName}`,
             value: `${m.name}@${m?.provider?.providerName}`,
@@ -2929,7 +3087,12 @@ function _Chat() {
               );
               session.mask.syncGlobalConfig = false;
             });
-            showToast(`已选择 ${model}`);
+            // 只有在非供应商切换后的1秒内才显示提示
+            const timeSinceProviderSwitch =
+              Date.now() - lastProviderSwitchTimeRef.current;
+            if (timeSinceProviderSwitch > 1000) {
+              showToast(`已选择 ${model}`);
+            }
           }}
         />
       )}

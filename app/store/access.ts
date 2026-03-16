@@ -287,6 +287,10 @@ export const useAccessStore = createPersistStore(
       return ensure(get(), ["siliconflowApiKey"]);
     },
 
+    updateApiProfiles(profiles: typeof DEFAULT_ACCESS_STATE.apiProfiles) {
+      set({ apiProfiles: profiles });
+    },
+
     isAuthorized() {
       (get() as any).fetch();
 
