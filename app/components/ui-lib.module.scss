@@ -633,6 +633,11 @@
       color: #1d4ed8;
       border-color: rgba(191, 219, 254, 0.95);
       font-weight: 700;
+
+      // 钩图标颜色
+      > :global(svg) {
+        stroke: #3b82f6;
+      }
     }
 
     .selector-header-hint {
@@ -1099,6 +1104,11 @@
   border-color: rgba(96, 165, 250, 0.95);
   color: #bfdbfe;
   font-weight: 700;
+
+  // 钩图标颜色
+  > :global(svg) {
+    stroke: #93c5fd !important;
+  }
 }
 
 :global(.dark) .selector .list .selector-group-count,
@@ -1323,6 +1333,11 @@
     border-color: rgba(96, 165, 250, 0.95);
     color: #bfdbfe;
     font-weight: 700;
+
+    // 钩图标颜色
+    > :global(svg) {
+      stroke: #93c5fd !important;
+    }
   }
 
   :global(body:not(.light)) .selector .list .selector-group-count {
