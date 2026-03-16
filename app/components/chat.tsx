@@ -559,9 +559,10 @@ export function ChatActions(props: {
       return null;
     };
 
-    if (fullName.includes("aihubmix")) {
-      return "Aihubmix";
-    }
+    // 移除硬编码的 aihubmix 检查，让模型按实际 vendor.name 分类
+    // if (fullName.includes("aihubmix")) {
+    //   return "AiHubMix";
+    // }
 
     return (
       groupByKeywords(
@@ -594,7 +595,7 @@ export function ChatActions(props: {
       groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
       groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
       groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin"]) ||
+      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin", "qianfan"]) ||
       groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
       groupByKeywords("Moonshot", ["moonshot", "kimi"]) ||
       groupByKeywords("Cohere", ["cohere", "command-r"]) ||
@@ -605,8 +606,16 @@ export function ChatActions(props: {
         "sdxl",
         "sd3",
       ]) ||
+      groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
+      groupByKeywords("Baichuan", ["baichuan"]) ||
+      groupByKeywords("Ideogram", ["ideogram"]) ||
+      groupByKeywords("Jina AI", ["jina"]) ||
+      groupByKeywords("Flux", ["flux-"]) ||
+      groupByKeywords("Meituan", ["longcat", "meituan"]) ||
+      groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
+      groupByKeywords("BAAI", ["bge-", "baai"]) ||
       groupByKeywords("OpenRouter", ["openrouter"]) ||
-      groupByKeywords("Microsoft", ["microsoft", "wizardlm", "phi-"]) ||
+      groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
       "Other"
     );
   };
@@ -1615,42 +1624,79 @@ function _Chat() {
 
     const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
 
-    const groupByKeywords = (keywords: string[]) => {
-      for (const keyword of keywords) {
-        if (fullName.includes(keyword)) {
-          return keyword;
-        }
+    const groupByKeywords = (
+      label: string,
+      keywords: string[],
+      matcher?: (name: string) => boolean,
+    ) => {
+      if (keywords.some((keyword) => fullName.includes(keyword))) {
+        return label;
+      }
+      if (matcher?.(modelName.toLowerCase())) {
+        return label;
       }
       return null;
     };
 
-    const providerGroups: Record<string, string[]> = {
-      [ServiceProvider.Anthropic]: ["claude"],
-      [ServiceProvider.Google]: ["gemini", "learnlm", "glm"],
-      [ServiceProvider.DeepSeek]: ["deepseek"],
-      [ServiceProvider.OpenAI]: ["gpt", "o1", "o3"],
-      [ServiceProvider.Azure]: ["gpt", "o1"],
-      [ServiceProvider.Baidu]: ["ernie"],
-      [ServiceProvider.ByteDance]: ["doubao"],
-      [ServiceProvider.Alibaba]: ["qwen", "qwq", "qvq"],
-      [ServiceProvider.Moonshot]: ["moonshot"],
-      [ServiceProvider.Tencent]: ["hunyuan"],
-      [ServiceProvider.ChatGLM]: ["glm"],
-      [ServiceProvider.XAI]: ["grok"],
-      [ServiceProvider.Stability]: ["stable"],
-      [ServiceProvider.Iflytek]: ["spark"],
-    };
+    // 移除硬编码的 aihubmix 检查，让模型按实际 vendor.name 分类
+    // if (fullName.includes("aihubmix")) {
+    //   return "AiHubMix";
+    // }
 
-    if (providerName && providerGroups[providerName]) {
-      const group = groupByKeywords(providerGroups[providerName]);
-      if (group) return group;
-    }
-
-    const commonGroups = ["claude", "gpt", "gemini", "deepseek", "qwen"];
-    const group = groupByKeywords(commonGroups);
-    if (group) return group;
-
-    return modelName;
+    return (
+      groupByKeywords(
+        "OpenAI",
+        ["gpt", "chatgpt", "openai", "codex"],
+        (name) =>
+          /^o[1345](?:$|[^a-z])/i.test(name) ||
+          name.includes("o1-") ||
+          name.includes("o3-") ||
+          name.includes("o4-") ||
+          name.includes("o5-"),
+      ) ||
+      groupByKeywords("Anthropic", ["claude", "anthropic"]) ||
+      groupByKeywords("Google", ["gemini", "google"]) ||
+      groupByKeywords("Minimax", ["minimax", "abab"]) ||
+      groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
+      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
+      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
+      groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
+      groupByKeywords("ByteDance", [
+        "doubao",
+        "seed",
+        "bytedance",
+        "volc",
+        "字节",
+      ]) ||
+      groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
+      groupByKeywords("iFlytek", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+      groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+      groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
+      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
+      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+      groupByKeywords("Moonshot", ["moonshot", "kimi"]) ||
+      groupByKeywords("Cohere", ["cohere", "command-r"]) ||
+      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
+      groupByKeywords("Stability", [
+        "stable-diffusion",
+        "stability",
+        "sdxl",
+        "sd3",
+      ]) ||
+      groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
+      groupByKeywords("Baichuan", ["baichuan"]) ||
+      groupByKeywords("Ideogram", ["ideogram"]) ||
+      groupByKeywords("Jina AI", ["jina"]) ||
+      groupByKeywords("Flux", ["flux-"]) ||
+      groupByKeywords("Meituan", ["longcat", "meituan"]) ||
+      groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
+      groupByKeywords("BAAI", ["bge-", "baai"]) ||
+      groupByKeywords("OpenRouter", ["openrouter"]) ||
+      groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
+      "Other"
+    );
   };
   const isImageGenerationModel = (item: any) => {
     return (

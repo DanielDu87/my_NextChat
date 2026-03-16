@@ -587,19 +587,39 @@ export function Selector<T>(props: {
     initialViewportScrollYRef.current = window.scrollY;
   }, []);
 
+  // 常用供应商优先顺序（来自 model-config.tsx）
+  // 其余按照 aihubmix API 的 developer_id 分类顺序
   const preferredGroupOrder = [
     "OpenAI",
-    "DeepSeek",
-    "Google",
     "Anthropic",
+    "Google",
+    "DeepSeek",
     "xAI",
+    "Alibaba",
+    // 以下按 aihubmix developer_id 顺序补充
     "ByteDance",
-    "Qwen",
-    "Moonshot",
-    "Tencent",
     "Zhipu",
-    "Minimax",
+    "Cohere",
+    "Mistral",
+    "Meta",
     "Microsoft",
+    "01.AI",
+    "Moonshot",
+    "StepFun",
+    "Nvidia",
+    "Minimax",
+    "Perplexity",
+    "Baichuan",
+    "Tencent",
+    "Baidu",
+    "Ideogram",
+    "Jina AI",
+    "Stability",
+    "Flux",
+    "Meituan",
+    "InclusionAI",
+    "BAAI",
+    "Xiaomi",
     "Other",
   ];
 
@@ -646,6 +666,16 @@ export function Selector<T>(props: {
     iflytek: "/provider-icons/iflytek.svg",
     "01.ai": "/provider-icons/lingyi.svg",
     stepfun: "/provider-icons/stepfun.svg",
+    // 新增供应商图标 - 使用现有图标作为回退
+    nvidia: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
+    baichuan: "/provider-icons/iflytek.svg", // 使用 iFlytek 图标
+    ideogram: "/provider-icons/stability.webp", // 使用 Stability 图标
+    jina: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
+    "jina ai": "/provider-icons/microsoft.ico", // Jina AI
+    flux: "/provider-icons/stability.webp", // 使用 Stability 图标
+    meituan: "/provider-icons/alibaba.svg", // 使用 Alibaba 图标
+    inclusionai: "/provider-icons/xiaomi.svg", // 使用 Xiaomi 图标
+    baai: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
   };
   const currentSelectedItem = props.items.find((item) =>
     selectedValues.includes(item.value),
@@ -660,19 +690,33 @@ export function Selector<T>(props: {
   };
   const iconBackedGroups = new Set([
     "openai",
-    "google",
     "anthropic",
-    "deepseek",
-    "meta",
-    "mistral",
-    "moonshot",
-    "tencent",
-    "zhipu",
-    "qwen",
-    "baidu",
-    "grok",
-    "xai",
     "bytedance",
+    "zhipu",
+    "cohere",
+    "deepseek",
+    "google",
+    "xai",
+    "mistral",
+    "meta",
+    "microsoft",
+    "alibaba",
+    "moonshot",
+    "stepfun",
+    "nvidia",
+    "minimax",
+    "perplexity",
+    "baichuan",
+    "ideogram",
+    "jina ai",
+    "stability",
+    "tencent",
+    "baidu",
+    "flux",
+    "meituan",
+    "inclusionai",
+    "baai",
+    "xiaomi",
   ]);
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";

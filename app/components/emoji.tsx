@@ -63,6 +63,16 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
       iflytek: "/provider-icons/iflytek.svg",
       "01.ai": "/provider-icons/lingyi.svg",
       stepfun: "/provider-icons/stepfun.svg",
+      // 新增供应商图标 - 使用现有图标作为回退
+      nvidia: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
+      baichuan: "/provider-icons/iflytek.svg", // 使用 iFlytek 图标
+      ideogram: "/provider-icons/stability.webp", // 使用 Stability 图标
+      jina: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
+      "jina ai": "/provider-icons/microsoft.ico", // Jina AI
+      flux: "/provider-icons/stability.webp", // 使用 Stability 图标
+      meituan: "/provider-icons/alibaba.svg", // 使用 Alibaba 图标
+      inclusionai: "/provider-icons/xiaomi.svg", // 使用 Xiaomi 图标
+      baai: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
     };
 
     if (
@@ -131,6 +141,30 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
     ) {
       LlmIcon = BotIconChatglm;
     } else if (modelName === "other") {
+      LlmIcon = BotIconOpenAI;
+    } else if (
+      modelName === "microsoft" ||
+      modelName === "nvidia" ||
+      modelName === "phi"
+    ) {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "cohere") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "perplexity") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "baichuan") {
+      LlmIcon = BotIconWenxin;
+    } else if (modelName === "jina ai" || modelName === "jina") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "flux") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "meituan") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "inclusionai") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "baai") {
+      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "ideogram") {
       LlmIcon = BotIconOpenAI;
     } else {
       localIcon = localIconMap[modelName];

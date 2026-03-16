@@ -4,28 +4,43 @@ import { writeAccessSnapshot } from "./access-snapshot";
 
 /**
  * AiHubMix developer_id 到供应商名称的映射
+ * 数据来源: https://aihubmix.com/api/v1/models
+ * 最后更新: 2026-03-16
+ *
+ * 注意: developer_id 分类是 AiHubMix 内部使用的，不完全对应原始供应商
+ * 如 developer_id: 3 实际是 Microsoft Phi 系列模型
  */
 const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
-  1: { name: "Other", icon: "Box" },
+  1: { name: "OpenAI", icon: "OpenAI" }, // o1-global, Jamba
   2: { name: "Anthropic", icon: "Claude.Color" },
-  3: { name: "Google", icon: "Gemini.Color" },
-  4: { name: "xAI", icon: "XAI" },
-  5: { name: "Microsoft", icon: "Azure" },
-  6: { name: "Meta", icon: "Ollama" },
+  3: { name: "Microsoft", icon: "Nvidia" }, // Phi 系列 (微软/Nvidia)
+  4: { name: "ByteDance", icon: "Doubao.Color" }, // Doubao/Seed
+  5: { name: "Zhipu", icon: "Zhipu.Color" }, // GLM 系列
+  6: { name: "Cohere", icon: "Cohere" }, // Command A/R
   7: { name: "DeepSeek", icon: "DeepSeek.Color" },
   8: { name: "Google", icon: "Gemini.Color" },
-  9: { name: "Alibaba", icon: "Qwen.Color" },
-  10: { name: "ByteDance", icon: "Doubao.Color" },
-  11: { name: "Tencent", icon: "Hunyuan.Color" },
-  12: { name: "OpenAI", icon: "OpenAI" },
+  9: { name: "xAI", icon: "XAI" }, // Grok 系列
+  10: { name: "Mistral", icon: "Mistral.Color" },
+  11: { name: "Meta", icon: "Meta.Color" }, // Llama 系列
+  12: { name: "OpenAI", icon: "OpenAI" }, // GPT 系列
   13: { name: "Alibaba", icon: "Qwen.Color" },
-  14: { name: "Moonshot", icon: "Moonshot" },
-  15: { name: "Baidu", icon: "Ernie.Color" },
-  16: { name: "iFlytek", icon: "Spark" },
-  17: { name: "Minimax", icon: "Minimax.Color" },
-  18: { name: "Zhipu", icon: "Zhipu.Color" },
-  19: { name: "01.AI", icon: "Yi" },
-  20: { name: "StepFun", icon: "StepFun" },
+  14: { name: "01.AI", icon: "Yi" },
+  15: { name: "Moonshot", icon: "Moonshot" },
+  16: { name: "StepFun", icon: "StepFun" },
+  17: { name: "Nvidia", icon: "Nvidia" },
+  18: { name: "Minimax", icon: "Minimax.Color" },
+  19: { name: "Perplexity", icon: "Perplexity" },
+  20: { name: "Baichuan", icon: "Baichuan" },
+  21: { name: "Ideogram", icon: "Ideogram" },
+  22: { name: "Jina AI", icon: "Jina" },
+  23: { name: "Stability", icon: "Stability" },
+  24: { name: "Tencent", icon: "Hunyuan.Color" },
+  25: { name: "Baidu", icon: "Ernie.Color" },
+  27: { name: "Flux", icon: "Flux" },
+  28: { name: "Meituan", icon: "Meituan" },
+  29: { name: "InclusionAI", icon: "InclusionAI" },
+  30: { name: "BAAI", icon: "BAAI" },
+  31: { name: "Xiaomi", icon: "Xiaomi" },
 };
 
 /**

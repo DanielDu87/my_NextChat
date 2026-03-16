@@ -36,7 +36,7 @@ export function ModelConfigList(props: {
     },
   );
 
-  // 按供应商名称排序（把常用供应商放前面）
+  // 按供应商名称排序（常用供应商优先，其余按 aihubmix developer_id 顺序）
   const sortedGroupNames = Object.keys(groupModels).sort((a, b) => {
     const vendorOrder = [
       "OpenAI",
@@ -45,6 +45,30 @@ export function ModelConfigList(props: {
       "DeepSeek",
       "xAI",
       "Alibaba",
+      // 以下按 aihubmix developer_id 顺序补充
+      "ByteDance",
+      "Zhipu",
+      "Cohere",
+      "Mistral",
+      "Meta",
+      "Microsoft",
+      "01.AI",
+      "Moonshot",
+      "StepFun",
+      "Nvidia",
+      "Minimax",
+      "Perplexity",
+      "Baichuan",
+      "Tencent",
+      "Baidu",
+      "Ideogram",
+      "Jina AI",
+      "Stability",
+      "Flux",
+      "Meituan",
+      "InclusionAI",
+      "BAAI",
+      "Xiaomi",
     ];
     const aIndex = vendorOrder.indexOf(a);
     const bIndex = vendorOrder.indexOf(b);
