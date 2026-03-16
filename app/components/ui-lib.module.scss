@@ -482,7 +482,7 @@
       font-weight: 700;
       letter-spacing: 0.01em;
       background-color: #ffffff;
-      color: #0f172a;
+      color: #475569;
       box-sizing: border-box;
       font-family: inherit;
       box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
@@ -496,11 +496,17 @@
 
       // 只针对箭头 SVG（按钮的直接子元素），不影响 .selector-group-filter-leading 内的图标
       > :global(svg) {
+        fill: none;
         width: 16px;
         height: 16px;
         flex: 0 0 auto;
         transition: transform 0.2s ease;
         transform-origin: 50% 50%;
+        stroke: #475569;
+
+        path {
+          stroke: #475569 !important;
+        }
       }
 
       span {
@@ -510,28 +516,46 @@
 
       &:hover {
         background: rgb(239, 246, 255);
-        color: #1d4ed8;
-        border-color: #60a5fa;
-        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
-        transform: translateY(-1px);
-      }
-
-      &:focus {
+        color: #475569;
         border-color: #60a5fa;
         box-shadow:
           0 0 0 3px rgba(96, 165, 250, 0.18),
           0 14px 28px rgba(15, 23, 42, 0.12);
+        transform: translateY(-1px);
+
+        > :global(svg) {
+          stroke: #475569;
+
+          path {
+            stroke: #475569 !important;
+          }
+        }
+      }
+
+      &:focus {
+        background: rgb(239, 246, 255);
+        color: #475569;
+        border-color: #60a5fa;
+        box-shadow:
+          0 0 0 3px rgba(96, 165, 250, 0.18),
+          0 14px 28px rgba(15, 23, 42, 0.12);
+        transform: translateY(-1px);
       }
     }
 
     .selector-group-filter-open {
       background: rgb(239, 246, 255);
       border-color: #60a5fa;
-      color: #1d4ed8;
+      color: #475569;
 
       // 旋转箭头 SVG
       > :global(svg) {
         transform: rotate(180deg);
+        stroke: #475569;
+
+        path {
+          stroke: #475569 !important;
+        }
       }
 
       &:hover {
