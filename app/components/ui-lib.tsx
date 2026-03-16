@@ -706,8 +706,6 @@ export function Selector<T>(props: {
     "deepseek",
     "google",
     "xai",
-    "mistral",
-    "meta",
     "microsoft",
     "alibaba",
     "qwen",
@@ -727,12 +725,6 @@ export function Selector<T>(props: {
     "inclusionai",
     "baai",
     "xiaomi",
-    // 新增供应商
-    "groq",
-    "together",
-    "upstage",
-    "fireworks",
-    "yuto",
   ]);
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";
