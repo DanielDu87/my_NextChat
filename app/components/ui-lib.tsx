@@ -656,26 +656,35 @@ export function Selector<T>(props: {
     group === "All" ? "全部模型商" : group;
   const localGroupIconMap: Record<string, string> = {
     aihubmix: "/provider-icons/aihubmix.ico",
-    cohere: "/provider-icons/cohere.ico",
+    cohere: "/provider-icons/cohere-official.ico",
     microsoft: "/provider-icons/microsoft.ico",
     minimax: "/provider-icons/minimax.ico",
-    perplexity: "/provider-icons/perplexity.ico",
+    perplexity: "/provider-icons/perplexity-official.ico",
     stability: "/provider-icons/stability.webp",
     xiaomi: "/provider-icons/xiaomi.svg",
     alibaba: "/provider-icons/alibaba.svg",
+    qwen: "/provider-icons/qwen-official.svg",
     iflytek: "/provider-icons/iflytek.svg",
     "01.ai": "/provider-icons/lingyi.svg",
     stepfun: "/provider-icons/stepfun.svg",
-    // 新增供应商图标 - 使用现有图标作为回退
-    nvidia: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
-    baichuan: "/provider-icons/iflytek.svg", // 使用 iFlytek 图标
-    ideogram: "/provider-icons/stability.webp", // 使用 Stability 图标
-    jina: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
-    "jina ai": "/provider-icons/microsoft.ico", // Jina AI
-    flux: "/provider-icons/stability.webp", // 使用 Stability 图标
-    meituan: "/provider-icons/alibaba.svg", // 使用 Alibaba 图标
-    inclusionai: "/provider-icons/xiaomi.svg", // 使用 Xiaomi 图标
-    baai: "/provider-icons/microsoft.ico", // 使用 Microsoft 图标
+    // 官方图标（从各供应商官网下载）
+    nvidia: "/provider-icons/nvidia-official.ico",
+    baichuan: "/provider-icons/baichuan-official.png",
+    ideogram: "/provider-icons/ideogram-official.png",
+    jina: "/provider-icons/jina-official.ico",
+    "jina ai": "/provider-icons/jina-official.ico",
+    flux: "/provider-icons/flux-official.ico",
+    meituan: "/provider-icons/meituan-official.ico",
+    inclusionai: "/provider-icons/inclusionai-official.png",
+    baai: "/provider-icons/baai-official.svg",
+    meta: "/provider-icons/meta-official.svg",
+    // 新增供应商图标
+    groq: "/provider-icons/groq-official.svg",
+    together: "/provider-icons/together-official.png",
+    mistral: "/provider-icons/mistral-official.ico",
+    upstage: "/provider-icons/upstage-official.png",
+    fireworks: "/provider-icons/fireworks-official.svg",
+    yuto: "/provider-icons/yuto-official.png",
   };
   const currentSelectedItem = props.items.find((item) =>
     selectedValues.includes(item.value),
@@ -701,6 +710,7 @@ export function Selector<T>(props: {
     "meta",
     "microsoft",
     "alibaba",
+    "qwen",
     "moonshot",
     "stepfun",
     "nvidia",
@@ -717,6 +727,12 @@ export function Selector<T>(props: {
     "inclusionai",
     "baai",
     "xiaomi",
+    // 新增供应商
+    "groq",
+    "together",
+    "upstage",
+    "fireworks",
+    "yuto",
   ]);
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";
