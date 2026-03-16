@@ -1029,17 +1029,40 @@
   color: #60a5fa;
 
   :global(svg) {
-    stroke: #60a5fa !important;
+    stroke: #94a3b8 !important;
     path {
-      stroke: #60a5fa !important;
+      stroke: #94a3b8 !important;
     }
-    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
   }
 
   &:hover {
     border-color: rgba(96, 165, 250, 0.9);
     transform: translateY(-1px);
+
+    :global(svg) {
+      stroke: #60a5fa !important;
+      path {
+        stroke: #60a5fa !important;
+      }
+      filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+    }
   }
+}
+
+:global(body:not(.light)) .model-selector-provider-open :global(svg:last-child) {
+  stroke: #60a5fa !important;
+  path {
+    stroke: #60a5fa !important;
+  }
+  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+}
+
+:global(body:not(.light)) .model-selector-provider-open:hover :global(svg:last-child) {
+  stroke: #60a5fa !important;
+  path {
+    stroke: #60a5fa !important;
+  }
+  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
 }
 
 :global(body:not(.light)) .model-selector-provider-menu {

@@ -509,8 +509,10 @@
 
 
       &:hover {
-        border-color: rgba(147, 197, 253, 0.95);
-        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.1);
+        background: rgb(239, 246, 255);
+        color: #1d4ed8;
+        border-color: #60a5fa;
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
         transform: translateY(-1px);
       }
 
@@ -523,9 +525,17 @@
     }
 
     .selector-group-filter-open {
+      background: rgb(239, 246, 255);
+      border-color: #60a5fa;
+      color: #1d4ed8;
+
       // 旋转箭头 SVG
       > :global(svg) {
         transform: rotate(180deg);
+      }
+
+      &:hover {
+        border-color: #3b82f6;
       }
     }
 
@@ -959,8 +969,10 @@
 
 :global(.dark) .selector-group-filter :global(svg:last-child),
 :global(body.dark) .selector-group-filter :global(svg:last-child) {
-  opacity: 1;
-  filter: brightness(2.2) drop-shadow(0 0 6px rgba(191, 219, 254, 0.22));
+  stroke: #94a3b8 !important;
+  path {
+    stroke: #94a3b8 !important;
+  }
 }
 
 // Dark 模式下图标保持原始样式
@@ -989,7 +1001,20 @@
 
 :global(.dark) .selector-group-filter-open :global(svg:last-child),
 :global(body.dark) .selector-group-filter-open :global(svg:last-child) {
-  filter: brightness(2.5) drop-shadow(0 0 8px rgba(96, 165, 250, 0.4));
+  stroke: #60a5fa !important;
+  path {
+    stroke: #60a5fa !important;
+  }
+  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+}
+
+:global(.dark) .selector-group-filter-open:hover :global(svg:last-child),
+:global(body.dark) .selector-group-filter-open:hover :global(svg:last-child) {
+  stroke: #60a5fa !important;
+  path {
+    stroke: #60a5fa !important;
+  }
+  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
 }
 
 :global(.dark) .selector-search::placeholder,
@@ -999,8 +1024,19 @@
 
 :global(.dark) .selector-group-filter:hover,
 :global(body.dark) .selector-group-filter:hover {
-  border-color: rgba(96, 165, 250, 0.9);
-  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36);
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+  border-color: rgba(96, 165, 250, 0.9) !important;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36) !important;
+  transform: translateY(-1px);
+
+  :global(svg:last-child) {
+    stroke: #60a5fa !important;
+    path {
+      stroke: #60a5fa !important;
+    }
+    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+  }
 }
 
 :global(.dark) .selector-group-filter:focus,
@@ -1175,8 +1211,10 @@
   }
 
   :global(body:not(.light)) .selector-group-filter :global(svg:last-child) {
-    opacity: 1;
-    filter: brightness(2.2) drop-shadow(0 0 6px rgba(191, 219, 254, 0.22));
+    stroke: #94a3b8 !important;
+    path {
+      stroke: #94a3b8 !important;
+    }
   }
 
   // 系统级 Dark 模式下图标保持原始样式
@@ -1200,7 +1238,19 @@
   }
 
   :global(body:not(.light)) .selector-group-filter-open :global(svg:last-child) {
-    filter: brightness(2.5) drop-shadow(0 0 8px rgba(96, 165, 250, 0.4));
+    stroke: #60a5fa !important;
+    path {
+      stroke: #60a5fa !important;
+    }
+    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+  }
+
+  :global(body:not(.light)) .selector-group-filter-open:hover :global(svg:last-child) {
+    stroke: #60a5fa !important;
+    path {
+      stroke: #60a5fa !important;
+    }
+    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
   }
 
   :global(body:not(.light)) .selector-search::placeholder {
@@ -1208,8 +1258,19 @@
   }
 
   :global(body:not(.light)) .selector-group-filter:hover {
-    border-color: rgba(96, 165, 250, 0.9);
-    box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36);
+    background: rgba(59, 130, 246, 0.15) !important;
+    color: #60a5fa !important;
+    border-color: rgba(96, 165, 250, 0.9) !important;
+    box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36) !important;
+    transform: translateY(-1px);
+
+    :global(svg:last-child) {
+      stroke: #60a5fa !important;
+      path {
+        stroke: #60a5fa !important;
+      }
+      filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+    }
   }
 
   :global(body:not(.light)) .selector-group-filter:focus {
