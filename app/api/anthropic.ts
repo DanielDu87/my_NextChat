@@ -39,7 +39,7 @@ export async function handle(
     );
   }
 
-  const authResult = auth(req, ModelProvider.Claude);
+  const authResult = auth(req, ModelProvider.Anthropic);
   if (authResult.error) {
     return NextResponse.json(authResult, {
       status: 401,

@@ -55,7 +55,7 @@ export function Card(props: { children: JSX.Element[]; className?: string }) {
 export function ListItem(props: {
   title?: string | JSX.Element;
   subTitle?: string | JSX.Element;
-  children?: JSX.Element | JSX.Element[];
+  children?: JSX.Element | JSX.Element[] | null | undefined;
   icon?: JSX.Element;
   className?: string;
   onClick?: (e: MouseEvent) => void;
@@ -652,39 +652,55 @@ export function Selector<T>(props: {
     ];
   })();
   const groupFilterOptions = ["All", ...availableGroups];
-  const getGroupFilterLabel = (group: string) =>
-    group === "All" ? "全部模型商" : group;
+  const getGroupFilterLabel = (group: string) => {
+    if (group === "All") return "全部模型商";
+    if (group === "Anthropic") return "Anthropic";
+    return group;
+  };
   const localGroupIconMap: Record<string, string> = {
-    aihubmix: "/provider-icons/aihubmix.ico",
-    cohere: "/provider-icons/cohere-official.ico",
-    microsoft: "/provider-icons/microsoft.ico",
-    minimax: "/provider-icons/minimax.ico",
-    perplexity: "/provider-icons/perplexity-official.ico",
-    stability: "/provider-icons/stability.webp",
-    xiaomi: "/provider-icons/xiaomi.svg",
-    alibaba: "/provider-icons/alibaba.svg",
-    qwen: "/provider-icons/qwen-official.svg",
-    iflytek: "/provider-icons/iflytek.svg",
-    "01.ai": "/provider-icons/lingyi.svg",
-    stepfun: "/provider-icons/stepfun.svg",
-    // 官方图标（从各供应商官网下载）
-    nvidia: "/provider-icons/nvidia-official.ico",
+    // 所有图标统一使用 ico 格式
+    aihubmix: "/provider-icons/aihubmix.png",
+    alibaba: "/provider-icons/alibaba.png",
+    anthropic: "/provider-icons/anthropic.png",
+    baai: "/provider-icons/baai-official.png",
     baichuan: "/provider-icons/baichuan-official.png",
+    baidu: "/provider-icons/baidu.png",
+    bytedance: "/provider-icons/bytedance.png",
+    cohere: "/provider-icons/cohere-official.png",
+    deepseek: "/provider-icons/deepseek.png",
+    fireworks: "/provider-icons/fireworks-official.png",
+    flux: "/provider-icons/flux-official.png",
+    google: "/provider-icons/google.png",
+    groq: "/provider-icons/groq-official.png",
     ideogram: "/provider-icons/ideogram-official.png",
-    jina: "/provider-icons/jina-official.ico",
-    "jina ai": "/provider-icons/jina-official.ico",
-    flux: "/provider-icons/flux-official.ico",
-    meituan: "/provider-icons/meituan-official.ico",
+    iflytek: "/provider-icons/iflytek.png",
     inclusionai: "/provider-icons/inclusionai-official.png",
-    baai: "/provider-icons/baai-official.svg",
-    meta: "/provider-icons/meta-official.svg",
-    // 新增供应商图标
-    groq: "/provider-icons/groq-official.svg",
+    jina: "/provider-icons/jina-official.png",
+    "jina ai": "/provider-icons/jina-official.png",
+    lingyi: "/provider-icons/lingyi.png",
+    meituan: "/provider-icons/meituan-official.png",
+    meta: "/provider-icons/meta-official.png",
+    microsoft: "/provider-icons/microsoft.png",
+    minimax: "/provider-icons/minimax.png",
+    mistral: "/provider-icons/mistral-official.png",
+    moonshot: "/provider-icons/moonshot.png",
+    nvidia: "/provider-icons/nvidia-official.png",
+    ocoolai: "/provider-icons/ocoolai.png",
+    openai: "/provider-icons/openai.png",
+    perplexity: "/provider-icons/perplexity-official.png",
+    qwen: "/provider-icons/qwen-official.png",
+    stability: "/provider-icons/stability.png",
+    stepfun: "/provider-icons/stepfun.png",
+    tencent: "/provider-icons/tencent.png",
     together: "/provider-icons/together-official.png",
-    mistral: "/provider-icons/mistral-official.ico",
     upstage: "/provider-icons/upstage-official.png",
-    fireworks: "/provider-icons/fireworks-official.svg",
+    xai: "/provider-icons/xai.png",
+    xiaomi: "/provider-icons/xiaomi.png",
     yuto: "/provider-icons/yuto-official.png",
+    zhipu: "/provider-icons/zhipu.png",
+    // 兼容旧映射
+    "01.ai": "/provider-icons/lingyi.png",
+    ascend: "/provider-icons/ascend.png",
   };
   const currentSelectedItem = props.items.find((item) =>
     selectedValues.includes(item.value),
@@ -699,7 +715,6 @@ export function Selector<T>(props: {
   };
   const iconBackedGroups = new Set([
     "openai",
-    "anthropic",
     "bytedance",
     "zhipu",
     "cohere",

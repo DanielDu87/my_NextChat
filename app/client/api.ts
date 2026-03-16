@@ -165,7 +165,7 @@ export class ClientApi {
       case ModelProvider.GeminiPro:
         this.llm = new GeminiProApi();
         break;
-      case ModelProvider.Claude:
+      case ModelProvider.Anthropic:
         this.llm = new ClaudeApi();
         break;
       case ModelProvider.Ernie:
@@ -515,7 +515,7 @@ export function getClientApi(provider: ServiceProvider): ClientApi {
     case ServiceProvider.Google:
       return new ClientApi(ModelProvider.GeminiPro);
     case ServiceProvider.Anthropic:
-      return new ClientApi(ModelProvider.Claude);
+      return new ClientApi(ModelProvider.Anthropic);
     case ServiceProvider.Baidu:
       return new ClientApi(ModelProvider.Ernie);
     case ServiceProvider.ByteDance:
