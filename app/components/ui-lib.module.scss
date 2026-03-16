@@ -56,6 +56,13 @@
       font-size: 14px;
       font-weight: bolder;
       min-width: 0;
+      flex: 1;
+
+      > div {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
 
     .list-item-sub-title {
@@ -348,7 +355,7 @@
 
   &-content {
     width: 100%;
-    max-width: 480px;
+    max-width: 560px;
     max-height: 78vh;
     display: flex;
     flex-direction: column;
@@ -361,6 +368,14 @@
     animation: slideUp 0.2s ease;
     margin: 24px 0 12px;
     overflow-y: auto;
+
+    // 隐藏滚动条但保留滚动功能
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+
+    &::-webkit-scrollbar {
+      display: none; /* Chrome, Safari, Opera */
+    }
 
     @keyframes slideUp {
       from {
@@ -479,13 +494,11 @@
       text-align: center;
       border: 1px solid rgba(191, 219, 254, 0.95);
 
-      :global(svg) {
+      // 只针对箭头 SVG（按钮的直接子元素），不影响 .selector-group-filter-leading 内的图标
+      > :global(svg) {
         width: 16px;
         height: 16px;
         flex: 0 0 auto;
-      }
-
-      :global(svg:last-child) {
         transition: transform 0.2s ease;
         transform-origin: 50% 50%;
       }
@@ -510,7 +523,8 @@
     }
 
     .selector-group-filter-open {
-      :global(svg:last-child) {
+      // 旋转箭头 SVG
+      > :global(svg) {
         transform: rotate(180deg);
       }
     }
@@ -609,15 +623,6 @@
       color: #1d4ed8;
       border-color: rgba(191, 219, 254, 0.95);
       font-weight: 700;
-    }
-
-    .selector-group-filter-option-active :global(svg),
-    .selector-group-filter-option-active :global(path) {
-      fill: currentColor;
-    }
-
-    .selector-group-filter-option-active :global(circle) {
-      stroke: currentColor;
     }
 
     .selector-header-hint {
@@ -807,14 +812,9 @@
           border-bottom: none !important;
         }
 
-        &:hover {
-          background-color: var(--hover-color);
-          filter: none;
-        }
-
-        &:active {
-          background-color: var(--active-color);
-          filter: none;
+        &:hover .list-item-title > div,
+        &:active .list-item-title > div {
+          color: var(--primary);
         }
       }
     }
@@ -942,6 +942,14 @@
   color: #e5e7eb;
 }
 
+:global(.dark) .selector-group-filter,
+:global(body.dark) .selector-group-filter {
+  background: rgba(30, 41, 59, 0.8) !important;
+  background-color: rgba(30, 41, 59, 0.8) !important;
+  border-color: rgba(71, 85, 105, 0.95) !important;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
+}
+
 :global(.dark) .selector-group-filter-arrow,
 :global(body.dark) .selector-group-filter-arrow {
   color: #f8fafc;
@@ -953,6 +961,35 @@
 :global(body.dark) .selector-group-filter :global(svg:last-child) {
   opacity: 1;
   filter: brightness(2.2) drop-shadow(0 0 6px rgba(191, 219, 254, 0.22));
+}
+
+// Dark 模式下图标保持原始样式
+:global(.dark) .selector-group-filter-leading,
+:global(body.dark) .selector-group-filter-leading {
+  filter: none;
+}
+
+:global(.dark) .selector-group-filter-icon-image,
+:global(body.dark) .selector-group-filter-icon-image {
+  filter: none;
+}
+
+// Dark 模式下打开状态的优化
+:global(.dark) .selector-group-filter-open,
+:global(body.dark) .selector-group-filter-open {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border-color: rgba(71, 85, 105, 0.95) !important;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
+}
+
+:global(.dark) .selector-group-filter-open:hover,
+:global(body.dark) .selector-group-filter-open:hover {
+  border-color: rgba(96, 165, 250, 0.9) !important;
+}
+
+:global(.dark) .selector-group-filter-open :global(svg:last-child),
+:global(body.dark) .selector-group-filter-open :global(svg:last-child) {
+  filter: brightness(2.5) drop-shadow(0 0 8px rgba(96, 165, 250, 0.4));
 }
 
 :global(.dark) .selector-search::placeholder,
@@ -1005,25 +1042,27 @@
 
 :global(.dark) .selector-group-filter-option,
 :global(body.dark) .selector-group-filter-option {
-  background: #111827;
+  background: #1e293b;
   border-color: rgba(71, 85, 105, 0.9);
-  color: #e5e7eb;
+  color: #f1f5f9;
 }
 
 :global(.dark) .selector-group-filter-option:hover,
 :global(.dark) .selector-group-filter-option:focus,
 :global(body.dark) .selector-group-filter-option:hover,
 :global(body.dark) .selector-group-filter-option:focus {
-  background: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.25);
   border-color: rgba(96, 165, 250, 0.9);
   color: #bfdbfe;
+  transform: translateY(-1px);
 }
 
 :global(.dark) .selector-group-filter-option-active,
 :global(body.dark) .selector-group-filter-option-active {
-  background: rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.3);
   border-color: rgba(96, 165, 250, 0.95);
   color: #bfdbfe;
+  font-weight: 700;
 }
 
 :global(.dark) .selector .list .selector-group-count,
@@ -1086,9 +1125,10 @@
 
   :global(body:not(.light)) .selector-search-wrap,
   :global(body:not(.light)) .selector-group-filter {
-    background: #111827;
-    border-color: rgba(71, 85, 105, 0.95);
-    box-shadow: 0 12px 24px rgba(2, 6, 23, 0.3);
+    background: rgba(30, 41, 59, 0.8) !important;
+    background-color: rgba(30, 41, 59, 0.8) !important;
+    border-color: rgba(71, 85, 105, 0.95) !important;
+    box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
   }
 
   :global(body:not(.light)) .selector-header-hint .model-selector-hint {
@@ -1139,6 +1179,30 @@
     filter: brightness(2.2) drop-shadow(0 0 6px rgba(191, 219, 254, 0.22));
   }
 
+  // 系统级 Dark 模式下图标保持原始样式
+  :global(body:not(.light)) .selector-group-filter-leading {
+    filter: none;
+  }
+
+  :global(body:not(.light)) .selector-group-filter-icon-image {
+    filter: none;
+  }
+
+  // 系统级 Dark 模式下打开状态的优化
+  :global(body:not(.light)) .selector-group-filter-open {
+    background: rgba(30, 41, 59, 0.8) !important;
+    border-color: rgba(71, 85, 105, 0.95) !important;
+    box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
+  }
+
+  :global(body:not(.light)) .selector-group-filter-open:hover {
+    border-color: rgba(96, 165, 250, 0.9) !important;
+  }
+
+  :global(body:not(.light)) .selector-group-filter-open :global(svg:last-child) {
+    filter: brightness(2.5) drop-shadow(0 0 8px rgba(96, 165, 250, 0.4));
+  }
+
   :global(body:not(.light)) .selector-search::placeholder {
     color: #94a3b8;
   }
@@ -1180,22 +1244,24 @@
   }
 
   :global(body:not(.light)) .selector-group-filter-option {
-    background: #111827;
+    background: #1e293b;
     border-color: rgba(71, 85, 105, 0.9);
-    color: #e5e7eb;
+    color: #f1f5f9;
   }
 
   :global(body:not(.light)) .selector-group-filter-option:hover,
   :global(body:not(.light)) .selector-group-filter-option:focus {
-    background: rgba(37, 99, 235, 0.18);
+    background: rgba(37, 99, 235, 0.25);
     border-color: rgba(96, 165, 250, 0.9);
     color: #bfdbfe;
+    transform: translateY(-1px);
   }
 
   :global(body:not(.light)) .selector-group-filter-option-active {
-    background: rgba(37, 99, 235, 0.22);
+    background: rgba(37, 99, 235, 0.3);
     border-color: rgba(96, 165, 250, 0.95);
     color: #bfdbfe;
+    font-weight: 700;
   }
 
   :global(body:not(.light)) .selector .list .selector-group-count {

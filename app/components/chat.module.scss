@@ -178,7 +178,9 @@
   }
 
   &:hover {
-    filter: brightness(0.95);
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 0.5px #0ea5e9;
+    transform: translateY(-1px);
   }
 }
 
@@ -250,15 +252,6 @@
     text-overflow: clip;
     font-size: clamp(11px, 1.5vw, 13px);
   }
-}
-
-.model-selector-provider-option-active :global(svg),
-.model-selector-provider-option-active :global(path) {
-  fill: currentColor;
-}
-
-.model-selector-provider-option-active :global(circle) {
-  stroke: currentColor;
 }
 
 .model-selector-provider-option-leading {
@@ -963,7 +956,8 @@
     }
 
     &:hover {
-      filter: brightness(1.1);
+      border-color: rgba(96, 165, 250, 0.9);
+      transform: translateY(-1px);
     }
   }
 
@@ -982,7 +976,7 @@
     &:focus {
       background: rgba(59, 130, 246, 0.15) !important;
       color: #60a5fa !important;
-      border-color: rgba(96, 165, 250, 0.8) !important;
+      border-color: rgba(96, 165, 250, 0.9) !important;
       box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3), 0 4px 12px rgba(0, 0, 0, 0.15) !important;
       transform: translateY(-1px) !important;
     }
@@ -1006,6 +1000,10 @@
         fill: #60a5fa !important;
       }
       filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+    }
+
+    &:hover {
+      border-color: rgba(96, 165, 250, 0.9) !important;
     }
   }
 }
@@ -1035,7 +1033,8 @@
   }
 
   &:hover {
-    filter: brightness(1.1);
+    border-color: rgba(96, 165, 250, 0.9);
+    transform: translateY(-1px);
   }
 }
 
@@ -1054,7 +1053,7 @@
   &:focus {
     background: rgba(59, 130, 246, 0.15) !important;
     color: #60a5fa !important;
-    border-color: rgba(96, 165, 250, 0.8) !important;
+    border-color: rgba(96, 165, 250, 0.9) !important;
     box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3), 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     transform: translateY(-1px) !important;
   }
@@ -1078,6 +1077,10 @@
       fill: #60a5fa !important;
     }
     filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+  }
+
+  &:hover {
+    border-color: rgba(96, 165, 250, 0.9) !important;
   }
 }
 
