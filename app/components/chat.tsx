@@ -1527,6 +1527,7 @@ function _Chat() {
 
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
+  const [modelSelectorResetKey, setModelSelectorResetKey] = useState(0);
   const [providerSwitchToast, setProviderSwitchToast] = useState<{
     show: boolean;
     message: string;
@@ -1543,22 +1544,11 @@ function _Chat() {
     return providers.length > 0 ? providers : [];
   }, [apiProfiles]);
 
-  // 点击外部关闭供应商选择器
   useEffect(() => {
-    if (!isProviderSelectorOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest(".model-selector-hint")) {
-        setIsProviderSelectorOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isProviderSelectorOpen]);
+    if (!showModelSelector) return;
+    setIsProviderSelectorOpen(false);
+    setModelSelectorResetKey((key) => key + 1);
+  }, [showModelSelector]);
 
   const currentProviderId = useMemo(() => {
     if (activeProfile) {
@@ -2198,7 +2188,6 @@ function _Chat() {
           setProviderSwitchToast((prev) => ({ ...prev, show: false }));
         }, 2000);
       }
-      setIsProviderSelectorOpen(false);
     },
     [chatStore, session, apiProfiles],
   );
@@ -2980,6 +2969,7 @@ function _Chat() {
 
       {showModelSelector && (
         <Selector
+          resetKey={modelSelectorResetKey}
           defaultSelectedValue={
             modelSelectorDefaultValue ??
             `${currentModel}@${currentProviderName}`
@@ -3013,7 +3003,10 @@ function _Chat() {
                 </span>
               </div>
               {isProviderSelectorOpen && (
-                <div className={styles["model-selector-provider-menu"]}>
+                <div
+                  data-provider-selector-root="true"
+                  className={styles["model-selector-provider-menu"]}
+                >
                   {availableProviders.length === 0 ? (
                     <div
                       style={{

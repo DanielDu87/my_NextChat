@@ -566,6 +566,7 @@ export function Selector<T>(props: {
     | React.ReactNode
     | ((ctx: { selectedGroup: string }) => React.ReactNode);
   centerContent?: boolean;
+  resetKey?: number | string;
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -580,12 +581,17 @@ export function Selector<T>(props: {
   );
   const [selectedQuickFilter, setSelectedQuickFilter] = useState("all");
   const [isGroupFilterOpen, setIsGroupFilterOpen] = useState(false);
+  const groupFilterWrapRef = useRef<HTMLDivElement>(null);
   const groupFilterButtonRef = useRef<HTMLButtonElement>(null);
   const initialViewportScrollYRef = useRef(0);
 
   useEffect(() => {
     initialViewportScrollYRef.current = window.scrollY;
   }, []);
+
+  useEffect(() => {
+    setIsGroupFilterOpen(false);
+  }, [props.resetKey]);
 
   // 常用供应商优先顺序（来自 model-config.tsx）
   // 其余按照 aihubmix API 的 developer_id 分类顺序
@@ -1081,7 +1087,11 @@ export function Selector<T>(props: {
           </div>
         ) : null}
         {props.showGroupFilter && (
-          <div className={styles["selector-group-filter-wrap"]}>
+          <div
+            ref={groupFilterWrapRef}
+            data-selector-group-filter-root="true"
+            className={styles["selector-group-filter-wrap"]}
+          >
             <button
               type="button"
               ref={groupFilterButtonRef}
@@ -1113,7 +1123,6 @@ export function Selector<T>(props: {
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSelectedGroup(group);
-                        setIsGroupFilterOpen(false);
                         stabilizeSelectorPosition();
                       }}
                     >
