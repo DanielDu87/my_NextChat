@@ -9,10 +9,12 @@ import ConfirmIcon from "../icons/confirm.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
+import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 
 import Locale from "../locales";
 
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import React, {
   CSSProperties,
   HTMLProps,
@@ -25,7 +27,6 @@ import React, {
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
-import { ModelType } from "../store";
 
 export function Popover(props: {
   children: JSX.Element;
@@ -584,9 +585,14 @@ export function Selector<T>(props: {
   const groupFilterWrapRef = useRef<HTMLDivElement>(null);
   const groupFilterButtonRef = useRef<HTMLButtonElement>(null);
   const initialViewportScrollYRef = useRef(0);
+  const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
     initialViewportScrollYRef.current = window.scrollY;
+  }, []);
+
+  useEffect(() => {
+    setPortalReady(true);
   }, []);
 
   useEffect(() => {
@@ -664,76 +670,62 @@ export function Selector<T>(props: {
     return group;
   };
   const localGroupIconMap: Record<string, string> = {
-    // 仅保留已存在的本地官方 PNG，避免显示损坏图片
+    "01.ai": "/provider-icons/lingyi.png",
+    "01-ai": "/provider-icons/lingyi.png",
+    "01.AI": "/provider-icons/lingyi.png",
     alibaba: "/provider-icons/alibaba.png",
-    anthropic: "/provider-icons/anthropic.png",
+    ascend: "/provider-icons/ascend-huawei.png",
+    阿里巴巴: "/provider-icons/alibaba.png",
+    anthropic: "/provider-icons/claude-code.png",
     baai: "/provider-icons/baai-official.png",
     baichuan: "/provider-icons/baichuan-official.png",
     baidu: "/provider-icons/baidu.png",
     bytedance: "/provider-icons/bytedance.png",
+    字节跳动: "/provider-icons/bytedance.png",
     cohere: "/provider-icons/cohere-official.png",
-    deepseek: "/provider-icons/deepseek.png",
+    deepseek: "/provider-icons/deepseek-bg.svg",
+    fal: "/provider-icons/fal.png",
+    "fal.ai": "/provider-icons/fal.png",
     flux: "/provider-icons/flux-official.png",
-    google: "/provider-icons/google.png",
+    google: "/provider-icons/gemini-bg.svg",
     ideogram: "/provider-icons/ideogram-official.png",
+    iflytek: "/provider-icons/iflytek.png",
+    inclusionai: "/provider-icons/inclusionai-official.png",
     jina: "/provider-icons/jina-official.png",
     "jina ai": "/provider-icons/jina-official.png",
+    kuaishou: "/provider-icons/kuaishou.png",
+    快手: "/provider-icons/kuaishou.png",
+    luma: "/provider-icons/luma.png",
     meituan: "/provider-icons/meituan-official.png",
     meta: "/provider-icons/meta-official.png",
-    microsoft: "/provider-icons/microsoft.png",
+    microsoft: "/provider-icons/microsoft-alt.png",
+    midjourney: "/provider-icons/midjourney.png",
     minimax: "/provider-icons/minimax.png",
     mistral: "/provider-icons/mistral-official.png",
     moonshot: "/provider-icons/moonshot.png",
     nvidia: "/provider-icons/nvidia-official.png",
     openai: "/provider-icons/openai.png",
+    openrouter: "/provider-icons/openrouter.png",
     perplexity: "/provider-icons/perplexity-official.png",
-    qwen: "/provider-icons/qwen-official.png",
+    pika: "/provider-icons/pika.png",
+    pixverse: "/provider-icons/pixverse.png",
+    qwen: "/provider-icons/qwen-alt.png",
+    recraft: "/provider-icons/recraft.png",
+    runway: "/provider-icons/runway.png",
     stability: "/provider-icons/stability.png",
     stepfun: "/provider-icons/stepfun.png",
+    suno: "/provider-icons/suno.png",
     tencent: "/provider-icons/tencent.png",
+    腾讯: "/provider-icons/tencent.png",
+    讯飞: "/provider-icons/iflytek.png",
+    vidu: "/provider-icons/vidu.png",
+    viggle: "/provider-icons/viggle.png",
     xai: "/provider-icons/xai.png",
     xiaomi: "/provider-icons/xiaomi.png",
     zhipu: "/provider-icons/zhipu.png",
+    智谱: "/provider-icons/zhipu.png",
+    万物: "/provider-icons/lingyi.png",
   };
-  const currentSelectedItem = props.items.find((item) =>
-    selectedValues.includes(item.value),
-  );
-  const getCustomModelProvider = () => {
-    const selectedValue = currentSelectedItem?.value;
-    if (typeof selectedValue === "string") {
-      const [, providerName] = selectedValue.split("@");
-      if (providerName) return providerName.toLowerCase();
-    }
-    return "openai";
-  };
-  const iconBackedGroups = new Set([
-    "openai",
-    "bytedance",
-    "zhipu",
-    "cohere",
-    "deepseek",
-    "google",
-    "xai",
-    "microsoft",
-    "alibaba",
-    "qwen",
-    "moonshot",
-    "stepfun",
-    "nvidia",
-    "minimax",
-    "perplexity",
-    "baichuan",
-    "ideogram",
-    "jina ai",
-    "stability",
-    "tencent",
-    "baidu",
-    "flux",
-    "meituan",
-    "inclusionai",
-    "baai",
-    "xiaomi",
-  ]);
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";
     if (/^[\u4e00-\u9fa5]/.test(group)) return group.slice(0, 2);
@@ -743,28 +735,46 @@ export function Selector<T>(props: {
   const renderGroupFilterIcon = (group: string) => {
     if (group === "All") return null;
     if (group === "自定义模型") {
-      return <Avatar model={getCustomModelProvider() as ModelType} />;
+      return (
+        <span className={styles["selector-group-filter-icon-custom-wrap"]}>
+          <BotIconOpenAI
+            className={clsx(
+              styles["selector-group-filter-icon-image"],
+              styles["selector-group-filter-icon-image-custom"],
+            )}
+          />
+        </span>
+      );
     }
     if (group === "Other") {
-      return <Avatar model={"openai" as ModelType} />;
+      return (
+        <span className={styles["selector-group-filter-icon-frame"]}>
+          <img
+            className={styles["selector-group-filter-icon-image"]}
+            src="/provider-icons/openai.png"
+            alt="Other icon"
+          />
+        </span>
+      );
     }
     const normalized = group.toLowerCase();
     const localIcon = localGroupIconMap[normalized];
     if (localIcon) {
       return (
-        <img
-          className={styles["selector-group-filter-icon-image"]}
-          src={localIcon}
-          alt={`${group} icon`}
-        />
+        <span className={styles["selector-group-filter-icon-frame"]}>
+          <img
+            className={styles["selector-group-filter-icon-image"]}
+            src={localIcon}
+            alt={`${group} icon`}
+          />
+        </span>
       );
     }
-    if (iconBackedGroups.has(normalized)) {
-      return <Avatar model={normalized as ModelType} />;
-    }
     return (
-      <span className={styles["selector-group-filter-fallback-icon"]}>
-        {getGroupBadgeText(group)}
+      <span className={styles["selector-group-filter-icon-frame"]}>
+        <span className={styles["selector-group-filter-fallback-icon"]}>
+          {getGroupBadgeText(group)}
+        </span>
       </span>
     );
   };
@@ -1070,7 +1080,7 @@ export function Selector<T>(props: {
     searchText,
   );
 
-  return (
+  const selectorNode = (
     <div className={styles["selector"]} onClick={() => props.onClose?.()}>
       <div
         className={clsx(styles["selector-content"], {
@@ -1257,6 +1267,12 @@ export function Selector<T>(props: {
       </div>
     </div>
   );
+
+  if (!portalReady) {
+    return null;
+  }
+
+  return createPortal(selectorNode, document.body);
 }
 export function FullScreen(props: any) {
   const { children, right = 10, top = 10, ...rest } = props;
