@@ -1,6 +1,8 @@
 import { ServiceProvider } from "../constant";
 import { LLMModel } from "../client/api";
 import { writeAccessSnapshot } from "./access-snapshot";
+import { normalizeModelClassification } from "./model-classification";
+import { applyModelPublishedAt } from "./model-published-at";
 
 /**
  * AiHubMix developer_id 到供应商名称的映射
@@ -283,14 +285,17 @@ function mapModels(
       }
     }
 
-    return {
+    return applyModelPublishedAt({
       name: modelName,
       available: true,
       sorted: seq++,
+      category: normalizedCapabilities.category,
+      categorySource: normalizedCapabilities.categorySource,
       type: normalizedCapabilities.type,
       types: normalizedCapabilities.types,
       features: normalizedCapabilities.features,
       capabilities: normalizedCapabilities.capabilities,
+      categories: normalizedCapabilities.categories,
       apiKeyGroup,
       provider: {
         id: providerId,
@@ -299,7 +304,7 @@ function mapModels(
         sorted: sorted,
       },
       vendor,
-    };
+    });
   });
 }
 
@@ -332,72 +337,15 @@ function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
 }
 
 export function normalizeAiHubMixModelMetadata(model: any): {
+  category?: string;
+  categorySource?: 0 | 1;
   type?: string;
   types?: string[];
   features?: string[];
   capabilities?: string[];
+  categories?: string[];
 } {
-  const add = (target: Set<string>, value: unknown) => {
-    if (typeof value === "string" && value.trim()) {
-      target.add(value.trim().toLowerCase());
-    }
-    if (Array.isArray(value)) {
-      value.forEach((item) => add(target, item));
-    }
-  };
-
-  const types = new Set<string>();
-  const features = new Set<string>();
-  const capabilities = new Set<string>();
-
-  add(types, model.types);
-  add(features, model.features);
-  add(capabilities, model.capabilities);
-
-  add(types, model.type);
-  add(types, model.model_type);
-  add(capabilities, model.supported_endpoint_type);
-
-  const lowerModelName = String(
-    model.id || model.name || model.model_id || model.model_name || "",
-  ).toLowerCase();
-  const modelType = String(model.model_type || model.type || "").toLowerCase();
-  const endpointType = String(
-    model.supported_endpoint_type || "",
-  ).toLowerCase();
-
-  const isVideo =
-    modelType.includes("video") ||
-    endpointType.includes("video") ||
-    /(runway|vidu|pixverse|sora|veo|jimeng|wanx|i2v|t2v)/.test(lowerModelName);
-  const isImage =
-    !isVideo &&
-    (modelType.includes("image") ||
-      endpointType.includes("image") ||
-      /(gpt-image|dall-e|dalle|recraft|ideogram|flux|nano-banana|seedream|qwen-image|cogview)/.test(
-        lowerModelName,
-      ));
-
-  if (isVideo) {
-    types.add("video");
-    capabilities.add("generate-video");
-  }
-  if (isImage) {
-    types.add("image");
-    capabilities.add("generate-image");
-  }
-
-  const normalizedTypes = [...types];
-  const normalizedFeatures = [...features];
-  const normalizedCapabilities = [...capabilities];
-
-  return {
-    type: isVideo ? "video" : isImage ? "image" : normalizedTypes[0],
-    types: normalizedTypes.length > 0 ? normalizedTypes : undefined,
-    features: normalizedFeatures.length > 0 ? normalizedFeatures : undefined,
-    capabilities:
-      normalizedCapabilities.length > 0 ? normalizedCapabilities : undefined,
-  };
+  return normalizeModelClassification(model);
 }
 
 /**
@@ -422,15 +370,10 @@ async function fetchJsonWithCandidates(
 ) {
   let lastError: Error | null = null;
 
-  console.log(`[Fetch Models] 🔍 尝试 ${urls.length} 个候选 URL...`);
-
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
     const display = fullUrl(url, baseUrl);
     try {
-      console.log(
-        `[Fetch Models] 🔄 尝试第 ${i + 1}/${urls.length} 个: ${display}`,
-      );
       const response = await fetch(url, {
         method: "GET",
         headers,
@@ -451,7 +394,7 @@ async function fetchJsonWithCandidates(
         continue;
       }
 
-      console.log(`[Fetch Models] ✅ 第 ${i + 1} 个 URL 成功: ${display}`);
+      console.log(`[Fetch Models] ✅ 使用模型接口: ${display}`);
       return await response.json();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("请求失败");
@@ -577,13 +520,6 @@ export async function fetchModelsFromProvider(
               `${baseWithoutV1}/api/pricing`,
             ];
 
-      console.log(
-        `[Fetch Models] 📋 候选 URL 列表 (${candidateUrls.length} 个):`,
-      );
-      candidateUrls.forEach((url, index) => {
-        console.log(`  ${index + 1}. ${fullUrl(url, baseUrl)}`);
-      });
-
       data = await fetchJsonWithCandidates(candidateUrls, headers, baseUrl);
     } else {
       const url = baseUrl ? `${normalizeBaseUrl(baseUrl)}${apiPath}` : apiPath;
@@ -676,24 +612,16 @@ export async function fetchModelsFromProvider(
       const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
         ([, value]) => Boolean(value?.trim()),
       );
-      console.log(
-        "[Models] YutoAPI 分组配置:",
-        groupedEntries.map(([name]) => name),
-      );
       const fetchEntries =
         groupedEntries.length > 0
           ? groupedEntries
           : [["default", apiKey || ""]];
       const mergedModelMap = new Map<string, LLMModel>();
+      let addedCount = 0;
+      let updatedCount = 0;
 
       for (const [groupName, groupApiKey] of fetchEntries) {
         if (!groupApiKey) continue;
-        console.log(
-          `[Models] 正在获取分组: ${groupName}, API Key: ${groupApiKey.slice(
-            0,
-            10,
-          )}...`,
-        );
         const groupedHeaders: Record<string, string> = {
           Authorization: `Bearer ${groupApiKey}`,
           ...(baseUrl ? { "x-base-url": baseUrl } : {}),
@@ -710,9 +638,6 @@ export async function fetchModelsFromProvider(
           Array.isArray(groupedData.data)
             ? groupedData.data
             : [];
-        console.log(
-          `[Models] 分组 ${groupName} 获取到 ${groupedModels.length} 个模型`,
-        );
         const groupedVendorsMap: Record<
           number,
           { name: string; icon?: string }
@@ -737,8 +662,7 @@ export async function fetchModelsFromProvider(
           const existing = mergedModelMap.get(key);
 
           if (!existing) {
-            // 新模型，直接添加
-            console.log(`[Models] 新模型: ${model.name} -> 分组: ${groupName}`);
+            addedCount += 1;
             mergedModelMap.set(key, model);
           } else {
             const existingPriority = getYutoApiKeyGroupPriority(
@@ -751,22 +675,17 @@ export async function fetchModelsFromProvider(
             );
 
             if (nextPriority > existingPriority) {
-              console.log(
-                `[Models] 更新模型 ${model.name} 分组: ${existing.apiKeyGroup} -> ${groupName}`,
-              );
+              updatedCount += 1;
               mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
-            } else {
-              console.log(
-                `[Models] 模型 ${model.name} 分组不变: ${
-                  existing.apiKeyGroup || groupName
-                }`,
-              );
             }
           }
         });
       }
 
       const mappedModels = [...mergedModelMap.values()];
+      console.log(
+        `[Models] YutoAPI 分组合并完成: 新增 ${addedCount}，更新 ${updatedCount}，最终 ${mappedModels.length} 个模型`,
+      );
       return {
         models: mappedModels,
         total: mappedModels.length,

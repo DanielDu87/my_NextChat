@@ -15,6 +15,7 @@ import {
   ServiceProvider,
 } from "../constant";
 import { createPersistStore } from "../utils/store";
+import { normalizePublishedAt } from "../utils/model-published-at";
 import type { Voice } from "rt-client";
 
 export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
@@ -245,6 +246,49 @@ export const useAppConfig = createPersistStore(
 
       for (const model of newModels) {
         model.available = true;
+        const key = `${model.name}@${model?.provider?.id}`;
+        const existing = oldModels.find(
+          (item) => `${item.name}@${item?.provider?.id}` === key,
+        );
+        const shouldPreserveManualCategory =
+          !!existing?.category &&
+          (existing.categorySource === 1 ||
+            existing.categorySource === undefined);
+
+        if (shouldPreserveManualCategory) {
+          model.category = existing.category;
+          model.categorySource = 1;
+        }
+        const existingCategories = Array.isArray(existing?.categories)
+          ? existing.categories
+          : undefined;
+        if (
+          shouldPreserveManualCategory &&
+          existingCategories &&
+          existingCategories.length > 0
+        ) {
+          model.categories = existingCategories;
+        }
+        if (!shouldPreserveManualCategory && model.category) {
+          model.categorySource = model.categorySource ?? 0;
+        }
+        const existingPublishedAt = normalizePublishedAt(existing?.publishedAt);
+        const nextPublishedAt = normalizePublishedAt(model.publishedAt);
+        if (
+          existingPublishedAt &&
+          (!nextPublishedAt || existing?.publishedAtSource === "manual")
+        ) {
+          model.publishedAt = existingPublishedAt;
+          model.publishedAtSource = existing?.publishedAtSource;
+          model.publishedAtUrl =
+            typeof existing?.publishedAtUrl === "string"
+              ? existing.publishedAtUrl
+              : undefined;
+          model.publishedAtNote =
+            typeof existing?.publishedAtNote === "string"
+              ? existing.publishedAtNote
+              : undefined;
+        }
         modelMap[`${model.name}@${model?.provider?.id}`] = model;
       }
 

@@ -26,6 +26,7 @@ import { XAIApi } from "./platforms/xai";
 import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
+import type { ModelPublishedAtSource } from "../utils/model-published-at";
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -108,11 +109,18 @@ export interface LLMModel {
   available: boolean;
   provider: LLMModelProvider;
   sorted: number;
+  publishedAt?: number;
+  publishedAtSource?: ModelPublishedAtSource;
+  publishedAtUrl?: string;
+  publishedAtNote?: string;
   vendor?: LLMModelVendor; // 供应商信息
+  category?: string;
+  categorySource?: 0 | 1;
   type?: string;
   types?: string[];
   features?: string[];
   capabilities?: string[];
+  categories?: string[];
   apiKeyGroup?: string;
 }
 

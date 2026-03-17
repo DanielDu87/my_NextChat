@@ -625,18 +625,23 @@ export function ChatActions(props: {
   };
   const hasModelMetadata = (
     meta: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
     },
     keywords: string[],
   ) => {
     const values = [
+      meta.category,
       meta.type,
       ...(meta.types ?? []),
       ...(meta.features ?? []),
       ...(meta.capabilities ?? []),
+      ...(meta.categories ?? []),
     ]
       .filter(Boolean)
       .map((value) => String(value).toLowerCase());
@@ -648,10 +653,13 @@ export function ChatActions(props: {
   const isImageGenerationModel = (item: {
     title: string;
     meta?: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
     };
   }) =>
     hasModelMetadata(item.meta ?? {}, ["image", "vision", "generate-image"]) ||
@@ -676,10 +684,13 @@ export function ChatActions(props: {
   const isThinkingModel = (item: {
     title: string;
     meta?: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
     };
   }) =>
     hasModelMetadata(item.meta ?? {}, ["reason", "thinking"]) ||
@@ -699,10 +710,13 @@ export function ChatActions(props: {
   const isVideoGenerationModel = (item: {
     title: string;
     meta?: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
     };
   }) =>
     hasModelMetadata(item.meta ?? {}, ["video", "generate-video"]) ||
@@ -725,10 +739,13 @@ export function ChatActions(props: {
   const isWebSearchModel = (item: {
     title: string;
     meta?: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
     };
   }) =>
     hasModelMetadata(item.meta ?? {}, [
@@ -1691,21 +1708,32 @@ function _Chat() {
   const isImageGenerationModel = (item: any) => {
     return (
       item?.meta?.capabilities?.includes("image") ||
+      item?.meta?.category === "image" ||
+      item?.meta?.categories?.includes("image") ||
       item?.meta?.capability === "image"
     );
   };
   const isVideoGenerationModel = (item: any) => {
     return (
       item?.meta?.capabilities?.includes("video") ||
+      item?.meta?.category === "video" ||
+      item?.meta?.categories?.includes("video") ||
       item?.meta?.capability === "video"
     );
   };
   const isWebSearchModel = (item: any) => {
-    return item?.meta?.features?.includes("web_search");
+    return (
+      item?.meta?.features?.includes("web_search") ||
+      item?.meta?.features?.includes("web") ||
+      item?.meta?.category === "web" ||
+      item?.meta?.categories?.includes("web")
+    );
   };
   const isThinkingModel = (item: any) => {
     return (
       item?.meta?.features?.includes("thinking") ||
+      item?.meta?.category === "thinking" ||
+      item?.meta?.categories?.includes("thinking") ||
       item?.meta?.type === "thinking"
     );
   };
@@ -3064,6 +3092,8 @@ function _Chat() {
           items={models.map((m) => ({
             title: `${m.displayName}`,
             value: `${m.name}@${m?.provider?.providerName}`,
+            order: m.sorted,
+            publishedAt: m.publishedAt,
             group: globalCustomModelValueSet.has(
               `${m.name}@${m?.provider?.providerName}`,
             )
@@ -3074,10 +3104,13 @@ function _Chat() {
                   m?.vendor?.name,
                 ),
             meta: {
+              category: m.category,
+              categorySource: m.categorySource,
               type: m.type,
               types: m.types,
               features: m.features,
               capabilities: m.capabilities,
+              categories: m.categories,
               vendorName: m.vendor?.name,
             },
           }))}

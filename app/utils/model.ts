@@ -1,5 +1,6 @@
 import { DEFAULT_MODELS, ServiceProvider } from "../constant";
 import { LLMModel } from "../client/api";
+import { comparePublishedAt } from "./model-published-at";
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -28,14 +29,7 @@ const customProvider = (providerName: string) => ({
  * First, sorted by provider; if the same, sorted by model
  */
 const sortModelTable = (models: ReturnType<typeof collectModels>) =>
-  models.sort((a, b) => {
-    if (a.provider && b.provider) {
-      let cmp = a.provider.sorted - b.provider.sorted;
-      return cmp === 0 ? a.sorted - b.sorted : cmp;
-    } else {
-      return a.sorted - b.sorted;
-    }
-  });
+  models.sort((a, b) => comparePublishedAt(a, b));
 
 /**
  * get model name and provider from a formatted string,
@@ -59,12 +53,19 @@ export function collectModelTable(
       name: string;
       displayName: string;
       sorted: number;
+      publishedAt?: number;
+      publishedAtSource?: LLMModel["publishedAtSource"];
+      publishedAtUrl?: LLMModel["publishedAtUrl"];
+      publishedAtNote?: LLMModel["publishedAtNote"];
       provider?: LLMModel["provider"]; // Marked as optional
       vendor?: LLMModel["vendor"]; // 供应商信息
+      category?: LLMModel["category"];
+      categorySource?: LLMModel["categorySource"];
       type?: LLMModel["type"];
       types?: LLMModel["types"];
       features?: LLMModel["features"];
       capabilities?: LLMModel["capabilities"];
+      categories?: LLMModel["categories"];
       isDefault?: boolean;
     }
   > = {};

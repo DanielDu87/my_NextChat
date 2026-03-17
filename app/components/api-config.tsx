@@ -922,11 +922,6 @@ export function ApiConfigPage() {
       const checkInterval = setInterval(() => {
         const state = useSyncStore.getState() as any;
         const hasHydrated = state?._hasHydrated;
-        console.log(
-          `[API Config] 🔍 等待 store 水合... _hasHydrated=${hasHydrated}, webdav.endpoint=${
-            state?.webdav?.endpoint || "(空)"
-          }`,
-        );
 
         if (hasHydrated) {
           clearInterval(checkInterval);

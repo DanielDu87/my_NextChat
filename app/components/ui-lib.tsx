@@ -27,6 +27,7 @@ import React, {
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
+import { comparePublishedAt } from "../utils/model-published-at";
 
 export function Popover(props: {
   children: JSX.Element;
@@ -518,15 +519,19 @@ export function Selector<T>(props: {
     disable?: boolean;
     group?: string;
     order?: number;
+    publishedAt?: number;
     rightAction?: {
       text: string;
       onClick: (value: T) => void;
     };
     meta?: {
+      category?: string;
+      categorySource?: 0 | 1;
       type?: string;
       types?: string[];
       features?: string[];
       capabilities?: string[];
+      categories?: string[];
       vendorName?: string;
     };
   }>;
@@ -546,15 +551,19 @@ export function Selector<T>(props: {
       disable?: boolean;
       group?: string;
       order?: number;
+      publishedAt?: number;
       rightAction?: {
         text: string;
         onClick: (value: T) => void;
       };
       meta?: {
+        category?: string;
+        categorySource?: 0 | 1;
         type?: string;
         types?: string[];
         features?: string[];
         capabilities?: string[];
+        categories?: string[];
         vendorName?: string;
       };
     }) => boolean;
@@ -822,232 +831,20 @@ export function Selector<T>(props: {
       buckets.get(groupKey)!.push(item);
     });
 
-    const publishedModelSeries: Record<
-      string,
-      Array<{ pattern: RegExp; publishedAt: number }>
-    > = {
-      OpenAI: [
-        { pattern: /\bgpt-5\b/i, publishedAt: 20250807 },
-        { pattern: /\bgpt-4\.1\b/i, publishedAt: 20250414 },
-        { pattern: /\bo4-mini\b/i, publishedAt: 20250416 },
-        { pattern: /\bo3\b/i, publishedAt: 20250416 },
-        { pattern: /\bgpt-4o\b/i, publishedAt: 20240513 },
-        { pattern: /\bgpt-4o-mini\b/i, publishedAt: 20240718 },
-        { pattern: /\bo1\b/i, publishedAt: 20240912 },
-      ],
-      Google: [
-        { pattern: /\bgemini-3(?:$|[^.\d])/i, publishedAt: 20251118 },
-        { pattern: /\bgemini-3-(?:pro|flash)\b/i, publishedAt: 20251118 },
-        { pattern: /\bgemini-2\.5-flash-image\b/i, publishedAt: 20251002 },
-        { pattern: /\bgemini-2\.5-flash-lite\b/i, publishedAt: 20250722 },
-        {
-          pattern: /\bgemini-2\.5-pro-preview-05-06\b/i,
-          publishedAt: 20250506,
-        },
-        {
-          pattern: /\bgemini-2\.5-pro-preview-03-25\b/i,
-          publishedAt: 20250325,
-        },
-        { pattern: /\bgemini-2\.5-pro\b/i, publishedAt: 20250617 },
-        {
-          pattern: /\bgemini-2\.5-flash-preview-04-17\b/i,
-          publishedAt: 20250417,
-        },
-        { pattern: /\bgemini-2\.5-flash\b/i, publishedAt: 20250617 },
-        { pattern: /\bgemini-2\.0-flash-lite\b/i, publishedAt: 20250225 },
-        { pattern: /\bgemini-2\.0-flash\b/i, publishedAt: 20250205 },
-        { pattern: /\bgemini-1\.5-pro\b/i, publishedAt: 20240215 },
-        { pattern: /\bgemini-1\.5-flash\b/i, publishedAt: 20240514 },
-      ],
-      Anthropic: [
-        { pattern: /\bclaude-sonnet-4\b/i, publishedAt: 20250522 },
-        { pattern: /\bclaude-opus-4\b/i, publishedAt: 20250522 },
-        { pattern: /\bclaude-3\.7-sonnet\b/i, publishedAt: 20250224 },
-        { pattern: /\bclaude-3\.5-sonnet\b/i, publishedAt: 20240620 },
-        { pattern: /\bclaude-3\.5-haiku\b/i, publishedAt: 20241022 },
-      ],
-      Grok: [
-        { pattern: /\bgrok-3\b/i, publishedAt: 20250217 },
-        { pattern: /\bgrok-2\b/i, publishedAt: 20240813 },
-      ],
-      DeepSeek: [
-        { pattern: /\bdeepseek-v3\.2-exp\b/i, publishedAt: 20250929 },
-        { pattern: /\bdeepseek-v3\.2\b/i, publishedAt: 20251201 },
-        { pattern: /\bdeepseek-v3\.1-terminus\b/i, publishedAt: 20250922 },
-        { pattern: /\bdeepseek-v3\.1\b/i, publishedAt: 20250821 },
-        { pattern: /\bdeepseek-r1-0528\b/i, publishedAt: 20250528 },
-        { pattern: /\bdeepseek-v3-0324\b/i, publishedAt: 20250324 },
-        { pattern: /\bdeepseek-r1\b/i, publishedAt: 20250120 },
-        { pattern: /\bdeepseek-v3\b/i, publishedAt: 20241226 },
-        { pattern: /\bdeepseek-reasoner\b/i, publishedAt: 20250528 },
-        { pattern: /\bdeepseek-chat\b/i, publishedAt: 20250821 },
-      ],
-      ByteDance: [
-        { pattern: /\bdoubao-1\.5\b/i, publishedAt: 20250122 },
-        { pattern: /\bseed-oss\b/i, publishedAt: 20250115 },
-        { pattern: /\bdoubao\b/i, publishedAt: 20240515 },
-      ],
-      Qwen: [
-        { pattern: /\bqwen3\b/i, publishedAt: 20250429 },
-        { pattern: /\bqwq-32b\b/i, publishedAt: 20250306 },
-        { pattern: /\bqwen2\.5\b/i, publishedAt: 20240919 },
-        { pattern: /\bqwen2\b/i, publishedAt: 20240607 },
-      ],
-      Moonshot: [
-        { pattern: /\bkimi-k2\b/i, publishedAt: 20250711 },
-        { pattern: /\bkimi\b/i, publishedAt: 20240318 },
-        { pattern: /\bmoonshot\b/i, publishedAt: 20240318 },
-      ],
-      Baidu: [
-        { pattern: /\bernie-4\.5\b/i, publishedAt: 20250316 },
-        { pattern: /\bernie-4\.0\b/i, publishedAt: 20231017 },
-        { pattern: /\bernie\b/i, publishedAt: 20231017 },
-      ],
-    };
-
-    const getPublishedAt = (groupKey: string, title: string) => {
-      const rules = publishedModelSeries[groupKey];
-      if (!rules) return 0;
-      const matched = rules.find((rule) => rule.pattern.test(title));
-      return matched?.publishedAt ?? 0;
-    };
-
-    const getEffectivePublishedAt = (groupKey: string, title: string) => {
-      const curatedPublishedAt = getPublishedAt(groupKey, title);
-      if (curatedPublishedAt > 0) {
-        return curatedPublishedAt;
-      }
-
-      const normalized = title.toLowerCase();
-      const releaseDateMatch = normalized.match(
-        /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/,
-      );
-      return releaseDateMatch
-        ? Number(releaseDateMatch[0].replace(/[-_.]/g, ""))
-        : 0;
-    };
-
-    const getSortTokens = (text: string) => {
-      const normalized = text.toLowerCase();
-      const dateMatch = normalized.match(
-        /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/,
-      );
-      const versionMatches = Array.from(
-        normalized.matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
-      ).map((match) => match[0]);
-      const previewBoost =
-        normalized.includes("latest") ||
-        normalized.includes("preview") ||
-        normalized.includes("pro") ||
-        normalized.includes("sonnet") ||
-        normalized.includes("opus")
-          ? 1
-          : 0;
-
-      return {
-        date: dateMatch ? Number(dateMatch[0].replace(/[-_.]/g, "")) : 0,
-        versions: versionMatches.map((value) =>
-          value.split(".").map((part) => Number(part)),
-        ),
-        previewBoost,
-        normalized,
-      };
-    };
-
-    const compareVersionLists = (left: number[][], right: number[][]) => {
-      const maxLength = Math.max(left.length, right.length);
-      for (let i = 0; i < maxLength; i += 1) {
-        const leftParts = left[i] ?? [];
-        const rightParts = right[i] ?? [];
-        const maxParts = Math.max(leftParts.length, rightParts.length);
-        for (let j = 0; j < maxParts; j += 1) {
-          const diff = (rightParts[j] ?? -1) - (leftParts[j] ?? -1);
-          if (diff !== 0) return diff;
-        }
-      }
-      return 0;
-    };
-
-    const getPrimaryVersion = (versions: number[][]) => {
-      if (versions.length === 0) return [];
-
-      const semanticVersions = versions.filter((parts) => parts.length > 1);
-      const candidates =
-        semanticVersions.length > 0 ? semanticVersions : versions;
-
-      return candidates.reduce((best, current) => {
-        const maxParts = Math.max(best.length, current.length);
-        for (let i = 0; i < maxParts; i += 1) {
-          const diff = (current[i] ?? -1) - (best[i] ?? -1);
-          if (diff > 0) return current;
-          if (diff < 0) return best;
-        }
-        return best;
-      }, candidates[0]);
-    };
-
-    const comparePrimaryVersion = (left: number[], right: number[]) => {
-      const maxLength = Math.max(left.length, right.length);
-      for (let i = 0; i < maxLength; i += 1) {
-        const diff = (right[i] ?? -1) - (left[i] ?? -1);
-        if (diff !== 0) return diff;
-      }
-      return 0;
-    };
-
     const sortedGroupOrder = [
       ...availableGroups.filter((groupKey) => buckets.has(groupKey)),
       ...groupOrder.filter((groupKey) => !availableGroups.includes(groupKey)),
     ];
 
     sortedGroupOrder.forEach((groupKey) => {
-      const items = (buckets.get(groupKey) ?? []).slice().sort((a, b) => {
-        const left = getSortTokens(a.title);
-        const right = getSortTokens(b.title);
-        const leftPublishedAt = getEffectivePublishedAt(groupKey, a.title);
-        const rightPublishedAt = getEffectivePublishedAt(groupKey, b.title);
-        const primaryVersionDiff = comparePrimaryVersion(
-          getPrimaryVersion(left.versions),
-          getPrimaryVersion(right.versions),
+      const items = (buckets.get(groupKey) ?? [])
+        .slice()
+        .sort((a, b) =>
+          comparePublishedAt(
+            { name: a.title, publishedAt: a.publishedAt, order: a.order },
+            { name: b.title, publishedAt: b.publishedAt, order: b.order },
+          ),
         );
-
-        // 优先尊重上游/API 原始顺序，很多供应商本身就是按最新在前返回的。
-        const leftOrder = a.order ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = b.order ?? Number.MAX_SAFE_INTEGER;
-        if (leftOrder !== rightOrder) {
-          return leftOrder - rightOrder;
-        }
-
-        // API 顺序不足以区分时，再按已知/可解析发布时间兜底。
-        if (leftPublishedAt > 0 || rightPublishedAt > 0) {
-          const publishedDiff = rightPublishedAt - leftPublishedAt;
-          if (publishedDiff !== 0) {
-            return publishedDiff;
-          }
-        }
-
-        if (primaryVersionDiff !== 0) {
-          return primaryVersionDiff;
-        }
-
-        if (right.date !== left.date) {
-          return right.date - left.date;
-        }
-
-        const versionDiff = compareVersionLists(left.versions, right.versions);
-        if (versionDiff !== 0) {
-          return versionDiff;
-        }
-
-        if (right.previewBoost !== left.previewBoost) {
-          return right.previewBoost - left.previewBoost;
-        }
-
-        return a.title.localeCompare(b.title, undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-      });
       const groupLabel = groupKey === "__default__" ? "" : groupKey;
 
       if (groupLabel) {
