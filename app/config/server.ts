@@ -12,6 +12,17 @@ declare global {
 
       BASE_URL?: string;
       OPENAI_ORG_ID?: string; // openai only
+      DATABASE_URL?: string;
+      PGHOST?: string;
+      PGPORT?: string;
+      PGDATABASE?: string;
+      PGUSER?: string;
+      PGPASSWORD?: string;
+      PGSSL?: string;
+      PGSSLMODE?: string;
+      PGPOOL_MAX?: string;
+      PG_CONNECT_TIMEOUT_MS?: string;
+      PG_IDLE_TIMEOUT_MS?: string;
 
       VERCEL?: string;
       BUILD_MODE?: "standalone" | "export";
@@ -96,6 +107,9 @@ declare global {
       DEFAULT_INPUT_TEMPLATE?: string;
 
       ENABLE_MCP?: string; // enable mcp functionality
+      WEBDAV_BASE_URL?: string;
+      WEBDAV_USERNAME?: string;
+      WEBDAV_PASSWORD?: string;
     }
   }
 }
