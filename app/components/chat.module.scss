@@ -284,55 +284,46 @@
 }
 
 :global(body.light) .model-selector-hint-provider-button {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(203, 213, 225, 0.95);
-  color: #475569;
+  background: var(--second);
+  border: var(--border-in-light);
+  color: var(--primary);
 
   :global(svg) {
-    stroke: #475569 !important;
+    stroke: var(--primary) !important;
     path {
-      stroke: #475569 !important;
+      stroke: var(--primary) !important;
     }
   }
 
   &:hover {
-    background: rgb(239, 246, 255);
-    color: #475569;
-    border-color: #60a5fa;
-    box-shadow:
-      0 0 0 3px rgba(96, 165, 250, 0.18),
-      0 14px 28px rgba(15, 23, 42, 0.12);
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 0.5px #0ea5e9;
     transform: translateY(-1px);
   }
 
   &:focus {
-    background: rgb(239, 246, 255);
-    color: #475569;
-    border-color: #60a5fa;
-    box-shadow:
-      0 0 0 3px rgba(96, 165, 250, 0.18),
-      0 14px 28px rgba(15, 23, 42, 0.12);
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 0.5px #0ea5e9;
     transform: translateY(-1px);
   }
 }
 
 :global(body.light) .model-selector-provider-open {
-  background: #eff6ff;
-  border-color: rgba(96, 165, 250, 0.72);
+  background: var(--second);
+  border: var(--border-in-light);
 }
 
 :global(body.light) .model-selector-provider-open :global(svg:last-child) {
-  stroke: #475569 !important;
+  stroke: var(--primary) !important;
   path {
-    stroke: #475569 !important;
+    stroke: var(--primary) !important;
   }
 }
 
 :global(body.light) .model-selector-hint-count {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(203, 213, 225, 0.95);
-  color: #475569;
-  box-shadow: 0 10px 24px rgba(148, 163, 184, 0.12);
+  background: var(--gray);
+  border: var(--border-in-light);
+  color: var(--black);
 }
 
 :global(body.light) .model-selector-provider-menu {
@@ -1023,17 +1014,17 @@
 }
 
 // 手动切换暗色模式
-:global(body:not(.light)) .model-selector-hint-label {
+:global(body.dark) .model-selector-hint-label {
   color: #e5e7eb;
 }
 
-:global(body:not(.light)) .model-selector-hint-count {
+:global(body.dark) .model-selector-hint-count {
   background: rgba(30, 41, 59, 0.8);
   border-color: rgba(71, 85, 105, 0.95);
   color: #cbd5e1;
 }
 
-:global(body:not(.light)) .model-selector-hint-provider-button {
+:global(body.dark) .model-selector-hint-provider-button {
   background: rgba(30, 41, 59, 0.8);
   border-color: rgba(71, 85, 105, 0.95);
   color: #60a5fa;
@@ -1059,7 +1050,7 @@
   }
 }
 
-:global(body:not(.light)) .model-selector-provider-open :global(svg:last-child) {
+:global(body.dark) .model-selector-provider-open :global(svg:last-child) {
   stroke: #60a5fa !important;
   path {
     stroke: #60a5fa !important;
@@ -1067,7 +1058,7 @@
   filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
 }
 
-:global(body:not(.light)) .model-selector-provider-open:hover :global(svg:last-child) {
+:global(body.dark) .model-selector-provider-open:hover :global(svg:last-child) {
   stroke: #60a5fa !important;
   path {
     stroke: #60a5fa !important;
@@ -1075,13 +1066,13 @@
   filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
 }
 
-:global(body:not(.light)) .model-selector-provider-menu {
+:global(body.dark) .model-selector-provider-menu {
   background: #111827 !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
 }
 
-:global(body:not(.light)) .model-selector-provider-option {
+:global(body.dark) .model-selector-provider-option {
   background: #1e293b !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   color: #94a3b8 !important;
@@ -1096,7 +1087,7 @@
   }
 }
 
-:global(body:not(.light)) .model-selector-provider-option-active {
+:global(body.dark) .model-selector-provider-option-active {
   background: rgba(59, 130, 246, 0.2) !important;
   color: #60a5fa !important;
   border-color: rgba(96, 165, 250, 0.6) !important;
@@ -1164,9 +1155,113 @@
   }
 }
 
-:global(body:not(.light)) .provider-switch-toast-content {
+:global(body.dark) .provider-switch-toast-content {
   background: rgba(96, 165, 250, 0.9);
   color: #ffffff;
   box-shadow: 0 8px 24px rgba(96, 165, 250, 0.3);
   border: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .model-selector-hint-label {
+    color: #e5e7eb;
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-hint-count {
+    background: rgba(30, 41, 59, 0.8);
+    border-color: rgba(71, 85, 105, 0.95);
+    color: #cbd5e1;
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-hint-provider-button {
+    background: rgba(30, 41, 59, 0.8);
+    border-color: rgba(71, 85, 105, 0.95);
+    color: #60a5fa;
+
+    :global(svg) {
+      stroke: #94a3b8 !important;
+      path {
+        stroke: #94a3b8 !important;
+      }
+    }
+
+    &:hover {
+      border-color: rgba(96, 165, 250, 0.9);
+      transform: translateY(-1px);
+
+      :global(svg) {
+        stroke: #60a5fa !important;
+        path {
+          stroke: #60a5fa !important;
+        }
+        filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+      }
+    }
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-provider-open :global(svg:last-child) {
+    stroke: #60a5fa !important;
+    path {
+      stroke: #60a5fa !important;
+    }
+    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-provider-open:hover :global(svg:last-child) {
+    stroke: #60a5fa !important;
+    path {
+      stroke: #60a5fa !important;
+    }
+    filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-provider-menu {
+    background: #111827 !important;
+    border-color: rgba(71, 85, 105, 0.95) !important;
+    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-provider-option {
+    background: #1e293b !important;
+    border-color: rgba(71, 85, 105, 0.95) !important;
+    color: #94a3b8 !important;
+
+    &:hover,
+    &:focus {
+      background: rgba(59, 130, 246, 0.15) !important;
+      color: #60a5fa !important;
+      border-color: rgba(96, 165, 250, 0.9) !important;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3), 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+      transform: translateY(-1px) !important;
+    }
+  }
+
+  :global(body:not(.light):not(.dark)) .model-selector-provider-option-active {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #60a5fa !important;
+    border-color: rgba(96, 165, 250, 0.6) !important;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2) !important;
+
+    span {
+      overflow: visible !important;
+      text-overflow: clip !important;
+      font-size: clamp(11px, 1.5vw, 13px) !important;
+    }
+
+    // 钩图标颜色
+    > :global(svg) {
+      stroke: #93c5fd !important;
+    }
+
+    &:hover {
+      border-color: rgba(96, 165, 250, 0.9) !important;
+    }
+  }
+
+  :global(body:not(.light):not(.dark)) .provider-switch-toast-content {
+    background: rgba(96, 165, 250, 0.9);
+    color: #ffffff;
+    box-shadow: 0 8px 24px rgba(96, 165, 250, 0.3);
+    border: none;
+  }
 }

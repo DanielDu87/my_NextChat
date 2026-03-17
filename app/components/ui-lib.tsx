@@ -658,8 +658,7 @@ export function Selector<T>(props: {
     return group;
   };
   const localGroupIconMap: Record<string, string> = {
-    // 所有图标统一使用 ico 格式
-    aihubmix: "/provider-icons/aihubmix.png",
+    // 仅保留已存在的本地官方 PNG，避免显示损坏图片
     alibaba: "/provider-icons/alibaba.png",
     anthropic: "/provider-icons/anthropic.png",
     baai: "/provider-icons/baai-official.png",
@@ -668,16 +667,11 @@ export function Selector<T>(props: {
     bytedance: "/provider-icons/bytedance.png",
     cohere: "/provider-icons/cohere-official.png",
     deepseek: "/provider-icons/deepseek.png",
-    fireworks: "/provider-icons/fireworks-official.png",
     flux: "/provider-icons/flux-official.png",
     google: "/provider-icons/google.png",
-    groq: "/provider-icons/groq-official.png",
     ideogram: "/provider-icons/ideogram-official.png",
-    iflytek: "/provider-icons/iflytek.png",
-    inclusionai: "/provider-icons/inclusionai-official.png",
     jina: "/provider-icons/jina-official.png",
     "jina ai": "/provider-icons/jina-official.png",
-    lingyi: "/provider-icons/lingyi.png",
     meituan: "/provider-icons/meituan-official.png",
     meta: "/provider-icons/meta-official.png",
     microsoft: "/provider-icons/microsoft.png",
@@ -685,22 +679,15 @@ export function Selector<T>(props: {
     mistral: "/provider-icons/mistral-official.png",
     moonshot: "/provider-icons/moonshot.png",
     nvidia: "/provider-icons/nvidia-official.png",
-    ocoolai: "/provider-icons/ocoolai.png",
     openai: "/provider-icons/openai.png",
     perplexity: "/provider-icons/perplexity-official.png",
     qwen: "/provider-icons/qwen-official.png",
     stability: "/provider-icons/stability.png",
     stepfun: "/provider-icons/stepfun.png",
     tencent: "/provider-icons/tencent.png",
-    together: "/provider-icons/together-official.png",
-    upstage: "/provider-icons/upstage-official.png",
     xai: "/provider-icons/xai.png",
     xiaomi: "/provider-icons/xiaomi.png",
-    yuto: "/provider-icons/yuto-official.png",
     zhipu: "/provider-icons/zhipu.png",
-    // 兼容旧映射
-    "01.ai": "/provider-icons/lingyi.png",
-    ascend: "/provider-icons/ascend.png",
   };
   const currentSelectedItem = props.items.find((item) =>
     selectedValues.includes(item.value),

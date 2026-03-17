@@ -1228,68 +1228,74 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :global(body:not(.light)) .selector {
+  :global(body:not(.light):not(.dark)) .selector {
     background-color: rgba(2, 6, 23, 0.58);
   }
 
-  :global(body:not(.light)) .selector-content {
+  :global(body:not(.light):not(.dark)) .selector-content {
     background: #0f172a;
     border-color: rgba(51, 65, 85, 0.95);
     box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
   }
 
-  :global(body:not(.light)) .selector-search-wrap,
-  :global(body:not(.light)) .selector-group-filter {
+  :global(body:not(.light):not(.dark)) .selector-search-wrap,
+  :global(body:not(.light):not(.dark)) .selector-group-filter {
     background: rgba(30, 41, 59, 0.8) !important;
     background-color: rgba(30, 41, 59, 0.8) !important;
     border-color: rgba(71, 85, 105, 0.95) !important;
     box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
   }
 
-  :global(body:not(.light)) .selector-header-hint .model-selector-hint {
+  :global(body:not(.light):not(.dark)) .selector-header-hint .model-selector-hint {
     background: #111827;
     border-color: rgba(71, 85, 105, 0.95);
     box-shadow: 0 12px 24px rgba(2, 6, 23, 0.3);
   }
 
-  :global(body:not(.light)) .selector-header-hint .model-selector-provider-menu {
+  :global(body:not(.light):not(.dark)) .selector-header-hint .model-selector-provider-menu {
     background: #111827;
     border-color: rgba(71, 85, 105, 0.95);
     box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3);
   }
 
-  :global(body:not(.light)) .selector-header-hint .model-selector-provider-option {
+  :global(body:not(.light):not(.dark)) .selector-header-hint .model-selector-provider-option {
     background: #1e293b;
     border-color: rgba(71, 85, 105, 0.95);
     color: #94a3b8;
   }
 
-  :global(body:not(.light)) .selector-header-hint .model-selector-provider-option:hover,
-  :global(body:not(.light)) .selector-header-hint .model-selector-provider-option:focus {
+  :global(body:not(.light):not(.dark))
+    .selector-header-hint
+    .model-selector-provider-option:hover,
+  :global(body:not(.light):not(.dark))
+    .selector-header-hint
+    .model-selector-provider-option:focus {
     background: rgba(30, 41, 59, 0.72);
     color: #1d4ed8;
     border-color: rgba(191, 219, 254, 0.95);
   }
 
-  :global(body:not(.light)) .selector-header-hint .model-selector-provider-option-active {
+  :global(body:not(.light):not(.dark))
+    .selector-header-hint
+    .model-selector-provider-option-active {
     background: rgba(37, 99, 235, 0.16);
     color: #60a5fa;
     border-color: rgba(96, 165, 250, 0.5);
   }
 
-  :global(body:not(.light)) .selector-search,
-  :global(body:not(.light)) .selector-group-filter,
-  :global(body:not(.light)) .selector-title {
+  :global(body:not(.light):not(.dark)) .selector-search,
+  :global(body:not(.light):not(.dark)) .selector-group-filter,
+  :global(body:not(.light):not(.dark)) .selector-title {
     color: #e5e7eb;
   }
 
-  :global(body:not(.light)) .selector-group-filter-arrow {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-arrow {
     color: #f8fafc;
     opacity: 1;
     filter: drop-shadow(0 0 6px rgba(191, 219, 254, 0.22));
   }
 
-  :global(body:not(.light)) .selector-group-filter :global(svg:last-child) {
+  :global(body:not(.light):not(.dark)) .selector-group-filter :global(svg:last-child) {
     stroke: #94a3b8 !important;
     path {
       stroke: #94a3b8 !important;
@@ -1297,26 +1303,28 @@
   }
 
   // 系统级 Dark 模式下图标保持原始样式
-  :global(body:not(.light)) .selector-group-filter-leading {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-leading {
     filter: none;
   }
 
-  :global(body:not(.light)) .selector-group-filter-icon-image {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-icon-image {
     filter: none;
   }
 
   // 系统级 Dark 模式下打开状态的优化
-  :global(body:not(.light)) .selector-group-filter-open {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-open {
     background: rgba(30, 41, 59, 0.8) !important;
     border-color: rgba(71, 85, 105, 0.95) !important;
     box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
   }
 
-  :global(body:not(.light)) .selector-group-filter-open:hover {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-open:hover {
     border-color: rgba(96, 165, 250, 0.9) !important;
   }
 
-  :global(body:not(.light)) .selector-group-filter-open :global(svg:last-child) {
+  :global(body:not(.light):not(.dark))
+    .selector-group-filter-open
+    :global(svg:last-child) {
     stroke: #60a5fa !important;
     path {
       stroke: #60a5fa !important;
@@ -1324,7 +1332,9 @@
     filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
   }
 
-  :global(body:not(.light)) .selector-group-filter-open:hover :global(svg:last-child) {
+  :global(body:not(.light):not(.dark))
+    .selector-group-filter-open:hover
+    :global(svg:last-child) {
     stroke: #60a5fa !important;
     path {
       stroke: #60a5fa !important;
@@ -1332,11 +1342,11 @@
     filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.5));
   }
 
-  :global(body:not(.light)) .selector-search::placeholder {
+  :global(body:not(.light):not(.dark)) .selector-search::placeholder {
     color: #94a3b8;
   }
 
-  :global(body:not(.light)) .selector-group-filter:hover {
+  :global(body:not(.light):not(.dark)) .selector-group-filter:hover {
     background: rgba(59, 130, 246, 0.15) !important;
     color: #60a5fa !important;
     border-color: rgba(96, 165, 250, 0.9) !important;
@@ -1352,52 +1362,52 @@
     }
   }
 
-  :global(body:not(.light)) .selector-group-filter:focus {
+  :global(body:not(.light):not(.dark)) .selector-group-filter:focus {
     border-color: rgba(96, 165, 250, 0.95);
     box-shadow:
       0 0 0 3px rgba(96, 165, 250, 0.2),
       0 14px 28px rgba(2, 6, 23, 0.38);
   }
 
-  :global(body:not(.light)) .selector-quick-filter {
+  :global(body:not(.light):not(.dark)) .selector-quick-filter {
     background: #111827;
     border-color: rgba(71, 85, 105, 0.9);
     color: #cbd5e1;
   }
 
-  :global(body:not(.light)) .selector-quick-filter:hover,
-  :global(body:not(.light)) .selector-quick-filter:focus {
+  :global(body:not(.light):not(.dark)) .selector-quick-filter:hover,
+  :global(body:not(.light):not(.dark)) .selector-quick-filter:focus {
     border-color: rgba(96, 165, 250, 0.9);
     color: #bfdbfe;
   }
 
-  :global(body:not(.light)) .selector-quick-filter-active {
+  :global(body:not(.light):not(.dark)) .selector-quick-filter-active {
     background: rgba(37, 99, 235, 0.18);
     border-color: rgba(96, 165, 250, 0.9);
     color: #bfdbfe;
   }
 
-  :global(body:not(.light)) .selector-group-filter-menu {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-menu {
     background: #0f172a;
     border-color: rgba(51, 65, 85, 0.95);
     box-shadow: 0 18px 36px rgba(2, 6, 23, 0.4);
   }
 
-  :global(body:not(.light)) .selector-group-filter-option {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option {
     background: #1e293b;
     border-color: rgba(71, 85, 105, 0.9);
     color: #f1f5f9;
   }
 
-  :global(body:not(.light)) .selector-group-filter-option:hover,
-  :global(body:not(.light)) .selector-group-filter-option:focus {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option:hover,
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option:focus {
     background: rgba(37, 99, 235, 0.25);
     border-color: rgba(96, 165, 250, 0.9);
     color: #bfdbfe;
     transform: translateY(-1px);
   }
 
-  :global(body:not(.light)) .selector-group-filter-option-active {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option-active {
     background: rgba(37, 99, 235, 0.3);
     border-color: rgba(96, 165, 250, 0.95);
     color: #bfdbfe;
@@ -1409,42 +1419,42 @@
     }
   }
 
-  :global(body:not(.light)) .selector .list .selector-group-count {
+  :global(body:not(.light):not(.dark)) .selector .list .selector-group-count {
     background: #111827 !important;
     border-color: rgba(71, 85, 105, 0.9) !important;
     color: #e5e7eb !important;
   }
 
-  :global(body:not(.light)) .selector .list {
+  :global(body:not(.light):not(.dark)) .selector .list {
     background: linear-gradient(180deg, #162033 0%, #111827 100%) !important;
     border-color: rgba(51, 65, 85, 0.95) !important;
     box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32) !important;
   }
 
-  :global(body:not(.light)) .selector .list .selector-group {
+  :global(body:not(.light):not(.dark)) .selector .list .selector-group {
     background: #162033 !important;
     color: #e5e7eb !important;
     border-bottom-color: rgba(51, 65, 85, 0.95) !important;
   }
 
-  :global(body:not(.light)) .selector .list .selector-group::after {
+  :global(body:not(.light):not(.dark)) .selector .list .selector-group::after {
     background: rgba(71, 85, 105, 0.9) !important;
   }
 
-  :global(body:not(.light)) .selector .list .list-item {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item {
     background-color: transparent !important;
     border-bottom-color: rgba(71, 85, 105, 0.82) !important;
   }
 
-  :global(body:not(.light)) .selector .list .list-item:hover {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:hover {
     background-color: rgba(30, 41, 59, 0.72) !important;
   }
 
-  :global(body:not(.light)) .selector .list .list-item:active {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:active {
     background-color: rgba(37, 99, 235, 0.16) !important;
   }
 
-  :global(body:not(.light)) .selector-content-centered .list .list-item {
+  :global(body:not(.light):not(.dark)) .selector-content-centered .list .list-item {
     border-bottom: 1px solid rgba(71, 85, 105, 0.82) !important;
   }
 }
