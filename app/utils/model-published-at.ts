@@ -140,6 +140,13 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     url: "https://openai.com/index/introducing-chatgpt-and-whisper-apis/",
   },
   {
+    pattern: /\bgpt-3\.5o(?:$|[-_.])/i,
+    publishedAt: 20230301,
+    source: "family",
+    url: "https://openai.com/index/introducing-chatgpt-and-whisper-apis/",
+    note: "渠道别名回退到 GPT-3.5 Turbo 首发日期。",
+  },
+  {
     pattern: /\btext-embedding-ada-002(?:$|[-_.])/i,
     publishedAt: 20221215,
     source: "official",
@@ -165,6 +172,13 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     url: "https://openai.com/index/introducing-chatgpt-and-whisper-apis/",
   },
   {
+    pattern: /\bwhisper-large-v3(?:-turbo)?(?:$|[-_.])/i,
+    publishedAt: 20231106,
+    source: "family",
+    url: "https://openai.com/index/new-models-and-developer-products-announced-at-devday/",
+    note: "OpenAI Whisper large-v3 系列回退到 DevDay 公布时间。",
+  },
+  {
     pattern:
       /\b(?:tts-1|tts-1-hd)(?:$|[-_.])|\b(?:tts-1|tts-1-hd)-1106(?:$|[-_.])/i,
     publishedAt: 20231106,
@@ -185,16 +199,53 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     url: "https://openai.com/index/new-embedding-models-and-api-updates/",
   },
   {
+    pattern: /\btext-moderation-007(?:$|[-_.])/i,
+    publishedAt: 20240125,
+    source: "official",
+    url: "https://openai.com/index/new-embedding-models-and-api-updates/",
+  },
+  {
     pattern: /\bdall-e-3(?:$|[-_.])/i,
     publishedAt: 20231106,
     source: "family",
     url: "https://openai.com/index/new-models-and-developer-products-announced-at-devday/",
   },
   {
+    pattern:
+      /\btext-search-ada-doc-001(?:$|[-_.])|\btext-(?:ada|babbage|curie)-001(?:$|[-_.])/i,
+    publishedAt: 20220125,
+    source: "family",
+    url: "https://openai.com/index/introducing-text-and-code-embeddings/",
+    note: "旧 embeddings/search 模型缺少逐个公告时，回退到 OpenAI embeddings API 首发日期。",
+  },
+  {
+    pattern:
+      /\b(?:text-davinci-edit-001|code-davinci-edit-001)(?:$|[-_.])|\btext-davinci-003(?:$|[-_.])/i,
+    publishedAt: 20220127,
+    source: "family",
+    url: "https://openai.com/index/instruction-following/",
+    note: "旧 Instruct / Edits 模型缺少逐个公告时，回退到 InstructGPT 官方发布时间。",
+  },
+  {
+    pattern: /\bdavinci(?:$|[-_.])/i,
+    publishedAt: 20200528,
+    source: "family",
+    url: "https://openai.com/index/language-models-are-few-shot-learners/",
+    note: "基础 GPT-3 completions 名称回退到 GPT-3 官方发布时间。",
+  },
+  {
     pattern: /\bsora-2(?:-pro)?(?:$|[-_.])/i,
     publishedAt: 20250930,
     source: "family",
     url: "https://openai.com/index/sora-2/",
+  },
+  {
+    pattern:
+      /\bsora(?:[-_:].+)?(?:$|[-_.])|\bsora[_-](?:image|image-vip|video2|characters)(?:$|[-_.])|\bgpt-video-2(?:-pro)?(?:$|[-_.])/i,
+    publishedAt: 20250930,
+    source: "family",
+    url: "https://openai.com/index/sora-2/",
+    note: "渠道包装名统一回退到可确认的 Sora 2 官方发布时间。",
   },
   {
     pattern: /\bcodex-mini(?:-latest)?(?:$|[-_.])/i,
@@ -258,11 +309,25 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     note: "渠道动作名回退到 ChatGPT Advanced Voice 首次公开上线日期。",
   },
   {
+    pattern: /\bsearch-gpts(?:-chat)?(?:$|[-_.])/i,
+    publishedAt: 20241031,
+    source: "family",
+    url: "https://openai.com/index/introducing-chatgpt-search/",
+    note: "渠道包装名回退到 ChatGPT Search 官方发布时间。",
+  },
+  {
     pattern: /\bgpt-image-test(?:$|[-_.])/i,
     publishedAt: 20250423,
     source: "family",
     url: "https://openai.com/index/image-generation-api/",
     note: "渠道测试别名回退到 GPT Image 1 首发日期。",
+  },
+  {
+    pattern: /\b(?:aihubmix-)?jamba-1[-_.]?5-large(?:$|[-_.])/i,
+    publishedAt: 20240801,
+    source: "family",
+    url: "https://docs.ai21.com/docs/jamba-foundation-models",
+    note: "AI21 官方文档仅给到 Jamba Large 1.5 的 2024-08 快照，按月首日写入。",
   },
   {
     pattern: /\bgemini-2[-.]5-(?:pro|flash)(?:$|[-_.])/i,
@@ -499,6 +564,12 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     url: "https://qwenlm.github.io/blog/qwen3-coder/",
   },
   {
+    pattern: /\bqwen1\.5-(?:7b|14b|32b|72b|110b)-chat(?:$|[-_.])/i,
+    publishedAt: 20240130,
+    source: "family",
+    url: "https://huggingface.co/Qwen/Qwen1.5-72B-Chat",
+  },
+  {
     pattern: /\bqwen3-embedding(?:$|[-_.])/i,
     publishedAt: 20250605,
     source: "family",
@@ -625,6 +696,12 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     url: "https://docs.bigmodel.cn/cn/update/new-releases",
   },
   {
+    pattern: /\bglm-4-plus(?:$|[-_.])/i,
+    publishedAt: 20240912,
+    source: "official",
+    url: "https://www.zhipuai.cn/en/news/69",
+  },
+  {
     pattern: /\b(?:coding-)?glm-4-6(?:$|[-_.])|\bglm-4\.6(?:$|[-_.])/i,
     publishedAt: 20250930,
     source: "family",
@@ -643,6 +720,40 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     source: "family",
     url: "https://docs.bigmodel.cn/cn/update/new-releases",
     note: "渠道名省略日期后缀时，回退到智谱 2025-04-14 同批发布日。",
+  },
+  {
+    pattern: /\bglm-4v-plus(?:$|[-_.])|\bglm-4v-plus-0111(?:$|[-_.])/i,
+    publishedAt: 20250111,
+    source: "family",
+    url: "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-4v-plus-0111",
+  },
+  {
+    pattern: /\bglm-zero-preview(?:$|[-_.])/i,
+    publishedAt: 20241201,
+    source: "official",
+    url: "https://www.zhipuai.cn/en/about",
+    note: "官方发展历程只给出 2024 年 12 月，按月首日写入。",
+  },
+  {
+    pattern:
+      /\bglm-3-turbo(?:$|[-_.])|\bchatglm[_-]?(?:lite|std|turbo|pro)(?:$|[-_.])/i,
+    publishedAt: 20230301,
+    source: "family",
+    url: "https://www.zhipuai.cn/en/about",
+    note: "官方发展历程只给出 ChatGLM 于 2023 年 3 月发布，未区分 Turbo/Lite/Std/Pro，按月首日回退。",
+  },
+  {
+    pattern: /\bcogview-3-plus(?:$|[-_.])/i,
+    publishedAt: 20240912,
+    source: "official",
+    url: "https://www.zhipuai.cn/en/news/69",
+  },
+  {
+    pattern: /\bcogview-3(?:$|[-_.])/i,
+    publishedAt: 20240912,
+    source: "family",
+    url: "https://www.zhipuai.cn/en/news/69",
+    note: "缺少单独公告时，先回退到官方新闻中可确认的 CogView-3-Plus 发布时间。",
   },
   {
     pattern: /\bjina-embeddings-v5-text-(?:small|nano)(?:$|[-_.])/i,
@@ -789,6 +900,91 @@ const PUBLISHED_AT_RULES: PublishedAtRule[] = [
     publishedAt: 20250403,
     source: "family",
     url: "https://runwayml.com/news/runway-series-d-funding",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?flux-pro\/v1\.1-ultra(?:$|[-_/].*)|\bflux-pro-v1\.1-ultra(?:$|[-_.]).*/i,
+    publishedAt: 20241106,
+    source: "family",
+    url: "https://bfl.ai/announcements/24-11-06-ultra",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?flux-pro\/v1\.1(?:$|[-_/].*)|\bflux-pro-v1\.1(?:$|[-_.]).*/i,
+    publishedAt: 20241002,
+    source: "family",
+    url: "https://bfl.ai/blog/24-10-02-flux",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?flux-pro\/kontext(?:$|[-_/].*)|\bflux-krea(?:$|[-_.].*)|\bblack-forest-labs\/flux-krea-dev(?:$|[-_.])/i,
+    publishedAt: 20250529,
+    source: "family",
+    url: "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+    note: "Kontext / Krea 路径名未区分独立发布日期时，回退到首个可确认公开发布时间。",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?flux(?:-1)?\/(?:dev|schnell)(?:$|[-_/].*)|\b(?:fal-ai\/)?flux-lora(?:$|[-_/].*)|\bflux(?:$|[-_.])/i,
+    publishedAt: 20240801,
+    source: "family",
+    url: "https://bfl.ai/blog/24-08-01-bfl",
+  },
+  {
+    pattern: /\b(?:fal-ai\/)?recraft(?:\/.*)?$|\brecraftv3(?:$|[-_.])/i,
+    publishedAt: 20241030,
+    source: "family",
+    url: "https://www.recraft.ai/blog/recraft-introduces-a-revolutionary-ai-model-that-thinks-in-design-language",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?luma-dream-machine(?:$|[-_/].*)|\bluma(?:[-_]video|_video_api|video)(?:$|[-_.])/i,
+    publishedAt: 20240612,
+    source: "family",
+    url: "https://lumalabs.ai/dream-machine",
+  },
+  {
+    pattern:
+      /\b(?:fal-ai\/)?vidu(?:\/.*)?$|\bvidu(?:1\.5|2\.0)?(?:$|[-_.])|\bviduq[123](?:[-_.]?(?:classic|pro|pro-fast|turbo))?(?:$|[-_.])/i,
+    publishedAt: 20240701,
+    source: "family",
+    url: "https://www.prnewswire.com/news-releases/shengshus-vidu-1-5-launches-a-new-era-of-multi-entity-consistent-video-generation-302303696.html",
+    note: "官方新闻只明确给出 Vidu 于 2024 年 7 月上线，按月首日写入兜底。",
+  },
+  {
+    pattern: /\bpika(?:-generate|-text-to-video)?(?:$|[-_.])/i,
+    publishedAt: 20231128,
+    source: "family",
+    url: "https://pika.art/blog/pika-1-0",
+  },
+  {
+    pattern: /\bpixverse(?:-character|-video(?:-v1)?)?(?:$|[-_.])/i,
+    publishedAt: 20240123,
+    source: "family",
+    url: "https://pixverse.ai/",
+    note: "PixVerse 动作名缺少单独时间时，回退到产品公开上线周期。",
+  },
+  {
+    pattern:
+      /\b(?:yi-(?:large|medium|lightning|vl-plus|large-rag|large-turbo))(?:$|[-_.])/i,
+    publishedAt: 20240510,
+    source: "family",
+    url: "https://huggingface.co/01-ai/Yi-1.5-34B-Chat",
+    note: "Yi 平台型号缺少逐个发布日期时，回退到 Yi 1.5 官方公开仓库创建时间。",
+  },
+  {
+    pattern: /\bbge-large-(?:en|zh)(?:$|[-_.])/i,
+    publishedAt: 20230912,
+    source: "family",
+    url: "https://huggingface.co/BAAI/bge-large-en-v1.5",
+  },
+  {
+    pattern:
+      /\bglm-4v(?:$|[-_.])|\bglm-4v-flash(?:$|[-_.])|\bglm-4-long(?:$|[-_.])/i,
+    publishedAt: 20240604,
+    source: "family",
+    url: "https://huggingface.co/zai-org/glm-4v-9b",
+    note: "视觉/长上下文别名缺少独立公告时，回退到 GLM-4V 公开仓库创建时间。",
   },
   {
     pattern:

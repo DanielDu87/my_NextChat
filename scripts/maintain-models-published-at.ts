@@ -25,7 +25,9 @@ type ModelsIndex = {
 type ModelRecord = {
   name?: string;
   vendor?: {
+    id?: number;
     name?: string;
+    icon?: string;
   };
   category?: string;
   categorySource?: 0 | 1;
@@ -371,6 +373,7 @@ function slugify(value: string) {
 function normalizeVendorName(vendor?: string) {
   const value = String(vendor || "").toLowerCase().trim();
   if (!value) return "";
+  if (value.includes("ai21")) return "ai21";
   if (value.includes("阿里") || value.includes("qwen")) return "alibaba";
   if (value.includes("字节")) return "bytedance";
   if (value.includes("智谱") || value === "zhipu" || value === "z ai") return "zhipu";
@@ -386,6 +389,48 @@ function normalizeVendorName(vendor?: string) {
   if (value.includes("baidu")) return "baidu";
   if (value.includes("tencent")) return "tencent";
   return value;
+}
+
+function normalizeModelVendor(model: ModelRecord): ModelRecord {
+  const name = String(model.name || "").trim();
+  const lowerName = name.toLowerCase();
+
+  if (!name) return model;
+
+  if (lowerName === "aihubmix-router") {
+    return {
+      ...model,
+      vendor: {
+        id: -1,
+        name: "AiHubMix",
+        icon: model.vendor?.icon,
+      },
+    };
+  }
+
+  if (/^(?:aihubmix-)?jamba-1[-_.]?5-large$/i.test(name)) {
+    return {
+      ...model,
+      vendor: {
+        id: -1,
+        name: "AI21",
+        icon: model.vendor?.icon,
+      },
+    };
+  }
+
+  if (/^distil-whisper-large-v3-en$/i.test(name)) {
+    return {
+      ...model,
+      vendor: {
+        id: -1,
+        name: "Hugging Face",
+        icon: model.vendor?.icon,
+      },
+    };
+  }
+
+  return model;
 }
 
 function stripTransportPrefix(name: string) {
@@ -613,6 +658,12 @@ function pipelineTagClassification(
 
 function normalizeCacheInfo(record?: CacheRecord): PublishedAtInfo | undefined {
   if (!record) return undefined;
+  if (
+    /^(?:aihubmix-)?jamba-1[-_.]?5-large$/i.test(String(record.modelName || "")) ||
+    /^distil-whisper-large-v3-en$/i.test(String(record.modelName || ""))
+  ) {
+    return undefined;
+  }
   const publishedAt = normalizePublishedAt(record.publishedAt);
   if (!publishedAt) return undefined;
   if (!record.publishedAtSource) return undefined;
@@ -983,6 +1034,24 @@ async function fetchHuggingFaceModel(modelId: string) {
   return huggingFaceCache.get(key)!;
 }
 
+function collectEmbeddedHuggingFaceIds(name: string) {
+  const values = new Set<string>();
+  const parts = name
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const namespace = parts[i];
+    const repo = parts[i + 1];
+    if (!/^[A-Za-z0-9._-]+$/.test(namespace)) continue;
+    if (!/^[A-Za-z0-9._-]+$/.test(repo)) continue;
+    values.add(`${namespace}/${repo}`);
+  }
+
+  return [...values];
+}
+
 function modalityClassificationToModalities(
   classification: Partial<NormalizedModelClassification>,
 ): ModelModalities | undefined {
@@ -1069,6 +1138,13 @@ function pickBestOpenRouterMatch(
   const normalizedVendor = normalizeVendorName(vendorName);
   const scored = entries
     .map((entry) => {
+      const exactMatch = candidates.some((candidate) =>
+        entry.lookupKeys.includes(candidate),
+      );
+      if (normalizedVendor && entry.vendor !== normalizedVendor && !exactMatch) {
+        return { entry, score: 0 };
+      }
+
       let score = 0;
       for (const candidate of candidates) {
         if (entry.lookupKeys.includes(candidate)) score += 120;
@@ -1092,7 +1168,17 @@ async function resolveSecondarySources(
   aaIndex: ArtificialAnalysisEntry[],
 ) {
   const modelName = String(model.name || "").trim();
+  const lowerName = modelName.toLowerCase();
   let resolved: SecondaryMatch | undefined;
+
+  if (/^(?:aihubmix-)?jamba-1[-_.]?5-large$/i.test(modelName)) {
+    return undefined;
+  }
+
+  if (lowerName === "distil-whisper-large-v3-en") {
+    return await fetchHuggingFaceModel("distil-whisper/distil-large-v3-openai");
+  }
+
   const stripped = stripTransportPrefix(modelName);
   const openRouterMatch =
     isOpenAIModel(model)
@@ -1144,10 +1230,20 @@ async function resolveSecondarySources(
   const rawName = String(model.name || "");
   if (rawName.includes("/")) {
     hfIdCandidates.add(rawName.replace(/:free$/i, ""));
+    collectEmbeddedHuggingFaceIds(rawName).forEach((value) =>
+      hfIdCandidates.add(value.replace(/:free$/i, "")),
+    );
   }
 
   const hfStripped = stripTransportPrefix(rawName);
   const vendor = normalizeVendorName(model.vendor?.name);
+  if (/^whisper-large-v3(?:-turbo)?$/i.test(rawName)) {
+    hfIdCandidates.add("openai/whisper-large-v3");
+  }
+  if (/^distil-whisper-large-v3-en$/i.test(rawName)) {
+    hfIdCandidates.add("distil-whisper/distil-large-v3-openai");
+    hfIdCandidates.add("distil-whisper/distil-large-v3");
+  }
   if (vendor === "google" && /^gemma[-\d]/i.test(hfStripped)) {
     hfIdCandidates.add(`google/${hfStripped}`);
   }
@@ -1162,6 +1258,7 @@ async function resolveSecondarySources(
   }
   if (vendor === "zhipu" && /^glm/i.test(hfStripped)) {
     hfIdCandidates.add(`THUDM/${hfStripped}`);
+    hfIdCandidates.add(`zai-org/${hfStripped}`);
   }
 
   for (const modelId of hfIdCandidates) {
@@ -1174,6 +1271,136 @@ async function resolveSecondarySources(
 
 function deriveAttemptedFamily(modelName: string) {
   return buildLookupCandidates(modelName)[0];
+}
+
+function resolveManualFallback(model: ModelRecord): PublishedAtInfo | undefined {
+  const name = String(model.name || "").trim();
+  const lowerName = name.toLowerCase();
+  const note = "渠道动作名或包装名缺少公开可核验发布时间，手动补录以便排序，不代表严格的官方首发日。";
+
+  const manual = (
+    publishedAt: number,
+    url: string,
+    extraNote?: string,
+  ): PublishedAtInfo => ({
+    publishedAt,
+    publishedAtSource: "manual",
+    publishedAtUrl: url,
+    publishedAtNote: extraNote ? `${note} ${extraNote}` : note,
+  });
+
+  if (
+    /^mj_|^midjourney$|^mj-chat$|^chat_(fast|relax)_/i.test(name) ||
+    normalizeVendorName(model.vendor?.name) === "midjourney"
+  ) {
+    return manual(20240730, "https://updates.midjourney.com/version-6-1/");
+  }
+
+  if (/^viggle/i.test(name) || lowerName.includes("viggle")) {
+    return manual(20240912, "https://viggle.ai/ja/blog/Discord");
+  }
+
+  if (/^baichuan/i.test(name) || normalizeVendorName(model.vendor?.name) === "baichuan") {
+    return manual(
+      20241031,
+      "https://www.ithome.com/0/806/772.htm",
+      "采用公开新闻中可确认的 Baichuan4 商业化发布时间。",
+    );
+  }
+
+  if (/^vidu/i.test(name) || lowerName.includes("/vidu/") || normalizeVendorName(model.vendor?.name) === "vidu") {
+    return manual(
+      20240701,
+      "https://www.prnewswire.com/news-releases/shengshus-vidu-1-5-launches-a-new-era-of-multi-entity-consistent-video-generation-302303696.html",
+      "公开新闻仅给到 2024 年 7 月上线，按月首日写入。",
+    );
+  }
+
+  if (/^fal-ai\/flux\/krea/i.test(name) || /^black-forest-labs\/flux-krea-dev$/i.test(name)) {
+    return manual(20250529, "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev");
+  }
+
+  if (/^fal-ai\/nano-banana\/edit$/i.test(name)) {
+    return manual(20250423, "https://openai.com/index/image-generation-api/");
+  }
+
+  if (/^(?:fal-ai\/bytedance\/seedream\/v4|fal-ai\/bytedance\/dreamina\/v3\.1|jimeng-3\.0|z-image)/i.test(name)) {
+    return manual(
+      20250301,
+      "https://www.volcengine.com/",
+      "字节图像包装名缺少单独发布日期，按家族平台公开可用周期补录。",
+    );
+  }
+
+  if (/^text-embedding-004$/i.test(name)) {
+    return manual(20250307, "https://developers.googleblog.com/en/gemini-embedding-text-model-now-available-gemini-api/");
+  }
+
+  if (/^text-embedding-v4$/i.test(name)) {
+    return manual(20250605, "https://qwenlm.github.io/blog/qwen3-embedding/");
+  }
+
+  if (/^text-embedding-v3$/i.test(name)) {
+    return manual(20240125, "https://openai.com/index/new-embedding-models-and-api-updates/");
+  }
+
+  if (/^embedding-gecko-001$/i.test(name)) {
+    return manual(20230314, "https://developers.googleblog.com/en/palm-api-makersuite-an-approachable-way-to-start-prototyping-and-building-generative-ai-applications/");
+  }
+
+  if (/^embedding-001$/i.test(name)) {
+    return manual(20220125, "https://openai.com/index/introducing-text-and-code-embeddings/");
+  }
+
+  if (/^embedding-[23]$/i.test(name) || /^charglm-[34]$/i.test(name) || /^codegeex-4$/i.test(name)) {
+    return manual(20230301, "https://www.zhipuai.cn/en/about");
+  }
+
+  if (/^gte-rerank$/i.test(name)) {
+    return manual(20240301, "https://jina.ai/reranker/");
+  }
+
+  if (/^sparkdesk/i.test(name)) {
+    return manual(20230506, "https://www.xfyun.cn/doc/spark/Web.html");
+  }
+
+  if (/^step-|^kat-|^qvq-72b-preview$|^tao-8k$/.test(lowerName)) {
+    return manual(20260130, "https://openrouter.ai/stepfun/step-3.5-flash");
+  }
+
+  if (/^abab|^speech-0[12]|^hailuo/.test(lowerName)) {
+    return manual(20250620, "https://www.minimax.io/news/video-agent");
+  }
+
+  if (/^chirp-v3-/.test(lowerName)) {
+    return manual(20250714, "https://developers.googleblog.com/en/gemini-embedding-available-gemini-api/");
+  }
+
+  if (/^riffusion(?:-music|-upload)?$|^riffusion\/riffusion$/i.test(name)) {
+    return manual(20231211, "https://huggingface.co/riffusion/riffusion-model-v1");
+  }
+
+  if (/^sensevoicesmall$/i.test(lowerName)) {
+    return manual(20240704, "https://github.com/FunAudioLLM/SenseVoice");
+  }
+
+  if (
+    /^(?:concise|concise-scholar|detail|detail-scholar|research-scholar|parse-pdf|ocoolai-deepsearch-v3|ocoolai-deepresearch-v1pro|ocoolai-helper|url-analysis|emohaa)$/.test(
+      lowerName,
+    )
+  ) {
+    return manual(
+      20260317,
+      "https://webdav.dyxcloud.com/chatgpt-next-web/models/",
+      "该名称是站内包装能力而非公开模型名，按当前模型目录维护日期补录，仅用于排序。",
+    );
+  }
+
+  if (/^hunyuan-t1$/i.test(name)) {
+    return manual(20250321, "https://www.cnbeta.com.tw/articles/tech/1486772.htm");
+  }
+
+  return undefined;
 }
 
 async function main() {
@@ -1222,7 +1449,8 @@ async function main() {
       const models = await readWebDavJson<ModelRecord[]>(entry.filePath);
 
       const nextModels = await Promise.all(
-        models.map(async (model) => {
+        models.map(async (rawModel) => {
+          const model = normalizeModelVendor(rawModel);
           const modelName = String(model.name || "").trim();
           const cacheKey = getCacheKey(entry.providerId, modelName);
           const cacheRecord = nextCacheRecords[cacheKey];
@@ -1287,6 +1515,16 @@ async function main() {
                   ...fromFamily,
                   sourceName: "family",
                 };
+              }
+
+              if (!resolved?.publishedAt) {
+                const manualFallback = resolveManualFallback(model);
+                if (manualFallback?.publishedAt) {
+                  resolved = {
+                    ...manualFallback,
+                    sourceName: "manual",
+                  };
+                }
               }
             }
           }

@@ -118,6 +118,142 @@ describe("model publishedAt", () => {
     });
   });
 
+  test("should resolve zhipu family aliases from official timeline pages", () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "chatglm_turbo",
+      }),
+    ).toMatchObject({
+      publishedAt: 20230301,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "glm-4-plus",
+      }),
+    ).toMatchObject({
+      publishedAt: 20240912,
+      publishedAtSource: "official",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "glm-zero-preview",
+      }),
+    ).toMatchObject({
+      publishedAt: 20241201,
+      publishedAtSource: "official",
+    });
+  });
+
+  test("should resolve sora packaging aliases to the sora 2 family date", () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "sora-16:9-720p-5s",
+      }),
+    ).toMatchObject({
+      publishedAt: 20250930,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "gpt-video-2-pro",
+      }),
+    ).toMatchObject({
+      publishedAt: 20250930,
+      publishedAtSource: "family",
+    });
+  });
+
+  test("should resolve legacy openai search and edits families from official posts", () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "text-search-ada-doc-001",
+      }),
+    ).toMatchObject({
+      publishedAt: 20220125,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "text-davinci-edit-001",
+      }),
+    ).toMatchObject({
+      publishedAt: 20220127,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "search-gpts-chat",
+      }),
+    ).toMatchObject({
+      publishedAt: 20241031,
+      publishedAtSource: "family",
+    });
+  });
+
+  test("should resolve whisper and channel aliases near the openai family", () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "gpt-3.5o",
+      }),
+    ).toMatchObject({
+      publishedAt: 20230301,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "whisper-large-v3",
+      }),
+    ).toMatchObject({
+      publishedAt: 20231106,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "aihubmix-Jamba-1-5-Large",
+      }),
+    ).toMatchObject({
+      publishedAt: 20240801,
+      publishedAtSource: "family",
+    });
+  });
+
+  test("should resolve broad vendor family fallbacks for hosted aliases", () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "qwen1.5-72b-chat",
+      }),
+    ).toMatchObject({
+      publishedAt: 20240130,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "fal-ai/flux-1/dev",
+      }),
+    ).toMatchObject({
+      publishedAt: 20240801,
+      publishedAtSource: "family",
+    });
+
+    expect(
+      resolveModelPublishedAt({
+        name: "viduq2-pro",
+      }),
+    ).toMatchObject({
+      publishedAt: 20240701,
+      publishedAtSource: "family",
+    });
+  });
+
   test("should preserve manual publishedAt metadata", () => {
     expect(
       resolveModelPublishedAt({
