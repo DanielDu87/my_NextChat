@@ -281,6 +281,29 @@ function getYutoFallbackGroupOrder(modelName: string) {
   return ["enterprise", "discount", "user", "anthropic", "default"];
 }
 
+// Ocoolai 分组降级顺序
+function getOcoolFallbackGroupOrder(modelName: string) {
+  const lowerModelName = modelName.toLowerCase();
+
+  if (lowerModelName.startsWith("claude")) {
+    // Claude 模型优先级: default > official > cc > cn > open_source_cn
+    return ["default", "official", "cc", "cn", "open_source_cn"];
+  }
+
+  // 其他模型优先级: default > official > open_source_cn > cn > cc
+  return ["default", "official", "open_source_cn", "cn", "cc"];
+}
+
+// 判断是否是 Ocoolai profile
+function isOcoolaiProfile(profile: { name: string; baseUrl: string }) {
+  return (
+    profile.name.toLowerCase().includes("ocool") ||
+    profile.baseUrl.includes("ooo.cool") ||
+    profile.baseUrl.includes("ocoolai") ||
+    profile.baseUrl.includes("ocoolai.com")
+  );
+}
+
 export function getHeaders(ignoreHeaders: boolean = false) {
   const accessStore = useAccessStore.getState();
   const appConfigStore = useAppConfig.getState();
@@ -350,7 +373,12 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       );
 
       const groupedKeys = enabledCustomProfile.apiKeyGroups || {};
-      const groupOrder = getYutoFallbackGroupOrder(modelConfig.model);
+
+      // 根据 profile 类型选择分组顺序
+      const isOcool = isOcoolaiProfile(enabledCustomProfile);
+      const groupOrder = isOcool
+        ? getOcoolFallbackGroupOrder(modelConfig.model)
+        : getYutoFallbackGroupOrder(modelConfig.model);
 
       // 构建降级 API key 列表
       const fallbackApiKeys: string[] = [];
@@ -380,21 +408,11 @@ export function getHeaders(ignoreHeaders: boolean = false) {
         pushFallbackKey(group, groupedKeys[group]);
       }
 
-      console.log("[API] Debug:", {
-        modelConfigModel: modelConfig.model,
-        profileProviderId,
-        matchedModel: matchedModel
-          ? {
-              name: matchedModel.name,
-              apiKeyGroup: matchedModel.apiKeyGroup,
-            }
-          : null,
-        fallbackGroups: fallbackApiKeyGroups,
-        fallbackKeys: fallbackApiKeys.map((k) => k.slice(0, 10) + "..."),
-      });
+      // 如果没有匹配的分组，使用 profile 的主 API Key 作为默认值
+      const primaryApiKey = enabledCustomProfile.apiKey || "";
 
       return {
-        current: fallbackApiKeys[0] || "",
+        current: fallbackApiKeys[0] || primaryApiKey,
         fallback: fallbackApiKeys,
         fallbackGroups: fallbackApiKeyGroups,
       };

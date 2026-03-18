@@ -3,10 +3,12 @@ import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useModelCacheStore,
   usePluginStore,
   useUpdateStore,
 } from "../store";
 import { LLMModel } from "../client/api";
+import { merge } from "lodash-es";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
@@ -39,6 +41,7 @@ const LocalStateSetters = {
   [StoreKey.Plugin]: usePluginStore.setState,
   [StoreKey.Access]: useAccessStore.setState,
   [StoreKey.Config]: useAppConfig.setState,
+  [StoreKey.ModelCache]: useModelCacheStore.setState,
   [StoreKey.Mask]: useMaskStore.setState,
   [StoreKey.Prompt]: usePromptStore.setState,
   [StoreKey.Update]: useUpdateStore.setState,
@@ -55,6 +58,7 @@ const LocalStateGetters = {
     const { sidebarWidth, tightBorder, ...configToSync } = config as any;
     return configToSync;
   },
+  [StoreKey.ModelCache]: () => getNonFunctionFileds(useModelCacheStore.getState()),
   [StoreKey.Mask]: () => getNonFunctionFileds(useMaskStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
   [StoreKey.Update]: () => getNonFunctionFileds(useUpdateStore.getState()),
@@ -81,6 +85,7 @@ const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.Plugin]: "双向合并",
   [StoreKey.Access]: "按 profile 合并，派生字段以云端为准",
   [StoreKey.Config]: "模型双向合并，其他配置本地覆盖云端",
+  [StoreKey.ModelCache]: "按 profile 合并，较新的缓存优先",
   [StoreKey.Mask]: "双向合并",
   [StoreKey.Prompt]: "双向合并",
   [StoreKey.Update]: "云端覆盖本地",
@@ -198,7 +203,7 @@ const MergeStates: StateMerger = {
   [StoreKey.Access]: (localState, remoteState) => {
     // 策略：
     // - profile 主配置双向合并，本地用户编辑字段优先
-    // - 派生字段 cachedModels/modelCount 以云端或刷新任务产物为准
+    // - 模型缓存已迁移到独立 store，这里不再主导 cachedModels/modelCount
 
     const localProfileMap = new Map(
       (localState.apiProfiles || []).map((p) => [p.id, p]),
@@ -216,9 +221,6 @@ const MergeStates: StateMerger = {
         mergedProfiles.push({
           ...remoteProfile,
           ...localProfile,
-          cachedModels:
-            remoteProfile.cachedModels ?? localProfile.cachedModels ?? "",
-          modelCount: remoteProfile.modelCount ?? localProfile.modelCount ?? 0,
         });
       } else {
         mergedProfiles.push(localProfile);
@@ -244,6 +246,25 @@ const MergeStates: StateMerger = {
 
     Object.assign(localState, mergedState);
 
+    return localState;
+  },
+  [StoreKey.ModelCache]: (localState, remoteState) => {
+    const mergedProfiles = { ...(remoteState.profiles || {}) };
+
+    Object.entries(localState.profiles || {}).forEach(([profileId, profile]) => {
+      const remoteProfile = mergedProfiles[profileId];
+      if (!remoteProfile) {
+        mergedProfiles[profileId] = profile;
+        return;
+      }
+
+      mergedProfiles[profileId] =
+        (profile.updatedAt || 0) >= (remoteProfile.updatedAt || 0)
+          ? profile
+          : remoteProfile;
+    });
+
+    localState.profiles = mergedProfiles;
     return localState;
   },
   [StoreKey.Update]: (localState, remoteState) => {
@@ -325,6 +346,14 @@ export function mergeAppState(localState: AppState, remoteState: AppState) {
   });
 
   return localState;
+}
+
+export function mergeStoreState<T extends keyof AppState>(
+  key: T,
+  localState: AppState[T],
+  remoteState: AppState[T],
+) {
+  return MergeStates[key](localState, remoteState);
 }
 
 /**

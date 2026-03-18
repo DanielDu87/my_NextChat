@@ -119,7 +119,7 @@ function createEmptySession(): ChatSession {
   };
 }
 
-function getSummarizeTarget() {
+function getSummarizeTarget(targetSession?: ChatSession) {
   const configStore = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
   const allModel = collectModelsWithDefaultModel(
@@ -127,25 +127,34 @@ function getSummarizeTarget() {
     configStore.customModels,
     accessStore.defaultModel,
   );
+  const sessionProviderName =
+    targetSession?.mask.modelConfig.providerName ?? ServiceProvider.Custom;
   const activeProfile = accessStore.apiProfiles.find(
     (profile) => profile.enabled,
   );
-  const activeProviderId =
-    activeProfile?.provider === ServiceProvider.Custom
-      ? `custom_${activeProfile.name}`
-      : String(activeProfile?.provider || "").toLowerCase();
+  const targetProfile =
+    sessionProviderName === ServiceProvider.Custom
+      ? activeProfile
+      : accessStore.apiProfiles.find(
+          (profile) => profile.provider === sessionProviderName,
+        ) ?? activeProfile;
+  const targetProviderId =
+    targetProfile?.provider === ServiceProvider.Custom
+      ? `custom_${targetProfile.name}`
+      : String(targetProfile?.provider || sessionProviderName || "").toLowerCase();
   const currentSupplierModel = allModel.find(
     (m) =>
       m.name === SUMMARIZE_MODEL &&
       m.available &&
       String(m.provider?.id || "").toLowerCase() ===
-        activeProviderId.toLowerCase(),
+        targetProviderId.toLowerCase(),
   );
   if (currentSupplierModel) {
     return {
       model: currentSupplierModel.name,
       providerName: currentSupplierModel.provider
         ?.providerName as ServiceProvider,
+      profile: targetProfile,
     };
   }
 
@@ -172,6 +181,249 @@ function getSummarizeTarget() {
   };
 }
 
+function normalizeModelKeyword(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function isLooseRefreshTitleModel(name: string) {
+  const normalized = normalizeModelKeyword(name);
+  // 只匹配 gpt-4o-mini，不包括其他变体（如 transcribe、tts、search 等）
+  return (
+    normalized === "gpt4omini" ||
+    normalized === "gpt40mini" ||  // 4o 可能被识别为 40
+    (normalized.includes("gpt") && normalized.includes("4o") && normalized.includes("mini") && !normalized.includes("transcribe") && !normalized.includes("tts") && !normalized.includes("audio") && !normalized.includes("search") && !normalized.includes("realtime"))
+  );
+}
+
+function getProfileForModel(
+  modelProviderId: string | undefined,
+  providerName: ServiceProvider | undefined,
+) {
+  const accessStore = useAccessStore.getState();
+  const providerId = String(modelProviderId || "").toLowerCase();
+
+  if (providerName === ServiceProvider.Custom) {
+    return accessStore.apiProfiles.find((profile) => {
+      const profileId =
+        profile.provider === ServiceProvider.Custom
+          ? `custom_${profile.name}`
+          : String(profile.provider || "");
+      return profileId.toLowerCase() === providerId;
+    });
+  }
+
+  return (
+    accessStore.apiProfiles.find(
+      (profile) => profile.enabled && profile.provider === providerName,
+    ) ??
+    accessStore.apiProfiles.find((profile) => profile.provider === providerName)
+  );
+}
+
+function getRefreshTitleCandidates(targetSession: ChatSession) {
+  const configStore = useAppConfig.getState();
+  const accessStore = useAccessStore.getState();
+  const allModels = collectModelsWithDefaultModel(
+    configStore.models,
+    configStore.customModels,
+    accessStore.defaultModel,
+  );
+  const currentProviderName =
+    targetSession.mask.modelConfig.providerName ?? ServiceProvider.Custom;
+  const currentProfile =
+    currentProviderName === ServiceProvider.Custom
+      ? accessStore.apiProfiles.find(
+          (profile) =>
+            profile.enabled && profile.provider === ServiceProvider.Custom,
+        )
+      : accessStore.apiProfiles.find(
+          (profile) => profile.enabled && profile.provider === currentProviderName,
+        );
+  const currentProviderId =
+    currentProviderName === ServiceProvider.Custom
+      ? `custom_${currentProfile?.name || ""}`.toLowerCase()
+      : String(currentProviderName || "").toLowerCase();
+  const currentProviderCandidate = {
+    model: SUMMARIZE_MODEL,
+    providerName: currentProviderName,
+    profile: currentProfile,
+    providerId: currentProviderId,
+    score: 9999,
+  };
+
+  // 按供应商分组，确保每个供应商只选择一个 gpt-4o-mini 模型
+  const providerModelMap = new Map<string, { model: string; providerName: ServiceProvider | undefined; profile: any; providerId: string; isExact: boolean }>();
+  const unique = new Set<string>();
+
+  console.log("[RefreshTitle] Available API profiles:", accessStore.apiProfiles.map(p => ({ name: p.name, provider: p.provider, enabled: p.enabled })));
+  console.log("[RefreshTitle] Total models count:", allModels.length);
+  console.log("[RefreshTitle] Current provider:", currentProviderId);
+
+  for (const model of allModels) {
+    if (!model.available || !isLooseRefreshTitleModel(model.name)) continue;
+
+    const providerName = model.provider?.providerName as ServiceProvider | undefined;
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    const profile = getProfileForModel(model.provider?.id, providerName);
+    const isExact = normalizeModelKeyword(model.name) === "gpt4omini";
+
+    console.log("[RefreshTitle] Matched model:", { name: model.name, providerId, providerName, hasProfile: !!profile, isExact });
+
+    // 如果该供应商已经有模型，优先保留精确匹配的
+    const existing = providerModelMap.get(providerId);
+    if (!existing || (isExact && !existing.isExact)) {
+      providerModelMap.set(providerId, {
+        model: model.name,
+        providerName,
+        profile,
+        providerId,
+        isExact,
+      });
+    }
+  }
+
+  console.log("[RefreshTitle] Provider model map:", Array.from(providerModelMap.keys()));
+
+  // 生成候选列表，当前供应商排第一，其他供应商按精确匹配优先
+  const matched = Array.from(providerModelMap.values()).map((item) => {
+    const isCurrentProvider = item.providerId === currentProviderId;
+    return {
+      model: item.model,
+      providerName: item.providerName ?? ServiceProvider.Custom,
+      profile: item.profile,
+      providerId: item.providerId,
+      score: (isCurrentProvider ? 1000 : 0) + (item.isExact ? 100 : 0),
+    };
+  }).sort((a, b) => b.score - a.score);
+
+  // 使用 Map 去重，确保每个供应商只出现一次
+  const candidates = [currentProviderCandidate, ...matched].filter((item) => {
+    const key = item.providerId;
+    if (unique.has(key)) {
+      return false;
+    }
+    unique.add(key);
+    return true;
+  });
+
+  console.log("[RefreshTitle] Final candidates:", candidates.map(c => ({
+    model: c.model,
+    providerId: c.providerId,
+    profileName: c.profile?.name,
+    profileBaseUrl: c.profile?.baseUrl,
+    profileApiKey: c.profile?.apiKey ? '***' : 'missing',
+    score: c.score
+  })));
+
+  if (candidates.length > 0) {
+    return candidates;
+  }
+
+  const fallback = getSummarizeTarget(targetSession);
+  return [
+    {
+      model: fallback.model,
+      providerName: fallback.providerName,
+      profile: fallback.profile,
+      providerId: String(fallback.profile?.provider || fallback.providerName),
+      score: -1,
+    },
+  ];
+}
+
+async function refreshSessionTitle(targetSession: ChatSession) {
+  const session = targetSession;
+  const modelConfig = session.mask.modelConfig;
+  const messages = session.messages;
+  const candidates = getRefreshTitleCandidates(session);
+
+  if (messages.length === 0) {
+    showToast("没有可用于刷新标题的对话内容");
+    return false;
+  }
+
+  const startIndex = Math.max(
+    0,
+    messages.length - modelConfig.historyMessageCount,
+  );
+  const topicMessages = messages
+    .slice(
+      startIndex < messages.length ? startIndex : messages.length - 1,
+      messages.length,
+    )
+    .concat(
+      createMessage({
+        role: "user",
+        content: Locale.Store.Prompt.Topic,
+      }),
+    );
+
+  for (const candidate of candidates) {
+    console.log("[RefreshTitle] Trying candidate:", {
+      model: candidate.model,
+      providerId: candidate.providerId,
+      profileName: candidate.profile?.name,
+      profileBaseUrl: candidate.profile?.baseUrl,
+      hasProfile: !!candidate.profile
+    });
+
+    const api: ClientApi = getClientApi(candidate.providerName as ServiceProvider);
+
+    try {
+      const result = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const finish = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          resolve(ok);
+        };
+
+        Promise.resolve(
+          withSummarizeProfile(candidate.profile, () =>
+            api.llm.chat({
+              messages: topicMessages,
+              config: {
+                model: candidate.model,
+                stream: false,
+                providerName: candidate.providerName,
+              },
+              onFinish(message, responseRes) {
+                const success =
+                  responseRes?.status === 200 &&
+                  Boolean(trimTopic(message || ""));
+
+                if (success) {
+                  useChatStore.getState().updateTargetSession(session, (session) => {
+                    session.topic = trimTopic(message);
+                  });
+                }
+
+                finish(success);
+              },
+              onError(err) {
+                console.error("[RefreshTitle] ", err);
+                finish(false);
+              },
+            }),
+          ),
+        ).catch((error) => {
+          console.error("[RefreshTitle] request failed", error);
+          finish(false);
+        });
+      });
+
+      if (result) {
+        return true;
+      }
+    } catch (error) {
+      console.error("[RefreshTitle] candidate failed", candidate, error);
+    }
+  }
+
+  showToast("标题刷新失败：当前供应商和其他供应商都尝试过了，请检查模型或 API 配置");
+  return false;
+}
+
 function withSummarizeProfile<T>(
   profile:
     | {
@@ -182,7 +434,7 @@ function withSummarizeProfile<T>(
       }
     | undefined,
   fn: () => T,
-) {
+): T {
   if (!profile || profile.provider !== ServiceProvider.Custom) {
     return fn();
   }
@@ -195,6 +447,12 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: accessStore.customOpenAICompatible,
   };
 
+  console.log("[WithSummarizeProfile] Setting profile:", {
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey ? '***' : 'missing',
+    openAICompatible: profile.openAICompatible
+  });
+
   useAccessStore.setState({
     provider: ServiceProvider.Custom,
     customUrl: profile.baseUrl,
@@ -202,10 +460,22 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: profile.openAICompatible ?? true,
   } as any);
 
+  console.log("[WithSummarizeProfile] After setState, accessStore.customUrl:", useAccessStore.getState().customUrl);
+
   try {
-    return fn();
-  } finally {
+    const result = fn();
+    // 如果 fn() 返回 Promise，在 Promise 完成后再恢复状态
+    if (result && typeof result === 'object' && 'then' in result && 'catch' in result) {
+      return (result as Promise<T>).finally(() => {
+        useAccessStore.setState(prevState as any);
+        console.log("[WithSummarizeProfile] Restored previous state (after Promise)");
+      }) as T;
+    }
+    return result;
+  } catch (error) {
     useAccessStore.setState(prevState as any);
+    console.log("[WithSummarizeProfile] Restored previous state (after error)");
+    throw error;
   }
 }
 
@@ -823,7 +1093,7 @@ export const useChatStore = createPersistStore(
         });
       },
 
-      summarizeSession(
+      async summarizeSession(
         refreshTitle: boolean = false,
         targetSession: ChatSession,
       ) {
@@ -835,7 +1105,12 @@ export const useChatStore = createPersistStore(
           return;
         }
 
-        const summarizeTarget = getSummarizeTarget();
+        if (refreshTitle) {
+          void refreshSessionTitle(session);
+          return;
+        }
+
+        const summarizeTarget = getSummarizeTarget(session);
         const { model, providerName } = summarizeTarget;
         const api: ClientApi = getClientApi(providerName as ServiceProvider);
 
@@ -845,10 +1120,9 @@ export const useChatStore = createPersistStore(
         // should summarize topic after chating more than 50 words
         const SUMMARIZE_MIN_LEN = 50;
         if (
-          (config.enableAutoGenerateTitle &&
-            session.topic === DEFAULT_TOPIC &&
-            countMessages(messages) >= SUMMARIZE_MIN_LEN) ||
-          refreshTitle
+          config.enableAutoGenerateTitle &&
+          session.topic === DEFAULT_TOPIC &&
+          countMessages(messages) >= SUMMARIZE_MIN_LEN
         ) {
           const startIndex = Math.max(
             0,
@@ -865,28 +1139,73 @@ export const useChatStore = createPersistStore(
                 content: Locale.Store.Prompt.Topic,
               }),
             );
-          withSummarizeProfile(summarizeTarget.profile, () =>
-            api.llm.chat({
-              messages: topicMessages,
-              config: {
-                model,
-                stream: false,
-                providerName,
-              },
-              onFinish(message, responseRes) {
-                if (responseRes?.status === 200) {
-                  get().updateTargetSession(
-                    session,
-                    (session) =>
-                      (session.topic =
-                        message.length > 0
-                          ? trimTopic(message)
-                          : DEFAULT_TOPIC),
-                  );
-                }
-              },
-            }),
-          );
+
+          // 使用多供应商切换逻辑生成标题
+          const candidates = getRefreshTitleCandidates(session);
+          console.log("[AutoGenerateTitle] Trying", candidates.length, "candidates");
+
+          for (const candidate of candidates) {
+            console.log("[AutoGenerateTitle] Trying candidate:", {
+              model: candidate.model,
+              providerId: candidate.providerId,
+              profileName: candidate.profile?.name,
+              profileBaseUrl: candidate.profile?.baseUrl,
+              hasProfile: !!candidate.profile
+            });
+
+            const candidateApi: ClientApi = getClientApi(candidate.providerName as ServiceProvider);
+
+            try {
+              const success = await new Promise<boolean>((resolve) => {
+                let settled = false;
+                const finish = (ok: boolean) => {
+                  if (settled) return;
+                  settled = true;
+                  resolve(ok);
+                };
+
+                Promise.resolve(
+                  withSummarizeProfile(candidate.profile, () =>
+                    candidateApi.llm.chat({
+                      messages: topicMessages,
+                      config: {
+                        model: candidate.model,
+                        stream: false,
+                        providerName: candidate.providerName,
+                      },
+                      onFinish(message, responseRes) {
+                        const success =
+                          responseRes?.status === 200 &&
+                          Boolean(trimTopic(message || ""));
+
+                        if (success) {
+                          useChatStore.getState().updateTargetSession(session, (session) => {
+                            session.topic = trimTopic(message);
+                          });
+                        }
+
+                        finish(success);
+                      },
+                      onError(err) {
+                        console.error("[AutoGenerateTitle] ", err);
+                        finish(false);
+                      },
+                    }),
+                  ),
+                ).catch((error) => {
+                  console.error("[AutoGenerateTitle] request failed", error);
+                  finish(false);
+                });
+              });
+
+              if (success) {
+                console.log("[AutoGenerateTitle] Successfully generated title");
+                break;
+              }
+            } catch (error) {
+              console.error("[AutoGenerateTitle] candidate failed", error);
+            }
+          }
         }
         const summarizeIndex = Math.max(
           session.lastSummarizeIndex,

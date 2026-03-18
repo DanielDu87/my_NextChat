@@ -135,6 +135,7 @@ import {
 
 import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
+import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
@@ -2186,22 +2187,58 @@ function _Chat() {
       const profile = apiProfiles.find((p) => p.name === profileName);
 
       if (profile) {
+        const selectedProviderId =
+          profile.provider === ServiceProvider.Custom
+            ? `custom_${profile.name}`.toLowerCase()
+            : String(profile.provider).toLowerCase();
+        const providerModels = allModels.filter(
+          (model) =>
+            model.available &&
+            String(model.provider?.id || "").toLowerCase() === selectedProviderId,
+        );
+        const currentProviderModel = providerModels.find(
+          (model) => model.name === session.mask.modelConfig.model,
+        );
+        const nextModel = currentProviderModel ?? providerModels[0];
+        const nextCustomModels = modelsToCustomModelsString(providerModels as any);
+
         // 记录切换时间
         lastProviderSwitchTimeRef.current = Date.now();
 
-        // 更新 access store 中的 enabled 状态
-        const accessStore = useAccessStore.getState();
-        accessStore.updateApiProfiles(
-          accessStore.apiProfiles.map((p) => ({
+        // 更新 access store 中当前真正参与请求的配置
+        const accessStoreState = useAccessStore.getState();
+        accessStoreState.update((access) => {
+          access.useCustomConfig = true;
+          access.provider = profile.provider;
+          access.apiProfiles = access.apiProfiles.map((p) => ({
             ...p,
             enabled: p.name === profileName,
-          })),
-        );
+          }));
+          if (profile.provider === ServiceProvider.Custom) {
+            access.customUrl = profile.baseUrl;
+            access.customApiKey = profile.apiKey;
+            access.customOpenAICompatible = profile.openAICompatible ?? true;
+          }
+          access.customModels = nextCustomModels;
+        });
+
+        if (nextModel) {
+          config.update((config) => {
+            config.modelConfig.model = nextModel.name as ModelType;
+            config.modelConfig.providerName = profile.provider as ServiceProvider;
+            config.modelConfig = sanitizeModelConfigForCapability(
+              config.modelConfig,
+            );
+          });
+        }
 
         // 更新当前会话的模型配置
         chatStore.updateTargetSession(session, (session) => {
           session.mask.modelConfig.providerName =
             profile.provider as ServiceProvider;
+          if (nextModel) {
+            session.mask.modelConfig.model = nextModel.name as ModelType;
+          }
           session.mask.modelConfig = sanitizeModelConfigForCapability(
             session.mask.modelConfig,
           );
@@ -2217,7 +2254,7 @@ function _Chat() {
         }, 2000);
       }
     },
-    [chatStore, session, apiProfiles],
+    [allModels, chatStore, config, session, apiProfiles],
   );
 
   // clear context index = context length + index in messages
@@ -3142,10 +3179,17 @@ function _Chat() {
           onClose={() => setShowModelSelector(false)}
           onSelection={async (s) => {
             if (s.length === 0) return;
-            const [model, providerName] = getModelProvider(s[0]);
+            const [model, _providerName] = getModelProvider(s[0]);
+
+            // 使用当前选中的供应商，而不是模型自带的 providerName
+            // 这样可以确保切换供应商后，选择的模型使用正确的供应商配置
+            const actualProviderName = activeProfile?.provider
+              ? activeProfile.provider
+              : _providerName;
+
             config.update((config) => {
               config.modelConfig.model = model as ModelType;
-              config.modelConfig.providerName = providerName as ServiceProvider;
+              config.modelConfig.providerName = actualProviderName as ServiceProvider;
               config.modelConfig = sanitizeModelConfigForCapability(
                 config.modelConfig,
               );
@@ -3153,7 +3197,7 @@ function _Chat() {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.model = model as ModelType;
               session.mask.modelConfig.providerName =
-                providerName as ServiceProvider;
+                actualProviderName as ServiceProvider;
               session.mask.modelConfig = sanitizeModelConfigForCapability(
                 session.mask.modelConfig,
               );

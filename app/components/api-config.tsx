@@ -34,12 +34,18 @@ import {
   XAI,
 } from "../constant";
 import { StoreKey } from "../constant";
-import { useAccessStore, useAppConfig, useChatStore } from "../store";
+import {
+  useAccessStore,
+  useAppConfig,
+  useChatStore,
+  useModelCacheStore,
+} from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
 import {
+  MODEL_SYNC_STORE_KEYS,
   parseStoreStatePayload,
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
@@ -88,10 +94,54 @@ const YUTO_API_KEY_GROUP_LABELS: Record<
   },
 };
 
+// Ocoolai API Key 分组配置
+const OCOOL_API_KEY_GROUPS = {
+  default: "",
+  open_source_cn: "",
+  cn: "",
+  cc: "",
+  official: "",
+} as const;
+
+const OCOOL_API_KEY_GROUP_LABELS: Record<
+  keyof typeof OCOOL_API_KEY_GROUPS,
+  { title: string; description: string }
+> = {
+  default: {
+    title: "全模型",
+    description: "默认分组，包含所有模型（group_ratio: 1.5）",
+  },
+  open_source_cn: {
+    title: "国产开源",
+    description: "国产开源模型，最优惠（group_ratio: 0.5）",
+  },
+  cn: {
+    title: "国产模型",
+    description: "国产模型分组（group_ratio: 0.95）",
+  },
+  cc: {
+    title: "Claude Code",
+    description: "Claude Code 分组（group_ratio: 1.5）",
+  },
+  official: {
+    title: "官方渠道",
+    description: "官方渠道分组（group_ratio: 6.3）",
+  },
+};
+
 function isYutoProfile(profile: { name: string; baseUrl: string }) {
   return (
     profile.name.toLowerCase().includes("yuto") ||
     profile.baseUrl.includes("gptapi.asia")
+  );
+}
+
+function isOcoolProfile(profile: { name: string; baseUrl: string }) {
+  return (
+    profile.name.toLowerCase().includes("ocool") ||
+    profile.baseUrl.includes("ooo.cool") ||
+    profile.baseUrl.includes("ocoolai") ||
+    profile.baseUrl.includes("ocoolai.com")
   );
 }
 
@@ -147,6 +197,33 @@ function countCachedModels(cachedModels?: string, fallbackCount?: number) {
     return cachedModels.split(",").filter(Boolean).length;
   }
   return fallbackCount ?? 0;
+}
+
+function getProfileCacheSnapshot(profileId: string) {
+  return useModelCacheStore.getState().profiles?.[profileId];
+}
+
+function getProfileCachedModels(
+  profile: {
+    id: string;
+    cachedModels?: string;
+  },
+) {
+  return getProfileCacheSnapshot(profile.id)?.cachedModels ?? profile.cachedModels ?? "";
+}
+
+function getProfileCachedModelCount(
+  profile: {
+    id: string;
+    cachedModels?: string;
+    modelCount?: number;
+  },
+) {
+  const cache = getProfileCacheSnapshot(profile.id);
+  return countCachedModels(
+    cache?.cachedModels ?? profile.cachedModels,
+    cache?.modelCount ?? profile.modelCount,
+  );
 }
 
 function getManagedProviderIds(profiles: AccessState["apiProfiles"] = []) {
@@ -208,6 +285,13 @@ function getCloudMergedPlatformCounts(
     name: profile.name,
     count: counts.get(`custom_${profile.name}`.toLowerCase()) ?? 0,
   }));
+}
+
+function formatModelDelta(delta: number) {
+  if (delta > 0) {
+    return `+${delta}`;
+  }
+  return `${delta}`;
 }
 
 function getProfileActualModelsString(
@@ -612,15 +696,24 @@ function getProfileApiKey(provider: ServiceProvider, accessStore: AccessState) {
 
 function createProfile(provider: ServiceProvider, accessStore: AccessState) {
   const name = `${provider} ${new Date().toLocaleTimeString()}`;
+
+  // 检查是否需要添加 API Key 分组
+  let apiKeyGroups: Record<string, string> | undefined;
+  const lowerName = name.toLowerCase();
+
+  if (lowerName.includes("yuto")) {
+    apiKeyGroups = { ...YUTO_API_KEY_GROUPS };
+  } else if (lowerName.includes("ocool")) {
+    apiKeyGroups = { ...OCOOL_API_KEY_GROUPS };
+  }
+
   return {
     id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     name,
     provider,
     baseUrl: getProfileBaseUrl(provider, accessStore),
     apiKey: getProfileApiKey(provider, accessStore),
-    apiKeyGroups: name.toLowerCase().includes("yuto")
-      ? { ...YUTO_API_KEY_GROUPS }
-      : undefined,
+    apiKeyGroups,
     enabled: false,
     openAICompatible:
       provider === ServiceProvider.Custom
@@ -647,7 +740,7 @@ function getDefaultModelForProvider(
 export function ApiConfigPage() {
   const navigate = useNavigate();
   const accessStore = useAccessStore();
-  const appConfig = useAppConfig();
+  const appConfig = useAppConfig() as any;
   const chatStore = useChatStore();
   const syncStore = useSyncStore();
   const [syncing, setSyncing] = useState(false);
@@ -688,18 +781,29 @@ export function ApiConfigPage() {
     const hasMissingYutoGroups = accessStore.apiProfiles.some(
       (profile) => isYutoProfile(profile) && !profile.apiKeyGroups,
     );
-    if (!hasMissingYutoGroups) return;
+    const hasMissingOcoolGroups = accessStore.apiProfiles.some(
+      (profile) => isOcoolProfile(profile) && !profile.apiKeyGroups,
+    );
+
+    if (!hasMissingYutoGroups && !hasMissingOcoolGroups) return;
 
     accessStore.update((access) => {
-      access.apiProfiles = access.apiProfiles.map((profile) =>
-        isYutoProfile(profile) && !profile.apiKeyGroups
-          ? {
-              ...profile,
-              apiKeyGroups: { ...YUTO_API_KEY_GROUPS },
-              apiKey: YUTO_API_KEY_GROUPS.default,
-            }
-          : profile,
-      );
+      access.apiProfiles = access.apiProfiles.map((profile) => {
+        if (isYutoProfile(profile) && !profile.apiKeyGroups) {
+          return {
+            ...profile,
+            apiKeyGroups: { ...YUTO_API_KEY_GROUPS },
+            apiKey: YUTO_API_KEY_GROUPS.default,
+          };
+        }
+        if (isOcoolProfile(profile) && !profile.apiKeyGroups) {
+          return {
+            ...profile,
+            apiKeyGroups: { ...OCOOL_API_KEY_GROUPS },
+          };
+        }
+        return profile;
+      });
     });
   }, [accessStore]);
 
@@ -796,8 +900,8 @@ export function ApiConfigPage() {
       ),
       profiles: currentProfiles.map((profile) => ({
         id: profile.id,
-        cachedModels: profile.cachedModels || "",
-        modelCount: profile.modelCount || 0,
+        cachedModels: getProfileCachedModels(profile),
+        modelCount: getProfileCachedModelCount(profile),
       })),
     });
   };
@@ -872,6 +976,12 @@ export function ApiConfigPage() {
 
           remoteProfiles.forEach((remoteProfile: any) => {
             if (!localProfileMap.has(remoteProfile.id)) {
+              if (remoteProfile.cachedModels || remoteProfile.modelCount) {
+                useModelCacheStore.getState().upsertProfileCache(remoteProfile.id, {
+                  cachedModels: remoteProfile.cachedModels || "",
+                  modelCount: remoteProfile.modelCount || 0,
+                });
+              }
               mergedProfiles.push(remoteProfile);
             } else {
               // 同 ID 配置：合并 cachedModels
@@ -881,21 +991,26 @@ export function ApiConfigPage() {
               if (localIndex >= 0) {
                 const local = mergedProfiles[localIndex];
                 const localModels = new Set(
-                  (local.cachedModels || "").split(",").filter(Boolean),
+                  getProfileCachedModels(local).split(",").filter(Boolean),
                 );
                 const remoteModels = new Set(
-                  (remoteProfile.cachedModels || "").split(",").filter(Boolean),
+                  getProfileCachedModels(remoteProfile).split(",").filter(Boolean),
                 );
                 remoteModels.forEach((m: unknown) =>
                   localModels.add(m as string),
                 );
+                const mergedCachedModels = [...localModels].join(",");
+                useModelCacheStore
+                  .getState()
+                  .upsertProfileCache(remoteProfile.id, {
+                    cachedModels: mergedCachedModels,
+                    modelCount: Math.max(
+                      getProfileCachedModelCount(local),
+                      getProfileCachedModelCount(remoteProfile),
+                    ),
+                  });
                 mergedProfiles[localIndex] = {
                   ...local,
-                  cachedModels: [...localModels].join(","),
-                  modelCount: Math.max(
-                    local.modelCount || 0,
-                    remoteProfile.modelCount || 0,
-                  ),
                 };
               }
             }
@@ -931,6 +1046,7 @@ export function ApiConfigPage() {
           clearInterval(checkInterval);
 
           if (useSyncStore.getState().provider === ProviderType.Database) {
+            useModelCacheStore.getState().migrateFromAccessProfiles?.();
             console.log(`[API Config] 🗂️ 页面加载，优先使用本地缓存数据...`);
             logModelCount();
 
@@ -1196,7 +1312,7 @@ export function ApiConfigPage() {
     const model = getDefaultModelForProvider(provider, appConfig.models);
     if (!model) return;
 
-    appConfig.update((config) => {
+    appConfig.update((config: any) => {
       config.modelConfig.providerName = provider;
       config.modelConfig.model = model as any;
       config.modelConfig = sanitizeModelConfigForCapability(config.modelConfig);
@@ -1218,6 +1334,10 @@ export function ApiConfigPage() {
     setModelFetchStatusMap({});
     const previousCloudModels = getManagedCloudModels(
       useAppConfig.getState().models || [],
+      allProfiles,
+    );
+    const previousPlatformCounts = getCloudMergedPlatformCounts(
+      previousCloudModels,
       allProfiles,
     );
     const previousCloudKeys = new Set(
@@ -1265,18 +1385,13 @@ export function ApiConfigPage() {
             previousCloudModels,
           );
           accessStore.update((state) => {
-            state.apiProfiles = state.apiProfiles.map((p) =>
-              p.id === profile.id
-                ? {
-                    ...p,
-                    cachedModels: fetchedModels,
-                    modelCount: result.total,
-                  }
-                : p,
-            );
             if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
               state.customModels = fetchedModels;
             }
+          });
+          useModelCacheStore.getState().upsertProfileCache(profile.id, {
+            cachedModels: fetchedModels,
+            modelCount: result.total,
           });
           const mergedCount = getProfileActualCount(
             profile,
@@ -1322,11 +1437,18 @@ export function ApiConfigPage() {
       },
     );
 
-    return { previousCloudKeys, fetchedModelEntries, totalFetched };
+    return {
+      previousCloudKeys,
+      previousPlatformCounts,
+      fetchedModelEntries,
+      totalFetched,
+    };
   };
 
   const logSyncSummary = (
+    title: string,
     previousCloudKeys: Set<string>,
+    previousPlatformCounts: Array<{ name: string; count: number }>,
     fetchedModelEntries: Map<string, { name: string; profileName: string }>,
     totalFetched: number,
   ) => {
@@ -1339,14 +1461,21 @@ export function ApiConfigPage() {
       useAppConfig.getState().models || [],
       useAccessStore.getState().apiProfiles,
     );
-    console.log(`[API Config] 📊 模型同步汇总`);
+    console.log(`[API Config] 📊 ${title}`);
     console.log(
       `[API Config] - 云端之前总数: ${previousCloudKeys.size} 个模型`,
     );
     console.log(`[API Config] - 本次获取总数: ${totalFetched} 个模型`);
     console.log(`[API Config] - 本次新增总数: ${addedModels.length} 个模型`);
+    const previousPlatformCountMap = new Map(
+      previousPlatformCounts.map((item) => [item.name, item.count]),
+    );
     mergedProfiles.forEach(({ name, count }) => {
-      console.log(`[API Config] - ${name}: ${count} 个模型`);
+      const previousCount = previousPlatformCountMap.get(name) ?? 0;
+      const delta = count - previousCount;
+      console.log(
+        `[API Config] - ${name}: ${previousCount} -> ${count} 个模型 (${formatModelDelta(delta)})`,
+      );
     });
     if (addedModels.length > 0) {
       addedModels.forEach((name) => {
@@ -1375,8 +1504,23 @@ export function ApiConfigPage() {
         syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
       }
 
-      const { previousCloudKeys, fetchedModelEntries, totalFetched } =
+      const {
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      } =
         await refreshAllProfilesForSync();
+
+      logSyncSummary(
+        "模型数量变化预览",
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      );
+      console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
+      console.log(LOG_SEPARATOR);
 
       await syncStore.sync();
       const client = syncStore.getClient() as any;
@@ -1384,7 +1528,13 @@ export function ApiConfigPage() {
         updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
       }
       console.log("[API Config] ✅ 数据库同步完成");
-      logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
+      logSyncSummary(
+        "模型同步汇总",
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      );
       console.log(LOG_SEPARATOR);
 
       showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
@@ -1413,8 +1563,22 @@ export function ApiConfigPage() {
       if (activeProfile) {
         syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
       }
-      const { previousCloudKeys, fetchedModelEntries, totalFetched } =
+      const {
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      } =
         await refreshAllProfilesForSync();
+      logSyncSummary(
+        "模型数量变化预览",
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      );
+      console.log("[API Config] ⏳ 模型获取完成，等待数据库写入完成...");
+      console.log(LOG_SEPARATOR);
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
 
@@ -1433,7 +1597,13 @@ export function ApiConfigPage() {
         updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
       }
       console.log("[API Config] ✅ 数据库写入完成");
-      logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
+      logSyncSummary(
+        "模型同步汇总",
+        previousCloudKeys,
+        previousPlatformCounts,
+        fetchedModelEntries,
+        totalFetched,
+      );
       console.log(LOG_SEPARATOR);
       showToast("已上传全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
@@ -1529,9 +1699,10 @@ export function ApiConfigPage() {
           modelCount: 0,
         }));
       });
+      useModelCacheStore.getState().clearProfileCaches();
 
       // 清空 appConfig 的 models
-      appConfig.update((state) => {
+      appConfig.update((state: any) => {
         state.models = [];
       });
 
@@ -1559,6 +1730,13 @@ export function ApiConfigPage() {
         stringifyPersistedStoreState(
           StoreKey.Config,
           latestAppState[StoreKey.Config],
+        ),
+      );
+      await client.set(
+        StoreKey.ModelCache,
+        stringifyPersistedStoreState(
+          StoreKey.ModelCache,
+          latestAppState[StoreKey.ModelCache],
         ),
       );
       syncStore.markSyncTime();
@@ -1760,7 +1938,7 @@ export function ApiConfigPage() {
                         className={`${styles.profileCell} ${styles.profileColApiKey}`}
                       >
                         <div className={styles.profileCellLabel}>API Key</div>
-                        {isYutoProfile(profile) ? (
+                        {isYutoProfile(profile) || isOcoolProfile(profile) ? (
                           <div className={styles.profileApiKeyEditor}>
                             <button
                               type="button"
@@ -1769,7 +1947,7 @@ export function ApiConfigPage() {
                                 setEditingYutoProfileId(profile.id)
                               }
                             >
-                              点击编辑
+                              点击编辑分组
                             </button>
                           </div>
                         ) : (
@@ -1885,12 +2063,12 @@ export function ApiConfigPage() {
                   ))}
                 </div>
               </div>
-              {editingYutoProfileId &&
-                (() => {
+              {editingYutoProfileId
+                ? (() => {
                   const editingProfile = providerProfiles.find(
                     (profile) => profile.id === editingYutoProfileId,
                   );
-                  if (!editingProfile) return null;
+                  if (!editingProfile) return <></>;
 
                   return (
                     <div
@@ -1911,64 +2089,75 @@ export function ApiConfigPage() {
                         </div>
                         <div className={styles.profileYutoModalBody}>
                           <div className={styles.profileYutoKeyGrid}>
-                            {Object.keys(YUTO_API_KEY_GROUPS).map((group) => (
-                              <div
-                                key={group}
-                                className={styles.profileYutoKeyItem}
-                              >
-                                <div className={styles.profileYutoKeyInner}>
-                                  <div className={styles.profileCellLabel}>
-                                    {
-                                      YUTO_API_KEY_GROUP_LABELS[
-                                        group as keyof typeof YUTO_API_KEY_GROUPS
-                                      ].title
-                                    }
-                                  </div>
-                                  <div
-                                    className={styles.profileYutoKeyDescription}
-                                  >
-                                    {
-                                      YUTO_API_KEY_GROUP_LABELS[
-                                        group as keyof typeof YUTO_API_KEY_GROUPS
-                                      ].description
-                                    }
-                                  </div>
-                                  <input
-                                    className={styles.textInput}
-                                    type="text"
-                                    placeholder={`${group} API Key`}
-                                    value={
-                                      editingProfile.apiKeyGroups?.[group] ?? ""
-                                    }
-                                    onChange={(e) => {
-                                      const nextValue = e.currentTarget.value;
-                                      accessStore.update((access) => {
-                                        access.apiProfiles =
-                                          access.apiProfiles.map((item) =>
-                                            item.id === editingProfile.id
-                                              ? {
-                                                  ...item,
-                                                  apiKeyGroups: {
-                                                    ...(item.apiKeyGroups ||
-                                                      {}),
-                                                    [group]: nextValue,
-                                                  },
-                                                  apiKey:
-                                                    group === "default"
-                                                      ? nextValue
-                                                      : item.apiKey,
-                                                }
-                                              : item,
-                                          );
-                                      });
-                                      if (editingProfile.enabled) {
-                                        syncProfileToAccess(editingProfile.id);
+                            {(function() {
+                              // 根据当前编辑的 profile 类型选择分组配置
+                              const isOcool = isOcoolProfile(editingProfile);
+                              const apiKeyGroups = isOcool
+                                ? OCOOL_API_KEY_GROUPS
+                                : YUTO_API_KEY_GROUPS;
+                              const groupLabels = isOcool
+                                ? OCOOL_API_KEY_GROUP_LABELS
+                                : YUTO_API_KEY_GROUP_LABELS;
+
+                              return Object.keys(apiKeyGroups).map((group) => (
+                                <div
+                                  key={group}
+                                  className={styles.profileYutoKeyItem}
+                                >
+                                  <div className={styles.profileYutoKeyInner}>
+                                    <div className={styles.profileCellLabel}>
+                                      {
+                                        groupLabels[
+                                          group as keyof typeof groupLabels
+                                        ].title
                                       }
-                                    }}
-                                  />
+                                    </div>
+                                    <div
+                                      className={styles.profileYutoKeyDescription}
+                                    >
+                                      {
+                                        groupLabels[
+                                          group as keyof typeof groupLabels
+                                        ].description
+                                      }
+                                    </div>
+                                    <input
+                                      className={styles.textInput}
+                                      type="text"
+                                      placeholder={`${group} API Key`}
+                                      value={
+                                        editingProfile.apiKeyGroups?.[group] ?? ""
+                                      }
+                                      onChange={(e) => {
+                                        const nextValue = e.currentTarget.value;
+                                        accessStore.update((access) => {
+                                          access.apiProfiles =
+                                            access.apiProfiles.map((item) =>
+                                              item.id === editingProfile.id
+                                                ? {
+                                                    ...item,
+                                                    apiKeyGroups: {
+                                                      ...(item.apiKeyGroups ||
+                                                        {}),
+                                                      [group]: nextValue,
+                                                    },
+                                                    apiKey:
+                                                      group === "default" && !isOcool
+                                                        ? nextValue
+                                                        : item.apiKey,
+                                                  }
+                                                : item,
+                                            );
+                                        });
+                                        if (editingProfile.enabled) {
+                                          syncProfileToAccess(editingProfile.id);
+                                        }
+                                      }}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              ));
+                            })()}
                           </div>
                         </div>
                         <div className={styles.profileYutoModalFooter}>
@@ -1982,7 +2171,8 @@ export function ApiConfigPage() {
                       </div>
                     </div>
                   );
-                })()}
+                })()
+                : <></>}
             </ListItem>
           )}
 
@@ -2137,21 +2327,16 @@ export function ApiConfigPage() {
 
                         // 当前平台的可用模型只跟随真实获取结果。
                         accessStore.update((state) => {
-                          state.apiProfiles = state.apiProfiles.map((p) =>
-                            p.id === profile.id
-                              ? {
-                                  ...p,
-                                  cachedModels: fetchedModels,
-                                  modelCount: result.total,
-                                }
-                              : p,
-                          );
                           if (
                             state.apiProfiles.find((p) => p.id === profile.id)
                               ?.enabled
                           ) {
                             state.customModels = fetchedModels;
                           }
+                        });
+                        useModelCacheStore.getState().upsertProfileCache(profile.id, {
+                          cachedModels: fetchedModels,
+                          modelCount: result.total,
                         });
                         const mergedCount = getProfileActualCount(
                           profile,
@@ -2215,6 +2400,11 @@ export function ApiConfigPage() {
                       `[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`,
                     );
                     console.log(LOG_SEPARATOR);
+                    await syncStore.syncModels();
+                    const client = syncStore.getClient() as any;
+                    if (typeof client.getMeta === "function") {
+                      updateStoredMeta(await client.getMeta([...MODEL_SYNC_STORE_KEYS]));
+                    }
                   }}
                   title="点击获取模型数据"
                 >

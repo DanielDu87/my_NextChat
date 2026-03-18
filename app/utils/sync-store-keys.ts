@@ -5,6 +5,7 @@ export const PERSIST_STORE_KEYS = [
   StoreKey.Plugin,
   StoreKey.Access,
   StoreKey.Config,
+  StoreKey.ModelCache,
   StoreKey.Mask,
   StoreKey.Prompt,
   StoreKey.Update,
@@ -12,9 +13,38 @@ export const PERSIST_STORE_KEYS = [
   StoreKey.Sync,
 ] as const satisfies readonly StoreKey[];
 
+export type PersistStoreKey = (typeof PERSIST_STORE_KEYS)[number];
+export type SyncStoreKey = Exclude<PersistStoreKey, StoreKey.Sync>;
+
 export const SYNC_STORE_KEYS = PERSIST_STORE_KEYS.filter(
   (key) => key !== StoreKey.Sync,
-) as StoreKey[];
+) as SyncStoreKey[];
+
+const SYNC_KEY_PRIORITIES: Partial<Record<StoreKey, number>> = {
+  [StoreKey.Chat]: 0,
+  [StoreKey.Config]: 1,
+};
+
+SYNC_STORE_KEYS.sort((a, b) => {
+  const priorityA = SYNC_KEY_PRIORITIES[a] ?? Number.MAX_SAFE_INTEGER;
+  const priorityB = SYNC_KEY_PRIORITIES[b] ?? Number.MAX_SAFE_INTEGER;
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  return 0;
+});
+
+export const AUTO_SYNC_STORE_KEYS = SYNC_STORE_KEYS.filter(
+  (key) => key !== StoreKey.Config && key !== StoreKey.ModelCache,
+) as SyncStoreKey[];
+
+export const MODEL_SYNC_STORE_KEYS = [
+  StoreKey.Config,
+  StoreKey.Access,
+  StoreKey.ModelCache,
+] as const;
 
 export function isPersistStoreKey(
   key: string,
@@ -30,6 +60,7 @@ export const STORE_PERSIST_VERSION: Record<
   [StoreKey.Plugin]: 1,
   [StoreKey.Access]: 4,
   [StoreKey.Config]: 4.1,
+  [StoreKey.ModelCache]: 1,
   [StoreKey.Mask]: 3.1,
   [StoreKey.Prompt]: 3,
   [StoreKey.Update]: 1,

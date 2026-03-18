@@ -14,7 +14,10 @@ import { fetch as tauriFetch } from "./stream";
 
 function isYutoApiChatPath(chatPath: string) {
   return (
-    chatPath.includes("cn.gptapi.asia") || chatPath.includes("gptapi.asia")
+    chatPath.includes("cn.gptapi.asia") ||
+    chatPath.includes("gptapi.asia") ||
+    chatPath.includes("one.ooo.cool") ||
+    chatPath.includes("ocoolai.com")
   );
 }
 
@@ -36,7 +39,7 @@ function getYutoGroupName(
 function formatYutoFailureMessage(currentGroup: string, reason: string) {
   const normalizedReason = String(reason || "").trim();
   return [
-    "[YutoAPI] 全部分组重试后仍失败",
+    "[分组重试] 全部分组重试后仍失败",
     `最终分组: ${currentGroup}`,
     `错误信息: ${normalizedReason || "unknown error"}`,
   ].join("\n");
@@ -282,8 +285,10 @@ export function stream(
       fallbackApiKeyGroups,
       currentKeyIndex,
     );
+    // 获取当前供应商名称，用于日志显示
+    const providerName = options.config?.providerName || "API";
 
-    console.log("[Chat] YutoAPI 分组请求失败", {
+    console.log(`[Chat] ${providerName} 分组请求失败`, {
       currentGroup,
       reason,
     });
@@ -294,7 +299,7 @@ export function stream(
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log("[Chat] YutoAPI 无可用下一分组，停止重试", {
+      console.log(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
         currentGroup,
         totalGroups: fallbackApiKeys.length,
       });
@@ -307,7 +312,7 @@ export function stream(
     );
 
     console.log(
-      `[Chat] YutoAPI 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
+      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
       })`,
       { currentGroup, nextGroup, reason },
@@ -432,7 +437,8 @@ export function stream(
         fallbackApiKeyGroups,
         currentKeyIndex,
       );
-      console.log("[Chat] YutoAPI 开始测试分组", {
+      const providerName = options.config?.providerName || "API";
+      console.log(`[Chat] ${providerName} 开始测试分组`, {
         currentGroup,
         attempt: currentKeyIndex + 1,
         totalGroups: fallbackApiKeys.length,
@@ -658,8 +664,10 @@ export function streamWithThink(
       fallbackApiKeyGroups,
       currentKeyIndex,
     );
+    // 获取当前供应商名称，用于日志显示
+    const providerName = options.config?.providerName || "API";
 
-    console.log("[Chat] YutoAPI 分组请求失败", {
+    console.log(`[Chat] ${providerName} 分组请求失败`, {
       currentGroup,
       reason,
     });
@@ -670,7 +678,7 @@ export function streamWithThink(
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log("[Chat] YutoAPI 无可用下一分组，停止重试", {
+      console.log(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
         currentGroup,
         totalGroups: fallbackApiKeys.length,
       });
@@ -683,7 +691,7 @@ export function streamWithThink(
     );
 
     console.log(
-      `[Chat] YutoAPI 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
+      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
       })`,
       { currentGroup, nextGroup, reason },
@@ -808,7 +816,8 @@ export function streamWithThink(
         fallbackApiKeyGroups,
         currentKeyIndex,
       );
-      console.log("[Chat] YutoAPI 开始测试分组", {
+      const providerName = options.config?.providerName || "API";
+      console.log(`[Chat] ${providerName} 开始测试分组`, {
         currentGroup,
         attempt: currentKeyIndex + 1,
         totalGroups: fallbackApiKeys.length,

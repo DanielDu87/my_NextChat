@@ -93,6 +93,7 @@ export enum StoreKey {
   Plugin = "chat-next-web-plugin",
   Access = "access-control",
   Config = "app-config",
+  ModelCache = "model-cache-store",
   Mask = "mask-store",
   Prompt = "prompt-store",
   Update = "chat-update",

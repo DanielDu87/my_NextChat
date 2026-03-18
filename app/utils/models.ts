@@ -777,8 +777,9 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
   // 动态导入store（避免循环依赖）
   const { useAccessStore } = await import("../store/access");
   const { useAppConfig } = await import("../store/config");
+  const { useModelCacheStore } = await import("../store/model-cache");
   const accessStore = useAccessStore.getState();
-  const configStore = useAppConfig.getState();
+  const configStore = useAppConfig.getState() as any;
 
   // 🔥 合并模式：新模型与现有模型合并（只增不减）
   const existingModels = configStore.models || [];
@@ -810,16 +811,16 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
   // 当前启用平台的可用模型只跟随本次真实获取结果，不再叠加历史缓存。
   accessStore.update((state) => {
     state.customModels = modelsString;
-    state.apiProfiles = (state.apiProfiles || []).map((profile) =>
-      profile.enabled
-        ? {
-            ...profile,
-            cachedModels: modelsString,
-            modelCount: models.length,
-          }
-        : profile,
-    );
   });
+  const enabledProfile = useAccessStore
+    .getState()
+    .apiProfiles.find((profile) => profile.enabled);
+  if (enabledProfile) {
+    useModelCacheStore.getState().upsertProfileCache(enabledProfile.id, {
+      cachedModels: modelsString,
+      modelCount: models.length,
+    });
+  }
   const latestAccessState = useAccessStore.getState();
   writeAccessSnapshot({
     useCustomConfig: latestAccessState.useCustomConfig,

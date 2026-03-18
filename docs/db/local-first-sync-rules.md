@@ -4,7 +4,7 @@
 
 - `IndexedDB`
   - 作为业务数据的本地工作副本
-  - 覆盖：对话、设置、模型、插件、Prompt、Mask、更新状态、绘图记录、同步状态
+  - 覆盖：对话、设置、模型配置、模型缓存、插件、Prompt、Mask、更新状态、绘图记录、同步状态
 - `localStorage`
   - 只保留纯 UI 偏好和临时态
   - 例如：侧边栏宽度、语言、横幅关闭状态、输入草稿
@@ -28,6 +28,8 @@
   - 下载云端数据并刷新本地
 - 若云端版本不同且本地存在未同步修改：
   - 标记冲突，不自动覆盖
+- 自动同步只覆盖会话和非模型业务数据
+- 模型配置页只读取本地模型缓存，不在页面加载时自动刷新模型
 
 ## 手动操作规则
 
@@ -60,15 +62,20 @@
 
 - 页面加载不直接请求供应商 API
 - 后台脚本或受控接口负责从供应商拉模型
-- 拉取后更新两份云端数据：
+- 拉取后更新三份云端数据：
   - `model_catalog`
-  - `app-config` / `access-control` 的云端快照
+  - `app-config` 的模型集合快照
+  - `model-cache-store` 的模型缓存快照
+- `access-control` 只保留 profile 主配置，旧的 `cachedModels` / `modelCount` 字段仅用于兼容历史数据
+- 应用启动或直接进入 API 配置页时，会自动把历史 `cachedModels` / `modelCount` 迁移到 `model-cache-store`
 - 前端只在下次版本检查时发现云端变化，再按需同步到本地
 
 ## 当前实现
 
 - 本地业务持久化：`IndexedDB`
 - 轻量版本检查接口：`/api/db/sync-meta`
+- 自动同步入口：`syncStore.autoSync()`
+- 模型专用同步入口：`syncStore.syncModels()`
 - 手动模型刷新脚本：`yarn db:refresh-provider-models`
 - 手动模型刷新接口：`POST /api/db/models/refresh`
 - 若配置了 `MODEL_SYNC_TOKEN`，接口必须带：

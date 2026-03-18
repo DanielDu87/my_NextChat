@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useAccessStore } from "../store";
+import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 
 let autoSyncStarted = false;
@@ -23,9 +25,18 @@ export default function AutoSync() {
       autoSyncPromise = new Promise<void>((resolve) => {
         const tick = async () => {
           const syncStore = useSyncStore.getState();
-          if (!syncStore._hasHydrated || !syncStore.provider) {
+          const accessStore = useAccessStore.getState();
+          const modelCacheStore = useModelCacheStore.getState();
+          if (
+            !syncStore._hasHydrated ||
+            !accessStore._hasHydrated ||
+            !modelCacheStore._hasHydrated ||
+            !syncStore.provider
+          ) {
             return;
           }
+
+          modelCacheStore.migrateFromAccessProfiles?.();
 
           if (autoSyncStarted) {
             resolve();
@@ -35,7 +46,7 @@ export default function AutoSync() {
           autoSyncStarted = true;
 
           try {
-            await syncStore.sync();
+            await syncStore.autoSync();
           } catch (error) {
             console.error("[AutoSync] 同步失败:", error);
           } finally {

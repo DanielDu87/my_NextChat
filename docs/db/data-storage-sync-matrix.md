@@ -6,8 +6,9 @@
 | ------------------ | ---------------------- | -------------- | ---------------------------- | ------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------- |
 | 对话数据           | `chat-next-web-store`  | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本；云端变更且本地无脏数据时下载 | `保存并同步` 上传本地；`从数据库下载` 覆盖本地 | 无外部来源                                      |
 | 插件数据           | `chat-next-web-plugin` | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 同上                                                   | 同上                                           | 无外部来源                                      |
-| API / 平台配置     | `access-control`       | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 模型刷新任务会回写 `cachedModels`、`modelCount` |
-| 模型配置与模型缓存 | `app-config`           | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 模型刷新任务会回写最新模型列表                  |
+| API / 平台配置     | `access-control`       | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 用户手动保存、同步按钮                          |
+| 模型配置           | `app-config`           | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 模型刷新任务会回写最新模型列表                  |
+| 模型缓存           | `model-cache-store`    | `IndexedDB`    | PostgreSQL `sync_artifacts`  | API 配置页优先读本地缓存，不自动刷新模型               | 点击“获取模型数据”或“保存并同步”时更新         | 模型刷新任务、模型获取按钮、服务端刷新脚本      |
 | Mask               | `mask-store`           | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 无外部来源                                      |
 | Prompt             | `prompt-store`         | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 无外部来源                                      |
 | 更新状态           | `chat-update`          | `IndexedDB`    | PostgreSQL `sync_artifacts`  | 先读本地，再检查云端版本                               | 同上                                           | 无外部来源                                      |
@@ -26,7 +27,7 @@
 | 页面 / 模块      | 先读本地 | 云端检查内容                                           | 何时下载云端正文           | 是否直接访问供应商 API |
 | ---------------- | -------- | ------------------------------------------------------ | -------------------------- | ---------------------- |
 | 聊天页           | 是       | `chat-next-web-store` 的 `updatedAt/checksum`          | 云端版本不同且本地无冲突时 | 否                     |
-| API 配置页       | 是       | `app-config`、`access-control` 的 `updatedAt/checksum` | 云端版本不同且本地无冲突时 | 否                     |
+| API 配置页       | 是       | `app-config`、`access-control`、`model-cache-store` 的 `updatedAt/checksum` | 云端版本不同且本地无冲突时 | 否                     |
 | 插件页           | 是       | `chat-next-web-plugin` 的 `updatedAt/checksum`         | 云端版本不同且本地无冲突时 | 否                     |
 | Prompt / Mask 页 | 是       | 对应 store 的 `updatedAt/checksum`                     | 云端版本不同且本地无冲突时 | 否                     |
 | 绘图页           | 是       | `sd-list` 的 `updatedAt/checksum`                      | 云端版本不同且本地无冲突时 | 否                     |
@@ -46,8 +47,8 @@
 | ---------------------- | -------------------------------------------- | -------------- | ------------------------------------ |
 | 对话数据               | `chat-next-web-store`                        | 双向合并       | 按会话和消息去重，避免覆盖历史对话   |
 | 插件数据               | `chat-next-web-plugin`                       | 双向合并       | 按插件 key 合并                      |
-| API Profiles           | `access-control.apiProfiles`                 | 双向合并       | 按 profile `id` 合并                 |
-| 派生 profile 字段      | `cachedModels`、`modelCount`                 | 云端覆盖本地   | 这些字段由模型刷新任务或云端快照生成 |
+| API Profiles           | `access-control.apiProfiles`                 | 双向合并       | 按 profile `id` 合并，不再承载模型缓存主数据 |
+| 模型缓存               | `model-cache-store.profiles`                 | 双向合并       | 按 profile `id` 合并，`updatedAt` 较新的缓存优先 |
 | 模型集合               | `app-config.models`                          | 双向合并       | 按 `model.name + provider.id` 合并   |
 | 页面主设置             | `app-config` 其他字段                        | 本地覆盖云端   | 以当前设备用户显式保存的设置为准     |
 | Prompt                 | `prompt-store`                               | 双向合并       | 按 key 合并                          |
@@ -59,9 +60,9 @@
 
 ## 3.2 自动刷新/同步说明
 
-- `app/components/auto-sync.tsx` 在每次页面加载时会驱动一次 `syncStore.sync()`，先完成“本地优先”展示再发起自动合并/上传；
-- 自动同步按前面表格的策略分别执行双向合并、本地覆盖云端或云端覆盖本地，能让任何一端的新增/修改实时同步到另一端；
-- `API 配置页` 页面打开时只展示本地模型缓存，不再自动刷新模型；模型刷新只会在你点击“保存并同步”时触发。
+- `app/components/auto-sync.tsx` 在每次页面加载时会驱动一次 `syncStore.autoSync()`，先完成“本地优先”展示，再自动同步会话和非模型业务数据；
+- 自动同步不会触发模型刷新，也不会自动同步 `app-config.models` / `model-cache-store`；
+- `API 配置页` 页面打开时只展示本地模型缓存，不自动刷新模型；模型刷新只会在你点击“获取模型数据”或“保存并同步”时触发。
 
 ## 4. 云端版本判断表
 
@@ -80,8 +81,8 @@
 | 归一化模型数据        | 服务端模型拉取器                              | `SyncedLLMModel[]`                         | 拉取后立即处理                                          |
 | 模型目录持久化        | 归一化模型结果                                | PostgreSQL `model_catalog`                 | `refresh-provider-models.ts` / `/api/db/models/refresh` |
 | 前端模型快照更新      | 归一化模型结果                                | PostgreSQL `sync_artifacts.app-config`     | 同上                                                    |
-| 前端 profile 缓存更新 | 归一化模型结果                                | PostgreSQL `sync_artifacts.access-control` | 同上                                                    |
-| 页面本地更新          | 云端版本变化                                  | `IndexedDB`                                | 下次页面版本校验时按需下载                              |
+| 前端模型缓存更新      | 归一化模型结果                                | PostgreSQL `sync_artifacts.model-cache-store` | 同上                                                 |
+| 页面本地更新          | 云端版本变化                                  | `IndexedDB` (`app-config` + `model-cache-store`) | 下次页面版本校验时按需下载                        |
 
 ## 6. 模型供应商自动更新兼容策略
 
@@ -104,6 +105,7 @@
 | API 配置页本地优先逻辑 | [api-config.tsx](/Users/dyx/Code/NextChat/app/components/api-config.tsx)                          |
 | 服务端模型拉取         | [provider-model-fetch.ts](/Users/dyx/Code/NextChat/app/utils/server/provider-model-fetch.ts)      |
 | 服务端模型刷新编排     | [provider-model-sync.ts](/Users/dyx/Code/NextChat/app/utils/server/provider-model-sync.ts)        |
+| 本地模型缓存 Store     | [model-cache.ts](/Users/dyx/Code/NextChat/app/store/model-cache.ts)                                |
 | 模型刷新脚本           | [refresh-provider-models.ts](/Users/dyx/Code/NextChat/scripts/refresh-provider-models.ts)         |
 | 模型刷新接口           | [route.ts](/Users/dyx/Code/NextChat/app/api/db/models/refresh/route.ts)                           |
 | 同步规则说明           | [local-first-sync-rules.md](/Users/dyx/Code/NextChat/docs/db/local-first-sync-rules.md)           |

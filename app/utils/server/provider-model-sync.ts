@@ -38,6 +38,20 @@ type AppConfigState = {
   [key: string]: unknown;
 };
 
+type ModelCacheState = {
+  profiles?: Record<
+    string,
+    {
+      profileId: string;
+      cachedModels: string;
+      modelCount: number;
+      updatedAt: number;
+      lastError?: string;
+    }
+  >;
+  [key: string]: unknown;
+};
+
 type ProviderRefreshSummary = {
   profileId: string;
   profileName: string;
@@ -236,17 +250,27 @@ export async function refreshConfiguredProviderModels(
     const nextProfiles = (accessState.apiProfiles || []).map((profile) => {
       const matched = summaries.find((item) => item.profileId === profile.id);
       if (!matched) return profile;
+      return { ...profile };
+    });
 
+    const modelCacheSnapshot = await getStoreSnapshot(StoreKey.ModelCache);
+    const modelCacheState = unwrapPersistedStoreState<ModelCacheState>(
+      modelCacheSnapshot,
+    ) ?? { profiles: {} };
+    const nextModelCacheProfiles = { ...(modelCacheState.profiles || {}) };
+
+    summaries.forEach((item) => {
       const profileModels = fetchedModels.filter(
         (model) =>
           String(model.provider?.id || "").toLowerCase() ===
-          matched.providerId.toLowerCase(),
+          item.providerId.toLowerCase(),
       );
 
-      return {
-        ...profile,
+      nextModelCacheProfiles[item.profileId] = {
+        profileId: item.profileId,
         cachedModels: modelsToCustomModelsString(profileModels),
         modelCount: profileModels.length,
+        updatedAt: Date.now(),
       };
     });
 
@@ -266,11 +290,19 @@ export async function refreshConfiguredProviderModels(
       }),
     );
 
+    await setStoreSnapshot(
+      StoreKey.ModelCache,
+      buildPersistedStoreState(StoreKey.ModelCache, {
+        ...modelCacheState,
+        profiles: nextModelCacheProfiles,
+      }),
+    );
+
     const summary = {
       profileCount: summaries.length,
       modelCount: mergedModels.length,
       providers: summaries,
-      updatedStoreKeys: [StoreKey.Config, StoreKey.Access],
+      updatedStoreKeys: [StoreKey.Config, StoreKey.Access, StoreKey.ModelCache],
     };
 
     await pgQuery(

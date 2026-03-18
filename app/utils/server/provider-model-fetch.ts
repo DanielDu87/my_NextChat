@@ -473,6 +473,37 @@ function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
   return priorityMap[normalizedGroup] ?? 0;
 }
 
+// Ocoolai 分组优先级
+function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
+  const normalizedGroup = String(groupName || "default")
+    .trim()
+    .toLowerCase();
+  const lowerModelName = modelName.toLowerCase();
+  const isClaudeModel = lowerModelName.startsWith("claude");
+
+  if (isClaudeModel) {
+    // Claude 模型优先级: default > official > cc > cn > open_source_cn
+    const priorityMap: Record<string, number> = {
+      default: 50,
+      official: 45,
+      cc: 40,
+      cn: 30,
+      open_source_cn: 20,
+    };
+    return priorityMap[normalizedGroup] ?? 0;
+  }
+
+  // 其他模型优先级: default > official > open_source_cn > cn > cc
+  const priorityMap: Record<string, number> = {
+    default: 50,
+    official: 45,
+    open_source_cn: 40,
+    cn: 30,
+    cc: 20,
+  };
+  return priorityMap[normalizedGroup] ?? 0;
+}
+
 export function modelsToCustomModelsString(models: SyncedLLMModel[]): string {
   return models
     .map((model) => {
@@ -625,6 +656,88 @@ export async function fetchModelsFromProviderForServer(
           mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
         }
       });
+    }
+
+    const mappedModels = [...mergedModelMap.values()];
+    return {
+      models: mappedModels,
+      total: mappedModels.length,
+    };
+  }
+
+  // Ocoolai 分组模型获取
+  if (isOcoolaiUrl(baseUrl) && apiKeyGroups && Object.keys(apiKeyGroups).length > 0) {
+    const groupedEntries = Object.entries(apiKeyGroups).filter(
+      ([key, value]) => key && value?.trim(),
+    );
+
+    if (groupedEntries.length === 0) {
+      // 没有配置分组，使用默认获取方式
+      const mappedModels = mapModels(
+        models,
+        providerId,
+        providerName,
+        providerType,
+        sorted,
+        vendorsMap,
+      );
+      return {
+        models: mappedModels,
+        total: mappedModels.length,
+      };
+    }
+
+    const mergedModelMap = new Map<string, SyncedLLMModel>();
+
+    // 使用 Ocoolai 的分组 API
+    const groupsData = await fetchJsonWithCandidates(
+      [`${baseWithoutV1}/api/user/available_models_by_groups`],
+      { Authorization: `Bearer ${apiKey}` },
+    );
+
+    if (groupsData.success && groupsData.data?.groups && Array.isArray(groupsData.data.groups)) {
+      const groups = groupsData.data.groups;
+
+      for (const group of groups) {
+        const groupName = group.name;
+        const groupApiKey = apiKeyGroups[groupName];
+
+        if (!groupApiKey) continue;
+
+        const groupModels = group.models || [];
+        const groupModelsArray = Array.isArray(groupModels)
+          ? groupModels.map((name: string) => ({ id: name }))
+          : [];
+
+        // 将 Ocoolai 的分组名映射到 apiKeyGroup
+        mapModels(
+          groupModelsArray,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+          vendorsMap,
+          groupName,
+        ).forEach((model) => {
+          const key = `${model.name}@${model.provider?.id}`;
+          const existing = mergedModelMap.get(key);
+
+          if (!existing) {
+            mergedModelMap.set(key, model);
+            return;
+          }
+
+          const existingPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            existing.apiKeyGroup,
+          );
+          const nextPriority = getOcoolApiKeyGroupPriority(model.name, groupName);
+
+          if (nextPriority > existingPriority) {
+            mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+          }
+        });
+      }
     }
 
     const mappedModels = [...mergedModelMap.values()];
