@@ -33,12 +33,12 @@ import {
   Tencent,
   XAI,
 } from "../constant";
-import { STORAGE_KEY } from "../constant";
 import { StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
+import { SYNC_STORE_KEYS } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
@@ -250,14 +250,6 @@ const PROVIDER_OPTIONS = [
   ServiceProvider.SiliconFlow,
   ServiceProvider["302.AI"],
 ] as const;
-
-const SYNC_STORE_KEYS: StoreKey[] = [
-  StoreKey.Chat,
-  StoreKey.Access,
-  StoreKey.Config,
-  StoreKey.Mask,
-  StoreKey.Prompt,
-];
 
 const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
   [ServiceProvider.OpenAI]: [
@@ -779,18 +771,7 @@ export function ApiConfigPage() {
   const providerFields = PROVIDER_FIELDS[accessStore.provider] ?? [];
   const extraFields = providerFields.filter((f) => !f.profileManaged);
   const providerProfiles = accessStore.apiProfiles;
-  const webdavEndpoint = syncStore.webdav.endpoint.trim();
-  const allowedWebDavEndpoints = accessStore.allowedWebDavEndpoints ?? [];
-  const fallbackWebdavEndpoint =
-    allowedWebDavEndpoints
-      .find((endpoint) => endpoint.trim().length > 0)
-      ?.trim() ?? "";
-  const webdavBasePath =
-    webdavEndpoint || fallbackWebdavEndpoint || "未获取到 WebDAV 地址";
-  const webdavFolderPath = `${webdavBasePath.replace(
-    /\/?$/,
-    "/",
-  )}${STORAGE_KEY}/`;
+  const dbSyncTargetLabel = "PostgreSQL / nextchat";
 
   const allProfiles = accessStore.apiProfiles;
   const mergedModelTotal = countCloudMergedModels(
@@ -918,7 +899,7 @@ export function ApiConfigPage() {
       if (initialSyncRef.current) return;
       initialSyncRef.current = true;
 
-      // 等待 syncStore 完成水合后再检查 WebDAV 配置
+      // 等待 syncStore 完成水合后再检查数据库同步配置
       const checkInterval = setInterval(() => {
         const state = useSyncStore.getState() as any;
         const hasHydrated = state?._hasHydrated;
@@ -926,19 +907,14 @@ export function ApiConfigPage() {
         if (hasHydrated) {
           clearInterval(checkInterval);
 
-          // 自动配置 WebDAV（如果环境变量有配置）
-          ensureWebDavEndpoint();
-
-          const endpoint = useSyncStore.getState().webdav?.endpoint;
-
-          if (endpoint) {
-            console.log(`[API Config] 🔄 页面加载，从云端同步模型数据...`);
+          if (useSyncStore.getState().provider === ProviderType.Database) {
+            console.log(`[API Config] 🔄 页面加载，从数据库同步模型数据...`);
             performCloudSync().catch((error) => {
-              console.log("[API Config] ℹ️ 云端同步跳过或失败:", error);
+              console.log("[API Config] ℹ️ 数据库同步跳过或失败:", error);
               logModelCount();
             });
           } else {
-            console.log("[API Config] ℹ️ WebDAV 未配置，跳过云端同步");
+            console.log("[API Config] ℹ️ 当前未启用数据库同步");
             logModelCount();
           }
         }
@@ -1335,7 +1311,7 @@ export function ApiConfigPage() {
     }
   };
 
-  const syncToWebDav = async () => {
+  const syncToDatabase = async () => {
     try {
       setSyncing(true);
 
@@ -1343,11 +1319,8 @@ export function ApiConfigPage() {
         access.useCustomConfig = true;
       });
 
-      // 🆕 如果 WebDAV 未配置，自动使用 allowedWebDavEndpoints 中的第一个地址
-      ensureWebDavEndpoint();
-
       syncStore.update((state) => {
-        state.provider = ProviderType.WebDAV;
+        state.provider = ProviderType.Database;
       });
 
       const activeProfile = accessStore.apiProfiles.find(
@@ -1361,55 +1334,26 @@ export function ApiConfigPage() {
         await refreshAllProfilesForSync();
 
       await syncStore.sync();
-      console.log("[API Config] ✅ 同步完成");
+      console.log("[API Config] ✅ 数据库同步完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
 
-      showToast("已通过 WebDAV 同步全部配置、模型和对话记录");
+      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
-      console.error("[API Config] ❌ 同步失败:", error);
-      showToast("同步到 WebDAV 失败，请检查网络或凭据");
+      console.error("[API Config] ❌ 数据库同步失败:", error);
+      showToast("同步到 PostgreSQL 失败，请检查数据库连接");
     } finally {
       setSyncing(false);
     }
   };
 
   const ensureWebDavEndpoint = () => {
-    const currentEndpoint = syncStore.webdav.endpoint.trim();
-    const currentUsername = syncStore.webdav.username.trim();
-    const currentPassword = syncStore.webdav.password.trim();
-
-    if (!currentEndpoint && allowedWebDavEndpoints.length > 0) {
-      const fallbackEndpoint = allowedWebDavEndpoints
-        .find((e) => e.trim().length > 0)
-        ?.trim();
-      if (fallbackEndpoint) {
-        console.log(
-          `[API Config] 🔧 自动配置 WebDAV 地址: ${fallbackEndpoint}`,
-        );
-        syncStore.update((state) => {
-          state.webdav.endpoint = fallbackEndpoint;
-        });
-      }
-    }
-
-    // 自动设置用户名和密码（如果环境变量有配置）
-    if (!currentUsername && accessStore.webdavUsername) {
-      console.log(`[API Config] 🔧 自动配置 WebDAV 用户名`);
-      syncStore.update((state) => {
-        state.webdav.username = accessStore.webdavUsername;
-      });
-    }
-
-    if (!currentPassword && accessStore.webdavPassword) {
-      console.log(`[API Config] 🔧 自动配置 WebDAV 密码`);
-      syncStore.update((state) => {
-        state.webdav.password = accessStore.webdavPassword;
-      });
-    }
+    syncStore.update((state) => {
+      state.provider = ProviderType.Database;
+    });
   };
 
-  const backupToWebDav = async () => {
-    console.log("[API Config] ⬆️ 开始上传到云端...");
+  const backupToDatabase = async () => {
+    console.log("[API Config] ⬆️ 开始上传到数据库...");
     try {
       setBackingUp(true);
       ensureWebDavEndpoint();
@@ -1430,24 +1374,24 @@ export function ApiConfigPage() {
 
       for (const key of SYNC_STORE_KEYS) {
         const storeData = localState[key as keyof AppState];
-        console.log(`[API Config] 📤 正在上传: ${key}...`);
+        console.log(`[API Config] 📤 正在写入数据库: ${key}...`);
         await client.set(key, JSON.stringify(storeData));
       }
 
       syncStore.markSyncTime();
-      console.log("[API Config] ✅ 上传完成");
+      console.log("[API Config] ✅ 数据库写入完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
-      showToast("已通过 WebDAV 上传全部配置、模型和对话记录");
+      showToast("已上传全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
-      console.error("[API Config] ❌ 上传失败:", error);
-      showToast("上传全部配置到云端失败");
+      console.error("[API Config] ❌ 数据库写入失败:", error);
+      showToast("上传全部配置到 PostgreSQL 失败");
     } finally {
       setBackingUp(false);
     }
   };
 
-  const downloadFromWebDav = async () => {
-    console.log("[API Config] ⬇️ 开始从云端下载...");
+  const downloadFromDatabase = async () => {
+    console.log("[API Config] ⬇️ 开始从数据库下载...");
     try {
       setDownloading(true);
       ensureWebDavEndpoint();
@@ -1464,7 +1408,7 @@ export function ApiConfigPage() {
         console.log(`[API Config] 📥 正在下载: ${key}...`);
         const remoteStateText = await client.get(key);
         if (!remoteStateText || remoteStateText === "") {
-          console.log(`[API Config] ℹ️ ${key}: 云端无数据，跳过`);
+          console.log(`[API Config] ℹ️ ${key}: 数据库无数据，跳过`);
           continue;
         }
 
@@ -1479,7 +1423,7 @@ export function ApiConfigPage() {
       }
 
       if (!hasRemoteData) {
-        throw new Error("云端配置为空");
+        throw new Error("数据库中还没有同步数据");
       }
 
       console.log("[API Config] 🔧 正在应用下载的配置...");
@@ -1498,11 +1442,11 @@ export function ApiConfigPage() {
       }
 
       syncStore.markSyncTime();
-      console.log("[API Config] ✅ 下载并恢复完成");
-      showToast("已通过 WebDAV 下载并恢复全部配置、模型和对话记录");
+      console.log("[API Config] ✅ 数据库下载并恢复完成");
+      showToast("已从 PostgreSQL 下载并恢复全部配置、模型和对话记录");
     } catch (error) {
-      console.error("[API Config] ❌ 下载失败:", error);
-      showToast("从云端下载全部配置失败: " + (error as Error).message);
+      console.error("[API Config] ❌ 数据库下载失败:", error);
+      showToast("从 PostgreSQL 下载全部配置失败: " + (error as Error).message);
     } finally {
       setDownloading(false);
     }
@@ -1514,7 +1458,7 @@ export function ApiConfigPage() {
     );
     if (!confirmed) return;
 
-    console.log("[API Config] 🗑️ 开始清空云端模型数据...");
+    console.log("[API Config] 🗑️ 开始清空数据库模型数据...");
     try {
       ensureWebDavEndpoint();
       const client = syncStore.getClient() as any;
@@ -1555,11 +1499,11 @@ export function ApiConfigPage() {
       );
       syncStore.markSyncTime();
 
-      console.log("[API Config] ✅ 云端模型数据已清空");
-      showToast("已清空所有云端模型数据");
+      console.log("[API Config] ✅ 数据库模型数据已清空");
+      showToast("已清空数据库中的模型数据");
     } catch (error) {
       console.error("[API Config] ❌ 清空失败:", error);
-      showToast("清空云端模型失败");
+      showToast("清空数据库模型失败");
     }
   };
 
@@ -1569,7 +1513,7 @@ export function ApiConfigPage() {
         <div className="window-header-title">
           <div className="window-header-main-title">API 配置</div>
           <div className="window-header-sub-title">
-            管理多平台配置，并把配置随聊天与设置一起同步到 WebDAV
+            管理多平台配置，并把配置随聊天与设置一起同步到 PostgreSQL
           </div>
         </div>
         <div className="window-actions">
@@ -1587,7 +1531,7 @@ export function ApiConfigPage() {
       <div className={styles.content}>
         <div className={styles.hint}>
           当前页面会保存多个平台的配置。你可以为每条配置单独选择平台，启用某条后会同步更新当前聊天默认平台，并把设置与聊天记录一起同步到
-          WebDAV。
+          PostgreSQL。
         </div>
 
         <List>
@@ -2012,25 +1956,23 @@ export function ApiConfigPage() {
 
           <ListItem
             className={styles.syncCard}
-            title="WebDAV 同步"
+            title="数据库同步"
             subTitle={
               <>
+                <div>同步方式：通过服务端 API 直接读写 PostgreSQL。</div>
+                <div>目标数据库：{dbSyncTargetLabel}</div>
                 <div>
-                  同步方式：通过 WebDAV 按文件读写远程目录，不使用单个压缩包。
-                </div>
-                <div>远程地址与目录：{webdavFolderPath}</div>
-                <div>
-                  上传到云端：通过 WebDAV 写入
-                  chat.json、config.json、mask.json、prompt.json、access.json，备份全部配置和对话记录。
+                  上传到数据库：写入聊天、插件、权限、设置、面具、提示词、更新状态和绘图记录等全部
+                  store 快照。
                 </div>
                 <div>
-                  保存并同步：先启用当前 API 配置，再通过 WebDAV
-                  合并并回写上述全部远程文件。
+                  保存并同步：先启用当前 API 配置，再从 PostgreSQL
+                  合并并回写全部数据。
                 </div>
                 <div>
-                  从云端下载：通过 WebDAV
-                  读取上述全部远程文件，解析后分别写回本地聊天、设置、提示词和
-                  API 配置。
+                  从数据库下载：读取 PostgreSQL 中的 store
+                  快照，解析后分别写回本地聊天、插件、设置、提示词、API
+                  配置和绘图记录。
                 </div>
               </>
             }
@@ -2047,11 +1989,11 @@ export function ApiConfigPage() {
               >
                 <IconButton
                   icon={backingUp ? <LoadingIcon /> : <UploadIcon />}
-                  text={backingUp ? "上传中..." : "上传到云端"}
+                  text={backingUp ? "上传中..." : "上传到数据库"}
                   bordered
                   disabled={syncActionDisabled}
                   onClick={() => {
-                    void backupToWebDav();
+                    void backupToDatabase();
                   }}
                 />
                 <IconButton
@@ -2061,16 +2003,16 @@ export function ApiConfigPage() {
                   bordered
                   disabled={syncActionDisabled}
                   onClick={() => {
-                    void syncToWebDav();
+                    void syncToDatabase();
                   }}
                 />
                 <IconButton
                   icon={downloading ? <LoadingIcon /> : <DownloadIcon />}
-                  text={downloading ? "下载中..." : "从云端下载"}
+                  text={downloading ? "下载中..." : "从数据库下载"}
                   bordered
                   disabled={syncActionDisabled}
                   onClick={() => {
-                    void downloadFromWebDav();
+                    void downloadFromDatabase();
                   }}
                 />
                 <button

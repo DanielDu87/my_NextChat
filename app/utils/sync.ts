@@ -3,12 +3,16 @@ import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  usePluginStore,
+  useUpdateStore,
 } from "../store";
 import { LLMModel } from "../client/api";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
+import { useSdStore } from "../store/sd";
 import { StoreKey } from "../constant";
 import { merge } from "./merge";
+export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 type NonFunctionKeys<T> = {
   [K in keyof T]: T[K] extends (...args: any[]) => any ? never : K;
@@ -33,14 +37,18 @@ export type GetStoreState<T> = T extends { getState: () => infer U }
 
 const LocalStateSetters = {
   [StoreKey.Chat]: useChatStore.setState,
+  [StoreKey.Plugin]: usePluginStore.setState,
   [StoreKey.Access]: useAccessStore.setState,
   [StoreKey.Config]: useAppConfig.setState,
   [StoreKey.Mask]: useMaskStore.setState,
   [StoreKey.Prompt]: usePromptStore.setState,
+  [StoreKey.Update]: useUpdateStore.setState,
+  [StoreKey.SdList]: useSdStore.setState,
 } as const;
 
 const LocalStateGetters = {
   [StoreKey.Chat]: () => getNonFunctionFileds(useChatStore.getState()),
+  [StoreKey.Plugin]: () => getNonFunctionFileds(usePluginStore.getState()),
   [StoreKey.Access]: () => getNonFunctionFileds(useAccessStore.getState()),
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
@@ -50,6 +58,8 @@ const LocalStateGetters = {
   },
   [StoreKey.Mask]: () => getNonFunctionFileds(useMaskStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
+  [StoreKey.Update]: () => getNonFunctionFileds(useUpdateStore.getState()),
+  [StoreKey.SdList]: () => getNonFunctionFileds(useSdStore.getState()),
 } as const;
 
 export type AppState = {
@@ -110,6 +120,13 @@ const MergeStates: StateMerger = {
     localState.prompts = {
       ...remoteState.prompts,
       ...localState.prompts,
+    };
+    return localState;
+  },
+  [StoreKey.Plugin]: (localState, remoteState) => {
+    localState.plugins = {
+      ...remoteState.plugins,
+      ...localState.plugins,
     };
     return localState;
   },
@@ -208,6 +225,48 @@ const MergeStates: StateMerger = {
     localState.apiProfiles = savedProfiles;
     localState.lastUpdateTime = savedUpdateTime;
 
+    return localState;
+  },
+  [StoreKey.Update]: (localState, remoteState) => {
+    return mergeWithUpdate(localState, remoteState);
+  },
+  [StoreKey.SdList]: (localState, remoteState) => {
+    const localDrawMap = new Map(
+      (localState.draw || []).map((item: any) => [item.id, item]),
+    );
+    const remoteDrawMap = new Map(
+      (remoteState.draw || []).map((item: any) => [item.id, item]),
+    );
+
+    const mergedDraw = [...remoteDrawMap.values()];
+    localDrawMap.forEach((item, id) => {
+      if (!remoteDrawMap.has(id)) {
+        mergedDraw.push(item);
+        return;
+      }
+
+      const remoteItem = remoteDrawMap.get(id);
+      const localStatus = String(item?.status ?? "");
+      const remoteStatus = String(remoteItem?.status ?? "");
+      const shouldPreferLocal =
+        remoteStatus === "running" && localStatus !== "running";
+      if (shouldPreferLocal) {
+        const index = mergedDraw.findIndex((draw: any) => draw.id === id);
+        if (index >= 0) mergedDraw[index] = item;
+      }
+    });
+
+    localState.draw = mergedDraw;
+    localState.currentId = Math.max(
+      Number(localState.currentId || 0),
+      Number(remoteState.currentId || 0),
+    );
+    if (!localState.currentModel && remoteState.currentModel) {
+      localState.currentModel = remoteState.currentModel;
+    }
+    if (!localState.currentParams && remoteState.currentParams) {
+      localState.currentParams = remoteState.currentParams;
+    }
     return localState;
   },
 };

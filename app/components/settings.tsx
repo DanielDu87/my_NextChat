@@ -371,7 +371,12 @@ function SyncConfigModal(props: { onClose?: () => void }) {
           >
             <input
               type="checkbox"
-              checked={syncStore.useProxy}
+              checked={
+                syncStore.provider === ProviderType.Database
+                  ? false
+                  : syncStore.useProxy
+              }
+              disabled={syncStore.provider === ProviderType.Database}
               onChange={(e) => {
                 syncStore.update(
                   (config) => (config.useProxy = e.currentTarget.checked),
@@ -380,20 +385,22 @@ function SyncConfigModal(props: { onClose?: () => void }) {
             ></input>
           </ListItem>
           {syncStore.useProxy ? (
-            <ListItem
-              title={Locale.Settings.Sync.Config.ProxyUrl.Title}
-              subTitle={Locale.Settings.Sync.Config.ProxyUrl.SubTitle}
-            >
-              <input
-                type="text"
-                value={syncStore.proxyUrl}
-                onChange={(e) => {
-                  syncStore.update(
-                    (config) => (config.proxyUrl = e.currentTarget.value),
-                  );
-                }}
-              ></input>
-            </ListItem>
+            syncStore.provider === ProviderType.Database ? null : (
+              <ListItem
+                title={Locale.Settings.Sync.Config.ProxyUrl.Title}
+                subTitle={Locale.Settings.Sync.Config.ProxyUrl.SubTitle}
+              >
+                <input
+                  type="text"
+                  value={syncStore.proxyUrl}
+                  onChange={(e) => {
+                    syncStore.update(
+                      (config) => (config.proxyUrl = e.currentTarget.value),
+                    );
+                  }}
+                ></input>
+              </ListItem>
+            )
           ) : null}
         </List>
 
@@ -479,6 +486,15 @@ function SyncConfigModal(props: { onClose?: () => void }) {
                 }}
               ></PasswordInput>
             </ListItem>
+          </List>
+        )}
+
+        {syncStore.provider === ProviderType.Database && (
+          <List>
+            <ListItem
+              title="数据库同步"
+              subTitle="当前使用服务端 PostgreSQL 保存聊天、插件、设置、API 配置、Prompt、Mask、更新状态、绘图记录和模型缓存，无需额外配置。"
+            />
           </List>
         )}
       </Modal>

@@ -16,7 +16,7 @@
 在部署容器时至少传这些变量：
 
 ```env
-PGHOST=127.0.0.1
+PGHOST=postgres-ssh-tunnel
 PGPORT=5432
 PGDATABASE=nextchat
 PGUSER=dyx
@@ -25,12 +25,19 @@ PGSSL=false
 PGPOOL_MAX=10
 PG_CONNECT_TIMEOUT_MS=10000
 PG_IDLE_TIMEOUT_MS=30000
+SSH_TUNNEL_HOST=42.193.15.117
+SSH_TUNNEL_PORT=222
+SSH_TUNNEL_USER=root
+SSH_TUNNEL_PASSWORD=your_ssh_password
+SSH_TUNNEL_REMOTE_HOST=127.0.0.1
+SSH_TUNNEL_REMOTE_PORT=5432
+SSH_TUNNEL_LOCAL_PORT=5432
 ```
 
 也可以直接用：
 
 ```env
-DATABASE_URL=postgresql://dyx:your_password@127.0.0.1:5432/nextchat
+DATABASE_URL=postgresql://dyx:your_password@postgres-ssh-tunnel:5432/nextchat
 ```
 
 ## 2. 模型目录同步

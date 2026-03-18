@@ -1,11 +1,35 @@
-version: "3.9"
 services:
+  postgres-ssh-tunnel:
+    container_name: postgres-ssh-tunnel
+    build:
+      context: .
+      dockerfile: docker/postgres-ssh-tunnel/Dockerfile
+    restart: unless-stopped
+    environment:
+      - SSH_TUNNEL_HOST=${SSH_TUNNEL_HOST}
+      - SSH_TUNNEL_PORT=${SSH_TUNNEL_PORT:-222}
+      - SSH_TUNNEL_USER=${SSH_TUNNEL_USER}
+      - SSH_TUNNEL_PASSWORD=${SSH_TUNNEL_PASSWORD}
+      - SSH_TUNNEL_REMOTE_HOST=${SSH_TUNNEL_REMOTE_HOST:-127.0.0.1}
+      - SSH_TUNNEL_REMOTE_PORT=${SSH_TUNNEL_REMOTE_PORT:-5432}
+      - SSH_TUNNEL_LOCAL_PORT=${SSH_TUNNEL_LOCAL_PORT:-5432}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 ${SSH_TUNNEL_LOCAL_PORT:-5432}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   chatgpt-next-web:
     profiles: [ "no-proxy" ]
     container_name: chatgpt-next-web
     image: nextchat-local
     build:
       context: .
+    depends_on:
+      postgres-ssh-tunnel:
+        condition: service_healthy
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -20,9 +44,9 @@ services:
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
       - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
-      - DATABASE_URL=$DATABASE_URL
-      - PGHOST=$PGHOST
-      - PGPORT=$PGPORT
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PGHOST=${PGHOST:-postgres-ssh-tunnel}
+      - PGPORT=${PGPORT:-5432}
       - PGDATABASE=$PGDATABASE
       - PGUSER=$PGUSER
       - PGPASSWORD=$PGPASSWORD
@@ -30,9 +54,9 @@ services:
       - PGPOOL_MAX=$PGPOOL_MAX
       - PG_CONNECT_TIMEOUT_MS=$PG_CONNECT_TIMEOUT_MS
       - PG_IDLE_TIMEOUT_MS=$PG_IDLE_TIMEOUT_MS
-      - WEBDAV_BASE_URL=$WEBDAV_BASE_URL
-      - WEBDAV_USERNAME=$WEBDAV_USERNAME
-      - WEBDAV_PASSWORD=$WEBDAV_PASSWORD
+      - WEBDAV_BASE_URL=${WEBDAV_BASE_URL:-}
+      - WEBDAV_USERNAME=${WEBDAV_USERNAME:-}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-}
 
   chatgpt-next-web-dev:
     profiles: [ "dev" ]
@@ -41,6 +65,10 @@ services:
     build:
       context: .
       target: deps
+    depends_on:
+      postgres-ssh-tunnel:
+        condition: service_healthy
+    restart: unless-stopped
     working_dir: /app
     command: sh -c "yarn install && (yarn mask:watch &) && yarn next dev -H 0.0.0.0"
     ports:
@@ -60,9 +88,9 @@ services:
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
       - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
-      - DATABASE_URL=$DATABASE_URL
-      - PGHOST=$PGHOST
-      - PGPORT=$PGPORT
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PGHOST=${PGHOST:-postgres-ssh-tunnel}
+      - PGPORT=${PGPORT:-5432}
       - PGDATABASE=$PGDATABASE
       - PGUSER=$PGUSER
       - PGPASSWORD=$PGPASSWORD
@@ -70,9 +98,9 @@ services:
       - PGPOOL_MAX=$PGPOOL_MAX
       - PG_CONNECT_TIMEOUT_MS=$PG_CONNECT_TIMEOUT_MS
       - PG_IDLE_TIMEOUT_MS=$PG_IDLE_TIMEOUT_MS
-      - WEBDAV_BASE_URL=$WEBDAV_BASE_URL
-      - WEBDAV_USERNAME=$WEBDAV_USERNAME
-      - WEBDAV_PASSWORD=$WEBDAV_PASSWORD
+      - WEBDAV_BASE_URL=${WEBDAV_BASE_URL:-}
+      - WEBDAV_USERNAME=${WEBDAV_USERNAME:-}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-}
     volumes:
       - .:/app
       - nextchat_node_modules:/app/node_modules
@@ -84,6 +112,10 @@ services:
     image: nextchat-local
     build:
       context: .
+    depends_on:
+      postgres-ssh-tunnel:
+        condition: service_healthy
+    restart: unless-stopped
     ports:
       - 3000:3000
     environment:
@@ -99,9 +131,9 @@ services:
       - DISABLE_FAST_LINK=$DISABLE_FAST_LINK
       - OPENAI_SB=$OPENAI_SB
       - WHITE_WEBDAV_ENDPOINTS=$WHITE_WEBDAV_ENDPOINTS
-      - DATABASE_URL=$DATABASE_URL
-      - PGHOST=$PGHOST
-      - PGPORT=$PGPORT
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PGHOST=${PGHOST:-postgres-ssh-tunnel}
+      - PGPORT=${PGPORT:-5432}
       - PGDATABASE=$PGDATABASE
       - PGUSER=$PGUSER
       - PGPASSWORD=$PGPASSWORD
@@ -109,9 +141,9 @@ services:
       - PGPOOL_MAX=$PGPOOL_MAX
       - PG_CONNECT_TIMEOUT_MS=$PG_CONNECT_TIMEOUT_MS
       - PG_IDLE_TIMEOUT_MS=$PG_IDLE_TIMEOUT_MS
-      - WEBDAV_BASE_URL=$WEBDAV_BASE_URL
-      - WEBDAV_USERNAME=$WEBDAV_USERNAME
-      - WEBDAV_PASSWORD=$WEBDAV_PASSWORD
+      - WEBDAV_BASE_URL=${WEBDAV_BASE_URL:-}
+      - WEBDAV_USERNAME=${WEBDAV_USERNAME:-}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-}
 
 volumes:
   nextchat_node_modules:
