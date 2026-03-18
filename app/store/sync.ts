@@ -44,7 +44,7 @@ const isApp = !!getClientConfig()?.isApp;
 export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(50);
 let syncInFlight: Promise<void> | null = null;
-const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] 5\d{2}\b/;
+const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -293,7 +293,7 @@ export const useSyncStore = createPersistStore(
               const remoteDataText = await withRetry<string>(
                 () => client.get(key),
                 {
-                  retries: key === StoreKey.Chat ? 1 : 0,
+                  retries: 1,
                   retryable: (error) =>
                     error instanceof Error &&
                     RETRYABLE_DB_SYNC_ERROR.test(error.message),

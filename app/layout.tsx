@@ -2,19 +2,12 @@
 import "./styles/globals.scss";
 import "./styles/markdown.scss";
 import "./styles/highlight.scss";
+import AutoSyncEntry from "./components/auto-sync-entry";
 import { getClientConfig } from "./config/client";
 import type { Metadata, Viewport } from "next";
-import dynamic from "next/dynamic";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GoogleTagManager, GoogleAnalytics } from "@next/third-parties/google";
 import { getServerSideConfig } from "./config/server";
-
-const AutoSync = dynamic(
-  async () => (await import("./components/auto-sync")).default,
-  {
-    ssr: false,
-  },
-);
 
 export const metadata: Metadata = {
   title: "NextChat",
@@ -60,7 +53,7 @@ export default function RootLayout({
         <script src="/serviceWorkerRegister.js" defer></script>
       </head>
       <body suppressHydrationWarning>
-        <AutoSync />
+        <AutoSyncEntry />
         {children}
         {serverConfig?.isVercel && (
           <>

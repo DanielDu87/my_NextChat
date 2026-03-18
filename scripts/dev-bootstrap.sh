@@ -14,16 +14,15 @@ fi
 npm run mask:watch &
 
 (
-  echo "[Dev Bootstrap] 等待 Next.js 服务就绪后预热路由"
+  echo "[Dev Bootstrap] 等待 Next.js 静态资源就绪后预热 API"
 
-  until wget -q -O /dev/null http://127.0.0.1:3000/; do
+  until wget -q -O /dev/null http://127.0.0.1:3000/site.webmanifest; do
     sleep 2
   done
 
-  echo "[Dev Bootstrap] 开始预热首页与数据库接口"
-  wget -q -O /dev/null http://127.0.0.1:3000/ || true
+  echo "[Dev Bootstrap] 开始预热数据库接口"
   wget -q -O /dev/null http://127.0.0.1:3000/api/db/health || true
-  wget -q -O /dev/null http://127.0.0.1:3000/api/db/sync/chat-next-web-store || true
+  wget -q -O /dev/null http://127.0.0.1:3000/api/db/sync/chat-update || true
   echo "[Dev Bootstrap] 预热完成"
 ) &
 
