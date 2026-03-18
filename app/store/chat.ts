@@ -88,6 +88,7 @@ export interface ChatSession {
   memoryPrompt: string;
   messages: ChatMessage[];
   stat: ChatStat;
+  createdAt: number;
   lastUpdate: number;
   lastSummarizeIndex: number;
   clearContextIndex?: number;
@@ -101,7 +102,33 @@ export const BOT_HELLO: ChatMessage = createMessage({
   content: Locale.Store.BotHello,
 });
 
+function getSessionCreatedAt(session: Partial<ChatSession>) {
+  const createdAt = Number(session.createdAt);
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    return createdAt;
+  }
+
+  const lastUpdate = Number(session.lastUpdate);
+  if (Number.isFinite(lastUpdate) && lastUpdate > 0) {
+    return lastUpdate;
+  }
+
+  return 0;
+}
+
+function sortSessionsByCreatedAt(sessions: ChatSession[]) {
+  return sessions.sort((a, b) => {
+    const createdAtDiff = getSessionCreatedAt(b) - getSessionCreatedAt(a);
+    if (createdAtDiff !== 0) {
+      return createdAtDiff;
+    }
+
+    return Number(b.lastUpdate || 0) - Number(a.lastUpdate || 0);
+  });
+}
+
 function createEmptySession(): ChatSession {
+  const now = Date.now();
   return {
     id: nanoid(),
     topic: DEFAULT_TOPIC,
@@ -112,7 +139,8 @@ function createEmptySession(): ChatSession {
       wordCount: 0,
       charCount: 0,
     },
-    lastUpdate: Date.now(),
+    createdAt: now,
+    lastUpdate: now,
     lastSummarizeIndex: 0,
 
     mask: createEmptyMask(),
@@ -924,6 +952,11 @@ export const useChatStore = createPersistStore(
           ]);
         });
 
+        // 触发防抖同步（动态导入避免循环依赖）
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
+
         const api: ClientApi = getClientApi(modelConfig.providerName);
         console.log("[Chat] 🚀 开始 API 调用...");
         // make request
@@ -1156,13 +1189,39 @@ export const useChatStore = createPersistStore(
         const session = sessions.at(sessionIndex);
         const messages = session?.messages;
         updater(messages?.at(messageIndex));
+        if (session) {
+          session.lastUpdate = Date.now();
+        }
         set(() => ({ sessions }));
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
+      },
+
+      deleteMessage(sessionIndex: number, messageIndex: number) {
+        const sessions = get().sessions;
+        const session = sessions.at(sessionIndex);
+        if (!session) return;
+
+        const messages = session.messages;
+        messages.splice(messageIndex, 1);
+        session.lastUpdate = Date.now();
+        set(() => ({ sessions }));
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
       },
 
       resetSession(session: ChatSession) {
         get().updateTargetSession(session, (session) => {
           session.messages = [];
           session.memoryPrompt = "";
+        });
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
         });
       },
 
@@ -1376,6 +1435,7 @@ export const useChatStore = createPersistStore(
         const index = sessions.findIndex((s) => s.id === targetSession.id);
         if (index < 0) return;
         updater(sessions[index]);
+        sessions[index].lastUpdate = Date.now();
         set(() => ({ sessions }));
       },
       async clearAllData() {
@@ -1425,7 +1485,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.3,
+    version: 3.4,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -1488,6 +1548,28 @@ export const useChatStore = createPersistStore(
           s.mask.modelConfig.compressModel = "";
           s.mask.modelConfig.compressProviderName = "";
         });
+      }
+
+      if (version < 3.4) {
+        const selectedSessionId =
+          newState.sessions?.[newState.currentSessionIndex]?.id ?? "";
+        newState.sessions.forEach((s) => {
+          if (!s.createdAt) {
+            const firstMessageTime = s.messages
+              ?.map((message) => new Date(message.date).getTime())
+              .find((time) => Number.isFinite(time) && time > 0);
+            s.createdAt = firstMessageTime || s.lastUpdate || Date.now();
+          }
+        });
+        newState.sessions = sortSessionsByCreatedAt(newState.sessions);
+        if (selectedSessionId) {
+          const nextIndex = newState.sessions.findIndex(
+            (session) => session.id === selectedSessionId,
+          );
+          if (nextIndex >= 0) {
+            newState.currentSessionIndex = nextIndex;
+          }
+        }
       }
 
       return newState as any;

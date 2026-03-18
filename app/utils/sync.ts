@@ -1,4 +1,5 @@
 import {
+  ChatMessage,
   ChatSession,
   useAccessStore,
   useAppConfig,
@@ -19,6 +20,31 @@ type NonFunctionKeys<T> = {
   [K in keyof T]: T[K] extends (...args: any[]) => any ? never : K;
 }[keyof T];
 type NonFunctionFields<T> = Pick<T, NonFunctionKeys<T>>;
+
+function getSessionCreatedAt(session: Partial<ChatSession> | undefined) {
+  const createdAt = Number(session?.createdAt);
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    return createdAt;
+  }
+
+  const lastUpdate = Number(session?.lastUpdate);
+  if (Number.isFinite(lastUpdate) && lastUpdate > 0) {
+    return lastUpdate;
+  }
+
+  return 0;
+}
+
+function sortSessionsByCreatedAt(sessions: ChatSession[]) {
+  return sessions.sort((a, b) => {
+    const createdAtDiff = getSessionCreatedAt(b) - getSessionCreatedAt(a);
+    if (createdAtDiff !== 0) {
+      return createdAtDiff;
+    }
+
+    return Number(b.lastUpdate || 0) - Number(a.lastUpdate || 0);
+  });
+}
 
 export function getNonFunctionFileds<T extends object>(obj: T) {
   const ret: any = {};
@@ -105,15 +131,37 @@ const MergeStates: StateMerger = {
   [StoreKey.Chat]: (localState, remoteState) => {
     // 使用 Map 存储会话，便于查找和更新
     const sessionMap = new Map<string, ChatSession>();
+    const MAX_DEBUG_SESSION_IDS = 10;
+    const currentSessionId =
+      localState.sessions?.[localState.currentSessionIndex]?.id ?? "";
+    const localSessionCount = Array.isArray(localState.sessions)
+      ? localState.sessions.length
+      : 0;
+    const remoteSessionCount = Array.isArray(remoteState.sessions)
+      ? remoteState.sessions.length
+      : 0;
+    const localEmptySessionCount = Array.isArray(localState.sessions)
+      ? localState.sessions.filter(
+          (session) => (session.messages?.length ?? 0) === 0,
+        ).length
+      : 0;
+    const remoteEmptySessionCount = Array.isArray(remoteState.sessions)
+      ? remoteState.sessions.filter(
+          (session) => (session.messages?.length ?? 0) === 0,
+        ).length
+      : 0;
+    let adoptedRemoteCount = 0;
+    let keptLocalCount = 0;
+    let mergedSameTimestampCount = 0;
+    const adoptedRemoteEmptySessionIds: string[] = [];
+    const keptLocalEmptySessionIds: string[] = [];
+    const mergedSameTimestampEmptySessionIds: string[] = [];
 
     // 先添加本地会话
     localState.sessions.forEach((s) => sessionMap.set(s.id, s));
 
     // 遍历远程会话，以 lastUpdate 最新的为准
     remoteState.sessions.forEach((remoteSession) => {
-      // 跳过空会话
-      if (remoteSession.messages.length === 0) return;
-
       const localSession = sessionMap.get(remoteSession.id);
       const remoteUpdateTime = new Date(remoteSession.lastUpdate).getTime();
       const localUpdateTime = localSession
@@ -122,7 +170,17 @@ const MergeStates: StateMerger = {
 
       // 如果远程更新时间更新，或者本地没有该会话，使用远程的
       if (!localSession || remoteUpdateTime > localUpdateTime) {
+        remoteSession.createdAt = localSession
+          ? Math.min(
+              getSessionCreatedAt(localSession),
+              getSessionCreatedAt(remoteSession),
+            )
+          : getSessionCreatedAt(remoteSession);
         sessionMap.set(remoteSession.id, remoteSession);
+        adoptedRemoteCount += 1;
+        if ((remoteSession.messages?.length ?? 0) === 0) {
+          adoptedRemoteEmptySessionIds.push(remoteSession.id);
+        }
         console.log("[Sync] 📥 使用远程会话（更新）:", {
           id: remoteSession.id,
           topic: remoteSession.topic,
@@ -138,53 +196,90 @@ const MergeStates: StateMerger = {
           localTime: new Date(localUpdateTime).toLocaleString(),
           remoteTime: new Date(remoteUpdateTime).toLocaleString(),
         });
+        keptLocalCount += 1;
+        localSession.createdAt =
+          localSession.createdAt || getSessionCreatedAt(localSession);
+        if ((localSession.messages?.length ?? 0) === 0) {
+          keptLocalEmptySessionIds.push(localSession.id);
+        }
       } else {
         // 更新时间相同，合并消息（保留两边独有的消息）
         if (localSession) {
-          const localMessageIds = new Set(
-            localSession.messages.map((v) => v.id),
-          );
-          const remoteMessageIds = new Set(
-            remoteSession.messages.map((v) => v.id),
-          );
-
-          // 添加本地独有的消息
-          localSession.messages.forEach((m) => {
-            if (!remoteMessageIds.has(m.id)) {
-              remoteSession.messages.push(m);
-            }
-          });
-
-          // 添加远程独有的消息
-          remoteSession.messages.forEach((m) => {
-            if (!localMessageIds.has(m.id)) {
-              localSession.messages.push(m);
+          const allMessages = [
+            ...localSession.messages,
+            ...remoteSession.messages,
+          ];
+          const messageMap = new Map<string, ChatMessage>();
+          allMessages.forEach((m) => {
+            const existing = messageMap.get(m.id);
+            if (!existing || new Date(m.date) > new Date(existing.date)) {
+              messageMap.set(m.id, m);
             }
           });
 
           // 按时间排序
-          localSession.messages.sort(
+          remoteSession.messages = Array.from(messageMap.values()).sort(
             (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
           );
-          remoteSession.messages.sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          remoteSession.createdAt = Math.min(
+            getSessionCreatedAt(localSession),
+            getSessionCreatedAt(remoteSession),
           );
 
-          // 使用消息更多的那个（作为近似判断，选择更完整的版本）
-          if (remoteSession.messages.length >= localSession.messages.length) {
-            sessionMap.set(remoteSession.id, remoteSession);
+          sessionMap.set(remoteSession.id, remoteSession);
+          mergedSameTimestampCount += 1;
+          if ((remoteSession.messages?.length ?? 0) === 0) {
+            mergedSameTimestampEmptySessionIds.push(remoteSession.id);
           }
         }
       }
     });
 
-    // 转换回数组并按 lastUpdate 降序排序
-    localState.sessions = Array.from(sessionMap.values()).sort(
-      (a, b) =>
-        new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime(),
+    // 转换回数组并按 createdAt 降序排序，lastUpdate 仅用于同步新旧判断
+    localState.sessions = sortSessionsByCreatedAt(
+      Array.from(sessionMap.values()),
     );
+    if (currentSessionId) {
+      const nextIndex = localState.sessions.findIndex(
+        (session) => session.id === currentSessionId,
+      );
+      if (nextIndex >= 0) {
+        localState.currentSessionIndex = nextIndex;
+      }
+    }
 
-    console.log("[Sync] 📊 会话合并完成，总数:", localState.sessions.length);
+    console.log("[Sync] 📊 会话合并完成:", {
+      localSessionCount,
+      remoteSessionCount,
+      localEmptySessionCount,
+      remoteEmptySessionCount,
+      adoptedRemoteCount,
+      keptLocalCount,
+      mergedSameTimestampCount,
+      mergedSessionCount: localState.sessions.length,
+    });
+    if (adoptedRemoteEmptySessionIds.length > 0) {
+      console.log("[Sync] 📝 已接收远端空会话:", {
+        count: adoptedRemoteEmptySessionIds.length,
+        ids: adoptedRemoteEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
+        truncated: adoptedRemoteEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+      });
+    }
+    if (keptLocalEmptySessionIds.length > 0) {
+      console.log("[Sync] 📝 保留本地空会话:", {
+        count: keptLocalEmptySessionIds.length,
+        ids: keptLocalEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
+        truncated: keptLocalEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+      });
+    }
+    if (mergedSameTimestampEmptySessionIds.length > 0) {
+      console.log("[Sync] 📝 同时间戳空会话已合并:", {
+        count: mergedSameTimestampEmptySessionIds.length,
+        ids: mergedSameTimestampEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
+        truncated:
+          mergedSameTimestampEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+      });
+    }
     return localState;
   },
   [StoreKey.Prompt]: (localState, remoteState) => {

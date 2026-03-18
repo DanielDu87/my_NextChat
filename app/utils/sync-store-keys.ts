@@ -56,7 +56,7 @@ export const STORE_PERSIST_VERSION: Record<
   (typeof PERSIST_STORE_KEYS)[number],
   number
 > = {
-  [StoreKey.Chat]: 3.3,
+  [StoreKey.Chat]: 3.4,
   [StoreKey.Plugin]: 1,
   [StoreKey.Access]: 4,
   [StoreKey.Config]: 4.1,
