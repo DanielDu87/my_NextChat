@@ -11,7 +11,15 @@ else
   echo "[Dev Bootstrap] 复用现有 node_modules，跳过 yarn install"
 fi
 
-npm run mask:watch &
+echo "[Dev Bootstrap] 生成 masks.json"
+npm run mask
+
+if [ "${ENABLE_MASK_WATCH:-0}" = "1" ]; then
+  echo "[Dev Bootstrap] 启用 mask watch"
+  npm run mask:watch &
+else
+  echo "[Dev Bootstrap] 跳过 mask watch"
+fi
 
 (
   echo "[Dev Bootstrap] 等待 Next.js 静态资源就绪后预热 API"
