@@ -121,6 +121,65 @@ export const BOT_HELLO: ChatMessage = createMessage({
   content: getBotHelloContent(),
 });
 
+function isDefaultTopic(topic: string | undefined) {
+  return !topic || topic === getDefaultTopic();
+}
+
+function getSessionFallbackTopic(session: ChatSession) {
+  const firstUserMessage = session.messages.find(
+    (message) =>
+      message.role === "user" &&
+      Boolean(getMessageTextContent(message).trim()) &&
+      !message.isError,
+  );
+  const firstValidMessage =
+    firstUserMessage ??
+    session.messages.find(
+      (message) =>
+        Boolean(getMessageTextContent(message).trim()) && !message.isError,
+    );
+  const rawTopic = firstValidMessage
+    ? getMessageTextContent(firstValidMessage).trim()
+    : "";
+
+  return trimTopic(rawTopic);
+}
+
+function isFreshDefaultSession(session: ChatSession | undefined) {
+  if (!session) {
+    return false;
+  }
+
+  return (
+    isDefaultTopic(session.topic) &&
+    session.messages.length === 0 &&
+    !session.memoryPrompt
+  );
+}
+
+function shouldRemoveEmptyDefaultSession(session: ChatSession | undefined) {
+  if (!session) {
+    return false;
+  }
+
+  return (
+    isDefaultTopic(session.topic) &&
+    session.messages.length === 0 &&
+    !session.memoryPrompt
+  );
+}
+
+function areSessionArraysEqual(
+  left: ChatSession[] | undefined,
+  right: ChatSession[] | undefined,
+) {
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((session, index) => session.id === right[index]?.id);
+}
+
 function getSessionCreatedAt(session: Partial<ChatSession>) {
   const createdAt = Number(session.createdAt);
   if (Number.isFinite(createdAt) && createdAt > 0) {
@@ -692,6 +751,79 @@ export const useChatStore = createPersistStore(
     }
 
     const methods = {
+      initializeForNewPage() {
+        const currentState = get();
+        const currentSessions = Array.isArray(currentState.sessions)
+          ? currentState.sessions.slice()
+          : [];
+        const emptyDefaultSessions = currentSessions.filter((session) =>
+          shouldRemoveEmptyDefaultSession(session),
+        );
+        const preservedEmptySession = emptyDefaultSessions[0];
+        const sessions = currentSessions.filter(
+          (session) =>
+            !shouldRemoveEmptyDefaultSession(session) ||
+            session.id === preservedEmptySession?.id,
+        );
+        let changed = currentSessions.length === 0;
+
+        sessions.forEach((session) => {
+          if (session.messages.length > 0 && isDefaultTopic(session.topic)) {
+            const fallbackTopic = getSessionFallbackTopic(session);
+            if (fallbackTopic) {
+              session.topic = fallbackTopic;
+              changed = true;
+            }
+          }
+        });
+
+        const leadingSession = sessions[0];
+        if (!isFreshDefaultSession(leadingSession)) {
+          if (preservedEmptySession) {
+            const preservedIndex = sessions.findIndex(
+              (session) => session.id === preservedEmptySession.id,
+            );
+
+            if (preservedIndex > 0) {
+              sessions.splice(preservedIndex, 1);
+              sessions.unshift(preservedEmptySession);
+              changed = true;
+            } else if (preservedIndex < 0) {
+              sessions.unshift(preservedEmptySession);
+              changed = true;
+            }
+          } else {
+            sessions.unshift(createEmptySession());
+            changed = true;
+          }
+        } else if (emptyDefaultSessions.length > 1) {
+          changed = true;
+        }
+
+        if (!changed && !areSessionArraysEqual(currentSessions, sessions)) {
+          changed = true;
+        }
+
+        const nextState = {
+          sessions,
+          currentSessionIndex: 0,
+        };
+
+        if (
+          changed ||
+          currentState.currentSessionIndex !== 0 ||
+          currentState.sessions[0]?.id !== sessions[0]?.id
+        ) {
+          set(() => nextState);
+        }
+
+        if (changed) {
+          import("./sync").then(({ useSyncStore }) => {
+            useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+          });
+        }
+      },
+
       forkSession() {
         // 获取当前会话
         const currentSession = get().currentSession();
@@ -989,6 +1121,12 @@ export const useChatStore = createPersistStore(
             ...userMessage,
             content: mContent,
           };
+          if (isDefaultTopic(session.topic)) {
+            const fallbackTopic = trimTopic(content.trim());
+            if (fallbackTopic) {
+              session.topic = fallbackTopic;
+            }
+          }
           session.messages = session.messages.concat([
             savedUserMessage,
             botMessage,

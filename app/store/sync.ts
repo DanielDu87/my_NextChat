@@ -76,7 +76,7 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.ModelCache]: "模型缓存",
   [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
-  [StoreKey.Update]: "更新",
+  [StoreKey.Update]: "应用更新状态",
   [StoreKey.SdList]: "绘图",
 };
 
@@ -101,7 +101,7 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
     case StoreKey.Prompt:
       return `${Object.keys(state?.prompts ?? {}).length} 个提示词`;
     case StoreKey.Update:
-      return `${state?.lastUpdateTime ? 1 : 0} 条更新状态`;
+      return `${state?.lastUpdateTime ? 1 : 0} 条应用更新状态`;
     case StoreKey.SdList:
       return `${Array.isArray(state?.draw) ? state.draw.length : 0} 条绘图记录`;
     default:

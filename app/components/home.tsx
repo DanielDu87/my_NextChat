@@ -26,7 +26,7 @@ import { SideBar } from "./sidebar";
 import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
-import { useAccessStore } from "../store";
+import { useAccessStore, useChatStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 
@@ -234,6 +234,7 @@ export function Home() {
   useSwitchTheme();
   useLoadData();
   useHtmlLang();
+  const hasHydrated = useHasHydrated();
 
   useEffect(() => {
     // console.log("[Config] got config from build time", getClientConfig());
@@ -254,7 +255,15 @@ export function Home() {
     initMcp();
   }, []);
 
-  if (!useHasHydrated()) {
+  useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
+    useChatStore.getState().initializeForNewPage();
+  }, [hasHydrated]);
+
+  if (!hasHydrated) {
     return <Loading />;
   }
 
