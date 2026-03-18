@@ -100,6 +100,19 @@
   width: 100%;
 }
 
+.provider-display-button {
+  opacity: 1 !important;
+  color: var(--black) !important;
+
+  &:hover,
+  &:focus {
+    border-color: var(--border-in-light) !important;
+    background-color: var(--white) !important;
+    color: var(--black) !important;
+    box-shadow: none !important;
+  }
+}
+
 // 消息操作按钮保持横向排列
 .chat-message-actions .chat-input-actions {
   flex-direction: row !important;

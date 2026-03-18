@@ -1541,6 +1541,7 @@ function _Chat() {
   const activeProfile = useAccessStore((state) =>
     state.apiProfiles.find((profile) => profile.enabled),
   );
+  const currentProviderDisplayName = activeProfile?.name || currentProviderName;
 
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
@@ -2194,13 +2195,16 @@ function _Chat() {
         const providerModels = allModels.filter(
           (model) =>
             model.available &&
-            String(model.provider?.id || "").toLowerCase() === selectedProviderId,
+            String(model.provider?.id || "").toLowerCase() ===
+              selectedProviderId,
         );
         const currentProviderModel = providerModels.find(
           (model) => model.name === session.mask.modelConfig.model,
         );
         const nextModel = currentProviderModel ?? providerModels[0];
-        const nextCustomModels = modelsToCustomModelsString(providerModels as any);
+        const nextCustomModels = modelsToCustomModelsString(
+          providerModels as any,
+        );
 
         // 记录切换时间
         lastProviderSwitchTimeRef.current = Date.now();
@@ -2225,7 +2229,8 @@ function _Chat() {
         if (nextModel) {
           config.update((config) => {
             config.modelConfig.model = nextModel.name as ModelType;
-            config.modelConfig.providerName = profile.provider as ServiceProvider;
+            config.modelConfig.providerName =
+              profile.provider as ServiceProvider;
             config.modelConfig = sanitizeModelConfigForCapability(
               config.modelConfig,
             );
@@ -2555,6 +2560,16 @@ function _Chat() {
             </div>
           </div>
           <div className="window-actions">
+            <div className="window-action-button">
+              <IconButton
+                bordered
+                className={styles["provider-display-button"]}
+                text={currentProviderDisplayName}
+                title={currentProviderDisplayName}
+                aria={currentProviderDisplayName}
+                disabled
+              />
+            </div>
             <div className="window-action-button">
               <IconButton
                 icon={<RobotIcon />}
@@ -3189,7 +3204,8 @@ function _Chat() {
 
             config.update((config) => {
               config.modelConfig.model = model as ModelType;
-              config.modelConfig.providerName = actualProviderName as ServiceProvider;
+              config.modelConfig.providerName =
+                actualProviderName as ServiceProvider;
               config.modelConfig = sanitizeModelConfigForCapability(
                 config.modelConfig,
               );
