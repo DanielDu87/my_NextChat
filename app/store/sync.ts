@@ -18,6 +18,13 @@ import {
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
 } from "../utils/sync-store-keys";
+import {
+  buildChatIndexPayload,
+  buildChatStateFromIndex,
+  createChatIndexEntryMap,
+  createChatSessionMap,
+  type ChatIndexSessionEntry,
+} from "../utils/chat-sync";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
@@ -54,6 +61,11 @@ function isObjectLike(value: unknown): value is Record<string, unknown> {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_DELAY = 3000; // 3秒防抖
 const SYNC_DEBOUNCE_KEY = "nextchat_sync_debounce";
+
+type PendingDebounceSyncTask = {
+  keys: SyncStoreKey[];
+  scheduledAt: number;
+};
 
 const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
@@ -94,6 +106,124 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
     default:
       return "0 项";
   }
+}
+
+function isSyncStoreKey(key: unknown): key is SyncStoreKey {
+  return SYNC_STORE_KEYS.includes(key as SyncStoreKey);
+}
+
+function normalizeSyncKeys(keys?: SyncStoreKey[]) {
+  const normalized = (keys || [...SYNC_STORE_KEYS]).filter(isSyncStoreKey);
+  return normalized.length > 0 ? normalized : [...SYNC_STORE_KEYS];
+}
+
+function readPendingDebounceTask(): PendingDebounceSyncTask | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(SYNC_DEBOUNCE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PendingDebounceSyncTask>;
+    if (
+      !Array.isArray(parsed.keys) ||
+      typeof parsed.scheduledAt !== "number" ||
+      !Number.isFinite(parsed.scheduledAt)
+    ) {
+      localStorage.removeItem(SYNC_DEBOUNCE_KEY);
+      return null;
+    }
+
+    return {
+      keys: normalizeSyncKeys(parsed.keys as SyncStoreKey[]),
+      scheduledAt: parsed.scheduledAt,
+    };
+  } catch {
+    localStorage.removeItem(SYNC_DEBOUNCE_KEY);
+    return null;
+  }
+}
+
+function writePendingDebounceTask(task: PendingDebounceSyncTask) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.setItem(SYNC_DEBOUNCE_KEY, JSON.stringify(task));
+}
+
+function clearPendingDebounceTask() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.removeItem(SYNC_DEBOUNCE_KEY);
+}
+
+function measureJsonBytes(value: unknown) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return 0;
+  }
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kb = bytes / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
+}
+
+function shouldFetchRemoteChatSession(
+  localEntry: ChatIndexSessionEntry | undefined,
+  remoteEntry: ChatIndexSessionEntry,
+) {
+  if (!localEntry) {
+    return true;
+  }
+
+  if (remoteEntry.lastUpdate > localEntry.lastUpdate) {
+    return true;
+  }
+
+  return (
+    remoteEntry.lastUpdate === localEntry.lastUpdate &&
+    remoteEntry.messageCount !== localEntry.messageCount
+  );
+}
+
+function shouldUploadChatSession(
+  localEntry: ChatIndexSessionEntry,
+  remoteEntry: ChatIndexSessionEntry | undefined,
+) {
+  if (!remoteEntry) {
+    return true;
+  }
+
+  if (localEntry.lastUpdate > remoteEntry.lastUpdate) {
+    return true;
+  }
+
+  return (
+    localEntry.lastUpdate === remoteEntry.lastUpdate &&
+    localEntry.messageCount !== remoteEntry.messageCount
+  );
 }
 
 async function withRetry<T>(
@@ -150,280 +280,506 @@ const DEFAULT_SYNC_STATE = {
 
 export const useSyncStore = createPersistStore(
   DEFAULT_SYNC_STATE,
-  (set, get) => ({
-    cloudSync() {
-      const config = get()[get().provider];
-      return Object.values(config).every((c) => c.toString().length > 0);
-    },
+  (set, get) => {
+    async function syncChatStore(
+      client: {
+        getChatIndex?: () => Promise<any>;
+        getChatSessions?: (ids: string[]) => Promise<Record<string, unknown>>;
+        setChatDelta?: (params: {
+          index: ReturnType<typeof buildChatIndexPayload>;
+          upsertSessions: Array<Record<string, unknown>>;
+          deleteSessionIds?: string[];
+        }) => Promise<void>;
+        set: (key: string, value: string) => Promise<void>;
+      },
+      localChatState: any,
+    ) {
+      const localSessions = Array.isArray(localChatState.sessions)
+        ? localChatState.sessions
+        : [];
+      const remoteIndex = await client.getChatIndex?.();
 
-    markSyncTime() {
-      set({ lastSyncTime: Date.now(), lastProvider: get().provider });
-    },
-
-    export() {
-      const state = getLocalAppState();
-      const datePart = isApp
-        ? `${new Date().toLocaleDateString().replace(/\//g, "_")} ${new Date()
-            .toLocaleTimeString()
-            .replace(/:/g, "_")}`
-        : new Date().toLocaleString();
-
-      const fileName = `Backup-${datePart}.json`;
-      downloadAs(JSON.stringify(state), fileName);
-    },
-
-    async import() {
-      try {
-        const rawContent = await readFromFile();
-        const parsedState = JSON.parse(rawContent) as unknown;
-        if (!isObjectLike(parsedState)) {
-          throw new Error("[Import] 备份文件格式无效");
-        }
-
-        const remoteState = parsedState as AppState;
-        const localState = getLocalAppState();
-        mergeAppState(localState, remoteState);
-        setLocalAppState(localState);
-        location.reload();
-      } catch (e) {
-        if (
-          e instanceof Error &&
-          e.message.includes("[File] 用户取消选择文件")
-        ) {
-          console.log("[Import] 用户取消选择备份文件");
-          return;
-        }
-        console.error("[Import]", e);
-        showToast(Locale.Settings.Sync.ImportFailed);
-      }
-    },
-
-    getClient() {
-      const provider = get().provider;
-      const client = createSyncClient(provider, get());
-      return client;
-    },
-
-    triggerDebounceSync(storeKeys?: SyncStoreKey[]) {
-      // 清除之前的定时器
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
-
-      // 设置新的防抖定时器
-      debounceTimer = setTimeout(async () => {
-        // 检查是否已配置同步
-        if (!this.cloudSync()) {
-          console.log("[Sync] 🔕 同步未配置，跳过防抖同步");
-          return;
-        }
-
-        // 使用指定的 storeKeys 或默认同步所有
-        const keysToSync = storeKeys || [...SYNC_STORE_KEYS];
-
-        console.log("[Sync] 🚀 防抖同步触发", {
-          keys: keysToSync.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+      if (!remoteIndex) {
+        const localIndex = buildChatIndexPayload(localChatState);
+        const uploadBytes =
+          measureJsonBytes(localIndex) + measureJsonBytes(localSessions);
+        await client.setChatDelta?.({
+          index: localIndex,
+          upsertSessions: localSessions,
+          deleteSessionIds: [],
         });
 
-        try {
-          await this.sync(keysToSync);
-        } catch (error) {
-          console.error("[Sync] ❌ 防抖同步失败:", error);
-        }
-      }, DEBOUNCE_DELAY);
-
-      // 保存定时器 ID 到 localStorage，以便页面刷新后能继续防抖
-      localStorage.setItem(SYNC_DEBOUNCE_KEY, Date.now().toString());
-    },
-
-    updateDatabaseMeta(metas: StoreSnapshotMeta[]) {
-      const nextMeta = { ...get().database.cacheMeta };
-      const validatedAt = Date.now();
-
-      metas.forEach((meta) => {
-        nextMeta[meta.key] = {
-          updatedAt: meta.updatedAt,
-          checksum: meta.checksum,
-          sizeBytes: meta.sizeBytes,
-          validatedAt,
+        return {
+          remoteSummary: "远端 0 个会话",
+          mergedStoreState: localChatState,
+          mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
+          status: "uploaded" as const,
+          metrics: {
+            downloadedSessionCount: 0,
+            downloadedBytes: 0,
+            uploadedSessionCount: localSessions.length,
+            uploadedBytes: uploadBytes,
+            deletedSessionCount: 0,
+          },
         };
-      });
-
-      set({
-        database: {
-          ...get().database,
-          cacheMeta: nextMeta,
-          lastMetaSyncTime: validatedAt,
-        },
-      });
-    },
-
-    async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
-      if (syncInFlight) {
-        console.log("[Sync] ⏳ 已有同步进行中，等待当前任务完成...");
-        await syncInFlight;
       }
 
-      syncInFlight = (async () => {
-        console.log("[Sync] 🔄 开始同步...");
+      const localIndex = buildChatIndexPayload(localChatState);
+      const localEntryMap = createChatIndexEntryMap(localIndex.sessions);
+      const remoteEntryMap = createChatIndexEntryMap(
+        remoteIndex.sessions || [],
+      );
+      const remoteSessionIdsToFetch = (remoteIndex.sessions || [])
+        .filter((entry: ChatIndexSessionEntry) =>
+          shouldFetchRemoteChatSession(localEntryMap.get(entry.id), entry),
+        )
+        .map((entry: ChatIndexSessionEntry) => entry.id);
+      const remoteSessions = await client.getChatSessions?.(
+        remoteSessionIdsToFetch,
+      );
+      const downloadedBytes =
+        measureJsonBytes(
+          (remoteIndex.sessions || []).filter((entry: ChatIndexSessionEntry) =>
+            remoteSessionIdsToFetch.includes(entry.id),
+          ),
+        ) + measureJsonBytes(remoteSessions || {});
+      const remotePartialState = buildChatStateFromIndex(
+        remoteIndex,
+        remoteSessions || {},
+      );
+      const mergedStoreState = mergeStoreState(
+        StoreKey.Chat,
+        localChatState,
+        remotePartialState as any,
+      );
+      const mergedIndex = buildChatIndexPayload(mergedStoreState as any);
+      const mergedSessionMap = createChatSessionMap(
+        Array.isArray((mergedStoreState as any)?.sessions)
+          ? (mergedStoreState as any).sessions
+          : [],
+      );
+      const upsertSessions = mergedIndex.sessions
+        .filter((entry) =>
+          shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
+        )
+        .map((entry) => mergedSessionMap.get(entry.id))
+        .filter(Boolean) as Array<Record<string, unknown>>;
+      const deleteSessionIds = [...remoteEntryMap.keys()].filter(
+        (sessionId) => !mergedSessionMap.has(sessionId),
+      );
+      const uploadedBytes =
+        measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-        const client = this.getClient() as any;
+      await client.setChatDelta?.({
+        index: mergedIndex,
+        upsertSessions,
+        deleteSessionIds,
+      });
 
-        console.log(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
+      return {
+        remoteSummary: getStoreSummary(StoreKey.Chat, {
+          sessions: remoteIndex.sessions || [],
+        }),
+        mergedStoreState,
+        mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
+        status: "merged" as const,
+        metrics: {
+          downloadedSessionCount: remoteSessionIdsToFetch.length,
+          downloadedBytes,
+          uploadedSessionCount: upsertSessions.length,
+          uploadedBytes,
+          deletedSessionCount: deleteSessionIds.length,
+        },
+      };
+    }
 
-        const appConfig = useAppConfig.getState() as any;
-        const localSidebarWidth = localStorage.getItem("sidebarWidth");
-        const localTightBorder = appConfig.tightBorder;
+    return {
+      cloudSync() {
+        const config = get()[get().provider];
+        return Object.values(config).every((c) => c.toString().length > 0);
+      },
+
+      markSyncTime() {
+        set({ lastSyncTime: Date.now(), lastProvider: get().provider });
+      },
+
+      export() {
+        const state = getLocalAppState();
+        const datePart = isApp
+          ? `${new Date().toLocaleDateString().replace(/\//g, "_")} ${new Date()
+              .toLocaleTimeString()
+              .replace(/:/g, "_")}`
+          : new Date().toLocaleString();
+
+        const fileName = `Backup-${datePart}.json`;
+        downloadAs(JSON.stringify(state), fileName);
+      },
+
+      async import() {
+        try {
+          const rawContent = await readFromFile();
+          const parsedState = JSON.parse(rawContent) as unknown;
+          if (!isObjectLike(parsedState)) {
+            throw new Error("[Import] 备份文件格式无效");
+          }
+
+          const remoteState = parsedState as AppState;
+          const localState = getLocalAppState();
+          mergeAppState(localState, remoteState);
+          setLocalAppState(localState);
+          location.reload();
+        } catch (e) {
+          if (
+            e instanceof Error &&
+            e.message.includes("[File] 用户取消选择文件")
+          ) {
+            console.log("[Import] 用户取消选择备份文件");
+            return;
+          }
+          console.error("[Import]", e);
+          showToast(Locale.Settings.Sync.ImportFailed);
+        }
+      },
+
+      getClient() {
+        const provider = get().provider;
+        const client = createSyncClient(provider, get());
+        return client;
+      },
+
+      triggerDebounceSync(storeKeys?: SyncStoreKey[]) {
+        const keysToSync = normalizeSyncKeys(storeKeys);
+
+        // 清除之前的定时器
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+
+        const executeSync = async () => {
+          clearPendingDebounceTask();
+
+          // 检查是否已配置同步
+          if (!this.cloudSync()) {
+            console.log("[Sync] 🔕 同步未配置，跳过防抖同步");
+            return;
+          }
+
+          console.log("[Sync] 🚀 防抖同步触发", {
+            keys: keysToSync.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+          });
+
+          try {
+            await this.sync(keysToSync);
+          } catch (error) {
+            console.error("[Sync] ❌ 防抖同步失败:", error);
+            writePendingDebounceTask({
+              keys: keysToSync,
+              scheduledAt: Date.now(),
+            });
+          }
+        };
+
+        // 设置新的防抖定时器
+        debounceTimer = setTimeout(executeSync, DEBOUNCE_DELAY);
+
+        writePendingDebounceTask({
+          keys: keysToSync,
+          scheduledAt: Date.now() + DEBOUNCE_DELAY,
+        });
+      },
+
+      async resumePendingDebounceSync() {
+        const pendingTask = readPendingDebounceTask();
+        if (!pendingTask) {
+          return false;
+        }
+
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+
+        console.log("[Sync] ♻️ 恢复未完成的防抖同步", {
+          keys: pendingTask.keys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+        });
+
+        clearPendingDebounceTask();
 
         try {
-          const syncResults: Array<{
-            key: SyncStoreKey;
-            name: string;
-            summary: string;
-            status: "downloaded" | "uploaded" | "merged";
-          }> = [];
+          await this.sync(pendingTask.keys);
+          return true;
+        } catch (error) {
+          console.error("[Sync] ❌ 恢复防抖同步失败:", error);
+          writePendingDebounceTask({
+            keys: pendingTask.keys,
+            scheduledAt: Date.now(),
+          });
+          throw error;
+        }
+      },
 
-          for (const [index, key] of storeKeys.entries()) {
-            try {
-              const displayName = STORE_DISPLAY_NAMES[key];
-              const stepLabel = `${index + 1}/${storeKeys.length}`;
-              console.log(`[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`);
-              const localState = getLocalAppState();
-              const localStoreState = localState[key];
-              const remoteDataText = await withRetry<string>(
-                () => client.get(key),
-                {
-                  retries: 1,
-                  retryable: (error) =>
-                    error instanceof Error &&
-                    RETRYABLE_DB_SYNC_ERROR.test(error.message),
-                  onRetry: (attempt, error) => {
-                    console.warn(
-                      `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${attempt} 次重试:`,
-                      error,
-                    );
-                  },
-                },
-              );
+      updateDatabaseMeta(metas: StoreSnapshotMeta[]) {
+        const nextMeta = { ...get().database.cacheMeta };
+        const validatedAt = Date.now();
 
-              if (!remoteDataText || remoteDataText === "") {
-                await client.set(
-                  key,
-                  stringifyPersistedStoreState(key, localStoreState),
-                );
-                const summary = getStoreSummary(key, localStoreState);
-                syncResults.push({
-                  key,
-                  name: displayName,
-                  summary,
-                  status: "uploaded",
-                });
+        metas.forEach((meta) => {
+          nextMeta[meta.key] = {
+            updatedAt: meta.updatedAt,
+            checksum: meta.checksum,
+            sizeBytes: meta.sizeBytes,
+            validatedAt,
+          };
+        });
+
+        set({
+          database: {
+            ...get().database,
+            cacheMeta: nextMeta,
+            lastMetaSyncTime: validatedAt,
+          },
+        });
+      },
+
+      async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
+        if (syncInFlight) {
+          console.log("[Sync] ⏳ 已有同步进行中，等待当前任务完成...");
+          await syncInFlight;
+        }
+
+        syncInFlight = (async () => {
+          console.log("[Sync] 🔄 开始同步...");
+
+          const client = this.getClient() as any;
+
+          console.log(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
+
+          const appConfig = useAppConfig.getState() as any;
+          const localSidebarWidth = localStorage.getItem("sidebarWidth");
+          const localTightBorder = appConfig.tightBorder;
+
+          try {
+            const syncResults: Array<{
+              key: SyncStoreKey;
+              name: string;
+              summary: string;
+              status: "downloaded" | "uploaded" | "merged";
+            }> = [];
+            const failedKeys: Array<{
+              key: SyncStoreKey;
+              name: string;
+              error: unknown;
+            }> = [];
+
+            for (const [index, key] of storeKeys.entries()) {
+              try {
+                const displayName = STORE_DISPLAY_NAMES[key];
+                const stepLabel = `${index + 1}/${storeKeys.length}`;
                 console.log(
-                  `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，已上传 ${summary}`,
+                  `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                 );
-                console.log(LOG_SEPARATOR);
-              } else {
-                const parsedRemoteState =
-                  parseStoreStatePayload(remoteDataText);
-                const summary = getStoreSummary(key, parsedRemoteState);
-                console.log(
-                  `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
-                );
-                syncResults.push({
-                  key,
-                  name: displayName,
-                  summary,
-                  status: "downloaded",
-                });
+                const localState = getLocalAppState();
+                const localStoreState = localState[key];
 
-                const nextLocalState = getLocalAppState();
-                const mergedStoreState = mergeStoreState(
-                  key,
-                  nextLocalState[key],
-                  parsedRemoteState,
-                );
+                if (
+                  key === StoreKey.Chat &&
+                  typeof client.getChatIndex === "function" &&
+                  typeof client.getChatSessions === "function" &&
+                  typeof client.setChatDelta === "function"
+                ) {
+                  const chatResult = await syncChatStore(
+                    client,
+                    localStoreState,
+                  );
+                  console.log(
+                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
+                  );
+                  syncResults.push({
+                    key,
+                    name: displayName,
+                    summary: chatResult.mergedSummary,
+                    status: chatResult.status,
+                  });
 
-                setLocalAppState({
-                  ...nextLocalState,
-                  [key]: mergedStoreState,
-                } as AppState);
+                  console.log(
+                    `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
+                    {
+                      下载会话数: chatResult.metrics.downloadedSessionCount,
+                      下载体积: formatBytes(chatResult.metrics.downloadedBytes),
+                      上传会话数: chatResult.metrics.uploadedSessionCount,
+                      上传体积: formatBytes(chatResult.metrics.uploadedBytes),
+                      删除会话数: chatResult.metrics.deletedSessionCount,
+                    },
+                  );
 
-                await client.set(
-                  key,
-                  stringifyPersistedStoreState(key, mergedStoreState),
-                );
+                  setLocalAppState({
+                    ...localState,
+                    [key]: chatResult.mergedStoreState,
+                  } as AppState);
 
-                const mergedSummary = getStoreSummary(key, mergedStoreState);
-                const result = syncResults.find((item) => item.key === key);
-                if (result) {
-                  result.summary = mergedSummary;
-                  result.status = "merged";
+                  console.log(
+                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${chatResult.mergedSummary}`,
+                  );
+                  console.log(LOG_SEPARATOR);
+                  continue;
                 }
-                console.log(
-                  `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${mergedSummary}`,
+
+                const remoteDataText = await withRetry<string>(
+                  () => client.get(key),
+                  {
+                    retries: 1,
+                    retryable: (error) =>
+                      error instanceof Error &&
+                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                    onRetry: (attempt, error) => {
+                      console.warn(
+                        `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${attempt} 次重试:`,
+                        error,
+                      );
+                    },
+                  },
+                );
+
+                if (!remoteDataText || remoteDataText === "") {
+                  await client.set(
+                    key,
+                    stringifyPersistedStoreState(key, localStoreState),
+                  );
+                  const summary = getStoreSummary(key, localStoreState);
+                  syncResults.push({
+                    key,
+                    name: displayName,
+                    summary,
+                    status: "uploaded",
+                  });
+                  console.log(
+                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，已上传 ${summary}`,
+                  );
+                  console.log(LOG_SEPARATOR);
+                } else {
+                  const parsedRemoteState =
+                    parseStoreStatePayload(remoteDataText);
+                  const summary = getStoreSummary(key, parsedRemoteState);
+                  console.log(
+                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
+                  );
+                  syncResults.push({
+                    key,
+                    name: displayName,
+                    summary,
+                    status: "downloaded",
+                  });
+
+                  const nextLocalState = getLocalAppState();
+                  const mergedStoreState = mergeStoreState(
+                    key,
+                    nextLocalState[key],
+                    parsedRemoteState,
+                  );
+
+                  setLocalAppState({
+                    ...nextLocalState,
+                    [key]: mergedStoreState,
+                  } as AppState);
+
+                  await client.set(
+                    key,
+                    stringifyPersistedStoreState(key, mergedStoreState),
+                  );
+
+                  const mergedSummary = getStoreSummary(key, mergedStoreState);
+                  const result = syncResults.find((item) => item.key === key);
+                  if (result) {
+                    result.summary = mergedSummary;
+                    result.status = "merged";
+                  }
+                  console.log(
+                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${mergedSummary}`,
+                  );
+                  console.log(LOG_SEPARATOR);
+                }
+              } catch (e) {
+                failedKeys.push({
+                  key,
+                  name: STORE_DISPLAY_NAMES[key],
+                  error: e,
+                });
+                console.error(
+                  `[Sync] ❌ [${index + 1}/${storeKeys.length}] ${
+                    STORE_DISPLAY_NAMES[key]
+                  }同步失败:`,
+                  e,
                 );
                 console.log(LOG_SEPARATOR);
               }
-            } catch (e) {
-              console.error(
-                `[Sync] ❌ [${index + 1}/${storeKeys.length}] ${
-                  STORE_DISPLAY_NAMES[key]
-                }同步失败:`,
-                e,
-              );
-              console.log(LOG_SEPARATOR);
             }
+
+            if (localSidebarWidth && appConfig.setSidebarWidth) {
+              appConfig.setSidebarWidth(parseInt(localSidebarWidth));
+            }
+            if (localTightBorder !== undefined) {
+              useAppConfig.setState({ tightBorder: localTightBorder });
+            }
+
+            console.log("[Sync] 📊 数据同步汇总");
+            syncResults.forEach((item) => {
+              console.log(`[Sync] - ${item.name}: ${item.summary}`);
+            });
+
+            if (failedKeys.length > 0) {
+              const failedSummary = failedKeys
+                .map(
+                  (item) =>
+                    `${item.name}: ${
+                      item.error instanceof Error
+                        ? item.error.message
+                        : String(item.error)
+                    }`,
+                )
+                .join(" | ");
+              console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
+              console.log(LOG_SEPARATOR);
+              throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
+            }
+
+            console.log("[Sync] ✅ 同步完成");
+            console.log(LOG_SEPARATOR);
+          } catch (e) {
+            console.error("[Sync] ❌ 同步失败:", e);
+            console.log(LOG_SEPARATOR);
+            throw e;
           }
 
-          if (localSidebarWidth && appConfig.setSidebarWidth) {
-            appConfig.setSidebarWidth(parseInt(localSidebarWidth));
-          }
-          if (localTightBorder !== undefined) {
-            useAppConfig.setState({ tightBorder: localTightBorder });
-          }
+          this.markSyncTime();
+        })();
 
-          console.log("[Sync] 📊 数据同步汇总");
-          syncResults.forEach((item) => {
-            console.log(`[Sync] - ${item.name}: ${item.summary}`);
-          });
-          console.log("[Sync] ✅ 同步完成");
-          console.log(LOG_SEPARATOR);
-        } catch (e) {
-          console.error("[Sync] ❌ 同步失败:", e);
-          console.log(LOG_SEPARATOR);
-          throw e;
+        try {
+          await syncInFlight;
+        } finally {
+          syncInFlight = null;
         }
+      },
 
-        this.markSyncTime();
-      })();
+      async autoSync() {
+        await this.sync([StoreKey.Chat]);
 
-      try {
-        await syncInFlight;
-      } finally {
-        syncInFlight = null;
-      }
-    },
+        const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
+          (key) => key !== StoreKey.Chat,
+        );
+        if (remainingKeys.length > 0) {
+          await this.sync(remainingKeys);
+        }
+      },
 
-    async autoSync() {
-      await this.sync([StoreKey.Chat]);
+      async syncModels() {
+        return this.sync([...MODEL_SYNC_STORE_KEYS]);
+      },
 
-      const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
-        (key) => key !== StoreKey.Chat,
-      );
-      if (remainingKeys.length > 0) {
-        await this.sync(remainingKeys);
-      }
-    },
-
-    async syncModels() {
-      return this.sync([...MODEL_SYNC_STORE_KEYS]);
-    },
-
-    async check() {
-      const client = this.getClient();
-      return await client.check();
-    },
-  }),
+      async check() {
+        const client = this.getClient();
+        return await client.check();
+      },
+    };
+  },
   {
     name: StoreKey.Sync,
     version: 1.4,

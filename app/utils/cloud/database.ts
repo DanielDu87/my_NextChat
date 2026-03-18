@@ -1,4 +1,5 @@
 import { SyncStore } from "@/app/store/sync";
+import type { ChatIndexPayload } from "@/app/utils/chat-sync";
 
 export type DatabaseSyncClient = ReturnType<typeof createDatabaseSyncClient>;
 export type StoreSnapshotMeta = {
@@ -70,6 +71,41 @@ export function createDatabaseSyncClient(_: SyncStore) {
       return Array.isArray(payload?.metas)
         ? (payload.metas as StoreSnapshotMeta[])
         : [];
+    },
+
+    async getChatIndex() {
+      const response = await request("/api/db/chat-sync", {
+        method: "GET",
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      return payload?.index ? (payload.index as ChatIndexPayload) : null;
+    },
+
+    async getChatSessions(ids: string[]) {
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return {} as Record<string, unknown>;
+      }
+
+      const response = await request("/api/db/chat-sync/sessions", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      });
+      const payload = await response.json();
+      return payload?.sessions && typeof payload.sessions === "object"
+        ? (payload.sessions as Record<string, unknown>)
+        : {};
+    },
+
+    async setChatDelta(params: {
+      index: ChatIndexPayload;
+      upsertSessions: Array<Record<string, unknown>>;
+      deleteSessionIds?: string[];
+    }) {
+      await request("/api/db/chat-sync", {
+        method: "PUT",
+        body: JSON.stringify(params),
+      });
     },
   };
 }

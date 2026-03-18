@@ -736,7 +736,11 @@ export const useChatStore = createPersistStore(
           if (client && typeof client.set === "function") {
             await client.set(
               StoreKey.Chat,
-              stringifyPersistedStoreState(StoreKey.Chat, newSessions),
+              stringifyPersistedStoreState(StoreKey.Chat, {
+                ...get(),
+                sessions: newSessions,
+                currentSessionIndex: 0,
+              }),
             );
             console.log("[Chat] ✅ 清空对话已同步到服务器");
           }

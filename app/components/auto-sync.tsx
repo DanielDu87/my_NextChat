@@ -41,7 +41,11 @@ export default function AutoSync() {
       console.log("[AutoSync] 🚀 开始自动同步...");
 
       syncStore
-        .autoSync()
+        .resumePendingDebounceSync?.()
+        .catch((error: unknown) => {
+          console.error("[AutoSync] ❌ 恢复未完成同步失败:", error);
+        })
+        .then(() => syncStore.autoSync())
         .then(() => {
           console.log("[AutoSync] ✅ 自动同步完成");
         })

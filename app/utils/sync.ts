@@ -133,6 +133,16 @@ function markMergedUpdateTime(
 // we merge remote state to local state
 const MergeStates: StateMerger = {
   [StoreKey.Chat]: (localState, remoteState) => {
+    const localSessions = Array.isArray(localState.sessions)
+      ? localState.sessions
+      : [];
+    const remoteSessions = Array.isArray(remoteState.sessions)
+      ? remoteState.sessions
+      : [];
+
+    localState.sessions = localSessions;
+    remoteState.sessions = remoteSessions;
+
     // 使用 Map 存储会话，便于查找和更新
     const sessionMap = new Map<string, ChatSession>();
     const MAX_DEBUG_SESSION_IDS = 10;
@@ -162,10 +172,10 @@ const MergeStates: StateMerger = {
     const mergedSameTimestampEmptySessionIds: string[] = [];
 
     // 先添加本地会话
-    localState.sessions.forEach((s) => sessionMap.set(s.id, s));
+    localSessions.forEach((s) => sessionMap.set(s.id, s));
 
     // 遍历远程会话，以 lastUpdate 最新的为准
-    remoteState.sessions.forEach((remoteSession) => {
+    remoteSessions.forEach((remoteSession) => {
       const localSession = sessionMap.get(remoteSession.id);
       const remoteUpdateTime = new Date(remoteSession.lastUpdate).getTime();
       const localUpdateTime = localSession
@@ -210,8 +220,12 @@ const MergeStates: StateMerger = {
         // 更新时间相同，合并消息（保留两边独有的消息）
         if (localSession) {
           const allMessages = [
-            ...localSession.messages,
-            ...remoteSession.messages,
+            ...(Array.isArray(localSession.messages)
+              ? localSession.messages
+              : []),
+            ...(Array.isArray(remoteSession.messages)
+              ? remoteSession.messages
+              : []),
           ];
           const messageMap = new Map<string, ChatMessage>();
           allMessages.forEach((m) => {

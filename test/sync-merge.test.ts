@@ -156,6 +156,31 @@ describe("sync merge safety", () => {
     ).toBeTruthy();
   });
 
+  test("mergeStoreState should tolerate remote chat payload without sessions", () => {
+    const merged = mergeStoreState(
+      StoreKey.Chat,
+      {
+        sessions: [
+          {
+            id: "local-only",
+            topic: "本地会话",
+            createdAt: 100,
+            lastUpdate: 100,
+            messages: [],
+          },
+        ],
+        currentSessionIndex: 0,
+      } as any,
+      {
+        currentSessionIndex: 0,
+      } as any,
+    );
+
+    expect(merged.sessions.map((session: any) => session.id)).toEqual([
+      "local-only",
+    ]);
+  });
+
   test("readFromFile should reject when file selection is canceled", async () => {
     const originalCreateElement = document.createElement.bind(document);
     let fileInput: HTMLInputElement | undefined;

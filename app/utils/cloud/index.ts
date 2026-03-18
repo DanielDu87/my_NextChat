@@ -1,6 +1,7 @@
 import { createDatabaseSyncClient } from "./database";
 import { createWebDavClient } from "./webdav";
 import { createUpstashClient } from "./upstash";
+import type { ChatIndexPayload } from "@/app/utils/chat-sync";
 
 export enum ProviderType {
   Database = "database",
@@ -34,6 +35,13 @@ export type SyncClient = {
       sizeBytes: number;
     }>
   >;
+  getChatIndex?: () => Promise<ChatIndexPayload | null>;
+  getChatSessions?: (ids: string[]) => Promise<Record<string, unknown>>;
+  setChatDelta?: (params: {
+    index: ChatIndexPayload;
+    upsertSessions: Array<Record<string, unknown>>;
+    deleteSessionIds?: string[];
+  }) => Promise<void>;
 };
 
 export function createSyncClient<T extends ProviderType>(

@@ -1,0 +1,134 @@
+type ChatSessionLike = {
+  id?: string;
+  topic?: string;
+  createdAt?: number;
+  lastUpdate?: number;
+  messages?: unknown[];
+};
+
+type ChatStateLike = {
+  sessions?: ChatSessionLike[];
+  currentSessionIndex?: number;
+  [key: string]: unknown;
+};
+
+export type ChatIndexSessionEntry = {
+  id: string;
+  topic: string;
+  createdAt: number;
+  lastUpdate: number;
+  messageCount: number;
+};
+
+export type ChatIndexPayload = {
+  version: 1;
+  state: Record<string, unknown> & {
+    currentSessionId?: string;
+  };
+  sessions: ChatIndexSessionEntry[];
+};
+
+function toFiniteNumber(value: unknown) {
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+export function normalizeChatSessions<T extends ChatSessionLike>(
+  sessions: T[],
+) {
+  return Array.isArray(sessions) ? sessions : [];
+}
+
+export function buildChatIndexPayload(
+  chatState: ChatStateLike,
+): ChatIndexPayload {
+  const sessions = normalizeChatSessions(
+    chatState.sessions as ChatSessionLike[],
+  );
+  const currentSessionIndex = toFiniteNumber(chatState.currentSessionIndex);
+  const currentSessionId = sessions[currentSessionIndex]?.id;
+  const {
+    sessions: _sessions,
+    currentSessionIndex: _currentSessionIndex,
+    ...rest
+  } = chatState;
+
+  return {
+    version: 1,
+    state: {
+      ...rest,
+      currentSessionId:
+        typeof currentSessionId === "string" ? currentSessionId : "",
+    },
+    sessions: sessions.map((session) => ({
+      id: String(session.id || ""),
+      topic: String(session.topic || ""),
+      createdAt: toFiniteNumber(session.createdAt),
+      lastUpdate: toFiniteNumber(session.lastUpdate),
+      messageCount: Array.isArray(session.messages)
+        ? session.messages.length
+        : 0,
+    })),
+  };
+}
+
+export function buildChatStateFromIndex(
+  indexPayload: ChatIndexPayload,
+  sessionsById: Record<string, unknown>,
+) {
+  const currentSessionId =
+    typeof indexPayload.state?.currentSessionId === "string"
+      ? indexPayload.state.currentSessionId
+      : "";
+  const sessions = indexPayload.sessions
+    .map((entry) => {
+      const payload = sessionsById[entry.id];
+      if (!payload || typeof payload !== "object") {
+        return null;
+      }
+
+      return payload;
+    })
+    .filter(Boolean) as Record<string, unknown>[];
+
+  const currentSessionIndex = currentSessionId
+    ? sessions.findIndex((session) => session.id === currentSessionId)
+    : 0;
+
+  const { currentSessionId: _currentSessionId, ...restState } =
+    indexPayload.state;
+
+  return {
+    ...restState,
+    currentSessionIndex: currentSessionIndex >= 0 ? currentSessionIndex : 0,
+    sessions,
+  };
+}
+
+export function createChatSessionMap<T extends ChatSessionLike>(sessions: T[]) {
+  const sessionMap = new Map<string, T>();
+
+  normalizeChatSessions(sessions).forEach((session) => {
+    if (!session?.id) {
+      return;
+    }
+
+    sessionMap.set(String(session.id), session);
+  });
+
+  return sessionMap;
+}
+
+export function createChatIndexEntryMap(entries: ChatIndexSessionEntry[]) {
+  const entryMap = new Map<string, ChatIndexSessionEntry>();
+
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (!entry?.id) {
+      return;
+    }
+
+    entryMap.set(String(entry.id), entry);
+  });
+
+  return entryMap;
+}
