@@ -76,7 +76,7 @@ services:
     environment:
       - HOSTNAME=0.0.0.0
       - ENABLE_MASK_WATCH=0
-      - NODE_OPTIONS=--max-old-space-size=768
+      - NODE_OPTIONS=--max-old-space-size=1536
       - NEXT_DISABLE_ESLINT=1
       - NEXT_TELEMETRY_DISABLED=1
       - WATCHPACK_POLLING=true
