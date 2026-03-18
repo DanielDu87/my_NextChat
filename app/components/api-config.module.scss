@@ -35,6 +35,22 @@
   border-color: #ff4d4f !important;
   margin-left: auto !important;
 
+  // 固定按钮高度，防止 hover 时文字位置变化
+  :global(.icon-button) {
+    height: 40px !important;
+    min-height: 40px !important;
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+
+  // 固定 SVG 尺寸和对齐
+  :global(svg) {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+    fill: #ff4d4f;
+    color: #ff4d4f;
+  }
+
   &:hover,
   &:focus {
     background-color: #ff4d4f !important;
@@ -45,11 +61,6 @@
       fill: white !important;
       color: white !important;
     }
-  }
-
-  :global(svg) {
-    fill: #ff4d4f;
-    color: #ff4d4f;
   }
 }
 

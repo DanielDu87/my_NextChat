@@ -717,11 +717,32 @@ export const useChatStore = createPersistStore(
         }));
       },
 
-      clearSessions() {
+      async clearSessions() {
+        const newSessions = [createEmptySession()];
         set(() => ({
-          sessions: [createEmptySession()],
+          sessions: newSessions,
           currentSessionIndex: 0,
         }));
+
+        // 直接上传空状态到服务器（动态导入避免循环依赖）
+        try {
+          const { useSyncStore } = await import("./sync");
+          const { stringifyPersistedStoreState } = await import(
+            "../utils/sync-store-keys"
+          );
+          const syncStore = useSyncStore.getState();
+          const client = syncStore.getClient() as any;
+
+          if (client && typeof client.set === "function") {
+            await client.set(
+              StoreKey.Chat,
+              stringifyPersistedStoreState(StoreKey.Chat, newSessions),
+            );
+            console.log("[Chat] ✅ 清空对话已同步到服务器");
+          }
+        } catch (error) {
+          console.error("[Chat] ❌ 同步清空对话失败:", error);
+        }
       },
 
       selectSession(index: number) {

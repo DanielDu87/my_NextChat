@@ -9,6 +9,7 @@ import UploadIcon from "../icons/upload.svg";
 import DownloadIcon from "../icons/download.svg";
 import RobotIcon from "../icons/robot.svg";
 import TrashIcon from "../icons/trash.svg";
+import DeleteIcon from "../icons/delete.svg";
 
 import { IconButton } from "./button";
 import { List, ListItem, Select, showToast, showConfirm } from "./ui-lib";
@@ -203,22 +204,22 @@ function getProfileCacheSnapshot(profileId: string) {
   return useModelCacheStore.getState().profiles?.[profileId];
 }
 
-function getProfileCachedModels(
-  profile: {
-    id: string;
-    cachedModels?: string;
-  },
-) {
-  return getProfileCacheSnapshot(profile.id)?.cachedModels ?? profile.cachedModels ?? "";
+function getProfileCachedModels(profile: {
+  id: string;
+  cachedModels?: string;
+}) {
+  return (
+    getProfileCacheSnapshot(profile.id)?.cachedModels ??
+    profile.cachedModels ??
+    ""
+  );
 }
 
-function getProfileCachedModelCount(
-  profile: {
-    id: string;
-    cachedModels?: string;
-    modelCount?: number;
-  },
-) {
+function getProfileCachedModelCount(profile: {
+  id: string;
+  cachedModels?: string;
+  modelCount?: number;
+}) {
   const cache = getProfileCacheSnapshot(profile.id);
   return countCachedModels(
     cache?.cachedModels ?? profile.cachedModels,
@@ -977,10 +978,12 @@ export function ApiConfigPage() {
           remoteProfiles.forEach((remoteProfile: any) => {
             if (!localProfileMap.has(remoteProfile.id)) {
               if (remoteProfile.cachedModels || remoteProfile.modelCount) {
-                useModelCacheStore.getState().upsertProfileCache(remoteProfile.id, {
-                  cachedModels: remoteProfile.cachedModels || "",
-                  modelCount: remoteProfile.modelCount || 0,
-                });
+                useModelCacheStore
+                  .getState()
+                  .upsertProfileCache(remoteProfile.id, {
+                    cachedModels: remoteProfile.cachedModels || "",
+                    modelCount: remoteProfile.modelCount || 0,
+                  });
               }
               mergedProfiles.push(remoteProfile);
             } else {
@@ -994,7 +997,9 @@ export function ApiConfigPage() {
                   getProfileCachedModels(local).split(",").filter(Boolean),
                 );
                 const remoteModels = new Set(
-                  getProfileCachedModels(remoteProfile).split(",").filter(Boolean),
+                  getProfileCachedModels(remoteProfile)
+                    .split(",")
+                    .filter(Boolean),
                 );
                 remoteModels.forEach((m: unknown) =>
                   localModels.add(m as string),
@@ -1474,7 +1479,9 @@ export function ApiConfigPage() {
       const previousCount = previousPlatformCountMap.get(name) ?? 0;
       const delta = count - previousCount;
       console.log(
-        `[API Config] - ${name}: ${previousCount} -> ${count} 个模型 (${formatModelDelta(delta)})`,
+        `[API Config] - ${name}: ${previousCount} -> ${count} 个模型 (${formatModelDelta(
+          delta,
+        )})`,
       );
     });
     if (addedModels.length > 0) {
@@ -1509,8 +1516,7 @@ export function ApiConfigPage() {
         previousPlatformCounts,
         fetchedModelEntries,
         totalFetched,
-      } =
-        await refreshAllProfilesForSync();
+      } = await refreshAllProfilesForSync();
 
       logSyncSummary(
         "模型数量变化预览",
@@ -1568,8 +1574,7 @@ export function ApiConfigPage() {
         previousPlatformCounts,
         fetchedModelEntries,
         totalFetched,
-      } =
-        await refreshAllProfilesForSync();
+      } = await refreshAllProfilesForSync();
       logSyncSummary(
         "模型数量变化预览",
         previousCloudKeys,
@@ -2043,6 +2048,7 @@ export function ApiConfigPage() {
                             text="删除"
                             type="danger"
                             bordered
+                            className={styles.dangerButton}
                             onClick={async () => {
                               const confirmed = await showConfirm(
                                 `确定要删除配置"${profile.name}"吗？`,
@@ -2063,8 +2069,8 @@ export function ApiConfigPage() {
                   ))}
                 </div>
               </div>
-              {editingYutoProfileId
-                ? (() => {
+              {editingYutoProfileId ? (
+                (() => {
                   const editingProfile = providerProfiles.find(
                     (profile) => profile.id === editingYutoProfileId,
                   );
@@ -2089,7 +2095,7 @@ export function ApiConfigPage() {
                         </div>
                         <div className={styles.profileYutoModalBody}>
                           <div className={styles.profileYutoKeyGrid}>
-                            {(function() {
+                            {(function () {
                               // 根据当前编辑的 profile 类型选择分组配置
                               const isOcool = isOcoolProfile(editingProfile);
                               const apiKeyGroups = isOcool
@@ -2113,7 +2119,9 @@ export function ApiConfigPage() {
                                       }
                                     </div>
                                     <div
-                                      className={styles.profileYutoKeyDescription}
+                                      className={
+                                        styles.profileYutoKeyDescription
+                                      }
                                     >
                                       {
                                         groupLabels[
@@ -2126,7 +2134,8 @@ export function ApiConfigPage() {
                                       type="text"
                                       placeholder={`${group} API Key`}
                                       value={
-                                        editingProfile.apiKeyGroups?.[group] ?? ""
+                                        editingProfile.apiKeyGroups?.[group] ??
+                                        ""
                                       }
                                       onChange={(e) => {
                                         const nextValue = e.currentTarget.value;
@@ -2142,7 +2151,8 @@ export function ApiConfigPage() {
                                                       [group]: nextValue,
                                                     },
                                                     apiKey:
-                                                      group === "default" && !isOcool
+                                                      group === "default" &&
+                                                      !isOcool
                                                         ? nextValue
                                                         : item.apiKey,
                                                   }
@@ -2150,7 +2160,9 @@ export function ApiConfigPage() {
                                             );
                                         });
                                         if (editingProfile.enabled) {
-                                          syncProfileToAccess(editingProfile.id);
+                                          syncProfileToAccess(
+                                            editingProfile.id,
+                                          );
                                         }
                                       }}
                                     />
@@ -2172,7 +2184,9 @@ export function ApiConfigPage() {
                     </div>
                   );
                 })()
-                : <></>}
+              ) : (
+                <></>
+              )}
             </ListItem>
           )}
 
@@ -2334,10 +2348,12 @@ export function ApiConfigPage() {
                             state.customModels = fetchedModels;
                           }
                         });
-                        useModelCacheStore.getState().upsertProfileCache(profile.id, {
-                          cachedModels: fetchedModels,
-                          modelCount: result.total,
-                        });
+                        useModelCacheStore
+                          .getState()
+                          .upsertProfileCache(profile.id, {
+                            cachedModels: fetchedModels,
+                            modelCount: result.total,
+                          });
                         const mergedCount = getProfileActualCount(
                           profile,
                           useAppConfig.getState().models,
@@ -2403,7 +2419,9 @@ export function ApiConfigPage() {
                     await syncStore.syncModels();
                     const client = syncStore.getClient() as any;
                     if (typeof client.getMeta === "function") {
-                      updateStoredMeta(await client.getMeta([...MODEL_SYNC_STORE_KEYS]));
+                      updateStoredMeta(
+                        await client.getMeta([...MODEL_SYNC_STORE_KEYS]),
+                      );
                     }
                   }}
                   title="点击获取模型数据"
@@ -2425,6 +2443,21 @@ export function ApiConfigPage() {
                   </span>
                 </button>
               </div>
+              <IconButton
+                icon={<DeleteIcon />}
+                text="清空所有对话"
+                bordered
+                className={styles.dangerButton}
+                onClick={async () => {
+                  const confirmed = await showConfirm(
+                    "确定要清空所有对话吗？此操作不可撤销。",
+                  );
+                  if (confirmed) {
+                    chatStore.clearSessions();
+                    showToast("已清空所有对话");
+                  }
+                }}
+              />
               <IconButton
                 icon={<TrashIcon />}
                 text="清空模型数据"
