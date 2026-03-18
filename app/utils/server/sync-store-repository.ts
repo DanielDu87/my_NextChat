@@ -2,6 +2,7 @@ import { StoreKey } from "@/app/constant";
 import {
   buildChatIndexPayload,
   buildChatStateFromIndex,
+  getSyncableChatSessions,
   type ChatIndexPayload,
 } from "@/app/utils/chat-sync";
 import {
@@ -307,7 +308,9 @@ export async function applyChatDelta(params: {
 
 export async function setFullChatStateSnapshot(payload: unknown) {
   const chatState = normalizeChatStorePayload(payload);
-  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const sessions = getSyncableChatSessions(
+    Array.isArray(chatState?.sessions) ? chatState.sessions : [],
+  );
   const sessionIds = sessions
     .map((session) => String(session?.id || ""))
     .filter(Boolean);

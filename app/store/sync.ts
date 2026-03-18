@@ -30,6 +30,7 @@ import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
+import { createEmptySession } from "./chat";
 
 export interface WebDavConfig {
   server: string;
@@ -90,7 +91,7 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
     case StoreKey.Access:
       return `${
         Array.isArray(state?.apiProfiles) ? state.apiProfiles.length : 0
-      } 个配置`;
+      } 个API配置`;
     case StoreKey.Config:
       return `${Array.isArray(state?.models) ? state.models.length : 0} 个模型`;
     case StoreKey.ModelCache:
@@ -226,6 +227,39 @@ function shouldUploadChatSession(
   );
 }
 
+function getChatGlobalClearAt(state: unknown) {
+  const value =
+    isObjectLike(state) && "globalClearAt" in state ? state.globalClearAt : 0;
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 0;
+}
+
+function getChatSessionLastUpdate(session: unknown) {
+  const value =
+    isObjectLike(session) && "lastUpdate" in session ? session.lastUpdate : 0;
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 0;
+}
+
+function buildClearedChatState(state: any, clearAt: number) {
+  const sessions = Array.isArray(state?.sessions) ? state.sessions : [];
+  const keptSessions = sessions.filter(
+    (session) => getChatSessionLastUpdate(session) > clearAt,
+  );
+  const currentSessionId = sessions[state?.currentSessionIndex ?? 0]?.id ?? "";
+  const nextCurrentSessionIndex = currentSessionId
+    ? keptSessions.findIndex((session) => session?.id === currentSessionId)
+    : 0;
+
+  return {
+    ...state,
+    sessions: keptSessions,
+    currentSessionIndex:
+      nextCurrentSessionIndex >= 0 ? nextCurrentSessionIndex : 0,
+    globalClearAt: clearAt,
+  };
+}
+
 async function withRetry<T>(
   task: () => Promise<T>,
   options?: {
@@ -347,6 +381,73 @@ export const useSyncStore = createPersistStore(
         remoteIndex,
         remoteSessions || {},
       );
+      const localGlobalClearAt = getChatGlobalClearAt(localChatState);
+      const remoteGlobalClearAt = getChatGlobalClearAt(remotePartialState);
+
+      if (remoteGlobalClearAt > localGlobalClearAt) {
+        const clearedLocalState = buildClearedChatState(
+          localChatState,
+          remoteGlobalClearAt,
+        );
+        const clearedRemoteState = buildClearedChatState(
+          remotePartialState,
+          remoteGlobalClearAt,
+        );
+        const mergedAfterClear = mergeStoreState(
+          StoreKey.Chat,
+          clearedLocalState,
+          clearedRemoteState,
+        );
+        const mergedStoreState =
+          Array.isArray(mergedAfterClear?.sessions) &&
+          mergedAfterClear.sessions.length > 0
+            ? mergedAfterClear
+            : {
+                ...mergedAfterClear,
+                sessions: [createEmptySession()],
+                currentSessionIndex: 0,
+              };
+        const mergedIndex = buildChatIndexPayload(mergedStoreState);
+        const mergedSessionMap = createChatSessionMap(
+          Array.isArray(mergedStoreState?.sessions)
+            ? mergedStoreState.sessions
+            : [],
+        );
+        const upsertSessions = mergedIndex.sessions
+          .filter((entry) =>
+            shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
+          )
+          .map((entry) => mergedSessionMap.get(entry.id))
+          .filter(Boolean) as Array<Record<string, unknown>>;
+        const deleteSessionIds = [...remoteEntryMap.keys()].filter(
+          (sessionId) => !mergedSessionMap.has(sessionId),
+        );
+        const uploadedBytes =
+          measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
+
+        await client.setChatDelta?.({
+          index: mergedIndex,
+          upsertSessions,
+          deleteSessionIds,
+        });
+
+        return {
+          remoteSummary: getStoreSummary(StoreKey.Chat, {
+            sessions: remoteIndex.sessions || [],
+          }),
+          mergedStoreState,
+          mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
+          status: "merged" as const,
+          metrics: {
+            downloadedSessionCount: remoteSessionIdsToFetch.length,
+            downloadedBytes,
+            uploadedSessionCount: upsertSessions.length,
+            uploadedBytes,
+            deletedSessionCount: deleteSessionIds.length,
+          },
+        };
+      }
+
       const mergedStoreState = mergeStoreState(
         StoreKey.Chat,
         localChatState,

@@ -146,7 +146,7 @@ function sortSessionsByCreatedAt(sessions: ChatSession[]) {
   });
 }
 
-function createEmptySession(): ChatSession {
+export function createEmptySession(): ChatSession {
   const now = Date.now();
   return {
     id: nanoid(),
@@ -678,6 +678,7 @@ const DEFAULT_CHAT_STATE = {
   sessions: [createEmptySession()],
   currentSessionIndex: 0,
   lastInput: "",
+  globalClearAt: 0,
 };
 
 export const useChatStore = createPersistStore(
@@ -719,9 +720,11 @@ export const useChatStore = createPersistStore(
 
       async clearSessions() {
         const newSessions = [createEmptySession()];
+        const globalClearAt = Date.now();
         set(() => ({
           sessions: newSessions,
           currentSessionIndex: 0,
+          globalClearAt,
         }));
 
         // 直接上传空状态到服务器（动态导入避免循环依赖）
@@ -740,6 +743,7 @@ export const useChatStore = createPersistStore(
                 ...get(),
                 sessions: newSessions,
                 currentSessionIndex: 0,
+                globalClearAt,
               }),
             );
             console.log("[Chat] ✅ 清空对话已同步到服务器");

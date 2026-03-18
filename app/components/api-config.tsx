@@ -1687,7 +1687,7 @@ export function ApiConfigPage() {
 
   const clearCloudModels = async () => {
     const confirmed = await showConfirm(
-      "确定要清空所有云端模型数据吗？\n此操作不可恢复。",
+      "确定要清空模型缓存吗？这会删除本地和数据库中的已缓存模型列表，且不可恢复。",
     );
     if (!confirmed) return;
 
@@ -2450,11 +2450,11 @@ export function ApiConfigPage() {
                 className={styles.dangerButton}
                 onClick={async () => {
                   const confirmed = await showConfirm(
-                    "确定要清空所有对话吗？此操作不可撤销。",
+                    "确定要清空所有对话吗？这会删除本地和数据库中的全部对话记录，且不可恢复。",
                   );
                   if (confirmed) {
                     chatStore.clearSessions();
-                    showToast("已清空所有对话");
+                    showToast("已清空本地和数据库中的所有对话");
                   }
                 }}
               />

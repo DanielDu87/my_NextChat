@@ -28,6 +28,22 @@ export type ChatIndexPayload = {
   sessions: ChatIndexSessionEntry[];
 };
 
+export function shouldSyncChatSession(session: ChatSessionLike | undefined) {
+  if (!session?.id) {
+    return false;
+  }
+
+  return Array.isArray(session.messages) && session.messages.length > 0;
+}
+
+export function getSyncableChatSessions<T extends ChatSessionLike>(
+  sessions: T[],
+) {
+  return normalizeChatSessions(sessions).filter((session) =>
+    shouldSyncChatSession(session),
+  );
+}
+
 function toFiniteNumber(value: unknown) {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? nextValue : 0;
@@ -42,7 +58,7 @@ export function normalizeChatSessions<T extends ChatSessionLike>(
 export function buildChatIndexPayload(
   chatState: ChatStateLike,
 ): ChatIndexPayload {
-  const sessions = normalizeChatSessions(
+  const sessions = getSyncableChatSessions(
     chatState.sessions as ChatSessionLike[],
   );
   const currentSessionIndex = toFiniteNumber(chatState.currentSessionIndex);
@@ -108,7 +124,7 @@ export function buildChatStateFromIndex(
 export function createChatSessionMap<T extends ChatSessionLike>(sessions: T[]) {
   const sessionMap = new Map<string, T>();
 
-  normalizeChatSessions(sessions).forEach((session) => {
+  getSyncableChatSessions(sessions).forEach((session) => {
     if (!session?.id) {
       return;
     }
