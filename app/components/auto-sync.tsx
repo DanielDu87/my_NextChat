@@ -1,82 +1,59 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useAccessStore } from "../store";
+import { useEffect } from "react";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 
-let autoSyncStarted = false;
-let autoSyncPromise: Promise<void> | null = null;
-
 export default function AutoSync() {
-  const hasRunRef = useRef(false);
-
   useEffect(() => {
-    if (hasRunRef.current) {
-      return;
-    }
-    hasRunRef.current = true;
+    console.log("[AutoSync] 📍 组件已挂载");
 
-    const startAutoSync = async () => {
-      if (autoSyncPromise) {
-        return autoSyncPromise;
-      }
+    // 延迟执行，确保 stores 初始化
+    const timer = setTimeout(() => {
+      console.log("[AutoSync] ⏰ 延迟时间到，开始检查同步配置");
 
-      autoSyncPromise = new Promise<void>((resolve) => {
-        const tick = async () => {
-          const syncStore = useSyncStore.getState();
-          const accessStore = useAccessStore.getState();
-          const modelCacheStore = useModelCacheStore.getState();
-          if (
-            !syncStore._hasHydrated ||
-            !accessStore._hasHydrated ||
-            !modelCacheStore._hasHydrated ||
-            !syncStore.provider
-          ) {
-            return;
-          }
+      const syncStore = useSyncStore.getState();
+      const modelCacheStore = useModelCacheStore.getState();
 
-          modelCacheStore.migrateFromAccessProfiles?.();
-
-          if (autoSyncStarted) {
-            resolve();
-            return;
-          }
-
-          autoSyncStarted = true;
-
-          try {
-            await syncStore.autoSync();
-          } catch (error) {
-            console.error("[AutoSync] 同步失败:", error);
-          } finally {
-            syncStore.markSyncTime();
-            resolve();
-          }
-        };
-
-        const intervalId = setInterval(() => {
-          void tick();
-          if (autoSyncStarted) {
-            clearInterval(intervalId);
-          }
-        }, 200);
-
-        void tick().finally(() => {
-          if (autoSyncStarted) {
-            clearInterval(intervalId);
-          }
-        });
-      }).finally(() => {
-        autoSyncPromise = null;
+      console.log("[AutoSync] 🔍 检查同步配置:", {
+        provider: syncStore.provider,
+        cloudSyncResult: syncStore.cloudSync(),
+        databaseConfig: syncStore.database,
       });
 
-      return autoSyncPromise;
+      // 检查是否已配置同步
+      if (!syncStore.provider) {
+        console.log("[AutoSync] 🔕 没有设置 provider，跳过自动同步");
+        return;
+      }
+
+      const canSync = syncStore.cloudSync();
+      console.log("[AutoSync] 🔍 cloudSync() 返回:", canSync);
+
+      if (!canSync) {
+        console.log("[AutoSync] 🔕 同步未配置，跳过自动同步");
+        return;
+      }
+
+      // 迁移模型缓存
+      modelCacheStore.migrateFromAccessProfiles?.();
+
+      console.log("[AutoSync] 🚀 开始自动同步...");
+
+      syncStore
+        .autoSync()
+        .then(() => {
+          console.log("[AutoSync] ✅ 自动同步完成");
+        })
+        .catch((error: unknown) => {
+          console.error("[AutoSync] ❌ 同步失败:", error);
+        });
+    }, 1000); // 延迟 1 秒
+
+    return () => {
+      console.log("[AutoSync] 🧹 组件卸载");
+      clearTimeout(timer);
     };
-
-    void startAutoSync();
-
-    return () => undefined;
   }, []);
 
   return null;

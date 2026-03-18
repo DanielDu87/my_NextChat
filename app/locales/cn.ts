@@ -65,7 +65,7 @@ const cn = {
         light: "亮色模式",
         dark: "深色模式",
       },
-      Prompt: "快捷指令",
+      Prompt: "提示词",
       Masks: "所有面具",
       Clear: "清除聊天",
       Settings: "对话设置",

@@ -141,7 +141,9 @@ function getSummarizeTarget(targetSession?: ChatSession) {
   const targetProviderId =
     targetProfile?.provider === ServiceProvider.Custom
       ? `custom_${targetProfile.name}`
-      : String(targetProfile?.provider || sessionProviderName || "").toLowerCase();
+      : String(
+          targetProfile?.provider || sessionProviderName || "",
+        ).toLowerCase();
   const currentSupplierModel = allModel.find(
     (m) =>
       m.name === SUMMARIZE_MODEL &&
@@ -190,8 +192,15 @@ function isLooseRefreshTitleModel(name: string) {
   // 只匹配 gpt-4o-mini，不包括其他变体（如 transcribe、tts、search 等）
   return (
     normalized === "gpt4omini" ||
-    normalized === "gpt40mini" ||  // 4o 可能被识别为 40
-    (normalized.includes("gpt") && normalized.includes("4o") && normalized.includes("mini") && !normalized.includes("transcribe") && !normalized.includes("tts") && !normalized.includes("audio") && !normalized.includes("search") && !normalized.includes("realtime"))
+    normalized === "gpt40mini" || // 4o 可能被识别为 40
+    (normalized.includes("gpt") &&
+      normalized.includes("4o") &&
+      normalized.includes("mini") &&
+      !normalized.includes("transcribe") &&
+      !normalized.includes("tts") &&
+      !normalized.includes("audio") &&
+      !normalized.includes("search") &&
+      !normalized.includes("realtime"))
   );
 }
 
@@ -237,7 +246,8 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
             profile.enabled && profile.provider === ServiceProvider.Custom,
         )
       : accessStore.apiProfiles.find(
-          (profile) => profile.enabled && profile.provider === currentProviderName,
+          (profile) =>
+            profile.enabled && profile.provider === currentProviderName,
         );
   const currentProviderId =
     currentProviderName === ServiceProvider.Custom
@@ -252,22 +262,46 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   };
 
   // 按供应商分组，确保每个供应商只选择一个 gpt-4o-mini 模型
-  const providerModelMap = new Map<string, { model: string; providerName: ServiceProvider | undefined; profile: any; providerId: string; isExact: boolean }>();
+  const providerModelMap = new Map<
+    string,
+    {
+      model: string;
+      providerName: ServiceProvider | undefined;
+      profile: any;
+      providerId: string;
+      isExact: boolean;
+    }
+  >();
   const unique = new Set<string>();
 
-  console.log("[RefreshTitle] Available API profiles:", accessStore.apiProfiles.map(p => ({ name: p.name, provider: p.provider, enabled: p.enabled })));
+  console.log(
+    "[RefreshTitle] Available API profiles:",
+    accessStore.apiProfiles.map((p) => ({
+      name: p.name,
+      provider: p.provider,
+      enabled: p.enabled,
+    })),
+  );
   console.log("[RefreshTitle] Total models count:", allModels.length);
   console.log("[RefreshTitle] Current provider:", currentProviderId);
 
   for (const model of allModels) {
     if (!model.available || !isLooseRefreshTitleModel(model.name)) continue;
 
-    const providerName = model.provider?.providerName as ServiceProvider | undefined;
+    const providerName = model.provider?.providerName as
+      | ServiceProvider
+      | undefined;
     const providerId = String(model.provider?.id || "").toLowerCase();
     const profile = getProfileForModel(model.provider?.id, providerName);
     const isExact = normalizeModelKeyword(model.name) === "gpt4omini";
 
-    console.log("[RefreshTitle] Matched model:", { name: model.name, providerId, providerName, hasProfile: !!profile, isExact });
+    console.log("[RefreshTitle] Matched model:", {
+      name: model.name,
+      providerId,
+      providerName,
+      hasProfile: !!profile,
+      isExact,
+    });
 
     // 如果该供应商已经有模型，优先保留精确匹配的
     const existing = providerModelMap.get(providerId);
@@ -282,19 +316,24 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     }
   }
 
-  console.log("[RefreshTitle] Provider model map:", Array.from(providerModelMap.keys()));
+  console.log(
+    "[RefreshTitle] Provider model map:",
+    Array.from(providerModelMap.keys()),
+  );
 
   // 生成候选列表，当前供应商排第一，其他供应商按精确匹配优先
-  const matched = Array.from(providerModelMap.values()).map((item) => {
-    const isCurrentProvider = item.providerId === currentProviderId;
-    return {
-      model: item.model,
-      providerName: item.providerName ?? ServiceProvider.Custom,
-      profile: item.profile,
-      providerId: item.providerId,
-      score: (isCurrentProvider ? 1000 : 0) + (item.isExact ? 100 : 0),
-    };
-  }).sort((a, b) => b.score - a.score);
+  const matched = Array.from(providerModelMap.values())
+    .map((item) => {
+      const isCurrentProvider = item.providerId === currentProviderId;
+      return {
+        model: item.model,
+        providerName: item.providerName ?? ServiceProvider.Custom,
+        profile: item.profile,
+        providerId: item.providerId,
+        score: (isCurrentProvider ? 1000 : 0) + (item.isExact ? 100 : 0),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
 
   // 使用 Map 去重，确保每个供应商只出现一次
   const candidates = [currentProviderCandidate, ...matched].filter((item) => {
@@ -306,14 +345,17 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     return true;
   });
 
-  console.log("[RefreshTitle] Final candidates:", candidates.map(c => ({
-    model: c.model,
-    providerId: c.providerId,
-    profileName: c.profile?.name,
-    profileBaseUrl: c.profile?.baseUrl,
-    profileApiKey: c.profile?.apiKey ? '***' : 'missing',
-    score: c.score
-  })));
+  console.log(
+    "[RefreshTitle] Final candidates:",
+    candidates.map((c) => ({
+      model: c.model,
+      providerId: c.providerId,
+      profileName: c.profile?.name,
+      profileBaseUrl: c.profile?.baseUrl,
+      profileApiKey: c.profile?.apiKey ? "***" : "missing",
+      score: c.score,
+    })),
+  );
 
   if (candidates.length > 0) {
     return candidates;
@@ -364,10 +406,12 @@ async function refreshSessionTitle(targetSession: ChatSession) {
       providerId: candidate.providerId,
       profileName: candidate.profile?.name,
       profileBaseUrl: candidate.profile?.baseUrl,
-      hasProfile: !!candidate.profile
+      hasProfile: !!candidate.profile,
     });
 
-    const api: ClientApi = getClientApi(candidate.providerName as ServiceProvider);
+    const api: ClientApi = getClientApi(
+      candidate.providerName as ServiceProvider,
+    );
 
     try {
       const result = await new Promise<boolean>((resolve) => {
@@ -393,9 +437,11 @@ async function refreshSessionTitle(targetSession: ChatSession) {
                   Boolean(trimTopic(message || ""));
 
                 if (success) {
-                  useChatStore.getState().updateTargetSession(session, (session) => {
-                    session.topic = trimTopic(message);
-                  });
+                  useChatStore
+                    .getState()
+                    .updateTargetSession(session, (session) => {
+                      session.topic = trimTopic(message);
+                    });
                 }
 
                 finish(success);
@@ -420,7 +466,9 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     }
   }
 
-  showToast("标题刷新失败：当前供应商和其他供应商都尝试过了，请检查模型或 API 配置");
+  showToast(
+    "标题刷新失败：当前供应商和其他供应商都尝试过了，请检查模型或 API 配置",
+  );
   return false;
 }
 
@@ -449,8 +497,8 @@ function withSummarizeProfile<T>(
 
   console.log("[WithSummarizeProfile] Setting profile:", {
     baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey ? '***' : 'missing',
-    openAICompatible: profile.openAICompatible
+    apiKey: profile.apiKey ? "***" : "missing",
+    openAICompatible: profile.openAICompatible,
   });
 
   useAccessStore.setState({
@@ -460,15 +508,25 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: profile.openAICompatible ?? true,
   } as any);
 
-  console.log("[WithSummarizeProfile] After setState, accessStore.customUrl:", useAccessStore.getState().customUrl);
+  console.log(
+    "[WithSummarizeProfile] After setState, accessStore.customUrl:",
+    useAccessStore.getState().customUrl,
+  );
 
   try {
     const result = fn();
     // 如果 fn() 返回 Promise，在 Promise 完成后再恢复状态
-    if (result && typeof result === 'object' && 'then' in result && 'catch' in result) {
+    if (
+      result &&
+      typeof result === "object" &&
+      "then" in result &&
+      "catch" in result
+    ) {
       return (result as Promise<T>).finally(() => {
         useAccessStore.setState(prevState as any);
-        console.log("[WithSummarizeProfile] Restored previous state (after Promise)");
+        console.log(
+          "[WithSummarizeProfile] Restored previous state (after Promise)",
+        );
       }) as T;
     }
     return result;
@@ -687,6 +745,11 @@ export const useChatStore = createPersistStore(
           currentSessionIndex: 0,
           sessions: [session].concat(state.sessions),
         }));
+
+        // 触发防抖同步（动态导入避免循环依赖）
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
       },
 
       nextSession(delta: number) {
@@ -737,6 +800,11 @@ export const useChatStore = createPersistStore(
           },
           5000,
         );
+
+        // 触发防抖同步（动态导入避免循环依赖）
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
       },
 
       currentSession() {
@@ -764,6 +832,11 @@ export const useChatStore = createPersistStore(
         get().checkMcpJson(message);
 
         get().summarizeSession(false, targetSession);
+
+        // 触发防抖同步（动态导入避免循环依赖）
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
       },
 
       async onUserInput(
@@ -1142,7 +1215,11 @@ export const useChatStore = createPersistStore(
 
           // 使用多供应商切换逻辑生成标题
           const candidates = getRefreshTitleCandidates(session);
-          console.log("[AutoGenerateTitle] Trying", candidates.length, "candidates");
+          console.log(
+            "[AutoGenerateTitle] Trying",
+            candidates.length,
+            "candidates",
+          );
 
           for (const candidate of candidates) {
             console.log("[AutoGenerateTitle] Trying candidate:", {
@@ -1150,10 +1227,12 @@ export const useChatStore = createPersistStore(
               providerId: candidate.providerId,
               profileName: candidate.profile?.name,
               profileBaseUrl: candidate.profile?.baseUrl,
-              hasProfile: !!candidate.profile
+              hasProfile: !!candidate.profile,
             });
 
-            const candidateApi: ClientApi = getClientApi(candidate.providerName as ServiceProvider);
+            const candidateApi: ClientApi = getClientApi(
+              candidate.providerName as ServiceProvider,
+            );
 
             try {
               const success = await new Promise<boolean>((resolve) => {
@@ -1179,9 +1258,11 @@ export const useChatStore = createPersistStore(
                           Boolean(trimTopic(message || ""));
 
                         if (success) {
-                          useChatStore.getState().updateTargetSession(session, (session) => {
-                            session.topic = trimTopic(message);
-                          });
+                          useChatStore
+                            .getState()
+                            .updateTargetSession(session, (session) => {
+                              session.topic = trimTopic(message);
+                            });
                         }
 
                         finish(success);

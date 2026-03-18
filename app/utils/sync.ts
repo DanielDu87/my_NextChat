@@ -58,7 +58,8 @@ const LocalStateGetters = {
     const { sidebarWidth, tightBorder, ...configToSync } = config as any;
     return configToSync;
   },
-  [StoreKey.ModelCache]: () => getNonFunctionFileds(useModelCacheStore.getState()),
+  [StoreKey.ModelCache]: () =>
+    getNonFunctionFileds(useModelCacheStore.getState()),
   [StoreKey.Mask]: () => getNonFunctionFileds(useMaskStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
   [StoreKey.Update]: () => getNonFunctionFileds(useUpdateStore.getState()),
@@ -102,40 +103,88 @@ function markMergedUpdateTime(
 // we merge remote state to local state
 const MergeStates: StateMerger = {
   [StoreKey.Chat]: (localState, remoteState) => {
-    // merge sessions
-    const localSessions: Record<string, ChatSession> = {};
-    localState.sessions.forEach((s) => (localSessions[s.id] = s));
+    // 使用 Map 存储会话，便于查找和更新
+    const sessionMap = new Map<string, ChatSession>();
 
+    // 先添加本地会话
+    localState.sessions.forEach((s) => sessionMap.set(s.id, s));
+
+    // 遍历远程会话，以 lastUpdate 最新的为准
     remoteState.sessions.forEach((remoteSession) => {
-      // skip empty chats
+      // 跳过空会话
       if (remoteSession.messages.length === 0) return;
 
-      const localSession = localSessions[remoteSession.id];
-      if (!localSession) {
-        // if remote session is new, just merge it
-        localState.sessions.push(remoteSession);
-      } else {
-        // if both have the same session id, merge the messages
-        const localMessageIds = new Set(localSession.messages.map((v) => v.id));
-        remoteSession.messages.forEach((m) => {
-          if (!localMessageIds.has(m.id)) {
-            localSession.messages.push(m);
-          }
-        });
+      const localSession = sessionMap.get(remoteSession.id);
+      const remoteUpdateTime = new Date(remoteSession.lastUpdate).getTime();
+      const localUpdateTime = localSession
+        ? new Date(localSession.lastUpdate).getTime()
+        : 0;
 
-        // sort local messages with date field in asc order
-        localSession.messages.sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-        );
+      // 如果远程更新时间更新，或者本地没有该会话，使用远程的
+      if (!localSession || remoteUpdateTime > localUpdateTime) {
+        sessionMap.set(remoteSession.id, remoteSession);
+        console.log("[Sync] 📥 使用远程会话（更新）:", {
+          id: remoteSession.id,
+          topic: remoteSession.topic,
+          remoteTime: new Date(remoteUpdateTime).toLocaleString(),
+          localTime: localSession
+            ? new Date(localUpdateTime).toLocaleString()
+            : "不存在",
+        });
+      } else if (remoteUpdateTime < localUpdateTime) {
+        console.log("[Sync] 📤 保留本地会话（更新）:", {
+          id: remoteSession.id,
+          topic: localSession.topic,
+          localTime: new Date(localUpdateTime).toLocaleString(),
+          remoteTime: new Date(remoteUpdateTime).toLocaleString(),
+        });
+      } else {
+        // 更新时间相同，合并消息（保留两边独有的消息）
+        if (localSession) {
+          const localMessageIds = new Set(
+            localSession.messages.map((v) => v.id),
+          );
+          const remoteMessageIds = new Set(
+            remoteSession.messages.map((v) => v.id),
+          );
+
+          // 添加本地独有的消息
+          localSession.messages.forEach((m) => {
+            if (!remoteMessageIds.has(m.id)) {
+              remoteSession.messages.push(m);
+            }
+          });
+
+          // 添加远程独有的消息
+          remoteSession.messages.forEach((m) => {
+            if (!localMessageIds.has(m.id)) {
+              localSession.messages.push(m);
+            }
+          });
+
+          // 按时间排序
+          localSession.messages.sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          );
+          remoteSession.messages.sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          );
+
+          // 使用消息更多的那个（作为近似判断，选择更完整的版本）
+          if (remoteSession.messages.length >= localSession.messages.length) {
+            sessionMap.set(remoteSession.id, remoteSession);
+          }
+        }
       }
     });
 
-    // sort local sessions with date field in desc order
-    localState.sessions.sort(
+    // 转换回数组并按 lastUpdate 降序排序
+    localState.sessions = Array.from(sessionMap.values()).sort(
       (a, b) =>
         new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime(),
     );
 
+    console.log("[Sync] 📊 会话合并完成，总数:", localState.sessions.length);
     return localState;
   },
   [StoreKey.Prompt]: (localState, remoteState) => {
@@ -251,18 +300,20 @@ const MergeStates: StateMerger = {
   [StoreKey.ModelCache]: (localState, remoteState) => {
     const mergedProfiles = { ...(remoteState.profiles || {}) };
 
-    Object.entries(localState.profiles || {}).forEach(([profileId, profile]) => {
-      const remoteProfile = mergedProfiles[profileId];
-      if (!remoteProfile) {
-        mergedProfiles[profileId] = profile;
-        return;
-      }
+    Object.entries(localState.profiles || {}).forEach(
+      ([profileId, profile]) => {
+        const remoteProfile = mergedProfiles[profileId];
+        if (!remoteProfile) {
+          mergedProfiles[profileId] = profile;
+          return;
+        }
 
-      mergedProfiles[profileId] =
-        (profile.updatedAt || 0) >= (remoteProfile.updatedAt || 0)
-          ? profile
-          : remoteProfile;
-    });
+        mergedProfiles[profileId] =
+          (profile.updatedAt || 0) >= (remoteProfile.updatedAt || 0)
+            ? profile
+            : remoteProfile;
+      },
+    );
 
     localState.profiles = mergedProfiles;
     return localState;

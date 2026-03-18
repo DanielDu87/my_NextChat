@@ -72,7 +72,7 @@ const tw = {
         light: "亮色模式",
         dark: "深色模式",
       },
-      Prompt: "快捷指令",
+      Prompt: "提示詞",
       Masks: "所有角色範本",
       Clear: "清除聊天",
       Settings: "對話設定",

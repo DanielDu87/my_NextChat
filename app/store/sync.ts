@@ -46,6 +46,11 @@ const LOG_SEPARATOR = "=".repeat(50);
 let syncInFlight: Promise<void> | null = null;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] 5\d{2}\b/;
 
+// 防抖同步相关
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const DEBOUNCE_DELAY = 3000; // 3秒防抖
+const SYNC_DEBOUNCE_KEY = "nextchat_sync_debounce";
+
 const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
   [StoreKey.Plugin]: "插件",
@@ -184,6 +189,38 @@ export const useSyncStore = createPersistStore(
       return client;
     },
 
+    triggerDebounceSync(storeKeys?: SyncStoreKey[]) {
+      // 清除之前的定时器
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      // 设置新的防抖定时器
+      debounceTimer = setTimeout(async () => {
+        // 检查是否已配置同步
+        if (!this.cloudSync()) {
+          console.log("[Sync] 🔕 同步未配置，跳过防抖同步");
+          return;
+        }
+
+        // 使用指定的 storeKeys 或默认同步所有
+        const keysToSync = storeKeys || [...SYNC_STORE_KEYS];
+
+        console.log("[Sync] 🚀 防抖同步触发", {
+          keys: keysToSync.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+        });
+
+        try {
+          await this.sync(keysToSync);
+        } catch (error) {
+          console.error("[Sync] ❌ 防抖同步失败:", error);
+        }
+      }, DEBOUNCE_DELAY);
+
+      // 保存定时器 ID 到 localStorage，以便页面刷新后能继续防抖
+      localStorage.setItem(SYNC_DEBOUNCE_KEY, Date.now().toString());
+    },
+
     updateDatabaseMeta(metas: StoreSnapshotMeta[]) {
       const nextMeta = { ...get().database.cacheMeta };
       const validatedAt = Date.now();
@@ -271,7 +308,8 @@ export const useSyncStore = createPersistStore(
                 );
                 console.log(LOG_SEPARATOR);
               } else {
-                const parsedRemoteState = parseStoreStatePayload(remoteDataText);
+                const parsedRemoteState =
+                  parseStoreStatePayload(remoteDataText);
                 const summary = getStoreSummary(key, parsedRemoteState);
                 console.log(
                   `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
@@ -313,7 +351,9 @@ export const useSyncStore = createPersistStore(
               }
             } catch (e) {
               console.error(
-                `[Sync] ❌ [${index + 1}/${storeKeys.length}] ${STORE_DISPLAY_NAMES[key]}同步失败:`,
+                `[Sync] ❌ [${index + 1}/${storeKeys.length}] ${
+                  STORE_DISPLAY_NAMES[key]
+                }同步失败:`,
                 e,
               );
               console.log(LOG_SEPARATOR);
