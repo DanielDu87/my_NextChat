@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const cs: PartialLocaleType = {
     Typing: "Píše se…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} odeslat`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "，Shift + Enter pro nový řádek";
       }
       return inputHints + "，/ pro doplnění, : pro příkaz";

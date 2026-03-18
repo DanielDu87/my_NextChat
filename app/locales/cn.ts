@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 
 const cn = {
   WIP: "该功能仍在开发中……",
@@ -75,7 +74,7 @@ const cn = {
     Typing: "正在输入…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} 发送`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "，Shift + Enter 换行";
       }
       return inputHints + "，/ 触发补全，: 触发命令";

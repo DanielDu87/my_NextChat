@@ -71,13 +71,11 @@ export function useDragSideBar() {
 
   const config = useAppConfig();
   const startX = useRef(0);
-  const startDragWidth = useRef(
-    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH,
-  );
+  const startDragWidth = useRef(config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
   const lastUpdateTime = useRef(Date.now());
 
   const toggleSideBar = () => {
-    const currentWidth = config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH;
+    const currentWidth = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
     config.update((config) => {
       if (currentWidth < MIN_SIDEBAR_WIDTH) {
         config.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
@@ -90,7 +88,7 @@ export function useDragSideBar() {
   const onDragStart = (e: MouseEvent) => {
     // Remembers the initial width each time the mouse is pressed
     startX.current = e.clientX;
-    startDragWidth.current = config.getSidebarWidth();
+    startDragWidth.current = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
     const dragStartTime = Date.now();
 
     const handleDragMove = (e: MouseEvent) => {
@@ -126,7 +124,7 @@ export function useDragSideBar() {
   };
 
   const isMobileScreen = useMobileScreen();
-  const sidebarWidth = config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH;
+  const sidebarWidth = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
 
   const shouldNarrow = !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
 

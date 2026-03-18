@@ -107,6 +107,10 @@ type StateMerger = {
   [K in keyof AppState]: Merger<K>;
 };
 
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.Chat]: "双向合并",
   [StoreKey.Plugin]: "双向合并",
@@ -484,10 +488,17 @@ export function setLocalAppState(appState: AppState) {
 }
 
 export function mergeAppState(localState: AppState, remoteState: AppState) {
+  if (!isObjectLike(remoteState)) {
+    return localState;
+  }
+
   Object.keys(localState).forEach(<T extends keyof AppState>(k: string) => {
     const key = k as T;
     const localStoreState = localState[key];
     const remoteStoreState = remoteState[key];
+    if (!isObjectLike(remoteStoreState)) {
+      return;
+    }
     MergeStates[key](localStoreState, remoteStoreState);
   });
 
@@ -499,6 +510,10 @@ export function mergeStoreState<T extends keyof AppState>(
   localState: AppState[T],
   remoteState: AppState[T],
 ) {
+  if (!isObjectLike(remoteState)) {
+    return localState;
+  }
+
   return MergeStates[key](localState, remoteState);
 }
 

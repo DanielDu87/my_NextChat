@@ -1,6 +1,7 @@
 import webpack from "webpack";
 
 const mode = process.env.BUILD_MODE ?? "standalone";
+const isDev = process.env.NODE_ENV === "development";
 console.log("[Next] build mode", mode);
 
 const disableChunk = !!process.env.DISABLE_CHUNK || mode === "export";
@@ -11,7 +12,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  webpack(config) {
+  webpack(config, { dev }) {
     config.module.rules.push({
       test: /\.svg$/,
       use: ["@svgr/webpack"],
@@ -25,11 +26,21 @@ const nextConfig = {
 
     config.resolve.fallback = {
       child_process: false,
+      bufferutil: false,
+      "utf-8-validate": false,
     };
+
+    if (dev) {
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+        ignored: ["**/.git/**", "**/.next/**", "**/node_modules/**"],
+      };
+    }
 
     return config;
   },
-  output: mode,
+  output: isDev ? undefined : mode,
   images: {
     unoptimized: mode === "export",
   },

@@ -70,7 +70,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     working_dir: /app
-    command: sh -c "yarn install && (yarn mask:watch &) && yarn next dev -H 0.0.0.0"
+    command: sh -c "yarn install && (npm run mask:watch &) && ./node_modules/.bin/next dev -H 0.0.0.0"
     ports:
       - 3000:3000
     environment:

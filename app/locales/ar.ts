@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const ar: PartialLocaleType = {
     Typing: "يكتب…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} إرسال`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "، Shift + Enter لإدراج سطر جديد";
       }
       return inputHints + "، / لتفعيل الإكمال التلقائي، : لتفعيل الأوامر";

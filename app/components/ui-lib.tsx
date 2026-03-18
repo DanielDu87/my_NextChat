@@ -122,6 +122,7 @@ interface ModalProps {
   isSmall?: boolean;
   footer?: React.ReactNode;
   onClose?: () => void;
+  className?: string;
 }
 export function Modal(props: ModalProps) {
   useEffect(() => {

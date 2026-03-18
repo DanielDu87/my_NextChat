@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const id: PartialLocaleType = {
     Typing: "Sedang Mengetik…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} kirim`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "，Shift + Enter untuk baris baru";
       }
       return inputHints + "，/ untuk melengkapi, : untuk memicu perintah";

@@ -14,7 +14,18 @@ const config: Config = {
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
+    "^@/app/mcp/actions$": "<rootDir>/test/__mocks__/mcp-actions.ts",
+    "^@/app/locales$": "<rootDir>/test/__mocks__/locales.ts",
+    "^\\.\\./mcp/actions$": "<rootDir>/test/__mocks__/mcp-actions.ts",
+    "^\\.\\./locales$": "<rootDir>/test/__mocks__/locales.ts",
+    "^lodash-es$": "lodash",
+    "^lodash-es/(.*)$": "lodash/$1",
+    "^nanoid$": "<rootDir>/test/__mocks__/nanoid.ts",
   },
+  modulePathIgnorePatterns: ["<rootDir>/.next/standalone/"],
+  transformIgnorePatterns: [
+    "/node_modules/(?!(lodash-es|nanoid|@modelcontextprotocol/sdk)/)",
+  ],
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   injectGlobals: true,
 };

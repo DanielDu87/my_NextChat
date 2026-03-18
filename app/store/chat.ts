@@ -96,10 +96,29 @@ export interface ChatSession {
   mask: Mask;
 }
 
-export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
+function getLocaleStoreStrings() {
+  try {
+    return Locale.Store;
+  } catch {
+    return {
+      DefaultTopic: "New Chat",
+      BotHello: "Hello",
+    };
+  }
+}
+
+export function getDefaultTopic() {
+  return getLocaleStoreStrings().DefaultTopic;
+}
+
+export function getBotHelloContent() {
+  return getLocaleStoreStrings().BotHello;
+}
+
+export const DEFAULT_TOPIC = getDefaultTopic();
 export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
-  content: Locale.Store.BotHello,
+  content: getBotHelloContent(),
 });
 
 function getSessionCreatedAt(session: Partial<ChatSession>) {
@@ -131,7 +150,7 @@ function createEmptySession(): ChatSession {
   const now = Date.now();
   return {
     id: nanoid(),
-    topic: DEFAULT_TOPIC,
+    topic: getDefaultTopic(),
     memoryPrompt: "",
     messages: [],
     stat: {
@@ -544,12 +563,7 @@ function withSummarizeProfile<T>(
   try {
     const result = fn();
     // 如果 fn() 返回 Promise，在 Promise 完成后再恢复状态
-    if (
-      result &&
-      typeof result === "object" &&
-      "then" in result &&
-      "catch" in result
-    ) {
+    if (result instanceof Promise) {
       return (result as Promise<T>).finally(() => {
         useAccessStore.setState(prevState as any);
         console.log(
@@ -1253,7 +1267,7 @@ export const useChatStore = createPersistStore(
         const SUMMARIZE_MIN_LEN = 50;
         if (
           config.enableAutoGenerateTitle &&
-          session.topic === DEFAULT_TOPIC &&
+          session.topic === getDefaultTopic() &&
           countMessages(messages) >= SUMMARIZE_MIN_LEN
         ) {
           const startIndex = Math.max(

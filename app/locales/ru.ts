@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import { PartialLocaleType } from "../locales/index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const ru: PartialLocaleType = {
     Typing: "Печатает…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} Отправить`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "，Shift + Enter для новой строки";
       }
       return inputHints + "，/ для автозаполнения，: для команд";

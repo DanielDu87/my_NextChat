@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const jp: PartialLocaleType = {
     Typing: "入力中…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey}で送信`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "、Shift + Enterで改行";
       }
       return inputHints + "、/で補完をトリガー、:でコマンドをトリガー";

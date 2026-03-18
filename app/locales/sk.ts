@@ -1,5 +1,4 @@
 import { getClientConfig } from "../config/client";
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
 // if you are adding a new translation, please use PartialLocaleType instead of LocaleType
@@ -82,7 +81,7 @@ const sk: PartialLocaleType = {
     Typing: "Písanie…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} na odoslanie`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += ", Shift + Enter na zalomenie";
       }
       return inputHints + ", / na vyhľadávanie výziev, : na použitie príkazov";

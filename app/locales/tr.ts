@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -82,7 +81,7 @@ const tr: PartialLocaleType = {
     Typing: "Yazıyor…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} gönder`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += " Shift + Enter satır sonu için";
       }
       return inputHints + " / tamamlama için, : komutlar için";

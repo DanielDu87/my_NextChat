@@ -55,6 +55,7 @@ import {
   ChatMessage,
   createMessage,
   DEFAULT_TOPIC,
+  getBotHelloContent,
   ModelType,
   SubmitKey,
   Theme,
@@ -1139,9 +1140,7 @@ export function ChatActions(props: {
                   session.mask.modelConfig.size = nextSize as any;
                 });
                 showToast(
-                  nextSize === "720x1280" || nextSize === "1024x1792"
-                    ? "已切换竖版"
-                    : "已切换横版",
+                  nextSize === "720x1280" ? "已切换竖版" : "已切换横版",
                 );
               }}
               text={
@@ -2064,9 +2063,10 @@ function _Chat() {
     // 动态检查是否需要显示欢迎消息或错误提示
     if (
       baseContext.length === 0 &&
-      session.messages.at(0)?.content !== BOT_HELLO.content
+      session.messages.at(0)?.content !== getBotHelloContent()
     ) {
       const copiedHello = Object.assign({}, BOT_HELLO);
+      copiedHello.content = getBotHelloContent();
       // 动态检查授权状态
       if (!accessStore.isAuthorized()) {
         copiedHello.content = Locale.Error.Unauthorized;
@@ -2080,7 +2080,7 @@ function _Chat() {
       baseContext[0].content === Locale.Error.Unauthorized &&
       accessStore.isAuthorized()
     ) {
-      baseContext[0] = { ...baseContext[0], content: BOT_HELLO.content };
+      baseContext[0] = { ...baseContext[0], content: getBotHelloContent() };
     }
 
     return baseContext;

@@ -2,6 +2,22 @@ import { jest } from "@jest/globals";
 
 const fetchEventSourceMock = jest.fn();
 
+jest.mock("@fortaine/fetch-event-source", () => ({
+  EventStreamContentType: "text/event-stream",
+  fetchEventSource: (...args: unknown[]) => fetchEventSourceMock(...args),
+}));
+
+jest.mock("@/app/client/api", () => ({}));
+
+jest.mock("@/app/locales", () => ({
+  __esModule: true,
+  default: {
+    Error: {
+      Unauthorized: "Unauthorized",
+    },
+  },
+}));
+
 describe("YutoAPI stream fallback retry", () => {
   const originalRequestAnimationFrame = global.requestAnimationFrame;
 
@@ -25,20 +41,6 @@ describe("YutoAPI stream fallback retry", () => {
   });
 
   async function loadChatUtils() {
-    jest.unstable_mockModule("@fortaine/fetch-event-source", () => ({
-      EventStreamContentType: "text/event-stream",
-      fetchEventSource: (...args: unknown[]) => fetchEventSourceMock(...args),
-    }));
-    jest.unstable_mockModule("@/app/client/api", () => ({}));
-    jest.unstable_mockModule("@/app/locales", () => ({
-      __esModule: true,
-      default: {
-        Error: {
-          Unauthorized: "Unauthorized",
-        },
-      },
-    }));
-
     return import("../app/utils/chat");
   }
 
@@ -74,7 +76,8 @@ describe("YutoAPI stream fallback retry", () => {
         },
       }) as Response;
 
-    fetchEventSourceMock.mockImplementation(async (_url: string, options: any) => {
+    fetchEventSourceMock.mockImplementation(async (...args: any[]) => {
+      const [, options] = args as [string, any];
       seenAuthHeaders.push(options.headers.Authorization);
       const response = createResponse();
 
@@ -147,7 +150,8 @@ describe("YutoAPI stream fallback retry", () => {
     const onFinish = jest.fn();
     const onError = jest.fn();
 
-    fetchEventSourceMock.mockImplementation(async (_url: string, options: any) => {
+    fetchEventSourceMock.mockImplementation(async (...args: any[]) => {
+      const [, options] = args as [string, any];
       const response = {
         ok: false,
         status: 503,

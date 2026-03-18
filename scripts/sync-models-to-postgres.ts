@@ -51,7 +51,7 @@ function toAbsoluteUrl(pathOrUrl: string) {
   return `${WEBDAV_BASE_URL.replace(/\/+$/, "")}/${pathOrUrl.replace(/^\/+/, "")}`;
 }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   if (!WEBDAV_USERNAME && !WEBDAV_PASSWORD) return {};
   return {
     Authorization: `Basic ${Buffer.from(

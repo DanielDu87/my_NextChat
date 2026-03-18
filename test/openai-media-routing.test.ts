@@ -14,6 +14,17 @@ import {
 } from "../app/utils";
 
 describe("AiHubMix media routing", () => {
+  function createMockBlobResponse(blob: Blob): Response {
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: () => "video/mp4",
+      },
+      blob: () => Promise.resolve(blob),
+    } as unknown as Response;
+  }
+
   test("should omit quality for aihubmix dall-e-2 predictions", () => {
     const payload = buildAiHubMixPredictionPayload("dall-e-2", {
       messages: [{ role: "user", content: "test prompt" }],
@@ -243,17 +254,10 @@ describe("AiHubMix media routing", () => {
     const originalCreateObjectURL = URL.createObjectURL;
     const originalFetch = global.fetch;
     URL.createObjectURL = jest
-      .fn()
+      .fn<(obj: Blob | MediaSource) => string>()
       .mockReturnValue("blob:https://example.com/video");
     global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        headers: {
-          get: () => "video/mp4",
-        },
-        blob: () => Promise.resolve(new Blob(["video-bytes"])),
-      } as Response),
+      Promise.resolve(createMockBlobResponse(new Blob(["video-bytes"]))),
     ) as any;
     const payload = await __testables.attachCompletedVideoContent(
       {
@@ -278,14 +282,7 @@ describe("AiHubMix media routing", () => {
 
   test("should report empty response when completed video content is empty", async () => {
     global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        headers: {
-          get: () => "video/mp4",
-        },
-        blob: () => Promise.resolve(new Blob()),
-      } as Response),
+      Promise.resolve(createMockBlobResponse(new Blob())),
     ) as any;
 
     const payload = await __testables.attachCompletedVideoContent(

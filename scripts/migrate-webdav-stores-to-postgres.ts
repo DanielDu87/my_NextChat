@@ -41,7 +41,7 @@ function getWebDavBaseUrl() {
   return normalizeBaseUrl(process.env.WEBDAV_BASE_URL || DEFAULT_WEBDAV_BASE_URL);
 }
 
-function buildAuthHeaders() {
+function buildAuthHeaders(): Record<string, string> {
   const username = process.env.WEBDAV_USERNAME || "";
   const password = process.env.WEBDAV_PASSWORD || "";
 
@@ -84,7 +84,10 @@ async function readWebDavText(filePath: string) {
   };
 }
 
-function wrapPersistedState(storeKey: StoreKey, state: unknown) {
+function wrapPersistedState(
+  storeKey: keyof typeof STORE_PERSIST_VERSION,
+  state: unknown,
+) {
   return {
     state,
     version: STORE_PERSIST_VERSION[storeKey],
@@ -384,7 +387,7 @@ async function loadWebDavStore(storeKey: StoreKey) {
 }
 
 async function migrateWebDavStores() {
-  const targetStoreKeys: StoreKey[] = [
+  const targetStoreKeys: Array<keyof typeof STORE_PERSIST_VERSION> = [
     StoreKey.Chat,
     StoreKey.Access,
     StoreKey.Config,

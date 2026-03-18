@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import type { PartialLocaleType } from "./index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -83,7 +82,7 @@ const it: PartialLocaleType = {
     Typing: "Digitazione in corso…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} per inviare`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += "，Shift + Enter per andare a capo";
       }
       return (

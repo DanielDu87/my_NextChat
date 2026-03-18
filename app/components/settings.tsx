@@ -35,6 +35,7 @@ import { ModelConfigList } from "./model-config";
 
 import { IconButton } from "./button";
 import {
+  DEFAULT_CONFIG,
   SubmitKey,
   useChatStore,
   Theme,
@@ -258,7 +259,12 @@ function DangerItems() {
           text={Locale.Settings.Danger.Reset.Action}
           onClick={async () => {
             if (await showConfirm(Locale.Settings.Danger.Reset.Confirm)) {
-              appConfig.reset();
+              appConfig.update((config) => {
+                Object.assign(config, {
+                  ...DEFAULT_CONFIG,
+                  sidebarWidth: config.sidebarWidth,
+                });
+              });
             }
           }}
           type="danger"

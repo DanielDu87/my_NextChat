@@ -1,4 +1,3 @@
-import { SubmitKey } from "../store/config";
 import { PartialLocaleType } from "../locales/index";
 import { getClientConfig } from "../config/client";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
@@ -81,7 +80,7 @@ const pt: PartialLocaleType = {
     Typing: "Digitando…",
     Input: (submitKey: string) => {
       var inputHints = `${submitKey} para enviar`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += ", Shift + Enter para quebrar linha";
       }
       return inputHints + ", / para buscar prompts, : para usar comandos";

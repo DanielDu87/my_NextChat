@@ -25,6 +25,8 @@ import type { LocaleType } from "./cn";
 export type { LocaleType, PartialLocaleType } from "./cn";
 
 const localStorage = safeLocalStorage();
+const LANG_KEY = "lang";
+const DEFAULT_LANG = "en";
 
 const ALL_LANGS = {
   cn,
@@ -75,9 +77,6 @@ export const ALL_LANG_OPTIONS: Record<Lang, string> = {
   bn: "বাংলা",
   sk: "Slovensky",
 };
-
-const LANG_KEY = "lang";
-const DEFAULT_LANG = "en";
 
 const fallbackLang = en;
 const targetLang = ALL_LANGS[getLang()] as LocaleType;

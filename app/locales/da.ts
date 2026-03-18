@@ -1,7 +1,6 @@
 import { getClientConfig } from "../config/client";
-import { SubmitKey } from "../store/config";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
-import { PartialLocaleType } from "./index";
+import type { PartialLocaleType } from "./index";
 
 const isApp = !!getClientConfig()?.isApp;
 const da: PartialLocaleType = {
@@ -84,7 +83,7 @@ const da: PartialLocaleType = {
     Typing: "Skriver…",
     Input: (submitKey: string) => {
       let inputHints = `${submitKey} for at sende`;
-      if (submitKey === String(SubmitKey.Enter)) {
+      if (submitKey === "Enter") {
         inputHints += ", Shift + Enter for ny linje";
       }
       return (

@@ -46,6 +46,10 @@ const LOG_SEPARATOR = "=".repeat(50);
 let syncInFlight: Promise<void> | null = null;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] 5\d{2}\b/;
 
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 // 防抖同步相关
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_DELAY = 3000; // 3秒防抖
@@ -169,15 +173,26 @@ export const useSyncStore = createPersistStore(
     },
 
     async import() {
-      const rawContent = await readFromFile();
-
       try {
-        const remoteState = JSON.parse(rawContent) as AppState;
+        const rawContent = await readFromFile();
+        const parsedState = JSON.parse(rawContent) as unknown;
+        if (!isObjectLike(parsedState)) {
+          throw new Error("[Import] 备份文件格式无效");
+        }
+
+        const remoteState = parsedState as AppState;
         const localState = getLocalAppState();
         mergeAppState(localState, remoteState);
         setLocalAppState(localState);
         location.reload();
       } catch (e) {
+        if (
+          e instanceof Error &&
+          e.message.includes("[File] 用户取消选择文件")
+        ) {
+          console.log("[Import] 用户取消选择备份文件");
+          return;
+        }
         console.error("[Import]", e);
         showToast(Locale.Settings.Sync.ImportFailed);
       }

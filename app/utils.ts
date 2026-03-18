@@ -11,7 +11,7 @@ import {
 import { fetch as tauriStreamFetch } from "./utils/stream";
 import { VISION_MODEL_REGEXES, EXCLUDE_VISION_MODEL_REGEXES } from "./constant";
 import { useAccessStore } from "./store";
-import type { ModelSize } from "./typing";
+import type { DalleQuality, DalleStyle, ModelSize } from "./typing";
 
 export function trimTopic(topic: string) {
   // Fix an issue where double quotes still show in the Indonesian language
@@ -100,7 +100,12 @@ export function readFromFile() {
     fileInput.accept = "application/json";
 
     fileInput.onchange = (event: any) => {
-      const file = event.target.files[0];
+      const file = event.target?.files?.[0];
+      if (!file) {
+        rej(new Error("[File] 用户取消选择文件"));
+        return;
+      }
+
       const fileReader = new FileReader();
       fileReader.onload = (e: any) => {
         res(e.target.result);
@@ -579,8 +584,7 @@ export function safeLocalStorage(): {
     } else {
       storage = null;
     }
-  } catch (e) {
-    console.error("localStorage is not available:", e);
+  } catch {
     storage = null;
   }
 
@@ -588,12 +592,9 @@ export function safeLocalStorage(): {
     getItem(key: string): string | null {
       if (storage) {
         return storage.getItem(key);
-      } else {
-        console.warn(
-          `Attempted to get item "${key}" from localStorage, but localStorage is not available.`,
-        );
-        return null;
       }
+
+      return null;
     },
     setItem(key: string, value: string): void {
       if (storage) {
@@ -605,28 +606,16 @@ export function safeLocalStorage(): {
             error,
           );
         }
-      } else {
-        console.warn(
-          `Attempted to set item "${key}" in localStorage, but localStorage is not available.`,
-        );
       }
     },
     removeItem(key: string): void {
       if (storage) {
         storage.removeItem(key);
-      } else {
-        console.warn(
-          `Attempted to remove item "${key}" from localStorage, but localStorage is not available.`,
-        );
       }
     },
     clear(): void {
       if (storage) {
         storage.clear();
-      } else {
-        console.warn(
-          "Attempted to clear localStorage, but localStorage is not available.",
-        );
       }
     },
   };

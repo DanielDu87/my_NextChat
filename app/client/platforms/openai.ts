@@ -1038,7 +1038,8 @@ export class ChatGPTApi implements LLMApi {
     let requestPayload:
       | RequestPayload
       | DalleRequestPayload
-      | Record<string, unknown>;
+      | Record<string, unknown>
+      | FormData;
 
     const isDalle3 = _isDalle3(options.config.model);
     const isImageModel = isImageGenerationModel(options.config.model);

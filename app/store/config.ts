@@ -263,7 +263,7 @@ export const useAppConfig = createPersistStore(
           model.categorySource = 1;
         }
         const existingCategories = Array.isArray(existing?.categories)
-          ? existing.categories
+          ? existing?.categories
           : undefined;
         if (
           shouldPreserveManualCategory &&
@@ -278,11 +278,12 @@ export const useAppConfig = createPersistStore(
         const existingPublishedAt = normalizePublishedAt(existing?.publishedAt);
         const nextPublishedAt = normalizePublishedAt(model.publishedAt);
         if (
+          existing &&
           existingPublishedAt &&
-          (!nextPublishedAt || existing?.publishedAtSource === "manual")
+          (!nextPublishedAt || existing.publishedAtSource === "manual")
         ) {
           model.publishedAt = existingPublishedAt;
-          model.publishedAtSource = existing?.publishedAtSource;
+          model.publishedAtSource = existing.publishedAtSource;
           model.publishedAtUrl =
             typeof existing?.publishedAtUrl === "string"
               ? existing.publishedAtUrl
@@ -336,12 +337,12 @@ export const useAppConfig = createPersistStore(
     version: 4.1,
     partialize(state) {
       const { sidebarWidth, ...rest } = state as ChatConfig;
-      return rest;
+      return rest as typeof state;
     },
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
-      if (!state) return { ...currentState };
+      if (!state) return { ...currentState } as typeof currentState;
       const models = currentState.models.slice();
       state.models.forEach((pModel) => {
         const idx = models.findIndex(
@@ -361,7 +362,7 @@ export const useAppConfig = createPersistStore(
         sidebarWidth: Number.isFinite(sidebarWidth)
           ? sidebarWidth
           : currentState.sidebarWidth,
-      };
+      } as typeof currentState;
     },
 
     migrate(persistedState, version) {
