@@ -4,10 +4,17 @@ import "./styles/markdown.scss";
 import "./styles/highlight.scss";
 import { getClientConfig } from "./config/client";
 import type { Metadata, Viewport } from "next";
+import dynamic from "next/dynamic";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GoogleTagManager, GoogleAnalytics } from "@next/third-parties/google";
 import { getServerSideConfig } from "./config/server";
-import AutoSync from "./components/auto-sync";
+
+const AutoSync = dynamic(
+  async () => (await import("./components/auto-sync")).default,
+  {
+    ssr: false,
+  },
+);
 
 export const metadata: Metadata = {
   title: "NextChat",

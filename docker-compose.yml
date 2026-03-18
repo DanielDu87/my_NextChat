@@ -70,7 +70,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     working_dir: /app
-    command: sh -c "yarn install && (npm run mask:watch &) && ./node_modules/.bin/next dev -H 0.0.0.0"
+    command: sh /app/scripts/dev-bootstrap.sh
     ports:
       - 3000:3000
     environment:
@@ -102,7 +102,7 @@ services:
       - WEBDAV_USERNAME=${WEBDAV_USERNAME:-}
       - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-}
     volumes:
-      - .:/app
+      - .:/app:delegated
       - nextchat_node_modules:/app/node_modules
       - nextchat_next_cache:/app/.next
 
