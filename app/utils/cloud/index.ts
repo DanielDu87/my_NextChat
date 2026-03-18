@@ -26,6 +26,14 @@ export type SyncClient = {
   get: (key: string) => Promise<string>;
   set: (key: string, value: string) => Promise<void>;
   check: () => Promise<boolean>;
+  getMeta?: (keys?: string[]) => Promise<
+    Array<{
+      key: string;
+      updatedAt: string;
+      checksum: string;
+      sizeBytes: number;
+    }>
+  >;
 };
 
 export function createSyncClient<T extends ProviderType>(

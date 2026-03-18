@@ -15,6 +15,7 @@ import {
   ServiceProvider,
 } from "../constant";
 import { createPersistStore } from "../utils/store";
+import { safeLocalStorage } from "../utils";
 import { normalizePublishedAt } from "../utils/model-published-at";
 import type { Voice } from "rt-client";
 
@@ -38,6 +39,8 @@ export enum Theme {
 }
 
 const config = getClientConfig();
+const localStorage = safeLocalStorage();
+const SIDEBAR_WIDTH_KEY = "sidebarWidth";
 
 export const DEFAULT_CONFIG = {
   lastUpdate: Date.now(), // timestamp, to merge state
@@ -314,17 +317,15 @@ export const useAppConfig = createPersistStore(
 
     // localStorage 专用方法：获取/设置 sidebarWidth
     getSidebarWidth() {
-      const stored = localStorage.getItem("sidebarWidth");
-      if (stored) {
-        return parseInt(stored);
-      }
-      return get().sidebarWidth;
+      const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      if (!stored) return get().sidebarWidth;
+      const width = Number(stored);
+      return Number.isFinite(width) ? width : get().sidebarWidth;
     },
 
     setSidebarWidth(width: number) {
-      localStorage.setItem("sidebarWidth", width.toString());
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
       set({ sidebarWidth: width });
-      // 触发自定义事件，让组件知道 sidebarWidth 已更新
       window.dispatchEvent(
         new CustomEvent("sidebarWidthChanged", { detail: width }),
       );
@@ -333,6 +334,10 @@ export const useAppConfig = createPersistStore(
   {
     name: StoreKey.Config,
     version: 4.1,
+    partialize(state) {
+      const { sidebarWidth, ...rest } = state as ChatConfig;
+      return rest;
+    },
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -345,7 +350,18 @@ export const useAppConfig = createPersistStore(
         if (idx !== -1) models[idx] = pModel;
         else models.push(pModel);
       });
-      return { ...currentState, ...state, models: models };
+      const storedSidebarWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      const sidebarWidth = storedSidebarWidth
+        ? Number(storedSidebarWidth)
+        : currentState.sidebarWidth;
+      return {
+        ...currentState,
+        ...state,
+        models: models,
+        sidebarWidth: Number.isFinite(sidebarWidth)
+          ? sidebarWidth
+          : currentState.sidebarWidth,
+      };
     },
 
     migrate(persistedState, version) {
@@ -396,3 +412,13 @@ export const useAppConfig = createPersistStore(
     },
   },
 );
+
+if (typeof window !== "undefined") {
+  useAppConfig.subscribe((state, prevState) => {
+    if (state.sidebarWidth === prevState.sidebarWidth) return;
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(state.sidebarWidth));
+    window.dispatchEvent(
+      new CustomEvent("sidebarWidthChanged", { detail: state.sidebarWidth }),
+    );
+  });
+}

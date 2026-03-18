@@ -1,6 +1,12 @@
 import { SyncStore } from "@/app/store/sync";
 
 export type DatabaseSyncClient = ReturnType<typeof createDatabaseSyncClient>;
+export type StoreSnapshotMeta = {
+  key: string;
+  updatedAt: string;
+  checksum: string;
+  sizeBytes: number;
+};
 
 export function createDatabaseSyncClient(_: SyncStore) {
   const request = async (path: string, init?: RequestInit) => {
@@ -50,6 +56,20 @@ export function createDatabaseSyncClient(_: SyncStore) {
         method: "PUT",
         body: value,
       });
+    },
+
+    async getMeta(keys?: string[]) {
+      const query = new URLSearchParams();
+      (keys || []).forEach((key) => query.append("key", key));
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const response = await request(`/api/db/sync-meta${suffix}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      return Array.isArray(payload?.metas)
+        ? (payload.metas as StoreSnapshotMeta[])
+        : [];
     },
   };
 }

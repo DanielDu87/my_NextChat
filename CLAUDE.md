@@ -71,15 +71,13 @@ yarn prompts
 
 ### 存储架构
 
-项目使用双层存储：
+项目当前使用双层存储：
 
-1. **IndexedDB** - 主要存储（`app/utils/indexedDB-storage.ts`）
-   - 存储大量聊天记录
-   - 支持自动迁移到旧版本浏览器
+1. **PostgreSQL** - 主要业务存储
+   - 存储对话、配置、Prompt、Mask、插件、模型同步快照等核心数据
 
-2. **localStorage** - 备用存储
-   - 当 IndexedDB 不可用时回退
-   - 存储小型配置项
+2. **localStorage** - 纯本地偏好存储
+   - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态
 
 ### API 客户端架构
 

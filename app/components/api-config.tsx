@@ -37,8 +37,13 @@ import { StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
+import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
-import { SYNC_STORE_KEYS } from "../utils/sync-store-keys";
+import {
+  parseStoreStatePayload,
+  stringifyPersistedStoreState,
+  SYNC_STORE_KEYS,
+} from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
@@ -105,7 +110,8 @@ type ProviderField = {
   profileManaged?: boolean;
 };
 
-const LOG_SEPARATOR = "=".repeat(40);
+const LOG_SEPARATOR = "=".repeat(50);
+const DATABASE_META_KEYS = [StoreKey.Config, StoreKey.Access] as const;
 const BUILTIN_PROVIDER_IDS = new Set([
   "openai",
   "azure",
@@ -781,6 +787,36 @@ export function ApiConfigPage() {
 
   // 页面加载时输出缓存的模型数量（延迟到云端同步完成后）
   const cacheLoggedRef = useRef(false);
+  const buildApiConfigSyncSnapshot = () => {
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const currentModels = useAppConfig.getState().models || [];
+    return JSON.stringify({
+      models: currentModels.map(
+        (model) => `${model.name}@${model.provider?.id}`,
+      ),
+      profiles: currentProfiles.map((profile) => ({
+        id: profile.id,
+        cachedModels: profile.cachedModels || "",
+        modelCount: profile.modelCount || 0,
+      })),
+    });
+  };
+  const getStoredMeta = () => useSyncStore.getState().database.cacheMeta || {};
+  const updateStoredMeta = (metas: StoreSnapshotMeta[]) => {
+    useSyncStore.getState().updateDatabaseMeta?.(metas);
+  };
+  const hasRemoteMetaChanges = (metas: StoreSnapshotMeta[]) => {
+    const localMeta = getStoredMeta();
+
+    return metas.some((meta) => {
+      const cached = localMeta[meta.key];
+      if (!cached) return true;
+      return (
+        cached.updatedAt !== meta.updatedAt || cached.checksum !== meta.checksum
+      );
+    });
+  };
+
   const logModelCount = () => {
     if (cacheLoggedRef.current) return;
     cacheLoggedRef.current = true;
@@ -793,15 +829,15 @@ export function ApiConfigPage() {
       currentProfiles,
     );
 
-    console.log(`[API Config] 📦 共 ${totalCount} 个远程模型可用`);
-    console.log(`[API Config] 📊 云端分平台数量:`);
+    console.log(`[API Config] 📊 当前本地缓存模型总数: ${totalCount} 个`);
     platformCounts.forEach(({ name, count }) => {
-      console.log(`[API Config]   - ${name}: ${count} 个模型`);
+      console.log(`[API Config] - ${name}: ${count} 个模型`);
     });
   };
 
   // 云端同步逻辑（提取为函数以复用）
   const performCloudSync = async () => {
+    const beforeSnapshot = buildApiConfigSyncSnapshot();
     const client = syncStore.getClient() as any;
     const currentProfiles = useAccessStore.getState().apiProfiles || [];
     const managedProviderIds = getManagedProviderIds(currentProfiles);
@@ -809,41 +845,24 @@ export function ApiConfigPage() {
     // 尝试下载远程配置
     const remoteConfigJson = await client.get(StoreKey.Config);
     if (remoteConfigJson) {
-      const remoteConfig = JSON.parse(remoteConfigJson);
+      const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
       const remoteModels = (remoteConfig.models || []).filter((model: any) =>
         managedProviderIds.has(String(model?.provider?.id || "").toLowerCase()),
       );
       if (remoteModels.length > 0) {
-        console.log(
-          `[API Config] 📦 云端有 ${remoteModels.length} 个模型，开始合并...`,
-        );
-
         appConfig.mergeModels(remoteModels, {
+          silent: true,
           allowedProviderIds: getManagedProviderIdList(currentProfiles),
         });
-        console.log(
-          `[API Config] ✅ 云端模型合并完成，共 ${
-            getManagedCloudModels(
-              useAppConfig.getState().models || [],
-              currentProfiles,
-            ).length
-          } 个模型`,
-        );
-      } else {
-        console.log(`[API Config] ℹ️ 云端模型为空，共 0 个模型`);
       }
     }
 
     // 同样处理 Access store 中的 apiProfiles
     const remoteAccessJson = await client.get(StoreKey.Access);
     if (remoteAccessJson) {
-      const remoteAccess = JSON.parse(remoteAccessJson);
+      const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
       const remoteProfiles = remoteAccess.apiProfiles || [];
       if (remoteProfiles.length > 0) {
-        console.log(
-          `[API Config] 📦 云端有 ${remoteProfiles.length} 个配置，开始合并...`,
-        );
-
         // 合并云端配置到本地
         accessStore.update((state) => {
           const localProfileMap = new Map(
@@ -884,15 +903,19 @@ export function ApiConfigPage() {
 
           state.apiProfiles = mergedProfiles;
         });
-        console.log(`[API Config] ✅ 云端配置合并完成`);
       }
     }
 
     // 同步完成后输出最终的模型数量
+    if (typeof client.getMeta === "function") {
+      const latestMetas = await client.getMeta([...DATABASE_META_KEYS]);
+      updateStoredMeta(latestMetas);
+    }
     logModelCount();
+    return beforeSnapshot !== buildApiConfigSyncSnapshot();
   };
 
-  // 页面加载时从云端同步模型数据（只同步，不上传）
+  // 页面加载时只展示本地缓存，不自动刷新模型
   const initialSyncRef = useRef(false);
   useEffect(() => {
     const syncFromCloudOnLoad = async () => {
@@ -908,11 +931,37 @@ export function ApiConfigPage() {
           clearInterval(checkInterval);
 
           if (useSyncStore.getState().provider === ProviderType.Database) {
-            console.log(`[API Config] 🔄 页面加载，从数据库同步模型数据...`);
-            performCloudSync().catch((error) => {
-              console.log("[API Config] ℹ️ 数据库同步跳过或失败:", error);
-              logModelCount();
-            });
+            console.log(`[API Config] 🗂️ 页面加载，优先使用本地缓存数据...`);
+            logModelCount();
+
+            const client = syncStore.getClient() as any;
+            if (typeof client.getMeta === "function") {
+              console.log(`[API Config] 🔍 正在检查云端版本...`);
+              client
+                .getMeta([...DATABASE_META_KEYS])
+                .then((metas: StoreSnapshotMeta[]) => {
+                  const hasChanges = hasRemoteMetaChanges(metas);
+                  updateStoredMeta(metas);
+                  if (!hasChanges) {
+                    console.log("[API Config] ✅ 云端无更新，继续使用本地缓存");
+                    console.log(LOG_SEPARATOR);
+                    return;
+                  }
+
+                  console.log(
+                    "[API Config] ℹ️ 检测到云端更新，已保留本地缓存；请点击“保存并同步”手动刷新模型",
+                  );
+                  console.log(LOG_SEPARATOR);
+                })
+                .catch((error: unknown) => {
+                  console.log(
+                    "[API Config] ℹ️ 云端版本检查失败，继续使用本地缓存:",
+                    error,
+                  );
+                });
+            } else {
+              console.log("[API Config] ℹ️ 当前客户端不支持云端版本检查");
+            }
           } else {
             console.log("[API Config] ℹ️ 当前未启用数据库同步");
             logModelCount();
@@ -1181,7 +1230,6 @@ export function ApiConfigPage() {
     let totalFetched = 0;
 
     if (allProfiles.length > 0) {
-      console.log(LOG_SEPARATOR);
       for (const profile of allProfiles) {
         console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
         setModelFetchStatusMap((prev) => ({
@@ -1244,7 +1292,7 @@ export function ApiConfigPage() {
             },
           }));
           console.log(
-            `[API Config] ✅ ${profile.name} 下载了 ${result.total} 个模型，云端原有 ${previousProfileCount} 个，合并后共 ${mergedCount} 个`,
+            `[API Config] ✅ ${profile.name} 获取完成，远程 ${result.total} 个，云端原有 ${previousProfileCount} 个，合并后 ${mergedCount} 个`,
           );
           console.log(LOG_SEPARATOR);
         } catch (error) {
@@ -1257,7 +1305,7 @@ export function ApiConfigPage() {
             },
           }));
           console.error(
-            `[API Config] ❌ ${profile.name}: 获取失败，保留云端数据`,
+            `[API Config] ❌ ${profile.name} 获取失败，保留云端数据`,
             error,
           );
           console.log(LOG_SEPARATOR);
@@ -1291,24 +1339,21 @@ export function ApiConfigPage() {
       useAppConfig.getState().models || [],
       useAccessStore.getState().apiProfiles,
     );
-    console.log(LOG_SEPARATOR);
+    console.log(`[API Config] 📊 模型同步汇总`);
     console.log(
-      `[API Config] 📦 云端之前总数: ${previousCloudKeys.size} 个模型`,
+      `[API Config] - 云端之前总数: ${previousCloudKeys.size} 个模型`,
     );
-    console.log(`[API Config] 📥 本次获取总数: ${totalFetched} 个模型`);
-    console.log(`[API Config] 🆕 本次新增总数: ${addedModels.length} 个模型`);
-    console.log(`[API Config] 📦 云端合并总数（分平台）:`);
+    console.log(`[API Config] - 本次获取总数: ${totalFetched} 个模型`);
+    console.log(`[API Config] - 本次新增总数: ${addedModels.length} 个模型`);
     mergedProfiles.forEach(({ name, count }) => {
-      console.log(`[API Config]   - ${name}: ${count} 个模型`);
+      console.log(`[API Config] - ${name}: ${count} 个模型`);
     });
     if (addedModels.length > 0) {
-      console.log(`[API Config] 📝 新增模型名称:`);
       addedModels.forEach((name) => {
-        console.log(`[API Config]   - ${name}`);
+        console.log(`[API Config] - 新增: ${name}`);
       });
-    } else {
-      console.log(`[API Config] 📝 新增模型名称：无`);
     }
+    console.log(LOG_SEPARATOR);
   };
 
   const syncToDatabase = async () => {
@@ -1334,8 +1379,13 @@ export function ApiConfigPage() {
         await refreshAllProfilesForSync();
 
       await syncStore.sync();
+      const client = syncStore.getClient() as any;
+      if (typeof client.getMeta === "function") {
+        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+      }
       console.log("[API Config] ✅ 数据库同步完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
+      console.log(LOG_SEPARATOR);
 
       showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
@@ -1375,12 +1425,16 @@ export function ApiConfigPage() {
       for (const key of SYNC_STORE_KEYS) {
         const storeData = localState[key as keyof AppState];
         console.log(`[API Config] 📤 正在写入数据库: ${key}...`);
-        await client.set(key, JSON.stringify(storeData));
+        await client.set(key, stringifyPersistedStoreState(key, storeData));
       }
 
       syncStore.markSyncTime();
+      if (typeof client.getMeta === "function") {
+        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+      }
       console.log("[API Config] ✅ 数据库写入完成");
       logSyncSummary(previousCloudKeys, fetchedModelEntries, totalFetched);
+      console.log(LOG_SEPARATOR);
       showToast("已上传全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
       console.error("[API Config] ❌ 数据库写入失败:", error);
@@ -1412,7 +1466,7 @@ export function ApiConfigPage() {
           continue;
         }
 
-        const parsedState = JSON.parse(remoteStateText);
+        const parsedState = parseStoreStatePayload(remoteStateText);
         if (!parsedState || typeof parsedState !== "object") {
           throw new Error(`${key} 格式不正确`);
         }
@@ -1442,7 +1496,11 @@ export function ApiConfigPage() {
       }
 
       syncStore.markSyncTime();
+      if (typeof client.getMeta === "function") {
+        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+      }
       console.log("[API Config] ✅ 数据库下载并恢复完成");
+      console.log(LOG_SEPARATOR);
       showToast("已从 PostgreSQL 下载并恢复全部配置、模型和对话记录");
     } catch (error) {
       console.error("[API Config] ❌ 数据库下载失败:", error);
@@ -1491,15 +1549,22 @@ export function ApiConfigPage() {
       const latestAppState = getLocalAppState();
       await client.set(
         StoreKey.Access,
-        JSON.stringify(latestAppState[StoreKey.Access]),
+        stringifyPersistedStoreState(
+          StoreKey.Access,
+          latestAppState[StoreKey.Access],
+        ),
       );
       await client.set(
         StoreKey.Config,
-        JSON.stringify(latestAppState[StoreKey.Config]),
+        stringifyPersistedStoreState(
+          StoreKey.Config,
+          latestAppState[StoreKey.Config],
+        ),
       );
       syncStore.markSyncTime();
 
       console.log("[API Config] ✅ 数据库模型数据已清空");
+      console.log(LOG_SEPARATOR);
       showToast("已清空数据库中的模型数据");
     } catch (error) {
       console.error("[API Config] ❌ 清空失败:", error);
@@ -1967,7 +2032,7 @@ export function ApiConfigPage() {
                 </div>
                 <div>
                   保存并同步：先启用当前 API 配置，再从 PostgreSQL
-                  合并并回写全部数据。
+                  读取快照，按数据类型执行双向合并、本地覆盖云端或云端覆盖本地后，再回写全部数据。
                 </div>
                 <div>
                   从数据库下载：读取 PostgreSQL 中的 store
@@ -2021,8 +2086,6 @@ export function ApiConfigPage() {
                   aria-live="polite"
                   disabled={anyFetching || syncActionDisabled}
                   onClick={async () => {
-                    console.log("[API Config] 🔄 开始获取所有配置的模型...");
-
                     const accessState = useAccessStore.getState();
                     const allProfiles = accessState.apiProfiles;
 
@@ -2111,8 +2174,9 @@ export function ApiConfigPage() {
                           },
                         }));
                         console.log(
-                          `[API Config] ✅ ${profile.name} 下载了 ${result.total} 个模型，云端原有 ${previousProfileCount} 个，合并后共 ${mergedCount} 个`,
+                          `[API Config] ✅ ${profile.name} 获取完成，远程 ${result.total} 个，云端原有 ${previousProfileCount} 个，合并后 ${mergedCount} 个`,
                         );
+                        console.log(LOG_SEPARATOR);
                       } catch (error) {
                         results.push({
                           name: profile.name,
@@ -2132,23 +2196,25 @@ export function ApiConfigPage() {
                           },
                         }));
                         console.error(
-                          `[API Config] ❌ ${profile.name}: 获取失败`,
+                          `[API Config] ❌ ${profile.name} 获取失败`,
                           error,
                         );
+                        console.log(LOG_SEPARATOR);
                       }
                     }
 
-                    console.log(`[API Config] 📊 模型获取汇总:`);
+                    console.log(`[API Config] 📊 模型获取汇总`);
                     results.forEach(({ name, count, success }) => {
                       console.log(
-                        `[API Config]   - ${name}: ${
+                        `[API Config] - ${name}: ${
                           success ? count : "失败"
                         } 个`,
                       );
                     });
                     console.log(
-                      `[API Config] ✅ 所有模型获取完成，共获取 ${totalFetched} 个模型`,
+                      `[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`,
                     );
+                    console.log(LOG_SEPARATOR);
                   }}
                   title="点击获取模型数据"
                 >

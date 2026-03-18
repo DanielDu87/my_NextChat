@@ -1,5 +1,5 @@
 import { ServiceProvider } from "../constant";
-import { LLMModel } from "../client/api";
+import type { LLMModel } from "../client/api";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { normalizeModelClassification } from "./model-classification";
 import { applyModelPublishedAt } from "./model-published-at";
@@ -363,6 +363,10 @@ function fullUrl(url: string, baseUrl?: string): string {
   return url;
 }
 
+function isServerSide() {
+  return typeof window === "undefined";
+}
+
 async function fetchJsonWithCandidates(
   urls: string[],
   headers: Record<string, string>,
@@ -507,7 +511,9 @@ export async function fetchModelsFromProvider(
       // YutoAPI 和 Ocoolai 使用专门的 pricing 接口（通过后端代理避免 CORS）
       const candidateUrls =
         isYutoApiUrl(baseUrl) || isOcoolaiUrl(baseUrl)
-          ? ["/api/proxy/v1/pricing"]
+          ? isServerSide()
+            ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
+            : ["/api/proxy/v1/pricing"]
           : isAiHubMixUrl(baseUrl)
           ? [
               `${new URL(baseUrl).origin}/api/v1/models`,
@@ -608,7 +614,11 @@ export async function fetchModelsFromProvider(
     }
 
     if (isYutoApiUrl(baseUrl)) {
-      const candidateUrls = ["/api/proxy/v1/pricing"];
+      const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
+      const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
+      const candidateUrls = isServerSide()
+        ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
+        : ["/api/proxy/v1/pricing"];
       const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
         ([, value]) => Boolean(value?.trim()),
       );

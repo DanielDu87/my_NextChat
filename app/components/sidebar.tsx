@@ -126,38 +126,9 @@ export function useDragSideBar() {
   };
 
   const isMobileScreen = useMobileScreen();
-  const [sidebarWidth, setSidebarWidthState] = useState(
-    config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH,
-  );
+  const sidebarWidth = config.getSidebarWidth() ?? DEFAULT_SIDEBAR_WIDTH;
 
   const shouldNarrow = !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
-
-  // 监听 localStorage 和自定义事件（跨标签页同步和本地更新）
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "sidebarWidth" && e.newValue) {
-        setSidebarWidthState(parseInt(e.newValue));
-      }
-    };
-
-    const handleSidebarWidthChanged = (e: CustomEvent) => {
-      setSidebarWidthState(e.detail);
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener(
-      "sidebarWidthChanged",
-      handleSidebarWidthChanged as EventListener,
-    );
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener(
-        "sidebarWidthChanged",
-        handleSidebarWidthChanged as EventListener,
-      );
-    };
-  }, []);
 
   useEffect(() => {
     const barWidth = shouldNarrow

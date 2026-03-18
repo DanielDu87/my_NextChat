@@ -23,16 +23,9 @@ import { getHeaders } from "../client/api";
 import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { ensure } from "../utils/clone";
-import { safeLocalStorage } from "../utils";
 import { DEFAULT_CONFIG } from "./config";
 import { getModelProvider } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
-import { createJSONStorage } from "zustand/middleware";
-import {
-  readAccessSnapshot,
-  writeAccessSnapshot as persistAccessSnapshot,
-  type AccessSnapshot,
-} from "../utils/access-snapshot";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
@@ -180,35 +173,6 @@ const DEFAULT_ACCESS_STATE = {
   // tts config
   edgeTTSVoiceName: "zh-CN-YunxiNeural",
 };
-
-function writeAccessSnapshot(
-  state: typeof DEFAULT_ACCESS_STATE & { _hasHydrated?: boolean },
-) {
-  if (typeof window === "undefined") return;
-  if (!state._hasHydrated) return;
-
-  const hasUsefulData =
-    state.useCustomConfig ||
-    state.customModels.length > 0 ||
-    state.apiProfiles.length > 0 ||
-    state.customUrl.length > 0 ||
-    state.customApiKey.length > 0;
-
-  if (!hasUsefulData) {
-    return;
-  }
-
-  const snapshot: AccessSnapshot = {
-    useCustomConfig: state.useCustomConfig,
-    provider: state.provider,
-    apiProfiles: state.apiProfiles,
-    customModels: state.customModels,
-    customUrl: state.customUrl,
-    customApiKey: state.customApiKey,
-    customOpenAICompatible: state.customOpenAICompatible,
-  };
-  persistAccessSnapshot(snapshot);
-}
 
 export const useAccessStore = createPersistStore(
   { ...DEFAULT_ACCESS_STATE },
@@ -368,31 +332,6 @@ export const useAccessStore = createPersistStore(
   {
     name: StoreKey.Access,
     version: 4,
-    storage: createJSONStorage(() => safeLocalStorage()) as any,
-    onRehydrateStorage(state) {
-      return () => {
-        const snapshot = readAccessSnapshot();
-        if (
-          snapshot &&
-          !state.useCustomConfig &&
-          state.apiProfiles.length === 0 &&
-          state.customModels.length === 0
-        ) {
-          state.update((draft) => {
-            draft.useCustomConfig = snapshot.useCustomConfig;
-            draft.provider = snapshot.provider as ServiceProvider;
-            draft.apiProfiles = snapshot.apiProfiles.map((profile) => ({
-              ...profile,
-              provider: profile.provider as ServiceProvider,
-            }));
-            draft.customModels = snapshot.customModels;
-            draft.customUrl = snapshot.customUrl;
-            draft.customApiKey = snapshot.customApiKey;
-            draft.customOpenAICompatible = snapshot.customOpenAICompatible;
-          });
-        }
-      };
-    },
     migrate(persistedState, version) {
       if (version < 2) {
         const state = persistedState as {
@@ -421,9 +360,3 @@ export const useAccessStore = createPersistStore(
     },
   },
 );
-
-if (typeof window !== "undefined") {
-  useAccessStore.subscribe((state) => {
-    writeAccessSnapshot(state);
-  });
-}

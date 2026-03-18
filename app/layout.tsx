@@ -7,6 +7,7 @@ import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GoogleTagManager, GoogleAnalytics } from "@next/third-parties/google";
 import { getServerSideConfig } from "./config/server";
+import AutoSync from "./components/auto-sync";
 
 export const metadata: Metadata = {
   title: "NextChat",
@@ -52,6 +53,7 @@ export default function RootLayout({
         <script src="/serviceWorkerRegister.js" defer></script>
       </head>
       <body>
+        <AutoSync />
         {children}
         {serverConfig?.isVercel && (
           <>

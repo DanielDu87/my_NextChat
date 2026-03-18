@@ -11,7 +11,6 @@ import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
 import { StoreKey } from "../constant";
-import { merge } from "./merge";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 type NonFunctionKeys<T> = {
@@ -77,6 +76,24 @@ type StateMerger = {
   [K in keyof AppState]: Merger<K>;
 };
 
+const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
+  [StoreKey.Chat]: "双向合并",
+  [StoreKey.Plugin]: "双向合并",
+  [StoreKey.Access]: "按 profile 合并，派生字段以云端为准",
+  [StoreKey.Config]: "模型双向合并，其他配置本地覆盖云端",
+  [StoreKey.Mask]: "双向合并",
+  [StoreKey.Prompt]: "双向合并",
+  [StoreKey.Update]: "云端覆盖本地",
+  [StoreKey.SdList]: "双向合并",
+};
+
+function markMergedUpdateTime(
+  localUpdateTime?: number,
+  remoteUpdateTime?: number,
+) {
+  return Math.max(localUpdateTime ?? 0, remoteUpdateTime ?? 0, Date.now());
+}
+
 // we merge remote state to local state
 const MergeStates: StateMerger = {
   [StoreKey.Chat]: (localState, remoteState) => {
@@ -138,7 +155,7 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.Config]: (localState, remoteState) => {
-    // 合并 models：只增不减，取并集
+    // 策略：模型双向合并，其他配置字段以本地为准。
     const localModels = localState.models || [];
     const remoteModels = remoteState.models || [];
 
@@ -164,20 +181,24 @@ const MergeStates: StateMerger = {
       }
     });
 
-    // 合并后的 models
     const mergedModels = [...modelMap.values()];
+    const mergedState = {
+      ...remoteState,
+      ...localState,
+      models: mergedModels,
+      lastUpdate: markMergedUpdateTime(
+        Number((localState as any).lastUpdate),
+        Number((remoteState as any).lastUpdate),
+      ),
+    };
 
-    // 其他字段用时间戳比较合并
-    const baseResult = mergeWithUpdate(localState, remoteState);
-    baseResult.models = mergedModels;
-
-    return baseResult;
+    Object.assign(localState, mergedState);
+    return localState;
   },
   [StoreKey.Access]: (localState, remoteState) => {
-    // 双向合并 apiProfiles：
-    // - 本地有、远程没有的 → 保留
-    // - 远程有、本地没有的 → 添加
-    // - 都有的 → 保留本地运行态字段，以 config.models 为真实模型来源
+    // 策略：
+    // - profile 主配置双向合并，本地用户编辑字段优先
+    // - 派生字段 cachedModels/modelCount 以云端或刷新任务产物为准
 
     const localProfileMap = new Map(
       (localState.apiProfiles || []).map((p) => [p.id, p]),
@@ -193,13 +214,13 @@ const MergeStates: StateMerger = {
       const remoteProfile = remoteProfileMap.get(id);
       if (remoteProfile) {
         mergedProfiles.push({
-          ...localProfile,
           ...remoteProfile,
-          cachedModels: localProfile.cachedModels ?? "",
-          modelCount: localProfile.modelCount ?? 0,
+          ...localProfile,
+          cachedModels:
+            remoteProfile.cachedModels ?? localProfile.cachedModels ?? "",
+          modelCount: remoteProfile.modelCount ?? localProfile.modelCount ?? 0,
         });
       } else {
-        // 本地独有：直接保留
         mergedProfiles.push(localProfile);
       }
     });
@@ -211,24 +232,32 @@ const MergeStates: StateMerger = {
       }
     });
 
-    // 先保存合并后的 apiProfiles
-    const savedProfiles = mergedProfiles;
-    const savedUpdateTime = Date.now();
+    const mergedState = {
+      ...remoteState,
+      ...localState,
+      apiProfiles: mergedProfiles,
+      lastUpdateTime: markMergedUpdateTime(
+        localState.lastUpdateTime,
+        remoteState.lastUpdateTime,
+      ),
+    };
 
-    // 合并其他字段（排除 apiProfiles 和 lastUpdateTime）
-    const remoteCopy = { ...remoteState };
-    delete (remoteCopy as any).apiProfiles;
-    delete (remoteCopy as any).lastUpdateTime;
-    merge(localState, remoteCopy);
-
-    // 恢复 apiProfiles 和 lastUpdateTime
-    localState.apiProfiles = savedProfiles;
-    localState.lastUpdateTime = savedUpdateTime;
+    Object.assign(localState, mergedState);
 
     return localState;
   },
   [StoreKey.Update]: (localState, remoteState) => {
-    return mergeWithUpdate(localState, remoteState);
+    // 策略：更新状态属于控制面数据，以云端为准。
+    const mergedState = {
+      ...localState,
+      ...remoteState,
+      lastUpdateTime: markMergedUpdateTime(
+        localState.lastUpdateTime,
+        remoteState.lastUpdateTime,
+      ),
+    };
+    Object.assign(localState, mergedState);
+    return localState;
   },
   [StoreKey.SdList]: (localState, remoteState) => {
     const localDrawMap = new Map(

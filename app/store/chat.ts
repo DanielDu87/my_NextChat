@@ -5,7 +5,7 @@ import {
   trimTopic,
 } from "../utils";
 
-import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
+import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { nanoid } from "nanoid";
 import type {
   ClientApi,
@@ -979,8 +979,7 @@ export const useChatStore = createPersistStore(
         set(() => ({ sessions }));
       },
       async clearAllData() {
-        await indexedDBStorage.clear();
-        localStorage.clear();
+        await clearPersistedStateStorage();
         location.reload();
       },
       setLastInput(lastInput: string) {
