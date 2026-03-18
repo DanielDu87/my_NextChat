@@ -869,15 +869,6 @@ export function Selector<T>(props: {
     return entries;
   })();
 
-  console.log(
-    "[Selector] items:",
-    props.items.length,
-    "filtered:",
-    filteredItems.length,
-    "searchText:",
-    searchText,
-  );
-
   const selectorNode = (
     <div className={styles["selector"]} onClick={() => props.onClose?.()}>
       <div

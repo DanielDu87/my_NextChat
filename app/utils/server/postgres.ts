@@ -22,6 +22,38 @@ declare global {
   var __nextchatPostgresPool: Pool | undefined;
 }
 
+function isRetryablePostgresError(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "unknown_error");
+
+  return [
+    "Connection terminated unexpectedly",
+    "Connection ended unexpectedly",
+    "terminating connection due to administrator command",
+    "Client has encountered a connection error and is not queryable",
+  ].some((pattern) => message.includes(pattern));
+}
+
+export async function withRetryablePostgresOperation<T>(
+  operation: () => Promise<T>,
+) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isRetryablePostgresError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "[Postgres] retry operation after reconnect",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    await closePostgresPool().catch(() => {});
+    return operation();
+  }
+}
+
 function toBoolean(value?: string) {
   if (!value) return false;
   return ["1", "true", "yes", "on", "require"].includes(value.toLowerCase());
@@ -67,7 +99,7 @@ export function getPostgresPool() {
 
   if (!globalThis.__nextchatPostgresPool) {
     const env = getPostgresEnv();
-    globalThis.__nextchatPostgresPool = new Pool({
+    const pool = new Pool({
       connectionString: env.connectionString,
       host: env.host,
       port: env.port,
@@ -79,6 +111,21 @@ export function getPostgresPool() {
       connectionTimeoutMillis: env.connectionTimeoutMillis,
       ssl: env.ssl ? { rejectUnauthorized: false } : undefined,
     });
+
+    pool.on("error", (error) => {
+      console.error(
+        "[Postgres] pool error",
+        error instanceof Error ? error.message : String(error),
+      );
+
+      if (globalThis.__nextchatPostgresPool === pool) {
+        globalThis.__nextchatPostgresPool = undefined;
+      }
+
+      void pool.end().catch(() => {});
+    });
+
+    globalThis.__nextchatPostgresPool = pool;
   }
 
   return globalThis.__nextchatPostgresPool;
@@ -88,7 +135,9 @@ export async function pgQuery<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
 ) {
-  return getPostgresPool().query<T>(text, params);
+  return withRetryablePostgresOperation(() =>
+    getPostgresPool().query<T>(text, params),
+  );
 }
 
 export async function withPgClient<T>(

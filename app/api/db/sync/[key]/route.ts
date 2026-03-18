@@ -5,6 +5,7 @@ import {
   removeStoreSnapshot,
   setStoreSnapshot,
 } from "@/app/utils/server/sync-store-repository";
+import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,9 @@ export async function GET(_: NextRequest, { params }: Params) {
       );
     }
 
-    const payload = await getStoreSnapshot(params.key);
+    const payload = await withRetryablePostgresOperation(() =>
+      getStoreSnapshot(params.key),
+    );
     if (payload === undefined) {
       return new Response("", {
         status: 200,
@@ -68,7 +71,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       bytes: Buffer.byteLength(rawBody, "utf8"),
     });
     const payload = JSON.parse(rawBody);
-    await setStoreSnapshot(params.key, payload);
+    await withRetryablePostgresOperation(() =>
+      setStoreSnapshot(params.key, payload),
+    );
     console.log("[DB Sync PUT] done", {
       key: params.key,
     });
@@ -99,7 +104,7 @@ export async function DELETE(_: NextRequest, { params }: Params) {
       );
     }
 
-    await removeStoreSnapshot(params.key);
+    await withRetryablePostgresOperation(() => removeStoreSnapshot(params.key));
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
