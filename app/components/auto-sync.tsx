@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useChatStore } from "../store";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 
@@ -47,6 +48,7 @@ export default function AutoSync() {
         })
         .then(() => syncStore.autoSync())
         .then(() => {
+          useChatStore.getState().initializeForNewPage();
           console.log("[AutoSync] ✅ 自动同步完成");
         })
         .catch((error: unknown) => {

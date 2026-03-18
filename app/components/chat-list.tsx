@@ -19,6 +19,19 @@ import { useRef, useEffect } from "react";
 import { showConfirm } from "./ui-lib";
 import { useMobileScreen } from "../utils";
 import clsx from "clsx";
+import { DEFAULT_TOPIC } from "../store/chat";
+
+function isPinnedNewChat(session: {
+  topic: string;
+  messages: unknown[];
+  memoryPrompt?: string;
+}) {
+  return (
+    session.topic === DEFAULT_TOPIC &&
+    session.messages.length === 0 &&
+    !session.memoryPrompt
+  );
+}
 
 export function ChatItem(props: {
   onClick?: () => void;
@@ -31,6 +44,7 @@ export function ChatItem(props: {
   index: number;
   narrow?: boolean;
   mask: Mask;
+  dragDisabled?: boolean;
 }) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -43,7 +57,11 @@ export function ChatItem(props: {
 
   const { pathname: currentPath } = useLocation();
   return (
-    <Draggable draggableId={`${props.id}`} index={props.index}>
+    <Draggable
+      draggableId={`${props.id}`}
+      index={props.index}
+      isDragDisabled={props.dragDisabled}
+    >
       {(provided) => (
         <div
           className={clsx(styles["chat-item"], {
@@ -114,6 +132,29 @@ export function ChatList(props: { narrow?: boolean }) {
   const chatStore = useChatStore();
   const navigate = useNavigate();
   const isMobileScreen = useMobileScreen();
+  const pinnedSession = sessions.find(isPinnedNewChat);
+  const displayedSessions = pinnedSession
+    ? [
+        {
+          session: pinnedSession,
+          originalIndex: sessions.findIndex(
+            (item) => item.id === pinnedSession.id,
+          ),
+          pinned: true,
+        },
+        ...sessions
+          .map((session, index) => ({
+            session,
+            originalIndex: index,
+            pinned: false,
+          }))
+          .filter((item) => item.session.id !== pinnedSession.id),
+      ]
+    : sessions.map((session, index) => ({
+        session,
+        originalIndex: index,
+        pinned: false,
+      }));
 
   const onDragEnd: OnDragEndResponder = (result) => {
     const { destination, source } = result;
@@ -128,7 +169,19 @@ export function ChatList(props: { narrow?: boolean }) {
       return;
     }
 
-    moveSession(source.index, destination.index);
+    const sourceItem = displayedSessions[source.index];
+    const destinationItem = displayedSessions[destination.index];
+
+    if (
+      !sourceItem ||
+      !destinationItem ||
+      sourceItem.pinned ||
+      destinationItem.pinned
+    ) {
+      return;
+    }
+
+    moveSession(sourceItem.originalIndex, destinationItem.originalIndex);
   };
 
   return (
@@ -140,33 +193,36 @@ export function ChatList(props: { narrow?: boolean }) {
             ref={provided.innerRef}
             {...provided.droppableProps}
           >
-            {sessions.map((item, i) => (
-              <ChatItem
-                title={item.topic}
-                time={new Date(
-                  item.createdAt || item.lastUpdate,
-                ).toLocaleString()}
-                count={item.messages.length}
-                key={item.id}
-                id={item.id}
-                index={i}
-                selected={i === selectedIndex}
-                onClick={() => {
-                  navigate(Path.Chat);
-                  selectSession(i);
-                }}
-                onDelete={async () => {
-                  if (
-                    (!props.narrow && !isMobileScreen) ||
-                    (await showConfirm(Locale.Home.DeleteChat))
-                  ) {
-                    chatStore.deleteSession(i);
-                  }
-                }}
-                narrow={props.narrow}
-                mask={item.mask}
-              />
-            ))}
+            {displayedSessions.map(
+              ({ session: item, originalIndex, pinned }, i) => (
+                <ChatItem
+                  title={item.topic}
+                  time={new Date(
+                    item.createdAt || item.lastUpdate,
+                  ).toLocaleString()}
+                  count={item.messages.length}
+                  key={item.id}
+                  id={item.id}
+                  index={i}
+                  selected={originalIndex === selectedIndex}
+                  onClick={() => {
+                    navigate(Path.Chat);
+                    selectSession(originalIndex);
+                  }}
+                  onDelete={async () => {
+                    if (
+                      (!props.narrow && !isMobileScreen) ||
+                      (await showConfirm(Locale.Home.DeleteChat))
+                    ) {
+                      chatStore.deleteSession(originalIndex);
+                    }
+                  }}
+                  narrow={props.narrow}
+                  mask={item.mask}
+                  dragDisabled={pinned}
+                />
+              ),
+            )}
             {provided.placeholder}
           </div>
         )}
