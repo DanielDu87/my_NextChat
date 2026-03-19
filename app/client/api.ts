@@ -28,6 +28,7 @@ import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
 import type { ModelPublishedAtSource } from "../utils/model-published-at";
+import { getCustomModelApiKeySelection } from "../utils/model-api-key-memory";
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -274,37 +275,6 @@ export function validString(x: string): boolean {
   return x?.length > 0;
 }
 
-function getYutoFallbackGroupOrder(modelName: string) {
-  const lowerModelName = modelName.toLowerCase();
-  if (lowerModelName.startsWith("claude")) {
-    return ["anthropic", "enterprise", "discount", "user", "default"];
-  }
-  return ["enterprise", "discount", "user", "anthropic", "default"];
-}
-
-// Ocoolai 分组降级顺序
-function getOcoolFallbackGroupOrder(modelName: string) {
-  const lowerModelName = modelName.toLowerCase();
-
-  if (lowerModelName.startsWith("claude")) {
-    // Claude 模型优先级: default > official > cc > cn > open_source_cn
-    return ["default", "official", "cc", "cn", "open_source_cn"];
-  }
-
-  // 其他模型优先级: default > official > open_source_cn > cn > cc
-  return ["default", "official", "open_source_cn", "cn", "cc"];
-}
-
-// 判断是否是 Ocoolai profile
-function isOcoolaiProfile(profile: { name: string; baseUrl: string }) {
-  return (
-    profile.name.toLowerCase().includes("ocool") ||
-    profile.baseUrl.includes("ooo.cool") ||
-    profile.baseUrl.includes("ocoolai") ||
-    profile.baseUrl.includes("ocoolai.com")
-  );
-}
-
 export function getHeaders(ignoreHeaders: boolean = false) {
   const accessStore = useAccessStore.getState();
   const appConfigStore = useAppConfig.getState();
@@ -360,65 +330,11 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     );
 
     const resolveCustomApiKey = () => {
-      if (!enabledCustomProfile) {
-        return {
-          current: accessStore.customApiKey,
-          fallback: [],
-          fallbackGroups: [],
-        };
-      }
-
-      const profileProviderId = `custom_${enabledCustomProfile.name}`;
-      const matchedModel = (appConfigStore.models || []).find(
-        (model) =>
-          model.name === modelConfig.model &&
-          model.provider?.id === profileProviderId,
+      return getCustomModelApiKeySelection(
+        modelConfig.model,
+        enabledCustomProfile as any,
+        appConfigStore.models || [],
       );
-
-      const groupedKeys = enabledCustomProfile.apiKeyGroups || {};
-
-      // 根据 profile 类型选择分组顺序
-      const isOcool = isOcoolaiProfile(enabledCustomProfile);
-      const groupOrder = isOcool
-        ? getOcoolFallbackGroupOrder(modelConfig.model)
-        : getYutoFallbackGroupOrder(modelConfig.model);
-
-      // 构建降级 API key 列表
-      const fallbackApiKeys: string[] = [];
-      const fallbackApiKeyGroups: string[] = [];
-
-      const pushFallbackKey = (groupName: string, key: string | undefined) => {
-        if (!key || fallbackApiKeys.includes(key)) {
-          return;
-        }
-        fallbackApiKeys.push(key);
-        fallbackApiKeyGroups.push(groupName);
-      };
-
-      const matchedGroup = matchedModel?.apiKeyGroup;
-      const hasMatchedGroup =
-        Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
-
-      // 先尝试命中分组，命中失败再按分组顺序继续降级重试
-      if (hasMatchedGroup) {
-        pushFallbackKey(
-          matchedGroup as string,
-          groupedKeys[matchedGroup as string],
-        );
-      }
-
-      for (const group of groupOrder) {
-        pushFallbackKey(group, groupedKeys[group]);
-      }
-
-      // 如果没有匹配的分组，使用 profile 的主 API Key 作为默认值
-      const primaryApiKey = enabledCustomProfile.apiKey || "";
-
-      return {
-        current: fallbackApiKeys[0] || primaryApiKey,
-        fallback: fallbackApiKeys,
-        fallbackGroups: fallbackApiKeyGroups,
-      };
     };
 
     const apiKeyInfo =
@@ -534,6 +450,32 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   if (fallbackApiKeys && fallbackApiKeys.length > 0) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
+    const rememberedGroup =
+      fallbackApiKeyGroups.length > 0 &&
+      fallbackApiKeys[0] === apiKey &&
+      (useAppConfig
+        .getState()
+        .models.find(
+          (model) =>
+            model.name ===
+              (useChatStore.getState().currentSession?.()?.mask?.modelConfig
+                ?.model ?? DEFAULT_CONFIG.modelConfig.model) &&
+            model.provider?.id ===
+              `custom_${
+                useAccessStore
+                  .getState()
+                  .apiProfiles.find(
+                    (profile) =>
+                      profile.enabled &&
+                      profile.provider === ServiceProvider.Custom &&
+                      profile.baseUrl,
+                  )?.name || ""
+              }`,
+        )?.apiKeyGroup ||
+        "");
+    if (rememberedGroup) {
+      (headers as any)["x-remembered-api-key-group"] = rememberedGroup;
+    }
   }
 
   return headers;

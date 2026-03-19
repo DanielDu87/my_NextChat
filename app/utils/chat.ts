@@ -11,6 +11,7 @@ import {
 } from "@fortaine/fetch-event-source";
 import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
+import { rememberSuccessfulCustomModelApiKeyGroup } from "./model-api-key-memory";
 
 function isYutoApiChatPath(chatPath: string) {
   return (
@@ -43,6 +44,63 @@ function formatYutoFailureMessage(currentGroup: string, reason: string) {
     `最终分组: ${currentGroup}`,
     `错误信息: ${normalizedReason || "unknown error"}`,
   ].join("\n");
+}
+
+function rememberApiKeyGroupIfNeeded(
+  chatPath: string,
+  fallbackApiKeyGroups: string[],
+  currentKeyIndex: number,
+  options: any,
+  finalText: string,
+) {
+  if (!isYutoApiChatPath(chatPath) || !finalText.trim()) {
+    return;
+  }
+
+  const currentGroup = getYutoGroupName(fallbackApiKeyGroups, currentKeyIndex);
+  if (!currentGroup || currentGroup.startsWith("index-")) {
+    return;
+  }
+
+  rememberSuccessfulCustomModelApiKeyGroup({
+    modelName: options?.config?.model,
+    groupName: currentGroup,
+  });
+}
+
+function logApiKeyGroupStart(
+  chatPath: string,
+  fallbackApiKeyGroups: string[],
+  currentKeyIndex: number,
+  headers: any,
+  options: any,
+) {
+  if (!isYutoApiChatPath(chatPath) || fallbackApiKeyGroups.length === 0) {
+    return;
+  }
+
+  const currentGroup = getYutoGroupName(fallbackApiKeyGroups, currentKeyIndex);
+  const providerName = options.config?.providerName || "API";
+  const rememberedGroup = headers["x-remembered-api-key-group"];
+  const isRememberedGroup =
+    currentKeyIndex === 0 &&
+    rememberedGroup &&
+    rememberedGroup === currentGroup;
+
+  if (isRememberedGroup) {
+    console.log(`[Chat] ${providerName} 命中已记忆分组`, {
+      currentGroup,
+      attempt: currentKeyIndex + 1,
+      totalGroups: fallbackApiKeyGroups.length,
+    });
+    return;
+  }
+
+  console.log(`[Chat] ${providerName} 开始使用分组`, {
+    currentGroup,
+    attempt: currentKeyIndex + 1,
+    totalGroups: fallbackApiKeyGroups.length,
+  });
 }
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
@@ -312,9 +370,9 @@ export function stream(
     );
 
     console.log(
-      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
-        fallbackApiKeys.length
-      })`,
+      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${
+        currentKeyIndex + 1
+      }/${fallbackApiKeys.length})`,
       { currentGroup, nextGroup, reason },
     );
 
@@ -417,6 +475,13 @@ export function stream(
       }
       console.debug("[ChatAPI] end");
       finished = true;
+      rememberApiKeyGroupIfNeeded(
+        chatPath,
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+        options,
+        responseText + remainText,
+      );
       options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
     }
   };
@@ -432,18 +497,13 @@ export function stream(
     // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
     pendingRetry = false;
     const requestSeq = ++activeRequestSeq;
-    if (isYutoApiChatPath(chatPath) && fallbackApiKeys.length > 0) {
-      const currentGroup = getYutoGroupName(
-        fallbackApiKeyGroups,
-        currentKeyIndex,
-      );
-      const providerName = options.config?.providerName || "API";
-      console.log(`[Chat] ${providerName} 开始测试分组`, {
-        currentGroup,
-        attempt: currentKeyIndex + 1,
-        totalGroups: fallbackApiKeys.length,
-      });
-    }
+    logApiKeyGroupStart(
+      chatPath,
+      fallbackApiKeyGroups,
+      currentKeyIndex,
+      headers,
+      options,
+    );
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -691,9 +751,9 @@ export function streamWithThink(
     );
 
     console.log(
-      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${currentKeyIndex + 1}/${
-        fallbackApiKeys.length
-      })`,
+      `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${
+        currentKeyIndex + 1
+      }/${fallbackApiKeys.length})`,
       { currentGroup, nextGroup, reason },
     );
 
@@ -796,6 +856,13 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
+      rememberApiKeyGroupIfNeeded(
+        chatPath,
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+        options,
+        responseText + remainText,
+      );
       options.onFinish(responseText + remainText, responseRes);
     }
   };
@@ -811,18 +878,13 @@ export function streamWithThink(
     // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
     pendingRetry = false;
     const requestSeq = ++activeRequestSeq;
-    if (isYutoApiChatPath(chatPath) && fallbackApiKeys.length > 0) {
-      const currentGroup = getYutoGroupName(
-        fallbackApiKeyGroups,
-        currentKeyIndex,
-      );
-      const providerName = options.config?.providerName || "API";
-      console.log(`[Chat] ${providerName} 开始测试分组`, {
-        currentGroup,
-        attempt: currentKeyIndex + 1,
-        totalGroups: fallbackApiKeys.length,
-      });
-    }
+    logApiKeyGroupStart(
+      chatPath,
+      fallbackApiKeyGroups,
+      currentKeyIndex,
+      headers,
+      options,
+    );
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({

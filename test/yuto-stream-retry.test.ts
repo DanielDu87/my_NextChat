@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 
 const fetchEventSourceMock = jest.fn();
+const rememberSuccessfulCustomModelApiKeyGroupMock = jest.fn();
 
 jest.mock("@fortaine/fetch-event-source", () => ({
   EventStreamContentType: "text/event-stream",
@@ -8,6 +9,10 @@ jest.mock("@fortaine/fetch-event-source", () => ({
 }));
 
 jest.mock("@/app/client/api", () => ({}));
+jest.mock("@/app/utils/model-api-key-memory", () => ({
+  rememberSuccessfulCustomModelApiKeyGroup: (...args: unknown[]) =>
+    rememberSuccessfulCustomModelApiKeyGroupMock(...args),
+}));
 
 jest.mock("@/app/locales", () => ({
   __esModule: true,
@@ -25,6 +30,7 @@ describe("YutoAPI stream fallback retry", () => {
     jest.resetModules();
     jest.useFakeTimers();
     fetchEventSourceMock.mockReset();
+    rememberSuccessfulCustomModelApiKeyGroupMock.mockReset();
 
     let frameBudget = 24;
     global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -117,8 +123,13 @@ describe("YutoAPI stream fallback retry", () => {
         new AbortController(),
         (text: string) => text,
         () => {},
-        { onFinish, onError, onUpdate },
+        { onFinish, onError, onUpdate, config: { model: "gpt-4o-mini" } },
       );
+    });
+
+    expect(rememberSuccessfulCustomModelApiKeyGroupMock).toHaveBeenCalledWith({
+      modelName: "gpt-4o-mini",
+      groupName: "discount",
     });
   });
 
@@ -140,8 +151,13 @@ describe("YutoAPI stream fallback retry", () => {
           content: text,
         }),
         () => {},
-        { onFinish, onError, onUpdate },
+        { onFinish, onError, onUpdate, config: { model: "gpt-4o-mini" } },
       );
+    });
+
+    expect(rememberSuccessfulCustomModelApiKeyGroupMock).toHaveBeenCalledWith({
+      modelName: "gpt-4o-mini",
+      groupName: "discount",
     });
   });
 
