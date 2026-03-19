@@ -33,12 +33,14 @@
 .dangerButton {
   color: #ff4d4f !important;
   border-color: #ff4d4f !important;
+  background-color: rgba(255, 77, 79, 0.12) !important;
   margin-left: auto !important;
 
   // 固定按钮高度，防止 hover 时文字位置变化
   :global(.icon-button) {
     height: 40px !important;
     min-height: 40px !important;
+    background-color: rgba(255, 77, 79, 0.12) !important;
     transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
   }
 
@@ -155,6 +157,30 @@
   }
 }
 
+.syncCardTitle {
+  display: grid;
+  gap: 6px;
+}
+
+.syncCardTitleMain {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--black);
+}
+
+.syncCardTitleSub {
+  color: var(--black);
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.currentStatusText {
+  display: inline;
+}
+
 .modelFetchHint {
   display: inline-flex;
   align-items: center;
@@ -196,6 +222,34 @@
 
   strong {
     font-weight: 700;
+  }
+}
+
+.modelUpdateInlineNotice {
+  display: inline;
+  margin-left: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+@media screen and (max-width: 900px) {
+  .modelUpdateInlineNotice {
+    display: inline-block;
+    margin-left: 0;
+    margin-top: 6px;
+  }
+}
+
+@media screen and (max-width: 600px) {
+  .modelUpdateInlineNotice {
+    font-size: 12px;
+    text-align: left;
   }
 }
 

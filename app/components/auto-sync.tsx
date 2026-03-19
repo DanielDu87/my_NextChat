@@ -52,8 +52,8 @@ export default function AutoSync() {
         .then(() => {
           useChatStore.getState().initializeForNewPage();
           console.log("[AutoSync] ✅ 自动同步完成");
-          // 输出模型统计
-          logModelCount();
+          // 自动同步完成后，获取云端数据并输出完整对比
+          return logModelCountWithRemote();
         })
         .catch((error: unknown) => {
           console.error("[AutoSync] ❌ 同步失败:", error);
@@ -66,28 +66,94 @@ export default function AutoSync() {
     };
   }, []);
 
-  const logModelCount = () => {
+  const logModelCountWithRemote = async () => {
+    try {
+      // 获取云端数据
+      const res = await fetch("/api/db/models/latest", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.ok && data.latest) {
+          const remote = data.latest;
+          logModelCount(remote.modelCount, remote.providers);
+          return;
+        }
+      }
+      // 如果获取失败，只输出本地数据
+      logModelCount();
+    } catch (e) {
+      console.error("[AutoSync] ❌ 获取云端数据失败:", e);
+      logModelCount();
+    }
+  };
+
+  const logModelCount = (remoteCount?: number, remoteProviders?: any[]) => {
     const currentProfiles = useAccessStore.getState().apiProfiles || [];
     const currentModels = useAppConfig.getState().models || [];
-    const totalCount = countCloudMergedModels(currentModels, currentProfiles);
-    const platformCounts = getCloudMergedPlatformCounts(
+    const localTotalCount = countCloudMergedModels(
+      currentModels,
+      currentProfiles,
+    );
+    const localPlatformCounts = getCloudMergedPlatformCounts(
       currentModels,
       currentProfiles,
     );
 
-    console.log("[AutoSync] 📊 当前本地缓存模型汇总");
-    console.log(`[AutoSync] - 总模型数: ${totalCount} 个`);
-    platformCounts.forEach(({ name, count }) => {
+    console.log("[AutoSync] 📊 模型数据汇总:");
+    console.log("[AutoSync] 📍 本地数据:");
+    console.log(`[AutoSync] - 本地模型总数: ${localTotalCount} 个`);
+    console.log("[AutoSync] 📋 本地各平台模型数量:");
+    localPlatformCounts.forEach(({ name, count }) => {
       console.log(`[AutoSync] - ${name}: ${count} 个模型`);
     });
+
+    console.log("[AutoSync] ☁️ 云端数据:");
+    if (remoteCount !== undefined) {
+      console.log(`[AutoSync] - 云端模型总数: ${remoteCount} 个`);
+      if (remoteProviders && remoteProviders.length > 0) {
+        console.log("[AutoSync] 📋 云端各平台模型数量:");
+        remoteProviders.forEach((provider: any) => {
+          console.log(
+            `[AutoSync] - ${provider.profileName}: ${provider.fetchedCount} 个模型`,
+          );
+        });
+      } else {
+        console.log("[AutoSync] - 云端无平台数据");
+      }
+
+      console.log("[AutoSync] 🔍 比较结果:");
+      console.log(
+        `[AutoSync] - 状态: ${
+          localTotalCount === remoteCount ? "✅ 一致" : "❌ 不一致，提示更新"
+        }`,
+      );
+      console.log(
+        `[AutoSync] - 差异: ${localTotalCount - remoteCount > 0 ? "+" : ""}${
+          localTotalCount - remoteCount
+        } 个`,
+      );
+    } else {
+      console.log("[AutoSync] - 云端模型总数: 无数据（已清空）");
+      console.log("[AutoSync] 🔍 比较结果:");
+      console.log("[AutoSync] - 状态: ℹ️ 云端数据已清空，建议同步更新云端数据");
+    }
   };
 
   function countCloudMergedModels(models: any[], profiles: any[]): number {
+    if (!models.length || !profiles.length) return 0;
+
+    // 获取所有管理的 provider IDs
+    const managedProviderIds = new Set(
+      profiles.map((p) => {
+        if (p.provider === "Custom") {
+          return `custom_${p.name}`.toLowerCase();
+        }
+        return String(p.provider).toLowerCase();
+      }),
+    );
+
     return models.filter((model) => {
       const providerId = String(model?.provider?.id || "").toLowerCase();
-      return profiles.some(
-        (p) => `custom_${p.name}`.toLowerCase() === providerId,
-      );
+      return providerId && managedProviderIds.has(providerId);
     }).length;
   }
 
@@ -99,15 +165,24 @@ export default function AutoSync() {
 
     models.forEach((model) => {
       const providerId = String(model.provider?.id || "").toLowerCase();
-      if (!providerId || providerId.startsWith("custom_")) {
-        const profileName = providerId.replace("custom_", "");
-        counts.set(profileName, (counts.get(profileName) ?? 0) + 1);
+      if (!providerId) return;
+
+      // 找到对应的 profile 名称
+      const profile = profiles.find((p) => {
+        if (p.provider === "Custom") {
+          return `custom_${p.name}`.toLowerCase() === providerId;
+        }
+        return String(p.provider).toLowerCase() === providerId;
+      });
+
+      if (profile) {
+        counts.set(profile.name, (counts.get(profile.name) ?? 0) + 1);
       }
     });
 
     return profiles.map((profile) => ({
       name: profile.name,
-      count: counts.get(profile.name.toLowerCase()) ?? 0,
+      count: counts.get(profile.name) ?? 0,
     }));
   }
 

@@ -1048,6 +1048,25 @@
   }
 }
 
+.chat-model-update-notice {
+  align-self: center;
+  margin-top: 10px;
+  margin-bottom: 8px;
+  padding: 12px 18px;
+  border: 1px solid color-mix(in srgb, #d97706 35%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 248, 235, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 14px 35px rgba(120, 74, 0, 0.12);
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
 // 手动切换暗色模式
 :global(body.dark) .model-selector-hint-label {
   color: #e5e7eb;

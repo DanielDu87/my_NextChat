@@ -62,6 +62,7 @@ import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useModelCacheStore,
   usePluginStore,
 } from "../store";
 
@@ -116,8 +117,11 @@ import {
   Path,
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
+  StoreKey,
   UNFINISHED_INPUT,
 } from "../constant";
+import { useSyncStore } from "../store/sync";
+import { ProviderType } from "../utils/cloud";
 import { Avatar } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { useMaskStore } from "../store/mask";
@@ -138,6 +142,145 @@ import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
 import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
+
+type RemoteModelRefreshArtifact = {
+  updatedAt?: string;
+  providers?: Array<{
+    profileId?: string;
+    providerId?: string;
+    updatedAt?: string;
+  }>;
+};
+
+type RemoteStoreMeta = {
+  key: string;
+  updatedAt: string;
+  checksum: string;
+};
+
+function toTimestamp(value?: string | number) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+  return 0;
+}
+
+function getProfileProviderId(profile: { provider: string; name: string }) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`
+    : String(profile.provider).toLowerCase();
+}
+
+function ChatModelUpdateNotice() {
+  const navigate = useNavigate();
+  const accessStore = useAccessStore();
+  const modelCacheStore = useModelCacheStore();
+  const syncStore = useSyncStore();
+  const [remoteModelRefresh, setRemoteModelRefresh] =
+    useState<RemoteModelRefreshArtifact | null>(null);
+  const [remoteModelMetas, setRemoteModelMetas] = useState<RemoteStoreMeta[]>(
+    [],
+  );
+
+  const refreshRemoteSignals = useCallback(async () => {
+    if (useSyncStore.getState().provider !== ProviderType.Database) {
+      setRemoteModelRefresh(null);
+      setRemoteModelMetas([]);
+      return;
+    }
+
+    try {
+      const [latestRes, metaRes] = await Promise.all([
+        fetch("/api/db/models/latest", {
+          cache: "no-store",
+        }),
+        fetch(
+          `/api/db/sync-meta?key=${encodeURIComponent(
+            StoreKey.Config,
+          )}&key=${encodeURIComponent(StoreKey.ModelCache)}`,
+          {
+            cache: "no-store",
+          },
+        ),
+      ]);
+
+      if (latestRes.ok) {
+        const latestData = await latestRes.json();
+        if (latestData?.ok) {
+          setRemoteModelRefresh(latestData.latest ?? null);
+        }
+      }
+
+      if (metaRes.ok) {
+        const metaData = await metaRes.json();
+        if (metaData?.ok) {
+          setRemoteModelMetas(metaData.metas ?? []);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    void refreshRemoteSignals();
+    const timer = window.setInterval(() => {
+      void refreshRemoteSignals();
+    }, 60000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshRemoteSignals, syncStore.provider]);
+
+  const hasStaleModels = (accessStore.apiProfiles || []).some((profile) => {
+    const providerId = getProfileProviderId(profile).toLowerCase();
+    const remote = remoteModelRefresh?.providers?.find(
+      (item) =>
+        item.profileId === profile.id ||
+        String(item.providerId || "").toLowerCase() === providerId,
+    );
+    if (!remote) {
+      return false;
+    }
+
+    const remoteUpdatedAt = toTimestamp(
+      remote.updatedAt || remoteModelRefresh?.updatedAt,
+    );
+    const localUpdatedAt = toTimestamp(
+      modelCacheStore.profiles?.[profile.id]?.updatedAt,
+    );
+
+    return remoteUpdatedAt > localUpdatedAt;
+  });
+
+  const hasRemoteSnapshotChanges = remoteModelMetas.some((meta) => {
+    const cachedMeta = syncStore.database.cacheMeta?.[meta.key];
+    if (!cachedMeta) {
+      return true;
+    }
+    return (
+      cachedMeta.updatedAt !== meta.updatedAt ||
+      cachedMeta.checksum !== meta.checksum
+    );
+  });
+
+  if (!hasStaleModels && !hasRemoteSnapshotChanges) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      className={styles["chat-model-update-notice"]}
+      onClick={() => navigate(Path.ApiConfig)}
+    >
+      服务器模型数据有更新，点击前往 API 配置页刷新
+    </button>
+  );
+}
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
@@ -2683,6 +2826,7 @@ function _Chat() {
         </div>
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
+            <ChatModelUpdateNotice />
             <div
               className={styles["chat-body"]}
               ref={scrollRef}

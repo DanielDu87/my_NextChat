@@ -298,13 +298,20 @@ export async function refreshConfiguredProviderModels(
       }),
     );
 
+    // 计算各平台数量相加的总数（不去重）
+    const totalCount = summaries.reduce(
+      (sum, item) => sum + item.fetchedCount,
+      0,
+    );
+
     const summary = {
       profileCount: summaries.length,
-      modelCount: mergedModels.length,
+      modelCount: totalCount,
       providers: summaries,
       updatedStoreKeys: [StoreKey.Config, StoreKey.Access, StoreKey.ModelCache],
     };
 
+    // 保存模型刷新记录到数据库
     await pgQuery(
       `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
        values ($1, $2, $3::jsonb)
