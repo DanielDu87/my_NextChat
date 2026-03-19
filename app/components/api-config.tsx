@@ -1627,7 +1627,12 @@ export function ApiConfigPage() {
     );
     const fetchedModelEntries = new Map<
       string,
-      { name: string; profileName: string }
+      {
+        name: string;
+        profileId: string;
+        profileName: string;
+        providerId: string;
+      }
     >();
     let totalFetched = 0;
 
@@ -1659,10 +1664,13 @@ export function ApiConfigPage() {
             },
           );
           totalFetched += result.total;
+          const providerId = getProfileProviderId(profile).toLowerCase();
           result.models.forEach((model) => {
             fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
               name: model.name,
+              profileId: profile.id,
               profileName: profile.name,
+              providerId,
             });
           });
           const fetchedModels = modelsToCustomModelsString(result.models);
@@ -1713,7 +1721,9 @@ export function ApiConfigPage() {
           profileModels.forEach((model) => {
             fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
               name: model.name,
+              profileId: profile.id,
               profileName: profile.name,
+              providerId,
             });
           });
 
@@ -1756,7 +1766,15 @@ export function ApiConfigPage() {
     title: string,
     previousCloudKeys: Set<string>,
     previousPlatformCounts: Array<{ name: string; count: number }>,
-    fetchedModelEntries: Map<string, { name: string; profileName: string }>,
+    fetchedModelEntries: Map<
+      string,
+      {
+        name: string;
+        profileId: string;
+        profileName: string;
+        providerId: string;
+      }
+    >,
     totalFetched: number,
   ) => {
     if (fetchedModelEntries.size === 0) return;
@@ -1844,17 +1862,27 @@ export function ApiConfigPage() {
         const providersData = Array.from(fetchedModelEntries.values()).reduce(
           (acc, entry) => {
             const existing = acc.find(
-              (p: any) => p.profileName === entry.profileName,
+              (p: any) => p.profileId === entry.profileId,
             );
             if (existing) {
               return acc;
             }
             return [
               ...acc,
-              { profileName: entry.profileName, fetchedCount: 0 },
+              {
+                profileId: entry.profileId,
+                profileName: entry.profileName,
+                providerId: entry.providerId,
+                fetchedCount: 0,
+              },
             ];
           },
-          [] as Array<{ profileName: string; fetchedCount: number }>,
+          [] as Array<{
+            profileId: string;
+            profileName: string;
+            providerId: string;
+            fetchedCount: number;
+          }>,
         );
 
         // 计算每个平台的实际数量
@@ -1988,17 +2016,27 @@ export function ApiConfigPage() {
         const providersData = Array.from(fetchedModelEntries.values()).reduce(
           (acc, entry) => {
             const existing = acc.find(
-              (p: any) => p.profileName === entry.profileName,
+              (p: any) => p.profileId === entry.profileId,
             );
             if (existing) {
               return acc;
             }
             return [
               ...acc,
-              { profileName: entry.profileName, fetchedCount: 0 },
+              {
+                profileId: entry.profileId,
+                profileName: entry.profileName,
+                providerId: entry.providerId,
+                fetchedCount: 0,
+              },
             ];
           },
-          [] as Array<{ profileName: string; fetchedCount: number }>,
+          [] as Array<{
+            profileId: string;
+            profileName: string;
+            providerId: string;
+            fetchedCount: number;
+          }>,
         );
 
         // 计算每个平台的实际数量

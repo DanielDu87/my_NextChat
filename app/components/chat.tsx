@@ -161,17 +161,34 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : String(profile.provider).toLowerCase();
 }
 
+function countManagedCloudModels(
+  models: Array<{ provider?: { id?: string } }> = [],
+  profiles: Array<{ provider: string; name: string }> = [],
+) {
+  const managedProviderIds = new Set(
+    profiles.map((profile) => getProfileProviderId(profile).toLowerCase()),
+  );
+
+  return models.filter((model) => {
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    return providerId && managedProviderIds.has(providerId);
+  }).length;
+}
+
 function ChatModelUpdateNotice() {
   const navigate = useNavigate();
   const accessStore = useAccessStore();
   const modelCacheStore = useModelCacheStore();
   const syncStore = useSyncStore();
+  const config = useAppConfig();
   const [remoteModelRefresh, setRemoteModelRefresh] =
     useState<RemoteModelRefreshArtifact | null>(null);
+  const [remoteSignalsLoaded, setRemoteSignalsLoaded] = useState(false);
 
   const refreshRemoteSignals = useCallback(async () => {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
       setRemoteModelRefresh(null);
+      setRemoteSignalsLoaded(true);
       return;
     }
 
@@ -186,7 +203,11 @@ function ChatModelUpdateNotice() {
           setRemoteModelRefresh(latestData.latest ?? null);
         }
       }
-    } catch {}
+    } catch {
+      setRemoteModelRefresh(null);
+    } finally {
+      setRemoteSignalsLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -200,21 +221,40 @@ function ChatModelUpdateNotice() {
     };
   }, [refreshRemoteSignals, syncStore.provider]);
 
+  const localTotalCount = countManagedCloudModels(
+    useAppConfig.getState().models || [],
+    accessStore.apiProfiles || [],
+  );
+
+  if (!remoteSignalsLoaded) {
+    return null;
+  }
+
+  if (
+    remoteModelRefresh?.modelCount !== undefined &&
+    remoteModelRefresh.modelCount === localTotalCount
+  ) {
+    return null;
+  }
+
   const hasStaleModels = (accessStore.apiProfiles || []).some((profile) => {
     const providerId = getProfileProviderId(profile).toLowerCase();
     const remote = remoteModelRefresh?.providers?.find(
       (item) =>
         item.profileId === profile.id ||
-        String(item.providerId || "").toLowerCase() === providerId,
+        String(item.providerId || "").toLowerCase() === providerId ||
+        item.profileName === profile.name,
     );
-    if (!remote) {
-      return false;
-    }
 
     // 只比较模型数量，数量一致则不显示提醒
     const localModelCount = modelCacheStore.profiles?.[profile.id]?.modelCount;
     if (localModelCount === undefined) {
       return false;
+    }
+
+    // 云端统计已清空，或存在但缺少当前平台记录时，视为需要手动刷新
+    if (!remote) {
+      return true;
     }
 
     return remote.fetchedCount !== localModelCount;
@@ -225,10 +265,19 @@ function ChatModelUpdateNotice() {
     return null;
   }
 
+  // 判断实际渲染的主题（考虑 auto 模式下的系统偏好）
+  const isDark =
+    config.theme === "dark" ||
+    (config.theme === "auto" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+
   return (
     <button
       type="button"
-      className={styles["chat-model-update-notice"]}
+      className={clsx(
+        styles["chat-model-update-notice"],
+        isDark && styles["chat-model-update-notice-dark"],
+      )}
       onClick={() => navigate(Path.ApiConfig)}
     >
       服务器模型数据有更新，点击前往 API 配置页刷新
