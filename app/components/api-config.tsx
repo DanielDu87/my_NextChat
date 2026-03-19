@@ -825,9 +825,7 @@ export function ApiConfigPage() {
   const [editingYutoProfileId, setEditingYutoProfileId] = useState("");
   const [remoteModelRefresh, setRemoteModelRefresh] =
     useState<RemoteModelRefreshArtifact | null>(null);
-  const [remoteModelMetas, setRemoteModelMetas] = useState<RemoteStoreMeta[]>(
-    [],
-  );
+  const [remoteDataLoaded, setRemoteDataLoaded] = useState(false);
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
   // 检测是否是沾满模式
@@ -888,23 +886,14 @@ export function ApiConfigPage() {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
       setRemoteModelRefresh(null);
       setRemoteModelMetas([]);
+      setRemoteDataLoaded(false);
       return;
     }
 
     try {
-      const [latestRes, metaRes] = await Promise.all([
-        fetch("/api/db/models/latest", {
-          cache: "no-store",
-        }),
-        fetch(
-          `/api/db/sync-meta?key=${encodeURIComponent(
-            StoreKey.Config,
-          )}&key=${encodeURIComponent(StoreKey.ModelCache)}`,
-          {
-            cache: "no-store",
-          },
-        ),
-      ]);
+      const latestRes = await fetch("/api/db/models/latest", {
+        cache: "no-store",
+      });
 
       if (latestRes.ok) {
         const latestData = await latestRes.json();
@@ -913,12 +902,8 @@ export function ApiConfigPage() {
         }
       }
 
-      if (metaRes.ok) {
-        const metaData = await metaRes.json();
-        if (metaData?.ok) {
-          setRemoteModelMetas(metaData.metas ?? []);
-        }
-      }
+      // 远程数据加载完成，设置为已加载状态
+      setRemoteDataLoaded(true);
     } catch {}
   }, []);
 
@@ -1034,18 +1019,8 @@ export function ApiConfigPage() {
     modelCacheStore.profiles || {},
     remoteModelRefresh,
   );
-  const hasRemoteModelSnapshotChanges = remoteModelMetas.some((meta) => {
-    const cachedMeta = getStoredMeta()[meta.key];
-    if (!cachedMeta) {
-      return true;
-    }
-    return (
-      cachedMeta.updatedAt !== meta.updatedAt ||
-      cachedMeta.checksum !== meta.checksum
-    );
-  });
   const shouldShowModelUpdateNotice =
-    staleModelUpdateNotices.length > 0 || hasRemoteModelSnapshotChanges;
+    remoteDataLoaded && staleModelUpdateNotices.length > 0;
 
   // 页面加载时输出缓存的模型数量（延迟到云端同步完成后）
   const buildApiConfigSyncSnapshot = () => {
@@ -1078,13 +1053,8 @@ export function ApiConfigPage() {
     );
 
     console.log(`[API Config] 📊 模型总数对比:`);
-    console.log(`[API Config] 📍 本地数据:`);
-    console.log(`[API Config] - 本地模型总数: ${localTotalCount} 个`);
-    console.log(`[API Config] 📋 本地各平台模型数量:`);
-    localPlatformCounts.forEach(({ name, count }) => {
-      console.log(`[API Config] - ${name}: ${count} 个模型`);
-    });
 
+    // 先输出云端数据
     if (remoteModelRefresh?.modelCount !== undefined) {
       console.log(`[API Config] ☁️ 云端数据:`);
       console.log(
@@ -1098,7 +1068,18 @@ export function ApiConfigPage() {
           );
         });
       }
+    }
 
+    // 再输出本地数据
+    console.log(`[API Config] 📍 本地数据:`);
+    console.log(`[API Config] - 本地模型总数: ${localTotalCount} 个`);
+    console.log(`[API Config] 📋 本地各平台模型数量:`);
+    localPlatformCounts.forEach(({ name, count }) => {
+      console.log(`[API Config] - ${name}: ${count} 个模型`);
+    });
+
+    // 比较结果（仅在云端数据存在时）
+    if (remoteModelRefresh?.modelCount !== undefined) {
       console.log(`[API Config] 🔍 比较结果:`);
       console.log(
         `[API Config] - 状态: ${
@@ -1717,18 +1698,47 @@ export function ApiConfigPage() {
           console.log(`合并后: ${mergedCount} 个`);
           console.log(LOG_SEPARATOR);
         } catch (error) {
+          // 获取失败时，使用本地已有的模型数据
+          const localModels = useAppConfig.getState().models || [];
+          const providerId = getProfileProviderId(profile).toLowerCase();
+          const profileModels = localModels.filter((model) => {
+            const modelProviderId = String(
+              model?.provider?.id || "",
+            ).toLowerCase();
+            return modelProviderId === providerId;
+          });
+
+          const localCount = profileModels.length;
+          totalFetched += localCount;
+          profileModels.forEach((model) => {
+            fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
+              name: model.name,
+              profileName: profile.name,
+            });
+          });
+
+          const previousProfileCount = getProfileActualCount(
+            profile,
+            previousCloudModels,
+          );
+
           setModelFetchStatusMap((prev) => ({
             ...prev,
             [profile.id]: {
-              count: undefined,
+              count: localCount,
               fetching: false,
-              error: error instanceof Error ? error.message : "获取模型失败",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "获取模型失败，已使用本地数据",
             },
           }));
-          console.error(
-            `[API Config] ❌ ${profile.name} 获取失败，保留云端数据`,
+          console.warn(
+            `[API Config] ⚠️ ${profile.name} 获取失败，使用本地 ${localCount} 个模型`,
             error,
           );
+          console.log(`本地: ${localCount} 个`);
+          console.log(`云端原有: ${previousProfileCount} 个`);
           console.log(LOG_SEPARATOR);
         }
       }

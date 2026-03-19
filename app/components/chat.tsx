@@ -145,29 +145,15 @@ import { RealtimeChat } from "@/app/components/realtime-chat";
 
 type RemoteModelRefreshArtifact = {
   updatedAt?: string;
+  modelCount?: number;
   providers?: Array<{
     profileId?: string;
     providerId?: string;
+    profileName?: string;
+    fetchedCount?: number;
     updatedAt?: string;
   }>;
 };
-
-type RemoteStoreMeta = {
-  key: string;
-  updatedAt: string;
-  checksum: string;
-};
-
-function toTimestamp(value?: string | number) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const timestamp = Date.parse(value);
-    return Number.isFinite(timestamp) ? timestamp : 0;
-  }
-  return 0;
-}
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -182,43 +168,22 @@ function ChatModelUpdateNotice() {
   const syncStore = useSyncStore();
   const [remoteModelRefresh, setRemoteModelRefresh] =
     useState<RemoteModelRefreshArtifact | null>(null);
-  const [remoteModelMetas, setRemoteModelMetas] = useState<RemoteStoreMeta[]>(
-    [],
-  );
 
   const refreshRemoteSignals = useCallback(async () => {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
       setRemoteModelRefresh(null);
-      setRemoteModelMetas([]);
       return;
     }
 
     try {
-      const [latestRes, metaRes] = await Promise.all([
-        fetch("/api/db/models/latest", {
-          cache: "no-store",
-        }),
-        fetch(
-          `/api/db/sync-meta?key=${encodeURIComponent(
-            StoreKey.Config,
-          )}&key=${encodeURIComponent(StoreKey.ModelCache)}`,
-          {
-            cache: "no-store",
-          },
-        ),
-      ]);
+      const latestRes = await fetch("/api/db/models/latest", {
+        cache: "no-store",
+      });
 
       if (latestRes.ok) {
         const latestData = await latestRes.json();
         if (latestData?.ok) {
           setRemoteModelRefresh(latestData.latest ?? null);
-        }
-      }
-
-      if (metaRes.ok) {
-        const metaData = await metaRes.json();
-        if (metaData?.ok) {
-          setRemoteModelMetas(metaData.metas ?? []);
         }
       }
     } catch {}
@@ -246,28 +211,17 @@ function ChatModelUpdateNotice() {
       return false;
     }
 
-    const remoteUpdatedAt = toTimestamp(
-      remote.updatedAt || remoteModelRefresh?.updatedAt,
-    );
-    const localUpdatedAt = toTimestamp(
-      modelCacheStore.profiles?.[profile.id]?.updatedAt,
-    );
-
-    return remoteUpdatedAt > localUpdatedAt;
-  });
-
-  const hasRemoteSnapshotChanges = remoteModelMetas.some((meta) => {
-    const cachedMeta = syncStore.database.cacheMeta?.[meta.key];
-    if (!cachedMeta) {
-      return true;
+    // 只比较模型数量，数量一致则不显示提醒
+    const localModelCount = modelCacheStore.profiles?.[profile.id]?.modelCount;
+    if (localModelCount === undefined) {
+      return false;
     }
-    return (
-      cachedMeta.updatedAt !== meta.updatedAt ||
-      cachedMeta.checksum !== meta.checksum
-    );
+
+    return remote.fetchedCount !== localModelCount;
   });
 
-  if (!hasStaleModels && !hasRemoteSnapshotChanges) {
+  // 只根据模型数量判断是否显示提醒
+  if (!hasStaleModels) {
     return null;
   }
 
