@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "@/app/config/server";
 import { ModelProvider, STABILITY_BASE_URL } from "@/app/constant";
 import { auth } from "@/app/api/auth";
+import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 
 export async function handle(
   req: NextRequest,
@@ -69,6 +70,7 @@ export async function handle(
   const fetchOptions: RequestInit = {
     headers: {
       "Content-Type": req.headers.get("Content-Type") || "multipart/form-data",
+      "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       Accept: req.headers.get("Accept") || "application/json",
       Authorization: `Bearer ${key}`,
     },

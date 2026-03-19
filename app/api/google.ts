@@ -3,6 +3,7 @@ import { auth } from "./auth";
 import { getServerSideConfig } from "@/app/config/server";
 import { ApiPath, GEMINI_BASE_URL, ModelProvider } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
+import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 
 const serverConfig = getServerSideConfig();
 
@@ -101,6 +102,7 @@ async function request(req: NextRequest, apiKey: string) {
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       "x-goog-api-key":
         req.headers.get("x-goog-api-key") ||
         (req.headers.get("Authorization") ?? "").replace("Bearer ", ""),

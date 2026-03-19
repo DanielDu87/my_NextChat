@@ -43,12 +43,15 @@
   }
 
   // 固定 SVG 尺寸和对齐
-  :global(svg) {
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
     width: 16px !important;
     height: 16px !important;
     flex-shrink: 0 !important;
-    fill: #ff4d4f;
-    color: #ff4d4f;
+    fill: #ff4d4f !important;
+    color: #ff4d4f !important;
   }
 
   &:hover,
@@ -57,7 +60,10 @@
     color: white !important;
     border-color: #ff4d4f !important;
 
-    :global(svg) {
+    :global(svg),
+    :global(svg path),
+    :global(svg circle),
+    :global(svg rect) {
       fill: white !important;
       color: white !important;
     }

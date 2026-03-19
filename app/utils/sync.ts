@@ -13,7 +13,7 @@ import { merge } from "lodash-es";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
-import { StoreKey } from "../constant";
+import { ServiceProvider, StoreKey } from "../constant";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 type NonFunctionKeys<T> = {
@@ -109,6 +109,18 @@ type StateMerger = {
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getManagedProviderIdsFromProfiles(
+  profiles: Array<{ provider: ServiceProvider; name: string }> = [],
+) {
+  return new Set(
+    profiles.map((profile) =>
+      profile.provider === ServiceProvider.Custom
+        ? `custom_${profile.name}`.toLowerCase()
+        : String(profile.provider).toLowerCase(),
+    ),
+  );
 }
 
 const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
@@ -322,9 +334,15 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.Config]: (localState, remoteState) => {
-    // 策略：模型双向合并，其他配置字段以本地为准。
+    // 策略：
+    // - 当前管理的供应商模型以本地为准，避免云端历史模型回流
+    // - 其他模型保留双向合并
+    // - 其他配置字段以本地为准
     const localModels = localState.models || [];
     const remoteModels = remoteState.models || [];
+    const managedProviderIds = getManagedProviderIdsFromProfiles(
+      useAccessStore.getState().apiProfiles || [],
+    );
 
     const modelMap = new Map<string, LLMModel>();
 
@@ -336,6 +354,10 @@ const MergeStates: StateMerger = {
 
     // 添加远程独有的模型（如果 key 不同则视为新增）
     remoteModels.forEach((m: LLMModel) => {
+      const providerId = String(m.provider?.id || "").toLowerCase();
+      if (managedProviderIds.has(providerId)) {
+        return;
+      }
       const key = `${m.name}@${m.provider?.id}`;
       if (!modelMap.has(key)) {
         modelMap.set(key, m);

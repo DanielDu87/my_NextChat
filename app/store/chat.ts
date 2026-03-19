@@ -738,6 +738,7 @@ const DEFAULT_CHAT_STATE = {
   currentSessionIndex: 0,
   lastInput: "",
   globalClearAt: 0,
+  deletedSessionTimestamps: {} as Record<string, number>,
 };
 
 export const useChatStore = createPersistStore(
@@ -853,10 +854,16 @@ export const useChatStore = createPersistStore(
       async clearSessions() {
         const newSessions = [createEmptySession()];
         const globalClearAt = Date.now();
+        const deletedSessionTimestamps = Object.fromEntries(
+          get()
+            .sessions.filter((session) => session?.id)
+            .map((session) => [session.id, globalClearAt]),
+        );
         set(() => ({
           sessions: newSessions,
           currentSessionIndex: 0,
           globalClearAt,
+          deletedSessionTimestamps,
         }));
 
         // 直接上传空状态到服务器（动态导入避免循环依赖）
@@ -876,6 +883,7 @@ export const useChatStore = createPersistStore(
                 sessions: newSessions,
                 currentSessionIndex: 0,
                 globalClearAt,
+                deletedSessionTimestamps,
               }),
             );
             console.log("[Chat] ✅ 清空对话已同步到服务器");
@@ -986,11 +994,20 @@ export const useChatStore = createPersistStore(
         const restoreState = {
           currentSessionIndex: get().currentSessionIndex,
           sessions: get().sessions.slice(),
+          deletedSessionTimestamps: {
+            ...get().deletedSessionTimestamps,
+          },
+        };
+        const deletedAt = Date.now();
+        const deletedSessionTimestamps = {
+          ...get().deletedSessionTimestamps,
+          [deletedSession.id]: deletedAt,
         };
 
         set(() => ({
           currentSessionIndex: nextIndex,
           sessions,
+          deletedSessionTimestamps,
         }));
 
         showToast(
@@ -999,14 +1016,27 @@ export const useChatStore = createPersistStore(
             text: Locale.Home.Revert,
             onClick() {
               set(() => restoreState);
+              import("./sync").then(({ useSyncStore }) => {
+                useSyncStore
+                  .getState()
+                  .sync([StoreKey.Chat])
+                  .catch((error) => {
+                    console.error("[Chat] ❌ 撤销删除后立即同步失败:", error);
+                  });
+              });
             },
           },
           5000,
         );
 
-        // 触发防抖同步（动态导入避免循环依赖）
+        // 删除会话后立即同步，避免远端旧会话被自动同步拉回
         import("./sync").then(({ useSyncStore }) => {
-          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+          useSyncStore
+            .getState()
+            .sync([StoreKey.Chat])
+            .catch((error) => {
+              console.error("[Chat] ❌ 删除会话后立即同步失败:", error);
+            });
         });
       },
 
@@ -1666,7 +1696,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.4,
+    version: 3.5,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -1751,6 +1781,10 @@ export const useChatStore = createPersistStore(
             newState.currentSessionIndex = nextIndex;
           }
         }
+      }
+
+      if (version < 3.5) {
+        newState.deletedSessionTimestamps = {};
       }
 
       return newState as any;

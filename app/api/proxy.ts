@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "@/app/config/server";
+import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 
 export async function handle(
   req: NextRequest,
@@ -34,6 +35,14 @@ export async function handle(
           : ""
       }`;
 
+  // 调试日志
+  console.log(`[Proxy Route] 📤 代理请求:`, {
+    subpath,
+    baseUrl,
+    isPricingApi,
+    fetchUrl,
+  });
+
   const skipHeaders = ["connection", "host", "origin", "referer", "cookie"];
 
   // Pricing API 不需要 Authorization header
@@ -53,6 +62,12 @@ export async function handle(
       return true;
     }),
   );
+
+  // 调试日志：检查是否有 Authorization header
+  console.log(`[Proxy Route] 🔑 Authorization header:`, {
+    hasAuth: req.headers.has("authorization"),
+    authPrefix: req.headers.get("authorization")?.substring(0, 20) + "...",
+  });
   // if dalle3 use openai api key
   if (baseUrl?.includes("api.openai.com")) {
     if (!serverConfig.apiKey) {
@@ -63,6 +78,7 @@ export async function handle(
     }
     headers.set("Authorization", `Bearer ${serverConfig.apiKey}`);
   }
+  headers.set("User-Agent", DEFAULT_BROWSER_USER_AGENT);
 
   const controller = new AbortController();
   const fetchOptions: RequestInit = {

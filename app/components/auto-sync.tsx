@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { useChatStore } from "../store";
+import { useAppConfig } from "../store/config";
+import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 
@@ -50,6 +52,8 @@ export default function AutoSync() {
         .then(() => {
           useChatStore.getState().initializeForNewPage();
           console.log("[AutoSync] ✅ 自动同步完成");
+          // 输出模型统计
+          logModelCount();
         })
         .catch((error: unknown) => {
           console.error("[AutoSync] ❌ 同步失败:", error);
@@ -61,6 +65,51 @@ export default function AutoSync() {
       clearTimeout(timer);
     };
   }, []);
+
+  const logModelCount = () => {
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const currentModels = useAppConfig.getState().models || [];
+    const totalCount = countCloudMergedModels(currentModels, currentProfiles);
+    const platformCounts = getCloudMergedPlatformCounts(
+      currentModels,
+      currentProfiles,
+    );
+
+    console.log("[AutoSync] 📊 当前本地缓存模型汇总");
+    console.log(`[AutoSync] - 总模型数: ${totalCount} 个`);
+    platformCounts.forEach(({ name, count }) => {
+      console.log(`[AutoSync] - ${name}: ${count} 个模型`);
+    });
+  };
+
+  function countCloudMergedModels(models: any[], profiles: any[]): number {
+    return models.filter((model) => {
+      const providerId = String(model?.provider?.id || "").toLowerCase();
+      return profiles.some(
+        (p) => `custom_${p.name}`.toLowerCase() === providerId,
+      );
+    }).length;
+  }
+
+  function getCloudMergedPlatformCounts(
+    models: any[],
+    profiles: any[],
+  ): Array<{ name: string; count: number }> {
+    const counts = new Map<string, number>();
+
+    models.forEach((model) => {
+      const providerId = String(model.provider?.id || "").toLowerCase();
+      if (!providerId || providerId.startsWith("custom_")) {
+        const profileName = providerId.replace("custom_", "");
+        counts.set(profileName, (counts.get(profileName) ?? 0) + 1);
+      }
+    });
+
+    return profiles.map((profile) => ({
+      name: profile.name,
+      count: counts.get(profile.name.toLowerCase()) ?? 0,
+    }));
+  }
 
   return null;
 }

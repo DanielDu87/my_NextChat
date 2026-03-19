@@ -31,6 +31,8 @@ jest.mock("../app/store/sd", () => ({
 
 const { readFromFile } = require("../app/utils");
 const { mergeAppState, mergeStoreState } = require("../app/utils/sync");
+const { buildChatIndexPayload } = require("../app/utils/chat-sync");
+const { buildBackupState } = require("../app/store/sync");
 
 function createAppState(overrides: Partial<Record<StoreKey, any>> = {}) {
   return {
@@ -179,6 +181,93 @@ describe("sync merge safety", () => {
     expect(merged.sessions.map((session: any) => session.id)).toEqual([
       "local-only",
     ]);
+  });
+
+  test("buildChatIndexPayload should keep currentSessionId aligned after filtering empty sessions", () => {
+    const payload = buildChatIndexPayload({
+      sessions: [
+        {
+          id: "empty",
+          topic: "空会话",
+          createdAt: 100,
+          lastUpdate: 100,
+          messages: [],
+        },
+        {
+          id: "target",
+          topic: "目标会话",
+          createdAt: 200,
+          lastUpdate: 200,
+          messages: [{ id: "m1" }],
+        },
+      ],
+      currentSessionIndex: 1,
+    });
+
+    expect(payload.state.currentSessionId).toBe("target");
+    expect(payload.sessions.map((session: any) => session.id)).toEqual([
+      "target",
+    ]);
+  });
+
+  test("buildBackupState should include sync settings", () => {
+    const backupState = buildBackupState(createAppState(), {
+      provider: "database",
+      useProxy: true,
+      proxyUrl: "/api/webdav",
+      database: {
+        cacheMeta: {
+          chat: {
+            updatedAt: "2026-03-19T00:00:00.000Z",
+            checksum: "abc",
+            sizeBytes: 123,
+            validatedAt: 456,
+          },
+        },
+        lastMetaSyncTime: 789,
+      },
+      webdav: {
+        endpoint: "https://dav.example.com",
+        username: "alice",
+        password: "secret",
+      },
+      upstash: {
+        endpoint: "https://redis.example.com",
+        username: "chatgpt-next-web",
+        apiKey: "token",
+      },
+      lastSyncTime: 1000,
+      lastProvider: "database",
+    } as any);
+
+    expect(backupState[StoreKey.Sync]).toEqual({
+      provider: "database",
+      useProxy: true,
+      proxyUrl: "/api/webdav",
+      database: {
+        cacheMeta: {
+          chat: {
+            updatedAt: "2026-03-19T00:00:00.000Z",
+            checksum: "abc",
+            sizeBytes: 123,
+            validatedAt: 456,
+          },
+        },
+        lastMetaSyncTime: 789,
+      },
+      webdav: {
+        endpoint: "https://dav.example.com",
+        username: "alice",
+        password: "secret",
+      },
+      upstash: {
+        endpoint: "https://redis.example.com",
+        username: "chatgpt-next-web",
+        apiKey: "token",
+      },
+      lastSyncTime: 1000,
+      lastProvider: "database",
+    });
   });
 
   test("readFromFile should reject when file selection is canceled", async () => {

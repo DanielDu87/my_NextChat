@@ -4,6 +4,7 @@ import { prettyObject } from "@/app/utils/format";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/api/auth";
 import { getHeader } from "@/app/utils/tencent";
+import { DEFAULT_BROWSER_USER_AGENT } from "../user-agent";
 
 const serverConfig = getServerSideConfig();
 
@@ -87,6 +88,12 @@ async function request(req: NextRequest) {
     serverConfig.tencentSecretId as string,
     serverConfig.tencentSecretKey as string,
   );
+  if (headers instanceof Headers) {
+    headers.set("User-Agent", DEFAULT_BROWSER_USER_AGENT);
+  } else {
+    (headers as Record<string, string>)["User-Agent"] =
+      DEFAULT_BROWSER_USER_AGENT;
+  }
   const fetchOptions: RequestInit = {
     headers,
     method: req.method,

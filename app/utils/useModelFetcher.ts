@@ -23,6 +23,7 @@ export function useModelFetcher() {
         silent?: boolean;
         profileName?: string;
         apiKeyGroups?: Record<string, string>;
+        throwOnError?: boolean;
       },
     ): Promise<FetchModelsResult> => {
       const displayName = getProviderDisplayName(provider, baseUrl);
@@ -63,6 +64,9 @@ export function useModelFetcher() {
           `[Model Fetcher] ❌ 从 ${displayName} 获取模型失败:`,
           errorMsg,
         );
+        if (options?.throwOnError) {
+          throw err;
+        }
         return { models: [], total: 0 };
       } finally {
         setLoading(false);

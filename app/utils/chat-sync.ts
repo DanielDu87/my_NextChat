@@ -58,11 +58,17 @@ export function normalizeChatSessions<T extends ChatSessionLike>(
 export function buildChatIndexPayload(
   chatState: ChatStateLike,
 ): ChatIndexPayload {
-  const sessions = getSyncableChatSessions(
+  const allSessions = normalizeChatSessions(
     chatState.sessions as ChatSessionLike[],
   );
+  const sessions = getSyncableChatSessions(allSessions);
   const currentSessionIndex = toFiniteNumber(chatState.currentSessionIndex);
-  const currentSessionId = sessions[currentSessionIndex]?.id;
+  const rawCurrentSessionId = allSessions[currentSessionIndex]?.id;
+  const currentSessionId =
+    typeof rawCurrentSessionId === "string" &&
+    sessions.some((session) => session.id === rawCurrentSessionId)
+      ? rawCurrentSessionId
+      : sessions[0]?.id;
   const {
     sessions: _sessions,
     currentSessionIndex: _currentSessionIndex,

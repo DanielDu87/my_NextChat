@@ -12,6 +12,7 @@ import {
   useAppConfig,
   useChatStore,
 } from "../store";
+import { DEFAULT_CONFIG } from "../store/config";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
 import { GeminiProApi } from "./platforms/google";
 import { ClaudeApi } from "./platforms/anthropic";
@@ -319,7 +320,9 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   const clientConfig = getClientConfig();
 
   function getConfig() {
-    const modelConfig = chatStore.currentSession().mask.modelConfig;
+    const currentSession = chatStore.currentSession?.();
+    const modelConfig =
+      currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig;
     const isCustom = modelConfig.providerName === ServiceProvider.Custom;
     const isGoogle = modelConfig.providerName === ServiceProvider.Google;
     const isAzure = modelConfig.providerName === ServiceProvider.Azure;

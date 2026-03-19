@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "./auth";
 import { isModelNotavailableInServer } from "@/app/utils/model";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
+import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 
 const ALLOWD_PATH = new Set([Anthropic.ChatPath, Anthropic.ChatPath1]);
 
@@ -97,6 +98,7 @@ async function request(req: NextRequest) {
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       "anthropic-dangerous-direct-browser-access": "true",
       [authHeaderName]: authValue,
       "anthropic-version":

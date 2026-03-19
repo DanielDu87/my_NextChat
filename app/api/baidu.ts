@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/api/auth";
 import { isModelNotavailableInServer } from "@/app/utils/model";
 import { getAccessToken } from "@/app/utils/baidu";
+import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 
 const serverConfig = getServerSideConfig();
 
@@ -85,6 +86,7 @@ async function request(req: NextRequest) {
   const fetchOptions: RequestInit = {
     headers: {
       "Content-Type": "application/json",
+      "User-Agent": DEFAULT_BROWSER_USER_AGENT,
     },
     method: req.method,
     body: req.body,

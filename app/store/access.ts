@@ -253,6 +253,7 @@ export const useAccessStore = createPersistStore(
 
     updateApiProfiles(profiles: typeof DEFAULT_ACCESS_STATE.apiProfiles) {
       set({ apiProfiles: profiles });
+      get().markUpdate();
     },
 
     isAuthorized() {

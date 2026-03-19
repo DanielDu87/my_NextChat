@@ -5,6 +5,7 @@ import {
   AppState,
   GetStoreState,
   getLocalAppState,
+  getNonFunctionFileds,
   mergeAppState,
   mergeStoreState,
   setLocalAppState,
@@ -48,14 +49,119 @@ type DatabaseCacheMeta = Record<
   }
 >;
 
+type SyncBackupState = Pick<
+  SyncStore,
+  | "provider"
+  | "useProxy"
+  | "proxyUrl"
+  | "database"
+  | "webdav"
+  | "upstash"
+  | "lastSyncTime"
+  | "lastProvider"
+>;
+
+type BackupState = AppState & {
+  [StoreKey.Sync]?: SyncBackupState;
+};
+
 const isApp = !!getClientConfig()?.isApp;
 export type SyncStore = GetStoreState<typeof useSyncStore>;
-const LOG_SEPARATOR = "=".repeat(50);
+const LOG_SEPARATOR = "=".repeat(30);
 let syncInFlight: Promise<void> | null = null;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function buildSyncBackupState(syncState: SyncStore): SyncBackupState {
+  const state = getNonFunctionFileds(syncState) as SyncStore;
+
+  return {
+    provider: state.provider,
+    useProxy: state.useProxy,
+    proxyUrl: state.proxyUrl,
+    database: state.database,
+    webdav: state.webdav,
+    upstash: state.upstash,
+    lastSyncTime: state.lastSyncTime,
+    lastProvider: state.lastProvider,
+  };
+}
+
+function parseSyncBackupState(
+  value: unknown,
+  currentState: SyncStore,
+): Partial<SyncBackupState> | null {
+  if (!isObjectLike(value)) {
+    return null;
+  }
+
+  const nextState: Partial<SyncBackupState> = {};
+
+  if (
+    typeof value.provider === "string" &&
+    Object.values(ProviderType).includes(value.provider as ProviderType)
+  ) {
+    nextState.provider = value.provider as ProviderType;
+  }
+
+  if (typeof value.useProxy === "boolean") {
+    nextState.useProxy = value.useProxy;
+  }
+
+  if (typeof value.proxyUrl === "string") {
+    nextState.proxyUrl = value.proxyUrl;
+  }
+
+  if (isObjectLike(value.database)) {
+    nextState.database = {
+      ...currentState.database,
+      ...value.database,
+      cacheMeta: isObjectLike(value.database.cacheMeta)
+        ? (value.database.cacheMeta as DatabaseCacheMeta)
+        : currentState.database.cacheMeta,
+      lastMetaSyncTime:
+        typeof value.database.lastMetaSyncTime === "number"
+          ? value.database.lastMetaSyncTime
+          : currentState.database.lastMetaSyncTime,
+    };
+  }
+
+  if (isObjectLike(value.webdav)) {
+    nextState.webdav = {
+      ...currentState.webdav,
+      ...value.webdav,
+    };
+  }
+
+  if (isObjectLike(value.upstash)) {
+    nextState.upstash = {
+      ...currentState.upstash,
+      ...value.upstash,
+    };
+  }
+
+  if (typeof value.lastSyncTime === "number") {
+    nextState.lastSyncTime = value.lastSyncTime;
+  }
+
+  if (typeof value.lastProvider === "string") {
+    nextState.lastProvider = value.lastProvider;
+  }
+
+  return nextState;
+}
+
+export function buildBackupState(
+  appState: AppState,
+  syncState: SyncStore,
+): BackupState {
+  return {
+    ...appState,
+    [StoreKey.Sync]: buildSyncBackupState(syncState),
+  };
 }
 
 // 防抖同步相关
@@ -241,14 +347,98 @@ function getChatSessionLastUpdate(session: unknown) {
   return Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 0;
 }
 
-function buildClearedChatState(state: any, clearAt: number) {
-  const sessions = Array.isArray(state?.sessions) ? state.sessions : [];
-  const keptSessions = sessions.filter(
-    (session) => getChatSessionLastUpdate(session) > clearAt,
+function getDeletedSessionTimestamps(state: unknown) {
+  if (
+    !isObjectLike(state) ||
+    !("deletedSessionTimestamps" in state) ||
+    !isObjectLike(state.deletedSessionTimestamps)
+  ) {
+    return {} as Record<string, number>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(state.deletedSessionTimestamps).filter(([, value]) => {
+      const deletedAt = Number(value);
+      return Number.isFinite(deletedAt) && deletedAt > 0;
+    }),
+  ) as Record<string, number>;
+}
+
+function mergeDeletedSessionTimestamps(...maps: Array<Record<string, number>>) {
+  const merged = {} as Record<string, number>;
+
+  maps.forEach((map) => {
+    Object.entries(map).forEach(([sessionId, deletedAt]) => {
+      merged[sessionId] = Math.max(merged[sessionId] || 0, deletedAt);
+    });
+  });
+
+  return merged;
+}
+
+function wasChatSessionDeleted(
+  sessionId: string | undefined,
+  lastUpdate: number,
+  deletedSessionTimestamps: Record<string, number>,
+) {
+  if (!sessionId) {
+    return false;
+  }
+
+  const deletedAt = deletedSessionTimestamps[sessionId] || 0;
+  return deletedAt > 0 && deletedAt >= lastUpdate;
+}
+
+function applyDeletedSessionsToChatState(
+  state: any,
+  deletedSessionTimestamps: Record<string, number>,
+) {
+  const sessions: Array<Record<string, unknown>> = Array.isArray(
+    state?.sessions,
+  )
+    ? state.sessions
+    : [];
+  const filteredSessions = sessions.filter(
+    (session: Record<string, unknown>) => {
+      const sessionId = String(session?.id || "");
+      return !wasChatSessionDeleted(
+        sessionId,
+        getChatSessionLastUpdate(session),
+        deletedSessionTimestamps,
+      );
+    },
   );
   const currentSessionId = sessions[state?.currentSessionIndex ?? 0]?.id ?? "";
   const nextCurrentSessionIndex = currentSessionId
-    ? keptSessions.findIndex((session) => session?.id === currentSessionId)
+    ? filteredSessions.findIndex(
+        (session: Record<string, unknown>) => session?.id === currentSessionId,
+      )
+    : 0;
+
+  return {
+    ...state,
+    sessions: filteredSessions,
+    currentSessionIndex:
+      nextCurrentSessionIndex >= 0 ? nextCurrentSessionIndex : 0,
+    deletedSessionTimestamps,
+  };
+}
+
+function buildClearedChatState(state: any, clearAt: number) {
+  const sessions: Array<Record<string, unknown>> = Array.isArray(
+    state?.sessions,
+  )
+    ? state.sessions
+    : [];
+  const keptSessions = sessions.filter(
+    (session: Record<string, unknown>) =>
+      getChatSessionLastUpdate(session) > clearAt,
+  );
+  const currentSessionId = sessions[state?.currentSessionIndex ?? 0]?.id ?? "";
+  const nextCurrentSessionIndex = currentSessionId
+    ? keptSessions.findIndex(
+        (session: Record<string, unknown>) => session?.id === currentSessionId,
+      )
     : 0;
 
   return {
@@ -332,6 +522,8 @@ export const useSyncStore = createPersistStore(
         ? localChatState.sessions
         : [];
       const remoteIndex = await client.getChatIndex?.();
+      const localDeletedSessionTimestamps =
+        getDeletedSessionTimestamps(localChatState);
 
       if (!remoteIndex) {
         const localIndex = buildChatIndexPayload(localChatState);
@@ -360,10 +552,25 @@ export const useSyncStore = createPersistStore(
 
       const localIndex = buildChatIndexPayload(localChatState);
       const localEntryMap = createChatIndexEntryMap(localIndex.sessions);
+      const remoteDeletedSessionTimestamps = getDeletedSessionTimestamps(
+        remoteIndex?.state,
+      );
+      const mergedDeletedSessionTimestamps = mergeDeletedSessionTimestamps(
+        localDeletedSessionTimestamps,
+        remoteDeletedSessionTimestamps,
+      );
       const remoteEntryMap = createChatIndexEntryMap(
         remoteIndex.sessions || [],
       );
       const remoteSessionIdsToFetch = (remoteIndex.sessions || [])
+        .filter(
+          (entry: ChatIndexSessionEntry) =>
+            !wasChatSessionDeleted(
+              entry.id,
+              entry.lastUpdate,
+              mergedDeletedSessionTimestamps,
+            ),
+        )
         .filter((entry: ChatIndexSessionEntry) =>
           shouldFetchRemoteChatSession(localEntryMap.get(entry.id), entry),
         )
@@ -378,19 +585,39 @@ export const useSyncStore = createPersistStore(
           ),
         ) + measureJsonBytes(remoteSessions || {});
       const remotePartialState = buildChatStateFromIndex(
-        remoteIndex,
+        {
+          ...remoteIndex,
+          sessions: (remoteIndex.sessions || []).filter(
+            (entry: ChatIndexSessionEntry) =>
+              !wasChatSessionDeleted(
+                entry.id,
+                entry.lastUpdate,
+                mergedDeletedSessionTimestamps,
+              ),
+          ),
+        },
         remoteSessions || {},
       );
-      const localGlobalClearAt = getChatGlobalClearAt(localChatState);
-      const remoteGlobalClearAt = getChatGlobalClearAt(remotePartialState);
+      const normalizedLocalChatState = applyDeletedSessionsToChatState(
+        localChatState,
+        mergedDeletedSessionTimestamps,
+      );
+      const normalizedRemoteChatState = applyDeletedSessionsToChatState(
+        remotePartialState,
+        mergedDeletedSessionTimestamps,
+      );
+      const localGlobalClearAt = getChatGlobalClearAt(normalizedLocalChatState);
+      const remoteGlobalClearAt = getChatGlobalClearAt(
+        normalizedRemoteChatState,
+      );
 
       if (remoteGlobalClearAt > localGlobalClearAt) {
         const clearedLocalState = buildClearedChatState(
-          localChatState,
+          normalizedLocalChatState,
           remoteGlobalClearAt,
         );
         const clearedRemoteState = buildClearedChatState(
-          remotePartialState,
+          normalizedRemoteChatState,
           remoteGlobalClearAt,
         );
         const mergedAfterClear = mergeStoreState(
@@ -418,9 +645,16 @@ export const useSyncStore = createPersistStore(
             shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
           )
           .map((entry) => mergedSessionMap.get(entry.id))
-          .filter(Boolean) as Array<Record<string, unknown>>;
+          .filter(Boolean)
+          .map((session) => session as unknown as Record<string, unknown>);
         const deleteSessionIds = [...remoteEntryMap.keys()].filter(
-          (sessionId) => !mergedSessionMap.has(sessionId),
+          (sessionId) =>
+            !mergedSessionMap.has(sessionId) ||
+            wasChatSessionDeleted(
+              sessionId,
+              remoteEntryMap.get(sessionId)?.lastUpdate || 0,
+              mergedDeletedSessionTimestamps,
+            ),
         );
         const uploadedBytes =
           measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
@@ -435,7 +669,10 @@ export const useSyncStore = createPersistStore(
           remoteSummary: getStoreSummary(StoreKey.Chat, {
             sessions: remoteIndex.sessions || [],
           }),
-          mergedStoreState,
+          mergedStoreState: {
+            ...mergedStoreState,
+            deletedSessionTimestamps: {},
+          },
           mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
           status: "merged" as const,
           metrics: {
@@ -450,8 +687,8 @@ export const useSyncStore = createPersistStore(
 
       const mergedStoreState = mergeStoreState(
         StoreKey.Chat,
-        localChatState,
-        remotePartialState as any,
+        normalizedLocalChatState,
+        normalizedRemoteChatState as any,
       );
       const mergedIndex = buildChatIndexPayload(mergedStoreState as any);
       const mergedSessionMap = createChatSessionMap(
@@ -464,9 +701,16 @@ export const useSyncStore = createPersistStore(
           shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
         )
         .map((entry) => mergedSessionMap.get(entry.id))
-        .filter(Boolean) as Array<Record<string, unknown>>;
+        .filter(Boolean)
+        .map((session) => session as unknown as Record<string, unknown>);
       const deleteSessionIds = [...remoteEntryMap.keys()].filter(
-        (sessionId) => !mergedSessionMap.has(sessionId),
+        (sessionId) =>
+          !mergedSessionMap.has(sessionId) ||
+          wasChatSessionDeleted(
+            sessionId,
+            remoteEntryMap.get(sessionId)?.lastUpdate || 0,
+            mergedDeletedSessionTimestamps,
+          ),
       );
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
@@ -481,7 +725,10 @@ export const useSyncStore = createPersistStore(
         remoteSummary: getStoreSummary(StoreKey.Chat, {
           sessions: remoteIndex.sessions || [],
         }),
-        mergedStoreState,
+        mergedStoreState: {
+          ...mergedStoreState,
+          deletedSessionTimestamps: {},
+        },
         mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
         status: "merged" as const,
         metrics: {
@@ -505,7 +752,7 @@ export const useSyncStore = createPersistStore(
       },
 
       export() {
-        const state = getLocalAppState();
+        const state = buildBackupState(getLocalAppState(), get());
         const datePart = isApp
           ? `${new Date().toLocaleDateString().replace(/\//g, "_")} ${new Date()
               .toLocaleTimeString()
@@ -524,10 +771,19 @@ export const useSyncStore = createPersistStore(
             throw new Error("[Import] 备份文件格式无效");
           }
 
-          const remoteState = parsedState as AppState;
+          const remoteState = parsedState as BackupState;
           const localState = getLocalAppState();
           mergeAppState(localState, remoteState);
           setLocalAppState(localState);
+
+          const importedSyncState = parseSyncBackupState(
+            remoteState[StoreKey.Sync],
+            get(),
+          );
+          if (importedSyncState) {
+            set(importedSyncState as Partial<SyncStore>);
+          }
+
           location.reload();
         } catch (e) {
           if (
@@ -648,7 +904,14 @@ export const useSyncStore = createPersistStore(
         }
 
         syncInFlight = (async () => {
-          console.log("[Sync] 🔄 开始同步...");
+          const state = getNonFunctionFileds(this) as SyncStore;
+          const providerName =
+            state.provider === ProviderType.Database
+              ? "PostgreSQL 数据库"
+              : state.provider === ProviderType.WebDAV
+              ? "WebDAV"
+              : "云端存储";
+          console.log(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
           const client = this.getClient() as any;
 
@@ -717,10 +980,10 @@ export const useSyncStore = createPersistStore(
                     [key]: chatResult.mergedStoreState,
                   } as AppState);
 
-                  console.log(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${chatResult.mergedSummary}`,
-                  );
-                  console.log(LOG_SEPARATOR);
+                  // console.log(
+                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${chatResult.mergedSummary}`,
+                  // );
+                  // console.log(LOG_SEPARATOR);
                   continue;
                 }
 
@@ -752,10 +1015,10 @@ export const useSyncStore = createPersistStore(
                     summary,
                     status: "uploaded",
                   });
-                  console.log(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，已上传 ${summary}`,
-                  );
-                  console.log(LOG_SEPARATOR);
+                  // console.log(
+                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，已上传 ${summary}`,
+                  // );
+                  // console.log(LOG_SEPARATOR);
                 } else {
                   const parsedRemoteState =
                     parseStoreStatePayload(remoteDataText);
@@ -763,6 +1026,7 @@ export const useSyncStore = createPersistStore(
                   console.log(
                     `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
                   );
+                  console.log(LOG_SEPARATOR);
                   syncResults.push({
                     key,
                     name: displayName,
@@ -793,10 +1057,10 @@ export const useSyncStore = createPersistStore(
                     result.summary = mergedSummary;
                     result.status = "merged";
                   }
-                  console.log(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${mergedSummary}`,
-                  );
-                  console.log(LOG_SEPARATOR);
+                  // console.log(
+                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${mergedSummary}`,
+                  // );
+                  // console.log(LOG_SEPARATOR);
                 }
               } catch (e) {
                 failedKeys.push({
@@ -810,7 +1074,7 @@ export const useSyncStore = createPersistStore(
                   }同步失败:`,
                   e,
                 );
-                console.log(LOG_SEPARATOR);
+                // console.log(LOG_SEPARATOR);
               }
             }
 
@@ -838,7 +1102,7 @@ export const useSyncStore = createPersistStore(
                 )
                 .join(" | ");
               console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
-              console.log(LOG_SEPARATOR);
+              // console.log(LOG_SEPARATOR);
               throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
             }
 
@@ -846,7 +1110,7 @@ export const useSyncStore = createPersistStore(
             console.log(LOG_SEPARATOR);
           } catch (e) {
             console.error("[Sync] ❌ 同步失败:", e);
-            console.log(LOG_SEPARATOR);
+            // console.log(LOG_SEPARATOR);
             throw e;
           }
 

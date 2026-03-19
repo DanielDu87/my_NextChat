@@ -6,6 +6,7 @@ import { getClientConfig } from "../config/client";
 import yaml from "js-yaml";
 import { adapter, getOperationId } from "../utils";
 import { useAccessStore } from "./access";
+import { runWithImmediateStoreSyncPaused } from "../utils/store";
 
 const isApp = getClientConfig()?.isApp !== false;
 
@@ -250,20 +251,22 @@ export const usePluginStore = createPersistStore(
       fetch("./plugins.json")
         .then((res) => res.json())
         .then((res) => {
-          Promise.all(
-            res.map((item: any) =>
-              // skip get schema
-              state.get(item.id)
-                ? item
-                : fetchPluginSchema(item.schema)
-                    .then((res) => res.text())
-                    .then((content) => ({
-                      ...item,
-                      content,
-                    }))
-                    .catch((e) => item),
-            ),
-          ).then((builtinPlugins: any) => {
+          runWithImmediateStoreSyncPaused(async () => {
+            const builtinPlugins = await Promise.all(
+              res.map((item: any) =>
+                // skip get schema
+                state.get(item.id)
+                  ? item
+                  : fetchPluginSchema(item.schema)
+                      .then((res) => res.text())
+                      .then((content) => ({
+                        ...item,
+                        content,
+                      }))
+                      .catch(() => item),
+              ),
+            );
+
             builtinPlugins
               .filter((item: any) => item?.content)
               .forEach((item: any) => {
@@ -275,6 +278,8 @@ export const usePluginStore = createPersistStore(
                   plugin.builtin = true;
                 });
               });
+          }).catch((error) => {
+            console.error("[Plugin] ❌ 初始化内置插件失败:", error);
           });
         });
     },
