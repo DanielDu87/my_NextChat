@@ -100,17 +100,39 @@
   width: 100%;
 }
 
-.provider-display-button {
-  opacity: 1 !important;
-  color: var(--black) !important;
+.chat-window-actions {
+  align-items: stretch;
+}
 
-  &:hover,
-  &:focus {
-    border-color: var(--border-in-light) !important;
-    background-color: var(--white) !important;
-    color: var(--black) !important;
-    box-shadow: none !important;
+.chat-window-action-button {
+  display: flex;
+  align-items: stretch;
+
+  :global(.icon-button) {
+    height: 100%;
+    min-height: 38px;
+    box-sizing: border-box;
+    align-self: center;
   }
+}
+
+.provider-button-name {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.provider-button-model {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  line-height: 10px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--black);
+  transform: translateY(-1px);
 }
 
 // 消息操作按钮保持横向排列

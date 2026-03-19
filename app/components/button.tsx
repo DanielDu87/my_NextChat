@@ -10,7 +10,7 @@ export function IconButton(props: {
   onClick?: () => void;
   icon?: JSX.Element;
   type?: ButtonType;
-  text?: string;
+  text?: React.ReactNode;
   bordered?: boolean;
   shadow?: boolean;
   className?: string;
@@ -44,7 +44,7 @@ export function IconButton(props: {
     >
       {props.icon && (
         <div
-          aria-label={props.text || props.title}
+          aria-label={props.aria || props.title}
           className={clsx(styles["icon-button-icon"], {
             "no-dark": props.type === "primary",
           })}
@@ -55,7 +55,7 @@ export function IconButton(props: {
 
       {props.text && (
         <div
-          aria-label={props.text || props.title}
+          aria-label={props.aria || props.title}
           className={styles["icon-button-text"]}
         >
           {props.text}

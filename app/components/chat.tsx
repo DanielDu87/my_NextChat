@@ -1399,6 +1399,7 @@ function renderGeneratedMedia(
     );
   }
 
+  // eslint-disable-next-line @next/next/no-img-element
   return <img className={className} key={key} src={url} alt="" />;
 }
 
@@ -1498,7 +1499,7 @@ function _Chat() {
           (scrollRef.current.scrollTop + scrollRef.current.clientHeight),
       ) <= 1
     : false;
-  const isAttachWithTop = useMemo(() => {
+  const isAttachWithTop = (() => {
     const lastMessage = scrollRef.current?.lastElementChild as HTMLElement;
     // if scrolllRef is not ready or no message, return false
     if (!scrollRef?.current || !lastMessage) return false;
@@ -1507,7 +1508,7 @@ function _Chat() {
       scrollRef.current.getBoundingClientRect().top;
     // leave some space for user question
     return topDistance < 100;
-  }, [scrollRef?.current?.scrollHeight]);
+  })();
 
   const isTyping = userInput !== "";
 
@@ -2559,28 +2560,39 @@ function _Chat() {
               {Locale.Chat.SubTitle(session.messages.length)}
             </div>
           </div>
-          <div className="window-actions">
-            <div className="window-action-button">
-              <IconButton
-                bordered
-                className={styles["provider-display-button"]}
-                text={currentProviderDisplayName}
-                title={currentProviderDisplayName}
-                aria={currentProviderDisplayName}
-                disabled
-              />
-            </div>
-            <div className="window-action-button">
+          <div
+            className={clsx("window-actions", styles["chat-window-actions"])}
+          >
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
               <IconButton
                 icon={<RobotIcon />}
                 bordered
-                text={currentModelName}
-                title={currentModelName}
-                aria={currentModelName}
+                text={
+                  <>
+                    <span className={styles["provider-button-name"]}>
+                      {currentProviderDisplayName}
+                    </span>{" "}
+                    <span className={styles["provider-button-model"]}>
+                      {currentModelName}
+                    </span>
+                  </>
+                }
+                title={`${currentProviderDisplayName} ${currentModelName}`}
+                aria={`${currentProviderDisplayName} ${currentModelName}`}
                 onClick={openModelSelector}
               />
             </div>
-            <div className="window-action-button">
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
               <IconButton
                 icon={<ConfigIcon />}
                 bordered
@@ -2590,7 +2602,12 @@ function _Chat() {
                 onClick={() => navigate(Path.ApiConfig)}
               />
             </div>
-            <div className="window-action-button">
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
               <IconButton
                 icon={<ReloadIcon />}
                 bordered
@@ -2603,7 +2620,12 @@ function _Chat() {
               />
             </div>
             {!isMobileScreen && (
-              <div className="window-action-button">
+              <div
+                className={clsx(
+                  "window-action-button",
+                  styles["chat-window-action-button"],
+                )}
+              >
                 <IconButton
                   icon={<RenameIcon />}
                   bordered
@@ -2614,7 +2636,12 @@ function _Chat() {
                 />
               </div>
             )}
-            <div className="window-action-button">
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
               <IconButton
                 icon={<ExportIcon />}
                 bordered
@@ -2626,7 +2653,12 @@ function _Chat() {
               />
             </div>
             {showMaxIcon && (
-              <div className="window-action-button">
+              <div
+                className={clsx(
+                  "window-action-button",
+                  styles["chat-window-action-button"],
+                )}
+              >
                 <IconButton
                   icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
                   bordered
