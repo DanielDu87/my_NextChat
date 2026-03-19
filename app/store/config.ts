@@ -23,6 +23,7 @@ export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
 export type TTSModelType = (typeof DEFAULT_TTS_MODELS)[number];
 export type TTSVoiceType = (typeof DEFAULT_TTS_VOICES)[number];
 export type TTSEngineType = (typeof DEFAULT_TTS_ENGINES)[number];
+export type AutoModelSeriesKey = "gpt" | "deepseek" | "doubao";
 
 export enum SubmitKey {
   Enter = "Enter",
@@ -66,6 +67,7 @@ export const DEFAULT_CONFIG = {
 
   customModels: "",
   models: [] as LLMModel[],
+  autoModelSeries: [] as AutoModelSeriesKey[],
 
   modelConfig: {
     model: "gpt-4o-mini" as ModelType,
@@ -334,7 +336,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.1,
+    version: 4.2,
     partialize(state) {
       const { sidebarWidth, ...rest } = state as ChatConfig;
       return rest as typeof state;
@@ -407,6 +409,10 @@ export const useAppConfig = createPersistStore(
           DEFAULT_CONFIG.modelConfig.compressModel;
         state.modelConfig.compressProviderName =
           DEFAULT_CONFIG.modelConfig.compressProviderName;
+      }
+
+      if (version < 4.2) {
+        state.autoModelSeries = [];
       }
 
       return state as any;

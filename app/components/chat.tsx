@@ -51,6 +51,7 @@ import ShortcutkeyIcon from "../icons/shortcutkey.svg";
 import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
+  AutoModelSeriesKey,
   BOT_HELLO,
   ChatMessage,
   createMessage,
@@ -89,6 +90,10 @@ import {
 } from "../utils";
 
 import { useAllModels } from "../utils/hooks";
+import {
+  getAutoModelSeriesLabel,
+  normalizeAutoModelSeries,
+} from "../utils/auto-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
@@ -154,6 +159,24 @@ type RemoteModelRefreshArtifact = {
     updatedAt?: string;
   }>;
 };
+
+function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M7 7L17 17" />
+      <path d="M17 7L7 17" />
+    </svg>
+  );
+}
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -566,6 +589,7 @@ export function ChatAction(props: {
   text: string;
   icon: JSX.Element;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   const iconRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -587,8 +611,11 @@ export function ChatAction(props: {
 
   return (
     <div
-      className={clsx(styles["chat-input-action"], "clickable")}
+      className={clsx(styles["chat-input-action"], "clickable", {
+        [styles["chat-input-action-disabled"]]: props.disabled,
+      })}
       onClick={() => {
+        if (props.disabled) return;
         props.onClick();
         setTimeout(updateWidth, 1);
       }}
@@ -608,6 +635,19 @@ export function ChatAction(props: {
         {props.text}
       </div>
     </div>
+  );
+}
+
+function AutoModeStateIcon(props: { enabled: boolean }) {
+  if (props.enabled) {
+    return <ConfirmIcon />;
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M4.2 3.2L12.8 11.8L11.8 12.8L3.2 4.2Z" fill="currentColor" />
+      <path d="M11.8 3.2L12.8 4.2L4.2 12.8L3.2 11.8Z" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -681,6 +721,8 @@ export function ChatActions(props: {
   const chatStore = useChatStore();
   const pluginStore = usePluginStore();
   const session = chatStore.currentSession();
+  const autoModeEnabled = (config.autoModelSeries?.length || 0) > 0;
+  const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
 
   const getModelGroup = (
     modelName: string,
@@ -1145,7 +1187,7 @@ export function ChatActions(props: {
       <div className={clsx(styles["chat-action-always-show-text"])}>
         <ChatAction
           onClick={props.openModelSelector}
-          text={currentModelName}
+          text={autoModeEnabled ? autoModeButtonText : currentModelName}
           icon={<RobotIcon />}
         />
       </div>
@@ -1624,8 +1666,10 @@ function _Chat() {
   const config = useAppConfig();
   const fontSize = config.fontSize;
   const fontFamily = config.fontFamily;
+  const autoModelSeries = useAppConfig((state) => state.autoModelSeries);
 
   const [showExport, setShowExport] = useState(false);
+  const [showAutoModelSelector, setShowAutoModelSelector] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
     string | undefined
@@ -1689,6 +1733,43 @@ function _Chat() {
     state.apiProfiles.find((profile) => profile.enabled),
   );
   const currentProviderDisplayName = activeProfile?.name || currentProviderName;
+  const autoModeEnabled = autoModelSeries.length > 0;
+  const manualModelSelectionDisabled = autoModeEnabled || showAutoModelSelector;
+  const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
+  const handleManualModelSelectionDisabled = () => {
+    setModelSelectorNotice(modelSelectionDisabledToast);
+    if (modelSelectorNoticeTimerRef.current) {
+      clearTimeout(modelSelectorNoticeTimerRef.current);
+    }
+    modelSelectorNoticeTimerRef.current = setTimeout(() => {
+      setModelSelectorNotice("");
+      modelSelectorNoticeTimerRef.current = null;
+    }, 2200);
+  };
+  const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
+  const modelSelectorButtonText = autoModeEnabled ? (
+    <>{autoModeButtonText}</>
+  ) : (
+    <>
+      <span className={styles["provider-button-name"]}>
+        {currentProviderDisplayName}
+      </span>{" "}
+      <span className={styles["provider-button-model"]}>
+        {currentModelName}
+      </span>
+    </>
+  );
+  const modelSelectorButtonTitle = autoModeEnabled
+    ? autoModeButtonText
+    : `${currentProviderDisplayName} ${currentModelName}`;
+  const autoModelSeriesItems = useMemo(
+    () =>
+      (["gpt", "deepseek", "doubao"] as AutoModelSeriesKey[]).map((value) => ({
+        title: getAutoModelSeriesLabel(value),
+        value,
+      })),
+    [],
+  );
 
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
@@ -1697,7 +1778,9 @@ function _Chat() {
     show: boolean;
     message: string;
   }>({ show: false, message: "" });
+  const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
+  const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
   const availableProviders = useMemo(() => {
     // 从 apiProfiles 中获取所有供应商名称（不限制 enabled 状态）
@@ -1712,8 +1795,23 @@ function _Chat() {
   useEffect(() => {
     if (!showModelSelector) return;
     setIsProviderSelectorOpen(false);
+    setShowAutoModelSelector(false);
     setModelSelectorResetKey((key) => key + 1);
+    setModelSelectorNotice("");
   }, [showModelSelector]);
+
+  useEffect(() => {
+    if (!autoModeEnabled) return;
+    setIsProviderSelectorOpen(false);
+  }, [autoModeEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (modelSelectorNoticeTimerRef.current) {
+        clearTimeout(modelSelectorNoticeTimerRef.current);
+      }
+    };
+  }, []);
 
   const currentProviderId = useMemo(() => {
     if (activeProfile) {
@@ -2244,7 +2342,7 @@ function _Chat() {
     return context
       .concat(session.messages as RenderMessage[])
       .concat(
-        isLoading
+        isLoading && !autoModeEnabled
           ? [
               {
                 ...createMessage({
@@ -2270,6 +2368,7 @@ function _Chat() {
           : [],
       );
   }, [
+    autoModeEnabled,
     config.sendPreviewBubble,
     context,
     isLoading,
@@ -2324,6 +2423,7 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
+    setShowAutoModelSelector(false);
     setModelSelectorDefaultValue(undefined);
     setModelSelectorDefaultGroup(undefined);
     setShowModelSelector(true);
@@ -2718,18 +2818,9 @@ function _Chat() {
               <IconButton
                 icon={<RobotIcon />}
                 bordered
-                text={
-                  <>
-                    <span className={styles["provider-button-name"]}>
-                      {currentProviderDisplayName}
-                    </span>{" "}
-                    <span className={styles["provider-button-model"]}>
-                      {currentModelName}
-                    </span>
-                  </>
-                }
-                title={`${currentProviderDisplayName} ${currentModelName}`}
-                aria={`${currentProviderDisplayName} ${currentModelName}`}
+                text={modelSelectorButtonText}
+                title={modelSelectorButtonTitle}
+                aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
               />
             </div>
@@ -3236,6 +3327,13 @@ function _Chat() {
           defaultGroup={modelSelectorDefaultGroup}
           headerHint={
             <>
+              {modelSelectorNotice ? (
+                <div className={styles["model-selector-notice"]}>
+                  <div className={styles["provider-switch-toast-content"]}>
+                    {modelSelectorNotice}
+                  </div>
+                </div>
+              ) : null}
               <div className={styles["model-selector-hint"]}>
                 <span className={styles["model-selector-hint-label"]}>
                   当前供应商
@@ -3251,6 +3349,16 @@ function _Chat() {
                   )}
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    if (manualModelSelectionDisabled) {
+                      return;
+                    }
+                  }}
+                  onClick={() => {
+                    if (manualModelSelectionDisabled) {
+                      handleManualModelSelectionDisabled();
+                      return;
+                    }
+                    setShowAutoModelSelector(false);
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
                 >
@@ -3260,6 +3368,24 @@ function _Chat() {
                 <span className={styles["model-selector-hint-count"]}>
                   共 {models.length} 个模型可用
                 </span>
+                <button
+                  type="button"
+                  className={styles["model-selector-auto-button"]}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setIsProviderSelectorOpen(false);
+                    setShowAutoModelSelector((visible) => !visible);
+                  }}
+                >
+                  <span>自动模式</span>
+                  {autoModeEnabled ? (
+                    <ConfirmIcon className={styles["auto-mode-status-check"]} />
+                  ) : (
+                    <AutoModeCrossIcon
+                      className={styles["auto-mode-status-cross"]}
+                    />
+                  )}
+                </button>
               </div>
               {isProviderSelectorOpen && (
                 <div
@@ -3320,9 +3446,15 @@ function _Chat() {
             </>
           }
           footer={null}
+          filterControlsDisabled={manualModelSelectionDisabled}
+          onFilterControlsDisabledClick={handleManualModelSelectionDisabled}
+          groupFilterDisabled={manualModelSelectionDisabled}
+          onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
+          onDisabledItemClick={handleManualModelSelectionDisabled}
           items={models.map((m) => ({
             title: `${m.displayName}`,
             value: `${m.name}@${m?.provider?.providerName}`,
+            disable: manualModelSelectionDisabled,
             order: m.sorted,
             publishedAt: m.publishedAt,
             group: globalCustomModelValueSet.has(
@@ -3370,9 +3502,83 @@ function _Chat() {
           ]}
           showSearch={true}
           extraGroups={["自定义模型"]}
+          groupFilterAction={
+            showAutoModelSelector
+              ? ({
+                  menuClassName,
+                  optionClassName,
+                  optionActiveClassName,
+                  optionLeadingClassName,
+                  iconFrameClassName,
+                  iconImageClassName,
+                }) => (
+                  <div
+                    className={menuClassName}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {autoModelSeriesItems.map((item) => {
+                      const active = autoModelSeries.includes(item.value);
+                      const iconSrc =
+                        item.value === "gpt"
+                          ? "/provider-icons/openai.png"
+                          : item.value === "deepseek"
+                          ? "/provider-icons/deepseek-bg.svg"
+                          : "/provider-icons/bytedance.png";
+                      return (
+                        <button
+                          type="button"
+                          key={item.value}
+                          className={clsx(optionClassName, {
+                            [optionActiveClassName]: active,
+                          })}
+                          onClick={() => {
+                            const nextSelection = active
+                              ? autoModelSeries.filter((v) => v !== item.value)
+                              : [...autoModelSeries, item.value];
+                            const normalized =
+                              normalizeAutoModelSeries(nextSelection);
+                            config.update((config) => {
+                              config.autoModelSeries = normalized;
+                            });
+                          }}
+                        >
+                          <span className={optionLeadingClassName}>
+                            <span
+                              className={clsx(
+                                iconFrameClassName,
+                                item.value === "doubao" &&
+                                  styles[
+                                    "model-selector-option-icon-frame-dark"
+                                  ],
+                              )}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                alt={`${item.title} icon`}
+                                className={clsx(
+                                  iconImageClassName,
+                                  item.value === "doubao" &&
+                                    styles[
+                                      "model-selector-option-icon-image-inset"
+                                    ],
+                                )}
+                                src={iconSrc}
+                              />
+                            </span>
+                          </span>
+                          <span>{item.title}</span>
+                          {active ? <ConfirmIcon /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              : null
+          }
           onClose={() => setShowModelSelector(false)}
           onSelection={async (s) => {
-            if (s.length === 0) return;
+            if (manualModelSelectionDisabled || s.length === 0) return;
             const [model, _providerName] = getModelProvider(s[0]);
 
             // 使用当前选中的供应商，而不是模型自带的 providerName

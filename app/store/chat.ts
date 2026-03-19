@@ -31,12 +31,23 @@ import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
-import { ModelConfig, ModelType, useAppConfig } from "./config";
+import {
+  AutoModelSeriesKey,
+  ModelConfig,
+  ModelType,
+  useAppConfig,
+} from "./config";
 import { useAccessStore } from "./access";
 import { collectModelsWithDefaultModel } from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
+import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
+import {
+  AutoModelCandidate,
+  buildAutoModelCandidates,
+  getAutoModelSeriesLabel,
+} from "../utils/auto-model";
 
 const localStorage = safeLocalStorage();
 
@@ -480,6 +491,55 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   ];
 }
 
+function resolveDisplayProviderName(modelConfig: ModelConfig) {
+  if (modelConfig.providerName !== ServiceProvider.Custom) {
+    return modelConfig.providerName;
+  }
+
+  const enabledProfile = useAccessStore
+    .getState()
+    .apiProfiles.find(
+      (p) => p.enabled && p.provider === ServiceProvider.Custom,
+    );
+
+  return enabledProfile?.name || modelConfig.providerName;
+}
+
+function isApiFailurePayload(message: string) {
+  try {
+    const parsed = JSON.parse(message);
+    return Boolean(parsed?.error);
+  } catch {
+    const lowerMessage = message.toLowerCase();
+    return (
+      lowerMessage.includes("model_not_found") ||
+      lowerMessage.includes("service unavailable") ||
+      lowerMessage.includes('"error"')
+    );
+  }
+}
+
+function buildAutoModeFailureSummary(
+  errors: Array<{
+    candidate: AutoModelCandidate;
+    reason: string;
+  }>,
+) {
+  return [
+    "自动模式尝试的模型全部失败。",
+    "",
+    ...errors.map(({ candidate, reason }, index) => {
+      const providerLabel =
+        candidate.providerName === ServiceProvider.Custom
+          ? candidate.providerId.replace(/^custom_/i, "")
+          : candidate.providerName;
+      return `${index + 1}. ${getAutoModelSeriesLabel(candidate.series)} / ${
+        candidate.displayName
+      } / ${providerLabel}: ${reason}`;
+    }),
+  ].join("\n");
+}
+
 async function refreshSessionTitle(targetSession: ChatSession) {
   const session = targetSession;
   const modelConfig = session.mask.modelConfig;
@@ -650,6 +710,34 @@ function getMessageIconModel(
   model: string,
   providerName?: ServiceProvider,
 ): ModelType {
+  const normalizedModel = String(model || "").toLowerCase();
+  if (
+    normalizedModel.startsWith("gpt") ||
+    normalizedModel.startsWith("chatgpt") ||
+    normalizedModel.startsWith("o1") ||
+    normalizedModel.startsWith("o3") ||
+    normalizedModel.startsWith("o4") ||
+    normalizedModel.startsWith("o5") ||
+    normalizedModel.includes("deepseek") ||
+    normalizedModel.startsWith("doubao") ||
+    normalizedModel.startsWith("ep-") ||
+    normalizedModel.startsWith("claude") ||
+    normalizedModel.startsWith("gemini") ||
+    normalizedModel.startsWith("grok") ||
+    normalizedModel.startsWith("qwen") ||
+    normalizedModel.startsWith("ernie") ||
+    normalizedModel.includes("wenxin") ||
+    normalizedModel.includes("glm") ||
+    normalizedModel.startsWith("hunyuan") ||
+    normalizedModel.startsWith("moonshot") ||
+    normalizedModel.startsWith("kimi") ||
+    normalizedModel.includes("llama") ||
+    normalizedModel.startsWith("mixtral") ||
+    normalizedModel.startsWith("codestral")
+  ) {
+    return model as ModelType;
+  }
+
   const configStore = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
   const allModels = collectModelsWithDefaultModel(
@@ -1086,21 +1174,39 @@ export const useChatStore = createPersistStore(
 
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
+        const appConfig = useAppConfig.getState();
+        const accessStore = useAccessStore.getState();
+        const autoModelSeries = (appConfig.autoModelSeries ||
+          []) as AutoModelSeriesKey[];
+        const autoModeEnabled = autoModelSeries.length > 0;
+        const allModels = collectModelsWithDefaultModel(
+          appConfig.models,
+          appConfig.customModels,
+          accessStore.defaultModel,
+        );
+        const autoCandidates = autoModeEnabled
+          ? buildAutoModelCandidates(
+              allModels,
+              accessStore.apiProfiles,
+              autoModelSeries,
+            )
+          : [];
+        const initialModelConfig =
+          autoModeEnabled && autoCandidates.length > 0
+            ? sanitizeModelConfigForCapability({
+                ...modelConfig,
+                model: autoCandidates[0].model as ModelType,
+                providerName: autoCandidates[0].providerName,
+              })
+            : modelConfig;
 
         // 获取实际提供商名称（对于 Custom provider，显示 profile 名称）
-        let displayProviderName: string = modelConfig.providerName;
-        if (modelConfig.providerName === "Custom") {
-          const enabledProfile = useAccessStore
-            .getState()
-            .apiProfiles.find((p) => p.enabled && p.provider === "Custom");
-          if (enabledProfile) {
-            displayProviderName = enabledProfile.name;
-          }
-        }
+        const displayProviderName =
+          resolveDisplayProviderName(initialModelConfig);
 
         console.log(
           "[Chat] 🤖 使用模型:",
-          modelConfig.model,
+          initialModelConfig.model,
           "提供商:",
           displayProviderName,
         );
@@ -1108,7 +1214,7 @@ export const useChatStore = createPersistStore(
         // MCP Response no need to fill template
         let mContent: string | MultimodalContent[] = isMcpResponse
           ? content
-          : fillTemplateWith(content, modelConfig);
+          : fillTemplateWith(content, initialModelConfig);
 
         if (!isMcpResponse && attachImages && attachImages.length > 0) {
           mContent = [
@@ -1129,15 +1235,16 @@ export const useChatStore = createPersistStore(
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
           streaming: true,
-          model: modelConfig.model,
+          model: initialModelConfig.model,
           modelIcon: getMessageIconModel(
-            modelConfig.model,
-            modelConfig.providerName,
+            initialModelConfig.model,
+            initialModelConfig.providerName,
           ),
         });
 
         // get recent messages
-        const recentMessages = await get().getMessagesWithMemory();
+        const recentMessages =
+          await get().getMessagesWithMemory(initialModelConfig);
         const sendMessages = recentMessages.concat(userMessage);
         const messageIndex = session.messages.length + 1;
 
@@ -1169,115 +1276,324 @@ export const useChatStore = createPersistStore(
           useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
         });
 
-        const api: ClientApi = getClientApi(modelConfig.providerName);
-        console.log("[Chat] 🚀 开始 API 调用...");
-        // make request
-        api.llm.chat({
-          messages: sendMessages,
-          config: { ...modelConfig, stream: true },
-          onUpdate(message) {
-            botMessage.streaming = true;
-            if (message) {
-              botMessage.content = message;
-            }
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          async onFinish(message, responseRes) {
-            botMessage.streaming = false;
-            const finalMessage = message || getMessageTextContent(botMessage);
-            if (finalMessage) {
-              let isApiFailurePayload = false;
-              try {
-                const parsed = JSON.parse(finalMessage);
-                isApiFailurePayload = Boolean(parsed?.error);
-              } catch {
-                const lowerMessage = finalMessage.toLowerCase();
-                isApiFailurePayload =
-                  lowerMessage.includes("model_not_found") ||
-                  lowerMessage.includes("service unavailable") ||
-                  lowerMessage.includes('"error"');
+        if (!autoModeEnabled) {
+          const api: ClientApi = getClientApi(modelConfig.providerName);
+          console.log("[Chat] 🚀 开始 API 调用...");
+          api.llm.chat({
+            messages: sendMessages,
+            config: { ...modelConfig, stream: true },
+            onUpdate(message) {
+              botMessage.streaming = true;
+              if (message) {
+                botMessage.content = message;
               }
-
-              botMessage.content = finalMessage;
-              botMessage.date = new Date().toLocaleString();
-              botMessage.reasoning_details = (responseRes as any)
-                ?.__reasoning_details;
-              botMessage.isError = isApiFailurePayload;
-              userMessage.isError = isApiFailurePayload;
-
-              if (isApiFailurePayload) {
-                console.error(
-                  "[Chat] ❌ API 调用失败(响应错误体), 响应长度:",
-                  finalMessage.length,
-                );
-              } else {
-                console.log(
-                  "[Chat] ✅ API 调用完成, 响应长度:",
-                  finalMessage.length,
-                );
-              }
-              get().onNewMessage(botMessage, session);
-            } else {
               get().updateTargetSession(session, (session) => {
                 session.messages = session.messages.concat();
               });
-            }
-            ChatControllerPool.remove(session.id, botMessage.id);
-          },
-          onBeforeTool(tool: ChatMessageTool) {
-            console.log("[Chat] 🔧 工具调用:", tool.function?.name);
-            (botMessage.tools = botMessage?.tools || []).push(tool);
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onAfterTool(tool: ChatMessageTool) {
-            botMessage?.tools?.forEach((t, i, tools) => {
-              if (tool.id == t.id) {
-                tools[i] = { ...tool };
-              }
-            });
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onError(error) {
-            const isAborted = error.message?.includes?.("aborted");
-            console.error(
-              "[Chat] ❌ API 调用失败:",
-              error.message,
-              isAborted ? "(已中止)" : "",
-            );
-            botMessage.content +=
-              "\n\n" +
-              prettyObject({
-                error: true,
-                message: error.message,
-              });
-            botMessage.streaming = false;
-            userMessage.isError = !isAborted;
-            botMessage.isError = !isAborted;
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-            ChatControllerPool.remove(
-              session.id,
-              botMessage.id ?? messageIndex,
-            );
+            },
+            async onFinish(message, responseRes) {
+              botMessage.streaming = false;
+              const finalMessage = message || getMessageTextContent(botMessage);
+              if (finalMessage) {
+                const hasFailure = isApiFailurePayload(finalMessage);
 
-            console.error("[Chat] failed ", error);
-          },
-          onController(controller) {
-            // collect controller for stop/retry
-            ChatControllerPool.addController(
-              session.id,
-              botMessage.id ?? messageIndex,
-              controller,
-            );
-          },
+                botMessage.content = finalMessage;
+                botMessage.date = new Date().toLocaleString();
+                botMessage.reasoning_details = (responseRes as any)
+                  ?.__reasoning_details;
+                botMessage.isError = hasFailure;
+                userMessage.isError = hasFailure;
+
+                if (hasFailure) {
+                  console.error(
+                    "[Chat] ❌ API 调用失败(响应错误体), 响应长度:",
+                    finalMessage.length,
+                  );
+                } else {
+                  console.log(
+                    "[Chat] ✅ API 调用完成, 响应长度:",
+                    finalMessage.length,
+                  );
+                }
+                get().onNewMessage(botMessage, session);
+              } else {
+                get().updateTargetSession(session, (session) => {
+                  session.messages = session.messages.concat();
+                });
+              }
+              ChatControllerPool.remove(session.id, botMessage.id);
+            },
+            onBeforeTool(tool: ChatMessageTool) {
+              console.log("[Chat] 🔧 工具调用:", tool.function?.name);
+              (botMessage.tools = botMessage?.tools || []).push(tool);
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onAfterTool(tool: ChatMessageTool) {
+              botMessage?.tools?.forEach((t, i, tools) => {
+                if (tool.id == t.id) {
+                  tools[i] = { ...tool };
+                }
+              });
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onError(error) {
+              const isAborted = error.message?.includes?.("aborted");
+              console.error(
+                "[Chat] ❌ API 调用失败:",
+                error.message,
+                isAborted ? "(已中止)" : "",
+              );
+              botMessage.content +=
+                "\n\n" +
+                prettyObject({
+                  error: true,
+                  message: error.message,
+                });
+              botMessage.streaming = false;
+              userMessage.isError = !isAborted;
+              botMessage.isError = !isAborted;
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+              ChatControllerPool.remove(
+                session.id,
+                botMessage.id ?? messageIndex,
+              );
+
+              console.error("[Chat] failed ", error);
+            },
+            onController(controller) {
+              ChatControllerPool.addController(
+                session.id,
+                botMessage.id ?? messageIndex,
+                controller,
+              );
+            },
+          });
+          return;
+        }
+
+        if (autoCandidates.length === 0) {
+          const errorMessage =
+            "自动模式未找到可用模型，请检查所选系列和 API 配置。";
+          botMessage.streaming = false;
+          botMessage.content = errorMessage;
+          botMessage.isError = true;
+          userMessage.isError = true;
+          get().updateTargetSession(session, (session) => {
+            session.messages = session.messages.concat();
+          });
+          get().onNewMessage(botMessage, session);
+          showToast(errorMessage);
+          return;
+        }
+
+        const attemptErrors: Array<{
+          candidate: AutoModelCandidate;
+          reason: string;
+        }> = [];
+
+        const attemptChatWithCandidate = async (
+          candidate: AutoModelCandidate,
+        ) => {
+          const candidateConfig = sanitizeModelConfigForCapability({
+            ...modelConfig,
+            model: candidate.model as ModelType,
+            providerName: candidate.providerName,
+          });
+
+          botMessage.model = candidate.model as ModelType;
+          botMessage.modelIcon = getMessageIconModel(
+            candidate.model,
+            candidate.providerName,
+          );
+          botMessage.content = "";
+          botMessage.tools = [];
+          botMessage.reasoning_details = undefined;
+          botMessage.streaming = true;
+          botMessage.isError = false;
+          userMessage.isError = false;
+
+          get().updateTargetSession(session, (session) => {
+            session.messages = session.messages.concat();
+          });
+
+          const api: ClientApi = getClientApi(candidate.providerName);
+
+          return new Promise<"success" | "failed" | "aborted">((resolve) => {
+            let settled = false;
+
+            const finalize = (status: "success" | "failed" | "aborted") => {
+              if (settled) return;
+              settled = true;
+              resolve(status);
+            };
+
+            api.llm
+              .chat({
+                messages: sendMessages,
+                config: { ...candidateConfig, stream: true },
+                onUpdate(message) {
+                  botMessage.streaming = true;
+                  if (message) {
+                    botMessage.content = message;
+                  }
+                  get().updateTargetSession(session, (session) => {
+                    session.messages = session.messages.concat();
+                  });
+                },
+                onFinish(message, responseRes) {
+                  botMessage.streaming = false;
+                  const finalMessage =
+                    message || getMessageTextContent(botMessage);
+
+                  if (!finalMessage) {
+                    attemptErrors.push({
+                      candidate,
+                      reason: "空响应",
+                    });
+                    botMessage.content = "";
+                    ChatControllerPool.remove(
+                      session.id,
+                      botMessage.id ?? messageIndex,
+                    );
+                    finalize("failed");
+                    return;
+                  }
+
+                  if (isApiFailurePayload(finalMessage)) {
+                    attemptErrors.push({
+                      candidate,
+                      reason: finalMessage,
+                    });
+                    botMessage.content = "";
+                    botMessage.reasoning_details = undefined;
+                    get().updateTargetSession(session, (session) => {
+                      session.messages = session.messages.concat();
+                    });
+                    ChatControllerPool.remove(
+                      session.id,
+                      botMessage.id ?? messageIndex,
+                    );
+                    finalize("failed");
+                    return;
+                  }
+
+                  botMessage.content = finalMessage;
+                  botMessage.date = new Date().toLocaleString();
+                  botMessage.reasoning_details = (responseRes as any)
+                    ?.__reasoning_details;
+                  botMessage.isError = false;
+                  userMessage.isError = false;
+                  get().onNewMessage(botMessage, session);
+                  ChatControllerPool.remove(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                  );
+                  finalize("success");
+                },
+                onBeforeTool(tool: ChatMessageTool) {
+                  console.log("[Chat] 🔧 工具调用:", tool.function?.name);
+                  (botMessage.tools = botMessage?.tools || []).push(tool);
+                  get().updateTargetSession(session, (session) => {
+                    session.messages = session.messages.concat();
+                  });
+                },
+                onAfterTool(tool: ChatMessageTool) {
+                  botMessage?.tools?.forEach((t, i, tools) => {
+                    if (tool.id == t.id) {
+                      tools[i] = { ...tool };
+                    }
+                  });
+                  get().updateTargetSession(session, (session) => {
+                    session.messages = session.messages.concat();
+                  });
+                },
+                onError(error) {
+                  const isAborted = error.message?.includes?.("aborted");
+                  console.error(
+                    "[Chat] ❌ 自动模式候选失败:",
+                    candidate.model,
+                    candidate.providerName,
+                    error.message,
+                    isAborted ? "(已中止)" : "",
+                  );
+                  botMessage.streaming = false;
+                  botMessage.content = "";
+                  botMessage.reasoning_details = undefined;
+                  get().updateTargetSession(session, (session) => {
+                    session.messages = session.messages.concat();
+                  });
+                  ChatControllerPool.remove(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                  );
+
+                  if (isAborted) {
+                    finalize("aborted");
+                    return;
+                  }
+
+                  attemptErrors.push({
+                    candidate,
+                    reason: error.message,
+                  });
+                  finalize("failed");
+                },
+                onController(controller) {
+                  ChatControllerPool.addController(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                    controller,
+                  );
+                },
+              })
+              .catch((error) => {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                attemptErrors.push({
+                  candidate,
+                  reason: message,
+                });
+                botMessage.streaming = false;
+                botMessage.content = "";
+                get().updateTargetSession(session, (session) => {
+                  session.messages = session.messages.concat();
+                });
+                ChatControllerPool.remove(
+                  session.id,
+                  botMessage.id ?? messageIndex,
+                );
+                finalize("failed");
+              });
+          });
+        };
+
+        for (const candidate of autoCandidates) {
+          const result = await attemptChatWithCandidate(candidate);
+          if (result === "success") {
+            return;
+          }
+          if (result === "aborted") {
+            return;
+          }
+        }
+
+        const summary = buildAutoModeFailureSummary(attemptErrors);
+        botMessage.streaming = false;
+        botMessage.content = summary;
+        botMessage.isError = true;
+        botMessage.reasoning_details = undefined;
+        userMessage.isError = true;
+        get().updateTargetSession(session, (session) => {
+          session.messages = session.messages.concat();
         });
+        get().onNewMessage(botMessage, session);
+        showToast("自动模式尝试失败，请检查模型与 API 配置。");
       },
 
       getMemoryPrompt() {
@@ -1292,9 +1608,9 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      async getMessagesWithMemory() {
+      async getMessagesWithMemory(modelConfigOverride?: ModelConfig) {
         const session = get().currentSession();
-        const modelConfig = session.mask.modelConfig;
+        const modelConfig = modelConfigOverride ?? session.mask.modelConfig;
         const clearContextIndex = session.clearContextIndex ?? 0;
         const messages = session.messages.slice();
         const totalMessageCount = session.messages.length;

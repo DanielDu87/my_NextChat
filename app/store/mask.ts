@@ -1,10 +1,19 @@
 import { BUILTIN_MASKS } from "../masks";
 import { getLang, Lang } from "../locales";
 import { DEFAULT_TOPIC, ChatMessage } from "./chat";
-import { ModelConfig, useAppConfig } from "./config";
+import {
+  AutoModelSeriesKey,
+  ModelConfig,
+  ModelType,
+  useAppConfig,
+} from "./config";
 import { StoreKey } from "../constant";
 import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
+import { useAccessStore } from "./access";
+import { collectModelsWithDefaultModel } from "../utils/model";
+import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
+import { buildAutoModelCandidates } from "../utils/auto-model";
 
 export type Mask = {
   id: string;
@@ -32,19 +41,46 @@ export type MaskState = typeof DEFAULT_MASK_STATE & {
 };
 
 export const DEFAULT_MASK_AVATAR = "gpt-bot";
-export const createEmptyMask = () =>
-  ({
+export const createEmptyMask = () => {
+  const appConfig = useAppConfig.getState();
+  const accessStore = useAccessStore.getState();
+  const autoModelSeries = (appConfig.autoModelSeries ||
+    []) as AutoModelSeriesKey[];
+  const allModels = collectModelsWithDefaultModel(
+    appConfig.models,
+    appConfig.customModels,
+    accessStore.defaultModel,
+  );
+  const autoCandidates =
+    autoModelSeries.length > 0
+      ? buildAutoModelCandidates(
+          allModels,
+          accessStore.apiProfiles,
+          autoModelSeries,
+        )
+      : [];
+  const initialModelConfig =
+    autoCandidates.length > 0
+      ? sanitizeModelConfigForCapability({
+          ...appConfig.modelConfig,
+          model: autoCandidates[0].model as ModelType,
+          providerName: autoCandidates[0].providerName,
+        })
+      : { ...appConfig.modelConfig };
+
+  return {
     id: nanoid(),
     avatar: DEFAULT_MASK_AVATAR,
     name: DEFAULT_TOPIC,
     context: [],
     syncGlobalConfig: true, // use global config as default
-    modelConfig: { ...useAppConfig.getState().modelConfig },
+    modelConfig: initialModelConfig,
     lang: getLang(),
     builtin: false,
     createdAt: Date.now(),
     plugin: [],
-  }) as Mask;
+  } as Mask;
+};
 
 export const useMaskStore = createPersistStore(
   { ...DEFAULT_MASK_STATE },

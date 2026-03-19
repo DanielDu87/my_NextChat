@@ -573,11 +573,27 @@ export function Selector<T>(props: {
   defaultGroup?: string;
   title?: React.ReactNode;
   headerHint?: React.ReactNode;
+  filterControlsDisabled?: boolean;
+  onFilterControlsDisabledClick?: () => void;
+  groupFilterDisabled?: boolean;
+  onGroupFilterDisabledClick?: () => void;
   footer?:
     | React.ReactNode
     | ((ctx: { selectedGroup: string }) => React.ReactNode);
   centerContent?: boolean;
   resetKey?: number | string;
+  onDisabledItemClick?: () => void;
+  groupFilterAction?:
+    | React.ReactNode
+    | ((ctx: {
+        buttonClassName: string;
+        menuClassName: string;
+        optionClassName: string;
+        optionActiveClassName: string;
+        optionLeadingClassName: string;
+        iconFrameClassName: string;
+        iconImageClassName: string;
+      }) => React.ReactNode);
 }) {
   const [selectedValues, setSelectedValues] = useState<T[]>(
     Array.isArray(props.defaultSelectedValue)
@@ -891,14 +907,45 @@ export function Selector<T>(props: {
             data-selector-group-filter-root="true"
             className={styles["selector-group-filter-wrap"]}
           >
+            {props.groupFilterAction ? (
+              <div className={styles["selector-group-filter-extra"]}>
+                {typeof props.groupFilterAction === "function"
+                  ? props.groupFilterAction({
+                      buttonClassName: styles["selector-group-filter"],
+                      menuClassName: styles["selector-group-filter-menu"],
+                      optionClassName: styles["selector-group-filter-option"],
+                      optionActiveClassName:
+                        styles["selector-group-filter-option-active"],
+                      optionLeadingClassName:
+                        styles["selector-group-filter-option-leading"],
+                      iconFrameClassName:
+                        styles["selector-group-filter-icon-frame"],
+                      iconImageClassName:
+                        styles["selector-group-filter-icon-image"],
+                    })
+                  : props.groupFilterAction}
+              </div>
+            ) : null}
             <button
               type="button"
               ref={groupFilterButtonRef}
               className={clsx(styles["selector-group-filter"], {
                 [styles["selector-group-filter-open"]]: isGroupFilterOpen,
               })}
+              aria-disabled={
+                props.groupFilterDisabled || props.filterControlsDisabled
+              }
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setIsGroupFilterOpen((prev) => !prev)}
+              onClick={() => {
+                if (props.groupFilterDisabled || props.filterControlsDisabled) {
+                  (
+                    props.onGroupFilterDisabledClick ??
+                    props.onFilterControlsDisabledClick
+                  )?.();
+                  return;
+                }
+                setIsGroupFilterOpen((prev) => !prev);
+              }}
             >
               {selectedGroup !== "All" ? (
                 <span className={styles["selector-group-filter-leading"]}>
@@ -944,13 +991,27 @@ export function Selector<T>(props: {
           </div>
         )}
         {props.showSearch && !isGroupFilterOpen && (
-          <div className={styles["selector-search-wrap"]}>
+          <div
+            className={styles["selector-search-wrap"]}
+            onClick={() => {
+              if (props.filterControlsDisabled) {
+                props.onFilterControlsDisabledClick?.();
+              }
+            }}
+          >
             <input
               type="text"
               className={styles["selector-search"]}
               placeholder="搜索模型..."
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              disabled={props.filterControlsDisabled}
+              onChange={(e) => {
+                if (props.filterControlsDisabled) {
+                  props.onFilterControlsDisabledClick?.();
+                  return;
+                }
+                setSearchText(e.target.value);
+              }}
             />
           </div>
         )}
@@ -964,7 +1025,13 @@ export function Selector<T>(props: {
                   [styles["selector-quick-filter-active"]]:
                     selectedQuickFilter === "all",
                 })}
-                onClick={() => setSelectedQuickFilter("all")}
+                onClick={() => {
+                  if (props.filterControlsDisabled) {
+                    props.onFilterControlsDisabledClick?.();
+                    return;
+                  }
+                  setSelectedQuickFilter("all");
+                }}
               >
                 全部
               </button>
@@ -976,7 +1043,13 @@ export function Selector<T>(props: {
                     [styles["selector-quick-filter-active"]]:
                       selectedQuickFilter === filter.key,
                   })}
-                  onClick={() => setSelectedQuickFilter(filter.key)}
+                  onClick={() => {
+                    if (props.filterControlsDisabled) {
+                      props.onFilterControlsDisabledClick?.();
+                      return;
+                    }
+                    setSelectedQuickFilter(filter.key);
+                  }}
                 >
                   {filter.label}
                 </button>
@@ -1021,6 +1094,7 @@ export function Selector<T>(props: {
                   onClick={(e) => {
                     if (item.disable) {
                       e.stopPropagation();
+                      props.onDisabledItemClick?.();
                     } else {
                       handleSelection(e, item.value);
                     }
