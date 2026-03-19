@@ -16,6 +16,7 @@ import { getClientApi } from "../client/api";
 import { ChatControllerPool } from "../client/controller";
 import { showToast } from "../components/ui-lib";
 import {
+  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
   DEFAULT_SYSTEM_TEMPLATE,
@@ -1309,6 +1310,7 @@ export const useChatStore = createPersistStore(
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
+        const globalSystemPrompt = ALWAYS_USE_CHINESE_SYSTEM_PROMPT;
 
         var systemPrompts: ChatMessage[] = [];
 
@@ -1320,14 +1322,24 @@ export const useChatStore = createPersistStore(
                 fillTemplateWith("", {
                   ...modelConfig,
                   template: DEFAULT_SYSTEM_TEMPLATE,
-                }) + mcpSystemPrompt,
+                }) +
+                "\n" +
+                globalSystemPrompt +
+                mcpSystemPrompt,
             }),
           ];
         } else if (mcpEnabled) {
           systemPrompts = [
             createMessage({
               role: "system",
-              content: mcpSystemPrompt,
+              content: `${globalSystemPrompt}${mcpSystemPrompt}`,
+            }),
+          ];
+        } else {
+          systemPrompts = [
+            createMessage({
+              role: "system",
+              content: globalSystemPrompt,
             }),
           ];
         }

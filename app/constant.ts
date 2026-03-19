@@ -300,6 +300,9 @@ Latex inline: \\(x^2\\)
 Latex block: $$e=mc^2$$
 `;
 
+export const ALWAYS_USE_CHINESE_SYSTEM_PROMPT =
+  "请始终使用中文回答用户，除非用户明确要求你使用其他语言。";
+
 export const MCP_TOOLS_TEMPLATE = `
 [clientId]
 {{ clientId }}
@@ -497,7 +500,7 @@ export const VISION_MODEL_REGEXES = [
   /o3/,
   /o4-mini/,
   /grok-4/i,
-  /gpt-5/
+  /gpt-5/,
 ];
 
 export const EXCLUDE_VISION_MODEL_REGEXES = [/claude-3-5-haiku-20241022/];
@@ -565,7 +568,7 @@ const googleModels = [
   "gemini-2.0-pro-exp",
   "gemini-2.0-pro-exp-02-05",
   "gemini-2.5-pro-preview-06-05",
-  "gemini-2.5-pro"
+  "gemini-2.5-pro",
 ];
 
 const anthropicModels = [

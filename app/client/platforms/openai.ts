@@ -1,6 +1,7 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
 import {
+  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
   ApiPath,
   OPENAI_BASE_URL,
   OpenaiPath,
@@ -757,7 +758,7 @@ export class ChatGPTApi implements LLMApi {
     if (accessStore.useCustomConfig) {
       console.log("[ChatGPTApi.path] useCustomConfig=true", {
         customUrl: accessStore.customUrl,
-        path: path
+        path: path,
       });
 
       if (isAzure && !accessStore.isValidAzure()) {
@@ -1199,6 +1200,10 @@ export class ChatGPTApi implements LLMApi {
       }
 
       if (isGpt5) {
+        (requestPayload as RequestPayload).messages.unshift({
+          role: "developer",
+          content: ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
+        });
         // Remove max_tokens if present
         delete requestPayload.max_tokens;
         // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
@@ -1209,7 +1214,7 @@ export class ChatGPTApi implements LLMApi {
         // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
         (requestPayload as RequestPayload).messages.unshift({
           role: "developer",
-          content: "Formatting re-enabled",
+          content: `${ALWAYS_USE_CHINESE_SYSTEM_PROMPT}\nFormatting re-enabled`,
         });
 
         // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
