@@ -27,6 +27,11 @@ import {
   getSyncableChatSessions,
   type ChatIndexSessionEntry,
 } from "../utils/chat-sync";
+import {
+  getChatGlobalClearAtFromState,
+  getDeletedSessionTimestampsFromState,
+  isEffectivelyEmptyRemoteChatState,
+} from "../utils/chat-sync-state";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
@@ -335,10 +340,7 @@ function shouldUploadChatSession(
 }
 
 function getChatGlobalClearAt(state: unknown) {
-  const value =
-    isObjectLike(state) && "globalClearAt" in state ? state.globalClearAt : 0;
-  const nextValue = Number(value);
-  return Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 0;
+  return getChatGlobalClearAtFromState(state);
 }
 
 function getChatSessionLastUpdate(session: unknown) {
@@ -349,27 +351,7 @@ function getChatSessionLastUpdate(session: unknown) {
 }
 
 function getDeletedSessionTimestamps(state: unknown) {
-  if (
-    !isObjectLike(state) ||
-    !("deletedSessionTimestamps" in state) ||
-    !isObjectLike(state.deletedSessionTimestamps)
-  ) {
-    return {} as Record<string, number>;
-  }
-
-  return Object.fromEntries(
-    Object.entries(state.deletedSessionTimestamps).filter(([, value]) => {
-      const deletedAt = Number(value);
-      return Number.isFinite(deletedAt) && deletedAt > 0;
-    }),
-  ) as Record<string, number>;
-}
-
-function isEffectivelyEmptyRemoteChatState(state: unknown) {
-  return (
-    getChatGlobalClearAt(state) <= 0 &&
-    Object.keys(getDeletedSessionTimestamps(state)).length === 0
-  );
+  return getDeletedSessionTimestampsFromState(state);
 }
 
 function mergeDeletedSessionTimestamps(...maps: Array<Record<string, number>>) {
