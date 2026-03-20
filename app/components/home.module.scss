@@ -168,8 +168,27 @@
 
 .sidebar-body {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.chat-list,
+.chat-list-scroll {
+  height: 100%;
+  overflow-y: auto;
   overflow-x: hidden;
+}
+
+.chat-list-virtual {
+  position: relative;
+}
+
+.chat-list-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  padding-bottom: 10px;
 }
 
 .chat-item {

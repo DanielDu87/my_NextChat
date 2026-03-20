@@ -6,7 +6,9 @@ import {
 } from "../utils";
 
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
+import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
 import { nanoid } from "nanoid";
+import { createJSONStorage } from "zustand/middleware";
 import type {
   ClientApi,
   MultimodalContent,
@@ -51,6 +53,11 @@ import {
 import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
 
 const localStorage = safeLocalStorage();
+const STREAM_REFRESH_DELAY = 48;
+const pendingSessionRefreshTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
 
 export type ChatMessageTool = {
   id: string;
@@ -108,6 +115,16 @@ export interface ChatSession {
   clearContextIndex?: number;
 
   mask: Mask;
+}
+
+export interface ChatSessionSummary {
+  id: string;
+  topic: string;
+  messageCount: number;
+  createdAt: number;
+  displayTime: number;
+  avatar: string;
+  model: ModelType;
 }
 
 function getLocaleStoreStrings() {
@@ -237,6 +254,48 @@ export function createEmptySession(): ChatSession {
 
     mask: createEmptyMask(),
   };
+}
+
+function buildSessionSummary(session: ChatSession): ChatSessionSummary {
+  return {
+    id: session.id,
+    topic: session.topic,
+    messageCount: session.messages.length,
+    createdAt: session.createdAt,
+    displayTime: session.createdAt || session.lastUpdate || Date.now(),
+    avatar: session.mask.avatar,
+    model: session.mask.modelConfig.model,
+  };
+}
+
+export function buildSessionSummaries(sessions: ChatSession[]) {
+  return sessions.map(buildSessionSummary);
+}
+
+function shouldRefreshSessionSummary(
+  previousSession: ChatSession,
+  nextSession: ChatSession,
+) {
+  return (
+    previousSession.topic !== nextSession.topic ||
+    previousSession.createdAt !== nextSession.createdAt ||
+    previousSession.messages.length !== nextSession.messages.length ||
+    previousSession.mask.avatar !== nextSession.mask.avatar ||
+    previousSession.mask.modelConfig.model !==
+      nextSession.mask.modelConfig.model
+  );
+}
+
+function clearPendingSessionRefresh(sessionId: string | undefined) {
+  if (!sessionId) {
+    return;
+  }
+
+  const timer = pendingSessionRefreshTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingSessionRefreshTimers.delete(sessionId);
+  }
 }
 
 function getSummarizeTarget(targetSession?: ChatSession) {
@@ -824,8 +883,11 @@ async function getMcpSystemPrompt(): Promise<string> {
   return MCP_SYSTEM_TEMPLATE.replace("{{ MCP_TOOLS }}", toolsStr);
 }
 
+const DEFAULT_SESSION = createEmptySession();
+
 const DEFAULT_CHAT_STATE = {
-  sessions: [createEmptySession()],
+  sessions: [DEFAULT_SESSION],
+  sessionSummaries: [buildSessionSummary(DEFAULT_SESSION)],
   currentSessionIndex: 0,
   lastInput: "",
   globalClearAt: 0,
@@ -898,6 +960,7 @@ export const useChatStore = createPersistStore(
 
         const nextState = {
           sessions,
+          sessionSummaries: buildSessionSummaries(sessions),
           currentSessionIndex: 0,
         };
 
@@ -938,6 +1001,10 @@ export const useChatStore = createPersistStore(
 
         set((state) => ({
           currentSessionIndex: 0,
+          sessionSummaries: [
+            buildSessionSummary(newSession),
+            ...state.sessionSummaries,
+          ],
           sessions: [newSession, ...state.sessions],
         }));
       },
@@ -952,6 +1019,7 @@ export const useChatStore = createPersistStore(
         );
         set(() => ({
           sessions: newSessions,
+          sessionSummaries: buildSessionSummaries(newSessions),
           currentSessionIndex: 0,
           globalClearAt,
           deletedSessionTimestamps,
@@ -992,13 +1060,22 @@ export const useChatStore = createPersistStore(
 
       moveSession(from: number, to: number) {
         set((state) => {
-          const { sessions, currentSessionIndex: oldIndex } = state;
+          const {
+            sessions,
+            sessionSummaries,
+            currentSessionIndex: oldIndex,
+          } = state;
 
           // move the session
           const newSessions = [...sessions];
           const session = newSessions[from];
           newSessions.splice(from, 1);
           newSessions.splice(to, 0, session);
+
+          const newSessionSummaries = [...sessionSummaries];
+          const summary = newSessionSummaries[from];
+          newSessionSummaries.splice(from, 1);
+          newSessionSummaries.splice(to, 0, summary);
 
           // modify current session id
           let newIndex = oldIndex === from ? to : oldIndex;
@@ -1010,6 +1087,7 @@ export const useChatStore = createPersistStore(
 
           return {
             currentSessionIndex: newIndex,
+            sessionSummaries: newSessionSummaries,
             sessions: newSessions,
           };
         });
@@ -1049,6 +1127,10 @@ export const useChatStore = createPersistStore(
 
         set((state) => ({
           currentSessionIndex: 0,
+          sessionSummaries: [
+            buildSessionSummary(session),
+            ...state.sessionSummaries,
+          ],
           sessions: [session].concat(state.sessions),
         }));
 
@@ -1089,6 +1171,7 @@ export const useChatStore = createPersistStore(
         const restoreState = {
           currentSessionIndex: get().currentSessionIndex,
           sessions: get().sessions.slice(),
+          sessionSummaries: get().sessionSummaries.slice(),
           deletedSessionTimestamps: {
             ...get().deletedSessionTimestamps,
           },
@@ -1101,6 +1184,7 @@ export const useChatStore = createPersistStore(
 
         set(() => ({
           currentSessionIndex: nextIndex,
+          sessionSummaries: buildSessionSummaries(sessions),
           sessions,
           deletedSessionTimestamps,
         }));
@@ -1150,6 +1234,7 @@ export const useChatStore = createPersistStore(
       },
 
       onNewMessage(message: ChatMessage, targetSession: ChatSession) {
+        get().flushTargetSessionRefresh(targetSession);
         get().updateTargetSession(targetSession, (session) => {
           session.messages = session.messages.concat();
           session.lastUpdate = Date.now();
@@ -1165,6 +1250,54 @@ export const useChatStore = createPersistStore(
         import("./sync").then(({ useSyncStore }) => {
           useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
         });
+      },
+
+      scheduleTargetSessionRefresh(
+        targetSession: ChatSession,
+        delay: number = STREAM_REFRESH_DELAY,
+      ) {
+        const sessionId = targetSession?.id;
+        if (!sessionId) {
+          return;
+        }
+
+        if (pendingSessionRefreshTimers.has(sessionId)) {
+          return;
+        }
+
+        const timer = setTimeout(
+          () => {
+            pendingSessionRefreshTimers.delete(sessionId);
+            const sessions = get().sessions;
+            const index = sessions.findIndex(
+              (session) => session.id === sessionId,
+            );
+            if (index < 0) {
+              return;
+            }
+
+            set(() => ({ sessions }));
+          },
+          Math.max(0, delay),
+        );
+
+        pendingSessionRefreshTimers.set(sessionId, timer);
+      },
+
+      flushTargetSessionRefresh(targetSession: ChatSession) {
+        const sessionId = targetSession?.id;
+        if (!sessionId) {
+          return;
+        }
+
+        clearPendingSessionRefresh(sessionId);
+        const sessions = get().sessions;
+        const index = sessions.findIndex((session) => session.id === sessionId);
+        if (index < 0) {
+          return;
+        }
+
+        set(() => ({ sessions }));
       },
 
       async onUserInput(
@@ -1308,11 +1441,10 @@ export const useChatStore = createPersistStore(
               if (message) {
                 botMessage.content = message;
               }
-              get().updateTargetSession(session, (session) => {
-                session.messages = session.messages.concat();
-              });
+              get().scheduleTargetSessionRefresh(session);
             },
             async onFinish(message, responseRes) {
+              get().flushTargetSessionRefresh(session);
               botMessage.streaming = false;
               const finalMessage = message || getMessageTextContent(botMessage);
               if (finalMessage) {
@@ -1338,18 +1470,14 @@ export const useChatStore = createPersistStore(
                 }
                 get().onNewMessage(botMessage, session);
               } else {
-                get().updateTargetSession(session, (session) => {
-                  session.messages = session.messages.concat();
-                });
+                get().flushTargetSessionRefresh(session);
               }
               ChatControllerPool.remove(session.id, botMessage.id);
             },
             onBeforeTool(tool: ChatMessageTool) {
               console.log("[Chat] 🔧 工具调用:", tool.function?.name);
               (botMessage.tools = botMessage?.tools || []).push(tool);
-              get().updateTargetSession(session, (session) => {
-                session.messages = session.messages.concat();
-              });
+              get().flushTargetSessionRefresh(session);
             },
             onAfterTool(tool: ChatMessageTool) {
               botMessage?.tools?.forEach((t, i, tools) => {
@@ -1357,11 +1485,10 @@ export const useChatStore = createPersistStore(
                   tools[i] = { ...tool };
                 }
               });
-              get().updateTargetSession(session, (session) => {
-                session.messages = session.messages.concat();
-              });
+              get().flushTargetSessionRefresh(session);
             },
             onError(error) {
+              get().flushTargetSessionRefresh(session);
               const isAborted = error.message?.includes?.("aborted");
               console.error(
                 "[Chat] ❌ API 调用失败:",
@@ -1377,9 +1504,7 @@ export const useChatStore = createPersistStore(
               botMessage.streaming = false;
               userMessage.isError = !isAborted;
               botMessage.isError = !isAborted;
-              get().updateTargetSession(session, (session) => {
-                session.messages = session.messages.concat();
-              });
+              get().flushTargetSessionRefresh(session);
               ChatControllerPool.remove(
                 session.id,
                 botMessage.id ?? messageIndex,
@@ -1485,11 +1610,10 @@ export const useChatStore = createPersistStore(
                   if (message) {
                     botMessage.content = message;
                   }
-                  get().updateTargetSession(session, (session) => {
-                    session.messages = session.messages.concat();
-                  });
+                  get().scheduleTargetSessionRefresh(session);
                 },
                 onFinish(message, responseRes) {
+                  get().flushTargetSessionRefresh(session);
                   botMessage.streaming = false;
                   const finalMessage =
                     message || getMessageTextContent(botMessage);
@@ -1532,9 +1656,7 @@ export const useChatStore = createPersistStore(
                     });
                     botMessage.content = "";
                     botMessage.reasoning_details = undefined;
-                    get().updateTargetSession(session, (session) => {
-                      session.messages = session.messages.concat();
-                    });
+                    get().flushTargetSessionRefresh(session);
                     ChatControllerPool.remove(
                       session.id,
                       botMessage.id ?? messageIndex,
@@ -1566,9 +1688,7 @@ export const useChatStore = createPersistStore(
                 onBeforeTool(tool: ChatMessageTool) {
                   console.log("[Chat] 🔧 工具调用:", tool.function?.name);
                   (botMessage.tools = botMessage?.tools || []).push(tool);
-                  get().updateTargetSession(session, (session) => {
-                    session.messages = session.messages.concat();
-                  });
+                  get().flushTargetSessionRefresh(session);
                 },
                 onAfterTool(tool: ChatMessageTool) {
                   botMessage?.tools?.forEach((t, i, tools) => {
@@ -1576,11 +1696,10 @@ export const useChatStore = createPersistStore(
                       tools[i] = { ...tool };
                     }
                   });
-                  get().updateTargetSession(session, (session) => {
-                    session.messages = session.messages.concat();
-                  });
+                  get().flushTargetSessionRefresh(session);
                 },
                 onError(error) {
+                  get().flushTargetSessionRefresh(session);
                   const isAborted = error.message?.includes?.("aborted");
                   const logMethod = isAborted ? console.log : console.warn;
                   logMethod("[Chat] 自动模式尝试失败:", {
@@ -1595,9 +1714,7 @@ export const useChatStore = createPersistStore(
                   botMessage.streaming = false;
                   botMessage.content = "";
                   botMessage.reasoning_details = undefined;
-                  get().updateTargetSession(session, (session) => {
-                    session.messages = session.messages.concat();
-                  });
+                  get().flushTargetSessionRefresh(session);
                   ChatControllerPool.remove(
                     session.id,
                     botMessage.id ?? messageIndex,
@@ -1640,9 +1757,7 @@ export const useChatStore = createPersistStore(
               });
               botMessage.streaming = false;
               botMessage.content = "";
-              get().updateTargetSession(session, (session) => {
-                session.messages = session.messages.concat();
-              });
+              get().flushTargetSessionRefresh(session);
               ChatControllerPool.remove(
                 session.id,
                 botMessage.id ?? messageIndex,
@@ -1828,7 +1943,10 @@ export const useChatStore = createPersistStore(
         const messages = session.messages;
         messages.splice(messageIndex, 1);
         session.lastUpdate = Date.now();
-        set(() => ({ sessions }));
+        set(() => ({
+          sessions,
+          sessionSummaries: buildSessionSummaries(sessions),
+        }));
 
         import("./sync").then(({ useSyncStore }) => {
           useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
@@ -2055,9 +2173,31 @@ export const useChatStore = createPersistStore(
         const sessions = get().sessions;
         const index = sessions.findIndex((s) => s.id === targetSession.id);
         if (index < 0) return;
+        const previousSession = {
+          ...sessions[index],
+          messages: sessions[index].messages.slice(),
+          mask: {
+            ...sessions[index].mask,
+            modelConfig: {
+              ...sessions[index].mask.modelConfig,
+            },
+          },
+        };
         updater(sessions[index]);
         sessions[index].lastUpdate = Date.now();
-        set(() => ({ sessions }));
+        set((state) => {
+          if (!shouldRefreshSessionSummary(previousSession, sessions[index])) {
+            return { sessions };
+          }
+
+          const sessionSummaries = state.sessionSummaries.slice();
+          sessionSummaries[index] = buildSessionSummary(sessions[index]);
+
+          return {
+            sessions,
+            sessionSummaries,
+          };
+        });
       },
       async clearAllData() {
         await clearPersistedStateStorage();
@@ -2106,7 +2246,8 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.5,
+    version: 3.6,
+    storage: createJSONStorage(() => chatPersistStorage as any) as any,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -2195,6 +2336,12 @@ export const useChatStore = createPersistStore(
 
       if (version < 3.5) {
         newState.deletedSessionTimestamps = {};
+      }
+
+      if (version < 3.6 || !Array.isArray((newState as any).sessionSummaries)) {
+        (newState as any).sessionSummaries = buildSessionSummaries(
+          newState.sessions,
+        );
       }
 
       return newState as any;

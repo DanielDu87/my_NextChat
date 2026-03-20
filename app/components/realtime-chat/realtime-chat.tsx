@@ -185,19 +185,16 @@ export function RealtimeChat({
             await Promise.all([textTask(), audioTask()]);
           }
           // update message.content
-          chatStore.updateTargetSession(session, (session) => {
-            session.messages = session.messages.concat();
-          });
+          chatStore.scheduleTargetSessionRefresh(session);
         }
+        chatStore.flushTargetSessionRefresh(session);
         if (hasAudio) {
           // upload audio get audio_url
           const blob = audioHandlerRef.current?.savePlayFile();
           uploadImage(blob!).then((audio_url) => {
             botMessage.audio_url = audio_url;
             // update text and audio_url
-            chatStore.updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
+            chatStore.flushTargetSessionRefresh(session);
           });
         }
       }
@@ -223,9 +220,7 @@ export function RealtimeChat({
       );
       uploadImage(blob!).then((audio_url) => {
         userMessage.audio_url = audio_url;
-        chatStore.updateTargetSession(session, (session) => {
-          session.messages = session.messages.concat();
-        });
+        chatStore.flushTargetSessionRefresh(session);
       });
     }
     // stop streaming play after get input audio.
@@ -286,6 +281,7 @@ export function RealtimeChat({
       audioHandlerRef.current?.close().catch(console.error);
       disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

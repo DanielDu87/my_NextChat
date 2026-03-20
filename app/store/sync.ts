@@ -37,7 +37,7 @@ import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
-import { createEmptySession } from "./chat";
+import { buildSessionSummaries, createEmptySession } from "./chat";
 
 export interface WebDavConfig {
   server: string;
@@ -303,6 +303,21 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(2)} MB`;
 }
 
+function normalizeMergedChatState(chatState: any) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const safeIndex = Math.min(
+    Math.max(Number(chatState?.currentSessionIndex) || 0, 0),
+    Math.max(sessions.length - 1, 0),
+  );
+
+  return {
+    ...chatState,
+    sessions,
+    currentSessionIndex: safeIndex,
+    sessionSummaries: buildSessionSummaries(sessions),
+  };
+}
+
 function shouldFetchRemoteChatSession(
   localEntry: ChatIndexSessionEntry | undefined,
   remoteEntry: ChatIndexSessionEntry,
@@ -529,7 +544,7 @@ export const useSyncStore = createPersistStore(
 
         return {
           remoteSummary: "远端 0 个会话",
-          mergedStoreState: localChatState,
+          mergedStoreState: normalizeMergedChatState(localChatState),
           mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
           status: "uploaded" as const,
           metrics: {
@@ -571,7 +586,7 @@ export const useSyncStore = createPersistStore(
 
         return {
           remoteSummary: "远端 0 个会话",
-          mergedStoreState: localChatState,
+          mergedStoreState: normalizeMergedChatState(localChatState),
           mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
           status: "uploaded" as const,
           metrics: {
@@ -687,15 +702,20 @@ export const useSyncStore = createPersistStore(
           deleteSessionIds,
         });
 
+        const normalizedMergedStoreState = normalizeMergedChatState({
+          ...mergedStoreState,
+          deletedSessionTimestamps: {},
+        });
+
         return {
           remoteSummary: getStoreSummary(StoreKey.Chat, {
             sessions: remoteIndex.sessions || [],
           }),
-          mergedStoreState: {
-            ...mergedStoreState,
-            deletedSessionTimestamps: {},
-          },
-          mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
+          mergedStoreState: normalizedMergedStoreState,
+          mergedSummary: getStoreSummary(
+            StoreKey.Chat,
+            normalizedMergedStoreState,
+          ),
           status: "merged" as const,
           metrics: {
             downloadedSessionCount: remoteSessionIdsToFetch.length,
@@ -743,15 +763,20 @@ export const useSyncStore = createPersistStore(
         deleteSessionIds,
       });
 
+      const normalizedMergedStoreState = normalizeMergedChatState({
+        ...mergedStoreState,
+        deletedSessionTimestamps: {},
+      });
+
       return {
         remoteSummary: getStoreSummary(StoreKey.Chat, {
           sessions: remoteIndex.sessions || [],
         }),
-        mergedStoreState: {
-          ...mergedStoreState,
-          deletedSessionTimestamps: {},
-        },
-        mergedSummary: getStoreSummary(StoreKey.Chat, mergedStoreState),
+        mergedStoreState: normalizedMergedStoreState,
+        mergedSummary: getStoreSummary(
+          StoreKey.Chat,
+          normalizedMergedStoreState,
+        ),
         status: "merged" as const,
         metrics: {
           downloadedSessionCount: remoteSessionIdsToFetch.length,

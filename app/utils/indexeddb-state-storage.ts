@@ -89,6 +89,11 @@ class IndexedDbStateStorage implements StateStorage {
     }
   }
 
+  public async getRawItem(name: string) {
+    if (!this.isAvailable()) return null;
+    return this.getFromIndexedDb(name);
+  }
+
   private async setToIndexedDb(name: string, value: string) {
     const db = await openDb();
     try {
@@ -100,6 +105,11 @@ class IndexedDbStateStorage implements StateStorage {
     }
   }
 
+  public async setRawItem(name: string, value: string) {
+    if (!this.isAvailable()) return;
+    await this.setToIndexedDb(name, value);
+  }
+
   private async deleteFromIndexedDb(name: string) {
     const db = await openDb();
     try {
@@ -109,6 +119,11 @@ class IndexedDbStateStorage implements StateStorage {
     } finally {
       db.close();
     }
+  }
+
+  public async removeRawItem(name: string) {
+    if (!this.isAvailable()) return;
+    await this.deleteFromIndexedDb(name);
   }
 
   private async clearIndexedDb() {
