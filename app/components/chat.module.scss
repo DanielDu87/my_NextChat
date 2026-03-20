@@ -151,6 +151,18 @@
   transform: translateY(-1px);
 }
 
+:global(body.dark) .provider-button-model {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .provider-button-model {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.92);
+  }
+}
+
 // 消息操作按钮保持横向排列
 .chat-message-actions .chat-input-actions {
   flex-direction: row !important;
