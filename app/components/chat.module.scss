@@ -635,6 +635,12 @@
 
   > :global(svg) {
     stroke: #3b82f6 !important;
+    fill: #3b82f6 !important;
+
+    path {
+      stroke: #3b82f6 !important;
+      fill: #3b82f6 !important;
+    }
   }
 }
 
@@ -1409,6 +1415,12 @@
   // 钩图标颜色
   > :global(svg) {
     stroke: #93c5fd !important;
+    fill: #93c5fd !important;
+
+    path {
+      stroke: #93c5fd !important;
+      fill: #93c5fd !important;
+    }
   }
 
   &:hover {
@@ -1576,12 +1588,29 @@
     // 钩图标颜色
     > :global(svg) {
       stroke: #93c5fd !important;
+      fill: #93c5fd !important;
+
+      path {
+        stroke: #93c5fd !important;
+        fill: #93c5fd !important;
+      }
     }
 
     &:hover {
       border-color: rgba(96, 165, 250, 0.9) !important;
     }
   }
+
+:global(body.dark) .model-selector-auto-button-active svg,
+:global(body.dark) .model-selector-auto-button-active svg path,
+:global(body:not(.light):not(.dark)) .model-selector-auto-button-active svg,
+:global(body:not(.light):not(.dark))
+  .model-selector-auto-button-active
+  svg
+  path {
+  stroke: #0ea5e9 !important;
+  fill: #0ea5e9 !important;
+}
 
   :global(body:not(.light):not(.dark)) .provider-switch-toast-content {
     background: rgba(96, 165, 250, 0.9);
