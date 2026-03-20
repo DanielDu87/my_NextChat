@@ -21,6 +21,7 @@ import {
   useState,
   memo,
   ComponentProps,
+  useDeferredValue,
 } from "react";
 import { showConfirm } from "./ui-lib";
 import { useMobileScreen } from "../utils";
@@ -172,6 +173,8 @@ export function ChatList(props: { narrow?: boolean }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const [filterText, setFilterText] = useState("");
+  const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
 
   const pinnedSession = sessionSummaries.find(isPinnedNewChat);
   const displayedSessions = useMemo<DisplayedSession[]>(
@@ -200,9 +203,27 @@ export function ChatList(props: { narrow?: boolean }) {
           })),
     [pinnedSession, sessionSummaries],
   );
+  const filteredSessions = useMemo(() => {
+    if (!deferredFilterText) {
+      return displayedSessions;
+    }
+
+    return displayedSessions.filter(({ session }) => {
+      const topic = session.topic.toLowerCase();
+      const model = String(session.model || "").toLowerCase();
+      const id = session.id.toLowerCase();
+
+      return (
+        topic.includes(deferredFilterText) ||
+        model.includes(deferredFilterText) ||
+        id.includes(deferredFilterText)
+      );
+    });
+  }, [deferredFilterText, displayedSessions]);
 
   const itemHeight = props.narrow ? NARROW_ITEM_HEIGHT : NORMAL_ITEM_HEIGHT;
-  const shouldVirtualize = displayedSessions.length > VIRTUAL_LIST_THRESHOLD;
+  const shouldVirtualize = filteredSessions.length > VIRTUAL_LIST_THRESHOLD;
+  const dragEnabled = !deferredFilterText && !shouldVirtualize;
 
   useEffect(() => {
     if (!shouldVirtualize || !listRef.current) {
@@ -225,7 +246,7 @@ export function ChatList(props: { narrow?: boolean }) {
       return;
     }
 
-    const displayedIndex = displayedSessions.findIndex(
+    const displayedIndex = filteredSessions.findIndex(
       (item) => item.originalIndex === selectedIndex,
     );
 
@@ -245,7 +266,7 @@ export function ChatList(props: { narrow?: boolean }) {
     listRef.current.scrollTo({
       top: Math.max(0, itemTop - listRef.current.clientHeight / 2 + itemHeight),
     });
-  }, [displayedSessions, itemHeight, selectedIndex, shouldVirtualize]);
+  }, [filteredSessions, itemHeight, selectedIndex, shouldVirtualize]);
 
   const onDeleteSession = async (originalIndex: number) => {
     if (
@@ -284,17 +305,17 @@ export function ChatList(props: { narrow?: boolean }) {
     moveSession(sourceItem.originalIndex, destinationItem.originalIndex);
   };
 
-  const totalHeight = displayedSessions.length * itemHeight;
+  const totalHeight = filteredSessions.length * itemHeight;
   const startIndex = Math.max(
     0,
     Math.floor(scrollTop / itemHeight) - VIRTUAL_OVERSCAN,
   );
   const visibleCount = Math.ceil((viewportHeight || itemHeight) / itemHeight);
   const endIndex = Math.min(
-    displayedSessions.length,
+    filteredSessions.length,
     startIndex + visibleCount + VIRTUAL_OVERSCAN * 2,
   );
-  const visibleSessions = displayedSessions.slice(startIndex, endIndex);
+  const visibleSessions = filteredSessions.slice(startIndex, endIndex);
 
   useEffect(() => {
     if (!isPerfDebugEnabled()) {
@@ -303,20 +324,22 @@ export function ChatList(props: { narrow?: boolean }) {
 
     console.info("[Perf][ChatList]", {
       totalSessions: displayedSessions.length,
+      filteredSessions: filteredSessions.length,
       selectedIndex,
       narrow: Boolean(props.narrow),
       virtualized: shouldVirtualize,
       renderedCount: shouldVirtualize
         ? visibleSessions.length
-        : displayedSessions.length,
+        : filteredSessions.length,
       viewportHeight,
       scrollTop,
       startIndex: shouldVirtualize ? startIndex : 0,
-      endIndex: shouldVirtualize ? endIndex : displayedSessions.length,
+      endIndex: shouldVirtualize ? endIndex : filteredSessions.length,
     });
   }, [
     displayedSessions.length,
     endIndex,
+    filteredSessions.length,
     props.narrow,
     scrollTop,
     selectedIndex,
@@ -326,44 +349,60 @@ export function ChatList(props: { narrow?: boolean }) {
     visibleSessions.length,
   ]);
 
-  if (!shouldVirtualize) {
-    return (
-      <DragDropContext onDragEnd={onDragEnd}>
-        <Droppable droppableId="chat-list">
-          {(provided) => (
-            <div
-              className={styles["chat-list"]}
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-            >
-              {displayedSessions.map(({ session: item, originalIndex }, i) => (
-                <DraggableChatItem
-                  key={item.id}
-                  id={item.id}
-                  index={i}
-                  title={item.topic}
-                  time={new Date(item.displayTime).toLocaleString()}
-                  count={item.messageCount}
-                  selected={originalIndex === selectedIndex}
-                  onClick={() => {
-                    navigate(Path.Chat);
-                    selectSession(originalIndex);
-                  }}
-                  onDelete={() => void onDeleteSession(originalIndex)}
-                  narrow={props.narrow}
-                  avatar={item.avatar}
-                  model={item.model}
-                />
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-      </DragDropContext>
-    );
-  }
-
-  return (
+  const listContent = dragEnabled ? (
+    <DragDropContext onDragEnd={onDragEnd}>
+      <Droppable droppableId="chat-list">
+        {(provided) => (
+          <div
+            className={styles["chat-list"]}
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+          >
+            {filteredSessions.map(({ session: item, originalIndex }, i) => (
+              <DraggableChatItem
+                key={item.id}
+                id={item.id}
+                index={i}
+                title={item.topic}
+                time={new Date(item.displayTime).toLocaleString()}
+                count={item.messageCount}
+                selected={originalIndex === selectedIndex}
+                onClick={() => {
+                  navigate(Path.Chat);
+                  selectSession(originalIndex);
+                }}
+                onDelete={() => void onDeleteSession(originalIndex)}
+                narrow={props.narrow}
+                avatar={item.avatar}
+                model={item.model}
+              />
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+    </DragDropContext>
+  ) : !shouldVirtualize ? (
+    <div className={styles["chat-list"]}>
+      {filteredSessions.map(({ session: item, originalIndex }) => (
+        <StaticChatItem
+          key={item.id}
+          title={item.topic}
+          time={new Date(item.displayTime).toLocaleString()}
+          count={item.messageCount}
+          selected={originalIndex === selectedIndex}
+          onClick={() => {
+            navigate(Path.Chat);
+            selectSession(originalIndex);
+          }}
+          onDelete={() => void onDeleteSession(originalIndex)}
+          narrow={props.narrow}
+          avatar={item.avatar}
+          model={item.model}
+        />
+      ))}
+    </div>
+  ) : (
     <div
       className={styles["chat-list-scroll"]}
       ref={listRef}
@@ -402,6 +441,27 @@ export function ChatList(props: { narrow?: boolean }) {
           );
         })}
       </div>
+    </div>
+  );
+
+  return (
+    <div className={styles["chat-list-panel"]}>
+      {!props.narrow && (
+        <div className={styles["chat-list-filter-card"]}>
+          <input
+            type="text"
+            className={styles["chat-list-filter-input"]}
+            placeholder={Locale.SearchChat.Page.Search}
+            value={filterText}
+            onChange={(e) => setFilterText(e.currentTarget.value)}
+          />
+        </div>
+      )}
+      {filteredSessions.length === 0 ? (
+        <div className={styles["chat-list-empty"]}>没有匹配的会话</div>
+      ) : (
+        listContent
+      )}
     </div>
   );
 }

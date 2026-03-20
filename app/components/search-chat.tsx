@@ -1,4 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useEffect,
+  startTransition,
+} from "react";
 import { ErrorBoundary } from "./error";
 import styles from "./mask.module.scss";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +23,11 @@ type Item = {
   name: string;
   content: string;
 };
+
+const MAX_RESULTS = 200;
+const MAX_SNIPPETS_PER_SESSION = 3;
+const SNIPPET_CONTEXT_LENGTH = 35;
+
 export function SearchChatPage() {
   const navigate = useNavigate();
 
@@ -24,66 +37,159 @@ export function SearchChatPage() {
   const selectSession = chatStore.selectSession;
 
   const [searchResults, setSearchResults] = useState<Item[]>([]);
-
-  const previousValueRef = useRef<string>("");
+  const [searchText, setSearchText] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const doSearch = useCallback((text: string) => {
-    const lowerCaseText = text.toLowerCase();
-    const results: Item[] = [];
+  const searchCacheRef = useRef<
+    Map<
+      string,
+      {
+        signature: string;
+        corpus: string;
+      }
+    >
+  >(new Map());
+  const deferredSearchText = useDeferredValue(searchText.trim());
 
-    sessions.forEach((session, index) => {
-      const fullTextContents: string[] = [];
+  const indexedSessions = useMemo(
+    () =>
+      sessions.map((session, index) => ({
+        id: session.id,
+        index,
+        topic: session.topic,
+        topicLower: session.topic.toLowerCase(),
+        lastUpdate: Number(session.lastUpdate || 0),
+        messageCount: session.messages.length,
+      })),
+    [sessions],
+  );
 
-      session.messages.forEach((message) => {
-        const content = message.content as string;
-        if (!content.toLowerCase || content === "") return;
+  const getSessionCorpus = useCallback(
+    (sessionIndex: number) => {
+      const session = sessions[sessionIndex];
+      if (!session) {
+        return "";
+      }
+
+      const signature = `${session.lastUpdate}:${session.messages.length}`;
+      const cached = searchCacheRef.current.get(session.id);
+      if (cached?.signature === signature) {
+        return cached.corpus;
+      }
+
+      const corpus = session.messages
+        .map((message) =>
+          typeof message.content === "string"
+            ? message.content.toLowerCase()
+            : "",
+        )
+        .filter(Boolean)
+        .join("\n");
+
+      searchCacheRef.current.set(session.id, {
+        signature,
+        corpus,
+      });
+
+      return corpus;
+    },
+    [sessions],
+  );
+
+  const buildSessionSnippets = useCallback(
+    (sessionIndex: number, lowerCaseText: string) => {
+      const session = sessions[sessionIndex];
+      if (!session) {
+        return [];
+      }
+
+      const snippets: string[] = [];
+
+      for (const message of session.messages) {
+        const content =
+          typeof message.content === "string" ? message.content : "";
+        if (!content) {
+          continue;
+        }
+
         const lowerCaseContent = content.toLowerCase();
-
-        // full text search
         let pos = lowerCaseContent.indexOf(lowerCaseText);
-        while (pos !== -1) {
-          const start = Math.max(0, pos - 35);
-          const end = Math.min(content.length, pos + lowerCaseText.length + 35);
-          fullTextContents.push(content.substring(start, end));
+
+        while (pos !== -1 && snippets.length < MAX_SNIPPETS_PER_SESSION) {
+          const start = Math.max(0, pos - SNIPPET_CONTEXT_LENGTH);
+          const end = Math.min(
+            content.length,
+            pos + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
+          );
+          snippets.push(content.substring(start, end));
           pos = lowerCaseContent.indexOf(
             lowerCaseText,
             pos + lowerCaseText.length,
           );
         }
-      });
 
-      if (fullTextContents.length > 0) {
-        results.push({
-          id: index,
-          name: session.topic,
-          content: fullTextContents.join("... "), // concat content with...
-        });
-      }
-    });
-
-    // sort by length of matching content
-    results.sort((a, b) => b.content.length - a.content.length);
-
-    return results;
-  }, []);
-
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (searchInputRef.current) {
-        const currentValue = searchInputRef.current.value;
-        if (currentValue !== previousValueRef.current) {
-          if (currentValue.length > 0) {
-            const result = doSearch(currentValue);
-            setSearchResults(result);
-          }
-          previousValueRef.current = currentValue;
+        if (snippets.length >= MAX_SNIPPETS_PER_SESSION) {
+          break;
         }
       }
-    }, 1000);
 
-    // Cleanup the interval on component unmount
-    return () => clearInterval(intervalId);
-  }, [doSearch]);
+      return snippets;
+    },
+    [sessions],
+  );
+
+  const doSearch = useCallback(
+    (text: string) => {
+      const lowerCaseText = text.toLowerCase();
+      const results: Array<Item & { score: number; lastUpdate: number }> = [];
+
+      indexedSessions.forEach((entry) => {
+        const topicMatched = entry.topicLower.includes(lowerCaseText);
+        const corpus = getSessionCorpus(entry.index);
+        const contentMatched = corpus.includes(lowerCaseText);
+
+        if (!topicMatched && !contentMatched) {
+          return;
+        }
+
+        const snippets = buildSessionSnippets(entry.index, lowerCaseText);
+        const score =
+          (topicMatched ? 1000 : 0) +
+          snippets.length * 100 +
+          Math.min(entry.messageCount, 100);
+
+        results.push({
+          id: entry.index,
+          name: entry.topic,
+          content: snippets.join("... ") || entry.topic,
+          score,
+          lastUpdate: entry.lastUpdate,
+        });
+      });
+
+      results.sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+
+        return b.lastUpdate - a.lastUpdate;
+      });
+
+      return results
+        .slice(0, MAX_RESULTS)
+        .map(({ score, lastUpdate, ...item }) => item);
+    },
+    [buildSessionSnippets, getSessionCorpus, indexedSessions],
+  );
+
+  useEffect(() => {
+    if (!deferredSearchText) {
+      startTransition(() => setSearchResults([]));
+      return;
+    }
+
+    const nextResults = doSearch(deferredSearchText);
+    startTransition(() => setSearchResults(nextResults));
+  }, [deferredSearchText, doSearch]);
 
   return (
     <ErrorBoundary>
@@ -119,13 +225,15 @@ export function SearchChatPage() {
               placeholder={Locale.SearchChat.Page.Search}
               autoFocus
               ref={searchInputRef}
+              value={searchText}
+              onChange={(e) => setSearchText(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  const searchText = e.currentTarget.value;
-                  if (searchText.length > 0) {
-                    const result = doSearch(searchText);
-                    setSearchResults(result);
+                  const nextSearchText = e.currentTarget.value.trim();
+                  if (nextSearchText.length > 0) {
+                    const result = doSearch(nextSearchText);
+                    startTransition(() => setSearchResults(result));
                   }
                 }
               }}
