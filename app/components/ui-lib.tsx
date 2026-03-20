@@ -90,9 +90,13 @@ export function ListItem(props: {
   );
 }
 
-export function List(props: { children: React.ReactNode; id?: string }) {
+export function List(props: {
+  children: React.ReactNode;
+  id?: string;
+  className?: string;
+}) {
   return (
-    <div className={styles.list} id={props.id}>
+    <div className={clsx(styles.list, props.className)} id={props.id}>
       {props.children}
     </div>
   );
@@ -1001,9 +1005,14 @@ export function Selector<T>(props: {
             <button
               type="button"
               ref={groupFilterButtonRef}
-              className={clsx(styles["selector-group-filter"], {
-                [styles["selector-group-filter-open"]]: isGroupFilterOpen,
-              })}
+              className={clsx(
+                styles["selector-group-filter"],
+                {
+                  [styles["selector-group-filter-open"]]: isGroupFilterOpen,
+                },
+                (props.groupFilterDisabled || props.filterControlsDisabled) &&
+                  styles["selector-control-disabled"],
+              )}
               aria-disabled={
                 props.groupFilterDisabled || props.filterControlsDisabled
               }
@@ -1064,7 +1073,11 @@ export function Selector<T>(props: {
         )}
         {props.showSearch && !isGroupFilterOpen && (
           <div
-            className={styles["selector-search-wrap"]}
+            className={clsx(
+              styles["selector-search-wrap"],
+              props.filterControlsDisabled &&
+                styles["selector-control-disabled"],
+            )}
             onClick={() => {
               if (props.filterControlsDisabled) {
                 props.onFilterControlsDisabledClick?.();
@@ -1093,10 +1106,15 @@ export function Selector<T>(props: {
             <div className={styles["selector-quick-filters"]}>
               <button
                 type="button"
-                className={clsx(styles["selector-quick-filter"], {
-                  [styles["selector-quick-filter-active"]]:
-                    selectedQuickFilter === "all",
-                })}
+                className={clsx(
+                  styles["selector-quick-filter"],
+                  {
+                    [styles["selector-quick-filter-active"]]:
+                      selectedQuickFilter === "all",
+                  },
+                  props.filterControlsDisabled &&
+                    styles["selector-control-disabled"],
+                )}
                 onClick={() => {
                   if (props.filterControlsDisabled) {
                     props.onFilterControlsDisabledClick?.();
@@ -1111,10 +1129,15 @@ export function Selector<T>(props: {
                 <button
                   type="button"
                   key={filter.key}
-                  className={clsx(styles["selector-quick-filter"], {
-                    [styles["selector-quick-filter-active"]]:
-                      selectedQuickFilter === filter.key,
-                  })}
+                  className={clsx(
+                    styles["selector-quick-filter"],
+                    {
+                      [styles["selector-quick-filter-active"]]:
+                        selectedQuickFilter === filter.key,
+                    },
+                    props.filterControlsDisabled &&
+                      styles["selector-control-disabled"],
+                  )}
                   onClick={() => {
                     if (props.filterControlsDisabled) {
                       props.onFilterControlsDisabledClick?.();
@@ -1136,7 +1159,14 @@ export function Selector<T>(props: {
             </div>
           </div>
         ) : !isGroupFilterOpen ? (
-          <List id="selector-list">
+          <List
+            id="selector-list"
+            className={
+              props.filterControlsDisabled
+                ? styles["selector-list-disabled"]
+                : undefined
+            }
+          >
             {groupedItems.map((entry) => {
               if (entry.type === "group") {
                 return (

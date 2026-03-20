@@ -385,9 +385,9 @@
   padding: 0 12px;
   box-sizing: border-box;
   border-radius: 999px;
-  background: var(--gray);
-  border: var(--border-in-light);
-  color: var(--black);
+  background: linear-gradient(180deg, #f8fbff 0%, #edf5ff 100%);
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  color: #2563eb;
   font-size: 14px;
   font-weight: 700;
 }
@@ -602,9 +602,9 @@
 }
 
 :global(body.light) .model-selector-hint-count {
-  background: var(--gray);
-  border: var(--border-in-light);
-  color: var(--black);
+  background: linear-gradient(180deg, #f8fbff 0%, #edf5ff 100%);
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  color: #2563eb;
 }
 
 :global(body.light) .model-selector-provider-menu {
