@@ -1188,6 +1188,7 @@ export function Selector<T>(props: {
                 <ListItem
                   className={clsx(styles["selector-item"], {
                     [styles["selector-item-disabled"]]: item.disable,
+                    [styles["selector-item-active"]]: selected,
                   })}
                   key={entry.key}
                   title={item.title}
