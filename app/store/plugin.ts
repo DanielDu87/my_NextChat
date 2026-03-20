@@ -273,8 +273,14 @@ export const usePluginStore = createPersistStore(
                 const plugin = state.create(item);
                 state.updatePlugin(plugin.id, (plugin) => {
                   const tool = FunctionToolService.add(plugin, true);
-                  plugin.title = tool.api.definition.info.title;
-                  plugin.version = tool.api.definition.info.version;
+                  const info = tool?.api?.definition?.info;
+                  plugin.title =
+                    info?.title ||
+                    plugin.title ||
+                    item.title ||
+                    item.name ||
+                    item.id;
+                  plugin.version = info?.version || plugin.version || "";
                   plugin.builtin = true;
                 });
               });

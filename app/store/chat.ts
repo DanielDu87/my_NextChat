@@ -1192,6 +1192,7 @@ export const useChatStore = createPersistStore(
               autoModelSeries,
             )
           : [];
+        const selectedAutoSeries = autoModelSeries[0];
         const initialModelConfig =
           autoModeEnabled && autoCandidates.length > 0
             ? sanitizeModelConfigForCapability({
@@ -1211,6 +1212,19 @@ export const useChatStore = createPersistStore(
           "提供商:",
           displayProviderName,
         );
+        if (autoModeEnabled) {
+          console.log("[Chat] 🔄 自动模式已启用:", {
+            selectedSeries: selectedAutoSeries || null,
+            candidateCount: autoCandidates.length,
+            candidates: autoCandidates.map((candidate, index) => ({
+              index: index + 1,
+              series: candidate.series,
+              provider: candidate.providerDisplayName,
+              providerName: candidate.providerName,
+              model: candidate.model,
+            })),
+          });
+        }
 
         // MCP Response no need to fill template
         let mContent: string | MultimodalContent[] = isMcpResponse
@@ -1401,7 +1415,12 @@ export const useChatStore = createPersistStore(
 
         const attemptChatWithCandidate = async (
           candidate: AutoModelCandidate,
+          attemptIndex: number,
         ) => {
+          const candidateProfile = getProfileForModel(
+            candidate.providerId,
+            candidate.providerName,
+          );
           const candidateConfig = sanitizeModelConfigForCapability({
             ...modelConfig,
             model: candidate.model as ModelType,
@@ -1427,6 +1446,18 @@ export const useChatStore = createPersistStore(
 
           const api: ClientApi = getClientApi(candidate.providerName);
 
+          console.log("[Chat] 🚀 自动模式请求:", {
+            selectedSeries: selectedAutoSeries || candidate.series,
+            attempt: `${attemptIndex + 1}/${autoCandidates.length}`,
+            series: candidate.series,
+            provider: candidate.providerDisplayName,
+            providerName: candidate.providerName,
+            providerId: candidate.providerId,
+            profileName: candidateProfile?.name || null,
+            profileBaseUrl: candidateProfile?.baseUrl || null,
+            model: candidate.model,
+          });
+
           return new Promise<"success" | "failed" | "aborted">((resolve) => {
             let settled = false;
 
@@ -1436,8 +1467,8 @@ export const useChatStore = createPersistStore(
               resolve(status);
             };
 
-            api.llm
-              .chat({
+            withSummarizeProfile(candidateProfile as any, () =>
+              api.llm.chat({
                 messages: sendMessages,
                 config: { ...candidateConfig, stream: true },
                 onUpdate(message) {
@@ -1521,7 +1552,8 @@ export const useChatStore = createPersistStore(
                   console.error(
                     "[Chat] ❌ 自动模式候选失败:",
                     candidate.model,
-                    candidate.providerName,
+                    candidate.providerDisplayName,
+                    candidate.providerId,
                     error.message,
                     isAborted ? "(已中止)" : "",
                   );
@@ -1554,30 +1586,33 @@ export const useChatStore = createPersistStore(
                     controller,
                   );
                 },
-              })
-              .catch((error) => {
-                const message =
-                  error instanceof Error ? error.message : String(error);
-                attemptErrors.push({
-                  candidate,
-                  reason: message,
-                });
-                botMessage.streaming = false;
-                botMessage.content = "";
-                get().updateTargetSession(session, (session) => {
-                  session.messages = session.messages.concat();
-                });
-                ChatControllerPool.remove(
-                  session.id,
-                  botMessage.id ?? messageIndex,
-                );
-                finalize("failed");
+              }),
+            ).catch((error) => {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              attemptErrors.push({
+                candidate,
+                reason: message,
               });
+              botMessage.streaming = false;
+              botMessage.content = "";
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+              ChatControllerPool.remove(
+                session.id,
+                botMessage.id ?? messageIndex,
+              );
+              finalize("failed");
+            });
           });
         };
 
-        for (const candidate of autoCandidates) {
-          const result = await attemptChatWithCandidate(candidate);
+        for (const [attemptIndex, candidate] of autoCandidates.entries()) {
+          const result = await attemptChatWithCandidate(
+            candidate,
+            attemptIndex,
+          );
           if (result === "success") {
             return;
           }

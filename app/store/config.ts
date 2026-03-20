@@ -16,7 +16,10 @@ import {
 } from "../constant";
 import { createPersistStore } from "../utils/store";
 import { safeLocalStorage } from "../utils";
-import { normalizePublishedAt } from "../utils/model-published-at";
+import {
+  getTodayPublishedAt,
+  normalizePublishedAt,
+} from "../utils/model-published-at";
 import type { Voice } from "rt-client";
 
 export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
@@ -294,6 +297,12 @@ export const useAppConfig = createPersistStore(
             typeof existing?.publishedAtNote === "string"
               ? existing.publishedAtNote
               : undefined;
+        } else if (!existing && !nextPublishedAt) {
+          model.publishedAt = getTodayPublishedAt();
+          model.publishedAtSource = "synced_at";
+          if (!model.publishedAtNote) {
+            model.publishedAtNote = "模型首次同步入库时按当天日期兜底";
+          }
         }
         modelMap[`${model.name}@${model?.provider?.id}`] = model;
       }

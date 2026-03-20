@@ -1,6 +1,7 @@
 import {
   comparePublishedAt,
   extractPublishedAtFromName,
+  getTodayPublishedAt,
   resolveModelPublishedAt,
 } from "../app/utils/model-published-at";
 
@@ -14,6 +15,12 @@ describe("model publishedAt", () => {
     );
     expect(extractPublishedAtFromName("qwen-202501")).toBeUndefined();
     expect(extractPublishedAtFromName("model-2025")).toBeUndefined();
+  });
+
+  test("should format sync fallback date as yyyymmdd", () => {
+    expect(getTodayPublishedAt(new Date("2026-03-20T08:00:00.000Z"))).toBe(
+      20260320,
+    );
   });
 
   test("should resolve family fallback when model has no standalone date", () => {

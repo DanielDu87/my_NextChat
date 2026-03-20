@@ -85,6 +85,9 @@ export interface RequestPayload {
     effort?: string;
     max_tokens?: number;
   };
+  thinking?: {
+    type?: string;
+  };
   media_resolution?: string;
   response_format?:
     | "url"
@@ -136,6 +139,18 @@ function isGeminiImagePreviewModel(model: string) {
 
 function isAiHubMixBaseUrl(baseUrl: string) {
   return baseUrl.includes("aihubmix.com");
+}
+
+function isCustomDoubaoThinkingModel(
+  providerName: ServiceProvider | undefined,
+  model: string,
+) {
+  if (providerName !== ServiceProvider.Custom) {
+    return false;
+  }
+
+  const lowerModel = model.toLowerCase();
+  return lowerModel.startsWith("doubao");
 }
 
 function isVeoVideoModel(model: string) {
@@ -1183,6 +1198,16 @@ export class ChatGPTApi implements LLMApi {
             | Record<string, unknown>
             | undefined),
           max_tokens: reasoningSettings.reasoningMaxTokens,
+        };
+      }
+
+      // 豆包的 OpenAI 兼容接口默认可能把思考过程直接混进 content。
+      // 对自定义兼容渠道默认关闭 thinking，避免正文里出现思考文本和额外空白。
+      if (
+        isCustomDoubaoThinkingModel(modelConfig.providerName, modelConfig.model)
+      ) {
+        requestPayload["thinking"] = {
+          type: "disabled",
         };
       }
 

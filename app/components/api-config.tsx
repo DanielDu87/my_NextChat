@@ -885,7 +885,6 @@ export function ApiConfigPage() {
   const refreshRemoteSignals = useCallback(async () => {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
       setRemoteModelRefresh(null);
-      setRemoteModelMetas([]);
       setRemoteDataLoaded(false);
       return;
     }
@@ -999,20 +998,17 @@ export function ApiConfigPage() {
     appConfig.models || [],
     allProfiles,
   );
-  const getStoredMeta = () => useSyncStore.getState().database.cacheMeta || {};
   const updateStoredMeta = (metas: StoreSnapshotMeta[]) => {
     useSyncStore.getState().updateDatabaseMeta?.(metas);
   };
-  const hasRemoteMetaChanges = (metas: StoreSnapshotMeta[]) => {
-    const localMeta = getStoredMeta();
+  const hasRemoteModelCountChanges = (remoteCount?: number) => {
+    if (remoteCount === undefined) return false;
 
-    return metas.some((meta) => {
-      const cached = localMeta[meta.key];
-      if (!cached) return true;
-      return (
-        cached.updatedAt !== meta.updatedAt || cached.checksum !== meta.checksum
-      );
-    });
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const currentModels = useAppConfig.getState().models || [];
+    const localCount = countCloudMergedModels(currentModels, currentProfiles);
+
+    return localCount !== remoteCount;
   };
   const staleModelUpdateNotices = getStaleModelUpdateNotices(
     allProfiles,
@@ -1328,36 +1324,42 @@ export function ApiConfigPage() {
             console.log(`[API Config] 🗂️ 页面加载，优先使用本地缓存数据...`);
             console.log(LOG_SEPARATOR);
 
-            const client = syncStore.getClient() as any;
-            if (typeof client.getMeta === "function") {
-              console.log(`[API Config] 🔍 正在检查云端版本...`);
-              client
-                .getMeta([...DATABASE_META_KEYS])
-                .then((metas: StoreSnapshotMeta[]) => {
-                  const hasChanges = hasRemoteMetaChanges(metas);
-                  updateStoredMeta(metas);
-                  if (!hasChanges) {
-                    console.log("[API Config] ✅ 云端无更新，继续使用本地缓存");
-                    console.log(LOG_SEPARATOR);
-                    return;
-                  }
+            console.log(`[API Config] 🔍 正在检查云端模型数量...`);
+            fetch("/api/db/models/latest", {
+              cache: "no-store",
+            })
+              .then((response) => {
+                if (!response.ok) {
+                  throw new Error(
+                    `[API Config] ${response.status} ${response.statusText}`,
+                  );
+                }
 
-                  console.log(
-                    '[API Config] ℹ️ 检测到云端更新，已保留本地缓存；请点击"保存并同步"手动刷新模型',
-                  );
+                return response.json();
+              })
+              .then((payload) => {
+                const remoteCount = payload?.ok
+                  ? payload?.latest?.modelCount
+                  : undefined;
+
+                if (!hasRemoteModelCountChanges(remoteCount)) {
+                  console.log("[API Config] ✅ 云端无更新，继续使用本地缓存");
                   console.log(LOG_SEPARATOR);
-                })
-                .catch((error: unknown) => {
-                  console.log(
-                    "[API Config] ℹ️ 云端版本检查失败，继续使用本地缓存:",
-                    error,
-                  );
-                  console.log(LOG_SEPARATOR);
-                });
-            } else {
-              console.log("[API Config] ℹ️ 当前客户端不支持云端版本检查");
-              console.log(LOG_SEPARATOR);
-            }
+                  return;
+                }
+
+                console.log(
+                  '[API Config] ℹ️ 检测到云端模型数量变化，已保留本地缓存；请点击"保存并同步"手动刷新模型',
+                );
+                console.log(LOG_SEPARATOR);
+              })
+              .catch((error: unknown) => {
+                console.log(
+                  "[API Config] ℹ️ 云端数量检查失败，继续使用本地缓存:",
+                  error,
+                );
+                console.log(LOG_SEPARATOR);
+              });
           } else {
             console.log(LOG_SEPARATOR);
             console.log("[API Config] ℹ️ 当前未启用数据库同步");

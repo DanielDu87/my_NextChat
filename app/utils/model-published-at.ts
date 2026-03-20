@@ -3,6 +3,7 @@ export type ModelPublishedAtSource =
   | "official"
   | "family"
   | "manual"
+  | "synced_at"
   | "openrouter"
   | "llm_stats"
   | "huggingface"
@@ -1062,6 +1063,13 @@ export function normalizePublishedAt(publishedAt?: unknown) {
     return Number(publishedAt);
   }
   return undefined;
+}
+
+export function getTodayPublishedAt(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return Number(`${year}${month}${day}`);
 }
 
 export function extractPublishedAtFromName(name?: string) {

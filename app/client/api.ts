@@ -28,7 +28,10 @@ import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
 import type { ModelPublishedAtSource } from "../utils/model-published-at";
-import { getCustomModelApiKeySelection } from "../utils/model-api-key-memory";
+import {
+  getCustomModelApiKeySelection,
+  isRememberedApiKeyProfile,
+} from "../utils/model-api-key-memory";
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -329,10 +332,45 @@ export function getHeaders(ignoreHeaders: boolean = false) {
         profile.baseUrl,
     );
 
+    const activeCustomProfile = accessStore.apiProfiles.find((profile) => {
+      if (
+        profile.provider !== ServiceProvider.Custom ||
+        !profile.baseUrl ||
+        profile.baseUrl !== accessStore.customUrl
+      ) {
+        return false;
+      }
+
+      if (!accessStore.customApiKey) {
+        return true;
+      }
+
+      return profile.apiKey === accessStore.customApiKey;
+    });
+
+    const currentCustomProfile =
+      activeCustomProfile ?? enabledCustomProfile ?? undefined;
+
     const resolveCustomApiKey = () => {
+      if (!currentCustomProfile) {
+        return {
+          current: accessStore.customApiKey,
+          fallback: [] as string[],
+          fallbackGroups: [] as string[],
+        };
+      }
+
+      if (!isRememberedApiKeyProfile(currentCustomProfile as any)) {
+        return {
+          current: currentCustomProfile.apiKey || accessStore.customApiKey,
+          fallback: [] as string[],
+          fallbackGroups: [] as string[],
+        };
+      }
+
       return getCustomModelApiKeySelection(
         modelConfig.model,
-        enabledCustomProfile as any,
+        currentCustomProfile as any,
         appConfigStore.models || [],
       );
     };
@@ -395,6 +433,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       fallbackApiKeys: apiKeyInfo.fallback,
       fallbackApiKeyGroups: (apiKeyInfo as any).fallbackGroups || [],
       isEnabledAccessControl,
+      currentCustomProfile,
     };
   }
 
@@ -427,6 +466,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     fallbackApiKeys,
     fallbackApiKeyGroups,
     isEnabledAccessControl,
+    currentCustomProfile,
   } = getConfig();
   // when using baidu api in app, not set auth header
   if (isBaidu && clientConfig?.isApp) return headers;
@@ -460,17 +500,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
             model.name ===
               (useChatStore.getState().currentSession?.()?.mask?.modelConfig
                 ?.model ?? DEFAULT_CONFIG.modelConfig.model) &&
-            model.provider?.id ===
-              `custom_${
-                useAccessStore
-                  .getState()
-                  .apiProfiles.find(
-                    (profile) =>
-                      profile.enabled &&
-                      profile.provider === ServiceProvider.Custom &&
-                      profile.baseUrl,
-                  )?.name || ""
-              }`,
+            model.provider?.id === `custom_${currentCustomProfile?.name || ""}`,
         )?.apiKeyGroup ||
         "");
     if (rememberedGroup) {

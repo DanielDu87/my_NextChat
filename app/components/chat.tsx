@@ -1738,6 +1738,10 @@ function _Chat() {
   );
   const currentProviderDisplayName = activeProfile?.name || currentProviderName;
   const autoModeEnabled = autoModelSeries.length > 0;
+  const selectedAutoModelSeries = autoModelSeries[0];
+  const selectedAutoModelSeriesLabel = selectedAutoModelSeries
+    ? getAutoModelSeriesLabel(selectedAutoModelSeries)
+    : "";
   const autoModelSelectionEmpty = showAutoModelSelector && !autoModeEnabled;
   const manualModelSelectionDisabled = autoModeEnabled;
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
@@ -1751,7 +1755,9 @@ function _Chat() {
       modelSelectorNoticeTimerRef.current = null;
     }, 2200);
   };
-  const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
+  const autoModeButtonText = autoModeEnabled
+    ? `自动模式（${selectedAutoModelSeriesLabel}）`
+    : "自动模式（未开启）";
   const modelSelectorButtonText = autoModeEnabled ? (
     <>{autoModeButtonText}</>
   ) : (
@@ -3643,7 +3649,7 @@ function _Chat() {
                   className={styles["model-selector-provider-menu"]}
                 >
                   {autoModelSeriesItems.map((item) => {
-                    const active = autoModelSeries.includes(item.value);
+                    const active = selectedAutoModelSeries === item.value;
                     const iconSrc =
                       item.value === "gpt"
                         ? "/provider-icons/openai.png"
@@ -3663,11 +3669,9 @@ function _Chat() {
                         )}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
-                          const nextSelection = active
-                            ? autoModelSeries.filter((v) => v !== item.value)
-                            : [...autoModelSeries, item.value];
-                          const normalized =
-                            normalizeAutoModelSeries(nextSelection);
+                          const normalized = active
+                            ? []
+                            : normalizeAutoModelSeries([item.value]);
                           config.update((config) => {
                             config.autoModelSeries = normalized;
                           });

@@ -9,6 +9,10 @@ import {
   type SyncedLLMModel,
 } from "@/app/utils/server/provider-model-fetch";
 import {
+  getTodayPublishedAt,
+  normalizePublishedAt,
+} from "@/app/utils/model-published-at";
+import {
   type ModelCatalogUpsertRow,
   upsertModelCatalogRows,
 } from "./model-catalog-repository";
@@ -110,10 +114,42 @@ function mergeProviderModels(
 
   nextModels.forEach((model) => {
     const providerId = String(model.provider?.id || "").toLowerCase();
-    mergedModelMap.set(`${model.name}@${providerId}`, {
+    const existing =
+      mergedModelMap.get(`${model.name}@${providerId}`) ||
+      existingModels.find(
+        (item) =>
+          `${item.name}@${String(item.provider?.id || "").toLowerCase()}` ===
+          `${model.name}@${providerId}`,
+      );
+    const existingPublishedAt = normalizePublishedAt(existing?.publishedAt);
+    const nextPublishedAt = normalizePublishedAt(model.publishedAt);
+    const nextModel: SyncedLLMModel = {
       ...model,
       available: true,
-    });
+    };
+
+    if (
+      existingPublishedAt &&
+      (!nextPublishedAt || existing?.publishedAtSource === "manual")
+    ) {
+      nextModel.publishedAt = existingPublishedAt;
+      nextModel.publishedAtSource = existing?.publishedAtSource;
+      nextModel.publishedAtUrl =
+        typeof existing?.publishedAtUrl === "string"
+          ? existing.publishedAtUrl
+          : undefined;
+      nextModel.publishedAtNote =
+        typeof existing?.publishedAtNote === "string"
+          ? existing.publishedAtNote
+          : undefined;
+    } else if (!existing && !nextPublishedAt) {
+      nextModel.publishedAt = getTodayPublishedAt();
+      nextModel.publishedAtSource = "synced_at";
+      nextModel.publishedAtNote =
+        nextModel.publishedAtNote || "模型首次同步入库时按当天日期兜底";
+    }
+
+    mergedModelMap.set(`${model.name}@${providerId}`, nextModel);
   });
 
   return [...mergedModelMap.values()];

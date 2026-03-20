@@ -157,6 +157,7 @@ const SOURCE_PRIORITY: Record<ModelPublishedAtSource, number> = {
   llm_stats: 5,
   artificial_analysis: 4,
   huggingface: 3,
+  synced_at: 2,
   family: 2,
   manual: 1,
 };
