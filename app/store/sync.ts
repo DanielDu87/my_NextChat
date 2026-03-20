@@ -24,6 +24,7 @@ import {
   buildChatStateFromIndex,
   createChatIndexEntryMap,
   createChatSessionMap,
+  getSyncableChatSessions,
   type ChatIndexSessionEntry,
 } from "../utils/chat-sync";
 import { showToast } from "../components/ui-lib";
@@ -521,6 +522,7 @@ export const useSyncStore = createPersistStore(
       const localSessions = Array.isArray(localChatState.sessions)
         ? localChatState.sessions
         : [];
+      const syncableLocalSessions = getSyncableChatSessions(localSessions);
       const remoteIndex = await client.getChatIndex?.();
       const localDeletedSessionTimestamps =
         getDeletedSessionTimestamps(localChatState);
@@ -528,10 +530,11 @@ export const useSyncStore = createPersistStore(
       if (!remoteIndex) {
         const localIndex = buildChatIndexPayload(localChatState);
         const uploadBytes =
-          measureJsonBytes(localIndex) + measureJsonBytes(localSessions);
+          measureJsonBytes(localIndex) +
+          measureJsonBytes(syncableLocalSessions);
         await client.setChatDelta?.({
           index: localIndex,
-          upsertSessions: localSessions,
+          upsertSessions: syncableLocalSessions,
           deleteSessionIds: [],
         });
 
@@ -543,7 +546,7 @@ export const useSyncStore = createPersistStore(
           metrics: {
             downloadedSessionCount: 0,
             downloadedBytes: 0,
-            uploadedSessionCount: localSessions.length,
+            uploadedSessionCount: syncableLocalSessions.length,
             uploadedBytes: uploadBytes,
             deletedSessionCount: 0,
           },

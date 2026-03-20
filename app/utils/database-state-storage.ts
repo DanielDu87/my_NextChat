@@ -68,26 +68,35 @@ class DatabaseStateStorage implements StateStorage {
 
     try {
       this.hydrating.add(name);
+      const pendingValue = this.pendingWrites.get(name);
       const response = await request(this.path(name), "GET");
       const text = await response.text();
       if (text.length > 0) {
-        this.cache.set(name, text);
-        this.pendingWrites.delete(name);
+        const resolvedValue = pendingValue ?? text;
+        if (pendingValue) {
+          await request(this.path(name), "PUT", pendingValue);
+        }
+        this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
-        return text;
+        return resolvedValue;
       }
 
       const migratedValue = await this.migrateLegacyValue(name);
       this.hydrated.add(name);
       if (migratedValue) {
-        return migratedValue;
+        const resolvedValue = pendingValue ?? migratedValue;
+        if (pendingValue) {
+          await request(this.path(name), "PUT", pendingValue);
+        }
+        this.cache.set(name, resolvedValue);
+        return resolvedValue;
       }
 
       await this.flushPendingWrite(name);
-      return this.cache.get(name) ?? null;
+      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } catch (error) {
       console.error(`[DatabaseStateStorage] 读取 ${name} 失败`, error);
-      return this.cache.get(name) ?? null;
+      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } finally {
       this.hydrating.delete(name);
     }

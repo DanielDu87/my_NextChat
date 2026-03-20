@@ -825,8 +825,6 @@ export function Selector<T>(props: {
     xai: "/provider-icons/xai.png",
     xiaomi: "/provider-icons/xiaomi.png",
     zhipu: "/provider-icons/zhipu.png",
-    智谱: "/provider-icons/zhipu.png",
-    万物: "/provider-icons/lingyi.png",
   };
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";

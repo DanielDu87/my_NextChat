@@ -1,5 +1,6 @@
 import { STORAGE_KEY, StoreKey } from "@/app/constant";
 import { SyncStore } from "@/app/store/sync";
+import { getSyncableChatSessions } from "@/app/utils/chat-sync";
 
 export type WebDAVConfig = SyncStore["webdav"];
 export type WebDavClient = ReturnType<typeof createWebDavClient>;
@@ -79,13 +80,15 @@ function omitSessionMessages(session: JsonObject) {
 }
 
 function buildChatIndexPayload(chatState: JsonObject) {
+  const syncableSessions = getSyncableChatSessions(
+    Array.isArray(chatState.sessions) ? chatState.sessions : [],
+  );
+
   return {
     ...chatState,
-    sessions: Array.isArray(chatState.sessions)
-      ? chatState.sessions.map((session: JsonObject) =>
-          omitSessionMessages(session),
-        )
-      : [],
+    sessions: syncableSessions.map((session: JsonObject) =>
+      omitSessionMessages(session),
+    ),
   };
 }
 
@@ -432,9 +435,9 @@ export function createWebDavClient(store: SyncStore) {
 
   const setChatState = async (value: string) => {
     const chatState = JSON.parse(value) as JsonObject;
-    const sessions = Array.isArray(chatState.sessions)
-      ? chatState.sessions
-      : [];
+    const sessions = getSyncableChatSessions(
+      Array.isArray(chatState.sessions) ? chatState.sessions : [],
+    );
 
     await Promise.all(
       sessions.map(async (session: JsonObject) => {

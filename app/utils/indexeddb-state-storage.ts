@@ -1,5 +1,6 @@
 import { StateStorage } from "zustand/middleware";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
+import { resolveHydratedStateValue } from "./state-storage-helpers";
 
 const DB_NAME = "nextchat-local-cache";
 const STORE_NAME = "state-cache";
@@ -154,35 +155,62 @@ class IndexedDbStateStorage implements StateStorage {
 
     try {
       this.hydrating.add(name);
+      const pendingValue = this.pendingWrites.get(name);
 
       const localValue = await this.getFromIndexedDb(name);
       if (localValue) {
-        this.cache.set(name, localValue);
-        this.pendingWrites.delete(name);
+        const resolvedValue = resolveHydratedStateValue(
+          pendingValue,
+          localValue,
+        );
+        if (resolvedValue === null) {
+          return null;
+        }
+        this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
-        return localValue;
+        return resolvedValue;
       }
 
       const migratedValue = await this.migrateLegacyValue(name);
       if (migratedValue) {
-        this.pendingWrites.delete(name);
+        const resolvedValue = resolveHydratedStateValue(
+          pendingValue,
+          migratedValue,
+        );
+        if (resolvedValue === null) {
+          return null;
+        }
+        if (pendingValue) {
+          await this.setToIndexedDb(name, pendingValue);
+        }
+        this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
-        return migratedValue;
+        return resolvedValue;
       }
 
       const remoteValue = await this.seedFromRemote(name);
       if (remoteValue) {
-        this.pendingWrites.delete(name);
+        const resolvedValue = resolveHydratedStateValue(
+          pendingValue,
+          remoteValue,
+        );
+        if (resolvedValue === null) {
+          return null;
+        }
+        if (pendingValue) {
+          await this.setToIndexedDb(name, pendingValue);
+        }
+        this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
-        return remoteValue;
+        return resolvedValue;
       }
 
       this.hydrated.add(name);
       await this.flushPendingWrite(name);
-      return this.cache.get(name) ?? null;
+      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } catch (error) {
       console.error(`[IndexedDBStateStorage] 读取 ${name} 失败`, error);
-      return this.cache.get(name) ?? null;
+      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } finally {
       this.hydrating.delete(name);
     }

@@ -62,6 +62,7 @@ type ProviderStats = {
   official: number;
   family: number;
   manual: number;
+  synced_at: number;
   openrouter: number;
   llm_stats: number;
   huggingface: number;
@@ -257,6 +258,7 @@ function emptyProviderStats(): ProviderStats {
     official: 0,
     family: 0,
     manual: 0,
+    synced_at: 0,
     openrouter: 0,
     llm_stats: 0,
     huggingface: 0,

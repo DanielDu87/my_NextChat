@@ -21,42 +21,30 @@ export async function GET(request: NextRequest) {
     // 调用模型刷新逻辑
     const result = await refreshConfiguredProviderModels("webhook");
 
-    if (result.ok) {
-      console.log("[Webhook] ✅ 模型同步完成");
-      console.log("[Webhook] 📊 同步结果:");
-      console.log(`[Webhook] - 模型总数: ${result.modelCount} 个`);
-      console.log(`[Webhook] - 平台数量: ${result.profileCount} 个`);
-      result.providers?.forEach((p: any) => {
-        console.log(`[Webhook] - ${p.profileName}: ${p.fetchedCount} 个模型`);
-      });
+    console.log("[Webhook] ✅ 模型同步完成");
+    console.log("[Webhook] 📊 同步结果:");
+    console.log(`[Webhook] - 模型总数: ${result.modelCount} 个`);
+    console.log(`[Webhook] - 平台数量: ${result.profileCount} 个`);
+    result.providers?.forEach((p: any) => {
+      console.log(`[Webhook] - ${p.profileName}: ${p.fetchedCount} 个模型`);
+    });
 
-      return NextResponse.json(
-        {
-          success: true,
-          message: "模型同步完成",
-          modelCount: result.modelCount,
-          profileCount: result.profileCount,
-          timestamp: new Date().toISOString(),
+    return NextResponse.json(
+      {
+        success: true,
+        message: "模型同步完成",
+        modelCount: result.modelCount,
+        profileCount: result.profileCount,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
         },
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-          },
-        },
-      );
-    } else {
-      console.error("[Webhook] ❌ 模型同步失败");
-      return NextResponse.json(
-        {
-          success: false,
-          message: "模型同步失败",
-          error: result.error || "unknown_error",
-        },
-        { status: 500 },
-      );
-    }
+      },
+    );
   } catch (error) {
     console.error("[Webhook] ❌ 同步失败:", error);
     return NextResponse.json(

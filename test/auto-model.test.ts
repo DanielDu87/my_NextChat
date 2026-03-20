@@ -3,8 +3,9 @@ import {
   normalizeAutoModelSeries,
 } from "../app/utils/auto-model";
 import type { LLMModel } from "../app/client/api";
+import type { ServiceProvider } from "../app/constant";
 
-const CUSTOM_SERVICE_PROVIDER = "Custom";
+const CUSTOM_SERVICE_PROVIDER = "Custom" as ServiceProvider;
 
 function createModel(
   name: string,

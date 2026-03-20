@@ -10,6 +10,11 @@ import {
   PERSIST_STORE_KEYS,
   unwrapPersistedStoreState,
 } from "@/app/utils/sync-store-keys";
+import {
+  buildChatSessionRows,
+  dedupeDeleteSessionIds,
+  sanitizeJsonPayload,
+} from "@/app/utils/server/sync-store-helpers";
 import { withPgTransaction } from "./postgres";
 import { pgQuery } from "./postgres";
 
@@ -22,16 +27,6 @@ function assertStoreKey(storeKey: string) {
   if (!SUPPORTED_STORE_KEYS.has(storeKey)) {
     throw new Error(`[DB Sync] 不支持的 store key: ${storeKey}`);
   }
-}
-
-function sanitizeJsonPayload(payload: unknown) {
-  return JSON.stringify(payload, (_, value) => {
-    if (typeof value === "string") {
-      return value.replace(/\u0000/g, "");
-    }
-
-    return value;
-  });
 }
 
 function normalizeChatStorePayload(payload: unknown) {
@@ -256,9 +251,8 @@ export async function applyChatDelta(params: {
   upsertSessions: Array<Record<string, unknown>>;
   deleteSessionIds?: string[];
 }) {
-  const deleteSessionIds = [
-    ...new Set((params.deleteSessionIds || []).filter(Boolean)),
-  ];
+  const deleteSessionIds = dedupeDeleteSessionIds(params.deleteSessionIds);
+  const sessionRows = buildChatSessionRows(params.upsertSessions);
 
   await withPgTransaction(async (client) => {
     await client.query(
@@ -274,19 +268,23 @@ export async function applyChatDelta(params: {
       ],
     );
 
-    for (const session of params.upsertSessions) {
-      const sessionId = String(session.id || "");
-      if (!sessionId) {
-        continue;
-      }
-
+    if (sessionRows.length > 0) {
       await client.query(
         `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-         values ($1, $2, $3::jsonb)
+         select artifact_type, artifact_path, payload_text::jsonb
+         from unnest($1::text[], $2::text[], $3::text[]) as rows(
+           artifact_type,
+           artifact_path,
+           payload_text
+         )
          on conflict (artifact_type, artifact_path) do update set
            payload_json = excluded.payload_json,
            updated_at = now()`,
-        [CHAT_SESSION_ARTIFACT_TYPE, sessionId, sanitizeJsonPayload(session)],
+        [
+          sessionRows.map((row) => row.artifactType),
+          sessionRows.map((row) => row.artifactPath),
+          sessionRows.map((row) => row.payloadText),
+        ],
       );
     }
 
