@@ -1,7 +1,15 @@
-import { LLMModel } from "../client/api";
-import { ServiceProvider } from "../constant";
-import { comparePublishedAt } from "./model-published-at";
-import { AutoModelSeriesKey } from "../store/config";
+import type { LLMModel } from "../client/api";
+import type { ServiceProvider } from "../constant";
+import type { AutoModelSeriesKey } from "../store/config";
+
+const CUSTOM_SERVICE_PROVIDER = "Custom";
+
+type SortableModelLike = {
+  name?: string;
+  publishedAt?: number;
+  sorted?: number;
+  order?: number;
+};
 
 type AccessProfileLike = {
   name: string;
@@ -247,7 +255,7 @@ export function normalizeAutoModelSeries(
 }
 
 function getProviderIdFromProfile(profile: AccessProfileLike) {
-  return profile.provider === ServiceProvider.Custom
+  return profile.provider === CUSTOM_SERVICE_PROVIDER
     ? `custom_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
 }
@@ -395,6 +403,25 @@ function hasSnapshotDateSuffix(name: string) {
   return /(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|\d{6}|\d{8}))+$/i.test(
     name,
   );
+}
+
+function comparePublishedAt(
+  left?: SortableModelLike,
+  right?: SortableModelLike,
+) {
+  const leftPublishedAt = left?.publishedAt ?? 0;
+  const rightPublishedAt = right?.publishedAt ?? 0;
+  if (rightPublishedAt !== leftPublishedAt) {
+    return rightPublishedAt - leftPublishedAt;
+  }
+
+  const leftSorted = left?.order ?? left?.sorted ?? Number.MAX_SAFE_INTEGER;
+  const rightSorted = right?.order ?? right?.sorted ?? Number.MAX_SAFE_INTEGER;
+  if (leftSorted !== rightSorted) {
+    return leftSorted - rightSorted;
+  }
+
+  return String(left?.name || "").localeCompare(String(right?.name || ""));
 }
 
 function getDoubaoSeedVersion(name: string) {
@@ -560,7 +587,7 @@ export function buildAutoModelCandidates(
 
   const activeProfiles = profiles.filter(
     (profile) =>
-      profile.provider !== ServiceProvider.Custom || !!profile.baseUrl,
+      profile.provider !== CUSTOM_SERVICE_PROVIDER || !!profile.baseUrl,
   );
   const candidates: AutoModelCandidate[] = [];
   const seen = new Set<string>();

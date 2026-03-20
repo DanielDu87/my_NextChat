@@ -1,9 +1,10 @@
 import {
   buildAutoModelCandidates,
   normalizeAutoModelSeries,
-} from "@/app/utils/auto-model";
-import { ServiceProvider } from "@/app/constant";
-import type { LLMModel } from "@/app/client/api";
+} from "../app/utils/auto-model";
+import type { LLMModel } from "../app/client/api";
+
+const CUSTOM_SERVICE_PROVIDER = "Custom";
 
 function createModel(
   name: string,
@@ -18,7 +19,7 @@ function createModel(
     publishedAt,
     provider: {
       id: providerId,
-      providerName: ServiceProvider.Custom,
+      providerName: CUSTOM_SERVICE_PROVIDER,
       providerType: "custom",
       sorted: 0,
     },
@@ -48,13 +49,13 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "First",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: false,
           baseUrl: "https://first.example.com",
         },
         {
           name: "Second",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: false,
           baseUrl: "https://second.example.com",
         },
@@ -83,7 +84,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -103,7 +104,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -132,13 +133,13 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "First",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://first.example.com",
         },
         {
           name: "Second",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://second.example.com",
         },
@@ -169,7 +170,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -199,7 +200,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -225,7 +226,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -251,7 +252,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -277,7 +278,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -310,7 +311,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -337,7 +338,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -366,7 +367,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -415,7 +416,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -464,7 +465,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -522,7 +523,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -563,7 +564,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -592,7 +593,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },
@@ -624,7 +625,7 @@ describe("buildAutoModelCandidates", () => {
       [
         {
           name: "AihubMix",
-          provider: ServiceProvider.Custom,
+          provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
           baseUrl: "https://aihubmix.com",
         },

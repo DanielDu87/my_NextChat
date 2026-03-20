@@ -94,6 +94,10 @@ import {
   getAutoModelSeriesLabel,
   normalizeAutoModelSeries,
 } from "../utils/auto-model";
+import {
+  matchModelCategory,
+  ModelCategoryMetadata,
+} from "../utils/model-category-rules";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
@@ -811,256 +815,13 @@ export function ChatActions(props: {
       "Other"
     );
   };
-  const hasModelKeyword = (modelName: string, keywords: string[]) => {
-    const normalized = modelName.toLowerCase();
-    return keywords.some((keyword) => normalized.includes(keyword));
-  };
-  const hasModelMetadata = (
-    meta: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
+  const matchesModelCategory = (
+    item: {
+      title: string;
+      meta?: ModelCategoryMetadata;
     },
-    keywords: string[],
-  ) => {
-    const values = [
-      meta.category,
-      meta.type,
-      ...(meta.types ?? []),
-      ...(meta.features ?? []),
-      ...(meta.capabilities ?? []),
-      ...(meta.categories ?? []),
-    ]
-      .filter(Boolean)
-      .map((value) => String(value).toLowerCase());
-
-    return keywords.some((keyword) =>
-      values.some((value) => value.includes(keyword)),
-    );
-  };
-  const isImageGenerationModel = (item: {
-    title: string;
-    meta?: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
-    };
-  }) =>
-    hasModelMetadata(item.meta ?? {}, [
-      "image",
-      "vision",
-      "visual",
-      "multimodal",
-      "vl",
-      "vqa",
-      "ocr",
-      "segmentation",
-      "detection",
-      "generate-image",
-      "inpaint",
-      "outpaint",
-      "upscale",
-      "super-resolution",
-    ]) ||
-    hasModelKeyword(item.title, [
-      "image",
-      "visual",
-      "multimodal",
-      "vl",
-      "vqa",
-      "ocr",
-      "vision-image",
-      "gpt-image",
-      "dall-e",
-      "dalle",
-      "dall·e",
-      "stable-diffusion",
-      "sdxl",
-      "sd3",
-      "flux",
-      "midjourney",
-      "mj",
-      "niji",
-      "recraft",
-      "ideogram",
-      "imagen",
-      "janus",
-      "kolors",
-      "cogview",
-      "controlnet",
-      "clip",
-      "blip",
-      "segmentation",
-      "detection",
-      "inpaint",
-      "outpaint",
-      "upscale",
-      "super-resolution",
-    ]);
-  const isThinkingModel = (item: {
-    title: string;
-    meta?: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
-    };
-  }) =>
-    hasModelMetadata(item.meta ?? {}, [
-      "reason",
-      "reasoning",
-      "thinking",
-      "logic",
-      "cot",
-      "planner",
-      "plan",
-      "solver",
-      "math",
-      "analysis",
-      "reflect",
-    ]) ||
-    hasModelKeyword(item.title, [
-      "reason",
-      "reasoner",
-      "reasoning",
-      "thinking",
-      "think",
-      "r1",
-      "o1",
-      "o3",
-      "o4",
-      "qwq",
-      "qwq-math",
-      "cot",
-      "planner",
-      "planning",
-      "multi-step",
-      "logic",
-      "reflective",
-      "reflect",
-      "deliberate",
-      "analysis",
-      "plan",
-      "solver",
-      "math",
-      "deepseek-r",
-      "deepseek-r1",
-      "r2",
-      "sonnet-4",
-    ]);
-  const isVideoGenerationModel = (item: {
-    title: string;
-    meta?: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
-    };
-  }) =>
-    hasModelMetadata(item.meta ?? {}, [
-      "video",
-      "generate-video",
-      "text-to-video",
-      "image-to-video",
-      "temporal",
-      "frame",
-      "motion",
-      "animation",
-      "sequence",
-    ]) ||
-    hasModelKeyword(item.title, [
-      "video",
-      "vid",
-      "movie",
-      "veo",
-      "sora",
-      "kling",
-      "可灵",
-      "runway",
-      "gen-2",
-      "gen-3",
-      "luma",
-      "dream machine",
-      "pika",
-      "hailuo",
-      "cogvideo",
-      "hunyuanvideo",
-      "wanx2.1-t2v",
-      "temporal",
-      "frame",
-      "motion",
-      "animation",
-      "sequence",
-      "animate",
-      "t2v",
-      "i2v",
-    ]);
-  const isWebSearchModel = (item: {
-    title: string;
-    meta?: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
-    };
-  }) =>
-    hasModelMetadata(item.meta ?? {}, [
-      "search",
-      "web-search",
-      "web",
-      "online",
-      "retrieval",
-      "browser",
-      "browse",
-      "browsing",
-      "rag",
-      "grounding",
-      "plugin",
-      "realtime",
-      "real-time",
-    ]) ||
-    hasModelKeyword(item.title, [
-      "search",
-      "web",
-      "联网",
-      "联网版",
-      "sonar",
-      "perplexity",
-      "pplx",
-      "copilot",
-      "bing",
-      "searchgpt",
-      "grounding",
-      "browser",
-      "browse",
-      "online",
-      "retrieval",
-      "rag",
-      "internet",
-      "real-time",
-      "realtime",
-      "plugin",
-      "plugins",
-      "web-enabled",
-      "search-enabled",
-    ]);
+    category: "image" | "video" | "web" | "thinking",
+  ) => matchModelCategory(category, item);
 
   // switch themes
   const theme = config.theme;
@@ -2090,37 +1851,24 @@ function _Chat() {
       "Other"
     );
   };
+  const matchesModelCategory = (
+    item: {
+      title: string;
+      meta?: ModelCategoryMetadata;
+    },
+    category: "image" | "video" | "web" | "thinking",
+  ) => matchModelCategory(category, item);
   const isImageGenerationModel = (item: any) => {
-    return (
-      item?.meta?.capabilities?.includes("image") ||
-      item?.meta?.category === "image" ||
-      item?.meta?.categories?.includes("image") ||
-      item?.meta?.capability === "image"
-    );
+    return matchesModelCategory(item, "image");
   };
   const isVideoGenerationModel = (item: any) => {
-    return (
-      item?.meta?.capabilities?.includes("video") ||
-      item?.meta?.category === "video" ||
-      item?.meta?.categories?.includes("video") ||
-      item?.meta?.capability === "video"
-    );
+    return matchesModelCategory(item, "video");
   };
   const isWebSearchModel = (item: any) => {
-    return (
-      item?.meta?.features?.includes("web_search") ||
-      item?.meta?.features?.includes("web") ||
-      item?.meta?.category === "web" ||
-      item?.meta?.categories?.includes("web")
-    );
+    return matchesModelCategory(item, "web");
   };
   const isThinkingModel = (item: any) => {
-    return (
-      item?.meta?.features?.includes("thinking") ||
-      item?.meta?.category === "thinking" ||
-      item?.meta?.categories?.includes("thinking") ||
-      item?.meta?.type === "thinking"
-    );
+    return matchesModelCategory(item, "thinking");
   };
 
   // prompt hints
