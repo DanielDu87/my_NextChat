@@ -70,6 +70,7 @@ export type ChatMessage = RequestMessage & {
   isError?: boolean;
   id: string;
   model?: ModelType;
+  modelDisplay?: string;
   modelIcon?: ModelType;
   reasoning_details?: any;
   tools?: ChatMessageTool[];
@@ -1236,6 +1237,7 @@ export const useChatStore = createPersistStore(
           role: "assistant",
           streaming: true,
           model: initialModelConfig.model,
+          modelDisplay: initialModelConfig.model,
           modelIcon: getMessageIconModel(
             initialModelConfig.model,
             initialModelConfig.providerName,
@@ -1407,6 +1409,7 @@ export const useChatStore = createPersistStore(
           });
 
           botMessage.model = candidate.model as ModelType;
+          botMessage.modelDisplay = `${candidate.model}（${candidate.providerDisplayName}）`;
           botMessage.modelIcon = getMessageIconModel(
             candidate.model,
             candidate.providerName,

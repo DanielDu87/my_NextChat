@@ -16,6 +16,7 @@ export type AutoModelCandidate = {
   providerName: ServiceProvider;
   providerId: string;
   displayName: string;
+  providerDisplayName: string;
 };
 
 type AutoModelInput = Omit<LLMModel, "provider"> & {
@@ -154,6 +155,12 @@ export function buildAutoModelCandidates(
   const providerIdSet = new Set(
     enabledProfiles.map((profile) => getProviderIdFromProfile(profile)),
   );
+  const providerDisplayNameMap = new Map(
+    enabledProfiles.map((profile) => [
+      getProviderIdFromProfile(profile),
+      profile.name || profile.provider,
+    ]),
+  );
   const candidates: AutoModelCandidate[] = [];
   const seen = new Set<string>();
 
@@ -185,6 +192,8 @@ export function buildAutoModelCandidates(
             providerName,
             providerId,
             displayName: model.displayName || model.name,
+            providerDisplayName:
+              providerDisplayNameMap.get(providerId) || String(providerName),
           });
         });
     });

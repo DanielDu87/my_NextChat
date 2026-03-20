@@ -1044,8 +1044,8 @@
           border-bottom: none !important;
         }
 
-        &:hover .list-item-title > div,
-        &:active .list-item-title > div {
+        &:not(.selector-item-disabled):hover .list-item-title > div,
+        &:not(.selector-item-disabled):active .list-item-title > div {
           color: var(--primary);
         }
       }

@@ -94,6 +94,8 @@ import {
   getAutoModelSeriesLabel,
   normalizeAutoModelSeries,
 } from "../utils/auto-model";
+import { useModelFetcher } from "../utils/useModelFetcher";
+import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
@@ -765,29 +767,29 @@ export function ChatActions(props: {
           name.includes("o4-") ||
           name.includes("o5-"),
       ) ||
-      groupByKeywords("Anthropic", ["claude", "anthropic"]) ||
-      groupByKeywords("Google", ["gemini", "google"]) ||
+      groupByKeywords("Claude", ["claude", "anthropic"]) ||
+      groupByKeywords("Gemini", ["gemini", "google"]) ||
       groupByKeywords("Minimax", ["minimax", "abab"]) ||
       groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
       groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
       groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
       groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-      groupByKeywords("ByteDance", [
+      groupByKeywords("豆包", [
         "doubao",
         "seed",
         "bytedance",
         "volc",
         "字节",
       ]) ||
-      groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
       groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-      groupByKeywords("iFlytek", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-      groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+      groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+      groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
       groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
-      groupByKeywords("Moonshot", ["moonshot", "kimi"]) ||
+      groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
+      groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+      groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+      groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
       groupByKeywords("Cohere", ["cohere", "command-r"]) ||
       groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
       groupByKeywords("Stability", [
@@ -1671,6 +1673,7 @@ function _Chat() {
   const [showExport, setShowExport] = useState(false);
   const [showAutoModelSelector, setShowAutoModelSelector] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
+
   const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
     string | undefined
   >(undefined);
@@ -1706,7 +1709,7 @@ function _Chat() {
   // if user is not typing, should auto scroll to bottom only if already at bottom
   const { setAutoScroll, scrollDomToBottom } = useScrollToBottom(
     scrollRef,
-    (isScrolledToBottom || isAttachWithTop) && !isTyping,
+    false,
     session.messages,
   );
   const [hitBottom, setHitBottom] = useState(true);
@@ -1714,6 +1717,7 @@ function _Chat() {
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   // current model name
   const currentModel = session.mask.modelConfig.model;
@@ -1770,6 +1774,8 @@ function _Chat() {
       })),
     [],
   );
+  const syncStore = useSyncStore();
+  const { fetchFromProvider } = useModelFetcher();
 
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
@@ -1907,29 +1913,29 @@ function _Chat() {
           name.includes("o4-") ||
           name.includes("o5-"),
       ) ||
-      groupByKeywords("Anthropic", ["claude", "anthropic"]) ||
-      groupByKeywords("Google", ["gemini", "google"]) ||
+      groupByKeywords("Claude", ["claude", "anthropic"]) ||
+      groupByKeywords("Gemini", ["gemini", "google"]) ||
       groupByKeywords("Minimax", ["minimax", "abab"]) ||
       groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
       groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
       groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
       groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-      groupByKeywords("ByteDance", [
+      groupByKeywords("豆包", [
         "doubao",
         "seed",
         "bytedance",
         "volc",
         "字节",
       ]) ||
-      groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+      groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
       groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-      groupByKeywords("iFlytek", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-      groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+      groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+      groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
       groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-      groupByKeywords("Tencent", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("Baidu", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-      groupByKeywords("Zhipu", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
-      groupByKeywords("Moonshot", ["moonshot", "kimi"]) ||
+      groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
+      groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+      groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+      groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
       groupByKeywords("Cohere", ["cohere", "command-r"]) ||
       groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
       groupByKeywords("Stability", [
@@ -2258,6 +2264,156 @@ function _Chat() {
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
 
+  const syncAllToDatabase = useCallback(async () => {
+    if (syncingAll) return;
+
+    console.clear();
+
+    try {
+      setSyncingAll(true);
+
+      await runWithImmediateStoreSyncPaused(async () => {
+        accessStore.update((access: any) => {
+          access.useCustomConfig = true;
+        });
+
+        syncStore.update((state) => {
+          state.provider = ProviderType.Database;
+        });
+
+        const profiles = useAccessStore.getState().apiProfiles || [];
+        const localModels = useAppConfig.getState().models || [];
+        const fetchedModelEntries = new Map<
+          string,
+          {
+            name: string;
+            profileId: string;
+            profileName: string;
+            providerId: string;
+          }
+        >();
+
+        for (const profile of profiles) {
+          const providerId = getProfileProviderId(profile).toLowerCase();
+
+          try {
+            const result = await fetchFromProvider(
+              profile.provider,
+              profile.baseUrl,
+              profile.apiKey,
+              {
+                silent: true,
+                throwOnError: true,
+                profileName: profile.name,
+                apiKeyGroups: profile.apiKeyGroups,
+              },
+            );
+
+            const fetchedModels = modelsToCustomModelsString(result.models);
+            useModelCacheStore.getState().upsertProfileCache(profile.id, {
+              cachedModels: fetchedModels,
+              modelCount: result.total,
+            });
+
+            result.models.forEach((model) => {
+              fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
+                name: model.name,
+                profileId: profile.id,
+                profileName: profile.name,
+                providerId,
+              });
+            });
+          } catch (error) {
+            console.warn(
+              `[Chat] ${profile.name} 获取模型失败，回退到本地缓存`,
+              error,
+            );
+
+            localModels
+              .filter(
+                (model) =>
+                  String(model?.provider?.id || "").toLowerCase() ===
+                  providerId,
+              )
+              .forEach((model) => {
+                fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
+                  name: model.name,
+                  profileId: profile.id,
+                  profileName: profile.name,
+                  providerId,
+                });
+              });
+          }
+        }
+
+        await syncStore.sync();
+
+        try {
+          const providersData = Array.from(fetchedModelEntries.values()).reduce(
+            (acc, entry) => {
+              const existing = acc.find(
+                (item) => item.profileId === entry.profileId,
+              );
+              if (existing) {
+                return acc;
+              }
+              return [
+                ...acc,
+                {
+                  profileId: entry.profileId,
+                  profileName: entry.profileName,
+                  providerId: entry.providerId,
+                  fetchedCount: 0,
+                },
+              ];
+            },
+            [] as Array<{
+              profileId: string;
+              profileName: string;
+              providerId: string;
+              fetchedCount: number;
+            }>,
+          );
+
+          const platformModelMap = new Map<string, string[]>();
+          fetchedModelEntries.forEach((entry) => {
+            if (!platformModelMap.has(entry.profileName)) {
+              platformModelMap.set(entry.profileName, []);
+            }
+            platformModelMap.get(entry.profileName)!.push(entry.name);
+          });
+
+          platformModelMap.forEach((models, profileName) => {
+            const provider = providersData.find(
+              (item) => item.profileName === profileName,
+            );
+            if (provider) {
+              provider.fetchedCount = models.length;
+            }
+          });
+
+          await fetch("/api/db/models/count", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              count: fetchedModelEntries.size,
+              providers: providersData,
+            }),
+          });
+        } catch (error) {
+          console.error("[Chat] 更新云端模型总数失败:", error);
+        }
+      });
+
+      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
+    } catch (error) {
+      console.error("[Chat] 数据库同步失败:", error);
+      showToast("同步到 PostgreSQL 失败，请检查数据库连接");
+    } finally {
+      setSyncingAll(false);
+    }
+  }, [accessStore, fetchFromProvider, syncStore, syncingAll]);
+
   async function openaiSpeech(text: string) {
     if (speechStatus) {
       ttsPlayer.stop();
@@ -2413,7 +2569,7 @@ function _Chat() {
     }
 
     setHitBottom(isHitBottom);
-    setAutoScroll(isHitBottom);
+    setAutoScroll(true);
   };
 
   function scrollToBottom() {
@@ -2831,6 +2987,24 @@ function _Chat() {
               )}
             >
               <IconButton
+                icon={syncingAll ? <LoadingButtonIcon /> : <ReloadIcon />}
+                bordered
+                text={syncingAll ? "同步中..." : "一键同步"}
+                title={syncingAll ? "同步中..." : "一键同步"}
+                aria={syncingAll ? "同步中..." : "一键同步"}
+                onClick={() => {
+                  void syncAllToDatabase();
+                }}
+                disabled={syncingAll}
+              />
+            </div>
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
+              <IconButton
                 icon={<ConfigIcon />}
                 bordered
                 text="API 配置"
@@ -2928,7 +3102,6 @@ function _Chat() {
               onMouseDown={() => inputRef.current?.blur()}
               onTouchStart={() => {
                 inputRef.current?.blur();
-                setAutoScroll(false);
               }}
             >
               {messages
@@ -3027,7 +3200,7 @@ function _Chat() {
                             </div>
                             {!isUser && (
                               <div className={styles["chat-model-name"]}>
-                                {message.model}
+                                {message.modelDisplay || message.model}
                               </div>
                             )}
 
@@ -3370,21 +3543,18 @@ function _Chat() {
                 </span>
                 <button
                   type="button"
-                  className={styles["model-selector-auto-button"]}
+                  className={clsx(styles["model-selector-auto-button"], {
+                    [styles["model-selector-auto-button-active"]]:
+                      autoModeEnabled,
+                  })}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     setIsProviderSelectorOpen(false);
                     setShowAutoModelSelector((visible) => !visible);
                   }}
                 >
+                  <AutoModeStateIcon enabled={autoModeEnabled} />
                   <span>自动模式</span>
-                  {autoModeEnabled ? (
-                    <ConfirmIcon className={styles["auto-mode-status-check"]} />
-                  ) : (
-                    <AutoModeCrossIcon
-                      className={styles["auto-mode-status-cross"]}
-                    />
-                  )}
                 </button>
               </div>
               {isProviderSelectorOpen && (

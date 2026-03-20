@@ -660,6 +660,41 @@ export function Selector<T>(props: {
     "Xiaomi",
     "Other",
   ];
+  const normalizeGroupForOrder = (group: string) => {
+    switch (group) {
+      case "GPT":
+        return "OpenAI";
+      case "Claude":
+        return "Anthropic";
+      case "Gemini":
+        return "Google";
+      case "Grok":
+        return "xAI";
+      case "千问":
+      case "Qwen":
+      case "阿里巴巴":
+        return "Alibaba";
+      case "豆包":
+      case "字节跳动":
+        return "ByteDance";
+      case "智谱":
+        return "Zhipu";
+      case "万物":
+        return "01.AI";
+      case "Kimi":
+        return "Moonshot";
+      case "海螺":
+        return "Minimax";
+      case "混元":
+        return "Tencent";
+      case "文心":
+        return "Baidu";
+      case "讯飞星火":
+        return "iFlytek";
+      default:
+        return group;
+    }
+  };
 
   const handleSelection = (e: MouseEvent, value: T) => {
     if (props.multiple) {
@@ -683,22 +718,58 @@ export function Selector<T>(props: {
     const mergedGroups = Array.from(
       new Set([...groups, ...(props.extraGroups ?? [])]),
     );
+    const orderedCanonicalGroups = new Set(
+      mergedGroups.map((group) => normalizeGroupForOrder(group)),
+    );
 
     return [
-      ...preferredGroupOrder.filter((group) => mergedGroups.includes(group)),
-      ...mergedGroups.filter((group) => !preferredGroupOrder.includes(group)),
+      ...preferredGroupOrder.flatMap((group) =>
+        orderedCanonicalGroups.has(group)
+          ? mergedGroups.filter(
+              (candidate) => normalizeGroupForOrder(candidate) === group,
+            )
+          : [],
+      ),
+      ...mergedGroups.filter(
+        (group) => !preferredGroupOrder.includes(normalizeGroupForOrder(group)),
+      ),
     ];
   })();
   const groupFilterOptions = ["All", ...availableGroups];
   const getGroupFilterLabel = (group: string) => {
     if (group === "All") return "全部模型商";
-    if (group === "Anthropic") return "Anthropic";
+    if (group === "OpenAI" || group === "GPT") return "OpenAI";
+    if (group === "Anthropic" || group === "Claude") return "Claude";
+    if (group === "Google" || group === "Gemini") return "Gemini";
+    if (group === "xAI" || group === "Grok") return "Grok";
+    if (group === "Alibaba" || group === "阿里巴巴" || group === "Qwen")
+      return "千问";
+    if (group === "ByteDance" || group === "字节跳动") return "豆包";
+    if (group === "Tencent") return "混元";
+    if (group === "Baidu") return "文心";
+    if (group === "Zhipu") return "智谱";
+    if (group === "Minimax") return "Minimax";
+    if (group === "Moonshot") return "Kimi";
+    if (group === "01.AI") return "万物";
+    if (group === "iFlytek") return "讯飞星火";
     return group;
   };
   const localGroupIconMap: Record<string, string> = {
     "01.ai": "/provider-icons/lingyi.png",
     "01-ai": "/provider-icons/lingyi.png",
     "01.AI": "/provider-icons/lingyi.png",
+    万物: "/provider-icons/lingyi.png",
+    GPT: "/provider-icons/openai.png",
+    Claude: "/provider-icons/claude-code.png",
+    Gemini: "/provider-icons/gemini-bg.svg",
+    Grok: "/provider-icons/xai.png",
+    海螺: "/provider-icons/minimax.png",
+    混元: "/provider-icons/tencent.png",
+    文心: "/provider-icons/baidu.png",
+    Kimi: "/provider-icons/moonshot.png",
+    智谱: "/provider-icons/zhipu.png",
+    讯飞星火: "/provider-icons/iflytek.png",
+    千问: "/provider-icons/qwen-alt.png",
     alibaba: "/provider-icons/alibaba.png",
     ascend: "/provider-icons/ascend-huawei.png",
     阿里巴巴: "/provider-icons/alibaba.png",
@@ -706,6 +777,7 @@ export function Selector<T>(props: {
     baai: "/provider-icons/baai-official.png",
     baichuan: "/provider-icons/baichuan-official.png",
     baidu: "/provider-icons/baidu.png",
+    豆包: "/provider-icons/bytedance.png",
     bytedance: "/provider-icons/bytedance.png",
     字节跳动: "/provider-icons/bytedance.png",
     cohere: "/provider-icons/cohere-official.png",
