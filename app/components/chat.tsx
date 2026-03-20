@@ -1738,7 +1738,8 @@ function _Chat() {
   );
   const currentProviderDisplayName = activeProfile?.name || currentProviderName;
   const autoModeEnabled = autoModelSeries.length > 0;
-  const manualModelSelectionDisabled = autoModeEnabled || showAutoModelSelector;
+  const autoModelSelectionEmpty = showAutoModelSelector && !autoModeEnabled;
+  const manualModelSelectionDisabled = autoModeEnabled;
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
   const handleManualModelSelectionDisabled = () => {
     setModelSelectorNotice(modelSelectionDisabledToast);
@@ -1818,6 +1819,28 @@ function _Chat() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!autoModelSelectionEmpty) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest('[data-auto-model-selector-toggle="true"]') ||
+        target?.closest('[data-auto-model-selector-menu="true"]') ||
+        target?.closest('[data-selector-group-filter-root="true"]') ||
+        target?.closest('[data-selector-group-filter-extra-root="true"]')
+      ) {
+        return;
+      }
+      setShowAutoModelSelector(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [autoModelSelectionEmpty]);
 
   const currentProviderId = useMemo(() => {
     if (activeProfile) {
@@ -3543,6 +3566,7 @@ function _Chat() {
                 </span>
                 <button
                   type="button"
+                  data-auto-model-selector-toggle="true"
                   className={clsx(styles["model-selector-auto-button"], {
                     [styles["model-selector-auto-button-active"]]:
                       autoModeEnabled,
@@ -3613,6 +3637,75 @@ function _Chat() {
                   )}
                 </div>
               )}
+              {showAutoModelSelector && (
+                <div
+                  data-auto-model-selector-menu="true"
+                  className={styles["model-selector-provider-menu"]}
+                >
+                  {autoModelSeriesItems.map((item) => {
+                    const active = autoModelSeries.includes(item.value);
+                    const iconSrc =
+                      item.value === "gpt"
+                        ? "/provider-icons/openai.png"
+                        : item.value === "deepseek"
+                        ? "/provider-icons/deepseek-bg.svg"
+                        : "/provider-icons/bytedance.png";
+                    return (
+                      <button
+                        type="button"
+                        key={item.value}
+                        className={clsx(
+                          styles["model-selector-provider-option"],
+                          {
+                            [styles["model-selector-provider-option-active"]]:
+                              active,
+                          },
+                        )}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          const nextSelection = active
+                            ? autoModelSeries.filter((v) => v !== item.value)
+                            : [...autoModelSeries, item.value];
+                          const normalized =
+                            normalizeAutoModelSeries(nextSelection);
+                          config.update((config) => {
+                            config.autoModelSeries = normalized;
+                          });
+                        }}
+                      >
+                        <span
+                          className={
+                            styles["model-selector-provider-option-leading"]
+                          }
+                        >
+                          <span
+                            className={clsx(
+                              styles["model-selector-option-icon-frame"],
+                              item.value === "doubao" &&
+                                styles["model-selector-option-icon-frame-dark"],
+                            )}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              alt={`${item.title} icon`}
+                              className={clsx(
+                                styles["model-selector-option-icon-image"],
+                                item.value === "doubao" &&
+                                  styles[
+                                    "model-selector-option-icon-image-inset"
+                                  ],
+                              )}
+                              src={iconSrc}
+                            />
+                          </span>
+                        </span>
+                        <span>{item.title}</span>
+                        {active ? <ConfirmIcon /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </>
           }
           footer={null}
@@ -3672,81 +3765,10 @@ function _Chat() {
           ]}
           showSearch={true}
           extraGroups={["自定义模型"]}
-          groupFilterAction={
-            showAutoModelSelector
-              ? ({
-                  menuClassName,
-                  optionClassName,
-                  optionActiveClassName,
-                  optionLeadingClassName,
-                  iconFrameClassName,
-                  iconImageClassName,
-                }) => (
-                  <div
-                    className={menuClassName}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {autoModelSeriesItems.map((item) => {
-                      const active = autoModelSeries.includes(item.value);
-                      const iconSrc =
-                        item.value === "gpt"
-                          ? "/provider-icons/openai.png"
-                          : item.value === "deepseek"
-                          ? "/provider-icons/deepseek-bg.svg"
-                          : "/provider-icons/bytedance.png";
-                      return (
-                        <button
-                          type="button"
-                          key={item.value}
-                          className={clsx(optionClassName, {
-                            [optionActiveClassName]: active,
-                          })}
-                          onClick={() => {
-                            const nextSelection = active
-                              ? autoModelSeries.filter((v) => v !== item.value)
-                              : [...autoModelSeries, item.value];
-                            const normalized =
-                              normalizeAutoModelSeries(nextSelection);
-                            config.update((config) => {
-                              config.autoModelSeries = normalized;
-                            });
-                          }}
-                        >
-                          <span className={optionLeadingClassName}>
-                            <span
-                              className={clsx(
-                                iconFrameClassName,
-                                item.value === "doubao" &&
-                                  styles[
-                                    "model-selector-option-icon-frame-dark"
-                                  ],
-                              )}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                alt={`${item.title} icon`}
-                                className={clsx(
-                                  iconImageClassName,
-                                  item.value === "doubao" &&
-                                    styles[
-                                      "model-selector-option-icon-image-inset"
-                                    ],
-                                )}
-                                src={iconSrc}
-                              />
-                            </span>
-                          </span>
-                          <span>{item.title}</span>
-                          {active ? <ConfirmIcon /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )
-              : null
-          }
-          onClose={() => setShowModelSelector(false)}
+          onClose={() => {
+            setShowAutoModelSelector(false);
+            setShowModelSelector(false);
+          }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
             const [model, _providerName] = getModelProvider(s[0]);
