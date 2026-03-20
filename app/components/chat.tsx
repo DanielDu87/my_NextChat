@@ -91,6 +91,7 @@ import {
 
 import { useAllModels } from "../utils/hooks";
 import {
+  buildAutoModelCandidates,
   getAutoModelSeriesLabel,
   normalizeAutoModelSeries,
 } from "../utils/auto-model";
@@ -100,6 +101,7 @@ import {
 } from "../utils/model-category-rules";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
+import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
@@ -202,6 +204,27 @@ function countManagedCloudModels(
     const providerId = String(model.provider?.id || "").toLowerCase();
     return providerId && managedProviderIds.has(providerId);
   }).length;
+}
+
+function areModelConfigValuesEqual(
+  left: Record<string, unknown> | undefined,
+  right: Record<string, unknown> | undefined,
+) {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (left[key] !== right[key]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function ChatModelUpdateNotice() {
@@ -1014,7 +1037,7 @@ export function ChatActions(props: {
     // if current model is not available
     // switch to first available model
     const isUnavailableModel = !models.some((m) => m.name === currentModel);
-    if (isUnavailableModel && models.length > 0) {
+    if (!autoModeEnabled && isUnavailableModel && models.length > 0) {
       // show next model to default model if exist
       let nextModel = models.find((model) => model.isDefault) || models[0];
       chatStore.updateTargetSession(session, (session) => {
@@ -1037,6 +1060,7 @@ export function ChatActions(props: {
     currentModel,
     currentSize,
     models,
+    autoModeEnabled,
     props,
     session,
     showUploadImage,
@@ -1602,8 +1626,22 @@ function _Chat() {
     state.apiProfiles.find((profile) => profile.enabled),
   );
   const currentProviderDisplayName = activeProfile?.name || currentProviderName;
+  const apiProfiles = useAccessStore((state) => state.apiProfiles);
   const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
+  const autoModeDefaultCandidate = useMemo(() => {
+    if (!autoModeEnabled) {
+      return null;
+    }
+
+    const candidates = buildAutoModelCandidates(
+      allModels,
+      apiProfiles,
+      autoModelSeries as AutoModelSeriesKey[],
+    );
+
+    return candidates[0] ?? null;
+  }, [allModels, apiProfiles, autoModeEnabled, autoModelSeries]);
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
     : "";
@@ -1659,7 +1697,6 @@ function _Chat() {
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const apiProfiles = useAccessStore((state) => state.apiProfiles);
   const availableProviders = useMemo(() => {
     // 从 apiProfiles 中获取所有供应商名称（不限制 enabled 状态）
     const providers = apiProfiles
@@ -2004,33 +2041,76 @@ function _Chat() {
   };
 
   useEffect(() => {
+    const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
+    const shouldNormalizeMessages = session.messages.some((m) => {
+      if (!(m.isError || new Date(m.date).getTime() < stopTiming)) {
+        return false;
+      }
+
+      return Boolean(m.streaming) || m.content.length === 0;
+    });
+
+    let nextModelConfig = session.mask.modelConfig;
+    let shouldSyncMaskConfig = false;
+
+    if (session.mask.syncGlobalConfig) {
+      nextModelConfig = { ...config.modelConfig };
+      if (
+        autoModeEnabled &&
+        autoModeDefaultCandidate &&
+        session.messages.length === 0
+      ) {
+        nextModelConfig = sanitizeModelConfigForCapability(
+          applyAutoModeModelConfig(nextModelConfig, {
+            model: autoModeDefaultCandidate.model as ModelType,
+            providerName: autoModeDefaultCandidate.providerName,
+          }),
+        );
+      }
+
+      shouldSyncMaskConfig = !areModelConfigValuesEqual(
+        session.mask.modelConfig as Record<string, unknown>,
+        nextModelConfig as Record<string, unknown>,
+      );
+    }
+
+    if (!shouldNormalizeMessages && !shouldSyncMaskConfig) {
+      return;
+    }
+
     chatStore.updateTargetSession(session, (session) => {
-      const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
-      session.messages.forEach((m) => {
-        // check if should stop all stale messages
-        if (m.isError || new Date(m.date).getTime() < stopTiming) {
-          if (m.streaming) {
-            m.streaming = false;
-          }
+      if (shouldNormalizeMessages) {
+        session.messages.forEach((m) => {
+          // check if should stop all stale messages
+          if (m.isError || new Date(m.date).getTime() < stopTiming) {
+            if (m.streaming) {
+              m.streaming = false;
+            }
 
-          if (m.content.length === 0) {
-            m.isError = true;
-            m.content = prettyObject({
-              error: true,
-              message: "empty response",
-            });
+            if (m.content.length === 0) {
+              m.isError = true;
+              m.content = prettyObject({
+                error: true,
+                message: "empty response",
+              });
+            }
           }
-        }
-      });
+        });
+      }
 
-      // auto sync mask config from global config
-      if (session.mask.syncGlobalConfig) {
+      if (shouldSyncMaskConfig) {
         console.log("[Mask] syncing from global, name = ", session.mask.name);
-        session.mask.modelConfig = { ...config.modelConfig };
+        session.mask.modelConfig = nextModelConfig;
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [
+    autoModeDefaultCandidate,
+    autoModeEnabled,
+    chatStore,
+    config.modelConfig,
+    session,
+  ]);
 
   // check if should send message
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

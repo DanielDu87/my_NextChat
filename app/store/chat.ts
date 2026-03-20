@@ -48,6 +48,7 @@ import {
   buildAutoModelCandidates,
   getAutoModelSeriesLabel,
 } from "../utils/auto-model";
+import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
 
 const localStorage = safeLocalStorage();
 
@@ -1032,12 +1033,16 @@ export const useChatStore = createPersistStore(
         } else {
           const currentSession = get().currentSession();
           if (currentSession) {
+            const autoModeEnabled =
+              (useAppConfig.getState().autoModelSeries?.length || 0) > 0;
             session.mask = {
               ...session.mask,
               syncGlobalConfig: currentSession.mask.syncGlobalConfig,
-              modelConfig: {
-                ...currentSession.mask.modelConfig,
-              },
+              modelConfig: mergeNewSessionModelConfig(
+                currentSession.mask.modelConfig,
+                session.mask.modelConfig,
+                autoModeEnabled,
+              ),
             };
           }
         }
