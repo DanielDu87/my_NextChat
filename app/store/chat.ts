@@ -1445,18 +1445,8 @@ export const useChatStore = createPersistStore(
           });
 
           const api: ClientApi = getClientApi(candidate.providerName);
-
-          console.log("[Chat] 🚀 自动模式请求:", {
-            selectedSeries: selectedAutoSeries || candidate.series,
-            attempt: `${attemptIndex + 1}/${autoCandidates.length}`,
-            series: candidate.series,
-            provider: candidate.providerDisplayName,
-            providerName: candidate.providerName,
-            providerId: candidate.providerId,
-            profileName: candidateProfile?.name || null,
-            profileBaseUrl: candidateProfile?.baseUrl || null,
-            model: candidate.model,
-          });
+          const attemptLabel = `${attemptIndex + 1}/${autoCandidates.length}`;
+          let requestUrl = "";
 
           return new Promise<"success" | "failed" | "aborted">((resolve) => {
             let settled = false;
@@ -1471,6 +1461,20 @@ export const useChatStore = createPersistStore(
               api.llm.chat({
                 messages: sendMessages,
                 config: { ...candidateConfig, stream: true },
+                onRequest(request: { chatPath: string; baseUrl: string }) {
+                  requestUrl = request?.chatPath || request?.baseUrl || "";
+                  console.log("[Chat] 🚀 自动模式尝试:", {
+                    attempt: attemptLabel,
+                    selectedSeries: selectedAutoSeries || candidate.series,
+                    series: candidate.series,
+                    provider: candidate.providerDisplayName,
+                    providerName: candidate.providerName,
+                    providerId: candidate.providerId,
+                    profileName: candidateProfile?.name || null,
+                    model: candidate.model,
+                    url: requestUrl,
+                  });
+                },
                 onUpdate(message) {
                   botMessage.streaming = true;
                   if (message) {
@@ -1484,10 +1488,19 @@ export const useChatStore = createPersistStore(
                   botMessage.streaming = false;
                   const finalMessage =
                     message || getMessageTextContent(botMessage);
+                  const responseUrl = responseRes?.url || requestUrl || "";
 
                   if (!finalMessage) {
                     attemptErrors.push({
                       candidate,
+                      reason: "空响应",
+                    });
+                    console.warn("[Chat] 自动模式尝试失败:", {
+                      attempt: attemptLabel,
+                      provider: candidate.providerDisplayName,
+                      providerId: candidate.providerId,
+                      model: candidate.model,
+                      url: responseUrl,
                       reason: "空响应",
                     });
                     botMessage.content = "";
@@ -1502,6 +1515,14 @@ export const useChatStore = createPersistStore(
                   if (isApiFailurePayload(finalMessage)) {
                     attemptErrors.push({
                       candidate,
+                      reason: finalMessage,
+                    });
+                    console.warn("[Chat] 自动模式尝试失败:", {
+                      attempt: attemptLabel,
+                      provider: candidate.providerDisplayName,
+                      providerId: candidate.providerId,
+                      model: candidate.model,
+                      url: responseUrl,
                       reason: finalMessage,
                     });
                     botMessage.content = "";
@@ -1524,6 +1545,13 @@ export const useChatStore = createPersistStore(
                   botMessage.isError = false;
                   userMessage.isError = false;
                   get().onNewMessage(botMessage, session);
+                  console.log("[Chat] ✅ 自动模式尝试成功:", {
+                    attempt: attemptLabel,
+                    provider: candidate.providerDisplayName,
+                    providerId: candidate.providerId,
+                    model: candidate.model,
+                    url: responseUrl,
+                  });
                   ChatControllerPool.remove(
                     session.id,
                     botMessage.id ?? messageIndex,
@@ -1549,14 +1577,16 @@ export const useChatStore = createPersistStore(
                 },
                 onError(error) {
                   const isAborted = error.message?.includes?.("aborted");
-                  console.error(
-                    "[Chat] ❌ 自动模式候选失败:",
-                    candidate.model,
-                    candidate.providerDisplayName,
-                    candidate.providerId,
-                    error.message,
-                    isAborted ? "(已中止)" : "",
-                  );
+                  const logMethod = isAborted ? console.log : console.warn;
+                  logMethod("[Chat] 自动模式尝试失败:", {
+                    attempt: attemptLabel,
+                    provider: candidate.providerDisplayName,
+                    providerId: candidate.providerId,
+                    model: candidate.model,
+                    url: requestUrl,
+                    reason: error.message,
+                    aborted: isAborted,
+                  });
                   botMessage.streaming = false;
                   botMessage.content = "";
                   botMessage.reasoning_details = undefined;
@@ -1590,6 +1620,15 @@ export const useChatStore = createPersistStore(
             ).catch((error) => {
               const message =
                 error instanceof Error ? error.message : String(error);
+              console.warn("[Chat] 自动模式尝试失败:", {
+                attempt: attemptLabel,
+                provider: candidate.providerDisplayName,
+                providerId: candidate.providerId,
+                model: candidate.model,
+                url: requestUrl,
+                reason: message,
+                rejected: true,
+              });
               attemptErrors.push({
                 candidate,
                 reason: message,

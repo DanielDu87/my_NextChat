@@ -1318,6 +1318,14 @@ export class ChatGPTApi implements LLMApi {
         chatPath,
         stream: shouldStream,
       });
+      options.onRequest?.({
+        provider: modelConfig.providerName,
+        model: modelConfig.model,
+        useCustomConfig: currentAccessState.useCustomConfig,
+        baseUrl: currentBaseUrl,
+        chatPath,
+        stream: shouldStream,
+      });
 
       if (shouldStream) {
         let index = -1;

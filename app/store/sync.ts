@@ -365,6 +365,13 @@ function getDeletedSessionTimestamps(state: unknown) {
   ) as Record<string, number>;
 }
 
+function isEffectivelyEmptyRemoteChatState(state: unknown) {
+  return (
+    getChatGlobalClearAt(state) <= 0 &&
+    Object.keys(getDeletedSessionTimestamps(state)).length === 0
+  );
+}
+
 function mergeDeletedSessionTimestamps(...maps: Array<Record<string, number>>) {
   const merged = {} as Record<string, number>;
 
@@ -565,6 +572,36 @@ export const useSyncStore = createPersistStore(
       const remoteEntryMap = createChatIndexEntryMap(
         remoteIndex.sessions || [],
       );
+
+      if (
+        remoteEntryMap.size === 0 &&
+        isEffectivelyEmptyRemoteChatState(remoteIndex?.state)
+      ) {
+        const uploadBytes =
+          measureJsonBytes(localIndex) +
+          measureJsonBytes(syncableLocalSessions);
+
+        await client.setChatDelta?.({
+          index: localIndex,
+          upsertSessions: syncableLocalSessions,
+          deleteSessionIds: [],
+        });
+
+        return {
+          remoteSummary: "远端 0 个会话",
+          mergedStoreState: localChatState,
+          mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
+          status: "uploaded" as const,
+          metrics: {
+            downloadedSessionCount: 0,
+            downloadedBytes: 0,
+            uploadedSessionCount: syncableLocalSessions.length,
+            uploadedBytes: uploadBytes,
+            deletedSessionCount: 0,
+          },
+        };
+      }
+
       const remoteSessionIdsToFetch = (remoteIndex.sessions || [])
         .filter(
           (entry: ChatIndexSessionEntry) =>

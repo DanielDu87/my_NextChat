@@ -95,6 +95,14 @@ export interface ChatOptions {
   messages: RequestMessage[];
   config: LLMConfig;
 
+  onRequest?: (request: {
+    provider: string;
+    model: string;
+    useCustomConfig: boolean;
+    baseUrl: string;
+    chatPath: string;
+    stream: boolean;
+  }) => void;
   onUpdate?: (message: string, chunk: string) => void;
   onFinish: (message: string, responseRes: Response) => void;
   onError?: (err: Error) => void;
