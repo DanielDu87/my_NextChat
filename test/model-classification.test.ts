@@ -68,6 +68,88 @@ describe("normalizeModelClassification", () => {
     });
   });
 
+  test("should classify newly added common model naming patterns", () => {
+    expect(
+      normalizeModelClassification({
+        id: "midjourney-niji",
+      }),
+    ).toMatchObject({
+      category: "image",
+      categorySource: 0,
+      categories: expect.arrayContaining(["image"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "runway-gen-3",
+      }),
+    ).toMatchObject({
+      category: "video",
+      categorySource: 0,
+      categories: expect.arrayContaining(["video"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "kimi-联网版",
+      }),
+    ).toMatchObject({
+      category: "web",
+      categorySource: 0,
+      categories: expect.arrayContaining(["web"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "qwq-math",
+      }),
+    ).toMatchObject({
+      category: "thinking",
+      categorySource: 0,
+      categories: expect.arrayContaining(["thinking"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "qwen2-vl-ocr",
+      }),
+    ).toMatchObject({
+      category: "image",
+      categorySource: 0,
+      categories: expect.arrayContaining(["image"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "luma-dream-machine",
+      }),
+    ).toMatchObject({
+      category: "video",
+      categorySource: 0,
+      categories: expect.arrayContaining(["video"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "gpt-4-search-enabled-plugin",
+      }),
+    ).toMatchObject({
+      category: "web",
+      categorySource: 0,
+      categories: expect.arrayContaining(["web"]),
+    });
+
+    expect(
+      normalizeModelClassification({
+        id: "reasoning-solver-math",
+      }),
+    ).toMatchObject({
+      category: "thinking",
+      categorySource: 0,
+      categories: expect.arrayContaining(["thinking"]),
+    });
+  });
+
   test("should prefer category stored on the model itself", () => {
     expect(
       normalizeModelClassification({

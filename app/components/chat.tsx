@@ -854,24 +854,56 @@ export function ChatActions(props: {
       categories?: string[];
     };
   }) =>
-    hasModelMetadata(item.meta ?? {}, ["image", "vision", "generate-image"]) ||
+    hasModelMetadata(item.meta ?? {}, [
+      "image",
+      "vision",
+      "visual",
+      "multimodal",
+      "vl",
+      "vqa",
+      "ocr",
+      "segmentation",
+      "detection",
+      "generate-image",
+      "inpaint",
+      "outpaint",
+      "upscale",
+      "super-resolution",
+    ]) ||
     hasModelKeyword(item.title, [
       "image",
+      "visual",
+      "multimodal",
+      "vl",
+      "vqa",
+      "ocr",
       "vision-image",
       "gpt-image",
       "dall-e",
       "dalle",
+      "dall·e",
       "stable-diffusion",
       "sdxl",
       "sd3",
       "flux",
       "midjourney",
+      "mj",
+      "niji",
       "recraft",
       "ideogram",
       "imagen",
       "janus",
       "kolors",
       "cogview",
+      "controlnet",
+      "clip",
+      "blip",
+      "segmentation",
+      "detection",
+      "inpaint",
+      "outpaint",
+      "upscale",
+      "super-resolution",
     ]);
   const isThinkingModel = (item: {
     title: string;
@@ -885,10 +917,23 @@ export function ChatActions(props: {
       categories?: string[];
     };
   }) =>
-    hasModelMetadata(item.meta ?? {}, ["reason", "thinking"]) ||
+    hasModelMetadata(item.meta ?? {}, [
+      "reason",
+      "reasoning",
+      "thinking",
+      "logic",
+      "cot",
+      "planner",
+      "plan",
+      "solver",
+      "math",
+      "analysis",
+      "reflect",
+    ]) ||
     hasModelKeyword(item.title, [
       "reason",
       "reasoner",
+      "reasoning",
       "thinking",
       "think",
       "r1",
@@ -896,7 +941,22 @@ export function ChatActions(props: {
       "o3",
       "o4",
       "qwq",
+      "qwq-math",
+      "cot",
+      "planner",
+      "planning",
+      "multi-step",
+      "logic",
+      "reflective",
+      "reflect",
+      "deliberate",
+      "analysis",
+      "plan",
+      "solver",
+      "math",
       "deepseek-r",
+      "deepseek-r1",
+      "r2",
       "sonnet-4",
     ]);
   const isVideoGenerationModel = (item: {
@@ -911,20 +971,41 @@ export function ChatActions(props: {
       categories?: string[];
     };
   }) =>
-    hasModelMetadata(item.meta ?? {}, ["video", "generate-video"]) ||
+    hasModelMetadata(item.meta ?? {}, [
+      "video",
+      "generate-video",
+      "text-to-video",
+      "image-to-video",
+      "temporal",
+      "frame",
+      "motion",
+      "animation",
+      "sequence",
+    ]) ||
     hasModelKeyword(item.title, [
       "video",
       "vid",
+      "movie",
       "veo",
       "sora",
       "kling",
+      "可灵",
       "runway",
+      "gen-2",
+      "gen-3",
       "luma",
+      "dream machine",
       "pika",
       "hailuo",
       "cogvideo",
       "hunyuanvideo",
       "wanx2.1-t2v",
+      "temporal",
+      "frame",
+      "motion",
+      "animation",
+      "sequence",
+      "animate",
       "t2v",
       "i2v",
     ]);
@@ -943,19 +1024,42 @@ export function ChatActions(props: {
     hasModelMetadata(item.meta ?? {}, [
       "search",
       "web-search",
+      "web",
       "online",
       "retrieval",
       "browser",
+      "browse",
+      "browsing",
+      "rag",
+      "grounding",
+      "plugin",
+      "realtime",
+      "real-time",
     ]) ||
     hasModelKeyword(item.title, [
       "search",
       "web",
       "联网",
+      "联网版",
       "sonar",
       "perplexity",
+      "pplx",
+      "copilot",
+      "bing",
+      "searchgpt",
+      "grounding",
       "browser",
+      "browse",
       "online",
       "retrieval",
+      "rag",
+      "internet",
+      "real-time",
+      "realtime",
+      "plugin",
+      "plugins",
+      "web-enabled",
+      "search-enabled",
     ]);
 
   // switch themes
