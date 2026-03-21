@@ -138,20 +138,31 @@
   padding-top: 20px;
   padding-bottom: 20px;
   display: flex;
-  justify-content: space-between;
+  gap: 14px;
+  justify-content: flex-start;
   align-items: center;
   &-narrow {
     justify-content: center;
   }
 }
 
+.sidebar-header-link {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .sidebar-logo {
   display: inline-flex;
+  flex-shrink: 0;
 }
 
 .sidebar-title-container {
   display: inline-flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .sidebar-title {
