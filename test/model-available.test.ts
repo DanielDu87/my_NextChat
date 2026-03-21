@@ -1,7 +1,11 @@
-import { isModelNotavailableInServer } from "../app/utils/model";
-
 describe("isModelNotavailableInServer", () => {
+  async function loadModelUtils() {
+    const mod = await import("../app/utils/model-provider");
+    return (mod.default ?? mod) as typeof import("../app/utils/model-provider");
+  }
+
   test("test model will return false, which means the model is available", () => {
+    return loadModelUtils().then(({ isModelNotavailableInServer }) => {
     const customModels = "";
     const modelName = "gpt-4";
     const providerNames = "OpenAI";
@@ -11,9 +15,11 @@ describe("isModelNotavailableInServer", () => {
       providerNames,
     );
     expect(result).toBe(false);
+    });
   });
 
   test("test model will return true when model is not available in custom models", () => {
+    return loadModelUtils().then(({ isModelNotavailableInServer }) => {
     const customModels = "-all,gpt-4o-mini";
     const modelName = "gpt-4";
     const providerNames = "OpenAI";
@@ -23,25 +29,30 @@ describe("isModelNotavailableInServer", () => {
       providerNames,
     );
     expect(result).toBe(true);
+    });
   });
 
-  test("should respect DISABLE_GPT4 setting", () => {
+  test("should respect DISABLE_GPT4 setting", async () => {
+    const { isModelNotavailableInServer } = await loadModelUtils();
     process.env.DISABLE_GPT4 = "1";
     const result = isModelNotavailableInServer("", "gpt-4", "OpenAI");
     expect(result).toBe(true);
   });
 
-  test("should handle empty provider names", () => {
+  test("should handle empty provider names", async () => {
+    const { isModelNotavailableInServer } = await loadModelUtils();
     const result = isModelNotavailableInServer("-all,gpt-4", "gpt-4", "");
     expect(result).toBe(true);
   });
 
-  test("should be case insensitive for model names", () => {
+  test("should be case insensitive for model names", async () => {
+    const { isModelNotavailableInServer } = await loadModelUtils();
     const result = isModelNotavailableInServer("-all,GPT-4", "gpt-4", "OpenAI");
     expect(result).toBe(true);
   });
 
-  test("support passing multiple providers, model unavailable on one of the providers will return true", () => {
+  test("support passing multiple providers, model unavailable on one of the providers will return true", async () => {
+    const { isModelNotavailableInServer } = await loadModelUtils();
     const customModels = "-all,gpt-4@google";
     const modelName = "gpt-4";
     const providerNames = ["OpenAI", "Azure"];
@@ -66,7 +77,8 @@ describe("isModelNotavailableInServer", () => {
   //     expect(result).toBe(false);
   //   });
 
-  test("test custom model without setting provider", () => {
+  test("test custom model without setting provider", async () => {
+    const { isModelNotavailableInServer } = await loadModelUtils();
     const customModels = "-all,mistral-large";
     const modelName = "mistral-large";
     const providerNames = modelName;

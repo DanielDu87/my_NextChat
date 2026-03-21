@@ -28,6 +28,9 @@ fi
     sleep 2
   done
 
+  echo "[Dev Bootstrap] 开始预热首页"
+  wget -q -O /dev/null http://127.0.0.1:3000/ || true
+
   echo "[Dev Bootstrap] 开始预热数据库接口"
   wget -q -O /dev/null http://127.0.0.1:3000/api/db/health || true
   wget -q -O /dev/null http://127.0.0.1:3000/api/db/sync/chat-update || true

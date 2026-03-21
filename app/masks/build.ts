@@ -13,13 +13,17 @@ const BUILTIN_MASKS: Record<string, BuiltinMask[]> = {
 };
 
 const dirname = path.dirname(__filename);
+const outputPath = dirname + "/../../public/masks.json";
+const nextContent = JSON.stringify(BUILTIN_MASKS, null, 4);
 
-fs.writeFile(
-  dirname + "/../../public/masks.json",
-  JSON.stringify(BUILTIN_MASKS, null, 4),
-  function (error) {
-    if (error) {
-      console.error("[Build] failed to build masks", error);
-    }
-  },
-);
+try {
+  const currentContent = fs.existsSync(outputPath)
+    ? fs.readFileSync(outputPath, "utf-8")
+    : "";
+
+  if (currentContent !== nextContent) {
+    fs.writeFileSync(outputPath, nextContent);
+  }
+} catch (error) {
+  console.error("[Build] failed to build masks", error);
+}

@@ -74,7 +74,7 @@ class DatabaseStateStorage implements StateStorage {
       if (text.length > 0) {
         const resolvedValue = pendingValue ?? text;
         if (pendingValue) {
-          await request(this.path(name), "PUT", pendingValue);
+          await this.flushPendingWrite(name);
         }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
@@ -86,7 +86,7 @@ class DatabaseStateStorage implements StateStorage {
       if (migratedValue) {
         const resolvedValue = pendingValue ?? migratedValue;
         if (pendingValue) {
-          await request(this.path(name), "PUT", pendingValue);
+          await this.flushPendingWrite(name);
         }
         this.cache.set(name, resolvedValue);
         return resolvedValue;

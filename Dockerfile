@@ -1,5 +1,14 @@
 FROM node:18-alpine AS base
 
+ARG ALPINE_MIRROR=""
+ARG NPM_REGISTRY="https://registry.npmmirror.com/"
+ARG RT_CLIENT_TGZ_URL="https://github.com/Azure-Samples/aoai-realtime-audio-sdk/releases/download/js/v0.5.0/rt-client-0.5.0.tgz"
+ARG DEFAULT_RT_CLIENT_TGZ_URL="https://github.com/Azure-Samples/aoai-realtime-audio-sdk/releases/download/js/v0.5.0/rt-client-0.5.0.tgz"
+
+RUN if [ -n "$ALPINE_MIRROR" ]; then \
+    sed -i "s|https\?://dl-cdn.alpinelinux.org/alpine|$ALPINE_MIRROR|g" /etc/apk/repositories; \
+    fi
+
 FROM base AS deps
 
 RUN apk add --no-cache libc6-compat
@@ -8,13 +17,18 @@ WORKDIR /app
 
 COPY package.json yarn.lock ./
 
-RUN yarn config set registry 'https://registry.npmmirror.com/'
-RUN yarn install
+RUN if [ "$RT_CLIENT_TGZ_URL" != "$DEFAULT_RT_CLIENT_TGZ_URL" ]; then \
+    sed -i "s|$DEFAULT_RT_CLIENT_TGZ_URL|$RT_CLIENT_TGZ_URL|g" package.json yarn.lock; \
+    fi \
+  && HUSKY=0 yarn config set registry "$NPM_REGISTRY" \
+  && HUSKY=0 yarn install --frozen-lockfile --non-interactive
 
 FROM base AS builder
 
 RUN apk update && apk add --no-cache git
 
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS=--max-old-space-size=1536
 ENV OPENAI_API_KEY=""
 ENV GOOGLE_API_KEY=""
 ENV CODE=""
@@ -28,9 +42,6 @@ RUN yarn build
 FROM base AS runner
 WORKDIR /app
 
-RUN apk add proxychains-ng
-
-ENV PROXY_URL=""
 ENV OPENAI_API_KEY=""
 ENV GOOGLE_API_KEY=""
 ENV CODE=""
@@ -59,23 +70,4 @@ COPY --from=builder /app/app/mcp/mcp_config.default.json /app/app/mcp/mcp_config
 
 EXPOSE 3000
 
-CMD if [ -n "$PROXY_URL" ]; then \
-    export HOSTNAME="0.0.0.0"; \
-    protocol=$(echo $PROXY_URL | cut -d: -f1); \
-    host=$(echo $PROXY_URL | cut -d/ -f3 | cut -d: -f1); \
-    port=$(echo $PROXY_URL | cut -d: -f3); \
-    conf=/etc/proxychains.conf; \
-    echo "strict_chain" > $conf; \
-    echo "proxy_dns" >> $conf; \
-    echo "remote_dns_subnet 224" >> $conf; \
-    echo "tcp_read_time_out 15000" >> $conf; \
-    echo "tcp_connect_time_out 8000" >> $conf; \
-    echo "localnet 127.0.0.0/255.0.0.0" >> $conf; \
-    echo "localnet ::1/128" >> $conf; \
-    echo "[ProxyList]" >> $conf; \
-    echo "$protocol $host $port" >> $conf; \
-    cat /etc/proxychains.conf; \
-    proxychains -f $conf node server.js; \
-    else \
-    node server.js; \
-    fi
+CMD ["node", "server.js"]

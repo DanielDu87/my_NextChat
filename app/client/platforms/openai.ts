@@ -1,14 +1,6 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
-import {
-  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
-  ApiPath,
-  OPENAI_BASE_URL,
-  OpenaiPath,
-  Azure,
-  REQUEST_TIMEOUT_MS,
-  ServiceProvider,
-} from "@/app/constant";
+import { default as constants } from "@/app/constant";
 import {
   ChatMessageTool,
   useAccessStore,
@@ -54,6 +46,18 @@ import {
   normalizeImageQuality,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
+
+const {
+  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
+  ApiPath,
+  OPENAI_BASE_URL,
+  OpenaiPath,
+  Azure,
+  REQUEST_TIMEOUT_MS,
+  ServiceProvider,
+} = constants;
+type ServiceProviderValue =
+  (typeof ServiceProvider)[keyof typeof ServiceProvider];
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -119,9 +123,11 @@ function normalizeServiceProvider(
 ) {
   if (
     providerName &&
-    Object.values(ServiceProvider).includes(providerName as ServiceProvider)
+    Object.values(ServiceProvider).includes(
+      providerName as ServiceProviderValue,
+    )
   ) {
-    return providerName as ServiceProvider;
+    return providerName as ServiceProviderValue;
   }
 
   return useCustomConfig ? ServiceProvider.Custom : ServiceProvider.OpenAI;
@@ -142,7 +148,7 @@ function isAiHubMixBaseUrl(baseUrl: string) {
 }
 
 function isCustomDoubaoThinkingModel(
-  providerName: ServiceProvider | undefined,
+  providerName: ServiceProviderValue | undefined,
   model: string,
 ) {
   if (providerName !== ServiceProvider.Custom) {

@@ -938,3 +938,41 @@ export const DEFAULT_GA_ID = "G-89WN60ZK2E";
 
 export const SAAS_CHAT_URL = "https://nextchat.club";
 export const SAAS_CHAT_UTM_URL = "https://nextchat.club?utm=github";
+
+const constants = {
+  ACCESS_CODE_PREFIX,
+  AI302,
+  AI302_BASE_URL,
+  ALIBABA_BASE_URL,
+  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
+  ANTHROPIC_BASE_URL,
+  ApiPath,
+  Azure,
+  BAIDU_BASE_URL,
+  BAIDU_OATUH_URL,
+  BYTEDANCE_BASE_URL,
+  CHATGLM_BASE_URL,
+  DEEPSEEK_BASE_URL,
+  DEFAULT_GA_ID,
+  DEFAULT_MODELS,
+  EXCLUDE_VISION_MODEL_REGEXES,
+  GEMINI_BASE_URL,
+  GoogleSafetySettingsThreshold,
+  ModelProvider,
+  MOONSHOT_BASE_URL,
+  OPENAI_BASE_URL,
+  OpenaiPath,
+  REQUEST_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS_FOR_THINKING,
+  SAAS_CHAT_URL,
+  SAAS_CHAT_UTM_URL,
+  ServiceProvider,
+  SILICONFLOW_BASE_URL,
+  STABILITY_BASE_URL,
+  StoreKey,
+  TENCENT_BASE_URL,
+  VISION_MODEL_REGEXES,
+  XAI_BASE_URL,
+};
+
+export default constants;

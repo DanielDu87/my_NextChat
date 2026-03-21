@@ -1,14 +1,18 @@
-import {
-  getModelSizes,
-  getSupportedImageQualityOptions,
-  getSupportedImageStyleOptions,
-  supportsCustomSize,
-  supportsImageQualityControl,
-  supportsImageStyleControl,
-} from "../app/utils";
-
 describe("image parameter support", () => {
-  test("should keep dall-e-3 size quality and style controls", () => {
+  async function loadUtils() {
+    const mod = await import("../app/utils/model-capabilities");
+    return (mod.default ?? mod) as typeof import("../app/utils/model-capabilities");
+  }
+
+  test("should keep dall-e-3 size quality and style controls", async () => {
+    const {
+      getModelSizes,
+      getSupportedImageQualityOptions,
+      getSupportedImageStyleOptions,
+      supportsCustomSize,
+      supportsImageQualityControl,
+      supportsImageStyleControl,
+    } = await loadUtils();
     expect(getModelSizes("dall-e-3")).toEqual([
       "1024x1024",
       "1792x1024",
@@ -27,7 +31,15 @@ describe("image parameter support", () => {
     expect(supportsImageStyleControl("dall-e-3")).toBe(true);
   });
 
-  test("should only keep size for qwen-image requests", () => {
+  test("should only keep size for qwen-image requests", async () => {
+    const {
+      getModelSizes,
+      getSupportedImageQualityOptions,
+      getSupportedImageStyleOptions,
+      supportsCustomSize,
+      supportsImageQualityControl,
+      supportsImageStyleControl,
+    } = await loadUtils();
     expect(getModelSizes("qwen-image")).toEqual([
       "1024x1024",
       "1792x1024",
@@ -40,7 +52,15 @@ describe("image parameter support", () => {
     expect(supportsImageStyleControl("qwen-image")).toBe(false);
   });
 
-  test("should hide unsupported controls for flux models", () => {
+  test("should hide unsupported controls for flux models", async () => {
+    const {
+      getModelSizes,
+      getSupportedImageQualityOptions,
+      getSupportedImageStyleOptions,
+      supportsCustomSize,
+      supportsImageQualityControl,
+      supportsImageStyleControl,
+    } = await loadUtils();
     expect(getModelSizes("flux-2-dev")).toEqual([]);
     expect(getSupportedImageQualityOptions("flux-2-dev")).toEqual([]);
     expect(getSupportedImageStyleOptions("flux-2-dev")).toEqual([]);
@@ -49,7 +69,13 @@ describe("image parameter support", () => {
     expect(supportsImageStyleControl("flux-2-dev")).toBe(false);
   });
 
-  test("should expose gpt-image-1.5 specific quality options", () => {
+  test("should expose gpt-image-1.5 specific quality options", async () => {
+    const {
+      getModelSizes,
+      getSupportedImageQualityOptions,
+      supportsImageQualityControl,
+      supportsImageStyleControl,
+    } = await loadUtils();
     expect(getModelSizes("gpt-image-1.5")).toEqual([
       "1024x1024",
       "1024x1536",
@@ -65,7 +91,8 @@ describe("image parameter support", () => {
     expect(supportsImageStyleControl("gpt-image-1.5")).toBe(false);
   });
 
-  test("should preserve cogview custom size list", () => {
+  test("should preserve cogview custom size list", async () => {
+    const { getModelSizes } = await loadUtils();
     expect(getModelSizes("cogview-3-plus")).toEqual([
       "1024x1024",
       "768x1344",

@@ -89,7 +89,7 @@ export type ChatMessage = RequestMessage & {
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
   return {
     id: nanoid(),
-    date: new Date().toLocaleString(),
+    date: new Date().toISOString(),
     role: "user",
     content: "",
     ...override,
@@ -1451,7 +1451,7 @@ export const useChatStore = createPersistStore(
                 const hasFailure = isApiFailurePayload(finalMessage);
 
                 botMessage.content = finalMessage;
-                botMessage.date = new Date().toLocaleString();
+                botMessage.date = new Date().toISOString();
                 botMessage.reasoning_details = (responseRes as any)
                   ?.__reasoning_details;
                 botMessage.isError = hasFailure;
@@ -1666,7 +1666,7 @@ export const useChatStore = createPersistStore(
                   }
 
                   botMessage.content = finalMessage;
-                  botMessage.date = new Date().toLocaleString();
+                  botMessage.date = new Date().toISOString();
                   botMessage.reasoning_details = (responseRes as any)
                     ?.__reasoning_details;
                   botMessage.isError = false;

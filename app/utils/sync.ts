@@ -14,37 +14,45 @@ import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
 import { ServiceProvider, StoreKey } from "../constant";
+import {
+  getMessageTime,
+  getSessionCreatedAt,
+  getSessionMessages,
+  mergeSessionMessages,
+  sortSessionsByCreatedAt,
+} from "./chat-session-merge";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
+
+function isSyncDebugLoggingEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return (
+      globalThis.localStorage?.getItem("debug-sync-logs") === "1" ||
+      process.env.NEXT_PUBLIC_DEBUG_SYNC_LOGS === "1"
+    );
+  } catch {
+    return process.env.NEXT_PUBLIC_DEBUG_SYNC_LOGS === "1";
+  }
+}
+
+function logSyncDebug(message: string, payload?: unknown) {
+  if (!isSyncDebugLoggingEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
 
 type NonFunctionKeys<T> = {
   [K in keyof T]: T[K] extends (...args: any[]) => any ? never : K;
 }[keyof T];
 type NonFunctionFields<T> = Pick<T, NonFunctionKeys<T>>;
-
-function getSessionCreatedAt(session: Partial<ChatSession> | undefined) {
-  const createdAt = Number(session?.createdAt);
-  if (Number.isFinite(createdAt) && createdAt > 0) {
-    return createdAt;
-  }
-
-  const lastUpdate = Number(session?.lastUpdate);
-  if (Number.isFinite(lastUpdate) && lastUpdate > 0) {
-    return lastUpdate;
-  }
-
-  return 0;
-}
-
-function sortSessionsByCreatedAt(sessions: ChatSession[]) {
-  return sessions.sort((a, b) => {
-    const createdAtDiff = getSessionCreatedAt(b) - getSessionCreatedAt(a);
-    if (createdAtDiff !== 0) {
-      return createdAtDiff;
-    }
-
-    return Number(b.lastUpdate || 0) - Number(a.lastUpdate || 0);
-  });
-}
 
 export function getNonFunctionFileds<T extends object>(obj: T) {
   const ret: any = {};
@@ -157,31 +165,29 @@ const MergeStates: StateMerger = {
 
     // 使用 Map 存储会话，便于查找和更新
     const sessionMap = new Map<string, ChatSession>();
+    const debugLoggingEnabled = isSyncDebugLoggingEnabled();
     const MAX_DEBUG_SESSION_IDS = 10;
     const currentSessionId =
       localState.sessions?.[localState.currentSessionIndex]?.id ?? "";
-    const localSessionCount = Array.isArray(localState.sessions)
-      ? localState.sessions.length
-      : 0;
-    const remoteSessionCount = Array.isArray(remoteState.sessions)
-      ? remoteState.sessions.length
-      : 0;
-    const localEmptySessionCount = Array.isArray(localState.sessions)
-      ? localState.sessions.filter(
-          (session) => (session.messages?.length ?? 0) === 0,
-        ).length
-      : 0;
-    const remoteEmptySessionCount = Array.isArray(remoteState.sessions)
-      ? remoteState.sessions.filter(
-          (session) => (session.messages?.length ?? 0) === 0,
-        ).length
-      : 0;
+    const localSessionCount = localSessions.length;
+    const remoteSessionCount = remoteSessions.length;
     let adoptedRemoteCount = 0;
     let keptLocalCount = 0;
     let mergedSameTimestampCount = 0;
+    let localEmptySessionCount = 0;
+    let remoteEmptySessionCount = 0;
     const adoptedRemoteEmptySessionIds: string[] = [];
     const keptLocalEmptySessionIds: string[] = [];
     const mergedSameTimestampEmptySessionIds: string[] = [];
+
+    if (debugLoggingEnabled) {
+      localEmptySessionCount = localSessions.filter(
+        (session) => getSessionMessages(session).length === 0,
+      ).length;
+      remoteEmptySessionCount = remoteSessions.filter(
+        (session) => getSessionMessages(session).length === 0,
+      ).length;
+    }
 
     // 先添加本地会话
     localSessions.forEach((s) => sessionMap.set(s.id, s));
@@ -204,61 +210,64 @@ const MergeStates: StateMerger = {
           : getSessionCreatedAt(remoteSession);
         sessionMap.set(remoteSession.id, remoteSession);
         adoptedRemoteCount += 1;
-        if ((remoteSession.messages?.length ?? 0) === 0) {
+        if (
+          debugLoggingEnabled &&
+          getSessionMessages(remoteSession).length === 0
+        ) {
           adoptedRemoteEmptySessionIds.push(remoteSession.id);
         }
-        console.log("[Sync] 📥 使用远程会话（更新）:", {
-          id: remoteSession.id,
-          topic: remoteSession.topic,
-          remoteTime: new Date(remoteUpdateTime).toLocaleString(),
-          localTime: localSession
-            ? new Date(localUpdateTime).toLocaleString()
-            : "不存在",
-        });
+        if (debugLoggingEnabled) {
+          logSyncDebug("[Sync] 📥 使用远程会话（更新）:", {
+            id: remoteSession.id,
+            topic: remoteSession.topic,
+            remoteTime: new Date(remoteUpdateTime).toLocaleString(),
+            localTime: localSession
+              ? new Date(localUpdateTime).toLocaleString()
+              : "不存在",
+          });
+        }
       } else if (remoteUpdateTime < localUpdateTime) {
-        console.log("[Sync] 📤 保留本地会话（更新）:", {
-          id: remoteSession.id,
-          topic: localSession.topic,
-          localTime: new Date(localUpdateTime).toLocaleString(),
-          remoteTime: new Date(remoteUpdateTime).toLocaleString(),
-        });
+        if (debugLoggingEnabled) {
+          logSyncDebug("[Sync] 📤 保留本地会话（更新）:", {
+            id: remoteSession.id,
+            topic: localSession.topic,
+            localTime: new Date(localUpdateTime).toLocaleString(),
+            remoteTime: new Date(remoteUpdateTime).toLocaleString(),
+          });
+        }
         keptLocalCount += 1;
         localSession.createdAt =
           localSession.createdAt || getSessionCreatedAt(localSession);
-        if ((localSession.messages?.length ?? 0) === 0) {
+        if (
+          debugLoggingEnabled &&
+          getSessionMessages(localSession).length === 0
+        ) {
           keptLocalEmptySessionIds.push(localSession.id);
         }
       } else {
         // 更新时间相同，合并消息（保留两边独有的消息）
         if (localSession) {
-          const allMessages = [
-            ...(Array.isArray(localSession.messages)
-              ? localSession.messages
-              : []),
-            ...(Array.isArray(remoteSession.messages)
-              ? remoteSession.messages
-              : []),
-          ];
-          const messageMap = new Map<string, ChatMessage>();
-          allMessages.forEach((m) => {
-            const existing = messageMap.get(m.id);
-            if (!existing || new Date(m.date) > new Date(existing.date)) {
-              messageMap.set(m.id, m);
-            }
-          });
-
-          // 按时间排序
-          remoteSession.messages = Array.from(messageMap.values()).sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+          const mergedMessages = mergeSessionMessages(
+            localSession,
+            remoteSession,
           );
+          remoteSession.messages = mergedMessages;
           remoteSession.createdAt = Math.min(
             getSessionCreatedAt(localSession),
             getSessionCreatedAt(remoteSession),
           );
 
-          sessionMap.set(remoteSession.id, remoteSession);
+          const mergedSession =
+            mergedMessages === getSessionMessages(localSession) &&
+            remoteSession.createdAt === getSessionCreatedAt(localSession)
+              ? localSession
+              : remoteSession;
+          sessionMap.set(remoteSession.id, mergedSession);
           mergedSameTimestampCount += 1;
-          if ((remoteSession.messages?.length ?? 0) === 0) {
+          if (
+            debugLoggingEnabled &&
+            getSessionMessages(mergedSession).length === 0
+          ) {
             mergedSameTimestampEmptySessionIds.push(remoteSession.id);
           }
         }
@@ -278,37 +287,43 @@ const MergeStates: StateMerger = {
       }
     }
 
-    console.log("[Sync] 📊 会话合并完成:", {
-      localSessionCount,
-      remoteSessionCount,
-      localEmptySessionCount,
-      remoteEmptySessionCount,
-      adoptedRemoteCount,
-      keptLocalCount,
-      mergedSameTimestampCount,
-      mergedSessionCount: localState.sessions.length,
-    });
-    if (adoptedRemoteEmptySessionIds.length > 0) {
-      console.log("[Sync] 📝 已接收远端空会话:", {
-        count: adoptedRemoteEmptySessionIds.length,
-        ids: adoptedRemoteEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
-        truncated: adoptedRemoteEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+    if (debugLoggingEnabled) {
+      logSyncDebug("[Sync] 📊 会话合并完成:", {
+        localSessionCount,
+        remoteSessionCount,
+        localEmptySessionCount,
+        remoteEmptySessionCount,
+        adoptedRemoteCount,
+        keptLocalCount,
+        mergedSameTimestampCount,
+        mergedSessionCount: localState.sessions.length,
       });
-    }
-    if (keptLocalEmptySessionIds.length > 0) {
-      console.log("[Sync] 📝 保留本地空会话:", {
-        count: keptLocalEmptySessionIds.length,
-        ids: keptLocalEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
-        truncated: keptLocalEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
-      });
-    }
-    if (mergedSameTimestampEmptySessionIds.length > 0) {
-      console.log("[Sync] 📝 同时间戳空会话已合并:", {
-        count: mergedSameTimestampEmptySessionIds.length,
-        ids: mergedSameTimestampEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
-        truncated:
-          mergedSameTimestampEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
-      });
+      if (adoptedRemoteEmptySessionIds.length > 0) {
+        logSyncDebug("[Sync] 📝 已接收远端空会话:", {
+          count: adoptedRemoteEmptySessionIds.length,
+          ids: adoptedRemoteEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
+          truncated:
+            adoptedRemoteEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+        });
+      }
+      if (keptLocalEmptySessionIds.length > 0) {
+        logSyncDebug("[Sync] 📝 保留本地空会话:", {
+          count: keptLocalEmptySessionIds.length,
+          ids: keptLocalEmptySessionIds.slice(0, MAX_DEBUG_SESSION_IDS),
+          truncated: keptLocalEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+        });
+      }
+      if (mergedSameTimestampEmptySessionIds.length > 0) {
+        logSyncDebug("[Sync] 📝 同时间戳空会话已合并:", {
+          count: mergedSameTimestampEmptySessionIds.length,
+          ids: mergedSameTimestampEmptySessionIds.slice(
+            0,
+            MAX_DEBUG_SESSION_IDS,
+          ),
+          truncated:
+            mergedSameTimestampEmptySessionIds.length > MAX_DEBUG_SESSION_IDS,
+        });
+      }
     }
     return localState;
   },
@@ -521,6 +536,13 @@ export function setLocalAppState(appState: AppState) {
   Object.entries(LocalStateSetters).forEach(([key, setter]) => {
     setter(appState[key as keyof AppState]);
   });
+}
+
+export function setLocalStoreState<T extends keyof AppState>(
+  key: T,
+  state: AppState[T],
+) {
+  LocalStateSetters[key](state);
 }
 
 export function mergeAppState(localState: AppState, remoteState: AppState) {

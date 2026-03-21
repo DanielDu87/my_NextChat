@@ -25,8 +25,18 @@ function isBrowser() {
   return typeof window !== "undefined" && typeof indexedDB !== "undefined";
 }
 
+let sharedDbPromise: Promise<IDBDatabase> | null = null;
+
+function resetSharedDbPromise() {
+  sharedDbPromise = null;
+}
+
 function openDb() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
+  if (sharedDbPromise) {
+    return sharedDbPromise;
+  }
+
+  sharedDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = () => {
@@ -36,15 +46,37 @@ function openDb() {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onclose = () => resetSharedDbPromise();
+      db.onversionchange = () => {
+        db.close();
+        resetSharedDbPromise();
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      resetSharedDbPromise();
+      reject(request.error);
+    };
+    request.onblocked = () => resetSharedDbPromise();
   });
+
+  return sharedDbPromise;
 }
 
 function idbRequest<T = unknown>(request: IDBRequest<T>) {
   return new Promise<T>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  });
+}
+
+function waitForTransaction(transaction: IDBTransaction) {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
   });
 }
 
@@ -79,14 +111,10 @@ class IndexedDbStateStorage implements StateStorage {
 
   private async getFromIndexedDb(name: string) {
     const db = await openDb();
-    try {
-      const transaction = db.transaction(STORE_NAME, "readonly");
-      const store = transaction.objectStore(STORE_NAME);
-      const value = await idbRequest<string | undefined>(store.get(name));
-      return value ?? null;
-    } finally {
-      db.close();
-    }
+    const transaction = db.transaction(STORE_NAME, "readonly");
+    const store = transaction.objectStore(STORE_NAME);
+    const value = await idbRequest<string | undefined>(store.get(name));
+    return value ?? null;
   }
 
   public async getRawItem(name: string) {
@@ -94,15 +122,29 @@ class IndexedDbStateStorage implements StateStorage {
     return this.getFromIndexedDb(name);
   }
 
+  public async getRawItems(names: string[]) {
+    if (!this.isAvailable() || names.length === 0) {
+      return {} as Record<string, string | null>;
+    }
+
+    const db = await openDb();
+    const transaction = db.transaction(STORE_NAME, "readonly");
+    const store = transaction.objectStore(STORE_NAME);
+    const entries = await Promise.all(
+      names.map(async (name) => {
+        const value = await idbRequest<string | undefined>(store.get(name));
+        return [name, value ?? null] as const;
+      }),
+    );
+    await waitForTransaction(transaction);
+    return Object.fromEntries(entries) as Record<string, string | null>;
+  }
+
   private async setToIndexedDb(name: string, value: string) {
     const db = await openDb();
-    try {
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-      await idbRequest(store.put(value, name));
-    } finally {
-      db.close();
-    }
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    await idbRequest(store.put(value, name));
   }
 
   public async setRawItem(name: string, value: string) {
@@ -112,13 +154,9 @@ class IndexedDbStateStorage implements StateStorage {
 
   private async deleteFromIndexedDb(name: string) {
     const db = await openDb();
-    try {
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-      await idbRequest(store.delete(name));
-    } finally {
-      db.close();
-    }
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    await idbRequest(store.delete(name));
   }
 
   public async removeRawItem(name: string) {
@@ -126,15 +164,37 @@ class IndexedDbStateStorage implements StateStorage {
     await this.deleteFromIndexedDb(name);
   }
 
+  public async applyRawChanges(params: {
+    set?: Record<string, string>;
+    remove?: string[];
+  }) {
+    if (!this.isAvailable()) return;
+
+    const setEntries = Object.entries(params.set || {});
+    const removeKeys = params.remove || [];
+    if (setEntries.length === 0 && removeKeys.length === 0) {
+      return;
+    }
+
+    const db = await openDb();
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+
+    setEntries.forEach(([key, value]) => {
+      store.put(value, key);
+    });
+    removeKeys.forEach((key) => {
+      store.delete(key);
+    });
+
+    await waitForTransaction(transaction);
+  }
+
   private async clearIndexedDb() {
     const db = await openDb();
-    try {
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-      await idbRequest(store.clear());
-    } finally {
-      db.close();
-    }
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    await idbRequest(store.clear());
   }
 
   private async migrateLegacyValue(name: string) {
@@ -181,6 +241,9 @@ class IndexedDbStateStorage implements StateStorage {
         if (resolvedValue === null) {
           return null;
         }
+        if (pendingValue) {
+          await this.flushPendingWrite(name);
+        }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
         return resolvedValue;
@@ -196,7 +259,7 @@ class IndexedDbStateStorage implements StateStorage {
           return null;
         }
         if (pendingValue) {
-          await this.setToIndexedDb(name, pendingValue);
+          await this.flushPendingWrite(name);
         }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
@@ -213,7 +276,7 @@ class IndexedDbStateStorage implements StateStorage {
           return null;
         }
         if (pendingValue) {
-          await this.setToIndexedDb(name, pendingValue);
+          await this.flushPendingWrite(name);
         }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);

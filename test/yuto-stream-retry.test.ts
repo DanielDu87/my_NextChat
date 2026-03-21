@@ -3,18 +3,23 @@ import { jest } from "@jest/globals";
 const fetchEventSourceMock = jest.fn();
 const rememberSuccessfulCustomModelApiKeyGroupMock = jest.fn();
 
-jest.mock("@fortaine/fetch-event-source", () => ({
+jest.unstable_mockModule("@fortaine/fetch-event-source", () => ({
   EventStreamContentType: "text/event-stream",
   fetchEventSource: (...args: unknown[]) => fetchEventSourceMock(...args),
 }));
 
-jest.mock("@/app/client/api", () => ({}));
-jest.mock("@/app/utils/model-api-key-memory", () => ({
+jest.unstable_mockModule("@/app/client/api", () => ({}));
+jest.unstable_mockModule("../app/client/api", () => ({}));
+jest.unstable_mockModule("@/app/utils/model-api-key-memory", () => ({
+  rememberSuccessfulCustomModelApiKeyGroup: (...args: unknown[]) =>
+    rememberSuccessfulCustomModelApiKeyGroupMock(...args),
+}));
+jest.unstable_mockModule("../app/utils/model-api-key-memory", () => ({
   rememberSuccessfulCustomModelApiKeyGroup: (...args: unknown[]) =>
     rememberSuccessfulCustomModelApiKeyGroupMock(...args),
 }));
 
-jest.mock("@/app/locales", () => ({
+jest.unstable_mockModule("@/app/locales", () => ({
   __esModule: true,
   default: {
     Error: {
@@ -22,6 +27,16 @@ jest.mock("@/app/locales", () => ({
     },
   },
 }));
+jest.unstable_mockModule("../app/locales", () => ({
+  __esModule: true,
+  default: {
+    Error: {
+      Unauthorized: "Unauthorized",
+    },
+  },
+}));
+
+const loadChatUtils = () => import("../app/utils/chat");
 
 describe("YutoAPI stream fallback retry", () => {
   const originalRequestAnimationFrame = global.requestAnimationFrame;
@@ -45,10 +60,6 @@ describe("YutoAPI stream fallback retry", () => {
     jest.useRealTimers();
     global.requestAnimationFrame = originalRequestAnimationFrame;
   });
-
-  async function loadChatUtils() {
-    return import("../app/utils/chat");
-  }
 
   async function runRetryScenario(
     run: (

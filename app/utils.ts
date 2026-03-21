@@ -1,17 +1,29 @@
 import { useEffect, useState } from "react";
-import { showToast } from "./components/ui-lib";
-import Locale from "./locales";
 import type { RequestMessage } from "./client/api";
-import {
+import constants from "./constant";
+// import { fetch as tauriFetch, ResponseType } from "@tauri-apps/api/http";
+import { fetch as tauriStreamFetch } from "./utils/stream";
+import { useAccessStore } from "./store";
+import type { DalleQuality, DalleStyle, ModelSize } from "./typing";
+
+const {
   REQUEST_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS_FOR_THINKING,
   ServiceProvider,
-} from "./constant";
-// import { fetch as tauriFetch, ResponseType } from "@tauri-apps/api/http";
-import { fetch as tauriStreamFetch } from "./utils/stream";
-import { VISION_MODEL_REGEXES, EXCLUDE_VISION_MODEL_REGEXES } from "./constant";
-import { useAccessStore } from "./store";
-import type { DalleQuality, DalleStyle, ModelSize } from "./typing";
+  VISION_MODEL_REGEXES,
+  EXCLUDE_VISION_MODEL_REGEXES,
+} = constants;
+type ServiceProviderValue =
+  (typeof ServiceProvider)[keyof typeof ServiceProvider];
+
+async function getToastHelpers() {
+  const [{ showToast }, { default: Locale }] = await Promise.all([
+    import("./components/ui-lib"),
+    import("./locales"),
+  ]);
+
+  return { showToast, Locale };
+}
 
 export function trimTopic(topic: string) {
   // Fix an issue where double quotes still show in the Indonesian language
@@ -33,6 +45,7 @@ export async function copyToClipboard(text: string) {
       await navigator.clipboard.writeText(text);
     }
 
+    const { showToast, Locale } = await getToastHelpers();
     showToast(Locale.Copy.Success);
   } catch (error) {
     const textArea = document.createElement("textarea");
@@ -42,8 +55,10 @@ export async function copyToClipboard(text: string) {
     textArea.select();
     try {
       document.execCommand("copy");
+      const { showToast, Locale } = await getToastHelpers();
       showToast(Locale.Copy.Success);
     } catch (error) {
+      const { showToast, Locale } = await getToastHelpers();
       showToast(Locale.Copy.Failed);
     }
     document.body.removeChild(textArea);
@@ -69,11 +84,14 @@ export async function downloadAs(text: string, filename: string) {
     if (result !== null) {
       try {
         await window.__TAURI__.fs.writeTextFile(result, text);
+        const { showToast, Locale } = await getToastHelpers();
         showToast(Locale.Download.Success);
       } catch (error) {
+        const { showToast, Locale } = await getToastHelpers();
         showToast(Locale.Download.Failed);
       }
     } else {
+      const { showToast, Locale } = await getToastHelpers();
       showToast(Locale.Download.Failed);
     }
   } else {
@@ -528,7 +546,7 @@ export function supportsVideoDurationControl(model: string): boolean {
   return getSupportedVideoDurations(model).length > 0;
 }
 
-export function showPlugins(provider: ServiceProvider, model: string) {
+export function showPlugins(provider: ServiceProviderValue, model: string) {
   if (
     provider == ServiceProvider.OpenAI ||
     provider == ServiceProvider.Azure ||
@@ -635,25 +653,28 @@ export function getOperationId(operation: {
 
 export function clientUpdate() {
   // this a wild for updating client app
-  return window.__TAURI__?.updater
-    .checkUpdate()
-    .then((updateResult) => {
-      if (updateResult.shouldUpdate) {
-        window.__TAURI__?.updater
-          .installUpdate()
-          .then((result) => {
-            showToast(Locale.Settings.Update.Success);
-          })
-          .catch((e) => {
-            console.error("[Install Update Error]", e);
-            showToast(Locale.Settings.Update.Failed);
-          });
-      }
-    })
-    .catch((e) => {
-      console.error("[Check Update Error]", e);
-      showToast(Locale.Settings.Update.Failed);
-    });
+  return getToastHelpers().then(
+    ({ showToast, Locale }) =>
+      window.__TAURI__?.updater
+        .checkUpdate()
+        .then((updateResult) => {
+          if (updateResult.shouldUpdate) {
+            window.__TAURI__?.updater
+              .installUpdate()
+              .then(() => {
+                showToast(Locale.Settings.Update.Success);
+              })
+              .catch((e) => {
+                console.error("[Install Update Error]", e);
+                showToast(Locale.Settings.Update.Failed);
+              });
+          }
+        })
+        .catch((e) => {
+          console.error("[Check Update Error]", e);
+          showToast(Locale.Settings.Update.Failed);
+        }),
+  );
 }
 
 // https://gist.github.com/iwill/a83038623ba4fef6abb9efca87ae9ccb

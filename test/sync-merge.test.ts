@@ -3,6 +3,7 @@ import {
   buildChatIndexPayload,
   getSyncableChatSessions,
 } from "../app/utils/chat-sync";
+import { mergeSessionMessages } from "../app/utils/chat-session-merge";
 
 function createStore(state: Record<string, unknown> = {}) {
   return {
@@ -75,5 +76,52 @@ describe("sync merge safety", () => {
     ]);
 
     expect(sessions.map((session: any) => session.id)).toEqual(["filled"]);
+  });
+
+  test("mergeSessionMessages should reuse local message array when same-timestamp sessions have no effective message diff", () => {
+    const sharedMessages = [
+      {
+        id: "m1",
+        date: "2026-03-21T10:00:00.000Z",
+        content: "hello",
+      },
+      {
+        id: "m2",
+        date: "2026-03-21T10:01:00.000Z",
+        content: "world",
+      },
+    ];
+    const localSession = {
+      id: "s1",
+      topic: "same",
+      createdAt: 100,
+      lastUpdate: 200,
+      messages: sharedMessages,
+    };
+    const remoteSession = {
+      id: "s1",
+      topic: "same",
+      createdAt: 100,
+      lastUpdate: 200,
+      messages: [
+        {
+          id: "m1",
+          date: "2026-03-21T10:00:00.000Z",
+          content: "hello",
+        },
+        {
+          id: "m2",
+          date: "2026-03-21T10:01:00.000Z",
+          content: "world",
+        },
+      ],
+    };
+
+    const mergedMessages = mergeSessionMessages(
+      localSession as any,
+      remoteSession as any,
+    );
+
+    expect(mergedMessages).toBe(sharedMessages);
   });
 });

@@ -4,14 +4,53 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
 import type { MultimodalContent, RequestMessage } from "@/app/client/api";
-import Locale from "@/app/locales";
+import * as LocaleModule from "@/app/locales";
 import {
   EventStreamContentType,
   fetchEventSource,
 } from "@fortaine/fetch-event-source";
-import { prettyObject } from "./format";
-import { fetch as tauriFetch } from "./stream";
-import { rememberSuccessfulCustomModelApiKeyGroup } from "./model-api-key-memory";
+import * as FormatModule from "./format";
+import * as StreamModule from "./stream";
+import * as ModelApiKeyMemoryModule from "./model-api-key-memory";
+
+const Locale = (LocaleModule as any).default ?? LocaleModule;
+const prettyObject = FormatModule.prettyObject;
+const tauriFetch = StreamModule.fetch;
+const rememberSuccessfulCustomModelApiKeyGroup =
+  ModelApiKeyMemoryModule.rememberSuccessfulCustomModelApiKeyGroup;
+
+function isDebugLoggingEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return (
+      globalThis.localStorage?.getItem("debug-chat-logs") === "1" ||
+      process.env.NEXT_PUBLIC_DEBUG_CHAT_LOGS === "1"
+    );
+  } catch {
+    return process.env.NEXT_PUBLIC_DEBUG_CHAT_LOGS === "1";
+  }
+}
+
+function logChatDebug(message: string, payload?: unknown) {
+  if (!isDebugLoggingEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
+
+function logChatTrace(message: string) {
+  if (!isDebugLoggingEnabled()) {
+    return;
+  }
+  console.debug(message);
+}
 
 function isYutoApiChatPath(chatPath: string) {
   return (
@@ -88,7 +127,7 @@ function logApiKeyGroupStart(
     rememberedGroup === currentGroup;
 
   if (isRememberedGroup) {
-    console.log(`[Chat] ${providerName} 命中已记忆分组`, {
+    logChatDebug(`[Chat] ${providerName} 命中已记忆分组`, {
       currentGroup,
       attempt: currentKeyIndex + 1,
       totalGroups: fallbackApiKeyGroups.length,
@@ -96,7 +135,7 @@ function logApiKeyGroupStart(
     return;
   }
 
-  console.log(`[Chat] ${providerName} 开始使用分组`, {
+  logChatDebug(`[Chat] ${providerName} 开始使用分组`, {
     currentGroup,
     attempt: currentKeyIndex + 1,
     totalGroups: fallbackApiKeyGroups.length,
@@ -346,7 +385,7 @@ export function stream(
     // 获取当前供应商名称，用于日志显示
     const providerName = options.config?.providerName || "API";
 
-    console.log(`[Chat] ${providerName} 分组请求失败`, {
+    logChatDebug(`[Chat] ${providerName} 分组请求失败`, {
       currentGroup,
       reason,
     });
@@ -357,7 +396,7 @@ export function stream(
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
+      logChatDebug(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
         currentGroup,
         totalGroups: fallbackApiKeys.length,
       });
@@ -369,7 +408,7 @@ export function stream(
       currentKeyIndex + 1,
     );
 
-    console.log(
+    logChatDebug(
       `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${
         currentKeyIndex + 1
       }/${fallbackApiKeys.length})`,
@@ -456,7 +495,7 @@ export function stream(
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
             // call again
-            console.debug("[ChatAPI] restart");
+            logChatTrace("[ChatAPI] restart");
             running = false;
             chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
           }, 60);
@@ -473,7 +512,7 @@ export function stream(
           return;
         }
       }
-      console.debug("[ChatAPI] end");
+      logChatTrace("[ChatAPI] end");
       finished = true;
       rememberApiKeyGroupIfNeeded(
         chatPath,
@@ -634,7 +673,7 @@ export function stream(
       openWhenHidden: true,
     });
   }
-  console.debug("[ChatAPI] start");
+  logChatTrace("[ChatAPI] start");
   chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
 }
 
@@ -727,7 +766,7 @@ export function streamWithThink(
     // 获取当前供应商名称，用于日志显示
     const providerName = options.config?.providerName || "API";
 
-    console.log(`[Chat] ${providerName} 分组请求失败`, {
+    logChatDebug(`[Chat] ${providerName} 分组请求失败`, {
       currentGroup,
       reason,
     });
@@ -738,7 +777,7 @@ export function streamWithThink(
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
+      logChatDebug(`[Chat] ${providerName} 无可用下一分组，停止重试`, {
         currentGroup,
         totalGroups: fallbackApiKeys.length,
       });
@@ -750,7 +789,7 @@ export function streamWithThink(
       currentKeyIndex + 1,
     );
 
-    console.log(
+    logChatDebug(
       `[Chat] ${providerName} 流式请求失败，尝试降级重试 (${
         currentKeyIndex + 1
       }/${fallbackApiKeys.length})`,
@@ -837,7 +876,7 @@ export function streamWithThink(
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
             // call again
-            console.debug("[ChatAPI] restart");
+            logChatTrace("[ChatAPI] restart");
             running = false;
             chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
           }, 60);
@@ -854,7 +893,7 @@ export function streamWithThink(
           return;
         }
       }
-      console.debug("[ChatAPI] end");
+      logChatTrace("[ChatAPI] end");
       finished = true;
       rememberApiKeyGroupIfNeeded(
         chatPath,
@@ -1066,6 +1105,6 @@ export function streamWithThink(
       openWhenHidden: true,
     });
   }
-  console.debug("[ChatAPI] start");
+  logChatTrace("[ChatAPI] start");
   chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
 }

@@ -402,9 +402,42 @@ yarn install
 yarn dev
 ```
 
+### Local Docker Development
+
+Use this when you want local development with Docker and hot reload.
+
+> Full AI-friendly deployment and Docker details: [docs/docker-deploy-en.md](./docs/docker-deploy-en.md)
+
+```shell
+cp .env.docker.example .env.docker
+docker compose --env-file .env.docker --profile dev build
+docker compose --env-file .env.docker --profile dev up -d
+```
+
+Common commands:
+
+```shell
+# view logs
+docker compose --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+
+# restart only when needed
+docker compose --env-file .env.docker --profile dev restart
+
+# stop local dev containers
+docker compose --env-file .env.docker --profile dev down
+```
+
+Notes:
+
+- For normal source code changes, do not rebuild the image and do not restart the container. `next dev` inside the dev container handles hot reload.
+- Rebuild only when `package.json`, `yarn.lock`, or `Dockerfile` changes.
+- `WATCHPACK_POLLING` and `CHOKIDAR_USEPOLLING` default to `false`. Turn them on only if file watching is unreliable in your Docker environment.
+
 ## Deployment
 
 ### Docker (Recommended)
+
+> For AI-friendly, step-by-step deployment instructions, read: [docs/docker-deploy-en.md](./docs/docker-deploy-en.md)
 
 ```shell
 docker pull yidadaa/chatgpt-next-web
@@ -413,22 +446,6 @@ docker run -d -p 3000:3000 \
    -e OPENAI_API_KEY=sk-xxxx \
    -e CODE=your-password \
    yidadaa/chatgpt-next-web
-```
-
-You can start service behind a proxy:
-
-```shell
-docker run -d -p 3000:3000 \
-   -e OPENAI_API_KEY=sk-xxxx \
-   -e CODE=your-password \
-   -e PROXY_URL=http://localhost:7890 \
-   yidadaa/chatgpt-next-web
-```
-
-If your proxy needs password, use:
-
-```shell
--e PROXY_URL="http://127.0.0.1:7890 user pass"
 ```
 
 If enable MCP, use：
@@ -455,6 +472,7 @@ bash <(curl -s https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/s
 
 > Please go to the [docs][./docs] directory for more documentation instructions.
 
+- [Docker Deployment (AI Optimized)](./docs/docker-deploy-en.md)
 - [Deploy with cloudflare (Deprecated)](./docs/cloudflare-pages-en.md)
 - [Frequent Ask Questions](./docs/faq-en.md)
 - [How to add a new translation](./docs/translation.md)

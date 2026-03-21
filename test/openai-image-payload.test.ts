@@ -1,7 +1,11 @@
-import { buildAiHubMixPredictionPayload } from "../app/client/platforms/openai";
-
 describe("buildAiHubMixPredictionPayload", () => {
-  test("should include style for aihubmix dall-e-3 requests", () => {
+  async function loadMediaUtils() {
+    const mod = await import("../app/client/openai-media-utils");
+    return (mod.default ?? mod) as typeof import("../app/client/openai-media-utils");
+  }
+
+  test("should include style for aihubmix dall-e-3 requests", async () => {
+    const { buildAiHubMixPredictionPayload } = await loadMediaUtils();
     const payload = buildAiHubMixPredictionPayload("dall-e-3", {
       messages: [
         {
@@ -29,7 +33,8 @@ describe("buildAiHubMixPredictionPayload", () => {
     });
   });
 
-  test("should omit style for aihubmix dall-e-2 requests", () => {
+  test("should omit style for aihubmix dall-e-2 requests", async () => {
+    const { buildAiHubMixPredictionPayload } = await loadMediaUtils();
     const payload = buildAiHubMixPredictionPayload("dall-e-2", {
       messages: [
         {

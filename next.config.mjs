@@ -2,6 +2,10 @@ import webpack from "webpack";
 
 const mode = process.env.BUILD_MODE ?? "standalone";
 const isDev = process.env.NODE_ENV === "development";
+const useWatchPolling = process.env.WATCHPACK_POLLING === "true";
+const watchPollingInterval = Number(
+  process.env.WATCHPACK_POLLING_INTERVAL || 1000,
+);
 console.log("[Next] build mode", mode);
 
 const disableChunk = !!process.env.DISABLE_CHUNK || mode === "export";
@@ -32,8 +36,8 @@ const nextConfig = {
 
     if (dev) {
       config.watchOptions = {
-        poll: 1000,
-        aggregateTimeout: 300,
+        ...(useWatchPolling ? { poll: watchPollingInterval } : {}),
+        aggregateTimeout: useWatchPolling ? 100 : 300,
         ignored: ["**/.git/**", "**/.next/**", "**/node_modules/**"],
       };
     }

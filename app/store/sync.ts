@@ -9,6 +9,7 @@ import {
   mergeAppState,
   mergeStoreState,
   setLocalAppState,
+  setLocalStoreState,
 } from "../utils/sync";
 import { downloadAs, readFromFile } from "../utils";
 import {
@@ -76,6 +77,43 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(30);
 let syncInFlight: Promise<void> | null = null;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
+
+function isSyncDebugLoggingEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return (
+      globalThis.localStorage?.getItem("debug-sync-logs") === "1" ||
+      process.env.NEXT_PUBLIC_DEBUG_SYNC_LOGS === "1"
+    );
+  } catch {
+    return process.env.NEXT_PUBLIC_DEBUG_SYNC_LOGS === "1";
+  }
+}
+
+function logSyncDebug(message: string, payload?: unknown) {
+  if (!isSyncDebugLoggingEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
+
+function warnSyncDebug(message: string, payload?: unknown) {
+  if (!isSyncDebugLoggingEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.warn(message);
+    return;
+  }
+  console.warn(message, payload);
+}
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -837,7 +875,7 @@ export const useSyncStore = createPersistStore(
             e instanceof Error &&
             e.message.includes("[File] 用户取消选择文件")
           ) {
-            console.log("[Import] 用户取消选择备份文件");
+            logSyncDebug("[Import] 用户取消选择备份文件");
             return;
           }
           console.error("[Import]", e);
@@ -864,11 +902,11 @@ export const useSyncStore = createPersistStore(
 
           // 检查是否已配置同步
           if (!this.cloudSync()) {
-            console.log("[Sync] 🔕 同步未配置，跳过防抖同步");
+            logSyncDebug("[Sync] 🔕 同步未配置，跳过防抖同步");
             return;
           }
 
-          console.log("[Sync] 🚀 防抖同步触发", {
+          logSyncDebug("[Sync] 🚀 防抖同步触发", {
             keys: keysToSync.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
           });
 
@@ -903,7 +941,7 @@ export const useSyncStore = createPersistStore(
           debounceTimer = null;
         }
 
-        console.log("[Sync] ♻️ 恢复未完成的防抖同步", {
+        logSyncDebug("[Sync] ♻️ 恢复未完成的防抖同步", {
           keys: pendingTask.keys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
         });
 
@@ -946,7 +984,7 @@ export const useSyncStore = createPersistStore(
 
       async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
         if (syncInFlight) {
-          console.log("[Sync] ⏳ 已有同步进行中，等待当前任务完成...");
+          logSyncDebug("[Sync] ⏳ 已有同步进行中，等待当前任务完成...");
           await syncInFlight;
         }
 
@@ -958,15 +996,18 @@ export const useSyncStore = createPersistStore(
               : state.provider === ProviderType.WebDAV
               ? "WebDAV"
               : "云端存储";
-          console.log(`[Sync] 🔄 开始同步到 ${providerName}...`);
+          logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
           const client = this.getClient() as any;
 
-          console.log(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
+          logSyncDebug(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
 
           const appConfig = useAppConfig.getState() as any;
           const localSidebarWidth = localStorage.getItem("sidebarWidth");
           const localTightBorder = appConfig.tightBorder;
+          const localAppStateCache = {
+            ...getLocalAppState(),
+          } as { [K in SyncStoreKey]: AppState[K] };
 
           try {
             const syncResults: Array<{
@@ -985,11 +1026,10 @@ export const useSyncStore = createPersistStore(
               try {
                 const displayName = STORE_DISPLAY_NAMES[key];
                 const stepLabel = `${index + 1}/${storeKeys.length}`;
-                console.log(
+                logSyncDebug(
                   `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                 );
-                const localState = getLocalAppState();
-                const localStoreState = localState[key];
+                const localStoreState = localAppStateCache[key];
 
                 if (
                   key === StoreKey.Chat &&
@@ -1001,7 +1041,7 @@ export const useSyncStore = createPersistStore(
                     client,
                     localStoreState,
                   );
-                  console.log(
+                  logSyncDebug(
                     `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
                   );
                   syncResults.push({
@@ -1011,7 +1051,7 @@ export const useSyncStore = createPersistStore(
                     status: chatResult.status,
                   });
 
-                  console.log(
+                  logSyncDebug(
                     `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
                     {
                       下载会话数: chatResult.metrics.downloadedSessionCount,
@@ -1022,10 +1062,8 @@ export const useSyncStore = createPersistStore(
                     },
                   );
 
-                  setLocalAppState({
-                    ...localState,
-                    [key]: chatResult.mergedStoreState,
-                  } as AppState);
+                  setLocalStoreState(key, chatResult.mergedStoreState as any);
+                  localAppStateCache[key] = chatResult.mergedStoreState as any;
 
                   // console.log(
                   //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${chatResult.mergedSummary}`,
@@ -1042,7 +1080,7 @@ export const useSyncStore = createPersistStore(
                       error instanceof Error &&
                       RETRYABLE_DB_SYNC_ERROR.test(error.message),
                     onRetry: (attempt, error) => {
-                      console.warn(
+                      warnSyncDebug(
                         `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${attempt} 次重试:`,
                         error,
                       );
@@ -1070,10 +1108,10 @@ export const useSyncStore = createPersistStore(
                   const parsedRemoteState =
                     parseStoreStatePayload(remoteDataText);
                   const summary = getStoreSummary(key, parsedRemoteState);
-                  console.log(
+                  logSyncDebug(
                     `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
                   );
-                  console.log(LOG_SEPARATOR);
+                  logSyncDebug(LOG_SEPARATOR);
                   syncResults.push({
                     key,
                     name: displayName,
@@ -1081,17 +1119,14 @@ export const useSyncStore = createPersistStore(
                     status: "downloaded",
                   });
 
-                  const nextLocalState = getLocalAppState();
                   const mergedStoreState = mergeStoreState(
                     key,
-                    nextLocalState[key],
+                    localAppStateCache[key],
                     parsedRemoteState,
                   );
 
-                  setLocalAppState({
-                    ...nextLocalState,
-                    [key]: mergedStoreState,
-                  } as AppState);
+                  setLocalStoreState(key, mergedStoreState);
+                  localAppStateCache[key] = mergedStoreState;
 
                   await client.set(
                     key,
@@ -1132,9 +1167,9 @@ export const useSyncStore = createPersistStore(
               useAppConfig.setState({ tightBorder: localTightBorder });
             }
 
-            console.log("[Sync] 📊 数据同步汇总");
+            logSyncDebug("[Sync] 📊 数据同步汇总");
             syncResults.forEach((item) => {
-              console.log(`[Sync] - ${item.name}: ${item.summary}`);
+              logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
             });
 
             if (failedKeys.length > 0) {
@@ -1153,8 +1188,8 @@ export const useSyncStore = createPersistStore(
               throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
             }
 
-            console.log("[Sync] ✅ 同步完成");
-            console.log(LOG_SEPARATOR);
+            logSyncDebug("[Sync] ✅ 同步完成");
+            logSyncDebug(LOG_SEPARATOR);
           } catch (e) {
             console.error("[Sync] ❌ 同步失败:", e);
             // console.log(LOG_SEPARATOR);

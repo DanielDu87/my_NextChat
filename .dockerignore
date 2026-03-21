@@ -95,3 +95,26 @@ Thumbs.db
 # secret key
 *.key
 *.key.pub
+
+# Git and CI metadata
+.git
+.github
+.husky
+
+# Local agent / IDE artifacts
+.waylog
+
+# Documentation and non-runtime assets
+docs
+test
+src-tauri
+README*
+CLAUDE.md
+GEMINI.md
+PROJECT_ISSUES.md
+CODE_OF_CONDUCT.md
+LICENSE
+
+# Test-only config
+jest.config.ts
+jest.setup.ts

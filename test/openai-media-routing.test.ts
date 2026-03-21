@@ -1,19 +1,21 @@
 import { jest } from "@jest/globals";
-import {
-  ChatGPTApi,
-  __testables,
-  buildAiHubMixPredictionPayload,
-  buildAiHubMixVideoPayload,
-  getAiHubMixPredictionModelPath,
-  isAiHubMixVideoModel,
-} from "../app/client/platforms/openai";
-import { inferModelCapability } from "../app/client/model-parameter-rules";
-import {
-  isImageGenerationModel,
-  isVideoGenerationModel,
-} from "../app/utils";
 
 describe("AiHubMix media routing", () => {
+  async function loadMediaUtils() {
+    const mod = await import("../app/client/openai-media-utils");
+    return (mod.default ?? mod) as typeof import("../app/client/openai-media-utils");
+  }
+
+  async function loadUtils() {
+    const mod = await import("../app/utils/model-capabilities");
+    return (mod.default ?? mod) as typeof import("../app/utils/model-capabilities");
+  }
+
+  async function loadParameterRules() {
+    const mod = await import("../app/client/model-capability");
+    return (mod.default ?? mod) as typeof import("../app/client/model-capability");
+  }
+
   function createMockBlobResponse(blob: Blob): Response {
     return {
       ok: true,
@@ -25,7 +27,8 @@ describe("AiHubMix media routing", () => {
     } as unknown as Response;
   }
 
-  test("should omit quality for aihubmix dall-e-2 predictions", () => {
+  test("should omit quality for aihubmix dall-e-2 predictions", async () => {
+    const { buildAiHubMixPredictionPayload } = await loadMediaUtils();
     const payload = buildAiHubMixPredictionPayload("dall-e-2", {
       messages: [{ role: "user", content: "test prompt" }],
       config: {
@@ -46,18 +49,24 @@ describe("AiHubMix media routing", () => {
     });
   });
 
-  test("should map ideogram aliases to AiHubMix prediction route", () => {
+  test("should map ideogram aliases to AiHubMix prediction route", async () => {
+    const { getAiHubMixPredictionModelPath } = await loadMediaUtils();
     expect(getAiHubMixPredictionModelPath("ideogram")).toBe("ideogram/V3");
   });
 
-  test("should recognize nano banana and recraft as image models", () => {
+  test("should recognize nano banana and recraft as image models", async () => {
+    const { inferModelCapability } = await loadParameterRules();
+    const { isImageGenerationModel } = await loadUtils();
     expect(inferModelCapability("nano-banana-hd")).toBe("image");
     expect(inferModelCapability("recraftv3")).toBe("image");
     expect(isImageGenerationModel("nano-banana-hd")).toBe(true);
     expect(isImageGenerationModel("recraftv3")).toBe(true);
   });
 
-  test("should recognize major AiHubMix video models", () => {
+  test("should recognize major AiHubMix video models", async () => {
+    const { inferModelCapability } = await loadParameterRules();
+    const { isVideoGenerationModel } = await loadUtils();
+    const { isAiHubMixVideoModel } = await loadMediaUtils();
     const models = [
       "wanx2.1-t2v",
       "veo2-fast-frames",
@@ -76,7 +85,8 @@ describe("AiHubMix media routing", () => {
     });
   });
 
-  test("should build AiHubMix video payload with latest image when present", () => {
+  test("should build AiHubMix video payload with latest image when present", async () => {
+    const { buildAiHubMixVideoPayload } = await loadMediaUtils();
     const payload = buildAiHubMixVideoPayload("I2V-01-live", {
       messages: [
         {
@@ -110,7 +120,8 @@ describe("AiHubMix media routing", () => {
     });
   });
 
-  test("should omit duration for veo text video payloads", () => {
+  test("should omit duration for veo text video payloads", async () => {
+    const { buildAiHubMixVideoPayload } = await loadMediaUtils();
     const payload = buildAiHubMixVideoPayload("veo2-fast", {
       messages: [{ role: "user", content: "a cat walking in the rain" }],
       config: {
@@ -129,7 +140,8 @@ describe("AiHubMix media routing", () => {
     });
   });
 
-  test("should keep image urls array for veo image to video payloads", () => {
+  test("should keep image urls array for veo image to video payloads", async () => {
+    const { buildAiHubMixVideoPayload } = await loadMediaUtils();
     const payload = buildAiHubMixVideoPayload("veo2-fast", {
       messages: [
         {
@@ -163,7 +175,8 @@ describe("AiHubMix media routing", () => {
     });
   });
 
-  test("should reject chinese prompt for veo payloads", () => {
+  test("should reject chinese prompt for veo payloads", async () => {
+    const { buildAiHubMixVideoPayload } = await loadMediaUtils();
     expect(() =>
       buildAiHubMixVideoPayload("veo2-fast", {
         messages: [{ role: "user", content: "一只猫在雨中行走" }],
@@ -176,8 +189,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should extract image from AihubMix output urls payload", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       output: {
         b64_json: [],
         urls: ["https://example.com/generated.png"],
@@ -196,8 +209,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should show queued video task status when result is not ready", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       id: "video_123",
       object: "video",
       status: "queued",
@@ -210,8 +223,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should explain invalid veo task failure with english hint", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       id: "video_123",
       object: "video",
       status: "failed",
@@ -231,8 +244,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should explain veo invalid argument as upstream issue when prompt is already english", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       id: "video_124",
       object: "video",
       status: "failed",
@@ -251,6 +264,7 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should attach fetched blob url for completed video task", async () => {
+    const { attachCompletedVideoContent } = await loadMediaUtils();
     const originalCreateObjectURL = URL.createObjectURL;
     const originalFetch = global.fetch;
     URL.createObjectURL = jest
@@ -259,7 +273,7 @@ describe("AiHubMix media routing", () => {
     global.fetch = jest.fn(() =>
       Promise.resolve(createMockBlobResponse(new Blob(["video-bytes"]))),
     ) as any;
-    const payload = await __testables.attachCompletedVideoContent(
+    const payload = await attachCompletedVideoContent(
       {
         id: "video_123",
         object: "video",
@@ -281,11 +295,12 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should report empty response when completed video content is empty", async () => {
+    const { attachCompletedVideoContent } = await loadMediaUtils();
     global.fetch = jest.fn(() =>
       Promise.resolve(createMockBlobResponse(new Blob())),
     ) as any;
 
-    const payload = await __testables.attachCompletedVideoContent(
+    const payload = await attachCompletedVideoContent(
       {
         id: "video_789",
         object: "video",
@@ -307,6 +322,7 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should keep json error body when content endpoint returns json", async () => {
+    const { attachCompletedVideoContent } = await loadMediaUtils();
     global.fetch = jest.fn(() =>
       Promise.resolve({
         ok: true,
@@ -327,7 +343,7 @@ describe("AiHubMix media routing", () => {
       } as unknown as Response),
     ) as any;
 
-    const payload = await __testables.attachCompletedVideoContent(
+    const payload = await attachCompletedVideoContent(
       {
         id: "video_json",
         object: "video",
@@ -355,8 +371,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should surface structured content error json in final message", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       id: "video_999",
       output: {
         content_error: {
@@ -378,8 +394,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should extract blob video url as video markdown", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       output: {
         video_url: "blob:http://localhost:3000/video-blob-id",
       },
@@ -391,8 +407,8 @@ describe("AiHubMix media routing", () => {
   });
 
   test("should format in-progress video task status for polling updates", async () => {
-    const api = new ChatGPTApi();
-    const message = await api.extractMessage({
+    const { extractOpenAIMediaMessage } = await loadMediaUtils();
+    const message = await extractOpenAIMediaMessage({
       id: "video_456",
       object: "video",
       status: "in_progress",

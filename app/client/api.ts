@@ -1,9 +1,5 @@
 import { getClientConfig } from "../config/client";
-import {
-  ACCESS_CODE_PREFIX,
-  ModelProvider,
-  ServiceProvider,
-} from "../constant";
+import constants from "../constant";
 import {
   ChatMessageTool,
   ChatMessage,
@@ -32,6 +28,11 @@ import {
   getCustomModelApiKeySelection,
   isRememberedApiKeyProfile,
 } from "../utils/model-api-key-memory";
+
+const { ACCESS_CODE_PREFIX, ModelProvider, ServiceProvider } = constants;
+type ModelProviderValue = (typeof ModelProvider)[keyof typeof ModelProvider];
+type ServiceProviderValue =
+  (typeof ServiceProvider)[keyof typeof ServiceProvider];
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -181,7 +182,7 @@ interface ChatProvider {
 export class ClientApi {
   public llm: LLMApi;
 
-  constructor(provider: ModelProvider = ModelProvider.GPT) {
+  constructor(provider: ModelProviderValue = ModelProvider.GPT) {
     switch (provider) {
       case ModelProvider.GeminiPro:
         this.llm = new GeminiProApi();
@@ -519,7 +520,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   return headers;
 }
 
-export function getClientApi(provider: ServiceProvider): ClientApi {
+export function getClientApi(provider: ServiceProviderValue): ClientApi {
   switch (provider) {
     case ServiceProvider.Google:
       return new ClientApi(ModelProvider.GeminiPro);

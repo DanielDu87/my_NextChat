@@ -1,6 +1,9 @@
-import { DEFAULT_MODELS, ServiceProvider } from "../constant";
-import { LLMModel } from "../client/api";
-import { comparePublishedAt } from "./model-published-at";
+import constants from "../constant";
+import type { LLMModel } from "../client/api";
+import modelPublishedAtUtils from "./model-published-at";
+
+const { DEFAULT_MODELS, ServiceProvider } = constants;
+const { comparePublishedAt } = modelPublishedAtUtils;
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts

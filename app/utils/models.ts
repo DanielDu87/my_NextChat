@@ -1,8 +1,13 @@
-import { ServiceProvider } from "../constant";
+import constants from "../constant";
 import type { LLMModel } from "../client/api";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { normalizeModelClassification } from "./model-classification";
-import { applyModelPublishedAt } from "./model-published-at";
+import modelPublishedAtUtils from "./model-published-at";
+
+const { ServiceProvider } = constants;
+type ServiceProviderValue =
+  (typeof ServiceProvider)[keyof typeof ServiceProvider];
+const { applyModelPublishedAt } = modelPublishedAtUtils;
 
 /**
  * AiHubMix developer_id 到供应商名称的映射
@@ -159,7 +164,7 @@ function normalizeBaseUrl(baseUrl: string) {
  * 从 baseUrl 中提取平台名称用于显示
  */
 export function getProviderDisplayName(
-  provider: ServiceProvider,
+  provider: ServiceProviderValue,
   baseUrl?: string,
 ): string {
   if (provider !== ServiceProvider.Custom || !baseUrl) {
@@ -543,7 +548,7 @@ async function fetchJsonWithCandidates(
  * 从指定供应商获取模型列表
  */
 export async function fetchModelsFromProvider(
-  provider: ServiceProvider,
+  provider: ServiceProviderValue,
   baseUrl?: string,
   apiKey?: string,
   profileName?: string,
@@ -998,7 +1003,7 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
  * 获取并更新模型列表到配置
  */
 export async function fetchAndUpdateModels(
-  provider: ServiceProvider,
+  provider: ServiceProviderValue,
   baseUrl?: string,
   apiKey?: string,
 ): Promise<string> {

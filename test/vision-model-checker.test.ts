@@ -1,8 +1,12 @@
 import { jest } from "@jest/globals";
-import { isVisionModel } from "../app/utils";
 
 describe("isVisionModel", () => {
   const originalEnv = process.env;
+
+  async function loadUtils() {
+    const mod = await import("../app/utils/model-capabilities");
+    return (mod.default ?? mod) as typeof import("../app/utils/model-capabilities");
+  }
 
   beforeEach(() => {
     jest.resetModules();
@@ -13,7 +17,8 @@ describe("isVisionModel", () => {
     process.env = originalEnv;
   });
 
-  test("should identify vision models using regex patterns", () => {
+  test("should identify vision models using regex patterns", async () => {
+    const { isVisionModelByConfig } = await loadUtils();
     const visionModels = [
       "gpt-4-vision",
       "claude-3-opus",
@@ -28,15 +33,17 @@ describe("isVisionModel", () => {
     ];
 
     visionModels.forEach((model) => {
-      expect(isVisionModel(model)).toBe(true);
+      expect(isVisionModelByConfig(model)).toBe(true);
     });
   });
 
-  test("should exclude specific models", () => {
-    expect(isVisionModel("claude-3-5-haiku-20241022")).toBe(false);
+  test("should exclude specific models", async () => {
+    const { isVisionModelByConfig } = await loadUtils();
+    expect(isVisionModelByConfig("claude-3-5-haiku-20241022")).toBe(false);
   });
 
-  test("should not identify non-vision models", () => {
+  test("should not identify non-vision models", async () => {
+    const { isVisionModelByConfig } = await loadUtils();
     const nonVisionModels = [
       "gpt-3.5-turbo",
       "gpt-4-turbo-preview",
@@ -45,24 +52,38 @@ describe("isVisionModel", () => {
     ];
 
     nonVisionModels.forEach((model) => {
-      expect(isVisionModel(model)).toBe(false);
+      expect(isVisionModelByConfig(model)).toBe(false);
     });
   });
 
-  test("should identify models from VISION_MODELS env var", () => {
+  test("should identify models from VISION_MODELS env var", async () => {
+    const { isVisionModelByConfig } = await loadUtils();
     process.env.VISION_MODELS = "custom-vision-model,another-vision-model";
 
-    expect(isVisionModel("custom-vision-model")).toBe(true);
-    expect(isVisionModel("another-vision-model")).toBe(true);
-    expect(isVisionModel("unrelated-model")).toBe(false);
+    expect(
+      isVisionModelByConfig(
+        "custom-vision-model",
+        process.env.VISION_MODELS,
+      ),
+    ).toBe(true);
+    expect(
+      isVisionModelByConfig(
+        "another-vision-model",
+        process.env.VISION_MODELS,
+      ),
+    ).toBe(true);
+    expect(
+      isVisionModelByConfig("unrelated-model", process.env.VISION_MODELS),
+    ).toBe(false);
   });
 
-  test("should handle empty or missing VISION_MODELS", () => {
+  test("should handle empty or missing VISION_MODELS", async () => {
+    const { isVisionModelByConfig } = await loadUtils();
     process.env.VISION_MODELS = "";
-    expect(isVisionModel("unrelated-model")).toBe(false);
+    expect(isVisionModelByConfig("unrelated-model", process.env.VISION_MODELS)).toBe(false);
 
     delete process.env.VISION_MODELS;
-    expect(isVisionModel("unrelated-model")).toBe(false);
-    expect(isVisionModel("gpt-4-vision")).toBe(true);
+    expect(isVisionModelByConfig("unrelated-model")).toBe(false);
+    expect(isVisionModelByConfig("gpt-4-vision")).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-export type ModelPublishedAtSource =
+type ModelPublishedAtSource =
   | "name"
   | "official"
   | "family"
@@ -9,7 +9,7 @@ export type ModelPublishedAtSource =
   | "huggingface"
   | "artificial_analysis";
 
-export type PublishedAtInfo = {
+type PublishedAtInfo = {
   publishedAt?: number;
   publishedAtSource?: ModelPublishedAtSource;
   publishedAtUrl?: string;
@@ -34,6 +34,8 @@ type SortableModelLike = {
 
 const RELEASE_DATE_PATTERN =
   /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/;
+const RELEASE_MONTH_DAY_PATTERN =
+  /(?:^|[-_.])(0[1-9]|1[0-2])[-_.]([0-2]\d|3[01])$/;
 
 // 这些规则只用于官方可追溯的模型家族/系列日期回填。
 const PUBLISHED_AT_RULES: PublishedAtRule[] = [
@@ -1075,8 +1077,33 @@ export function getTodayPublishedAt(date = new Date()) {
 export function extractPublishedAtFromName(name?: string) {
   if (!name) return undefined;
   const match = name.toLowerCase().match(RELEASE_DATE_PATTERN);
-  if (!match) return undefined;
-  return Number(match[0].replace(/[-_.]/g, ""));
+  if (match) {
+    return Number(match[0].replace(/[-_.]/g, ""));
+  }
+
+  const monthDayMatch = name.toLowerCase().match(RELEASE_MONTH_DAY_PATTERN);
+  if (!monthDayMatch) return undefined;
+
+  const today = getTodayPublishedAt();
+  const month = Number(monthDayMatch[1]);
+  const day = Number(monthDayMatch[2]);
+  const currentYear = new Date().getFullYear();
+  let inferred = Number(
+    `${currentYear}${String(month).padStart(2, "0")}${String(day).padStart(
+      2,
+      "0",
+    )}`,
+  );
+
+  if (inferred > today) {
+    inferred = Number(
+      `${currentYear - 1}${String(month).padStart(2, "0")}${String(
+        day,
+      ).padStart(2, "0")}`,
+    );
+  }
+
+  return inferred;
 }
 
 export function resolvePublishedAtFromName(name?: string): PublishedAtInfo {
@@ -1221,3 +1248,17 @@ export function comparePublishedAt(
     },
   );
 }
+
+export type { ModelPublishedAtSource, PublishedAtInfo };
+
+const modelPublishedAtUtils = {
+  applyModelPublishedAt,
+  comparePublishedAt,
+  extractPublishedAtFromName,
+  getTodayPublishedAt,
+  resolveModelPublishedAt,
+  resolvePublishedAtFromName,
+  resolvePublishedAtFromRules,
+};
+
+export default modelPublishedAtUtils;

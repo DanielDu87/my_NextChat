@@ -325,23 +325,16 @@ BASE_URL=https://b.nextweb.fun/api/proxy
 
 > ⚠️ 注意：docker 版本在大多数时间都会落后最新的版本 1 到 2 天，所以部署后会持续出现“存在更新”的提示，属于正常现象。
 
+> 建议优先阅读 AI 优化版部署文档：[docs/docker-deploy-cn.md](./docs/docker-deploy-cn.md)
+
+#### 方式一：直接运行官方镜像
+
 ```shell
 docker pull yidadaa/chatgpt-next-web
 
 docker run -d -p 3000:3000 \
    -e OPENAI_API_KEY=sk-xxxx \
    -e CODE=页面访问密码 \
-   yidadaa/chatgpt-next-web
-```
-
-你也可以指定 proxy：
-
-```shell
-docker run -d -p 3000:3000 \
-   -e OPENAI_API_KEY=sk-xxxx \
-   -e CODE=页面访问密码 \
-   --net=host \
-   -e PROXY_URL=http://127.0.0.1:7890 \
    yidadaa/chatgpt-next-web
 ```
 
@@ -355,13 +348,153 @@ docker run -d -p 3000:3000 \
    yidadaa/chatgpt-next-web
 ```
 
-如果你的本地代理需要账号密码，可以使用：
+如果你需要指定其他环境变量，请自行在上述命令中增加 `-e 环境变量=环境变量值` 来指定。
+
+#### 方式二：使用本仓库的 `docker-compose.yml` 自建镜像并部署
+
+适用场景：
+
+- 需要修改代码后自行部署
+- 需要国内加速源
+- 需要数据库 / WebDAV / SSH 隧道等扩展配置
+
+推荐步骤如下。
+
+1. 准备环境
 
 ```shell
--e PROXY_URL="http://127.0.0.1:7890 user password"
+docker --version
+docker compose version
 ```
 
-如果你需要指定其他环境变量，请自行在上述命令中增加 `-e 环境变量=环境变量值` 来指定。
+2. 复制部署环境文件
+
+项目已提供国内服务器部署示例文件：
+
+- Docker 部署变量示例：[.env.docker.example](./.env.docker.example)
+
+可以直接复制：
+
+```shell
+cp .env.docker.example .env.docker
+```
+
+3. 编辑 `.env.docker`
+
+最少需要填写：
+
+```dotenv
+OPENAI_API_KEY=sk-xxxx
+CODE=你的访问密码
+```
+
+如果你在国内服务器部署，建议同时填写以下加速变量：
+
+```dotenv
+ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+NPM_REGISTRY=https://registry.npmmirror.com/
+RT_CLIENT_TGZ_URL=https://你自己的国内地址/rt-client-0.5.0.tgz
+```
+
+说明：
+
+- `ALPINE_MIRROR`：Alpine `apk` 国内镜像
+- `NPM_REGISTRY`：npm / yarn 国内镜像
+- `RT_CLIENT_TGZ_URL`：`rt-client` 的国内可访问 tgz 地址。这个依赖默认走 GitHub release，国内服务器建议改成你自己的 OSS / COS / CDN / 制品库地址
+- 数据库默认使用 `.env.docker` 中的固定 PostgreSQL 直连配置，不默认启用 SSH 隧道
+
+4. 构建并启动生产容器
+
+```shell
+docker compose --env-file .env.docker --profile no-proxy build
+docker compose --env-file .env.docker --profile no-proxy up -d
+```
+
+5. 检查服务是否正常
+
+```shell
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs -f chatgpt-next-web
+```
+
+如果启用了数据库同步，也可以检查健康接口：
+
+```shell
+curl http://127.0.0.1:3000/api/db/health
+```
+
+#### 首次部署、后续更新、重启的区别
+
+- 首次部署：需要执行 `build`，时间最长
+- 后续仅修改环境变量或重启服务：通常只需要 `up -d`
+- 代码更新后：重新执行 `build` 再 `up -d`
+
+常用命令：
+
+```shell
+# 重新构建并更新
+docker compose --env-file .env.docker --profile no-proxy build
+docker compose --env-file .env.docker --profile no-proxy up -d
+
+# 仅重启
+docker compose --env-file .env.docker --profile no-proxy restart
+
+# 查看日志
+docker compose --env-file .env.docker logs -f chatgpt-next-web
+
+# 停止服务
+docker compose --env-file .env.docker --profile no-proxy down
+```
+
+#### 资源建议
+
+- 仅运行已构建好的镜像：建议 `2C4G`
+- 服务器上直接执行 `docker build`：建议 `4C8G`
+
+如果只是首次在服务器上部署一次，后续长期运行，推荐做法是：
+
+1. 在本地或 CI 构建镜像
+2. 推送到国内镜像仓库
+3. 服务器只执行 `docker pull` 和 `docker compose up -d`
+
+这样会比在服务器现构建更快、更稳。
+
+### 本地 Docker 开发
+
+适用场景：
+
+- 希望在本地使用 Docker 开发
+- 修改代码后直接热更新
+- 不想每次改文件都重启容器或重新构建镜像
+
+> 更完整的 AI 优化版说明见：[docs/docker-deploy-cn.md](./docs/docker-deploy-cn.md)
+
+直接执行：
+
+```shell
+cp .env.docker.example .env.docker
+docker compose --env-file .env.docker --profile dev build
+docker compose --env-file .env.docker --profile dev up -d
+```
+
+常用命令：
+
+```shell
+# 查看开发容器日志
+docker compose --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+
+# 仅在确实需要时重启
+docker compose --env-file .env.docker --profile dev restart
+
+# 停止本地开发容器
+docker compose --env-file .env.docker --profile dev down
+```
+
+说明：
+
+- 普通业务代码修改后，不需要重新 `build`，也不需要重启容器，开发容器内的 `next dev` 会处理热更新
+- 只有 `package.json`、`yarn.lock`、`Dockerfile` 变更时，才建议重新 `build`
+- `WATCHPACK_POLLING` 和 `CHOKIDAR_USEPOLLING` 默认是 `false`，只有在 Docker Desktop 等环境下文件监听不稳定时再打开
 
 ### 本地部署
 

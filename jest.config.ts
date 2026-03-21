@@ -15,9 +15,9 @@ const config: Config = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
     "^@/app/mcp/actions$": "<rootDir>/test/__mocks__/mcp-actions.ts",
-    "^@/app/locales$": "<rootDir>/test/__mocks__/locales.ts",
+    "^@/app/locales$": "<rootDir>/test/__mocks__/locales.cjs",
     "^\\.\\./mcp/actions$": "<rootDir>/test/__mocks__/mcp-actions.ts",
-    "^\\.\\./locales$": "<rootDir>/test/__mocks__/locales.ts",
+    "^\\.\\./locales$": "<rootDir>/test/__mocks__/locales.cjs",
     "^lodash-es$": "lodash",
     "^lodash-es/(.*)$": "lodash/$1",
     "^nanoid$": "<rootDir>/test/__mocks__/nanoid.ts",

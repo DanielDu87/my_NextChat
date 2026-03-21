@@ -122,6 +122,15 @@ function getSessionIdsFromIndexText(indexText: string | null) {
     : [];
 }
 
+function createSessionEntryMap(
+  entries: Array<{
+    sessionId: string;
+    value: string;
+  }>,
+) {
+  return new Map(entries.map((entry) => [entry.sessionId, entry.value]));
+}
+
 class ChatPersistStorage implements StateStorage {
   private cache = new Map<string, string>();
   private hydrated = new Set<string>();
@@ -145,31 +154,41 @@ class ChatPersistStorage implements StateStorage {
     const nextSessionIds = new Set(
       nextPayload.sessionEntries.map((entry) => entry.sessionId),
     );
-
-    await Promise.all(
-      nextPayload.sessionEntries.map((entry) =>
-        indexedDbStateStorage.setRawItem(
-          getChatSessionStorageKey(name, entry.sessionId),
-          entry.value,
-        ),
-      ),
+    const nextSessionEntryMap = createSessionEntryMap(
+      nextPayload.sessionEntries,
     );
-    await indexedDbStateStorage.setRawItem(
-      nextIndexKey,
-      JSON.stringify(nextPayload.index),
+    const nextSessionStorageKeys = nextPayload.sessionEntries.map((entry) =>
+      getChatSessionStorageKey(name, entry.sessionId),
     );
-    await indexedDbStateStorage.removeRawItem(name);
+    const previousSessionPayloads = await indexedDbStateStorage.getRawItems(
+      nextSessionStorageKeys,
+    );
+    const changedSessionEntries = nextPayload.sessionEntries.filter((entry) => {
+      const storageKey = getChatSessionStorageKey(name, entry.sessionId);
+      return previousSessionPayloads[storageKey] !== entry.value;
+    });
 
     const staleSessionIds = [...previousSessionIds].filter(
       (sessionId) => !nextSessionIds.has(sessionId),
     );
-    await Promise.all(
-      staleSessionIds.map((sessionId) =>
-        indexedDbStateStorage.removeRawItem(
+
+    await indexedDbStateStorage.applyRawChanges({
+      set: {
+        [nextIndexKey]: JSON.stringify(nextPayload.index),
+        ...Object.fromEntries(
+          changedSessionEntries.map((entry) => [
+            getChatSessionStorageKey(name, entry.sessionId),
+            nextSessionEntryMap.get(entry.sessionId) as string,
+          ]),
+        ),
+      },
+      remove: [
+        name,
+        ...staleSessionIds.map((sessionId) =>
           getChatSessionStorageKey(name, sessionId),
         ),
-      ),
-    );
+      ],
+    });
 
     if (isPerfDebugEnabled()) {
       const endedAt =
@@ -178,12 +197,18 @@ class ChatPersistStorage implements StateStorage {
         (total, entry) => total + measureBytes(entry.value),
         0,
       );
+      const changedSessionBytes = changedSessionEntries.reduce(
+        (total, entry) => total + measureBytes(entry.value),
+        0,
+      );
       console.info("[Perf][ChatPersist]", {
         mode: "write",
         sessionCount: nextPayload.sessionEntries.length,
+        changedSessionCount: changedSessionEntries.length,
         fullBytes: measureBytes(value),
         indexBytes: measureBytes(JSON.stringify(nextPayload.index)),
         sessionBytes,
+        changedSessionBytes,
         staleSessionCount: staleSessionIds.length,
         durationMs: Number((endedAt - startedAt).toFixed(2)),
       });
@@ -195,15 +220,26 @@ class ChatPersistStorage implements StateStorage {
     const previousIndexText = await indexedDbStateStorage.getRawItem(indexKey);
     const previousSessionIds = getSessionIdsFromIndexText(previousIndexText);
 
-    await Promise.all(
-      previousSessionIds.map((sessionId) =>
-        indexedDbStateStorage.removeRawItem(
+    await indexedDbStateStorage.applyRawChanges({
+      remove: [
+        indexKey,
+        name,
+        ...previousSessionIds.map((sessionId) =>
           getChatSessionStorageKey(name, sessionId),
         ),
-      ),
-    );
-    await indexedDbStateStorage.removeRawItem(indexKey);
-    await indexedDbStateStorage.removeRawItem(name);
+      ],
+    });
+  }
+
+  private async flushPendingWrite(name: string) {
+    const pendingValue = this.pendingWrites.get(name);
+    if (!pendingValue) {
+      return;
+    }
+
+    await this.writeSplitValue(name, pendingValue);
+    this.cache.set(name, pendingValue);
+    this.pendingWrites.delete(name);
   }
 
   public async getItem(name: string): Promise<string | null> {
@@ -221,13 +257,17 @@ class ChatPersistStorage implements StateStorage {
         if (index) {
           const startedAt =
             typeof performance !== "undefined" ? performance.now() : Date.now();
-          const sessionPayloads = await Promise.all(
+          const sessionPayloadMap = await indexedDbStateStorage.getRawItems(
             index.state.sessionIds.map((sessionId) =>
-              indexedDbStateStorage.getRawItem(
-                getChatSessionStorageKey(name, sessionId),
-              ),
+              getChatSessionStorageKey(name, sessionId),
             ),
           );
+          const sessionPayloads = index.state.sessionIds.map((sessionId) => {
+            return (
+              sessionPayloadMap[getChatSessionStorageKey(name, sessionId)] ??
+              null
+            );
+          });
           const localValue = rebuildChatPersistedState(index, sessionPayloads);
           const resolvedValue = resolveHydratedStateValue(
             pendingValue,
@@ -235,6 +275,9 @@ class ChatPersistStorage implements StateStorage {
           );
           if (resolvedValue === null) {
             return null;
+          }
+          if (pendingValue) {
+            await this.flushPendingWrite(name);
           }
           this.cache.set(name, resolvedValue);
           this.hydrated.add(name);
@@ -269,6 +312,9 @@ class ChatPersistStorage implements StateStorage {
         if (resolvedValue === null) {
           return null;
         }
+        if (pendingValue) {
+          await this.flushPendingWrite(name);
+        }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
         return resolvedValue;
@@ -276,8 +322,7 @@ class ChatPersistStorage implements StateStorage {
 
       this.hydrated.add(name);
       if (pendingValue) {
-        await this.writeSplitValue(name, pendingValue);
-        this.pendingWrites.delete(name);
+        await this.flushPendingWrite(name);
       }
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } catch (error) {

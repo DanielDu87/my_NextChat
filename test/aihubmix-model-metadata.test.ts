@@ -1,8 +1,16 @@
-import { normalizeAiHubMixModelMetadata } from "../app/utils/models";
-import { normalizeModelClassification } from "../app/utils/model-classification";
+async function loadModelsUtils() {
+  const mod = await import("../app/utils/models");
+  return (mod.default ?? mod) as typeof import("../app/utils/models");
+}
+
+async function loadClassificationUtils() {
+  const mod = await import("../app/utils/model-classification");
+  return (mod.default ?? mod) as typeof import("../app/utils/model-classification");
+}
 
 describe("normalizeAiHubMixModelMetadata", () => {
-  test("should tag recraft and nano banana as image models", () => {
+  test("should tag recraft and nano banana as image models", async () => {
+    const { normalizeAiHubMixModelMetadata } = await loadModelsUtils();
     expect(
       normalizeAiHubMixModelMetadata({
         model_name: "recraftv3",
@@ -28,7 +36,8 @@ describe("normalizeAiHubMixModelMetadata", () => {
     });
   });
 
-  test("should tag runway and wanx models as video models", () => {
+  test("should tag runway and wanx models as video models", async () => {
+    const { normalizeAiHubMixModelMetadata } = await loadModelsUtils();
     expect(
       normalizeAiHubMixModelMetadata({
         model_name: "runway-aleph",
@@ -54,7 +63,8 @@ describe("normalizeAiHubMixModelMetadata", () => {
     });
   });
 
-  test("should preserve explicit endpoint type metadata", () => {
+  test("should preserve explicit endpoint type metadata", async () => {
+    const { normalizeAiHubMixModelMetadata } = await loadModelsUtils();
     expect(
       normalizeAiHubMixModelMetadata({
         model_name: "custom-model",
@@ -71,7 +81,8 @@ describe("normalizeAiHubMixModelMetadata", () => {
     });
   });
 
-  test("should normalize web and thinking features into shared categories", () => {
+  test("should normalize web and thinking features into shared categories", async () => {
+    const { normalizeAiHubMixModelMetadata } = await loadModelsUtils();
     expect(
       normalizeAiHubMixModelMetadata({
         model_name: "gpt-5.4",
@@ -88,7 +99,8 @@ describe("normalizeAiHubMixModelMetadata", () => {
 });
 
 describe("normalizeModelClassification", () => {
-  test("should classify generic OpenAI-compatible models with the shared rules", () => {
+  test("should classify generic OpenAI-compatible models with the shared rules", async () => {
+    const { normalizeModelClassification } = await loadClassificationUtils();
     expect(
       normalizeModelClassification({
         id: "o3-mini",

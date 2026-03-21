@@ -1,12 +1,23 @@
-import {
-  comparePublishedAt,
-  extractPublishedAtFromName,
-  getTodayPublishedAt,
-  resolveModelPublishedAt,
-} from "../app/utils/model-published-at";
-
 describe("model publishedAt", () => {
-  test("should extract complete dates from model names", () => {
+  let comparePublishedAt: (typeof import("../app/utils/model-published-at"))["comparePublishedAt"];
+  let extractPublishedAtFromName: (typeof import("../app/utils/model-published-at"))["extractPublishedAtFromName"];
+  let getTodayPublishedAt: (typeof import("../app/utils/model-published-at"))["getTodayPublishedAt"];
+  let resolveModelPublishedAt: (typeof import("../app/utils/model-published-at"))["resolveModelPublishedAt"];
+
+  async function loadPublishedAtUtils() {
+    const mod = await import("../app/utils/model-published-at");
+    return (mod.default ?? mod) as typeof import("../app/utils/model-published-at");
+  }
+
+  beforeAll(async () => {
+    const loaded = await loadPublishedAtUtils();
+    comparePublishedAt = loaded.comparePublishedAt;
+    extractPublishedAtFromName = loaded.extractPublishedAtFromName;
+    getTodayPublishedAt = loaded.getTodayPublishedAt;
+    resolveModelPublishedAt = loaded.resolveModelPublishedAt;
+  });
+
+  test("should extract complete dates from model names", async () => {
     expect(extractPublishedAtFromName("gemini-2.5-pro-preview-05-06")).toBe(
       20250506,
     );
@@ -17,13 +28,13 @@ describe("model publishedAt", () => {
     expect(extractPublishedAtFromName("model-2025")).toBeUndefined();
   });
 
-  test("should format sync fallback date as yyyymmdd", () => {
+  test("should format sync fallback date as yyyymmdd", async () => {
     expect(getTodayPublishedAt(new Date("2026-03-20T08:00:00.000Z"))).toBe(
       20260320,
     );
   });
 
-  test("should resolve family fallback when model has no standalone date", () => {
+  test("should resolve family fallback when model has no standalone date", async () => {
     expect(
       resolveModelPublishedAt({
         name: "claude-opus-4-thinking",
@@ -34,7 +45,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should keep claude 4.x alias fallback on the claude 4 family", () => {
+  test("should keep claude 4.x alias fallback on the claude 4 family", async () => {
     expect(
       resolveModelPublishedAt({
         name: "claude-sonnet-4-6",
@@ -45,7 +56,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve dotted openai legacy aliases", () => {
+  test("should resolve dotted openai legacy aliases", async () => {
     expect(
       resolveModelPublishedAt({
         name: "gpt-3.5-turbo-1106",
@@ -65,7 +76,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve openai compatibility aliases for image and legacy text models", () => {
+  test("should resolve openai compatibility aliases for image and legacy text models", async () => {
     expect(
       resolveModelPublishedAt({
         name: "gpt-image-test",
@@ -85,7 +96,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve vendor alias names for zhipu and runway families", () => {
+  test("should resolve vendor alias names for zhipu and runway families", async () => {
     expect(
       resolveModelPublishedAt({
         name: "glm-4-air",
@@ -105,7 +116,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve official openai tool and realtime model aliases", () => {
+  test("should resolve official openai tool and realtime model aliases", async () => {
     expect(
       resolveModelPublishedAt({
         name: "gpt-realtime",
@@ -125,7 +136,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve zhipu family aliases from official timeline pages", () => {
+  test("should resolve zhipu family aliases from official timeline pages", async () => {
     expect(
       resolveModelPublishedAt({
         name: "chatglm_turbo",
@@ -154,7 +165,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve sora packaging aliases to the sora 2 family date", () => {
+  test("should resolve sora packaging aliases to the sora 2 family date", async () => {
     expect(
       resolveModelPublishedAt({
         name: "sora-16:9-720p-5s",
@@ -174,7 +185,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve legacy openai search and edits families from official posts", () => {
+  test("should resolve legacy openai search and edits families from official posts", async () => {
     expect(
       resolveModelPublishedAt({
         name: "text-search-ada-doc-001",
@@ -203,7 +214,7 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should resolve whisper and channel aliases near the openai family", () => {
+  test("should resolve whisper and channel aliases near the openai family", async () => {
     expect(
       resolveModelPublishedAt({
         name: "gpt-3.5o",
