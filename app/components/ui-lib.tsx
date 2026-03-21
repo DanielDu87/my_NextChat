@@ -576,6 +576,8 @@ export function Selector<T>(props: {
   extraGroups?: string[];
   defaultGroup?: string;
   title?: React.ReactNode;
+  className?: string;
+  dataAutoModelEnabled?: boolean;
   headerHint?: React.ReactNode;
   filterControlsDisabled?: boolean;
   onFilterControlsDisabledClick?: () => void;
@@ -960,7 +962,11 @@ export function Selector<T>(props: {
   })();
 
   const selectorNode = (
-    <div className={styles["selector"]} onClick={() => props.onClose?.()}>
+    <div
+      className={clsx(styles["selector"], props.className)}
+      data-auto-model-enabled={props.dataAutoModelEnabled ? "true" : undefined}
+      onClick={() => props.onClose?.()}
+    >
       <div
         className={clsx(styles["selector-content"], {
           [styles["selector-content-centered"]]: props.centerContent,

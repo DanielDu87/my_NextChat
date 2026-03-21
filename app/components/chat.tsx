@@ -3453,6 +3453,10 @@ function _Chat() {
 
       {showModelSelector && (
         <Selector
+          className={clsx({
+            [styles["model-selector-auto-mode-enabled"]]: autoModeEnabled,
+          })}
+          dataAutoModelEnabled={autoModeEnabled}
           resetKey={modelSelectorResetKey}
           defaultSelectedValue={
             modelSelectorDefaultValue ??
