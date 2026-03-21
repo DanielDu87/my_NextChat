@@ -123,13 +123,13 @@ Alpine `apk` mirror. The Dockerfile already supports overriding this by build ar
 npm / yarn registry. Default is already `https://registry.npmmirror.com/`.
 
 - `RT_CLIENT_TGZ_URL`
-Download URL for the `rt-client` tgz. The default points to GitHub release. For China deployment, replace it with your own OSS / COS / CDN / artifact repository URL.
+Download URL for the `rt-client` tgz. By default it uses the vendored local package in this repo. You can still replace it with your own OSS / COS / CDN / artifact repository URL.
 
 ### 5.3 Build and start
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 ## 6. Verify Deployment
@@ -137,13 +137,13 @@ docker compose --env-file .env.docker --profile no-proxy up -d
 ### 6.1 Check container status
 
 ```bash
-docker compose --env-file .env.docker ps
+./scripts/docker-compose-safe.sh --env-file .env.docker ps
 ```
 
 ### 6.2 Check application logs
 
 ```bash
-docker compose --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
 ```
 
 ### 6.3 Check database health endpoint
@@ -162,26 +162,39 @@ Expected response should include:
 - `database`
 - `user`
 
+### 6.4 Verify the app from inside the container
+
+If `http://127.0.0.1:3000` looks broken on the host but the container is `Up`, verify the app from inside the container first:
+
+```bash
+docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000
+```
+
+If this returns `HTTP/1.1 200 OK`, then:
+
+- the NextChat app itself is already running correctly
+- the issue is more likely on the host side, such as a local proxy, port forwarding, or another gateway layer
+
 ## 7. Ongoing Maintenance
 
 ### 7.1 Restart only
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy restart
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy restart
 ```
 
 ### 7.2 Rebuild after code changes
 
 ```bash
 git pull
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 ### 7.3 Stop services
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy down
 ```
 
 ## 8. Official Image Quick Start
@@ -205,16 +218,24 @@ If deployment is performed by AI, follow this order strictly:
 2. Copy [.env.docker.example](../.env.docker.example) to `.env.docker`
 3. Fill required values in `.env.docker`
 4. use `--profile no-proxy`
-5. Run `docker compose --env-file .env.docker --profile no-proxy build`
-6. Run `docker compose --env-file .env.docker --profile no-proxy up -d`
-7. Run `docker compose --env-file .env.docker ps`
+5. Run `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build`
+6. Run `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d`
+7. Run `./scripts/docker-compose-safe.sh --env-file .env.docker ps`
 8. If database is enabled, check `curl http://127.0.0.1:3000/api/db/health`
+9. If host-side access still looks wrong, run `docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000`
 
 Database rule:
 
 - keep using the fixed database settings already present in `.env.docker`
 - do not switch back to `postgres-ssh-tunnel` by default
 - do not enable the `ssh-tunnel` profile unless explicitly required
+- use [scripts/docker-compose-safe.sh](../scripts/docker-compose-safe.sh) by default
+  do not call `docker compose build` directly
+  because some environments fail on `~/.docker/buildx/activity` permission updates
+- keep `HOSTNAME=0.0.0.0` for the production container
+  otherwise Next.js standalone may fail with `getaddrinfo EAI_AGAIN` when resolving the container hostname
+- the frontend version comes from `package.json`
+  if the page config shows `vundefined`, check whether `package.json` is missing `version`
 
 AI must not use the `dev` profile on production.
 
@@ -232,8 +253,8 @@ If the goal is local development rather than production deployment, use the `dev
 
 ```bash
 cp .env.docker.example .env.docker
-docker compose --env-file .env.docker --profile dev build
-docker compose --env-file .env.docker --profile dev up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
 Development mode behavior:

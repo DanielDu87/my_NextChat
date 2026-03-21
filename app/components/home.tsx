@@ -141,8 +141,12 @@ const useHasHydrated = () => {
 };
 
 const loadAsyncGoogleFont = () => {
+  if (!getClientConfig()?.enableGoogleFonts) {
+    return;
+  }
+
   const linkEl = document.createElement("link");
-  const remoteFontUrl = "https://fonts.googleapis.com";
+  const remoteFontUrl = "/google-fonts";
   linkEl.rel = "stylesheet";
   linkEl.href =
     remoteFontUrl +

@@ -49,12 +49,13 @@ services:
       args:
         ALPINE_MIRROR: ${ALPINE_MIRROR:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
-        RT_CLIENT_TGZ_URL: ${RT_CLIENT_TGZ_URL:-https://github.com/Azure-Samples/aoai-realtime-audio-sdk/releases/download/js/v0.5.0/rt-client-0.5.0.tgz}
+        RT_CLIENT_TGZ_URL: ${RT_CLIENT_TGZ_URL:-file:vendor/rt-client-0.5.0.tgz}
     restart: unless-stopped
     ports:
       - 3000:3000
     environment:
       <<: *no-proxy-env
+      HOSTNAME: 0.0.0.0
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       CODE: ${CODE}
@@ -64,6 +65,13 @@ services:
       DISABLE_GPT4: ${DISABLE_GPT4}
       ENABLE_BALANCE_QUERY: ${ENABLE_BALANCE_QUERY}
       DISABLE_FAST_LINK: ${DISABLE_FAST_LINK}
+      ENABLE_GOOGLE_FONTS: ${ENABLE_GOOGLE_FONTS:-false}
+      ENABLE_SHAREGPT: ${ENABLE_SHAREGPT:-false}
+      SHAREGPT_URL: ${SHAREGPT_URL:-}
+      MCP_MARKET_URL: ${MCP_MARKET_URL:-}
+      ENABLE_EDGE_TTS: ${ENABLE_EDGE_TTS:-false}
+      EDGE_TTS_VOICES_URL: ${EDGE_TTS_VOICES_URL:-}
+      EDGE_TTS_WSS_URL: ${EDGE_TTS_WSS_URL:-}
       OPENAI_SB: ${OPENAI_SB}
       WHITE_WEBDAV_ENDPOINTS: ${WHITE_WEBDAV_ENDPOINTS}
       DATABASE_URL: ${DATABASE_URL:-}
@@ -90,7 +98,7 @@ services:
       args:
         ALPINE_MIRROR: ${ALPINE_MIRROR:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
-        RT_CLIENT_TGZ_URL: ${RT_CLIENT_TGZ_URL:-https://github.com/Azure-Samples/aoai-realtime-audio-sdk/releases/download/js/v0.5.0/rt-client-0.5.0.tgz}
+        RT_CLIENT_TGZ_URL: ${RT_CLIENT_TGZ_URL:-file:vendor/rt-client-0.5.0.tgz}
     restart: unless-stopped
     working_dir: /app
     command: sh /app/scripts/dev-bootstrap.sh
@@ -116,6 +124,13 @@ services:
       DISABLE_GPT4: ${DISABLE_GPT4}
       ENABLE_BALANCE_QUERY: ${ENABLE_BALANCE_QUERY}
       DISABLE_FAST_LINK: ${DISABLE_FAST_LINK}
+      ENABLE_GOOGLE_FONTS: ${ENABLE_GOOGLE_FONTS:-false}
+      ENABLE_SHAREGPT: ${ENABLE_SHAREGPT:-false}
+      SHAREGPT_URL: ${SHAREGPT_URL:-}
+      MCP_MARKET_URL: ${MCP_MARKET_URL:-}
+      ENABLE_EDGE_TTS: ${ENABLE_EDGE_TTS:-false}
+      EDGE_TTS_VOICES_URL: ${EDGE_TTS_VOICES_URL:-}
+      EDGE_TTS_WSS_URL: ${EDGE_TTS_WSS_URL:-}
       OPENAI_SB: ${OPENAI_SB}
       WHITE_WEBDAV_ENDPOINTS: ${WHITE_WEBDAV_ENDPOINTS}
       DATABASE_URL: ${DATABASE_URL:-}

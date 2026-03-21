@@ -1,12 +1,40 @@
+import { getClientConfig } from "./config/client";
+
 export const OWNER = "ChatGPTNextWeb";
 export const REPO = "ChatGPT-Next-Web";
-export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
-export const PLUGINS_REPO_URL = `https://github.com/${OWNER}/NextChat-Awesome-Plugins`;
-export const ISSUE_URL = `https://github.com/${OWNER}/${REPO}/issues`;
-export const UPDATE_URL = `${REPO_URL}#keep-updated`;
-export const RELEASE_URL = `${REPO_URL}/releases`;
-export const FETCH_COMMIT_URL = `https://api.github.com/repos/${OWNER}/${REPO}/commits?per_page=1`;
-export const FETCH_TAG_URL = `https://api.github.com/repos/${OWNER}/${REPO}/tags?per_page=1`;
+
+function trimTrailingSlash(url: string) {
+  return url.replace(/\/+$/, "");
+}
+
+export function getGithubBaseUrl() {
+  return trimTrailingSlash(
+    getClientConfig()?.githubBaseUrl ?? "https://github.com",
+  );
+}
+
+export function getRepoUrl() {
+  return `${getGithubBaseUrl()}/${OWNER}/${REPO}`;
+}
+
+export function getPluginsRepoUrl() {
+  return `${getGithubBaseUrl()}/${OWNER}/NextChat-Awesome-Plugins`;
+}
+
+export function getIssueUrl() {
+  return `${getRepoUrl()}/issues`;
+}
+
+export function getUpdateUrl() {
+  return `${getRepoUrl()}#keep-updated`;
+}
+
+export function getReleaseUrl() {
+  return `${getRepoUrl()}/releases`;
+}
+
+export const FETCH_COMMIT_URL = `/api/github/repos/${OWNER}/${REPO}/commits?per_page=1`;
+export const FETCH_TAG_URL = `/api/github/repos/${OWNER}/${REPO}/tags?per_page=1`;
 export const RUNTIME_CONFIG_DOM = "danger-runtime-config";
 
 export const STABILITY_BASE_URL = "https://api.stability.ai";

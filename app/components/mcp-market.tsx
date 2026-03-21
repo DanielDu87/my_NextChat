@@ -32,6 +32,7 @@ import clsx from "clsx";
 import PlayIcon from "../icons/play.svg";
 import StopIcon from "../icons/pause.svg";
 import { Path } from "../constant";
+import { getClientConfig } from "../config/client";
 
 interface ConfigProperty {
   type: string;
@@ -92,9 +93,15 @@ export function McpMarketPage() {
   useEffect(() => {
     const loadPresetServers = async () => {
       if (!mcpEnabled) return;
+      const mcpMarketUrl = getClientConfig()?.mcpMarketUrl;
+      if (!mcpMarketUrl) {
+        setPresetServers([]);
+        setLoadingPresets(false);
+        return;
+      }
       try {
         setLoadingPresets(true);
-        const response = await fetch("https://nextchat.club/mcp/list");
+        const response = await fetch("/mcp-market-api/list");
         if (!response.ok) {
           throw new Error("Failed to load preset servers");
         }

@@ -410,21 +410,21 @@ Use this when you want local development with Docker and hot reload.
 
 ```shell
 cp .env.docker.example .env.docker
-docker compose --env-file .env.docker --profile dev build
-docker compose --env-file .env.docker --profile dev up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
 Common commands:
 
 ```shell
 # view logs
-docker compose --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
 
 # restart only when needed
-docker compose --env-file .env.docker --profile dev restart
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev restart
 
 # stop local dev containers
-docker compose --env-file .env.docker --profile dev down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
 ```
 
 Notes:

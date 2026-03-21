@@ -1,7 +1,7 @@
 import { useDebouncedCallback } from "use-debounce";
 import OpenAPIClientAxios from "openapi-client-axios";
 import yaml from "js-yaml";
-import { PLUGINS_REPO_URL } from "../constant";
+import { getPluginsRepoUrl } from "../constant";
 import { IconButton } from "./button";
 import { ErrorBoundary } from "./error";
 
@@ -30,9 +30,34 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import clsx from "clsx";
 
+function resolvePluginUrl(loadUrl: string) {
+  const url = new URL(loadUrl);
+
+  if (url.hostname === "raw.githubusercontent.com") {
+    return `/api/github-raw${url.pathname}${url.search}`;
+  }
+
+  if (url.hostname === "api.github.com") {
+    return `/api/github${url.pathname}${url.search}`;
+  }
+
+  if (url.hostname === "github.com") {
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length >= 5 && parts[2] === "blob") {
+      const [owner, repo, , branch, ...rest] = parts;
+      return `/api/github-raw/${owner}/${repo}/${branch}/${rest.join("/")}${
+        url.search
+      }`;
+    }
+  }
+
+  return loadUrl;
+}
+
 export function PluginPage() {
   const navigate = useNavigate();
   const pluginStore = usePluginStore();
+  const pluginsRepoUrl = getPluginsRepoUrl();
 
   const allPlugins = pluginStore.getAll();
   const [searchPlugins, setSearchPlugins] = useState<Plugin[]>([]);
@@ -87,7 +112,7 @@ export function PluginPage() {
 
   const [loadUrl, setLoadUrl] = useState<string>("");
   const loadFromUrl = (loadUrl: string) =>
-    fetch(loadUrl)
+    fetch(resolvePluginUrl(loadUrl))
       .catch((e) => {
         const p = new URL(loadUrl);
         return fetch(`/api/proxy/${p.pathname}?${p.search}`, {
@@ -132,7 +157,7 @@ export function PluginPage() {
           <div className="window-actions">
             <div className="window-action-button">
               <a
-                href={PLUGINS_REPO_URL}
+                href={pluginsRepoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -183,7 +208,7 @@ export function PluginPage() {
               >
                 {Locale.Plugin.Page.Find}
                 <a
-                  href={PLUGINS_REPO_URL}
+                  href={pluginsRepoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ marginLeft: 16 }}

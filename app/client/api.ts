@@ -252,8 +252,13 @@ export class ClientApi {
 
     console.log("[Share]", messages, msgs);
     const clientConfig = getClientConfig();
+    if (!clientConfig?.enableShareGpt || !clientConfig?.shareGptUrl) {
+      throw new Error(
+        "当前部署默认关闭 ShareGPT 分享，请设置 ENABLE_SHAREGPT=true 和 SHAREGPT_URL 后再使用。",
+      );
+    }
     const proxyUrl = "/sharegpt";
-    const rawUrl = "https://sharegpt.com/api/conversations";
+    const rawUrl = clientConfig.shareGptUrl;
     const shareUrl = clientConfig?.isApp ? rawUrl : proxyUrl;
     const res = await fetch(shareUrl, {
       body: JSON.stringify({

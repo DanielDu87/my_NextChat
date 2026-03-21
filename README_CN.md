@@ -400,21 +400,23 @@ RT_CLIENT_TGZ_URL=https://你自己的国内地址/rt-client-0.5.0.tgz
 
 - `ALPINE_MIRROR`：Alpine `apk` 国内镜像
 - `NPM_REGISTRY`：npm / yarn 国内镜像
-- `RT_CLIENT_TGZ_URL`：`rt-client` 的国内可访问 tgz 地址。这个依赖默认走 GitHub release，国内服务器建议改成你自己的 OSS / COS / CDN / 制品库地址
+- `RT_CLIENT_TGZ_URL`：`rt-client` 的 tgz 地址。默认走仓库内置的本地包，也可以改成你自己的 OSS / COS / CDN / 制品库地址
 - 数据库默认使用 `.env.docker` 中的固定 PostgreSQL 直连配置，不默认启用 SSH 隧道
+- 默认建议使用 [scripts/docker-compose-safe.sh](./scripts/docker-compose-safe.sh)
+  它会自动设置 `BUILDX_CONFIG=/tmp/nextchat-docker-buildx`，避免 buildx 权限错误
 
 4. 构建并启动生产容器
 
 ```shell
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 5. 检查服务是否正常
 
 ```shell
-docker compose --env-file .env.docker ps
-docker compose --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker ps
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
 ```
 
 如果启用了数据库同步，也可以检查健康接口：
@@ -433,17 +435,17 @@ curl http://127.0.0.1:3000/api/db/health
 
 ```shell
 # 重新构建并更新
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 
 # 仅重启
-docker compose --env-file .env.docker --profile no-proxy restart
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy restart
 
 # 查看日志
-docker compose --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
 
 # 停止服务
-docker compose --env-file .env.docker --profile no-proxy down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy down
 ```
 
 #### 资源建议
@@ -459,6 +461,22 @@ docker compose --env-file .env.docker --profile no-proxy down
 
 这样会比在服务器现构建更快、更稳。
 
+#### 这次实测确认的规则
+
+- 国内无代理部署默认建议保持：
+  `ENABLE_GOOGLE_FONTS=false`
+  `ENABLE_SHAREGPT=false`
+  `MCP_MARKET_URL=`
+  `ENABLE_EDGE_TTS=false`
+- `rt-client` 默认已经不再走 GitHub release，而是仓库内置本地包
+- 生产容器需要 `HOSTNAME=0.0.0.0`
+  否则 Next.js standalone 可能报 `getaddrinfo EAI_AGAIN`
+- 当前生产链路已实测通过：
+  `build` 成功
+  `up -d` 成功
+  容器内首页 `200 OK`
+  `/api/db/health` 返回 `ok: true`
+
 ### 本地 Docker 开发
 
 适用场景：
@@ -473,21 +491,21 @@ docker compose --env-file .env.docker --profile no-proxy down
 
 ```shell
 cp .env.docker.example .env.docker
-docker compose --env-file .env.docker --profile dev build
-docker compose --env-file .env.docker --profile dev up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
 常用命令：
 
 ```shell
 # 查看开发容器日志
-docker compose --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
 
 # 仅在确实需要时重启
-docker compose --env-file .env.docker --profile dev restart
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev restart
 
 # 停止本地开发容器
-docker compose --env-file .env.docker --profile dev down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
 ```
 
 说明：
@@ -495,6 +513,16 @@ docker compose --env-file .env.docker --profile dev down
 - 普通业务代码修改后，不需要重新 `build`，也不需要重启容器，开发容器内的 `next dev` 会处理热更新
 - 只有 `package.json`、`yarn.lock`、`Dockerfile` 变更时，才建议重新 `build`
 - `WATCHPACK_POLLING` 和 `CHOKIDAR_USEPOLLING` 默认是 `false`，只有在 Docker Desktop 等环境下文件监听不稳定时再打开
+
+#### AI 故障排查顺序
+
+如果以后由 AI 接手部署或排障，建议按这个顺序检查：
+
+1. 先使用 `./scripts/docker-compose-safe.sh`，不要直接跑 `docker compose build`
+2. 如果构建失败，先看 `buildx` 权限、`.dockerignore` 和构建上下文
+3. 如果生产容器日志报主机名解析错误，先检查 `HOSTNAME=0.0.0.0`
+4. 如果宿主机访问端口异常，但容器日志正常，先在容器内 `wget http://127.0.0.1:3000`
+5. 如果前端版本显示异常，先检查 `package.json` 的 `version`
 
 ### 本地部署
 

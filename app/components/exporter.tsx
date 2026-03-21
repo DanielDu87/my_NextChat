@@ -34,7 +34,7 @@ import NextImage from "next/image";
 import { toBlob, toPng } from "html-to-image";
 
 import { prettyObject } from "../utils/format";
-import { EXPORT_MESSAGE_CLASS_NAME } from "../constant";
+import { EXPORT_MESSAGE_CLASS_NAME, getRepoUrl } from "../constant";
 import { getClientConfig } from "../config/client";
 import { type ClientApi, getClientApi } from "../client/api";
 import { getMessageTextContent } from "../utils";
@@ -310,6 +310,7 @@ export function PreviewActions(props: {
   const [loading, setLoading] = useState(false);
   const [shouldExport, setShouldExport] = useState(false);
   const config = useAppConfig();
+  const clientConfig = getClientConfig();
   const onRenderMsgs = (msgs: ChatMessage[]) => {
     setShouldExport(false);
 
@@ -380,13 +381,15 @@ export function PreviewActions(props: {
           icon={<DownloadIcon />}
           onClick={props.download}
         ></IconButton>
-        <IconButton
-          text={Locale.Export.Share}
-          bordered
-          shadow
-          icon={loading ? <LoadingIcon /> : <ShareIcon />}
-          onClick={share}
-        ></IconButton>
+        {clientConfig?.enableShareGpt && clientConfig?.shareGptUrl && (
+          <IconButton
+            text={Locale.Export.Share}
+            bordered
+            shadow
+            icon={loading ? <LoadingIcon /> : <ShareIcon />}
+            onClick={share}
+          ></IconButton>
+        )}
       </div>
       <div
         style={{
@@ -410,6 +413,7 @@ export function ImagePreviewer(props: {
   messages: ChatMessage[];
   topic: string;
 }) {
+  const repoUrl = getRepoUrl();
   const chatStore = useChatStore();
   const session = chatStore.currentSession();
   const mask = session.mask;
@@ -526,7 +530,7 @@ export function ImagePreviewer(props: {
           <div>
             <div className={styles["main-title"]}>NextChat</div>
             <div className={styles["sub-title"]}>
-              github.com/ChatGPTNextWeb/ChatGPT-Next-Web
+              {repoUrl.replace(/^https?:\/\//, "")}
             </div>
             <div className={styles["icons"]}>
               <MaskAvatar avatar={config.avatar} />

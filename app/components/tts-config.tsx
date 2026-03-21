@@ -9,11 +9,16 @@ import {
   DEFAULT_TTS_VOICES,
 } from "../constant";
 import { InputRange } from "./input-range";
+import { getClientConfig } from "../config/client";
 
 export function TTSConfigList(props: {
   ttsConfig: TTSConfig;
   updateConfig: (updater: (config: TTSConfig) => void) => void;
 }) {
+  const ttsEngines = getClientConfig()?.enableEdgeTts
+    ? DEFAULT_TTS_ENGINES
+    : DEFAULT_TTS_ENGINES.filter((engine) => engine === DEFAULT_TTS_ENGINE);
+
   return (
     <>
       <ListItem
@@ -56,7 +61,7 @@ export function TTSConfigList(props: {
             );
           }}
         >
-          {DEFAULT_TTS_ENGINES.map((v, i) => (
+          {ttsEngines.map((v, i) => (
             <option value={v} key={i}>
               {v}
             </option>

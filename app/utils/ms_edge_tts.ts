@@ -2,6 +2,7 @@
 import { Buffer } from "buffer";
 import { randomBytes } from "crypto";
 import { Readable } from "stream";
+import { getClientConfig } from "../config/client";
 
 // Modified according to https://github.com/Migushthe2nd/MsEdgeTTS
 
@@ -119,8 +120,6 @@ export class ProsodyOptions {
 export class MsEdgeTTS {
   static OUTPUT_FORMAT = OUTPUT_FORMAT;
   private static TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-  private static VOICES_URL = `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=${MsEdgeTTS.TRUSTED_CLIENT_TOKEN}`;
-  private static SYNTH_URL = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${MsEdgeTTS.TRUSTED_CLIENT_TOKEN}`;
   private static BINARY_DELIM = "Path:audio\r\n";
   private static VOICE_LANG_REGEX = /\w{2}-\w{2}/;
   private readonly _enableLogger;
@@ -147,6 +146,36 @@ export class MsEdgeTTS {
     this._enableLogger = enableLogger;
   }
 
+  private static getVoicesUrl() {
+    const config = getClientConfig();
+    if (!config?.enableEdgeTts) {
+      throw new Error(
+        "当前部署默认关闭 Edge TTS，请设置 ENABLE_EDGE_TTS=true 后再使用。",
+      );
+    }
+
+    const baseUrl =
+      config.edgeTtsVoicesUrl ||
+      `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list`;
+    const joinChar = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${joinChar}trustedclienttoken=${MsEdgeTTS.TRUSTED_CLIENT_TOKEN}`;
+  }
+
+  private static getSynthUrl() {
+    const config = getClientConfig();
+    if (!config?.enableEdgeTts) {
+      throw new Error(
+        "当前部署默认关闭 Edge TTS，请设置 ENABLE_EDGE_TTS=true 后再使用。",
+      );
+    }
+
+    const baseUrl =
+      config.edgeTtsWssUrl ||
+      "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
+    const joinChar = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${joinChar}TrustedClientToken=${MsEdgeTTS.TRUSTED_CLIENT_TOKEN}`;
+  }
+
   private async _send(message: any) {
     for (let i = 1; i <= 3 && this._ws!.readyState !== this._ws!.OPEN; i++) {
       if (i == 1) {
@@ -159,7 +188,7 @@ export class MsEdgeTTS {
   }
 
   private _initClient() {
-    this._ws = new WebSocket(MsEdgeTTS.SYNTH_URL);
+    this._ws = new WebSocket(MsEdgeTTS.getSynthUrl());
 
     this._ws.binaryType = "arraybuffer";
     return new Promise((resolve, reject) => {
@@ -257,7 +286,7 @@ export class MsEdgeTTS {
   //   });
   // }
   getVoices(): Promise<Voice[]> {
-    return fetch(MsEdgeTTS.VOICES_URL)
+    return fetch(MsEdgeTTS.getVoicesUrl())
       .then((response) => {
         if (!response.ok) {
           throw new Error("Network response was not ok");

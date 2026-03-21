@@ -123,13 +123,13 @@ Alpine `apk` 包源。Dockerfile 已支持通过 build arg 替换。
 npm / yarn registry。默认值已是 `https://registry.npmmirror.com/`。
 
 - `RT_CLIENT_TGZ_URL`
-`rt-client` 的 tgz 下载地址。默认是 GitHub release 直链，国内服务器建议替换成你自己的 OSS / COS / CDN / 制品库地址。
+`rt-client` 的 tgz 下载地址。默认使用仓库内置的本地包，如有需要也可以替换成你自己的 OSS / COS / CDN / 制品库地址。
 
 ### 5.3 构建并启动
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 ## 6. 验证部署是否成功
@@ -137,7 +137,7 @@ docker compose --env-file .env.docker --profile no-proxy up -d
 ### 6.1 查看容器状态
 
 ```bash
-docker compose --env-file .env.docker ps
+./scripts/docker-compose-safe.sh --env-file .env.docker ps
 ```
 
 ### 6.2 查看应用日志
@@ -145,7 +145,7 @@ docker compose --env-file .env.docker ps
 无代理部署：
 
 ```bash
-docker compose --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
 ```
 
 ### 6.3 检查数据库健康接口
@@ -164,26 +164,39 @@ curl http://127.0.0.1:3000/api/db/health
 - `database`
 - `user`
 
+### 6.4 从容器内验证应用本体
+
+如果宿主机上访问 `http://127.0.0.1:3000` 异常，但容器状态显示 `Up`，先不要直接判断应用失败。先在容器内执行：
+
+```bash
+docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000
+```
+
+如果这里返回 `HTTP/1.1 200 OK`，通常说明：
+
+- NextChat 应用本身已经正常启动
+- 问题更可能在宿主机本地代理、端口转发或外层网关，而不是容器内服务
+
 ## 7. 后续维护
 
 ### 7.1 仅重启服务
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy restart
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy restart
 ```
 
 ### 7.2 更新代码后重新部署
 
 ```bash
 git pull
-docker compose --env-file .env.docker --profile no-proxy build
-docker compose --env-file .env.docker --profile no-proxy up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 ### 7.3 停止服务
 
 ```bash
-docker compose --env-file .env.docker --profile no-proxy down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy down
 ```
 
 ## 8. 官方镜像快速运行
@@ -207,16 +220,24 @@ docker run -d -p 3000:3000 \
 2. 复制 [.env.docker.example](../.env.docker.example) 为 `.env.docker`
 3. 补齐 `.env.docker` 的必填变量
 4. 使用 `--profile no-proxy`
-5. 执行 `docker compose --env-file .env.docker --profile no-proxy build`
-6. 执行 `docker compose --env-file .env.docker --profile no-proxy up -d`
-7. 执行 `docker compose --env-file .env.docker ps`
+5. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build`
+6. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d`
+7. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker ps`
 8. 如果启用了数据库，同步检查 `curl http://127.0.0.1:3000/api/db/health`
+9. 如果宿主机访问异常，再执行 `docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000`
 
 数据库规则补充：
 
 - 默认沿用 `.env.docker` 中已有的固定数据库配置
 - 不要在部署时改回 `postgres-ssh-tunnel`
 - 不要默认启用 `ssh-tunnel` profile
+- 默认使用 [scripts/docker-compose-safe.sh](../scripts/docker-compose-safe.sh)
+  不要直接执行 `docker compose build`
+  因为部分环境会在 `~/.docker/buildx/activity` 位置报权限错误
+- 生产容器必须保留 `HOSTNAME=0.0.0.0`
+  否则 Next.js standalone 可能因为解析容器随机主机名失败而报 `getaddrinfo EAI_AGAIN`
+- 版本号来自 `package.json`
+  如果前端页面配置里出现 `vundefined`，优先检查 `package.json` 是否缺少 `version`
 
 AI 不应在生产服务器使用 `dev` profile。
 
@@ -234,8 +255,8 @@ AI 不应假设每次启动都需要重新构建镜像。
 
 ```bash
 cp .env.docker.example .env.docker
-docker compose --env-file .env.docker --profile dev build
-docker compose --env-file .env.docker --profile dev up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
 开发模式特点：

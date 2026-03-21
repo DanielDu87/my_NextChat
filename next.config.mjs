@@ -6,6 +6,15 @@ const useWatchPolling = process.env.WATCHPACK_POLLING === "true";
 const watchPollingInterval = Number(
   process.env.WATCHPACK_POLLING_INTERVAL || 1000,
 );
+const enableGoogleFonts = process.env.ENABLE_GOOGLE_FONTS === "true";
+const githubApiBaseUrl = (
+  process.env.GITHUB_API_BASE_URL || "https://api.github.com"
+).replace(/\/+$/, "");
+const githubRawBaseUrl = (
+  process.env.GITHUB_RAW_BASE_URL || "https://raw.githubusercontent.com"
+).replace(/\/+$/, "");
+const shareGptUrl = (process.env.SHAREGPT_URL || "").replace(/\/+$/, "");
+const mcpMarketUrl = (process.env.MCP_MARKET_URL || "").replace(/\/+$/, "");
 console.log("[Next] build mode", mode);
 
 const disableChunk = !!process.env.DISABLE_CHUNK || mode === "export";
@@ -114,12 +123,12 @@ if (mode !== "export") {
         destination: "https://api.anthropic.com/:path*",
       },
       {
-        source: "/google-fonts/:path*",
-        destination: "https://fonts.googleapis.com/:path*",
+        source: "/api/github/:path*",
+        destination: `${githubApiBaseUrl}/:path*`,
       },
       {
-        source: "/sharegpt",
-        destination: "https://sharegpt.com/api/conversations",
+        source: "/api/github-raw/:path*",
+        destination: `${githubRawBaseUrl}/:path*`,
       },
       {
         source: "/api/proxy/alibaba/:path*",
@@ -131,6 +140,27 @@ if (mode !== "export") {
         destination: "https://webdav.dyxcloud.com/:path*",
       },
     ];
+
+    if (enableGoogleFonts) {
+      ret.push({
+        source: "/google-fonts/:path*",
+        destination: "https://fonts.googleapis.com/:path*",
+      });
+    }
+
+    if (shareGptUrl) {
+      ret.push({
+        source: "/sharegpt",
+        destination: shareGptUrl,
+      });
+    }
+
+    if (mcpMarketUrl) {
+      ret.push({
+        source: "/mcp-market-api/:path*",
+        destination: `${mcpMarketUrl}/:path*`,
+      });
+    }
 
     return {
       beforeFiles: ret,

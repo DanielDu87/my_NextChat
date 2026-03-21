@@ -65,10 +65,8 @@ import {
   GoogleSafetySettingsThreshold,
   OPENAI_BASE_URL,
   Path,
-  RELEASE_URL,
   STORAGE_KEY,
   ServiceProvider,
-  UPDATE_URL,
   Stability,
   Iflytek,
   // SAAS_CHAT_URL, // 已隐藏 SaaS 推广
@@ -76,6 +74,8 @@ import {
   DeepSeek,
   SiliconFlow,
   AI302,
+  getReleaseUrl,
+  getUpdateUrl,
 } from "../constant";
 import { Prompt, SearchService, usePromptStore } from "../store/prompt";
 import { ErrorBoundary } from "./error";
@@ -614,7 +614,7 @@ export function Settings() {
   const currentVersion = updateStore.formatVersion(updateStore.version);
   const remoteId = updateStore.formatVersion(updateStore.remoteVersion);
   const hasNewVersion = semverCompare(currentVersion, remoteId) === -1;
-  const updateUrl = getClientConfig()?.isApp ? RELEASE_URL : UPDATE_URL;
+  const updateUrl = getClientConfig()?.isApp ? getReleaseUrl() : getUpdateUrl();
 
   function checkUpdate(force = false) {
     setCheckingUpdate(true);
