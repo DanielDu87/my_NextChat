@@ -6,6 +6,7 @@ import {
   useMemo,
   useEffect,
   startTransition,
+  ReactNode,
 } from "react";
 import { ErrorBoundary } from "./error";
 import styles from "./mask.module.scss";
@@ -181,6 +182,32 @@ export function SearchChatPage() {
     [buildSessionSnippets, getSessionCorpus, indexedSessions],
   );
 
+  const renderHighlightedText = useCallback(
+    (text: string): ReactNode => {
+      const keyword = deferredSearchText.trim();
+      if (!keyword) {
+        return text;
+      }
+
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const segments = text.split(new RegExp(`(${escapedKeyword})`, "gi"));
+
+      return segments.map((segment, index) =>
+        segment.toLowerCase() === keyword.toLowerCase() ? (
+          <mark
+            key={`${segment}-${index}`}
+            className={styles["search-highlight"]}
+          >
+            {segment}
+          </mark>
+        ) : (
+          <span key={`${segment}-${index}`}>{segment}</span>
+        ),
+      );
+    },
+    [deferredSearchText],
+  );
+
   useEffect(() => {
     if (!deferredSearchText) {
       startTransition(() => setSearchResults([]));
@@ -254,8 +281,12 @@ export function SearchChatPage() {
                 {/** 搜索匹配的文本 */}
                 <div className={styles["mask-header"]}>
                   <div className={styles["mask-title"]}>
-                    <div className={styles["mask-name"]}>{item.name}</div>
-                    {item.content.slice(0, 70)}
+                    <div className={styles["mask-name"]}>
+                      {renderHighlightedText(item.name)}
+                    </div>
+                    <div className={styles["mask-info"]}>
+                      {renderHighlightedText(item.content.slice(0, 70))}
+                    </div>
                   </div>
                 </div>
                 {/** 操作按钮 */}

@@ -75,6 +75,8 @@
           }
           .mask-info {
             font-size: 12px;
+            line-height: 1.5;
+            margin-top: 4px;
           }
         }
       }
@@ -105,4 +107,11 @@
       }
     }
   }
+}
+
+.search-highlight {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
 }

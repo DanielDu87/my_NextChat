@@ -339,15 +339,11 @@ export function ChatList(props: { narrow?: boolean }) {
     return displayedSessions.reduce<FilteredSession[]>((result, entry) => {
       const { session, originalIndex } = entry;
       const topic = session.topic.toLowerCase();
-      const model = String(session.model || "").toLowerCase();
-      const id = session.id.toLowerCase();
       const content = getSessionCorpus(originalIndex);
       const topicMatched = topic.includes(deferredFilterText);
-      const modelMatched = model.includes(deferredFilterText);
-      const idMatched = id.includes(deferredFilterText);
       const contentMatched = content.includes(deferredFilterText);
 
-      if (!topicMatched && !modelMatched && !idMatched && !contentMatched) {
+      if (!topicMatched && !contentMatched) {
         return result;
       }
 
@@ -355,10 +351,6 @@ export function ChatList(props: { narrow?: boolean }) {
         ...entry,
         preview: contentMatched
           ? buildMatchedPreview(originalIndex, deferredFilterText)
-          : modelMatched
-          ? `模型：${session.model}`
-          : idMatched
-          ? `ID：${session.id}`
           : undefined,
       });
 
