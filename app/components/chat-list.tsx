@@ -22,6 +22,8 @@ import {
   memo,
   ComponentProps,
   useDeferredValue,
+  useCallback,
+  ReactNode,
 } from "react";
 import { showConfirm } from "./ui-lib";
 import { useMobileScreen } from "../utils";
@@ -32,14 +34,22 @@ import { shallow } from "zustand/shallow";
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
 const NORMAL_ITEM_HEIGHT = 84;
+const FILTERED_ITEM_HEIGHT = 108;
 const NARROW_ITEM_HEIGHT = 50;
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
+const SNIPPET_CONTEXT_LENGTH = 18;
+
+type FilterMatchMeta = {
+  preview?: string;
+};
 
 type DisplayedSession = {
   session: ChatSessionSummary;
   originalIndex: number;
   pinned: boolean;
 };
+
+type FilteredSession = DisplayedSession & FilterMatchMeta;
 
 function isPinnedNewChat(session: { topic: string; messageCount: number }) {
   return session.topic === DEFAULT_TOPIC && session.messageCount === 0;
@@ -60,6 +70,8 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   onClick?: () => void;
   onDelete?: () => void;
   title: string;
+  keyword?: string;
+  preview?: string;
   count: number;
   time: string;
   selected: boolean;
@@ -80,6 +92,32 @@ const ChatItemCard = memo(function ChatItemCard(props: {
       });
     }
   }, [props.selected]);
+
+  const renderHighlightedText = useCallback(
+    (text: string): ReactNode => {
+      const keyword = props.keyword?.trim();
+      if (!keyword) {
+        return text;
+      }
+
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const segments = text.split(new RegExp(`(${escapedKeyword})`, "gi"));
+
+      return segments.map((segment, index) =>
+        segment.toLowerCase() === keyword.toLowerCase() ? (
+          <mark
+            key={`${segment}-${index}`}
+            className={styles["chat-item-highlight"]}
+          >
+            {segment}
+          </mark>
+        ) : (
+          <span key={`${segment}-${index}`}>{segment}</span>
+        ),
+      );
+    },
+    [props.keyword],
+  );
 
   return (
     <div
@@ -106,7 +144,14 @@ const ChatItemCard = memo(function ChatItemCard(props: {
         </div>
       ) : (
         <>
-          <div className={styles["chat-item-title"]}>{props.title}</div>
+          <div className={styles["chat-item-title"]}>
+            {renderHighlightedText(props.title)}
+          </div>
+          {props.preview && (
+            <div className={styles["chat-item-preview"]}>
+              {renderHighlightedText(props.preview)}
+            </div>
+          )}
           <div className={styles["chat-item-info"]}>
             <div className={styles["chat-item-count"]}>
               {Locale.ChatItem.ChatItemCount(props.count)}
@@ -157,24 +202,107 @@ function StaticChatItem(props: ComponentProps<typeof ChatItemCard>) {
 }
 
 export function ChatList(props: { narrow?: boolean }) {
-  const [sessionSummaries, selectedIndex, selectSession, moveSession] =
-    useChatStore(
-      (state) => [
-        state.sessionSummaries,
-        state.currentSessionIndex,
-        state.selectSession,
-        state.moveSession,
-      ],
-      shallow,
-    );
+  const [
+    sessions,
+    sessionSummaries,
+    selectedIndex,
+    selectSession,
+    moveSession,
+  ] = useChatStore(
+    (state) => [
+      state.sessions,
+      state.sessionSummaries,
+      state.currentSessionIndex,
+      state.selectSession,
+      state.moveSession,
+    ],
+    shallow,
+  );
   const chatStore = useChatStore();
   const navigate = useNavigate();
   const isMobileScreen = useMobileScreen();
   const listRef = useRef<HTMLDivElement | null>(null);
+  const searchCacheRef = useRef<
+    Map<
+      string,
+      {
+        signature: string;
+        corpus: string;
+      }
+    >
+  >(new Map());
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [filterText, setFilterText] = useState("");
   const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
+
+  const getSessionCorpus = useCallback(
+    (sessionIndex: number) => {
+      const session = sessions[sessionIndex];
+      if (!session) {
+        return "";
+      }
+
+      const signature = `${session.lastUpdate}:${session.messages.length}`;
+      const cached = searchCacheRef.current.get(session.id);
+      if (cached?.signature === signature) {
+        return cached.corpus;
+      }
+
+      const corpus = session.messages
+        .map((message) =>
+          typeof message.content === "string"
+            ? message.content.toLowerCase()
+            : "",
+        )
+        .filter(Boolean)
+        .join("\n");
+
+      searchCacheRef.current.set(session.id, {
+        signature,
+        corpus,
+      });
+
+      return corpus;
+    },
+    [sessions],
+  );
+
+  const buildMatchedPreview = useCallback(
+    (sessionIndex: number, lowerCaseText: string) => {
+      const session = sessions[sessionIndex];
+      if (!session || !lowerCaseText) {
+        return "";
+      }
+
+      for (const message of session.messages) {
+        const content =
+          typeof message.content === "string" ? message.content : "";
+        if (!content) {
+          continue;
+        }
+
+        const lowerCaseContent = content.toLowerCase();
+        const matchIndex = lowerCaseContent.indexOf(lowerCaseText);
+        if (matchIndex === -1) {
+          continue;
+        }
+
+        const start = Math.max(0, matchIndex - SNIPPET_CONTEXT_LENGTH);
+        const end = Math.min(
+          content.length,
+          matchIndex + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
+        );
+
+        return `${start > 0 ? "..." : ""}${content.slice(start, end).trim()}${
+          end < content.length ? "..." : ""
+        }`;
+      }
+
+      return "";
+    },
+    [sessions],
+  );
 
   const pinnedSession = sessionSummaries.find(isPinnedNewChat);
   const displayedSessions = useMemo<DisplayedSession[]>(
@@ -203,25 +331,51 @@ export function ChatList(props: { narrow?: boolean }) {
           })),
     [pinnedSession, sessionSummaries],
   );
-  const filteredSessions = useMemo(() => {
+  const filteredSessions = useMemo<FilteredSession[]>(() => {
     if (!deferredFilterText) {
       return displayedSessions;
     }
 
-    return displayedSessions.filter(({ session }) => {
+    return displayedSessions.reduce<FilteredSession[]>((result, entry) => {
+      const { session, originalIndex } = entry;
       const topic = session.topic.toLowerCase();
       const model = String(session.model || "").toLowerCase();
       const id = session.id.toLowerCase();
+      const content = getSessionCorpus(originalIndex);
+      const topicMatched = topic.includes(deferredFilterText);
+      const modelMatched = model.includes(deferredFilterText);
+      const idMatched = id.includes(deferredFilterText);
+      const contentMatched = content.includes(deferredFilterText);
 
-      return (
-        topic.includes(deferredFilterText) ||
-        model.includes(deferredFilterText) ||
-        id.includes(deferredFilterText)
-      );
-    });
-  }, [deferredFilterText, displayedSessions]);
+      if (!topicMatched && !modelMatched && !idMatched && !contentMatched) {
+        return result;
+      }
 
-  const itemHeight = props.narrow ? NARROW_ITEM_HEIGHT : NORMAL_ITEM_HEIGHT;
+      result.push({
+        ...entry,
+        preview: contentMatched
+          ? buildMatchedPreview(originalIndex, deferredFilterText)
+          : modelMatched
+          ? `模型：${session.model}`
+          : idMatched
+          ? `ID：${session.id}`
+          : undefined,
+      });
+
+      return result;
+    }, []);
+  }, [
+    buildMatchedPreview,
+    deferredFilterText,
+    displayedSessions,
+    getSessionCorpus,
+  ]);
+
+  const itemHeight = props.narrow
+    ? NARROW_ITEM_HEIGHT
+    : deferredFilterText
+    ? FILTERED_ITEM_HEIGHT
+    : NORMAL_ITEM_HEIGHT;
   const shouldVirtualize = filteredSessions.length > VIRTUAL_LIST_THRESHOLD;
   const dragEnabled = !deferredFilterText && !shouldVirtualize;
 
@@ -358,25 +512,29 @@ export function ChatList(props: { narrow?: boolean }) {
             ref={provided.innerRef}
             {...provided.droppableProps}
           >
-            {filteredSessions.map(({ session: item, originalIndex }, i) => (
-              <DraggableChatItem
-                key={item.id}
-                id={item.id}
-                index={i}
-                title={item.topic}
-                time={new Date(item.displayTime).toLocaleString()}
-                count={item.messageCount}
-                selected={originalIndex === selectedIndex}
-                onClick={() => {
-                  navigate(Path.Chat);
-                  selectSession(originalIndex);
-                }}
-                onDelete={() => void onDeleteSession(originalIndex)}
-                narrow={props.narrow}
-                avatar={item.avatar}
-                model={item.model}
-              />
-            ))}
+            {filteredSessions.map(
+              ({ session: item, originalIndex, preview }, i) => (
+                <DraggableChatItem
+                  key={item.id}
+                  id={item.id}
+                  index={i}
+                  title={item.topic}
+                  keyword={filterText.trim()}
+                  preview={preview}
+                  time={new Date(item.displayTime).toLocaleString()}
+                  count={item.messageCount}
+                  selected={originalIndex === selectedIndex}
+                  onClick={() => {
+                    navigate(Path.Chat);
+                    selectSession(originalIndex);
+                  }}
+                  onDelete={() => void onDeleteSession(originalIndex)}
+                  narrow={props.narrow}
+                  avatar={item.avatar}
+                  model={item.model}
+                />
+              ),
+            )}
             {provided.placeholder}
           </div>
         )}
@@ -384,10 +542,12 @@ export function ChatList(props: { narrow?: boolean }) {
     </DragDropContext>
   ) : !shouldVirtualize ? (
     <div className={styles["chat-list"]}>
-      {filteredSessions.map(({ session: item, originalIndex }) => (
+      {filteredSessions.map(({ session: item, originalIndex, preview }) => (
         <StaticChatItem
           key={item.id}
           title={item.topic}
+          keyword={filterText.trim()}
+          preview={preview}
           time={new Date(item.displayTime).toLocaleString()}
           count={item.messageCount}
           selected={originalIndex === selectedIndex}
@@ -412,34 +572,38 @@ export function ChatList(props: { narrow?: boolean }) {
         className={styles["chat-list-virtual"]}
         style={{ height: totalHeight }}
       >
-        {visibleSessions.map(({ session: item, originalIndex }, offset) => {
-          const listIndex = startIndex + offset;
-          return (
-            <div
-              key={item.id}
-              className={styles["chat-list-virtual-row"]}
-              style={{
-                height: itemHeight,
-                transform: `translateY(${listIndex * itemHeight}px)`,
-              }}
-            >
-              <StaticChatItem
-                title={item.topic}
-                time={new Date(item.displayTime).toLocaleString()}
-                count={item.messageCount}
-                selected={originalIndex === selectedIndex}
-                onClick={() => {
-                  navigate(Path.Chat);
-                  selectSession(originalIndex);
+        {visibleSessions.map(
+          ({ session: item, originalIndex, preview }, offset) => {
+            const listIndex = startIndex + offset;
+            return (
+              <div
+                key={item.id}
+                className={styles["chat-list-virtual-row"]}
+                style={{
+                  height: itemHeight,
+                  transform: `translateY(${listIndex * itemHeight}px)`,
                 }}
-                onDelete={() => void onDeleteSession(originalIndex)}
-                narrow={props.narrow}
-                avatar={item.avatar}
-                model={item.model}
-              />
-            </div>
-          );
-        })}
+              >
+                <StaticChatItem
+                  title={item.topic}
+                  keyword={filterText.trim()}
+                  preview={preview}
+                  time={new Date(item.displayTime).toLocaleString()}
+                  count={item.messageCount}
+                  selected={originalIndex === selectedIndex}
+                  onClick={() => {
+                    navigate(Path.Chat);
+                    selectSession(originalIndex);
+                  }}
+                  onDelete={() => void onDeleteSession(originalIndex)}
+                  narrow={props.narrow}
+                  avatar={item.avatar}
+                  model={item.model}
+                />
+              </div>
+            );
+          },
+        )}
       </div>
     </div>
   );
