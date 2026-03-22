@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChatMessage, useAppConfig, useChatStore } from "../store";
+import {
+  ChatMessage,
+  createEmptySession,
+  useAppConfig,
+  useChatStore,
+} from "../store";
 import { Updater } from "../typing";
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
@@ -73,16 +78,18 @@ export function MessageSelector(props: {
   onSelected?: (messages: ChatMessage[]) => void;
 }) {
   const LATEST_COUNT = 4;
-  const chatStore = useChatStore();
-  const session = chatStore.currentSession();
+  const session = useChatStore(
+    (state) => state.sessions[state.currentSessionIndex],
+  );
+  const safeSession = session ?? createEmptySession();
   const isValid = (m: ChatMessage) => m.content && !m.isError && !m.streaming;
   const allMessages = useMemo(() => {
-    let startIndex = Math.max(0, session.clearContextIndex ?? 0);
-    if (startIndex === session.messages.length - 1) {
+    let startIndex = Math.max(0, safeSession.clearContextIndex ?? 0);
+    if (startIndex === safeSession.messages.length - 1) {
       startIndex = 0;
     }
-    return session.messages.slice(startIndex);
-  }, [session.messages, session.clearContextIndex]);
+    return safeSession.messages.slice(startIndex);
+  }, [safeSession.messages, safeSession.clearContextIndex]);
 
   const messages = useMemo(
     () =>

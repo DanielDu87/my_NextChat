@@ -7,7 +7,13 @@ import clsx from "clsx";
 
 import { useState, useRef, useEffect } from "react";
 
-import { useChatStore, createMessage, useAppConfig } from "@/app/store";
+import {
+  createEmptySession,
+  useChatStore,
+  createMessage,
+  useAppConfig,
+  useCurrentSession,
+} from "@/app/store";
 
 import { IconButton } from "@/app/components/button";
 
@@ -35,7 +41,12 @@ export function RealtimeChat({
   onPausedVoice,
 }: RealtimeChatProps) {
   const chatStore = useChatStore();
-  const session = chatStore.currentSession();
+  const currentSessionSnapshot = useChatStore(
+    (state) => state.sessions[state.currentSessionIndex],
+  );
+  const { session: loadedSession } = useCurrentSession();
+  const session =
+    loadedSession ?? currentSessionSnapshot ?? createEmptySession();
   const config = useAppConfig();
   const [status, setStatus] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -153,6 +164,10 @@ export function RealtimeChat({
   };
 
   const handleResponse = async (response: RTResponse) => {
+    if (!session) {
+      return;
+    }
+
     for await (const item of response) {
       if (item.type === "message" && item.role === "assistant") {
         const botMessage = createMessage({
@@ -202,6 +217,10 @@ export function RealtimeChat({
   };
 
   const handleInputAudio = async (item: RTInputAudioItem) => {
+    if (!session) {
+      return;
+    }
+
     await item.waitForCompletion();
     if (item.transcription) {
       const userMessage = createMessage({

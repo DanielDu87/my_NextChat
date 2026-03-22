@@ -17,125 +17,69 @@ import EyeIcon from "../icons/eye.svg";
 import Locale from "../locales";
 import { Path } from "../constant";
 
-import { useChatStore } from "../store";
+import { selectChatSessionById, useChatIndexStore } from "../store";
+import { ChatSessionSummary } from "../store/chat";
 
 type Item = {
-  id: number;
+  id: string;
   name: string;
   content: string;
 };
 
 const MAX_RESULTS = 200;
-const MAX_SNIPPETS_PER_SESSION = 3;
 const SNIPPET_CONTEXT_LENGTH = 35;
 
 export function SearchChatPage() {
   const navigate = useNavigate();
 
-  const chatStore = useChatStore();
-
-  const sessions = chatStore.sessions;
-  const selectSession = chatStore.selectSession;
+  const { orderedSessionIds, sessionSummaries, initialized } =
+    useChatIndexStore();
 
   const [searchResults, setSearchResults] = useState<Item[]>([]);
   const [searchText, setSearchText] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchCacheRef = useRef<
-    Map<
-      string,
-      {
-        signature: string;
-        corpus: string;
-      }
-    >
-  >(new Map());
   const deferredSearchText = useDeferredValue(searchText.trim());
 
   const indexedSessions = useMemo(
     () =>
-      sessions.map((session, index) => ({
-        id: session.id,
-        index,
-        topic: session.topic,
-        topicLower: session.topic.toLowerCase(),
-        lastUpdate: Number(session.lastUpdate || 0),
-        messageCount: session.messages.length,
-      })),
-    [sessions],
-  );
-
-  const getSessionCorpus = useCallback(
-    (sessionIndex: number) => {
-      const session = sessions[sessionIndex];
-      if (!session) {
-        return "";
-      }
-
-      const signature = `${session.lastUpdate}:${session.messages.length}`;
-      const cached = searchCacheRef.current.get(session.id);
-      if (cached?.signature === signature) {
-        return cached.corpus;
-      }
-
-      const corpus = session.messages
-        .map((message) =>
-          typeof message.content === "string"
-            ? message.content.toLowerCase()
-            : "",
-        )
+      orderedSessionIds
+        .map((sessionId) => sessionSummaries[sessionId])
         .filter(Boolean)
-        .join("\n");
-
-      searchCacheRef.current.set(session.id, {
-        signature,
-        corpus,
-      });
-
-      return corpus;
-    },
-    [sessions],
+        .map((session) => ({
+          id: session.id,
+          topic: session.topic,
+          topicLower: session.topic.toLowerCase(),
+          lastUpdate: Number(session.displayTime || 0),
+          messageCount: session.messageCount,
+          searchText: session.searchText || "",
+        })),
+    [orderedSessionIds, sessionSummaries],
   );
 
   const buildSessionSnippets = useCallback(
-    (sessionIndex: number, lowerCaseText: string) => {
-      const session = sessions[sessionIndex];
-      if (!session) {
+    (
+      session: Pick<ChatSessionSummary, "searchText">,
+      lowerCaseText: string,
+    ) => {
+      const content = session.searchText || "";
+      if (!content) {
         return [];
       }
 
-      const snippets: string[] = [];
-
-      for (const message of session.messages) {
-        const content =
-          typeof message.content === "string" ? message.content : "";
-        if (!content) {
-          continue;
-        }
-
-        const lowerCaseContent = content.toLowerCase();
-        let pos = lowerCaseContent.indexOf(lowerCaseText);
-
-        while (pos !== -1 && snippets.length < MAX_SNIPPETS_PER_SESSION) {
-          const start = Math.max(0, pos - SNIPPET_CONTEXT_LENGTH);
-          const end = Math.min(
-            content.length,
-            pos + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
-          );
-          snippets.push(content.substring(start, end));
-          pos = lowerCaseContent.indexOf(
-            lowerCaseText,
-            pos + lowerCaseText.length,
-          );
-        }
-
-        if (snippets.length >= MAX_SNIPPETS_PER_SESSION) {
-          break;
-        }
+      const pos = content.indexOf(lowerCaseText);
+      if (pos === -1) {
+        return [];
       }
 
-      return snippets;
+      const start = Math.max(0, pos - SNIPPET_CONTEXT_LENGTH);
+      const end = Math.min(
+        content.length,
+        pos + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
+      );
+
+      return [content.substring(start, end)];
     },
-    [sessions],
+    [],
   );
 
   const doSearch = useCallback(
@@ -145,21 +89,21 @@ export function SearchChatPage() {
 
       indexedSessions.forEach((entry) => {
         const topicMatched = entry.topicLower.includes(lowerCaseText);
-        const corpus = getSessionCorpus(entry.index);
+        const corpus = entry.searchText;
         const contentMatched = corpus.includes(lowerCaseText);
 
         if (!topicMatched && !contentMatched) {
           return;
         }
 
-        const snippets = buildSessionSnippets(entry.index, lowerCaseText);
+        const snippets = buildSessionSnippets(entry, lowerCaseText);
         const score =
           (topicMatched ? 1000 : 0) +
-          snippets.length * 100 +
+          Number(contentMatched) * 200 +
           Math.min(entry.messageCount, 100);
 
         results.push({
-          id: entry.index,
+          id: entry.id,
           name: entry.topic,
           content: snippets.join("... ") || entry.topic,
           score,
@@ -179,7 +123,7 @@ export function SearchChatPage() {
         .slice(0, MAX_RESULTS)
         .map(({ score, lastUpdate, ...item }) => item);
     },
-    [buildSessionSnippets, getSessionCorpus, indexedSessions],
+    [buildSessionSnippets, indexedSessions],
   );
 
   const renderHighlightedText = useCallback(
@@ -207,6 +151,12 @@ export function SearchChatPage() {
     },
     [deferredSearchText],
   );
+
+  useEffect(() => {
+    if (!initialized) {
+      void useChatIndexStore.getState().initialize();
+    }
+  }, [initialized]);
 
   useEffect(() => {
     if (!deferredSearchText) {
@@ -274,7 +224,7 @@ export function SearchChatPage() {
                 key={item.id}
                 onClick={() => {
                   navigate(Path.Chat);
-                  selectSession(item.id);
+                  selectChatSessionById(item.id);
                 }}
                 style={{ cursor: "pointer" }}
               >

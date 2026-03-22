@@ -8,7 +8,11 @@ import {
   OnDragEndResponder,
 } from "@hello-pangea/dnd";
 
-import { useChatStore } from "../store";
+import {
+  selectChatSessionById,
+  useChatIndexStore,
+  useChatStore,
+} from "../store";
 
 import Locale from "../locales";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -29,7 +33,6 @@ import { showConfirm } from "./ui-lib";
 import { useMobileScreen } from "../utils";
 import clsx from "clsx";
 import { ChatSessionSummary, DEFAULT_TOPIC } from "../store/chat";
-import { shallow } from "zustand/shallow";
 
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
@@ -202,121 +205,89 @@ function StaticChatItem(props: ComponentProps<typeof ChatItemCard>) {
 }
 
 export function ChatList(props: { narrow?: boolean }) {
-  const [
-    sessions,
+  const {
+    orderedSessionIds,
+    allOrderedSessionIds,
     sessionSummaries,
-    selectedIndex,
-    selectSession,
-    moveSession,
-  ] = useChatStore(
-    (state) => [
-      state.sessions,
-      state.sessionSummaries,
-      state.currentSessionIndex,
-      state.selectSession,
-      state.moveSession,
-    ],
-    shallow,
-  );
-  const chatStore = useChatStore();
+    currentSessionId,
+    initialized,
+    loadMore,
+  } = useChatIndexStore();
   const navigate = useNavigate();
   const isMobileScreen = useMobileScreen();
   const listRef = useRef<HTMLDivElement | null>(null);
-  const searchCacheRef = useRef<
-    Map<
-      string,
-      {
-        signature: string;
-        corpus: string;
-      }
-    >
-  >(new Map());
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [filterText, setFilterText] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
   const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
+  const loadingMoreTimerRef = useRef<number | null>(null);
+  const hasMoreSessions =
+    orderedSessionIds.length < allOrderedSessionIds.length;
 
-  const getSessionCorpus = useCallback(
-    (sessionIndex: number) => {
-      const session = sessions[sessionIndex];
-      if (!session) {
-        return "";
-      }
+  const triggerLoadMore = useCallback(() => {
+    if (!hasMoreSessions) {
+      return;
+    }
 
-      const signature = `${session.lastUpdate}:${session.messages.length}`;
-      const cached = searchCacheRef.current.get(session.id);
-      if (cached?.signature === signature) {
-        return cached.corpus;
-      }
+    setLoadingMore(true);
+    loadMore();
 
-      const corpus = session.messages
-        .map((message) =>
-          typeof message.content === "string"
-            ? message.content.toLowerCase()
-            : "",
-        )
-        .filter(Boolean)
-        .join("\n");
+    if (loadingMoreTimerRef.current) {
+      window.clearTimeout(loadingMoreTimerRef.current);
+    }
 
-      searchCacheRef.current.set(session.id, {
-        signature,
-        corpus,
-      });
-
-      return corpus;
-    },
-    [sessions],
-  );
+    loadingMoreTimerRef.current = window.setTimeout(() => {
+      setLoadingMore(false);
+      loadingMoreTimerRef.current = null;
+    }, 420);
+  }, [hasMoreSessions, loadMore]);
 
   const buildMatchedPreview = useCallback(
-    (sessionIndex: number, lowerCaseText: string) => {
-      const session = sessions[sessionIndex];
-      if (!session || !lowerCaseText) {
+    (session: ChatSessionSummary, lowerCaseText: string) => {
+      const content = session.searchText || "";
+      if (!content || !lowerCaseText) {
         return "";
       }
 
-      for (const message of session.messages) {
-        const content =
-          typeof message.content === "string" ? message.content : "";
-        if (!content) {
-          continue;
-        }
-
-        const lowerCaseContent = content.toLowerCase();
-        const matchIndex = lowerCaseContent.indexOf(lowerCaseText);
-        if (matchIndex === -1) {
-          continue;
-        }
-
-        const start = Math.max(0, matchIndex - SNIPPET_CONTEXT_LENGTH);
-        const end = Math.min(
-          content.length,
-          matchIndex + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
-        );
-
-        return `${start > 0 ? "..." : ""}${content.slice(start, end).trim()}${
-          end < content.length ? "..." : ""
-        }`;
+      const matchIndex = content.indexOf(lowerCaseText);
+      if (matchIndex === -1) {
+        return "";
       }
 
-      return "";
+      const start = Math.max(0, matchIndex - SNIPPET_CONTEXT_LENGTH);
+      const end = Math.min(
+        content.length,
+        matchIndex + lowerCaseText.length + SNIPPET_CONTEXT_LENGTH,
+      );
+
+      return `${start > 0 ? "..." : ""}${content.slice(start, end).trim()}${
+        end < content.length ? "..." : ""
+      }`;
     },
-    [sessions],
+    [],
   );
 
-  const pinnedSession = sessionSummaries.find(isPinnedNewChat);
+  const summaryList = useMemo(
+    () =>
+      orderedSessionIds
+        .map((sessionId) => sessionSummaries[sessionId])
+        .filter(Boolean),
+    [orderedSessionIds, sessionSummaries],
+  );
+  const pinnedSession = summaryList.find(isPinnedNewChat);
   const displayedSessions = useMemo<DisplayedSession[]>(
     () =>
       pinnedSession
         ? [
             {
               session: pinnedSession,
-              originalIndex: sessionSummaries.findIndex(
+              originalIndex: summaryList.findIndex(
                 (item) => item.id === pinnedSession.id,
               ),
               pinned: true,
             },
-            ...sessionSummaries
+            ...summaryList
               .map((session, index) => ({
                 session,
                 originalIndex: index,
@@ -324,12 +295,12 @@ export function ChatList(props: { narrow?: boolean }) {
               }))
               .filter((item) => item.session.id !== pinnedSession.id),
           ]
-        : sessionSummaries.map((session, index) => ({
+        : summaryList.map((session, index) => ({
             session,
             originalIndex: index,
             pinned: false,
           })),
-    [pinnedSession, sessionSummaries],
+    [pinnedSession, summaryList],
   );
   const filteredSessions = useMemo<FilteredSession[]>(() => {
     if (!deferredFilterText) {
@@ -337,9 +308,9 @@ export function ChatList(props: { narrow?: boolean }) {
     }
 
     return displayedSessions.reduce<FilteredSession[]>((result, entry) => {
-      const { session, originalIndex } = entry;
+      const { session } = entry;
       const topic = session.topic.toLowerCase();
-      const content = getSessionCorpus(originalIndex);
+      const content = session.searchText || "";
       const topicMatched = topic.includes(deferredFilterText);
       const contentMatched = content.includes(deferredFilterText);
 
@@ -350,18 +321,13 @@ export function ChatList(props: { narrow?: boolean }) {
       result.push({
         ...entry,
         preview: contentMatched
-          ? buildMatchedPreview(originalIndex, deferredFilterText)
+          ? buildMatchedPreview(session, deferredFilterText)
           : undefined,
       });
 
       return result;
     }, []);
-  }, [
-    buildMatchedPreview,
-    deferredFilterText,
-    displayedSessions,
-    getSessionCorpus,
-  ]);
+  }, [deferredFilterText, displayedSessions, buildMatchedPreview]);
 
   const itemHeight = props.narrow
     ? NARROW_ITEM_HEIGHT
@@ -393,7 +359,7 @@ export function ChatList(props: { narrow?: boolean }) {
     }
 
     const displayedIndex = filteredSessions.findIndex(
-      (item) => item.originalIndex === selectedIndex,
+      (item) => item.session.id === currentSessionId,
     );
 
     if (displayedIndex < 0) {
@@ -412,14 +378,27 @@ export function ChatList(props: { narrow?: boolean }) {
     listRef.current.scrollTo({
       top: Math.max(0, itemTop - listRef.current.clientHeight / 2 + itemHeight),
     });
-  }, [filteredSessions, itemHeight, selectedIndex, shouldVirtualize]);
+  }, [currentSessionId, filteredSessions, itemHeight, shouldVirtualize]);
 
-  const onDeleteSession = async (originalIndex: number) => {
+  useEffect(() => {
+    return () => {
+      if (loadingMoreTimerRef.current) {
+        window.clearTimeout(loadingMoreTimerRef.current);
+      }
+    };
+  }, []);
+
+  const onDeleteSession = async (sessionId: string) => {
     if (
       (!props.narrow && !isMobileScreen) ||
       (await showConfirm(Locale.Home.DeleteChat))
     ) {
-      chatStore.deleteSession(originalIndex);
+      const originalIndex = orderedSessionIds.findIndex(
+        (id) => id === sessionId,
+      );
+      if (originalIndex >= 0) {
+        useChatStore.getState().deleteSession(originalIndex);
+      }
     }
   };
 
@@ -448,8 +427,35 @@ export function ChatList(props: { narrow?: boolean }) {
       return;
     }
 
-    moveSession(sourceItem.originalIndex, destinationItem.originalIndex);
+    useChatStore
+      .getState()
+      .moveSession(sourceItem.originalIndex, destinationItem.originalIndex);
   };
+
+  const renderScrollContainer = useCallback(
+    (
+      content: ReactNode,
+      onScroll?: (event: React.UIEvent<HTMLDivElement>) => void,
+    ) => (
+      <div
+        className={styles["chat-list-scroll"]}
+        ref={listRef}
+        onScroll={(event) => {
+          setScrollTop(event.currentTarget.scrollTop);
+          onScroll?.(event);
+          if (
+            event.currentTarget.scrollTop + event.currentTarget.clientHeight >=
+            event.currentTarget.scrollHeight - itemHeight * 2
+          ) {
+            triggerLoadMore();
+          }
+        }}
+      >
+        {content}
+      </div>
+    ),
+    [itemHeight, triggerLoadMore],
+  );
 
   const totalHeight = filteredSessions.length * itemHeight;
   const startIndex = Math.max(
@@ -470,8 +476,9 @@ export function ChatList(props: { narrow?: boolean }) {
 
     console.info("[Perf][ChatList]", {
       totalSessions: displayedSessions.length,
+      availableSessions: allOrderedSessionIds.length,
       filteredSessions: filteredSessions.length,
-      selectedIndex,
+      currentSessionId,
       narrow: Boolean(props.narrow),
       virtualized: shouldVirtualize,
       renderedCount: shouldVirtualize
@@ -484,88 +491,89 @@ export function ChatList(props: { narrow?: boolean }) {
     });
   }, [
     displayedSessions.length,
+    allOrderedSessionIds.length,
     endIndex,
     filteredSessions.length,
     props.narrow,
     scrollTop,
-    selectedIndex,
     shouldVirtualize,
     startIndex,
     viewportHeight,
     visibleSessions.length,
+    currentSessionId,
   ]);
 
-  const listContent = dragEnabled ? (
-    <DragDropContext onDragEnd={onDragEnd}>
-      <Droppable droppableId="chat-list">
-        {(provided) => (
-          <div
-            className={styles["chat-list"]}
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-          >
-            {filteredSessions.map(
-              ({ session: item, originalIndex, preview }, i) => (
-                <DraggableChatItem
-                  key={item.id}
-                  id={item.id}
-                  index={i}
-                  title={item.topic}
-                  keyword={filterText.trim()}
-                  preview={preview}
-                  time={new Date(item.displayTime).toLocaleString()}
-                  count={item.messageCount}
-                  selected={originalIndex === selectedIndex}
-                  onClick={() => {
-                    navigate(Path.Chat);
-                    selectSession(originalIndex);
-                  }}
-                  onDelete={() => void onDeleteSession(originalIndex)}
-                  narrow={props.narrow}
-                  avatar={item.avatar}
-                  model={item.model}
-                />
-              ),
+  if (!initialized) {
+    return <div className={styles["chat-list-panel"]} />;
+  }
+
+  const listContent = dragEnabled
+    ? renderScrollContainer(
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="chat-list">
+            {(provided) => (
+              <div
+                className={styles["chat-list"]}
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+              >
+                {filteredSessions.map(({ session: item, preview }, i) => (
+                  <DraggableChatItem
+                    key={item.id}
+                    id={item.id}
+                    index={i}
+                    title={item.topic}
+                    keyword={filterText.trim()}
+                    preview={preview}
+                    time={new Date(item.displayTime).toLocaleString()}
+                    count={item.messageCount}
+                    selected={item.id === currentSessionId}
+                    onClick={() => {
+                      navigate(Path.Chat);
+                      selectChatSessionById(item.id);
+                    }}
+                    onDelete={() => void onDeleteSession(item.id)}
+                    narrow={props.narrow}
+                    avatar={item.avatar}
+                    model={item.model}
+                  />
+                ))}
+                {provided.placeholder}
+              </div>
             )}
-            {provided.placeholder}
-          </div>
-        )}
-      </Droppable>
-    </DragDropContext>
-  ) : !shouldVirtualize ? (
-    <div className={styles["chat-list"]}>
-      {filteredSessions.map(({ session: item, originalIndex, preview }) => (
-        <StaticChatItem
-          key={item.id}
-          title={item.topic}
-          keyword={filterText.trim()}
-          preview={preview}
-          time={new Date(item.displayTime).toLocaleString()}
-          count={item.messageCount}
-          selected={originalIndex === selectedIndex}
-          onClick={() => {
-            navigate(Path.Chat);
-            selectSession(originalIndex);
-          }}
-          onDelete={() => void onDeleteSession(originalIndex)}
-          narrow={props.narrow}
-          avatar={item.avatar}
-          model={item.model}
-        />
-      ))}
-    </div>
-  ) : (
-    <div
-      className={styles["chat-list-scroll"]}
-      ref={listRef}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-    >
-      <div
-        className={styles["chat-list-virtual"]}
-        style={{ height: totalHeight }}
-      >
-        {visibleSessions.map(
-          ({ session: item, originalIndex, preview }, offset) => {
+          </Droppable>
+        </DragDropContext>,
+      )
+    : !shouldVirtualize
+    ? renderScrollContainer(
+        <div className={styles["chat-list"]}>
+          {filteredSessions.map(({ session: item, preview }) => (
+            <StaticChatItem
+              key={item.id}
+              title={item.topic}
+              keyword={filterText.trim()}
+              preview={preview}
+              time={new Date(item.displayTime).toLocaleString()}
+              count={item.messageCount}
+              selected={item.id === currentSessionId}
+              onClick={() => {
+                navigate(Path.Chat);
+                selectChatSessionById(item.id);
+              }}
+              onDelete={() => void onDeleteSession(item.id)}
+              narrow={props.narrow}
+              avatar={item.avatar}
+              model={item.model}
+            />
+          ))}
+        </div>,
+      )
+    : renderScrollContainer(
+        <div
+          className={styles["chat-list-virtual"]}
+          style={{ height: totalHeight }}
+        >
+          {visibleSessions.map(({ session: item, preview }, offset) => {
             const listIndex = startIndex + offset;
             return (
               <div
@@ -582,23 +590,21 @@ export function ChatList(props: { narrow?: boolean }) {
                   preview={preview}
                   time={new Date(item.displayTime).toLocaleString()}
                   count={item.messageCount}
-                  selected={originalIndex === selectedIndex}
+                  selected={item.id === currentSessionId}
                   onClick={() => {
                     navigate(Path.Chat);
-                    selectSession(originalIndex);
+                    selectChatSessionById(item.id);
                   }}
-                  onDelete={() => void onDeleteSession(originalIndex)}
+                  onDelete={() => void onDeleteSession(item.id)}
                   narrow={props.narrow}
                   avatar={item.avatar}
                   model={item.model}
                 />
               </div>
             );
-          },
-        )}
-      </div>
-    </div>
-  );
+          })}
+        </div>,
+      );
 
   return (
     <div className={styles["chat-list-panel"]}>
@@ -616,7 +622,27 @@ export function ChatList(props: { narrow?: boolean }) {
       {filteredSessions.length === 0 ? (
         <div className={styles["chat-list-empty"]}>没有匹配的会话</div>
       ) : (
-        listContent
+        <>
+          {listContent}
+          {!deferredFilterText && (
+            <div className={styles["chat-list-load-more-indicator"]}>
+              {loadingMore ? (
+                <>
+                  <span className={styles["chat-list-load-more-dots"]}>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>正在加载更多对话</span>
+                </>
+              ) : hasMoreSessions ? (
+                <span>向下滚动以加载更多对话</span>
+              ) : (
+                <span>已加载全部对话</span>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

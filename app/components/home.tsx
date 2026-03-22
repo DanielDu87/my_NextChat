@@ -26,7 +26,7 @@ import { SideBar } from "./sidebar";
 import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
-import { useAccessStore, useChatStore } from "../store";
+import { useAccessStore, useChatIndexStore, useChatStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 
@@ -264,6 +264,7 @@ export function Home() {
       return;
     }
 
+    void useChatIndexStore.getState().initialize();
     useChatStore.getState().initializeForNewPage();
   }, [hasHydrated]);
 

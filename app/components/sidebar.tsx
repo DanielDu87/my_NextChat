@@ -617,7 +617,7 @@ export function SideBar(props: { className?: string }) {
                 icon={<DeleteIcon />}
                 onClick={async () => {
                   if (await showConfirm(Locale.Home.DeleteChat)) {
-                    chatStore.deleteSession(chatStore.currentSessionIndex);
+                    chatStore.deleteCurrentSession();
                   }
                 }}
               />

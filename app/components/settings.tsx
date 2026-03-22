@@ -247,6 +247,7 @@ function UserPromptModal(props: { onClose?: () => void }) {
 function DangerItems() {
   const chatStore = useChatStore();
   const appConfig = useAppConfig();
+  const isDev = process.env.NODE_ENV !== "production";
 
   return (
     <List>
@@ -285,6 +286,27 @@ function DangerItems() {
           type="danger"
         />
       </ListItem>
+      {isDev && (
+        <ListItem
+          title="测试数据"
+          subTitle="清空当前本地对话数据，并生成用于启动恢复、切换懒加载和搜索测试的示例会话"
+        >
+          <IconButton
+            aria="重置并生成测试数据"
+            text="重置并生成"
+            onClick={async () => {
+              if (
+                await showConfirm(
+                  "这会删除当前浏览器中的全部本地对话数据，并立即生成测试会话，是否继续？",
+                )
+              ) {
+                chatStore.resetAndSeedTestData();
+              }
+            }}
+            type="danger"
+          />
+        </ListItem>
+      )}
     </List>
   );
 }

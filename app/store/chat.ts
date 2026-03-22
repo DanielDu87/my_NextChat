@@ -6,7 +6,12 @@ import {
 } from "../utils";
 
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
-import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
+import {
+  chatPersistStorage,
+  getPersistedChatSession,
+  removePersistedChatSession,
+  setPersistedChatSession,
+} from "@/app/utils/chat-persist-storage";
 import { nanoid } from "nanoid";
 import { createJSONStorage } from "zustand/middleware";
 import type {
@@ -51,6 +56,7 @@ import {
   getAutoModelSeriesLabel,
 } from "../utils/auto-model";
 import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
+import { createSyncClient, ProviderType } from "../utils/cloud";
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
@@ -125,7 +131,10 @@ export interface ChatSessionSummary {
   displayTime: number;
   avatar: string;
   model: ModelType;
+  searchText: string;
 }
+
+const SESSION_SEARCH_TEXT_LIMIT = 4000;
 
 function getLocaleStoreStrings() {
   try {
@@ -256,33 +265,206 @@ export function createEmptySession(): ChatSession {
   };
 }
 
-function buildSessionSummary(session: ChatSession): ChatSessionSummary {
+export function buildSessionSummary(session: ChatSession): ChatSessionSummary {
+  const fallbackMask = createEmptyMask();
+
   return {
     id: session.id,
     topic: session.topic,
-    messageCount: session.messages.length,
+    messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
     createdAt: session.createdAt,
     displayTime: session.createdAt || session.lastUpdate || Date.now(),
-    avatar: session.mask.avatar,
-    model: session.mask.modelConfig.model,
+    avatar: session.mask?.avatar || fallbackMask.avatar,
+    model: session.mask?.modelConfig?.model || fallbackMask.modelConfig.model,
+    searchText: buildSessionSearchText(session),
   };
 }
 
-export function buildSessionSummaries(sessions: ChatSession[]) {
-  return sessions.map(buildSessionSummary);
+function buildSessionSearchText(session: ChatSession) {
+  const parts: string[] = [];
+  let totalLength = 0;
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+
+  for (const message of messages) {
+    const content =
+      typeof message.content === "string" ? message.content.trim() : "";
+    if (!content) {
+      continue;
+    }
+
+    const remaining = SESSION_SEARCH_TEXT_LIMIT - totalLength;
+    if (remaining <= 0) {
+      break;
+    }
+
+    const nextContent = content.slice(0, remaining);
+    if (nextContent) {
+      parts.push(nextContent.toLowerCase());
+      totalLength += nextContent.length + 1;
+    }
+  }
+
+  return parts.join("\n");
+}
+
+export function buildSessionSummaries(
+  sessions: ChatSession[],
+  existingSummaries?: ChatSessionSummary[],
+) {
+  if (!existingSummaries || existingSummaries.length === 0) {
+    return sessions.map(buildSessionSummary);
+  }
+
+  // 创建 existingSummaries 的映射，以便快速查找
+  const existingSummaryMap = new Map(existingSummaries.map((s) => [s.id, s]));
+
+  return sessions.map((session) => {
+    const existingSummary = existingSummaryMap.get(session.id);
+    const newSummary = buildSessionSummary(session);
+
+    // 如果 session 的 messages 为空（被修剪），但原有的 messageCount > 0，
+    // 则保留原有的 messageCount
+    if (
+      existingSummary &&
+      session.messages.length === 0 &&
+      existingSummary.messageCount > 0
+    ) {
+      return {
+        ...newSummary,
+        messageCount: existingSummary.messageCount,
+      };
+    }
+
+    return newSummary;
+  });
 }
 
 function shouldRefreshSessionSummary(
   previousSession: ChatSession,
   nextSession: ChatSession,
 ) {
+  const previousMessageCount = Array.isArray(previousSession.messages)
+    ? previousSession.messages.length
+    : 0;
+  const nextMessageCount = Array.isArray(nextSession.messages)
+    ? nextSession.messages.length
+    : 0;
+  const previousAvatar = previousSession.mask?.avatar || "";
+  const nextAvatar = nextSession.mask?.avatar || "";
+  const previousModel = previousSession.mask?.modelConfig?.model || "";
+  const nextModel = nextSession.mask?.modelConfig?.model || "";
+
   return (
     previousSession.topic !== nextSession.topic ||
     previousSession.createdAt !== nextSession.createdAt ||
-    previousSession.messages.length !== nextSession.messages.length ||
-    previousSession.mask.avatar !== nextSession.mask.avatar ||
-    previousSession.mask.modelConfig.model !==
-      nextSession.mask.modelConfig.model
+    previousMessageCount !== nextMessageCount ||
+    previousAvatar !== nextAvatar ||
+    previousModel !== nextModel
+  );
+}
+
+function createSeedTestSession(
+  index: number,
+  options?: {
+    empty?: boolean;
+    messagePairs?: number;
+    daysAgo?: number;
+  },
+) {
+  const now = Date.now();
+  const daysAgo = options?.daysAgo ?? index;
+  const createdAt = now - daysAgo * 24 * 60 * 60 * 1000;
+  const session = createEmptySession();
+  session.id = nanoid();
+  session.topic = options?.empty
+    ? `空白测试会话 ${index + 1}`
+    : `测试会话 ${index + 1}`;
+  session.createdAt = createdAt;
+  session.lastUpdate = createdAt;
+
+  if (options?.empty) {
+    return session;
+  }
+
+  const messagePairs = options?.messagePairs ?? (index % 4) + 2;
+  const messages: ChatMessage[] = [];
+
+  for (let i = 0; i < messagePairs; i += 1) {
+    const userMessageTime = createdAt + i * 2 * 60 * 1000;
+    const assistantMessageTime = userMessageTime + 45 * 1000;
+    const userMessage = createMessage({
+      id: nanoid(),
+      role: "user",
+      date: new Date(userMessageTime).toISOString(),
+      content: `这是第 ${index + 1} 个测试会话的第 ${
+        i + 1
+      } 轮提问，用于验证侧边栏摘要、搜索、懒加载和滚动行为。`,
+    });
+    const assistantMessage = createMessage({
+      id: nanoid(),
+      role: "assistant",
+      date: new Date(assistantMessageTime).toISOString(),
+      model: session.mask.modelConfig.model,
+      content:
+        i === 0
+          ? `测试会话 ${
+              index + 1
+            } 已生成。这个会话包含多轮消息，方便验证启动仅恢复索引和最近若干正文。`
+          : `第 ${i + 1} 轮回复：当前会话编号 ${
+              index + 1
+            }，可用于测试切换老会话时的局部 loading 与正文补载。`,
+    });
+    messages.push(userMessage, assistantMessage);
+  }
+
+  session.messages = messages;
+  session.lastSummarizeIndex = messages.length;
+  session.lastUpdate = createdAt + messagePairs * 2 * 60 * 1000;
+  session.mask.name = session.topic;
+  return session;
+}
+
+async function fetchRemoteSessionById(sessionId: string) {
+  if (!sessionId) {
+    return undefined;
+  }
+
+  const { useSyncStore } = await import("./sync");
+  const syncState = useSyncStore.getState();
+  const provider = syncState.provider as ProviderType;
+  const client = createSyncClient(provider, syncState[provider] as any);
+  const remoteSessions = await client.getChatSessions?.([sessionId]);
+  const remoteSession = remoteSessions?.[sessionId];
+
+  if (!remoteSession || typeof remoteSession !== "object") {
+    return undefined;
+  }
+
+  return remoteSession as ChatSession;
+}
+
+function createPrunedSession(session: ChatSession, preserveMessages: boolean) {
+  if (preserveMessages || session.messages.length === 0) {
+    return session;
+  }
+
+  return {
+    ...session,
+    messages: [],
+  };
+}
+
+function isSessionPayloadPlaceholder(
+  session: ChatSession | undefined,
+  summary: ChatSessionSummary | undefined,
+) {
+  if (!session) {
+    return false;
+  }
+
+  return (
+    Number(summary?.messageCount || 0) > 0 &&
+    (!Array.isArray(session.messages) || session.messages.length === 0)
   );
 }
 
@@ -889,6 +1071,8 @@ const DEFAULT_CHAT_STATE = {
   sessions: [DEFAULT_SESSION],
   sessionSummaries: [buildSessionSummary(DEFAULT_SESSION)],
   currentSessionIndex: 0,
+  hydratingSessionId: "",
+  hydratedSessionIds: [] as string[],
   lastInput: "",
   globalClearAt: 0,
   deletedSessionTimestamps: {} as Record<string, number>,
@@ -960,8 +1144,17 @@ export const useChatStore = createPersistStore(
 
         const nextState = {
           sessions,
-          sessionSummaries: buildSessionSummaries(sessions),
+          sessionSummaries: buildSessionSummaries(
+            sessions,
+            currentState.sessionSummaries,
+          ),
           currentSessionIndex: 0,
+          hydratedSessionIds: sessions
+            .filter(
+              (session) =>
+                Array.isArray(session.messages) && session.messages.length > 0,
+            )
+            .map((session) => session.id),
         };
 
         if (
@@ -971,6 +1164,8 @@ export const useChatStore = createPersistStore(
         ) {
           set(() => nextState);
         }
+
+        get().pruneInactiveSessionsInMemory();
 
         if (changed) {
           import("./sync").then(({ useSyncStore }) => {
@@ -1056,6 +1251,22 @@ export const useChatStore = createPersistStore(
         set({
           currentSessionIndex: index,
         });
+
+        const sessionId = get().sessions[index]?.id;
+        if (sessionId) {
+          void get().hydrateSessionIntoMemory(sessionId);
+        }
+      },
+
+      selectSessionById(sessionId: string) {
+        const targetIndex = get().sessions.findIndex(
+          (session) => session.id === sessionId,
+        );
+        if (targetIndex < 0) {
+          return;
+        }
+
+        get().selectSession(targetIndex);
       },
 
       moveSession(from: number, to: number) {
@@ -1186,6 +1397,9 @@ export const useChatStore = createPersistStore(
           currentSessionIndex: nextIndex,
           sessionSummaries: buildSessionSummaries(sessions),
           sessions,
+          hydratedSessionIds: get().hydratedSessionIds.filter(
+            (sessionId) => sessionId !== deletedSession.id,
+          ),
           deletedSessionTimestamps,
         }));
 
@@ -1217,11 +1431,173 @@ export const useChatStore = createPersistStore(
               console.error("[Chat] ❌ 删除会话后立即同步失败:", error);
             });
         });
+        void removePersistedChatSession(deletedSession.id);
+      },
+
+      deleteCurrentSession() {
+        get().deleteSession(get().currentSessionIndex);
+      },
+
+      getSessionById(sessionId: string) {
+        if (!sessionId) {
+          return undefined;
+        }
+
+        return get().sessions.find((session) => session.id === sessionId);
+      },
+
+      async loadSessionById(sessionId: string) {
+        if (!sessionId) {
+          return undefined;
+        }
+
+        const inMemorySession = get().getSessionById(sessionId);
+        const summary = get().sessionSummaries.find(
+          (session) => session.id === sessionId,
+        );
+        const isPrunedInMemory = isSessionPayloadPlaceholder(
+          inMemorySession,
+          summary,
+        );
+
+        if (inMemorySession && !isPrunedInMemory) {
+          return inMemorySession;
+        }
+
+        const persistedSession =
+          await getPersistedChatSession<ChatSession>(sessionId);
+        const isPersistedPlaceholder = isSessionPayloadPlaceholder(
+          persistedSession ?? undefined,
+          summary,
+        );
+        if (persistedSession && !isPersistedPlaceholder) {
+          return persistedSession;
+        }
+
+        const remoteSession = await fetchRemoteSessionById(sessionId);
+        if (remoteSession) {
+          await get().saveSessionToPersistedStorage(remoteSession);
+          return remoteSession;
+        }
+
+        return undefined;
+      },
+
+      async saveSessionToPersistedStorage(session: ChatSession) {
+        if (!session?.id) {
+          return;
+        }
+
+        await setPersistedChatSession(
+          session.id,
+          session as unknown as Record<string, unknown>,
+        );
+      },
+
+      async hydrateSessionIntoMemory(sessionId: string) {
+        if (!sessionId) {
+          return undefined;
+        }
+
+        const summary = get().sessionSummaries.find(
+          (session) => session.id === sessionId,
+        );
+        const currentInMemorySession = get().getSessionById(sessionId);
+        const shouldShowLoadingToast =
+          !!summary &&
+          !!currentInMemorySession &&
+          currentInMemorySession.messages.length === 0 &&
+          summary.messageCount > 0;
+
+        if (shouldShowLoadingToast) {
+          showToast("正在加载会话内容...");
+        }
+
+        set(() => ({ hydratingSessionId: sessionId }));
+
+        try {
+          const persistedSession = await get().loadSessionById(sessionId);
+          if (!persistedSession) {
+            return undefined;
+          }
+
+          set((state) => {
+            const targetIndex = state.sessions.findIndex(
+              (session) => session.id === sessionId,
+            );
+            if (targetIndex < 0) {
+              return state;
+            }
+
+            const nextSessions = state.sessions.slice();
+            nextSessions[targetIndex] = persistedSession;
+            const keepSessionIds = new Set(
+              state.hydratedSessionIds.filter(Boolean),
+            );
+            // 使用 targetIndex 来确定当前会话，而不是 state.currentSessionIndex
+            const currentSessionId =
+              targetIndex === state.currentSessionIndex
+                ? sessionId
+                : nextSessions[state.currentSessionIndex]?.id;
+            if (currentSessionId) {
+              keepSessionIds.add(currentSessionId);
+            }
+            // 确保正在加载的会话被保留
+            keepSessionIds.add(sessionId);
+            const prunedSessions = nextSessions.map((session) =>
+              createPrunedSession(session, keepSessionIds.has(session.id)),
+            );
+
+            return {
+              sessions: prunedSessions,
+              hydratedSessionIds: Array.from(
+                new Set([...state.hydratedSessionIds, sessionId]),
+              ),
+            };
+          });
+
+          return persistedSession;
+        } finally {
+          set(() => ({ hydratingSessionId: "" }));
+        }
+      },
+
+      pruneInactiveSessionsInMemory() {
+        set((state) => {
+          const keepSessionIds = new Set(
+            state.hydratedSessionIds.filter(Boolean),
+          );
+          const currentSessionId =
+            state.sessions[state.currentSessionIndex]?.id ?? "";
+          if (currentSessionId) {
+            keepSessionIds.add(currentSessionId);
+          }
+          const nextSessions = state.sessions.map((session) =>
+            createPrunedSession(session, keepSessionIds.has(session.id)),
+          );
+
+          return {
+            sessions: nextSessions,
+          };
+        });
+      },
+
+      currentSessionId() {
+        const selectedSession = get().sessions[get().currentSessionIndex];
+        return selectedSession?.id ?? "";
       },
 
       currentSession() {
-        let index = get().currentSessionIndex;
+        const currentSessionId = get().currentSessionId();
         const sessions = get().sessions;
+        const sessionById = currentSessionId
+          ? get().getSessionById(currentSessionId)
+          : undefined;
+        if (sessionById) {
+          return sessionById;
+        }
+
+        let index = get().currentSessionIndex;
 
         if (index < 0 || index >= sessions.length) {
           index = Math.min(sessions.length - 1, Math.max(0, index));
@@ -2198,10 +2574,49 @@ export const useChatStore = createPersistStore(
             sessionSummaries,
           };
         });
+        void get().saveSessionToPersistedStorage(sessions[index]);
       },
       async clearAllData() {
         await clearPersistedStateStorage();
         location.reload();
+      },
+      async resetAndSeedTestData() {
+        await clearPersistedStateStorage();
+
+        const seededSessions = [
+          createEmptySession(),
+          ...Array.from({ length: 14 }, (_, index) =>
+            createSeedTestSession(index, {
+              daysAgo: index,
+              messagePairs: index < 3 ? 8 : (index % 4) + 2,
+            }),
+          ),
+          createSeedTestSession(14, { empty: true, daysAgo: 30 }),
+          createSeedTestSession(15, { empty: true, daysAgo: 45 }),
+        ];
+
+        const leadingSession = seededSessions[0];
+        leadingSession.topic = getDefaultTopic();
+        leadingSession.mask.name = leadingSession.topic;
+
+        set(() => ({
+          sessions: seededSessions,
+          sessionSummaries: buildSessionSummaries(seededSessions),
+          currentSessionIndex: 0,
+          hydratingSessionId: "",
+          hydratedSessionIds: seededSessions
+            .filter(
+              (session) =>
+                Array.isArray(session.messages) && session.messages.length > 0,
+            )
+            .map((session) => session.id),
+          lastInput: "",
+          globalClearAt: 0,
+          deletedSessionTimestamps: {},
+        }));
+
+        showToast("已重置本地对话，并生成测试数据");
+        setTimeout(() => location.reload(), 120);
       },
       setLastInput(lastInput: string) {
         set({
@@ -2246,7 +2661,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.6,
+    version: 3.7,
     storage: createJSONStorage(() => chatPersistStorage as any) as any,
     migrate(persistedState, version) {
       const state = persistedState as any;
@@ -2338,9 +2753,30 @@ export const useChatStore = createPersistStore(
         newState.deletedSessionTimestamps = {};
       }
 
-      if (version < 3.6 || !Array.isArray((newState as any).sessionSummaries)) {
+      if (!Array.isArray((newState as any).hydratedSessionIds)) {
+        (newState as any).hydratedSessionIds = Array.isArray(newState.sessions)
+          ? newState.sessions
+              .filter(
+                (session: ChatSession) =>
+                  Array.isArray(session?.messages) &&
+                  session.messages.length > 0,
+              )
+              .map((session: ChatSession) => session.id)
+          : [];
+      }
+
+      if (
+        version < 3.7 ||
+        !Array.isArray((newState as any).sessionSummaries) ||
+        (newState as any).sessionSummaries.some(
+          (summary: ChatSessionSummary) =>
+            typeof summary?.searchText !== "string",
+        )
+      ) {
+        // 使用 buildSessionSummaries，它会保留原有的 messageCount（对于占位符 sessions）
         (newState as any).sessionSummaries = buildSessionSummaries(
           newState.sessions,
+          (newState as any).sessionSummaries,
         );
       }
 

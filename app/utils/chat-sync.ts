@@ -81,6 +81,10 @@ export function buildChatIndexPayload(
       ...rest,
       currentSessionId:
         typeof currentSessionId === "string" ? currentSessionId : "",
+      // 使用 sessions（过滤后的）来生成 sessionIds，确保一致性
+      sessionIds: sessions
+        .map((session) => (session.id ? String(session.id) : ""))
+        .filter(Boolean),
     },
     sessions: sessions.map((session) => ({
       id: String(session.id || ""),

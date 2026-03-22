@@ -20,6 +20,7 @@
     "db:health": "npx tsx ./scripts/check-postgres-health.ts",
     "db:sync-models": "npx tsx ./scripts/sync-models-to-postgres.ts",
     "db:refresh-provider-models": "npx tsx ./scripts/refresh-provider-models.ts",
+    "db:seed-chat-performance": "npx tsx ./scripts/seed-chat-performance.ts",
     "db:migrate-webdav-stores": "npx tsx ./scripts/migrate-webdav-stores-to-postgres.ts",
     "prepare": "husky install",
     "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev",

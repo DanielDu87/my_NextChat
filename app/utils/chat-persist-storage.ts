@@ -11,7 +11,7 @@ type PersistedEnvelope = {
   version?: number;
 };
 
-type ChatPersistSplitIndex = {
+export type ChatPersistSplitIndex = {
   version: 1;
   persistVersion: number;
   state: Record<string, unknown> & {
@@ -23,12 +23,13 @@ const CHAT_INDEX_SUFFIX = "::index";
 const CHAT_SESSION_SUFFIX = "::session::";
 const CHAT_STORE_KEY = "chat-next-web-store";
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
+export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 20;
 
-function getChatIndexStorageKey(name: string) {
+export function getChatIndexStorageKey(name: string) {
   return `${name}${CHAT_INDEX_SUFFIX}`;
 }
 
-function getChatSessionStorageKey(name: string, sessionId: string) {
+export function getChatSessionStorageKey(name: string, sessionId: string) {
   return `${name}${CHAT_SESSION_SUFFIX}${sessionId}`;
 }
 
@@ -115,6 +116,70 @@ export function rebuildChatPersistedState(
   );
 }
 
+function getInitialHydratedSessionIds(index: ChatPersistSplitIndex) {
+  const sessionIds = Array.isArray(index.state.sessionIds)
+    ? index.state.sessionIds.filter(Boolean)
+    : [];
+  const currentSessionIndex = Math.max(
+    0,
+    Number(index.state.currentSessionIndex) || 0,
+  );
+  const currentSessionId = sessionIds[currentSessionIndex] || "";
+  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
+    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
+    : [];
+  const isMeaningfulSession = (sessionId: string) => {
+    const summary = sessionSummaries.find((item) => item?.id === sessionId);
+    return Number(summary?.messageCount || 0) > 0;
+  };
+  const recentSessionIds = sessionIds
+    .filter(
+      (sessionId) =>
+        sessionId === currentSessionId || isMeaningfulSession(sessionId),
+    )
+    .slice(0, INITIAL_HYDRATED_RECENT_SESSION_LIMIT);
+
+  return Array.from(
+    new Set([currentSessionId, ...recentSessionIds].filter(Boolean)),
+  );
+}
+
+function buildSessionPlaceholder(
+  index: ChatPersistSplitIndex,
+  sessionId: string,
+) {
+  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
+    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
+    : [];
+  const summary = sessionSummaries.find((item) => item?.id === sessionId);
+
+  return JSON.stringify({
+    id: sessionId,
+    topic: String(summary?.topic || ""),
+    messages: [],
+    memoryPrompt: "",
+    stat: {
+      tokenCount: 0,
+      wordCount: 0,
+      charCount: 0,
+    },
+    createdAt: Number(summary?.createdAt || summary?.displayTime || 0),
+    lastUpdate: Number(summary?.displayTime || summary?.createdAt || 0),
+    lastSummarizeIndex: 0,
+    mask: {
+      avatar: String(summary?.avatar || "gpt-bot"),
+      context: [],
+      hideContext: false,
+      plugin: [],
+      syncGlobalConfig: true,
+      modelConfig: {
+        model: String(summary?.model || ""),
+        providerName: "",
+      },
+    },
+  });
+}
+
 function getSessionIdsFromIndexText(indexText: string | null) {
   const parsed = parseJson<ChatPersistSplitIndex>(indexText);
   return Array.isArray(parsed?.state?.sessionIds)
@@ -129,6 +194,44 @@ function createSessionEntryMap(
   }>,
 ) {
   return new Map(entries.map((entry) => [entry.sessionId, entry.value]));
+}
+
+function getSessionsFromPersistedEnvelope(text: string | null | undefined) {
+  const payload = parseJson<PersistedEnvelope>(text);
+  const state = unwrapPersistedStoreState(payload) as Record<string, unknown>;
+  return Array.isArray(state?.sessions)
+    ? (state.sessions as Record<string, unknown>[])
+    : [];
+}
+
+function getSessionSummaryMessageCount(
+  index: ChatPersistSplitIndex,
+  sessionId: string,
+) {
+  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
+    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
+    : [];
+  const summary = sessionSummaries.find((item) => item?.id === sessionId);
+  return Number(summary?.messageCount || 0);
+}
+
+function isPrunedSessionPayload(
+  index: ChatPersistSplitIndex,
+  sessionId: string,
+  value: string,
+) {
+  const summaryMessageCount = getSessionSummaryMessageCount(index, sessionId);
+  if (summaryMessageCount <= 0) {
+    return false;
+  }
+
+  const parsed = parseJson<Record<string, unknown>>(value);
+  if (!parsed) {
+    return false;
+  }
+
+  const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+  return messages.length === 0;
 }
 
 class ChatPersistStorage implements StateStorage {
@@ -165,7 +268,22 @@ class ChatPersistStorage implements StateStorage {
     );
     const changedSessionEntries = nextPayload.sessionEntries.filter((entry) => {
       const storageKey = getChatSessionStorageKey(name, entry.sessionId);
-      return previousSessionPayloads[storageKey] !== entry.value;
+      const isPrunedPayload = isPrunedSessionPayload(
+        nextPayload.index,
+        entry.sessionId,
+        entry.value,
+      );
+
+      if (previousSessionPayloads[storageKey] === entry.value) {
+        return false;
+      }
+
+      // 避免把“未加载正文的空壳会话”写入分片。
+      if (isPrunedPayload) {
+        return false;
+      }
+
+      return true;
     });
 
     const staleSessionIds = [...previousSessionIds].filter(
@@ -183,7 +301,6 @@ class ChatPersistStorage implements StateStorage {
         ),
       },
       remove: [
-        name,
         ...staleSessionIds.map((sessionId) =>
           getChatSessionStorageKey(name, sessionId),
         ),
@@ -257,12 +374,16 @@ class ChatPersistStorage implements StateStorage {
         if (index) {
           const startedAt =
             typeof performance !== "undefined" ? performance.now() : Date.now();
+          const hydratedSessionIds = getInitialHydratedSessionIds(index);
           const sessionPayloadMap = await indexedDbStateStorage.getRawItems(
-            index.state.sessionIds.map((sessionId) =>
+            hydratedSessionIds.map((sessionId) =>
               getChatSessionStorageKey(name, sessionId),
             ),
           );
           const sessionPayloads = index.state.sessionIds.map((sessionId) => {
+            if (!hydratedSessionIds.includes(sessionId)) {
+              return buildSessionPlaceholder(index, sessionId);
+            }
             return (
               sessionPayloadMap[getChatSessionStorageKey(name, sessionId)] ??
               null
@@ -359,3 +480,51 @@ class ChatPersistStorage implements StateStorage {
 }
 
 export const chatPersistStorage = new ChatPersistStorage();
+
+export async function getPersistedChatSession<T = Record<string, unknown>>(
+  sessionId: string,
+) {
+  if (!sessionId) {
+    return null;
+  }
+
+  const sessionText = await indexedDbStateStorage.getRawItem(
+    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+  );
+  const splitSession = parseJson<T>(sessionText);
+  if (splitSession) {
+    return splitSession;
+  }
+
+  const legacyStoreText =
+    await indexedDbStateStorage.getRawItem(CHAT_STORE_KEY);
+  const legacySession = getSessionsFromPersistedEnvelope(legacyStoreText).find(
+    (session) => String(session?.id || "") === sessionId,
+  );
+
+  return (legacySession as T | undefined) ?? null;
+}
+
+export async function setPersistedChatSession(
+  sessionId: string,
+  value: Record<string, unknown>,
+) {
+  if (!sessionId) {
+    return;
+  }
+
+  await indexedDbStateStorage.setRawItem(
+    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+    JSON.stringify(value),
+  );
+}
+
+export async function removePersistedChatSession(sessionId: string) {
+  if (!sessionId) {
+    return;
+  }
+
+  await indexedDbStateStorage.removeRawItem(
+    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+  );
+}

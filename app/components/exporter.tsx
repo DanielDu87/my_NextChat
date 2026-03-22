@@ -1,5 +1,11 @@
 /* eslint-disable @next/next/no-img-element */
-import { ChatMessage, useAppConfig, useChatStore } from "../store";
+import {
+  ChatMessage,
+  createEmptySession,
+  useAppConfig,
+  useCurrentSession,
+  useChatStore,
+} from "../store";
 import Locale from "../locales";
 import styles from "./exporter.module.scss";
 import {
@@ -164,34 +170,44 @@ export function MessageExporter() {
     setExportConfig(config);
   }
 
-  const chatStore = useChatStore();
-  const session = chatStore.currentSession();
+  const { session } = useCurrentSession();
   const { selection, updateSelection } = useMessageSelector();
   const selectedMessages = useMemo(() => {
     const ret: ChatMessage[] = [];
+    if (!session) {
+      return ret;
+    }
     if (exportConfig.includeContext) {
       ret.push(...session.mask.context);
     }
     ret.push(...session.messages.filter((m) => selection.has(m.id)));
     return ret;
-  }, [
-    exportConfig.includeContext,
-    session.messages,
-    session.mask.context,
-    selection,
-  ]);
+  }, [exportConfig.includeContext, session, selection]);
+  if (!session) {
+    return null;
+  }
+  const currentSession = session;
   function preview() {
     if (exportConfig.format === "text") {
       return (
-        <MarkdownPreviewer messages={selectedMessages} topic={session.topic} />
+        <MarkdownPreviewer
+          messages={selectedMessages}
+          topic={currentSession.topic}
+        />
       );
     } else if (exportConfig.format === "json") {
       return (
-        <JsonPreviewer messages={selectedMessages} topic={session.topic} />
+        <JsonPreviewer
+          messages={selectedMessages}
+          topic={currentSession.topic}
+        />
       );
     } else {
       return (
-        <ImagePreviewer messages={selectedMessages} topic={session.topic} />
+        <ImagePreviewer
+          messages={selectedMessages}
+          topic={currentSession.topic}
+        />
       );
     }
   }
@@ -414,8 +430,12 @@ export function ImagePreviewer(props: {
   topic: string;
 }) {
   const repoUrl = getRepoUrl();
-  const chatStore = useChatStore();
-  const session = chatStore.currentSession();
+  const currentSessionSnapshot = useChatStore(
+    (state) => state.sessions[state.currentSessionIndex],
+  );
+  const { session: loadedSession } = useCurrentSession();
+  const session =
+    loadedSession ?? currentSessionSnapshot ?? createEmptySession();
   const mask = session.mask;
   const config = useAppConfig();
 
