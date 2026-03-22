@@ -3,7 +3,7 @@ import "./styles/globals.scss";
 import "./styles/markdown.scss";
 import "./styles/highlight.scss";
 import AutoSyncEntry from "./components/auto-sync-entry";
-import { getClientConfig } from "./config/client";
+import { getBuildConfig } from "./config/build";
 import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GoogleTagManager, GoogleAnalytics } from "@next/third-parties/google";
@@ -35,11 +35,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const serverConfig = getServerSideConfig();
+  const buildConfig = getBuildConfig();
 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <meta name="config" content={JSON.stringify(getClientConfig())} />
+        <meta name="config" content={JSON.stringify(buildConfig)} />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
