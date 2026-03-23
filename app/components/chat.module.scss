@@ -1331,7 +1331,7 @@
   z-index: 2;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
   max-width: min(320px, calc(100% - 32px));
   padding: 8px 12px;
@@ -1340,6 +1340,31 @@
   background: color-mix(in srgb, var(--white) 88%, transparent);
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.chat-provider-balance::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: none;
+}
+
+:global(.light) .chat-provider-balance,
+:global(body.light) .chat-provider-balance {
+  border-color: color-mix(in srgb, #60a5fa 18%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #bfdbfe 55%, transparent),
+    0 10px 28px rgba(59, 130, 246, 0.14),
+    0 0 18px rgba(147, 197, 253, 0.18);
+}
+
+:global(.light) .chat-provider-balance::after,
+:global(body.light) .chat-provider-balance::after {
+  opacity: 1;
+  box-shadow: 0 0 18px rgba(147, 197, 253, 0.22);
 }
 
 .chat-provider-balance-label {
@@ -1352,14 +1377,40 @@
   font-size: 13px;
   line-height: 1.3;
   font-weight: 700;
-  text-align: right;
+  text-align: center;
   word-break: break-word;
 }
 
+:global(.dark) .chat-provider-balance,
 :global(body.dark) .chat-provider-balance {
-  border-color: color-mix(in srgb, #e5e7eb 12%, transparent);
-  background: rgba(17, 24, 39, 0.78);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.192);
+  background: var(--bg-color);
+  box-shadow:
+    0 10px 28px rgba(209, 213, 219, 0.14),
+    0 0 18px rgba(209, 213, 219, 0.18);
+}
+
+:global(.dark) .chat-provider-balance::after,
+:global(body.dark) .chat-provider-balance::after {
+  opacity: 1;
+  box-shadow: 0 0 18px rgba(209, 213, 219, 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .chat-provider-balance {
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.192);
+    background: var(--bg-color);
+    box-shadow:
+      0 10px 28px rgba(209, 213, 219, 0.14),
+      0 0 18px rgba(209, 213, 219, 0.18);
+  }
+
+  :global(body:not(.light):not(.dark)) .chat-provider-balance::after {
+    opacity: 1;
+    box-shadow: 0 0 18px rgba(209, 213, 219, 0.22);
+  }
 }
 
 @media only screen and (max-width: 600px) {
