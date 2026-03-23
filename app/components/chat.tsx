@@ -373,8 +373,15 @@ function ChatProviderBalance(props: {
   const balance = useUpdateStore(
     (state) => state.balances[props.balanceCacheKey],
   );
+  const [displayedBalance, setDisplayedBalance] = useState(balance);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const showUsage = true;
+
+  useEffect(() => {
+    if (typeof balance?.remaining === "number") {
+      setDisplayedBalance(balance);
+    }
+  }, [balance]);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,7 +510,9 @@ function ChatProviderBalance(props: {
   }
 
   const remaining =
-    typeof balance?.remaining === "number" ? balance.remaining : null;
+    typeof displayedBalance?.remaining === "number"
+      ? displayedBalance.remaining
+      : null;
   const balanceDisplay = remaining !== null ? `$${remaining}` : "--";
 
   return (
