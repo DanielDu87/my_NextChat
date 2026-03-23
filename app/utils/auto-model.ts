@@ -367,6 +367,161 @@ function isNanoModel(model: AutoModelInput) {
   );
 }
 
+type OfficialGptModelInfo = {
+  major: number;
+  minor: number;
+  tier: "main" | "mini" | "nano";
+};
+
+type OfficialDeepSeekModelInfo = {
+  family: "v" | "chat" | "reasoner" | "r1";
+  major: number;
+  minor: number;
+};
+
+type OfficialDoubaoModelInfo = {
+  family: "seed-main" | "seed-mini" | "legacy-lite";
+  major: number;
+  minor: number;
+};
+
+function parseOfficialGptModel(name: string): OfficialGptModelInfo | undefined {
+  const match = name
+    .toLowerCase()
+    .match(
+      /^gpt-(\d+)(?:\.(\d+))?(?:-(mini|nano))?(?:-(?:20\d{2}-\d{2}-\d{2}|\d{6}|\d{8}))?$/,
+    );
+  if (!match) return undefined;
+
+  return {
+    major: Number(match[1] || 0),
+    minor: Number(match[2] || 0),
+    tier: (match[3] as "mini" | "nano" | undefined) || "main",
+  };
+}
+
+function parseOfficialDeepSeekModel(
+  name: string,
+): OfficialDeepSeekModelInfo | undefined {
+  const normalized = name.toLowerCase();
+
+  if (
+    normalized.includes("/") ||
+    normalized.includes(":") ||
+    normalized.includes("ocr") ||
+    normalized.includes("vl") ||
+    normalized.includes("vision") ||
+    normalized.includes("distill") ||
+    normalized.includes("chimera") ||
+    normalized.includes("zero") ||
+    normalized.includes("speciale") ||
+    normalized.includes("fast") ||
+    normalized.includes("think") ||
+    normalized.includes("thinking") ||
+    normalized.includes("terminus") ||
+    normalized.includes("exp") ||
+    normalized.includes("search") ||
+    normalized.startsWith("azure-") ||
+    normalized.startsWith("alicloud-") ||
+    normalized.startsWith("daocloud-") ||
+    normalized.startsWith("cc-") ||
+    normalized.startsWith("mai-")
+  ) {
+    return undefined;
+  }
+
+  const vMatch = normalized.match(
+    /^deepseek-v(\d+)(?:\.(\d+))?(?:-(?:20\d{2}-\d{2}-\d{2}|\d{6}|\d{8}))?$/,
+  );
+  if (vMatch) {
+    return {
+      family: "v",
+      major: Number(vMatch[1] || 0),
+      minor: Number(vMatch[2] || 0),
+    };
+  }
+
+  const chatMatch = normalized.match(
+    /^deepseek-chat(?:-(?:20\d{2}-\d{2}-\d{2}|\d{4}|\d{6}|\d{8}))?$/,
+  );
+  if (chatMatch) {
+    return {
+      family: "chat",
+      major: 0,
+      minor: 0,
+    };
+  }
+
+  const reasonerMatch = normalized.match(
+    /^deepseek-reasoner(?:-(?:20\d{2}-\d{2}-\d{2}|\d{4}|\d{6}|\d{8}))?$/,
+  );
+  if (reasonerMatch) {
+    return {
+      family: "reasoner",
+      major: 0,
+      minor: 0,
+    };
+  }
+
+  const r1Match = normalized.match(
+    /^deepseek-r1(?:-(?:20\d{2}-\d{2}-\d{2}|\d{4}|\d{6}|\d{8}))?$/,
+  );
+  if (r1Match) {
+    return {
+      family: "r1",
+      major: 1,
+      minor: 0,
+    };
+  }
+
+  return undefined;
+}
+
+function parseOfficialDoubaoModel(
+  name: string,
+): OfficialDoubaoModelInfo | undefined {
+  const normalized = name.toLowerCase();
+
+  if (
+    normalized.includes("seededit") ||
+    normalized.includes("flash") ||
+    normalized.includes("thinking") ||
+    normalized.includes("nothinking")
+  ) {
+    return undefined;
+  }
+
+  const seedMatch = normalized.match(
+    /^doubao[-_.\/\s]*seed[-_.\/\s]*(\d+)(?:[-_.\/\s]+(\d+))?(?:[-_.\/\s]+(lite|mini))?(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|\d{6}|\d{8}))?$/i,
+  );
+  if (seedMatch) {
+    const tier = (seedMatch[3] || "").toLowerCase();
+    return {
+      family: tier === "mini" ? "seed-mini" : "seed-main",
+      major: Number(seedMatch[1] || 0),
+      minor: Number(seedMatch[2] || 0),
+    };
+  }
+
+  if (/^doubao[-_.]?lite(?:[-_.].+)?$/i.test(name)) {
+    return {
+      family: "legacy-lite",
+      major: 0,
+      minor: 0,
+    };
+  }
+
+  if (/^doubao[-_.]?1[-_.]?5[-_.]?lite(?:[-_.].+)?$/i.test(name)) {
+    return {
+      family: "legacy-lite",
+      major: 0,
+      minor: 0,
+    };
+  }
+
+  return undefined;
+}
+
 function getModelKeywordText(model: AutoModelInput) {
   return `${model.name} ${model.displayName || ""}`;
 }
@@ -516,7 +671,16 @@ function isEligibleSeriesModel(
   if (!isModelUsable(model)) return false;
   if (matchModelSeries(model) !== series) return false;
   if (!isAutoModelNameAllowed(model)) return false;
-  if (series === "doubao" && !isStrictDoubaoModel(model)) return false;
+  if (series === "gpt" && !parseOfficialGptModel(model.name)) return false;
+  if (series === "deepseek" && !parseOfficialDeepSeekModel(model.name)) {
+    return false;
+  }
+  if (
+    series === "doubao" &&
+    (!isStrictDoubaoModel(model) || !parseOfficialDoubaoModel(model.name))
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -541,6 +705,143 @@ function pickLatestSeriesModels(
     sortModels(seriesModels.filter(matcher))[0];
   const pickOrderedBy = (matcher: (model: AutoModelInput) => boolean) =>
     sortModels(seriesModels.filter(matcher));
+
+  if (series === "gpt") {
+    const officialSeriesModels = seriesModels
+      .map((model) => ({
+        model,
+        info: parseOfficialGptModel(model.name),
+      }))
+      .filter(
+        (
+          item,
+        ): item is {
+          model: AutoModelInput;
+          info: OfficialGptModelInfo;
+        } => !!item.info,
+      );
+
+    if (officialSeriesModels.length === 0) {
+      return {
+        latestModels: [],
+        seriesModels,
+      };
+    }
+
+    const latestVersion = officialSeriesModels
+      .map((item) => item.info)
+      .sort((a, b) => {
+        if (b.major !== a.major) {
+          return b.major - a.major;
+        }
+        return b.minor - a.minor;
+      })[0];
+
+    const sameVersionModels = officialSeriesModels
+      .filter(
+        ({ info }) =>
+          info.major === latestVersion.major &&
+          info.minor === latestVersion.minor,
+      )
+      .map(({ model }) => model);
+
+    const latestMain = sortModels(
+      sameVersionModels.filter(
+        (model) => parseOfficialGptModel(model.name)?.tier === "main",
+      ),
+    )[0];
+    const latestMini = sortModels(
+      sameVersionModels.filter(
+        (model) => parseOfficialGptModel(model.name)?.tier === "mini",
+      ),
+    )[0];
+    const latestNano = sortModels(
+      sameVersionModels.filter(
+        (model) => parseOfficialGptModel(model.name)?.tier === "nano",
+      ),
+    )[0];
+
+    return {
+      latestModels: [latestMain, latestMini, latestNano].filter(
+        Boolean,
+      ) as AutoModelInput[],
+      seriesModels,
+    };
+  }
+
+  if (series === "deepseek") {
+    const officialSeriesModels = seriesModels
+      .map((model) => ({
+        model,
+        info: parseOfficialDeepSeekModel(model.name),
+      }))
+      .filter(
+        (
+          item,
+        ): item is {
+          model: AutoModelInput;
+          info: OfficialDeepSeekModelInfo;
+        } => !!item.info,
+      );
+
+    if (officialSeriesModels.length === 0) {
+      return {
+        latestModels: [],
+        seriesModels,
+      };
+    }
+
+    const versionModels = officialSeriesModels
+      .filter(({ info }) => info.family === "v")
+      .sort((a, b) => {
+        if (b.info.major !== a.info.major) {
+          return b.info.major - a.info.major;
+        }
+        if (b.info.minor !== a.info.minor) {
+          return b.info.minor - a.info.minor;
+        }
+        return comparePublishedAt(a.model, b.model);
+      });
+
+    const latestVersion = versionModels[0]?.info;
+    const latestVersionModel = latestVersion
+      ? sortModels(
+          versionModels
+            .filter(
+              ({ info }) =>
+                info.major === latestVersion.major &&
+                info.minor === latestVersion.minor,
+            )
+            .map(({ model }) => model),
+        )[0]
+      : undefined;
+
+    const latestChat = sortModels(
+      officialSeriesModels
+        .filter(({ info }) => info.family === "chat")
+        .map(({ model }) => model),
+    )[0];
+    const latestReasoner = sortModels(
+      officialSeriesModels
+        .filter(({ info }) => info.family === "reasoner")
+        .map(({ model }) => model),
+    )[0];
+    const latestR1 = sortModels(
+      officialSeriesModels
+        .filter(({ info }) => info.family === "r1")
+        .map(({ model }) => model),
+    )[0];
+
+    return {
+      latestModels: [
+        latestVersionModel,
+        latestChat,
+        latestReasoner,
+        latestR1,
+      ].filter(Boolean) as AutoModelInput[],
+      seriesModels,
+    };
+  }
 
   const shouldTreatLiteAsMain = series === "doubao";
 

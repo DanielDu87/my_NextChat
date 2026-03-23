@@ -72,7 +72,7 @@ describe("buildAutoModelCandidates", () => {
     ]);
   });
 
-  it("官方名称改了时，仍可优先按 vendor 识别 GPT 和 DeepSeek 系列", () => {
+  it("官方名称改了时，DeepSeek 和 GPT 自动模式都要求匹配官方命名", () => {
     const gptCandidates = buildAutoModelCandidates(
       [
         createModel("nova-1", "custom_aihubmix", 20260301, {
@@ -114,11 +114,11 @@ describe("buildAutoModelCandidates", () => {
     );
 
     expect(gptCandidates.map((item) => `${item.series}:${item.model}`)).toEqual(
-      ["gpt:nova-1", "gpt:nova-1-mini"],
+      [],
     );
     expect(
       deepseekCandidates.map((item) => `${item.series}:${item.model}`),
-    ).toEqual(["deepseek:nebula-1", "deepseek:nebula-1-mini"]);
+    ).toEqual([]);
   });
 
   it("按 API 配置里的供应商顺序生成候选并依次尝试", () => {
@@ -183,6 +183,114 @@ describe("buildAutoModelCandidates", () => {
       "gpt-5.4",
       "gpt-5.4-mini",
       "gpt-5.4-nano",
+    ]);
+  });
+
+  it("GPT 自动模式只保留官方命名，并优先最新版本的 main mini nano", () => {
+    const models: LLMModel[] = [
+      createModel("aihubmix-router", "custom_aihubmix", 20260320),
+      createModel("gpt-5-mini-flex", "custom_aihubmix", 20260320),
+      createModel("gpt-4o-lite", "custom_aihubmix", 20260320),
+      createModel("gpt-5.3", "custom_aihubmix", 20260319),
+      createModel("gpt-5.4", "custom_aihubmix", 20260318),
+      createModel("gpt-5.4-mini", "custom_aihubmix", 20260318),
+      createModel("gpt-5.4-nano", "custom_aihubmix", 20260318),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "AihubMix",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://aihubmix.com",
+        },
+      ],
+      ["gpt"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual([
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+    ]);
+  });
+
+  it("GPT 自动模式在最新版本没有 main 时，回退到同版本 mini 和 nano", () => {
+    const models: LLMModel[] = [
+      createModel("gpt-5.3", "custom_aihubmix", 20260319),
+      createModel("gpt-5.4-mini-2026-03-05", "custom_aihubmix", 20260320),
+      createModel("gpt-5.4-mini", "custom_aihubmix", 20260320),
+      createModel("gpt-5.4-nano-2026-03-05", "custom_aihubmix", 20260320),
+      createModel("gpt-5.4-nano", "custom_aihubmix", 20260320),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "AihubMix",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://aihubmix.com",
+        },
+      ],
+      ["gpt"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual([
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+    ]);
+  });
+
+  it("DeepSeek 自动模式优先最新官方 v 系列，再回退 chat reasoner r1", () => {
+    const models: LLMModel[] = [
+      createModel("DeepSeek-OCR", "custom_aihubmix", 20260322, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-ai/DeepSeek-V2.5", "custom_aihubmix", 20260322, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("azure-deepseek-v3.2", "custom_aihubmix", 20260322, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-v3.2-speciale", "custom_aihubmix", 20260322, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-v3.2", "custom_aihubmix", 20260322, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-chat", "custom_aihubmix", 20260321, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-reasoner", "custom_aihubmix", 20260320, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+      createModel("deepseek-r1", "custom_aihubmix", 20250120, {
+        vendor: { id: 2, name: "DeepSeek" },
+      }),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "AihubMix",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://aihubmix.com",
+        },
+      ],
+      ["deepseek"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual([
+      "deepseek-v3.2",
+      "deepseek-chat",
+      "deepseek-reasoner",
+      "deepseek-r1",
     ]);
   });
 
@@ -355,6 +463,39 @@ describe("buildAutoModelCandidates", () => {
     ]);
   });
 
+  it("豆包自动模式会排除 seededit 和 flash thinking nothinking 变体", () => {
+    const models: LLMModel[] = [
+      createModel("doubao-seed-2-0-lite", "custom_aihubmix", 20260320),
+      createModel("doubao-seed-2-0-mini", "custom_aihubmix", 20260320),
+      createModel("doubao-seededit-3-0-i2i-250628", "custom_aihubmix", 20260321),
+      createModel("doubao-seed-1-6-flash-250615", "custom_aihubmix", 20260319),
+      createModel("doubao-seed-1-6-thinking-250615", "custom_aihubmix", 20260319),
+      createModel("doubao-seed-1-6-nothinking-250615", "custom_aihubmix", 20260319),
+      createModel("doubao-seed-1-8", "custom_aihubmix", 20260318),
+      createModel("doubao-seed-1-6", "custom_aihubmix", 20260317),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "AihubMix",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://aihubmix.com",
+        },
+      ],
+      ["doubao"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual([
+      "doubao-seed-2-0-lite",
+      "doubao-seed-1-8",
+      "doubao-seed-1-6",
+      "doubao-seed-2-0-mini",
+    ]);
+  });
+
   it("按已启用供应商各自可用模型挑选，不要求同名", () => {
     const models: LLMModel[] = [
       createModel("doubao-seed-2-0-lite-260215", "custom_other", 20260215),
@@ -474,9 +615,10 @@ describe("buildAutoModelCandidates", () => {
       ["doubao"],
     );
 
-    expect(candidates.map((item) => item.model).slice(0, 2)).toEqual([
+    expect(candidates.map((item) => item.model).slice(0, 3)).toEqual([
       "doubao-seed-2-0-lite",
-      "doubao-seed-2-0-fast",
+      "doubao-seed-1-8",
+      "doubao-seed-2-0-mini",
     ]);
     expect(candidates.map((item) => item.model)).toContain(
       "doubao-seed-2-0-mini",
@@ -608,7 +750,7 @@ describe("buildAutoModelCandidates", () => {
     ]);
   });
 
-  it("系列内部按 主模型 -> mini -> lite -> nano 取候选；豆包在缺少标准主模型时用 lite 顶上，并排除 codex", () => {
+  it("GPT 系列内部按最新官方版本的 主模型 -> mini -> nano 取候选，并排除非官方扩展命名", () => {
     const models: LLMModel[] = [
       createModel("gpt-5.4", "custom_aihubmix", 20260320),
       createModel("gpt-5.4-mini", "custom_aihubmix", 20260319),
@@ -637,7 +779,6 @@ describe("buildAutoModelCandidates", () => {
     expect(candidates.map((item) => `${item.series}:${item.model}`)).toEqual([
       "gpt:gpt-5.4",
       "gpt:gpt-5.4-mini",
-      "gpt:gpt-5.4-lite",
       "gpt:gpt-5.4-nano",
     ]);
   });
