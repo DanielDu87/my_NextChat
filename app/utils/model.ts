@@ -3,7 +3,7 @@ import type { LLMModel } from "../client/api";
 import modelPublishedAtUtils from "./model-published-at";
 
 const { DEFAULT_MODELS, ServiceProvider } = constants;
-const { comparePublishedAt } = modelPublishedAtUtils;
+const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -200,6 +200,195 @@ export function collectModelsWithDefaultModel(
   allModels = sortModelTable(allModels);
 
   return allModels;
+}
+
+type ProviderScopedModelConfig = {
+  model?: string;
+  providerName?: (typeof ServiceProvider)[keyof typeof ServiceProvider];
+};
+
+type AccessProfileLike = {
+  name: string;
+  provider: (typeof ServiceProvider)[keyof typeof ServiceProvider];
+  enabled: boolean;
+};
+
+type ModelLike = ReturnType<typeof collectModelsWithDefaultModel>[number];
+type ServiceProviderValue =
+  (typeof ServiceProvider)[keyof typeof ServiceProvider];
+
+function getEnabledProviderId(
+  providerName: string | undefined,
+  accessProfiles: readonly AccessProfileLike[],
+) {
+  if (!providerName) {
+    return undefined;
+  }
+
+  if (providerName === ServiceProvider.Custom) {
+    const enabledCustomProfile = accessProfiles.find(
+      (profile) =>
+        profile.enabled && profile.provider === ServiceProvider.Custom,
+    );
+    if (enabledCustomProfile) {
+      return `custom_${enabledCustomProfile.name}`.toLowerCase();
+    }
+    return undefined;
+  }
+
+  return String(providerName).toLowerCase();
+}
+
+function isOpenAIChatModel(model: ModelLike) {
+  if (!model.available) {
+    return false;
+  }
+
+  const text = [
+    model.name,
+    model.displayName || "",
+    model.vendor?.name || "",
+    model.provider?.providerName || "",
+    model.type || "",
+    ...(model.types || []),
+    ...(model.categories || []),
+    ...(model.capabilities || []),
+    ...(model.features || []),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /(embedding|moderation|whisper|transcri|tts|speech|realtime|audio|dall-e|dalle|image|video|vision|sora|omni-moderation|computer-use|search-preview)/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  return /(^|[^a-z])(gpt|chatgpt|o1|o3|o4|o5)([^a-z]|$)/i.test(model.name);
+}
+
+function isPureOpenAIMainModel(model: ModelLike) {
+  if (!isOpenAIChatModel(model)) {
+    return false;
+  }
+
+  const name = model.name.toLowerCase();
+
+  if (!/^gpt-\d+(?:\.\d+)?$/i.test(name)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isFallbackOpenAIMainModel(model: ModelLike) {
+  if (!isOpenAIChatModel(model)) {
+    return false;
+  }
+
+  const name = model.name.toLowerCase();
+
+  if (!/^gpt-\d+(?:\.\d+)?(?:[-_.].+)?$/i.test(name)) {
+    return false;
+  }
+
+  if (isPureOpenAIMainModel(model)) {
+    return false;
+  }
+
+  return !/(?:^|[-_.])(pro|mini|nano)(?:$|[-_.])/i.test(name);
+}
+
+function getOpenAIMainModelBaseVersion(model: ModelLike) {
+  const match = String(model.name || "")
+    .toLowerCase()
+    .match(/^gpt-(\d+(?:\.\d+)?)/i);
+  if (!match?.[1]) {
+    return [];
+  }
+  return match[1].split(".").map((part) => Number(part));
+}
+
+function compareVersionPartsDesc(left: number[], right: number[]) {
+  const maxLength = Math.max(left.length, right.length);
+  for (let i = 0; i < maxLength; i += 1) {
+    const diff = (right[i] ?? -1) - (left[i] ?? -1);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function compareOpenAIMainModelPriority(left: ModelLike, right: ModelLike) {
+  const baseVersionDiff = compareVersionPartsDesc(
+    getOpenAIMainModelBaseVersion(left),
+    getOpenAIMainModelBaseVersion(right),
+  );
+  if (baseVersionDiff !== 0) {
+    return baseVersionDiff;
+  }
+
+  const leftPure = isPureOpenAIMainModel(left);
+  const rightPure = isPureOpenAIMainModel(right);
+  if (leftPure !== rightPure) {
+    return leftPure ? -1 : 1;
+  }
+
+  const publishedDiff = comparePublishedAt(
+    applyModelPublishedAt(left as any),
+    applyModelPublishedAt(right as any),
+  );
+  if (publishedDiff !== 0) {
+    return publishedDiff;
+  }
+
+  return String(left.name || "").localeCompare(String(right.name || ""));
+}
+
+export function getLatestOpenAIModelForCurrentSupplier(
+  allModels: readonly ModelLike[],
+  currentModelConfig: ProviderScopedModelConfig | undefined,
+  accessProfiles: readonly AccessProfileLike[] = [],
+): { model: string; providerName: ServiceProviderValue } | undefined {
+  const inferredProviderId = allModels.find(
+    (model) =>
+      model.name === currentModelConfig?.model &&
+      model.provider?.providerName === currentModelConfig?.providerName,
+  )?.provider?.id;
+  const preferredProviderId =
+    getEnabledProviderId(currentModelConfig?.providerName, accessProfiles) ||
+    String(inferredProviderId || "").toLowerCase() ||
+    String(currentModelConfig?.providerName || "").toLowerCase();
+
+  if (!preferredProviderId) {
+    return undefined;
+  }
+
+  const scopedModels = allModels.filter((model) => {
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    return providerId === preferredProviderId;
+  });
+
+  const candidates = scopedModels
+    .filter(
+      (model) =>
+        isPureOpenAIMainModel(model) || isFallbackOpenAIMainModel(model),
+    )
+    .slice()
+    .sort(compareOpenAIMainModelPriority);
+
+  const matchedModel = candidates[0];
+  if (!matchedModel?.provider?.providerName) {
+    return undefined;
+  }
+
+  return {
+    model: matchedModel.name,
+    providerName: matchedModel.provider.providerName as ServiceProviderValue,
+  };
 }
 
 export function isModelAvailableInServer(

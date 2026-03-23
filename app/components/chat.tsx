@@ -156,7 +156,10 @@ import {
 } from "../client/model-parameter-rules";
 
 import { isEmpty } from "lodash-es";
-import { getModelProvider } from "../utils/model";
+import {
+  getLatestOpenAIModelForCurrentSupplier,
+  getModelProvider,
+} from "../utils/model";
 import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 
@@ -2292,6 +2295,15 @@ function _Chat() {
             providerName: autoModeDefaultCandidate.providerName,
           }),
         );
+      } else if (!autoModeEnabled && sessionMessages.length === 0) {
+        nextModelConfig = sanitizeModelConfigForCapability({
+          ...nextModelConfig,
+          ...(getLatestOpenAIModelForCurrentSupplier(
+            allModels,
+            nextModelConfig,
+            apiProfiles,
+          ) || {}),
+        });
       }
 
       shouldSyncMaskConfig = !areModelConfigValuesEqual(
@@ -2335,6 +2347,8 @@ function _Chat() {
     autoModeEnabled,
     chatStore,
     config.modelConfig,
+    allModels,
+    apiProfiles,
     session,
     sessionMask,
     sessionMessages,

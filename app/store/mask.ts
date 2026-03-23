@@ -11,7 +11,10 @@ import { StoreKey } from "../constant";
 import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
 import { useAccessStore } from "./access";
-import { collectModelsWithDefaultModel } from "../utils/model";
+import {
+  collectModelsWithDefaultModel,
+  getLatestOpenAIModelForCurrentSupplier,
+} from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { buildAutoModelCandidates } from "../utils/auto-model";
 
@@ -66,7 +69,14 @@ export const createEmptyMask = () => {
           model: autoCandidates[0].model as ModelType,
           providerName: autoCandidates[0].providerName,
         })
-      : { ...appConfig.modelConfig };
+      : sanitizeModelConfigForCapability({
+          ...appConfig.modelConfig,
+          ...(getLatestOpenAIModelForCurrentSupplier(
+            allModels,
+            appConfig.modelConfig,
+            accessStore.apiProfiles,
+          ) || {}),
+        });
 
   return {
     id: nanoid(),

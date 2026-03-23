@@ -45,7 +45,10 @@ import {
   useAppConfig,
 } from "./config";
 import { useAccessStore } from "./access";
-import { collectModelsWithDefaultModel } from "../utils/model";
+import {
+  collectModelsWithDefaultModel,
+  getLatestOpenAIModelForCurrentSupplier,
+} from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
@@ -1322,16 +1325,33 @@ export const useChatStore = createPersistStore(
         } else {
           const currentSession = get().currentSession();
           if (currentSession) {
+            const appConfig = useAppConfig.getState();
+            const accessStore = useAccessStore.getState();
             const autoModeEnabled =
-              (useAppConfig.getState().autoModelSeries?.length || 0) > 0;
+              (appConfig.autoModelSeries?.length || 0) > 0;
+            const allModels = collectModelsWithDefaultModel(
+              appConfig.models,
+              appConfig.customModels,
+              accessStore.defaultModel,
+            );
+            const latestOpenAIModel = autoModeEnabled
+              ? undefined
+              : getLatestOpenAIModelForCurrentSupplier(
+                  allModels,
+                  currentSession.mask.modelConfig,
+                  accessStore.apiProfiles,
+                );
             session.mask = {
               ...session.mask,
               syncGlobalConfig: currentSession.mask.syncGlobalConfig,
-              modelConfig: mergeNewSessionModelConfig(
-                currentSession.mask.modelConfig,
-                session.mask.modelConfig,
-                autoModeEnabled,
-              ),
+              modelConfig: sanitizeModelConfigForCapability({
+                ...mergeNewSessionModelConfig(
+                  currentSession.mask.modelConfig,
+                  session.mask.modelConfig,
+                  autoModeEnabled,
+                ),
+                ...(latestOpenAIModel || {}),
+              }),
             };
           }
         }

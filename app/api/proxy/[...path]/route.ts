@@ -7,7 +7,6 @@ async function handle(
 ) {
   return proxyHandler(req, {
     params: {
-      provider: "proxy",
       path: params.path,
     },
   });
