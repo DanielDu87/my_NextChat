@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { RequestMessage } from "./client/api";
 import constants from "./constant";
+export { formatChinaDateTime } from "./utils/format";
 // import { fetch as tauriFetch, ResponseType } from "@tauri-apps/api/http";
 import { fetch as tauriStreamFetch } from "./utils/stream";
 import { useAccessStore } from "./store";

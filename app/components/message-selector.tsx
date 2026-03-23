@@ -10,6 +10,7 @@ import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import { MaskAvatar } from "./mask";
 import Locale from "../locales";
+import { formatChinaDateTime } from "../utils";
 
 import styles from "./message-selector.module.scss";
 import { getMessageTextContent } from "../utils";
@@ -226,7 +227,7 @@ export function MessageSelector(props: {
               </div>
               <div className={styles["body"]}>
                 <div className={styles["date"]}>
-                  {new Date(m.date).toLocaleString()}
+                  {formatChinaDateTime(m.date)}
                 </div>
                 <div className={clsx(styles["content"], "one-line")}>
                   {getMessageTextContent(m)}

@@ -30,7 +30,7 @@ import {
   ReactNode,
 } from "react";
 import { showConfirm } from "./ui-lib";
-import { useMobileScreen } from "../utils";
+import { formatChinaDateTime, useMobileScreen } from "../utils";
 import clsx from "clsx";
 import { ChatSessionSummary, DEFAULT_TOPIC } from "../store/chat";
 
@@ -525,7 +525,7 @@ export function ChatList(props: { narrow?: boolean }) {
                     title={item.topic}
                     keyword={filterText.trim()}
                     preview={preview}
-                    time={new Date(item.displayTime).toLocaleString()}
+                    time={formatChinaDateTime(item.displayTime)}
                     count={item.messageCount}
                     selected={item.id === currentSessionId}
                     onClick={() => {
@@ -553,7 +553,7 @@ export function ChatList(props: { narrow?: boolean }) {
               title={item.topic}
               keyword={filterText.trim()}
               preview={preview}
-              time={new Date(item.displayTime).toLocaleString()}
+              time={formatChinaDateTime(item.displayTime)}
               count={item.messageCount}
               selected={item.id === currentSessionId}
               onClick={() => {
@@ -588,7 +588,7 @@ export function ChatList(props: { narrow?: boolean }) {
                   title={item.topic}
                   keyword={filterText.trim()}
                   preview={preview}
-                  time={new Date(item.displayTime).toLocaleString()}
+                  time={formatChinaDateTime(item.displayTime)}
                   count={item.messageCount}
                   selected={item.id === currentSessionId}
                   onClick={() => {

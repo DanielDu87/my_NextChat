@@ -73,6 +73,7 @@ import {
 import {
   autoGrowTextArea,
   copyToClipboard,
+  formatChinaDateTime,
   getMessageImages,
   getMessageTextContent,
   isVisionModel,
@@ -3638,7 +3639,7 @@ function _Chat() {
                             <div className={styles["chat-message-action-date"]}>
                               {isContext
                                 ? Locale.Chat.IsContext
-                                : message.date.toLocaleString()}
+                                : formatChinaDateTime(message.date)}
                             </div>
                           </div>
                         </div>
