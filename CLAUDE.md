@@ -74,6 +74,7 @@ yarn prompts
 项目当前使用双层存储：
 
 1. **PostgreSQL** - 主要业务存储
+
    - 存储对话、配置、Prompt、Mask、插件、模型同步快照等核心数据
 
 2. **localStorage** - 纯本地偏好存储
@@ -153,6 +154,7 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 ## 构建模式
 
 通过 `BUILD_MODE` 环境变量控制：
+
 - `standalone` - 独立部署模式（默认）
 - `export` - 静态导出模式
 
