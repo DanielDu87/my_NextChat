@@ -53,10 +53,16 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json(
       {
-        ok: false,
+        ok: true,
+        latest: null,
+        degraded: true,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   }
 }

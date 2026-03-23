@@ -24,10 +24,16 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        ok: false,
+        ok: true,
+        sessions: {},
+        degraded: true,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   }
 }

@@ -1,5 +1,6 @@
 import constants from "../constant";
 import type { LLMModel } from "../client/api";
+import { useAccessStore } from "../store";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { normalizeModelClassification } from "./model-classification";
 import modelPublishedAtUtils from "./model-published-at";
@@ -8,6 +9,34 @@ const { ServiceProvider } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 const { applyModelPublishedAt } = modelPublishedAtUtils;
+
+function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
+  const normalizedGroup = String(groupName || "default")
+    .trim()
+    .toLowerCase();
+  const lowerModelName = modelName.toLowerCase();
+  const isClaudeModel = lowerModelName.startsWith("claude");
+
+  if (isClaudeModel) {
+    const priorityMap: Record<string, number> = {
+      default: 50,
+      official: 45,
+      cc: 40,
+      cn: 30,
+      open_source_cn: 20,
+    };
+    return priorityMap[normalizedGroup] ?? 0;
+  }
+
+  const priorityMap: Record<string, number> = {
+    default: 50,
+    official: 45,
+    open_source_cn: 40,
+    cn: 30,
+    cc: 20,
+  };
+  return priorityMap[normalizedGroup] ?? 0;
+}
 
 /**
  * AiHubMix developer_id 到供应商名称的映射
@@ -630,13 +659,23 @@ export async function fetchModelsFromProvider(
     }
 
     let data: any;
+    const normalizedBaseUrl = baseUrl ? normalizeBaseUrl(baseUrl) : undefined;
+    const matchedCustomProfile =
+      provider === ServiceProvider.Custom && normalizedBaseUrl
+        ? useAccessStore
+            .getState()
+            .apiProfiles.find(
+              (profile) =>
+                profile.provider === ServiceProvider.Custom &&
+                normalizeBaseUrl(profile.baseUrl || "") === normalizedBaseUrl,
+            )
+        : undefined;
 
     if (
       baseUrl &&
       [ServiceProvider.OpenAI, ServiceProvider.Custom].includes(provider)
     ) {
-      const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-      const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
+      const baseWithoutV1 = normalizedBaseUrl!.replace(/\/v1$/, "");
       const proxyBaseUrl = isServerSide() ? baseUrl : baseWithoutV1;
 
       // 为自定义供应商设置 x-base-url header
@@ -649,7 +688,7 @@ export async function fetchModelsFromProvider(
 
       // Ocoolai 使用专用 API Key 获取模型列表（不影响聊天）
       const modelFetchApiKey = isOcoolai
-        ? "03a5f05941a7488c84fa5d3dbe9adb66"
+        ? matchedCustomProfile?.modelFetchApiKey || apiKey
         : apiKey;
 
       if (modelFetchApiKey) {
@@ -667,7 +706,7 @@ export async function fetchModelsFromProvider(
 
       // 简化候选 URL，只使用成功的单个 URL
       const candidateUrls: FetchCandidate[] = isToApisUrl(baseUrl)
-        ? ["/api/proxy/api/pricing"]
+        ? ["/api/toapis/pricing"]
         : isOcoolaiUrl(baseUrl)
         ? [
             {
@@ -886,6 +925,92 @@ export async function fetchModelsFromProvider(
         models: mappedModels,
         total: mappedModels.length,
       };
+    }
+
+    if (
+      isOcoolaiUrl(baseUrl) &&
+      apiKeyGroups &&
+      Object.keys(apiKeyGroups).length > 0
+    ) {
+      const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
+      const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
+      const groupsData = await fetchJsonWithCandidates(
+        [
+          {
+            url: "/api/proxy/api/user/available_models_by_groups",
+            displayBaseUrl: "https://one.ocoolai.com",
+            headerBaseUrl: "https://one.ocoolai.com",
+          },
+        ],
+        {
+          Authorization: `Bearer ${
+            matchedCustomProfile?.modelFetchApiKey || apiKey || ""
+          }`,
+          ...(baseUrl ? { "x-base-url": baseWithoutV1 } : {}),
+        },
+        baseUrl,
+        {
+          logSuccess: false,
+          suppressCandidateErrors: true,
+          suppressStatusCodes: [404],
+        },
+      );
+
+      const groups =
+        groupsData?.success && Array.isArray(groupsData?.data?.groups)
+          ? groupsData.data.groups
+          : [];
+
+      const mergedModelMap = new Map<string, LLMModel>();
+
+      for (const group of groups) {
+        const groupName = group.name;
+        const groupApiKey = apiKeyGroups[groupName];
+        if (!groupApiKey) continue;
+
+        const groupModelsArray = Array.isArray(group.models)
+          ? group.models.map((name: string) => ({ id: name }))
+          : [];
+
+        mapModels(
+          groupModelsArray,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+          vendorsMap,
+          groupName,
+        ).forEach((model) => {
+          const key = `${model.name}@${model.provider?.id}`;
+          const existing = mergedModelMap.get(key);
+
+          if (!existing) {
+            mergedModelMap.set(key, model);
+            return;
+          }
+
+          const existingPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            existing.apiKeyGroup,
+          );
+          const nextPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            groupName,
+          );
+
+          if (nextPriority > existingPriority) {
+            mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+          }
+        });
+      }
+
+      if (mergedModelMap.size > 0) {
+        const mappedModels = [...mergedModelMap.values()];
+        return {
+          models: mappedModels,
+          total: mappedModels.length,
+        };
+      }
     }
 
     if (isAiHubMixUrl(baseUrl)) {

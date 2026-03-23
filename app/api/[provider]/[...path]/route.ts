@@ -16,6 +16,7 @@ import { handle as xaiHandler } from "../../xai";
 import { handle as chatglmHandler } from "../../glm";
 import { handle as proxyHandler } from "../../proxy";
 import { handle as ai302Handler } from "../../302ai";
+import { handle as toapisHandler } from "../../toapis";
 
 async function handle(
   req: NextRequest,
@@ -55,6 +56,8 @@ async function handle(
       return openaiHandler(req, { params });
     case ApiPath["302.AI"]:
       return ai302Handler(req, { params });
+    case ApiPath.ToAPIs:
+      return toapisHandler(req, { params });
     default:
       return proxyHandler(req, { params });
   }
@@ -63,23 +66,5 @@ async function handle(
 export const GET = handle;
 export const POST = handle;
 
-export const runtime = "edge";
-export const preferredRegion = [
-  "arn1",
-  "bom1",
-  "cdg1",
-  "cle1",
-  "cpt1",
-  "dub1",
-  "fra1",
-  "gru1",
-  "hnd1",
-  "iad1",
-  "icn1",
-  "kix1",
-  "lhr1",
-  "pdx1",
-  "sfo1",
-  "sin1",
-  "syd1",
-];
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";

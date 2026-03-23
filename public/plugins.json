@@ -2,16 +2,16 @@
   {
     "id": "dalle3",
     "name": "Dalle3",
-    "schema": "/api/github-raw/ChatGPTNextWeb/NextChat-Awesome-Plugins/main/plugins/dalle/openapi.json"
+    "schema": "/plugins-schemas/dalle.json"
   },
   {
     "id": "arxivsearch",
     "name": "ArxivSearch",
-    "schema": "/api/github-raw/ChatGPTNextWeb/NextChat-Awesome-Plugins/main/plugins/arxivsearch/openapi.json"
+    "schema": "/plugins-schemas/arxivsearch.json"
   },
   {
     "id": "duckduckgolite",
     "name": "DuckDuckGoLiteSearch",
-    "schema": "/api/github-raw/ChatGPTNextWeb/NextChat-Awesome-Plugins/main/plugins/duckduckgolite/openapi.json"
+    "schema": "/plugins-schemas/duckduckgolite.json"
   }
 ]

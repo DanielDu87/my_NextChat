@@ -2156,28 +2156,43 @@ export function ApiConfigPage() {
     }
   };
 
-  const clearCloudModels = async () => {
+  const clearLocalAndCloudModels = async () => {
     const confirmed = await showConfirm(
-      "确定要清空云端模型统计数据吗？这会删除云端保存的模型数量记录（用于比较的统计数据），不会影响本地模型数据。",
+      "确定要清空模型数据吗？这会同时删除本地模型数据和云端保存的模型统计记录，且不可恢复。",
     );
     if (!confirmed) return;
 
-    console.log("[API Config] 🗑️ 开始清空云端模型统计数据...");
+    console.log("[API Config] 🗑️ 开始清空本地和云端模型数据...");
     try {
+      appConfig.update((config: any) => {
+        config.models = [];
+        config.customModels = "";
+      });
+
+      accessStore.update((state) => {
+        state.customModels = "";
+        state.apiProfiles = state.apiProfiles.map((profile) => ({
+          ...profile,
+          cachedModels: undefined,
+          modelCount: undefined,
+        }));
+      });
+
+      useModelCacheStore.getState().clearProfileCaches();
+
       // 清空云端保存的模型统计数据（sync_artifacts 表中的 provider_model_refresh 记录）
       await fetch("/api/db/models/latest", {
         method: "DELETE",
       });
 
-      // 刷新远程信号，清除本地的 remoteModelRefresh 状态
       await refreshRemoteSignals();
 
-      console.log("[API Config] ✅ 云端模型统计数据已清空");
+      console.log("[API Config] ✅ 本地和云端模型数据已清空");
       console.log(LOG_SEPARATOR);
-      showToast("已清空云端模型统计数据，本地模型不受影响");
+      showToast("已清空本地和云端模型数据");
     } catch (error) {
       console.error("[API Config] ❌ 清空失败:", error);
-      showToast("清空云端模型统计数据失败");
+      showToast("清空本地和云端模型数据失败");
     }
   };
 
@@ -2768,7 +2783,7 @@ export function ApiConfigPage() {
                 bordered
                 className={styles.dangerButton}
                 onClick={() => {
-                  void clearCloudModels();
+                  void clearLocalAndCloudModels();
                 }}
               />
             </div>

@@ -67,6 +67,7 @@ import {
   useCurrentSession,
   useModelCacheStore,
   usePluginStore,
+  useUpdateStore,
 } from "../store";
 
 import {
@@ -208,6 +209,19 @@ function countManagedCloudModels(
   }).length;
 }
 
+function getProfileActualCount(
+  profile: {
+    provider: ServiceProvider;
+    name: string;
+  },
+  models: Array<{ provider?: { id?: string | number } }> = [],
+) {
+  const providerId = getProfileProviderId(profile).toLowerCase();
+  return models.filter(
+    (model) => String(model.provider?.id || "").toLowerCase() === providerId,
+  ).length;
+}
+
 function areModelConfigValuesEqual(
   left: Record<string, unknown> | undefined,
   right: Record<string, unknown> | undefined,
@@ -336,6 +350,76 @@ function ChatModelUpdateNotice() {
     >
       服务器模型数据有更新，点击前往 API 配置页刷新
     </button>
+  );
+}
+
+function ChatProviderBalance(props: {
+  providerName: ServiceProvider;
+  providerDisplayName: string;
+  autoModeEnabled: boolean;
+  refreshSignal: string;
+}) {
+  const updateUsage = useUpdateStore((state) => state.updateUsage);
+  const used = useUpdateStore((state) => state.used);
+  const subscription = useUpdateStore((state) => state.subscription);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+  const showUsage = true;
+
+  const refreshUsage = useCallback(
+    async (force = false) => {
+      if (
+        props.autoModeEnabled ||
+        props.providerName !== ServiceProvider.Custom ||
+        !showUsage
+      ) {
+        return;
+      }
+
+      setLoadingUsage(true);
+      try {
+        await updateUsage(force, props.providerName);
+      } finally {
+        setLoadingUsage(false);
+      }
+    },
+    [props.autoModeEnabled, props.providerName, showUsage, updateUsage],
+  );
+
+  useEffect(() => {
+    refreshUsage(false);
+  }, [refreshUsage]);
+
+  useEffect(() => {
+    if (!props.refreshSignal) {
+      return;
+    }
+    refreshUsage(true);
+  }, [props.refreshSignal, refreshUsage]);
+
+  if (props.autoModeEnabled || props.providerName !== ServiceProvider.Custom) {
+    return null;
+  }
+
+  const remaining =
+    typeof subscription === "number" && typeof used === "number"
+      ? Math.max(0, Math.round((subscription - used) * 100) / 100)
+      : null;
+
+  return (
+    <div className={styles["chat-provider-balance"]}>
+      <div className={styles["chat-provider-balance-label"]}>
+        {props.providerDisplayName} 余额
+      </div>
+      <div className={styles["chat-provider-balance-value"]}>
+        {showUsage
+          ? loadingUsage
+            ? Locale.Settings.Usage.IsChecking
+            : remaining === null
+            ? "--"
+            : `$${remaining}`
+          : Locale.Settings.Usage.NoAccess}
+      </div>
+    </div>
   );
 }
 import clsx from "clsx";
@@ -1648,7 +1732,13 @@ function _Chat() {
   const [attachImages, setAttachImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [modelUpdateDone, setModelUpdateDone] = useState(false);
   const lastAssistantSignatureRef = useRef("");
+  const lastCompletedAssistantRef = useRef("");
+  const modelUpdateDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
 
   // current model name
   const currentModel = sessionMask?.modelConfig?.model || "";
@@ -2268,7 +2358,7 @@ function _Chat() {
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
 
-  const syncAllToDatabase = useCallback(async () => {
+  const fetchModelsForAllProfilesFromChat = useCallback(async () => {
     if (syncingAll) return;
 
     console.clear();
@@ -2277,28 +2367,21 @@ function _Chat() {
       setSyncingAll(true);
 
       await runWithImmediateStoreSyncPaused(async () => {
-        accessStore.update((access: any) => {
-          access.useCustomConfig = true;
-        });
-
-        syncStore.update((state) => {
-          state.provider = ProviderType.Database;
-        });
-
         const profiles = useAccessStore.getState().apiProfiles || [];
-        const localModels = useAppConfig.getState().models || [];
-        const fetchedModelEntries = new Map<
-          string,
-          {
-            name: string;
-            profileId: string;
-            profileName: string;
-            providerId: string;
-          }
-        >();
+        let totalFetched = 0;
+        const results: Array<{
+          name: string;
+          count: number;
+          success: boolean;
+        }> = [];
+
+        if (profiles.length === 0) {
+          showToast("没有可获取模型的配置条目");
+          return;
+        }
 
         for (const profile of profiles) {
-          const providerId = getProfileProviderId(profile).toLowerCase();
+          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
 
           try {
             const result = await fetchFromProvider(
@@ -2313,110 +2396,88 @@ function _Chat() {
               },
             );
 
+            const previousProfileCount = getProfileActualCount(
+              profile,
+              useAppConfig.getState().models,
+            );
             const fetchedModels = modelsToCustomModelsString(result.models);
+
+            accessStore.update((state: any) => {
+              if (
+                state.apiProfiles.find((p: any) => p.id === profile.id)?.enabled
+              ) {
+                state.customModels = fetchedModels;
+              }
+            });
             useModelCacheStore.getState().upsertProfileCache(profile.id, {
               cachedModels: fetchedModels,
               modelCount: result.total,
             });
-
-            result.models.forEach((model) => {
-              fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
-                name: model.name,
-                profileId: profile.id,
-                profileName: profile.name,
-                providerId,
-              });
-            });
-          } catch (error) {
-            console.warn(
-              `[Chat] ${profile.name} 获取模型失败，回退到本地缓存`,
-              error,
+            const mergedCount = getProfileActualCount(
+              profile,
+              useAppConfig.getState().models,
             );
+            totalFetched += mergedCount;
+            results.push({
+              name: profile.name,
+              count: mergedCount,
+              success: true,
+            });
 
-            localModels
-              .filter(
-                (model) =>
-                  String(model?.provider?.id || "").toLowerCase() ===
-                  providerId,
-              )
-              .forEach((model) => {
-                fetchedModelEntries.set(`${model.name}@${model.provider?.id}`, {
-                  name: model.name,
-                  profileId: profile.id,
-                  profileName: profile.name,
-                  providerId,
-                });
-              });
+            console.log(`[API Config] ✅ ${profile.name} 获取完成`);
+            console.log(`远程: ${result.total} 个`);
+            console.log(`云端原有: ${previousProfileCount} 个`);
+            console.log(`合并后: ${mergedCount} 个`);
+            console.log("==============================");
+          } catch (error) {
+            results.push({
+              name: profile.name,
+              count: 0,
+              success: false,
+            });
+            console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
+            console.log("==============================");
           }
         }
 
-        await syncStore.sync();
-
-        try {
-          const providersData = Array.from(fetchedModelEntries.values()).reduce(
-            (acc, entry) => {
-              const existing = acc.find(
-                (item) => item.profileId === entry.profileId,
-              );
-              if (existing) {
-                return acc;
-              }
-              return [
-                ...acc,
-                {
-                  profileId: entry.profileId,
-                  profileName: entry.profileName,
-                  providerId: entry.providerId,
-                  fetchedCount: 0,
-                },
-              ];
-            },
-            [] as Array<{
-              profileId: string;
-              profileName: string;
-              providerId: string;
-              fetchedCount: number;
-            }>,
-          );
-
-          const platformModelMap = new Map<string, string[]>();
-          fetchedModelEntries.forEach((entry) => {
-            if (!platformModelMap.has(entry.profileName)) {
-              platformModelMap.set(entry.profileName, []);
-            }
-            platformModelMap.get(entry.profileName)!.push(entry.name);
-          });
-
-          platformModelMap.forEach((models, profileName) => {
-            const provider = providersData.find(
-              (item) => item.profileName === profileName,
-            );
-            if (provider) {
-              provider.fetchedCount = models.length;
-            }
-          });
-
-          await fetch("/api/db/models/count", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              count: fetchedModelEntries.size,
-              providers: providersData,
-            }),
-          });
-        } catch (error) {
-          console.error("[Chat] 更新云端模型总数失败:", error);
-        }
+        console.log(`[API Config] 📊 模型获取汇总`);
+        results.forEach(({ name, count, success }) => {
+          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+        });
+        console.log(`[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`);
+        console.log("==============================");
       });
+      await syncStore.syncModels();
+      if (modelUpdateDoneTimerRef.current) {
+        clearTimeout(modelUpdateDoneTimerRef.current);
+      }
+      setModelUpdateDone(true);
+      modelUpdateDoneTimerRef.current = setTimeout(() => {
+        setModelUpdateDone(false);
+        modelUpdateDoneTimerRef.current = null;
+      }, 1800);
 
-      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
+      showToast("模型数据获取完成");
     } catch (error) {
-      console.error("[Chat] 数据库同步失败:", error);
-      showToast("同步到 PostgreSQL 失败，请检查数据库连接");
+      console.error("[Chat] 获取模型失败:", error);
+      if (modelUpdateDoneTimerRef.current) {
+        clearTimeout(modelUpdateDoneTimerRef.current);
+        modelUpdateDoneTimerRef.current = null;
+      }
+      setModelUpdateDone(false);
+      showToast("获取模型失败");
     } finally {
       setSyncingAll(false);
     }
   }, [accessStore, fetchFromProvider, syncStore, syncingAll]);
+
+  useEffect(() => {
+    return () => {
+      if (modelUpdateDoneTimerRef.current) {
+        clearTimeout(modelUpdateDoneTimerRef.current);
+      }
+    };
+  }, []);
 
   async function openaiSpeech(text: string) {
     if (speechStatus) {
@@ -2602,6 +2663,38 @@ function _Chat() {
 
     lastAssistantSignatureRef.current = nextSignature;
   }, [scrollToBottom, sessionMessages]);
+
+  const completedAssistantRefreshSignal = useMemo(() => {
+    const lastAssistantMessage = [...sessionMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.streaming &&
+          String(message.content).length > 0,
+      );
+
+    return lastAssistantMessage
+      ? `${lastAssistantMessage.id}:${lastAssistantMessage.date}:${Number(
+          lastAssistantMessage.isError,
+        )}`
+      : "";
+  }, [sessionMessages]);
+
+  useEffect(() => {
+    if (
+      completedAssistantRefreshSignal &&
+      completedAssistantRefreshSignal !== lastCompletedAssistantRef.current
+    ) {
+      if (lastCompletedAssistantRef.current) {
+        setBalanceRefreshSignal(completedAssistantRefreshSignal);
+      }
+      lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
+      return;
+    }
+
+    lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
+  }, [completedAssistantRefreshSignal]);
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
@@ -3028,13 +3121,39 @@ function _Chat() {
               )}
             >
               <IconButton
-                icon={syncingAll ? <LoadingButtonIcon /> : <ReloadIcon />}
+                icon={
+                  syncingAll ? (
+                    <LoadingButtonIcon />
+                  ) : modelUpdateDone ? (
+                    <ConfirmIcon />
+                  ) : (
+                    <ReloadIcon />
+                  )
+                }
                 bordered
-                text={syncingAll ? "同步中..." : "一键同步"}
-                title={syncingAll ? "同步中..." : "一键同步"}
-                aria={syncingAll ? "同步中..." : "一键同步"}
+                text={
+                  syncingAll
+                    ? "更新中..."
+                    : modelUpdateDone
+                    ? "更新完成"
+                    : "更新模型"
+                }
+                title={
+                  syncingAll
+                    ? "更新中..."
+                    : modelUpdateDone
+                    ? "更新完成"
+                    : "更新模型"
+                }
+                aria={
+                  syncingAll
+                    ? "更新中..."
+                    : modelUpdateDone
+                    ? "更新完成"
+                    : "更新模型"
+                }
                 onClick={() => {
-                  void syncAllToDatabase();
+                  void fetchModelsForAllProfilesFromChat();
                 }}
                 disabled={syncingAll}
               />
@@ -3136,6 +3255,12 @@ function _Chat() {
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
             <ChatModelUpdateNotice />
+            <ChatProviderBalance
+              providerName={currentProviderName}
+              providerDisplayName={currentProviderDisplayName}
+              autoModeEnabled={autoModeEnabled}
+              refreshSignal={balanceRefreshSignal}
+            />
             <div
               className={styles["chat-body"]}
               ref={scrollRef}

@@ -43,7 +43,16 @@ export async function handle(
     fetchUrl,
   });
 
-  const skipHeaders = ["connection", "host", "origin", "referer", "cookie"];
+  const skipHeaders = [
+    "connection",
+    "host",
+    "origin",
+    "referer",
+    "cookie",
+    "content-length",
+    "content-type",
+    "accept-encoding",
+  ];
 
   // Pricing API 不需要 Authorization header
   if (isPricingApi) {
@@ -81,16 +90,20 @@ export async function handle(
   headers.set("User-Agent", DEFAULT_BROWSER_USER_AGENT);
 
   const controller = new AbortController();
+  const shouldSendBody = !["GET", "HEAD"].includes(req.method.toUpperCase());
   const fetchOptions: RequestInit = {
     headers,
     method: req.method,
-    body: req.body,
     // to fix #2485: https://stackoverflow.com/questions/55920957/cloudflare-worker-typeerror-one-time-use-body
     redirect: "manual",
-    // @ts-ignore
-    duplex: "half",
     signal: controller.signal,
   };
+
+  if (shouldSendBody) {
+    fetchOptions.body = req.body;
+    // @ts-ignore Node.js/undici 在流式请求体下需要 duplex
+    fetchOptions.duplex = "half";
+  }
 
   const timeoutId = setTimeout(
     () => {
@@ -112,12 +125,28 @@ export async function handle(
     // Because Vercel uses gzip to compress the response, if we don't remove the content-encoding header
     // The browser will try to decode the response with brotli and fail
     newHeaders.delete("content-encoding");
+    newHeaders.delete("content-length");
 
     return new Response(res.body, {
       status: res.status,
       statusText: res.statusText,
       headers: newHeaders,
     });
+  } catch (error) {
+    console.error("[Proxy Route] ❌ 代理请求失败:", {
+      fetchUrl,
+      method: req.method,
+      message: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    return NextResponse.json(
+      {
+        error: "proxy_fetch_failed",
+        message: error instanceof Error ? error.message : "unknown_error",
+        fetchUrl,
+      },
+      { status: 502 },
+    );
   } finally {
     clearTimeout(timeoutId);
   }

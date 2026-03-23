@@ -10,15 +10,44 @@ import { runWithImmediateStoreSyncPaused } from "../utils/store";
 
 const isApp = getClientConfig()?.isApp !== false;
 
+function shouldPrefetchBuiltinPluginSchema(schemaUrl?: string) {
+  const url = String(schemaUrl || "").trim();
+  if (!url) {
+    return false;
+  }
+
+  // 开发环境下 raw.githubusercontent.com 经常不可达，页面启动时不预拉取，
+  // 避免控制台持续出现 500。需要时用户仍可在插件页手动加载。
+  if (url.startsWith("/api/github-raw/")) {
+    return false;
+  }
+
+  return true;
+}
+
 function fetchPluginSchema(schemaUrl: string) {
-  return fetch(schemaUrl).catch(() => {
-    const url = new URL(schemaUrl);
-    return fetch(`/api/proxy/${url.pathname}?${url.search}`, {
-      headers: {
-        "X-Base-URL": url.origin,
-      },
+  return fetch(schemaUrl)
+    .then((res) => {
+      if (res.ok) {
+        return res;
+      }
+
+      throw new Error(`schema_fetch_failed:${res.status}`);
+    })
+    .catch(() => {
+      const url = new URL(schemaUrl);
+      return fetch(`/api/proxy/${url.pathname}?${url.search}`, {
+        headers: {
+          "X-Base-URL": url.origin,
+        },
+      }).then((res) => {
+        if (res.ok) {
+          return res;
+        }
+
+        throw new Error(`schema_proxy_failed:${res.status}`);
+      });
     });
-  });
 }
 
 export type Plugin = {
@@ -256,6 +285,8 @@ export const usePluginStore = createPersistStore(
               res.map((item: any) =>
                 // skip get schema
                 state.get(item.id)
+                  ? item
+                  : !shouldPrefetchBuiltinPluginSchema(item.schema)
                   ? item
                   : fetchPluginSchema(item.schema)
                       .then((res) => res.text())

@@ -1,17 +1,81 @@
 "use client";
 
 import { useEffect } from "react";
+import type { LLMModel } from "../client/api";
 import {
   buildProviderDiffSummaries,
   countCloudMergedModels,
   describeModelCountDiff,
   getCloudMergedPlatformCounts,
 } from "../utils/auto-sync-model-diff";
+import { ServiceProvider } from "../constant";
 import { useChatStore } from "../store";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
+
+function getProfileProviderId(profile: { provider: string; name: string }) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`.toLowerCase()
+    : String(profile.provider).toLowerCase();
+}
+
+function rebuildManagedModelsFromCache() {
+  const accessStore = useAccessStore.getState();
+  const appConfig = useAppConfig.getState();
+  const modelCacheStore = useModelCacheStore.getState();
+  const profiles = accessStore.apiProfiles || [];
+  const existingManagedCount = countCloudMergedModels(
+    appConfig.models || [],
+    profiles,
+  );
+
+  if (existingManagedCount > 0) {
+    return;
+  }
+
+  const rebuiltModels: LLMModel[] = [];
+
+  profiles.forEach((profile) => {
+    const cache = modelCacheStore.profiles?.[profile.id];
+    const cachedModels = cache?.cachedModels || profile.cachedModels || "";
+    if (!cachedModels) {
+      return;
+    }
+
+    const providerId = getProfileProviderId(profile);
+    cachedModels
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((modelName, index) => {
+        rebuiltModels.push({
+          name: modelName,
+          displayName: modelName,
+          available: true,
+          sorted: index,
+          provider: {
+            id: providerId,
+            providerName: ServiceProvider.Custom,
+            providerType: "custom",
+            sorted: 0,
+          },
+        });
+      });
+  });
+
+  if (rebuiltModels.length === 0) {
+    return;
+  }
+
+  appConfig.mergeModels(rebuiltModels, {
+    silent: true,
+    allowedProviderIds: profiles.map((profile) =>
+      getProfileProviderId(profile),
+    ),
+  });
+}
 
 export default function AutoSync() {
   const logModelCount = (remoteCount?: number, remoteProviders?: any[]) => {
@@ -100,6 +164,7 @@ export default function AutoSync() {
 
   useEffect(() => {
     console.log("[AutoSync] 📍 组件已挂载");
+    rebuildManagedModelsFromCache();
 
     // 延迟执行，确保 stores 初始化
     const timer = setTimeout(() => {
@@ -148,6 +213,7 @@ export default function AutoSync() {
           return syncStore.autoSync();
         })
         .then(() => {
+          rebuildManagedModelsFromCache();
           useChatStore.getState().initializeForNewPage();
           console.log("[AutoSync] ✅ 自动同步完成");
           // 自动同步完成后，获取云端数据并输出完整对比

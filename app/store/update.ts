@@ -2,6 +2,7 @@ import {
   FETCH_COMMIT_URL,
   FETCH_TAG_URL,
   ModelProvider,
+  ServiceProvider,
   StoreKey,
 } from "../constant";
 import { getClientConfig } from "../config/client";
@@ -9,7 +10,8 @@ import { createPersistStore } from "../utils/store";
 import { clientUpdate } from "../utils";
 import ChatGptIcon from "../icons/chatgpt.png";
 import Locale from "../locales";
-import { ClientApi } from "../client/api";
+import { ClientApi, getClientApi } from "../client/api";
+import { useAccessStore } from "./access";
 
 const ONE_MINUTE = 60 * 1000;
 const isApp = !!getClientConfig()?.isApp;
@@ -47,6 +49,216 @@ async function getVersion(type: VersionType) {
     }[];
     return data.at(0)?.name;
   }
+}
+
+function getActiveCustomProfile() {
+  const accessStore = useAccessStore.getState();
+  return accessStore.apiProfiles.find(
+    (profile) =>
+      profile.enabled &&
+      profile.provider === ServiceProvider.Custom &&
+      !!profile.baseUrl &&
+      !!profile.apiKey,
+  );
+}
+
+function normalizeCustomBaseUrl(baseUrl: string) {
+  const normalizedBaseUrl = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
+  return normalizedBaseUrl.startsWith("http")
+    ? normalizedBaseUrl
+    : `https://${normalizedBaseUrl}`;
+}
+
+function getCustomBalanceQueryApiKey(profile: {
+  apiKey: string;
+  balanceQueryApiKey?: string;
+}) {
+  return profile.balanceQueryApiKey || profile.apiKey;
+}
+
+async function queryAihubMixUsage() {
+  const activeCustomProfile = getActiveCustomProfile();
+
+  if (!activeCustomProfile) {
+    throw new Error("未找到已启用的 Custom 供应商配置");
+  }
+
+  const requestBaseUrl = normalizeCustomBaseUrl(activeCustomProfile.baseUrl);
+
+  const res = await fetch(`${requestBaseUrl}/api/user/self`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
+        activeCustomProfile,
+      )}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`AihubMix 余额查询失败: ${res.status}`);
+  }
+
+  const json = (await res.json()) as {
+    success?: boolean;
+    message?: string;
+    data?: {
+      quota?: number;
+      used_quota?: number;
+    };
+  };
+
+  if (json.success === false) {
+    throw new Error(json.message || "AihubMix 余额查询失败");
+  }
+
+  const quota = Number(json.data?.quota || 0);
+  const total = Math.round((quota / 500000) * 100) / 100;
+
+  return { used: 0, total };
+}
+
+async function queryOcoolaiUsage() {
+  const activeCustomProfile = getActiveCustomProfile();
+
+  if (!activeCustomProfile) {
+    throw new Error("未找到已启用的 Custom 供应商配置");
+  }
+
+  const requestBaseUrl = normalizeCustomBaseUrl(activeCustomProfile.baseUrl);
+  const res = await fetch(`${requestBaseUrl}/api/user/self`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
+        activeCustomProfile,
+      )}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ocoolai 余额查询失败: ${res.status}`);
+  }
+
+  const json = (await res.json()) as {
+    success?: boolean;
+    message?: string;
+    data?: {
+      quota?: number;
+    };
+  };
+
+  if (json.success === false) {
+    throw new Error(json.message || "Ocoolai 余额查询失败");
+  }
+
+  const quota = Number(json.data?.quota || 0);
+  const total = Math.round((quota / 500000) * 100) / 100;
+
+  return { used: 0, total };
+}
+
+async function queryToApisUsage() {
+  const activeCustomProfile = getActiveCustomProfile();
+
+  if (!activeCustomProfile) {
+    throw new Error("未找到已启用的 Custom 供应商配置");
+  }
+
+  const requestBaseUrl = `${normalizeCustomBaseUrl(
+    activeCustomProfile.baseUrl,
+  )}/v1`;
+  const res = await fetch(`${requestBaseUrl}/user/balance`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
+        activeCustomProfile,
+      )}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`ToAPIs 余额查询失败: ${res.status}`);
+  }
+
+  const json = (await res.json()) as {
+    success?: boolean;
+    remain_balance?: number;
+  };
+
+  if (json.success === false) {
+    throw new Error("ToAPIs 余额查询失败");
+  }
+
+  const total = Math.round(Number(json.remain_balance || 0) * 100) / 100;
+
+  return { used: 0, total };
+}
+
+async function queryOpenAICompatibleCustomUsage() {
+  const activeCustomProfile = getActiveCustomProfile();
+
+  if (!activeCustomProfile) {
+    throw new Error("未找到已启用的 Custom 供应商配置");
+  }
+
+  const requestBaseUrl = `${normalizeCustomBaseUrl(
+    activeCustomProfile.baseUrl,
+  )}/v1`;
+  const now = new Date();
+  const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-01`;
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const endDate = `${tomorrow.getFullYear()}-${String(
+    tomorrow.getMonth() + 1,
+  ).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  const authKey = getCustomBalanceQueryApiKey(activeCustomProfile);
+
+  const [used, subs] = await Promise.all([
+    fetch(
+      `${requestBaseUrl}/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${authKey}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      },
+    ),
+    fetch(`${requestBaseUrl}/dashboard/billing/subscription`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${authKey}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+    }),
+  ]);
+
+  if (!used.ok || !subs.ok) {
+    throw new Error("Custom OpenAI 兼容余额查询失败");
+  }
+
+  const usageJson = (await used.json()) as {
+    total_usage?: number;
+  };
+  const subscriptionJson = (await subs.json()) as {
+    hard_limit_usd?: number;
+  };
+
+  return {
+    used: Math.round(Number(usageJson.total_usage || 0)) / 100,
+    total: Math.round(Number(subscriptionJson.hard_limit_usd || 0) * 100) / 100,
+  };
 }
 
 export const useUpdateStore = createPersistStore(
@@ -133,8 +345,10 @@ export const useUpdateStore = createPersistStore(
       }
     },
 
-    async updateUsage(force = false) {
-      // only support openai for now
+    async updateUsage(
+      force = false,
+      provider: ServiceProvider = ServiceProvider.OpenAI,
+    ) {
       const overOneMinute = Date.now() - get().lastUpdateUsage >= ONE_MINUTE;
       if (!overOneMinute && !force) return;
 
@@ -143,8 +357,57 @@ export const useUpdateStore = createPersistStore(
       }));
 
       try {
-        const api = new ClientApi(ModelProvider.GPT);
-        const usage = await api.llm.usage();
+        let usage;
+        const activeCustomProfile = getActiveCustomProfile();
+        const isAihubMixCustom =
+          provider === ServiceProvider.Custom &&
+          /(^|\.)aihubmix\.com$/i.test(
+            (() => {
+              try {
+                return new URL(activeCustomProfile?.baseUrl || "").hostname;
+              } catch {
+                return "";
+              }
+            })(),
+          );
+        const isOcoolaiCustom =
+          provider === ServiceProvider.Custom &&
+          /(^|\.)one\.ooo\.cool$/i.test(
+            (() => {
+              try {
+                return new URL(activeCustomProfile?.baseUrl || "").hostname;
+              } catch {
+                return "";
+              }
+            })(),
+          );
+        const isToApisCustom =
+          provider === ServiceProvider.Custom &&
+          /(^|\.)toapis\.com$/i.test(
+            (() => {
+              try {
+                return new URL(activeCustomProfile?.baseUrl || "").hostname;
+              } catch {
+                return "";
+              }
+            })(),
+          );
+
+        if (isAihubMixCustom) {
+          usage = await queryAihubMixUsage();
+        } else if (isOcoolaiCustom) {
+          usage = await queryOcoolaiUsage();
+        } else if (isToApisCustom) {
+          usage = await queryToApisUsage();
+        } else if (provider === ServiceProvider.Custom) {
+          usage = await queryOpenAICompatibleCustomUsage();
+        } else {
+          const api =
+            provider === ServiceProvider.OpenAI
+              ? new ClientApi(ModelProvider.GPT)
+              : getClientApi(provider);
+          usage = await api.llm.usage();
+        }
 
         if (usage) {
           set(() => ({
