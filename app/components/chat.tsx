@@ -111,6 +111,7 @@ import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
+import { buildBalanceCacheKey } from "../store/update";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
@@ -358,12 +359,95 @@ function ChatProviderBalance(props: {
   providerDisplayName: string;
   autoModeEnabled: boolean;
   refreshSignal: string;
+  sessionRefreshSignal: string;
+  balanceCacheKey: string;
 }) {
   const updateUsage = useUpdateStore((state) => state.updateUsage);
-  const used = useUpdateStore((state) => state.used);
-  const subscription = useUpdateStore((state) => state.subscription);
+  const setBalanceSnapshot = useUpdateStore(
+    (state) => state.setBalanceSnapshot,
+  );
+  const balance = useUpdateStore(
+    (state) => state.balances[props.balanceCacheKey],
+  );
   const [loadingUsage, setLoadingUsage] = useState(false);
   const showUsage = true;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPersistedBalance() {
+      if (
+        !props.balanceCacheKey ||
+        props.autoModeEnabled ||
+        props.providerName !== ServiceProvider.Custom
+      ) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/db/balance?key=${encodeURIComponent(props.balanceCacheKey)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          snapshot?: {
+            used?: number;
+            total?: number;
+            remaining?: number;
+            updatedAt?: number;
+            provider?: ServiceProvider;
+            profileId?: string;
+            profileName?: string;
+          } | null;
+        };
+
+        const snapshot = payload?.snapshot;
+        if (
+          cancelled ||
+          !payload?.ok ||
+          !snapshot ||
+          typeof snapshot.remaining !== "number"
+        ) {
+          return;
+        }
+
+        setBalanceSnapshot(props.balanceCacheKey, {
+          used: Number(snapshot.used || 0),
+          total: Number(snapshot.total || 0),
+          remaining: Number(snapshot.remaining || 0),
+          updatedAt: Number(snapshot.updatedAt || 0),
+          provider: snapshot.provider || props.providerName,
+          profileId: snapshot.profileId,
+          profileName: snapshot.profileName,
+        });
+      } catch (error) {
+        console.error(
+          "[Balance] 读取数据库快照失败",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    void loadPersistedBalance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    props.autoModeEnabled,
+    props.balanceCacheKey,
+    props.providerName,
+    setBalanceSnapshot,
+  ]);
 
   const refreshUsage = useCallback(
     async (force = false) => {
@@ -390,6 +474,20 @@ function ChatProviderBalance(props: {
   }, [refreshUsage]);
 
   useEffect(() => {
+    if (!props.balanceCacheKey) {
+      return;
+    }
+    refreshUsage(true);
+  }, [props.balanceCacheKey, refreshUsage]);
+
+  useEffect(() => {
+    if (!props.sessionRefreshSignal) {
+      return;
+    }
+    refreshUsage(true);
+  }, [props.sessionRefreshSignal, refreshUsage]);
+
+  useEffect(() => {
     if (!props.refreshSignal) {
       return;
     }
@@ -401,9 +499,8 @@ function ChatProviderBalance(props: {
   }
 
   const remaining =
-    typeof subscription === "number" && typeof used === "number"
-      ? Math.max(0, Math.round((subscription - used) * 100) / 100)
-      : null;
+    typeof balance?.remaining === "number" ? balance.remaining : null;
+  const balanceDisplay = remaining !== null ? `$${remaining}` : "--";
 
   return (
     <div className={styles["chat-provider-balance"]}>
@@ -411,13 +508,7 @@ function ChatProviderBalance(props: {
         {props.providerDisplayName} 余额
       </div>
       <div className={styles["chat-provider-balance-value"]}>
-        {showUsage
-          ? loadingUsage
-            ? Locale.Settings.Usage.IsChecking
-            : remaining === null
-            ? "--"
-            : `$${remaining}`
-          : Locale.Settings.Usage.NoAccess}
+        {showUsage ? balanceDisplay : Locale.Settings.Usage.NoAccess}
       </div>
     </div>
   );
@@ -1758,6 +1849,10 @@ function _Chat() {
     state.apiProfiles.find((profile) => profile.enabled),
   );
   const currentProviderDisplayName = activeProfile?.name || currentProviderName;
+  const currentBalanceCacheKey = useMemo(
+    () => buildBalanceCacheKey(currentProviderName, activeProfile),
+    [activeProfile, currentProviderName],
+  );
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
   const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
@@ -3260,6 +3355,8 @@ function _Chat() {
               providerDisplayName={currentProviderDisplayName}
               autoModeEnabled={autoModeEnabled}
               refreshSignal={balanceRefreshSignal}
+              sessionRefreshSignal={safeSession.id}
+              balanceCacheKey={currentBalanceCacheKey}
             />
             <div
               className={styles["chat-body"]}

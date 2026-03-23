@@ -9,7 +9,7 @@ export type CustomBalanceQueryRule = {
   profileName: string;
   mode: CustomBalanceQueryMode;
   url: string;
-  apiKey: string;
+  apiKey?: string;
   field?: string;
   aliases?: string[];
 };
@@ -22,7 +22,28 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
     aliases: ["aihubmix", "aihubmix.com"],
     mode: "aihubmix",
     url: "https://aihubmix.com",
-    apiKey: "2c0cdc549650459fb39263f9082e90a1",
+    apiKey: "9c560d99d6ef4c69a2b34adbad50f870",
+  },
+  {
+    profileName: "YutoAPI",
+    aliases: ["yutoapi", "gptapi.asia", "cn.gptapi.asia"],
+    mode: "openai-compatible",
+    url: "https://cn.gptapi.asia",
+    apiKey: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
+  },
+  {
+    profileName: "Ocoolai",
+    aliases: ["ocoolai", "one.ooo.cool"],
+    mode: "ocoolai",
+    url: "https://one.ooo.cool",
+    apiKey: "73eb755abbfa475f8b0063c533f2e0c5",
+  },
+  {
+    profileName: "ToAPIs",
+    aliases: ["toapis", "toapis.com"],
+    mode: "toapis",
+    url: "https://toapis.com",
+    apiKey: "sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx",
   },
   // {
   //   profileName: "My Proxy",
@@ -35,12 +56,6 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
   //   profileName: "OpenAI Proxy",
   //   mode: "openai-compatible",
   //   url: "https://your-openai-proxy.example.com",
-  //   apiKey: "balance-query-api-key",
-  // },
-  // {
-  //   profileName: "ToAPIs",
-  //   mode: "toapis",
-  //   url: "https://api.toapis.com",
   //   apiKey: "balance-query-api-key",
   // },
 ];

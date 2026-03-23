@@ -18,7 +18,48 @@ import { ClientApi, getClientApi } from "../client/api";
 import { useAccessStore } from "./access";
 
 const ONE_MINUTE = 60 * 1000;
+const BALANCE_REFRESH_INTERVAL = 60 * 1000;
 const isApp = !!getClientConfig()?.isApp;
+const inflightBalanceQueries = new Map<string, Promise<void>>();
+
+export type BalanceSnapshot = {
+  used: number;
+  total: number;
+  remaining: number;
+  updatedAt: number;
+  provider: ServiceProvider;
+  profileId?: string;
+  profileName?: string;
+};
+
+type ActiveCustomProfile = ReturnType<typeof getActiveCustomProfile>;
+
+export function buildBalanceCacheKey(
+  provider: ServiceProvider,
+  profile?: { id?: string; name?: string },
+) {
+  if (provider === ServiceProvider.Custom) {
+    const profileId = String(profile?.id || "").trim();
+    if (profileId) {
+      return `custom:${profileId}`;
+    }
+
+    const profileName = String(profile?.name || "")
+      .trim()
+      .toLowerCase();
+    return profileName ? `custom-name:${profileName}` : "custom:default";
+  }
+
+  return `provider:${provider}`;
+}
+
+function logBalanceQueryStart(payload: Record<string, unknown>) {
+  console.log("[Balance] 开始查询余额", payload);
+}
+
+function logBalanceQueryResult(payload: Record<string, unknown>) {
+  console.log("[Balance] 查询结果", payload);
+}
 
 function formatVersionDate(t: string) {
   const d = new Date(+t);
@@ -76,7 +117,11 @@ function normalizeCustomBaseUrl(baseUrl: string) {
 }
 
 function getBalanceQueryApiKey(rule: CustomBalanceQueryRule) {
-  return String(rule.apiKey || "").trim();
+  if (rule.apiKey) {
+    return String(rule.apiKey).trim();
+  }
+
+  return String(getActiveCustomProfile()?.apiKey || "").trim();
 }
 
 function getBalanceQueryField(rule: CustomBalanceQueryRule) {
@@ -318,16 +363,37 @@ async function queryOpenAICompatibleCustomUsage(rule: CustomBalanceQueryRule) {
   };
 }
 
+async function persistBalanceSnapshot(
+  key: string,
+  snapshot: BalanceSnapshot,
+): Promise<void> {
+  try {
+    await fetch("/api/db/balance", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key,
+        snapshot,
+      }),
+    });
+  } catch (error) {
+    console.error(
+      "[Balance] 保存数据库快照失败",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 export const useUpdateStore = createPersistStore(
   {
     versionType: "tag" as VersionType,
     lastUpdate: 0,
     version: "unknown",
     remoteVersion: "",
-    used: 0,
-    subscription: 0,
-
-    lastUpdateUsage: 0,
+    balances: {} as Record<string, BalanceSnapshot>,
+    lastUpdateUsageByKey: {} as Record<string, number>,
   },
   (set, get) => ({
     formatVersion(version: string) {
@@ -406,54 +472,151 @@ export const useUpdateStore = createPersistStore(
       force = false,
       provider: ServiceProvider = ServiceProvider.OpenAI,
     ) {
-      const overOneMinute = Date.now() - get().lastUpdateUsage >= ONE_MINUTE;
-      if (!overOneMinute && !force) return;
+      const activeCustomProfile =
+        provider === ServiceProvider.Custom
+          ? getActiveCustomProfile()
+          : undefined;
+      const cacheKey = buildBalanceCacheKey(provider, activeCustomProfile);
+      const lastUpdateUsage = get().lastUpdateUsageByKey[cacheKey] ?? 0;
+      const overOneMinute =
+        Date.now() - lastUpdateUsage >= BALANCE_REFRESH_INTERVAL;
+      if (!overOneMinute && !force) {
+        return;
+      }
+
+      const inflightQuery = inflightBalanceQueries.get(cacheKey);
+      if (inflightQuery) {
+        return inflightQuery;
+      }
 
       set(() => ({
-        lastUpdateUsage: Date.now(),
+        lastUpdateUsageByKey: {
+          ...get().lastUpdateUsageByKey,
+          [cacheKey]: Date.now(),
+        },
       }));
 
-      try {
-        let usage: { used: number; total: number } | undefined;
-        if (provider === ServiceProvider.Custom) {
-          const rule = getRequiredCustomBalanceRule();
-          switch (rule.mode) {
-            case "json":
-              usage = await queryJsonCustomUsage(rule);
-              break;
-            case "aihubmix":
-              usage = await queryAihubMixUsage(rule);
-              break;
-            case "ocoolai":
-              usage = await queryOcoolaiUsage(rule);
-              break;
-            case "toapis":
-              usage = await queryToApisUsage(rule);
-              break;
-            case "openai-compatible":
-              usage = await queryOpenAICompatibleCustomUsage(rule);
-              break;
-            default:
-              throw new Error(`不支持的余额查询方式: ${rule.mode}`);
-          }
-        } else {
-          const api =
-            provider === ServiceProvider.OpenAI
-              ? new ClientApi(ModelProvider.GPT)
-              : getClientApi(provider);
-          usage = await api.llm.usage();
-        }
+      const startedAt = Date.now();
+      logBalanceQueryStart({
+        provider,
+        cacheKey,
+        force,
+        profileId: activeCustomProfile?.id,
+        profileName: activeCustomProfile?.name,
+      });
 
-        if (usage) {
-          const { used, total } = usage;
-          set(() => ({
-            used,
-            subscription: total,
-          }));
+      const queryPromise = (async () => {
+        let usage: { used: number; total: number } | undefined;
+        let errorMessage: string | undefined;
+
+        try {
+          if (provider === ServiceProvider.Custom) {
+            const rule = getRequiredCustomBalanceRule();
+            switch (rule.mode) {
+              case "json":
+                usage = await queryJsonCustomUsage(rule);
+                break;
+              case "aihubmix":
+                usage = await queryAihubMixUsage(rule);
+                break;
+              case "ocoolai":
+                usage = await queryOcoolaiUsage(rule);
+                break;
+              case "toapis":
+                usage = await queryToApisUsage(rule);
+                break;
+              case "openai-compatible":
+                usage = await queryOpenAICompatibleCustomUsage(rule);
+                break;
+              default:
+                throw new Error(`不支持的余额查询方式: ${rule.mode}`);
+            }
+          } else {
+            const api =
+              provider === ServiceProvider.OpenAI
+                ? new ClientApi(ModelProvider.GPT)
+                : getClientApi(provider);
+            usage = await api.llm.usage();
+          }
+          if (usage) {
+            const { used, total } = usage;
+            const remaining = Math.max(
+              0,
+              Math.round((total - used) * 100) / 100,
+            );
+            const snapshot: BalanceSnapshot = {
+              used,
+              total,
+              remaining,
+              updatedAt: Date.now(),
+              provider,
+              profileId: activeCustomProfile?.id,
+              profileName: activeCustomProfile?.name,
+            };
+
+            set(() => ({
+              balances: {
+                ...get().balances,
+                [cacheKey]: snapshot,
+              },
+            }));
+
+            void persistBalanceSnapshot(cacheKey, snapshot);
+
+            logBalanceQueryResult({
+              provider,
+              cacheKey,
+              force,
+              profileId: activeCustomProfile?.id,
+              profileName: activeCustomProfile?.name,
+              used,
+              total,
+              remaining,
+              durationMs: Date.now() - startedAt,
+              ok: true,
+            });
+          }
+        } catch (e) {
+          errorMessage = e instanceof Error ? e.message : String(e);
+          logBalanceQueryResult({
+            provider,
+            cacheKey,
+            force,
+            profileId: activeCustomProfile?.id,
+            profileName: activeCustomProfile?.name,
+            durationMs: Date.now() - startedAt,
+            ok: false,
+            error: errorMessage,
+          });
+          console.error(errorMessage);
+        } finally {
+          inflightBalanceQueries.delete(cacheKey);
         }
-      } catch (e) {
-        console.error((e as Error).message);
+      })();
+
+      inflightBalanceQueries.set(cacheKey, queryPromise);
+      return queryPromise;
+    },
+
+    setBalanceSnapshot(key: string, snapshot: BalanceSnapshot) {
+      const normalizedKey = String(key || "").trim();
+      if (!normalizedKey) {
+        return;
       }
+
+      set(() => ({
+        balances: {
+          ...get().balances,
+          [normalizedKey]: snapshot,
+        },
+        lastUpdateUsageByKey: {
+          ...get().lastUpdateUsageByKey,
+          [normalizedKey]: Math.max(
+            get().lastUpdateUsageByKey[normalizedKey] ?? 0,
+            Number(snapshot.updatedAt || 0),
+          ),
+        },
+      }));
     },
   }),
   {

@@ -31,7 +31,6 @@ Fork this project on GitHub, then log in to dash.cloudflare.com and go to Pages.
     - `OPENAI_ORG_ID= Optional, specify the organization ID in OpenAI`
     - `HIDE_USER_API_KEY=1 Optional, do not allow users to enter their own API key`
     - `DISABLE_GPT4=1 Optional, do not allow users to use GPT-4`
-    - `ENABLE_BALANCE_QUERY=1 Optional, allow users to query balance`
     - `DISABLE_FAST_LINK=1 Optional, disable parse settings from url`
     - `OPENAI_SB=1 Optional，use the third-party OpenAI-SB API`
 

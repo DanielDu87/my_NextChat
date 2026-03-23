@@ -161,7 +161,6 @@ const DEFAULT_ACCESS_STATE = {
   // server config
   needCode: true,
   hideUserApiKey: false,
-  hideBalanceQuery: false,
   disableGPT4: false,
   disableFastLink: false,
   customModels: "",

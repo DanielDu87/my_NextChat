@@ -31,7 +31,6 @@
     - `OPENAI_ORG_ID= 可选填，指定 OpenAI 中的组织 ID`
     - `HIDE_USER_API_KEY=1 可选，不让用户自行填入 API Key`
     - `DISABLE_GPT4=1 可选，不让用户使用 GPT-4`
-    - `ENABLE_BALANCE_QUERY=1 可选，启用余额查询功能`
     - `DISABLE_FAST_LINK=1 可选，禁用从链接解析预制设置`
 
 12. 点击 "Save and Deploy"。

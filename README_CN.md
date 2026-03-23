@@ -217,10 +217,6 @@ DeepSeek Api Url.
 
 如果你不想让用户使用 GPT-4，将此环境变量设置为 1 即可。
 
-### `ENABLE_BALANCE_QUERY` （可选）
-
-如果你想启用余额查询功能，将此环境变量设置为 1 即可。
-
 #### Custom 余额查询代码配置
 
 当前仓库里的 `Custom` 供应商余额查询不再通过页面单独配置，而是统一在代码里维护。
@@ -261,11 +257,33 @@ export const CUSTOM_BALANCE_QUERY_RULES = [
 
 说明：
 
-- 当前仓库已内置 `AihubMix` 余额查询规则
+- 当前仓库已内置 `AihubMix`、`YutoAPI`、`Ocoolai`、`ToAPIs` 余额查询规则
 - `json` 模式会直接请求 `url`，再按 `field` 读取余额值
 - `aihubmix` / `ocoolai` 模式会请求 `${url}/api/user/self`
 - `toapis` 模式会请求 `${url}/v1/user/balance`
 - `openai-compatible` 模式会请求 `${url}/v1/dashboard/billing/usage` 和 `${url}/v1/dashboard/billing/subscription`
+
+#### 余额查询请求明细
+
+当前代码中的余额查询全部使用 `GET` 方法：
+
+| mode | 方法 | 请求 URL |
+| --- | --- | --- |
+| `json` | `GET` | `url` 原样请求 |
+| `aihubmix` | `GET` | `${url}/api/user/self` |
+| `ocoolai` | `GET` | `${url}/api/user/self` |
+| `toapis` | `GET` | `${url}/v1/user/balance` |
+| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/usage?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` |
+| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/subscription` |
+
+当前仓库内置规则如下：
+
+| 配置名称 | mode | 基础 URL | 余额查询专用 Key |
+| --- | --- | --- | --- |
+| `AihubMix` | `aihubmix` | `https://aihubmix.com` | `9c560d99d6ef4c69a2b34adbad50f870` |
+| `YutoAPI` | `openai-compatible` | `https://cn.gptapi.asia` | `sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a` |
+| `Ocoolai` | `ocoolai` | `https://one.ooo.cool` | `73eb755abbfa475f8b0063c533f2e0c5` |
+| `ToAPIs` | `toapis` | `https://toapis.com` | `sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx` |
 
 ### `DISABLE_FAST_LINK` （可选）
 

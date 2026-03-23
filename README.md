@@ -294,12 +294,6 @@ If you do not want users to input their own API key, set this value to 1.
 
 If you do not want users to use GPT-4, set this value to 1.
 
-### `ENABLE_BALANCE_QUERY` (optional)
-
-> Default: Empty
-
-If you do want users to query balance, set this value to 1.
-
 ### `DISABLE_FAST_LINK` (optional)
 
 > Default: Empty
@@ -323,6 +317,34 @@ For Azure: use `modelName@Azure=deploymentName` to customize model name and depl
 For ByteDance: use `modelName@bytedance=deploymentName` to customize model name and deployment name.
 
 > Example: `+Doubao-lite-4k@bytedance=ep-xxxxx-xxx` will show option `Doubao-lite-4k(ByteDance)` in model list.
+
+### Custom Balance Query Rules
+
+Custom provider balance queries are maintained in code:
+
+- Config file: `app/config/custom-balance.ts`
+- Match rule: exact `profileName` match, with optional `aliases` substring match
+- Supported modes: `json`, `aihubmix`, `ocoolai`, `toapis`, `openai-compatible`
+
+All balance query requests use `GET`:
+
+| mode | Method | Request URL |
+| --- | --- | --- |
+| `json` | `GET` | request `url` directly |
+| `aihubmix` | `GET` | `${url}/api/user/self` |
+| `ocoolai` | `GET` | `${url}/api/user/self` |
+| `toapis` | `GET` | `${url}/v1/user/balance` |
+| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/usage?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` |
+| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/subscription` |
+
+Built-in rules currently included in the repo:
+
+| Profile Name | mode | Base URL | Balance Query Key |
+| --- | --- | --- | --- |
+| `AihubMix` | `aihubmix` | `https://aihubmix.com` | `9c560d99d6ef4c69a2b34adbad50f870` |
+| `YutoAPI` | `openai-compatible` | `https://cn.gptapi.asia` | `sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a` |
+| `Ocoolai` | `ocoolai` | `https://one.ooo.cool` | `73eb755abbfa475f8b0063c533f2e0c5` |
+| `ToAPIs` | `toapis` | `https://toapis.com` | `sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx` |
 
 ### `DEFAULT_MODEL` （optional）
 
