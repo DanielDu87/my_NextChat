@@ -221,6 +221,52 @@ DeepSeek Api Url.
 
 如果你想启用余额查询功能，将此环境变量设置为 1 即可。
 
+#### Custom 余额查询代码配置
+
+当前仓库里的 `Custom` 供应商余额查询不再通过页面单独配置，而是统一在代码里维护。
+
+- 配置文件：`app/config/custom-balance.ts`
+- 匹配方式：按 API 配置页中每个 `Custom` 条目的“名称”精确匹配 `profileName`
+- 也支持通过 `aliases` 做名称包含匹配，适合像 `AihubMix-主账号` 这类命名
+- 新增一个 `Custom` 配置后，如果要支持余额查询，需要同步在 `CUSTOM_BALANCE_QUERY_RULES` 里新增一条规则
+
+可用配置项：
+
+- `profileName`: API 配置页中的配置名称，必须一致
+- `mode`: 余额查询方式，目前支持 `json`、`aihubmix`、`ocoolai`、`toapis`、`openai-compatible`
+- `url`: 余额查询请求地址或平台基础地址
+- `apiKey`: 余额查询专用 API Key
+- `field`: 仅 `json` 模式需要，表示余额字段路径，例如 `data.balance`
+- `aliases`: 可选，名称别名列表，命中任一别名即视为匹配
+
+示例：
+
+```ts
+export const CUSTOM_BALANCE_QUERY_RULES = [
+  {
+    profileName: "My Proxy",
+    mode: "json",
+    url: "https://your-proxy.example.com/api/user/balance",
+    apiKey: "balance-query-api-key",
+    field: "data.balance",
+  },
+  {
+    profileName: "OpenAI Proxy",
+    mode: "openai-compatible",
+    url: "https://your-openai-proxy.example.com",
+    apiKey: "balance-query-api-key",
+  },
+];
+```
+
+说明：
+
+- 当前仓库已内置 `AihubMix` 余额查询规则
+- `json` 模式会直接请求 `url`，再按 `field` 读取余额值
+- `aihubmix` / `ocoolai` 模式会请求 `${url}/api/user/self`
+- `toapis` 模式会请求 `${url}/v1/user/balance`
+- `openai-compatible` 模式会请求 `${url}/v1/dashboard/billing/usage` 和 `${url}/v1/dashboard/billing/subscription`
+
 ### `DISABLE_FAST_LINK` （可选）
 
 如果你想禁用从链接解析预制设置，将此环境变量设置为 1 即可。

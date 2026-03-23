@@ -5,6 +5,10 @@ import {
   ServiceProvider,
   StoreKey,
 } from "../constant";
+import {
+  findCustomBalanceQueryRule,
+  type CustomBalanceQueryRule,
+} from "../config/custom-balance";
 import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { clientUpdate } from "../utils";
@@ -71,28 +75,107 @@ function normalizeCustomBaseUrl(baseUrl: string) {
     : `https://${normalizedBaseUrl}`;
 }
 
-function getCustomBalanceQueryApiKey(profile: {
-  apiKey: string;
-  balanceQueryApiKey?: string;
-}) {
-  return profile.balanceQueryApiKey || profile.apiKey;
+function getBalanceQueryApiKey(rule: CustomBalanceQueryRule) {
+  return String(rule.apiKey || "").trim();
 }
 
-async function queryAihubMixUsage() {
+function getBalanceQueryField(rule: CustomBalanceQueryRule) {
+  return String(rule.field || "").trim();
+}
+
+function getBalanceQueryUrl(rule: CustomBalanceQueryRule) {
+  const requestUrl = String(rule.url || "").trim();
+  if (!requestUrl) return "";
+  return requestUrl.startsWith("http") ? requestUrl : `https://${requestUrl}`;
+}
+
+function getBalanceQueryBaseUrl(rule: CustomBalanceQueryRule) {
+  return normalizeCustomBaseUrl(rule.url || "");
+}
+
+function getBalanceQueryApiBaseUrl(rule: CustomBalanceQueryRule) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
+  return /\/v1$/i.test(requestBaseUrl)
+    ? requestBaseUrl
+    : `${requestBaseUrl}/v1`;
+}
+
+function getValueByPath(payload: unknown, path: string) {
+  if (!path) return undefined;
+
+  return path
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .reduce<unknown>((current, key) => {
+      if (current && typeof current === "object" && key in current) {
+        return (current as Record<string, unknown>)[key];
+      }
+      return undefined;
+    }, payload);
+}
+
+function getRequiredCustomBalanceRule() {
   const activeCustomProfile = getActiveCustomProfile();
 
   if (!activeCustomProfile) {
     throw new Error("未找到已启用的 Custom 供应商配置");
   }
 
-  const requestBaseUrl = normalizeCustomBaseUrl(activeCustomProfile.baseUrl);
+  const rule = findCustomBalanceQueryRule(activeCustomProfile);
+
+  if (!rule) {
+    throw new Error(
+      `未找到 ${activeCustomProfile.name} 的余额查询规则，请在 app/config/custom-balance.ts 中配置`,
+    );
+  }
+
+  return rule;
+}
+
+async function queryJsonCustomUsage(rule: CustomBalanceQueryRule) {
+  const requestUrl = getBalanceQueryUrl(rule);
+  const fieldPath = getBalanceQueryField(rule);
+  const authKey = getBalanceQueryApiKey(rule);
+
+  if (!requestUrl || !fieldPath || !authKey) {
+    throw new Error("余额查询 URL、API Key 或字段路径未配置");
+  }
+
+  const res = await fetch(requestUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${authKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`自定义余额查询失败: ${res.status}`);
+  }
+
+  const json = (await res.json()) as unknown;
+  const rawValue = getValueByPath(json, fieldPath);
+  const total = Number(rawValue);
+
+  if (!Number.isFinite(total)) {
+    throw new Error(`未找到可用的余额字段: ${fieldPath}`);
+  }
+
+  return {
+    used: 0,
+    total: Math.round(total * 100) / 100,
+  };
+}
+
+async function queryAihubMixUsage(rule: CustomBalanceQueryRule) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
 
   const res = await fetch(`${requestBaseUrl}/api/user/self`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
-        activeCustomProfile,
-      )}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -121,20 +204,12 @@ async function queryAihubMixUsage() {
   return { used: 0, total };
 }
 
-async function queryOcoolaiUsage() {
-  const activeCustomProfile = getActiveCustomProfile();
-
-  if (!activeCustomProfile) {
-    throw new Error("未找到已启用的 Custom 供应商配置");
-  }
-
-  const requestBaseUrl = normalizeCustomBaseUrl(activeCustomProfile.baseUrl);
+async function queryOcoolaiUsage(rule: CustomBalanceQueryRule) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
   const res = await fetch(`${requestBaseUrl}/api/user/self`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
-        activeCustomProfile,
-      )}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -162,22 +237,12 @@ async function queryOcoolaiUsage() {
   return { used: 0, total };
 }
 
-async function queryToApisUsage() {
-  const activeCustomProfile = getActiveCustomProfile();
-
-  if (!activeCustomProfile) {
-    throw new Error("未找到已启用的 Custom 供应商配置");
-  }
-
-  const requestBaseUrl = `${normalizeCustomBaseUrl(
-    activeCustomProfile.baseUrl,
-  )}/v1`;
+async function queryToApisUsage(rule: CustomBalanceQueryRule) {
+  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule);
   const res = await fetch(`${requestBaseUrl}/user/balance`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getCustomBalanceQueryApiKey(
-        activeCustomProfile,
-      )}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -201,16 +266,8 @@ async function queryToApisUsage() {
   return { used: 0, total };
 }
 
-async function queryOpenAICompatibleCustomUsage() {
-  const activeCustomProfile = getActiveCustomProfile();
-
-  if (!activeCustomProfile) {
-    throw new Error("未找到已启用的 Custom 供应商配置");
-  }
-
-  const requestBaseUrl = `${normalizeCustomBaseUrl(
-    activeCustomProfile.baseUrl,
-  )}/v1`;
+async function queryOpenAICompatibleCustomUsage(rule: CustomBalanceQueryRule) {
+  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule);
   const now = new Date();
   const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
     2,
@@ -220,7 +277,7 @@ async function queryOpenAICompatibleCustomUsage() {
   const endDate = `${tomorrow.getFullYear()}-${String(
     tomorrow.getMonth() + 1,
   ).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-  const authKey = getCustomBalanceQueryApiKey(activeCustomProfile);
+  const authKey = getBalanceQueryApiKey(rule);
 
   const [used, subs] = await Promise.all([
     fetch(
@@ -357,50 +414,28 @@ export const useUpdateStore = createPersistStore(
       }));
 
       try {
-        let usage;
-        const activeCustomProfile = getActiveCustomProfile();
-        const isAihubMixCustom =
-          provider === ServiceProvider.Custom &&
-          /(^|\.)aihubmix\.com$/i.test(
-            (() => {
-              try {
-                return new URL(activeCustomProfile?.baseUrl || "").hostname;
-              } catch {
-                return "";
-              }
-            })(),
-          );
-        const isOcoolaiCustom =
-          provider === ServiceProvider.Custom &&
-          /(^|\.)one\.ooo\.cool$/i.test(
-            (() => {
-              try {
-                return new URL(activeCustomProfile?.baseUrl || "").hostname;
-              } catch {
-                return "";
-              }
-            })(),
-          );
-        const isToApisCustom =
-          provider === ServiceProvider.Custom &&
-          /(^|\.)toapis\.com$/i.test(
-            (() => {
-              try {
-                return new URL(activeCustomProfile?.baseUrl || "").hostname;
-              } catch {
-                return "";
-              }
-            })(),
-          );
-
-        if (isAihubMixCustom) {
-          usage = await queryAihubMixUsage();
-        } else if (isOcoolaiCustom) {
-          usage = await queryOcoolaiUsage();
-        } else if (isToApisCustom) {
-          usage = await queryToApisUsage();
-        } else if (provider === ServiceProvider.Custom) {
-          usage = await queryOpenAICompatibleCustomUsage();
+        let usage: { used: number; total: number } | undefined;
+        if (provider === ServiceProvider.Custom) {
+          const rule = getRequiredCustomBalanceRule();
+          switch (rule.mode) {
+            case "json":
+              usage = await queryJsonCustomUsage(rule);
+              break;
+            case "aihubmix":
+              usage = await queryAihubMixUsage(rule);
+              break;
+            case "ocoolai":
+              usage = await queryOcoolaiUsage(rule);
+              break;
+            case "toapis":
+              usage = await queryToApisUsage(rule);
+              break;
+            case "openai-compatible":
+              usage = await queryOpenAICompatibleCustomUsage(rule);
+              break;
+            default:
+              throw new Error(`不支持的余额查询方式: ${rule.mode}`);
+          }
         } else {
           const api =
             provider === ServiceProvider.OpenAI
@@ -410,9 +445,10 @@ export const useUpdateStore = createPersistStore(
         }
 
         if (usage) {
+          const { used, total } = usage;
           set(() => ({
-            used: usage.used,
-            subscription: usage.total,
+            used,
+            subscription: total,
           }));
         }
       } catch (e) {

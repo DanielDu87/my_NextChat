@@ -75,7 +75,6 @@ const DEFAULT_ACCESS_STATE = {
     baseUrl: string;
     apiKey: string;
     modelFetchApiKey?: string;
-    balanceQueryApiKey?: string;
     apiKeyGroups?: Record<string, string>;
     enabled: boolean;
     openAICompatible?: boolean;
