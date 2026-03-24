@@ -31,6 +31,18 @@ function toJson(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
+function normalizeChatIndexStatePayload(payload: unknown) {
+  if (typeof payload !== "string") {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+}
+
 const CHAT_INDEX_STATE_KEY = "__chat-index-state__";
 
 export async function syncAppSettingsStore(
@@ -116,7 +128,7 @@ export async function getChatIndexState(externalUserId: string) {
     [userId, CHAT_INDEX_STATE_KEY],
   );
 
-  return result.rows[0]?.payload_json;
+  return normalizeChatIndexStatePayload(result.rows[0]?.payload_json);
 }
 
 export async function removeChatIndexState(externalUserId: string) {

@@ -116,10 +116,6 @@ function createSession(sessionIndex: number, messageCount: number) {
 
 async function clearExistingChatArtifacts() {
   await pgQuery(
-    `delete from user_chat_state_indexes where user_id = $1`,
-    ["single-user"],
-  );
-  await pgQuery(
     `delete from messages
      where conversation_id in (
        select id from conversations

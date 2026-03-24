@@ -25,7 +25,12 @@ jest.unstable_mockModule("../app/utils/server/sync-app-user", () => ({
   getOrCreateSyncAppUserId: jest.fn(async () => "user-uuid"),
 }));
 
-const { syncAppSettingsStore, getAppSettingsStore } = await import(
+const {
+  syncAppSettingsStore,
+  getAppSettingsStore,
+  setChatIndexState,
+  getChatIndexState,
+} = await import(
   "../app/utils/server/app-settings-repository"
 );
 
@@ -61,5 +66,31 @@ describe("app settings repository", () => {
 
     expect(payload).toEqual({ state: { prompts: {} }, version: 3 });
     expect(pgQueryMock.mock.calls[0][0]).toContain("extra_settings");
+  });
+
+  test("setChatIndexState should store object payload instead of stringified json", async () => {
+    await setChatIndexState("single-user", {
+      currentSessionId: "s1",
+    });
+
+    expect(pgQueryMock).toHaveBeenCalledTimes(1);
+    expect(pgQueryMock.mock.calls[0][0]).toContain("chat_settings");
+    expect(pgQueryMock.mock.calls[0][1]).toEqual([
+      "user-uuid",
+      "__chat-index-state__",
+      JSON.stringify({
+        currentSessionId: "s1",
+      }),
+    ]);
+  });
+
+  test("getChatIndexState should parse legacy string payload", async () => {
+    pgQueryMock.mockImplementationOnce(async () => ({
+      rows: [{ payload_json: JSON.stringify({ currentSessionId: "s1" }) }],
+    }));
+
+    const payload = await getChatIndexState("single-user");
+
+    expect(payload).toEqual({ currentSessionId: "s1" });
   });
 });

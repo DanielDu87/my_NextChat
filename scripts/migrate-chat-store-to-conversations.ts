@@ -14,16 +14,29 @@ type ChatSessionRow = {
   payload_json: Record<string, unknown>;
 };
 
-async function hasLegacySessionTable() {
-  const result = await pgQuery<{ exists: boolean }>(
-    `select exists (
-       select 1
-       from information_schema.tables
-       where table_schema = 'public'
-         and table_name in ('user_chat_state_sessions', 'user_chat_state_indexes')
-     ) as exists`,
+async function getLegacyChatTableStatus() {
+  const result = await pgQuery<{
+    has_legacy_sessions: boolean;
+    has_legacy_indexes: boolean;
+  }>(
+    `select
+       exists (
+         select 1
+         from information_schema.tables
+         where table_schema = 'public'
+           and table_name = 'user_chat_state_sessions'
+       ) as has_legacy_sessions,
+       exists (
+         select 1
+         from information_schema.tables
+         where table_schema = 'public'
+           and table_name = 'user_chat_state_indexes'
+       ) as has_legacy_indexes`,
   );
-  return result.rows[0]?.exists === true;
+  return {
+    hasLegacySessions: result.rows[0]?.has_legacy_sessions === true,
+    hasLegacyIndexes: result.rows[0]?.has_legacy_indexes === true,
+  };
 }
 
 async function migrateUser(userId: string) {
@@ -69,13 +82,16 @@ async function migrateUser(userId: string) {
 
 async function main() {
   await ensureSyncStorageSchema();
-  if (!(await hasLegacySessionTable())) {
+  const { hasLegacyIndexes, hasLegacySessions } = await getLegacyChatTableStatus();
+  if (!hasLegacyIndexes || !hasLegacySessions) {
     console.log(
       JSON.stringify(
         {
           ok: true,
           skipped: true,
-          reason: "legacy_user_chat_state_sessions_not_found",
+          reason: "legacy_chat_tables_not_found",
+          hasLegacyIndexes,
+          hasLegacySessions,
         },
         null,
         2,

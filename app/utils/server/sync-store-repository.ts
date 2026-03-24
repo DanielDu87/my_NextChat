@@ -10,10 +10,7 @@ import {
   PERSIST_STORE_KEYS,
   unwrapPersistedStoreState,
 } from "@/app/utils/sync-store-keys";
-import {
-  dedupeDeleteSessionIds,
-  sanitizeJsonPayload,
-} from "@/app/utils/server/sync-store-helpers";
+import { dedupeDeleteSessionIds } from "@/app/utils/server/sync-store-helpers";
 import {
   buildNormalizedChatIndexSnapshot,
   getNormalizedChatSessionSnapshots,
@@ -155,42 +152,21 @@ function mergeAccessProfilesIntoPayload(payload: unknown, profiles: unknown[]) {
   };
 }
 
-async function getLegacyChatStoreState(userId = getDefaultSyncUserId()) {
-  await ensureSyncStorageSchema();
-  const result = await pgQuery<{ payload_json: unknown }>(
-    `select payload_json
-     from user_chat_state_indexes
-     where user_id = $1
-     limit 1`,
-    [userId],
-  );
-
-  const payload = result.rows[0]?.payload_json;
-  if (!payload) {
-    return undefined;
-  }
-
-  return normalizeChatStorePayload(payload);
-}
-
 export function isSupportedStoreKey(storeKey: string) {
   return SUPPORTED_STORE_KEYS.has(storeKey);
 }
 
 export async function getChatIndexSnapshot(userId = getDefaultSyncUserId()) {
-  const chatIndexState = (await getChatIndexState(userId)) as
-    | Record<string, unknown>
-    | undefined;
+  const chatIndexState = await getChatIndexState(userId);
   const normalizedIndex = await buildNormalizedChatIndexSnapshot(
     userId,
-    chatIndexState,
+    chatIndexState &&
+      typeof chatIndexState === "object" &&
+      !Array.isArray(chatIndexState)
+      ? (chatIndexState as Record<string, unknown>)
+      : undefined,
   );
-  if (normalizedIndex) {
-    return normalizedIndex;
-  }
-
-  const legacyChatState = await getLegacyChatStoreState(userId);
-  return legacyChatState ? buildChatIndexPayload(legacyChatState) : undefined;
+  return normalizedIndex;
 }
 
 export async function getChatSessionSnapshots(
@@ -215,10 +191,7 @@ export async function getFullChatStateSnapshot(
 ) {
   const chatIndex = await getChatIndexSnapshot(userId);
   if (!chatIndex) {
-    const legacyChatState = await getLegacyChatStoreState(userId);
-    return legacyChatState
-      ? buildPersistedStoreState(StoreKey.Chat, legacyChatState)
-      : undefined;
+    return undefined;
   }
 
   const sessionMap = await getChatSessionSnapshots(
@@ -497,7 +470,7 @@ export async function applyChatDelta(params: {
     });
   });
 
-  await setChatIndexState(userId, sanitizeJsonPayload(params.index.state));
+  await setChatIndexState(userId, params.index.state ?? {});
 }
 
 export async function setFullChatStateSnapshot(

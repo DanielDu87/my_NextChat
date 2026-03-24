@@ -191,12 +191,9 @@ describe("sync store repository helpers", () => {
     expect(queryMock).toHaveBeenCalledTimes(0);
 
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledTimes(1);
-    expect(setChatIndexStateMock).toHaveBeenCalledWith(
-      "single-user",
-      JSON.stringify({
-        currentSessionId: "s1",
-      }),
-    );
+    expect(setChatIndexStateMock).toHaveBeenCalledWith("single-user", {
+      currentSessionId: "s1",
+    });
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledWith(
       { query: queryMock },
       {
@@ -277,6 +274,26 @@ describe("sync store repository helpers", () => {
         },
         version: 4,
       },
+    );
+  });
+
+  test("getChatIndexSnapshot should not query removed legacy tables", async () => {
+    const { getChatIndexSnapshot } = await import(
+      "../app/utils/server/sync-store-repository"
+    );
+
+    buildNormalizedChatIndexSnapshotMock.mockResolvedValueOnce(undefined);
+    getChatIndexStateMock.mockResolvedValueOnce({
+      currentSessionId: "s1",
+    } as any);
+
+    const snapshot = await getChatIndexSnapshot("single-user");
+
+    expect(snapshot).toBeUndefined();
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(buildNormalizedChatIndexSnapshotMock).toHaveBeenCalledWith(
+      "single-user",
+      { currentSessionId: "s1" },
     );
   });
 });
