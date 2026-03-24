@@ -1,7 +1,7 @@
 describe("getModelProvider", () => {
   async function loadModelUtils() {
     const mod = await import("../app/utils/model-provider");
-    return (mod.default ?? mod) as typeof import("../app/utils/model-provider");
+    return mod as typeof import("../app/utils/model-provider");
   }
 
   test("should return model and provider when input contains '@'", async () => {

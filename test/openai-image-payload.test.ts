@@ -1,7 +1,7 @@
 describe("buildAiHubMixPredictionPayload", () => {
   async function loadMediaUtils() {
     const mod = await import("../app/client/openai-media-utils");
-    return (mod.default ?? mod) as typeof import("../app/client/openai-media-utils");
+    return mod as typeof import("../app/client/openai-media-utils");
   }
 
   test("should include style for aihubmix dall-e-3 requests", async () => {
@@ -20,7 +20,7 @@ describe("buildAiHubMixPredictionPayload", () => {
         style: "natural",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       input: {
@@ -49,7 +49,7 @@ describe("buildAiHubMixPredictionPayload", () => {
         style: "natural",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       input: {

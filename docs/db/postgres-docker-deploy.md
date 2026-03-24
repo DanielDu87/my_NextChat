@@ -77,9 +77,9 @@ curl http://127.0.0.1:3000/api/db/health
 
 不要一次性把前端本地存储全部硬切到数据库，建议按这个顺序：
 
-1. `model_catalog / model_sync_* / sync_artifacts`
+1. `model_catalog / model_sync_* / app_settings(model_settings)`
 2. `provider_configs / provider_api_keys`
 3. `conversations / messages / message_attachments`
-4. `app_settings / auth_* / usage_logs / audit_logs`
+4. `app_settings(extra/plugin/sync/security) / auth_* / usage_logs / audit_logs`
 
 这样可以先把服务端只读和后台数据迁过去，再迁聊天主链路。

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { StoreKey } from "@/app/constant";
 import {
   buildChatIndexPayload,
@@ -10,16 +11,21 @@ import {
   unwrapPersistedStoreState,
 } from "@/app/utils/sync-store-keys";
 import {
-  buildChatSessionRows,
   dedupeDeleteSessionIds,
   sanitizeJsonPayload,
 } from "@/app/utils/server/sync-store-helpers";
+import {
+  buildNormalizedChatIndexSnapshot,
+  getNormalizedChatSessionSnapshots,
+  syncNormalizedChatSessions,
+} from "./chat-conversation-repository";
 import {
   getAppSettingsStore,
   syncAppSettingsStore,
 } from "./app-settings-repository";
 import {
   mergeAccessStorePayload,
+  stripAccessStoreProfiles,
   splitAccessStorePayload,
 } from "./access-store-security";
 import {
@@ -183,6 +189,11 @@ export async function getChatIndexSnapshot(userId = getDefaultSyncUserId()) {
     return payload as ChatIndexPayload;
   }
 
+  const normalizedIndex = await buildNormalizedChatIndexSnapshot(userId);
+  if (normalizedIndex) {
+    return normalizedIndex;
+  }
+
   const legacyChatState = await getLegacyChatStoreState(userId);
   return legacyChatState ? buildChatIndexPayload(legacyChatState) : undefined;
 }
@@ -197,46 +208,11 @@ export async function getChatSessionSnapshots(
     return {} as Record<string, unknown>;
   }
 
-  const result = await pgQuery<{
-    session_id: string;
-    payload_json: unknown;
-  }>(
-    `select session_id, payload_json
-     from user_chat_state_sessions
-     where user_id = $2
-       and session_id = any($1::text[])`,
-    [normalizedIds, userId],
+  const normalizedSessionMap = await getNormalizedChatSessionSnapshots(
+    normalizedIds,
+    userId,
   );
-
-  const sessionMap = Object.fromEntries(
-    result.rows.map((row) => [row.session_id, row.payload_json]),
-  ) as Record<string, unknown>;
-
-  if (Object.keys(sessionMap).length === normalizedIds.length) {
-    return sessionMap;
-  }
-
-  const legacyChatState = await getLegacyChatStoreState(userId);
-  const legacySessions: Array<Record<string, unknown>> = Array.isArray(
-    legacyChatState?.sessions,
-  )
-    ? (legacyChatState?.sessions as Array<Record<string, unknown>>)
-    : [];
-
-  legacySessions.forEach((session) => {
-    const sessionId = String(session?.id || "");
-    if (
-      !sessionId ||
-      sessionMap[sessionId] ||
-      !normalizedIds.includes(sessionId)
-    ) {
-      return;
-    }
-
-    sessionMap[sessionId] = session;
-  });
-
-  return sessionMap;
+  return normalizedSessionMap;
 }
 
 export async function getFullChatStateSnapshot(
@@ -293,7 +269,7 @@ export async function getStoreSnapshot(
     return mergeAccessProfilesIntoPayload(mergedPayload, providerProfiles);
   }
 
-  if (storeKey !== StoreKey.Access || payload === undefined) {
+  if (storeKey !== StoreKey.Access) {
     return payload;
   }
 
@@ -301,7 +277,10 @@ export async function getStoreSnapshot(
     userId,
     secretKey: storeKey,
   });
-  const mergedPayload = mergeAccessStorePayload(payload, secretPayload);
+  const mergedPayload = mergeAccessStorePayload(
+    payload ?? { state: {} },
+    secretPayload,
+  );
   const providerProfiles = await getProviderProfilesForAccessState(userId);
   return mergeAccessProfilesIntoPayload(mergedPayload, providerProfiles);
 }
@@ -451,15 +430,56 @@ export async function getStoreSnapshotMetas(
      order by store_key`,
     [nonChatKeys, userId],
   );
-
-  return metas.concat(
-    result.rows.map((row) => ({
-      key: row.store_key,
-      updatedAt: row.updated_at,
-      checksum: row.checksum,
-      sizeBytes: row.size_bytes,
-    })),
+  const nextMetas = metas.concat(
+    result.rows
+      .filter((row) => row.store_key !== StoreKey.Access)
+      .map((row) => ({
+        key: row.store_key,
+        updatedAt: row.updated_at,
+        checksum: row.checksum,
+        sizeBytes: row.size_bytes,
+      })),
   );
+
+  if (nonChatKeys.includes(StoreKey.Access)) {
+    const accessSnapshot = await getStoreSnapshot(StoreKey.Access, userId);
+    if (accessSnapshot !== undefined) {
+      const updatedResult = await pgQuery<{ updated_at: string | null }>(
+        `select max(updated_at)::text as updated_at
+         from (
+           select updated_at
+           from app_settings
+           where user_id = (select id from app_users where external_id = $1 limit 1)
+             and security_settings ? 'access-control'
+           union all
+           select updated_at
+           from provider_configs
+           where user_id = (select id from app_users where external_id = $1 limit 1)
+           union all
+           select pak.updated_at
+           from provider_api_keys pak
+           join provider_configs pc on pc.id = pak.provider_config_id
+           where pc.user_id = (select id from app_users where external_id = $1 limit 1)
+           union all
+           select updated_at
+           from sync_secrets
+           where user_id = $1
+             and secret_key = 'access-control'
+         ) access_updates`,
+        [userId],
+      );
+      const payloadText = JSON.stringify(accessSnapshot);
+      nextMetas.push({
+        key: StoreKey.Access,
+        updatedAt:
+          updatedResult.rows[0]?.updated_at || new Date(0).toISOString(),
+        checksum: createHash("md5").update(payloadText).digest("hex"),
+        sizeBytes: Buffer.byteLength(payloadText, "utf8"),
+      });
+    }
+  }
+
+  return nextMetas;
 }
 
 export async function applyChatDelta(params: {
@@ -471,7 +491,6 @@ export async function applyChatDelta(params: {
   await ensureSyncStorageSchema();
   const userId = params.userId ?? getDefaultSyncUserId();
   const deleteSessionIds = dedupeDeleteSessionIds(params.deleteSessionIds);
-  const sessionRows = buildChatSessionRows(params.upsertSessions);
 
   await withPgTransaction(async (client) => {
     await client.query(
@@ -483,27 +502,12 @@ export async function applyChatDelta(params: {
       [userId, sanitizeJsonPayload(params.index)],
     );
 
-    if (sessionRows.length > 0) {
-      for (const row of sessionRows) {
-        await client.query(
-          `insert into user_chat_state_sessions (user_id, session_id, payload_json)
-           values ($1, $2, $3::jsonb)
-           on conflict (user_id, session_id) do update set
-             payload_json = excluded.payload_json,
-             updated_at = now()`,
-          [userId, row.artifactPath, row.payloadText],
-        );
-      }
-    }
-
-    if (deleteSessionIds.length > 0) {
-      await client.query(
-        `delete from user_chat_state_sessions
-         where user_id = $2
-           and session_id = any($1::text[])`,
-        [deleteSessionIds, userId],
-      );
-    }
+    await syncNormalizedChatSessions(client, {
+      externalUserId: userId,
+      index: params.index,
+      upsertSessions: params.upsertSessions,
+      deleteSessionIds,
+    });
   });
 }
 
@@ -513,9 +517,6 @@ export async function setFullChatStateSnapshot(
 ) {
   const chatState = normalizeChatStorePayload(payload);
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
-  const sessionIds = sessions
-    .map((session) => String(session?.id || ""))
-    .filter(Boolean);
 
   await applyChatDelta({
     userId,
@@ -523,13 +524,6 @@ export async function setFullChatStateSnapshot(
     upsertSessions: sessions,
     deleteSessionIds: [],
   });
-
-  await pgQuery(
-    `delete from user_chat_state_sessions
-     where user_id = $2
-       and session_id <> all($1::text[])`,
-    [sessionIds, userId],
-  );
 }
 
 export async function setStoreSnapshot(
@@ -548,7 +542,7 @@ export async function setStoreSnapshot(
   let nextPayload = payload;
   if (storeKey === StoreKey.Access) {
     const { publicPayload, secretPayload } = splitAccessStorePayload(payload);
-    nextPayload = publicPayload;
+    nextPayload = stripAccessStoreProfiles(publicPayload);
     await setEncryptedSyncSecret({
       userId,
       secretKey: storeKey,
@@ -567,9 +561,21 @@ export async function removeFullChatStateSnapshot(
   await pgQuery(`delete from user_chat_state_indexes where user_id = $1`, [
     userId,
   ]);
-  await pgQuery(`delete from user_chat_state_sessions where user_id = $1`, [
-    userId,
-  ]);
+  await pgQuery(
+    `delete from messages
+     where conversation_id in (
+       select id from conversations
+       where external_session_id is not null
+         and user_id = (select id from app_users where external_id = $1 limit 1)
+     )`,
+    [userId],
+  );
+  await pgQuery(
+    `delete from conversations
+     where external_session_id is not null
+       and user_id = (select id from app_users where external_id = $1 limit 1)`,
+    [userId],
+  );
 }
 
 export async function removeStoreSnapshot(

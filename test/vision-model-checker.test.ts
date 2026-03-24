@@ -5,7 +5,7 @@ describe("isVisionModel", () => {
 
   async function loadUtils() {
     const mod = await import("../app/utils/model-capabilities");
-    return (mod.default ?? mod) as typeof import("../app/utils/model-capabilities");
+    return mod as typeof import("../app/utils/model-capabilities");
   }
 
   beforeEach(() => {

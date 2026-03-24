@@ -3,17 +3,17 @@ import { jest } from "@jest/globals";
 describe("AiHubMix media routing", () => {
   async function loadMediaUtils() {
     const mod = await import("../app/client/openai-media-utils");
-    return (mod.default ?? mod) as typeof import("../app/client/openai-media-utils");
+    return mod as typeof import("../app/client/openai-media-utils");
   }
 
   async function loadUtils() {
     const mod = await import("../app/utils/model-capabilities");
-    return (mod.default ?? mod) as typeof import("../app/utils/model-capabilities");
+    return mod as typeof import("../app/utils/model-capabilities");
   }
 
   async function loadParameterRules() {
     const mod = await import("../app/client/model-capability");
-    return (mod.default ?? mod) as typeof import("../app/client/model-capability");
+    return mod as typeof import("../app/client/model-capability");
   }
 
   function createMockBlobResponse(blob: Blob): Response {
@@ -38,7 +38,7 @@ describe("AiHubMix media routing", () => {
         style: "natural",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       input: {
@@ -109,7 +109,7 @@ describe("AiHubMix media routing", () => {
         model: "I2V-01-live",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       model: "I2V-01-live",
@@ -129,7 +129,7 @@ describe("AiHubMix media routing", () => {
         seconds: "4",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       model: "veo2-fast",
@@ -164,7 +164,7 @@ describe("AiHubMix media routing", () => {
         model: "veo2-fast",
       },
       onFinish() {},
-    });
+    } as any);
 
     expect(payload).toEqual({
       model: "veo2-fast",
@@ -184,7 +184,7 @@ describe("AiHubMix media routing", () => {
           model: "veo2-fast",
         },
         onFinish() {},
-      }),
+      } as any),
     ).toThrow("Veo 系列当前只接受英文提示词");
   });
 

@@ -10,6 +10,21 @@
   - 例如：侧边栏宽度、语言、横幅关闭状态、输入草稿
 - `PostgreSQL`
   - 作为云端共享副本和最终可信源
+  - 当前真实落点不是统一的 `sync_artifacts`
+  - 聊天数据写入：
+    - `user_chat_state_indexes`
+    - `conversations`
+    - `messages`
+  - 其余 store 主要写入：
+    - `app_settings`
+    - `provider_configs`
+    - `provider_api_keys`
+    - `sync_secrets`
+  - 模型目录与运行状态写入：
+    - `model_catalog`
+    - `model_sync_runs`
+    - `user_model_refresh_states`
+    - `user_provider_balance_snapshots`
 - 模型供应商 API
   - 只作为模型数据更新来源
   - 不作为页面运行时直接主数据源
@@ -77,6 +92,10 @@
 - 自动同步入口：`syncStore.autoSync()`
 - 模型专用同步入口：`syncStore.syncModels()`
 - 手动模型刷新脚本：`yarn db:refresh-provider-models`
+- 旧聊天数据迁移脚本：`yarn db:migrate-chat-store`
 - 手动模型刷新接口：`POST /api/db/models/refresh`
 - 若配置了 `MODEL_SYNC_TOKEN`，接口必须带：
   - `Authorization: Bearer <MODEL_SYNC_TOKEN>`
+- 若环境只跑了最小初始化逻辑，而没有执行完整 schema SQL：
+  - 当前运行时初始化已经会自动补齐 `model_catalog`、`model_sync_runs` 等关键表
+  - 但完整 schema SQL 和运行时初始化仍需要保持同步维护

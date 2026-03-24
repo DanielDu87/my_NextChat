@@ -31,7 +31,11 @@ curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
 
 ## 更新来源
 
-- 来源于云端 `access-control` 快照中的 `apiProfiles`
+- 来源于云端 `access-control` 的结构化 provider 配置
+- 实际读取来源为：
+  - `provider_configs`
+  - `provider_api_keys`
+  - `sync_secrets`
 - 仅处理已配置 `baseUrl + apiKey` 的 profile
 - 自动更新实现采用“注册表 + 默认兼容策略”
   - 已知供应商走固定 preset
@@ -40,8 +44,9 @@ curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
 - 只有当新供应商的模型列表接口完全不兼容现有候选路径时，才需要补一个新的 fetch adapter
 - 拉取后会更新：
   - PostgreSQL `model_catalog`
-  - PostgreSQL `sync_artifacts` 中的 `app-config`
-  - PostgreSQL `sync_artifacts` 中的 `access-control`
+  - PostgreSQL `model_sync_runs`
+  - PostgreSQL `app_settings.model_settings` 中的 `app-config`
+  - PostgreSQL `app_settings.model_settings` 中的 `model-cache-store`
 
 ## 结果
 

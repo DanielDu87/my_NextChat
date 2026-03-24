@@ -153,3 +153,17 @@ export function mergeAccessStorePayload(
 
   return state ? { ...root, state: targetState } : targetState;
 }
+
+export function stripAccessStoreProfiles(payload: unknown) {
+  if (!isObject(payload)) {
+    return payload;
+  }
+
+  const root = { ...payload };
+  const state = isObject(root.state) ? { ...root.state } : null;
+  const targetState = state ?? root;
+
+  delete targetState.apiProfiles;
+
+  return state ? { ...root, state: targetState } : targetState;
+}

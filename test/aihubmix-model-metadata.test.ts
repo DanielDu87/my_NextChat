@@ -1,11 +1,11 @@
 async function loadModelsUtils() {
   const mod = await import("../app/utils/models");
-  return (mod.default ?? mod) as typeof import("../app/utils/models");
+  return mod as typeof import("../app/utils/models");
 }
 
 async function loadClassificationUtils() {
   const mod = await import("../app/utils/model-classification");
-  return (mod.default ?? mod) as typeof import("../app/utils/model-classification");
+  return mod as typeof import("../app/utils/model-classification");
 }
 
 describe("normalizeAiHubMixModelMetadata", () => {

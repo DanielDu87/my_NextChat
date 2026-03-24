@@ -22,6 +22,8 @@
     "db:refresh-provider-models": "npx tsx ./scripts/refresh-provider-models.ts",
     "db:seed-chat-performance": "npx tsx ./scripts/seed-chat-performance.ts",
     "db:migrate-webdav-stores": "npx tsx ./scripts/migrate-webdav-stores-to-postgres.ts",
+    "db:migrate-chat-store": "npx tsx ./scripts/migrate-chat-store-to-conversations.ts",
+    "db:cleanup-legacy-chat-store": "npx tsx ./scripts/cleanup-legacy-chat-state-sessions.ts",
     "db:migrate-sync-artifacts": "npx tsx ./scripts/migrate-sync-artifacts-to-dedicated-tables.ts",
     "prepare": "husky install",
     "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev",

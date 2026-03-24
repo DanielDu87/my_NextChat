@@ -23,10 +23,22 @@ import BotIconDoubao from "../icons/llm-icons/doubao.svg";
 import BotIconChatglm from "../icons/llm-icons/chatglm.svg";
 
 export function getEmojiUrl(unified: string, style: EmojiStyle) {
-  // Whoever owns this Content Delivery Network (CDN), I am using your CDN to serve emojis
-  // Old CDN broken, so I had to switch to this one
-  // Author: https://github.com/H0llyW00dzZ
-  return `https://fastly.jsdelivr.net/npm/emoji-datasource-apple/img/${style}/64/${unified}.png`;
+  void style;
+
+  const emojiText = unified
+    .split("-")
+    .map((code) => String.fromCodePoint(parseInt(code, 16)))
+    .join("");
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+      <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-size="52">
+        ${emojiText}
+      </text>
+    </svg>
+  `.trim();
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
 export function AvatarPicker(props: {
@@ -37,6 +49,7 @@ export function AvatarPicker(props: {
       width={"100%"}
       lazyLoadEmojis
       theme={EmojiTheme.AUTO}
+      emojiStyle={EmojiStyle.NATIVE}
       getEmojiUrl={getEmojiUrl}
       onEmojiClick={(e) => {
         props.onEmojiClick(e.unified);
@@ -228,6 +241,7 @@ export function EmojiAvatar(props: { avatar: string; size?: number }) {
     <Emoji
       unified={props.avatar}
       size={props.size ?? 18}
+      emojiStyle={EmojiStyle.NATIVE}
       getEmojiUrl={getEmojiUrl}
     />
   );

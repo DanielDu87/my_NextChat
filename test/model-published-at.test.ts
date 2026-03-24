@@ -6,7 +6,7 @@ describe("model publishedAt", () => {
 
   async function loadPublishedAtUtils() {
     const mod = await import("../app/utils/model-published-at");
-    return (mod.default ?? mod) as typeof import("../app/utils/model-published-at");
+    return mod as typeof import("../app/utils/model-published-at");
   }
 
   beforeAll(async () => {

@@ -120,7 +120,18 @@ async function clearExistingChatArtifacts() {
     ["single-user"],
   );
   await pgQuery(
-    `delete from user_chat_state_sessions where user_id = $1`,
+    `delete from messages
+     where conversation_id in (
+       select id from conversations
+       where external_session_id is not null
+         and user_id = (select id from app_users where external_id = $1 limit 1)
+     )`,
+    ["single-user"],
+  );
+  await pgQuery(
+    `delete from conversations
+     where external_session_id is not null
+       and user_id = (select id from app_users where external_id = $1 limit 1)`,
     ["single-user"],
   );
 }
@@ -165,8 +176,9 @@ async function main() {
 
   const indexCountResult = await pgQuery<{ count: string }>(
     `select count(*)::text as count
-     from user_chat_state_sessions
-     where user_id = $1`,
+     from conversations
+     where external_session_id is not null
+       and user_id = (select id from app_users where external_id = $1 limit 1)`,
     ["single-user"],
   );
 
@@ -178,7 +190,7 @@ async function main() {
         sessions: options.sessions,
         messagesPerSession: options.messages,
         totalMessages: options.sessions * options.messages,
-        remoteChatSessionRows: Number(indexCountResult.rows[0]?.count ?? 0),
+        remoteChatConversationRows: Number(indexCountResult.rows[0]?.count ?? 0),
       },
       null,
       2,

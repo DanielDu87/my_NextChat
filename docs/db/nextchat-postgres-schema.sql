@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS provider_api_keys (
 CREATE TABLE IF NOT EXISTS conversations (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
   user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  external_session_id text,
   provider_config_id uuid REFERENCES provider_configs(id) ON DELETE SET NULL,
   title text,
   summary text,
@@ -135,10 +136,15 @@ CREATE TABLE IF NOT EXISTS conversations (
   deleted_at timestamptz
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_user_external_session_id
+ON conversations(user_id, external_session_id)
+WHERE external_session_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS messages (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
   conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   parent_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+  external_message_id text,
   seq integer NOT NULL,
   role text NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
   status text NOT NULL DEFAULT 'done',
@@ -299,15 +305,6 @@ CREATE TABLE IF NOT EXISTS user_chat_state_indexes (
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS user_chat_state_sessions (
-  user_id text NOT NULL,
-  session_id text NOT NULL,
-  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  updated_at timestamptz NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, session_id)
-);
-
 CREATE TABLE IF NOT EXISTS user_model_refresh_states (
   user_id text NOT NULL,
   refresh_key text NOT NULL,
@@ -388,7 +385,6 @@ CREATE INDEX IF NOT EXISTS idx_model_sync_runs_provider_started_at ON model_sync
 CREATE INDEX IF NOT EXISTS idx_model_sync_cache_updated_at ON model_sync_cache(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_unmatched_last_seen_at ON model_unmatched(last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sync_secrets_user_updated ON sync_secrets(user_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_user_chat_state_sessions_user_updated ON user_chat_state_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_model_refresh_states_user_updated ON user_model_refresh_states(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_provider_balance_snapshots_user_updated ON user_provider_balance_snapshots(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_created_at ON usage_logs(user_id, created_at DESC);
@@ -455,10 +451,6 @@ CREATE OR REPLACE TRIGGER trg_user_chat_state_indexes_updated_at
 BEFORE UPDATE ON user_chat_state_indexes
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE OR REPLACE TRIGGER trg_user_chat_state_sessions_updated_at
-BEFORE UPDATE ON user_chat_state_sessions
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
 CREATE OR REPLACE TRIGGER trg_user_model_refresh_states_updated_at
 BEFORE UPDATE ON user_model_refresh_states
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -481,7 +473,6 @@ COMMENT ON TABLE model_catalog IS '模型目录和归一化元数据';
 COMMENT ON TABLE model_sync_cache IS '模型发布时间和来源缓存';
 COMMENT ON TABLE model_unmatched IS '仍未命中的模型记录';
 COMMENT ON TABLE user_chat_state_indexes IS '用户聊天索引快照';
-COMMENT ON TABLE user_chat_state_sessions IS '用户聊天会话快照';
 COMMENT ON TABLE user_model_refresh_states IS '用户模型刷新状态';
 COMMENT ON TABLE user_provider_balance_snapshots IS '用户供应商余额快照';
 COMMENT ON TABLE model_source_index_snapshots IS '模型来源索引快照';
