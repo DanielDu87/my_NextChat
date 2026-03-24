@@ -2719,46 +2719,20 @@ function _Chat() {
 
   // preview messages
   const renderMessages = useMemo(() => {
-    const hasStreamingAssistant = sessionMessages.some(
-      (message) => message.role === "assistant" && message.streaming,
+    return context.concat(sessionMessages as RenderMessage[]).concat(
+      userInput.length > 0 && config.sendPreviewBubble
+        ? [
+            {
+              ...createMessage({
+                role: "user",
+                content: userInput,
+              }),
+              preview: true,
+            },
+          ]
+        : [],
     );
-
-    return context
-      .concat(sessionMessages as RenderMessage[])
-      .concat(
-        isLoading && !autoModeEnabled && !hasStreamingAssistant
-          ? [
-              {
-                ...createMessage({
-                  role: "assistant",
-                  content: "……",
-                }),
-                preview: true,
-              },
-            ]
-          : [],
-      )
-      .concat(
-        userInput.length > 0 && config.sendPreviewBubble
-          ? [
-              {
-                ...createMessage({
-                  role: "user",
-                  content: userInput,
-                }),
-                preview: true,
-              },
-            ]
-          : [],
-      );
-  }, [
-    autoModeEnabled,
-    config.sendPreviewBubble,
-    context,
-    isLoading,
-    sessionMessages,
-    userInput,
-  ]);
+  }, [config.sendPreviewBubble, context, sessionMessages, userInput]);
 
   const [msgRenderIndex, _setMsgRenderIndex] = useState(
     Math.max(0, renderMessages.length - CHAT_PAGE_SIZE),
