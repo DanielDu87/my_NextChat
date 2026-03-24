@@ -20,7 +20,10 @@ import {
   syncNormalizedChatSessions,
 } from "./chat-conversation-repository";
 import {
+  getChatIndexState,
   getAppSettingsStore,
+  removeChatIndexState,
+  setChatIndexState,
   syncAppSettingsStore,
 } from "./app-settings-repository";
 import {
@@ -175,21 +178,13 @@ export function isSupportedStoreKey(storeKey: string) {
 }
 
 export async function getChatIndexSnapshot(userId = getDefaultSyncUserId()) {
-  await ensureSyncStorageSchema();
-  const result = await pgQuery<{ payload_json: unknown }>(
-    `select payload_json
-     from user_chat_state_indexes
-     where user_id = $1
-     limit 1`,
-    [userId],
+  const chatIndexState = (await getChatIndexState(userId)) as
+    | Record<string, unknown>
+    | undefined;
+  const normalizedIndex = await buildNormalizedChatIndexSnapshot(
+    userId,
+    chatIndexState,
   );
-
-  const payload = result.rows[0]?.payload_json;
-  if (payload) {
-    return payload as ChatIndexPayload;
-  }
-
-  const normalizedIndex = await buildNormalizedChatIndexSnapshot(userId);
   if (normalizedIndex) {
     return normalizedIndex;
   }
@@ -305,28 +300,29 @@ export async function getStoreSnapshotMetas(
   }> = [];
 
   if (normalizedStoreKeys.includes(StoreKey.Chat)) {
-    const result = await pgQuery<{
-      updated_at: string;
-      checksum: string;
-      size_bytes: number;
-    }>(
-      `select
-         updated_at::text as updated_at,
-         md5(payload_json::text) as checksum,
-         pg_column_size(payload_json) as size_bytes
-       from user_chat_state_indexes
-       where user_id = $1
-       limit 1`,
-      [userId],
-    );
-
-    const row = result.rows[0];
-    if (row) {
+    const payload = await getStoreSnapshot(StoreKey.Chat, userId);
+    if (payload !== undefined) {
+      const updatedResult = await pgQuery<{ updated_at: string | null }>(
+        `select max(updated_at)::text as updated_at
+         from (
+           select updated_at
+           from app_settings
+           where user_id = (select id from app_users where external_id = $1 limit 1)
+             and chat_settings ? '__chat-index-state__'
+           union all
+           select updated_at
+           from conversations
+           where user_id = (select id from app_users where external_id = $1 limit 1)
+         ) chat_updates`,
+        [userId],
+      );
+      const payloadText = JSON.stringify(payload);
       metas.push({
         key: StoreKey.Chat,
-        updatedAt: row.updated_at,
-        checksum: row.checksum,
-        sizeBytes: row.size_bytes,
+        updatedAt:
+          updatedResult.rows[0]?.updated_at || new Date(0).toISOString(),
+        checksum: createHash("md5").update(payloadText).digest("hex"),
+        sizeBytes: Buffer.byteLength(payloadText, "utf8"),
       });
     }
   }
@@ -493,15 +489,6 @@ export async function applyChatDelta(params: {
   const deleteSessionIds = dedupeDeleteSessionIds(params.deleteSessionIds);
 
   await withPgTransaction(async (client) => {
-    await client.query(
-      `insert into user_chat_state_indexes (user_id, payload_json)
-       values ($1, $2::jsonb)
-       on conflict (user_id) do update set
-         payload_json = excluded.payload_json,
-         updated_at = now()`,
-      [userId, sanitizeJsonPayload(params.index)],
-    );
-
     await syncNormalizedChatSessions(client, {
       externalUserId: userId,
       index: params.index,
@@ -509,6 +496,8 @@ export async function applyChatDelta(params: {
       deleteSessionIds,
     });
   });
+
+  await setChatIndexState(userId, sanitizeJsonPayload(params.index.state));
 }
 
 export async function setFullChatStateSnapshot(
@@ -558,9 +547,7 @@ export async function removeFullChatStateSnapshot(
   userId = getDefaultSyncUserId(),
 ) {
   await ensureSyncStorageSchema();
-  await pgQuery(`delete from user_chat_state_indexes where user_id = $1`, [
-    userId,
-  ]);
+  await removeChatIndexState(userId);
   await pgQuery(
     `delete from messages
      where conversation_id in (

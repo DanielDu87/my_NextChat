@@ -469,14 +469,6 @@ export async function ensureSyncStorageSchema() {
         on provider_api_keys(provider_config_id)
       `);
         await client.query(`
-        create table if not exists user_chat_state_indexes (
-          user_id text primary key,
-          payload_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
         create table if not exists user_model_refresh_states (
           user_id text not null,
           refresh_key text not null,
@@ -571,11 +563,6 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create or replace trigger trg_model_catalog_updated_at
         before update on model_catalog
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_user_chat_state_indexes_updated_at
-        before update on user_chat_state_indexes
         for each row execute function set_updated_at()
       `);
         await client.query(`

@@ -111,10 +111,16 @@ jest.unstable_mockModule(
 
 const getAppSettingsStoreMock = jest.fn(async () => undefined);
 const syncAppSettingsStoreMock = jest.fn(async () => undefined);
+const getChatIndexStateMock = jest.fn(async () => undefined);
+const setChatIndexStateMock = jest.fn(async () => undefined);
+const removeChatIndexStateMock = jest.fn(async () => undefined);
 
 jest.unstable_mockModule("../app/utils/server/app-settings-repository", () => ({
   getAppSettingsStore: getAppSettingsStoreMock,
   syncAppSettingsStore: syncAppSettingsStoreMock,
+  getChatIndexState: getChatIndexStateMock,
+  setChatIndexState: setChatIndexStateMock,
+  removeChatIndexState: removeChatIndexStateMock,
 }));
 
 const { applyChatDelta } = await import("../app/utils/server/sync-store-repository");
@@ -129,6 +135,9 @@ describe("sync store repository helpers", () => {
     buildNormalizedChatIndexSnapshotMock.mockClear();
     getProviderProfilesForAccessStateMock.mockClear();
     syncProviderConfigsFromAccessStateMock.mockClear();
+    getChatIndexStateMock.mockClear();
+    setChatIndexStateMock.mockClear();
+    removeChatIndexStateMock.mockClear();
   });
 
   test("buildChatSessionRows should batch valid sessions and sanitize null bytes", () => {
@@ -179,21 +188,15 @@ describe("sync store repository helpers", () => {
       deleteSessionIds: ["s2", "", "s1", "s2"],
     });
 
-    expect(queryMock).toHaveBeenCalledTimes(1);
-
-    expect(queryMock.mock.calls[0][0]).toContain(
-      "insert into user_chat_state_indexes (user_id, payload_json)",
-    );
-    expect(queryMock.mock.calls[0][1]).toEqual([
-      "single-user",
-      JSON.stringify({
-        version: 1,
-        state: { currentSessionId: "s1" },
-        sessions: [],
-      }),
-    ]);
+    expect(queryMock).toHaveBeenCalledTimes(0);
 
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledTimes(1);
+    expect(setChatIndexStateMock).toHaveBeenCalledWith(
+      "single-user",
+      JSON.stringify({
+        currentSessionId: "s1",
+      }),
+    );
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledWith(
       { query: queryMock },
       {
@@ -210,6 +213,7 @@ describe("sync store repository helpers", () => {
         deleteSessionIds: ["s2", "s1"],
       },
     );
+    expect(syncAppSettingsStoreMock).not.toHaveBeenCalled();
   });
 
   test("setStoreSnapshot should also sync app settings for config stores", async () => {

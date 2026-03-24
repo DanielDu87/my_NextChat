@@ -337,7 +337,10 @@ export async function getNormalizedChatSessionSnapshots(
   return sessionMap;
 }
 
-export async function buildNormalizedChatIndexSnapshot(externalUserId: string) {
+export async function buildNormalizedChatIndexSnapshot(
+  externalUserId: string,
+  state?: Record<string, unknown>,
+) {
   await ensureSyncStorageSchema();
   const appUserId = await getOrCreateSyncAppUserId(externalUserId);
   const result = await pgQuery<{
@@ -372,8 +375,19 @@ export async function buildNormalizedChatIndexSnapshot(externalUserId: string) {
     messageCount: Number(row.metadata_json?._syncMessageCount || 0) || 0,
   }));
 
+  const statePayload =
+    state && typeof state === "object" && !Array.isArray(state) ? state : {};
+  const currentSessionId = String(statePayload.currentSessionId || "");
+  const currentSessionIndex = currentSessionId
+    ? Math.max(
+        0,
+        sessions.findIndex((session) => session.id === currentSessionId),
+      )
+    : 0;
+
   return buildChatIndexPayload({
+    ...statePayload,
     sessions,
-    currentSessionIndex: 0,
+    currentSessionIndex,
   });
 }

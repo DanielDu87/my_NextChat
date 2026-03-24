@@ -20,7 +20,7 @@
 | 数据/功能 | PostgreSQL 表 | 列/结构 | 代码入口 |
 | --- | --- | --- | --- |
 | 同步用户映射 | `app_users` | `external_id`、`id` | `sync-app-user.ts` |
-| 聊天索引 | `user_chat_state_indexes` | `payload_json` | `sync-store-repository.ts` |
+| 聊天索引状态 | `app_settings` | `chat_settings -> '__chat-index-state__'` | `sync-store-repository.ts` |
 | 聊天会话正文主表 | `conversations` + `messages` | 会话与消息规范化存储 | `chat-conversation-repository.ts` |
 | 配置主 store | `app_settings` | `model_settings -> 'app-config'` | `app-settings-repository.ts` |
 | 模型缓存 | `app_settings` | `model_settings -> 'model-cache-store'` | `app-settings-repository.ts` |
@@ -70,7 +70,7 @@
 
 | 数据类型 | 典型 key / 表 | 本地存储 | 云端存储 | 页面加载策略 | 手动同步策略 | 自动更新来源 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 对话数据 | `chat-next-web-store` | `IndexedDB` | PostgreSQL `user_chat_state_indexes` + `conversations` + `messages` | 先读本地，再检查云端版本；云端变更且本地无脏数据时下载 | `保存并同步` 上传本地；`从数据库下载` 覆盖本地 | 无外部来源 |
+| 对话数据 | `chat-next-web-store` | `IndexedDB` | PostgreSQL `app_settings.chat_settings` + `conversations` + `messages` | 先读本地，再检查云端版本；云端变更且本地无脏数据时下载 | `保存并同步` 上传本地；`从数据库下载` 覆盖本地 | 无外部来源 |
 | 插件数据 | `chat-next-web-plugin` | `IndexedDB` | PostgreSQL `app_settings.plugin_settings` | 同上 | 同上 | 无外部来源 |
 | API / 平台配置 | `access-control` | `IndexedDB` | PostgreSQL `app_settings.security_settings` + `provider_configs` + `provider_api_keys` + `sync_secrets` | 先读本地，再检查云端版本 | 同上 | 用户手动保存、同步按钮 |
 | 模型配置 | `app-config` | `IndexedDB` | PostgreSQL `app_settings.model_settings` | 先读本地，再检查云端版本 | 同上 | 模型刷新任务会回写最新模型列表 |
@@ -191,9 +191,9 @@
 - `share_links`
 - `model_aliases`
 
-当前聊天索引仍然保存在：
+当前聊天索引状态保存在：
 
-- `user_chat_state_indexes`
+- `app_settings.chat_settings`
 
 当前聊天正文主存储已经切到：
 
@@ -219,7 +219,7 @@
 
 ### 12.2 中优先级
 
-- 聊天数据正文已经进入 `conversations` / `messages`，后续可以继续把索引状态从 `user_chat_state_indexes` 迁出，进一步减少过渡层。
+- 聊天数据已经收敛到 `conversations` / `messages` + `app_settings.chat_settings`，后续如需继续优化，可再考虑把索引状态进一步并入更明确的聊天专用设置模型。
 - `access-control` 当前已经收敛为结构化 provider 数据写 `provider_configs` / `provider_api_keys` / `sync_secrets`，`app_settings` 只保留非结构化补充配置；后续需要保持这条边界不被重新打破。
 - `app_settings` 现在承担了太多 store 的聚合存储，后续若某些字段增长过快，建议拆表，而不是继续扩大单行 JSONB。
 

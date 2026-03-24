@@ -298,13 +298,6 @@ CREATE TABLE IF NOT EXISTS sync_secrets (
   UNIQUE (user_id, secret_key)
 );
 
-CREATE TABLE IF NOT EXISTS user_chat_state_indexes (
-  user_id text PRIMARY KEY,
-  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  updated_at timestamptz NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS user_model_refresh_states (
   user_id text NOT NULL,
   refresh_key text NOT NULL,
@@ -447,10 +440,6 @@ CREATE OR REPLACE TRIGGER trg_sync_secrets_updated_at
 BEFORE UPDATE ON sync_secrets
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE OR REPLACE TRIGGER trg_user_chat_state_indexes_updated_at
-BEFORE UPDATE ON user_chat_state_indexes
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
 CREATE OR REPLACE TRIGGER trg_user_model_refresh_states_updated_at
 BEFORE UPDATE ON user_model_refresh_states
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -472,7 +461,6 @@ COMMENT ON TABLE messages IS '消息表';
 COMMENT ON TABLE model_catalog IS '模型目录和归一化元数据';
 COMMENT ON TABLE model_sync_cache IS '模型发布时间和来源缓存';
 COMMENT ON TABLE model_unmatched IS '仍未命中的模型记录';
-COMMENT ON TABLE user_chat_state_indexes IS '用户聊天索引快照';
 COMMENT ON TABLE user_model_refresh_states IS '用户模型刷新状态';
 COMMENT ON TABLE user_provider_balance_snapshots IS '用户供应商余额快照';
 COMMENT ON TABLE model_source_index_snapshots IS '模型来源索引快照';

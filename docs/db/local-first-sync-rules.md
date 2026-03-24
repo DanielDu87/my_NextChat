@@ -12,9 +12,9 @@
   - 作为云端共享副本和最终可信源
   - 当前真实落点不是统一的 `sync_artifacts`
   - 聊天数据写入：
-    - `user_chat_state_indexes`
     - `conversations`
     - `messages`
+    - `app_settings.chat_settings`
   - 其余 store 主要写入：
     - `app_settings`
     - `provider_configs`
