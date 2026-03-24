@@ -183,7 +183,6 @@
 - `auth_sessions`
 - `message_attachments`
 - `tags`
-- `conversation_tags`
 - `share_links`
 - `model_aliases`
 

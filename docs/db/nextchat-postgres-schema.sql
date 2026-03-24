@@ -185,13 +185,6 @@ CREATE TABLE IF NOT EXISTS tags (
   UNIQUE (user_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS conversation_tags (
-  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  tag_id uuid NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (conversation_id, tag_id)
-);
-
 CREATE TABLE IF NOT EXISTS share_links (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
   conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

@@ -7,7 +7,6 @@ type CountResult = {
 const TABLES_TO_PURGE = [
   "message_attachments",
   "share_links",
-  "conversation_tags",
   "tags",
   "messages",
   "conversations",

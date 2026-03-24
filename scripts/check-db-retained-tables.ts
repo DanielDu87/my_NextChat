@@ -29,7 +29,6 @@ async function main() {
       'messages', ${countIfExists("messages")},
       'message_attachments', ${countIfExists("message_attachments")},
       'tags', ${countIfExists("tags")},
-      'conversation_tags', ${countIfExists("conversation_tags")},
       'share_links', ${countIfExists("share_links")},
       'model_catalog', ${countIfExists("model_catalog")},
       'model_aliases', ${countIfExists("model_aliases")},

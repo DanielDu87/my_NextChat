@@ -2326,7 +2326,9 @@ function _Chat() {
     let nextModelConfig = sessionMask.modelConfig;
     let shouldSyncMaskConfig = false;
 
-    if (sessionMask.syncGlobalConfig) {
+    // 仅在空白会话时把全局模型配置下发到当前会话。
+    // 一旦已经开始对话，继续自动回写会把会话模型在发送后覆盖成全局值。
+    if (sessionMask.syncGlobalConfig && sessionMessages.length === 0) {
       nextModelConfig = { ...config.modelConfig };
       if (
         autoModeEnabled &&

@@ -384,14 +384,6 @@ export async function ensureSyncStorageSchema() {
         )
       `);
         await client.query(`
-        create table if not exists conversation_tags (
-          conversation_id uuid not null references conversations(id) on delete cascade,
-          tag_id uuid not null references tags(id) on delete cascade,
-          created_at timestamptz not null default now(),
-          primary key (conversation_id, tag_id)
-        )
-      `);
-        await client.query(`
         create table if not exists share_links (
           id uuid primary key default generate_uuid_v4(),
           conversation_id uuid not null references conversations(id) on delete cascade,

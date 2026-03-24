@@ -8,7 +8,6 @@ const UNUSED_TABLES = [
   "auth_sessions",
   "auth_accounts",
   "share_links",
-  "conversation_tags",
   "tags",
   "message_attachments",
   "model_aliases",
