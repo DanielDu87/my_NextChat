@@ -239,6 +239,54 @@ function getEnabledProviderId(
   return String(providerName).toLowerCase();
 }
 
+export function resolveModelProviderId(
+  allModels: readonly ModelLike[],
+  currentModelConfig: ProviderScopedModelConfig | undefined,
+  accessProfiles: readonly AccessProfileLike[] = [],
+) {
+  const providerName = currentModelConfig?.providerName;
+  const modelName = currentModelConfig?.model;
+  if (!providerName) {
+    return undefined;
+  }
+
+  const preferredEnabledProviderId = getEnabledProviderId(
+    providerName,
+    accessProfiles,
+  );
+
+  const matchedProviderIds = Array.from(
+    new Set(
+      allModels
+        .filter(
+          (model) =>
+            model.available &&
+            model.name === modelName &&
+            model.provider?.providerName === providerName,
+        )
+        .map((model) => String(model.provider?.id || "").toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+
+  if (
+    preferredEnabledProviderId &&
+    matchedProviderIds.includes(preferredEnabledProviderId)
+  ) {
+    return preferredEnabledProviderId;
+  }
+
+  if (matchedProviderIds.length === 1) {
+    return matchedProviderIds[0];
+  }
+
+  if (preferredEnabledProviderId) {
+    return preferredEnabledProviderId;
+  }
+
+  return String(providerName).toLowerCase();
+}
+
 function isOpenAIChatModel(model: ModelLike) {
   if (!model.available) {
     return false;
@@ -353,14 +401,8 @@ export function getLatestOpenAIModelForCurrentSupplier(
   currentModelConfig: ProviderScopedModelConfig | undefined,
   accessProfiles: readonly AccessProfileLike[] = [],
 ): { model: string; providerName: ServiceProviderValue } | undefined {
-  const inferredProviderId = allModels.find(
-    (model) =>
-      model.name === currentModelConfig?.model &&
-      model.provider?.providerName === currentModelConfig?.providerName,
-  )?.provider?.id;
   const preferredProviderId =
-    getEnabledProviderId(currentModelConfig?.providerName, accessProfiles) ||
-    String(inferredProviderId || "").toLowerCase() ||
+    resolveModelProviderId(allModels, currentModelConfig, accessProfiles) ||
     String(currentModelConfig?.providerName || "").toLowerCase();
 
   if (!preferredProviderId) {
@@ -371,6 +413,39 @@ export function getLatestOpenAIModelForCurrentSupplier(
     const providerId = String(model.provider?.id || "").toLowerCase();
     return providerId === preferredProviderId;
   });
+
+  const candidates = scopedModels
+    .filter(
+      (model) =>
+        isPureOpenAIMainModel(model) || isFallbackOpenAIMainModel(model),
+    )
+    .slice()
+    .sort(compareOpenAIMainModelPriority);
+
+  const matchedModel = candidates[0];
+  if (!matchedModel?.provider?.providerName) {
+    return undefined;
+  }
+
+  return {
+    model: matchedModel.name,
+    providerName: matchedModel.provider.providerName as ServiceProviderValue,
+  };
+}
+
+export function getLatestOpenAIModelForProviderId(
+  allModels: readonly ModelLike[],
+  providerId: string | undefined,
+): { model: string; providerName: ServiceProviderValue } | undefined {
+  const normalizedProviderId = String(providerId || "").toLowerCase();
+  if (!normalizedProviderId) {
+    return undefined;
+  }
+
+  const scopedModels = allModels.filter(
+    (model) =>
+      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
+  );
 
   const candidates = scopedModels
     .filter(

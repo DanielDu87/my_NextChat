@@ -22,7 +22,7 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
     aliases: ["aihubmix", "aihubmix.com"],
     mode: "aihubmix",
     url: "https://aihubmix.com",
-    apiKey: "9c560d99d6ef4c69a2b34adbad50f870",
+    apiKey: "cd2d40b608024227b5af7ba655a5a7b4",
   },
   {
     profileName: "YutoAPI",
@@ -36,7 +36,7 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
     aliases: ["ocoolai", "one.ooo.cool"],
     mode: "ocoolai",
     url: "https://one.ooo.cool",
-    apiKey: "73eb755abbfa475f8b0063c533f2e0c5",
+    apiKey: "1e64d2329f18493784eba5b2390bcf0b",
   },
   {
     profileName: "ToAPIs",

@@ -103,6 +103,7 @@ import {
   matchModelCategory,
   ModelCategoryMetadata,
 } from "../utils/model-category-rules";
+import { resolveModelProviderId } from "../utils/model";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
@@ -158,6 +159,7 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
+  getLatestOpenAIModelForProviderId,
   getLatestOpenAIModelForCurrentSupplier,
   getModelProvider,
 } from "../utils/model";
@@ -175,6 +177,43 @@ type RemoteModelRefreshArtifact = {
     updatedAt?: string;
   }>;
 };
+
+function formatMessageUsage(
+  usage?: Partial<{
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cachedTokens: number;
+    reasoningTokens: number;
+  }>,
+) {
+  if (!usage) {
+    return "";
+  }
+
+  const parts: string[] = [];
+
+  if (Number.isFinite(usage.promptTokens)) {
+    parts.push(`输入 ${usage.promptTokens}`);
+  }
+  if (
+    Number.isFinite(usage.reasoningTokens) &&
+    (usage.reasoningTokens || 0) > 0
+  ) {
+    parts.push(`思考 ${usage.reasoningTokens}`);
+  }
+  if (Number.isFinite(usage.completionTokens)) {
+    parts.push(`输出 ${usage.completionTokens}`);
+  }
+  if (Number.isFinite(usage.totalTokens)) {
+    parts.push(`合计 ${usage.totalTokens}`);
+  }
+  if (Number.isFinite(usage.cachedTokens) && (usage.cachedTokens || 0) > 0) {
+    parts.push(`缓存 ${usage.cachedTokens}`);
+  }
+
+  return parts.length > 0 ? `Tokens: ${parts.join(" / ")}` : "";
+}
 
 function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -924,6 +963,7 @@ export function ChatActions(props: {
   uploadImage: () => void;
   setAttachImages: (images: string[]) => void;
   setUploading: (uploading: boolean) => void;
+  currentModelButtonText: string;
   showPromptModal: () => void;
   scrollToBottom: () => void;
   showPromptHints: () => void;
@@ -1106,20 +1146,25 @@ export function ChatActions(props: {
     [globalCustomModelEntries],
   );
   const currentCustomModelKey = `${currentModel}@${currentProviderName}`;
-  const activeProfile = useAccessStore((state) =>
-    state.apiProfiles.find((profile) => profile.enabled),
-  );
-  const currentProviderId = useMemo(() => {
-    if (activeProfile) {
-      return activeProfile.provider === ServiceProvider.Custom
-        ? `custom_${activeProfile.name}`.toLowerCase()
-        : String(activeProfile.provider).toLowerCase();
-    }
-    return String(currentProviderName).toLowerCase();
-  }, [activeProfile, currentProviderName]);
+  const accessProfiles = useAccessStore((state) => state.apiProfiles);
 
   // 使用 useAllModels 获取完整的真实模型列表。
   const allModels = useAllModels();
+
+  const currentProviderId = useMemo(() => {
+    return (
+      resolveModelProviderId(
+        allModels,
+        session.mask.modelConfig,
+        accessProfiles,
+      ) || String(currentProviderName).toLowerCase()
+    );
+  }, [
+    accessProfiles,
+    allModels,
+    currentProviderName,
+    session.mask.modelConfig,
+  ]);
 
   const models = useMemo(() => {
     const filteredModels = allModels.filter(
@@ -1152,14 +1197,6 @@ export function ChatActions(props: {
 
     return openAIModels[0];
   }, [config.models]);
-  const currentModelName = useMemo(() => {
-    const model = models.find(
-      (m) =>
-        m.name == currentModel &&
-        m?.provider?.providerName == currentProviderName,
-    );
-    return model?.displayName ?? currentModel;
-  }, [models, currentModel, currentProviderName]);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
 
@@ -1236,34 +1273,11 @@ export function ChatActions(props: {
         }
       }
     }
-
-    // if current model is not available
-    // switch to first available model
-    const isUnavailableModel = !models.some((m) => m.name === currentModel);
-    if (!autoModeEnabled && isUnavailableModel && models.length > 0) {
-      // show next model to default model if exist
-      let nextModel = models.find((model) => model.isDefault) || models[0];
-      chatStore.updateTargetSession(session, (session) => {
-        session.mask.modelConfig.model = nextModel.name;
-        session.mask.modelConfig.providerName = nextModel?.provider
-          ?.providerName as ServiceProvider;
-        session.mask.modelConfig = sanitizeModelConfigForCapability(
-          session.mask.modelConfig,
-        );
-      });
-      showToast(
-        nextModel?.provider?.providerName == "ByteDance"
-          ? nextModel.displayName
-          : nextModel.name,
-      );
-    }
   }, [
     canUseImageAttachments,
     chatStore,
     currentModel,
     currentSize,
-    models,
-    autoModeEnabled,
     props,
     session,
     showUploadImage,
@@ -1281,7 +1295,9 @@ export function ChatActions(props: {
       <div className={clsx(styles["chat-action-always-show-text"])}>
         <ChatAction
           onClick={props.openModelSelector}
-          text={autoModeEnabled ? autoModeButtonText : currentModelName}
+          text={
+            autoModeEnabled ? autoModeButtonText : props.currentModelButtonText
+          }
           icon={<RobotIcon />}
         />
       </div>
@@ -1851,22 +1867,37 @@ function _Chat() {
   const currentModelSupport = getModelParameterSupport(currentModel);
   const isCurrentImageGenerationModel =
     currentModelSupport.capability === "image";
-  const currentModelName = useMemo(() => {
-    return currentModel;
-  }, [currentModel]);
 
   // 模型选择器所需变量
   const allModels = useAllModels();
   const globalCustomModels = useAppConfig((state) => state.customModels);
-  const activeProfile = useAccessStore((state) =>
-    state.apiProfiles.find((profile) => profile.enabled),
-  );
-  const currentProviderDisplayName = activeProfile?.name || currentProviderName;
-  const currentBalanceCacheKey = useMemo(
-    () => buildBalanceCacheKey(currentProviderName, activeProfile),
-    [activeProfile, currentProviderName],
-  );
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const currentProviderId = useMemo(() => {
+    return (
+      resolveModelProviderId(
+        allModels,
+        sessionMask?.modelConfig,
+        apiProfiles,
+      ) || String(currentProviderName).toLowerCase()
+    );
+  }, [allModels, apiProfiles, currentProviderName, sessionMask?.modelConfig]);
+  const currentProfile = useMemo(
+    () =>
+      apiProfiles.find((profile) => {
+        const profileProviderId =
+          profile.provider === ServiceProvider.Custom
+            ? `custom_${profile.name}`.toLowerCase()
+            : String(profile.provider).toLowerCase();
+        return profileProviderId === currentProviderId;
+      }),
+    [apiProfiles, currentProviderId],
+  );
+  const currentProviderDisplayName =
+    currentProfile?.name || currentProviderName;
+  const currentBalanceCacheKey = useMemo(
+    () => buildBalanceCacheKey(currentProviderName, currentProfile),
+    [currentProfile, currentProviderName],
+  );
   const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
   const autoModeDefaultCandidate = useMemo(() => {
@@ -1882,6 +1913,22 @@ function _Chat() {
 
     return candidates[0] ?? null;
   }, [allModels, apiProfiles, autoModeEnabled, autoModelSeries]);
+  const models = useMemo(() => {
+    const filteredModels = allModels.filter(
+      (m) =>
+        m.available &&
+        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
+    );
+    return filteredModels;
+  }, [allModels, currentProviderId]);
+  const currentModelName = useMemo(() => {
+    const matchedModel = models.find(
+      (model) =>
+        model.name === currentModel &&
+        String(model?.provider?.id || "").toLowerCase() === currentProviderId,
+    );
+    return matchedModel?.displayName ?? currentModel;
+  }, [currentModel, currentProviderId, models]);
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
     : "";
@@ -1990,22 +2037,6 @@ function _Chat() {
     };
   }, [autoModelSelectionEmpty]);
 
-  const currentProviderId = useMemo(() => {
-    if (activeProfile) {
-      return activeProfile.provider === ServiceProvider.Custom
-        ? `custom_${activeProfile.name}`.toLowerCase()
-        : String(activeProfile.provider).toLowerCase();
-    }
-    return String(currentProviderName).toLowerCase();
-  }, [activeProfile, currentProviderName]);
-  const models = useMemo(() => {
-    const filteredModels = allModels.filter(
-      (m) =>
-        m.available &&
-        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
-    );
-    return filteredModels;
-  }, [allModels, currentProviderId]);
   const globalCustomModelEntries = useMemo(
     () =>
       globalCustomModels
@@ -2324,6 +2355,22 @@ function _Chat() {
 
     if (!shouldNormalizeMessages && !shouldSyncMaskConfig) {
       return;
+    }
+
+    const shouldSyncResolvedGlobalConfig =
+      shouldSyncMaskConfig &&
+      sessionMask.syncGlobalConfig &&
+      sessionMessages.length === 0 &&
+      !autoModeEnabled &&
+      !areModelConfigValuesEqual(
+        config.modelConfig as Record<string, unknown>,
+        nextModelConfig as Record<string, unknown>,
+      );
+
+    if (shouldSyncResolvedGlobalConfig) {
+      config.update((config) => {
+        config.modelConfig = nextModelConfig;
+      });
     }
 
     chatStore.updateTargetSession(session, (session) => {
@@ -2672,10 +2719,14 @@ function _Chat() {
 
   // preview messages
   const renderMessages = useMemo(() => {
+    const hasStreamingAssistant = sessionMessages.some(
+      (message) => message.role === "assistant" && message.streaming,
+    );
+
     return context
       .concat(sessionMessages as RenderMessage[])
       .concat(
-        isLoading && !autoModeEnabled
+        isLoading && !autoModeEnabled && !hasStreamingAssistant
           ? [
               {
                 ...createMessage({
@@ -2839,10 +2890,16 @@ function _Chat() {
             String(model.provider?.id || "").toLowerCase() ===
               selectedProviderId,
         );
-        const currentProviderModel = providerModels.find(
-          (model) => model.name === sessionMask.modelConfig.model,
+        const preferredProviderModelName =
+          getLatestOpenAIModelForProviderId(providerModels, selectedProviderId)
+            ?.model || "";
+        const preferredProviderModel = providerModels.find(
+          (model) => model.name === preferredProviderModelName,
         );
-        const nextModel = currentProviderModel ?? providerModels[0];
+        const nextModel =
+          preferredProviderModel ??
+          providerModels.find((model) => model.isDefault) ??
+          providerModels[0];
         const nextCustomModels = modelsToCustomModelsString(
           providerModels as any,
         );
@@ -2900,14 +2957,7 @@ function _Chat() {
         }, 2000);
       }
     },
-    [
-      allModels,
-      apiProfiles,
-      chatStore,
-      config,
-      session,
-      sessionMask.modelConfig.model,
-    ],
+    [allModels, apiProfiles, chatStore, config, session],
   );
 
   // clear context index = context length + index in messages
@@ -3410,6 +3460,7 @@ function _Chat() {
                       !(message.preview || messageTextContent.length === 0) &&
                       !isContext;
                     const showTyping = message.preview || message.streaming;
+                    const messageUsageText = formatMessageUsage(message.usage);
 
                     const shouldShowClearContextDivider =
                       i === clearContextIndex - 1;
@@ -3650,6 +3701,11 @@ function _Chat() {
                                 ? Locale.Chat.IsContext
                                 : formatChinaDateTime(message.date)}
                             </div>
+                            {!isContext && !isUser && !!messageUsageText && (
+                              <div className={styles["chat-message-usage"]}>
+                                {messageUsageText}
+                              </div>
+                            )}
                           </div>
                         </div>
                         {shouldShowClearContextDivider && (
@@ -3666,6 +3722,7 @@ function _Chat() {
               />
 
               <ChatActions
+                currentModelButtonText={`${currentProviderDisplayName} ${currentModelName}`}
                 uploadImage={uploadImage}
                 setAttachImages={setAttachImages}
                 setUploading={setUploading}
@@ -3836,7 +3893,7 @@ function _Chat() {
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
                 >
-                  <span>{activeProfile?.name || currentProviderName}</span>
+                  <span>{currentProfile?.name || currentProviderName}</span>
                   <DownIcon />
                 </button>
                 <span className={styles["model-selector-hint-count"]}>
@@ -3877,7 +3934,7 @@ function _Chat() {
                     </div>
                   ) : (
                     availableProviders.map((profileName) => {
-                      const isActive = profileName === activeProfile?.name;
+                      const isActive = profileName === currentProfile?.name;
                       return (
                         <button
                           type="button"
@@ -4051,8 +4108,8 @@ function _Chat() {
 
             // 使用当前选中的供应商，而不是模型自带的 providerName
             // 这样可以确保切换供应商后，选择的模型使用正确的供应商配置
-            const actualProviderName = activeProfile?.provider
-              ? activeProfile.provider
+            const actualProviderName = currentProfile?.provider
+              ? currentProfile.provider
               : _providerName;
 
             config.update((config) => {

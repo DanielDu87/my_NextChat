@@ -48,6 +48,7 @@ import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
   getLatestOpenAIModelForCurrentSupplier,
+  getLatestOpenAIModelForProviderId,
 } from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
@@ -60,6 +61,11 @@ import {
 } from "../utils/auto-model";
 import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
 import { createSyncClient, ProviderType } from "../utils/cloud";
+import {
+  BalanceAwareProfile,
+  getCustomProfileBalanceRefreshDelay,
+  queryBalanceSnapshot,
+} from "./update";
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
@@ -81,6 +87,16 @@ export type ChatMessageTool = {
   errorMsg?: string;
 };
 
+export type ChatMessageUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  actualCost?: number;
+  actualCostStatus?: "pending" | "actual";
+};
+
 export type ChatMessage = RequestMessage & {
   date: string;
   streaming?: boolean;
@@ -93,6 +109,7 @@ export type ChatMessage = RequestMessage & {
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
+  usage?: ChatMessageUsage;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -163,6 +180,132 @@ export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: getBotHelloContent(),
 });
+
+function extractMessageUsage(
+  responseRes?: Response,
+): ChatMessageUsage | undefined {
+  const usage = (responseRes as any)?.__usage;
+  if (!usage || typeof usage !== "object") {
+    return undefined;
+  }
+
+  const promptTokens = Number(usage.prompt_tokens);
+  const completionTokens = Number(usage.completion_tokens);
+  const totalTokens = Number(usage.total_tokens);
+  const cachedTokens = Number(usage.prompt_tokens_details?.cached_tokens);
+  const reasoningTokens = Number(
+    usage.completion_tokens_details?.reasoning_tokens,
+  );
+
+  const normalizedUsage: ChatMessageUsage = {};
+
+  if (Number.isFinite(promptTokens)) {
+    normalizedUsage.promptTokens = promptTokens;
+  }
+  if (Number.isFinite(completionTokens)) {
+    normalizedUsage.completionTokens = completionTokens;
+  }
+  if (Number.isFinite(totalTokens)) {
+    normalizedUsage.totalTokens = totalTokens;
+  }
+  if (Number.isFinite(cachedTokens)) {
+    normalizedUsage.cachedTokens = cachedTokens;
+  }
+  if (Number.isFinite(reasoningTokens)) {
+    normalizedUsage.reasoningTokens = reasoningTokens;
+  }
+
+  return Object.keys(normalizedUsage).length > 0 ? normalizedUsage : undefined;
+}
+
+function getEnabledCustomBalanceProfile() {
+  return useAccessStore
+    .getState()
+    .apiProfiles.find(
+      (profile) =>
+        profile.enabled &&
+        profile.provider === ServiceProvider.Custom &&
+        !!profile.baseUrl &&
+        !!profile.apiKey,
+    ) as BalanceAwareProfile | undefined;
+}
+
+function normalizeUsageCost(value: number) {
+  return Math.max(0, value);
+}
+
+async function createBalanceCostTracker(
+  providerName: ServiceProvider,
+  profile?: BalanceAwareProfile,
+) {
+  if (providerName !== ServiceProvider.Custom || !profile) {
+    return undefined;
+  }
+
+  const refreshDelay = getCustomProfileBalanceRefreshDelay(profile);
+  if (refreshDelay === null) {
+    return undefined;
+  }
+
+  try {
+    const beforeSnapshot = await queryBalanceSnapshot(providerName, profile);
+    if (!beforeSnapshot) {
+      return undefined;
+    }
+
+    return {
+      markPending(message: ChatMessage) {
+        message.usage = {
+          ...(message.usage || {}),
+          actualCostStatus: "pending",
+        };
+      },
+      async resolve() {
+        const applySnapshot = async () => {
+          const afterSnapshot = await queryBalanceSnapshot(
+            providerName,
+            profile,
+          );
+          if (!afterSnapshot) {
+            return undefined;
+          }
+
+          return {
+            actualCost: normalizeUsageCost(
+              (beforeSnapshot.exactRemaining ?? beforeSnapshot.remaining) -
+                (afterSnapshot.exactRemaining ?? afterSnapshot.remaining),
+            ),
+            actualCostStatus: "actual" as const,
+          };
+        };
+
+        if (refreshDelay > 0) {
+          return new Promise<
+            | {
+                actualCost: number;
+                actualCostStatus: "actual";
+              }
+            | undefined
+          >((resolve) => {
+            window.setTimeout(() => {
+              void applySnapshot()
+                .then(resolve)
+                .catch(() => resolve(undefined));
+            }, refreshDelay);
+          });
+        }
+
+        return applySnapshot();
+      },
+    };
+  } catch (error) {
+    console.warn(
+      "[BalanceCost] create tracker failed",
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
 
 function isDefaultTopic(topic: string | undefined) {
   return !topic || topic === getDefaultTopic();
@@ -1334,9 +1477,20 @@ export const useChatStore = createPersistStore(
               appConfig.customModels,
               accessStore.defaultModel,
             );
+            const enabledProfile = accessStore.apiProfiles.find(
+              (profile) => profile.enabled,
+            );
+            const enabledProviderId =
+              enabledProfile?.provider === ServiceProvider.Custom
+                ? `custom_${enabledProfile.name}`.toLowerCase()
+                : String(enabledProfile?.provider || "").toLowerCase();
             const latestOpenAIModel = autoModeEnabled
               ? undefined
-              : getLatestOpenAIModelForCurrentSupplier(
+              : getLatestOpenAIModelForProviderId(
+                  allModels,
+                  enabledProviderId,
+                ) ||
+                getLatestOpenAIModelForCurrentSupplier(
                   allModels,
                   currentSession.mask.modelConfig,
                   accessStore.apiProfiles,
@@ -1809,6 +1963,10 @@ export const useChatStore = createPersistStore(
             ...userMessage,
             content: mContent,
           };
+          session.mask.modelConfig = {
+            ...session.mask.modelConfig,
+            ...initialModelConfig,
+          };
           if (isDefaultTopic(session.topic)) {
             const fallbackTopic = trimTopic(content.trim());
             if (fallbackTopic) {
@@ -1827,11 +1985,15 @@ export const useChatStore = createPersistStore(
         });
 
         if (!autoModeEnabled) {
-          const api: ClientApi = getClientApi(modelConfig.providerName);
+          const api: ClientApi = getClientApi(initialModelConfig.providerName);
+          const balanceCostTracker = await createBalanceCostTracker(
+            initialModelConfig.providerName as ServiceProvider,
+            getEnabledCustomBalanceProfile(),
+          );
           console.log("[Chat] 🚀 开始 API 调用...");
           api.llm.chat({
             messages: sendMessages,
-            config: { ...modelConfig, stream: true },
+            config: { ...initialModelConfig, stream: true },
             onUpdate(message) {
               botMessage.streaming = true;
               if (message) {
@@ -1850,6 +2012,10 @@ export const useChatStore = createPersistStore(
                 botMessage.date = new Date().toISOString();
                 botMessage.reasoning_details = (responseRes as any)
                   ?.__reasoning_details;
+                botMessage.usage = extractMessageUsage(responseRes);
+                if (!hasFailure && balanceCostTracker) {
+                  balanceCostTracker.markPending(botMessage);
+                }
                 botMessage.isError = hasFailure;
                 userMessage.isError = hasFailure;
 
@@ -1865,6 +2031,25 @@ export const useChatStore = createPersistStore(
                   );
                 }
                 get().onNewMessage(botMessage, session);
+                if (!hasFailure && balanceCostTracker) {
+                  void balanceCostTracker.resolve().then((costUsage) => {
+                    if (!costUsage) {
+                      return;
+                    }
+                    get().updateTargetSession(session, (targetSession) => {
+                      const targetMessage = targetSession.messages.find(
+                        (item) => item.id === botMessage.id,
+                      );
+                      if (!targetMessage) {
+                        return;
+                      }
+                      targetMessage.usage = {
+                        ...(targetMessage.usage || {}),
+                        ...costUsage,
+                      };
+                    });
+                  });
+                }
               } else {
                 get().flushTargetSessionRefresh(session);
               }
@@ -1962,6 +2147,7 @@ export const useChatStore = createPersistStore(
           botMessage.content = "";
           botMessage.tools = [];
           botMessage.reasoning_details = undefined;
+          botMessage.usage = undefined;
           botMessage.streaming = true;
           botMessage.isError = false;
           userMessage.isError = false;
@@ -1971,6 +2157,10 @@ export const useChatStore = createPersistStore(
           });
 
           const api: ClientApi = getClientApi(candidate.providerName);
+          const balanceCostTracker = await createBalanceCostTracker(
+            candidate.providerName as ServiceProvider,
+            candidateProfile as BalanceAwareProfile | undefined,
+          );
           const attemptLabel = `${attemptIndex + 1}/${autoCandidates.length}`;
           let requestUrl = "";
 
@@ -2029,6 +2219,7 @@ export const useChatStore = createPersistStore(
                       reason: "空响应",
                     });
                     botMessage.content = "";
+                    botMessage.usage = undefined;
                     ChatControllerPool.remove(
                       session.id,
                       botMessage.id ?? messageIndex,
@@ -2052,6 +2243,7 @@ export const useChatStore = createPersistStore(
                     });
                     botMessage.content = "";
                     botMessage.reasoning_details = undefined;
+                    botMessage.usage = undefined;
                     get().flushTargetSessionRefresh(session);
                     ChatControllerPool.remove(
                       session.id,
@@ -2065,9 +2257,32 @@ export const useChatStore = createPersistStore(
                   botMessage.date = new Date().toISOString();
                   botMessage.reasoning_details = (responseRes as any)
                     ?.__reasoning_details;
+                  botMessage.usage = extractMessageUsage(responseRes);
+                  if (balanceCostTracker) {
+                    balanceCostTracker.markPending(botMessage);
+                  }
                   botMessage.isError = false;
                   userMessage.isError = false;
                   get().onNewMessage(botMessage, session);
+                  if (balanceCostTracker) {
+                    void balanceCostTracker.resolve().then((costUsage) => {
+                      if (!costUsage) {
+                        return;
+                      }
+                      get().updateTargetSession(session, (targetSession) => {
+                        const targetMessage = targetSession.messages.find(
+                          (item) => item.id === botMessage.id,
+                        );
+                        if (!targetMessage) {
+                          return;
+                        }
+                        targetMessage.usage = {
+                          ...(targetMessage.usage || {}),
+                          ...costUsage,
+                        };
+                      });
+                    });
+                  }
                   console.log("[Chat] ✅ 自动模式尝试成功:", {
                     attempt: attemptLabel,
                     provider: candidate.providerDisplayName,
@@ -2110,6 +2325,7 @@ export const useChatStore = createPersistStore(
                   botMessage.streaming = false;
                   botMessage.content = "";
                   botMessage.reasoning_details = undefined;
+                  botMessage.usage = undefined;
                   get().flushTargetSessionRefresh(session);
                   ChatControllerPool.remove(
                     session.id,
@@ -2153,6 +2369,7 @@ export const useChatStore = createPersistStore(
               });
               botMessage.streaming = false;
               botMessage.content = "";
+              botMessage.usage = undefined;
               get().flushTargetSessionRefresh(session);
               ChatControllerPool.remove(
                 session.id,
@@ -2181,6 +2398,7 @@ export const useChatStore = createPersistStore(
         botMessage.content = summary;
         botMessage.isError = true;
         botMessage.reasoning_details = undefined;
+        botMessage.usage = undefined;
         userMessage.isError = true;
         get().updateTargetSession(session, (session) => {
           session.messages = session.messages.concat();

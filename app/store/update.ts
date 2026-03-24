@@ -26,13 +26,27 @@ export type BalanceSnapshot = {
   used: number;
   total: number;
   remaining: number;
+  exactUsed?: number;
+  exactTotal?: number;
+  exactRemaining?: number;
   updatedAt: number;
   provider: ServiceProvider;
   profileId?: string;
   profileName?: string;
 };
 
-type ActiveCustomProfile = ReturnType<typeof getActiveCustomProfile>;
+export type BalanceAwareProfile = {
+  id?: string;
+  name: string;
+  provider: ServiceProvider;
+  baseUrl: string;
+  apiKey: string;
+  balanceQueryUrl?: string;
+  balanceQueryApiKey?: string;
+  balanceQueryField?: string;
+};
+
+type ActiveCustomProfile = BalanceAwareProfile | undefined;
 
 export function buildBalanceCacheKey(
   provider: ServiceProvider,
@@ -104,7 +118,7 @@ function getActiveCustomProfile() {
       profile.provider === ServiceProvider.Custom &&
       !!profile.baseUrl &&
       !!profile.apiKey,
-  );
+  ) as BalanceAwareProfile | undefined;
 }
 
 function normalizeCustomBaseUrl(baseUrl: string) {
@@ -116,30 +130,59 @@ function normalizeCustomBaseUrl(baseUrl: string) {
     : `https://${normalizedBaseUrl}`;
 }
 
-function getBalanceQueryApiKey(rule: CustomBalanceQueryRule) {
+function getBalanceQueryApiKey(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const profileApiKey = String(profile?.balanceQueryApiKey || "").trim();
+  if (profileApiKey) {
+    return profileApiKey;
+  }
+
   if (rule.apiKey) {
     return String(rule.apiKey).trim();
   }
 
-  return String(getActiveCustomProfile()?.apiKey || "").trim();
+  return String(
+    profile?.apiKey || getActiveCustomProfile()?.apiKey || "",
+  ).trim();
 }
 
-function getBalanceQueryField(rule: CustomBalanceQueryRule) {
+function getBalanceQueryField(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const profileField = String(profile?.balanceQueryField || "").trim();
+  if (profileField) {
+    return profileField;
+  }
+
   return String(rule.field || "").trim();
 }
 
-function getBalanceQueryUrl(rule: CustomBalanceQueryRule) {
-  const requestUrl = String(rule.url || "").trim();
+function getBalanceQueryUrl(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestUrl = String(profile?.balanceQueryUrl || rule.url || "").trim();
   if (!requestUrl) return "";
   return requestUrl.startsWith("http") ? requestUrl : `https://${requestUrl}`;
 }
 
-function getBalanceQueryBaseUrl(rule: CustomBalanceQueryRule) {
-  return normalizeCustomBaseUrl(rule.url || "");
+function getBalanceQueryBaseUrl(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  return normalizeCustomBaseUrl(
+    profile?.balanceQueryUrl || rule.url || "",
+  ).replace(/\/(?:api(?:\/v1)?\/)?user\/self$/i, "");
 }
 
-function getBalanceQueryApiBaseUrl(rule: CustomBalanceQueryRule) {
-  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
+function getBalanceQueryApiBaseUrl(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule, profile);
   return /\/v1$/i.test(requestBaseUrl)
     ? requestBaseUrl
     : `${requestBaseUrl}/v1`;
@@ -160,8 +203,8 @@ function getValueByPath(payload: unknown, path: string) {
     }, payload);
 }
 
-function getRequiredCustomBalanceRule() {
-  const activeCustomProfile = getActiveCustomProfile();
+function getRequiredCustomBalanceRule(profile?: ActiveCustomProfile) {
+  const activeCustomProfile = profile || getActiveCustomProfile();
 
   if (!activeCustomProfile) {
     throw new Error("未找到已启用的 Custom 供应商配置");
@@ -178,10 +221,13 @@ function getRequiredCustomBalanceRule() {
   return rule;
 }
 
-async function queryJsonCustomUsage(rule: CustomBalanceQueryRule) {
-  const requestUrl = getBalanceQueryUrl(rule);
-  const fieldPath = getBalanceQueryField(rule);
-  const authKey = getBalanceQueryApiKey(rule);
+async function queryJsonCustomUsage(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestUrl = getBalanceQueryUrl(rule, profile);
+  const fieldPath = getBalanceQueryField(rule, profile);
+  const authKey = getBalanceQueryApiKey(rule, profile);
 
   if (!requestUrl || !fieldPath || !authKey) {
     throw new Error("余额查询 URL、API Key 或字段路径未配置");
@@ -210,17 +256,20 @@ async function queryJsonCustomUsage(rule: CustomBalanceQueryRule) {
 
   return {
     used: 0,
-    total: Math.round(total * 100) / 100,
+    total,
   };
 }
 
-async function queryAihubMixUsage(rule: CustomBalanceQueryRule) {
-  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
+async function queryAihubMixUsage(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule, profile);
 
   const res = await fetch(`${requestBaseUrl}/api/user/self`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule, profile)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -244,17 +293,20 @@ async function queryAihubMixUsage(rule: CustomBalanceQueryRule) {
   }
 
   const quota = Number(json.data?.quota || 0);
-  const total = Math.round((quota / 500000) * 100) / 100;
+  const total = quota / 500000;
 
   return { used: 0, total };
 }
 
-async function queryOcoolaiUsage(rule: CustomBalanceQueryRule) {
-  const requestBaseUrl = getBalanceQueryBaseUrl(rule);
+async function queryOcoolaiUsage(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestBaseUrl = getBalanceQueryBaseUrl(rule, profile);
   const res = await fetch(`${requestBaseUrl}/api/user/self`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule, profile)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -277,17 +329,20 @@ async function queryOcoolaiUsage(rule: CustomBalanceQueryRule) {
   }
 
   const quota = Number(json.data?.quota || 0);
-  const total = Math.round((quota / 500000) * 100) / 100;
+  const total = quota / 500000;
 
   return { used: 0, total };
 }
 
-async function queryToApisUsage(rule: CustomBalanceQueryRule) {
-  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule);
+async function queryToApisUsage(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule, profile);
   const res = await fetch(`${requestBaseUrl}/user/balance`, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getBalanceQueryApiKey(rule)}`,
+      Authorization: `Bearer ${getBalanceQueryApiKey(rule, profile)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -306,13 +361,16 @@ async function queryToApisUsage(rule: CustomBalanceQueryRule) {
     throw new Error("ToAPIs 余额查询失败");
   }
 
-  const total = Math.round(Number(json.remain_balance || 0) * 100) / 100;
+  const total = Number(json.remain_balance || 0);
 
   return { used: 0, total };
 }
 
-async function queryOpenAICompatibleCustomUsage(rule: CustomBalanceQueryRule) {
-  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule);
+async function queryOpenAICompatibleCustomUsage(
+  rule: CustomBalanceQueryRule,
+  profile?: ActiveCustomProfile,
+) {
+  const requestBaseUrl = getBalanceQueryApiBaseUrl(rule, profile);
   const now = new Date();
   const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
     2,
@@ -322,7 +380,7 @@ async function queryOpenAICompatibleCustomUsage(rule: CustomBalanceQueryRule) {
   const endDate = `${tomorrow.getFullYear()}-${String(
     tomorrow.getMonth() + 1,
   ).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-  const authKey = getBalanceQueryApiKey(rule);
+  const authKey = getBalanceQueryApiKey(rule, profile);
 
   const [used, subs] = await Promise.all([
     fetch(
@@ -358,9 +416,83 @@ async function queryOpenAICompatibleCustomUsage(rule: CustomBalanceQueryRule) {
   };
 
   return {
-    used: Math.round(Number(usageJson.total_usage || 0)) / 100,
-    total: Math.round(Number(subscriptionJson.hard_limit_usd || 0) * 100) / 100,
+    used: Number(usageJson.total_usage || 0) / 100,
+    total: Number(subscriptionJson.hard_limit_usd || 0),
   };
+}
+
+export function getCustomProfileBalanceRefreshDelay(
+  profile?: Pick<BalanceAwareProfile, "name">,
+) {
+  const normalizedName = String(profile?.name || "")
+    .trim()
+    .toLowerCase();
+  if (normalizedName === "aihubmix") {
+    return 6000;
+  }
+  if (normalizedName === "yutoapi" || normalizedName === "toapis") {
+    return 0;
+  }
+  return null;
+}
+
+export async function queryBalanceSnapshot(
+  provider: ServiceProvider,
+  profile?: BalanceAwareProfile,
+) {
+  let usage: { used: number; total: number } | undefined;
+
+  if (provider === ServiceProvider.Custom) {
+    const rule = getRequiredCustomBalanceRule(profile);
+    switch (rule.mode) {
+      case "json":
+        usage = await queryJsonCustomUsage(rule, profile);
+        break;
+      case "aihubmix":
+        usage = await queryAihubMixUsage(rule, profile);
+        break;
+      case "ocoolai":
+        usage = await queryOcoolaiUsage(rule, profile);
+        break;
+      case "toapis":
+        usage = await queryToApisUsage(rule, profile);
+        break;
+      case "openai-compatible":
+        usage = await queryOpenAICompatibleCustomUsage(rule, profile);
+        break;
+      default:
+        throw new Error(`不支持的余额查询方式: ${rule.mode}`);
+    }
+  } else {
+    const api =
+      provider === ServiceProvider.OpenAI
+        ? new ClientApi(ModelProvider.GPT)
+        : getClientApi(provider);
+    usage = await api.llm.usage();
+  }
+
+  if (!usage) {
+    return undefined;
+  }
+
+  const exactUsed = Math.max(0, Number(usage.used || 0));
+  const exactTotal = Math.max(0, Number(usage.total || 0));
+  const exactRemaining = Math.max(0, exactTotal - exactUsed);
+  const used = Math.round(exactUsed * 100) / 100;
+  const total = Math.round(exactTotal * 100) / 100;
+  const remaining = Math.round(exactRemaining * 100) / 100;
+  return {
+    used,
+    total,
+    remaining,
+    exactUsed,
+    exactTotal,
+    exactRemaining,
+    updatedAt: Date.now(),
+    provider,
+    profileId: profile?.id,
+    profileName: profile?.name,
+  } as BalanceSnapshot;
 }
 
 async function persistBalanceSnapshot(
@@ -506,54 +638,14 @@ export const useUpdateStore = createPersistStore(
       });
 
       const queryPromise = (async () => {
-        let usage: { used: number; total: number } | undefined;
         let errorMessage: string | undefined;
 
         try {
-          if (provider === ServiceProvider.Custom) {
-            const rule = getRequiredCustomBalanceRule();
-            switch (rule.mode) {
-              case "json":
-                usage = await queryJsonCustomUsage(rule);
-                break;
-              case "aihubmix":
-                usage = await queryAihubMixUsage(rule);
-                break;
-              case "ocoolai":
-                usage = await queryOcoolaiUsage(rule);
-                break;
-              case "toapis":
-                usage = await queryToApisUsage(rule);
-                break;
-              case "openai-compatible":
-                usage = await queryOpenAICompatibleCustomUsage(rule);
-                break;
-              default:
-                throw new Error(`不支持的余额查询方式: ${rule.mode}`);
-            }
-          } else {
-            const api =
-              provider === ServiceProvider.OpenAI
-                ? new ClientApi(ModelProvider.GPT)
-                : getClientApi(provider);
-            usage = await api.llm.usage();
-          }
-          if (usage) {
-            const { used, total } = usage;
-            const remaining = Math.max(
-              0,
-              Math.round((total - used) * 100) / 100,
-            );
-            const snapshot: BalanceSnapshot = {
-              used,
-              total,
-              remaining,
-              updatedAt: Date.now(),
-              provider,
-              profileId: activeCustomProfile?.id,
-              profileName: activeCustomProfile?.name,
-            };
-
+          const snapshot = await queryBalanceSnapshot(
+            provider,
+            activeCustomProfile,
+          );
+          if (snapshot) {
             set(() => ({
               balances: {
                 ...get().balances,
@@ -569,9 +661,9 @@ export const useUpdateStore = createPersistStore(
               force,
               profileId: activeCustomProfile?.id,
               profileName: activeCustomProfile?.name,
-              used,
-              total,
-              remaining,
+              used: snapshot.used,
+              total: snapshot.total,
+              remaining: snapshot.remaining,
               durationMs: Date.now() - startedAt,
               ok: true,
             });

@@ -14,6 +14,7 @@ import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
   getLatestOpenAIModelForCurrentSupplier,
+  getLatestOpenAIModelForProviderId,
 } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { buildAutoModelCandidates } from "../utils/auto-model";
@@ -62,6 +63,13 @@ export const createEmptyMask = () => {
           autoModelSeries,
         )
       : [];
+  const enabledProfile = accessStore.apiProfiles.find(
+    (profile) => profile.enabled,
+  );
+  const enabledProviderId =
+    enabledProfile?.provider === "Custom"
+      ? `custom_${enabledProfile.name}`.toLowerCase()
+      : String(enabledProfile?.provider || "").toLowerCase();
   const initialModelConfig =
     autoCandidates.length > 0
       ? sanitizeModelConfigForCapability({
@@ -71,11 +79,13 @@ export const createEmptyMask = () => {
         })
       : sanitizeModelConfigForCapability({
           ...appConfig.modelConfig,
-          ...(getLatestOpenAIModelForCurrentSupplier(
-            allModels,
-            appConfig.modelConfig,
-            accessStore.apiProfiles,
-          ) || {}),
+          ...(getLatestOpenAIModelForProviderId(allModels, enabledProviderId) ||
+            getLatestOpenAIModelForCurrentSupplier(
+              allModels,
+              appConfig.modelConfig,
+              accessStore.apiProfiles,
+            ) ||
+            {}),
         });
 
   return {

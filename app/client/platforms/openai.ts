@@ -1263,6 +1263,22 @@ export class ChatGPTApi implements LLMApi {
     const shouldStream =
       isGeminiImagePreview ||
       (!isImageModel && !isVideoModel && !!options.config.stream);
+
+    if (
+      shouldStream &&
+      !(requestPayload instanceof FormData) &&
+      typeof requestPayload === "object" &&
+      requestPayload
+    ) {
+      const streamRequestPayload = requestPayload as Record<string, unknown>;
+      streamRequestPayload["stream_options"] = {
+        ...((streamRequestPayload["stream_options"] as
+          | Record<string, unknown>
+          | undefined) || {}),
+        include_usage: true,
+      };
+    }
+
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -1336,6 +1352,7 @@ export class ChatGPTApi implements LLMApi {
       if (shouldStream) {
         let index = -1;
         let latestReasoningDetails: Record<string, unknown> | undefined;
+        let latestUsage: Record<string, unknown> | undefined;
         const [tools, funcs] = usePluginStore
           .getState()
           .getAsTools(
@@ -1347,6 +1364,9 @@ export class ChatGPTApi implements LLMApi {
           onFinish(message: string, responseRes: Response) {
             if (latestReasoningDetails) {
               (responseRes as any).__reasoning_details = latestReasoningDetails;
+            }
+            if (latestUsage) {
+              (responseRes as any).__usage = latestUsage;
             }
             options.onFinish(message, responseRes);
           },
@@ -1362,6 +1382,9 @@ export class ChatGPTApi implements LLMApi {
           (text: string, runTools: ChatMessageTool[]) => {
             // console.log("parseSSE", text, runTools);
             const json = JSON.parse(text);
+            if (json?.usage) {
+              latestUsage = json.usage;
+            }
             const choices = json.choices as Array<{
               delta: {
                 content: string;
@@ -1617,6 +1640,9 @@ export class ChatGPTApi implements LLMApi {
           resJson?.choices?.[0]?.delta?.reasoning_details;
         if (reasoningDetails) {
           (res as any).__reasoning_details = reasoningDetails;
+        }
+        if (resJson?.usage) {
+          (res as any).__usage = resJson.usage;
         }
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);
