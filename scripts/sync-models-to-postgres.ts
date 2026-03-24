@@ -3,6 +3,7 @@ import {
   type ModelCatalogUpsertRow,
   upsertModelCatalogRows,
 } from "../app/utils/server/model-catalog-repository";
+import { setModelSourceIndexSnapshot } from "../app/utils/server/model-source-index-repository";
 
 type ModelsIndexEntry = {
   providerId: string;
@@ -130,22 +131,11 @@ async function main() {
     );
   }
 
-  await pgQuery(
-    `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-     values ($1, $2, $3::jsonb)
-     on conflict (artifact_type, artifact_path) do update set
-       payload_json = excluded.payload_json,
-       updated_at = now()`,
-    [
-      "models_index",
-      MODELS_INDEX_FILE,
-      JSON.stringify({
-        updatedAt: index.updatedAt ?? null,
-        providerCount: totalProviders,
-        modelCount: totalModels,
-      }),
-    ],
-  );
+  await setModelSourceIndexSnapshot(MODELS_INDEX_FILE, {
+    updatedAt: index.updatedAt ?? null,
+    providerCount: totalProviders,
+    modelCount: totalModels,
+  });
 
   await pgQuery(
     `update model_sync_runs

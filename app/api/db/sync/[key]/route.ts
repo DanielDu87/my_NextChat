@@ -6,6 +6,7 @@ import {
   setStoreSnapshot,
 } from "@/app/utils/server/sync-store-repository";
 import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,9 @@ export async function GET(_: NextRequest, { params }: Params) {
       );
     }
 
+    const userId = resolveSyncUserId(_);
     const payload = await withRetryablePostgresOperation(() =>
-      getStoreSnapshot(params.key),
+      getStoreSnapshot(params.key, userId),
     );
     if (payload === undefined) {
       return new Response("", {
@@ -71,8 +73,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       bytes: Buffer.byteLength(rawBody, "utf8"),
     });
     const payload = JSON.parse(rawBody);
+    const userId = resolveSyncUserId(req);
     await withRetryablePostgresOperation(() =>
-      setStoreSnapshot(params.key, payload),
+      setStoreSnapshot(params.key, payload, userId),
     );
     console.log("[DB Sync PUT] done", {
       key: params.key,
@@ -104,7 +107,10 @@ export async function DELETE(_: NextRequest, { params }: Params) {
       );
     }
 
-    await withRetryablePostgresOperation(() => removeStoreSnapshot(params.key));
+    const userId = resolveSyncUserId(_);
+    await withRetryablePostgresOperation(() =>
+      removeStoreSnapshot(params.key, userId),
+    );
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

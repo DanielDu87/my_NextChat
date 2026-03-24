@@ -2,7 +2,6 @@ import { StoreKey } from "@/app/constant";
 import {
   buildChatIndexPayload,
   buildChatStateFromIndex,
-  getSyncableChatSessions,
   type ChatIndexPayload,
 } from "@/app/utils/chat-sync";
 import {
@@ -15,8 +14,25 @@ import {
   dedupeDeleteSessionIds,
   sanitizeJsonPayload,
 } from "@/app/utils/server/sync-store-helpers";
-import { withPgTransaction } from "./postgres";
-import { pgQuery } from "./postgres";
+import {
+  getAppSettingsStore,
+  syncAppSettingsStore,
+} from "./app-settings-repository";
+import {
+  mergeAccessStorePayload,
+  splitAccessStorePayload,
+} from "./access-store-security";
+import {
+  ensureSyncStorageSchema,
+  pgQuery,
+  withPgTransaction,
+} from "./postgres";
+import {
+  getProviderProfilesForAccessState,
+  syncProviderConfigsFromAccessState,
+} from "./provider-config-repository";
+import { getEncryptedSyncSecret, setEncryptedSyncSecret } from "./sync-secrets";
+import { getDefaultSyncUserId } from "./sync-user";
 
 const SUPPORTED_STORE_KEYS = new Set<string>(PERSIST_STORE_KEYS);
 const STORE_STATE_ARTIFACT_TYPE = "store_state";
@@ -45,13 +61,99 @@ function normalizeChatStorePayload(payload: unknown) {
   return unwrapped;
 }
 
-async function getLegacyChatStoreState() {
+function mergeAccessProfilesIntoPayload(payload: unknown, profiles: unknown[]) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    profiles.length === 0
+  ) {
+    return payload;
+  }
+
+  const mergeProfiles = (currentProfiles: unknown) => {
+    const localProfiles = Array.isArray(currentProfiles) ? currentProfiles : [];
+    const localMap = new Map<string, Record<string, unknown>>();
+
+    localProfiles.forEach((profile) => {
+      if (
+        profile &&
+        typeof profile === "object" &&
+        !Array.isArray(profile) &&
+        "id" in profile
+      ) {
+        localMap.set(
+          String(profile.id || ""),
+          profile as Record<string, unknown>,
+        );
+      }
+    });
+
+    const merged = profiles.map((profile) => {
+      if (
+        !profile ||
+        typeof profile !== "object" ||
+        Array.isArray(profile) ||
+        !("id" in profile)
+      ) {
+        return profile;
+      }
+
+      const existing = localMap.get(String(profile.id || ""));
+      return existing ? { ...profile, ...existing } : profile;
+    });
+
+    localMap.forEach((profile, id) => {
+      if (
+        !merged.some(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            !Array.isArray(item) &&
+            "id" in item &&
+            String(item.id || "") === id,
+        )
+      ) {
+        merged.push(profile);
+      }
+    });
+
+    return merged;
+  };
+
+  if (
+    "state" in payload &&
+    payload.state &&
+    typeof payload.state === "object" &&
+    !Array.isArray(payload.state)
+  ) {
+    return {
+      ...payload,
+      state: {
+        ...(payload.state as Record<string, unknown>),
+        apiProfiles: mergeProfiles(
+          (payload.state as Record<string, unknown>).apiProfiles,
+        ),
+      },
+    };
+  }
+
+  return {
+    ...(payload as Record<string, unknown>),
+    apiProfiles: mergeProfiles(
+      (payload as Record<string, unknown>).apiProfiles,
+    ),
+  };
+}
+
+async function getLegacyChatStoreState(userId = getDefaultSyncUserId()) {
+  await ensureSyncStorageSchema();
   const result = await pgQuery<{ payload_json: unknown }>(
     `select payload_json
-     from sync_artifacts
-     where artifact_type = $2 and artifact_path = $1
+     from user_chat_state_indexes
+     where user_id = $1
      limit 1`,
-    [StoreKey.Chat, STORE_STATE_ARTIFACT_TYPE],
+    [userId],
   );
 
   const payload = result.rows[0]?.payload_json;
@@ -66,13 +168,14 @@ export function isSupportedStoreKey(storeKey: string) {
   return SUPPORTED_STORE_KEYS.has(storeKey);
 }
 
-export async function getChatIndexSnapshot() {
+export async function getChatIndexSnapshot(userId = getDefaultSyncUserId()) {
+  await ensureSyncStorageSchema();
   const result = await pgQuery<{ payload_json: unknown }>(
     `select payload_json
-     from sync_artifacts
-     where artifact_type = $2 and artifact_path = $1
+     from user_chat_state_indexes
+     where user_id = $1
      limit 1`,
-    [StoreKey.Chat, CHAT_INDEX_ARTIFACT_TYPE],
+    [userId],
   );
 
   const payload = result.rows[0]?.payload_json;
@@ -80,35 +183,40 @@ export async function getChatIndexSnapshot() {
     return payload as ChatIndexPayload;
   }
 
-  const legacyChatState = await getLegacyChatStoreState();
+  const legacyChatState = await getLegacyChatStoreState(userId);
   return legacyChatState ? buildChatIndexPayload(legacyChatState) : undefined;
 }
 
-export async function getChatSessionSnapshots(sessionIds: string[]) {
+export async function getChatSessionSnapshots(
+  sessionIds: string[],
+  userId = getDefaultSyncUserId(),
+) {
+  await ensureSyncStorageSchema();
   const normalizedIds = [...new Set(sessionIds.filter(Boolean))];
   if (normalizedIds.length === 0) {
     return {} as Record<string, unknown>;
   }
 
   const result = await pgQuery<{
-    artifact_path: string;
+    session_id: string;
     payload_json: unknown;
   }>(
-    `select artifact_path, payload_json
-     from sync_artifacts
-     where artifact_type = $2 and artifact_path = any($1::text[])`,
-    [normalizedIds, CHAT_SESSION_ARTIFACT_TYPE],
+    `select session_id, payload_json
+     from user_chat_state_sessions
+     where user_id = $2
+       and session_id = any($1::text[])`,
+    [normalizedIds, userId],
   );
 
   const sessionMap = Object.fromEntries(
-    result.rows.map((row) => [row.artifact_path, row.payload_json]),
+    result.rows.map((row) => [row.session_id, row.payload_json]),
   ) as Record<string, unknown>;
 
   if (Object.keys(sessionMap).length === normalizedIds.length) {
     return sessionMap;
   }
 
-  const legacyChatState = await getLegacyChatStoreState();
+  const legacyChatState = await getLegacyChatStoreState(userId);
   const legacySessions: Array<Record<string, unknown>> = Array.isArray(
     legacyChatState?.sessions,
   )
@@ -131,10 +239,12 @@ export async function getChatSessionSnapshots(sessionIds: string[]) {
   return sessionMap;
 }
 
-export async function getFullChatStateSnapshot() {
-  const chatIndex = await getChatIndexSnapshot();
+export async function getFullChatStateSnapshot(
+  userId = getDefaultSyncUserId(),
+) {
+  const chatIndex = await getChatIndexSnapshot(userId);
   if (!chatIndex) {
-    const legacyChatState = await getLegacyChatStoreState();
+    const legacyChatState = await getLegacyChatStoreState(userId);
     return legacyChatState
       ? buildPersistedStoreState(StoreKey.Chat, legacyChatState)
       : undefined;
@@ -142,32 +252,65 @@ export async function getFullChatStateSnapshot() {
 
   const sessionMap = await getChatSessionSnapshots(
     chatIndex.sessions.map((entry) => entry.id),
+    userId,
   );
   const chatState = buildChatStateFromIndex(chatIndex, sessionMap);
   return buildPersistedStoreState(StoreKey.Chat, chatState);
 }
 
-export async function getStoreSnapshot(storeKey: string) {
+export async function getStoreSnapshot(
+  storeKey: string,
+  userId = getDefaultSyncUserId(),
+) {
+  await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
 
   if (storeKey === StoreKey.Chat) {
-    return getFullChatStateSnapshot();
+    return getFullChatStateSnapshot(userId);
   }
 
   const result = await pgQuery<{ payload_json: unknown }>(
-    `select payload_json
-     from sync_artifacts
-     where artifact_type = $2 and artifact_path = $1
-     limit 1`,
-    [storeKey, STORE_STATE_ARTIFACT_TYPE],
+    `select null::jsonb as payload_json where false`,
+    [],
   );
 
-  return result.rows[0]?.payload_json;
+  const payload = result.rows[0]?.payload_json;
+  const settingsPayload = await getAppSettingsStore(userId, storeKey);
+  if (settingsPayload !== undefined) {
+    if (storeKey !== StoreKey.Access) {
+      return settingsPayload;
+    }
+
+    const secretPayload = await getEncryptedSyncSecret({
+      userId,
+      secretKey: storeKey,
+    });
+    const mergedPayload = mergeAccessStorePayload(
+      settingsPayload,
+      secretPayload,
+    );
+    const providerProfiles = await getProviderProfilesForAccessState(userId);
+    return mergeAccessProfilesIntoPayload(mergedPayload, providerProfiles);
+  }
+
+  if (storeKey !== StoreKey.Access || payload === undefined) {
+    return payload;
+  }
+
+  const secretPayload = await getEncryptedSyncSecret({
+    userId,
+    secretKey: storeKey,
+  });
+  const mergedPayload = mergeAccessStorePayload(payload, secretPayload);
+  const providerProfiles = await getProviderProfilesForAccessState(userId);
+  return mergeAccessProfilesIntoPayload(mergedPayload, providerProfiles);
 }
 
 export async function getStoreSnapshotMetas(
   storeKeys: string[] = PERSIST_STORE_KEYS as unknown as string[],
+  userId = getDefaultSyncUserId(),
 ) {
+  await ensureSyncStorageSchema();
   const normalizedStoreKeys = storeKeys.filter((key) =>
     SUPPORTED_STORE_KEYS.has(key),
   );
@@ -192,12 +335,10 @@ export async function getStoreSnapshotMetas(
          updated_at::text as updated_at,
          md5(payload_json::text) as checksum,
          pg_column_size(payload_json) as size_bytes
-       from sync_artifacts
-       where (artifact_type = $1 and artifact_path = $2)
-          or (artifact_type = $3 and artifact_path = $2)
-       order by case when artifact_type = $1 then 0 else 1 end
+       from user_chat_state_indexes
+       where user_id = $1
        limit 1`,
-      [CHAT_INDEX_ARTIFACT_TYPE, StoreKey.Chat, STORE_STATE_ARTIFACT_TYPE],
+      [userId],
     );
 
     const row = result.rows[0];
@@ -219,26 +360,101 @@ export async function getStoreSnapshotMetas(
   }
 
   const result = await pgQuery<{
-    artifact_path: string;
+    store_key: string;
     updated_at: string;
     checksum: string;
     size_bytes: number;
   }>(
-    `select
-       artifact_path,
-       updated_at::text as updated_at,
-       md5(payload_json::text) as checksum,
-       pg_column_size(payload_json) as size_bytes
-     from sync_artifacts
-     where artifact_type = $2
-       and artifact_path = any($1::text[])
-     order by artifact_path`,
-    [nonChatKeys, STORE_STATE_ARTIFACT_TYPE],
+    `select * from (
+       select
+         'app-config'::text as store_key,
+         updated_at::text as updated_at,
+         md5((model_settings -> 'app-config')::text) as checksum,
+         pg_column_size(model_settings -> 'app-config') as size_bytes
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and model_settings ? 'app-config'
+       union all
+       select
+         'model-cache-store'::text,
+         updated_at::text,
+         md5((model_settings -> 'model-cache-store')::text),
+         pg_column_size(model_settings -> 'model-cache-store')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and model_settings ? 'model-cache-store'
+       union all
+       select
+         'chat-next-web-plugin'::text,
+         updated_at::text,
+         md5((plugin_settings -> 'chat-next-web-plugin')::text),
+         pg_column_size(plugin_settings -> 'chat-next-web-plugin')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and plugin_settings ? 'chat-next-web-plugin'
+       union all
+       select
+         'sync'::text,
+         updated_at::text,
+         md5((sync_settings -> 'sync')::text),
+         pg_column_size(sync_settings -> 'sync')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and sync_settings ? 'sync'
+       union all
+       select
+         'access-control'::text,
+         updated_at::text,
+         md5((security_settings -> 'access-control')::text),
+         pg_column_size(security_settings -> 'access-control')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and security_settings ? 'access-control'
+       union all
+       select
+         'mask-store'::text,
+         updated_at::text,
+         md5((extra_settings -> 'mask-store')::text),
+         pg_column_size(extra_settings -> 'mask-store')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and extra_settings ? 'mask-store'
+       union all
+       select
+         'prompt-store'::text,
+         updated_at::text,
+         md5((extra_settings -> 'prompt-store')::text),
+         pg_column_size(extra_settings -> 'prompt-store')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and extra_settings ? 'prompt-store'
+       union all
+       select
+         'chat-update'::text,
+         updated_at::text,
+         md5((extra_settings -> 'chat-update')::text),
+         pg_column_size(extra_settings -> 'chat-update')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and extra_settings ? 'chat-update'
+       union all
+       select
+         'sd-list'::text,
+         updated_at::text,
+         md5((extra_settings -> 'sd-list')::text),
+         pg_column_size(extra_settings -> 'sd-list')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and extra_settings ? 'sd-list'
+     ) snapshots
+     where store_key = any($1::text[])
+     order by store_key`,
+    [nonChatKeys, userId],
   );
 
   return metas.concat(
     result.rows.map((row) => ({
-      key: row.artifact_path,
+      key: row.store_key,
       updatedAt: row.updated_at,
       checksum: row.checksum,
       sizeBytes: row.size_bytes,
@@ -247,130 +463,126 @@ export async function getStoreSnapshotMetas(
 }
 
 export async function applyChatDelta(params: {
+  userId?: string;
   index: ChatIndexPayload;
   upsertSessions: Array<Record<string, unknown>>;
   deleteSessionIds?: string[];
 }) {
+  await ensureSyncStorageSchema();
+  const userId = params.userId ?? getDefaultSyncUserId();
   const deleteSessionIds = dedupeDeleteSessionIds(params.deleteSessionIds);
   const sessionRows = buildChatSessionRows(params.upsertSessions);
 
   await withPgTransaction(async (client) => {
     await client.query(
-      `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-       values ($1, $2, $3::jsonb)
-       on conflict (artifact_type, artifact_path) do update set
+      `insert into user_chat_state_indexes (user_id, payload_json)
+       values ($1, $2::jsonb)
+       on conflict (user_id) do update set
          payload_json = excluded.payload_json,
          updated_at = now()`,
-      [
-        CHAT_INDEX_ARTIFACT_TYPE,
-        StoreKey.Chat,
-        sanitizeJsonPayload(params.index),
-      ],
+      [userId, sanitizeJsonPayload(params.index)],
     );
 
     if (sessionRows.length > 0) {
-      await client.query(
-        `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-         select artifact_type, artifact_path, payload_text::jsonb
-         from unnest($1::text[], $2::text[], $3::text[]) as rows(
-           artifact_type,
-           artifact_path,
-           payload_text
-         )
-         on conflict (artifact_type, artifact_path) do update set
-           payload_json = excluded.payload_json,
-           updated_at = now()`,
-        [
-          sessionRows.map((row) => row.artifactType),
-          sessionRows.map((row) => row.artifactPath),
-          sessionRows.map((row) => row.payloadText),
-        ],
-      );
+      for (const row of sessionRows) {
+        await client.query(
+          `insert into user_chat_state_sessions (user_id, session_id, payload_json)
+           values ($1, $2, $3::jsonb)
+           on conflict (user_id, session_id) do update set
+             payload_json = excluded.payload_json,
+             updated_at = now()`,
+          [userId, row.artifactPath, row.payloadText],
+        );
+      }
     }
 
     if (deleteSessionIds.length > 0) {
       await client.query(
-        `delete from sync_artifacts
-         where artifact_type = $2 and artifact_path = any($1::text[])`,
-        [deleteSessionIds, CHAT_SESSION_ARTIFACT_TYPE],
+        `delete from user_chat_state_sessions
+         where user_id = $2
+           and session_id = any($1::text[])`,
+        [deleteSessionIds, userId],
       );
     }
-
-    await client.query(
-      `delete from sync_artifacts
-       where artifact_type = $2 and artifact_path = $1`,
-      [StoreKey.Chat, STORE_STATE_ARTIFACT_TYPE],
-    );
   });
 }
 
-export async function setFullChatStateSnapshot(payload: unknown) {
+export async function setFullChatStateSnapshot(
+  payload: unknown,
+  userId = getDefaultSyncUserId(),
+) {
   const chatState = normalizeChatStorePayload(payload);
-  const sessions = getSyncableChatSessions(
-    Array.isArray(chatState?.sessions) ? chatState.sessions : [],
-  );
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
   const sessionIds = sessions
     .map((session) => String(session?.id || ""))
     .filter(Boolean);
 
   await applyChatDelta({
+    userId,
     index: buildChatIndexPayload(chatState),
     upsertSessions: sessions,
     deleteSessionIds: [],
   });
 
   await pgQuery(
-    `delete from sync_artifacts
-     where artifact_type = $2
-       and artifact_path <> all($1::text[])`,
-    [sessionIds, CHAT_SESSION_ARTIFACT_TYPE],
+    `delete from user_chat_state_sessions
+     where user_id = $2
+       and session_id <> all($1::text[])`,
+    [sessionIds, userId],
   );
 }
 
-export async function setStoreSnapshot(storeKey: string, payload: unknown) {
+export async function setStoreSnapshot(
+  storeKey: string,
+  payload: unknown,
+  userId = getDefaultSyncUserId(),
+) {
+  await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
 
   if (storeKey === StoreKey.Chat) {
-    await setFullChatStateSnapshot(payload);
+    await setFullChatStateSnapshot(payload, userId);
     return;
   }
 
-  await pgQuery(
-    `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-     values ($3, $1, $2::jsonb)
-     on conflict (artifact_type, artifact_path) do update set
-       payload_json = excluded.payload_json,
-       updated_at = now()`,
-    [storeKey, sanitizeJsonPayload(payload), STORE_STATE_ARTIFACT_TYPE],
-  );
+  let nextPayload = payload;
+  if (storeKey === StoreKey.Access) {
+    const { publicPayload, secretPayload } = splitAccessStorePayload(payload);
+    nextPayload = publicPayload;
+    await setEncryptedSyncSecret({
+      userId,
+      secretKey: storeKey,
+      payload: secretPayload,
+    });
+    await syncProviderConfigsFromAccessState(userId, payload);
+  }
+
+  await syncAppSettingsStore(userId, storeKey, nextPayload);
 }
 
-export async function removeFullChatStateSnapshot() {
-  await pgQuery(
-    `delete from sync_artifacts
-     where (artifact_type = $1 and artifact_path = $2)
-        or artifact_type = $3
-        or (artifact_type = $4 and artifact_path = $2)`,
-    [
-      CHAT_INDEX_ARTIFACT_TYPE,
-      StoreKey.Chat,
-      CHAT_SESSION_ARTIFACT_TYPE,
-      STORE_STATE_ARTIFACT_TYPE,
-    ],
-  );
+export async function removeFullChatStateSnapshot(
+  userId = getDefaultSyncUserId(),
+) {
+  await ensureSyncStorageSchema();
+  await pgQuery(`delete from user_chat_state_indexes where user_id = $1`, [
+    userId,
+  ]);
+  await pgQuery(`delete from user_chat_state_sessions where user_id = $1`, [
+    userId,
+  ]);
 }
 
-export async function removeStoreSnapshot(storeKey: string) {
+export async function removeStoreSnapshot(
+  storeKey: string,
+  userId = getDefaultSyncUserId(),
+) {
+  await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
 
   if (storeKey === StoreKey.Chat) {
-    await removeFullChatStateSnapshot();
+    await removeFullChatStateSnapshot(userId);
     return;
   }
 
-  await pgQuery(
-    `delete from sync_artifacts
-     where artifact_type = $2 and artifact_path = $1`,
-    [storeKey, STORE_STATE_ARTIFACT_TYPE],
-  );
+  await syncAppSettingsStore(userId, storeKey, null);
 }

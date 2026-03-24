@@ -2,7 +2,7 @@ import { writeFileSync } from "fs";
 
 import { STORAGE_KEY, StoreKey } from "../app/constant";
 import { STORE_PERSIST_VERSION } from "../app/utils/sync-store-keys";
-import { withPgTransaction } from "../app/utils/server/postgres";
+import { setStoreSnapshot } from "../app/utils/server/sync-store-repository";
 
 type JsonObject = Record<string, any>;
 
@@ -437,18 +437,9 @@ async function migrateWebDavStores() {
     );
   }
 
-  await withPgTransaction(async (client) => {
-    for (const [storeKey, payload] of payloads.entries()) {
-      await client.query(
-        `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-         values ('store_state', $1, $2::jsonb)
-         on conflict (artifact_type, artifact_path) do update set
-           payload_json = excluded.payload_json,
-           updated_at = now()`,
-        [storeKey, JSON.stringify(payload)],
-      );
-    }
-  });
+  for (const [storeKey, payload] of payloads.entries()) {
+    await setStoreSnapshot(storeKey, payload);
+  }
 
   const summary = {
     migratedAt: new Date().toISOString(),

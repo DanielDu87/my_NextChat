@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refreshConfiguredProviderModels } from "@/app/utils/server/provider-model-sync";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await refreshConfiguredProviderModels("api");
+    const result = await refreshConfiguredProviderModels(
+      "api",
+      resolveSyncUserId(req),
+    );
     return NextResponse.json(result, {
       headers: {
         "Cache-Control": "no-store",

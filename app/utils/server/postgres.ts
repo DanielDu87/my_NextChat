@@ -20,6 +20,7 @@ type PostgresEnv = {
 
 declare global {
   var __nextchatPostgresPool: Pool | undefined;
+  var __nextchatSyncStorageSchemaReady: Promise<void> | undefined;
 }
 
 function isRetryablePostgresError(error: unknown) {
@@ -198,6 +199,243 @@ export async function closePostgresPool() {
   const pool = globalThis.__nextchatPostgresPool;
   globalThis.__nextchatPostgresPool = undefined;
   await pool.end();
+}
+
+export async function ensureSyncStorageSchema() {
+  if (!globalThis.__nextchatSyncStorageSchemaReady) {
+    globalThis.__nextchatSyncStorageSchemaReady = withPgClient(
+      async (client) => {
+        await client.query(`
+        create or replace function generate_uuid_v4()
+        returns uuid as $$
+        declare
+          raw text;
+        begin
+          raw := md5(random()::text || clock_timestamp()::text || txid_current()::text);
+          return (
+            substr(raw, 1, 8) || '-' ||
+            substr(raw, 9, 4) || '-' ||
+            '4' || substr(raw, 14, 3) || '-' ||
+            substr('89ab', (floor(random() * 4) + 1)::integer, 1) || substr(raw, 18, 3) || '-' ||
+            substr(raw, 21, 12)
+          )::uuid;
+        end;
+        $$ language plpgsql
+      `);
+        await client.query(`
+        create or replace function set_updated_at()
+        returns trigger as $$
+        begin
+          new.updated_at = now();
+          return new;
+        end;
+        $$ language plpgsql
+      `);
+        await client.query(`
+        create table if not exists app_users (
+          id uuid primary key default generate_uuid_v4(),
+          external_id text unique,
+          email text,
+          display_name text,
+          avatar_url text,
+          locale text default 'zh-CN',
+          timezone text default 'Asia/Shanghai',
+          is_active boolean not null default true,
+          profile_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists provider_configs (
+          id uuid primary key default generate_uuid_v4(),
+          user_id uuid not null references app_users(id) on delete cascade,
+          provider_code text not null,
+          provider_name text not null,
+          provider_type text not null,
+          base_url text,
+          api_path text,
+          api_format text,
+          is_enabled boolean not null default true,
+          is_default boolean not null default false,
+          request_config jsonb not null default '{}'::jsonb,
+          raw_payload jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (user_id, provider_code)
+        )
+      `);
+        await client.query(`
+        create table if not exists provider_api_keys (
+          id uuid primary key default generate_uuid_v4(),
+          provider_config_id uuid not null references provider_configs(id) on delete cascade,
+          key_name text not null,
+          key_scope text,
+          api_key_group text,
+          encrypted_secret text,
+          masked_secret text,
+          metadata_json jsonb not null default '{}'::jsonb,
+          is_enabled boolean not null default true,
+          last_verified_at timestamptz,
+          expires_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (provider_config_id, key_name)
+        )
+      `);
+        await client.query(`
+        create table if not exists app_settings (
+          user_id uuid primary key references app_users(id) on delete cascade,
+          ui_settings jsonb not null default '{}'::jsonb,
+          chat_settings jsonb not null default '{}'::jsonb,
+          model_settings jsonb not null default '{}'::jsonb,
+          plugin_settings jsonb not null default '{}'::jsonb,
+          sync_settings jsonb not null default '{}'::jsonb,
+          security_settings jsonb not null default '{}'::jsonb,
+          extra_settings jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_provider_configs_user_id
+        on provider_configs(user_id)
+      `);
+        await client.query(`
+        create index if not exists idx_provider_api_keys_provider_config_id
+        on provider_api_keys(provider_config_id)
+      `);
+        await client.query(`
+        create table if not exists user_chat_state_indexes (
+          user_id text primary key,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists user_chat_state_sessions (
+          user_id text not null,
+          session_id text not null,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          primary key (user_id, session_id)
+        )
+      `);
+        await client.query(`
+        create table if not exists user_model_refresh_states (
+          user_id text not null,
+          refresh_key text not null,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          primary key (user_id, refresh_key)
+        )
+      `);
+        await client.query(`
+        create table if not exists user_provider_balance_snapshots (
+          user_id text not null,
+          balance_key text not null,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          primary key (user_id, balance_key)
+        )
+      `);
+        await client.query(`
+        create table if not exists model_source_index_snapshots (
+          source_key text primary key,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_user_chat_state_sessions_user_updated
+        on user_chat_state_sessions(user_id, updated_at desc)
+      `);
+        await client.query(`
+        create index if not exists idx_user_model_refresh_states_user_updated
+        on user_model_refresh_states(user_id, updated_at desc)
+      `);
+        await client.query(`
+        create index if not exists idx_user_provider_balance_snapshots_user_updated
+        on user_provider_balance_snapshots(user_id, updated_at desc)
+      `);
+        await client.query(`
+        create or replace trigger trg_app_settings_updated_at
+        before update on app_settings
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_app_users_updated_at
+        before update on app_users
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_provider_configs_updated_at
+        before update on provider_configs
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_provider_api_keys_updated_at
+        before update on provider_api_keys
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_user_chat_state_indexes_updated_at
+        before update on user_chat_state_indexes
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_user_chat_state_sessions_updated_at
+        before update on user_chat_state_sessions
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_user_model_refresh_states_updated_at
+        before update on user_model_refresh_states
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_user_provider_balance_snapshots_updated_at
+        before update on user_provider_balance_snapshots
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_model_source_index_snapshots_updated_at
+        before update on model_source_index_snapshots
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create table if not exists sync_secrets (
+          id uuid primary key default generate_uuid_v4(),
+          user_id text not null,
+          secret_key text not null,
+          encrypted_payload text not null,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (user_id, secret_key)
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_sync_secrets_user_updated
+        on sync_secrets(user_id, updated_at desc)
+      `);
+        await client.query(`
+        create or replace trigger trg_sync_secrets_updated_at
+        before update on sync_secrets
+        for each row execute function set_updated_at()
+      `);
+      },
+    ).catch((error) => {
+      globalThis.__nextchatSyncStorageSchemaReady = undefined;
+      throw error;
+    });
+  }
+
+  await globalThis.__nextchatSyncStorageSchemaReady;
 }
 
 export type PgResult<T extends QueryResultRow = QueryResultRow> =

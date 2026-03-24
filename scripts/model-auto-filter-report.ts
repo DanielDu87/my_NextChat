@@ -49,15 +49,18 @@ async function main() {
 
   try {
     const result = await client.query(
-      "select artifact_path, updated_at::text as updated_at, payload_json from sync_artifacts where artifact_type = 'store_state' and artifact_path in ('access-control', 'app-config') order by artifact_path",
+      `select
+         updated_at::text as updated_at,
+         security_settings -> 'access-control' as access_payload,
+         model_settings -> 'app-config' as config_payload
+       from app_settings
+       order by updated_at desc
+       limit 1`,
     );
 
-    const rows = Object.fromEntries(
-      result.rows.map((row: any) => [row.artifact_path, row]),
-    ) as Record<string, any>;
-
-    const access = unwrap(rows["access-control"]?.payload_json || {});
-    const config = unwrap(rows["app-config"]?.payload_json || {});
+    const row = result.rows[0] || {};
+    const access = unwrap(row.access_payload || {});
+    const config = unwrap(row.config_payload || {});
     const profiles = Array.isArray(access.apiProfiles) ? access.apiProfiles : [];
     const allModels = collectModelsWithDefaultModel(
       Array.isArray(config.models) ? config.models : [],
@@ -119,8 +122,8 @@ async function main() {
       JSON.stringify(
         {
           updatedAt: {
-            access: rows["access-control"]?.updated_at || null,
-            config: rows["app-config"]?.updated_at || null,
+            access: row.updated_at || null,
+            config: row.updated_at || null,
           },
           simulatedSeries,
           totals: {

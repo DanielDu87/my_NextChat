@@ -116,11 +116,12 @@ function createSession(sessionIndex: number, messageCount: number) {
 
 async function clearExistingChatArtifacts() {
   await pgQuery(
-    `delete from sync_artifacts
-     where (artifact_type = 'chat_index' and artifact_path = $1)
-        or artifact_type = 'chat_session'
-        or (artifact_type = 'store_state' and artifact_path = $1)`,
-    [StoreKey.Chat],
+    `delete from user_chat_state_indexes where user_id = $1`,
+    ["single-user"],
+  );
+  await pgQuery(
+    `delete from user_chat_state_sessions where user_id = $1`,
+    ["single-user"],
   );
 }
 
@@ -164,8 +165,9 @@ async function main() {
 
   const indexCountResult = await pgQuery<{ count: string }>(
     `select count(*)::text as count
-     from sync_artifacts
-     where artifact_type = 'chat_session'`,
+     from user_chat_state_sessions
+     where user_id = $1`,
+    ["single-user"],
   );
 
   console.log(

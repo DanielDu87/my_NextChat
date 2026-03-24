@@ -2180,7 +2180,7 @@ export function ApiConfigPage() {
 
       useModelCacheStore.getState().clearProfileCaches();
 
-      // 清空云端保存的模型统计数据（sync_artifacts 表中的 provider_model_refresh 记录）
+      // 清空云端保存的模型统计数据（user_model_refresh_states 表中的 latest 记录）
       await fetch("/api/db/models/latest", {
         method: "DELETE",
       });

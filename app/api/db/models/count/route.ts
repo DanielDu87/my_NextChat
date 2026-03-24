@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pgQuery } from "@/app/utils/server/postgres";
+import { ensureSyncStorageSchema } from "@/app/utils/server/postgres";
+import { setLatestModelRefreshState } from "@/app/utils/server/model-refresh-state-repository";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,8 @@ export const revalidate = 0;
  */
 export async function POST(req: NextRequest) {
   try {
+    await ensureSyncStorageSchema();
+    const userId = resolveSyncUserId(req);
     const body = await req.json();
     const { count, providers } = body;
 
@@ -23,23 +27,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await pgQuery(
-      `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-       values ($1, $2, $3::jsonb)
-       on conflict (artifact_type, artifact_path) do update set
-         payload_json = excluded.payload_json,
-         updated_at = now()`,
-      [
-        "provider_model_refresh",
-        "latest",
-        JSON.stringify({
-          modelCount: count,
-          providers: providers || [],
-          finishedAt: new Date().toISOString(),
-          triggerSource: "manual_sync",
-        }),
-      ],
-    );
+    await setLatestModelRefreshState(userId, {
+      modelCount: count,
+      providers: providers || [],
+      finishedAt: new Date().toISOString(),
+      triggerSource: "manual_sync",
+    });
 
     return NextResponse.json(
       { ok: true, count },

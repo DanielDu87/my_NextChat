@@ -282,15 +282,55 @@ CREATE TABLE IF NOT EXISTS model_unmatched (
   UNIQUE (provider_id, model_name)
 );
 
-CREATE TABLE IF NOT EXISTS sync_artifacts (
+CREATE TABLE IF NOT EXISTS sync_secrets (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
-  artifact_type text NOT NULL,
-  artifact_path text NOT NULL,
-  checksum text,
+  user_id text NOT NULL,
+  secret_key text NOT NULL,
+  encrypted_payload text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, secret_key)
+);
+
+CREATE TABLE IF NOT EXISTS user_chat_state_indexes (
+  user_id text PRIMARY KEY,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_chat_state_sessions (
+  user_id text NOT NULL,
+  session_id text NOT NULL,
   payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW(),
-  UNIQUE (artifact_type, artifact_path)
+  PRIMARY KEY (user_id, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_model_refresh_states (
+  user_id text NOT NULL,
+  refresh_key text NOT NULL,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, refresh_key)
+);
+
+CREATE TABLE IF NOT EXISTS user_provider_balance_snapshots (
+  user_id text NOT NULL,
+  balance_key text NOT NULL,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, balance_key)
+);
+
+CREATE TABLE IF NOT EXISTS model_source_index_snapshots (
+  source_key text PRIMARY KEY,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS usage_logs (
@@ -347,6 +387,10 @@ CREATE INDEX IF NOT EXISTS idx_model_catalog_capabilities_gin ON model_catalog U
 CREATE INDEX IF NOT EXISTS idx_model_sync_runs_provider_started_at ON model_sync_runs(provider_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_sync_cache_updated_at ON model_sync_cache(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_unmatched_last_seen_at ON model_unmatched(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_secrets_user_updated ON sync_secrets(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_chat_state_sessions_user_updated ON user_chat_state_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_model_refresh_states_user_updated ON user_model_refresh_states(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_provider_balance_snapshots_user_updated ON user_provider_balance_snapshots(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_created_at ON usage_logs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_model_created_at ON usage_logs(model_name, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_created_at ON audit_logs(user_id, created_at DESC);
@@ -403,8 +447,28 @@ CREATE OR REPLACE TRIGGER trg_model_unmatched_updated_at
 BEFORE UPDATE ON model_unmatched
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE OR REPLACE TRIGGER trg_sync_artifacts_updated_at
-BEFORE UPDATE ON sync_artifacts
+CREATE OR REPLACE TRIGGER trg_sync_secrets_updated_at
+BEFORE UPDATE ON sync_secrets
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_user_chat_state_indexes_updated_at
+BEFORE UPDATE ON user_chat_state_indexes
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_user_chat_state_sessions_updated_at
+BEFORE UPDATE ON user_chat_state_sessions
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_user_model_refresh_states_updated_at
+BEFORE UPDATE ON user_model_refresh_states
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_user_provider_balance_snapshots_updated_at
+BEFORE UPDATE ON user_provider_balance_snapshots
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_model_source_index_snapshots_updated_at
+BEFORE UPDATE ON model_source_index_snapshots
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON TABLE app_users IS '用户主表';
@@ -416,6 +480,12 @@ COMMENT ON TABLE messages IS '消息表';
 COMMENT ON TABLE model_catalog IS '模型目录和归一化元数据';
 COMMENT ON TABLE model_sync_cache IS '模型发布时间和来源缓存';
 COMMENT ON TABLE model_unmatched IS '仍未命中的模型记录';
+COMMENT ON TABLE user_chat_state_indexes IS '用户聊天索引快照';
+COMMENT ON TABLE user_chat_state_sessions IS '用户聊天会话快照';
+COMMENT ON TABLE user_model_refresh_states IS '用户模型刷新状态';
+COMMENT ON TABLE user_provider_balance_snapshots IS '用户供应商余额快照';
+COMMENT ON TABLE model_source_index_snapshots IS '模型来源索引快照';
+COMMENT ON TABLE sync_secrets IS '同步用敏感数据密文存储';
 COMMENT ON TABLE usage_logs IS '调用用量与成本日志';
 COMMENT ON TABLE audit_logs IS '审计日志';
 

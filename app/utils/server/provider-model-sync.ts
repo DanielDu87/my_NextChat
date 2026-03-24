@@ -16,8 +16,10 @@ import {
   type ModelCatalogUpsertRow,
   upsertModelCatalogRows,
 } from "./model-catalog-repository";
-import { pgQuery } from "./postgres";
+import { ensureSyncStorageSchema, pgQuery } from "./postgres";
+import { setLatestModelRefreshState } from "./model-refresh-state-repository";
 import { getStoreSnapshot, setStoreSnapshot } from "./sync-store-repository";
+import { getDefaultSyncUserId } from "./sync-user";
 
 type AccessProfile = {
   id: string;
@@ -25,6 +27,7 @@ type AccessProfile = {
   provider: ServiceProvider;
   baseUrl: string;
   apiKey: string;
+  balanceQueryApiKey?: string;
   apiKeyGroups?: Record<string, string>;
   enabled: boolean;
   openAICompatible?: boolean;
@@ -185,13 +188,13 @@ function toCatalogRows(
   }));
 }
 
-async function getCloudAccessState() {
-  const payload = await getStoreSnapshot(StoreKey.Access);
+async function getCloudAccessState(userId: string) {
+  const payload = await getStoreSnapshot(StoreKey.Access, userId);
   return unwrapPersistedStoreState<AccessState | null>(payload) || {};
 }
 
-async function getCloudAppConfigState() {
-  const payload = await getStoreSnapshot(StoreKey.Config);
+async function getCloudAppConfigState(userId: string) {
+  const payload = await getStoreSnapshot(StoreKey.Config, userId);
   return unwrapPersistedStoreState<AppConfigState | null>(payload) || {};
 }
 
@@ -236,12 +239,14 @@ async function finishRun(
 
 export async function refreshConfiguredProviderModels(
   triggerSource = "manual",
+  userId = getDefaultSyncUserId(),
 ): Promise<RefreshConfiguredProviderModelsResult> {
+  await ensureSyncStorageSchema();
   const runId = await createRun(triggerSource);
 
   try {
-    const accessState = await getCloudAccessState();
-    const appConfigState = await getCloudAppConfigState();
+    const accessState = await getCloudAccessState(userId);
+    const appConfigState = await getCloudAppConfigState(userId);
     const profiles = (accessState.apiProfiles || []).filter(shouldSyncProfile);
 
     const existingModels = Array.isArray(appConfigState.models)
@@ -258,6 +263,7 @@ export async function refreshConfiguredProviderModels(
         profile.apiKey,
         profile.name,
         profile.apiKeyGroups,
+        profile.balanceQueryApiKey,
       );
 
       fetchedModels.push(...result.models);
@@ -289,7 +295,10 @@ export async function refreshConfiguredProviderModels(
       return { ...profile };
     });
 
-    const modelCacheSnapshot = await getStoreSnapshot(StoreKey.ModelCache);
+    const modelCacheSnapshot = await getStoreSnapshot(
+      StoreKey.ModelCache,
+      userId,
+    );
     const modelCacheState = unwrapPersistedStoreState<ModelCacheState>(
       modelCacheSnapshot,
     ) ?? { profiles: {} };
@@ -316,6 +325,7 @@ export async function refreshConfiguredProviderModels(
         ...appConfigState,
         models: mergedModels,
       }),
+      userId,
     );
 
     await setStoreSnapshot(
@@ -324,6 +334,7 @@ export async function refreshConfiguredProviderModels(
         ...accessState,
         apiProfiles: nextProfiles,
       }),
+      userId,
     );
 
     await setStoreSnapshot(
@@ -332,6 +343,7 @@ export async function refreshConfiguredProviderModels(
         ...modelCacheState,
         profiles: nextModelCacheProfiles,
       }),
+      userId,
     );
 
     // 计算各平台数量相加的总数（不去重）
@@ -348,22 +360,11 @@ export async function refreshConfiguredProviderModels(
     };
 
     // 保存模型刷新记录到数据库
-    await pgQuery(
-      `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-       values ($1, $2, $3::jsonb)
-       on conflict (artifact_type, artifact_path) do update set
-         payload_json = excluded.payload_json,
-         updated_at = now()`,
-      [
-        "provider_model_refresh",
-        "latest",
-        JSON.stringify({
-          ...summary,
-          triggerSource,
-          finishedAt: toIsoNow(),
-        }),
-      ],
-    );
+    await setLatestModelRefreshState(userId, {
+      ...summary,
+      triggerSource,
+      finishedAt: toIsoNow(),
+    });
 
     await finishRun(runId, "completed", summary);
 

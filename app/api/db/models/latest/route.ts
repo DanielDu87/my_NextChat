@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { pgQuery } from "@/app/utils/server/postgres";
+import { ensureSyncStorageSchema } from "@/app/utils/server/postgres";
+import {
+  getLatestModelRefreshState,
+  removeLatestModelRefreshState,
+} from "@/app/utils/server/model-refresh-state-repository";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,17 +26,13 @@ type LatestModelRefreshRow = {
   updated_at: string;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const result = await pgQuery<LatestModelRefreshRow>(
-      `select payload_json, updated_at::text as updated_at
-       from sync_artifacts
-       where artifact_type = $1 and artifact_path = $2
-       limit 1`,
-      ["provider_model_refresh", "latest"],
-    );
-
-    const row = result.rows[0];
+    await ensureSyncStorageSchema();
+    const userId = resolveSyncUserId(new Headers(request.headers));
+    const row = (await getLatestModelRefreshState(
+      userId,
+    )) as LatestModelRefreshRow | null;
     const payload = row?.payload_json ?? null;
 
     return NextResponse.json(
@@ -67,13 +68,11 @@ export async function GET() {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
-    await pgQuery(
-      `delete from sync_artifacts
-       where artifact_type = $1 and artifact_path = $2`,
-      ["provider_model_refresh", "latest"],
-    );
+    await ensureSyncStorageSchema();
+    const userId = resolveSyncUserId(new Headers(request.headers));
+    await removeLatestModelRefreshState(userId);
 
     return NextResponse.json(
       { ok: true },

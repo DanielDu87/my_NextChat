@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isPostgresEnabled, pgQuery } from "@/app/utils/server/postgres";
-
-const BALANCE_ARTIFACT_TYPE = "provider_balance";
+import { isPostgresEnabled } from "@/app/utils/server/postgres";
+import {
+  getProviderBalanceSnapshot,
+  setProviderBalanceSnapshot,
+} from "@/app/utils/server/provider-balance-repository";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,17 +25,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await pgQuery<{ payload_json: unknown }>(
-      `select payload_json
-       from sync_artifacts
-       where artifact_type = $1 and artifact_path = $2
-       limit 1`,
-      [BALANCE_ARTIFACT_TYPE, key],
-    );
-
     return NextResponse.json({
       ok: true,
-      snapshot: result.rows[0]?.payload_json ?? null,
+      snapshot: await getProviderBalanceSnapshot(resolveSyncUserId(req), key),
     });
   } catch (error) {
     return NextResponse.json(
@@ -64,13 +59,10 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    await pgQuery(
-      `insert into sync_artifacts (artifact_type, artifact_path, payload_json)
-       values ($1, $2, $3::jsonb)
-       on conflict (artifact_type, artifact_path) do update set
-         payload_json = excluded.payload_json,
-         updated_at = now()`,
-      [BALANCE_ARTIFACT_TYPE, key, JSON.stringify(payload?.snapshot ?? {})],
+    await setProviderBalanceSnapshot(
+      resolveSyncUserId(req),
+      key,
+      payload?.snapshot ?? {},
     );
 
     return NextResponse.json({ ok: true, persisted: true });

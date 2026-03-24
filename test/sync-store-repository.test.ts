@@ -19,6 +19,9 @@ jest.unstable_mockModule("../app/constant", () => ({
     Sync: "sync",
     SdList: "sd-list",
   },
+  ServiceProvider: {
+    Custom: "Custom",
+  },
 }));
 
 jest.unstable_mockModule("../app/utils/chat-sync", () => ({
@@ -45,10 +48,33 @@ jest.unstable_mockModule("../app/utils/sync-store-keys", () => ({
 }));
 
 jest.unstable_mockModule("../app/utils/server/postgres", () => ({
+  ensureSyncStorageSchema: jest.fn(async () => undefined),
   withPgTransaction: async (
     handler: (client: { query: typeof queryMock }) => Promise<unknown>,
   ) => handler({ query: queryMock }),
   pgQuery: jest.fn(),
+}));
+
+jest.unstable_mockModule("../app/utils/server/sync-secrets", () => ({
+  getEncryptedSyncSecret: jest.fn(async () => null),
+  setEncryptedSyncSecret: jest.fn(async () => undefined),
+  encryptSyncSecretPayload: jest.fn((value) => `enc:${String(value)}`),
+}));
+
+jest.unstable_mockModule("../app/utils/server/access-store-security", () => ({
+  splitAccessStorePayload: jest.fn((payload) => ({
+    publicPayload: payload,
+    secretPayload: {},
+  })),
+  mergeAccessStorePayload: jest.fn((payload) => payload),
+}));
+
+const getAppSettingsStoreMock = jest.fn(async () => undefined);
+const syncAppSettingsStoreMock = jest.fn(async () => undefined);
+
+jest.unstable_mockModule("../app/utils/server/app-settings-repository", () => ({
+  getAppSettingsStore: getAppSettingsStoreMock,
+  syncAppSettingsStore: syncAppSettingsStoreMock,
 }));
 
 const { applyChatDelta } = await import("../app/utils/server/sync-store-repository");
@@ -56,6 +82,8 @@ const { applyChatDelta } = await import("../app/utils/server/sync-store-reposito
 describe("sync store repository helpers", () => {
   beforeEach(() => {
     queryMock.mockReset();
+    getAppSettingsStoreMock.mockClear();
+    syncAppSettingsStoreMock.mockClear();
   });
 
   test("buildChatSessionRows should batch valid sessions and sanitize null bytes", () => {
@@ -92,7 +120,7 @@ describe("sync store repository helpers", () => {
     ]);
   });
 
-  test("applyChatDelta should batch session upserts and dedupe deletes", async () => {
+  test("applyChatDelta should upsert sessions and dedupe deletes", async () => {
     await applyChatDelta({
       index: {
         version: 1,
@@ -109,11 +137,10 @@ describe("sync store repository helpers", () => {
     expect(queryMock).toHaveBeenCalledTimes(4);
 
     expect(queryMock.mock.calls[0][0]).toContain(
-      "insert into sync_artifacts (artifact_type, artifact_path, payload_json)",
+      "insert into user_chat_state_indexes (user_id, payload_json)",
     );
     expect(queryMock.mock.calls[0][1]).toEqual([
-      "chat_index",
-      "chat-next-web-store",
+      "single-user",
       JSON.stringify({
         version: 1,
         state: { currentSessionId: "s1" },
@@ -122,24 +149,57 @@ describe("sync store repository helpers", () => {
     ]);
 
     expect(queryMock.mock.calls[1][0]).toContain(
-      "from unnest($1::text[], $2::text[], $3::text[])",
+      "insert into user_chat_state_sessions",
     );
     expect(queryMock.mock.calls[1][1]).toEqual([
-      ["chat_session", "chat_session"],
-      ["s1", "s2"],
-      [JSON.stringify({ id: "s1", text: "a" }), JSON.stringify({ id: "s2", text: "b" })],
+      "single-user",
+      "s1",
+      JSON.stringify({ id: "s1", text: "a" }),
     ]);
 
-    expect(queryMock.mock.calls[2][0]).toContain("delete from sync_artifacts");
+    expect(queryMock.mock.calls[2][0]).toContain(
+      "insert into user_chat_state_sessions",
+    );
     expect(queryMock.mock.calls[2][1]).toEqual([
-      ["s2", "s1"],
-      "chat_session",
+      "single-user",
+      "s2",
+      JSON.stringify({ id: "s2", text: "b" }),
     ]);
 
-    expect(queryMock.mock.calls[3][0]).toContain("delete from sync_artifacts");
+    expect(queryMock.mock.calls[3][0]).toContain(
+      "delete from user_chat_state_sessions",
+    );
     expect(queryMock.mock.calls[3][1]).toEqual([
-      "chat-next-web-store",
-      "store_state",
+      ["s2", "s1"],
+      "single-user",
     ]);
+  });
+
+  test("setStoreSnapshot should also sync app settings for config stores", async () => {
+    const { setStoreSnapshot } = await import(
+      "../app/utils/server/sync-store-repository"
+    );
+
+    await setStoreSnapshot("prompt-store", {
+      state: {
+        prompts: {
+          p1: { id: "p1", title: "hello" },
+        },
+      },
+      version: 3,
+    });
+
+    expect(syncAppSettingsStoreMock).toHaveBeenCalledWith(
+      "single-user",
+      "prompt-store",
+      {
+        state: {
+          prompts: {
+            p1: { id: "p1", title: "hello" },
+          },
+        },
+        version: 3,
+      },
+    );
   });
 });

@@ -285,6 +285,93 @@ export const CUSTOM_BALANCE_QUERY_RULES = [
 | `Ocoolai` | `ocoolai` | `https://one.ooo.cool` | `73eb755abbfa475f8b0063c533f2e0c5` |
 | `ToAPIs` | `toapis` | `https://toapis.com` | `sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx` |
 
+#### 新增供应商接入说明
+
+当前项目新增一个供应商，分成两类：
+
+- 新增一个“供应商实例”：通常只需要新增数据库中的 profile 配置
+- 新增一种“供应商接入规则”：除了配置，还需要补模型获取和余额获取的适配代码
+
+数据库中的相关存储位置：
+
+- 供应商基础配置：`provider_configs`
+- 供应商所有密钥：`provider_api_keys`
+- 访问控制与页面配置快照：`app_settings`
+
+当前每个供应商相关的 key 都应该进入数据库保存，包含：
+
+- `apiKey`
+- `modelFetchApiKey`
+- `apiKeyGroups.*`
+- `balanceQueryApiKey`
+
+模型获取当前统一 key 尝试顺序：
+
+1. `modelFetchApiKey`
+2. `apiKeyGroups.default`
+3. `apiKey`
+4. 其它分组 key
+5. `balanceQueryApiKey`
+
+说明：
+
+- 按顺序逐个尝试，某个 key 成功后立即停止，不会继续尝试后面的 key
+- 这套顺序同时用于前端手动获取模型和服务端定时/手动刷新模型
+
+模型获取相关代码位置：
+
+- 前端获取模型主逻辑：`app/utils/models.ts`
+- 服务端获取模型主逻辑：`app/utils/server/provider-model-fetch.ts`
+- 服务端批量刷新入口：`app/utils/server/provider-model-sync.ts`
+- API 配置页触发入口：`app/components/api-config.tsx`
+
+余额获取相关代码位置：
+
+- 余额查询主逻辑：`app/store/update.ts`
+- Custom 余额规则配置：`app/config/custom-balance.ts`
+
+新增供应商时的处理方式：
+
+1. 先确认它是否兼容当前已有模型接口
+   - 常见兼容接口：`/v1/models`、`/api/v1/models`、`/api/pricing`
+   - 如果现有返回格式就能识别，通常只需要新增 profile 配置
+2. 再确认它的余额接口是否兼容当前已有余额模式
+   - 当前支持：`json`、`aihubmix`、`ocoolai`、`toapis`、`openai-compatible`
+   - 如果能匹配现有模式，只需要在 `app/config/custom-balance.ts` 增加一条规则
+3. 如果模型接口或余额接口不兼容，再补代码适配
+
+以下情况通常不需要改代码：
+
+- 只是新增一个新的供应商账号或新的供应商实例
+- 模型接口兼容现有 OpenAI / pricing 风格
+- 余额接口兼容现有 `custom-balance.ts` 中的某种模式
+
+以下情况通常必须改代码：
+
+- 模型接口路径与当前候选 URL 都不一致
+- 模型返回 JSON 结构与当前解析逻辑不兼容
+- 余额接口路径、鉴权方式或字段结构特殊
+- 需要特殊的分组 key 规则或模型分类规则
+
+建议的新增供应商 checklist：
+
+1. 在 API 配置页新增 profile，填写 `baseUrl`
+2. 填写 `apiKey`
+3. 如有模型专用 key，填写 `modelFetchApiKey`
+4. 如有余额专用 key，填写 `balanceQueryApiKey`
+5. 如有分组 key，填写 `apiKeyGroups.default` 和其它分组
+6. 检查这些 key 已同步进入 `provider_api_keys`
+7. 手动测试“获取模型”
+8. 手动测试“查询余额”
+9. 如果任一步失败，再补对应代码适配
+
+推荐的排查顺序：
+
+1. 先确认数据库里的 `provider_configs` / `provider_api_keys` 是否已有完整配置
+2. 再看模型获取实际命中了哪一个 key
+3. 再看余额查询实际命中了哪条规则和哪一个 URL
+4. 最后再判断是否需要新增代码适配
+
 ### `DISABLE_FAST_LINK` （可选）
 
 如果你想禁用从链接解析预制设置，将此环境变量设置为 1 即可。

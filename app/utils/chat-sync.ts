@@ -33,7 +33,7 @@ export function shouldSyncChatSession(session: ChatSessionLike | undefined) {
     return false;
   }
 
-  return Array.isArray(session.messages) && session.messages.length > 0;
+  return true;
 }
 
 export function getSyncableChatSessions<T extends ChatSessionLike>(

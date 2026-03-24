@@ -425,20 +425,38 @@ function mapModels(
 async function fetchJsonWithCandidates(
   urls: string[],
   headers: Record<string, string>,
+  authorizationCandidates?: string[],
 ) {
   let lastError: Error | null = null;
+  const authCandidates =
+    authorizationCandidates && authorizationCandidates.length > 0
+      ? authorizationCandidates
+      : headers.Authorization
+      ? [headers.Authorization]
+      : [undefined];
 
-  for (const url of urls) {
-    try {
-      const response = await fetch(url, { method: "GET", headers });
-      if (!response.ok) {
-        lastError = new Error(`${response.status} ${response.statusText}`);
-        continue;
+  for (const authorization of authCandidates) {
+    for (const url of urls) {
+      try {
+        const requestHeaders = { ...headers };
+        if (authorization) {
+          requestHeaders.Authorization = authorization;
+        } else {
+          delete requestHeaders.Authorization;
+        }
+        const response = await fetch(url, {
+          method: "GET",
+          headers: requestHeaders,
+        });
+        if (!response.ok) {
+          lastError = new Error(`${response.status} ${response.statusText}`);
+          continue;
+        }
+        console.log(`[Fetch Models] ✅ 使用模型接口: ${url}`);
+        return await response.json();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("请求失败");
       }
-      console.log(`[Fetch Models] ✅ 使用模型接口: ${url}`);
-      return await response.json();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("请求失败");
     }
   }
 
@@ -504,6 +522,24 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
   return priorityMap[normalizedGroup] ?? 0;
 }
 
+function getModelFetchApiKeyCandidates(params: {
+  balanceQueryApiKey?: string;
+  apiKey?: string;
+  apiKeyGroups?: Record<string, string>;
+}) {
+  const groupedKeys = params.apiKeyGroups || {};
+  const candidates = [
+    groupedKeys.default,
+    params.apiKey,
+    ...Object.values(groupedKeys),
+    params.balanceQueryApiKey,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
 export function modelsToCustomModelsString(models: SyncedLLMModel[]): string {
   return models
     .map((model) => {
@@ -521,6 +557,7 @@ export async function fetchModelsFromProviderForServer(
   apiKey?: string,
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
+  balanceQueryApiKey?: string,
 ): Promise<ServerFetchModelsResult> {
   const preset = resolveProviderFetchPreset(provider, baseUrl, profileName);
   if (!preset || !baseUrl || preset.strategy === "unsupported") {
@@ -529,9 +566,15 @@ export async function fetchModelsFromProviderForServer(
 
   const { providerId, providerName, providerType, sorted } = preset;
 
+  const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
+    balanceQueryApiKey,
+    apiKey,
+    apiKeyGroups,
+  });
+
   const headers: Record<string, string> = {};
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
+  if (modelFetchApiKeyCandidates[0]) {
+    headers.Authorization = `Bearer ${modelFetchApiKeyCandidates[0]}`;
   }
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
@@ -552,7 +595,11 @@ export async function fetchModelsFromProviderForServer(
           `${baseWithoutV1}/api/pricing`,
         ];
 
-  const data = await fetchJsonWithCandidates(candidateUrls, headers);
+  const data = await fetchJsonWithCandidates(
+    candidateUrls,
+    headers,
+    modelFetchApiKeyCandidates.map((key) => `Bearer ${key}`),
+  );
 
   let models: any[] = [];
   let vendorsMap: Record<number, { name: string; icon?: string }> | undefined;
@@ -666,7 +713,11 @@ export async function fetchModelsFromProviderForServer(
   }
 
   // Ocoolai 分组模型获取
-  if (isOcoolaiUrl(baseUrl) && apiKeyGroups && Object.keys(apiKeyGroups).length > 0) {
+  if (
+    isOcoolaiUrl(baseUrl) &&
+    apiKeyGroups &&
+    Object.keys(apiKeyGroups).length > 0
+  ) {
     const groupedEntries = Object.entries(apiKeyGroups).filter(
       ([key, value]) => key && value?.trim(),
     );
@@ -692,10 +743,15 @@ export async function fetchModelsFromProviderForServer(
     // 使用 Ocoolai 的分组 API
     const groupsData = await fetchJsonWithCandidates(
       [`${baseWithoutV1}/api/user/available_models_by_groups`],
-      { Authorization: `Bearer ${apiKey}` },
+      { Authorization: `Bearer ${modelFetchApiKeyCandidates[0] || ""}` },
+      modelFetchApiKeyCandidates.map((key) => `Bearer ${key}`),
     );
 
-    if (groupsData.success && groupsData.data?.groups && Array.isArray(groupsData.data.groups)) {
+    if (
+      groupsData.success &&
+      groupsData.data?.groups &&
+      Array.isArray(groupsData.data.groups)
+    ) {
       const groups = groupsData.data.groups;
 
       for (const group of groups) {
@@ -731,7 +787,10 @@ export async function fetchModelsFromProviderForServer(
             model.name,
             existing.apiKeyGroup,
           );
-          const nextPriority = getOcoolApiKeyGroupPriority(model.name, groupName);
+          const nextPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            groupName,
+          );
 
           if (nextPriority > existingPriority) {
             mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });

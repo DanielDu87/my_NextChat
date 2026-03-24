@@ -4,15 +4,17 @@ import {
   getChatIndexSnapshot,
 } from "@/app/utils/server/sync-store-repository";
 import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
+import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const userId = resolveSyncUserId(req);
     const index = await withRetryablePostgresOperation(() =>
-      getChatIndexSnapshot(),
+      getChatIndexSnapshot(userId),
     );
 
     return NextResponse.json({
@@ -38,6 +40,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
+    const userId = resolveSyncUserId(req);
     const payload = (await req.json()) as {
       index?: any;
       upsertSessions?: Array<Record<string, unknown>>;
@@ -53,6 +56,7 @@ export async function PUT(req: NextRequest) {
 
     await withRetryablePostgresOperation(() =>
       applyChatDelta({
+        userId,
         index: payload.index,
         upsertSessions: payload.upsertSessions || [],
         deleteSessionIds: Array.isArray(payload.deleteSessionIds)
@@ -63,6 +67,10 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    console.error("[DB Chat Sync PUT] failed", {
+      error:
+        error instanceof Error ? error.stack || error.message : String(error),
+    });
     return NextResponse.json(
       {
         ok: false,

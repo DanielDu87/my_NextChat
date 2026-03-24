@@ -38,6 +38,32 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
   return priorityMap[normalizedGroup] ?? 0;
 }
 
+function getModelFetchApiKeyCandidates(params: {
+  profile?: {
+    modelFetchApiKey?: string;
+    balanceQueryApiKey?: string;
+    apiKey?: string;
+    apiKeyGroups?: Record<string, string>;
+  };
+  apiKey?: string;
+  apiKeyGroups?: Record<string, string>;
+}) {
+  const profile = params.profile;
+  const groupedKeys = params.apiKeyGroups || profile?.apiKeyGroups || {};
+  const candidates = [
+    profile?.modelFetchApiKey,
+    groupedKeys.default,
+    profile?.apiKey,
+    params.apiKey,
+    ...Object.values(groupedKeys),
+    profile?.balanceQueryApiKey,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
 /**
  * AiHubMix developer_id 到供应商名称的映射
  * 数据来源: https://aihubmix.com/api/v1/models
@@ -500,6 +526,7 @@ type FetchJsonOptions = {
   suppressCandidateErrors?: boolean;
   suppressStatusCodes?: number[];
   validateJson?: (data: any) => boolean;
+  authorizationCandidates?: string[];
 };
 
 async function fetchJsonWithCandidates(
@@ -510,62 +537,75 @@ async function fetchJsonWithCandidates(
 ) {
   let lastError: Error | null = null;
   const suppressStatusCodes = new Set(options?.suppressStatusCodes || []);
+  const authCandidates =
+    options?.authorizationCandidates &&
+    options.authorizationCandidates.length > 0
+      ? options.authorizationCandidates
+      : headers.Authorization
+      ? [headers.Authorization]
+      : [undefined];
 
-  for (let i = 0; i < urls.length; i++) {
-    const candidate = urls[i];
-    const url = typeof candidate === "string" ? candidate : candidate.url;
-    const displayBaseUrl =
-      typeof candidate === "string"
-        ? baseUrl
-        : candidate.displayBaseUrl ?? baseUrl;
-    const requestHeaders = {
-      ...headers,
-      ...(typeof candidate === "string" || !candidate.headerBaseUrl
-        ? {}
-        : { "x-base-url": candidate.headerBaseUrl }),
-    };
-    const display = fullUrl(url, displayBaseUrl);
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: requestHeaders,
-      });
+  for (let authIndex = 0; authIndex < authCandidates.length; authIndex++) {
+    for (let i = 0; i < urls.length; i++) {
+      const candidate = urls[i];
+      const url = typeof candidate === "string" ? candidate : candidate.url;
+      const displayBaseUrl =
+        typeof candidate === "string"
+          ? baseUrl
+          : candidate.displayBaseUrl ?? baseUrl;
+      const requestHeaders = {
+        ...headers,
+        ...(typeof candidate === "string" || !candidate.headerBaseUrl
+          ? {}
+          : { "x-base-url": candidate.headerBaseUrl }),
+      } as Record<string, string>;
+      const authorization = authCandidates[authIndex];
+      if (authorization) {
+        requestHeaders.Authorization = authorization;
+      } else {
+        delete requestHeaders.Authorization;
+      }
+      const display = fullUrl(url, displayBaseUrl);
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: requestHeaders,
+        });
 
-      if (!response.ok) {
-        lastError = new Error(`${response.status} ${response.statusText}`);
-        if (suppressStatusCodes.has(response.status)) {
+        if (!response.ok) {
+          lastError = new Error(`${response.status} ${response.statusText}`);
+          if (suppressStatusCodes.has(response.status)) {
+            continue;
+          }
+          if (response.status === 404) {
+            console.log(
+              `[Fetch Models] 💡 第 ${
+                i + 1
+              } 个 URL 不存在 (404)，尝试下一个...`,
+            );
+          } else {
+            console.log(
+              `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 返回 ${response.status}`,
+            );
+          }
           continue;
         }
-        // 404 不显示为错误，而是提示
-        if (response.status === 404) {
-          console.log(
-            `[Fetch Models] 💡 第 ${i + 1} 个 URL 不存在 (404)，尝试下一个...`,
-          );
-        } else {
-          console.log(
-            `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 返回 ${response.status}`,
-          );
-        }
-        continue;
-      }
 
-      if (options?.logSuccess !== false) {
-        // 延后到 JSON 校验通过后再打印，避免把逻辑失败的 200 响应记成成功。
-      }
-      const data = await response.json();
-      if (options?.validateJson && !options.validateJson(data)) {
-        console.log(`[Fetch Models] ❌ 验证失败，响应内容:`, data);
-        lastError = new Error("响应内容无效");
-        continue;
-      }
-      if (options?.logSuccess !== false) {
-        console.log(`[Fetch Models] ✅ 使用模型接口: ${display}`);
-      }
-      return data;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("请求失败");
-      if (!options?.suppressCandidateErrors) {
-        console.log(`[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`, error);
+        const data = await response.json();
+        if (options?.validateJson && !options.validateJson(data)) {
+          console.log(`[Fetch Models] ❌ 验证失败，响应内容:`, data);
+          lastError = new Error("响应内容无效");
+          continue;
+        }
+        if (options?.logSuccess !== false) {
+          console.log(`[Fetch Models] ✅ 使用模型接口: ${display}`);
+        }
+        return data;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("请求失败");
+        if (!options?.suppressCandidateErrors) {
+          console.log(`[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`, error);
+        }
       }
     }
   }
@@ -687,12 +727,18 @@ export async function fetchModelsFromProvider(
       const isOcoolai = isOcoolaiUrl(baseUrl);
 
       // Ocoolai 使用专用 API Key 获取模型列表（不影响聊天）
-      const modelFetchApiKey = isOcoolai
-        ? matchedCustomProfile?.modelFetchApiKey || apiKey
-        : apiKey;
+      const modelFetchApiKeyCandidates = isOcoolai
+        ? getModelFetchApiKeyCandidates({
+            profile: matchedCustomProfile,
+            apiKey,
+            apiKeyGroups,
+          })
+        : apiKey
+        ? [apiKey]
+        : [];
 
-      if (modelFetchApiKey) {
-        headers["Authorization"] = `Bearer ${modelFetchApiKey}`;
+      if (modelFetchApiKeyCandidates[0]) {
+        headers["Authorization"] = `Bearer ${modelFetchApiKeyCandidates[0]}`;
       }
 
       console.log(`[Fetch Models] 🔍 检测 baseUrl:`, {
@@ -724,6 +770,9 @@ export async function fetchModelsFromProvider(
       // console.log(`[Fetch Models] 📋 候选 URLs:`, candidateUrls);
 
       data = await fetchJsonWithCandidates(candidateUrls, headers, baseUrl, {
+        authorizationCandidates: modelFetchApiKeyCandidates.map(
+          (key) => `Bearer ${key}`,
+        ),
         suppressCandidateErrors: isOcoolai,
         suppressStatusCodes: isOcoolai ? [401, 404] : [404],
         validateJson: isOcoolai
@@ -932,6 +981,11 @@ export async function fetchModelsFromProvider(
       apiKeyGroups &&
       Object.keys(apiKeyGroups).length > 0
     ) {
+      const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
+        profile: matchedCustomProfile,
+        apiKey,
+        apiKeyGroups,
+      });
       const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
       const groupsData = await fetchJsonWithCandidates(
@@ -943,13 +997,14 @@ export async function fetchModelsFromProvider(
           },
         ],
         {
-          Authorization: `Bearer ${
-            matchedCustomProfile?.modelFetchApiKey || apiKey || ""
-          }`,
+          Authorization: `Bearer ${modelFetchApiKeyCandidates[0] || ""}`,
           ...(baseUrl ? { "x-base-url": baseWithoutV1 } : {}),
         },
         baseUrl,
         {
+          authorizationCandidates: modelFetchApiKeyCandidates.map(
+            (key) => `Bearer ${key}`,
+          ),
           logSuccess: false,
           suppressCandidateErrors: true,
           suppressStatusCodes: [404],
