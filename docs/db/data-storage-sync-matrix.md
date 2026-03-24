@@ -12,8 +12,6 @@
 | `IndexedDB` | 前端业务数据本地工作副本 | Zustand 持久化主入口 |
 | `localStorage` | 纯本地 UI 偏好和临时态 | 不参与云端同步 |
 | PostgreSQL | 云端共享副本、敏感配置、模型目录、运行状态 | 当前主云端存储 |
-| Upstash Redis | 可选整包同步 | 以 Redis key 存储，不是表 |
-| WebDAV | 可选文件同步 | 以 JSON 文件存储，不是表 |
 
 ### 1.2 当前实际 PostgreSQL 表映射
 
@@ -63,8 +61,6 @@
 | 语言 | `localStorage` | `lang` |
 | 横幅关闭状态 | `localStorage` | `bannerDismissed` |
 | 输入草稿 | `localStorage` | `unfinished-input-*` |
-| Upstash 同步数据 | Redis | `${storeKey}-chunk-count`、`${storeKey}-chunk-${i}` |
-| WebDAV 同步数据 | 文件 | `chat-index.json`、`access.json`、`config.json`、`chat-records/*.json` 等 |
 
 ## 2. 数据分类总表
 
@@ -80,7 +76,7 @@
 | 更新状态 | `chat-update` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
 | 绘图记录 | `sd-list` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
 | 同步元信息 | `sync` | `IndexedDB` | 可选云端快照 | 本地直接读取 | 随同步动作更新 | `/api/db/sync-meta` |
-| 模型目录主表 | `model_catalog` | 无直接本地副本 | PostgreSQL `model_catalog` | 不在页面直接读整表；通过 `app-config.models` 进入前端 | 由模型刷新脚本/接口维护 | 供应商 API / WebDAV 迁移 |
+| 模型目录主表 | `model_catalog` | 无直接本地副本 | PostgreSQL `model_catalog` | 不在页面直接读整表；通过 `app-config.models` 进入前端 | 由模型刷新脚本/接口维护 | 供应商 API / 导入脚本 |
 | 模型同步运行记录 | `model_sync_runs` | 无 | PostgreSQL `model_sync_runs` | 不在页面直接读 | 由后台任务写入 | 供应商刷新脚本、模型导入脚本 |
 | 页面宽度 | `sidebarWidth` | `localStorage` | 无 | 只读本地 | 不参与云端同步 | 无 |
 | 语言 | `lang` | `localStorage` | 无 | 只读本地 | 不参与云端同步 | 无 |

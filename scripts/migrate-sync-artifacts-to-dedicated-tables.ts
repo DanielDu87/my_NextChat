@@ -15,7 +15,8 @@ type LegacyRow = {
 };
 
 function normalizeUserId(row: LegacyRow) {
-  return String(row.user_id || "single-user");
+  const normalized = String(row.user_id || "").trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 async function hasLegacyTable() {
@@ -44,7 +45,7 @@ async function main() {
 
   const rowsResult = await pgQuery<LegacyRow>(
     `select
-       coalesce(user_id, 'single-user') as user_id,
+       user_id,
        artifact_type,
        artifact_path,
        payload_json
@@ -65,6 +66,11 @@ async function main() {
 
   for (const row of legacyRows) {
     const userId = normalizeUserId(row);
+    if (!userId) {
+      migrated.skipped_missing_user_id =
+        (migrated.skipped_missing_user_id || 0) + 1;
+      continue;
+    }
 
     if (row.artifact_type === "chat_index") {
       const entry = chatByUser.get(userId) || { sessions: [] };

@@ -25,7 +25,7 @@ Best if:
 - you changed code
 - you want China-friendly mirrors
 - you want to use the built-in `docker-compose.yml`
-- you need database / WebDAV / SSH tunnel integration
+- you need database / SSH tunnel integration
 
 If deployment is performed by AI or automation, prefer the self-built mode.
 

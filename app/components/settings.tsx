@@ -65,7 +65,6 @@ import {
   GoogleSafetySettingsThreshold,
   OPENAI_BASE_URL,
   Path,
-  STORAGE_KEY,
   ServiceProvider,
   Stability,
   Iflytek,
@@ -86,7 +85,6 @@ import { getClientConfig } from "../config/client";
 import { useSyncStore } from "../store/sync";
 import { nanoid } from "nanoid";
 import { useMaskStore } from "../store/mask";
-import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 
@@ -374,157 +372,18 @@ function SyncConfigModal(props: { onClose?: () => void }) {
         <List>
           <ListItem
             title={Locale.Settings.Sync.Config.SyncType.Title}
-            subTitle={Locale.Settings.Sync.Config.SyncType.SubTitle}
+            subTitle="当前仅保留 PostgreSQL 数据库同步。"
           >
-            <select
-              value={syncStore.provider}
-              onChange={(e) => {
-                syncStore.update(
-                  (config) =>
-                    (config.provider = e.target.value as ProviderType),
-                );
-              }}
-            >
-              {Object.entries(ProviderType).map(([k, v]) => (
-                <option value={v} key={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+            <span>Database</span>
           </ListItem>
-
-          <ListItem
-            title={Locale.Settings.Sync.Config.Proxy.Title}
-            subTitle={Locale.Settings.Sync.Config.Proxy.SubTitle}
-          >
-            <input
-              type="checkbox"
-              checked={
-                syncStore.provider === ProviderType.Database
-                  ? false
-                  : syncStore.useProxy
-              }
-              disabled={syncStore.provider === ProviderType.Database}
-              onChange={(e) => {
-                syncStore.update(
-                  (config) => (config.useProxy = e.currentTarget.checked),
-                );
-              }}
-            ></input>
-          </ListItem>
-          {syncStore.useProxy ? (
-            syncStore.provider === ProviderType.Database ? null : (
-              <ListItem
-                title={Locale.Settings.Sync.Config.ProxyUrl.Title}
-                subTitle={Locale.Settings.Sync.Config.ProxyUrl.SubTitle}
-              >
-                <input
-                  type="text"
-                  value={syncStore.proxyUrl}
-                  onChange={(e) => {
-                    syncStore.update(
-                      (config) => (config.proxyUrl = e.currentTarget.value),
-                    );
-                  }}
-                ></input>
-              </ListItem>
-            )
-          ) : null}
         </List>
 
-        {/* WebDAV 配置已移至 API 配置页面 */}
-        {/* {syncStore.provider === ProviderType.WebDAV && (
-          <>
-            <List>
-              <ListItem title={Locale.Settings.Sync.Config.WebDav.Endpoint}>
-                <input
-                  type="text"
-                  value={syncStore.webdav.endpoint}
-                  onChange={(e) => {
-                    syncStore.update(
-                      (config) =>
-                        (config.webdav.endpoint = e.currentTarget.value),
-                    );
-                  }}
-                ></input>
-              </ListItem>
-
-              <ListItem title={Locale.Settings.Sync.Config.WebDav.UserName}>
-                <input
-                  type="text"
-                  value={syncStore.webdav.username}
-                  onChange={(e) => {
-                    syncStore.update(
-                      (config) =>
-                        (config.webdav.username = e.currentTarget.value),
-                    );
-                  }}
-                ></input>
-              </ListItem>
-              <ListItem title={Locale.Settings.Sync.Config.WebDav.Password}>
-                <PasswordInput
-                  value={syncStore.webdav.password}
-                  onChange={(e) => {
-                    syncStore.update(
-                      (config) =>
-                        (config.webdav.password = e.currentTarget.value),
-                    );
-                  }}
-                ></PasswordInput>
-              </ListItem>
-            </List>
-          </>
-        )} */}
-
-        {syncStore.provider === ProviderType.UpStash && (
-          <List>
-            <ListItem title={Locale.Settings.Sync.Config.UpStash.Endpoint}>
-              <input
-                type="text"
-                value={syncStore.upstash.endpoint}
-                onChange={(e) => {
-                  syncStore.update(
-                    (config) =>
-                      (config.upstash.endpoint = e.currentTarget.value),
-                  );
-                }}
-              ></input>
-            </ListItem>
-
-            <ListItem title={Locale.Settings.Sync.Config.UpStash.UserName}>
-              <input
-                type="text"
-                value={syncStore.upstash.username}
-                placeholder={STORAGE_KEY}
-                onChange={(e) => {
-                  syncStore.update(
-                    (config) =>
-                      (config.upstash.username = e.currentTarget.value),
-                  );
-                }}
-              ></input>
-            </ListItem>
-            <ListItem title={Locale.Settings.Sync.Config.UpStash.Password}>
-              <PasswordInput
-                value={syncStore.upstash.apiKey}
-                onChange={(e) => {
-                  syncStore.update(
-                    (config) => (config.upstash.apiKey = e.currentTarget.value),
-                  );
-                }}
-              ></PasswordInput>
-            </ListItem>
-          </List>
-        )}
-
-        {syncStore.provider === ProviderType.Database && (
-          <List>
-            <ListItem
-              title="数据库同步"
-              subTitle="当前使用服务端 PostgreSQL 保存聊天、插件、设置、API 配置、Prompt、Mask、更新状态、绘图记录和模型缓存，无需额外配置。"
-            />
-          </List>
-        )}
+        <List>
+          <ListItem
+            title="数据库同步"
+            subTitle="当前使用服务端 PostgreSQL 保存聊天、插件、设置、API 配置、Prompt、Mask、更新状态、绘图记录和模型缓存，无需额外配置。"
+          />
+        </List>
       </Modal>
     </div>
   );

@@ -1,6 +1,7 @@
 import { StateStorage } from "zustand/middleware";
 import { safeLocalStorage } from "../utils";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
+import { withSyncUserHeaders } from "./sync-user-client";
 
 type RequestMethod = "GET" | "PUT" | "DELETE";
 const localStorage = safeLocalStorage();
@@ -9,12 +10,13 @@ async function request(path: string, method: RequestMethod, body?: string) {
   const response = await fetch(path, {
     method,
     cache: "no-store",
-    headers:
+    headers: withSyncUserHeaders(
       method === "PUT"
         ? {
             "Content-Type": "application/json; charset=utf-8",
           }
         : undefined,
+    ),
     body,
   });
 

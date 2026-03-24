@@ -65,7 +65,7 @@ export const STORE_PERSIST_VERSION: Record<
   [StoreKey.Prompt]: 3,
   [StoreKey.Update]: 1,
   [StoreKey.SdList]: 1,
-  [StoreKey.Sync]: 1.3,
+  [StoreKey.Sync]: 1.5,
 };
 
 export function unwrapPersistedStoreState<T = unknown>(payload: unknown): T {

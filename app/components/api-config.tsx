@@ -52,6 +52,7 @@ import {
   SYNC_STORE_KEYS,
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
@@ -892,6 +893,7 @@ export function ApiConfigPage() {
     try {
       const latestRes = await fetch("/api/db/models/latest", {
         cache: "no-store",
+        headers: withSyncUserHeaders(),
       });
 
       if (latestRes.ok) {
@@ -1327,6 +1329,7 @@ export function ApiConfigPage() {
             console.log(`[API Config] 🔍 正在检查云端模型数量...`);
             fetch("/api/db/models/latest", {
               cache: "no-store",
+              headers: withSyncUserHeaders(),
             })
               .then((response) => {
                 if (!response.ok) {
@@ -1907,7 +1910,9 @@ export function ApiConfigPage() {
 
         await fetch("/api/db/models/count", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: withSyncUserHeaders({
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify({
             count: fetchedModelEntries.size,
             providers: providersData,
@@ -1961,7 +1966,7 @@ export function ApiConfigPage() {
     }
   };
 
-  const ensureWebDavEndpoint = () => {
+  const ensureDatabaseSyncProvider = () => {
     syncStore.update((state) => {
       state.provider = ProviderType.Database;
     });
@@ -1977,7 +1982,7 @@ export function ApiConfigPage() {
         fetchedModelEntries,
         totalFetched,
       } = await runWithImmediateStoreSyncPaused(async () => {
-        ensureWebDavEndpoint();
+        ensureDatabaseSyncProvider();
         const activeProfile = accessStore.apiProfiles.find(
           (profile) => profile.enabled,
         );
@@ -2061,7 +2066,9 @@ export function ApiConfigPage() {
 
         await fetch("/api/db/models/count", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: withSyncUserHeaders({
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify({
             count: fetchedModelEntries.size,
             providers: providersData,
@@ -2094,7 +2101,7 @@ export function ApiConfigPage() {
     console.log("[API Config] ⬇️ 开始从数据库下载...");
     try {
       setDownloading(true);
-      ensureWebDavEndpoint();
+      ensureDatabaseSyncProvider();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
       const nextState = { ...localState } as AppState;
@@ -2183,6 +2190,7 @@ export function ApiConfigPage() {
       // 清空云端保存的模型统计数据（user_model_refresh_states 表中的 latest 记录）
       await fetch("/api/db/models/latest", {
         method: "DELETE",
+        headers: withSyncUserHeaders(),
       });
 
       await refreshRemoteSignals();

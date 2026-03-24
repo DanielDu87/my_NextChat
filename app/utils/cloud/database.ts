@@ -1,5 +1,6 @@
 import { SyncStore } from "@/app/store/sync";
 import type { ChatIndexPayload } from "@/app/utils/chat-sync";
+import { withSyncUserHeaders } from "@/app/utils/sync-user-client";
 
 export type DatabaseSyncClient = ReturnType<typeof createDatabaseSyncClient>;
 export type StoreSnapshotMeta = {
@@ -13,10 +14,10 @@ export function createDatabaseSyncClient(_: SyncStore) {
   const request = async (path: string, init?: RequestInit) => {
     const response = await fetch(path, {
       ...init,
-      headers: {
+      headers: withSyncUserHeaders({
         "Content-Type": "application/json; charset=utf-8",
         ...(init?.headers || {}),
-      },
+      }),
     });
 
     if (!response.ok) {

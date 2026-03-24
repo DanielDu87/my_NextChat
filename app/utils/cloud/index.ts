@@ -1,18 +1,12 @@
 import { createDatabaseSyncClient } from "./database";
-import { createWebDavClient } from "./webdav";
-import { createUpstashClient } from "./upstash";
 import type { ChatIndexPayload } from "@/app/utils/chat-sync";
 
 export enum ProviderType {
   Database = "database",
-  WebDAV = "webdav",
-  UpStash = "upstash",
 }
 
 export const SyncClients = {
   [ProviderType.Database]: createDatabaseSyncClient,
-  [ProviderType.UpStash]: createUpstashClient,
-  [ProviderType.WebDAV]: createWebDavClient,
 } as const;
 
 type SyncClientConfig = {

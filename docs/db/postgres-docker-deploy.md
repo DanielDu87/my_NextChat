@@ -42,21 +42,13 @@ DATABASE_URL=postgresql://dyx:your_password@postgres-ssh-tunnel:5432/nextchat
 
 ## 2. 模型目录同步
 
-如果模型目录仍然放在 WebDAV，再加：
-
-```env
-WEBDAV_BASE_URL=https://webdav.example.com/chatgpt-next-web
-WEBDAV_USERNAME=your_webdav_user
-WEBDAV_PASSWORD=your_webdav_password
-```
-
-然后执行：
+模型目录同步直接写入 PostgreSQL，执行：
 
 ```bash
 yarn db:sync-models
 ```
 
-脚本会把 `models/index.json` 以及各 provider 的模型文件同步进 `model_catalog`。
+脚本会把模型目录同步进 `model_catalog`。
 
 ## 3. 健康检查
 

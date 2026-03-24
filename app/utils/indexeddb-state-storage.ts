@@ -1,6 +1,7 @@
 import { StateStorage } from "zustand/middleware";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
 import { resolveHydratedStateValue } from "./state-storage-helpers";
+import { withSyncUserHeaders } from "./sync-user-client";
 
 const DB_NAME = "nextchat-local-cache";
 const STORE_NAME = "state-cache";
@@ -84,6 +85,7 @@ async function readRemoteValue(name: string) {
   const response = await fetch(`/api/db/sync/${encodeURIComponent(name)}`, {
     method: "GET",
     cache: "no-store",
+    headers: withSyncUserHeaders(),
   });
 
   if (!response.ok) {

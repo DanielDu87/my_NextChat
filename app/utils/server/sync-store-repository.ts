@@ -522,18 +522,8 @@ export async function removeFullChatStateSnapshot(
   await ensureSyncStorageSchema();
   await removeChatIndexState(userId);
   await pgQuery(
-    `delete from messages
-     where conversation_id in (
-       select id from conversations
-       where external_session_id is not null
-         and user_id = (select id from app_users where external_id = $1 limit 1)
-     )`,
-    [userId],
-  );
-  await pgQuery(
     `delete from conversations
-     where external_session_id is not null
-       and user_id = (select id from app_users where external_id = $1 limit 1)`,
+     where user_id = (select id from app_users where external_id = $1 limit 1)`,
     [userId],
   );
 }

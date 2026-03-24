@@ -14,6 +14,7 @@ import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -146,7 +147,10 @@ export default function AutoSync() {
 
   const logModelCountWithRemote = async () => {
     try {
-      const res = await fetch("/api/db/models/latest", { cache: "no-store" });
+      const res = await fetch("/api/db/models/latest", {
+        cache: "no-store",
+        headers: withSyncUserHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data?.ok && data.latest) {

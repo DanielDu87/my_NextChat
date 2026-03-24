@@ -3,8 +3,6 @@ type JsonObject = Record<string, unknown>;
 const ACCESS_SECRET_FIELDS = new Set([
   "apiKey",
   "modelFetchApiKey",
-  "webdavPassword",
-  "webdavUsername",
   "customApiKey",
   "openaiApiKey",
   "azureApiKey",

@@ -7,10 +7,16 @@ const SYNC_USER_HEADER_KEYS = [
 ] as const;
 
 export function getDefaultSyncUserId() {
-  return (
-    process.env.NEXTCHAT_DEFAULT_USER_ID ||
-    process.env.DEFAULT_SYNC_USER_ID ||
-    "single-user"
+  const configuredUserId = (
+    process.env.NEXTCHAT_DEFAULT_USER_ID || process.env.DEFAULT_SYNC_USER_ID
+  )?.trim();
+
+  if (configuredUserId) {
+    return configuredUserId;
+  }
+
+  throw new Error(
+    "[SyncUser] 缺少用户标识，请传 x-nextchat-user-id 请求头或配置 NEXTCHAT_DEFAULT_USER_ID / DEFAULT_SYNC_USER_ID",
   );
 }
 

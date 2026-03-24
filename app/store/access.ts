@@ -169,9 +169,6 @@ const DEFAULT_ACCESS_STATE = {
   customModels: "",
   defaultModel: "",
   visionModels: "",
-  allowedWebDavEndpoints: [] as string[],
-  webdavUsername: "",
-  webdavPassword: "",
 
   // tts config
   edgeTTSVoiceName: "zh-CN-YunxiNeural",
@@ -314,15 +311,6 @@ export const useAccessStore = createPersistStore(
             visionModels: state.useCustomConfig
               ? res.visionModels ?? state.visionModels
               : res.visionModels ?? "",
-            allowedWebDavEndpoints: state.useCustomConfig
-              ? res.allowedWebDavEndpoints ?? state.allowedWebDavEndpoints
-              : res.allowedWebDavEndpoints ?? [],
-            webdavUsername: state.useCustomConfig
-              ? res.webdavUsername ?? state.webdavUsername
-              : res.webdavUsername ?? "",
-            webdavPassword: state.useCustomConfig
-              ? res.webdavPassword ?? state.webdavPassword
-              : res.webdavPassword ?? "",
           }));
         })
         .catch(() => {
@@ -335,7 +323,7 @@ export const useAccessStore = createPersistStore(
   }),
   {
     name: StoreKey.Access,
-    version: 4,
+    version: 5,
     migrate(persistedState, version) {
       if (version < 2) {
         const state = persistedState as {
@@ -358,6 +346,17 @@ export const useAccessStore = createPersistStore(
       if (version < 4) {
         const state = persistedState as typeof DEFAULT_ACCESS_STATE;
         state.apiProfiles = state.apiProfiles ?? [];
+      }
+
+      if (version < 5) {
+        const state = persistedState as typeof DEFAULT_ACCESS_STATE & {
+          allowedWebDavEndpoints?: string[];
+          webdavUsername?: string;
+          webdavPassword?: string;
+        };
+        delete state.allowedWebDavEndpoints;
+        delete state.webdavUsername;
+        delete state.webdavPassword;
       }
 
       return persistedState as any;

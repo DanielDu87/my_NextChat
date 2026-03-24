@@ -12,6 +12,7 @@ import {
 import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { clientUpdate } from "../utils";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 import ChatGptIcon from "../icons/chatgpt.png";
 import Locale from "../locales";
 import { ClientApi, getClientApi } from "../client/api";
@@ -502,9 +503,9 @@ async function persistBalanceSnapshot(
   try {
     await fetch("/api/db/balance", {
       method: "PUT",
-      headers: {
+      headers: withSyncUserHeaders({
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify({
         key,
         snapshot,

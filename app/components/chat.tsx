@@ -104,6 +104,7 @@ import {
   ModelCategoryMetadata,
 } from "../utils/model-category-rules";
 import { resolveModelProviderId } from "../utils/model";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
@@ -307,6 +308,7 @@ function ChatModelUpdateNotice() {
     try {
       const latestRes = await fetch("/api/db/models/latest", {
         cache: "no-store",
+        headers: withSyncUserHeaders(),
       });
 
       if (latestRes.ok) {
@@ -440,6 +442,7 @@ function ChatProviderBalance(props: {
           {
             method: "GET",
             cache: "no-store",
+            headers: withSyncUserHeaders(),
           },
         );
 

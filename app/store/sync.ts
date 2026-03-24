@@ -1,5 +1,5 @@
 import { getClientConfig } from "../config/client";
-import { STORAGE_KEY, StoreKey } from "../constant";
+import { StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
 import {
   AppState,
@@ -47,12 +47,6 @@ import {
   createEmptySession,
 } from "./chat";
 
-export interface WebDavConfig {
-  server: string;
-  username: string;
-  password: string;
-}
-
 type DatabaseCacheMeta = Record<
   string,
   {
@@ -65,14 +59,7 @@ type DatabaseCacheMeta = Record<
 
 type SyncBackupState = Pick<
   SyncStore,
-  | "provider"
-  | "useProxy"
-  | "proxyUrl"
-  | "database"
-  | "webdav"
-  | "upstash"
-  | "lastSyncTime"
-  | "lastProvider"
+  "provider" | "database" | "lastSyncTime" | "lastProvider"
 >;
 
 type BackupState = AppState & {
@@ -131,11 +118,7 @@ function buildSyncBackupState(syncState: SyncStore): SyncBackupState {
 
   return {
     provider: state.provider,
-    useProxy: state.useProxy,
-    proxyUrl: state.proxyUrl,
     database: state.database,
-    webdav: state.webdav,
-    upstash: state.upstash,
     lastSyncTime: state.lastSyncTime,
     lastProvider: state.lastProvider,
   };
@@ -158,14 +141,6 @@ function parseSyncBackupState(
     nextState.provider = value.provider as ProviderType;
   }
 
-  if (typeof value.useProxy === "boolean") {
-    nextState.useProxy = value.useProxy;
-  }
-
-  if (typeof value.proxyUrl === "string") {
-    nextState.proxyUrl = value.proxyUrl;
-  }
-
   if (isObjectLike(value.database)) {
     nextState.database = {
       ...currentState.database,
@@ -177,20 +152,6 @@ function parseSyncBackupState(
         typeof value.database.lastMetaSyncTime === "number"
           ? value.database.lastMetaSyncTime
           : currentState.database.lastMetaSyncTime,
-    };
-  }
-
-  if (isObjectLike(value.webdav)) {
-    nextState.webdav = {
-      ...currentState.webdav,
-      ...value.webdav,
-    };
-  }
-
-  if (isObjectLike(value.upstash)) {
-    nextState.upstash = {
-      ...currentState.upstash,
-      ...value.upstash,
     };
   }
 
@@ -647,24 +608,10 @@ async function withRetry<T>(
 
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.Database,
-  useProxy: true,
-  proxyUrl: "/api/webdav", // 旧同步代理路径，仅兼容历史配置
 
   database: {
     cacheMeta: {} as DatabaseCacheMeta,
     lastMetaSyncTime: 0,
-  },
-
-  webdav: {
-    endpoint: "",
-    username: "",
-    password: "",
-  },
-
-  upstash: {
-    endpoint: "",
-    username: STORAGE_KEY,
-    apiKey: "",
   },
 
   lastSyncTime: 0,
@@ -992,8 +939,7 @@ export const useSyncStore = createPersistStore(
 
     return {
       cloudSync() {
-        const config = get()[get().provider];
-        return Object.values(config).every((c) => c.toString().length > 0);
+        return get().provider === ProviderType.Database;
       },
 
       markSyncTime() {
@@ -1157,8 +1103,6 @@ export const useSyncStore = createPersistStore(
           const providerName =
             state.provider === ProviderType.Database
               ? "PostgreSQL 数据库"
-              : state.provider === ProviderType.WebDAV
-              ? "WebDAV"
               : "云端存储";
           logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
@@ -1393,23 +1337,10 @@ export const useSyncStore = createPersistStore(
   },
   {
     name: StoreKey.Sync,
-    version: 1.4,
+    version: 1.5,
 
     migrate(persistedState, version) {
       const newState = persistedState as typeof DEFAULT_SYNC_STATE;
-
-      if (version < 1.1) {
-        newState.upstash.username = STORAGE_KEY;
-      }
-
-      if (version < 1.2) {
-        if (
-          (persistedState as typeof DEFAULT_SYNC_STATE).proxyUrl ===
-          "/api/cors/"
-        ) {
-          newState.proxyUrl = "";
-        }
-      }
 
       if (version < 1.3) {
         newState.provider = ProviderType.Database;
@@ -1420,6 +1351,11 @@ export const useSyncStore = createPersistStore(
           cacheMeta: {},
           lastMetaSyncTime: 0,
         };
+      }
+
+      if (version < 1.5) {
+        newState.provider = ProviderType.Database;
+        newState.lastProvider = ProviderType.Database;
       }
 
       return newState as any;

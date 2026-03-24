@@ -106,9 +106,6 @@ declare global {
       DEFAULT_INPUT_TEMPLATE?: string;
 
       ENABLE_MCP?: string; // enable mcp functionality
-      WEBDAV_BASE_URL?: string;
-      WEBDAV_USERNAME?: string;
-      WEBDAV_PASSWORD?: string;
     }
   }
 }
@@ -188,13 +185,6 @@ export const getServerSideConfig = () => {
   // console.log(
   //   `[Server Config] using ${randomIndex + 1} of ${apiKeys.length} api key`,
   // );
-
-  const allowedWebDavEndpoints = (
-    process.env.WHITE_WEBDAV_ENDPOINTS ?? ""
-  ).split(",");
-
-  const webdavUsername = process.env.WEBDAV_USERNAME ?? "";
-  const webdavPassword = process.env.WEBDAV_PASSWORD ?? "";
 
   const isVercel = !!process.env.VERCEL;
 
@@ -289,9 +279,6 @@ export const getServerSideConfig = () => {
     customModels,
     defaultModel,
     visionModels,
-    allowedWebDavEndpoints,
-    webdavUsername,
-    webdavPassword,
     enableMcp: process.env.ENABLE_MCP === "true",
   };
 };

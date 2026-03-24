@@ -5,6 +5,7 @@ import {
 import { jest } from "@jest/globals";
 
 const queryMock = jest.fn();
+const pgQueryMock = jest.fn();
 const syncNormalizedChatSessionsMock = jest.fn(async () => undefined);
 const getNormalizedChatSessionSnapshotsMock = jest.fn(async () => ({}));
 const buildNormalizedChatIndexSnapshotMock = jest.fn(async () => undefined);
@@ -55,13 +56,17 @@ jest.unstable_mockModule("../app/utils/server/postgres", () => ({
   withPgTransaction: async (
     handler: (client: { query: typeof queryMock }) => Promise<unknown>,
   ) => handler({ query: queryMock }),
-  pgQuery: jest.fn(),
+  pgQuery: pgQueryMock,
 }));
 
 jest.unstable_mockModule("../app/utils/server/sync-secrets", () => ({
   getEncryptedSyncSecret: jest.fn(async () => null),
   setEncryptedSyncSecret: jest.fn(async () => undefined),
   encryptSyncSecretPayload: jest.fn((value) => `enc:${String(value)}`),
+}));
+
+jest.unstable_mockModule("../app/utils/server/sync-user", () => ({
+  getDefaultSyncUserId: jest.fn(() => "single-user"),
 }));
 
 jest.unstable_mockModule("../app/utils/server/access-store-security", () => ({
@@ -128,6 +133,7 @@ const { applyChatDelta } = await import("../app/utils/server/sync-store-reposito
 describe("sync store repository helpers", () => {
   beforeEach(() => {
     queryMock.mockReset();
+    pgQueryMock.mockReset();
     getAppSettingsStoreMock.mockClear();
     syncAppSettingsStoreMock.mockClear();
     syncNormalizedChatSessionsMock.mockClear();
@@ -295,5 +301,21 @@ describe("sync store repository helpers", () => {
       "single-user",
       { currentSessionId: "s1" },
     );
+  });
+
+  test("removeFullChatStateSnapshot should delete all conversations for the user", async () => {
+    const { removeFullChatStateSnapshot } = await import(
+      "../app/utils/server/sync-store-repository"
+    );
+
+    await removeFullChatStateSnapshot("single-user");
+
+    expect(removeChatIndexStateMock).toHaveBeenCalledWith("single-user");
+    expect(pgQueryMock).toHaveBeenCalledTimes(1);
+    expect(pgQueryMock.mock.calls[0][0]).toContain("delete from conversations");
+    expect(pgQueryMock.mock.calls[0][0]).not.toContain(
+      "external_session_id is not null",
+    );
+    expect(pgQueryMock.mock.calls[0][1]).toEqual(["single-user"]);
   });
 });
