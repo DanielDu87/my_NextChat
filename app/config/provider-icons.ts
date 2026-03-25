@@ -40,8 +40,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
   字节跳动: "/provider-icons/doubao-bg.svg",
 
   // Zhipu
-  zhipu: "/provider-icons/zhipu.png",
-  智谱: "/provider-icons/zhipu.png",
+  zhipu: "/provider-icons/zhipu-bg.svg",
+  智谱: "/provider-icons/zhipu-bg.svg",
 
   // 01.AI
   "01.ai": "/provider-icons/lingyi.png",
