@@ -5,6 +5,7 @@ import EmojiPicker, {
 } from "emoji-picker-react";
 
 import { ModelType } from "../store";
+import { getProviderIcon } from "../config/provider-icons";
 
 import BotIconDefault from "../icons/llm-icons/default.svg";
 import BotIconOpenAI from "../icons/llm-icons/openai.svg";
@@ -64,53 +65,6 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
 
   if (props.model) {
     const modelName = props.model.toLowerCase();
-    const localIconMap: Record<string, string> = {
-      // 所有图标统一使用 ico 格式
-      aihubmix: "/provider-icons/aihubmix.png",
-      alibaba: "/provider-icons/alibaba.png",
-      anthropic: "/provider-icons/claude-code.png",
-      baai: "/provider-icons/baai-official.png",
-      baichuan: "/provider-icons/baichuan-official.png",
-      baidu: "/provider-icons/baidu.png",
-      bytedance: "/provider-icons/bytedance.png",
-      chatglm: "/provider-icons/chatglm.png",
-      cohere: "/provider-icons/cohere-official.png",
-      deepseek: "/provider-icons/deepseek-bg.svg",
-      fireworks: "/provider-icons/fireworks-official.png",
-      flux: "/provider-icons/flux-official.png",
-      gemini: "/provider-icons/google.png",
-      gemma: "/provider-icons/google.png",
-      google: "/provider-icons/gemini-bg.svg",
-      grok: "/provider-icons/xai.png",
-      groq: "/provider-icons/groq-official.png",
-      hunyuan: "/provider-icons/tencent.png",
-      ideogram: "/provider-icons/ideogram-official.png",
-      iflytek: "/provider-icons/iflytek.png",
-      inclusionai: "/provider-icons/inclusionai-official.png",
-      jina: "/provider-icons/jina-official.png",
-      "jina ai": "/provider-icons/jina-official.png",
-      lingyi: "/provider-icons/lingyi.png",
-      meituan: "/provider-icons/meituan-official.png",
-      meta: "/provider-icons/meta-official.png",
-      microsoft: "/provider-icons/microsoft-alt.png",
-      minimax: "/provider-icons/minimax.png",
-      mistral: "/provider-icons/mistral-official.png",
-      moonshot: "/provider-icons/moonshot.png",
-      nvidia: "/provider-icons/nvidia-official.png",
-      openai: "/provider-icons/openai.png",
-      perplexity: "/provider-icons/perplexity-official.png",
-      qwen: "/provider-icons/qwen-alt.png",
-      stability: "/provider-icons/stability.png",
-      stepfun: "/provider-icons/stepfun.png",
-      tencent: "/provider-icons/tencent.png",
-      together: "/provider-icons/together-official.png",
-      upstage: "/provider-icons/upstage-official.png",
-      wenxin: "/provider-icons/baidu.png",
-      xai: "/provider-icons/xai.png",
-      xiaomi: "/provider-icons/xiaomi.png",
-      yuto: "/provider-icons/yuto-official.png",
-      "01.ai": "/provider-icons/lingyi.png",
-    };
 
     if (
       modelName.startsWith("gpt") ||
@@ -205,8 +159,8 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
       LlmIcon = BotIconOpenAI;
     }
 
-    // 优先使用本地图标
-    localIcon = localIconMap[modelName];
+    // 使用统一的供应商图标配置
+    localIcon = getProviderIcon(modelName);
 
     if (localIcon) {
       return (

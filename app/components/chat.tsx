@@ -150,6 +150,7 @@ import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
+import { getProviderIcon } from "../config/provider-icons";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
 import { createTTSPlayer } from "../utils/audio";
@@ -4087,12 +4088,7 @@ function _Chat() {
                 >
                   {autoModelSeriesItems.map((item) => {
                     const active = selectedAutoModelSeries === item.value;
-                    const iconSrc =
-                      item.value === "gpt"
-                        ? "/provider-icons/openai.png"
-                        : item.value === "deepseek"
-                        ? "/provider-icons/deepseek-bg.svg"
-                        : "/provider-icons/bytedance.png";
+                    const iconSrc = getProviderIcon(item.value);
                     return (
                       <button
                         type="button"

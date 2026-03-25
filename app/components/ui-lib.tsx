@@ -12,6 +12,7 @@ import MinIcon from "../icons/min.svg";
 import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 
 import Locale from "../locales";
+import { PROVIDER_ICONS } from "../config/provider-icons";
 
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -773,74 +774,8 @@ export function Selector<T>(props: {
     if (group === "iFlytek") return "讯飞星火";
     return group;
   };
-  const localGroupIconMap: Record<string, string> = {
-    "01.ai": "/provider-icons/lingyi.png",
-    "01-ai": "/provider-icons/lingyi.png",
-    "01.AI": "/provider-icons/lingyi.png",
-    万物: "/provider-icons/lingyi.png",
-    GPT: "/provider-icons/openai.png",
-    Claude: "/provider-icons/claude-code.png",
-    Gemini: "/provider-icons/gemini-bg.svg",
-    Grok: "/provider-icons/xai.png",
-    海螺: "/provider-icons/minimax.png",
-    混元: "/provider-icons/tencent.png",
-    文心: "/provider-icons/baidu.png",
-    Kimi: "/provider-icons/moonshot.png",
-    智谱: "/provider-icons/zhipu.png",
-    讯飞星火: "/provider-icons/iflytek.png",
-    千问: "/provider-icons/qwen-alt.png",
-    alibaba: "/provider-icons/alibaba.png",
-    ascend: "/provider-icons/ascend-huawei.png",
-    阿里巴巴: "/provider-icons/alibaba.png",
-    anthropic: "/provider-icons/claude-code.png",
-    baai: "/provider-icons/baai-official.png",
-    baichuan: "/provider-icons/baichuan-official.png",
-    baidu: "/provider-icons/baidu.png",
-    豆包: "/provider-icons/bytedance.png",
-    bytedance: "/provider-icons/bytedance.png",
-    字节跳动: "/provider-icons/bytedance.png",
-    cohere: "/provider-icons/cohere-official.png",
-    deepseek: "/provider-icons/deepseek-bg.svg",
-    fal: "/provider-icons/fal.png",
-    "fal.ai": "/provider-icons/fal.png",
-    flux: "/provider-icons/flux-official.png",
-    google: "/provider-icons/gemini-bg.svg",
-    ideogram: "/provider-icons/ideogram-official.png",
-    iflytek: "/provider-icons/iflytek.png",
-    inclusionai: "/provider-icons/inclusionai-official.png",
-    jina: "/provider-icons/jina-official.png",
-    "jina ai": "/provider-icons/jina-official.png",
-    kuaishou: "/provider-icons/kuaishou.png",
-    快手: "/provider-icons/kuaishou.png",
-    luma: "/provider-icons/luma.png",
-    meituan: "/provider-icons/meituan-official.png",
-    meta: "/provider-icons/meta-official.png",
-    microsoft: "/provider-icons/microsoft-alt.png",
-    midjourney: "/provider-icons/midjourney.png",
-    minimax: "/provider-icons/minimax.png",
-    mistral: "/provider-icons/mistral-official.png",
-    moonshot: "/provider-icons/moonshot.png",
-    nvidia: "/provider-icons/nvidia-official.png",
-    openai: "/provider-icons/openai.png",
-    openrouter: "/provider-icons/openrouter.png",
-    perplexity: "/provider-icons/perplexity-official.png",
-    pika: "/provider-icons/pika.png",
-    pixverse: "/provider-icons/pixverse.png",
-    qwen: "/provider-icons/qwen-alt.png",
-    recraft: "/provider-icons/recraft.png",
-    runway: "/provider-icons/runway.png",
-    stability: "/provider-icons/stability.png",
-    stepfun: "/provider-icons/stepfun.png",
-    suno: "/provider-icons/suno.png",
-    tencent: "/provider-icons/tencent.png",
-    腾讯: "/provider-icons/tencent.png",
-    讯飞: "/provider-icons/iflytek.png",
-    vidu: "/provider-icons/vidu.png",
-    viggle: "/provider-icons/viggle.png",
-    xai: "/provider-icons/xai.png",
-    xiaomi: "/provider-icons/xiaomi.png",
-    zhipu: "/provider-icons/zhipu.png",
-  };
+  // 使用统一的供应商图标配置
+  const localGroupIconMap = PROVIDER_ICONS;
   const getGroupBadgeText = (group: string) => {
     if (group === "自定义模型") return "自";
     if (/^[\u4e00-\u9fa5]/.test(group)) return group.slice(0, 2);
@@ -977,6 +912,7 @@ export function Selector<T>(props: {
   const selectorNode = (
     <div
       className={clsx(styles["selector"], props.className)}
+      data-selector-container="true"
       data-auto-model-enabled={props.dataAutoModelEnabled ? "true" : undefined}
       onClick={() => props.onClose?.()}
     >
@@ -984,6 +920,7 @@ export function Selector<T>(props: {
         className={clsx(styles["selector-content"], {
           [styles["selector-content-centered"]]: props.centerContent,
         })}
+        data-selector-content="true"
         onClick={(e) => e.stopPropagation()}
       >
         {props.title ? (
