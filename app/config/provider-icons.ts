@@ -92,7 +92,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   nvidia: "/provider-icons/nvidia-bg.svg",
 
   // Perplexity
-  perplexity: "/provider-icons/perplexity-official.png",
+  perplexity: "/provider-icons/perplexity-bg.svg",
 
   // StepFun
   stepfun: "/provider-icons/stepfun-bg.svg",
