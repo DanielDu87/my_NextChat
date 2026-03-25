@@ -69,6 +69,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
       ? await response.json().catch(() => null)
       : null;
 
+    // 检查是否是快照冲突（409），静默处理用于重试
     if (isSnapshotConflictPayload(payload)) {
       return {
         conflict: true,

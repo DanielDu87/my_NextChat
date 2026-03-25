@@ -1404,6 +1404,9 @@ export const useSyncStore = createPersistStore(
                     /\[DB Sync\] 409\b/.test(error.message) &&
                     typeof client.getMeta === "function"
                   ) {
+                    console.log(
+                      "[Sync] ⚠️ 检测到 409 冲突，正在获取最新元数据重试...",
+                    );
                     const latestMetas = await client.getMeta([StoreKey.Chat]);
                     remoteMetaMap = buildMetaMap([
                       ...Array.from(remoteMetaMap.values()).filter(
@@ -1411,6 +1414,7 @@ export const useSyncStore = createPersistStore(
                       ),
                       ...latestMetas,
                     ]);
+                    console.log("[Sync] 🔄 使用最新元数据重试同步");
                     continue;
                   }
                   throw error;
