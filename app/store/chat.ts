@@ -1237,17 +1237,44 @@ export const useChatStore = createPersistStore(
         const currentSessions = Array.isArray(currentState.sessions)
           ? currentState.sessions.slice()
           : [];
-        const emptyDefaultSessions = currentSessions.filter((session) =>
-          shouldRemoveEmptyDefaultSession(session),
-        );
-        const preservedEmptySession = emptyDefaultSessions[0];
-        const sessions = currentSessions.filter(
-          (session) =>
-            !shouldRemoveEmptyDefaultSession(session) ||
-            session.id === preservedEmptySession?.id,
-        );
-        let changed = currentSessions.length === 0;
 
+        let sessions = currentSessions;
+        let changed = false;
+
+        // 找出空会话（没有消息且主题是默认的）
+        const emptySessions = sessions.filter(
+          (s) => isDefaultTopic(s.topic) && s.messages.length === 0,
+        );
+
+        console.log("[initializeForNewPage] 开始", {
+          currentSessionsCount: sessions.length,
+          emptySessionsCount: emptySessions.length,
+        });
+
+        // 如果没有空会话，创建一个
+        if (emptySessions.length === 0) {
+          const newEmptySession = createEmptySession();
+          sessions.unshift(newEmptySession);
+          changed = true;
+          console.log("[initializeForNewPage] 创建新的空会话", {
+            id: newEmptySession.id,
+          });
+        }
+        // 如果有多个空会话，只保留一个（保留最新的，即第一个）
+        else if (emptySessions.length > 1) {
+          const preservedEmptySession = emptySessions[0];
+          sessions = sessions.filter(
+            (s) => s.id === preservedEmptySession.id || s.messages.length > 0,
+          );
+          changed = true;
+          console.log("[initializeForNewPage] 清理多余空会话", {
+            before: currentSessions.length,
+            after: sessions.length,
+            preserved: preservedEmptySession.id,
+          });
+        }
+
+        // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
           if (session.messages.length > 0 && isDefaultTopic(session.topic)) {
             const fallbackTopic = getSessionFallbackTopic(session);
@@ -1258,32 +1285,31 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        const leadingSession = sessions[0];
-        if (!isFreshDefaultSession(leadingSession)) {
-          if (preservedEmptySession) {
-            const preservedIndex = sessions.findIndex(
-              (session) => session.id === preservedEmptySession.id,
-            );
-
-            if (preservedIndex > 0) {
-              sessions.splice(preservedIndex, 1);
-              sessions.unshift(preservedEmptySession);
-              changed = true;
-            } else if (preservedIndex < 0) {
-              sessions.unshift(preservedEmptySession);
-              changed = true;
-            }
-          } else {
-            sessions.unshift(createEmptySession());
-            changed = true;
-          }
-        } else if (emptyDefaultSessions.length > 1) {
+        // 确保空会话在第一位
+        const emptySession = sessions.find(
+          (s) => isDefaultTopic(s.topic) && s.messages.length === 0,
+        );
+        if (emptySession && sessions[0]?.id !== emptySession.id) {
+          sessions = sessions.filter((s) => s.id !== emptySession.id);
+          sessions.unshift(emptySession);
           changed = true;
+          console.log("[initializeForNewPage] 将空会话移到第一位", {
+            id: emptySession.id,
+          });
         }
 
-        if (!changed && !areSessionArraysEqual(currentSessions, sessions)) {
-          changed = true;
-        }
+        // 默认选中第一个会话（空会话）
+        const newSessionIndex = 0;
+
+        console.log("[initializeForNewPage] 完成", {
+          sessionsCount: sessions.length,
+          currentSessionIndex: newSessionIndex,
+          firstSession: {
+            id: sessions[0]?.id,
+            topic: sessions[0]?.topic,
+            hasMessages: sessions[0]?.messages.length > 0,
+          },
+        });
 
         const nextState = {
           sessions,
@@ -1291,7 +1317,7 @@ export const useChatStore = createPersistStore(
             sessions,
             currentState.sessionSummaries,
           ),
-          currentSessionIndex: 0,
+          currentSessionIndex: newSessionIndex,
           hydratedSessionIds: sessions
             .filter(
               (session) =>
@@ -1302,9 +1328,10 @@ export const useChatStore = createPersistStore(
 
         if (
           changed ||
-          currentState.currentSessionIndex !== 0 ||
+          currentState.currentSessionIndex !== newSessionIndex ||
           currentState.sessions[0]?.id !== sessions[0]?.id
         ) {
+          console.log("[initializeForNewPage] 应用新状态");
           set(() => nextState);
         }
 

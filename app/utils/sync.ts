@@ -278,12 +278,64 @@ const MergeStates: StateMerger = {
     localState.sessions = sortSessionsByCreatedAt(
       Array.from(sessionMap.values()),
     );
+
+    console.log("[mergeChat] 同步合并完成", {
+      currentSessionId,
+      sessionsCount: localState.sessions.length,
+      currentSessionIndex: localState.currentSessionIndex,
+      firstSession: localState.sessions[0]?.id,
+    });
+
+    // 清理多余的空会话，只保留一个
+    // 默认主题可能是 "新的聊天"（中文）或 "New Chat"（英文）
+    const isEmptyDefaultSession = (session: any) =>
+      (!session.topic ||
+        session.topic === "新的聊天" ||
+        session.topic === "New Chat") &&
+      getSessionMessages(session).length === 0 &&
+      !session.memoryPrompt;
+
+    const emptySessions = localState.sessions.filter(isEmptyDefaultSession);
+
+    if (emptySessions.length > 1) {
+      console.log("[mergeChat] 发现多个空会话，开始清理", {
+        emptySessionsCount: emptySessions.length,
+      });
+
+      // 优先保留当前选中的空会话，如果没有则保留最新的（第一个）
+      const preservedEmptySession =
+        emptySessions.find((s: any) => s.id === currentSessionId) ||
+        emptySessions[0];
+
+      localState.sessions = localState.sessions.filter(
+        (session: any) =>
+          !isEmptyDefaultSession(session) ||
+          session.id === preservedEmptySession.id,
+      );
+
+      console.log("[mergeChat] 清理完成", {
+        sessionsCount: localState.sessions.length,
+        preservedEmptySession: preservedEmptySession.id,
+      });
+    }
+
     if (currentSessionId) {
       const nextIndex = localState.sessions.findIndex(
         (session) => session.id === currentSessionId,
       );
+      console.log("[mergeChat] 查找当前会话", {
+        currentSessionId,
+        nextIndex,
+        found: nextIndex >= 0,
+      });
       if (nextIndex >= 0) {
         localState.currentSessionIndex = nextIndex;
+        console.log("[mergeChat] 更新 currentSessionIndex 为", nextIndex);
+      } else {
+        console.log(
+          "[mergeChat] 当前会话未找到，保持索引",
+          localState.currentSessionIndex,
+        );
       }
     }
 
