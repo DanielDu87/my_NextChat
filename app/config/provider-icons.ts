@@ -56,8 +56,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
   kimi: "/provider-icons/moonshot-bg.svg",
 
   // Minimax
-  minimax: "/provider-icons/minimax-bg.svg",
-  海螺: "/provider-icons/minimax-bg.svg",
+  minimax: "/provider-icons/minimax-official.png",
+  海螺: "/provider-icons/minimax-official.png",
 
   // Tencent
   tencent: "/provider-icons/tencent.png",
