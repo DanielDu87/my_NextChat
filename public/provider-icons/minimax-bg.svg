@@ -4,7 +4,7 @@
   <g transform="translate(3, 3)">
     <defs>
       <linearGradient id="minimax-fill" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#FF6B35"></stop>
+        <stop offset="0%" stop-color="#FF4D4D"></stop>
         <stop offset="50%" stop-color="#F97316"></stop>
         <stop offset="100%" stop-color="#FB923C"></stop>
       </linearGradient>
