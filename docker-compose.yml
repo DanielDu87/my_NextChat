@@ -50,6 +50,10 @@ services:
         - action: sync+restart
           path: ./package.json
           target: /app/package.json
+    command:
+      - sh
+      - -lc
+      - npm install && yarn dev --hostname 0.0.0.0
 
   # ---------------------------------------------------------------------------
   # 生产环境 - 服务器部署（使用本地构建）

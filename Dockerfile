@@ -5,7 +5,7 @@
 # =============================================================================
 
 # 国内镜像源配置（可覆盖）
-FROM docker.1panel.live/library/node:20-alpine AS base
+FROM docker.m.daocloud.io/library/node:20-alpine AS base
 
 ARG APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 ARG NPM_REGISTRY=https://registry.npmmirror.com
@@ -76,7 +76,7 @@ RUN yarn build && \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-FROM docker.1panel.live/library/node:20-alpine AS runner
+FROM docker.m.daocloud.io/library/node:20-alpine AS runner
 
 # 生产环境变量
 ENV NODE_ENV=production \
