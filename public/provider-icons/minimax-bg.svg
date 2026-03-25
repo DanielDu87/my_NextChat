@@ -4,18 +4,15 @@
   <g transform="translate(3, 3)">
     <defs>
       <linearGradient id="minimax-fill" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#FF4D4D"></stop>
-        <stop offset="50%" stop-color="#F97316"></stop>
-        <stop offset="100%" stop-color="#FB923C"></stop>
+        <stop offset="0%" stop-color="#FF5A1F"></stop>
+        <stop offset="100%" stop-color="#FF8A50"></stop>
       </linearGradient>
     </defs>
-    <!-- 海螺形状 - 螺旋线条 -->
-    <circle cx="12" cy="12" r="9" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.3"></circle>
-    <circle cx="12" cy="12" r="6.5" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.5"></circle>
-    <circle cx="12" cy="12" r="4" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.7"></circle>
-    <circle cx="12" cy="12" r="1.5" fill="url(#minimax-fill)"></circle>
-    <!-- 装饰点 -->
-    <circle cx="18" cy="6" r="1.2" fill="#F97316"></circle>
-    <circle cx="6" cy="18" r="1" fill="#F97316" opacity="0.6"></circle>
+    <!-- "m" 字母 + 曲线设计 -->
+    <path d="M5 8 L5 18 L8 18 L8 12 C8 10.5 9 10 10 10 C11 10 11.5 10.5 11.5 12 L11.5 18 L14.5 18 L14.5 12 C14.5 10.5 15.5 10 16.5 10 C17.5 10 18 10.5 18 12 L18 18 L21 18 L21 11.5 C21 9 19.5 7.5 17 7.5 C15.5 7.5 14 8 13 9 C12.5 8 11 7.5 9.5 7.5 C7.5 7.5 6 8.5 5 10 L5 8 Z"
+      fill="url(#minimax-fill)"></path>
+    <!-- 曲线装饰 -->
+    <path d="M5 20 Q12 16 19 20"
+      stroke="url(#minimax-fill)" stroke-width="1.5" fill="none" stroke-linecap="round"></path>
   </g>
 </svg>
