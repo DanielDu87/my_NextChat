@@ -500,9 +500,16 @@ export function normalizeAiHubMixModelMetadata(model: any): {
 function fullUrl(url: string, baseUrl?: string): string {
   if (url.startsWith("/")) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    // pricing 代理：显示实际目标 URL
-    if (url.includes("/proxy/v1/pricing") && baseUrl) {
-      return `${origin}${url} → ${baseUrl}/api/pricing`;
+    if (baseUrl) {
+      if (url.includes("/yuto/pricing") || url.includes("/proxy/v1/pricing")) {
+        return `${origin}${url} (代理 → ${baseUrl}/api/pricing)`;
+      }
+      if (url.includes("/ocoolai/available-model")) {
+        return `${origin}${url} (代理 → https://one.ocoolai.com/api/user/available_model)`;
+      }
+      if (url.includes("/ocoolai/available-models-by-groups")) {
+        return `${origin}${url} (代理 → https://one.ocoolai.com/api/user/available_models_by_groups)`;
+      }
     }
     return baseUrl ? `${origin}${url} (代理 → ${baseUrl})` : `${origin}${url}`;
   }
@@ -527,7 +534,10 @@ type FetchJsonOptions = {
   suppressStatusCodes?: number[];
   validateJson?: (data: any) => boolean;
   authorizationCandidates?: string[];
+  authCacheKey?: string;
 };
+
+const preferredAuthorizationCache = new Map<string, string>();
 
 async function fetchJsonWithCandidates(
   urls: FetchCandidate[],
@@ -544,8 +554,23 @@ async function fetchJsonWithCandidates(
       : headers.Authorization
       ? [headers.Authorization]
       : [undefined];
+  const preferredAuthorization = options?.authCacheKey
+    ? preferredAuthorizationCache.get(options.authCacheKey)
+    : undefined;
+  const orderedAuthCandidates = preferredAuthorization
+    ? [
+        preferredAuthorization,
+        ...authCandidates.filter(
+          (candidate) => candidate !== preferredAuthorization,
+        ),
+      ]
+    : authCandidates;
 
-  for (let authIndex = 0; authIndex < authCandidates.length; authIndex++) {
+  for (
+    let authIndex = 0;
+    authIndex < orderedAuthCandidates.length;
+    authIndex++
+  ) {
     for (let i = 0; i < urls.length; i++) {
       const candidate = urls[i];
       const url = typeof candidate === "string" ? candidate : candidate.url;
@@ -559,7 +584,7 @@ async function fetchJsonWithCandidates(
           ? {}
           : { "x-base-url": candidate.headerBaseUrl }),
       } as Record<string, string>;
-      const authorization = authCandidates[authIndex];
+      const authorization = orderedAuthCandidates[authIndex];
       if (authorization) {
         requestHeaders.Authorization = authorization;
       } else {
@@ -599,6 +624,9 @@ async function fetchJsonWithCandidates(
         }
         if (options?.logSuccess !== false) {
           console.log(`[Fetch Models] ✅ 使用模型接口: ${display}`);
+        }
+        if (options?.authCacheKey && authorization) {
+          preferredAuthorizationCache.set(options.authCacheKey, authorization);
         }
         return data;
       } catch (error) {
@@ -752,19 +780,19 @@ export async function fetchModelsFromProvider(
 
       // 简化候选 URL，只使用成功的单个 URL
       const candidateUrls: FetchCandidate[] = isToApisUrl(baseUrl)
-        ? ["/api/proxy/v1/pricing"]
+        ? ["/api/toapis/pricing"]
         : isOcoolaiUrl(baseUrl)
         ? [
             {
-              url: "/api/proxy/api/user/available_model",
+              url: "/api/ocoolai/available-model",
               displayBaseUrl: "https://one.ocoolai.com",
               headerBaseUrl: "https://one.ocoolai.com",
             },
           ]
         : isYutoApiUrl(baseUrl)
-        ? ["/api/proxy/v1/pricing"]
+        ? ["/api/yuto/pricing"]
         : isAiHubMixUrl(baseUrl)
-        ? ["/api/proxy/api/v1/models"]
+        ? ["/api/aihubmix/models"]
         : ["/api/proxy/api/v1/models"];
 
       // console.log(`[Fetch Models] 📋 候选 URLs:`, candidateUrls);
@@ -773,6 +801,9 @@ export async function fetchModelsFromProvider(
         authorizationCandidates: modelFetchApiKeyCandidates.map(
           (key) => `Bearer ${key}`,
         ),
+        authCacheKey: isOcoolai
+          ? `model-fetch:${normalizedBaseUrl}`
+          : undefined,
         suppressCandidateErrors: isOcoolai,
         suppressStatusCodes: isOcoolai ? [401, 404] : [404],
         validateJson: isOcoolai
@@ -880,7 +911,7 @@ export async function fetchModelsFromProvider(
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
       const candidateUrls = isServerSide()
         ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
-        : ["/api/proxy/v1/pricing"];
+        : ["/api/yuto/pricing"];
       const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
         ([, value]) => Boolean(value?.trim()),
       );
@@ -901,6 +932,7 @@ export async function fetchModelsFromProvider(
           baseUrl,
           {
             logSuccess: false,
+            authCacheKey: `yuto-group:${normalizedBaseUrl}:${groupName}`,
             suppressCandidateErrors: true,
             suppressStatusCodes: [404],
           },
@@ -991,7 +1023,7 @@ export async function fetchModelsFromProvider(
       const groupsData = await fetchJsonWithCandidates(
         [
           {
-            url: "/api/proxy/api/user/available_models_by_groups",
+            url: "/api/ocoolai/available-models-by-groups",
             displayBaseUrl: "https://one.ocoolai.com",
             headerBaseUrl: "https://one.ocoolai.com",
           },
@@ -1005,6 +1037,7 @@ export async function fetchModelsFromProvider(
           authorizationCandidates: modelFetchApiKeyCandidates.map(
             (key) => `Bearer ${key}`,
           ),
+          authCacheKey: `ocool-groups:${normalizedBaseUrl}`,
           logSuccess: false,
           suppressCandidateErrors: true,
           suppressStatusCodes: [404],

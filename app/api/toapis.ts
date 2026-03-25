@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
+import { requestUpstream } from "./upstream";
 
 export async function handle(
   req: NextRequest,
@@ -16,26 +17,14 @@ export async function handle(
   }
 
   try {
-    const response = await fetch("https://toapis.com/api/pricing", {
+    return await requestUpstream("https://toapis.com/api/pricing", {
       method: "GET",
+      dnsServers: ["1.1.1.1", "8.8.8.8"],
       headers: {
         ...(authHeader ? { Authorization: authHeader } : {}),
         Accept: "application/json",
         "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       },
-      redirect: "manual",
-    });
-
-    const headers = new Headers(response.headers);
-    headers.delete("content-encoding");
-    headers.delete("content-length");
-    headers.delete("www-authenticate");
-    headers.set("X-Accel-Buffering", "no");
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
     });
   } catch (error) {
     return NextResponse.json(

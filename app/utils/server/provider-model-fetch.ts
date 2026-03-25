@@ -1,4 +1,5 @@
 import { ServiceProvider } from "@/app/constant";
+import { requestUpstream } from "@/app/api/upstream";
 import { applyModelPublishedAt } from "@/app/utils/model-published-at";
 import { normalizeModelClassification } from "@/app/utils/model-classification";
 
@@ -444,9 +445,21 @@ async function fetchJsonWithCandidates(
         } else {
           delete requestHeaders.Authorization;
         }
-        const response = await fetch(url, {
+        const hostname = new URL(url).hostname;
+        const response = await requestUpstream(url, {
           method: "GET",
           headers: requestHeaders,
+          dnsServers: [
+            "aihubmix.com",
+            "toapis.com",
+            "cn.gptapi.asia",
+            "gptapi.asia",
+            "one.ocoolai.com",
+            "ocoolai.com",
+            "one.ooo.cool",
+          ].includes(hostname)
+            ? ["1.1.1.1", "8.8.8.8"]
+            : undefined,
         });
         if (!response.ok) {
           lastError = new Error(`${response.status} ${response.statusText}`);
