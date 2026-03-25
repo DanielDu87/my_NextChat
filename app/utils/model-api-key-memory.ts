@@ -93,6 +93,17 @@ export function getCustomModelApiKeySelection(
       model.provider?.id === getProviderIdForProfile(profile),
   );
 
+  console.log("[API Key Memory] 查找模型记忆", {
+    modelName,
+    providerId: getProviderIdForProfile(profile),
+    matchedModel: matchedModel
+      ? {
+          name: matchedModel.name,
+          apiKeyGroup: matchedModel.apiKeyGroup,
+        }
+      : null,
+  });
+
   const groupOrder = isOcoolaiBaseUrl(profile.baseUrl)
     ? getOcoolFallbackGroupOrder(modelName)
     : getYutoFallbackGroupOrder(modelName);
@@ -113,7 +124,16 @@ export function getCustomModelApiKeySelection(
   const hasMatchedGroup =
     Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
 
+  console.log("[API Key Memory] 记忆分组检查", {
+    matchedGroup,
+    hasMatchedGroup,
+    hasKeyInGroup: Boolean(matchedGroup && groupedKeys[matchedGroup as string]),
+  });
+
   if (hasMatchedGroup) {
+    console.log("[API Key Memory] 使用记忆分组", {
+      groupName: matchedGroup,
+    });
     pushFallbackKey(
       matchedGroup as string,
       groupedKeys[matchedGroup as string],
@@ -139,8 +159,17 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
 }) {
   const { modelName, groupName } = params;
   if (!modelName || !groupName) {
+    console.log("[API Key Memory] 记忆失败：缺少参数", {
+      modelName,
+      groupName,
+    });
     return;
   }
+
+  console.log("[API Key Memory] 开始记忆成功的 API Key 分组", {
+    modelName,
+    groupName,
+  });
 
   const accessStore = useAccessStore.getState();
   const enabledCustomProfile = accessStore.apiProfiles.find(
@@ -154,6 +183,12 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     !enabledCustomProfile ||
     !isRememberedApiKeyProfile(enabledCustomProfile)
   ) {
+    console.log("[API Key Memory] 记忆失败：未找到支持 API Key 分组的配置", {
+      hasProfile: Boolean(enabledCustomProfile),
+      supportsGrouping: Boolean(
+        enabledCustomProfile && isRememberedApiKeyProfile(enabledCustomProfile),
+      ),
+    });
     return;
   }
 
@@ -165,13 +200,28 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
   );
 
   if (targetIndex < 0) {
+    console.log("[API Key Memory] 记忆失败：未找到模型", {
+      modelName,
+      providerId,
+      totalModels: (configStore.models || []).length,
+    });
     return;
   }
 
   const targetModel = configStore.models[targetIndex] as LLMModel;
   if (targetModel.apiKeyGroup === groupName) {
+    console.log("[API Key Memory] 已经是当前分组，无需更新", {
+      modelName,
+      groupName,
+    });
     return;
   }
+
+  console.log("[API Key Memory] 更新模型 API Key 分组", {
+    modelName,
+    oldGroup: targetModel.apiKeyGroup,
+    newGroup: groupName,
+  });
 
   configStore.update((state: { models: LLMModel[] }) => {
     const currentModel = state.models[targetIndex];
@@ -182,5 +232,10 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
       ...currentModel,
       apiKeyGroup: groupName,
     };
+  });
+
+  console.log("[API Key Memory] 模型 API Key 分组已更新并同步到数据库", {
+    modelName,
+    groupName,
   });
 }
