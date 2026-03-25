@@ -766,7 +766,7 @@ export function Selector<T>(props: {
       return "千问";
     if (group === "ByteDance" || group === "字节跳动") return "豆包";
     if (group === "Tencent") return "混元";
-    if (group === "Baidu") return "文心";
+    if (group === "Baidu") return "文心一言";
     if (group === "Zhipu") return "智谱";
     if (group === "Minimax") return "Minimax";
     if (group === "Moonshot") return "Kimi";

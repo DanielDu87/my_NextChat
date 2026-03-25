@@ -56,8 +56,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
   kimi: "/provider-icons/moonshot-bg.svg",
 
   // Minimax
-  minimax: "/provider-icons/minimax.png",
-  海螺: "/provider-icons/minimax.png",
+  minimax: "/provider-icons/minimax-bg.svg",
+  海螺: "/provider-icons/minimax-bg.svg",
 
   // Tencent
   tencent: "/provider-icons/tencent.png",
@@ -65,10 +65,11 @@ export const PROVIDER_ICONS: Record<string, string> = {
   hunyuan: "/provider-icons/tencent.png",
   混元: "/provider-icons/tencent.png",
 
-  // Baidu
-  baidu: "/provider-icons/baidu.png",
-  文心: "/provider-icons/baidu.png",
-  wenxin: "/provider-icons/baidu.png",
+  // Baidu / 文心一言
+  baidu: "/provider-icons/wenxin-bg.svg",
+  文心: "/provider-icons/wenxin-bg.svg",
+  文心一言: "/provider-icons/wenxin-bg.svg",
+  wenxin: "/provider-icons/wenxin-bg.svg",
 
   // iFlytek
   iflytek: "/provider-icons/iflytek.png",
@@ -94,7 +95,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   perplexity: "/provider-icons/perplexity-official.png",
 
   // StepFun
-  stepfun: "/provider-icons/stepfun.png",
+  stepfun: "/provider-icons/stepfun-bg.svg",
 
   // Baai
   baai: "/provider-icons/baai-official.png",

@@ -1,0 +1,15 @@
+<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+  <title>StepFun</title>
+  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
+  <g transform="translate(3, 3)">
+    <defs>
+      <linearGradient id="stepfun-fill" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#3B82F6"></stop>
+        <stop offset="100%" stop-color="#1D4ED8"></stop>
+      </linearGradient>
+    </defs>
+    <path d="M4 4h6v6H4V4zm8 0h6v6h-6V4zm8 0h6v6h-6V4zM4 12h6v6H4v-6zm8 0h6v6h-6v-6zm8 0h6v6h-6v-6zM4 20h6v6H4v-6zm8 0h6v6h-6v-6zm8 0h6v6h-6v-6z"
+      fill="url(#stepfun-fill)" opacity="0.9"></path>
+    <path d="M7 6l2 2m-2 4l2 2m-2 4l2 2m6-10l2 2m-2 4l2 2m6-10l2 2m-2 4l2 2" stroke="#fff" stroke-width="1" stroke-linecap="round"></path>
+  </g>
+</svg>
