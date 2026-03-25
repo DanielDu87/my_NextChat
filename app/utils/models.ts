@@ -156,7 +156,7 @@ function inferVendorFromModelName(
   }
   // Tencent Hunyuan
   if (lowerName.startsWith("hunyuan-")) {
-    return { name: "Tencent", icon: "Hunyuan.Color" };
+    return { name: "腾讯混元", icon: "Hunyuan.Color" };
   }
   // Zhipu GLM
   if (lowerName.startsWith("glm-")) {

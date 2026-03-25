@@ -1,0 +1,38 @@
+<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+  <title>Tencent Hunyuan</title>
+  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
+  <g transform="translate(3, 3)">
+    <rect width="24" height="24" rx="6" fill="#0052D9" />
+    <g transform="translate(12, 12)">
+      <!-- 外圈漩涡 -->
+      <path
+        d="M0 -8 A8 8 0 0 1 0 8"
+        stroke="white"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.9"
+      />
+      <!-- 中圈漩涡 -->
+      <path
+        d="M0 -5 A5 5 0 0 0 0 5"
+        stroke="white"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.9"
+      />
+      <!-- 内圈漩涡 -->
+      <path
+        d="M0 -2.5 A2.5 2.5 0 0 1 0 2.5"
+        stroke="white"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.9"
+      />
+      <!-- 中心点 -->
+      <circle cx="0" cy="0" r="1.5" fill="white" />
+    </g>
+  </g>
+</svg>

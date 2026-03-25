@@ -1,0 +1,11 @@
+<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+  <title>Stability AI</title>
+  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
+  <g transform="translate(3, 3)">
+    <rect width="24" height="24" rx="6" fill="#76448C" />
+    <path
+      d="M7 8H17V10H7V8ZM7 11H17V13H7V11ZM7 14H14V16H7V14Z"
+      fill="white"
+    />
+  </g>
+</svg>

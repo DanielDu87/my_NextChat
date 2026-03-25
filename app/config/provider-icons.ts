@@ -59,11 +59,12 @@ export const PROVIDER_ICONS: Record<string, string> = {
   minimax: "/provider-icons/minimax-bg.svg",
   海螺: "/provider-icons/minimax-bg.svg",
 
-  // Tencent
-  tencent: "/provider-icons/tencent.png",
-  腾讯: "/provider-icons/tencent.png",
-  hunyuan: "/provider-icons/tencent.png",
-  混元: "/provider-icons/tencent.png",
+  // Tencent / 腾讯混元
+  tencent: "/provider-icons/hunyuan-bg.svg",
+  腾讯: "/provider-icons/hunyuan-bg.svg",
+  hunyuan: "/provider-icons/hunyuan-bg.svg",
+  混元: "/provider-icons/hunyuan-bg.svg",
+  腾讯混元: "/provider-icons/hunyuan-bg.svg",
 
   // Baidu / 文心一言
   baidu: "/provider-icons/wenxin-bg.svg",
@@ -98,26 +99,26 @@ export const PROVIDER_ICONS: Record<string, string> = {
   stepfun: "/provider-icons/stepfun-bg.svg",
 
   // Baai
-  baai: "/provider-icons/baai-official.png",
+  baai: "/provider-icons/baai-bg.svg",
 
   // Baichuan
-  baichuan: "/provider-icons/baichuan-official.png",
+  baichuan: "/provider-icons/baichuan-bg.svg",
 
   // Ideogram
-  ideogram: "/provider-icons/ideogram-official.png",
+  ideogram: "/provider-icons/ideogram-bg.svg",
 
   // Jina AI
-  jina: "/provider-icons/jina-official.png",
-  "jina ai": "/provider-icons/jina-official.png",
+  jina: "/provider-icons/jina-bg.svg",
+  "jina ai": "/provider-icons/jina-bg.svg",
 
   // Stability
-  stability: "/provider-icons/stability.png",
+  stability: "/provider-icons/stability-bg.svg",
 
   // Flux
   flux: "/provider-icons/flux-official.png",
 
   // Meituan
-  meituan: "/provider-icons/meituan-official.png",
+  meituan: "/provider-icons/meituan-bg.svg",
 
   // InclusionAI
   inclusionai: "/provider-icons/inclusionai-official.png",
@@ -161,7 +162,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   viggle: "/provider-icons/viggle.png",
 
   // Xiaomi
-  xiaomi: "/provider-icons/xiaomi.png",
+  xiaomi: "/provider-icons/xiaomi-bg.svg",
 
   // Ascend Huawei
   ascend: "/provider-icons/ascend-huawei.png",

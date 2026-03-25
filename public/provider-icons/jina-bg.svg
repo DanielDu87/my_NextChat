@@ -1,0 +1,14 @@
+<svg
+  width="30"
+  height="30"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>Jina AI</title>
+  <circle cx="8.5" cy="20.5" r="6.5" fill="#FF6B6B" />
+  <path
+    d="M16 2H23C24.6569 2 26 3.34315 26 5V17C26 23.0751 21.0751 28 15 28H14V4C14 2.89543 14.8954 2 16 2Z"
+    fill="#11979A"
+  />
+</svg>
