@@ -12,6 +12,7 @@ import {
   uploadImage,
   base64Image2Blob,
   streamWithThink,
+  supportsApiKeyGrouping,
 } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { ModelSize, DalleQuality, DalleStyle } from "@/app/typing";
@@ -1517,9 +1518,8 @@ export class ChatGPTApi implements LLMApi {
         // YutoAPI 降级重试：检测到任何失败都尝试下一个 API key
         const fallbackApiKeys: string[] =
           (requestHeaders as any)["x-fallback-api-keys"] || [];
-        const isYutoApi =
-          chatPath.includes("cn.gptapi.asia") ||
-          chatPath.includes("gptapi.asia");
+        const supportsGrouping = supportsApiKeyGrouping(chatPath);
+        chatPath.includes("cn.gptapi.asia") || chatPath.includes("gptapi.asia");
         let retryCount = 0;
         let resText = "";
         let resJson: any = null;
@@ -1527,11 +1527,11 @@ export class ChatGPTApi implements LLMApi {
         while (true) {
           resText = await res.text();
           resJson = parseJsonOrSSEPayload(resText);
-          const retryableYutoError = isYutoApi
+          const retryableError = supportsGrouping
             ? getYutoRetryableErrorMessage(resJson)
             : "";
           const shouldRetry =
-            isYutoApi &&
+            supportsGrouping &&
             retryCount < fallbackApiKeys.length - 1 &&
             (!res.ok || Boolean(retryableYutoError));
 
@@ -1540,10 +1540,10 @@ export class ChatGPTApi implements LLMApi {
           }
 
           console.log(
-            `[Chat] YutoAPI 非流式请求失败，尝试降级重试 (${retryCount + 1}/${
-              fallbackApiKeys.length
-            })`,
-            retryableYutoError ? { retryableYutoError } : undefined,
+            `[Chat] API key 分组非流式请求失败，尝试降级重试 (${
+              retryCount + 1
+            }/${fallbackApiKeys.length})`,
+            retryableError ? { retryableError } : undefined,
           );
 
           // 使用下一个 API key 重试

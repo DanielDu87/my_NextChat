@@ -57,13 +57,16 @@ export function isOcoolaiBaseUrl(baseUrl?: string) {
   }
 }
 
-export function isRememberedApiKeyProfile(
+export function supportsApiKeyGroupingForProfile(
   profile?: Pick<CustomProfile, "baseUrl">,
 ) {
   return (
     isYutoApiBaseUrl(profile?.baseUrl) || isOcoolaiBaseUrl(profile?.baseUrl)
   );
 }
+
+// 保留旧的函数名作为兼容
+export const isRememberedApiKeyProfile = supportsApiKeyGroupingForProfile;
 
 function getProviderIdForProfile(profile: Pick<CustomProfile, "name">) {
   return `custom_${profile.name}`;

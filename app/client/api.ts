@@ -497,9 +497,21 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   }
 
   // 添加降级 API key 列表用于重试
+  console.log("[API Headers] fallbackApiKeys 配置:", {
+    hasFallback: fallbackApiKeys && fallbackApiKeys.length > 0,
+    count: fallbackApiKeys?.length || 0,
+    groups: fallbackApiKeyGroups,
+  });
+
   if (fallbackApiKeys && fallbackApiKeys.length > 0) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
+    console.log("[API Headers] 已添加 fallback keys:", {
+      keysCount: fallbackApiKeys.length,
+      groupsCount: fallbackApiKeyGroups.length,
+      firstGroup: fallbackApiKeyGroups[0],
+    });
+
     const rememberedGroup =
       fallbackApiKeyGroups.length > 0 &&
       fallbackApiKeys[0] === apiKey &&
@@ -516,6 +528,8 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     if (rememberedGroup) {
       (headers as any)["x-remembered-api-key-group"] = rememberedGroup;
     }
+  } else {
+    console.log("[API Headers] 没有 fallback keys，无法重试");
   }
 
   return headers;
