@@ -724,19 +724,32 @@ export function Selector<T>(props: {
     const mergedGroups = Array.from(
       new Set([...groups, ...(props.extraGroups ?? [])]),
     );
+
+    // 按规范化名称去重，当多个原始名称规范化为同一个时，只保留第一个
+    const deduplicatedGroups: string[] = [];
+    const seenNormalized = new Set<string>();
+
+    for (const group of mergedGroups) {
+      const normalized = normalizeGroupForOrder(group);
+      if (!seenNormalized.has(normalized)) {
+        seenNormalized.add(normalized);
+        deduplicatedGroups.push(group);
+      }
+    }
+
     const orderedCanonicalGroups = new Set(
-      mergedGroups.map((group) => normalizeGroupForOrder(group)),
+      deduplicatedGroups.map((group) => normalizeGroupForOrder(group)),
     );
 
     return [
       ...preferredGroupOrder.flatMap((group) =>
         orderedCanonicalGroups.has(group)
-          ? mergedGroups.filter(
+          ? deduplicatedGroups.filter(
               (candidate) => normalizeGroupForOrder(candidate) === group,
             )
           : [],
       ),
-      ...mergedGroups.filter(
+      ...deduplicatedGroups.filter(
         (group) => !preferredGroupOrder.includes(normalizeGroupForOrder(group)),
       ),
     ];
