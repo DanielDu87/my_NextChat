@@ -5,17 +5,14 @@
     <defs>
       <linearGradient id="minimax-fill" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#FF4D4D"></stop>
-        <stop offset="50%" stop-color="#F97316"></stop>
-        <stop offset="100%" stop-color="#FB923C"></stop>
+        <stop offset="100%" stop-color="#FF8C42"></stop>
       </linearGradient>
     </defs>
-    <!-- 海螺形状 - 螺旋线条 -->
-    <circle cx="12" cy="12" r="9" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.3"></circle>
-    <circle cx="12" cy="12" r="6.5" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.5"></circle>
-    <circle cx="12" cy="12" r="4" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.7"></circle>
+    <!-- 简洁的海螺螺旋 -->
+    <path d="M12 3 C7 3 3 7 3 12 C3 17 7 21 12 21 C14 21 16 20 17.5 18.5"
+      fill="none" stroke="url(#minimax-fill)" stroke-width="2" stroke-linecap="round"></path>
+    <path d="M12 7 C9 7 7 9 7 12 C7 15 9 17 12 17 C13.5 17 15 16 16 15"
+      fill="none" stroke="url(#minimax-fill)" stroke-width="2" stroke-linecap="round" opacity="0.7"></path>
     <circle cx="12" cy="12" r="1.5" fill="url(#minimax-fill)"></circle>
-    <!-- 装饰点 -->
-    <circle cx="18" cy="6" r="1.2" fill="#F97316"></circle>
-    <circle cx="6" cy="18" r="1" fill="#F97316" opacity="0.6"></circle>
   </g>
 </svg>
