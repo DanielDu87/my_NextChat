@@ -81,7 +81,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   mistral: "/provider-icons/mistral-official.png",
 
   // Meta
-  meta: "/provider-icons/meta-official.png",
+  meta: "/provider-icons/meta-bg.svg",
 
   // Microsoft
   microsoft: "/provider-icons/microsoft-alt.png",
