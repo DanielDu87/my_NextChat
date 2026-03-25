@@ -1,6 +1,87 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "@/app/config/server";
 import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
+import http from "node:http";
+import https from "node:https";
+
+function shouldUseNativeRequest(fetchUrl: string, method: string) {
+  if (!["GET", "HEAD"].includes(method.toUpperCase())) return false;
+
+  try {
+    const hostname = new URL(fetchUrl).hostname;
+    return [
+      "aihubmix.com",
+      "www.aihubmix.com",
+      "toapis.com",
+      "www.toapis.com",
+      "cn.gptapi.asia",
+      "gptapi.asia",
+      "one.ocoolai.com",
+      "ocoolai.com",
+      "one.ooo.cool",
+    ].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function nativeRequest(
+  fetchUrl: string,
+  method: string,
+  headers: Headers,
+): Promise<Response> {
+  const url = new URL(fetchUrl);
+  const client = url.protocol === "https:" ? https : http;
+
+  const upstream = await new Promise<{
+    statusCode: number;
+    statusMessage: string;
+    headers: http.IncomingHttpHeaders;
+    body: Buffer;
+  }>((resolve, reject) => {
+    const req = client.request(
+      url,
+      {
+        method,
+        headers: Object.fromEntries(headers.entries()),
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) =>
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+        );
+        res.on("end", () =>
+          resolve({
+            statusCode: res.statusCode || 502,
+            statusMessage: res.statusMessage || "Bad Gateway",
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(20_000, () => {
+      req.destroy(new Error("native_request_timeout"));
+    });
+    req.end();
+  });
+
+  const responseHeaders = new Headers();
+  Object.entries(upstream.headers).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => responseHeaders.append(key, item));
+    } else if (typeof value === "string") {
+      responseHeaders.set(key, value);
+    }
+  });
+
+  return new Response(upstream.body, {
+    status: upstream.statusCode,
+    statusText: upstream.statusMessage,
+    headers: responseHeaders,
+  });
+}
 
 export async function handle(
   req: NextRequest,
@@ -24,6 +105,7 @@ export async function handle(
   const isPricingApi =
     subpath === "v1/pricing" &&
     (baseUrl?.includes("gptapi.asia") ||
+      baseUrl?.includes("toapis.com") ||
       baseUrl?.includes("ocoolai.com") ||
       baseUrl?.includes("ooo.cool"));
 
@@ -113,7 +195,9 @@ export async function handle(
   );
 
   try {
-    const res = await fetch(fetchUrl, fetchOptions);
+    const res = shouldUseNativeRequest(fetchUrl, req.method)
+      ? await nativeRequest(fetchUrl, req.method, headers)
+      : await fetch(fetchUrl, fetchOptions);
     // to prevent browser prompt for credentials
     const newHeaders = new Headers(res.headers);
     newHeaders.delete("www-authenticate");

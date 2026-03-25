@@ -21,6 +21,9 @@ import { setLatestModelRefreshState } from "./model-refresh-state-repository";
 import { getStoreSnapshot, setStoreSnapshot } from "./sync-store-repository";
 import { getDefaultSyncUserId } from "./sync-user";
 
+const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
+const LEGACY_UNKNOWN_MODEL_CUTOFF = 20260325;
+
 type AccessProfile = {
   id: string;
   name: string;
@@ -135,21 +138,33 @@ function mergeProviderModels(
       existingPublishedAt &&
       (!nextPublishedAt || existing?.publishedAtSource === "manual")
     ) {
-      nextModel.publishedAt = existingPublishedAt;
-      nextModel.publishedAtSource = existing?.publishedAtSource;
-      nextModel.publishedAtUrl =
-        typeof existing?.publishedAtUrl === "string"
-          ? existing.publishedAtUrl
-          : undefined;
-      nextModel.publishedAtNote =
-        typeof existing?.publishedAtNote === "string"
-          ? existing.publishedAtNote
-          : undefined;
+      if (
+        existing?.publishedAtSource === "synced_at" &&
+        existingPublishedAt < LEGACY_UNKNOWN_MODEL_CUTOFF &&
+        !nextPublishedAt
+      ) {
+        nextModel.publishedAt = LEGACY_UNKNOWN_MODEL_PUBLISHED_AT;
+        nextModel.publishedAtSource = "synced_at";
+        nextModel.publishedAtUrl = undefined;
+        nextModel.publishedAtNote =
+          "历史缺少明确发布日期的模型统一回退到 2026-01-01";
+      } else {
+        nextModel.publishedAt = existingPublishedAt;
+        nextModel.publishedAtSource = existing?.publishedAtSource;
+        nextModel.publishedAtUrl =
+          typeof existing?.publishedAtUrl === "string"
+            ? existing.publishedAtUrl
+            : undefined;
+        nextModel.publishedAtNote =
+          typeof existing?.publishedAtNote === "string"
+            ? existing.publishedAtNote
+            : undefined;
+      }
     } else if (!existing && !nextPublishedAt) {
       nextModel.publishedAt = getTodayPublishedAt();
       nextModel.publishedAtSource = "synced_at";
       nextModel.publishedAtNote =
-        nextModel.publishedAtNote || "模型首次同步入库时按当天日期兜底";
+        nextModel.publishedAtNote || "缺少明确发布日期时按首次同步日期兜底";
     }
 
     mergedModelMap.set(`${model.name}@${providerId}`, nextModel);

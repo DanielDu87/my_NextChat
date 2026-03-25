@@ -22,6 +22,9 @@ import {
 } from "../utils/model-published-at";
 import type { Voice } from "rt-client";
 
+const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
+const LEGACY_UNKNOWN_MODEL_CUTOFF = 20260325;
+
 export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
 export type TTSModelType = (typeof DEFAULT_TTS_MODELS)[number];
 export type TTSVoiceType = (typeof DEFAULT_TTS_VOICES)[number];
@@ -287,21 +290,33 @@ export const useAppConfig = createPersistStore(
           existingPublishedAt &&
           (!nextPublishedAt || existing.publishedAtSource === "manual")
         ) {
-          model.publishedAt = existingPublishedAt;
-          model.publishedAtSource = existing.publishedAtSource;
-          model.publishedAtUrl =
-            typeof existing?.publishedAtUrl === "string"
-              ? existing.publishedAtUrl
-              : undefined;
-          model.publishedAtNote =
-            typeof existing?.publishedAtNote === "string"
-              ? existing.publishedAtNote
-              : undefined;
+          if (
+            existing.publishedAtSource === "synced_at" &&
+            existingPublishedAt < LEGACY_UNKNOWN_MODEL_CUTOFF &&
+            !nextPublishedAt
+          ) {
+            model.publishedAt = LEGACY_UNKNOWN_MODEL_PUBLISHED_AT;
+            model.publishedAtSource = "synced_at";
+            model.publishedAtUrl = undefined;
+            model.publishedAtNote =
+              "历史缺少明确发布日期的模型统一回退到 2026-01-01";
+          } else {
+            model.publishedAt = existingPublishedAt;
+            model.publishedAtSource = existing.publishedAtSource;
+            model.publishedAtUrl =
+              typeof existing?.publishedAtUrl === "string"
+                ? existing.publishedAtUrl
+                : undefined;
+            model.publishedAtNote =
+              typeof existing?.publishedAtNote === "string"
+                ? existing.publishedAtNote
+                : undefined;
+          }
         } else if (!existing && !nextPublishedAt) {
           model.publishedAt = getTodayPublishedAt();
           model.publishedAtSource = "synced_at";
           if (!model.publishedAtNote) {
-            model.publishedAtNote = "模型首次同步入库时按当天日期兜底";
+            model.publishedAtNote = "缺少明确发布日期时按首次同步日期兜底";
           }
         }
         modelMap[`${model.name}@${model?.provider?.id}`] = model;

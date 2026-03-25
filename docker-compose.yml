@@ -21,6 +21,9 @@ services:
     container_name: nextchat-dev
     ports:
       - "${PORT:-3000}:3000"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
@@ -34,6 +37,8 @@ services:
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - DATABASE_URL=${DATABASE_URL}
       - PGHOST=${PGHOST}
       - PGPORT=${PGPORT}
@@ -91,6 +96,8 @@ services:
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - PROXY_URL=${PROXY_URL:-}
       - DATABASE_URL=${DATABASE_URL}
       - PGHOST=${PGHOST}
@@ -134,6 +141,8 @@ services:
       - CODE=${CODE}
       - BASE_URL=${BASE_URL}
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - DATABASE_URL=${DATABASE_URL}
       - PGHOST=${PGHOST}
       - PGPORT=${PGPORT}

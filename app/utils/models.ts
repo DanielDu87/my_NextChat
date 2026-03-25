@@ -752,7 +752,7 @@ export async function fetchModelsFromProvider(
 
       // 简化候选 URL，只使用成功的单个 URL
       const candidateUrls: FetchCandidate[] = isToApisUrl(baseUrl)
-        ? ["/api/toapis/pricing"]
+        ? ["/api/proxy/v1/pricing"]
         : isOcoolaiUrl(baseUrl)
         ? [
             {
