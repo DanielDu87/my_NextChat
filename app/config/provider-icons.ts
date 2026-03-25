@@ -43,12 +43,13 @@ export const PROVIDER_ICONS: Record<string, string> = {
   zhipu: "/provider-icons/zhipu-bg.svg",
   智谱: "/provider-icons/zhipu-bg.svg",
 
-  // 01.AI
-  "01.ai": "/provider-icons/lingyi.png",
-  "01-ai": "/provider-icons/lingyi.png",
-  "01.AI": "/provider-icons/lingyi.png",
-  万物: "/provider-icons/lingyi.png",
-  lingyi: "/provider-icons/lingyi.png",
+  // 01.AI / 零一万物
+  "01.ai": "/provider-icons/lingyi-bg.svg",
+  "01-ai": "/provider-icons/lingyi-bg.svg",
+  "01.AI": "/provider-icons/lingyi-bg.svg",
+  零一万物: "/provider-icons/lingyi-bg.svg",
+  万物: "/provider-icons/lingyi-bg.svg",
+  lingyi: "/provider-icons/lingyi-bg.svg",
 
   // Moonshot
   moonshot: "/provider-icons/moonshot.png",

@@ -1,0 +1,15 @@
+<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+  <title>01.AI</title>
+  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
+  <g transform="translate(3, 3)">
+    <defs>
+      <linearGradient id="lingyi-fill" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#7C3AED"></stop>
+        <stop offset="100%" stop-color="#4F46E5"></stop>
+      </linearGradient>
+    </defs>
+    <path d="M8 6h3v12H8V6zm0 0h3c0-2.21-2.24-4-5-4v2.67c1.48 0 2 .8 2 1.33zM3 18h3c0 2.21 2.24 4 5 4v-2.67c-1.48 0-2-.8-2-1.33H3V18zm11.33-12h3.34c2.21 0 4 2.24 4 5h-2.67c0-1.48-.8-2-1.33-2V6zm0 12h3.34v-3c1.48 0 2 .8 2 1.33h2.67c0-2.21-2.24-4-5-4h-2.67v5.67z"
+      fill="url(#lingyi-fill)"></path>
+    <circle cx="12" cy="12" r="1.5" fill="#7C3AED"></circle>
+  </g>
+</svg>

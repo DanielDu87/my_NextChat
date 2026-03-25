@@ -770,7 +770,7 @@ export function Selector<T>(props: {
     if (group === "Zhipu") return "智谱";
     if (group === "Minimax") return "Minimax";
     if (group === "Moonshot") return "Kimi";
-    if (group === "01.AI") return "万物";
+    if (group === "01.AI") return "零一万物";
     if (group === "iFlytek") return "讯飞星火";
     return group;
   };
