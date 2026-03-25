@@ -30,8 +30,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Alibaba / Qwen
   alibaba: "/provider-icons/alibaba.png",
-  qwen: "/provider-icons/qwen-alt.png",
-  千问: "/provider-icons/qwen-alt.png",
+  qwen: "/icons/llm-icons/qwen.svg",
+  千问: "/icons/llm-icons/qwen.svg",
   阿里巴巴: "/provider-icons/alibaba.png",
 
   // ByteDance
