@@ -390,28 +390,20 @@ export function stream(
       fallbackApiKeyGroups,
       currentKeyIndex,
     );
-    // 获取当前供应商名称，用于日志显示
     const providerName = options.config?.providerName || "API";
 
-    console.log(`[Chat Retry] ${providerName} 尝试重试`, {
-      currentGroup,
-      reason,
-      supportsApiKeyGrouping: supportsApiKeyGrouping(chatPath),
-      fallbackKeysCount: fallbackApiKeys.length,
-      currentIndex: currentKeyIndex,
-    });
-
+    // 检查是否支持 API Key 分组重试
     if (
       !supportsApiKeyGrouping(chatPath) ||
       fallbackApiKeys.length === 0 ||
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
+      // 所有分组都失败，或者不支持重试
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat Retry] ${providerName} 停止重试 - 不满足条件`, {
-        supportsApiKeyGrouping: supportsApiKeyGrouping(chatPath),
-        hasFallbackKeys: fallbackApiKeys.length > 0,
-        currentKeyIndex,
-        totalKeys: fallbackApiKeys.length,
+      console.log(`[Chat Retry] ${providerName} ❌ 所有分组重试失败`, {
+        currentGroup,
+        reason: reason.substring(0, 100),
+        totalGroups: fallbackApiKeys.length,
       });
       return false;
     }
@@ -422,10 +414,9 @@ export function stream(
     );
 
     console.log(
-      `[Chat Retry] ${providerName} 切换到下一个分组 (${currentKeyIndex + 1}/${
+      `[Chat Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
-      }): ${currentGroup} -> ${nextGroup}`,
-      { reason },
+      }): ${currentGroup} → ${nextGroup}`,
     );
 
     currentKeyIndex++;
@@ -782,28 +773,20 @@ export function streamWithThink(
       fallbackApiKeyGroups,
       currentKeyIndex,
     );
-    // 获取当前供应商名称，用于日志显示
     const providerName = options.config?.providerName || "API";
 
-    console.log(`[Chat Retry] ${providerName} 尝试重试`, {
-      currentGroup,
-      reason,
-      supportsApiKeyGrouping: supportsApiKeyGrouping(chatPath),
-      fallbackKeysCount: fallbackApiKeys.length,
-      currentIndex: currentKeyIndex,
-    });
-
+    // 检查是否支持 API Key 分组重试
     if (
       !supportsApiKeyGrouping(chatPath) ||
       fallbackApiKeys.length === 0 ||
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
+      // 所有分组都失败，或者不支持重试
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat Retry] ${providerName} 停止重试 - 不满足条件`, {
-        supportsApiKeyGrouping: supportsApiKeyGrouping(chatPath),
-        hasFallbackKeys: fallbackApiKeys.length > 0,
-        currentKeyIndex,
-        totalKeys: fallbackApiKeys.length,
+      console.log(`[Chat Retry] ${providerName} ❌ 所有分组重试失败`, {
+        currentGroup,
+        reason: reason.substring(0, 100),
+        totalGroups: fallbackApiKeys.length,
       });
       return false;
     }
@@ -814,10 +797,9 @@ export function streamWithThink(
     );
 
     console.log(
-      `[Chat Retry] ${providerName} 切换到下一个分组 (${currentKeyIndex + 1}/${
+      `[Chat Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
-      }): ${currentGroup} -> ${nextGroup}`,
-      { reason },
+      }): ${currentGroup} → ${nextGroup}`,
     );
 
     currentKeyIndex++;
