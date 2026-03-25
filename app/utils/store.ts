@@ -39,6 +39,33 @@ const IMMEDIATE_SYNC_STORE_KEYS = new Set<SyncStoreKey>([
 
 let immediateStoreSyncPauseCount = 0;
 
+// 同步队列，避免并发同步导致 409 冲突
+let syncQueue: Array<() => Promise<void>> = [];
+let isSyncQueueProcessing = false;
+
+async function processSyncQueue() {
+  if (isSyncQueueProcessing || syncQueue.length === 0) {
+    return;
+  }
+
+  isSyncQueueProcessing = true;
+  console.log("[Store] 📝 同步队列开始处理，待处理数量:", syncQueue.length);
+
+  while (syncQueue.length > 0) {
+    const task = syncQueue.shift();
+    if (task) {
+      try {
+        await task();
+      } catch (error) {
+        console.error("[Store] ❌ 同步队列任务失败:", error);
+      }
+    }
+  }
+
+  isSyncQueueProcessing = false;
+  console.log("[Store] ✅ 同步队列处理完成");
+}
+
 export async function runWithImmediateStoreSyncPaused<T>(
   task: () => Promise<T> | T,
 ): Promise<T> {
@@ -64,13 +91,20 @@ function triggerImmediateStoreSync(storeName?: string) {
     return;
   }
 
-  import("../store/sync")
-    .then(({ useSyncStore }) => {
-      return useSyncStore.getState().sync([syncStoreKey]);
-    })
-    .catch((error) => {
-      console.error(`[Store] ❌ ${storeName} 立即同步失败:`, error);
-    });
+  // 将同步任务加入队列，而不是立即执行
+  const syncTask = () =>
+    import("../store/sync")
+      .then(({ useSyncStore }) => {
+        return useSyncStore.getState().sync([syncStoreKey]);
+      })
+      .catch((error) => {
+        console.error(`[Store] ❌ ${storeName} 立即同步失败:`, error);
+      });
+
+  syncQueue.push(syncTask);
+
+  // 异步处理队列
+  Promise.resolve().then(() => processSyncQueue());
 }
 
 export function createPersistStore<T extends object, M>(
