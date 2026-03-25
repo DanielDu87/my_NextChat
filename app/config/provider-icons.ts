@@ -29,10 +29,10 @@ export const PROVIDER_ICONS: Record<string, string> = {
   deepseek: "/provider-icons/deepseek-bg.svg",
 
   // Alibaba / Qwen
-  alibaba: "/provider-icons/alibaba.png",
-  qwen: "/icons/llm-icons/qwen.svg",
-  千问: "/icons/llm-icons/qwen.svg",
-  阿里巴巴: "/provider-icons/alibaba.png",
+  alibaba: "/provider-icons/qwen-bg.svg",
+  qwen: "/provider-icons/qwen-bg.svg",
+  千问: "/provider-icons/qwen-bg.svg",
+  阿里巴巴: "/provider-icons/qwen-bg.svg",
 
   // ByteDance
   bytedance: "/provider-icons/bytedance.png",
