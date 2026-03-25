@@ -52,8 +52,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
   lingyi: "/provider-icons/lingyi-bg.svg",
 
   // Moonshot
-  moonshot: "/provider-icons/moonshot.png",
-  kimi: "/provider-icons/moonshot.png",
+  moonshot: "/provider-icons/moonshot-bg.svg",
+  kimi: "/provider-icons/moonshot-bg.svg",
 
   // Minimax
   minimax: "/provider-icons/minimax.png",
