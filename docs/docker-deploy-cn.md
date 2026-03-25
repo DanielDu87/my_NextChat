@@ -145,7 +145,7 @@ npm / yarn registry。默认值已是 `https://registry.npmmirror.com/`。
 无代理部署：
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f nextchat
 ```
 
 ### 6.3 检查数据库健康接口

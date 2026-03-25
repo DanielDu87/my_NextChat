@@ -143,7 +143,7 @@ Download URL for the `rt-client` tgz. By default it uses the vendored local pack
 ### 6.2 Check application logs
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
+./scripts/docker-compose-safe.sh --env-file .env.docker logs -f nextchat
 ```
 
 ### 6.3 Check database health endpoint

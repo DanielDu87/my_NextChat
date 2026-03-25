@@ -122,8 +122,6 @@ export function getPostgresPool() {
       if (globalThis.__nextchatPostgresPool === pool) {
         globalThis.__nextchatPostgresPool = undefined;
       }
-
-      void pool.end().catch(() => {});
     });
 
     globalThis.__nextchatPostgresPool = pool;
@@ -144,12 +142,14 @@ export async function pgQuery<T extends QueryResultRow = QueryResultRow>(
 export async function withPgClient<T>(
   handler: (client: PoolClient) => Promise<T>,
 ) {
-  const client = await getPostgresPool().connect();
-  try {
-    return await handler(client);
-  } finally {
-    client.release();
-  }
+  return withRetryablePostgresOperation(async () => {
+    const client = await getPostgresPool().connect();
+    try {
+      return await handler(client);
+    } finally {
+      client.release();
+    }
+  });
 }
 
 export async function withPgTransaction<T>(
@@ -481,6 +481,46 @@ export async function ensureSyncStorageSchema() {
         )
       `);
         await client.query(`
+        alter table user_model_refresh_states
+        alter column user_id type text using user_id::text
+      `);
+        await client.query(`
+        alter table user_model_refresh_states
+        alter column refresh_key type text using refresh_key::text
+      `);
+        await client.query(`
+        alter table user_model_refresh_states
+        alter column payload_json type jsonb using payload_json::jsonb
+      `);
+        await client.query(`
+        alter table user_model_refresh_states
+        alter column payload_json set default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table user_model_refresh_states
+        alter column payload_json set not null
+      `);
+        await client.query(`
+        alter table user_provider_balance_snapshots
+        alter column user_id type text using user_id::text
+      `);
+        await client.query(`
+        alter table user_provider_balance_snapshots
+        alter column balance_key type text using balance_key::text
+      `);
+        await client.query(`
+        alter table user_provider_balance_snapshots
+        alter column payload_json type jsonb using payload_json::jsonb
+      `);
+        await client.query(`
+        alter table user_provider_balance_snapshots
+        alter column payload_json set default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table user_provider_balance_snapshots
+        alter column payload_json set not null
+      `);
+        await client.query(`
         create table if not exists model_source_index_snapshots (
           source_key text primary key,
           payload_json jsonb not null default '{}'::jsonb,
@@ -595,6 +635,9 @@ export async function ensureSyncStorageSchema() {
       },
     ).catch((error) => {
       globalThis.__nextchatSyncStorageSchemaReady = undefined;
+      if (isRetryablePostgresError(error)) {
+        void closePostgresPool().catch(() => {});
+      }
       throw error;
     });
   }

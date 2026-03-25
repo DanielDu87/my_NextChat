@@ -440,7 +440,7 @@ Common commands:
 
 ```shell
 # view logs
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
 
 # restart only when needed
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev restart

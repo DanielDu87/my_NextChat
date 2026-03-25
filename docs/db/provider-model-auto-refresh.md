@@ -7,7 +7,7 @@
 在应用容器内执行：
 
 ```bash
-docker compose exec -T chatgpt-next-web-dev yarn db:refresh-provider-models
+docker compose exec -T nextchat-dev yarn db:refresh-provider-models
 ```
 
 建议频率：

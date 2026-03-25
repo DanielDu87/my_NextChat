@@ -17,7 +17,7 @@ cp .env.docker.example .env.docker
 - 查看日志：
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
 ```
 
 - 停止开发容器：

@@ -34,6 +34,17 @@ services:
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DATABASE_URL=${DATABASE_URL}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - PGSSL=${PGSSL}
+      - PGSSLMODE=${PGSSLMODE}
+      - PGPOOL_MAX=${PGPOOL_MAX}
+      - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
+      - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}
     volumes:
       # 挂载源代码实现热加载
       - .:/app
@@ -81,6 +92,17 @@ services:
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
       - PROXY_URL=${PROXY_URL:-}
+      - DATABASE_URL=${DATABASE_URL}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - PGSSL=${PGSSL}
+      - PGSSLMODE=${PGSSLMODE}
+      - PGPOOL_MAX=${PGPOOL_MAX}
+      - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
+      - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}
     volumes:
       # 持久化数据存储
       - nextchat-data:/app/data
@@ -112,6 +134,17 @@ services:
       - CODE=${CODE}
       - BASE_URL=${BASE_URL}
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
+      - DATABASE_URL=${DATABASE_URL}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - PGSSL=${PGSSL}
+      - PGSSLMODE=${PGSSLMODE}
+      - PGPOOL_MAX=${PGPOOL_MAX}
+      - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
+      - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}
     volumes:
       - nextchat-data:/app/data
 

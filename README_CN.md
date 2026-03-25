@@ -385,7 +385,7 @@ docker compose --profile dev up --build -d
 3. 查看启动日志：
 
 ```shell
-docker compose --profile dev logs -f chatgpt-next-web-dev
+docker compose --profile dev logs -f nextchat-dev
 ```
 
 4. 访问 `http://localhost:3000`。

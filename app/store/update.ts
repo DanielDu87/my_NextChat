@@ -501,7 +501,7 @@ async function persistBalanceSnapshot(
   snapshot: BalanceSnapshot,
 ): Promise<void> {
   try {
-    await fetch("/api/db/balance", {
+    const response = await fetch("/api/db/balance", {
       method: "PUT",
       headers: withSyncUserHeaders({
         "Content-Type": "application/json",
@@ -511,6 +511,16 @@ async function persistBalanceSnapshot(
         snapshot,
       }),
     });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      console.error(
+        "[Balance] 保存数据库快照失败",
+        response.status,
+        response.statusText,
+        message,
+      );
+    }
   } catch (error) {
     console.error(
       "[Balance] 保存数据库快照失败",
