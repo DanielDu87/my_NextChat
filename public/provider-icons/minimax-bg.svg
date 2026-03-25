@@ -4,16 +4,18 @@
   <g transform="translate(3, 3)">
     <defs>
       <linearGradient id="minimax-fill" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#FF6B35"></stop>
-        <stop offset="100%" stop-color="#F7931E"></stop>
+        <stop offset="0%" stop-color="#FF4D4D"></stop>
+        <stop offset="50%" stop-color="#F97316"></stop>
+        <stop offset="100%" stop-color="#FB923C"></stop>
       </linearGradient>
     </defs>
-    <path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"
-      fill="url(#minimax-fill)"></path>
-    <path d="M12 6c3.314 0 6 2.686 6 6s-2.686 6-6 6-6-2.686-6-6 2.686-6 6-6z"
-      fill="#fff" opacity="0.3"></path>
-    <path d="M12 8c2.21 0 4 1.79 4 4s-1.79 4-4 4-4-1.79-4-4 1.79-4 4-4z"
-      fill="#fff"></path>
-    <circle cx="10" cy="11" r="1" fill="#FF6B35"></circle>
+    <!-- 海螺形状 - 螺旋线条 -->
+    <circle cx="12" cy="12" r="9" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.3"></circle>
+    <circle cx="12" cy="12" r="6.5" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.5"></circle>
+    <circle cx="12" cy="12" r="4" fill="none" stroke="url(#minimax-fill)" stroke-width="2" opacity="0.7"></circle>
+    <circle cx="12" cy="12" r="1.5" fill="url(#minimax-fill)"></circle>
+    <!-- 装饰点 -->
+    <circle cx="18" cy="6" r="1.2" fill="#F97316"></circle>
+    <circle cx="6" cy="18" r="1" fill="#F97316" opacity="0.6"></circle>
   </g>
 </svg>
