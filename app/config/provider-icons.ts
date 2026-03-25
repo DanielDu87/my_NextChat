@@ -56,8 +56,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
   kimi: "/provider-icons/moonshot-bg.svg",
 
   // Minimax
-  minimax: "/provider-icons/minimax-official.png",
-  海螺: "/provider-icons/minimax-official.png",
+  minimax: "/provider-icons/minimax-bg.svg",
+  海螺: "/provider-icons/minimax-bg.svg",
 
   // Tencent
   tencent: "/provider-icons/tencent.png",
@@ -89,7 +89,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   microsoft: "/provider-icons/microsoft-alt.png",
 
   // Nvidia
-  nvidia: "/provider-icons/nvidia-official.png",
+  nvidia: "/provider-icons/nvidia-bg.svg",
 
   // Perplexity
   perplexity: "/provider-icons/perplexity-official.png",
