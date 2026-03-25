@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   applyChatDelta,
   getChatIndexSnapshot,
+  getStoreSnapshotMeta,
 } from "@/app/utils/server/sync-store-repository";
+import { StoreKey } from "@/app/constant";
 import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
 import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 
@@ -52,6 +54,38 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: "invalid_chat_delta_payload" },
         { status: 400 },
       );
+    }
+
+    const expectedUpdatedAt = req.headers.get("x-expected-updated-at") || "";
+    const expectedChecksum = req.headers.get("x-expected-checksum") || "";
+    const expectedMissing = req.headers.get("x-expected-missing") === "1";
+    const currentMeta = await withRetryablePostgresOperation(() =>
+      getStoreSnapshotMeta(StoreKey.Chat, userId),
+    );
+    const hasExpectation =
+      expectedMissing ||
+      expectedUpdatedAt.length > 0 ||
+      expectedChecksum.length > 0;
+    if (hasExpectation) {
+      const currentUpdatedAt = currentMeta?.updatedAt || "";
+      const currentChecksum = currentMeta?.checksum || "";
+      const currentExists = !!currentMeta;
+      const revisionMatches = expectedMissing
+        ? !currentExists
+        : currentExists &&
+          currentUpdatedAt === expectedUpdatedAt &&
+          currentChecksum === expectedChecksum;
+
+      if (!revisionMatches) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "snapshot_conflict",
+            current: currentMeta ?? null,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     await withRetryablePostgresOperation(() =>

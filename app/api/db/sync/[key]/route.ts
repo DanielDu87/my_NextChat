@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getStoreSnapshotMeta,
   getStoreSnapshot,
   isSupportedStoreKey,
   removeStoreSnapshot,
@@ -74,6 +75,39 @@ export async function PUT(req: NextRequest, { params }: Params) {
     });
     const payload = JSON.parse(rawBody);
     const userId = resolveSyncUserId(req);
+    const expectedUpdatedAt = req.headers.get("x-expected-updated-at") || "";
+    const expectedChecksum = req.headers.get("x-expected-checksum") || "";
+    const expectedMissing = req.headers.get("x-expected-missing") === "1";
+    const currentMeta = await withRetryablePostgresOperation(() =>
+      getStoreSnapshotMeta(params.key, userId),
+    );
+
+    const hasExpectation =
+      expectedMissing ||
+      expectedUpdatedAt.length > 0 ||
+      expectedChecksum.length > 0;
+    if (hasExpectation) {
+      const currentUpdatedAt = currentMeta?.updatedAt || "";
+      const currentChecksum = currentMeta?.checksum || "";
+      const currentExists = !!currentMeta;
+      const revisionMatches = expectedMissing
+        ? !currentExists
+        : currentExists &&
+          currentUpdatedAt === expectedUpdatedAt &&
+          currentChecksum === expectedChecksum;
+
+      if (!revisionMatches) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "snapshot_conflict",
+            current: currentMeta ?? null,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     await withRetryablePostgresOperation(() =>
       setStoreSnapshot(params.key, payload, userId),
     );

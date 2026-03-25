@@ -65,6 +65,13 @@ function getMessageToolCalls(message: JsonObject) {
   return Array.isArray(message.tools) ? message.tools : [];
 }
 
+function getExternalMessageId(message: JsonObject) {
+  const messageId = message.id;
+  return typeof messageId === "string" && messageId.length > 0
+    ? messageId
+    : null;
+}
+
 function buildConversationMetadata(
   session: ChatSessionRecord,
   indexOrder?: number,
@@ -178,16 +185,13 @@ async function replaceConversationMessages(
   conversationId: string,
   session: ChatSessionRecord,
 ) {
-  await client.query(`delete from messages where conversation_id = $1::uuid`, [
-    conversationId,
-  ]);
-
   const messages = getSessionMessages(session);
   for (let index = 0; index < messages.length; index += 1) {
     const rawMessage = sanitizeJsonPayload(messages[index]) as JsonObject;
     await client.query(
       `insert into messages (
          conversation_id,
+         external_message_id,
          seq,
          role,
          content_text,
@@ -200,13 +204,24 @@ async function replaceConversationMessages(
          $2,
          $3,
          $4,
-         $5::jsonb,
-         $6,
-         $7::jsonb,
+         $5,
+         $6::jsonb,
+         $7,
+         $8::jsonb,
          '{}'::jsonb
-       )`,
+       )
+       on conflict (conversation_id, seq) do update set
+         external_message_id = excluded.external_message_id,
+         role = excluded.role,
+         content_text = excluded.content_text,
+         content_json = excluded.content_json,
+         reasoning_text = excluded.reasoning_text,
+         tool_calls = excluded.tool_calls,
+         metadata_json = excluded.metadata_json,
+         updated_at = now()`,
       [
         conversationId,
+        getExternalMessageId(rawMessage),
         index,
         normalizeMessageRole(rawMessage.role),
         getMessageContentText(rawMessage),
@@ -216,6 +231,13 @@ async function replaceConversationMessages(
       ],
     );
   }
+
+  await client.query(
+    `delete from messages
+     where conversation_id = $1::uuid
+       and seq >= $2`,
+    [conversationId, messages.length],
+  );
 }
 
 export async function syncNormalizedChatSessions(

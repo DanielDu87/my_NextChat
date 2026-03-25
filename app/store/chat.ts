@@ -1348,6 +1348,10 @@ export const useChatStore = createPersistStore(
           ],
           sessions: [newSession, ...state.sessions],
         }));
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+        });
       },
 
       async clearSessions() {
@@ -1366,26 +1370,12 @@ export const useChatStore = createPersistStore(
           deletedSessionTimestamps,
         }));
 
-        // 直接上传空状态到服务器（动态导入避免循环依赖）
+        // 使用统一聊天同步链路传播删除，避免远端残留旧会话。
         try {
           const { useSyncStore } = await import("./sync");
-          const { stringifyPersistedStoreState } = await import(
-            "../utils/sync-store-keys"
-          );
           const syncStore = useSyncStore.getState();
-          const client = syncStore.getClient() as any;
-
-          if (client && typeof client.set === "function") {
-            await client.set(
-              StoreKey.Chat,
-              stringifyPersistedStoreState(StoreKey.Chat, {
-                ...get(),
-                sessions: newSessions,
-                currentSessionIndex: 0,
-                globalClearAt,
-                deletedSessionTimestamps,
-              }),
-            );
+          if (syncStore.cloudSync()) {
+            await syncStore.sync([StoreKey.Chat]);
             console.log("[Chat] ✅ 清空对话已同步到服务器");
           }
         } catch (error) {
@@ -1447,6 +1437,10 @@ export const useChatStore = createPersistStore(
             sessionSummaries: newSessionSummaries,
             sessions: newSessions,
           };
+        });
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
         });
       },
 

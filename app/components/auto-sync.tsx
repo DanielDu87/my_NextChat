@@ -15,6 +15,14 @@ import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
+import {
+  AUTO_SYNC_CHANNEL_NAME,
+  AUTO_SYNC_LOCK_KEY,
+  AUTO_SYNC_LOCK_TTL_MS,
+  buildAutoSyncLock,
+  parseAutoSyncLock,
+  shouldAutoSyncLockBeTakenOver,
+} from "../utils/sync-tab-coordination";
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -167,6 +175,109 @@ export default function AutoSync() {
   };
 
   useEffect(() => {
+    const tabId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const localStorage =
+      typeof window !== "undefined" ? window.localStorage : null;
+    const channel =
+      typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(AUTO_SYNC_CHANNEL_NAME)
+        : null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let hasCompletedAutoSync = false;
+    let autoSyncInProgress = false;
+
+    const writeLock = () => {
+      if (!localStorage) {
+        return false;
+      }
+
+      const lock = buildAutoSyncLock(tabId);
+      localStorage.setItem(AUTO_SYNC_LOCK_KEY, JSON.stringify(lock));
+      const confirmedLock = parseAutoSyncLock(
+        localStorage.getItem(AUTO_SYNC_LOCK_KEY),
+      );
+
+      return confirmedLock?.owner === tabId;
+    };
+
+    const acquireLock = () => {
+      if (!localStorage) {
+        return true;
+      }
+
+      const now = Date.now();
+      const currentLock = parseAutoSyncLock(
+        localStorage.getItem(AUTO_SYNC_LOCK_KEY),
+      );
+      if (!shouldAutoSyncLockBeTakenOver(currentLock, tabId, now)) {
+        return false;
+      }
+
+      return writeLock();
+    };
+
+    const refreshLock = () => {
+      if (!localStorage) {
+        return;
+      }
+
+      const currentLock = parseAutoSyncLock(
+        localStorage.getItem(AUTO_SYNC_LOCK_KEY),
+      );
+      if (currentLock?.owner !== tabId) {
+        return;
+      }
+
+      localStorage.setItem(
+        AUTO_SYNC_LOCK_KEY,
+        JSON.stringify(buildAutoSyncLock(tabId)),
+      );
+    };
+
+    const releaseLock = () => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+
+      if (!localStorage) {
+        channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+        return;
+      }
+
+      const currentLock = parseAutoSyncLock(
+        localStorage.getItem(AUTO_SYNC_LOCK_KEY),
+      );
+      if (currentLock?.owner === tabId) {
+        localStorage.removeItem(AUTO_SYNC_LOCK_KEY);
+      }
+
+      channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+    };
+
+    const clearRetryTimer = () => {
+      if (!retryTimer) {
+        return;
+      }
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const scheduleRetry = (attemptAutoSync: () => void) => {
+      if (retryTimer || hasCompletedAutoSync || autoSyncInProgress) {
+        return;
+      }
+
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        attemptAutoSync();
+      }, AUTO_SYNC_LOCK_TTL_MS + 500);
+    };
+
     console.log("[AutoSync] 📍 组件已挂载");
     rebuildManagedModelsFromCache();
 
@@ -197,40 +308,79 @@ export default function AutoSync() {
         return;
       }
 
-      // 迁移模型缓存
-      modelCacheStore.migrateFromAccessProfiles?.();
+      const attemptAutoSync = () => {
+        if (hasCompletedAutoSync || autoSyncInProgress) {
+          return;
+        }
 
-      console.log("[AutoSync] 🚀 开始自动同步...");
+        // 迁移模型缓存
+        modelCacheStore.migrateFromAccessProfiles?.();
 
-      syncStore
-        .resumePendingDebounceSync?.()
-        .catch((error: unknown) => {
-          console.error("[AutoSync] ❌ 恢复未完成同步失败:", error);
-          return false;
-        })
-        .then((resumed: boolean | void) => {
-          if (resumed) {
-            console.log("[AutoSync] ℹ️ 已恢复待执行同步，跳过重复自动同步");
-            return;
-          }
+        if (!acquireLock()) {
+          console.log(
+            "[AutoSync] 🔒 其他标签页正在执行自动同步，当前标签页等待锁释放",
+          );
+          scheduleRetry(attemptAutoSync);
+          return;
+        }
 
-          return syncStore.autoSync();
-        })
-        .then(() => {
-          rebuildManagedModelsFromCache();
-          useChatStore.getState().initializeForNewPage();
-          console.log("[AutoSync] ✅ 自动同步完成");
-          // 自动同步完成后，获取云端数据并输出完整对比
-          return logModelCountWithRemote();
-        })
-        .catch((error: unknown) => {
-          console.error("[AutoSync] ❌ 同步失败:", error);
-        });
+        clearRetryTimer();
+        autoSyncInProgress = true;
+        heartbeatTimer = setInterval(
+          refreshLock,
+          Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
+        );
+        console.log("[AutoSync] 🚀 开始自动同步...");
+
+        syncStore
+          .resumePendingDebounceSync?.()
+          .catch((error: unknown) => {
+            console.error("[AutoSync] ❌ 恢复未完成同步失败:", error);
+            return false;
+          })
+          .then((resumed: boolean | void) => {
+            if (resumed) {
+              console.log("[AutoSync] ℹ️ 已恢复待执行同步，跳过重复自动同步");
+              return;
+            }
+
+            return syncStore.autoSync();
+          })
+          .then(() => {
+            rebuildManagedModelsFromCache();
+            useChatStore.getState().initializeForNewPage();
+            hasCompletedAutoSync = true;
+            console.log("[AutoSync] ✅ 自动同步完成");
+            return logModelCountWithRemote();
+          })
+          .catch((error: unknown) => {
+            console.error("[AutoSync] ❌ 同步失败:", error);
+          })
+          .finally(() => {
+            autoSyncInProgress = false;
+            releaseLock();
+          });
+      };
+
+      channel?.addEventListener("message", (event: MessageEvent) => {
+        if (
+          event.data?.type === "auto-sync-finished" &&
+          !hasCompletedAutoSync &&
+          !autoSyncInProgress
+        ) {
+          attemptAutoSync();
+        }
+      });
+
+      attemptAutoSync();
     }, 1000); // 延迟 1 秒
 
     return () => {
       console.log("[AutoSync] 🧹 组件卸载");
       clearTimeout(timer);
+      clearRetryTimer();
+      releaseLock();
+      channel?.close();
     };
     // 仅在客户端初始化后执行一次自动同步。
     // eslint-disable-next-line react-hooks/exhaustive-deps

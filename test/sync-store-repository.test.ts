@@ -194,12 +194,16 @@ describe("sync store repository helpers", () => {
       deleteSessionIds: ["s2", "", "s1", "s2"],
     });
 
-    expect(queryMock).toHaveBeenCalledTimes(0);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(queryMock.mock.calls[0]?.[0]).toContain("insert into app_settings");
+    expect(queryMock.mock.calls[0]?.[1]).toEqual([
+      "single-user",
+      "__chat-index-state__",
+      JSON.stringify({ currentSessionId: "s1" }),
+    ]);
 
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledTimes(1);
-    expect(setChatIndexStateMock).toHaveBeenCalledWith("single-user", {
-      currentSessionId: "s1",
-    });
+    expect(setChatIndexStateMock).not.toHaveBeenCalled();
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledWith(
       { query: queryMock },
       {
@@ -269,6 +273,7 @@ describe("sync store repository helpers", () => {
         },
         version: 4,
       },
+      expect.anything(),
     );
 
     expect(syncAppSettingsStoreMock).toHaveBeenCalledWith(
@@ -280,6 +285,7 @@ describe("sync store repository helpers", () => {
         },
         version: 4,
       },
+      expect.anything(),
     );
   });
 

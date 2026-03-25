@@ -2,6 +2,8 @@ import { StoreKey } from "@/app/constant";
 import { ensureSyncStorageSchema, pgQuery } from "./postgres";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 
+type QueryFn = (text: string, params?: unknown[]) => Promise<unknown>;
+
 type SettingsColumn =
   | "ui_settings"
   | "chat_settings"
@@ -49,6 +51,7 @@ export async function syncAppSettingsStore(
   externalUserId: string,
   storeKey: string,
   payload: unknown,
+  query?: QueryFn,
 ) {
   const column = getSettingsColumn(storeKey);
   if (!column) {
@@ -57,8 +60,9 @@ export async function syncAppSettingsStore(
 
   await ensureSyncStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const runQuery = query ?? pgQuery;
 
-  await pgQuery(
+  await runQuery(
     `insert into app_settings (
        user_id,
        ${column}

@@ -6,6 +6,8 @@ import {
 } from "crypto";
 import { pgQuery } from "./postgres";
 
+type QueryFn = (text: string, params?: unknown[]) => Promise<unknown>;
+
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
@@ -78,12 +80,16 @@ function decryptSecretPayload(ciphertext: string) {
   return JSON.parse(plaintext);
 }
 
-export async function setEncryptedSyncSecret(params: {
-  userId: string;
-  secretKey: string;
-  payload: unknown;
-}) {
-  await pgQuery(
+export async function setEncryptedSyncSecret(
+  params: {
+    userId: string;
+    secretKey: string;
+    payload: unknown;
+  },
+  query?: QueryFn,
+) {
+  const runQuery = query ?? pgQuery;
+  await runQuery(
     `insert into sync_secrets (user_id, secret_key, encrypted_payload)
      values ($1, $2, $3)
      on conflict (user_id, secret_key) do update set

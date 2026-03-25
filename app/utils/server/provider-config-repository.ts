@@ -7,6 +7,10 @@ import {
 import { encryptSyncSecretPayload } from "./sync-secrets";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 
+type QueryClient = {
+  query: (text: string, params?: unknown[]) => Promise<any>;
+};
+
 type AccessProfile = {
   id: string;
   name: string;
@@ -141,6 +145,7 @@ function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
 export async function syncProviderConfigsFromAccessState(
   externalUserId: string,
   payload: unknown,
+  existingClient?: QueryClient,
 ) {
   await ensureSyncStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
@@ -149,7 +154,7 @@ export async function syncProviderConfigsFromAccessState(
     ? state.apiProfiles.filter((profile) => profile?.id)
     : [];
 
-  await withPgTransaction(async (client) => {
+  const syncWithClient = async (client: QueryClient) => {
     const keptProviderCodes = profiles.map((profile) => profile.id);
 
     if (keptProviderCodes.length > 0) {
@@ -167,7 +172,7 @@ export async function syncProviderConfigsFromAccessState(
     }
 
     for (const profile of profiles) {
-      const configResult = await client.query<{ id: string }>(
+      const configResult = (await client.query(
         `insert into provider_configs (
            user_id,
            provider_code,
@@ -199,9 +204,9 @@ export async function syncProviderConfigsFromAccessState(
           JSON.stringify(buildProfileRequestConfig(profile)),
           JSON.stringify(sanitizeProviderProfile(profile)),
         ],
-      );
+      )) as { rows?: Array<{ id: string }> };
 
-      const providerConfigId = configResult.rows[0]?.id;
+      const providerConfigId = (configResult.rows ?? [])[0]?.id;
       if (!providerConfigId) {
         continue;
       }
@@ -257,6 +262,15 @@ export async function syncProviderConfigsFromAccessState(
         );
       }
     }
+  };
+
+  if (existingClient) {
+    await syncWithClient(existingClient);
+    return;
+  }
+
+  await withPgTransaction(async (client) => {
+    await syncWithClient(client);
   });
 }
 

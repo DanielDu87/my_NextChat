@@ -20,7 +20,6 @@ import {
   getChatIndexState,
   getAppSettingsStore,
   removeChatIndexState,
-  setChatIndexState,
   syncAppSettingsStore,
 } from "./app-settings-repository";
 import {
@@ -451,6 +450,14 @@ export async function getStoreSnapshotMetas(
   return nextMetas;
 }
 
+export async function getStoreSnapshotMeta(
+  storeKey: string,
+  userId = getDefaultSyncUserId(),
+) {
+  const metas = await getStoreSnapshotMetas([storeKey], userId);
+  return metas[0];
+}
+
 export async function applyChatDelta(params: {
   userId?: string;
   index: ChatIndexPayload;
@@ -468,9 +475,24 @@ export async function applyChatDelta(params: {
       upsertSessions: params.upsertSessions,
       deleteSessionIds,
     });
+    await client.query(
+      `insert into app_settings (
+         user_id,
+         chat_settings
+       ) values (
+         (select id from app_users where external_id = $1 limit 1),
+         jsonb_build_object($2::text, $3::jsonb)
+       )
+       on conflict (user_id) do update set
+         chat_settings = coalesce(app_settings.chat_settings, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb),
+         updated_at = now()`,
+      [
+        userId,
+        "__chat-index-state__",
+        JSON.stringify(params.index.state ?? {}),
+      ],
+    );
   });
-
-  await setChatIndexState(userId, params.index.state ?? {});
 }
 
 export async function setFullChatStateSnapshot(
@@ -505,12 +527,20 @@ export async function setStoreSnapshot(
   if (storeKey === StoreKey.Access) {
     const { publicPayload, secretPayload } = splitAccessStorePayload(payload);
     nextPayload = stripAccessStoreProfiles(publicPayload);
-    await setEncryptedSyncSecret({
-      userId,
-      secretKey: storeKey,
-      payload: secretPayload,
+    await withPgTransaction(async (client) => {
+      const runQuery = client.query.bind(client);
+      await setEncryptedSyncSecret(
+        {
+          userId,
+          secretKey: storeKey,
+          payload: secretPayload,
+        },
+        runQuery,
+      );
+      await syncProviderConfigsFromAccessState(userId, payload, client as any);
+      await syncAppSettingsStore(userId, storeKey, nextPayload, runQuery);
     });
-    await syncProviderConfigsFromAccessState(userId, payload);
+    return;
   }
 
   await syncAppSettingsStore(userId, storeKey, nextPayload);

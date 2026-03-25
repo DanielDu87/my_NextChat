@@ -62,6 +62,15 @@ type SyncBackupState = Pick<
   "provider" | "database" | "lastSyncTime" | "lastProvider"
 >;
 
+type PlaceholderChatSession = Record<string, unknown> & {
+  _syncPlaceholder?: boolean;
+  id?: string;
+  topic?: string;
+  createdAt?: number;
+  lastUpdate?: number;
+  messages?: unknown[];
+};
+
 type BackupState = AppState & {
   [StoreKey.Sync]?: SyncBackupState;
 };
@@ -309,6 +318,10 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(2)} MB`;
 }
 
+function buildMetaMap(metas: StoreSnapshotMeta[] = []) {
+  return new Map(metas.map((meta) => [meta.key, meta] as const));
+}
+
 function normalizeMergedChatState(chatState: any) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
   const safeIndex = Math.min(
@@ -409,7 +422,82 @@ function buildRemoteSessionPlaceholder(entry: ChatIndexSessionEntry) {
     entry.lastUpdate || entry.createdAt || Date.now(),
   );
   session.mask.name = session.topic || session.mask.name;
-  return session;
+  return {
+    ...session,
+    _syncPlaceholder: true,
+  } as PlaceholderChatSession;
+}
+
+function isRemoteSessionPlaceholder(
+  session: unknown,
+): session is PlaceholderChatSession {
+  return (
+    isObjectLike(session) &&
+    "_syncPlaceholder" in session &&
+    session._syncPlaceholder === true
+  );
+}
+
+function buildUploadChatIndexPayload(
+  chatState: any,
+  remoteEntryMap: Map<string, ChatIndexSessionEntry>,
+) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const currentSessionIndex = Math.max(
+    0,
+    Number(chatState?.currentSessionIndex) || 0,
+  );
+  const rawCurrentSessionId = sessions[currentSessionIndex]?.id;
+  const currentSessionId =
+    typeof rawCurrentSessionId === "string" ? rawCurrentSessionId : "";
+  const {
+    sessions: _sessions,
+    currentSessionIndex: _currentSessionIndex,
+    ...rest
+  } = chatState ?? {};
+
+  const sessionEntries = sessions
+    .filter((session: PlaceholderChatSession) => session?.id)
+    .map((session: PlaceholderChatSession) => {
+      const sessionId = String(session.id || "");
+      const remoteEntry = remoteEntryMap.get(sessionId);
+
+      if (isRemoteSessionPlaceholder(session) && remoteEntry) {
+        return {
+          id: sessionId,
+          topic: String(remoteEntry.topic || session.topic || ""),
+          createdAt: Number(
+            remoteEntry.createdAt || session.createdAt || Date.now(),
+          ),
+          lastUpdate: Number(
+            remoteEntry.lastUpdate || session.lastUpdate || Date.now(),
+          ),
+          messageCount: Number(remoteEntry.messageCount || 0),
+        };
+      }
+
+      return {
+        id: sessionId,
+        topic: String(session.topic || ""),
+        createdAt: Number(session.createdAt || 0),
+        lastUpdate: Number(session.lastUpdate || 0),
+        messageCount: Array.isArray(session.messages)
+          ? session.messages.length
+          : 0,
+      };
+    });
+
+  return {
+    version: 1 as const,
+    state: {
+      ...rest,
+      currentSessionId,
+      sessionIds: sessionEntries.map(
+        (entry: ChatIndexSessionEntry) => entry.id,
+      ),
+    },
+    sessions: sessionEntries,
+  };
 }
 
 async function materializeLocalChatState(chatState: any) {
@@ -625,14 +713,22 @@ export const useSyncStore = createPersistStore(
       client: {
         getChatIndex?: () => Promise<any>;
         getChatSessions?: (ids: string[]) => Promise<Record<string, unknown>>;
-        setChatDelta?: (params: {
-          index: ReturnType<typeof buildChatIndexPayload>;
-          upsertSessions: Array<Record<string, unknown>>;
-          deleteSessionIds?: string[];
-        }) => Promise<void>;
+        setChatDelta?: (
+          params: {
+            index: ReturnType<typeof buildChatIndexPayload>;
+            upsertSessions: Array<Record<string, unknown>>;
+            deleteSessionIds?: string[];
+          },
+          expectation?: {
+            expectedUpdatedAt?: string;
+            expectedChecksum?: string;
+            expectedMissing?: boolean;
+          },
+        ) => Promise<void>;
         set: (key: string, value: string) => Promise<void>;
       },
       localChatState: any,
+      chatMeta?: StoreSnapshotMeta,
     ) {
       const materializedLocalChatState =
         await materializeLocalChatState(localChatState);
@@ -650,11 +746,18 @@ export const useSyncStore = createPersistStore(
         const uploadBytes =
           measureJsonBytes(localIndex) +
           measureJsonBytes(syncableLocalSessions);
-        await client.setChatDelta?.({
-          index: localIndex,
-          upsertSessions: syncableLocalSessions,
-          deleteSessionIds: [],
-        });
+        await client.setChatDelta?.(
+          {
+            index: localIndex,
+            upsertSessions: syncableLocalSessions,
+            deleteSessionIds: [],
+          },
+          {
+            expectedMissing: !chatMeta,
+            expectedUpdatedAt: chatMeta?.updatedAt,
+            expectedChecksum: chatMeta?.checksum,
+          },
+        );
 
         return {
           remoteSummary: "远端 0 个会话",
@@ -698,11 +801,18 @@ export const useSyncStore = createPersistStore(
           measureJsonBytes(localIndex) +
           measureJsonBytes(syncableLocalSessions);
 
-        await client.setChatDelta?.({
-          index: localIndex,
-          upsertSessions: syncableLocalSessions,
-          deleteSessionIds: [],
-        });
+        await client.setChatDelta?.(
+          {
+            index: localIndex,
+            upsertSessions: syncableLocalSessions,
+            deleteSessionIds: [],
+          },
+          {
+            expectedMissing: !chatMeta,
+            expectedUpdatedAt: chatMeta?.updatedAt,
+            expectedChecksum: chatMeta?.checksum,
+          },
+        );
 
         return {
           remoteSummary: "远端 0 个会话",
@@ -818,19 +928,25 @@ export const useSyncStore = createPersistStore(
                 sessions: [createEmptySession()],
                 currentSessionIndex: 0,
               };
-        const mergedIndex = buildChatIndexPayload(mergedStoreState);
+        const mergedIndex = buildUploadChatIndexPayload(
+          mergedStoreState,
+          remoteEntryMap,
+        );
         const mergedSessionMap = createChatSessionMap(
           Array.isArray(mergedStoreState?.sessions)
             ? mergedStoreState.sessions
             : [],
         );
         const upsertSessions = mergedIndex.sessions
-          .filter((entry) =>
+          .filter((entry: ChatIndexSessionEntry) =>
             shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
           )
-          .map((entry) => mergedSessionMap.get(entry.id))
+          .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
           .filter(Boolean)
-          .map((session) => session as unknown as Record<string, unknown>);
+          .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
+          .map(
+            (session: unknown) => session as unknown as Record<string, unknown>,
+          );
         const deleteSessionIds = [...remoteEntryMap.keys()].filter(
           (sessionId) =>
             !mergedSessionMap.has(sessionId) ||
@@ -843,11 +959,18 @@ export const useSyncStore = createPersistStore(
         const uploadedBytes =
           measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-        await client.setChatDelta?.({
-          index: mergedIndex,
-          upsertSessions,
-          deleteSessionIds,
-        });
+        await client.setChatDelta?.(
+          {
+            index: mergedIndex,
+            upsertSessions,
+            deleteSessionIds,
+          },
+          {
+            expectedMissing: !chatMeta,
+            expectedUpdatedAt: chatMeta?.updatedAt,
+            expectedChecksum: chatMeta?.checksum,
+          },
+        );
 
         const normalizedMergedStoreState = normalizeMergedChatState({
           ...mergedStoreState,
@@ -880,19 +1003,25 @@ export const useSyncStore = createPersistStore(
         normalizedLocalChatState,
         normalizedRemoteChatState as any,
       );
-      const mergedIndex = buildChatIndexPayload(mergedStoreState as any);
+      const mergedIndex = buildUploadChatIndexPayload(
+        mergedStoreState as any,
+        remoteEntryMap,
+      );
       const mergedSessionMap = createChatSessionMap(
         Array.isArray((mergedStoreState as any)?.sessions)
           ? (mergedStoreState as any).sessions
           : [],
       );
       const upsertSessions = mergedIndex.sessions
-        .filter((entry) =>
+        .filter((entry: ChatIndexSessionEntry) =>
           shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
         )
-        .map((entry) => mergedSessionMap.get(entry.id))
+        .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
         .filter(Boolean)
-        .map((session) => session as unknown as Record<string, unknown>);
+        .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
+        .map(
+          (session: unknown) => session as unknown as Record<string, unknown>,
+        );
       const deleteSessionIds = [...remoteEntryMap.keys()].filter(
         (sessionId) =>
           !mergedSessionMap.has(sessionId) ||
@@ -905,11 +1034,18 @@ export const useSyncStore = createPersistStore(
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-      await client.setChatDelta?.({
-        index: mergedIndex,
-        upsertSessions,
-        deleteSessionIds,
-      });
+      await client.setChatDelta?.(
+        {
+          index: mergedIndex,
+          upsertSessions,
+          deleteSessionIds,
+        },
+        {
+          expectedMissing: !chatMeta,
+          expectedUpdatedAt: chatMeta?.updatedAt,
+          expectedChecksum: chatMeta?.checksum,
+        },
+      );
 
       const normalizedMergedStoreState = normalizeMergedChatState({
         ...mergedStoreState,
@@ -1107,6 +1243,11 @@ export const useSyncStore = createPersistStore(
           logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
           const client = this.getClient() as any;
+          const initialMetas =
+            typeof client.getMeta === "function" && storeKeys.length > 0
+              ? await client.getMeta(storeKeys)
+              : [];
+          let remoteMetaMap = buildMetaMap(initialMetas);
 
           logSyncDebug(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
 
@@ -1116,6 +1257,148 @@ export const useSyncStore = createPersistStore(
           const localAppStateCache = {
             ...getLocalAppState(),
           } as { [K in SyncStoreKey]: AppState[K] };
+
+          const syncRegularStore = async (
+            key: SyncStoreKey,
+            displayName: string,
+            stepLabel: string,
+          ) => {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              const remoteDataText = await withRetry<string>(
+                () => client.get(key),
+                {
+                  retries: 1,
+                  retryable: (error) =>
+                    error instanceof Error &&
+                    RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                  onRetry: (retryAttempt, error) => {
+                    warnSyncDebug(
+                      `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${retryAttempt} 次重试:`,
+                      error,
+                    );
+                  },
+                },
+              );
+
+              const currentMeta = remoteMetaMap.get(key);
+              if (!remoteDataText || remoteDataText === "") {
+                const localStoreState = localAppStateCache[key];
+                try {
+                  await client.set(
+                    key,
+                    stringifyPersistedStoreState(key, localStoreState),
+                    {
+                      expectedMissing: !currentMeta,
+                      expectedUpdatedAt: currentMeta?.updatedAt,
+                      expectedChecksum: currentMeta?.checksum,
+                    },
+                  );
+                } catch (error) {
+                  if (
+                    attempt === 0 &&
+                    error instanceof Error &&
+                    /\[DB Sync\] 409\b/.test(error.message) &&
+                    typeof client.getMeta === "function"
+                  ) {
+                    const latestMetas = await client.getMeta([key]);
+                    remoteMetaMap = buildMetaMap([
+                      ...Array.from(remoteMetaMap.values()).filter(
+                        (meta) => meta.key !== key,
+                      ),
+                      ...latestMetas,
+                    ]);
+                    continue;
+                  }
+                  throw error;
+                }
+
+                return {
+                  summary: getStoreSummary(key, localStoreState),
+                  status: "uploaded" as const,
+                };
+              }
+
+              const parsedRemoteState = parseStoreStatePayload(remoteDataText);
+              const mergedStoreState = mergeStoreState(
+                key,
+                localAppStateCache[key],
+                parsedRemoteState,
+              );
+
+              setLocalStoreState(key, mergedStoreState);
+              localAppStateCache[key] = mergedStoreState;
+
+              try {
+                await client.set(
+                  key,
+                  stringifyPersistedStoreState(key, mergedStoreState),
+                  {
+                    expectedMissing: !currentMeta,
+                    expectedUpdatedAt: currentMeta?.updatedAt,
+                    expectedChecksum: currentMeta?.checksum,
+                  },
+                );
+              } catch (error) {
+                if (
+                  attempt === 0 &&
+                  error instanceof Error &&
+                  /\[DB Sync\] 409\b/.test(error.message) &&
+                  typeof client.getMeta === "function"
+                ) {
+                  const latestMetas = await client.getMeta([key]);
+                  remoteMetaMap = buildMetaMap([
+                    ...Array.from(remoteMetaMap.values()).filter(
+                      (meta) => meta.key !== key,
+                    ),
+                    ...latestMetas,
+                  ]);
+                  continue;
+                }
+                throw error;
+              }
+
+              return {
+                summary: getStoreSummary(key, mergedStoreState),
+                status: "merged" as const,
+                remoteSummary: getStoreSummary(key, parsedRemoteState),
+              };
+            }
+
+            throw new Error(`[Sync] ${displayName}冲突重试失败`);
+          };
+
+          const syncChatStoreWithRetry = async (
+            localStoreState: AppState[typeof StoreKey.Chat],
+          ) => {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              try {
+                return await syncChatStore(
+                  client,
+                  localStoreState,
+                  remoteMetaMap.get(StoreKey.Chat),
+                );
+              } catch (error) {
+                if (
+                  attempt === 0 &&
+                  error instanceof Error &&
+                  /\[DB Sync\] 409\b/.test(error.message) &&
+                  typeof client.getMeta === "function"
+                ) {
+                  const latestMetas = await client.getMeta([StoreKey.Chat]);
+                  remoteMetaMap = buildMetaMap([
+                    ...Array.from(remoteMetaMap.values()).filter(
+                      (meta) => meta.key !== StoreKey.Chat,
+                    ),
+                    ...latestMetas,
+                  ]);
+                  continue;
+                }
+                throw error;
+              }
+            }
+
+            throw new Error("[Sync] 会话冲突重试失败");
+          };
 
           try {
             const syncResults: Array<{
@@ -1145,9 +1428,8 @@ export const useSyncStore = createPersistStore(
                   typeof client.getChatSessions === "function" &&
                   typeof client.setChatDelta === "function"
                 ) {
-                  const chatResult = await syncChatStore(
-                    client,
-                    localStoreState,
+                  const chatResult = await syncChatStoreWithRetry(
+                    localStoreState as AppState[typeof StoreKey.Chat],
                   );
                   logSyncDebug(
                     `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
@@ -1180,78 +1462,23 @@ export const useSyncStore = createPersistStore(
                   continue;
                 }
 
-                const remoteDataText = await withRetry<string>(
-                  () => client.get(key),
-                  {
-                    retries: 1,
-                    retryable: (error) =>
-                      error instanceof Error &&
-                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
-                    onRetry: (attempt, error) => {
-                      warnSyncDebug(
-                        `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${attempt} 次重试:`,
-                        error,
-                      );
-                    },
-                  },
+                const regularResult = await syncRegularStore(
+                  key,
+                  displayName,
+                  stepLabel,
                 );
-
-                if (!remoteDataText || remoteDataText === "") {
-                  await client.set(
-                    key,
-                    stringifyPersistedStoreState(key, localStoreState),
-                  );
-                  const summary = getStoreSummary(key, localStoreState);
-                  syncResults.push({
-                    key,
-                    name: displayName,
-                    summary,
-                    status: "uploaded",
-                  });
-                  // console.log(
-                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，已上传 ${summary}`,
-                  // );
-                  // console.log(LOG_SEPARATOR);
-                } else {
-                  const parsedRemoteState =
-                    parseStoreStatePayload(remoteDataText);
-                  const summary = getStoreSummary(key, parsedRemoteState);
+                if (regularResult.status === "merged") {
                   logSyncDebug(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${summary}`,
+                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${regularResult.remoteSummary}`,
                   );
                   logSyncDebug(LOG_SEPARATOR);
-                  syncResults.push({
-                    key,
-                    name: displayName,
-                    summary,
-                    status: "downloaded",
-                  });
-
-                  const mergedStoreState = mergeStoreState(
-                    key,
-                    localAppStateCache[key],
-                    parsedRemoteState,
-                  );
-
-                  setLocalStoreState(key, mergedStoreState);
-                  localAppStateCache[key] = mergedStoreState;
-
-                  await client.set(
-                    key,
-                    stringifyPersistedStoreState(key, mergedStoreState),
-                  );
-
-                  const mergedSummary = getStoreSummary(key, mergedStoreState);
-                  const result = syncResults.find((item) => item.key === key);
-                  if (result) {
-                    result.summary = mergedSummary;
-                    result.status = "merged";
-                  }
-                  // console.log(
-                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${mergedSummary}`,
-                  // );
-                  // console.log(LOG_SEPARATOR);
                 }
+                syncResults.push({
+                  key,
+                  name: displayName,
+                  summary: regularResult.summary,
+                  status: regularResult.status,
+                });
               } catch (e) {
                 failedKeys.push({
                   key,
@@ -1298,6 +1525,11 @@ export const useSyncStore = createPersistStore(
 
             logSyncDebug("[Sync] ✅ 同步完成");
             logSyncDebug(LOG_SEPARATOR);
+
+            if (typeof client.getMeta === "function" && storeKeys.length > 0) {
+              const latestMetas = await client.getMeta(storeKeys);
+              this.updateDatabaseMeta(latestMetas);
+            }
           } catch (e) {
             console.error("[Sync] ❌ 同步失败:", e);
             // console.log(LOG_SEPARATOR);

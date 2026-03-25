@@ -10,6 +10,12 @@ export type StoreSnapshotMeta = {
   sizeBytes: number;
 };
 
+type StoreSnapshotWriteExpectation = {
+  expectedUpdatedAt?: string;
+  expectedChecksum?: string;
+  expectedMissing?: boolean;
+};
+
 export function createDatabaseSyncClient(_: SyncStore) {
   const request = async (path: string, init?: RequestInit) => {
     const response = await fetch(path, {
@@ -53,9 +59,24 @@ export function createDatabaseSyncClient(_: SyncStore) {
       return await response.text();
     },
 
-    async set(key: string, value: string) {
+    async set(
+      key: string,
+      value: string,
+      expectation?: StoreSnapshotWriteExpectation,
+    ) {
       await request(`/api/db/sync/${encodeURIComponent(key)}`, {
         method: "PUT",
+        headers: {
+          ...(expectation?.expectedUpdatedAt
+            ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
+            : {}),
+          ...(expectation?.expectedChecksum
+            ? { "x-expected-checksum": expectation.expectedChecksum }
+            : {}),
+          ...(expectation?.expectedMissing
+            ? { "x-expected-missing": "1" }
+            : {}),
+        },
         body: value,
       });
     },
@@ -98,13 +119,27 @@ export function createDatabaseSyncClient(_: SyncStore) {
         : {};
     },
 
-    async setChatDelta(params: {
-      index: ChatIndexPayload;
-      upsertSessions: Array<Record<string, unknown>>;
-      deleteSessionIds?: string[];
-    }) {
+    async setChatDelta(
+      params: {
+        index: ChatIndexPayload;
+        upsertSessions: Array<Record<string, unknown>>;
+        deleteSessionIds?: string[];
+      },
+      expectation?: StoreSnapshotWriteExpectation,
+    ) {
       await request("/api/db/chat-sync", {
         method: "PUT",
+        headers: {
+          ...(expectation?.expectedUpdatedAt
+            ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
+            : {}),
+          ...(expectation?.expectedChecksum
+            ? { "x-expected-checksum": expectation.expectedChecksum }
+            : {}),
+          ...(expectation?.expectedMissing
+            ? { "x-expected-missing": "1" }
+            : {}),
+        },
         body: JSON.stringify(params),
       });
     },
