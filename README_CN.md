@@ -217,160 +217,9 @@ DeepSeek Api Url.
 
 如果你不想让用户使用 GPT-4，将此环境变量设置为 1 即可。
 
-#### Custom 余额查询代码配置
+### `ENABLE_BALANCE_QUERY` （可选）
 
-当前仓库里的 `Custom` 供应商余额查询不再通过页面单独配置，而是统一在代码里维护。
-
-- 配置文件：`app/config/custom-balance.ts`
-- 匹配方式：按 API 配置页中每个 `Custom` 条目的“名称”精确匹配 `profileName`
-- 也支持通过 `aliases` 做名称包含匹配，适合像 `AihubMix-主账号` 这类命名
-- 新增一个 `Custom` 配置后，如果要支持余额查询，需要同步在 `CUSTOM_BALANCE_QUERY_RULES` 里新增一条规则
-
-可用配置项：
-
-- `profileName`: API 配置页中的配置名称，必须一致
-- `mode`: 余额查询方式，目前支持 `json`、`aihubmix`、`ocoolai`、`toapis`、`openai-compatible`
-- `url`: 余额查询请求地址或平台基础地址
-- `apiKey`: 余额查询专用 API Key
-- `field`: 仅 `json` 模式需要，表示余额字段路径，例如 `data.balance`
-- `aliases`: 可选，名称别名列表，命中任一别名即视为匹配
-
-示例：
-
-```ts
-export const CUSTOM_BALANCE_QUERY_RULES = [
-  {
-    profileName: "My Proxy",
-    mode: "json",
-    url: "https://your-proxy.example.com/api/user/balance",
-    apiKey: "balance-query-api-key",
-    field: "data.balance",
-  },
-  {
-    profileName: "OpenAI Proxy",
-    mode: "openai-compatible",
-    url: "https://your-openai-proxy.example.com",
-    apiKey: "balance-query-api-key",
-  },
-];
-```
-
-说明：
-
-- 当前仓库已内置 `AihubMix`、`YutoAPI`、`Ocoolai`、`ToAPIs` 余额查询规则
-- `json` 模式会直接请求 `url`，再按 `field` 读取余额值
-- `aihubmix` / `ocoolai` 模式会请求 `${url}/api/user/self`
-- `toapis` 模式会请求 `${url}/v1/user/balance`
-- `openai-compatible` 模式会请求 `${url}/v1/dashboard/billing/usage` 和 `${url}/v1/dashboard/billing/subscription`
-
-#### 余额查询请求明细
-
-当前代码中的余额查询全部使用 `GET` 方法：
-
-| mode | 方法 | 请求 URL |
-| --- | --- | --- |
-| `json` | `GET` | `url` 原样请求 |
-| `aihubmix` | `GET` | `${url}/api/user/self` |
-| `ocoolai` | `GET` | `${url}/api/user/self` |
-| `toapis` | `GET` | `${url}/v1/user/balance` |
-| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/usage?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` |
-| `openai-compatible` | `GET` | `${url}/v1/dashboard/billing/subscription` |
-
-当前仓库内置规则如下：
-
-| 配置名称 | mode | 基础 URL | 余额查询专用 Key |
-| --- | --- | --- | --- |
-| `AihubMix` | `aihubmix` | `https://aihubmix.com` | `9c560d99d6ef4c69a2b34adbad50f870` |
-| `YutoAPI` | `openai-compatible` | `https://cn.gptapi.asia` | `sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a` |
-| `Ocoolai` | `ocoolai` | `https://one.ooo.cool` | `73eb755abbfa475f8b0063c533f2e0c5` |
-| `ToAPIs` | `toapis` | `https://toapis.com` | `sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx` |
-
-#### 新增供应商接入说明
-
-当前项目新增一个供应商，分成两类：
-
-- 新增一个“供应商实例”：通常只需要新增数据库中的 profile 配置
-- 新增一种“供应商接入规则”：除了配置，还需要补模型获取和余额获取的适配代码
-
-数据库中的相关存储位置：
-
-- 供应商基础配置：`provider_configs`
-- 供应商所有密钥：`provider_api_keys`
-- 访问控制与页面配置快照：`app_settings`
-
-当前每个供应商相关的 key 都应该进入数据库保存，包含：
-
-- `apiKey`
-- `modelFetchApiKey`
-- `apiKeyGroups.*`
-- `balanceQueryApiKey`
-
-模型获取当前统一 key 尝试顺序：
-
-1. `modelFetchApiKey`
-2. `apiKeyGroups.default`
-3. `apiKey`
-4. 其它分组 key
-5. `balanceQueryApiKey`
-
-说明：
-
-- 按顺序逐个尝试，某个 key 成功后立即停止，不会继续尝试后面的 key
-- 这套顺序同时用于前端手动获取模型和服务端定时/手动刷新模型
-
-模型获取相关代码位置：
-
-- 前端获取模型主逻辑：`app/utils/models.ts`
-- 服务端获取模型主逻辑：`app/utils/server/provider-model-fetch.ts`
-- 服务端批量刷新入口：`app/utils/server/provider-model-sync.ts`
-- API 配置页触发入口：`app/components/api-config.tsx`
-
-余额获取相关代码位置：
-
-- 余额查询主逻辑：`app/store/update.ts`
-- Custom 余额规则配置：`app/config/custom-balance.ts`
-
-新增供应商时的处理方式：
-
-1. 先确认它是否兼容当前已有模型接口
-   - 常见兼容接口：`/v1/models`、`/api/v1/models`、`/api/pricing`
-   - 如果现有返回格式就能识别，通常只需要新增 profile 配置
-2. 再确认它的余额接口是否兼容当前已有余额模式
-   - 当前支持：`json`、`aihubmix`、`ocoolai`、`toapis`、`openai-compatible`
-   - 如果能匹配现有模式，只需要在 `app/config/custom-balance.ts` 增加一条规则
-3. 如果模型接口或余额接口不兼容，再补代码适配
-
-以下情况通常不需要改代码：
-
-- 只是新增一个新的供应商账号或新的供应商实例
-- 模型接口兼容现有 OpenAI / pricing 风格
-- 余额接口兼容现有 `custom-balance.ts` 中的某种模式
-
-以下情况通常必须改代码：
-
-- 模型接口路径与当前候选 URL 都不一致
-- 模型返回 JSON 结构与当前解析逻辑不兼容
-- 余额接口路径、鉴权方式或字段结构特殊
-- 需要特殊的分组 key 规则或模型分类规则
-
-建议的新增供应商 checklist：
-
-1. 在 API 配置页新增 profile，填写 `baseUrl`
-2. 填写 `apiKey`
-3. 如有模型专用 key，填写 `modelFetchApiKey`
-4. 如有余额专用 key，填写 `balanceQueryApiKey`
-5. 如有分组 key，填写 `apiKeyGroups.default` 和其它分组
-6. 检查这些 key 已同步进入 `provider_api_keys`
-7. 手动测试“获取模型”
-8. 手动测试“查询余额”
-9. 如果任一步失败，再补对应代码适配
-
-推荐的排查顺序：
-
-1. 先确认数据库里的 `provider_configs` / `provider_api_keys` 是否已有完整配置
-2. 再看模型获取实际命中了哪一个 key
-3. 再看余额查询实际命中了哪条规则和哪一个 URL
-4. 最后再判断是否需要新增代码适配
+如果你想启用余额查询功能，将此环境变量设置为 1 即可。
 
 ### `DISABLE_FAST_LINK` （可选）
 
@@ -476,9 +325,7 @@ BASE_URL=https://b.nextweb.fun/api/proxy
 
 > ⚠️ 注意：docker 版本在大多数时间都会落后最新的版本 1 到 2 天，所以部署后会持续出现“存在更新”的提示，属于正常现象。
 
-> 建议优先阅读 AI 优化版部署文档：[docs/docker-deploy-cn.md](./docs/docker-deploy-cn.md)
-
-#### 方式一：直接运行官方镜像
+#### 生产模式
 
 ```shell
 docker pull yidadaa/chatgpt-next-web
@@ -486,6 +333,17 @@ docker pull yidadaa/chatgpt-next-web
 docker run -d -p 3000:3000 \
    -e OPENAI_API_KEY=sk-xxxx \
    -e CODE=页面访问密码 \
+   yidadaa/chatgpt-next-web
+```
+
+你也可以指定 proxy：
+
+```shell
+docker run -d -p 3000:3000 \
+   -e OPENAI_API_KEY=sk-xxxx \
+   -e CODE=页面访问密码 \
+   --net=host \
+   -e PROXY_URL=http://127.0.0.1:7890 \
    yidadaa/chatgpt-next-web
 ```
 
@@ -499,181 +357,47 @@ docker run -d -p 3000:3000 \
    yidadaa/chatgpt-next-web
 ```
 
+如果你的本地代理需要账号密码，可以使用：
+
+```shell
+-e PROXY_URL="http://127.0.0.1:7890 user password"
+```
+
 如果你需要指定其他环境变量，请自行在上述命令中增加 `-e 环境变量=环境变量值` 来指定。
 
-#### 方式二：使用本仓库的 `docker-compose.yml` 自建镜像并部署
+#### Docker 热加载模式
 
-适用场景：
+如果你需要在本地开发时使用 Docker 运行，并且希望修改源码后自动热更新，可以直接使用仓库根目录的 `Dockerfile` 和 `docker-compose.yml`。
 
-- 需要修改代码后自行部署
-- 需要国内加速源
-- 需要数据库 / WebDAV / SSH 隧道等扩展配置
-
-推荐步骤如下。
-
-1. 准备环境
+1. 先准备环境变量。推荐在项目根目录维护 `.env` 或 `.env.local`，至少包含：
 
 ```shell
-docker --version
-docker compose version
-```
-
-2. 复制部署环境文件
-
-项目已提供国内服务器部署示例文件：
-
-- Docker 部署变量示例：[.env.docker.example](./.env.docker.example)
-
-可以直接复制：
-
-```shell
-cp .env.docker.example .env.docker
-```
-
-3. 编辑 `.env.docker`
-
-最少需要填写：
-
-```dotenv
 OPENAI_API_KEY=sk-xxxx
-CODE=你的访问密码
+CODE=your-password
 ```
 
-如果你在国内服务器部署，建议同时填写以下加速变量：
+2. 启动热加载容器：
 
-```dotenv
-ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
-NPM_REGISTRY=https://registry.npmmirror.com/
-RT_CLIENT_TGZ_URL=https://你自己的国内地址/rt-client-0.5.0.tgz
+```shell
+docker compose --profile dev up --build -d
 ```
+
+3. 查看启动日志：
+
+```shell
+docker compose --profile dev logs -f chatgpt-next-web-dev
+```
+
+4. 访问 `http://localhost:3000`。
 
 说明：
 
-- `ALPINE_MIRROR`：Alpine `apk` 国内镜像
-- `NPM_REGISTRY`：npm / yarn 国内镜像
-- `RT_CLIENT_TGZ_URL`：`rt-client` 的 tgz 地址。默认走仓库内置的本地包，也可以改成你自己的 OSS / COS / CDN / 制品库地址
-- 数据库默认使用 `.env.docker` 中的固定 PostgreSQL 直连配置，不默认启用 SSH 隧道
-- 默认建议使用 [scripts/docker-compose-safe.sh](./scripts/docker-compose-safe.sh)
-  它会自动设置 `BUILDX_CONFIG=/tmp/nextchat-docker-buildx`，避免 buildx 权限错误
-
-4. 构建并启动生产容器
-
-```shell
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
-```
-
-5. 检查服务是否正常
-
-```shell
-./scripts/docker-compose-safe.sh --env-file .env.docker ps
-./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
-```
-
-如果启用了数据库同步，也可以检查健康接口：
-
-```shell
-curl http://127.0.0.1:3000/api/db/health
-```
-
-#### 首次部署、后续更新、重启的区别
-
-- 首次部署：需要执行 `build`，时间最长
-- 后续仅修改环境变量或重启服务：通常只需要 `up -d`
-- 代码更新后：重新执行 `build` 再 `up -d`
-
-常用命令：
-
-```shell
-# 重新构建并更新
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
-
-# 仅重启
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy restart
-
-# 查看日志
-./scripts/docker-compose-safe.sh --env-file .env.docker logs -f chatgpt-next-web
-
-# 停止服务
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy down
-```
-
-#### 资源建议
-
-- 仅运行已构建好的镜像：建议 `2C4G`
-- 服务器上直接执行 `docker build`：建议 `4C8G`
-
-如果只是首次在服务器上部署一次，后续长期运行，推荐做法是：
-
-1. 在本地或 CI 构建镜像
-2. 推送到国内镜像仓库
-3. 服务器只执行 `docker pull` 和 `docker compose up -d`
-
-这样会比在服务器现构建更快、更稳。
-
-#### 这次实测确认的规则
-
-- 国内无代理部署默认建议保持：
-  `ENABLE_GOOGLE_FONTS=false`
-  `ENABLE_SHAREGPT=false`
-  `MCP_MARKET_URL=`
-  `ENABLE_EDGE_TTS=false`
-- `rt-client` 默认已经不再走 GitHub release，而是仓库内置本地包
-- 生产容器需要 `HOSTNAME=0.0.0.0`
-  否则 Next.js standalone 可能报 `getaddrinfo EAI_AGAIN`
-- 当前生产链路已实测通过：
-  `build` 成功
-  `up -d` 成功
-  容器内首页 `200 OK`
-  `/api/db/health` 返回 `ok: true`
-
-### 本地 Docker 开发
-
-适用场景：
-
-- 希望在本地使用 Docker 开发
-- 修改代码后直接热更新
-- 不想每次改文件都重启容器或重新构建镜像
-
-> 更完整的 AI 优化版说明见：[docs/docker-deploy-cn.md](./docs/docker-deploy-cn.md)
-
-直接执行：
-
-```shell
-cp .env.docker.example .env.docker
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
-```
-
-常用命令：
-
-```shell
-# 查看开发容器日志
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f chatgpt-next-web-dev
-
-# 仅在确实需要时重启
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev restart
-
-# 停止本地开发容器
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
-```
-
-说明：
-
-- 普通业务代码修改后，不需要重新 `build`，也不需要重启容器，开发容器内的 `next dev` 会处理热更新
-- 只有 `package.json`、`yarn.lock`、`Dockerfile` 变更时，才建议重新 `build`
-- `WATCHPACK_POLLING` 和 `CHOKIDAR_USEPOLLING` 默认是 `false`，只有在 Docker Desktop 等环境下文件监听不稳定时再打开
-
-#### AI 故障排查顺序
-
-如果以后由 AI 接手部署或排障，建议按这个顺序检查：
-
-1. 先使用 `./scripts/docker-compose-safe.sh`，不要直接跑 `docker compose build`
-2. 如果构建失败，先看 `buildx` 权限、`.dockerignore` 和构建上下文
-3. 如果生产容器日志报主机名解析错误，先检查 `HOSTNAME=0.0.0.0`
-4. 如果宿主机访问端口异常，但容器日志正常，先在容器内 `wget http://127.0.0.1:3000`
-5. 如果前端版本显示异常，先检查 `package.json` 的 `version`
+- 热加载模式会把当前仓库挂载到容器内，并使用 `yarn dev --hostname 0.0.0.0` 启动；
+- Dockerfile 已默认切换到国内镜像源，包括 DaoCloud 的 Node 基础镜像、清华 TUNA 的 Alpine 软件源、`npmmirror` 的 npm/yarn 源；其中原本来自 GitHub Release 的 `rt-client` 依赖已改为优先使用仓库内的本地压缩包；
+- 为了避免宿主机 `node_modules` 干扰容器依赖，Compose 使用独立数据卷保存 `/app/node_modules` 和 `/.next` 缓存；
+- macOS / Windows 下文件监听可能不稳定，因此已默认启用轮询模式 `CHOKIDAR_USEPOLLING=true` 和 `WATCHPACK_POLLING=true`；
+- 停止服务可以执行 `docker compose --profile dev down`；
+- 如果你要回到拉取远程镜像的生产模式，请继续使用上面的 `docker run` 示例，或 Compose 中的 `no-proxy` / `proxy` profile。
 
 ### 本地部署
 
