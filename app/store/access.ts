@@ -19,7 +19,6 @@ import {
   SILICONFLOW_BASE_URL,
   AI302_BASE_URL,
 } from "../constant";
-import { getHeaders } from "../client/api";
 import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { ensure } from "../utils/clone";
@@ -280,7 +279,8 @@ export const useAccessStore = createPersistStore(
         method: "post",
         body: null,
         headers: {
-          ...getHeaders(),
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
       })
         .then((res) => res.json())

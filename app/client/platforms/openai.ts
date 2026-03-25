@@ -1,13 +1,11 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
 import { default as constants } from "@/app/constant";
-import {
-  ChatMessageTool,
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  usePluginStore,
-} from "@/app/store";
+import type { ChatMessageTool } from "@/app/store/chat";
+import { useChatStore } from "@/app/store/chat";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { usePluginStore } from "@/app/store/plugin";
 import { collectModelsWithDefaultModel } from "@/app/utils/model";
 import {
   preProcessImageContent,

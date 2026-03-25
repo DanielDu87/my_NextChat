@@ -1,5 +1,5 @@
 import { StateStorage } from "zustand/middleware";
-import { safeLocalStorage } from "../utils";
+import { safeLocalStorage } from "./safe-local-storage";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
 import { withSyncUserHeaders } from "./sync-user-client";
 

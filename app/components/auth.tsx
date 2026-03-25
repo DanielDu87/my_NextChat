@@ -13,7 +13,7 @@ import BotIcon from "../icons/bot.svg";
 import { getClientConfig } from "../config/client";
 import { PasswordInput } from "./ui-lib";
 import LeftIcon from "@/app/icons/left.svg";
-import { safeLocalStorage } from "@/app/utils";
+import { safeLocalStorage } from "@/app/utils/safe-local-storage";
 import {
   trackSettingsPageGuideToCPaymentClick,
   trackAuthorizationPageButtonToCPaymentClick,

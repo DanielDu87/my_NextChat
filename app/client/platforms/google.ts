@@ -7,13 +7,11 @@ import {
   LLMUsage,
   SpeechOptions,
 } from "../api";
-import {
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  usePluginStore,
-  ChatMessageTool,
-} from "@/app/store";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import type { ChatMessageTool } from "@/app/store/chat";
+import { useChatStore } from "@/app/store/chat";
+import { usePluginStore } from "@/app/store/plugin";
 import { stream } from "@/app/utils/chat";
 import { getClientConfig } from "@/app/config/client";
 import { GEMINI_BASE_URL } from "@/app/constant";

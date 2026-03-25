@@ -19,7 +19,7 @@ import ar from "./ar";
 import bn from "./bn";
 import sk from "./sk";
 import { merge } from "../utils/merge";
-import { safeLocalStorage } from "@/app/utils";
+import { safeLocalStorage } from "@/app/utils/safe-local-storage";
 
 import type { LocaleType } from "./cn";
 export type { LocaleType, PartialLocaleType } from "./cn";

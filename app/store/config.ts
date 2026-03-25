@@ -15,7 +15,7 @@ import {
   ServiceProvider,
 } from "../constant";
 import { createPersistStore } from "../utils/store";
-import { safeLocalStorage } from "../utils";
+import { safeLocalStorage } from "../utils/safe-local-storage";
 import {
   getTodayPublishedAt,
   normalizePublishedAt,

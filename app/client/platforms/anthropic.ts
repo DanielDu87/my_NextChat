@@ -1,12 +1,10 @@
 import { Anthropic, ApiPath } from "@/app/constant";
 import { ChatOptions, getHeaders, LLMApi, SpeechOptions } from "../api";
-import {
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  usePluginStore,
-  ChatMessageTool,
-} from "@/app/store";
+import type { ChatMessageTool } from "@/app/store/chat";
+import { useChatStore } from "@/app/store/chat";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { usePluginStore } from "@/app/store/plugin";
 import { getClientConfig } from "@/app/config/client";
 import { ANTHROPIC_BASE_URL } from "@/app/constant";
 import { getMessageTextContent, isVisionModel } from "@/app/utils";

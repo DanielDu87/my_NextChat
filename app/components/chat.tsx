@@ -51,24 +51,25 @@ import ShortcutkeyIcon from "../icons/shortcutkey.svg";
 import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
-  AutoModelSeriesKey,
   BOT_HELLO,
   ChatMessage,
   createMessage,
   createEmptySession,
-  DEFAULT_TOPIC,
-  getBotHelloContent,
+  useChatStore,
+} from "../store/chat";
+import { DEFAULT_TOPIC, getBotHelloContent } from "../store/chat-defaults";
+import { useAccessStore } from "../store/access";
+import {
+  AutoModelSeriesKey,
   ModelType,
   SubmitKey,
   Theme,
-  useAccessStore,
   useAppConfig,
-  useChatStore,
-  useCurrentSession,
-  useModelCacheStore,
-  usePluginStore,
-  useUpdateStore,
-} from "../store";
+} from "../store/config";
+import { useCurrentSession } from "../store/chat-session";
+import { useModelCacheStore } from "../store/model-cache";
+import { usePluginStore } from "../store/plugin";
+import { useUpdateStore } from "../store/update";
 
 import {
   autoGrowTextArea,
@@ -77,7 +78,6 @@ import {
   getMessageImages,
   getMessageTextContent,
   isVisionModel,
-  safeLocalStorage,
   getModelSizes,
   getSupportedVideoDurations,
   getSupportedImageQualityOptions,
@@ -92,6 +92,7 @@ import {
   useMobileScreen,
   selectOrCopy,
 } from "../utils";
+import { safeLocalStorage } from "../utils/safe-local-storage";
 
 import { useAllModels } from "../utils/hooks";
 import {
@@ -935,17 +936,31 @@ function useScrollToBottom(
 ) {
   // for auto-scroll
   const [autoScroll, setAutoScroll] = useState(false);
+  const fallbackScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
+    console.log("[scrollDomToBottom] called, dom:", !!dom);
     if (dom) {
-      requestAnimationFrame(() => {
+      const runScroll = () => {
         setAutoScroll(true);
+        console.log("[scrollDomToBottom] scrolling to", dom.scrollHeight);
         dom.scrollTo(0, dom.scrollHeight);
+      };
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(runScroll);
       });
+
+      if (fallbackScrollTimerRef.current) {
+        clearTimeout(fallbackScrollTimerRef.current);
+      }
+      fallbackScrollTimerRef.current = setTimeout(runScroll, 80);
     }
   }, [scrollRef]);
 
-  // auto scroll when messages length changes
+  // auto scroll when messages length changes (非流式期间)
   const lastMessagesLength = useRef(messages.length);
   useEffect(() => {
     if (autoScroll && messages.length > lastMessagesLength.current && !detach) {
@@ -953,6 +968,14 @@ function useScrollToBottom(
     }
     lastMessagesLength.current = messages.length;
   }, [autoScroll, messages.length, detach, scrollDomToBottom]);
+
+  useEffect(() => {
+    return () => {
+      if (fallbackScrollTimerRef.current) {
+        clearTimeout(fallbackScrollTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     scrollRef,
@@ -1842,6 +1865,15 @@ function _Chat() {
     [sessionMask?.context],
   );
 
+  // 判断是否有助手消息正在流式输出
+  const isAssistantStreaming = useMemo(
+    () =>
+      sessionMessages.some(
+        (message) => message.role === "assistant" && message.streaming,
+      ),
+    [sessionMessages],
+  );
+
   // if user is typing, should auto scroll to bottom
   // if user is not typing, should auto scroll to bottom only if already at bottom
   const { setAutoScroll, scrollDomToBottom } = useScrollToBottom(
@@ -1858,6 +1890,10 @@ function _Chat() {
   const [modelUpdateDone, setModelUpdateDone] = useState(false);
   const lastAssistantSignatureRef = useRef("");
   const lastCompletedAssistantRef = useRef("");
+  const streamingScrollResumeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const streamingAutoScrollPausedRef = useRef(false);
   const modelUpdateDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -2765,6 +2801,13 @@ function _Chat() {
     setHitBottom(true);
   }, [safeSession.id, renderMessages.length]);
 
+  const clearStreamingScrollResumeTimer = useCallback(() => {
+    if (streamingScrollResumeTimerRef.current) {
+      clearTimeout(streamingScrollResumeTimerRef.current);
+      streamingScrollResumeTimerRef.current = null;
+    }
+  }, []);
+
   const onChatBodyScroll = (e: HTMLElement) => {
     const bottomHeight = e.scrollTop + e.clientHeight;
     const edgeThreshold = e.clientHeight;
@@ -2784,6 +2827,25 @@ function _Chat() {
     }
 
     setHitBottom(isHitBottom);
+    if (isAssistantStreaming) {
+      if (isHitBottom) {
+        clearStreamingScrollResumeTimer();
+        streamingAutoScrollPausedRef.current = false;
+        setAutoScroll(true);
+        return;
+      }
+
+      streamingAutoScrollPausedRef.current = true;
+      setAutoScroll(false);
+      clearStreamingScrollResumeTimer();
+      streamingScrollResumeTimerRef.current = setTimeout(() => {
+        streamingAutoScrollPausedRef.current = false;
+        setAutoScroll(true);
+        scrollToBottom();
+      }, 2000);
+      return;
+    }
+
     setAutoScroll(isHitBottom);
   };
 
@@ -2807,11 +2869,78 @@ function _Chat() {
       lastAssistantSignatureRef.current &&
       nextSignature !== lastAssistantSignatureRef.current
     ) {
-      scrollToBottom();
+      if (isAssistantStreaming) {
+        if (!streamingAutoScrollPausedRef.current) {
+          scrollToBottom();
+        }
+      } else if (hitBottom) {
+        scrollToBottom();
+      }
     }
 
     lastAssistantSignatureRef.current = nextSignature;
-  }, [scrollToBottom, sessionMessages]);
+  }, [hitBottom, isAssistantStreaming, scrollToBottom, sessionMessages]);
+
+  // 流式回复状态变化时的处理
+  const streamingScrollIntervalRef = useRef<ReturnType<
+    typeof setInterval
+  > | null>(null);
+
+  useEffect(() => {
+    if (isAssistantStreaming) {
+      // 开始流式回复：清除暂停，启用自动滚动，滚动到底部
+      clearStreamingScrollResumeTimer();
+      streamingAutoScrollPausedRef.current = false;
+      setAutoScroll(true);
+      scrollToBottom();
+
+      // 启动持续滚动定时器
+      streamingScrollIntervalRef.current = setInterval(() => {
+        if (!streamingAutoScrollPausedRef.current) {
+          const dom = scrollRef.current;
+          if (dom) {
+            const currentScroll = dom.scrollTop;
+            const maxScroll = dom.scrollHeight - dom.clientHeight;
+            // 只有当不在最底部时才滚动
+            if (currentScroll < maxScroll) {
+              console.log("[StreamingScroll] auto-scrolling to bottom");
+              dom.scrollTo(0, dom.scrollHeight);
+            }
+          }
+        }
+      }, 100); // 每 100ms 检查一次
+    } else {
+      // 结束流式回复：清除所有定时器
+      clearStreamingScrollResumeTimer();
+      streamingAutoScrollPausedRef.current = false;
+      if (streamingScrollIntervalRef.current) {
+        clearInterval(streamingScrollIntervalRef.current);
+        streamingScrollIntervalRef.current = null;
+      }
+      // 根据当前是否在底部来决定是否保持自动滚动
+      setAutoScroll(hitBottom);
+    }
+
+    // 清理函数
+    return () => {
+      if (streamingScrollIntervalRef.current) {
+        clearInterval(streamingScrollIntervalRef.current);
+        streamingScrollIntervalRef.current = null;
+      }
+    };
+  }, [
+    isAssistantStreaming,
+    clearStreamingScrollResumeTimer,
+    scrollToBottom,
+    setAutoScroll,
+    hitBottom,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      clearStreamingScrollResumeTimer();
+    };
+  }, [clearStreamingScrollResumeTimer]);
 
   const completedAssistantRefreshSignal = useMemo(() => {
     const lastAssistantMessage = [...sessionMessages]

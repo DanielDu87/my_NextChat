@@ -103,7 +103,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
             error: "snapshot_conflict",
             current: currentMeta ?? null,
           },
-          { status: 409 },
+          { status: 200 },
         );
       }
     }

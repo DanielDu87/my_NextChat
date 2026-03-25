@@ -6,13 +6,11 @@ import {
   Moonshot,
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
-import {
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  ChatMessageTool,
-  usePluginStore,
-} from "@/app/store";
+import type { ChatMessageTool } from "@/app/store/chat";
+import { useChatStore } from "@/app/store/chat";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { usePluginStore } from "@/app/store/plugin";
 import { stream } from "@/app/utils/chat";
 import {
   ChatOptions,

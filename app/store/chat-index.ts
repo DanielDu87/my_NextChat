@@ -6,12 +6,8 @@ import {
 } from "../utils/chat-persist-storage";
 import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
-import {
-  ChatSessionSummary,
-  createEmptySession,
-  DEFAULT_TOPIC,
-  useChatStore,
-} from "./chat";
+import { ChatSessionSummary, createEmptySession, useChatStore } from "./chat";
+import { DEFAULT_TOPIC } from "./chat-defaults";
 
 const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 20;
 const LOAD_MORE_SESSION_TITLE_COUNT = 10;

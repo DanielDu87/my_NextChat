@@ -5,7 +5,9 @@ import {
   Iflytek,
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
-import { useAccessStore, useAppConfig, useChatStore } from "@/app/store";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { useChatStore } from "@/app/store/chat";
 
 import {
   ChatOptions,

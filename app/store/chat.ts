@@ -1,9 +1,5 @@
-import {
-  getMessageTextContent,
-  isDalle3,
-  safeLocalStorage,
-  trimTopic,
-} from "../utils";
+import { getMessageTextContent, isDalle3, trimTopic } from "../utils";
+import { safeLocalStorage } from "../utils/safe-local-storage";
 
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 import {
@@ -39,6 +35,11 @@ import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import {
+  DEFAULT_TOPIC,
+  getBotHelloContent,
+  getDefaultTopic,
+} from "./chat-defaults";
+import {
   AutoModelSeriesKey,
   ModelConfig,
   ModelType,
@@ -59,6 +60,12 @@ import {
   buildAutoModelCandidates,
   getAutoModelSeriesLabel,
 } from "../utils/auto-model";
+
+export {
+  DEFAULT_TOPIC,
+  getBotHelloContent,
+  getDefaultTopic,
+} from "./chat-defaults";
 import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import {
@@ -166,16 +173,6 @@ function getLocaleStoreStrings() {
     };
   }
 }
-
-export function getDefaultTopic() {
-  return getLocaleStoreStrings().DefaultTopic;
-}
-
-export function getBotHelloContent() {
-  return getLocaleStoreStrings().BotHello;
-}
-
-export const DEFAULT_TOPIC = getDefaultTopic();
 export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: getBotHelloContent(),

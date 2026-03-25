@@ -9,7 +9,7 @@ import {
   getCloudMergedPlatformCounts,
 } from "../utils/auto-sync-model-diff";
 import { ServiceProvider } from "../constant";
-import { useChatStore } from "../store";
+import { useChatStore } from "../store/chat";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
@@ -23,6 +23,8 @@ import {
   parseAutoSyncLock,
   shouldAutoSyncLockBeTakenOver,
 } from "../utils/sync-tab-coordination";
+
+let autoSyncEffectActive = false;
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -175,6 +177,12 @@ export default function AutoSync() {
   };
 
   useEffect(() => {
+    if (autoSyncEffectActive) {
+      console.log("[AutoSync] ⏭️ 已存在自动同步实例，跳过重复挂载");
+      return;
+    }
+    autoSyncEffectActive = true;
+
     const tabId =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
@@ -348,7 +356,6 @@ export default function AutoSync() {
           })
           .then(() => {
             rebuildManagedModelsFromCache();
-            useChatStore.getState().initializeForNewPage();
             hasCompletedAutoSync = true;
             console.log("[AutoSync] ✅ 自动同步完成");
             return logModelCountWithRemote();
@@ -377,6 +384,7 @@ export default function AutoSync() {
 
     return () => {
       console.log("[AutoSync] 🧹 组件卸载");
+      autoSyncEffectActive = false;
       clearTimeout(timer);
       clearRetryTimer();
       releaseLock();

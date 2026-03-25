@@ -1,14 +1,10 @@
 import { getClientConfig } from "../config/client";
 import constants from "../constant";
-import {
-  ChatMessageTool,
-  ChatMessage,
-  ModelType,
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-} from "../store";
-import { DEFAULT_CONFIG } from "../store/config";
+import type { ChatMessage, ChatMessageTool } from "../store/chat";
+import { useChatStore } from "../store/chat";
+import type { ModelType } from "../store/config";
+import { DEFAULT_CONFIG, useAppConfig } from "../store/config";
+import { useAccessStore } from "../store/access";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
 import { GeminiProApi } from "./platforms/google";
 import { ClaudeApi } from "./platforms/anthropic";

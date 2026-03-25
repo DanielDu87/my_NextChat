@@ -1,9 +1,25 @@
-FROM node:18-alpine AS base
+ARG NODE_IMAGE="node:18-alpine"
+FROM ${NODE_IMAGE} AS base
 
+ARG NODE_IMAGE
 ARG ALPINE_MIRROR=""
 ARG NPM_REGISTRY="https://registry.npmmirror.com/"
 ARG RT_CLIENT_TGZ_URL="file:vendor/rt-client-0.5.0.tgz"
 ARG DEFAULT_RT_CLIENT_TGZ_URL="file:vendor/rt-client-0.5.0.tgz"
+ARG YARN_NETWORK_TIMEOUT="600000"
+ARG SASS_BINARY_SITE=""
+ARG ELECTRON_MIRROR=""
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
+ARG PUPPETEER_DOWNLOAD_HOST=""
+ARG CYPRESS_DOWNLOAD_MIRROR=""
+ARG NODEJS_ORG_MIRROR=""
+
+ENV SASS_BINARY_SITE="${SASS_BINARY_SITE}" \
+    ELECTRON_MIRROR="${ELECTRON_MIRROR}" \
+    PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST}" \
+    PUPPETEER_DOWNLOAD_HOST="${PUPPETEER_DOWNLOAD_HOST}" \
+    CYPRESS_DOWNLOAD_MIRROR="${CYPRESS_DOWNLOAD_MIRROR}" \
+    NODEJS_ORG_MIRROR="${NODEJS_ORG_MIRROR}"
 
 RUN if [ -n "$ALPINE_MIRROR" ]; then \
     sed -i "s|https\?://dl-cdn.alpinelinux.org/alpine|$ALPINE_MIRROR|g" /etc/apk/repositories; \
@@ -22,6 +38,7 @@ RUN if [ "$RT_CLIENT_TGZ_URL" != "$DEFAULT_RT_CLIENT_TGZ_URL" ]; then \
     sed -i "s|$DEFAULT_RT_CLIENT_TGZ_URL|$RT_CLIENT_TGZ_URL|g" package.json yarn.lock; \
     fi \
   && HUSKY=0 yarn config set registry "$NPM_REGISTRY" \
+  && HUSKY=0 yarn config set network-timeout "$YARN_NETWORK_TIMEOUT" \
   && HUSKY=0 yarn install --frozen-lockfile --non-interactive
 
 FROM base AS builder

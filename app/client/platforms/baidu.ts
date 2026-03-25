@@ -1,6 +1,8 @@
 "use client";
 import { ApiPath, Baidu, BAIDU_BASE_URL } from "@/app/constant";
-import { useAccessStore, useAppConfig, useChatStore } from "@/app/store";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { useChatStore } from "@/app/store/chat";
 import { getAccessToken } from "@/app/utils/baidu";
 
 import {

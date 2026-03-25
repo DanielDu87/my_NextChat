@@ -16,6 +16,25 @@ type StoreSnapshotWriteExpectation = {
   expectedMissing?: boolean;
 };
 
+type ConflictResponsePayload = {
+  ok: false;
+  error: "snapshot_conflict";
+  current?: StoreSnapshotMeta | null;
+};
+
+function isSnapshotConflictPayload(
+  payload: unknown,
+): payload is ConflictResponsePayload {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "ok" in payload &&
+    "error" in payload &&
+    (payload as ConflictResponsePayload).ok === false &&
+    (payload as ConflictResponsePayload).error === "snapshot_conflict"
+  );
+}
+
 export function createDatabaseSyncClient(_: SyncStore) {
   const request = async (path: string, init?: RequestInit) => {
     const response = await fetch(path, {
@@ -31,6 +50,37 @@ export function createDatabaseSyncClient(_: SyncStore) {
     }
 
     return response;
+  };
+
+  const requestWithConflict = async (
+    path: string,
+    init?: RequestInit,
+  ): Promise<{ conflict: true; current?: StoreSnapshotMeta | null } | null> => {
+    const response = await fetch(path, {
+      ...init,
+      headers: withSyncUserHeaders({
+        "Content-Type": "application/json; charset=utf-8",
+        ...(init?.headers || {}),
+      }),
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+
+    if (isSnapshotConflictPayload(payload)) {
+      return {
+        conflict: true,
+        current: payload.current ?? null,
+      };
+    }
+
+    if (!response.ok) {
+      throw new Error(`[DB Sync] ${response.status} ${response.statusText}`);
+    }
+
+    return null;
   };
 
   return {
@@ -64,21 +114,28 @@ export function createDatabaseSyncClient(_: SyncStore) {
       value: string,
       expectation?: StoreSnapshotWriteExpectation,
     ) {
-      await request(`/api/db/sync/${encodeURIComponent(key)}`, {
-        method: "PUT",
-        headers: {
-          ...(expectation?.expectedUpdatedAt
-            ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
-            : {}),
-          ...(expectation?.expectedChecksum
-            ? { "x-expected-checksum": expectation.expectedChecksum }
-            : {}),
-          ...(expectation?.expectedMissing
-            ? { "x-expected-missing": "1" }
-            : {}),
+      const conflict = await requestWithConflict(
+        `/api/db/sync/${encodeURIComponent(key)}`,
+        {
+          method: "PUT",
+          headers: {
+            ...(expectation?.expectedUpdatedAt
+              ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
+              : {}),
+            ...(expectation?.expectedChecksum
+              ? { "x-expected-checksum": expectation.expectedChecksum }
+              : {}),
+            ...(expectation?.expectedMissing
+              ? { "x-expected-missing": "1" }
+              : {}),
+          },
+          body: value,
         },
-        body: value,
-      });
+      );
+
+      if (conflict) {
+        throw new Error("[DB Sync] 409 Conflict");
+      }
     },
 
     async getMeta(keys?: string[]) {
@@ -127,7 +184,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
       },
       expectation?: StoreSnapshotWriteExpectation,
     ) {
-      await request("/api/db/chat-sync", {
+      const conflict = await requestWithConflict("/api/db/chat-sync", {
         method: "PUT",
         headers: {
           ...(expectation?.expectedUpdatedAt
@@ -142,6 +199,10 @@ export function createDatabaseSyncClient(_: SyncStore) {
         },
         body: JSON.stringify(params),
       });
+
+      if (conflict) {
+        throw new Error("[DB Sync] 409 Conflict");
+      }
     },
   };
 }

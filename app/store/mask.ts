@@ -1,6 +1,7 @@
 import { BUILTIN_MASKS } from "../masks";
 import { getLang, Lang } from "../locales";
-import { DEFAULT_TOPIC, ChatMessage } from "./chat";
+import type { ChatMessage } from "./chat";
+import { DEFAULT_TOPIC } from "./chat-defaults";
 import {
   AutoModelSeriesKey,
   ModelConfig,

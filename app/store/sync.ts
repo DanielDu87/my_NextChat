@@ -79,6 +79,7 @@ const isApp = !!getClientConfig()?.isApp;
 export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(30);
 let syncInFlight: Promise<void> | null = null;
+let queuedSyncKeys = new Set<SyncStoreKey>();
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 
 function isSyncDebugLoggingEnabled() {
@@ -1229,64 +1230,128 @@ export const useSyncStore = createPersistStore(
       },
 
       async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
+        const normalizedStoreKeys = normalizeSyncKeys(storeKeys);
+        normalizedStoreKeys.forEach((key) => queuedSyncKeys.add(key));
+
         if (syncInFlight) {
-          logSyncDebug("[Sync] ⏳ 已有同步进行中，等待当前任务完成...");
+          logSyncDebug(
+            "[Sync] ⏳ 已有同步进行中，已合并到队列等待当前任务完成",
+            {
+              keys: normalizedStoreKeys
+                .map((k) => STORE_DISPLAY_NAMES[k])
+                .join(", "),
+            },
+          );
           await syncInFlight;
+          return;
         }
 
         syncInFlight = (async () => {
-          const state = getNonFunctionFileds(this) as SyncStore;
-          const providerName =
-            state.provider === ProviderType.Database
-              ? "PostgreSQL 数据库"
-              : "云端存储";
-          logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
+          while (queuedSyncKeys.size > 0) {
+            const currentStoreKeys = [...queuedSyncKeys];
+            queuedSyncKeys = new Set<SyncStoreKey>();
 
-          const client = this.getClient() as any;
-          const initialMetas =
-            typeof client.getMeta === "function" && storeKeys.length > 0
-              ? await client.getMeta(storeKeys)
-              : [];
-          let remoteMetaMap = buildMetaMap(initialMetas);
+            const state = getNonFunctionFileds(this) as SyncStore;
+            const providerName =
+              state.provider === ProviderType.Database
+                ? "PostgreSQL 数据库"
+                : "云端存储";
+            logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
-          logSyncDebug(`[Sync] 📋 准备同步 ${storeKeys.length} 个数据块`);
+            const client = this.getClient() as any;
+            const initialMetas =
+              typeof client.getMeta === "function" &&
+              currentStoreKeys.length > 0
+                ? await client.getMeta(currentStoreKeys)
+                : [];
+            let remoteMetaMap = buildMetaMap(initialMetas);
 
-          const appConfig = useAppConfig.getState() as any;
-          const localSidebarWidth = localStorage.getItem("sidebarWidth");
-          const localTightBorder = appConfig.tightBorder;
-          const localAppStateCache = {
-            ...getLocalAppState(),
-          } as { [K in SyncStoreKey]: AppState[K] };
+            logSyncDebug(
+              `[Sync] 📋 准备同步 ${currentStoreKeys.length} 个数据块`,
+            );
 
-          const syncRegularStore = async (
-            key: SyncStoreKey,
-            displayName: string,
-            stepLabel: string,
-          ) => {
-            for (let attempt = 0; attempt < 2; attempt += 1) {
-              const remoteDataText = await withRetry<string>(
-                () => client.get(key),
-                {
-                  retries: 1,
-                  retryable: (error) =>
-                    error instanceof Error &&
-                    RETRYABLE_DB_SYNC_ERROR.test(error.message),
-                  onRetry: (retryAttempt, error) => {
-                    warnSyncDebug(
-                      `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${retryAttempt} 次重试:`,
-                      error,
-                    );
+            const appConfig = useAppConfig.getState() as any;
+            const localSidebarWidth = localStorage.getItem("sidebarWidth");
+            const localTightBorder = appConfig.tightBorder;
+            const localAppStateCache = {
+              ...getLocalAppState(),
+            } as { [K in SyncStoreKey]: AppState[K] };
+
+            const syncRegularStore = async (
+              key: SyncStoreKey,
+              displayName: string,
+              stepLabel: string,
+            ) => {
+              for (let attempt = 0; attempt < 2; attempt += 1) {
+                const remoteDataText = await withRetry<string>(
+                  () => client.get(key),
+                  {
+                    retries: 1,
+                    retryable: (error) =>
+                      error instanceof Error &&
+                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                    onRetry: (retryAttempt, error) => {
+                      warnSyncDebug(
+                        `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${retryAttempt} 次重试:`,
+                        error,
+                      );
+                    },
                   },
-                },
-              );
+                );
 
-              const currentMeta = remoteMetaMap.get(key);
-              if (!remoteDataText || remoteDataText === "") {
-                const localStoreState = localAppStateCache[key];
+                const currentMeta = remoteMetaMap.get(key);
+                if (!remoteDataText || remoteDataText === "") {
+                  const localStoreState = localAppStateCache[key];
+                  try {
+                    await client.set(
+                      key,
+                      stringifyPersistedStoreState(key, localStoreState),
+                      {
+                        expectedMissing: !currentMeta,
+                        expectedUpdatedAt: currentMeta?.updatedAt,
+                        expectedChecksum: currentMeta?.checksum,
+                      },
+                    );
+                  } catch (error) {
+                    if (
+                      attempt === 0 &&
+                      error instanceof Error &&
+                      /\[DB Sync\] 409\b/.test(error.message) &&
+                      typeof client.getMeta === "function"
+                    ) {
+                      const latestMetas = await client.getMeta([key]);
+                      remoteMetaMap = buildMetaMap([
+                        ...Array.from(remoteMetaMap.values()).filter(
+                          (meta) => meta.key !== key,
+                        ),
+                        ...latestMetas,
+                      ]);
+                      continue;
+                    }
+                    throw error;
+                  }
+
+                  return {
+                    summary: getStoreSummary(key, localStoreState),
+                    status: "uploaded" as const,
+                  };
+                }
+
+                const parsedRemoteState =
+                  parseStoreStatePayload(remoteDataText);
+                const mergedStoreState = mergeStoreState(
+                  key,
+                  localAppStateCache[key],
+                  parsedRemoteState,
+                );
+
+                setLocalStoreState(key, mergedStoreState);
+                localAppStateCache[key] = mergedStoreState;
+
                 try {
                   await client.set(
                     key,
-                    stringifyPersistedStoreState(key, localStoreState),
+                    stringifyPersistedStoreState(key, mergedStoreState),
                     {
                       expectedMissing: !currentMeta,
                       expectedUpdatedAt: currentMeta?.updatedAt,
@@ -1313,230 +1378,184 @@ export const useSyncStore = createPersistStore(
                 }
 
                 return {
-                  summary: getStoreSummary(key, localStoreState),
-                  status: "uploaded" as const,
+                  summary: getStoreSummary(key, mergedStoreState),
+                  status: "merged" as const,
+                  remoteSummary: getStoreSummary(key, parsedRemoteState),
                 };
               }
 
-              const parsedRemoteState = parseStoreStatePayload(remoteDataText);
-              const mergedStoreState = mergeStoreState(
-                key,
-                localAppStateCache[key],
-                parsedRemoteState,
-              );
+              throw new Error(`[Sync] ${displayName}冲突重试失败`);
+            };
 
-              setLocalStoreState(key, mergedStoreState);
-              localAppStateCache[key] = mergedStoreState;
-
-              try {
-                await client.set(
-                  key,
-                  stringifyPersistedStoreState(key, mergedStoreState),
-                  {
-                    expectedMissing: !currentMeta,
-                    expectedUpdatedAt: currentMeta?.updatedAt,
-                    expectedChecksum: currentMeta?.checksum,
-                  },
-                );
-              } catch (error) {
-                if (
-                  attempt === 0 &&
-                  error instanceof Error &&
-                  /\[DB Sync\] 409\b/.test(error.message) &&
-                  typeof client.getMeta === "function"
-                ) {
-                  const latestMetas = await client.getMeta([key]);
-                  remoteMetaMap = buildMetaMap([
-                    ...Array.from(remoteMetaMap.values()).filter(
-                      (meta) => meta.key !== key,
-                    ),
-                    ...latestMetas,
-                  ]);
-                  continue;
-                }
-                throw error;
-              }
-
-              return {
-                summary: getStoreSummary(key, mergedStoreState),
-                status: "merged" as const,
-                remoteSummary: getStoreSummary(key, parsedRemoteState),
-              };
-            }
-
-            throw new Error(`[Sync] ${displayName}冲突重试失败`);
-          };
-
-          const syncChatStoreWithRetry = async (
-            localStoreState: AppState[typeof StoreKey.Chat],
-          ) => {
-            for (let attempt = 0; attempt < 2; attempt += 1) {
-              try {
-                return await syncChatStore(
-                  client,
-                  localStoreState,
-                  remoteMetaMap.get(StoreKey.Chat),
-                );
-              } catch (error) {
-                if (
-                  attempt === 0 &&
-                  error instanceof Error &&
-                  /\[DB Sync\] 409\b/.test(error.message) &&
-                  typeof client.getMeta === "function"
-                ) {
-                  const latestMetas = await client.getMeta([StoreKey.Chat]);
-                  remoteMetaMap = buildMetaMap([
-                    ...Array.from(remoteMetaMap.values()).filter(
-                      (meta) => meta.key !== StoreKey.Chat,
-                    ),
-                    ...latestMetas,
-                  ]);
-                  continue;
-                }
-                throw error;
-              }
-            }
-
-            throw new Error("[Sync] 会话冲突重试失败");
-          };
-
-          try {
-            const syncResults: Array<{
-              key: SyncStoreKey;
-              name: string;
-              summary: string;
-              status: "downloaded" | "uploaded" | "merged";
-            }> = [];
-            const failedKeys: Array<{
-              key: SyncStoreKey;
-              name: string;
-              error: unknown;
-            }> = [];
-
-            for (const [index, key] of storeKeys.entries()) {
-              try {
-                const displayName = STORE_DISPLAY_NAMES[key];
-                const stepLabel = `${index + 1}/${storeKeys.length}`;
-                logSyncDebug(
-                  `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
-                );
-                const localStoreState = localAppStateCache[key];
-
-                if (
-                  key === StoreKey.Chat &&
-                  typeof client.getChatIndex === "function" &&
-                  typeof client.getChatSessions === "function" &&
-                  typeof client.setChatDelta === "function"
-                ) {
-                  const chatResult = await syncChatStoreWithRetry(
-                    localStoreState as AppState[typeof StoreKey.Chat],
+            const syncChatStoreWithRetry = async (
+              localStoreState: AppState[typeof StoreKey.Chat],
+            ) => {
+              for (let attempt = 0; attempt < 2; attempt += 1) {
+                try {
+                  return await syncChatStore(
+                    client,
+                    localStoreState,
+                    remoteMetaMap.get(StoreKey.Chat),
                   );
+                } catch (error) {
+                  if (
+                    attempt === 0 &&
+                    error instanceof Error &&
+                    /\[DB Sync\] 409\b/.test(error.message) &&
+                    typeof client.getMeta === "function"
+                  ) {
+                    const latestMetas = await client.getMeta([StoreKey.Chat]);
+                    remoteMetaMap = buildMetaMap([
+                      ...Array.from(remoteMetaMap.values()).filter(
+                        (meta) => meta.key !== StoreKey.Chat,
+                      ),
+                      ...latestMetas,
+                    ]);
+                    continue;
+                  }
+                  throw error;
+                }
+              }
+
+              throw new Error("[Sync] 会话冲突重试失败");
+            };
+
+            try {
+              const syncResults: Array<{
+                key: SyncStoreKey;
+                name: string;
+                summary: string;
+                status: "downloaded" | "uploaded" | "merged";
+              }> = [];
+              const failedKeys: Array<{
+                key: SyncStoreKey;
+                name: string;
+                error: unknown;
+              }> = [];
+
+              for (const [index, key] of currentStoreKeys.entries()) {
+                try {
+                  const displayName = STORE_DISPLAY_NAMES[key];
+                  const stepLabel = `${index + 1}/${currentStoreKeys.length}`;
                   logSyncDebug(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
+                    `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                   );
+                  const localStoreState = localAppStateCache[key];
+
+                  if (
+                    key === StoreKey.Chat &&
+                    typeof client.getChatIndex === "function" &&
+                    typeof client.getChatSessions === "function" &&
+                    typeof client.setChatDelta === "function"
+                  ) {
+                    const chatResult = await syncChatStoreWithRetry(
+                      localStoreState as AppState[typeof StoreKey.Chat],
+                    );
+                    logSyncDebug(
+                      `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
+                    );
+                    syncResults.push({
+                      key,
+                      name: displayName,
+                      summary: chatResult.mergedSummary,
+                      status: chatResult.status,
+                    });
+
+                    logSyncDebug(
+                      `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
+                      {
+                        下载会话数: chatResult.metrics.downloadedSessionCount,
+                        下载体积: formatBytes(
+                          chatResult.metrics.downloadedBytes,
+                        ),
+                        上传会话数: chatResult.metrics.uploadedSessionCount,
+                        上传体积: formatBytes(chatResult.metrics.uploadedBytes),
+                        删除会话数: chatResult.metrics.deletedSessionCount,
+                      },
+                    );
+
+                    setLocalStoreState(key, chatResult.mergedStoreState as any);
+                    localAppStateCache[key] =
+                      chatResult.mergedStoreState as any;
+                    continue;
+                  }
+
+                  const regularResult = await syncRegularStore(
+                    key,
+                    displayName,
+                    stepLabel,
+                  );
+                  if (regularResult.status === "merged") {
+                    logSyncDebug(
+                      `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${regularResult.remoteSummary}`,
+                    );
+                    logSyncDebug(LOG_SEPARATOR);
+                  }
                   syncResults.push({
                     key,
                     name: displayName,
-                    summary: chatResult.mergedSummary,
-                    status: chatResult.status,
+                    summary: regularResult.summary,
+                    status: regularResult.status,
                   });
-
-                  logSyncDebug(
-                    `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
-                    {
-                      下载会话数: chatResult.metrics.downloadedSessionCount,
-                      下载体积: formatBytes(chatResult.metrics.downloadedBytes),
-                      上传会话数: chatResult.metrics.uploadedSessionCount,
-                      上传体积: formatBytes(chatResult.metrics.uploadedBytes),
-                      删除会话数: chatResult.metrics.deletedSessionCount,
-                    },
+                } catch (e) {
+                  failedKeys.push({
+                    key,
+                    name: STORE_DISPLAY_NAMES[key],
+                    error: e,
+                  });
+                  console.error(
+                    `[Sync] ❌ [${index + 1}/${currentStoreKeys.length}] ${
+                      STORE_DISPLAY_NAMES[key]
+                    }同步失败:`,
+                    e,
                   );
-
-                  setLocalStoreState(key, chatResult.mergedStoreState as any);
-                  localAppStateCache[key] = chatResult.mergedStoreState as any;
-
-                  // console.log(
-                  //   `[Sync] ✅ [${stepLabel}] ${displayName}同步完成，合并后 ${chatResult.mergedSummary}`,
-                  // );
-                  // console.log(LOG_SEPARATOR);
-                  continue;
                 }
-
-                const regularResult = await syncRegularStore(
-                  key,
-                  displayName,
-                  stepLabel,
-                );
-                if (regularResult.status === "merged") {
-                  logSyncDebug(
-                    `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${regularResult.remoteSummary}`,
-                  );
-                  logSyncDebug(LOG_SEPARATOR);
-                }
-                syncResults.push({
-                  key,
-                  name: displayName,
-                  summary: regularResult.summary,
-                  status: regularResult.status,
-                });
-              } catch (e) {
-                failedKeys.push({
-                  key,
-                  name: STORE_DISPLAY_NAMES[key],
-                  error: e,
-                });
-                console.error(
-                  `[Sync] ❌ [${index + 1}/${storeKeys.length}] ${
-                    STORE_DISPLAY_NAMES[key]
-                  }同步失败:`,
-                  e,
-                );
-                // console.log(LOG_SEPARATOR);
               }
+
+              if (localSidebarWidth && appConfig.setSidebarWidth) {
+                appConfig.setSidebarWidth(parseInt(localSidebarWidth));
+              }
+              if (localTightBorder !== undefined) {
+                useAppConfig.setState({ tightBorder: localTightBorder });
+              }
+
+              logSyncDebug("[Sync] 📊 数据同步汇总");
+              syncResults.forEach((item) => {
+                logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
+              });
+
+              if (failedKeys.length > 0) {
+                const failedSummary = failedKeys
+                  .map(
+                    (item) =>
+                      `${item.name}: ${
+                        item.error instanceof Error
+                          ? item.error.message
+                          : String(item.error)
+                      }`,
+                  )
+                  .join(" | ");
+                console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
+                throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
+              }
+
+              logSyncDebug("[Sync] ✅ 同步完成");
+              logSyncDebug(LOG_SEPARATOR);
+
+              if (
+                typeof client.getMeta === "function" &&
+                currentStoreKeys.length > 0
+              ) {
+                const latestMetas = await client.getMeta(currentStoreKeys);
+                this.updateDatabaseMeta(latestMetas);
+              }
+            } catch (e) {
+              console.error("[Sync] ❌ 同步失败:", e);
+              throw e;
             }
 
-            if (localSidebarWidth && appConfig.setSidebarWidth) {
-              appConfig.setSidebarWidth(parseInt(localSidebarWidth));
-            }
-            if (localTightBorder !== undefined) {
-              useAppConfig.setState({ tightBorder: localTightBorder });
-            }
-
-            logSyncDebug("[Sync] 📊 数据同步汇总");
-            syncResults.forEach((item) => {
-              logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
-            });
-
-            if (failedKeys.length > 0) {
-              const failedSummary = failedKeys
-                .map(
-                  (item) =>
-                    `${item.name}: ${
-                      item.error instanceof Error
-                        ? item.error.message
-                        : String(item.error)
-                    }`,
-                )
-                .join(" | ");
-              console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
-              // console.log(LOG_SEPARATOR);
-              throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
-            }
-
-            logSyncDebug("[Sync] ✅ 同步完成");
-            logSyncDebug(LOG_SEPARATOR);
-
-            if (typeof client.getMeta === "function" && storeKeys.length > 0) {
-              const latestMetas = await client.getMeta(storeKeys);
-              this.updateDatabaseMeta(latestMetas);
-            }
-          } catch (e) {
-            console.error("[Sync] ❌ 同步失败:", e);
-            // console.log(LOG_SEPARATOR);
-            throw e;
+            this.markSyncTime();
           }
-
-          this.markSyncTime();
         })();
 
         try {

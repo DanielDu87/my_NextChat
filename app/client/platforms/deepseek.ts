@@ -1,13 +1,11 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
 import { ApiPath, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
-import {
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  ChatMessageTool,
-  usePluginStore,
-} from "@/app/store";
+import type { ChatMessageTool } from "@/app/store/chat";
+import { useChatStore } from "@/app/store/chat";
+import { useAccessStore } from "@/app/store/access";
+import { useAppConfig } from "@/app/store/config";
+import { usePluginStore } from "@/app/store/plugin";
 import { streamWithThink } from "@/app/utils/chat";
 import {
   ChatOptions,
