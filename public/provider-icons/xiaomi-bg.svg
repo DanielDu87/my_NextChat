@@ -1,11 +1,22 @@
-<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+<svg
+  width="30"
+  height="30"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
   <title>Xiaomi</title>
-  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
-  <g transform="translate(3, 3)">
-    <rect width="24" height="24" rx="6" fill="#FF6700" />
-    <path
-      d="M12 6C8.686 6 6 8.686 6 12C6 15.314 8.686 18 12 18C15.314 18 18 15.314 18 12C18 8.686 15.314 6 12 6ZM8 9H10C10.552 9 11 9.448 11 10C11 10.552 10.552 11 10 11H8C7.448 11 7 10.552 7 10C7 9.448 7.448 9 8 9ZM14 9H16C16.552 9 17 9.448 17 10C17 10.552 16.552 11 16 11H14C13.448 11 13 10.552 13 10C13 9.448 13.448 9 14 9ZM12 13C12.828 13 13.5 13.672 13.5 14.5C13.5 15.328 12.828 16 12 16C11.172 16 10.5 15.328 10.5 14.5C10.5 13.672 11.172 13 12 13Z"
-      fill="white"
-    />
-  </g>
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FF6A00" stroke="#EA580C" stroke-width="1" />
+  <path
+    d="M8.6 10.2H10.7V13.2H13.2V10.2H15.3V19.8H13.2V15H10.7V19.8H8.6V10.2Z"
+    fill="#FFFFFF"
+  />
+  <path
+    d="M16.9 10.2H19V19.8H16.9V10.2Z"
+    fill="#FFFFFF"
+  />
+  <path
+    d="M20.6 10.2H22.7V19.8H20.6V10.2Z"
+    fill="#FFFFFF"
+  />
 </svg>

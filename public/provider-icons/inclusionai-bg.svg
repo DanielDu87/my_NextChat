@@ -1,0 +1,25 @@
+<svg
+  width="30"
+  height="30"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>InclusionAI</title>
+  <defs>
+    <linearGradient id="inclusionai-fill" x1="7" y1="24" x2="23" y2="7" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3C45F4" />
+      <stop offset="1" stop-color="#4D63FF" />
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" />
+  <path
+    d="M15 6.5C16.078 6.5 17.0725 7.07913 17.6123 8.01795L23.1814 17.7011C24.3347 19.7061 22.8882 22.2125 20.5691 22.2125H9.43092C7.11181 22.2125 5.66532 19.7061 6.81864 17.7011L12.3877 8.01795C12.9275 7.07913 13.922 6.5 15 6.5Z"
+    fill="url(#inclusionai-fill)"
+  />
+  <path
+    d="M15 19.6L11.7 18.4L15 12.2L18.3 18.4L15 19.6Z"
+    fill="#FFFFFF"
+    fill-opacity="0.18"
+  />
+</svg>

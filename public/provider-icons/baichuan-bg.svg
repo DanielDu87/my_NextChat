@@ -1,12 +1,16 @@
-<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+<svg
+  width="30"
+  height="30"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
   <title>Baichuan</title>
-  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
-  <g transform="translate(3, 3)">
-    <rect width="24" height="24" rx="6" fill="#FF6933" />
-    <g fill="white">
-      <rect x="8" y="7" width="2.5" height="10" rx="1.25" />
-      <rect x="12.75" y="7" width="2.5" height="10" rx="1.25" />
-      <rect x="17.5" y="7" width="2.5" height="10" rx="1.25" />
-    </g>
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFFFFF" stroke="#F1F5F9" stroke-width="1" />
+  <g fill="#FF6A2B">
+    <path d="M8.2 7H11.7V20.2L8.2 25H4.8L8.2 20.2V7Z" />
+    <rect x="14" y="7" width="3.5" height="18" rx="0.2" />
+    <path d="M20 7H25.2V11H20V7Z" />
+    <path d="M20 13H25.2V25H20V13Z" />
   </g>
 </svg>

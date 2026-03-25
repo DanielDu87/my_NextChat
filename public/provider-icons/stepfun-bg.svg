@@ -1,18 +1,23 @@
-<svg height="30" width="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+<svg
+  width="30"
+  height="30"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
   <title>StepFun</title>
-  <rect width="30" height="30" rx="6" fill="#E7F8FF" />
-  <g transform="translate(3, 3)">
-    <defs>
-      <linearGradient id="stepfun-fill" x1="0%" y1="100%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#2563EB"></stop>
-        <stop offset="100%" stop-color="#60A5FA"></stop>
-      </linearGradient>
-    </defs>
-    <!-- 向上的箭头/台阶形状 -->
-    <path d="M4 20 L8 20 L8 16 L12 16 L12 12 L16 12 L16 8 L20 8 L20 4 L22 4 L22 22 L4 22 Z"
-      fill="url(#stepfun-fill)"></path>
-    <!-- 装饰性箭头 -->
-    <path d="M18 6 L20 4 L22 6 M20 4 L20 10"
-      stroke="url(#stepfun-fill)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
-  </g>
+  <circle cx="15" cy="15" r="14" fill="#F8F8F8" stroke="#E5E7EB" stroke-width="2" />
+  <rect x="7" y="9" width="2.8" height="7.5" rx="0.8" fill="#111111" />
+  <path
+    d="M12 8.5C12 8.22386 12.2239 8 12.5 8H20.5C20.7761 8 21 8.22386 21 8.5V10.7C21 10.9761 20.7761 11.2 20.5 11.2H14.8V14.2H19.4C19.6761 14.2 19.9 14.4239 19.9 14.7V16.9C19.9 17.1761 19.6761 17.4 19.4 17.4H14.8V22C14.8 22.2761 14.5761 22.5 14.3 22.5H12.5C12.2239 22.5 12 22.2761 12 22V8.5Z"
+    fill="#111111"
+  />
+  <path
+    d="M12 14.2V22C12 22.2761 11.7761 22.5 11.5 22.5H8C7.72386 22.5 7.5 22.2761 7.5 22V19.8C7.5 19.5239 7.72386 19.3 8 19.3H9.2V14.2H12Z"
+    fill="#111111"
+  />
+  <path
+    d="M22.1 6.2C22.1 5.92386 22.3239 5.7 22.6 5.7H23.4C23.6761 5.7 23.9 5.92386 23.9 6.2V7.6H25.3C25.5761 7.6 25.8 7.82386 25.8 8.1V8.9C25.8 9.17614 25.5761 9.4 25.3 9.4H23.9V10.8C23.9 11.0761 23.6761 11.3 23.4 11.3H22.6C22.3239 11.3 22.1 11.0761 22.1 10.8V9.4H20.7C20.4239 9.4 20.2 9.17614 20.2 8.9V8.1C20.2 7.82386 20.4239 7.6 20.7 7.6H22.1V6.2Z"
+    fill="#111111"
+  />
 </svg>

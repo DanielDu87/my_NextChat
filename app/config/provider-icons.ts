@@ -121,7 +121,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   meituan: "/provider-icons/meituan-bg.svg",
 
   // InclusionAI
-  inclusionai: "/provider-icons/inclusionai-official.png",
+  inclusionai: "/provider-icons/inclusionai-bg.svg",
 
   // FAL
   fal: "/provider-icons/fal.png",
