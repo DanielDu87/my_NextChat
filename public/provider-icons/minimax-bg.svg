@@ -8,11 +8,10 @@
         <stop offset="100%" stop-color="#FF8C42"></stop>
       </linearGradient>
     </defs>
-    <!-- 简洁的海螺螺旋 -->
-    <path d="M12 3 C7 3 3 7 3 12 C3 17 7 21 12 21 C14 21 16 20 17.5 18.5"
-      fill="none" stroke="url(#minimax-fill)" stroke-width="2" stroke-linecap="round"></path>
-    <path d="M12 7 C9 7 7 9 7 12 C7 15 9 17 12 17 C13.5 17 15 16 16 15"
-      fill="none" stroke="url(#minimax-fill)" stroke-width="2" stroke-linecap="round" opacity="0.7"></path>
-    <circle cx="12" cy="12" r="1.5" fill="url(#minimax-fill)"></circle>
+    <!-- 圆形背景 -->
+    <circle cx="12" cy="12" r="10" fill="url(#minimax-fill)"></circle>
+    <!-- m 字母 -->
+    <path d="M7 8 L7 17 M7 13 C7 11 8 10.5 9 10.5 C10 10.5 10.5 11 10.5 13 L10.5 17 M10.5 13 C10.5 11 11.5 10.5 12.5 10.5 C13.5 10.5 14 11 14 13 L14 17"
+      stroke="#fff" stroke-width="1.5" stroke-linecap="round" fill="none"></path>
   </g>
 </svg>
