@@ -35,9 +35,9 @@ export const PROVIDER_ICONS: Record<string, string> = {
   阿里巴巴: "/provider-icons/qwen-bg.svg",
 
   // ByteDance
-  bytedance: "/provider-icons/bytedance.png",
-  豆包: "/provider-icons/bytedance.png",
-  字节跳动: "/provider-icons/bytedance.png",
+  bytedance: "/provider-icons/doubao-bg.svg",
+  豆包: "/provider-icons/doubao-bg.svg",
+  字节跳动: "/provider-icons/doubao-bg.svg",
 
   // Zhipu
   zhipu: "/provider-icons/zhipu.png",
