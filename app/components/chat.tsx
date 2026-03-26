@@ -665,6 +665,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
             );
           }}
           shouldSyncFromGlobal
+          hideIdentitySettings
           extraListItems={
             session.mask.modelConfig.sendMemory ? (
               <ListItem

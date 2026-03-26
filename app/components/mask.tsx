@@ -79,6 +79,7 @@ export function MaskConfig(props: {
   extraListItems?: JSX.Element;
   readonly?: boolean;
   shouldSyncFromGlobal?: boolean;
+  hideIdentitySettings?: boolean;
 }) {
   const [showPicker, setShowPicker] = useState(false);
 
@@ -113,60 +114,49 @@ export function MaskConfig(props: {
       />
 
       <List>
-        <ListItem title={Locale.Mask.Config.Avatar}>
-          <Popover
-            content={
-              <AvatarPicker
-                onEmojiClick={(emoji) => {
-                  props.updateMask((mask) => (mask.avatar = emoji));
-                  setShowPicker(false);
-                }}
-              ></AvatarPicker>
-            }
-            open={showPicker}
-            onClose={() => setShowPicker(false)}
-          >
-            <div
-              tabIndex={0}
-              aria-label={Locale.Mask.Config.Avatar}
-              onClick={() => setShowPicker(true)}
-              style={{ cursor: "pointer" }}
-            >
-              <MaskAvatar
-                avatar={props.mask.avatar}
-                model={props.mask.modelConfig.model}
-              />
-            </div>
-          </Popover>
-        </ListItem>
-        <ListItem title={Locale.Mask.Config.Name}>
-          <input
-            aria-label={Locale.Mask.Config.Name}
-            type="text"
-            value={props.mask.name}
-            onInput={(e) =>
-              props.updateMask((mask) => {
-                mask.name = e.currentTarget.value;
-              })
-            }
-          ></input>
-        </ListItem>
-        <ListItem
-          title={Locale.Mask.Config.HideContext.Title}
-          subTitle={Locale.Mask.Config.HideContext.SubTitle}
-        >
-          <input
-            aria-label={Locale.Mask.Config.HideContext.Title}
-            type="checkbox"
-            checked={props.mask.hideContext}
-            onChange={(e) => {
-              props.updateMask((mask) => {
-                mask.hideContext = e.currentTarget.checked;
-              });
-            }}
-          ></input>
-        </ListItem>
-
+        {!props.hideIdentitySettings && (
+          <>
+            <ListItem title={Locale.Mask.Config.Avatar}>
+              <Popover
+                content={
+                  <AvatarPicker
+                    onEmojiClick={(emoji) => {
+                      props.updateMask((mask) => (mask.avatar = emoji));
+                      setShowPicker(false);
+                    }}
+                  ></AvatarPicker>
+                }
+                open={showPicker}
+                onClose={() => setShowPicker(false)}
+              >
+                <div
+                  tabIndex={0}
+                  aria-label={Locale.Mask.Config.Avatar}
+                  onClick={() => setShowPicker(true)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <MaskAvatar
+                    avatar={props.mask.avatar}
+                    model={props.mask.modelConfig.model}
+                  />
+                </div>
+              </Popover>
+            </ListItem>
+            <ListItem title={Locale.Mask.Config.Name}>
+              <input
+                aria-label={Locale.Mask.Config.Name}
+                type="text"
+                value={props.mask.name}
+                onInput={(e) =>
+                  props.updateMask((mask) => {
+                    mask.name = e.currentTarget.value;
+                  })
+                }
+              ></input>
+            </ListItem>
+          </>
+        )}
+        {/* 隐藏预设提示词选项已移除 */}
         {globalConfig.enableArtifacts && (
           <ListItem
             title={Locale.Mask.Config.Artifacts.Title}
@@ -389,7 +379,8 @@ export function ContextPrompts(props: {
                           update={(prompt) => updateContextPrompt(i, prompt)}
                           remove={() => removeContextPrompt(i)}
                         />
-                        <div
+                        {/* 隐藏插入按钮 */}
+                        {/* <div
                           className={chatStyle["context-prompt-insert"]}
                           onClick={() => {
                             addContextPrompt(
@@ -403,7 +394,7 @@ export function ContextPrompts(props: {
                           }}
                         >
                           <AddIcon />
-                        </div>
+                        </div> */}
                       </div>
                     )}
                   </Draggable>
