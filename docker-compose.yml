@@ -7,6 +7,27 @@
 
 services:
   # ---------------------------------------------------------------------------
+  # PostgreSQL 数据库服务
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: nextchat-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${PGDATABASE:-nextchat}
+      - POSTGRES_USER=${PGUSER:-postgres}
+      - POSTGRES_PASSWORD=${PGPASSWORD:-postgres}
+    ports:
+      - "${PGPORT:-5432}:5432"
+    volumes:
+      - nextchat-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-postgres} -d ${PGDATABASE:-nextchat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
   # 本地开发环境 - 热加载模式
   # 代码修改后自动刷新，无需重启容器
   # ---------------------------------------------------------------------------
@@ -24,6 +45,9 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
@@ -161,3 +185,4 @@ volumes:
   nextchat-node_modules:
   nextchat-next_cache:
   nextchat-data:
+  nextchat-postgres-data:

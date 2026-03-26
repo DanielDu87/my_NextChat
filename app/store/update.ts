@@ -45,6 +45,7 @@ export type BalanceAwareProfile = {
   balanceQueryUrl?: string;
   balanceQueryApiKey?: string;
   balanceQueryField?: string;
+  modelFetchApiKey?: string;
 };
 
 type ActiveCustomProfile = BalanceAwareProfile | undefined;

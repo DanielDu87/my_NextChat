@@ -386,7 +386,7 @@ function ChatModelUpdateNotice() {
       )}
       onClick={() => navigate(Path.ApiConfig)}
     >
-      服务器模型数据有更新，点击前往 API 配置页刷新
+      服务器模型数据有更新，点击上方一键刷新进行更新
     </button>
   );
 }

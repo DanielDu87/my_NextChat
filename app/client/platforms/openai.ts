@@ -1533,7 +1533,7 @@ export class ChatGPTApi implements LLMApi {
           const shouldRetry =
             supportsGrouping &&
             retryCount < fallbackApiKeys.length - 1 &&
-            (!res.ok || Boolean(retryableYutoError));
+            (!res.ok || Boolean(retryableError));
 
           if (!shouldRetry) {
             break;
