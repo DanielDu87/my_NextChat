@@ -1271,6 +1271,7 @@ export const useSyncStore = createPersistStore(
             );
 
             const appConfig = useAppConfig.getState() as any;
+            const localTheme = appConfig.theme;
             const localSidebarWidth = localStorage.getItem("sidebarWidth");
             const localTightBorder = appConfig.tightBorder;
             const localAppStateCache = {
@@ -1521,6 +1522,9 @@ export const useSyncStore = createPersistStore(
               }
               if (localTightBorder !== undefined) {
                 useAppConfig.setState({ tightBorder: localTightBorder });
+              }
+              if (localTheme !== undefined) {
+                useAppConfig.setState({ theme: localTheme });
               }
 
               logSyncDebug("[Sync] 📊 数据同步汇总");

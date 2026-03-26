@@ -46,7 +46,41 @@ export enum Theme {
 
 const config = getClientConfig();
 const localStorage = safeLocalStorage();
+const THEME_KEY = "appConfig.theme";
+const TIGHT_BORDER_KEY = "appConfig.tightBorder";
 const SIDEBAR_WIDTH_KEY = "sidebarWidth";
+const DEFAULT_THEME = Theme.Auto;
+const DEFAULT_TIGHT_BORDER = !!config?.isApp;
+const DEFAULT_LOCAL_SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH;
+
+function readThemeFromLocalStorage() {
+  const stored = String(localStorage.getItem(THEME_KEY) || "").trim();
+  return Object.values(Theme).includes(stored as Theme)
+    ? (stored as Theme)
+    : DEFAULT_THEME;
+}
+
+function readTightBorderFromLocalStorage() {
+  const stored = String(localStorage.getItem(TIGHT_BORDER_KEY) || "").trim();
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return DEFAULT_TIGHT_BORDER;
+}
+
+function readSidebarWidthFromLocalStorage() {
+  const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  if (!stored) return DEFAULT_LOCAL_SIDEBAR_WIDTH;
+  const width = Number(stored);
+  return Number.isFinite(width) ? width : DEFAULT_LOCAL_SIDEBAR_WIDTH;
+}
+
+export function getLocalOnlyAppConfig() {
+  return {
+    theme: readThemeFromLocalStorage(),
+    tightBorder: readTightBorderFromLocalStorage(),
+    sidebarWidth: readSidebarWidthFromLocalStorage(),
+  };
+}
 
 export const DEFAULT_CONFIG = {
   lastUpdate: Date.now(), // timestamp, to merge state
@@ -55,11 +89,11 @@ export const DEFAULT_CONFIG = {
   avatar: "1f603",
   fontSize: 14,
   fontFamily: "",
-  theme: Theme.Auto as Theme,
-  tightBorder: !!config?.isApp,
+  theme: DEFAULT_THEME as Theme,
+  tightBorder: DEFAULT_TIGHT_BORDER,
   sendPreviewBubble: true,
   enableAutoGenerateTitle: true,
-  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  sidebarWidth: DEFAULT_LOCAL_SIDEBAR_WIDTH,
 
   enableArtifacts: true, // show artifacts config
 
@@ -357,18 +391,35 @@ export const useAppConfig = createPersistStore(
         new CustomEvent("sidebarWidthChanged", { detail: width }),
       );
     },
+
+    setTheme(theme: Theme) {
+      localStorage.setItem(THEME_KEY, theme);
+      set({ theme });
+    },
+
+    setTightBorder(tightBorder: boolean) {
+      localStorage.setItem(TIGHT_BORDER_KEY, String(tightBorder));
+      set({ tightBorder });
+    },
   }),
   {
     name: StoreKey.Config,
     version: 4.3,
     partialize(state) {
-      const { sidebarWidth, ...rest } = state as ChatConfig;
+      const { theme, tightBorder, sidebarWidth, ...rest } = state as ChatConfig;
       return rest as typeof state;
     },
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
-      if (!state) return { ...currentState } as typeof currentState;
+      if (!state) {
+        return {
+          ...currentState,
+          theme: readThemeFromLocalStorage(),
+          tightBorder: readTightBorderFromLocalStorage(),
+          sidebarWidth: readSidebarWidthFromLocalStorage(),
+        } as typeof currentState;
+      }
       const models = currentState.models.slice();
       state.models.forEach((pModel) => {
         const idx = models.findIndex(
@@ -377,17 +428,13 @@ export const useAppConfig = createPersistStore(
         if (idx !== -1) models[idx] = pModel;
         else models.push(pModel);
       });
-      const storedSidebarWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-      const sidebarWidth = storedSidebarWidth
-        ? Number(storedSidebarWidth)
-        : currentState.sidebarWidth;
       return {
         ...currentState,
         ...state,
         models: models,
-        sidebarWidth: Number.isFinite(sidebarWidth)
-          ? sidebarWidth
-          : currentState.sidebarWidth,
+        theme: readThemeFromLocalStorage(),
+        tightBorder: readTightBorderFromLocalStorage(),
+        sidebarWidth: readSidebarWidthFromLocalStorage(),
       } as typeof currentState;
     },
 
@@ -462,10 +509,19 @@ export const useAppConfig = createPersistStore(
 
 if (typeof window !== "undefined") {
   useAppConfig.subscribe((state, prevState) => {
-    if (state.sidebarWidth === prevState.sidebarWidth) return;
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(state.sidebarWidth));
-    window.dispatchEvent(
-      new CustomEvent("sidebarWidthChanged", { detail: state.sidebarWidth }),
-    );
+    if (state.theme !== prevState.theme) {
+      localStorage.setItem(THEME_KEY, state.theme);
+    }
+
+    if (state.tightBorder !== prevState.tightBorder) {
+      localStorage.setItem(TIGHT_BORDER_KEY, String(state.tightBorder));
+    }
+
+    if (state.sidebarWidth !== prevState.sidebarWidth) {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(state.sidebarWidth));
+      window.dispatchEvent(
+        new CustomEvent("sidebarWidthChanged", { detail: state.sidebarWidth }),
+      );
+    }
   });
 }

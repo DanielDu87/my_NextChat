@@ -68,6 +68,33 @@ export function buildBalanceCacheKey(
   return `provider:${provider}`;
 }
 
+function isMissingCustomProviderConfigError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.includes("未找到已启用的 Custom 供应商配置");
+}
+
+function isExpectedCustomBalanceError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalizedMessage = message.toLowerCase();
+
+  return [
+    "未找到已启用的 custom 供应商配置",
+    "access token 无效",
+    "api key",
+    "401",
+    "403",
+    "无权",
+    "未授权",
+    "unauthorized",
+    "forbidden",
+    "invalid token",
+    "invalid api key",
+  ].some(
+    (pattern) =>
+      message.includes(pattern) || normalizedMessage.includes(pattern),
+  );
+}
+
 function logBalanceQueryStart(payload: Record<string, unknown>) {
   console.log("[Balance] 开始查询余额", payload);
 }
@@ -135,6 +162,13 @@ function getBalanceQueryApiKey(
   rule: CustomBalanceQueryRule,
   profile?: ActiveCustomProfile,
 ) {
+  const profileModelFetchApiKey = String(
+    profile?.modelFetchApiKey || "",
+  ).trim();
+  if (rule.mode === "ocoolai" && profileModelFetchApiKey) {
+    return profileModelFetchApiKey;
+  }
+
   const profileApiKey = String(profile?.balanceQueryApiKey || "").trim();
   if (profileApiKey) {
     return profileApiKey;
@@ -145,7 +179,10 @@ function getBalanceQueryApiKey(
   }
 
   return String(
-    profile?.apiKey || getActiveCustomProfile()?.apiKey || "",
+    profile?.apiKey ||
+      profileModelFetchApiKey ||
+      getActiveCustomProfile()?.apiKey ||
+      "",
   ).trim();
 }
 
@@ -614,10 +651,11 @@ export const useUpdateStore = createPersistStore(
     async updateUsage(
       force = false,
       provider: ServiceProvider = ServiceProvider.OpenAI,
+      profile?: BalanceAwareProfile,
     ) {
       const activeCustomProfile =
         provider === ServiceProvider.Custom
-          ? getActiveCustomProfile()
+          ? profile || getActiveCustomProfile()
           : undefined;
       const cacheKey = buildBalanceCacheKey(provider, activeCustomProfile);
       const lastUpdateUsage = get().lastUpdateUsageByKey[cacheKey] ?? 0;
@@ -691,6 +729,12 @@ export const useUpdateStore = createPersistStore(
             ok: false,
             error: errorMessage,
           });
+          if (
+            provider === ServiceProvider.Custom &&
+            isExpectedCustomBalanceError(e)
+          ) {
+            return;
+          }
           console.error(errorMessage);
         } finally {
           inflightBalanceQueries.delete(cacheKey);

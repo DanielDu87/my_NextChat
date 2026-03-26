@@ -1474,9 +1474,7 @@ export function Settings() {
               aria-label={Locale.Settings.Theme}
               value={config.theme}
               onChange={(e) => {
-                updateConfig(
-                  (config) => (config.theme = e.target.value as any as Theme),
-                );
+                config.setTheme(e.target.value as Theme);
               }}
             >
               {Object.values(Theme).map((v) => (

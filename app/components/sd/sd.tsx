@@ -141,9 +141,7 @@ export function Sd() {
                     icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
                     bordered
                     onClick={() => {
-                      config.update(
-                        (config) => (config.tightBorder = !config.tightBorder),
-                      );
+                      config.setTightBorder(!config.tightBorder);
                     }}
                   />
                 </div>

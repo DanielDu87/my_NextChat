@@ -1,6 +1,7 @@
 import {
   ChatMessage,
   ChatSession,
+  getLocalOnlyAppConfig,
   useAccessStore,
   useAppConfig,
   useChatStore,
@@ -88,8 +89,8 @@ const LocalStateGetters = {
   [StoreKey.Access]: () => getNonFunctionFileds(useAccessStore.getState()),
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
-    // 排除 sidebarWidth 和 tightBorder，不参与同步（本地UI偏好设置）
-    const { sidebarWidth, tightBorder, ...configToSync } = config as any;
+    // 排除 theme / sidebarWidth / tightBorder，不参与同步（本地 UI 偏好设置）
+    const { theme, sidebarWidth, tightBorder, ...configToSync } = config as any;
     return configToSync;
   },
   [StoreKey.ModelCache]: () =>
@@ -404,12 +405,14 @@ const MergeStates: StateMerger = {
     // 策略：
     // - 当前管理的供应商模型以本地为准，避免云端历史模型回流
     // - 其他模型保留双向合并
+    // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
     // - 其他配置字段以本地为准
     const localModels = localState.models || [];
     const remoteModels = remoteState.models || [];
     const managedProviderIds = getManagedProviderIdsFromProfiles(
       useAccessStore.getState().apiProfiles || [],
     );
+    const currentConfig = useAppConfig.getState();
 
     const modelMap = new Map<string, LLMModel>();
 
@@ -442,6 +445,9 @@ const MergeStates: StateMerger = {
       ...remoteState,
       ...localState,
       models: mergedModels,
+      theme: currentConfig.theme,
+      sidebarWidth: currentConfig.sidebarWidth,
+      tightBorder: currentConfig.tightBorder,
       lastUpdate: markMergedUpdateTime(
         Number((localState as any).lastUpdate),
         Number((remoteState as any).lastUpdate),
@@ -594,6 +600,14 @@ export function setLocalStoreState<T extends keyof AppState>(
   key: T,
   state: AppState[T],
 ) {
+  if (key === StoreKey.Config) {
+    LocalStateSetters[key]({
+      ...(state as AppState[typeof StoreKey.Config]),
+      ...getLocalOnlyAppConfig(),
+    } as AppState[T]);
+    return;
+  }
+
   LocalStateSetters[key](state);
 }
 

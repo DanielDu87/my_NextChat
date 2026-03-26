@@ -115,7 +115,10 @@ import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
-import { buildBalanceCacheKey } from "../store/update";
+import {
+  buildBalanceCacheKey,
+  type BalanceAwareProfile,
+} from "../store/update";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
@@ -395,6 +398,7 @@ function ChatProviderBalance(props: {
   refreshSignal: string;
   sessionRefreshSignal: string;
   balanceCacheKey: string;
+  profile?: BalanceAwareProfile;
 }) {
   const updateUsage = useUpdateStore((state) => state.updateUsage);
   const setBalanceSnapshot = useUpdateStore(
@@ -503,12 +507,18 @@ function ChatProviderBalance(props: {
 
       setLoadingUsage(true);
       try {
-        await updateUsage(force, props.providerName);
+        await updateUsage(force, props.providerName, props.profile);
       } finally {
         setLoadingUsage(false);
       }
     },
-    [props.autoModeEnabled, props.providerName, showUsage, updateUsage],
+    [
+      props.autoModeEnabled,
+      props.profile,
+      props.providerName,
+      showUsage,
+      updateUsage,
+    ],
   );
 
   useEffect(() => {
@@ -1116,8 +1126,7 @@ export function ChatActions(props: {
     const themes = [Theme.Auto, Theme.Light, Theme.Dark];
     const themeIndex = themes.indexOf(theme);
     const nextIndex = (themeIndex + 1) % themes.length;
-    const nextTheme = themes[nextIndex];
-    config.update((config) => (config.theme = nextTheme));
+    config.setTheme(themes[nextIndex]);
   }
 
   // stop all responses
@@ -3438,9 +3447,7 @@ function _Chat() {
                   title={Locale.Chat.Actions.FullScreen}
                   aria={Locale.Chat.Actions.FullScreen}
                   onClick={() => {
-                    config.update(
-                      (config) => (config.tightBorder = !config.tightBorder),
-                    );
+                    config.setTightBorder(!config.tightBorder);
                   }}
                 />
               </div>
@@ -3463,6 +3470,7 @@ function _Chat() {
               refreshSignal={balanceRefreshSignal}
               sessionRefreshSignal={safeSession.id}
               balanceCacheKey={currentBalanceCacheKey}
+              profile={currentProfile as BalanceAwareProfile | undefined}
             />
             <div
               className={styles["chat-body"]}

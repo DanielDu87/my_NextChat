@@ -310,13 +310,11 @@ export function useDragSideBar() {
 
   const toggleSideBar = () => {
     const currentWidth = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
-    config.update((config) => {
-      if (currentWidth < MIN_SIDEBAR_WIDTH) {
-        config.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
-      } else {
-        config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
-      }
-    });
+    config.setSidebarWidth(
+      currentWidth < MIN_SIDEBAR_WIDTH
+        ? DEFAULT_SIDEBAR_WIDTH
+        : NARROW_SIDEBAR_WIDTH,
+    );
   };
 
   const onDragStart = (e: MouseEvent) => {
@@ -332,13 +330,9 @@ export function useDragSideBar() {
       lastUpdateTime.current = Date.now();
       const d = e.clientX - startX.current;
       const nextWidth = limit(startDragWidth.current + d);
-      config.update((config) => {
-        if (nextWidth < MIN_SIDEBAR_WIDTH) {
-          config.sidebarWidth = NARROW_SIDEBAR_WIDTH;
-        } else {
-          config.sidebarWidth = nextWidth;
-        }
-      });
+      config.setSidebarWidth(
+        nextWidth < MIN_SIDEBAR_WIDTH ? NARROW_SIDEBAR_WIDTH : nextWidth,
+      );
     };
 
     const handleDragEnd = () => {
@@ -637,9 +631,7 @@ export function SideBar(props: { className?: string }) {
                 icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
                 shadow
                 onClick={() => {
-                  config.update((config) => {
-                    config.tightBorder = !config.tightBorder;
-                  });
+                  config.setTightBorder(!config.tightBorder);
                 }}
               />
             </div>
@@ -666,9 +658,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.update((config) => {
-                          config.theme = Theme.Light;
-                        });
+                        config.setTheme(Theme.Light);
                         setShowThemeSelector(false);
                       }}
                     >
@@ -678,9 +668,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.update((config) => {
-                          config.theme = Theme.Dark;
-                        });
+                        config.setTheme(Theme.Dark);
                         setShowThemeSelector(false);
                       }}
                     >
@@ -690,9 +678,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.update((config) => {
-                          config.theme = Theme.Auto;
-                        });
+                        config.setTheme(Theme.Auto);
                         setShowThemeSelector(false);
                       }}
                     >

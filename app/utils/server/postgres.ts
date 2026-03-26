@@ -298,6 +298,34 @@ export async function ensureSyncStorageSchema() {
         )
       `);
         await client.query(`
+        alter table app_settings
+        add column if not exists ui_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists chat_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists model_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists plugin_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists sync_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists security_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
+        alter table app_settings
+        add column if not exists extra_settings jsonb not null default '{}'::jsonb
+      `);
+        await client.query(`
         create table if not exists conversations (
           id uuid primary key default generate_uuid_v4(),
           user_id uuid not null references app_users(id) on delete cascade,
