@@ -116,9 +116,9 @@ export const DEFAULT_CONFIG = {
     max_tokens: 4000,
     presence_penalty: 0,
     frequency_penalty: 0,
-    sendMemory: true,
-    historyMessageCount: 4,
-    compressMessageLengthThreshold: 1000,
+    sendMemory: false,
+    historyMessageCount: 6,
+    compressMessageLengthThreshold: 12000,
     compressModel: "",
     compressProviderName: "",
     enableInjectSystemPrompts: true,
@@ -127,7 +127,7 @@ export const DEFAULT_CONFIG = {
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
     seconds: "4",
-    webSearch: false,
+    webSearch: true,
     webSearchContextSize: "",
     reasoningEffort: "",
     reasoningMaxTokens: 0,
@@ -404,7 +404,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.3,
+    version: 4.4,
     partialize(state) {
       const { theme, tightBorder, sidebarWidth, ...rest } = state as ChatConfig;
       return rest as typeof state;
@@ -442,9 +442,9 @@ export const useAppConfig = createPersistStore(
       const state = persistedState as ChatConfig;
 
       if (version < 3.4) {
-        state.modelConfig.sendMemory = true;
-        state.modelConfig.historyMessageCount = 4;
-        state.modelConfig.compressMessageLengthThreshold = 1000;
+        state.modelConfig.sendMemory = false;
+        state.modelConfig.historyMessageCount = 6;
+        state.modelConfig.compressMessageLengthThreshold = 12000;
         state.modelConfig.frequency_penalty = 0;
         state.modelConfig.top_p = 1;
         state.modelConfig.template = DEFAULT_INPUT_TEMPLATE;
@@ -500,6 +500,10 @@ export const useAppConfig = createPersistStore(
               model?.publishedAtNote || LEGACY_UNKNOWN_MODEL_PUBLISHED_AT_NOTE,
           };
         });
+      }
+
+      if (version < 4.4) {
+        state.modelConfig.webSearch = true;
       }
 
       return state as any;

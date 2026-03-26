@@ -2933,9 +2933,9 @@ export const useChatStore = createPersistStore(
           const newSession = createEmptySession();
           newSession.topic = oldSession.topic;
           newSession.messages = [...oldSession.messages];
-          newSession.mask.modelConfig.sendMemory = true;
-          newSession.mask.modelConfig.historyMessageCount = 4;
-          newSession.mask.modelConfig.compressMessageLengthThreshold = 1000;
+          newSession.mask.modelConfig.sendMemory = false;
+          newSession.mask.modelConfig.historyMessageCount = 6;
+          newSession.mask.modelConfig.compressMessageLengthThreshold = 12000;
           newState.sessions.push(newSession);
         }
       }

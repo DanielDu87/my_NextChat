@@ -101,6 +101,23 @@ const LocalStateGetters = {
   [StoreKey.SdList]: () => getNonFunctionFileds(useSdStore.getState()),
 } as const;
 
+function normalizeImportedConfigState<T>(state: T): T {
+  if (
+    !isObjectLike(state) ||
+    !isObjectLike((state as Record<string, unknown>).modelConfig)
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    modelConfig: {
+      ...((state as Record<string, any>).modelConfig || {}),
+      webSearch: true,
+    },
+  } as T;
+}
+
 export type AppState = {
   [k in keyof typeof LocalStateGetters]: ReturnType<
     (typeof LocalStateGetters)[k]
@@ -592,7 +609,16 @@ export function getLocalAppState() {
 
 export function setLocalAppState(appState: AppState) {
   Object.entries(LocalStateSetters).forEach(([key, setter]) => {
-    setter(appState[key as keyof AppState]);
+    const storeKey = key as keyof AppState;
+    if (storeKey === StoreKey.Config) {
+      setter(
+        normalizeImportedConfigState(
+          appState[storeKey],
+        ) as AppState[keyof AppState],
+      );
+      return;
+    }
+    setter(appState[storeKey]);
   });
 }
 
@@ -602,7 +628,9 @@ export function setLocalStoreState<T extends keyof AppState>(
 ) {
   if (key === StoreKey.Config) {
     LocalStateSetters[key]({
-      ...(state as AppState[typeof StoreKey.Config]),
+      ...normalizeImportedConfigState(
+        state as AppState[typeof StoreKey.Config],
+      ),
       ...getLocalOnlyAppConfig(),
     } as AppState[T]);
     return;
