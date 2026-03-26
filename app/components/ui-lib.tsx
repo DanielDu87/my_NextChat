@@ -61,6 +61,43 @@ export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
   right: SelectorItemBase<T>,
 ) {
+  const normalizedText = (item: SelectorItemBase<T>) =>
+    [item.sortKey, item.title, String(item.value)].join(" ").toLowerCase();
+  const isAihubMixGroup = (item: SelectorItemBase<T>) =>
+    String(item.group || "")
+      .trim()
+      .toLowerCase() === "aihubmix";
+  const isAihubMixRouter = (item: SelectorItemBase<T>) =>
+    normalizedText(item).includes("aihubmix-router");
+  const isOpenAIGroup = (item: SelectorItemBase<T>) =>
+    ["openai", "gpt"].includes(
+      String(item.group || "")
+        .trim()
+        .toLowerCase(),
+    );
+  const isDeprioritizedOpenAIModel = (item: SelectorItemBase<T>) =>
+    ["gpt-audio-1.5", "gpt-audio-mini", "gpt-audio", "gpt-5.4-pro"].some(
+      (name) => normalizedText(item).includes(name),
+    );
+
+  if (isAihubMixGroup(left) && isAihubMixGroup(right)) {
+    const leftIsRouter = isAihubMixRouter(left);
+    const rightIsRouter = isAihubMixRouter(right);
+
+    if (leftIsRouter !== rightIsRouter) {
+      return leftIsRouter ? -1 : 1;
+    }
+  }
+
+  if (isOpenAIGroup(left) && isOpenAIGroup(right)) {
+    const leftIsDeprioritized = isDeprioritizedOpenAIModel(left);
+    const rightIsDeprioritized = isDeprioritizedOpenAIModel(right);
+
+    if (leftIsDeprioritized !== rightIsDeprioritized) {
+      return leftIsDeprioritized ? 1 : -1;
+    }
+  }
+
   return comparePublishedAt(
     {
       name: left.sortKey || left.title,
@@ -641,6 +678,7 @@ export function Selector<T>(props: {
     "Google",
     "DeepSeek",
     "xAI",
+    "AihubMix",
     "Alibaba",
     // 以下按 aihubmix developer_id 顺序补充
     "ByteDance",
@@ -759,6 +797,7 @@ export function Selector<T>(props: {
   const groupFilterOptions = ["All", ...availableGroups];
   const getGroupFilterLabel = (group: string) => {
     if (group === "All") return "全部模型商";
+    if (group === "AihubMix") return "AihubMix";
     if (group === "OpenAI" || group === "GPT") return "OpenAI";
     if (group === "Anthropic" || group === "Claude") return "Claude";
     if (group === "Google" || group === "Gemini") return "Gemini";

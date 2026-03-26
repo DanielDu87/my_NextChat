@@ -302,6 +302,10 @@ function matchModelSeries(
   const providerText = `${model.provider?.providerName || ""}`.toLowerCase();
   const combinedText = `${nameText} ${vendorText} ${providerText}`;
 
+  if (nameText.includes("aihubmix")) {
+    return undefined;
+  }
+
   if (
     vendorText.includes("bytedance") ||
     vendorText.includes("doubao") ||
@@ -669,6 +673,13 @@ function isEligibleSeriesModel(
   series: AutoModelSeriesKey,
 ) {
   if (!isModelUsable(model)) return false;
+  if (
+    `${model.name} ${model.displayName || ""}`
+      .toLowerCase()
+      .includes("aihubmix")
+  ) {
+    return false;
+  }
   if (matchModelSeries(model) !== series) return false;
   if (!isAutoModelNameAllowed(model)) return false;
   if (series === "gpt" && !parseOfficialGptModel(model.name)) return false;

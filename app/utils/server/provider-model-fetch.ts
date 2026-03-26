@@ -278,6 +278,10 @@ function inferVendorFromModelName(
 ): { name: string; icon?: string } | null {
   const lowerName = modelName.toLowerCase();
 
+  if (lowerName.includes("aihubmix")) {
+    return { name: "AihubMix", icon: "aihubmix" };
+  }
+
   if (
     lowerName.startsWith("gpt-") ||
     lowerName.startsWith("chatgpt-") ||
@@ -371,6 +375,9 @@ function mapModels(
     const modelName =
       model.id || model.name || model.model_id || model.model_name;
     const normalized = normalizeModelClassification(model);
+    const isAiHubMixBrandedModel = String(modelName || "")
+      .toLowerCase()
+      .includes("aihubmix");
 
     let vendor: { id: number; name: string; icon?: string } | undefined;
     if (model.vendor_id !== undefined && vendorsMap) {
@@ -400,6 +407,14 @@ function mapModels(
           icon: inferred.icon,
         };
       }
+    }
+
+    if (isAiHubMixBrandedModel) {
+      vendor = {
+        id: -2,
+        name: "AihubMix",
+        icon: "aihubmix",
+      };
     }
 
     return applyModelPublishedAt({

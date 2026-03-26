@@ -118,6 +118,10 @@ function inferVendorFromModelName(
 ): { name: string; icon?: string } | null {
   const lowerName = modelName.toLowerCase();
 
+  if (lowerName.includes("aihubmix")) {
+    return { name: "AihubMix", icon: "aihubmix" };
+  }
+
   // OpenAI
   if (
     lowerName.startsWith("gpt-") ||
@@ -398,6 +402,9 @@ function mapModels(
   return models.map((m: any) => {
     const modelName = m.id || m.name || m.model_id || m.model_name;
     const normalizedCapabilities = normalizeAiHubMixModelMetadata(m);
+    const isAiHubMixBrandedModel = String(modelName || "")
+      .toLowerCase()
+      .includes("aihubmix");
 
     // 提取供应商信息
     let vendor: { id: number; name: string; icon?: string } | undefined;
@@ -434,6 +441,14 @@ function mapModels(
           icon: inferred.icon,
         };
       }
+    }
+
+    if (isAiHubMixBrandedModel) {
+      vendor = {
+        id: -2,
+        name: "AihubMix",
+        icon: "aihubmix",
+      };
     }
 
     return applyModelPublishedAt({

@@ -186,7 +186,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   yuto: "/provider-icons/yuto-official.png",
 
   // Aihubmix
-  aihubmix: "/provider-icons/aihubmix.png",
+  aihubmix: "/provider-icons/aihubmix-bg.svg",
 
   // 其他/未分类
   other: "/provider-icons/openai.png",

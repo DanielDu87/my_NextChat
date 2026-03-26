@@ -44,6 +44,7 @@ export function ModelConfigList(props: {
       "Google",
       "DeepSeek",
       "xAI",
+      "AihubMix",
       "Alibaba",
       // 以下按 aihubmix developer_id 顺序补充
       "ByteDance",

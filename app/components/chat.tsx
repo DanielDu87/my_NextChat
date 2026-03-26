@@ -1014,7 +1014,18 @@ export function ChatActions(props: {
     modelName: string,
     providerName?: string,
     vendorName?: string,
+    displayName?: string,
   ) => {
+    const normalizedModelName = modelName.toLowerCase();
+    const normalizedDisplayName = String(displayName ?? "").toLowerCase();
+
+    if (
+      normalizedModelName.includes("aihubmix") ||
+      normalizedDisplayName.includes("aihubmix")
+    ) {
+      return "AihubMix";
+    }
+
     if (vendorName?.trim()) {
       return vendorName.trim();
     }
@@ -1034,11 +1045,6 @@ export function ChatActions(props: {
       }
       return null;
     };
-
-    // 移除硬编码的 aihubmix 检查，让模型按实际 vendor.name 分类
-    // if (fullName.includes("aihubmix")) {
-    //   return "AiHubMix";
-    // }
 
     return (
       groupByKeywords(
@@ -2104,7 +2110,18 @@ function _Chat() {
     modelName: string,
     providerName?: string,
     vendorName?: string,
+    displayName?: string,
   ) => {
+    const normalizedModelName = modelName.toLowerCase();
+    const normalizedDisplayName = String(displayName ?? "").toLowerCase();
+
+    if (
+      normalizedModelName.includes("aihubmix") ||
+      normalizedDisplayName.includes("aihubmix")
+    ) {
+      return "AihubMix";
+    }
+
     if (vendorName?.trim()) {
       return vendorName.trim();
     }
@@ -2124,11 +2141,6 @@ function _Chat() {
       }
       return null;
     };
-
-    // 移除硬编码的 aihubmix 检查，让模型按实际 vendor.name 分类
-    // if (fullName.includes("aihubmix")) {
-    //   return "AiHubMix";
-    // }
 
     return (
       groupByKeywords(
@@ -4077,6 +4089,7 @@ function _Chat() {
                   m.name,
                   m?.provider?.providerName,
                   m?.vendor?.name,
+                  m.displayName,
                 ),
             meta: {
               category: m.category,
@@ -4113,7 +4126,7 @@ function _Chat() {
             },
           ]}
           showSearch={true}
-          extraGroups={["自定义模型"]}
+          extraGroups={["AihubMix", "自定义模型"]}
           onClose={() => {
             setShowAutoModelSelector(false);
             setShowModelSelector(false);

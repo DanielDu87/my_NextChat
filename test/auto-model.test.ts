@@ -217,6 +217,41 @@ describe("buildAutoModelCandidates", () => {
     ]);
   });
 
+  it("GPT 自动模式排除名称包含 aihubmix 的模型", () => {
+    const models: LLMModel[] = [
+      createModel("aihubmix-router", "custom_aihubmix", 20260320, {
+        vendor: { id: -2, name: "AihubMix" },
+      }),
+      createModel("aihubmix-gpt-5.4", "custom_aihubmix", 20260321, {
+        vendor: { id: -2, name: "AihubMix" },
+      }),
+      createModel("gpt-5.4", "custom_aihubmix", 20260318, {
+        vendor: { id: 12, name: "OpenAI" },
+      }),
+      createModel("gpt-5.4-mini", "custom_aihubmix", 20260318, {
+        vendor: { id: 12, name: "OpenAI" },
+      }),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "AihubMix",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://aihubmix.com",
+        },
+      ],
+      ["gpt"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual([
+      "gpt-5.4",
+      "gpt-5.4-mini",
+    ]);
+  });
+
   it("GPT 自动模式在最新版本没有 main 时，回退到同版本 mini 和 nano", () => {
     const models: LLMModel[] = [
       createModel("gpt-5.3", "custom_aihubmix", 20260319),
