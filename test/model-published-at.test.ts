@@ -116,6 +116,17 @@ describe("model publishedAt", () => {
     });
   });
 
+  test("should resolve provider-prefixed openai aliases", async () => {
+    expect(
+      resolveModelPublishedAt({
+        name: "aistudio_gpt-4.1-mini",
+      }),
+    ).toMatchObject({
+      publishedAt: 20250414,
+      publishedAtSource: "family",
+    });
+  });
+
   test("should resolve official openai tool and realtime model aliases", async () => {
     expect(
       resolveModelPublishedAt({

@@ -4,7 +4,10 @@ import {
   pgQuery,
   withPgTransaction,
 } from "./postgres";
-import { encryptSyncSecretPayload } from "./sync-secrets";
+import {
+  decryptSyncSecretPayload,
+  encryptSyncSecretPayload,
+} from "./sync-secrets";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 
 type QueryClient = {
@@ -33,6 +36,7 @@ type AccessState = {
   apiProfiles?: AccessProfile[];
   [key: string]: unknown;
 };
+const ENCRYPTED_SECRET_PLACEHOLDER = "__encrypted__";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -100,34 +104,40 @@ function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
   }> = [];
 
   if (profile.apiKey) {
-    rows.push({
-      keyName: "default",
-      keyScope: "api",
-      apiKeyGroup: null,
-      secret: profile.apiKey,
-    });
+    if (profile.apiKey !== ENCRYPTED_SECRET_PLACEHOLDER) {
+      rows.push({
+        keyName: "default",
+        keyScope: "api",
+        apiKeyGroup: null,
+        secret: profile.apiKey,
+      });
+    }
   }
 
   if (profile.modelFetchApiKey) {
-    rows.push({
-      keyName: "model-fetch",
-      keyScope: "model_fetch",
-      apiKeyGroup: null,
-      secret: profile.modelFetchApiKey,
-    });
+    if (profile.modelFetchApiKey !== ENCRYPTED_SECRET_PLACEHOLDER) {
+      rows.push({
+        keyName: "model-fetch",
+        keyScope: "model_fetch",
+        apiKeyGroup: null,
+        secret: profile.modelFetchApiKey,
+      });
+    }
   }
 
   if (profile.balanceQueryApiKey) {
-    rows.push({
-      keyName: "balance-query",
-      keyScope: "balance_query",
-      apiKeyGroup: null,
-      secret: profile.balanceQueryApiKey,
-    });
+    if (profile.balanceQueryApiKey !== ENCRYPTED_SECRET_PLACEHOLDER) {
+      rows.push({
+        keyName: "balance-query",
+        keyScope: "balance_query",
+        apiKeyGroup: null,
+        secret: profile.balanceQueryApiKey,
+      });
+    }
   }
 
   Object.entries(profile.apiKeyGroups || {}).forEach(([groupName, value]) => {
-    if (!value) return;
+    if (!value || value === ENCRYPTED_SECRET_PLACEHOLDER) return;
     rows.push({
       keyName: `group:${groupName}`,
       keyScope: "group",
@@ -338,20 +348,26 @@ export async function getProviderProfilesForAccessState(
       existing.balanceQueryField = requestConfig.balanceQueryField;
     }
 
-    if (row.key_name === "default" && row.encrypted_secret) {
-      existing.apiKey = "__encrypted__";
-    } else if (row.key_name === "model-fetch" && row.encrypted_secret) {
-      existing.modelFetchApiKey = "__encrypted__";
-    } else if (row.key_name === "balance-query" && row.encrypted_secret) {
-      existing.balanceQueryApiKey = "__encrypted__";
+    const decryptedSecret = row.encrypted_secret
+      ? decryptSyncSecretPayload(row.encrypted_secret)
+      : null;
+    const secretValue =
+      typeof decryptedSecret === "string" ? decryptedSecret : "";
+
+    if (row.key_name === "default" && secretValue) {
+      existing.apiKey = secretValue;
+    } else if (row.key_name === "model-fetch" && secretValue) {
+      existing.modelFetchApiKey = secretValue;
+    } else if (row.key_name === "balance-query" && secretValue) {
+      existing.balanceQueryApiKey = secretValue;
     } else if (
       row.key_name?.startsWith("group:") &&
       row.api_key_group &&
-      row.encrypted_secret
+      secretValue
     ) {
       existing.apiKeyGroups = {
         ...(existing.apiKeyGroups || {}),
-        [row.api_key_group]: "__encrypted__",
+        [row.api_key_group]: secretValue,
       };
     }
 

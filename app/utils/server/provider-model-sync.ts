@@ -8,10 +8,7 @@ import {
   modelsToCustomModelsString,
   type SyncedLLMModel,
 } from "@/app/utils/server/provider-model-fetch";
-import {
-  getTodayPublishedAt,
-  normalizePublishedAt,
-} from "@/app/utils/model-published-at";
+import { normalizePublishedAt } from "@/app/utils/model-published-at";
 import {
   type ModelCatalogUpsertRow,
   upsertModelCatalogRows,
@@ -161,10 +158,11 @@ function mergeProviderModels(
             : undefined;
       }
     } else if (!existing && !nextPublishedAt) {
-      nextModel.publishedAt = getTodayPublishedAt();
+      nextModel.publishedAt = LEGACY_UNKNOWN_MODEL_PUBLISHED_AT;
       nextModel.publishedAtSource = "synced_at";
       nextModel.publishedAtNote =
-        nextModel.publishedAtNote || "缺少明确发布日期时按首次同步日期兜底";
+        nextModel.publishedAtNote ||
+        "缺少明确发布日期的模型统一回退到 2026-01-01";
     }
 
     mergedModelMap.set(`${model.name}@${providerId}`, nextModel);

@@ -52,6 +52,8 @@ function safeLocalStorage(): {
 const SYNC_USER_ID_STORAGE_KEY = "nextchat_sync_user_id";
 const SYNC_USER_ID_HEADER = "x-nextchat-user-id";
 const localStorage = safeLocalStorage();
+const FIXED_SYNC_USER_ID =
+  process.env.NEXT_PUBLIC_DEFAULT_SYNC_USER_ID?.trim() || "";
 
 function createSyncUserId() {
   if (
@@ -65,6 +67,11 @@ function createSyncUserId() {
 }
 
 export function getOrCreateClientSyncUserId() {
+  if (FIXED_SYNC_USER_ID) {
+    localStorage.setItem(SYNC_USER_ID_STORAGE_KEY, FIXED_SYNC_USER_ID);
+    return FIXED_SYNC_USER_ID;
+  }
+
   const existing = localStorage.getItem(SYNC_USER_ID_STORAGE_KEY)?.trim();
   if (existing) {
     return existing;

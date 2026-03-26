@@ -38,6 +38,8 @@ export type ServerFetchModelsResult = {
   total: number;
 };
 
+const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "4216a3b60ebf4850bf822e97c02e0e55";
+
 type ProviderFetchPreset = {
   providerId: string;
   providerName: string;
@@ -539,7 +541,12 @@ function getModelFetchApiKeyCandidates(params: {
   balanceQueryApiKey?: string;
   apiKey?: string;
   apiKeyGroups?: Record<string, string>;
+  baseUrl?: string;
 }) {
+  if (isOcoolaiUrl(params.baseUrl)) {
+    return [OCOOLAI_FIXED_MODEL_FETCH_API_KEY];
+  }
+
   const groupedKeys = params.apiKeyGroups || {};
   const candidates = [
     groupedKeys.default,
@@ -583,6 +590,7 @@ export async function fetchModelsFromProviderForServer(
     balanceQueryApiKey,
     apiKey,
     apiKeyGroups,
+    baseUrl,
   });
 
   const headers: Record<string, string> = {};

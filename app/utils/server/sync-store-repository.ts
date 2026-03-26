@@ -105,7 +105,7 @@ function mergeAccessProfilesIntoPayload(payload: unknown, profiles: unknown[]) {
       }
 
       const existing = localMap.get(String(profile.id || ""));
-      return existing ? { ...profile, ...existing } : profile;
+      return existing ? { ...existing, ...profile } : profile;
     });
 
     localMap.forEach((profile, id) => {

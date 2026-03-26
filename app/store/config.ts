@@ -16,14 +16,13 @@ import {
 } from "../constant";
 import { createPersistStore } from "../utils/store";
 import { safeLocalStorage } from "../utils/safe-local-storage";
-import {
-  getTodayPublishedAt,
-  normalizePublishedAt,
-} from "../utils/model-published-at";
+import { normalizePublishedAt } from "../utils/model-published-at";
 import type { Voice } from "rt-client";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
 const LEGACY_UNKNOWN_MODEL_CUTOFF = 20260325;
+const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT_NOTE =
+  "缺少明确发布日期的模型统一回退到 2026-01-01";
 
 export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
 export type TTSModelType = (typeof DEFAULT_TTS_MODELS)[number];
@@ -313,10 +312,11 @@ export const useAppConfig = createPersistStore(
                 : undefined;
           }
         } else if (!existing && !nextPublishedAt) {
-          model.publishedAt = getTodayPublishedAt();
+          model.publishedAt = LEGACY_UNKNOWN_MODEL_PUBLISHED_AT;
           model.publishedAtSource = "synced_at";
           if (!model.publishedAtNote) {
-            model.publishedAtNote = "缺少明确发布日期时按首次同步日期兜底";
+            model.publishedAtNote =
+              "缺少明确发布日期的模型统一回退到 2026-01-01";
           }
         }
         modelMap[`${model.name}@${model?.provider?.id}`] = model;
@@ -360,7 +360,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.2,
+    version: 4.3,
     partialize(state) {
       const { sidebarWidth, ...rest } = state as ChatConfig;
       return rest as typeof state;
@@ -437,6 +437,22 @@ export const useAppConfig = createPersistStore(
 
       if (version < 4.2) {
         state.autoModelSeries = [];
+      }
+
+      if (version < 4.3 && Array.isArray(state.models)) {
+        state.models = state.models.map((model) => {
+          if (normalizePublishedAt(model?.publishedAt)) {
+            return model;
+          }
+
+          return {
+            ...model,
+            publishedAt: LEGACY_UNKNOWN_MODEL_PUBLISHED_AT,
+            publishedAtSource: "synced_at",
+            publishedAtNote:
+              model?.publishedAtNote || LEGACY_UNKNOWN_MODEL_PUBLISHED_AT_NOTE,
+          };
+        });
       }
 
       return state as any;

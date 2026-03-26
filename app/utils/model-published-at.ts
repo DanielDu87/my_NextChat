@@ -1117,7 +1117,17 @@ export function resolvePublishedAtFromName(name?: string): PublishedAtInfo {
 
 export function resolvePublishedAtFromRules(name?: string): PublishedAtInfo {
   if (!name) return {};
-  const matched = PUBLISHED_AT_RULES.find((rule) => rule.pattern.test(name));
+  const candidates = [name];
+  const providerPrefixedAlias = name.match(/^(?:aistudio)[-_.]+(.+)$/i)?.[1];
+  if (providerPrefixedAlias) {
+    candidates.push(providerPrefixedAlias);
+  }
+
+  const matched = candidates
+    .map((candidate) =>
+      PUBLISHED_AT_RULES.find((rule) => rule.pattern.test(candidate)),
+    )
+    .find(Boolean);
   if (!matched) return {};
   return {
     publishedAt: matched.publishedAt,

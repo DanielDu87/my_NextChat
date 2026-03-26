@@ -289,6 +289,61 @@ describe("sync store repository helpers", () => {
     );
   });
 
+  test("getStoreSnapshot should keep provider secrets when app settings has empty apiProfiles", async () => {
+    const { getStoreSnapshot } = await import(
+      "../app/utils/server/sync-store-repository"
+    );
+
+    pgQueryMock.mockImplementationOnce(async () => ({
+      rows: [],
+    }));
+    getAppSettingsStoreMock.mockImplementationOnce(async () => ({
+      state: {
+        customModels: "abc",
+        apiProfiles: [
+          {
+            id: "p1",
+            name: "Main",
+            provider: "Custom",
+            baseUrl: "https://local.example.com",
+            apiKey: "",
+            enabled: true,
+          },
+        ],
+      },
+      version: 4,
+    }) as any);
+    getProviderProfilesForAccessStateMock.mockImplementationOnce(async () => [
+      {
+        id: "p1",
+        name: "Main",
+        provider: "Custom",
+        baseUrl: "https://remote.example.com",
+        apiKey: "sk-remote",
+        enabled: true,
+      },
+    ] as any);
+
+    const snapshot = await getStoreSnapshot("access-control");
+
+    expect(snapshot).toEqual({
+      state: {
+        customModels: "abc",
+        apiProfiles: [
+          {
+            id: "p1",
+            name: "Main",
+            provider: "Custom",
+            baseUrl: "https://remote.example.com",
+            apiKey: "sk-remote",
+            enabled: true,
+          },
+        ],
+      },
+      version: 4,
+    });
+  });
+
   test("getChatIndexSnapshot should not query removed legacy tables", async () => {
     const { getChatIndexSnapshot } = await import(
       "../app/utils/server/sync-store-repository"

@@ -62,7 +62,7 @@ export function encryptSyncSecretPayload(payload: unknown) {
   return Buffer.concat([iv, authTag, encrypted]).toString("base64");
 }
 
-function decryptSecretPayload(ciphertext: string) {
+export function decryptSyncSecretPayload(ciphertext: string) {
   const input = Buffer.from(ciphertext, "base64");
   const iv = input.subarray(0, IV_LENGTH);
   const authTag = input.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
@@ -116,5 +116,5 @@ export async function getEncryptedSyncSecret<T = unknown>(params: {
     return null;
   }
 
-  return decryptSecretPayload(value) as T;
+  return decryptSyncSecretPayload(value) as T;
 }

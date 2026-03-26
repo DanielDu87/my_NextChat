@@ -9,6 +9,7 @@ const { ServiceProvider } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 const { applyModelPublishedAt } = modelPublishedAtUtils;
+const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "4216a3b60ebf4850bf822e97c02e0e55";
 
 function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
   const normalizedGroup = String(groupName || "default")
@@ -40,6 +41,7 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
 
 function getModelFetchApiKeyCandidates(params: {
   profile?: {
+    baseUrl?: string;
     modelFetchApiKey?: string;
     balanceQueryApiKey?: string;
     apiKey?: string;
@@ -50,6 +52,9 @@ function getModelFetchApiKeyCandidates(params: {
 }) {
   const profile = params.profile;
   const groupedKeys = params.apiKeyGroups || profile?.apiKeyGroups || {};
+  if (profile?.baseUrl && isOcoolaiUrl(profile.baseUrl)) {
+    return [OCOOLAI_FIXED_MODEL_FETCH_API_KEY];
+  }
   const candidates = [
     profile?.modelFetchApiKey,
     groupedKeys.default,

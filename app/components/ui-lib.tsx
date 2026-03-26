@@ -30,6 +30,51 @@ import { Avatar } from "./emoji";
 import clsx from "clsx";
 import { comparePublishedAt } from "../utils/model-published-at";
 
+type SelectorItemMeta = {
+  category?: string;
+  categorySource?: 0 | 1;
+  type?: string;
+  types?: string[];
+  features?: string[];
+  capabilities?: string[];
+  categories?: string[];
+  vendorName?: string;
+};
+
+type SelectorItemBase<T> = {
+  title: string;
+  subTitle?: string;
+  value: T;
+  disable?: boolean;
+  group?: string;
+  order?: number;
+  publishedAt?: number;
+  sortKey?: string;
+  rightAction?: {
+    text: string;
+    onClick: (value: T) => void;
+  };
+  meta?: SelectorItemMeta;
+};
+
+export function compareSelectorItems<T>(
+  left: SelectorItemBase<T>,
+  right: SelectorItemBase<T>,
+) {
+  return comparePublishedAt(
+    {
+      name: left.sortKey || left.title,
+      publishedAt: left.publishedAt,
+      order: left.order,
+    },
+    {
+      name: right.sortKey || right.title,
+      publishedAt: right.publishedAt,
+      order: right.order,
+    },
+  );
+}
+
 export function Popover(props: {
   children: JSX.Element;
   content: JSX.Element;
@@ -518,29 +563,7 @@ export function showImageModal(
 }
 
 export function Selector<T>(props: {
-  items: Array<{
-    title: string;
-    subTitle?: string;
-    value: T;
-    disable?: boolean;
-    group?: string;
-    order?: number;
-    publishedAt?: number;
-    rightAction?: {
-      text: string;
-      onClick: (value: T) => void;
-    };
-    meta?: {
-      category?: string;
-      categorySource?: 0 | 1;
-      type?: string;
-      types?: string[];
-      features?: string[];
-      capabilities?: string[];
-      categories?: string[];
-      vendorName?: string;
-    };
-  }>;
+  items: Array<SelectorItemBase<T>>;
   defaultSelectedValue?: T[] | T;
   onSelection?: (selection: T[]) => void;
   onClose?: () => void;
@@ -550,29 +573,7 @@ export function Selector<T>(props: {
   quickFilters?: Array<{
     key: string;
     label: string;
-    match: (item: {
-      title: string;
-      subTitle?: string;
-      value: T;
-      disable?: boolean;
-      group?: string;
-      order?: number;
-      publishedAt?: number;
-      rightAction?: {
-        text: string;
-        onClick: (value: T) => void;
-      };
-      meta?: {
-        category?: string;
-        categorySource?: 0 | 1;
-        type?: string;
-        types?: string[];
-        features?: string[];
-        capabilities?: string[];
-        categories?: string[];
-        vendorName?: string;
-      };
-    }) => boolean;
+    match: (item: SelectorItemBase<T>) => boolean;
   }>;
   extraGroups?: string[];
   defaultGroup?: string;
@@ -880,12 +881,7 @@ export function Selector<T>(props: {
     sortedGroupOrder.forEach((groupKey) => {
       const items = (buckets.get(groupKey) ?? [])
         .slice()
-        .sort((a, b) =>
-          comparePublishedAt(
-            { name: a.title, publishedAt: a.publishedAt, order: a.order },
-            { name: b.title, publishedAt: b.publishedAt, order: b.order },
-          ),
-        );
+        .sort(compareSelectorItems);
       const groupLabel = groupKey === "__default__" ? "" : groupKey;
 
       if (groupLabel) {

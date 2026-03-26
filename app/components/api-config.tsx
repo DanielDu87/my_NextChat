@@ -50,6 +50,7 @@ import {
   parseStoreStatePayload,
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
+  type SyncStoreKey,
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
@@ -58,6 +59,7 @@ import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
+import { syncAllProfilesToDatabase } from "../utils/provider-sync";
 import {
   getProviderDisplayName,
   modelsToCustomModelsString,
@@ -215,6 +217,189 @@ const BUILTIN_PROVIDER_IDS = new Set([
   "siliconflow",
   "302ai",
 ]);
+const ENCRYPTED_SECRET_PLACEHOLDER = "__encrypted__";
+const ACCESS_SECRET_FIELD_KEYS = [
+  "apiKey",
+  "modelFetchApiKey",
+  "customApiKey",
+  "openaiApiKey",
+  "azureApiKey",
+  "googleApiKey",
+  "anthropicApiKey",
+  "baiduApiKey",
+  "baiduSecretKey",
+  "bytedanceApiKey",
+  "alibabaApiKey",
+  "moonshotApiKey",
+  "stabilityApiKey",
+  "tencentSecretKey",
+  "tencentSecretId",
+  "iflytekApiKey",
+  "iflytekApiSecret",
+  "deepseekApiKey",
+  "xaiApiKey",
+  "chatglmApiKey",
+  "siliconflowApiKey",
+  "ai302ApiKey",
+  "balanceQueryApiKey",
+] as const;
+
+function restoreEncryptedAccessSecrets(
+  localAccessState: Record<string, any> | undefined,
+  remoteAccessState: Record<string, any> | undefined,
+) {
+  if (!remoteAccessState || typeof remoteAccessState !== "object") {
+    return remoteAccessState;
+  }
+
+  const nextAccessState = { ...remoteAccessState };
+  const currentLocalAccessState =
+    localAccessState && typeof localAccessState === "object"
+      ? localAccessState
+      : {};
+
+  ACCESS_SECRET_FIELD_KEYS.forEach((key) => {
+    if (nextAccessState[key] === ENCRYPTED_SECRET_PLACEHOLDER) {
+      nextAccessState[key] = currentLocalAccessState[key] || "";
+    }
+  });
+
+  if (Array.isArray(nextAccessState.apiProfiles)) {
+    const localProfileMap = new Map(
+      Array.isArray(currentLocalAccessState.apiProfiles)
+        ? currentLocalAccessState.apiProfiles.map((profile: any) => [
+            String(profile?.id || ""),
+            profile,
+          ])
+        : [],
+    );
+
+    nextAccessState.apiProfiles = nextAccessState.apiProfiles.map(
+      (profile: any) => {
+        if (!profile || typeof profile !== "object") {
+          return profile;
+        }
+
+        const localProfile = localProfileMap.get(String(profile.id || ""));
+        const nextProfile = { ...profile };
+
+        ["apiKey", "modelFetchApiKey", "balanceQueryApiKey"].forEach((key) => {
+          if (nextProfile[key] === ENCRYPTED_SECRET_PLACEHOLDER) {
+            nextProfile[key] = localProfile?.[key] || "";
+          }
+        });
+
+        if (
+          nextProfile.apiKeyGroups &&
+          typeof nextProfile.apiKeyGroups === "object"
+        ) {
+          const localGroups =
+            localProfile?.apiKeyGroups &&
+            typeof localProfile.apiKeyGroups === "object"
+              ? localProfile.apiKeyGroups
+              : {};
+          nextProfile.apiKeyGroups = Object.fromEntries(
+            Object.entries(nextProfile.apiKeyGroups).map(
+              ([groupKey, value]) => [
+                groupKey,
+                value === ENCRYPTED_SECRET_PLACEHOLDER
+                  ? localGroups[groupKey] || ""
+                  : value,
+              ],
+            ),
+          );
+        }
+
+        return nextProfile;
+      },
+    );
+  }
+
+  return nextAccessState;
+}
+
+function normalizeAccessStateForUi(
+  accessState: Record<string, any> | undefined,
+) {
+  if (!accessState || typeof accessState !== "object") {
+    return accessState;
+  }
+
+  const nextAccessState = { ...accessState };
+
+  ACCESS_SECRET_FIELD_KEYS.forEach((key) => {
+    if (nextAccessState[key] === undefined || nextAccessState[key] === null) {
+      nextAccessState[key] = "";
+    }
+  });
+
+  if (Array.isArray(nextAccessState.apiProfiles)) {
+    nextAccessState.apiProfiles = nextAccessState.apiProfiles.map(
+      (profile: any) => {
+        if (!profile || typeof profile !== "object") {
+          return profile;
+        }
+
+        const nextProfile = { ...profile };
+        nextProfile.baseUrl = String(nextProfile.baseUrl || "");
+        nextProfile.apiKey = String(nextProfile.apiKey || "");
+        nextProfile.modelFetchApiKey = String(
+          nextProfile.modelFetchApiKey || "",
+        );
+        nextProfile.balanceQueryApiKey = String(
+          nextProfile.balanceQueryApiKey || "",
+        );
+        nextProfile.balanceQueryUrl = String(nextProfile.balanceQueryUrl || "");
+        nextProfile.balanceQueryField = String(
+          nextProfile.balanceQueryField || "",
+        );
+
+        if (
+          nextProfile.apiKeyGroups &&
+          typeof nextProfile.apiKeyGroups === "object"
+        ) {
+          nextProfile.apiKeyGroups = Object.fromEntries(
+            Object.entries(nextProfile.apiKeyGroups).map(
+              ([groupKey, value]) => [groupKey, String(value || "")],
+            ),
+          );
+        }
+
+        return nextProfile;
+      },
+    );
+  }
+
+  return nextAccessState;
+}
+
+function normalizeDownloadedStoreState(
+  key: SyncStoreKey,
+  parsedState: unknown,
+  localAccessState: Record<string, any>,
+) {
+  if (key === StoreKey.Access) {
+    return normalizeAccessStateForUi(
+      restoreEncryptedAccessSecrets(
+        localAccessState,
+        parsedState as Record<string, any>,
+      ),
+    );
+  }
+
+  if (key === StoreKey.ModelCache) {
+    const modelCacheState =
+      parsedState && typeof parsedState === "object"
+        ? parsedState
+        : {
+            profiles: {},
+            migratedFromLegacyAccess: false,
+          };
+    return modelCacheState;
+  }
+
+  return parsedState;
+}
 
 function mergeCachedModels(existing: string | undefined, incoming: string) {
   const merged = new Set((existing || "").split(",").filter(Boolean));
@@ -1821,140 +2006,29 @@ export function ApiConfigPage() {
     console.clear();
     try {
       setSyncing(true);
-
-      const {
-        previousCloudKeys,
-        previousPlatformCounts,
-        fetchedModelEntries,
-        totalFetched,
-      } = await runWithImmediateStoreSyncPaused(async () => {
-        accessStore.update((access) => {
-          access.useCustomConfig = true;
-        });
-
-        syncStore.update((state) => {
-          state.provider = ProviderType.Database;
-        });
-
-        const activeProfile = accessStore.apiProfiles.find(
-          (profile) => profile.enabled,
-        );
-        if (activeProfile) {
-          syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-        }
-
-        return refreshAllProfilesForSync();
-      });
-
-      logSyncSummary(
-        "模型数量变化预览",
-        previousCloudKeys,
-        previousPlatformCounts,
-        fetchedModelEntries,
-        totalFetched,
+      const activeProfile = accessStore.apiProfiles.find(
+        (profile) => profile.enabled,
       );
-      console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
-      console.log(LOG_SEPARATOR);
+      if (activeProfile) {
+        syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+      }
 
-      await syncStore.sync();
+      const { results, totalFetched } = await syncAllProfilesToDatabase({
+        fetchFromProvider,
+      });
       const client = syncStore.getClient() as any;
       if (typeof client.getMeta === "function") {
         updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
       }
 
-      // 更新云端保存的模型总数
-      try {
-        const providersData = Array.from(fetchedModelEntries.values()).reduce(
-          (acc, entry) => {
-            const existing = acc.find(
-              (p: any) => p.profileId === entry.profileId,
-            );
-            if (existing) {
-              return acc;
-            }
-            return [
-              ...acc,
-              {
-                profileId: entry.profileId,
-                profileName: entry.profileName,
-                providerId: entry.providerId,
-                fetchedCount: 0,
-              },
-            ];
-          },
-          [] as Array<{
-            profileId: string;
-            profileName: string;
-            providerId: string;
-            fetchedCount: number;
-          }>,
-        );
-
-        // 计算每个平台的实际数量
-        const platformModelMap = new Map<string, string[]>();
-        fetchedModelEntries.forEach((entry) => {
-          if (!platformModelMap.has(entry.profileName)) {
-            platformModelMap.set(entry.profileName, []);
-          }
-          platformModelMap.get(entry.profileName)!.push(entry.name);
-        });
-
-        platformModelMap.forEach((models, profileName) => {
-          const provider = providersData.find(
-            (p: any) => p.profileName === profileName,
-          );
-          if (provider) {
-            provider.fetchedCount = models.length;
-          }
-        });
-
-        await fetch("/api/db/models/count", {
-          method: "POST",
-          headers: withSyncUserHeaders({
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify({
-            count: fetchedModelEntries.size,
-            providers: providersData,
-          }),
-        });
-        console.log("[API Config] ✅ 已更新云端模型总数");
-      } catch (e) {
-        console.error("[API Config] ❌ 更新云端模型总数失败:", e);
-      }
-
       await refreshRemoteSignals();
       console.log("[API Config] ✅ 数据库同步完成");
       console.log(LOG_SEPARATOR);
-
-      // 输出模型汇总
       console.log("[API Config] 📊 模型同步汇总");
-      console.log(`[API Config] - 总模型数: ${fetchedModelEntries.size} 个`);
-
-      // 按 profileName 分组统计
-      const platformModelMap = new Map<string, string[]>();
-      fetchedModelEntries.forEach((entry) => {
-        if (!platformModelMap.has(entry.profileName)) {
-          platformModelMap.set(entry.profileName, []);
-        }
-        platformModelMap.get(entry.profileName)!.push(entry.name);
+      results.forEach(({ name, count, success }) => {
+        console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
       });
-
-      const previousPlatformCountMap = new Map(
-        previousPlatformCounts.map((item) => [item.name, item.count]),
-      );
-
-      // 显示所有有模型的平台
-      platformModelMap.forEach((models, profileName) => {
-        const count = models.length;
-        const previousCount = previousPlatformCountMap.get(profileName) ?? 0;
-        const delta = count - previousCount;
-        const deltaStr = delta > 0 ? `+${delta}` : delta.toString();
-        console.log(
-          `[API Config] - ${profileName}: ${previousCount} -> ${count} 个 (${deltaStr})`,
-        );
-      });
-
+      console.log(`[API Config] - 总模型数: ${totalFetched} 个`);
       console.log(LOG_SEPARATOR);
 
       showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
@@ -2097,15 +2171,20 @@ export function ApiConfigPage() {
     }
   };
 
-  const downloadFromDatabase = async () => {
-    console.log("[API Config] ⬇️ 开始从数据库下载...");
+  const downloadAllAndOverwriteLocalFromDatabase = async () => {
+    const confirmed = await showConfirm(
+      "确定要从数据库下载全部配置、对话和模型数据，并完全覆盖本地吗？本地当前数据将被替换。",
+    );
+    if (!confirmed) return;
+
+    console.log("[API Config] ⬇️ 开始从数据库下载并覆盖本地...");
     try {
       setDownloading(true);
       ensureDatabaseSyncProvider();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
-      const nextState = { ...localState } as AppState;
-      let hasRemoteData = false;
+      const nextState = {} as AppState;
+      const missingKeys: string[] = [];
 
       console.log(
         `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
@@ -2115,49 +2194,78 @@ export function ApiConfigPage() {
         console.log(`[API Config] 📥 正在下载: ${key}...`);
         const remoteStateText = await client.get(key);
         if (!remoteStateText || remoteStateText === "") {
-          console.log(`[API Config] ℹ️ ${key}: 数据库无数据，跳过`);
+          console.error(`[API Config] ❌ ${key}: 数据库无数据，无法覆盖本地`);
+          missingKeys.push(key);
           continue;
         }
 
         const parsedState = parseStoreStatePayload(remoteStateText);
-        if (!parsedState || typeof parsedState !== "object") {
+        if (
+          key !== StoreKey.ModelCache &&
+          (!parsedState || typeof parsedState !== "object")
+        ) {
           throw new Error(`${key} 格式不正确`);
         }
 
-        (nextState as Record<string, unknown>)[key] = parsedState;
-        hasRemoteData = true;
+        (nextState as Record<string, unknown>)[key] =
+          normalizeDownloadedStoreState(
+            key,
+            parsedState,
+            (localState[StoreKey.Access] || {}) as Record<string, any>,
+          );
+        if (key === StoreKey.Access) {
+          const debugAccessState = (nextState as Record<string, any>)[
+            key
+          ] as Record<string, any>;
+          console.log(
+            "[API Config] 🔐 access-control 下载结果",
+            (debugAccessState?.apiProfiles || [])
+              .slice(0, 3)
+              .map((profile: any) => ({
+                id: profile.id,
+                name: profile.name,
+                apiKey: profile.apiKey,
+                modelFetchApiKey: profile.modelFetchApiKey,
+                balanceQueryApiKey: profile.balanceQueryApiKey,
+              })),
+          );
+        }
         console.log(`[API Config] ✅ ${key}: 下载成功`);
       }
 
-      if (!hasRemoteData) {
-        throw new Error("数据库中还没有同步数据");
+      if (missingKeys.length > 0) {
+        throw new Error(`数据库缺少必要数据块: ${missingKeys.join(", ")}`);
       }
 
-      console.log("[API Config] 🔧 正在应用下载的配置...");
-      setLocalAppState(nextState);
-      const latestAccessState = useAccessStore.getState();
-      const latestActiveProfile = latestAccessState.apiProfiles.find(
-        (profile) => profile.enabled,
-      );
+      console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
+      await runWithImmediateStoreSyncPaused(async () => {
+        setLocalAppState(nextState);
+        const latestAccessState = useAccessStore.getState();
+        const latestActiveProfile = latestAccessState.apiProfiles.find(
+          (profile) => profile.enabled,
+        );
 
-      if (latestActiveProfile) {
-        syncProfileToAccess(latestActiveProfile.id, {
-          skipFetchModels: true,
-        });
-      } else {
-        applyProviderToChat(latestAccessState.provider);
-      }
+        if (latestActiveProfile) {
+          syncProfileToAccess(latestActiveProfile.id, {
+            skipFetchModels: true,
+          });
+        } else {
+          applyProviderToChat(latestAccessState.provider);
+        }
 
-      syncStore.markSyncTime();
-      if (typeof client.getMeta === "function") {
-        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
-      }
-      console.log("[API Config] ✅ 数据库下载并恢复完成");
+        syncStore.markSyncTime();
+        if (typeof client.getMeta === "function") {
+          updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+        }
+      });
+      console.log("[API Config] ✅ 数据库下载并覆盖本地完成");
       console.log(LOG_SEPARATOR);
-      showToast("已从 PostgreSQL 下载并恢复全部配置、模型和对话记录");
+      showToast("已从 PostgreSQL 下载全部配置、对话和模型数据，并覆盖本地");
     } catch (error) {
       console.error("[API Config] ❌ 数据库下载失败:", error);
-      showToast("从 PostgreSQL 下载全部配置失败: " + (error as Error).message);
+      showToast(
+        "从 PostgreSQL 下载并覆盖本地失败: " + (error as Error).message,
+      );
     } finally {
       setDownloading(false);
     }
@@ -2699,8 +2807,8 @@ export function ApiConfigPage() {
                   执行双向合并，最后把最新结果回写到本地与数据库。
                 </div>
                 <div>
-                  从数据库下载：读取 PostgreSQL 中的最新快照并写回本地聊天、API
-                  配置、插件、提示词、面具和绘图记录。
+                  从数据库下载：读取 PostgreSQL 中的完整快照，覆盖本地对话、API
+                  配置、模型缓存、插件、提示词、面具和绘图记录。
                 </div>
               </>
             }
@@ -2740,7 +2848,7 @@ export function ApiConfigPage() {
                   bordered
                   disabled={syncActionDisabled}
                   onClick={() => {
-                    void downloadFromDatabase();
+                    void downloadAllAndOverwriteLocalFromDatabase();
                   }}
                 />
                 <button

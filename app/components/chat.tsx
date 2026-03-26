@@ -107,9 +107,9 @@ import {
 import { resolveModelProviderId } from "../utils/model";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { useModelFetcher } from "../utils/useModelFetcher";
-import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
+import { syncAllProfilesToDatabase } from "../utils/provider-sync";
 
 import dynamic from "next/dynamic";
 
@@ -254,19 +254,6 @@ function countManagedCloudModels(
     const providerId = String(model.provider?.id || "").toLowerCase();
     return providerId && managedProviderIds.has(providerId);
   }).length;
-}
-
-function getProfileActualCount(
-  profile: {
-    provider: ServiceProvider;
-    name: string;
-  },
-  models: Array<{ provider?: { id?: string | number } }> = [],
-) {
-  const providerId = getProfileProviderId(profile).toLowerCase();
-  return models.filter(
-    (model) => String(model.provider?.id || "").toLowerCase() === providerId,
-  ).length;
 }
 
 function areModelConfigValuesEqual(
@@ -2011,7 +1998,6 @@ function _Chat() {
       })),
     [],
   );
-  const syncStore = useSyncStore();
   const { fetchFromProvider } = useModelFetcher();
 
   // 供应商选择器相关
@@ -2566,96 +2552,16 @@ function _Chat() {
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
 
-  const fetchModelsForAllProfilesFromChat = useCallback(async () => {
+  const syncAllProfilesFromChat = useCallback(async () => {
     if (syncingAll) return;
 
     console.clear();
 
     try {
       setSyncingAll(true);
-
-      await runWithImmediateStoreSyncPaused(async () => {
-        const profiles = useAccessStore.getState().apiProfiles || [];
-        let totalFetched = 0;
-        const results: Array<{
-          name: string;
-          count: number;
-          success: boolean;
-        }> = [];
-
-        if (profiles.length === 0) {
-          showToast("没有可获取模型的配置条目");
-          return;
-        }
-
-        for (const profile of profiles) {
-          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
-
-          try {
-            const result = await fetchFromProvider(
-              profile.provider,
-              profile.baseUrl,
-              profile.apiKey,
-              {
-                silent: true,
-                throwOnError: true,
-                profileName: profile.name,
-                apiKeyGroups: profile.apiKeyGroups,
-              },
-            );
-
-            const previousProfileCount = getProfileActualCount(
-              profile,
-              useAppConfig.getState().models,
-            );
-            const fetchedModels = modelsToCustomModelsString(result.models);
-
-            accessStore.update((state: any) => {
-              if (
-                state.apiProfiles.find((p: any) => p.id === profile.id)?.enabled
-              ) {
-                state.customModels = fetchedModels;
-              }
-            });
-            useModelCacheStore.getState().upsertProfileCache(profile.id, {
-              cachedModels: fetchedModels,
-              modelCount: result.total,
-            });
-            const mergedCount = getProfileActualCount(
-              profile,
-              useAppConfig.getState().models,
-            );
-            totalFetched += mergedCount;
-            results.push({
-              name: profile.name,
-              count: mergedCount,
-              success: true,
-            });
-
-            console.log(`[API Config] ✅ ${profile.name} 获取完成`);
-            console.log(`远程: ${result.total} 个`);
-            console.log(`云端原有: ${previousProfileCount} 个`);
-            console.log(`合并后: ${mergedCount} 个`);
-            console.log("==============================");
-          } catch (error) {
-            results.push({
-              name: profile.name,
-              count: 0,
-              success: false,
-            });
-            console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
-            console.log("==============================");
-          }
-        }
-
-        console.log(`[API Config] 📊 模型获取汇总`);
-        results.forEach(({ name, count, success }) => {
-          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
-        });
-        console.log(`[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`);
-        console.log("==============================");
+      const { results, totalFetched } = await syncAllProfilesToDatabase({
+        fetchFromProvider,
       });
-      await syncStore.syncModels();
       if (modelUpdateDoneTimerRef.current) {
         clearTimeout(modelUpdateDoneTimerRef.current);
       }
@@ -2665,19 +2571,24 @@ function _Chat() {
         modelUpdateDoneTimerRef.current = null;
       }, 1800);
 
-      showToast("模型数据获取完成");
+      console.log(`[API Config] 📊 模型同步汇总`);
+      results.forEach(({ name, count, success }) => {
+        console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+      });
+      console.log(`[API Config] ✅ 所有平台同步完成，共 ${totalFetched} 个`);
+      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
-      console.error("[Chat] 获取模型失败:", error);
+      console.error("[Chat] 同步失败:", error);
       if (modelUpdateDoneTimerRef.current) {
         clearTimeout(modelUpdateDoneTimerRef.current);
         modelUpdateDoneTimerRef.current = null;
       }
       setModelUpdateDone(false);
-      showToast("获取模型失败");
+      showToast("同步到 PostgreSQL 失败，请检查数据库连接");
     } finally {
       setSyncingAll(false);
     }
-  }, [accessStore, fetchFromProvider, syncStore, syncingAll]);
+  }, [fetchFromProvider, syncingAll]);
 
   useEffect(() => {
     return () => {
@@ -3411,27 +3322,27 @@ function _Chat() {
                 bordered
                 text={
                   syncingAll
-                    ? "更新中..."
+                    ? "同步中..."
                     : modelUpdateDone
-                    ? "更新完成"
-                    : "更新模型"
+                    ? "同步完成"
+                    : "一键刷新"
                 }
                 title={
                   syncingAll
-                    ? "更新中..."
+                    ? "同步中..."
                     : modelUpdateDone
-                    ? "更新完成"
-                    : "更新模型"
+                    ? "同步完成"
+                    : "一键刷新"
                 }
                 aria={
                   syncingAll
-                    ? "更新中..."
+                    ? "同步中..."
                     : modelUpdateDone
-                    ? "更新完成"
-                    : "更新模型"
+                    ? "同步完成"
+                    : "一键刷新"
                 }
                 onClick={() => {
-                  void fetchModelsForAllProfilesFromChat();
+                  void syncAllProfilesFromChat();
                 }}
                 disabled={syncingAll}
               />
@@ -4153,6 +4064,7 @@ function _Chat() {
           onDisabledItemClick={handleManualModelSelectionDisabled}
           items={models.map((m) => ({
             title: `${m.displayName}`,
+            sortKey: m.name,
             value: `${m.name}@${m?.provider?.providerName}`,
             disable: manualModelSelectionDisabled,
             order: m.sorted,

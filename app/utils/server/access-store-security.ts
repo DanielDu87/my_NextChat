@@ -1,4 +1,5 @@
 type JsonObject = Record<string, unknown>;
+const ENCRYPTED_SECRET_PLACEHOLDER = "__encrypted__";
 
 const ACCESS_SECRET_FIELDS = new Set([
   "apiKey",
@@ -35,13 +36,13 @@ function pickSecretsFromObject(input: JsonObject) {
 
   Object.entries(input).forEach(([key, value]) => {
     if (ACCESS_SECRET_FIELDS.has(key)) {
-      if (
+      const isSupportedSecretValue =
         typeof value === "string" ||
         Array.isArray(value) ||
         isObject(value) ||
         typeof value === "number" ||
-        typeof value === "boolean"
-      ) {
+        typeof value === "boolean";
+      if (isSupportedSecretValue && value !== ENCRYPTED_SECRET_PLACEHOLDER) {
         secretState[key] = value;
       }
       return;
