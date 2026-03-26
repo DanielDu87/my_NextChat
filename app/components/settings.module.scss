@@ -1,6 +1,90 @@
 .settings {
   padding: 20px;
   overflow: auto;
+
+  > div:nth-child(2) {
+    display: none;
+  }
+
+  > div:nth-child(6) {
+    display: none;
+  }
+
+  > div:nth-child(7) {
+    display: none;
+  }
+
+  > div:nth-child(8) {
+    display: none;
+  }
+
+  :global(input[type="text"]),
+  :global(input[type="password"]),
+  :global(input[type="number"]),
+  :global(textarea) {
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      background-color 0.2s ease,
+      color 0.2s ease;
+  }
+
+  :global(input[type="text"]:focus),
+  :global(input[type="password"]:focus),
+  :global(input[type="number"]:focus),
+  :global(textarea:focus) {
+    outline: none;
+    border-color: rgba(59, 130, 246, 0.82);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
+  }
+}
+
+:global(.dark) .settings,
+:global(body.dark) .settings {
+  :global(input[type="text"]),
+  :global(input[type="password"]),
+  :global(input[type="number"]),
+  :global(textarea),
+  :global(.password-input-container .password-input) {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+    color: #e5edf7;
+    border: 1px solid rgba(71, 85, 105, 0.92);
+    box-shadow:
+      inset 0 1px 0 rgba(148, 163, 184, 0.12),
+      0 10px 24px rgba(2, 6, 23, 0.26);
+  }
+
+  :global(input[type="text"]::placeholder),
+  :global(input[type="password"]::placeholder),
+  :global(input[type="number"]::placeholder),
+  :global(textarea::placeholder),
+  :global(.password-input-container .password-input::placeholder) {
+    color: rgba(148, 163, 184, 0.9);
+  }
+
+  :global(input[type="text"]:hover),
+  :global(input[type="password"]:hover),
+  :global(input[type="number"]:hover),
+  :global(textarea:hover),
+  :global(.password-input-container .password-input:hover) {
+    border-color: rgba(96, 165, 250, 0.82);
+    box-shadow:
+      inset 0 1px 0 rgba(191, 219, 254, 0.1),
+      0 14px 28px rgba(2, 6, 23, 0.32);
+  }
+
+  :global(input[type="text"]:focus),
+  :global(input[type="password"]:focus),
+  :global(input[type="number"]:focus),
+  :global(textarea:focus),
+  :global(.password-input-container .password-input:focus) {
+    background: linear-gradient(180deg, rgba(37, 99, 235, 0.18) 0%, rgba(15, 23, 42, 0.96) 100%);
+    color: #f8fbff;
+    border-color: rgba(96, 165, 250, 0.92);
+    box-shadow:
+      0 0 0 4px rgba(59, 130, 246, 0.18),
+      0 16px 32px rgba(2, 6, 23, 0.36);
+  }
 }
 
 .avatar {
