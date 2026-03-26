@@ -4126,7 +4126,7 @@ function _Chat() {
             },
           ]}
           showSearch={true}
-          extraGroups={["AihubMix", "自定义模型"]}
+          extraGroups={["自定义模型"]}
           onClose={() => {
             setShowAutoModelSelector(false);
             setShowModelSelector(false);
