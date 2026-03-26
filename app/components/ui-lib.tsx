@@ -369,6 +369,7 @@ export function Input(props: InputProps) {
 export function PasswordInput(
   props: HTMLProps<HTMLInputElement> & { aria?: string },
 ) {
+  const { aria, className, ...inputProps } = props;
   const [visible, setVisible] = useState(false);
   function changeVisibility() {
     setVisible(!visible);
@@ -377,15 +378,15 @@ export function PasswordInput(
   return (
     <div className={"password-input-container"}>
       <IconButton
-        aria={props.aria}
+        aria={aria}
         icon={visible ? <EyeIcon /> : <EyeOffIcon />}
         onClick={changeVisibility}
         className={"password-eye"}
       />
       <input
-        {...props}
+        {...inputProps}
         type={visible ? "text" : "password"}
-        className={"password-input"}
+        className={clsx("password-input", className)}
       />
     </div>
   );
