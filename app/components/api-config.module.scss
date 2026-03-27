@@ -389,20 +389,74 @@
 
 .profileColProvider {
   justify-content: center;
+  min-width: 70px;
 
-  :global(.select-with-icon) {
-    max-width: unset;
-    width: 100%;
-  }
-  :global(.select-with-icon-select) {
-    width: 100%;
-    text-align: center;
-    padding-left: 14px;
+  // 使用属性选择器覆盖 ui-lib 的 CSS Modules 类名
+  :global([class*="select-with-icon"]) {
+    max-width: unset !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    border-radius: 12px !important;
+    transition: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+    position: relative !important;
   }
 
-  // 隐藏下拉箭头
-  :global(.select-with-icon-icon) {
-    display: none !important;
+  :global([class*="select-with-icon"]:hover) {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  :global([class*="select-with-icon"]:focus-within) {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  :global([class*="select-with-icon-select"]) {
+    width: 100% !important;
+    text-align: center !important;
+    text-align-last: center !important;
+    padding: 8px 18px 8px 8px !important;
+    min-height: 36px !important;
+    height: 36px !important;
+    border-radius: 12px !important;
+    font-size: 12px !important;
+    font-weight: unset !important;
+    background: var(--white) !important;
+    color: var(--black) !important;
+    box-shadow: none !important;
+    border: var(--border-in-light) !important;
+    line-height: 1.4 !important;
+    font-family: inherit !important;
+    box-sizing: border-box !important;
+  }
+
+  :global([class*="select-with-icon-select"]:hover) {
+    background: var(--white) !important;
+    box-shadow: none !important;
+    border-color: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+  }
+
+  :global([class*="select-with-icon-select"]:focus) {
+    background: var(--white) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 35%, transparent) !important;
+    border-color: var(--primary) !important;
+    outline: none !important;
+  }
+
+  // 显示下拉箭头
+  :global([class*="select-with-icon-icon"]) {
+    display: block !important;
+    position: absolute !important;
+    top: 50% !important;
+    right: -52px !important;
+    transform: translateY(-50%) !important;
+    width: 12px !important;
+    height: 12px !important;
+    color: var(--black) !important;
+    opacity: 0.4 !important;
+    pointer-events: none !important;
   }
 }
 

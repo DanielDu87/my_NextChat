@@ -236,6 +236,19 @@ function getEnabledProviderId(
     return undefined;
   }
 
+  if (providerName === ServiceProvider.Local) {
+    const enabledLocalProfile = accessProfiles.find(
+      (profile) =>
+        profile.enabled && profile.provider === ServiceProvider.Local,
+    );
+    if (enabledLocalProfile) {
+      return `${String(enabledLocalProfile.provider).toLowerCase()}_${
+        enabledLocalProfile.name
+      }`.toLowerCase();
+    }
+    return undefined;
+  }
+
   return String(providerName).toLowerCase();
 }
 

@@ -1,6 +1,30 @@
 import dns from "node:dns";
+import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
+
+function isContainerRuntime() {
+  try {
+    return fs.existsSync("/.dockerenv");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeLoopbackUrlForContainer(fetchUrl: string) {
+  try {
+    const url = new URL(fetchUrl);
+    if (
+      isContainerRuntime() &&
+      ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    ) {
+      url.hostname = "host.docker.internal";
+    }
+    return url.toString();
+  } catch {
+    return fetchUrl;
+  }
+}
 
 async function resolveHostname(hostname: string, dnsServers?: string[]) {
   if (!dnsServers?.length) return undefined;
@@ -24,7 +48,8 @@ export async function requestUpstream(
     dnsServers?: string[];
   },
 ): Promise<Response> {
-  const url = new URL(fetchUrl);
+  const normalizedFetchUrl = normalizeLoopbackUrlForContainer(fetchUrl);
+  const url = new URL(normalizedFetchUrl);
   const client = url.protocol === "https:" ? https : http;
   const method = options?.method || "GET";
   const timeoutMs = options?.timeoutMs ?? 20_000;

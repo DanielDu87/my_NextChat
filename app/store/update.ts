@@ -54,16 +54,20 @@ export function buildBalanceCacheKey(
   provider: ServiceProvider,
   profile?: { id?: string; name?: string },
 ) {
-  if (provider === ServiceProvider.Custom) {
+  if (
+    provider === ServiceProvider.Custom ||
+    provider === ServiceProvider.Local
+  ) {
+    const prefix = provider === ServiceProvider.Local ? "local" : "custom";
     const profileId = String(profile?.id || "").trim();
     if (profileId) {
-      return `custom:${profileId}`;
+      return `${prefix}:${profileId}`;
     }
 
     const profileName = String(profile?.name || "")
       .trim()
       .toLowerCase();
-    return profileName ? `custom-name:${profileName}` : "custom:default";
+    return profileName ? `${prefix}-name:${profileName}` : `${prefix}:default`;
   }
 
   return `provider:${provider}`;
@@ -654,11 +658,19 @@ export const useUpdateStore = createPersistStore(
       provider: ServiceProvider = ServiceProvider.OpenAI,
       profile?: BalanceAwareProfile,
     ) {
-      const activeCustomProfile =
+      const activeProfile =
         provider === ServiceProvider.Custom
           ? profile || getActiveCustomProfile()
+          : provider === ServiceProvider.Local
+          ? profile ||
+            useAccessStore
+              .getState()
+              .apiProfiles.find(
+                (item) =>
+                  item.enabled && item.provider === ServiceProvider.Local,
+              )
           : undefined;
-      const cacheKey = buildBalanceCacheKey(provider, activeCustomProfile);
+      const cacheKey = buildBalanceCacheKey(provider, activeProfile);
       const lastUpdateUsage = get().lastUpdateUsageByKey[cacheKey] ?? 0;
       const overOneMinute =
         Date.now() - lastUpdateUsage >= BALANCE_REFRESH_INTERVAL;
@@ -683,18 +695,15 @@ export const useUpdateStore = createPersistStore(
         provider,
         cacheKey,
         force,
-        profileId: activeCustomProfile?.id,
-        profileName: activeCustomProfile?.name,
+        profileId: activeProfile?.id,
+        profileName: activeProfile?.name,
       });
 
       const queryPromise = (async () => {
         let errorMessage: string | undefined;
 
         try {
-          const snapshot = await queryBalanceSnapshot(
-            provider,
-            activeCustomProfile,
-          );
+          const snapshot = await queryBalanceSnapshot(provider, activeProfile);
           if (snapshot) {
             set(() => ({
               balances: {
@@ -709,8 +718,8 @@ export const useUpdateStore = createPersistStore(
               provider,
               cacheKey,
               force,
-              profileId: activeCustomProfile?.id,
-              profileName: activeCustomProfile?.name,
+              profileId: activeProfile?.id,
+              profileName: activeProfile?.name,
               used: snapshot.used,
               total: snapshot.total,
               remaining: snapshot.remaining,
@@ -724,8 +733,8 @@ export const useUpdateStore = createPersistStore(
             provider,
             cacheKey,
             force,
-            profileId: activeCustomProfile?.id,
-            profileName: activeCustomProfile?.name,
+            profileId: activeProfile?.id,
+            profileName: activeProfile?.name,
             durationMs: Date.now() - startedAt,
             ok: false,
             error: errorMessage,

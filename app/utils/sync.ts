@@ -478,6 +478,7 @@ const MergeStates: StateMerger = {
     // 策略：
     // - profile 主配置双向合并，本地用户编辑字段优先
     // - 模型缓存已迁移到独立 store，这里不再主导 cachedModels/modelCount
+    // - 如果本地更新时间更新，不自动恢复远程独有的 profile（避免删除后恢复）
 
     const localProfileMap = new Map(
       (localState.apiProfiles || []).map((p) => [p.id, p]),
@@ -487,6 +488,8 @@ const MergeStates: StateMerger = {
     );
 
     const mergedProfiles: typeof localState.apiProfiles = [];
+    const localUpdateTime = localState.lastUpdateTime || 0;
+    const remoteUpdateTime = remoteState.lastUpdateTime || 0;
 
     // 处理本地有的 profile
     localProfileMap.forEach((localProfile, id) => {
@@ -501,12 +504,14 @@ const MergeStates: StateMerger = {
       }
     });
 
-    // 添加远程独有的 profile
-    remoteProfileMap.forEach((profile, id) => {
-      if (!localProfileMap.has(id)) {
-        mergedProfiles.push(profile);
-      }
-    });
+    // 添加远程独有的 profile（仅当远程更新时，避免删除后恢复）
+    if (remoteUpdateTime > localUpdateTime) {
+      remoteProfileMap.forEach((profile, id) => {
+        if (!localProfileMap.has(id)) {
+          mergedProfiles.push(profile);
+        }
+      });
+    }
 
     const mergedState = {
       ...remoteState,

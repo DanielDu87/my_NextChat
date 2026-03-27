@@ -1,11 +1,11 @@
-# syntax=docker/dockerfile:1
+# # syntax=docker/dockerfile:1
 # =============================================================================
 # NextChat Dockerfile - 优化版
 # 支持本地开发热加载和服务器生产部署
 # =============================================================================
 
-# 国内镜像源配置（可覆盖）
-FROM docker.m.daocloud.io/library/node:20-alpine AS base
+# 基础镜像使用官方源
+FROM node:20-alpine AS base
 
 ARG APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 ARG NPM_REGISTRY=https://registry.npmmirror.com
@@ -76,7 +76,7 @@ RUN yarn build && \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-FROM docker.m.daocloud.io/library/node:20-alpine AS runner
+FROM node:20-alpine AS runner
 
 # 生产环境变量
 ENV NODE_ENV=production \

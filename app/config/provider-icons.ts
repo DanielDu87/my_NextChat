@@ -36,8 +36,13 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // ByteDance
   bytedance: "/provider-icons/doubao-bg.svg",
+  doubao: "/provider-icons/doubao-bg.svg",
+  volc: "/provider-icons/doubao-bg.svg",
+  volcengine: "/provider-icons/doubao-bg.svg",
+  ark: "/provider-icons/doubao-bg.svg",
   豆包: "/provider-icons/doubao-bg.svg",
   字节跳动: "/provider-icons/doubao-bg.svg",
+  火山引擎: "/provider-icons/doubao-bg.svg",
 
   // Zhipu
   zhipu: "/provider-icons/zhipu-bg.svg",

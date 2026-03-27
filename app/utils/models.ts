@@ -736,6 +736,19 @@ export async function fetchModelsFromProvider(
         return { models: [], total: 0 };
       }
       break;
+    case ServiceProvider.Local:
+      if (baseUrl) {
+        apiPath = "/api/proxy/v1/models";
+        providerId = profileName
+          ? `${String(provider).toLowerCase()}_${profileName}`.toLowerCase()
+          : String(provider).toLowerCase();
+        providerName = "Local";
+        providerType = "openai";
+        sorted = 999;
+      } else {
+        return { models: [], total: 0 };
+      }
+      break;
     default:
       return { models: [], total: 0 };
   }
@@ -761,13 +774,20 @@ export async function fetchModelsFromProvider(
 
     if (
       baseUrl &&
-      [ServiceProvider.OpenAI, ServiceProvider.Custom].includes(provider)
+      [
+        ServiceProvider.OpenAI,
+        ServiceProvider.Custom,
+        ServiceProvider.Local,
+      ].includes(provider)
     ) {
       const baseWithoutV1 = normalizedBaseUrl!.replace(/\/v1$/, "");
       const proxyBaseUrl = isServerSide() ? baseUrl : baseWithoutV1;
 
-      // 为自定义供应商设置 x-base-url header
-      if (provider === ServiceProvider.Custom) {
+      // 为代理型供应商设置 x-base-url header
+      if (
+        provider === ServiceProvider.Custom ||
+        provider === ServiceProvider.Local
+      ) {
         headers["x-base-url"] = proxyBaseUrl;
       }
 
@@ -813,7 +833,11 @@ export async function fetchModelsFromProvider(
         ? ["/api/yuto/pricing"]
         : isAiHubMixUrl(baseUrl)
         ? ["/api/aihubmix/models"]
-        : ["/api/proxy/api/v1/models"];
+        : [
+            "/api/proxy/v1/models",
+            "/api/proxy/api/v1/models",
+            "/api/proxy/models",
+          ];
 
       // console.log(`[Fetch Models] 📋 候选 URLs:`, candidateUrls);
 

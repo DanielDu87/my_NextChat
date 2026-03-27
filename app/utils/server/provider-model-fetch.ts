@@ -231,7 +231,9 @@ function resolveProviderFetchPreset(
 
   return {
     providerId: profileName
-      ? `custom_${profileName}`
+      ? provider === ServiceProvider.Local
+        ? `${String(provider).toLowerCase()}_${profileName}`.toLowerCase()
+        : `custom_${profileName}`
       : String(provider).toLowerCase(),
     providerName: String(provider),
     providerType: "openai",

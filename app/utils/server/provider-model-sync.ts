@@ -88,6 +88,8 @@ function normalizeProviderId(
 ) {
   return profile.provider === ServiceProvider.Custom
     ? `custom_${profile.name}`
+    : profile.provider === ServiceProvider.Local
+    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
 }
 

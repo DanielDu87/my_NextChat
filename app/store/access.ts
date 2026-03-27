@@ -160,6 +160,10 @@ const DEFAULT_ACCESS_STATE = {
   ai302Url: DEFAULT_AI302_URL,
   ai302ApiKey: "",
 
+  // Local
+  localUrl: "",
+  localApiKey: "",
+
   // server config
   needCode: true,
   hideUserApiKey: false,

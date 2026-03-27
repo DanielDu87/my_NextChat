@@ -242,6 +242,8 @@ function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
     ? `custom_${profile.name}`
+    : profile.provider === ServiceProvider.Local
+    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
 }
 
@@ -410,6 +412,9 @@ function ChatProviderBalance(props: {
   const [displayedBalance, setDisplayedBalance] = useState(balance);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const showUsage = true;
+  const supportsBalance =
+    props.providerName === ServiceProvider.Custom ||
+    props.providerName === ServiceProvider.Local;
 
   useEffect(() => {
     if (typeof balance?.remaining === "number") {
@@ -421,11 +426,7 @@ function ChatProviderBalance(props: {
     let cancelled = false;
 
     async function loadPersistedBalance() {
-      if (
-        !props.balanceCacheKey ||
-        props.autoModeEnabled ||
-        props.providerName !== ServiceProvider.Custom
-      ) {
+      if (!props.balanceCacheKey || props.autoModeEnabled || !supportsBalance) {
         return;
       }
 
@@ -493,15 +494,12 @@ function ChatProviderBalance(props: {
     props.balanceCacheKey,
     props.providerName,
     setBalanceSnapshot,
+    supportsBalance,
   ]);
 
   const refreshUsage = useCallback(
     async (force = false) => {
-      if (
-        props.autoModeEnabled ||
-        props.providerName !== ServiceProvider.Custom ||
-        !showUsage
-      ) {
+      if (props.autoModeEnabled || !supportsBalance || !showUsage) {
         return;
       }
 
@@ -517,6 +515,7 @@ function ChatProviderBalance(props: {
       props.profile,
       props.providerName,
       showUsage,
+      supportsBalance,
       updateUsage,
     ],
   );
@@ -546,7 +545,7 @@ function ChatProviderBalance(props: {
     refreshUsage(true);
   }, [props.refreshSignal, refreshUsage]);
 
-  if (props.autoModeEnabled || props.providerName !== ServiceProvider.Custom) {
+  if (props.autoModeEnabled || !supportsBalance) {
     return null;
   }
 
@@ -554,12 +553,25 @@ function ChatProviderBalance(props: {
     typeof displayedBalance?.remaining === "number"
       ? displayedBalance.remaining
       : null;
-  const balanceDisplay = remaining !== null ? `$${remaining}` : "--";
+  const totalUsed =
+    typeof displayedBalance?.used === "number" ? displayedBalance.used : null;
+  const balanceDisplay =
+    props.providerName === ServiceProvider.Local
+      ? totalUsed !== null
+        ? `$${totalUsed.toFixed(2)}`
+        : "--"
+      : remaining !== null
+      ? `$${remaining.toFixed(2)}`
+      : "--";
+  const balanceLabel =
+    props.providerName === ServiceProvider.Local
+      ? `${props.providerDisplayName} 总使用量`
+      : `${props.providerDisplayName} 余额`;
 
   return (
     <div className={styles["chat-provider-balance"]}>
       <div className={styles["chat-provider-balance-label"]}>
-        {props.providerDisplayName} 余额
+        {balanceLabel}
       </div>
       <div className={styles["chat-provider-balance-value"]}>
         {showUsage ? balanceDisplay : Locale.Settings.Usage.NoAccess}
@@ -1930,6 +1942,10 @@ function _Chat() {
         const profileProviderId =
           profile.provider === ServiceProvider.Custom
             ? `custom_${profile.name}`.toLowerCase()
+            : profile.provider === ServiceProvider.Local
+            ? `${String(profile.provider).toLowerCase()}_${
+                profile.name
+              }`.toLowerCase()
             : String(profile.provider).toLowerCase();
         return profileProviderId === currentProviderId;
       }),
@@ -2027,12 +2043,20 @@ function _Chat() {
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const availableProviders = useMemo(() => {
-    // 从 apiProfiles 中获取所有供应商名称（不限制 enabled 状态）
-    const providers = apiProfiles
-      .map((profile) => profile.name || profile.provider)
-      .filter((value, index, self) => self.indexOf(value) === index);
+    const providers = apiProfiles.reduce<
+      Array<{ label: string; provider: string }>
+    >((list, profile) => {
+      const label = String(profile.name || profile.provider || "").trim();
+      if (!label || list.some((item) => item.label === label)) {
+        return list;
+      }
+      list.push({
+        label,
+        provider: String(profile.provider || label).trim(),
+      });
+      return list;
+    }, []);
 
-    // 如果没有配置，返回空数组
     return providers.length > 0 ? providers : [];
   }, [apiProfiles]);
 
@@ -2925,6 +2949,10 @@ function _Chat() {
         const selectedProviderId =
           profile.provider === ServiceProvider.Custom
             ? `custom_${profile.name}`.toLowerCase()
+            : profile.provider === ServiceProvider.Local
+            ? `${String(profile.provider).toLowerCase()}_${
+                profile.name
+              }`.toLowerCase()
             : String(profile.provider).toLowerCase();
         const providerModels = allModels.filter(
           (model) =>
@@ -2969,6 +2997,15 @@ function _Chat() {
         if (nextModel) {
           config.update((config) => {
             config.modelConfig.model = nextModel.name as ModelType;
+            config.modelConfig.providerName =
+              profile.provider as ServiceProvider;
+            config.modelConfig = sanitizeModelConfigForCapability(
+              config.modelConfig,
+            );
+          });
+        } else {
+          // 即使没有找到模型，也要更新 providerName 以便正确显示
+          config.update((config) => {
             config.modelConfig.providerName =
               profile.provider as ServiceProvider;
             config.modelConfig = sanitizeModelConfigForCapability(
@@ -3974,12 +4011,16 @@ function _Chat() {
                       没有可用的供应商配置
                     </div>
                   ) : (
-                    availableProviders.map((profileName) => {
-                      const isActive = profileName === currentProfile?.name;
+                    availableProviders.map((providerOption) => {
+                      const isActive =
+                        providerOption.label === currentProfile?.name;
+                      const providerIcon =
+                        getProviderIcon(providerOption.provider) ||
+                        getProviderIcon(providerOption.label);
                       return (
                         <button
                           type="button"
-                          key={profileName}
+                          key={providerOption.label}
                           className={clsx(
                             styles["model-selector-provider-option"],
                             {
@@ -3989,7 +4030,7 @@ function _Chat() {
                           )}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            handleProviderChange(profileName);
+                            handleProviderChange(providerOption.label);
                           }}
                         >
                           <span
@@ -3997,15 +4038,32 @@ function _Chat() {
                               styles["model-selector-provider-option-leading"]
                             }
                           >
-                            <div className="no-dark">
-                              <BotIconOpenAI
-                                className="user-avatar"
-                                width={16}
-                                height={16}
-                              />
-                            </div>
+                            {providerIcon ? (
+                              <span
+                                className={
+                                  styles["model-selector-option-icon-frame"]
+                                }
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  alt={`${providerOption.label} icon`}
+                                  className={
+                                    styles["model-selector-option-icon-image"]
+                                  }
+                                  src={providerIcon}
+                                />
+                              </span>
+                            ) : (
+                              <div className="no-dark">
+                                <BotIconOpenAI
+                                  className="user-avatar"
+                                  width={16}
+                                  height={16}
+                                />
+                              </div>
+                            )}
                           </span>
-                          <span>{profileName}</span>
+                          <span>{providerOption.label}</span>
                           {isActive ? <ConfirmIcon /> : null}
                         </button>
                       );

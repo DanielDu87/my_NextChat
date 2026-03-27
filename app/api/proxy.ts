@@ -3,12 +3,37 @@ import { getServerSideConfig } from "@/app/config/server";
 import { DEFAULT_BROWSER_USER_AGENT } from "./user-agent";
 import http from "node:http";
 import https from "node:https";
+import fs from "node:fs";
+
+function isContainerRuntime() {
+  try {
+    return fs.existsSync("/.dockerenv");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeLoopbackUrlForContainer(fetchUrl: string) {
+  try {
+    const url = new URL(fetchUrl);
+    if (
+      isContainerRuntime() &&
+      ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    ) {
+      url.hostname = "host.docker.internal";
+    }
+    return url.toString();
+  } catch {
+    return fetchUrl;
+  }
+}
 
 function shouldUseNativeRequest(fetchUrl: string, method: string) {
   if (!["GET", "HEAD"].includes(method.toUpperCase())) return false;
 
   try {
-    const hostname = new URL(fetchUrl).hostname;
+    const hostname = new URL(normalizeLoopbackUrlForContainer(fetchUrl))
+      .hostname;
     return [
       "aihubmix.com",
       "www.aihubmix.com",
@@ -116,6 +141,7 @@ export async function handle(
           ? "?" + req.nextUrl.searchParams.toString()
           : ""
       }`;
+  const normalizedFetchUrl = normalizeLoopbackUrlForContainer(fetchUrl);
 
   // 调试日志
   console.log(`[Proxy Route] 📤 代理请求:`, {
@@ -123,6 +149,7 @@ export async function handle(
     baseUrl,
     isPricingApi,
     fetchUrl,
+    normalizedFetchUrl,
   });
 
   const skipHeaders = [
@@ -195,9 +222,9 @@ export async function handle(
   );
 
   try {
-    const res = shouldUseNativeRequest(fetchUrl, req.method)
-      ? await nativeRequest(fetchUrl, req.method, headers)
-      : await fetch(fetchUrl, fetchOptions);
+    const res = shouldUseNativeRequest(normalizedFetchUrl, req.method)
+      ? await nativeRequest(normalizedFetchUrl, req.method, headers)
+      : await fetch(normalizedFetchUrl, fetchOptions);
     // to prevent browser prompt for credentials
     const newHeaders = new Headers(res.headers);
     newHeaders.delete("www-authenticate");
@@ -219,6 +246,7 @@ export async function handle(
   } catch (error) {
     console.error("[Proxy Route] ❌ 代理请求失败:", {
       fetchUrl,
+      normalizedFetchUrl,
       method: req.method,
       message: error instanceof Error ? error.message : String(error),
       error,

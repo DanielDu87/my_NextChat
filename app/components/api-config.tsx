@@ -25,6 +25,7 @@ import {
   DeepSeek,
   Google,
   Iflytek,
+  Local,
   Moonshot,
   OPENAI_BASE_URL,
   Path,
@@ -482,6 +483,8 @@ function getProfileProviderId(profile: {
 }) {
   return profile.provider === ServiceProvider.Custom
     ? `custom_${profile.name}`
+    : profile.provider === ServiceProvider.Local
+    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
 }
 
@@ -501,7 +504,7 @@ function getCloudMergedPlatformCounts(
 
   return profiles.map((profile) => ({
     name: profile.name,
-    count: counts.get(`custom_${profile.name}`.toLowerCase()) ?? 0,
+    count: counts.get(getProfileProviderId(profile).toLowerCase()) ?? 0,
   }));
 }
 
@@ -596,6 +599,7 @@ const PROVIDER_OPTIONS = [
   ServiceProvider.DeepSeek,
   ServiceProvider.SiliconFlow,
   ServiceProvider["302.AI"],
+  ServiceProvider.Local,
 ] as const;
 
 const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
@@ -868,6 +872,21 @@ const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
       profileManaged: true,
     },
   ],
+  [ServiceProvider.Local]: [
+    {
+      key: "localUrl",
+      label: "Base URL",
+      placeholder: Local.ExampleEndpoint,
+      subTitle: "本地 API 地址",
+      profileManaged: true,
+    },
+    {
+      key: "localApiKey",
+      label: "API Key",
+      placeholder: "your-api-key",
+      profileManaged: true,
+    },
+  ],
 };
 
 function getProfileBaseUrl(
@@ -907,6 +926,8 @@ function getProfileBaseUrl(
       return accessStore.siliconflowUrl;
     case ServiceProvider["302.AI"]:
       return accessStore.ai302Url;
+    case ServiceProvider.Local:
+      return accessStore.localUrl;
     default:
       return "";
   }
@@ -946,6 +967,8 @@ function getProfileApiKey(provider: ServiceProvider, accessStore: AccessState) {
       return accessStore.siliconflowApiKey;
     case ServiceProvider["302.AI"]:
       return accessStore.ai302ApiKey;
+    case ServiceProvider.Local:
+      return accessStore.localApiKey;
     default:
       return "";
   }
@@ -1148,21 +1171,34 @@ export function ApiConfigPage() {
         ${
           !isTightMode
             ? `
-        /* 隐藏 select 下拉箭头 - 有留白模式 */
+        /* 有留白模式 - 显示下拉箭头 */
         .select-with-icon-icon,
         [class*="select-with-icon-icon"] {
-          display: none !important;
+          display: block !important;
         }
 
-        /* 去除 select 的左右 padding - 有留白模式 */
+        /* 调整 select 的 padding 为箭头留空间 */
         .select-with-icon-select,
         [class*="select-with-icon-select"] {
-          padding-left: 0 !important;
-          padding-right: 0 !important;
+          padding-left: 8px !important;
+          padding-right: 18px !important;
+          font-size: 12px !important;
+          text-align-last: center !important;
         }
         `
             : `
-        /* 沾满模式 - 不修改样式 */
+        /* 沾满模式 - 显示下拉箭头 */
+        .select-with-icon-icon,
+        [class*="select-with-icon-icon"] {
+          display: block !important;
+        }
+
+        .select-with-icon-select,
+        [class*="select-with-icon-select"] {
+          padding-left: 10px !important;
+          padding-right: 28px !important;
+          font-size: 11px !important;
+        }
         `
         }
       }
@@ -1742,6 +1778,10 @@ export function ApiConfigPage() {
           case ServiceProvider["302.AI"]:
             access.ai302Url = profile.baseUrl;
             access.ai302ApiKey = profile.apiKey;
+            break;
+          case ServiceProvider.Local:
+            access.localUrl = profile.baseUrl;
+            access.localApiKey = profile.apiKey;
             break;
           default:
             break;

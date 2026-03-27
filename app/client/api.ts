@@ -19,6 +19,7 @@ import { XAIApi } from "./platforms/xai";
 import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
+import { LocalApi } from "./platforms/local";
 import type { ModelPublishedAtSource } from "../utils/model-published-at";
 import {
   getCustomModelApiKeySelection,
@@ -219,6 +220,9 @@ export class ClientApi {
       case ModelProvider["302.AI"]:
         this.llm = new Ai302Api();
         break;
+      case ModelProvider.Local:
+        this.llm = new LocalApi();
+        break;
       default:
         this.llm = new ChatGPTApi();
     }
@@ -321,6 +325,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     const isSiliconFlow =
       modelConfig.providerName === ServiceProvider.SiliconFlow;
     const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
+    const isLocal = modelConfig.providerName === ServiceProvider.Local;
     const isEnabledAccessControl = accessStore.needCode;
 
     // 调试信息
@@ -360,6 +365,29 @@ export function getHeaders(ignoreHeaders: boolean = false) {
 
     const currentCustomProfile =
       activeCustomProfile ?? enabledCustomProfile ?? undefined;
+    const enabledLocalProfile = accessStore.apiProfiles.find(
+      (profile) =>
+        profile.enabled &&
+        profile.provider === ServiceProvider.Local &&
+        profile.baseUrl,
+    );
+    const activeLocalProfile = accessStore.apiProfiles.find((profile) => {
+      if (
+        profile.provider !== ServiceProvider.Local ||
+        !profile.baseUrl ||
+        profile.baseUrl !== accessStore.localUrl
+      ) {
+        return false;
+      }
+
+      if (!accessStore.localApiKey) {
+        return true;
+      }
+
+      return profile.apiKey === accessStore.localApiKey;
+    });
+    const currentLocalProfile =
+      activeLocalProfile ?? enabledLocalProfile ?? undefined;
 
     const resolveCustomApiKey = () => {
       if (!currentCustomProfile) {
@@ -418,6 +446,8 @@ export function getHeaders(ignoreHeaders: boolean = false) {
                   : ""
                 : effectiveProvider === ServiceProvider["302.AI"]
                 ? accessStore.ai302ApiKey
+                : effectiveProvider === ServiceProvider.Local
+                ? accessStore.localApiKey
                 : accessStore.openaiApiKey,
             fallback: [],
           };
@@ -439,11 +469,13 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       isChatGLM,
       isSiliconFlow,
       isAI302,
+      isLocal,
       apiKey: apiKeyInfo.current,
       fallbackApiKeys: apiKeyInfo.fallback,
       fallbackApiKeyGroups: (apiKeyInfo as any).fallbackGroups || [],
       isEnabledAccessControl,
       currentCustomProfile,
+      currentLocalProfile,
     };
   }
 
@@ -472,11 +504,13 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     isChatGLM,
     isSiliconFlow,
     isAI302,
+    isLocal,
     apiKey,
     fallbackApiKeys,
     fallbackApiKeyGroups,
     isEnabledAccessControl,
     currentCustomProfile,
+    currentLocalProfile,
   } = getConfig();
   // when using baidu api in app, not set auth header
   if (isBaidu && clientConfig?.isApp) return headers;
@@ -496,14 +530,19 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     );
   }
 
-  // 添加降级 API key 列表用于重试
-  console.log("[API Headers] fallbackApiKeys 配置:", {
-    hasFallback: fallbackApiKeys && fallbackApiKeys.length > 0,
-    count: fallbackApiKeys?.length || 0,
-    groups: fallbackApiKeyGroups,
-  });
+  if (isLocal) {
+    const localBaseUrl = String(
+      currentLocalProfile?.baseUrl || accessStore.localUrl || "",
+    ).trim();
+    if (localBaseUrl) {
+      headers["x-base-url"] = localBaseUrl.endsWith("/")
+        ? localBaseUrl.slice(0, -1)
+        : localBaseUrl;
+    }
+  }
 
-  if (fallbackApiKeys && fallbackApiKeys.length > 0) {
+  // Local 不启用 fallback keys，仅对 Custom 供应商生效。
+  if (!isLocal && fallbackApiKeys && fallbackApiKeys.length > 0) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
     console.log("[API Headers] 已添加 fallback keys:", {
@@ -528,7 +567,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     if (rememberedGroup) {
       (headers as any)["x-remembered-api-key-group"] = rememberedGroup;
     }
-  } else {
+  } else if (!isLocal) {
     console.log("[API Headers] 没有 fallback keys，无法重试");
   }
 
@@ -563,6 +602,8 @@ export function getClientApi(provider: ServiceProviderValue): ClientApi {
       return new ClientApi(ModelProvider.SiliconFlow);
     case ServiceProvider["302.AI"]:
       return new ClientApi(ModelProvider["302.AI"]);
+    case ServiceProvider.Local:
+      return new ClientApi(ModelProvider.Local);
     default:
       return new ClientApi(ModelProvider.GPT);
   }

@@ -333,14 +333,14 @@
 }
 
 .model-selector-option-icon-frame {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  min-height: 24px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   border: 1px solid #e5e7eb;
   box-sizing: border-box;
@@ -384,8 +384,8 @@
 }
 
 .model-selector-option-icon-image-inset {
-  width: 18px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   background-size: contain;
 }
 
