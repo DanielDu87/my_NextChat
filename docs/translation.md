@@ -1,12 +1,12 @@
-# How to add a new translation?
+# 如何新增翻译
 
-Assume that we are adding a new translation for `new`.
+假设要新增一个语言 `new`，按下面步骤处理：
 
-1. copy `app/locales/en.ts` to `app/locales/new.ts`;
-2. edit `new.ts`, change `const en: LocaleType = ` to `const new: PartialLocaleType`, and `export default new;`;
-3. edit `app/locales/index.ts`:
-4. `import new from './new.ts'`;
-5. add `new` to `ALL_LANGS`;
-6. add `new: "new lang"` to `ALL_LANG_OPTIONS`;
-7. translate the strings in `new.ts`;
-8. submit a pull request, and the author will merge it.
+1. 复制 `app/locales/en.ts` 为 `app/locales/new.ts`。
+2. 编辑 `new.ts`，把 `const en: LocaleType =` 改成 `const new: PartialLocaleType =`，并改成 `export default new;`。
+3. 编辑 `app/locales/index.ts`。
+4. 增加 `import new from "./new";`。
+5. 把 `new` 加入 `ALL_LANGS`。
+6. 在 `ALL_LANG_OPTIONS` 中增加 `new: "new lang"`。
+7. 翻译 `new.ts` 中的文案。
+8. 提交 Pull Request，维护者会处理合并。

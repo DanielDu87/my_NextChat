@@ -1,80 +1,45 @@
-# Docker 部署指南（AI 优化）
+# Docker 部署指南
 
-本指南面向两类读者：
+本文档只保留当前仓库实际可用的一套 Docker 部署规则，避免文档与配置分叉。
 
-- 人工部署
-- AI / 自动化代理执行部署
-
-为了提高 AI 执行成功率，本文档遵循以下原则：
-
-- 所有文件名写死
-- 所有命令可直接复制
-- 区分“首次部署”“后续更新”“仅重启”
-- 明确使用哪个 `docker compose profile`
-- 所有国内加速变量单独列出
-
-## 1. 部署方式
-
-本项目支持两种 Docker 部署方式：
-
-1. 官方镜像
-适合不改代码、只想快速运行。
-
-2. 本仓库自建镜像
-适合以下场景：
-- 你修改了代码
-- 你要使用国内加速源
-- 你要使用本仓库内置的 `docker-compose.yml`
-- 你需要数据库 / SSH 隧道等扩展配置
-
-如果你是 AI / 自动化代理，优先使用“本仓库自建镜像”方式。
-
-## 2. 先决条件
-
-服务器建议：
-
-- 仅运行已构建镜像：`2C4G`
-- 服务器本机执行 `docker build`：建议 `4C8G`
-
-软件要求：
-
-```bash
-docker --version
-docker compose version
-```
-
-## 3. 关键文件
-
-AI 在执行部署时，优先使用以下文件：
-
-- Compose 文件：[docker-compose.yml](../docker-compose.yml)
-- Docker 镜像定义：[Dockerfile](../Dockerfile)
-- Docker 环境变量模板：[.env.docker.example](../.env.docker.example)
-
-## 4. 推荐的 Compose Profile
-
-本项目 `docker-compose.yml` 中有三个 profile：
-
-- `no-proxy`
-适用于部署与生产运行。推荐默认使用。
+## 1. 当前支持的 Profile
 
 - `dev`
-仅用于开发，不用于服务器正式部署。
+  本地开发热加载。
+- `local-db`
+  可选，本地 PostgreSQL，仅在开发时需要本地库才启用。
+- `no-proxy`
+  生产部署默认 profile，表示应用容器直连外部服务，不额外启用 SSH 隧道。
+- `ssh-tunnel`
+  可选，仅在数据库必须通过跳板机访问时叠加启用。
+- `official`
+  使用官方镜像快速运行。
 
-生产部署时：
+推荐规则：
 
-- 一律使用 `--profile no-proxy`
-- 不要在生产服务器上使用 `--profile dev`
+- 本地开发：`--profile dev`
+- 本地开发且需要本地 PostgreSQL：`--profile dev --profile local-db`
+- 生产部署默认：`--profile no-proxy`
+- 生产部署走跳板机：`--profile no-proxy --profile ssh-tunnel`
 
-## 5. 首次部署
+## 2. 关键文件
 
-### 5.1 复制部署环境文件
+- Compose 文件：[docker-compose.yml](../docker-compose.yml)
+- Docker 构建文件：[Dockerfile](../Dockerfile)
+- 环境变量模板：[.env.docker.example](../.env.docker.example)
+- 安全包装脚本：[scripts/docker-compose-safe.sh](../scripts/docker-compose-safe.sh)
+
+不要直接执行 `docker compose build`。默认使用包装脚本，避免部分环境在 `~/.docker/buildx/activity` 上报权限错误。
+
+## 3. 首次生产部署
+
+### 3.1 准备环境文件
 
 ```bash
 cp .env.docker.example .env.docker
 ```
 
-### 5.2 编辑 `.env.docker`
+### 3.2 编辑 `.env.docker`
 
 最少需要填写：
 
@@ -83,109 +48,117 @@ OPENAI_API_KEY=sk-xxxx
 CODE=你的访问密码
 ```
 
-数据库部署约定：
-
-- 本项目默认使用固定 PostgreSQL 直连
-- 不默认启用 `postgres-ssh-tunnel`
-- 后续服务器部署时，优先沿用 `.env.docker` 中现有的数据库连接配置
-- 只有明确需要跳板机时，才额外启用 `--profile ssh-tunnel`
-
-当前推荐的数据库填写方式是：
+如果启用数据库同步，推荐直接填写固定 PostgreSQL：
 
 ```dotenv
-PGHOST=数据库固定地址
+PGHOST=数据库地址
 PGPORT=5432
-PGDATABASE=数据库名
+PGDATABASE=nextchat
 PGUSER=数据库用户名
 PGPASSWORD=数据库密码
+PGSSL=
+PGSSLMODE=
 ```
 
-也可以直接填写：
+也可以直接写：
 
 ```dotenv
 DATABASE_URL=postgres://user:password@host:5432/dbname
 ```
 
-国内服务器推荐同时填写：
+如需覆盖构建镜像源，可填写：
 
 ```dotenv
 ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
 NPM_REGISTRY=https://registry.npmmirror.com/
-RT_CLIENT_TGZ_URL=https://你自己的国内地址/rt-client-0.5.0.tgz
 ```
 
-说明：
+如果数据库必须通过跳板机访问：
 
-- `ALPINE_MIRROR`
-Alpine `apk` 包源。Dockerfile 已支持通过 build arg 替换。
+```dotenv
+PGHOST=postgres-ssh-tunnel
+PGPORT=5432
+PGDATABASE=nextchat
+PGUSER=数据库用户名
+PGPASSWORD=数据库密码
 
-- `NPM_REGISTRY`
-npm / yarn registry。默认值已是 `https://registry.npmmirror.com/`。
+SSH_TUNNEL_HOST=跳板机地址
+SSH_TUNNEL_PORT=222
+SSH_TUNNEL_USER=登录用户
+SSH_TUNNEL_PASSWORD=登录密码
+SSH_TUNNEL_REMOTE_HOST=目标数据库地址
+SSH_TUNNEL_REMOTE_PORT=5432
+SSH_TUNNEL_LOCAL_PORT=5432
+```
 
-- `RT_CLIENT_TGZ_URL`
-`rt-client` 的 tgz 下载地址。默认使用仓库内置的本地包，如有需要也可以替换成你自己的 OSS / COS / CDN / 制品库地址。
+### 3.3 构建并启动
 
-### 5.3 构建并启动
+固定 PostgreSQL 直连：
 
 ```bash
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
-## 6. 验证部署是否成功
+通过 SSH 隧道访问数据库：
 
-### 6.1 查看容器状态
+```bash
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel up -d
+```
+
+## 4. 验证部署
+
+查看容器状态：
 
 ```bash
 ./scripts/docker-compose-safe.sh --env-file .env.docker ps
 ```
 
-### 6.2 查看应用日志
-
-无代理部署：
+查看应用日志：
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker logs -f nextchat
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy logs -f nextchat-production
 ```
 
-### 6.3 检查数据库健康接口
+检查应用健康：
 
-如果启用了数据库同步，可检查：
+```bash
+curl http://127.0.0.1:3000/api/config
+```
+
+检查数据库健康：
 
 ```bash
 curl http://127.0.0.1:3000/api/db/health
 ```
 
-期望结果应包含：
+期望返回大致为：
 
 - `ok: true`
-- `configuredHost`
-- `configuredPort`
-- `database`
-- `user`
+- `postgres.configuredHost`
+- `postgres.configuredPort`
+- `postgres.database`
+- `postgres.user`
+- `modelCatalogCount`
 
-### 6.4 从容器内验证应用本体
-
-如果宿主机上访问 `http://127.0.0.1:3000` 异常，但容器状态显示 `Up`，先不要直接判断应用失败。先在容器内执行：
+如果宿主机访问 `127.0.0.1:3000` 异常，但容器已经 `Up`，优先在容器内验证：
 
 ```bash
-docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000
+docker exec nextchat wget -S -O - http://127.0.0.1:3000
 ```
 
-如果这里返回 `HTTP/1.1 200 OK`，通常说明：
+如果容器内返回 `HTTP/1.1 200 OK`，通常说明应用已经启动，问题更可能在宿主机代理、端口转发或外层网关。
 
-- NextChat 应用本身已经正常启动
-- 问题更可能在宿主机本地代理、端口转发或外层网关，而不是容器内服务
+## 5. 后续维护
 
-## 7. 后续维护
-
-### 7.1 仅重启服务
+仅重启：
 
 ```bash
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy restart
 ```
 
-### 7.2 更新代码后重新部署
+代码更新后重新部署：
 
 ```bash
 git pull
@@ -193,65 +166,15 @@ git pull
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
-### 7.3 停止服务
+停止服务：
 
 ```bash
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy down
 ```
 
-## 8. 官方镜像快速运行
+## 6. 本地 Docker 开发
 
-如果不需要自建镜像，可以直接运行官方镜像：
-
-```bash
-docker pull yidadaa/chatgpt-next-web
-
-docker run -d -p 3000:3000 \
-  -e OPENAI_API_KEY=sk-xxxx \
-  -e CODE=你的访问密码 \
-  yidadaa/chatgpt-next-web
-```
-
-## 9. 面向 AI 的执行建议
-
-如果以后由 AI 自动部署，建议严格按下面顺序执行：
-
-1. 读取 [docker-compose.yml](../docker-compose.yml)
-2. 复制 [.env.docker.example](../.env.docker.example) 为 `.env.docker`
-3. 补齐 `.env.docker` 的必填变量
-4. 使用 `--profile no-proxy`
-5. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build`
-6. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d`
-7. 执行 `./scripts/docker-compose-safe.sh --env-file .env.docker ps`
-8. 如果启用了数据库，同步检查 `curl http://127.0.0.1:3000/api/db/health`
-9. 如果宿主机访问异常，再执行 `docker exec chatgpt-next-web wget -S -O - http://127.0.0.1:3000`
-
-数据库规则补充：
-
-- 默认沿用 `.env.docker` 中已有的固定数据库配置
-- 不要在部署时改回 `postgres-ssh-tunnel`
-- 不要默认启用 `ssh-tunnel` profile
-- 默认使用 [scripts/docker-compose-safe.sh](../scripts/docker-compose-safe.sh)
-  不要直接执行 `docker compose build`
-  因为部分环境会在 `~/.docker/buildx/activity` 位置报权限错误
-- 生产容器必须保留 `HOSTNAME=0.0.0.0`
-  否则 Next.js standalone 可能因为解析容器随机主机名失败而报 `getaddrinfo EAI_AGAIN`
-- 版本号来自 `package.json`
-  如果前端页面配置里出现 `vundefined`，优先检查 `package.json` 是否缺少 `version`
-
-AI 不应在生产服务器使用 `dev` profile。
-
-AI 不应假设每次启动都需要重新构建镜像。
-
-正确规则：
-
-- 首次部署：需要 `build`
-- 代码更新：需要 `build`
-- 仅重启：不需要 `build`
-
-## 10. 本地 Docker 开发与热加载
-
-如果目标是本地开发，而不是生产部署，使用 `dev` profile：
+启动开发环境：
 
 ```bash
 cp .env.docker.example .env.docker
@@ -259,46 +182,38 @@ cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
-开发模式特点：
+如果需要本地 PostgreSQL：
 
-- 使用源码挂载
-- 启动 `next dev`
-- 修改大多数文件后会自动热更新
-- 不需要每次手动重启容器
-- 不需要每次重新构建镜像
-
-### 热加载相关变量
-
-`.env.docker.example` 中已经提供以下开发变量：
-
-```dotenv
-WATCHPACK_POLLING=false
-WATCHPACK_POLLING_INTERVAL=1000
-CHOKIDAR_USEPOLLING=false
-CHOKIDAR_INTERVAL=1000
+```bash
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile local-db up -d
 ```
 
-推荐规则：
+查看开发日志：
 
-- Linux 本地开发 / 大多数服务器开发环境：
-  保持 `false`
-- Docker Desktop（macOS / Windows）如果发现改文件后不能及时热更新：
-  再改成 `true`
+```bash
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
+```
 
 说明：
 
-- 默认关闭 polling，优先使用原生文件事件，热更新更快、CPU 更低
-- 只有文件监听异常时，才建议打开 polling
+- 普通业务代码改动后依赖热加载，不要重启容器。
+- 只有 `package.json`、`yarn.lock`、`Dockerfile` 变更时，才建议重新 build。
+- `WATCHPACK_POLLING` 和 `CHOKIDAR_USEPOLLING` 默认保持 `false`，只有 Docker Desktop 文件监听不稳定时再开启。
+- 首次访问开发环境可能需要等待首轮编译完成。
 
-### 面向 AI 的开发规则
+## 7. 官方镜像快速运行
 
-如果任务是“本地开发 + 热加载”，AI 应执行：
+如果不需要自建镜像：
 
-1. 使用 `--profile dev`
-2. 不要使用生产 profile
-3. 不要在每次改文件后执行 `docker compose build`
-4. 不要在每次改文件后重启容器
-5. 只有以下情况才重新 build：
-   - `package.json` / `yarn.lock` 变更
-   - `Dockerfile` 变更
-   - 需要重建基础依赖层
+```bash
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile official up -d
+```
+
+或直接使用 Docker：
+
+```bash
+docker run -d -p 3000:3000 \
+  -e OPENAI_API_KEY=sk-xxxx \
+  -e CODE=你的访问密码 \
+  yidadaa/chatgpt-next-web
+```

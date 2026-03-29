@@ -1,15 +1,18 @@
 # =============================================================================
 # NextChat Docker Compose 配置
 # =============================================================================
-# 本地开发（热加载）: docker-compose up
-# 服务器部署: docker-compose --profile production up -d
+# 本地开发（热加载）: ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
+# 生产部署（直连数据库）: ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
+# 生产部署（SSH 隧道）: ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel up -d
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
   # PostgreSQL 数据库服务
+  # 仅在需要本地数据库时显式启用 `--profile local-db`
   # ---------------------------------------------------------------------------
   postgres:
+    profiles: [local-db]
     image: postgres:16-alpine
     container_name: nextchat-postgres
     restart: unless-stopped
@@ -32,13 +35,27 @@ services:
   # 代码修改后自动刷新，无需重启容器
   # ---------------------------------------------------------------------------
   nextchat-dev:
+    profiles: [dev]
     build:
       context: .
       target: dev
       args:
-        - APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
-        - NPM_REGISTRY=https://registry.npmmirror.com
-        - NODE_OPTIONS=--max-old-space-size=4096
+        - APK_MIRROR=${ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+        - NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+        - NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=4096}
+        - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+        - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+        - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+        - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+        - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+        - SHAREGPT_URL=${SHAREGPT_URL:-}
+        - MCP_MARKET_URL=${MCP_MARKET_URL:-}
+        - ENABLE_EDGE_TTS=${ENABLE_EDGE_TTS:-false}
+        - EDGE_TTS_VOICES_URL=${EDGE_TTS_VOICES_URL:-}
+        - EDGE_TTS_WSS_URL=${EDGE_TTS_WSS_URL:-}
+        - DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE:-}
+        - BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE:-unknown}
+        - BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH:-unknown}
     container_name: nextchat-dev
     ports:
       - "${PORT:-3000}:3000"
@@ -47,14 +64,13 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false}
+      - CHOKIDAR_INTERVAL=${CHOKIDAR_INTERVAL:-1000}
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING:-false}
+      - WATCHPACK_POLLING_INTERVAL=${WATCHPACK_POLLING_INTERVAL:-1000}
       - NEXT_TELEMETRY_DISABLED=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
@@ -63,6 +79,19 @@ services:
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
+      - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+      - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+      - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+      - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+      - SHAREGPT_URL=${SHAREGPT_URL:-}
+      - MCP_MARKET_URL=${MCP_MARKET_URL:-}
+      - ENABLE_EDGE_TTS=${ENABLE_EDGE_TTS:-false}
+      - EDGE_TTS_VOICES_URL=${EDGE_TTS_VOICES_URL:-}
+      - EDGE_TTS_WSS_URL=${EDGE_TTS_WSS_URL:-}
+      - DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE:-}
       - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
       - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - DATABASE_URL=${DATABASE_URL}
@@ -72,7 +101,7 @@ services:
       - PGUSER=${PGUSER}
       - PGPASSWORD=${PGPASSWORD}
       - PGSSL=${PGSSL}
-      - PGSSLMODE=${PGSSLMODE}
+      - PGSSLMODE=${PGSSLMODE:-}
       - PGPOOL_MAX=${PGPOOL_MAX}
       - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
       - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}
@@ -95,19 +124,32 @@ services:
     command:
       - sh
       - -lc
-      - npm install && yarn dev --hostname 0.0.0.0
+      - yarn install --frozen-lockfile --network-timeout 600000 && yarn dev --hostname 0.0.0.0
 
   # ---------------------------------------------------------------------------
   # 生产环境 - 服务器部署（使用本地构建）
   # ---------------------------------------------------------------------------
   nextchat-production:
-    profiles: [production]
+    profiles: [production, no-proxy]
     build:
       context: .
       target: runner
       args:
-        - APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
-        - NPM_REGISTRY=https://registry.npmmirror.com
+        - APK_MIRROR=${ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+        - NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+        - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+        - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+        - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+        - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+        - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+        - SHAREGPT_URL=${SHAREGPT_URL:-}
+        - MCP_MARKET_URL=${MCP_MARKET_URL:-}
+        - ENABLE_EDGE_TTS=${ENABLE_EDGE_TTS:-false}
+        - EDGE_TTS_VOICES_URL=${EDGE_TTS_VOICES_URL:-}
+        - EDGE_TTS_WSS_URL=${EDGE_TTS_WSS_URL:-}
+        - DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE:-}
+        - BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE:-unknown}
+        - BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH:-unknown}
     image: nextchat:${IMAGE_TAG:-latest}
     container_name: nextchat
     restart: unless-stopped
@@ -124,6 +166,19 @@ services:
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
       - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
+      - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+      - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+      - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+      - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+      - SHAREGPT_URL=${SHAREGPT_URL:-}
+      - MCP_MARKET_URL=${MCP_MARKET_URL:-}
+      - ENABLE_EDGE_TTS=${ENABLE_EDGE_TTS:-false}
+      - EDGE_TTS_VOICES_URL=${EDGE_TTS_VOICES_URL:-}
+      - EDGE_TTS_WSS_URL=${EDGE_TTS_WSS_URL:-}
+      - DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE:-}
       - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
       - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - PROXY_URL=${PROXY_URL:-}
@@ -134,7 +189,7 @@ services:
       - PGUSER=${PGUSER}
       - PGPASSWORD=${PGPASSWORD}
       - PGSSL=${PGSSL}
-      - PGSSLMODE=${PGSSLMODE}
+      - PGSSLMODE=${PGSSLMODE:-}
       - PGPOOL_MAX=${PGPOOL_MAX}
       - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
       - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}
@@ -144,14 +199,34 @@ services:
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/config', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
       interval: 30s
-      timeout: 3s
-      start_period: 5s
+      timeout: 5s
+      start_period: 30s
       retries: 3
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL SSH 隧道
+  # 仅在必须通过跳板机访问数据库时启用 `--profile ssh-tunnel`
+  # ---------------------------------------------------------------------------
+  postgres-ssh-tunnel:
+    profiles: [ssh-tunnel]
+    build:
+      context: .
+      dockerfile: docker/postgres-ssh-tunnel/Dockerfile
+    container_name: nextchat-postgres-ssh-tunnel
+    restart: unless-stopped
+    environment:
+      - SSH_TUNNEL_HOST=${SSH_TUNNEL_HOST}
+      - SSH_TUNNEL_PORT=${SSH_TUNNEL_PORT:-222}
+      - SSH_TUNNEL_USER=${SSH_TUNNEL_USER}
+      - SSH_TUNNEL_PASSWORD=${SSH_TUNNEL_PASSWORD}
+      - SSH_TUNNEL_REMOTE_HOST=${SSH_TUNNEL_REMOTE_HOST:-127.0.0.1}
+      - SSH_TUNNEL_REMOTE_PORT=${SSH_TUNNEL_REMOTE_PORT:-5432}
+      - SSH_TUNNEL_LOCAL_PORT=${SSH_TUNNEL_LOCAL_PORT:-5432}
 
   # ---------------------------------------------------------------------------
   # 生产环境 - 使用官方镜像（快速部署）
@@ -171,6 +246,10 @@ services:
       - CODE=${CODE}
       - BASE_URL=${BASE_URL}
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
+      - DISABLE_GPT4=${DISABLE_GPT4:-false}
+      - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
       - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
       - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
       - DATABASE_URL=${DATABASE_URL}
@@ -180,7 +259,7 @@ services:
       - PGUSER=${PGUSER}
       - PGPASSWORD=${PGPASSWORD}
       - PGSSL=${PGSSL}
-      - PGSSLMODE=${PGSSLMODE}
+      - PGSSLMODE=${PGSSLMODE:-}
       - PGPOOL_MAX=${PGPOOL_MAX}
       - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS}
       - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS}

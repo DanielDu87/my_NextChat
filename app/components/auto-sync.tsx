@@ -29,6 +29,8 @@ let autoSyncEffectActive = false;
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
     ? `custom_${profile.name}`.toLowerCase()
+    : profile.provider === ServiceProvider.Local
+    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
 }
 
@@ -68,8 +70,9 @@ function rebuildManagedModelsFromCache() {
           sorted: index,
           provider: {
             id: providerId,
-            providerName: ServiceProvider.Custom,
-            providerType: "custom",
+            providerName: profile.provider,
+            providerType:
+              profile.provider === ServiceProvider.Local ? "openai" : "custom",
             sorted: 0,
           },
         });

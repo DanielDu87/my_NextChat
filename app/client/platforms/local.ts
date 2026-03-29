@@ -162,7 +162,9 @@ export class LocalApi implements LLMApi {
             if (tool_calls?.length > 0) {
               const index = tool_calls[0]?.index;
               const id = tool_calls[0]?.id;
-              const args = tool_calls[0]?.function?.arguments;
+              const args = tool_calls[0]?.function?.arguments ?? "";
+              const targetTool =
+                typeof index === "number" ? runTools[index] : undefined;
               if (id) {
                 runTools.push({
                   id,
@@ -172,8 +174,8 @@ export class LocalApi implements LLMApi {
                     arguments: args,
                   },
                 });
-              } else {
-                runTools[index]["function"]["arguments"] += args;
+              } else if (targetTool?.function?.arguments !== undefined) {
+                targetTool.function.arguments += args;
               }
             }
             const reasoning = choices[0]?.delta?.reasoning_content;

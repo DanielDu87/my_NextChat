@@ -10,9 +10,35 @@ FROM node:20-alpine AS base
 ARG APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG NODE_OPTIONS=--max-old-space-size=4096
+ARG ENABLE_GOOGLE_FONTS=false
+ARG GITHUB_BASE_URL=https://github.com
+ARG GITHUB_API_BASE_URL=https://api.github.com
+ARG GITHUB_RAW_BASE_URL=https://raw.githubusercontent.com
+ARG ENABLE_SHAREGPT=false
+ARG SHAREGPT_URL=
+ARG MCP_MARKET_URL=
+ARG ENABLE_EDGE_TTS=false
+ARG EDGE_TTS_VOICES_URL=
+ARG EDGE_TTS_WSS_URL=
+ARG DEFAULT_INPUT_TEMPLATE=
+ARG BUILD_COMMIT_DATE=unknown
+ARG BUILD_COMMIT_HASH=unknown
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    NODE_OPTIONS=${NODE_OPTIONS}
+    NODE_OPTIONS=${NODE_OPTIONS} \
+    ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS} \
+    GITHUB_BASE_URL=${GITHUB_BASE_URL} \
+    GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL} \
+    GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL} \
+    ENABLE_SHAREGPT=${ENABLE_SHAREGPT} \
+    SHAREGPT_URL=${SHAREGPT_URL} \
+    MCP_MARKET_URL=${MCP_MARKET_URL} \
+    ENABLE_EDGE_TTS=${ENABLE_EDGE_TTS} \
+    EDGE_TTS_VOICES_URL=${EDGE_TTS_VOICES_URL} \
+    EDGE_TTS_WSS_URL=${EDGE_TTS_WSS_URL} \
+    DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE} \
+    BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE} \
+    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH}
 
 WORKDIR /app
 
@@ -45,13 +71,14 @@ CMD ["yarn", "dev", "--hostname", "0.0.0.0"]
 # =============================================================================
 FROM base AS deps
 
+ENV HUSKY=0
+
 # 先复制依赖定义文件（利用 Docker 层缓存）
 COPY package.json yarn.lock ./
 COPY vendor ./vendor
-COPY .npmrc ./
 
-# 使用 npm ci 替代 yarn install（更快更可靠）
-RUN npm ci --prefer-offline --no-audit
+# 仓库仅维护 yarn.lock，生产构建统一使用 Yarn 安装依赖
+RUN yarn install --frozen-lockfile --network-timeout 600000
 
 # =============================================================================
 # 构建阶段
@@ -78,6 +105,9 @@ RUN yarn build && \
 # =============================================================================
 FROM node:20-alpine AS runner
 
+ARG BUILD_COMMIT_DATE=unknown
+ARG BUILD_COMMIT_HASH=unknown
+
 # 生产环境变量
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
@@ -86,7 +116,9 @@ ENV NODE_ENV=production \
     OPENAI_API_KEY="" \
     GOOGLE_API_KEY="" \
     CODE="" \
-    ENABLE_MCP=""
+    ENABLE_MCP="" \
+    BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE} \
+    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH}
 
 # 安装运行时依赖
 RUN apk add --no-cache proxychains-ng dumb-init
@@ -109,7 +141,7 @@ EXPOSE 3000
 ENTRYPOINT ["dumb-init", "--"]
 
 # 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/api/config', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # 启动命令（支持代理）

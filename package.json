@@ -2,7 +2,7 @@
   "name": "nextchat",
   "version": "2.16.1",
   "private": false,
-  "license": "mit",
+  "license": "MIT",
   "scripts": {
     "mask": "npx tsx app/masks/build.ts",
     "mask:watch": "npx watch \"npx tsx app/masks/build.ts\" app/masks",
@@ -27,7 +27,7 @@
     "db:drop-unused-tables": "npx tsx ./scripts/drop-unused-db-tables.ts",
     "db:purge-keep-provider-configs": "npx tsx ./scripts/purge-db-keep-provider-configs.ts",
     "db:migrate-sync-artifacts": "npx tsx ./scripts/migrate-sync-artifacts-to-dedicated-tables.ts",
-    "prepare": "husky install",
+    "prepare": "sh -c 'if [ -d .git ] && [ -w .git ] && [ -w .git/config ]; then husky install; else echo \"husky skipped\"; fi'",
     "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev",
     "test": "node --no-warnings --experimental-vm-modules ./node_modules/.bin/jest --watch",
     "test:ci": "node --no-warnings --experimental-vm-modules ./node_modules/.bin/jest --ci"
@@ -46,6 +46,7 @@
     "fuse.js": "^7.0.0",
     "heic2any": "^0.0.4",
     "html-to-image": "^1.11.11",
+    "js-yaml": "^4.1.0",
     "lodash-es": "^4.17.21",
     "markdown-to-txt": "^2.0.1",
     "mermaid": "^10.6.1",
@@ -65,6 +66,7 @@
     "remark-math": "^5.1.1",
     "rt-client": "file:vendor/rt-client-0.5.0.tgz",
     "sass": "^1.59.2",
+    "sharp": "^0.34.4",
     "spark-md5": "^3.0.2",
     "use-debounce": "^9.0.4",
     "zod": "^3.24.1",
