@@ -217,10 +217,6 @@ ls -la
 # 访问密码 - 设置后需要输入此密码才能访问
 CODE=YourAccessPassword123
 
-# API 密钥 - 至少配置一个
-OPENAI_API_KEY=sk-your-openai-api-key-here
-GOOGLE_API_KEY=
-
 # 数据库密码 - 使用前面创建的密码
 PGPASSWORD=YourStrongPassword123!
 
@@ -230,6 +226,21 @@ PGPASSWORD=YourStrongPassword123!
 NEXTCHAT_DEFAULT_USER_ID=single-user
 DEFAULT_SYNC_USER_ID=single-user
 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+```
+
+**关于 AI 服务商配置（可选）：**
+
+> **重要提示：** 如果服务器已配置自定义 AI 提供商，以下配置可以留空。
+> 用户可以在界面中自行配置 API Key 和 Base URL。
+
+```bash
+# AI 服务商配置（可选 - 服务器已配置时留空）
+OPENAI_API_KEY=
+GOOGLE_API_KEY=
+BASE_URL=
+
+# 允许用户配置自己的 API Key（设为 false）
+HIDE_USER_API_KEY=false
 ```
 
 **其他配置保持默认即可，如需调整可参考：**

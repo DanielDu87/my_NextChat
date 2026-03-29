@@ -1,6 +1,34 @@
 # NextChat - 宝塔面板部署说明
 
-本项目是 NextChat AI 聊天应用的宝塔面板部署版本。
+本项目是 NextChat AI 聊天应用的宝塔面板部署版本，使用 **自定义构建的 Docker 镜像**。
+
+## 🔔 重要说明
+
+### 自定义镜像
+
+本项目使用自定义构建的 NextChat Docker 镜像，包含以下特性：
+
+- ✅ **已集成自定义 AI 提供商**
+- ✅ **服务器端配置 API Key**
+- ✅ **其他定制功能和优化**
+
+### 部署特点
+
+由于使用自定义镜像，部署时：
+
+**不需要配置：**
+- ❌ OpenAI API Key（已由镜像配置）
+- ❌ 自定义 API 地址（已由镜像配置）
+- ❌ 其他 AI 服务商配置（已由镜像配置）
+
+**只需配置：**
+- ✅ 访问密码（CODE）
+- ✅ 数据库连接信息
+- ✅ 用户标识配置
+
+**用户使用时：**
+- 用户可以直接使用预配置的 AI 服务
+- 也可以在界面中配置自己的 API Key（需要设置 `HIDE_USER_API_KEY=false`）
 
 ## 📦 已包含的配置文件
 
@@ -19,9 +47,18 @@
 ```bash
 # 必须修改的配置
 CODE=your-access-password
-OPENAI_API_KEY=your-api-key
 PGPASSWORD=your-db-password
+
+# 用户标识配置（三个必须一致）
+NEXTCHAT_DEFAULT_USER_ID=single-user
+DEFAULT_SYNC_USER_ID=single-user
+NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 ```
+
+**关于 AI 服务商配置：**
+
+> 如果服务器已配置自定义 AI 提供商，`OPENAI_API_KEY` 等配置可以留空。
+> 用户可以在界面中自行配置自己的 API Key。
 
 ### 2. 在宝塔面板部署
 
