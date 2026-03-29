@@ -12,10 +12,11 @@
 4. [创建网站](#创建网站)
 5. [创建数据库](#创建数据库)
 6. [部署 NextChat](#部署-nextchat)
-7. [配置 Nginx](#配置-nginx)
-8. [验证部署](#验证部署)
-9. [日常管理](#日常管理)
-10. [常见问题](#常见问题)
+7. **[初始化配置数据](#初始化配置数据)**
+8. [配置 Nginx](#配置-nginx)
+9. [验证部署](#验证部署)
+10. [日常管理](#日常管理)
+11. [常见问题](#常见问题)
 
 ---
 
@@ -182,8 +183,8 @@ cd /www/wwwroot
 # 删除默认创建的目录（如果有）
 rm -rf nextchat
 
-# 克隆 NextChat 项目
-git clone https://github.com/ChatGPTNextWeb/NextChat.git nextchat
+# 克隆项目
+git clone https://github.com/DanielDu87/my_NextChat.git nextchat
 
 # 进入项目目录
 cd nextchat
@@ -193,8 +194,7 @@ ls -la
 ```
 
 **应该看到以下重要文件：**
-- `docker-compose.yml` - Docker Compose 配置
-- `docker-compose.baota.yml` - 宝塔专用配置
+- `docker-compose.baota.yml` - Docker Compose 配置
 - `.env.baota` - 环境变量模板
 - `Dockerfile` - 镜像构建文件
 
@@ -203,9 +203,8 @@ ls -la
 **在宝塔面板 -> 文件管理：**
 
 1. **进入 `/www/wwwroot/nextchat` 目录**
-2. **找到 `.env.baota` 文件**
-3. **复制该文件并重命名为 `.env.baota.local`**
-4. **编辑 `.env.baota.local`**
+2. **复制 `.env.baota` 文件并重命名为 `.env.baota.local`**
+3. **编辑 `.env.baota.local`**
 
 **修改以下必填配置：**
 
@@ -228,46 +227,13 @@ DEFAULT_SYNC_USER_ID=single-user
 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 ```
 
-**关于 AI 服务商配置（可选）：**
-
-> **重要提示：** 如果服务器已配置自定义 AI 提供商，以下配置可以留空。
-> 用户可以在界面中自行配置 API Key 和 Base URL。
-
-```bash
-# AI 服务商配置（可选 - 服务器已配置时留空）
-OPENAI_API_KEY=
-GOOGLE_API_KEY=
-BASE_URL=
-
-# 允许用户配置自己的 API Key（设为 false）
-HIDE_USER_API_KEY=false
-```
-
-**其他配置保持默认即可，如需调整可参考：**
-
-```bash
-# 数据库配置
-PGHOST=127.0.0.1
-PGPORT=5432
-PGDATABASE=nextchat
-PGUSER=nextchat_user
-
-# 国内加速（建议保留）
-ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
-NPM_REGISTRY=https://registry.npmmirror.com/
-
-# 功能配置
-HIDE_USER_API_KEY=true          # 隐藏用户 API 输入框
-DISABLE_GPT4=false              # 是否禁用 GPT-4
-ENABLE_BALANCE_QUERY=false      # 是否启用余额查询
-ENABLE_GOOGLE_FONTS=false       # 是否使用 Google 字体
-```
+**其他配置保持默认即可**
 
 **保存文件**
 
 ### 步骤 3：使用宝塔 Docker 部署
 
-#### 方法 A：使用 Docker Compose 功能（推荐）
+**在宝塔面板中：**
 
 1. **Docker -> Compose 项目**
 2. **点击 "添加项目"**
@@ -285,54 +251,79 @@ ENABLE_GOOGLE_FONTS=false       # 是否使用 Google 字体
 5. **构建镜像**
    - 在项目列表中找到 NextChat
    - 点击 "构建" 按钮
-   - 等待构建完成（约需 5-10 分钟，取决于网络速度）
+   - 等待构建完成（约需 5-10 分钟）
 
 6. **启动容器**
    - 构建完成后点击 "启动"
-   - 等待容器启动完成
 
-#### 方法 B：使用命令行部署
+---
 
-**在宝塔面板 -> 终端执行：**
+## 初始化配置数据
 
-```bash
-cd /www/wwwroot/nextchat
+### ⚠️ 重要：首次部署必须执行此步骤！
 
-# 构建镜像
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local build
+**问题说明：**
 
-# 启动容器
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
+首次部署后，数据库中的 `app_settings` 配置表是空的，这会导致：
+- 点击"保存并同步"时提示"没有可同步的配置条目"
+- 配置无法正常保存和加载
+- 数据同步功能异常
 
-# 查看启动日志
-docker logs -f nextchat
-```
+**解决方案：**
 
-**看到以下信息表示启动成功：**
-
-```
-✓ Ready in 1123ms
-```
-
-### 步骤 4：验证容器运行
-
-**在宝塔面板中检查：**
-
-1. **Docker -> 容器**
-2. **应该看到 `nextchat` 容器状态为 "运行中"**
-
-**或使用命令行检查：**
+在宝塔面板 -> 终端执行以下命令初始化配置数据：
 
 ```bash
-docker ps | grep nextchat
+PGPASSWORD=YourStrongPassword123! psql -h 127.0.0.1 -U nextchat_user -d nextchat << 'EOF'
+-- 初始化配置数据脚本
+DO $$
+DECLARE
+  user_id uuid;
+BEGIN
+  -- 获取或创建用户
+  SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+
+  IF user_id IS NULL THEN
+    INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active, profile_json)
+    VALUES (generate_uuid_v4(), 'single-user', 'single-user', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
+
+    SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+  END IF;
+
+  -- 删除旧配置（如果有）
+  DELETE FROM app_settings WHERE user_id = user_id;
+
+  -- 创建新配置
+  INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
+  VALUES (
+    user_id,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb
+  );
+
+  RAISE NOTICE '配置初始化完成！用户 ID: %', user_id;
+END $$;
+EOF
 ```
 
-**应该看到：**
+**执行成功会显示：**
 
 ```
-CONTAINER ID   IMAGE          COMMAND           STATUS         PORTS
-xxxxxxxxxxxx   nextchat:xxx   "dumb-init --…"   Up 2 minutes   0.0.0.0:3000->3000/tcp
+NOTICE:  配置初始化完成！用户 ID: <uuid>
 ```
+
+### 验证配置已创建
+
+```bash
+PGPASSWORD=YourStrongPassword123! psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT user_id, jsonb_pretty(ui_settings) FROM app_settings;"
+```
+
+**应该返回配置数据。**
 
 ---
 
@@ -407,8 +398,6 @@ docker logs nextchat
 
 **应该看到：**
 ```
-▲ Next.js 14.1.1
-- Local:        http://localhost:3000
 ✓ Ready in 1123ms
 ```
 
@@ -426,11 +415,11 @@ docker logs nextchat
 2. **点击 "进入系统"**
 3. **应该成功进入聊天界面**
 
-### 5. 测试对话功能
+### 5. 测试配置同步
 
-1. **在聊天框输入消息**
-2. **发送测试**
-3. **检查是否能正常回复**
+1. **点击右上角设置图标**
+2. **点击 "保存并同步"**
+3. **应该显示"配置已保存"，不再报错**
 
 ---
 
@@ -440,19 +429,19 @@ docker logs nextchat
 
 #### 容器管理
 
-**位置：** Docker -> 容器
+**位置：** Docker -> 容器 -> nextchat
 
 **可执行操作：**
 - 查看容器状态
 - 查看容器日志
 - 重启容器
 - 停止容器
-- 删除容器
+- 删除容器（谨慎操作）
 - 进入终端
 
 #### Compose 项目管理
 
-**位置：** Docker -> Compose 项目
+**位置：** Docker -> Compose 项目 -> NextChat
 
 **可执行操作：**
 - 启动/停止项目
@@ -462,7 +451,7 @@ docker logs nextchat
 
 #### 网站管理
 
-**位置：** 网站 -> 列表
+**位置：** 网站 -> 列表 -> NextChat
 
 **可执行操作：**
 - 访问网站
@@ -472,7 +461,7 @@ docker logs nextchat
 
 #### 数据库管理
 
-**位置：** 数据库 -> PostgreSQL
+**位置：** 数据库 -> PostgreSQL -> nextchat
 
 **可执行操作：**
 - 管理数据库
@@ -515,8 +504,9 @@ cd /www/wwwroot/nextchat
 # 拉取最新代码
 git pull
 
-# 重新构建（在宝塔面板操作更方便）
+# 在宝塔 Docker 管理器中
 # Docker -> Compose 项目 -> NextChat -> 重新构建
+# 构建完成后 -> 重启
 ```
 
 ### 修改配置
@@ -529,53 +519,35 @@ git pull
 4. **保存**
 5. **Docker -> 容器 -> nextchat -> 重启**
 
-#### 修改 API 密钥
-
-1. **文件管理 -> `/www/wwwroot/nextchat`**
-2. **编辑 `.env.baota.local`**
-3. **修改 `OPENAI_API_KEY` 的值**
-4. **保存**
-5. **Docker -> 容器 -> nextchat -> 重启**
-
-### 数据备份
-
-#### 自动备份
-
-1. **计划任务 -> 添加任务**
-2. **任务类型：** 备份数据库
-3. **数据库：** nextchat
-4. **备份到：** 服务器磁盘
-5. **执行周期：** 每天
-6. **保留天数：** 7
-
-#### 手动备份
+#### 重置配置（如果配置出错）
 
 ```bash
-# 备份数据库
-PGPASSWORD='YourPassword' pg_dump -h 127.0.0.1 -U nextchat_user nextchat > /www/backup/nextchat_$(date +%Y%m%d).sql
-
-# 备份配置文件
-cp /www/wwwroot/nextchat/.env.baota.local /www/backup/.env.baota.local.backup
+# 删除配置数据
+PGPASSWORD=YourPassword psql -h 127.0.0.1 -U nextchat_user -d nextchat << 'EOF'
+DELETE FROM app_settings WHERE user_id = (SELECT id FROM app_users WHERE external_id = 'single-user');
+INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
+SELECT
+  id,
+  '{}'::jsonb as ui_settings,
+  '{}'::jsonb as chat_settings,
+  '{}'::jsonb as model_settings,
+  '{}'::jsonb as plugin_settings,
+  '{}'::jsonb as sync_settings,
+  '{}'::jsonb as security_settings,
+  '{}'::jsonb as extra_settings
+FROM app_users WHERE external_id = 'single-user';
+EOF
 ```
 
 ---
 
 ## 常见问题
 
-### Q1: 容器无法启动
+### Q1: 点击"保存并同步"提示"没有可同步的配置条目"
 
-**检查步骤：**
+**原因：** 数据库配置表 `app_settings` 是空的。
 
-1. **查看容器日志：**
-   - Docker -> 容器 -> nextchat -> 日志
-
-2. **常见错误：**
-
-| 错误 | 原因 | 解决方案 |
-|------|------|---------|
-| Cannot connect to PostgreSQL | 数据库连接失败 | 检查密码是否正确，确认 PostgreSQL 运行中 |
-| port is already allocated | 端口被占用 | `docker ps` 检查是否有其他容器占用 3000 端口 |
-| permission denied | 权限不足 | 检查数据库用户权限 |
+**解决方法：** 执行上面"初始化配置数据"步骤中的 SQL 脚本。
 
 ### Q2: 网站无法访问
 
@@ -611,26 +583,38 @@ cp /www/wwwroot/nextchat/.env.baota.local /www/backup/.env.baota.local.backup
    ALTER USER nextchat_user WITH PASSWORD 'NewPassword123!';
    ```
 
-### Q4: 更新后无法访问
+### Q4: 配置保存后刷新丢失
 
-**解决方案：**
+**原因：** 浏览器缓存或配置未正确保存到数据库。
+
+**解决方法：**
 
 1. **清除浏览器缓存**
-2. **检查容器是否正常运行**
-3. **重新构建容器**（如果修改了环境变量）
-
-### Q5: 忘记访问密码
-
-**解决方案：**
-
-1. **查看配置文件：**
+2. **检查配置是否保存到数据库：**
    ```bash
-   cat /www/wwwroot/nextchat/.env.baota.local | grep CODE
+   PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT jsonb_pretty(ui_settings) FROM app_settings;"
+   ```
+3. **如果为空，重新执行初始化配置脚本**
+
+### Q5: 数据无法同步
+
+**检查步骤：**
+
+1. **检查用户 ID 配置是否一致：**
+   ```bash
+   # 检查环境变量
+   docker exec nextchat env | grep NEXTCHAT
+
+   # 检查数据库
+   PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT external_id FROM app_users;"
    ```
 
-2. **修改密码：**
-   - 编辑 `.env.baota.local` 中的 `CODE`
-   - 重启容器
+2. **确保三者一致：**
+   - `NEXTCHAT_DEFAULT_USER_ID=single-user`
+   - `DEFAULT_SYNC_USER_ID=single-user`
+   - `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user`
+
+3. **如果不一致，修改 `.env.baota.local` 并重启容器**
 
 ---
 
@@ -658,7 +642,7 @@ cp /www/wwwroot/nextchat/.env.baota.local /www/backup/.env.baota.local.backup
 
 ```sql
 -- 连接到数据库
-psql -h 127.0.0.1 -U nextchat_user -d nextchat
+PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat
 
 -- 清理 90 天前的消息
 DELETE FROM messages WHERE created_at < NOW() - INTERVAL '90 days';
@@ -693,40 +677,47 @@ VACUUM ANALYZE;
 
 ---
 
-## 附录
+## 附录：快速命令参考
 
-### 文件结构
+```bash
+# 进入项目目录
+cd /www/wwwroot/nextchat
 
+# 查看容器状态
+docker ps
+
+# 查看容器日志
+docker logs -f nextchat
+
+# 重启容器
+docker restart nextchat
+
+# 停止容器
+docker stop nextchat
+
+# 启动容器
+docker start nextchat
+
+# 进入容器终端
+docker exec -it nextchat sh
+
+# 初始化配置数据
+PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "
+DO $$
+DECLARE user_id uuid;
+BEGIN
+  SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+  IF user_id IS NULL THEN
+    INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active, profile_json)
+    VALUES (generate_uuid_v4(), 'single-user', 'single-user', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
+    SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+  END IF;
+  DELETE FROM app_settings WHERE user_id = user_id;
+  INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
+  VALUES (user_id, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb);
+END $$;
+"
+
+# 查看配置数据
+PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT user_id, jsonb_pretty(ui_settings) FROM app_settings;"
 ```
-/www/wwwroot/nextchat/
-├── .env.baota                    # 环境变量模板
-├── .env.baota.local              # 实际使用的环境变量（需创建）
-├── docker-compose.baota.yml      # Docker Compose 配置（宝塔专用）
-├── Dockerfile                    # 镜像构建文件
-├── nginx/
-│   └── baota-nextchat.conf       # Nginx 配置参考
-├── docs/
-│   ├── baota-quick-start.md      # 快速开始指南
-│   ├── baota-docker-guide.md     # Docker 部署指南
-│   └── ...
-└── README_BAOTA.md               # 宝塔部署说明
-```
-
-### 端口说明
-
-| 端口 | 用途 | 说明 |
-|------|------|------|
-| 80 | HTTP | 宝塔面板使用 |
-| 443 | HTTPS | 宝塔面板使用 |
-| 8888 | 宝塔面板 | 宝塔面板管理端口 |
-| 3000 | NextChat | 容器内部端口，不对外 |
-| 5432 | PostgreSQL | 数据库端口，不对外 |
-
-### 目录说明
-
-| 目录 | 用途 |
-|------|------|
-| /www/wwwroot | 网站根目录 |
-| /www/server | 宝塔软件安装目录 |
-| /www/backup | 备份目录 |
-| /var/lib/docker | Docker 数据目录 |
