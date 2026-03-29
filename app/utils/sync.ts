@@ -149,6 +149,58 @@ function getManagedProviderIdsFromProfiles(
   );
 }
 
+function hasNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasMeaningfulConfigState(state: Record<string, any>) {
+  return (
+    Number(state?.lastUpdateTime || 0) > 0 ||
+    (Array.isArray(state?.models) && state.models.length > 0) ||
+    hasNonEmptyString(state?.customModels) ||
+    (Array.isArray(state?.autoModelSeries) && state.autoModelSeries.length > 0)
+  );
+}
+
+function hasMeaningfulAccessState(state: Record<string, any>) {
+  return (
+    Number(state?.lastUpdateTime || 0) > 0 ||
+    (Array.isArray(state?.apiProfiles) && state.apiProfiles.length > 0) ||
+    hasNonEmptyString(state?.defaultModel) ||
+    hasNonEmptyString(state?.customModels) ||
+    hasNonEmptyString(state?.visionModels) ||
+    hasNonEmptyString(state?.openaiApiKey) ||
+    hasNonEmptyString(state?.googleApiKey) ||
+    hasNonEmptyString(state?.anthropicApiKey) ||
+    hasNonEmptyString(state?.azureApiKey) ||
+    hasNonEmptyString(state?.baiduApiKey) ||
+    hasNonEmptyString(state?.baiduSecretKey) ||
+    hasNonEmptyString(state?.bytedanceApiKey) ||
+    hasNonEmptyString(state?.alibabaApiKey) ||
+    hasNonEmptyString(state?.moonshotApiKey) ||
+    hasNonEmptyString(state?.stabilityApiKey) ||
+    hasNonEmptyString(state?.tencentSecretId) ||
+    hasNonEmptyString(state?.tencentSecretKey) ||
+    hasNonEmptyString(state?.iflytekApiKey) ||
+    hasNonEmptyString(state?.iflytekApiSecret) ||
+    hasNonEmptyString(state?.deepseekApiKey) ||
+    hasNonEmptyString(state?.xaiApiKey) ||
+    hasNonEmptyString(state?.chatglmApiKey) ||
+    hasNonEmptyString(state?.siliconflowApiKey) ||
+    hasNonEmptyString(state?.ai302ApiKey) ||
+    hasNonEmptyString(state?.customApiKey) ||
+    hasNonEmptyString(state?.localApiKey)
+  );
+}
+
+function hasMeaningfulSdState(state: Record<string, any>) {
+  return (
+    Number(state?.lastUpdateTime || 0) > 0 ||
+    Number(state?.currentId || 0) > 0 ||
+    (Array.isArray(state?.draw) && state.draw.length > 0)
+  );
+}
+
 const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.Chat]: "双向合并",
   [StoreKey.Plugin]: "双向合并",
@@ -430,6 +482,9 @@ const MergeStates: StateMerger = {
       useAccessStore.getState().apiProfiles || [],
     );
     const currentConfig = useAppConfig.getState();
+    const preferRemoteOnBootstrap =
+      !hasMeaningfulConfigState(localState as Record<string, any>) &&
+      hasMeaningfulConfigState(remoteState as Record<string, any>);
 
     const modelMap = new Map<string, LLMModel>();
 
@@ -459,8 +514,8 @@ const MergeStates: StateMerger = {
 
     const mergedModels = [...modelMap.values()];
     const mergedState = {
-      ...remoteState,
-      ...localState,
+      ...(preferRemoteOnBootstrap ? localState : remoteState),
+      ...(preferRemoteOnBootstrap ? remoteState : localState),
       models: mergedModels,
       theme: currentConfig.theme,
       sidebarWidth: currentConfig.sidebarWidth,
@@ -490,6 +545,9 @@ const MergeStates: StateMerger = {
     const mergedProfiles: typeof localState.apiProfiles = [];
     const localUpdateTime = localState.lastUpdateTime || 0;
     const remoteUpdateTime = remoteState.lastUpdateTime || 0;
+    const preferRemoteOnBootstrap =
+      !hasMeaningfulAccessState(localState as Record<string, any>) &&
+      hasMeaningfulAccessState(remoteState as Record<string, any>);
 
     // 处理本地有的 profile
     localProfileMap.forEach((localProfile, id) => {
@@ -514,9 +572,11 @@ const MergeStates: StateMerger = {
     }
 
     const mergedState = {
-      ...remoteState,
-      ...localState,
-      apiProfiles: mergedProfiles,
+      ...(preferRemoteOnBootstrap ? localState : remoteState),
+      ...(preferRemoteOnBootstrap ? remoteState : localState),
+      apiProfiles: preferRemoteOnBootstrap
+        ? remoteState.apiProfiles || []
+        : mergedProfiles,
       lastUpdateTime: markMergedUpdateTime(
         localState.lastUpdateTime,
         remoteState.lastUpdateTime,
@@ -562,6 +622,10 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.SdList]: (localState, remoteState) => {
+    const preferRemoteOnBootstrap =
+      !hasMeaningfulSdState(localState as Record<string, any>) &&
+      hasMeaningfulSdState(remoteState as Record<string, any>);
+
     const localDrawMap = new Map(
       (localState.draw || []).map((item: any) => [item.id, item]),
     );
@@ -588,14 +652,20 @@ const MergeStates: StateMerger = {
     });
 
     localState.draw = mergedDraw;
-    localState.currentId = Math.max(
-      Number(localState.currentId || 0),
-      Number(remoteState.currentId || 0),
-    );
-    if (!localState.currentModel && remoteState.currentModel) {
+    localState.currentId = preferRemoteOnBootstrap
+      ? Number(remoteState.currentId || 0)
+      : Math.max(
+          Number(localState.currentId || 0),
+          Number(remoteState.currentId || 0),
+        );
+    if (preferRemoteOnBootstrap && remoteState.currentModel) {
+      localState.currentModel = remoteState.currentModel;
+    } else if (!localState.currentModel && remoteState.currentModel) {
       localState.currentModel = remoteState.currentModel;
     }
-    if (!localState.currentParams && remoteState.currentParams) {
+    if (preferRemoteOnBootstrap && remoteState.currentParams) {
+      localState.currentParams = remoteState.currentParams;
+    } else if (!localState.currentParams && remoteState.currentParams) {
       localState.currentParams = remoteState.currentParams;
     }
     return localState;

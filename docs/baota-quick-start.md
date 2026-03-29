@@ -131,6 +131,7 @@ location / {
 - [ ] 浏览器访问 `https://your-domain.com`
 - [ ] 看到 NextChat 登录页面
 - [ ] 输入密码成功登录
+- [ ] 首次打开后等待几秒，服务器 PostgreSQL 中已有的聊天和配置自动恢复到页面
 - [ ] 宝塔 Docker -> 容器中看到 `nextchat` 运行中
 - [ ] 宝塔网站列表中看到 NextChat 站点
 

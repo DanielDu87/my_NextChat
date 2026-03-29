@@ -380,11 +380,26 @@ function normalizeDownloadedStoreState(
   localAccessState: Record<string, any>,
 ) {
   if (key === StoreKey.Access) {
+    const safeAccessState =
+      parsedState &&
+      typeof parsedState === "object" &&
+      !Array.isArray(parsedState)
+        ? (parsedState as Record<string, any>)
+        : {};
+
+    if (
+      !parsedState ||
+      typeof parsedState !== "object" ||
+      Array.isArray(parsedState)
+    ) {
+      console.warn(
+        `[API Config] ⚠️ ${key} 云端快照不是对象，已回退为空对象兼容导入`,
+        parsedState,
+      );
+    }
+
     return normalizeAccessStateForUi(
-      restoreEncryptedAccessSecrets(
-        localAccessState,
-        parsedState as Record<string, any>,
-      ),
+      restoreEncryptedAccessSecrets(localAccessState, safeAccessState),
     );
   }
 
@@ -397,6 +412,20 @@ function normalizeDownloadedStoreState(
             migratedFromLegacyAccess: false,
           };
     return modelCacheState;
+  }
+
+  if (key === StoreKey.Config) {
+    if (
+      !parsedState ||
+      typeof parsedState !== "object" ||
+      Array.isArray(parsedState)
+    ) {
+      console.warn(
+        `[API Config] ⚠️ ${key} 云端快照不是对象，已回退为空对象兼容导入`,
+        parsedState,
+      );
+      return {};
+    }
   }
 
   return parsedState;

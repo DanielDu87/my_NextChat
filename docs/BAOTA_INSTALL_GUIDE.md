@@ -258,72 +258,30 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 ---
 
-## 初始化配置数据
+## 首次打开与自动同步
 
-### ⚠️ 重要：首次部署必须执行此步骤！
+### 当前行为
 
-**问题说明：**
+部署完成后，不需要再手动往 `app_settings` 里预插入空配置。
 
-首次部署后，数据库中的 `app_settings` 配置表是空的，这会导致：
-- 点击"保存并同步"时提示"没有可同步的配置条目"
-- 配置无法正常保存和加载
-- 数据同步功能异常
+当前版本在首次打开页面时会自动执行 PostgreSQL 同步：
+- 如果浏览器本地还是空白初始状态，会优先恢复服务器数据库中的聊天、API 配置、模型、提示词、面具、插件和绘图数据。
+- 如果本地已经有用户数据，则继续按原来的双向同步逻辑处理，避免覆盖用户刚刚在本地做的修改。
 
-**解决方案：**
+### 首次验证步骤
 
-在宝塔面板 -> 终端执行以下命令初始化配置数据：
+1. 浏览器打开站点并完成登录。
+2. 等待 1 到 3 秒，让页面自动同步完成。
+3. 打开设置页，确认服务器里已有的 API 配置、模型和聊天记录已经出现在本地页面。
 
-```bash
-PGPASSWORD=YourStrongPassword123! psql -h 127.0.0.1 -U nextchat_user -d nextchat << 'EOF'
--- 初始化配置数据脚本
-DO $$
-DECLARE
-  user_id uuid;
-BEGIN
-  -- 获取或创建用户
-  SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+### 什么时候才需要手动处理数据库
 
-  IF user_id IS NULL THEN
-    INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active, profile_json)
-    VALUES (generate_uuid_v4(), 'single-user', 'single-user', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
+只有在以下异常情况下，才需要手动检查 PostgreSQL 中的同步数据：
+- 历史数据库里已经存在错误格式的 `app-config` 或 `access-control` 快照。
+- 首次打开后浏览器控制台持续出现同步报错。
+- 你明确要清空某个用户的云端快照并重新导入。
 
-    SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
-  END IF;
-
-  -- 删除旧配置（如果有）
-  DELETE FROM app_settings WHERE user_id = user_id;
-
-  -- 创建新配置
-  INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
-  VALUES (
-    user_id,
-    '{}'::jsonb,
-    '{}'::jsonb,
-    '{}'::jsonb,
-    '{}'::jsonb,
-    '{}'::jsonb,
-    '{}'::jsonb,
-    '{}'::jsonb
-  );
-
-  RAISE NOTICE '配置初始化完成！用户 ID: %', user_id;
-END $$;
-EOF
-```
-
-**执行成功会显示：**
-
-```
-NOTICE:  配置初始化完成！用户 ID: <uuid>
-```
-
-### 验证配置已创建
-
-```bash
-PGPASSWORD=YourStrongPassword123! psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT user_id, jsonb_pretty(ui_settings) FROM app_settings;"
-```
-
-**应该返回配置数据。**
+如果只是“全新部署后首次打开页面”，默认不需要执行任何手动初始化 SQL。
 
 ---
 

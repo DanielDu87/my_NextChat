@@ -736,6 +736,19 @@ export const useSyncStore = createPersistStore(
       const localSessions = Array.isArray(materializedLocalChatState.sessions)
         ? materializedLocalChatState.sessions
         : [];
+      const isBootstrapEmptyLocalChatState =
+        localSessions.length === 1 &&
+        (() => {
+          const session = localSessions[0];
+          const topic = String(session?.topic || "");
+          const isDefaultTopic =
+            !topic || topic === "新的聊天" || topic === "New Chat";
+          return (
+            isDefaultTopic &&
+            getSessionMessages(session).length === 0 &&
+            !session?.memoryPrompt
+          );
+        })();
       const syncableLocalSessions = getSyncableChatSessions(localSessions);
       const remoteIndex = await client.getChatIndex?.();
       const localDeletedSessionTimestamps = getDeletedSessionTimestamps(
@@ -901,6 +914,72 @@ export const useSyncStore = createPersistStore(
         remotePartialState,
         mergedDeletedSessionTimestamps,
       );
+
+      if (
+        isBootstrapEmptyLocalChatState &&
+        Array.isArray(normalizedRemoteChatState?.sessions) &&
+        normalizedRemoteChatState.sessions.length > 0
+      ) {
+        const mergedIndex = buildUploadChatIndexPayload(
+          normalizedRemoteChatState as any,
+          remoteEntryMap,
+        );
+        const mergedSessionMap = createChatSessionMap(
+          normalizedRemoteChatState.sessions,
+        );
+        const upsertSessions = mergedIndex.sessions
+          .filter((entry: ChatIndexSessionEntry) =>
+            shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
+          )
+          .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
+          .filter(Boolean)
+          .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
+          .map(
+            (session: unknown) => session as unknown as Record<string, unknown>,
+          );
+
+        if (upsertSessions.length > 0) {
+          await client.setChatDelta?.(
+            {
+              index: mergedIndex,
+              upsertSessions,
+              deleteSessionIds: [],
+            },
+            {
+              expectedMissing: !chatMeta,
+              expectedUpdatedAt: chatMeta?.updatedAt,
+              expectedChecksum: chatMeta?.checksum,
+            },
+          );
+        }
+
+        const normalizedMergedStoreState = normalizeMergedChatState({
+          ...normalizedRemoteChatState,
+          remoteIndexSessions: remoteIndex.sessions || [],
+          deletedSessionTimestamps: {},
+        });
+
+        return {
+          remoteSummary: getStoreSummary(StoreKey.Chat, {
+            sessions: remoteIndex.sessions || [],
+          }),
+          mergedStoreState: normalizedMergedStoreState,
+          mergedSummary: getStoreSummary(
+            StoreKey.Chat,
+            normalizedMergedStoreState,
+          ),
+          status: "merged" as const,
+          metrics: {
+            downloadedSessionCount: remoteSessionIdsToFetch.length,
+            downloadedBytes,
+            uploadedSessionCount: upsertSessions.length,
+            uploadedBytes:
+              measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions),
+            deletedSessionCount: 0,
+          },
+        };
+      }
+
       const localGlobalClearAt = getChatGlobalClearAt(normalizedLocalChatState);
       const remoteGlobalClearAt = getChatGlobalClearAt(
         normalizedRemoteChatState,
