@@ -126,6 +126,10 @@ services:
       # 持久化数据存储
       - nextchat-data:/app/data
 
+    # 网络配置
+    networks:
+      - nextchat-network
+
     # 健康检查
     healthcheck:
       test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://localhost:3000/api/config || exit 1"]
@@ -145,3 +149,9 @@ services:
 volumes:
   nextchat-data:
     driver: local
+
+# 网络定义
+networks:
+  nextchat-network:
+    name: nextchat_nextchat-network
+    external: true

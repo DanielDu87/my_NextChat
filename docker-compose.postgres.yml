@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nextchat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nextchat
+      POSTGRES_USER: nextchat_user
+      POSTGRES_PASSWORD: 8spmHPXZpy1KP13KnLxFLCYHl
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - nextchat-postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextchat_user -d nextchat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nextchat-network
+
+volumes:
+  nextchat-postgres-data:
+    driver: local
+
+networks:
+  nextchat-network:
+    driver: bridge

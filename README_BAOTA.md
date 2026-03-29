@@ -40,58 +40,193 @@
 
 ## 🚀 快速开始
 
-### 1. 配置环境变量
+### 方法一：推荐部署方式（宝塔面板 + Docker Compose）
 
-复制 `.env.baota` 为 `.env.baota.local` 并修改：
+#### 第一步：部署 Docker 容器
 
-```bash
-# 必须修改的配置
-CODE=your-access-password
-PGPASSWORD=your-db-password
+1. **配置环境变量**
+   ```bash
+   cd /www/wwwroot/nextchat
+   cp .env.baota .env.baota.local
+   nano .env.baota.local  # 修改必填配置
+   ```
 
-# 用户标识配置（三个必须一致）
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
-```
+2. **修改必填配置**
+   ```bash
+   # 访问密码
+   CODE=your-access-password
 
-**关于 AI 服务商配置：**
+   # 数据库密码
+   PGPASSWORD=your-db-password
 
-> 如果服务器已配置自定义 AI 提供商，`OPENAI_API_KEY` 等配置可以留空。
-> 用户可以在界面中自行配置自己的 API Key。
+   # 用户标识（三个必须一致）
+   NEXTCHAT_DEFAULT_USER_ID=single-user
+   DEFAULT_SYNC_USER_ID=single-user
+   NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+   ```
 
-### 2. 在宝塔面板部署
+3. **启动 PostgreSQL 数据库**
+   ```bash
+   docker-compose -f docker-compose.postgres.yml up -d
+   ```
 
-#### Docker 管理器部署
+4. **构建并启动 NextChat**
+   ```bash
+   docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy build
+   docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy up -d
+   ```
 
-1. **Docker** -> **Compose 项目**
-2. **添加项目**
-3. 填写信息：
-   - 名称：`NextChat`
-   - 路径：`/www/wwwroot/nextchat`
-   - Compose 文件：`docker-compose.baota.yml`
-   - 环境文件：`.env.baota.local`
+5. **验证容器运行**
+   ```bash
+   docker ps | grep nextchat
+   curl http://127.0.0.1:3000
+   ```
 
-#### 命令行部署
+#### 第二步：在宝塔面板创建网站
 
-```bash
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d --build
-```
+1. **进入 Docker 网站管理**
+   - 宝塔面板 → Docker → Docker 网站
+
+2. **添加反向代理网站**
+   - 点击"添加网站"
+   - 选择"反向代理"类型
+   - 填写域名：`ngpt.chat`（您的域名）
+   - 填写备注：`NextChat AI 聊天应用`
+   - 点击"提交"
+
+3. **配置反向代理**
+   - 网站创建后，点击"设置"
+   - 选择"反向代理"选项卡
+   - 配置代理信息：
+     - 代理目录：`/`
+     - 目标URL：`http://127.0.0.1:3000`
+     - 发送域名：`$host`（默认）
+   - 启用 WebSocket 支持（重要！）
+   - 点击"保存"
+
+4. **验证配置**
+   - 检查 Nginx 配置文件：
+     ```bash
+     cat /www/server/panel/vhost/nginx/your-domain.conf
+     ```
+   - 确认包含 WebSocket 配置：
+     ```nginx
+     proxy_http_version 1.1;
+     proxy_set_header Upgrade $http_upgrade;
+     proxy_set_header Connection $connection_upgrade;
+     ```
+
+#### 第三步：申请 SSL 证书
+
+1. **进入网站 SSL 设置**
+   - 在 Docker 网站列表中，点击您的网站
+   - 选择"SSL"选项卡
+
+2. **申请 Let's Encrypt 证书**
+   - 选择"Let's Encrypt"
+   - 选择申请方式：
+     - **文件验证**（推荐）：需要域名已解析到服务器
+     - **DNS 验证**：需要配置 DNS API
+   - 点击"申请"
+   - 等待证书签发完成
+
+3. **启用强制 HTTPS**
+   - 证书申请成功后
+   - 开启"强制HTTPS"选项
+   - 点击"保存"
+
+4. **验证 HTTPS**
+   ```bash
+   curl -I https://your-domain.com
+   ```
+
+#### 第四步：完成部署
+
+1. **访问网站**
+   - 打开浏览器访问：`https://your-domain.com`
+   - 输入访问密码（CODE 配置的密码）
+
+2. **配置 AI 服务**（可选）
+   - 如果服务器未配置默认 AI 服务
+   - 在设置中添加您自己的 API Key
+
+---
+
+### 方法二：完全使用宝塔面板（图形界面）
+
+**适合人群：** 不熟悉命令行的用户
+
+#### 前置条件
+
+1. 在宝塔面板安装 Docker 和 Docker Compose
+2. 确保服务器已安装 PostgreSQL 或使用远程数据库
+
+#### 部署步骤
+
+1. **上传项目文件**
+   ```bash
+   cd /www/wwwroot
+   git clone https://github.com/ChatGPTNextWeb/NextChat.git nextchat
+   cd nextchat
+   ```
+
+2. **使用宝塔 Docker 管理器**
+   - Docker → Compose 项目 → 添加项目
+   - 项目路径：`/www/wwwroot/nextchat`
+   - Compose 文件：选择 `docker-compose.baota.yml`
+   - 环境文件：选择 `.env.baota.local`（需提前创建并配置）
+
+3. **创建网站**（同方法一第二步）
+
+4. **申请 SSL 证书**（同方法一第三步）
+
+---
 
 ## 📚 详细文档
 
-- [快速上手指南](docs/baota-quick-start.md)
+### 核心文档
+- [快速参考指南](docs/baota-quick-reference.md) ⭐ **推荐新手**
+- [完整部署指南](docs/baota-deploy-guide-updated.md)
+- [宝塔部署注意事项](docs/baota-deploy-checklist-updated.md)
+
+### 故障排查
+- [数据库问题快速排除](docs/database-quick-fix.md) ⭐ **遇到问题先看这里**
+- [同步配置问题修复](docs/sync-config-fix.md) ⭐ **新增 - "没有可同步的配置条目"**
+- [数据库故障排查指南](docs/baota-database-troubleshooting.md)
+- [数据库修复说明](docs/database-fix-summary.md)
+
+### 其他文档
+- [同步功能使用指南](docs/sync-usage-guide.md) ⭐ **新增 - 如何正确使用同步功能**
 - [图形界面部署指南](docs/baota-gui-deploy.md)
 - [数据库配置指南](docs/baota-database-setup.md)
-- [部署注意事项](docs/baota-deploy-checklist.md)
 
 ## 🔧 宝塔面板管理
 
 | 功能 | 位置 |
 |------|------|
-| 容器管理 | Docker -> 容器 |
-| 网站管理 | 网站 -> 列表 |
-| 数据库管理 | 数据库 -> PostgreSQL |
+| 容器管理 | Docker → 容器 |
+| 网站管理 | Docker → Docker 网站 |
+| 数据库管理 | Docker → PostgreSQL |
+| SSL 证书 | 网站 → SSL 选项卡 |
+
+## 📁 部署后的目录结构
+
+```
+/www/wwwroot/nextchat/              # 项目目录
+├── .env.baota.local                # 环境变量配置
+├── docker-compose.baota.yml        # Docker Compose 配置
+├── docker-compose.postgres.yml     # PostgreSQL 配置
+
+/www/dk_project/sites/ngpt.chat/    # 宝塔网站配置
+└── ngpt.chat.json                  # 网站配置文件
+
+/www/server/panel/vhost/nginx/      # Nginx 配置目录
+└── ngpt.chat.conf                  # 网站 Nginx 配置
+
+/www/server/panel/vhost/cert/ngpt.chat/  # SSL 证书目录
+├── fullchain.pem                   # 完整证书链
+└── privkey.pem                     # 私钥
+```
 
 ## ⚠️ 重要提示
 
@@ -106,23 +241,118 @@ docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d --b
    docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
    ```
 
-3. **数据库初始化**：首次启动自动创建表结构，无需手动操作
+3. **WebSocket 配置**：必须在反向代理中启用 WebSocket 支持
+   ```nginx
+   proxy_http_version 1.1;
+   proxy_set_header Upgrade $http_upgrade;
+   proxy_set_header Connection $connection_upgrade;
+   ```
+
+4. **SSL 证书续期**：宝塔面板会自动续期 Let's Encrypt 证书
+   - 证书到期前 30 天自动续期
+   - 也可手动续期：网站 → SSL → 续期
+
+5. **数据库初始化**：首次启动自动创建表结构，无需手动操作
 
 ## 🐛 故障排查
 
-### 查看容器日志
+### 容器问题
+
+**查看容器日志：**
 ```bash
 docker logs -f nextchat
 ```
 
-### 检查数据库连接
+**检查容器状态：**
 ```bash
-PGPASSWORD=your_password psql -h 127.0.0.1 -U nextchat_user -d nextchat
+docker ps | grep nextchat
 ```
 
-### 重启容器
+**重启容器：**
 ```bash
 docker restart nextchat
+```
+
+### 数据库连接问题
+
+**测试数据库连接：**
+```bash
+docker exec -it nextchat-postgres psql -U nextchat_user -d nextchat
+```
+
+**检查数据库状态：**
+```bash
+docker logs nextchat-postgres
+```
+
+### 网站访问问题
+
+**检查 Nginx 配置：**
+```bash
+nginx -t
+```
+
+**重新加载 Nginx：**
+```bash
+nginx -s reload
+```
+
+**检查端口占用：**
+```bash
+netstat -tlnp | grep 3000
+```
+
+### SSL 证书问题
+
+**查看证书信息：**
+```bash
+certbot certificates
+```
+
+**手动续期：**
+```bash
+certbot renew
+```
+
+## 🔄 更新升级
+
+```bash
+cd /www/wwwroot/nextchat
+
+# 拉取最新代码
+git pull
+
+# 重新构建并部署
+docker-compose -f docker-compose.baota.yml --env-file .env.baota.local build
+docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
+```
+
+## 💾 数据备份
+
+### 备份数据库
+
+```bash
+# 备份到文件
+docker exec nextchat-postgres pg_dump -U nextchat_user nextchat > backup_$(date +%Y%m%d).sql
+
+# 从 Docker 卷备份
+docker run --rm -v nextchat-postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-$(date +%Y%m%d).tar.gz /data
+```
+
+### 备份配置文件
+
+```bash
+# 备份环境配置
+cp .env.baota.local .env.baota.local.backup
+
+# 备份网站配置
+cp /www/dk_project/sites/ngpt.chat/ngpt.chat.json /root/ngpt.chat.json.backup
+```
+
+### 备份 SSL 证书
+
+```bash
+cp -r /www/server/panel/vhost/cert/ngpt.chat /root/ssl-backup/
 ```
 
 ## 📞 支持
