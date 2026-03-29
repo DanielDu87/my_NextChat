@@ -1,0 +1,117 @@
+# =============================================================================
+# NextChat Docker Compose 配置 - 宝塔面板专用版
+# =============================================================================
+# 此配置文件专为宝塔面板 Docker 管理器设计
+# 使用方法：
+# 1. 将此文件保存为 docker-compose.baota.yml
+# 2. 配置同目录下的 .env.baota 文件
+# 3. 在宝塔面板 -> Docker -> Compose 项目 中使用
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # NextChat 主服务
+  # ---------------------------------------------------------------------------
+  nextchat:
+    # 首次部署时使用构建配置
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        # 国内镜像加速
+        - ALPINE_MIRROR=${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
+        - NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+
+        # 功能开关
+        - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+        - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+        - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+        - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+        - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+
+    # 也可以使用预构建镜像（注释掉 build 配置后使用）
+    # image: nextchat:latest
+
+    # 容器名称
+    container_name: nextchat
+
+    # 自动重启
+    restart: unless-stopped
+
+    # 端口映射（容器 3000 端口映射到主机 3000 端口）
+    # 宝塔 Nginx 通过反向代理访问主机 3000 端口
+    ports:
+      - "${PORT:-3000}:3000"
+
+    # 环境变量
+    environment:
+      # 运行环境
+      - NODE_ENV=production
+
+      # 服务配置
+      - PORT=${PORT:-3000}
+      - HOSTNAME=0.0.0.0
+
+      # 访问控制
+      - CODE=${CODE}
+      - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-true}
+      - DISABLE_GPT4=${DISABLE_GPT4:-false}
+      - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
+      - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+
+      # API 配置
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - BASE_URL=${BASE_URL}
+
+      # 用户标识（三个必须一致）
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID}
+      - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID}
+
+      # 数据库配置
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT:-5432}
+      - PGDATABASE=${PGDATABASE}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - PGSSL=${PGSSL:-false}
+      - PGSSLMODE=${PGSSLMODE:-disable}
+      - PGPOOL_MAX=${PGPOOL_MAX:-10}
+      - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS:-10000}
+      - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS:-30000}
+
+      # GitHub 配置
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+      - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+      - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+
+    # 数据卷挂载
+    volumes:
+      # 持久化数据存储
+      - nextchat-data:/app/data
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://localhost:3000/api/config || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 数据卷定义
+volumes:
+  nextchat-data:
+    driver: local
