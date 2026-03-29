@@ -1,0 +1,53 @@
+# Docker 服务器部署配置
+# 使用方式：
+# docker compose --env-file .env.docker --profile no-proxy up -d
+
+# Alpine apk 国内镜像
+ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+
+# npm / yarn registry 国内镜像
+NPM_REGISTRY=https://registry.npmmirror.com/
+YARN_NETWORK_TIMEOUT=600000
+
+# 本地 Docker 开发热加载配置
+WATCHPACK_POLLING=false
+WATCHPACK_POLLING_INTERVAL=1000
+CHOKIDAR_USEPOLLING=false
+CHOKIDAR_INTERVAL=1000
+
+# API 配置
+OPENAI_API_KEY=
+GOOGLE_API_KEY=
+CODE=dyxchat123
+BASE_URL=
+HIDE_USER_API_KEY=true
+DISABLE_GPT4=false
+ENABLE_BALANCE_QUERY=false
+DISABLE_FAST_LINK=false
+ENABLE_MCP=false
+
+# 用户标识 - 重要！必须设置为 single-user 以获取数据
+NEXTCHAT_DEFAULT_USER_ID=single-user
+DEFAULT_SYNC_USER_ID=single-user
+
+# 数据库配置 - 直接连接远程数据库
+PGHOST=42.193.15.117
+PGPORT=5432
+PGDATABASE=nextchat
+PGUSER=dyx
+PGPASSWORD=NrCCTyikNREXjiZ6
+PGSSL=false
+PGSSLMODE=disable
+PGPOOL_MAX=10
+PG_CONNECT_TIMEOUT_MS=10000
+PG_IDLE_TIMEOUT_MS=30000
+DATABASE_URL=
+
+# SSH 隧道配置（不使用 SSH 隧道时留空）
+SSH_TUNNEL_HOST=
+SSH_TUNNEL_PORT=222
+SSH_TUNNEL_USER=
+SSH_TUNNEL_PASSWORD=
+SSH_TUNNEL_REMOTE_HOST=127.0.0.1
+SSH_TUNNEL_REMOTE_PORT=5432
+SSH_TUNNEL_LOCAL_PORT=5432

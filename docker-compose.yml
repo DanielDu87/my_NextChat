@@ -61,10 +61,10 @@ services:
       - "${PORT:-3000}:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
     environment:
+      - HTTP_PROXY=http://host.docker.internal:7890
+      - HTTPS_PROXY=http://host.docker.internal:7890
+      - NO_PROXY=localhost,127.0.0.1,::1
       - NODE_ENV=development
       - HOSTNAME=0.0.0.0
       - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false}
