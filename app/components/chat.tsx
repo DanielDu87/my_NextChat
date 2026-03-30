@@ -150,6 +150,8 @@ import { Avatar } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
+import { parseStoreStatePayload } from "../utils/sync-store-keys";
+import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
@@ -261,6 +263,14 @@ function countManagedCloudModels(
   }).length;
 }
 
+function getManagedProviderIds(
+  profiles: Array<{ provider: string; name: string }> = [],
+) {
+  return new Set(
+    profiles.map((profile) => getProfileProviderId(profile).toLowerCase()),
+  );
+}
+
 function areModelConfigValuesEqual(
   left: Record<string, unknown> | undefined,
   right: Record<string, unknown> | undefined,
@@ -293,6 +303,134 @@ function ChatModelUpdateNotice() {
   const [remoteSignalsLoaded, setRemoteSignalsLoaded] = useState(false);
   const [autoReconciling, setAutoReconciling] = useState(false);
   const lastAutoSyncedRevisionRef = useRef("");
+
+  const reconcileRemoteModelStores = useCallback(async () => {
+    const syncStoreState = useSyncStore.getState();
+    const client = syncStoreState.getClient() as any;
+
+    await runWithImmediateStoreSyncPaused(async () => {
+      const currentProfiles = useAccessStore.getState().apiProfiles || [];
+      const managedProviderIds = getManagedProviderIds(currentProfiles);
+      const allowedProviderIds = [...managedProviderIds];
+
+      const remoteConfigJson = await client.get(StoreKey.Config);
+      if (remoteConfigJson) {
+        const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
+        const remoteModels = (remoteConfig?.models || []).filter(
+          (model: any) => {
+            const providerId = String(model?.provider?.id || "").toLowerCase();
+            return providerId && managedProviderIds.has(providerId);
+          },
+        );
+        if (remoteModels.length > 0) {
+          useAppConfig.getState().mergeModels(remoteModels, {
+            silent: true,
+            allowedProviderIds,
+          });
+        }
+      }
+
+      const remoteAccessJson = await client.get(StoreKey.Access);
+      if (remoteAccessJson) {
+        const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
+        const remoteProfiles = Array.isArray(remoteAccess?.apiProfiles)
+          ? remoteAccess.apiProfiles
+          : [];
+
+        if (remoteProfiles.length > 0) {
+          useAccessStore.getState().update((state) => {
+            const localProfileMap = new Map(
+              (state.apiProfiles || []).map((profile: any) => [
+                String(profile?.id || ""),
+                profile,
+              ]),
+            );
+            const mergedProfiles = [...(state.apiProfiles || [])];
+
+            remoteProfiles.forEach((remoteProfile: any) => {
+              const remoteProfileId = String(remoteProfile?.id || "");
+              if (!remoteProfileId) {
+                return;
+              }
+
+              if (!localProfileMap.has(remoteProfileId)) {
+                if (
+                  remoteProfile.cachedModels ||
+                  Number(remoteProfile.modelCount || 0) > 0
+                ) {
+                  useModelCacheStore
+                    .getState()
+                    .upsertProfileCache(remoteProfileId, {
+                      cachedModels: String(remoteProfile.cachedModels || ""),
+                      modelCount: Number(remoteProfile.modelCount || 0),
+                    });
+                }
+                mergedProfiles.push(remoteProfile);
+                return;
+              }
+
+              const localIndex = mergedProfiles.findIndex(
+                (profile: any) => String(profile?.id || "") === remoteProfileId,
+              );
+              if (localIndex < 0) {
+                return;
+              }
+
+              const localProfile = mergedProfiles[localIndex] as any;
+              const localModels = new Set(
+                String(localProfile?.cachedModels || "")
+                  .split(",")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              );
+              String(remoteProfile.cachedModels || "")
+                .split(",")
+                .map((item: string) => item.trim())
+                .filter(Boolean)
+                .forEach((modelName: string) => localModels.add(modelName));
+
+              useModelCacheStore
+                .getState()
+                .upsertProfileCache(remoteProfileId, {
+                  cachedModels: [...localModels].join(","),
+                  modelCount: Math.max(
+                    Number(localProfile?.modelCount || 0),
+                    Number(remoteProfile?.modelCount || 0),
+                  ),
+                });
+            });
+
+            state.apiProfiles = mergedProfiles;
+          });
+        }
+      }
+
+      const remoteModelCacheJson = await client.get(StoreKey.ModelCache);
+      if (remoteModelCacheJson) {
+        const remoteModelCache =
+          parseStoreStatePayload<any>(remoteModelCacheJson);
+        const remoteProfiles =
+          remoteModelCache &&
+          typeof remoteModelCache === "object" &&
+          remoteModelCache.profiles &&
+          typeof remoteModelCache.profiles === "object"
+            ? remoteModelCache.profiles
+            : {};
+
+        Object.entries(remoteProfiles).forEach(([profileId, payload]) => {
+          if (!payload || typeof payload !== "object") {
+            return;
+          }
+
+          useModelCacheStore.getState().upsertProfileCache(profileId, {
+            cachedModels: String((payload as any).cachedModels || ""),
+            modelCount: Number((payload as any).modelCount || 0),
+            updatedAt: Number((payload as any).updatedAt || Date.now()),
+          });
+        });
+      }
+    });
+  }, []);
 
   const refreshRemoteSignals = useCallback(async () => {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
@@ -400,7 +538,7 @@ function ChatModelUpdateNotice() {
     void (async () => {
       try {
         await waitForSyncIdle();
-        await useSyncStore.getState().syncModels?.();
+        await reconcileRemoteModelStores();
         if (!cancelled) {
           await refreshRemoteSignals();
         }
@@ -421,6 +559,7 @@ function ChatModelUpdateNotice() {
     autoReconciling,
     hasExactModelCountMatch,
     hasStaleModels,
+    reconcileRemoteModelStores,
     refreshRemoteSignals,
     remoteRevision,
     remoteSignalsLoaded,

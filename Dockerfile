@@ -4,11 +4,11 @@
 # 支持本地开发热加载和服务器生产部署
 # =============================================================================
 
-# 基础镜像使用官方源
-FROM node:20-alpine AS base
+# 基础镜像使用官方 Alpine，并通过 apk 安装 Node 20 与 Yarn
+FROM alpine:3.20 AS base
 
-ARG APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
-ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 ARG NODE_OPTIONS=--max-old-space-size=4096
 ARG ENABLE_GOOGLE_FONTS=false
 ARG GITHUB_BASE_URL=https://github.com
@@ -24,6 +24,12 @@ ARG DEFAULT_INPUT_TEMPLATE=
 ARG NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=
 ARG BUILD_COMMIT_DATE=unknown
 ARG BUILD_COMMIT_HASH=unknown
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG all_proxy
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_OPTIONS=${NODE_OPTIONS} \
@@ -40,14 +46,20 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     DEFAULT_INPUT_TEMPLATE=${DEFAULT_INPUT_TEMPLATE} \
     NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID} \
     BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE} \
-    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH}
+    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH} \
+    HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    ALL_PROXY=${ALL_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    all_proxy=${all_proxy}
 
 WORKDIR /app
 
 # 一次性配置所有源和安装基础包（减少层数）
 RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
-    apk add --no-cache libc6-compat git && \
+    apk add --no-cache libc6-compat git nodejs npm yarn && \
     npm config set registry "${NPM_REGISTRY}" && \
     yarn config set registry "${NPM_REGISTRY}" && \
     yarn config set network-timeout 600000 -g && \
@@ -105,10 +117,17 @@ RUN yarn build && \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-FROM node:20-alpine AS runner
+FROM alpine:3.20 AS runner
 
+ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 ARG BUILD_COMMIT_DATE=unknown
 ARG BUILD_COMMIT_HASH=unknown
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG all_proxy
 
 # 生产环境变量
 ENV NODE_ENV=production \
@@ -120,10 +139,18 @@ ENV NODE_ENV=production \
     CODE="" \
     ENABLE_MCP="" \
     BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE} \
-    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH}
+    BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH} \
+    HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    ALL_PROXY=${ALL_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    all_proxy=${all_proxy}
 
 # 安装运行时依赖
-RUN apk add --no-cache proxychains-ng dumb-init
+RUN set -eux; \
+    sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
+    apk add --no-cache nodejs proxychains-ng dumb-init
 
 WORKDIR /app
 

@@ -37,6 +37,8 @@ services:
   # NextChat 主服务
   # ---------------------------------------------------------------------------
   nextchat:
+    platform: ${NEXTCHAT_PLATFORM:-linux/amd64}
+    image: ${NEXTCHAT_IMAGE:-nextchat-baota:latest}
     build:
       context: .
       dockerfile: Dockerfile

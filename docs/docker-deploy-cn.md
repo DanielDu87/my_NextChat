@@ -66,11 +66,11 @@ PGSSLMODE=
 DATABASE_URL=postgres://user:password@host:5432/dbname
 ```
 
-如需覆盖构建镜像源，可填写：
+如需覆盖构建镜像源，优先使用官方源：
 
 ```dotenv
-ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
-NPM_REGISTRY=https://registry.npmmirror.com/
+APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+NPM_REGISTRY=https://registry.npmjs.org/
 ```
 
 如果数据库必须通过跳板机访问：
@@ -106,6 +106,15 @@ SSH_TUNNEL_LOCAL_PORT=5432
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel up -d
 ```
+
+### 3.4 当前生产构建约定
+
+- 生产环境默认直接在远程服务器执行 Docker 官方构建。
+- 构建源默认使用官方仓库：
+  - `APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine`
+  - `NPM_REGISTRY=https://registry.npmjs.org/`
+- 不再把第三方 Alpine / npm 镜像源作为默认文档路径。
+- 如果服务器性能允许，优先使用远程服务器本地构建再 `up -d`，减少本地跨架构构建和镜像传输的不确定性。
 
 ## 4. 验证部署
 

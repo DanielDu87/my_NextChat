@@ -76,6 +76,12 @@
    docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy up -d
    ```
 
+   当前推荐约定：
+   - 直接在远程服务器构建并启动
+   - 构建源使用官方仓库
+   - `APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine`
+   - `NPM_REGISTRY=https://registry.npmjs.org/`
+
 5. **验证容器运行**
    ```bash
    docker ps | grep nextchat
@@ -241,18 +247,24 @@
    docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
    ```
 
-3. **WebSocket 配置**：必须在反向代理中启用 WebSocket 支持
+3. **生产构建源**：默认使用官方源，不再推荐第三方镜像源
+   ```dotenv
+   APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+   NPM_REGISTRY=https://registry.npmjs.org/
+   ```
+
+4. **WebSocket 配置**：必须在反向代理中启用 WebSocket 支持
    ```nginx
    proxy_http_version 1.1;
    proxy_set_header Upgrade $http_upgrade;
    proxy_set_header Connection $connection_upgrade;
    ```
 
-4. **SSL 证书续期**：宝塔面板会自动续期 Let's Encrypt 证书
+5. **SSL 证书续期**：宝塔面板会自动续期 Let's Encrypt 证书
    - 证书到期前 30 天自动续期
    - 也可手动续期：网站 → SSL → 续期
 
-5. **数据库初始化**：首次启动自动创建表结构，无需手动操作
+6. **数据库初始化**：首次启动自动创建表结构，无需手动操作
 
 ## 🐛 故障排查
 
