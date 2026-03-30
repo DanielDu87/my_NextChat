@@ -144,7 +144,7 @@ import {
   StoreKey,
   UNFINISHED_INPUT,
 } from "../constant";
-import { useSyncStore } from "../store/sync";
+import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { Avatar } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
@@ -291,6 +291,8 @@ function ChatModelUpdateNotice() {
   const [remoteModelRefresh, setRemoteModelRefresh] =
     useState<RemoteModelRefreshArtifact | null>(null);
   const [remoteSignalsLoaded, setRemoteSignalsLoaded] = useState(false);
+  const [autoReconciling, setAutoReconciling] = useState(false);
+  const lastAutoSyncedRevisionRef = useRef("");
 
   const refreshRemoteSignals = useCallback(async () => {
     if (useSyncStore.getState().provider !== ProviderType.Database) {
@@ -333,17 +335,9 @@ function ChatModelUpdateNotice() {
     useAppConfig.getState().models || [],
     accessStore.apiProfiles || [],
   );
-
-  if (!remoteSignalsLoaded) {
-    return null;
-  }
-
-  if (
+  const hasExactModelCountMatch =
     remoteModelRefresh?.modelCount !== undefined &&
-    remoteModelRefresh.modelCount === localTotalCount
-  ) {
-    return null;
-  }
+    remoteModelRefresh.modelCount === localTotalCount;
 
   const hasStaleModels = (accessStore.apiProfiles || []).some((profile) => {
     const providerId = getProfileProviderId(profile).toLowerCase();
@@ -368,7 +362,74 @@ function ChatModelUpdateNotice() {
     return remote.fetchedCount !== localModelCount;
   });
 
-  // 只根据模型数量判断是否显示提醒
+  const remoteRevision = useMemo(() => {
+    if (!remoteModelRefresh) {
+      return "";
+    }
+
+    return JSON.stringify({
+      updatedAt: remoteModelRefresh.updatedAt || "",
+      modelCount: remoteModelRefresh.modelCount ?? 0,
+      providers: (remoteModelRefresh.providers || []).map((provider) => ({
+        profileId: provider.profileId || "",
+        providerId: provider.providerId || "",
+        profileName: provider.profileName || "",
+        fetchedCount: provider.fetchedCount ?? 0,
+        updatedAt: provider.updatedAt || "",
+      })),
+    });
+  }, [remoteModelRefresh]);
+
+  useEffect(() => {
+    if (
+      !remoteSignalsLoaded ||
+      useSyncStore.getState().provider !== ProviderType.Database ||
+      !remoteRevision ||
+      hasExactModelCountMatch ||
+      !hasStaleModels ||
+      autoReconciling ||
+      lastAutoSyncedRevisionRef.current === remoteRevision
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    lastAutoSyncedRevisionRef.current = remoteRevision;
+    setAutoReconciling(true);
+
+    void (async () => {
+      try {
+        await waitForSyncIdle();
+        await useSyncStore.getState().syncModels?.();
+        if (!cancelled) {
+          await refreshRemoteSignals();
+        }
+      } catch (error) {
+        console.error("[Chat] 自动对齐模型缓存失败:", error);
+        lastAutoSyncedRevisionRef.current = "";
+      } finally {
+        if (!cancelled) {
+          setAutoReconciling(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    autoReconciling,
+    hasExactModelCountMatch,
+    hasStaleModels,
+    refreshRemoteSignals,
+    remoteRevision,
+    remoteSignalsLoaded,
+  ]);
+
+  if (!remoteSignalsLoaded || autoReconciling || hasExactModelCountMatch) {
+    return null;
+  }
+
   if (!hasStaleModels) {
     return null;
   }

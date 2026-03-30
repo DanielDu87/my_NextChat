@@ -12,10 +12,17 @@ import { ServiceProvider, StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
+import { useChatStore } from "../store/chat";
 import { useSyncStore } from "../store/sync";
 import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
+import { getNonFunctionFileds } from "../utils/sync";
+import {
+  buildChatIndexPayload,
+  getSyncableChatSessions,
+} from "../utils/chat-sync";
+import { isEffectivelyEmptyRemoteChatState } from "../utils/chat-sync-state";
 import {
   AUTO_SYNC_CHANNEL_NAME,
   AUTO_SYNC_LOCK_KEY,
@@ -71,6 +78,19 @@ function hasMeaningfulLocalAccessState(state: Record<string, any>) {
 
 function hasMeaningfulLocalModelCacheState(state: Record<string, any>) {
   return Object.keys(state?.profiles || {}).length > 0;
+}
+
+function hasMeaningfulLocalChatState(state: Record<string, any>) {
+  const sessions = getSyncableChatSessions(state?.sessions || []);
+  if (sessions.length === 0) {
+    return false;
+  }
+
+  return sessions.some(
+    (session) =>
+      (Array.isArray(session?.messages) && session.messages.length > 0) ||
+      sessions.length > 1,
+  );
 }
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
@@ -150,19 +170,16 @@ export default function AutoSync() {
       StoreKey.Config,
       StoreKey.Access,
       StoreKey.ModelCache,
+      StoreKey.Chat,
     ]);
     const remoteMetaKeys = new Set(
       (metas || []).map((meta: { key: string }) => meta.key),
     );
-    const missingKeys = [
+    const missingStoreKeys = [
       StoreKey.Config,
       StoreKey.Access,
       StoreKey.ModelCache,
     ].filter((key) => !remoteMetaKeys.has(key));
-
-    if (missingKeys.length === 0) {
-      return false;
-    }
 
     const localConfig = useAppConfig.getState() as Record<string, any>;
     const localAccess = useAccessStore.getState() as Record<string, any>;
@@ -170,34 +187,83 @@ export default function AutoSync() {
       string,
       any
     >;
-    const hasBootstrapData =
+    const hasStoreBootstrapData =
       hasMeaningfulLocalConfigState(localConfig) ||
       hasMeaningfulLocalAccessState(localAccess) ||
       hasMeaningfulLocalModelCacheState(localModelCache);
 
-    if (!hasBootstrapData) {
+    if (missingStoreKeys.length > 0 && !hasStoreBootstrapData) {
       console.log(
-        `[AutoSync] ℹ️ 云端缺少初始化配置(${missingKeys.join(
+        `[AutoSync] ℹ️ 云端缺少初始化配置(${missingStoreKeys.join(
           ", ",
         )})，但本地也暂无可上传数据，跳过初始化上传`,
       );
-      return false;
+    } else if (missingStoreKeys.length > 0) {
+      console.log(
+        `[AutoSync] ☁️ 检测到云端缺少初始化配置(${missingStoreKeys.join(
+          ", ",
+        )})，开始上传本地配置`,
+      );
+      await syncStore.sync([
+        StoreKey.Config,
+        StoreKey.Access,
+        StoreKey.ModelCache,
+      ]);
+      showToast(
+        `检测到云端缺少初始化配置，已自动上传本地数据：${missingStoreKeys.join(
+          ", ",
+        )}`,
+      );
     }
 
-    console.log(
-      `[AutoSync] ☁️ 检测到云端缺少初始化配置(${missingKeys.join(
-        ", ",
-      )})，开始上传本地配置`,
+    const localChatState = getNonFunctionFileds(
+      useChatStore.getState(),
+    ) as Record<string, any>;
+    const localChatSessions = getSyncableChatSessions(
+      localChatState.sessions || [],
     );
-    await syncStore.sync([
-      StoreKey.Config,
-      StoreKey.Access,
-      StoreKey.ModelCache,
-    ]);
-    showToast(
-      `检测到云端缺少初始化配置，已自动上传本地数据：${missingKeys.join(", ")}`,
-    );
-    return true;
+    const localChatIndex = buildChatIndexPayload(localChatState as any);
+    const remoteChatIndex =
+      typeof client.getChatIndex === "function"
+        ? await client.getChatIndex()
+        : null;
+    const remoteChatSessions = Array.isArray(remoteChatIndex?.sessions)
+      ? remoteChatIndex.sessions
+      : [];
+    const remoteChatLooksEmpty =
+      !remoteChatIndex ||
+      (remoteChatSessions.length === 0 &&
+        isEffectivelyEmptyRemoteChatState(remoteChatIndex?.state)) ||
+      (remoteChatSessions.every(
+        (session: { messageCount?: number }) =>
+          Number(session?.messageCount || 0) <= 0,
+      ) &&
+        isEffectivelyEmptyRemoteChatState(remoteChatIndex?.state));
+
+    if (
+      remoteChatLooksEmpty &&
+      hasMeaningfulLocalChatState(localChatState) &&
+      typeof client.setChatDelta === "function"
+    ) {
+      const localSessionIds = new Set(
+        (localChatIndex.state.sessionIds as string[]) || [],
+      );
+      const deleteSessionIds = remoteChatSessions
+        .map((session: { id?: string }) => String(session?.id || ""))
+        .filter(Boolean)
+        .filter((id: string) => !localSessionIds.has(id));
+
+      console.log("[AutoSync] ☁️ 检测到云端缺少聊天数据，开始上传本地会话");
+      await client.setChatDelta({
+        index: localChatIndex,
+        upsertSessions: localChatSessions as Array<Record<string, unknown>>,
+        deleteSessionIds,
+      });
+      showToast("检测到云端缺少聊天数据，已自动上传本地会话");
+      return true;
+    }
+
+    return missingStoreKeys.length > 0;
   };
 
   const logModelCount = (remoteCount?: number, remoteProviders?: any[]) => {
