@@ -1,4 +1,4 @@
-import { ServiceProvider } from "../constant";
+import { ServiceProvider, StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { withSyncUserHeaders } from "./sync-user-client";
@@ -8,6 +8,7 @@ import {
 } from "./store";
 import { ProviderType } from "./cloud";
 import { FetchModelsResult, modelsToCustomModelsString } from "./models";
+import { parseStoreStatePayload } from "./sync-store-keys";
 
 type ApiProfile = {
   id: string;
@@ -88,6 +89,42 @@ async function updateRemoteModelCount(
   });
 }
 
+async function ensureProfilesLoadedFromDatabase() {
+  const syncStore = useSyncStore.getState() as any;
+  if (syncStore.provider !== ProviderType.Database) {
+    return [] as ApiProfile[];
+  }
+
+  const client = syncStore.getClient?.() as any;
+  if (!client || typeof client.get !== "function") {
+    return [] as ApiProfile[];
+  }
+
+  const remoteAccessJson = await client.get(StoreKey.Access);
+  if (!remoteAccessJson) {
+    return [] as ApiProfile[];
+  }
+
+  const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
+  const remoteProfiles = Array.isArray(remoteAccess?.apiProfiles)
+    ? (remoteAccess.apiProfiles.filter((profile: ApiProfile) => profile?.id) as
+        | ApiProfile[]
+        | undefined) || []
+    : [];
+
+  if (remoteProfiles.length === 0) {
+    return [];
+  }
+
+  useAccessStore.getState().update((state: any) => {
+    state.useCustomConfig = remoteAccess?.useCustomConfig ?? true;
+    state.provider = remoteAccess?.provider || state.provider;
+    state.apiProfiles = remoteProfiles;
+  });
+
+  return remoteProfiles;
+}
+
 export async function syncAllProfilesToDatabase(params: {
   fetchFromProvider: FetchFromProvider;
 }) {
@@ -96,11 +133,17 @@ export async function syncAllProfilesToDatabase(params: {
   return runWithImmediateStoreSyncPaused(async () => {
     const accessStore = useAccessStore.getState() as any;
     const syncStore = useSyncStore.getState() as any;
-    const profiles = (useAccessStore.getState().apiProfiles ||
+    let profiles = (useAccessStore.getState().apiProfiles ||
       []) as ApiProfile[];
 
     if (profiles.length === 0) {
-      throw new Error("没有可同步的配置条目");
+      profiles = await ensureProfilesLoadedFromDatabase();
+    }
+
+    if (profiles.length === 0) {
+      throw new Error(
+        "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
+      );
     }
 
     accessStore.update((access: any) => {

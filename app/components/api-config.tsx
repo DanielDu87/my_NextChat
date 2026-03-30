@@ -1558,6 +1558,24 @@ export function ApiConfigPage() {
     });
   };
 
+  const ensureRemoteAccessProfilesLoaded = async () => {
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    if (currentProfiles.length > 0) {
+      return currentProfiles.length;
+    }
+
+    console.log("[API Config] ☁️ 本地 API 配置为空，正在尝试从数据库恢复...");
+    const changed = await performCloudSync();
+    const nextProfiles = useAccessStore.getState().apiProfiles || [];
+    console.log(
+      `[API Config] ☁️ 数据库恢复结果: ${nextProfiles.length} 个配置条目${
+        changed ? "，本地状态已更新" : ""
+      }`,
+    );
+    console.log(LOG_SEPARATOR);
+    return nextProfiles.length;
+  };
+
   // 页面加载时只展示本地缓存，不自动刷新模型
   const initialSyncRef = useRef(false);
   useEffect(() => {
@@ -1578,6 +1596,17 @@ export function ApiConfigPage() {
             console.log(LOG_SEPARATOR);
             console.log(`[API Config] 🗂️ 页面加载，优先使用本地缓存数据...`);
             console.log(LOG_SEPARATOR);
+
+            if ((useAccessStore.getState().apiProfiles || []).length === 0) {
+              void ensureRemoteAccessProfilesLoaded().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[API Config] ❌ 页面初始化时从数据库恢复 API 配置失败:",
+                    error,
+                  );
+                },
+              );
+            }
 
             console.log(`[API Config] 🔍 正在检查云端模型数量...`);
             fetch("/api/db/models/latest", {
@@ -2080,6 +2109,8 @@ export function ApiConfigPage() {
       setSyncing(true);
       await waitForImmediateStoreSyncQueueIdle();
       await waitForSyncIdle();
+      ensureDatabaseSyncProvider();
+      await ensureRemoteAccessProfilesLoaded();
       const activeProfile = accessStore.apiProfiles.find(
         (profile) => profile.enabled,
       );
@@ -2263,6 +2294,11 @@ export function ApiConfigPage() {
       const localState = getLocalAppState();
       const nextState = { ...localState } as AppState;
       const fallbackKeys: string[] = [];
+      const localAccessProfiles = Array.isArray(
+        (localState[StoreKey.Access] as any)?.apiProfiles,
+      )
+        ? ((localState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
+        : [];
 
       console.log(
         `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
@@ -2321,6 +2357,18 @@ export function ApiConfigPage() {
           );
         }
         console.log(`[API Config] ✅ ${key}: 下载成功`);
+      }
+
+      const nextAccessProfiles = Array.isArray(
+        (nextState[StoreKey.Access] as any)?.apiProfiles,
+      )
+        ? ((nextState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
+        : [];
+
+      if (localAccessProfiles.length === 0 && nextAccessProfiles.length === 0) {
+        throw new Error(
+          "数据库中的 API 配置为空或不可用，请先确认云端已保存 access-control 配置",
+        );
       }
 
       console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
