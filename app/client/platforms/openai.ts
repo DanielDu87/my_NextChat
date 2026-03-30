@@ -1176,7 +1176,8 @@ export class ChatGPTApi implements LLMApi {
         modelConfig.reasoningMaxTokens,
       );
 
-      if (modelConfig.webSearch) {
+      // web_search_options 仅 OpenAI 官方支持，第三方中转会报 Unknown parameter 错误
+      if (modelConfig.webSearch && !isAiHubMixBaseUrl(currentBaseUrlForRequest)) {
         requestPayload["web_search_options"] = {
           ...(normalizeSearchContextSize(modelConfig.webSearchContextSize)
             ? {

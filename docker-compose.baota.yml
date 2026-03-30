@@ -49,6 +49,7 @@ services:
         - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
         - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
         - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+        - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
 
     container_name: nextchat
     restart: unless-stopped
