@@ -8,13 +8,14 @@ import {
   describeModelCountDiff,
   getCloudMergedPlatformCounts,
 } from "../utils/auto-sync-model-diff";
-import { ServiceProvider } from "../constant";
-import { useChatStore } from "../store/chat";
+import { ServiceProvider, StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
+import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
+import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
 import {
   AUTO_SYNC_CHANNEL_NAME,
   AUTO_SYNC_LOCK_KEY,
@@ -25,6 +26,52 @@ import {
 } from "../utils/sync-tab-coordination";
 
 let autoSyncEffectActive = false;
+
+function hasNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasMeaningfulLocalConfigState(state: Record<string, any>) {
+  return (
+    (Array.isArray(state?.models) && state.models.length > 0) ||
+    hasNonEmptyString(state?.customModels) ||
+    (Array.isArray(state?.autoModelSeries) && state.autoModelSeries.length > 0)
+  );
+}
+
+function hasMeaningfulLocalAccessState(state: Record<string, any>) {
+  return (
+    (Array.isArray(state?.apiProfiles) && state.apiProfiles.length > 0) ||
+    hasNonEmptyString(state?.defaultModel) ||
+    hasNonEmptyString(state?.customModels) ||
+    hasNonEmptyString(state?.visionModels) ||
+    hasNonEmptyString(state?.openaiApiKey) ||
+    hasNonEmptyString(state?.googleApiKey) ||
+    hasNonEmptyString(state?.anthropicApiKey) ||
+    hasNonEmptyString(state?.azureApiKey) ||
+    hasNonEmptyString(state?.baiduApiKey) ||
+    hasNonEmptyString(state?.baiduSecretKey) ||
+    hasNonEmptyString(state?.bytedanceApiKey) ||
+    hasNonEmptyString(state?.alibabaApiKey) ||
+    hasNonEmptyString(state?.moonshotApiKey) ||
+    hasNonEmptyString(state?.stabilityApiKey) ||
+    hasNonEmptyString(state?.tencentSecretId) ||
+    hasNonEmptyString(state?.tencentSecretKey) ||
+    hasNonEmptyString(state?.iflytekApiKey) ||
+    hasNonEmptyString(state?.iflytekApiSecret) ||
+    hasNonEmptyString(state?.deepseekApiKey) ||
+    hasNonEmptyString(state?.xaiApiKey) ||
+    hasNonEmptyString(state?.chatglmApiKey) ||
+    hasNonEmptyString(state?.siliconflowApiKey) ||
+    hasNonEmptyString(state?.ai302ApiKey) ||
+    hasNonEmptyString(state?.customApiKey) ||
+    hasNonEmptyString(state?.localApiKey)
+  );
+}
+
+function hasMeaningfulLocalModelCacheState(state: Record<string, any>) {
+  return Object.keys(state?.profiles || {}).length > 0;
+}
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -92,6 +139,67 @@ function rebuildManagedModelsFromCache() {
 }
 
 export default function AutoSync() {
+  const ensureRemoteBootstrapState = async () => {
+    const syncStore = useSyncStore.getState();
+    const client = syncStore.getClient() as any;
+    if (typeof client.getMeta !== "function") {
+      return false;
+    }
+
+    const metas = await client.getMeta([
+      StoreKey.Config,
+      StoreKey.Access,
+      StoreKey.ModelCache,
+    ]);
+    const remoteMetaKeys = new Set(
+      (metas || []).map((meta: { key: string }) => meta.key),
+    );
+    const missingKeys = [
+      StoreKey.Config,
+      StoreKey.Access,
+      StoreKey.ModelCache,
+    ].filter((key) => !remoteMetaKeys.has(key));
+
+    if (missingKeys.length === 0) {
+      return false;
+    }
+
+    const localConfig = useAppConfig.getState() as Record<string, any>;
+    const localAccess = useAccessStore.getState() as Record<string, any>;
+    const localModelCache = useModelCacheStore.getState() as Record<
+      string,
+      any
+    >;
+    const hasBootstrapData =
+      hasMeaningfulLocalConfigState(localConfig) ||
+      hasMeaningfulLocalAccessState(localAccess) ||
+      hasMeaningfulLocalModelCacheState(localModelCache);
+
+    if (!hasBootstrapData) {
+      console.log(
+        `[AutoSync] ℹ️ 云端缺少初始化配置(${missingKeys.join(
+          ", ",
+        )})，但本地也暂无可上传数据，跳过初始化上传`,
+      );
+      return false;
+    }
+
+    console.log(
+      `[AutoSync] ☁️ 检测到云端缺少初始化配置(${missingKeys.join(
+        ", ",
+      )})，开始上传本地配置`,
+    );
+    await syncStore.sync([
+      StoreKey.Config,
+      StoreKey.Access,
+      StoreKey.ModelCache,
+    ]);
+    showToast(
+      `检测到云端缺少初始化配置，已自动上传本地数据：${missingKeys.join(", ")}`,
+    );
+    return true;
+  };
+
   const logModelCount = (remoteCount?: number, remoteProviders?: any[]) => {
     const currentProfiles = useAccessStore.getState().apiProfiles || [];
     const currentModels = useAppConfig.getState().models || [];
@@ -343,8 +451,11 @@ export default function AutoSync() {
         );
         console.log("[AutoSync] 🚀 开始自动同步...");
 
-        syncStore
-          .resumePendingDebounceSync?.()
+        Promise.resolve()
+          .then(async () => {
+            await waitForImmediateStoreSyncQueueIdle();
+            return syncStore.resumePendingDebounceSync?.();
+          })
           .catch((error: unknown) => {
             console.error("[AutoSync] ❌ 恢复未完成同步失败:", error);
             return false;
@@ -357,7 +468,8 @@ export default function AutoSync() {
 
             return syncStore.autoSync();
           })
-          .then(() => {
+          .then(async () => {
+            await ensureRemoteBootstrapState();
             rebuildManagedModelsFromCache();
             hasCompletedAutoSync = true;
             console.log("[AutoSync] ✅ 自动同步完成");

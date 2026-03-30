@@ -81,7 +81,7 @@ describe("db sync routes", () => {
     resolveSyncUserIdMock.mockReturnValue("route-user");
   });
 
-  test("sync store PUT should return 409 on snapshot conflict", async () => {
+  test("sync store PUT should return snapshot conflict payload on revision conflict", async () => {
     getStoreSnapshotMetaMock.mockResolvedValue({
       updatedAt: "2026-03-24T10:00:00.000Z",
       checksum: "server-checksum",
@@ -101,7 +101,7 @@ describe("db sync routes", () => {
     });
     const payload = await res.json();
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
     expect(payload).toEqual({
       ok: false,
       error: "snapshot_conflict",
@@ -142,7 +142,7 @@ describe("db sync routes", () => {
     );
   });
 
-  test("chat sync PUT should return 409 on snapshot conflict", async () => {
+  test("chat sync PUT should return snapshot conflict payload on revision conflict", async () => {
     getStoreSnapshotMetaMock.mockResolvedValue({
       updatedAt: "2026-03-24T11:00:00.000Z",
       checksum: "chat-server-checksum",
@@ -164,7 +164,7 @@ describe("db sync routes", () => {
     const res = await chatSyncRoute.PUT(req as any);
     const payload = await res.json();
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
     expect(payload).toEqual({
       ok: false,
       error: "snapshot_conflict",

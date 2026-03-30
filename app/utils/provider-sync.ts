@@ -2,7 +2,10 @@ import { ServiceProvider } from "../constant";
 import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { withSyncUserHeaders } from "./sync-user-client";
-import { runWithImmediateStoreSyncPaused } from "./store";
+import {
+  runWithImmediateStoreSyncPaused,
+  waitForImmediateStoreSyncQueueIdle,
+} from "./store";
 import { ProviderType } from "./cloud";
 import { FetchModelsResult, modelsToCustomModelsString } from "./models";
 
@@ -162,6 +165,7 @@ export async function syncAllProfilesToDatabase(params: {
     }
 
     console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
+    await waitForImmediateStoreSyncQueueIdle();
     await syncStore.sync();
     await updateRemoteModelCount(totalFetched, results, profiles);
 

@@ -42,7 +42,7 @@ import {
   useChatStore,
   useModelCacheStore,
 } from "../store";
-import { useSyncStore } from "../store/sync";
+import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
@@ -55,7 +55,10 @@ import {
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
-import { runWithImmediateStoreSyncPaused } from "../utils/store";
+import {
+  runWithImmediateStoreSyncPaused,
+  waitForImmediateStoreSyncQueueIdle,
+} from "../utils/store";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
@@ -2075,6 +2078,8 @@ export function ApiConfigPage() {
     console.clear();
     try {
       setSyncing(true);
+      await waitForImmediateStoreSyncQueueIdle();
+      await waitForSyncIdle();
       const activeProfile = accessStore.apiProfiles.find(
         (profile) => profile.enabled,
       );
@@ -2119,6 +2124,8 @@ export function ApiConfigPage() {
     console.log("[API Config] ⬆️ 开始上传到数据库...");
     try {
       setBackingUp(true);
+      await waitForImmediateStoreSyncQueueIdle();
+      await waitForSyncIdle();
       const {
         previousCloudKeys,
         previousPlatformCounts,
@@ -2249,11 +2256,13 @@ export function ApiConfigPage() {
     console.log("[API Config] ⬇️ 开始从数据库下载并覆盖本地...");
     try {
       setDownloading(true);
+      await waitForImmediateStoreSyncQueueIdle();
+      await waitForSyncIdle();
       ensureDatabaseSyncProvider();
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
-      const nextState = {} as AppState;
-      const missingKeys: string[] = [];
+      const nextState = { ...localState } as AppState;
+      const fallbackKeys: string[] = [];
 
       console.log(
         `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
@@ -2263,25 +2272,37 @@ export function ApiConfigPage() {
         console.log(`[API Config] 📥 正在下载: ${key}...`);
         const remoteStateText = await client.get(key);
         if (!remoteStateText || remoteStateText === "") {
-          console.error(`[API Config] ❌ ${key}: 数据库无数据，无法覆盖本地`);
-          missingKeys.push(key);
+          console.warn(
+            `[API Config] ⚠️ ${key}: 数据库无数据，保留本地当前数据`,
+          );
+          fallbackKeys.push(key);
           continue;
         }
 
-        const parsedState = parseStoreStatePayload(remoteStateText);
-        if (
-          key !== StoreKey.ModelCache &&
-          (!parsedState || typeof parsedState !== "object")
-        ) {
-          throw new Error(`${key} 格式不正确`);
+        try {
+          const parsedState = parseStoreStatePayload(remoteStateText);
+          if (
+            key !== StoreKey.ModelCache &&
+            (!parsedState || typeof parsedState !== "object")
+          ) {
+            throw new Error(`${key} 格式不正确`);
+          }
+
+          (nextState as Record<string, unknown>)[key] =
+            normalizeDownloadedStoreState(
+              key,
+              parsedState,
+              (localState[StoreKey.Access] || {}) as Record<string, any>,
+            );
+        } catch (error) {
+          console.warn(
+            `[API Config] ⚠️ ${key}: 云端数据不可用，保留本地当前数据`,
+            error,
+          );
+          fallbackKeys.push(key);
+          continue;
         }
 
-        (nextState as Record<string, unknown>)[key] =
-          normalizeDownloadedStoreState(
-            key,
-            parsedState,
-            (localState[StoreKey.Access] || {}) as Record<string, any>,
-          );
         if (key === StoreKey.Access) {
           const debugAccessState = (nextState as Record<string, any>)[
             key
@@ -2300,10 +2321,6 @@ export function ApiConfigPage() {
           );
         }
         console.log(`[API Config] ✅ ${key}: 下载成功`);
-      }
-
-      if (missingKeys.length > 0) {
-        throw new Error(`数据库缺少必要数据块: ${missingKeys.join(", ")}`);
       }
 
       console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
@@ -2329,7 +2346,20 @@ export function ApiConfigPage() {
       });
       console.log("[API Config] ✅ 数据库下载并覆盖本地完成");
       console.log(LOG_SEPARATOR);
-      showToast("已从 PostgreSQL 下载全部配置、对话和模型数据，并覆盖本地");
+      if (fallbackKeys.length > 0) {
+        console.warn(
+          `[API Config] ⚠️ 以下数据块缺失或格式异常，已保留本地数据: ${fallbackKeys.join(
+            ", ",
+          )}`,
+        );
+        showToast(
+          `已完成下载，以下数据块因云端为空或格式异常而保留本地数据：${fallbackKeys.join(
+            ", ",
+          )}`,
+        );
+      } else {
+        showToast("已从 PostgreSQL 下载全部配置、对话和模型数据，并覆盖本地");
+      }
     } catch (error) {
       console.error("[API Config] ❌ 数据库下载失败:", error);
       showToast(

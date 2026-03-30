@@ -34,6 +34,7 @@ import {
   getDeletedSessionTimestampsFromState,
   isEffectivelyEmptyRemoteChatState,
 } from "../utils/chat-sync-state";
+import { getSessionMessages } from "../utils/chat-session-merge";
 import { getPersistedChatSession } from "../utils/chat-persist-storage";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
@@ -81,6 +82,22 @@ const LOG_SEPARATOR = "=".repeat(30);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
+
+export async function waitForSyncIdle() {
+  while (syncInFlight || queuedSyncKeys.size > 0) {
+    const currentSync = syncInFlight;
+    if (currentSync) {
+      try {
+        await currentSync;
+      } catch {
+        // 仅等待同步过程结束，不在这里向上抛错。
+      }
+      continue;
+    }
+
+    await Promise.resolve();
+  }
+}
 
 function isSyncDebugLoggingEnabled() {
   if (process.env.NODE_ENV === "test") {

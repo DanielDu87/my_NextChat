@@ -42,9 +42,21 @@ let immediateStoreSyncPauseCount = 0;
 // 同步队列，避免并发同步导致 409 冲突
 let syncQueue: Array<() => Promise<void>> = [];
 let isSyncQueueProcessing = false;
+let syncQueueIdleResolvers: Array<() => void> = [];
+
+function resolveSyncQueueIdle() {
+  if (isSyncQueueProcessing || syncQueue.length > 0) {
+    return;
+  }
+
+  const resolvers = syncQueueIdleResolvers;
+  syncQueueIdleResolvers = [];
+  resolvers.forEach((resolve) => resolve());
+}
 
 async function processSyncQueue() {
   if (isSyncQueueProcessing || syncQueue.length === 0) {
+    resolveSyncQueueIdle();
     return;
   }
 
@@ -64,6 +76,7 @@ async function processSyncQueue() {
 
   isSyncQueueProcessing = false;
   console.log("[Store] ✅ 同步队列处理完成");
+  resolveSyncQueueIdle();
 }
 
 export async function runWithImmediateStoreSyncPaused<T>(
@@ -78,6 +91,16 @@ export async function runWithImmediateStoreSyncPaused<T>(
       immediateStoreSyncPauseCount - 1,
     );
   }
+}
+
+export async function waitForImmediateStoreSyncQueueIdle() {
+  if (!isSyncQueueProcessing && syncQueue.length === 0) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    syncQueueIdleResolvers.push(resolve);
+  });
 }
 
 function triggerImmediateStoreSync(storeName?: string) {
