@@ -1,9 +1,12 @@
+import { DEFAULT_TOPIC } from "../store/chat-defaults";
+
 type ChatSessionLike = {
   id?: string;
   topic?: string;
   createdAt?: number;
   lastUpdate?: number;
   messages?: unknown[];
+  memoryPrompt?: string;
 };
 
 type ChatStateLike = {
@@ -30,6 +33,22 @@ export type ChatIndexPayload = {
 
 export function shouldSyncChatSession(session: ChatSessionLike | undefined) {
   if (!session?.id) {
+    return false;
+  }
+
+  const messageCount = Array.isArray(session.messages)
+    ? session.messages.length
+    : 0;
+  const topic = String(session.topic || "").trim();
+  const hasMemoryPrompt =
+    typeof session.memoryPrompt === "string" &&
+    session.memoryPrompt.trim().length > 0;
+  const isUntouchedEmptyChat =
+    messageCount === 0 &&
+    !hasMemoryPrompt &&
+    (!topic || topic === DEFAULT_TOPIC || topic === "新的聊天");
+
+  if (isUntouchedEmptyChat) {
     return false;
   }
 

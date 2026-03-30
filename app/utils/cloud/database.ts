@@ -22,6 +22,55 @@ type ConflictResponsePayload = {
   current?: StoreSnapshotMeta | null;
 };
 
+const DB_SYNC_REQUEST_TIMEOUT_MS = 15000;
+const DB_CHAT_REQUEST_TIMEOUT_MS = 20000;
+
+async function fetchWithTimeout(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = DB_SYNC_REQUEST_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(path, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      throw new Error(`[DB Sync] timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWithRetry(
+  path: string,
+  init?: RequestInit,
+  options?: { timeoutMs?: number; retries?: number },
+) {
+  const timeoutMs = options?.timeoutMs ?? DB_SYNC_REQUEST_TIMEOUT_MS;
+  const retries = options?.retries ?? 0;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetchWithTimeout(path, init, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 function isSnapshotConflictPayload(
   payload: unknown,
 ): payload is ConflictResponsePayload {
@@ -36,14 +85,22 @@ function isSnapshotConflictPayload(
 }
 
 export function createDatabaseSyncClient(_: SyncStore) {
-  const request = async (path: string, init?: RequestInit) => {
-    const response = await fetch(path, {
-      ...init,
-      headers: withSyncUserHeaders({
-        "Content-Type": "application/json; charset=utf-8",
-        ...(init?.headers || {}),
-      }),
-    });
+  const request = async (
+    path: string,
+    init?: RequestInit,
+    options?: { timeoutMs?: number; retries?: number },
+  ) => {
+    const response = await fetchWithRetry(
+      path,
+      {
+        ...init,
+        headers: withSyncUserHeaders({
+          "Content-Type": "application/json; charset=utf-8",
+          ...(init?.headers || {}),
+        }),
+      },
+      options,
+    );
 
     if (!response.ok) {
       throw new Error(`[DB Sync] ${response.status} ${response.statusText}`);
@@ -55,14 +112,19 @@ export function createDatabaseSyncClient(_: SyncStore) {
   const requestWithConflict = async (
     path: string,
     init?: RequestInit,
+    options?: { timeoutMs?: number; retries?: number },
   ): Promise<{ conflict: true; current?: StoreSnapshotMeta | null } | null> => {
-    const response = await fetch(path, {
-      ...init,
-      headers: withSyncUserHeaders({
-        "Content-Type": "application/json; charset=utf-8",
-        ...(init?.headers || {}),
-      }),
-    });
+    const response = await fetchWithRetry(
+      path,
+      {
+        ...init,
+        headers: withSyncUserHeaders({
+          "Content-Type": "application/json; charset=utf-8",
+          ...(init?.headers || {}),
+        }),
+      },
+      options,
+    );
 
     const contentType = response.headers.get("content-type") || "";
     const payload = contentType.includes("application/json")
@@ -154,10 +216,17 @@ export function createDatabaseSyncClient(_: SyncStore) {
     },
 
     async getChatIndex() {
-      const response = await request("/api/db/chat-sync", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await request(
+        "/api/db/chat-sync",
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+        {
+          timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
+          retries: 1,
+        },
+      );
       const payload = await response.json();
       return payload?.index ? (payload.index as ChatIndexPayload) : null;
     },
@@ -167,10 +236,17 @@ export function createDatabaseSyncClient(_: SyncStore) {
         return {} as Record<string, unknown>;
       }
 
-      const response = await request("/api/db/chat-sync/sessions", {
-        method: "POST",
-        body: JSON.stringify({ ids }),
-      });
+      const response = await request(
+        "/api/db/chat-sync/sessions",
+        {
+          method: "POST",
+          body: JSON.stringify({ ids }),
+        },
+        {
+          timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
+          retries: 1,
+        },
+      );
       const payload = await response.json();
       return payload?.sessions && typeof payload.sessions === "object"
         ? (payload.sessions as Record<string, unknown>)

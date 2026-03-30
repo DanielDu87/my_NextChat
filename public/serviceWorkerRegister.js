@@ -1,27 +1,33 @@
-if ('serviceWorker' in navigator) {
-  window.addEventListener('DOMContentLoaded', function () {
-    navigator.serviceWorker.register('/serviceWorker.js').then(function (registration) {
-      // console.log('ServiceWorker registration successful with scope: ', registration.scope);
-      const sw = registration.installing || registration.waiting
-      if (sw) {
-        sw.onstatechange = function() {
-          if (sw.state === 'installed') {
-            // SW installed.  Reload for SW intercept serving SW-enabled page.
-            // console.log('ServiceWorker installed reload page');
-            window.location.reload();
-          }
-        }
-      }
-      registration.update().then(res => {
-        // console.log('ServiceWorker registration update: ', res);
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then(function (registrations) {
+        return Promise.all(
+          registrations.map(function (registration) {
+            return registration.unregister();
+          }),
+        );
+      })
+      .catch(function (error) {
+        console.error("ServiceWorker unregister failed:", error);
       });
-      window._SW_ENABLED = true
-    }, function (err) {
-      console.error('ServiceWorker registration failed: ', err);
-    });
-    navigator.serviceWorker.addEventListener('controllerchange', function() {
-      // console.log('ServiceWorker controllerchange ');
-      window.location.reload(true);
-    });
+
+    if ("caches" in window) {
+      caches
+        .keys()
+        .then(function (keys) {
+          return Promise.all(
+            keys.map(function (key) {
+              return caches.delete(key);
+            }),
+          );
+        })
+        .catch(function (error) {
+          console.error("Cache cleanup failed:", error);
+        });
+    }
+
+    window._SW_ENABLED = false;
   });
 }

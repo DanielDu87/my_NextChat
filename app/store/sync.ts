@@ -456,11 +456,34 @@ function isRemoteSessionPlaceholder(
   );
 }
 
+function createSessionSummaryMap(chatState: any) {
+  const sessionSummaries = Array.isArray(chatState?.sessionSummaries)
+    ? chatState.sessionSummaries
+    : [];
+
+  return new Map<string, any>(
+    sessionSummaries
+      .filter((summary: any) => summary?.id)
+      .map((summary: any) => [String(summary.id), summary]),
+  );
+}
+
+function isLocallyPrunedSession(session: any, summary: any) {
+  return (
+    !isRemoteSessionPlaceholder(session) &&
+    !!session?.id &&
+    Array.isArray(session?.messages) &&
+    session.messages.length === 0 &&
+    Number(summary?.messageCount || 0) > 0
+  );
+}
+
 function buildUploadChatIndexPayload(
   chatState: any,
   remoteEntryMap: Map<string, ChatIndexSessionEntry>,
 ) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const summaryMap = createSessionSummaryMap(chatState);
   const currentSessionIndex = Math.max(
     0,
     Number(chatState?.currentSessionIndex) || 0,
@@ -479,6 +502,7 @@ function buildUploadChatIndexPayload(
     .map((session: PlaceholderChatSession) => {
       const sessionId = String(session.id || "");
       const remoteEntry = remoteEntryMap.get(sessionId);
+      const summary = summaryMap.get(sessionId);
 
       if (isRemoteSessionPlaceholder(session) && remoteEntry) {
         return {
@@ -491,6 +515,22 @@ function buildUploadChatIndexPayload(
             remoteEntry.lastUpdate || session.lastUpdate || Date.now(),
           ),
           messageCount: Number(remoteEntry.messageCount || 0),
+        };
+      }
+
+      if (isLocallyPrunedSession(session, summary)) {
+        return {
+          id: sessionId,
+          topic: String(summary?.topic || session.topic || ""),
+          createdAt: Number(summary?.createdAt || session.createdAt || 0) || 0,
+          lastUpdate:
+            Number(
+              summary?.displayTime ||
+                session.lastUpdate ||
+                session.createdAt ||
+                0,
+            ) || 0,
+          messageCount: Number(summary?.messageCount || 0) || 0,
         };
       }
 
@@ -516,6 +556,59 @@ function buildUploadChatIndexPayload(
     },
     sessions: sessionEntries,
   };
+}
+
+function buildUploadableChatSessionMap(chatState: any) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const summaryMap = createSessionSummaryMap(chatState);
+  const sessionMap = new Map<string, Record<string, unknown>>();
+
+  sessions.forEach((session: any) => {
+    const sessionId = String(session?.id || "");
+    if (!sessionId) {
+      return;
+    }
+
+    if (isLocallyPrunedSession(session, summaryMap.get(sessionId))) {
+      return;
+    }
+
+    sessionMap.set(sessionId, session as Record<string, unknown>);
+  });
+
+  return sessionMap;
+}
+
+function prependLeadingEmptySession(chatState: any, emptySession: any) {
+  if (!emptySession?.id) {
+    return chatState;
+  }
+
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const nextSessions = [
+    emptySession,
+    ...sessions.filter((session: any) => session?.id !== emptySession.id),
+  ];
+
+  return {
+    ...chatState,
+    sessions: nextSessions,
+    currentSessionIndex: 0,
+  };
+}
+
+function findLocalLeadingEmptySession(sessions: any[]) {
+  return sessions.find((session: any) => {
+    const topic = String(session?.topic || "");
+    const isDefaultTopic =
+      !topic || topic === "新的聊天" || topic === "New Chat";
+    return (
+      !!session?.id &&
+      isDefaultTopic &&
+      getSessionMessages(session).length === 0 &&
+      !session?.memoryPrompt
+    );
+  });
 }
 
 async function materializeLocalChatState(chatState: any) {
@@ -767,6 +860,8 @@ export const useSyncStore = createPersistStore(
           );
         })();
       const syncableLocalSessions = getSyncableChatSessions(localSessions);
+      const localLeadingEmptySession =
+        findLocalLeadingEmptySession(localSessions);
       const remoteIndex = await client.getChatIndex?.();
       const localDeletedSessionTimestamps = getDeletedSessionTimestamps(
         materializedLocalChatState,
@@ -944,11 +1039,16 @@ export const useSyncStore = createPersistStore(
         const mergedSessionMap = createChatSessionMap(
           normalizedRemoteChatState.sessions,
         );
+        const uploadableSessionMap = buildUploadableChatSessionMap(
+          normalizedRemoteChatState,
+        );
         const upsertSessions = mergedIndex.sessions
           .filter((entry: ChatIndexSessionEntry) =>
             shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
           )
-          .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
+          .map((entry: ChatIndexSessionEntry) =>
+            uploadableSessionMap.get(entry.id),
+          )
           .filter(Boolean)
           .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
           .map(
@@ -970,11 +1070,16 @@ export const useSyncStore = createPersistStore(
           );
         }
 
-        const normalizedMergedStoreState = normalizeMergedChatState({
-          ...normalizedRemoteChatState,
-          remoteIndexSessions: remoteIndex.sessions || [],
-          deletedSessionTimestamps: {},
-        });
+        const normalizedMergedStoreState = normalizeMergedChatState(
+          prependLeadingEmptySession(
+            {
+              ...normalizedRemoteChatState,
+              remoteIndexSessions: remoteIndex.sessions || [],
+              deletedSessionTimestamps: {},
+            },
+            localLeadingEmptySession,
+          ),
+        );
 
         return {
           remoteSummary: getStoreSummary(StoreKey.Chat, {
@@ -1034,11 +1139,15 @@ export const useSyncStore = createPersistStore(
             ? mergedStoreState.sessions
             : [],
         );
+        const uploadableSessionMap =
+          buildUploadableChatSessionMap(mergedStoreState);
         const upsertSessions = mergedIndex.sessions
           .filter((entry: ChatIndexSessionEntry) =>
             shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
           )
-          .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
+          .map((entry: ChatIndexSessionEntry) =>
+            uploadableSessionMap.get(entry.id),
+          )
           .filter(Boolean)
           .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
           .map(
@@ -1069,11 +1178,16 @@ export const useSyncStore = createPersistStore(
           },
         );
 
-        const normalizedMergedStoreState = normalizeMergedChatState({
-          ...mergedStoreState,
-          remoteIndexSessions: remoteIndex.sessions || [],
-          deletedSessionTimestamps: {},
-        });
+        const normalizedMergedStoreState = normalizeMergedChatState(
+          prependLeadingEmptySession(
+            {
+              ...mergedStoreState,
+              remoteIndexSessions: remoteIndex.sessions || [],
+              deletedSessionTimestamps: {},
+            },
+            localLeadingEmptySession,
+          ),
+        );
 
         return {
           remoteSummary: getStoreSummary(StoreKey.Chat, {
@@ -1109,11 +1223,15 @@ export const useSyncStore = createPersistStore(
           ? (mergedStoreState as any).sessions
           : [],
       );
+      const uploadableSessionMap =
+        buildUploadableChatSessionMap(mergedStoreState);
       const upsertSessions = mergedIndex.sessions
         .filter((entry: ChatIndexSessionEntry) =>
           shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
         )
-        .map((entry: ChatIndexSessionEntry) => mergedSessionMap.get(entry.id))
+        .map((entry: ChatIndexSessionEntry) =>
+          uploadableSessionMap.get(entry.id),
+        )
         .filter(Boolean)
         .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
         .map(
@@ -1144,11 +1262,16 @@ export const useSyncStore = createPersistStore(
         },
       );
 
-      const normalizedMergedStoreState = normalizeMergedChatState({
-        ...mergedStoreState,
-        remoteIndexSessions: remoteIndex.sessions || [],
-        deletedSessionTimestamps: {},
-      });
+      const normalizedMergedStoreState = normalizeMergedChatState(
+        prependLeadingEmptySession(
+          {
+            ...mergedStoreState,
+            remoteIndexSessions: remoteIndex.sessions || [],
+            deletedSessionTimestamps: {},
+          },
+          localLeadingEmptySession,
+        ),
+      );
 
       return {
         remoteSummary: getStoreSummary(StoreKey.Chat, {

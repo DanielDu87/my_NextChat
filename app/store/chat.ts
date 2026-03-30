@@ -1238,41 +1238,27 @@ export const useChatStore = createPersistStore(
           ? currentState.sessions.slice()
           : [];
 
-        let sessions = currentSessions;
-        let changed = false;
-
-        // 找出空会话（没有消息且主题是默认的）
-        const emptySessions = sessions.filter(
-          (s) => isDefaultTopic(s.topic) && s.messages.length === 0,
+        let sessions = currentSessions.filter(
+          (session) =>
+            !(
+              isDefaultTopic(session.topic) &&
+              session.messages.length === 0 &&
+              !session.memoryPrompt
+            ),
         );
+        let changed = sessions.length !== currentSessions.length;
 
         console.log("[initializeForNewPage] 开始", {
-          currentSessionsCount: sessions.length,
-          emptySessionsCount: emptySessions.length,
+          currentSessionsCount: currentSessions.length,
+          removedEmptySessionsCount: currentSessions.length - sessions.length,
         });
 
-        // 如果没有空会话，创建一个
-        if (emptySessions.length === 0) {
-          const newEmptySession = createEmptySession();
-          sessions.unshift(newEmptySession);
-          changed = true;
-          console.log("[initializeForNewPage] 创建新的空会话", {
-            id: newEmptySession.id,
-          });
-        }
-        // 如果有多个空会话，只保留一个（保留最新的，即第一个）
-        else if (emptySessions.length > 1) {
-          const preservedEmptySession = emptySessions[0];
-          sessions = sessions.filter(
-            (s) => s.id === preservedEmptySession.id || s.messages.length > 0,
-          );
-          changed = true;
-          console.log("[initializeForNewPage] 清理多余空会话", {
-            before: currentSessions.length,
-            after: sessions.length,
-            preserved: preservedEmptySession.id,
-          });
-        }
+        const newEmptySession = createEmptySession();
+        sessions.unshift(newEmptySession);
+        changed = true;
+        console.log("[initializeForNewPage] 创建新的空会话", {
+          id: newEmptySession.id,
+        });
 
         // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
@@ -1284,19 +1270,6 @@ export const useChatStore = createPersistStore(
             }
           }
         });
-
-        // 确保空会话在第一位
-        const emptySession = sessions.find(
-          (s) => isDefaultTopic(s.topic) && s.messages.length === 0,
-        );
-        if (emptySession && sessions[0]?.id !== emptySession.id) {
-          sessions = sessions.filter((s) => s.id !== emptySession.id);
-          sessions.unshift(emptySession);
-          changed = true;
-          console.log("[initializeForNewPage] 将空会话移到第一位", {
-            id: emptySession.id,
-          });
-        }
 
         // 默认选中第一个会话（空会话）
         const newSessionIndex = 0;

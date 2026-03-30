@@ -64,6 +64,16 @@ export function useCurrentSession() {
         }
 
         setLoadedSession(session);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("[Chat] ❌ 加载会话正文失败:", error);
+        setLoadedSession(
+          useChatStore.getState().getSessionById(currentSessionId),
+        );
       });
 
     return () => {
