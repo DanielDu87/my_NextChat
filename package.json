@@ -26,6 +26,7 @@
     "db:cleanup-legacy-sync-storage": "npx tsx ./scripts/cleanup-legacy-sync-storage.ts",
     "db:drop-unused-tables": "npx tsx ./scripts/drop-unused-db-tables.ts",
     "db:purge-keep-provider-configs": "npx tsx ./scripts/purge-db-keep-provider-configs.ts",
+    "db:unify-user-id": "npx tsx ./scripts/unify-user-id.ts",
     "db:migrate-sync-artifacts": "npx tsx ./scripts/migrate-sync-artifacts-to-dedicated-tables.ts",
     "prepare": "sh -c 'if [ -d .git ] && [ -w .git ] && [ -w .git/config ]; then husky install; else echo \"husky skipped\"; fi'",
     "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev",

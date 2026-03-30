@@ -55,37 +55,22 @@ const localStorage = safeLocalStorage();
 const FIXED_SYNC_USER_ID =
   process.env.NEXT_PUBLIC_DEFAULT_SYNC_USER_ID?.trim() || "";
 
-function createSyncUserId() {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
+function getFixedClientSyncUserId() {
+  if (!FIXED_SYNC_USER_ID) {
+    throw new Error(
+      "[SyncUser] 缺少 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID，当前已禁用浏览器侧随机 user_id",
+    );
   }
 
-  return `nextchat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function getOrCreateClientSyncUserId() {
-  if (FIXED_SYNC_USER_ID) {
-    localStorage.setItem(SYNC_USER_ID_STORAGE_KEY, FIXED_SYNC_USER_ID);
-    return FIXED_SYNC_USER_ID;
-  }
-
-  const existing = localStorage.getItem(SYNC_USER_ID_STORAGE_KEY)?.trim();
-  if (existing) {
-    return existing;
-  }
-
-  const nextId = createSyncUserId();
-  localStorage.setItem(SYNC_USER_ID_STORAGE_KEY, nextId);
-  return nextId;
+  localStorage.removeItem(SYNC_USER_ID_STORAGE_KEY);
+  localStorage.setItem(SYNC_USER_ID_STORAGE_KEY, FIXED_SYNC_USER_ID);
+  return FIXED_SYNC_USER_ID;
 }
 
 export function withSyncUserHeaders(headers?: HeadersInit) {
   const nextHeaders = new Headers(headers);
-  nextHeaders.set(SYNC_USER_ID_HEADER, getOrCreateClientSyncUserId());
+  nextHeaders.set(SYNC_USER_ID_HEADER, getFixedClientSyncUserId());
   return nextHeaders;
 }
 
-export { SYNC_USER_ID_HEADER };
+export { getFixedClientSyncUserId, SYNC_USER_ID_HEADER };
