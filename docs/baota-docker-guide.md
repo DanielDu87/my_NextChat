@@ -1,553 +1,391 @@
 # NextChat 宝塔面板 Docker 部署完整指南
 
-## 宝塔面板 Docker 管理器使用说明
+> 基于实际部署经验编写，适用于宝塔面板 9.3+ Docker 管理环境。
 
-本指南基于宝塔面板最新版本的 Docker 管理器功能编写。
+## 架构概览
 
----
-
-## 前提条件检查
-
-### 1. 宝塔面板版本要求
-
-- **最低版本**: 7.9.0 及以上
-- **推荐版本**: 最新稳定版
-
-### 2. Docker 环境要求
-
-在宝塔面板中安装：
-- **Docker**: 软件商店 -> 搜索 "Docker" -> 安装
-- **Docker Compose**: 随 Docker 一起安装
-
-### 3. 其他必需软件
-
-- **PostgreSQL 16**: 软件商店 -> 搜索 "PostgreSQL" -> 安装
-- **Nginx**: 软件商店 -> 搜索 "Nginx" -> 安装（通常默认已安装）
-
----
-
-## 第一步：在宝塔面板创建网站
-
-### 操作步骤
-
-1. **登录宝塔面板**
-2. **左侧菜单 -> 网站**
-3. **点击 "添加站点" 按钮**
-4. **填写表单：**
-   ```
-   域名：your-domain.com (或使用服务器IP)
-   备注：NextChat AI 聊天
-   根目录：/www/wwwroot/nextchat
-   FTP：不创建
-   数据库：不创建 (我们单独创建PostgreSQL)
-   PHP版本：纯静态
-   ```
-5. **点击 "提交"**
-
-### 配置 SSL 证书（推荐）
-
-1. **进入站点设置 -> SSL**
-2. **选择 Let's Encrypt**
-3. **点击 "申请"**
-4. **勾选 "强制HTTPS"**
-5. **保存**
-
----
-
-## 第二步：创建 PostgreSQL 数据库
-
-### 方法 A：使用宝塔面板（推荐）
-
-1. **数据库 -> PostgreSQL**
-2. **点击 "添加数据库"**
-3. **填写信息：**
-   ```
-   数据库名：nextchat
-   用户名：nextchat_user
-   密码：[设置强密码并记住]
-   访问权限：本地服务器
-   ```
-4. **点击 "提交"**
-
-### 方法 B：使用命令行
-
-在宝塔面板 -> 终端执行：
-
-```bash
-# 切换到 postgres 用户
-sudo -u postgres psql
-
-# 执行 SQL 命令
-CREATE DATABASE nextchat;
-CREATE USER nextchat_user WITH ENCRYPTED PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE nextchat TO nextchat_user;
-\c nextchat
-GRANT ALL PRIVILEGES ON SCHEMA public TO nextchat_user;
-\q
+```
+浏览器 → Nginx(SSL/443) → 127.0.0.1:3000 → nextchat 容器
+                                            ↓
+                                      postgres 容器(5432)
 ```
 
----
-
-## 第三步：部署 NextChat 项目
-
-### 方法 A：使用宝塔 Docker Compose（推荐）
-
-#### 1. 上传项目文件
-
-**在宝塔面板 -> 终端执行：**
-
-```bash
-# 进入网站根目录
-cd /www/wwwroot
-
-# 克隆项目
-git clone https://github.com/ChatGPTNextWeb/NextChat.git nextchat
-cd nextchat
-```
-
-#### 2. 配置环境变量
-
-**在宝塔面板 -> 文件管理：**
-
-1. **进入 /www/wwwroot/nextchat 目录**
-2. **新建文件 `.env.baota.local`**
-3. **粘贴以下内容并修改：**
-
-```bash
-# 必填配置
-PORT=3000
-CODE=your-access-password-here
-OPENAI_API_KEY=your-api-key-here
-
-# 用户ID配置（三个必须一致）
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
-
-# 数据库配置
-PGHOST=127.0.0.1
-PGPORT=5432
-PGDATABASE=nextchat
-PGUSER=nextchat_user
-PGPASSWORD=your-db-password-here
-PGSSL=false
-
-# 国内加速
-ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
-NPM_REGISTRY=https://registry.npmmirror.com/
-
-# 其他配置
-HIDE_USER_API_KEY=true
-DISABLE_GPT4=false
-ENABLE_BALANCE_QUERY=false
-ENABLE_MCP=false
-```
-
-**修改必填项：**
-- `CODE` - 访问密码
-- `OPENAI_API_KEY` - API密钥
-- `PGPASSWORD` - 数据库密码
-
-#### 3. 添加 Compose 项目
-
-**在宝塔面板中：**
-
-1. **Docker -> Compose 项目**
-2. **点击 "添加项目"**
-3. **填写表单：**
-   ```
-   名称：NextChat
-   项目路径：/www/wwwroot/nextchat
-   Compose文件：docker-compose.baota.yml
-   环境文件：.env.baota.local
-   ```
-4. **点击 "提交"**
-
-#### 4. 构建并启动
-
-1. **在 Compose 项目列表中找到 NextChat**
-2. **点击 "构建"** （首次部署需要构建，约需5-10分钟）
-3. **构建完成后点击 "启动"**
-
-### 方法 B：使用命令行部署
-
-**在宝塔面板 -> 终端执行：**
-
-```bash
-cd /www/wwwroot/nextchat
-
-# 构建镜像
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local build
-
-# 启动容器
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
-
-# 查看日志
-docker logs -f nextchat
-```
+所有服务运行在 Docker 中，通过 Docker Compose 编排，数据库不暴露到宿主机。
 
 ---
 
-## 第四步：配置 Nginx 反向代理
+## 涉及的文件和数据库
 
-### 操作步骤
+### 配置文件
 
-1. **网站 -> 找到 NextChat 站点 -> 点击 "设置"**
-2. **点击 "配置文件"**
-3. **找到 `location / { ... }` 部分**
-4. **替换为以下配置：**
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| docker-compose.baota.yml | 项目根目录 | Compose 编排文件，定义 nextchat + postgres 两个服务 |
+| .env.baota | 项目根目录 | 环境变量配置 |
+| Dockerfile | 项目根目录 | 镜像构建文件（多阶段构建） |
+| Nginx 站点配置 | `/www/server/panel/vhost/nginx/{域名}.conf` | 反向代理配置 |
+| Docker 站点 JSON | `/www/dk_project/sites/{域名}/{域名}.json` | 宝塔 Docker 网站管理读取的配置 |
+
+### 宝塔数据库（SQLite）
+
+**实际使用的数据库路径：`/www/server/panel/data/db/docker.db`**
+
+> 注意：`/www/server/panel/data/docker.db` 是旧路径副本，面板不读取它。修改数据库时务必操作 `/www/server/panel/data/db/docker.db`。
+
+| 表名 | 作用 | 关键字段 |
+|------|------|---------|
+| docker_sites | Docker 网站列表（Docker 管理页面读取） | name, type, status, service_info, container_id |
+| docker_domain | Docker 网站域名绑定 | pid, name, port |
+| dk_sites | Docker 网站扩展信息（普通站点页面读取） | name, container_id, container_name, container_port |
+| dk_domain | Docker 网站域名扩展 | pid, name |
+| dk_container_remark | 容器备注（Docker 容器列表显示） | container_id, container_name, remark |
+| stacks | Compose 项目列表 | name, status, path, remark |
+| templates | 快速部署项目模板 | path, name, remark |
+
+### Docker 数据卷
+
+| 卷名 | 宿主机路径 | 用途 |
+|------|-----------|------|
+| my_nextchat_nextchat-data | Docker 管理 | NextChat 持久化数据 |
+| my_nextchat_nextchat-postgres-data | Docker 管理 | PostgreSQL 数据库文件 |
+
+---
+
+## 部署步骤
+
+### 1. 配置环境变量
+
+编辑 `.env.baota`，修改以下必填项：
+
+```bash
+# 访问密码（必改）
+CODE=your-access-password
+
+# 数据库密码（建议修改）
+PGPASSWORD=nextchat_password
+```
+
+**数据库连接说明：** PGHOST 必须是 `postgres`（Docker Compose 服务名），不能是 `127.0.0.1`，因为容器内无法通过 127.0.0.1 访问宿主机。
+
+### 2. 构建并启动容器
+
+```bash
+cd /www/dk_project/my_NextChat
+
+# 构建镜像（首次约 5-10 分钟）
+docker compose -f docker-compose.baota.yml --env-file .env.baota build
+
+# 启动所有服务（postgres 会先启动，健康检查通过后再启动 nextchat）
+docker compose -f docker-compose.baota.yml --env-file .env.baota up -d
+```
+
+### 3. 配置 Nginx 反向代理
+
+创建站点配置文件 `/www/server/panel/vhost/nginx/{域名}.conf`：
 
 ```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
+server {
+    listen 80;
+    listen 443 ssl;
+    http2 on;
 
-    # WebSocket 支持
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
+    server_name your-domain.com;
+    root /www/dk_project/wwwroot/your-domain.com;
 
-    # 代理头部
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+    # SSL 证书配置
+    ssl_certificate    /www/server/panel/vhost/cert/your-domain.com/fullchain.pem;
+    ssl_certificate_key    /www/server/panel/vhost/cert/your-domain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers EECDH+CHACHA20:EECDH+CHACHA20-draft:EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:EECDH+3DES:RSA+3DES:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    add_header Strict-Transport-Security "max-age=31536000";
 
-    # 超时设置
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 300s;
-    proxy_read_timeout 300s;
+    # HTTP 自动跳转 HTTPS
+    if ($server_port != 443) {
+        set $isRedcert 2;
+    }
+    if ( $uri ~ /\.well-known/ ) {
+        set $isRedcert 1;
+    }
+    if ($isRedcert = 2) {
+        rewrite ^(/.*)$ https://$host$1 permanent;
+    }
 
-    # 缓冲设置
-    proxy_buffering off;
+    # 反向代理到 NextChat 容器
+    location ^~ / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-Port $remote_port;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header REMOTE-HOST $remote_addr;
+
+        proxy_buffering off;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+
+        # WebSocket 支持（AI 对话必需）
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+
+    # SSL 证书验证目录
+    location /.well-known {
+        allow all;
+    }
+
+    access_log /www/wwwlogs/your-domain.com.log;
+    error_log /www/wwwlogs/your-domain.com.error.log;
 }
 ```
 
-5. **点击 "保存"**
-6. **点击 "重载配置"**
-
----
-
-## 第五步：验证部署
-
-### 检查清单
-
-在宝塔面板中检查以下项目：
-
-#### Docker 容器状态
-
-**位置：Docker -> 容器**
-
-- [ ] 容器名：`nextchat`
-- [ ] 状态：运行中
-- [ ] 端口：3000
-- [ ] 重启策略：unless-stopped
-
-#### 网站访问
-
-**浏览器访问：** `https://your-domain.com`
-
-- [ ] 看到 NextChat 登录页面
-- [ ] 输入密码成功登录
-- [ ] 界面正常显示
-
-#### 数据库连接
-
-**在宝塔面板 -> 终端执行：**
+重载 Nginx（使用宝塔的 nginx，不是系统的）：
 
 ```bash
-PGPASSWORD=your_password psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT version();"
+/www/server/nginx/sbin/nginx -t && /www/server/nginx/sbin/nginx -s reload
 ```
 
-- [ ] 成功显示 PostgreSQL 版本信息
+### 4. 注册到宝塔 Docker 管理界面
 
----
-
-## 宝塔面板日常管理
-
-### 容器管理
-
-**位置：Docker -> 容器 -> nextchat**
-
-| 操作 | 说明 |
-|------|------|
-| 查看日志 | 点击 "日志" 按钮查看容器运行日志 |
-| 重启容器 | 点击 "重启" 按钮 |
-| 停止容器 | 点击 "停止" 按钮 |
-| 删除容器 | 点击 "删除" 按钮（谨慎操作）|
-| 查看详情 | 点击 "详情" 查看容器配置 |
-| 终端访问 | 点击 "终端" 进入容器命令行 |
-
-### Compose 项目管理
-
-**位置：Docker -> Compose 项目 -> NextChat**
-
-| 操作 | 说明 |
-|------|------|
-| 启动/停止 | 控制整个项目的运行状态 |
-| 重新构建 | 代码更新后需要重新构建 |
-| 编辑配置 | 修改 Compose 文件和环境变量 |
-| 查看日志 | 查看项目所有容器的日志 |
-| 删除项目 | 删除整个项目（谨慎操作）|
-
-### 网站管理
-
-**位置：网站 -> 列表 -> NextChat**
-
-| 功能 | 说明 |
-|------|------|
-| 访问网站 | 点击域名直接访问 |
-| 网站设置 | 修改网站配置 |
-| SSL 管理 | 管理证书配置 |
-| 访问日志 | 查看网站访问日志 |
-| 流量统计 | 查看访问流量统计 |
-
-### 数据库管理
-
-**位置：数据库 -> PostgreSQL -> nextchat**
-
-| 功能 | 说明 |
-|------|------|
-| 管理 | 进入 phpPgAdmin 管理 |
-| 备份 | 创建数据库备份 |
-| 删除 | 删除数据库（谨慎操作）|
-| 权限 | 管理用户权限 |
-
----
-
-## 常见管理操作
-
-### 更新项目代码
+需要修改 `/www/server/panel/data/db/docker.db`（注意路径是 `db/docker.db`）。
 
 ```bash
-cd /www/wwwroot/nextchat
+DB="/www/server/panel/data/db/docker.db"
+```
+
+#### 4.1 注册 Docker 网站
+
+```bash
+sqlite3 "$DB" "INSERT INTO docker_sites (name, path, run_path, status, remark, addtime, type, service_info, container_id, classify) VALUES (
+  'your-domain.com',
+  '/www/dk_project/wwwroot/your-domain.com',
+  '/',
+  1,
+  'NextChat AI 聊天应用',
+  '$(date +%Y-%m-%d\ %H:%M:%S)',
+  'proxy',
+  '{\"image\": \"my_nextchat-nextchat:latest\", \"compose_project\": \"my_nextchat\", \"port\": \"3000\"}',
+  'nextchat',
+  0
+);"
+```
+
+#### 4.2 注册域名
+
+```bash
+sqlite3 "$DB" "INSERT INTO docker_domain (pid, name, port, addtime) VALUES (
+  (SELECT id FROM docker_sites WHERE name='your-domain.com'),
+  'your-domain.com',
+  443,
+  '$(date +%Y-%m-%d\ %H:%M:%S)'
+);"
+```
+
+#### 4.3 注册 Compose 项目
+
+```bash
+sqlite3 "$DB" "INSERT INTO stacks (name, status, path, template_id, time, remark) VALUES (
+  'my_nextchat',
+  'running',
+  '/www/dk_project/my_NextChat',
+  0,
+  $(date +%s),
+  'NextChat AI 聊天应用'
+);"
+```
+
+#### 4.4 创建站点 JSON 配置
+
+```bash
+mkdir -p /www/dk_project/sites/your-domain.com
+mkdir -p /www/dk_project/wwwroot/your-domain.com
+```
+
+创建 `/www/dk_project/sites/your-domain.com/your-domain.com.json`，参考 `/www/dk_project/sites/sub2api.ngpt.chat/sub2api.ngpt.chat.json` 的格式，关键字段：
+
+```json
+{
+  "site_name": "your-domain.com",
+  "domain_list": ["your-domain.com"],
+  "primary_port": "443",
+  "site_port": ["80", "443"],
+  "site_path": "/www/dk_project/wwwroot/your-domain.com",
+  "stop_site": false,
+  "proxy_info": [
+    {
+      "proxy_type": "http",
+      "proxy_path": "/",
+      "proxy_pass": "http://127.0.0.1:3000",
+      "proxy_host": "$http_host",
+      "websocket": { "websocket_status": true, "websocket_conf": "proxy_http_version 1.1;\nproxy_set_header Upgrade $http_upgrade;\nproxy_set_header Connection $connection_upgrade;" },
+      "timeout": { "proxy_connect_timeout": "60", "proxy_send_timeout": "600", "proxy_read_timeout": "600" },
+      "proxy_buffering": true
+    }
+  ],
+  "type": "proxy",
+  "classify": 0
+}
+```
+
+#### 4.5 添加容器备注
+
+```bash
+CONTAINER_ID=$(docker inspect --format '{{.Id}}' nextchat)
+sqlite3 "$DB" "INSERT INTO dk_container_remark (container_id, container_name, remark, addtime) VALUES (
+  '$CONTAINER_ID',
+  'nextchat',
+  'NextChat AI聊天应用',
+  '$(date +%Y-%m-%d)'
+);"
+```
+
+#### 4.6 确保同步标记文件存在
+
+```bash
+touch /www/dk_project/sites/synced_docker_sites.pl
+```
+
+### 5. 验证部署
+
+```bash
+# 检查容器状态（都应该是 healthy）
+docker ps --filter "name=nextchat" --format 'table {{.Names}}\t{{.Status}}'
+
+# 检查本地访问
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/config
+
+# 检查域名访问
+curl -sk -o /dev/null -w "%{http_code}" https://your-domain.com/api/config
+
+# 检查数据库连接
+docker exec nextchat-postgres pg_isready -U nextchat_user -d nextchat
+```
+
+---
+
+## 重要注意事项
+
+### 1. 不要使用 `bt restart`
+
+`bt restart` 会重启宝塔面板进程，面板会检查 `sites` 表中的站点记录，如果站点不在该表中，面板会删除对应的 Nginx 配置文件和 SSL 证书。
+
+如果需要重载面板，使用：
+```bash
+bt reload    # 只重载面板逻辑，不影响 Nginx 和文件
+```
+
+### 2. 宝塔有两套 Nginx
+
+| 路径 | 说明 |
+|------|------|
+| `/www/server/nginx/sbin/nginx` | 宝塔 Nginx（面板实际使用） |
+| `/usr/sbin/nginx` | 系统 Nginx（不要用） |
+
+重载 Nginx 时必须用宝塔的：
+```bash
+/www/server/nginx/sbin/nginx -t && /www/server/nginx/sbin/nginx -s reload
+```
+
+### 3. 数据库文件路径
+
+| 路径 | 说明 |
+|------|------|
+| `/www/server/panel/data/db/docker.db` | **实际使用的** Docker 数据库 |
+| `/www/server/panel/data/docker.db` | 旧路径副本（面板不读取） |
+
+### 4. Docker 网站健康检查失败
+
+如果 Docker 管理页面中站点显示不健康，检查：
+- `/www/dk_project/sites/{域名}/{域名}.json` 文件是否存在且格式正确
+- Nginx 配置文件 `/www/server/panel/vhost/nginx/{域名}.conf` 是否存在
+- SSL 证书文件 `/www/server/panel/vhost/cert/{域名}/` 目录是否存在
+
+---
+
+## 日常维护
+
+### 更新代码并重新构建
+
+```bash
+cd /www/dk_project/my_NextChat
 git pull
+docker compose -f docker-compose.baota.yml --env-file .env.baota build
+docker compose -f docker-compose.baota.yml --env-file .env.baota up -d
 ```
 
-然后在宝塔 Docker 管理器中：
-1. **Docker -> Compose 项目 -> NextChat**
-2. **点击 "重新构建"**
-3. **构建完成后点击 "重启"**
+### 修改配置
 
-### 查看实时日志
+1. 编辑 `.env.baota`
+2. 重启容器：`docker compose -f docker-compose.baota.yml --env-file .env.baota up -d`
 
-**方法 A：宝塔面板**
-1. **Docker -> 容器 -> nextchat**
-2. **点击 "日志"**
-
-**方法 B：命令行**
-```bash
-docker logs -f nextchat
-```
-
-### 备份数据
-
-#### 自动备份（推荐）
-
-**宝塔面板 -> 计划任务**
-
-1. **添加任务**
-2. **任务类型：备份数据库**
-3. **数据库：nextchat**
-4. **备份到：服务器磁盘**
-5. **执行周期：每天**
-6. **保留天数：7**
-
-#### 手动备份
+### 查看日志
 
 ```bash
-# 备份数据库
-PGPASSWORD=your_password pg_dump -h 127.0.0.1 -U nextchat_user nextchat > backup.sql
-
-# 备份环境配置
-cp /www/wwwroot/nextchat/.env.baota.local /www/backup/.env.baota.local.backup
+docker logs nextchat --tail 100 -f
+docker logs nextchat-postgres --tail 50
 ```
 
-### 恢复数据
+### 备份数据库
 
 ```bash
-# 恢复数据库
-PGPASSWORD=your_password psql -h 127.0.0.1 -U nextchat_user nextchat < backup.sql
+# 从 postgres 容器导出
+docker exec nextchat-postgres pg_dump -U nextchat_user nextchat > backup_$(date +%Y%m%d).sql
 ```
 
-### 修改访问密码
+### 恢复数据库
 
-1. **文件管理 -> 进入 /www/wwwroot/nextchat**
-2. **编辑 .env.baota.local**
-3. **修改 CODE 的值**
-4. **保存**
-5. **Docker -> 容器 -> nextchat -> 重启**
-
-### 修改 API 密钥
-
-1. **文件管理 -> 进入 /www/wwwroot/nextchat**
-2. **编辑 .env.baota.local**
-3. **修改 OPENAI_API_KEY 的值**
-4. **保存**
-5. **Docker -> 容器 -> nextchat -> 重启**
+```bash
+docker exec -i nextchat-postgres psql -U nextchat_user nextchat < backup_20260330.sql
+```
 
 ---
 
 ## 故障排查
 
-### 容器无法启动
+### 网站显示"没有找到站点"
 
-**检查步骤：**
+1. 检查 Nginx 配置文件是否被删除：`ls /www/server/panel/vhost/nginx/{域名}.conf`
+2. 检查 SSL 证书目录是否存在：`ls /www/server/panel/vhost/cert/{域名}/`
+3. 检查 Nginx 是否加载了该配置：`/www/server/nginx/sbin/nginx -T 2>&1 | grep server_name`
+4. 如果文件被删，重新创建配置文件并重载 Nginx
 
-1. **查看容器日志**
-   - Docker -> 容器 -> nextchat -> 日志
+### 容器启动失败
 
-2. **常见错误及解决方案：**
+```bash
+# 查看 nextchat 日志
+docker logs nextchat
 
-| 错误信息 | 原因 | 解决方案 |
-|---------|------|---------|
-| Cannot connect to PostgreSQL | 数据库连接失败 | 检查数据库密码，确认 PostgreSQL 运行中 |
-| port is already allocated | 端口被占用 | docker ps 检查是否有其他容器占用 3000 端口 |
-| permission denied | 权限不足 | 检查数据库用户权限 |
-| No space left on device | 磁盘空间不足 | 清理不必要的文件或扩展磁盘 |
+# 查看 postgres 日志
+docker logs nextchat-postgres
 
-### 网站无法访问
-
-**检查步骤：**
-
-1. **检查容器是否运行**
-   - Docker -> 容器 -> nextchat
-
-2. **检查 Nginx 配置**
-   - 网站 -> NextChat -> 设置 -> 配置文件
-
-3. **测试容器内部访问**
-   ```bash
-   docker exec nextchat wget -qO- http://localhost:3000
-   ```
-
-4. **检查防火墙**
-   - 安全 -> 防火墙 -> 确认端口已开放
+# 常见原因：
+# - 数据库密码不匹配（.env.baota 中的 PGPASSWORD 必须与 compose 中一致）
+# - 端口 3000 被占用
+# - 构建失败（网络问题导致依赖下载失败）
+```
 
 ### 数据库连接失败
 
-**检查步骤：**
+```bash
+# 在 nextchat 容器内测试连接 postgres
+docker exec nextchat wget -q -O /dev/null http://postgres:5432
 
-1. **测试数据库连接**
-   ```bash
-   PGPASSWORD=your_password psql -h 127.0.0.1 -U nextchat_user -d nextchat
-   ```
+# 检查 postgres 是否健康
+docker inspect nextchat-postgres --format '{{.State.Health.Status}}'
+```
 
-2. **检查 PostgreSQL 状态**
-   - 软件商店 -> PostgreSQL -> 重载配置
+### 健康检查 unhealthy
 
-3. **检查数据库权限**
-   ```sql
-   \c nextchat
-   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO nextchat_user;
-   ```
-
-### 更新后无法访问
-
-**解决方案：**
-
-1. **清除浏览器缓存**
-2. **检查容器是否正常运行**
-3. **查看容器日志排查错误**
-4. **如果修改了环境变量，需要重新构建容器**
-
----
-
-## 性能优化建议
-
-### 资源限制配置
-
-**在 Compose 文件中添加资源限制：**
+docker-compose 中的健康检查使用 `wget`，`localhost` 在 Alpine 容器中可能解析到 IPv6 导致失败。确保使用 `127.0.0.1` 而非 `localhost`：
 
 ```yaml
-services:
-  nextchat:
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-```
-
-### 日志轮转
-
-**宝塔面板已自动配置日志轮转，默认保留3个日志文件，每个最大10M。**
-
-### 数据库优化
-
-```sql
--- 定期清理旧数据
-DELETE FROM messages WHERE created_at < NOW() - INTERVAL '90 days';
-
--- 清理并优化
-VACUUM ANALYZE;
-```
-
----
-
-## 安全建议
-
-### 1. 修改默认端口
-
-虽然容器使用 3000 端口，但外部无法直接访问，只通过 Nginx 反向代理访问。
-
-### 2. 设置强密码
-
-- CODE 访问密码：至少12位，包含大小写字母、数字和特殊字符
-- 数据库密码：至少16位，使用强密码生成器
-
-### 3. 启用 HTTPS
-
-使用宝塔面板申请 Let's Encrypt 免费证书，并开启强制 HTTPS。
-
-### 4. 定期备份
-
-配置自动备份任务，至少每天备份数据库。
-
-### 5. 监控资源使用
-
-在宝塔面板中监控 CPU、内存和磁盘使用情况。
-
----
-
-## 附录：快速命令参考
-
-```bash
-# 进入项目目录
-cd /www/wwwroot/nextchat
-
-# 查看容器状态
-docker ps
-
-# 查看容器日志
-docker logs nextchat
-
-# 重启容器
-docker restart nextchat
-
-# 停止容器
-docker stop nextchat
-
-# 启动容器
-docker start nextchat
-
-# 进入容器终端
-docker exec -it nextchat sh
-
-# 测试数据库连接
-PGPASSWORD=your_password psql -h 127.0.0.1 -U nextchat_user -d nextchat
-
-# 备份数据库
-PGPASSWORD=your_password pg_dump -h 127.0.0.1 -U nextchat_user nextchat > backup.sql
-
-# 更新代码
-git pull
-
-# 重新构建
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local build
-
-# 重启项目
-docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
+healthcheck:
+  test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1"]
 ```
