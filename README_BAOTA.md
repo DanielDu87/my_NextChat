@@ -143,7 +143,8 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 2. **添加反向代理网站**
    - 点击"添加网站"
    - 选择"反向代理"类型
-   - 填写域名：`ngpt.chat`（您的域名）
+   - 网站名称：`my_NextChat`（使用项目名称，不要用服务器 IP）
+   - 填写域名：`ngpt.chat`
    - 填写备注：`NextChat AI 聊天应用`
    - 点击"提交"
 
@@ -160,7 +161,7 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 4. **验证配置**
    - 检查 Nginx 配置文件：
      ```bash
-     cat /www/server/panel/vhost/nginx/your-domain.conf
+     cat /www/server/panel/vhost/nginx/ngpt.chat.conf
      ```
    - 确认包含 WebSocket 配置：
      ```nginx
@@ -261,6 +262,12 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 | 网站管理 | Docker → Docker 网站 |
 | 数据库管理 | Docker → PostgreSQL |
 | SSL 证书 | 网站 → SSL 选项卡 |
+
+### 当前推荐命名
+
+- 宝塔 Docker 网站名称：`my_NextChat`
+- 站点域名：`ngpt.chat`
+- Docker 网站名称和域名分开维护，不要再把网站名称直接写成服务器 IP。
 
 ## 📁 部署后的目录结构
 

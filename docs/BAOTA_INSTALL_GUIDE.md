@@ -287,7 +287,7 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 | 配置项 | 值 |
 |--------|-----|
-| 名称 | `NextChat` |
+| 名称 | `my_nextchat` |
 | 项目路径 | `/www/wwwroot/nextchat` |
 | Compose 文件 | `docker-compose.baota.yml` |
 | 环境文件 | `.env.baota.local` |
@@ -301,6 +301,24 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 6. **启动容器**
    - 构建完成后点击 "启动"
+
+### 步骤 4：创建 Docker 网站
+
+**在宝塔面板中：**
+
+1. 进入 `Docker -> Docker 网站`
+2. 点击 `添加网站`
+3. 网站名称填写：`my_NextChat`
+4. 域名填写：`ngpt.chat`
+5. 代理目标填写：`http://127.0.0.1:3000`
+6. 开启 WebSocket 支持并保存
+
+补充说明：
+
+- Docker 网站名称建议固定使用项目名，例如 `my_NextChat`
+- 域名单独绑定为 `ngpt.chat`
+- 不要把 Docker 网站名称直接写成服务器 IP，例如 `43.163.5.9`
+- 否则后续切换域名时，宝塔数据库记录、站点 JSON、Nginx 配置都需要额外迁移
 
 ---
 
