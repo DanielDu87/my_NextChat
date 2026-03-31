@@ -31,12 +31,15 @@ export async function POST(request: Request) {
     }
 
     const response = NextResponse.json({ ok: true });
+    const isHttps =
+      request.headers.get("x-forwarded-proto") === "https" ||
+      new URL(request.url).protocol === "https:";
     response.cookies.set({
       name: getSiteAccessCookieName(),
       value: await createSiteAccessCookieValue(),
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       maxAge: getSiteAccessMaxAgeSeconds(),
       path: "/",
     });

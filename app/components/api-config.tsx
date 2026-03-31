@@ -1464,88 +1464,107 @@ export function ApiConfigPage() {
     return runWithImmediateStoreSyncPaused(async () => {
       const beforeSnapshot = buildApiConfigSyncSnapshot();
       const client = syncStore.getClient() as any;
-      const currentProfiles = useAccessStore.getState().apiProfiles || [];
-      const managedProviderIds = getManagedProviderIds(currentProfiles);
+      let accessSyncError: unknown = null;
 
-      // 尝试下载远程配置
-      const remoteConfigJson = await client.get(StoreKey.Config);
-      if (remoteConfigJson) {
-        const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
-        const remoteModels = (remoteConfig.models || []).filter((model: any) =>
-          managedProviderIds.has(
-            String(model?.provider?.id || "").toLowerCase(),
-          ),
-        );
-        if (remoteModels.length > 0) {
-          appConfig.mergeModels(remoteModels, {
-            silent: true,
-            allowedProviderIds: getManagedProviderIdList(currentProfiles),
-          });
+      try {
+        // 先恢复 access-control，避免大体积模型快照阻塞 API 配置恢复。
+        const remoteAccessJson = await client.get(StoreKey.Access);
+        if (remoteAccessJson) {
+          const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
+          const remoteProfiles = remoteAccess.apiProfiles || [];
+          if (remoteProfiles.length > 0) {
+            accessStore.update((state) => {
+              const localProfileMap = new Map(
+                (state.apiProfiles || []).map((p: any) => [p.id, p]),
+              );
+              const mergedProfiles = [...(state.apiProfiles || [])];
+
+              remoteProfiles.forEach((remoteProfile: any) => {
+                if (!localProfileMap.has(remoteProfile.id)) {
+                  if (remoteProfile.cachedModels || remoteProfile.modelCount) {
+                    useModelCacheStore
+                      .getState()
+                      .upsertProfileCache(remoteProfile.id, {
+                        cachedModels: remoteProfile.cachedModels || "",
+                        modelCount: remoteProfile.modelCount || 0,
+                      });
+                  }
+                  mergedProfiles.push(remoteProfile);
+                } else {
+                  // 同 ID 配置：合并 cachedModels
+                  const localIndex = mergedProfiles.findIndex(
+                    (p: any) => p.id === remoteProfile.id,
+                  );
+                  if (localIndex >= 0) {
+                    const local = mergedProfiles[localIndex];
+                    const localModels = new Set(
+                      getProfileCachedModels(local).split(",").filter(Boolean),
+                    );
+                    const remoteModels = new Set(
+                      getProfileCachedModels(remoteProfile)
+                        .split(",")
+                        .filter(Boolean),
+                    );
+                    remoteModels.forEach((m: unknown) =>
+                      localModels.add(m as string),
+                    );
+                    const mergedCachedModels = [...localModels].join(",");
+                    useModelCacheStore
+                      .getState()
+                      .upsertProfileCache(remoteProfile.id, {
+                        cachedModels: mergedCachedModels,
+                        modelCount: Math.max(
+                          getProfileCachedModelCount(local),
+                          getProfileCachedModelCount(remoteProfile),
+                        ),
+                      });
+                    mergedProfiles[localIndex] = {
+                      ...local,
+                    };
+                  }
+                }
+              });
+
+              state.apiProfiles = mergedProfiles;
+            });
+          }
         }
+      } catch (error) {
+        accessSyncError = error;
+        console.error("[API Config] ❌ 恢复 access-control 失败:", error);
       }
 
-      // 同样处理 Access store 中的 apiProfiles
-      const remoteAccessJson = await client.get(StoreKey.Access);
-      if (remoteAccessJson) {
-        const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
-        const remoteProfiles = remoteAccess.apiProfiles || [];
-        if (remoteProfiles.length > 0) {
-          // 合并云端配置到本地
-          accessStore.update((state) => {
-            const localProfileMap = new Map(
-              (state.apiProfiles || []).map((p: any) => [p.id, p]),
+      try {
+        const currentProfiles = useAccessStore.getState().apiProfiles || [];
+        const managedProviderIds = getManagedProviderIds(currentProfiles);
+
+        if (managedProviderIds.size > 0) {
+          const remoteConfigJson = await client.get(StoreKey.Config);
+          if (remoteConfigJson) {
+            const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
+            const remoteModels = (remoteConfig.models || []).filter(
+              (model: any) =>
+                managedProviderIds.has(
+                  String(model?.provider?.id || "").toLowerCase(),
+                ),
             );
-            const mergedProfiles = [...(state.apiProfiles || [])];
-
-            remoteProfiles.forEach((remoteProfile: any) => {
-              if (!localProfileMap.has(remoteProfile.id)) {
-                if (remoteProfile.cachedModels || remoteProfile.modelCount) {
-                  useModelCacheStore
-                    .getState()
-                    .upsertProfileCache(remoteProfile.id, {
-                      cachedModels: remoteProfile.cachedModels || "",
-                      modelCount: remoteProfile.modelCount || 0,
-                    });
-                }
-                mergedProfiles.push(remoteProfile);
-              } else {
-                // 同 ID 配置：合并 cachedModels
-                const localIndex = mergedProfiles.findIndex(
-                  (p: any) => p.id === remoteProfile.id,
-                );
-                if (localIndex >= 0) {
-                  const local = mergedProfiles[localIndex];
-                  const localModels = new Set(
-                    getProfileCachedModels(local).split(",").filter(Boolean),
-                  );
-                  const remoteModels = new Set(
-                    getProfileCachedModels(remoteProfile)
-                      .split(",")
-                      .filter(Boolean),
-                  );
-                  remoteModels.forEach((m: unknown) =>
-                    localModels.add(m as string),
-                  );
-                  const mergedCachedModels = [...localModels].join(",");
-                  useModelCacheStore
-                    .getState()
-                    .upsertProfileCache(remoteProfile.id, {
-                      cachedModels: mergedCachedModels,
-                      modelCount: Math.max(
-                        getProfileCachedModelCount(local),
-                        getProfileCachedModelCount(remoteProfile),
-                      ),
-                    });
-                  mergedProfiles[localIndex] = {
-                    ...local,
-                  };
-                }
-              }
-            });
-
-            state.apiProfiles = mergedProfiles;
-          });
+            if (remoteModels.length > 0) {
+              appConfig.mergeModels(remoteModels, {
+                silent: true,
+                allowedProviderIds: getManagedProviderIdList(currentProfiles),
+              });
+            }
+          }
         }
+      } catch (error) {
+        console.warn(
+          "[API Config] ⚠️ 恢复 app-config 失败，已跳过模型快照恢复:",
+          error,
+        );
+      }
+
+      if (accessSyncError) {
+        throw accessSyncError;
       }
 
       // 同步完成后输出最终的模型数量

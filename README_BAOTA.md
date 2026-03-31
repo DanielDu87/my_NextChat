@@ -4,6 +4,13 @@
 
 ## 🔔 重要说明
 
+### 先判断数据库来源
+
+- 如果你是全新部署，准备直接使用当前 Compose 自带的 PostgreSQL 容器，可以继续使用本文的 `docker-compose.baota.yml`。
+- 如果你已经有一套正在使用的 PostgreSQL，且里面已经有历史聊天、API 配置、同步数据，不要直接使用 `docker-compose.baota.yml`。
+- 原因是 [docker-compose.baota.yml](/Users/dyx/Code/NextChat/docker-compose.baota.yml) 默认把应用固定连接到 Compose 内部的 `postgres` 服务，这会让页面连到一套新的空库，看起来像“数据库没数据”。
+- 复用已有外部 PostgreSQL 时，应改用 [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml) 配合 [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker) 和 `--profile no-proxy`，让应用直接连接现有数据库。
+
 ### 自定义镜像
 
 本项目使用自定义构建的 NextChat Docker 镜像，包含以下特性：
@@ -41,6 +48,11 @@
 ## 🚀 快速开始
 
 ### 方法一：推荐部署方式（宝塔面板 + Docker Compose）
+
+适用前提：
+
+- 当前要使用的是本机新建 PostgreSQL。
+- 不需要复用历史外部数据库。
 
 #### 第一步：部署 Docker 容器
 
@@ -81,6 +93,41 @@
    - 构建源使用官方仓库
    - `APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine`
    - `NPM_REGISTRY=https://registry.npmjs.org/`
+
+### 已有外部 PostgreSQL 的正确做法
+
+如果你的历史数据已经在别的 PostgreSQL 实例里：
+
+1. 不要使用 `docker-compose.baota.yml`
+2. 编辑 [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker)，填写现有数据库连接：
+   - `PGHOST`
+   - `PGPORT`
+   - `PGDATABASE`
+   - `PGUSER`
+   - `PGPASSWORD`
+3. 使用 [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml) 启动：
+
+```bash
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy build
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy up -d
+```
+
+4. 宝塔仍然只负责反向代理到 `127.0.0.1:3000`
+5. 不要删除同步用户相关变量：
+   - `NEXTCHAT_DEFAULT_USER_ID`
+   - `DEFAULT_SYNC_USER_ID`
+   - `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`
+
+补充说明：
+
+- `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 是前端构建期变量。
+- 如果自定义了 `docker-compose.yml`，但没有把这个变量传给 `build.args` 和容器环境，浏览器会报：
+
+```text
+[SyncUser] 缺少 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID
+```
+
+- 修改这类变量后，必须重新 `build` 并重新 `up -d`，仅重启容器不够。
 
 5. **验证容器运行**
    ```bash
@@ -305,6 +352,14 @@ nginx -t
 ```
 
 **重新加载 Nginx：**
+```bash
+nginx -s reload
+```
+
+**部署后仍看到旧前端报错：**
+
+- 先强制刷新浏览器，或使用无痕窗口重新打开站点
+- 如果只是重建了容器，但浏览器还在跑旧 bundle，会继续看到已经修复过的旧错误
 ```bash
 nginx -s reload
 ```

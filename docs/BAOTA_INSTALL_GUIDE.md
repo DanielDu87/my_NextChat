@@ -172,6 +172,52 @@ PGPASSWORD='YourStrongPassword123!' psql -h 127.0.0.1 -U nextchat_user -d nextch
 
 ## 部署 NextChat
 
+### 先确认是否复用历史数据库
+
+在继续之前，先判断你属于哪一种：
+
+- 全新部署，准备直接使用当前 Compose 自带的 PostgreSQL。
+- 已有一套外部 PostgreSQL，里面已经保存了历史聊天、API 配置、同步快照或模型数据。
+
+如果你属于第二种，不要直接使用 `docker-compose.baota.yml`。
+
+原因：
+
+- [docker-compose.baota.yml](/Users/dyx/Code/NextChat/docker-compose.baota.yml) 默认把应用固定连接到内部 `postgres` 服务。
+- 这样部署后，页面会连到一套新的空库，表现为“数据库明明有数据，但页面看不到”。
+
+复用已有外部 PostgreSQL 时，请改用：
+
+- [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml)
+- [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker)
+- `--profile no-proxy`
+
+示例：
+
+```bash
+cd /www/wwwroot/nextchat
+
+# 填好现有数据库连接
+vim .env.docker
+
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy build
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy up -d
+```
+
+宝塔面板仍然只需要把站点反向代理到 `127.0.0.1:3000`。
+
+额外注意：
+
+- 不要遗漏 `NEXTCHAT_DEFAULT_USER_ID`、`DEFAULT_SYNC_USER_ID`、`NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`
+- 其中 `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 属于前端构建期变量
+- 如果自定义 Compose 时没有把它传给 `build.args` 和容器环境，浏览器会直接报：
+
+```text
+[SyncUser] 缺少 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID
+```
+
+- 这种情况必须重新 `docker compose ... build` 后再 `up -d`，只重启容器不会修复
+
 ### 步骤 1：上传项目文件
 
 **在宝塔面板 -> 终端执行：**
@@ -273,6 +319,13 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 1. 浏览器打开站点并完成登录。
 2. 等待 1 到 3 秒，让页面自动同步完成。
 3. 打开设置页，确认服务器里已有的 API 配置、模型和聊天记录已经出现在本地页面。
+
+补充说明：
+
+- 自动同步只会读取“当前应用实际连接的那一套 PostgreSQL”。
+- 如果你把应用部署成了内置 `postgres`，而历史数据在另一台外部 PostgreSQL，上面的自动同步不会帮你跨库恢复数据。
+- 这种情况需要先把部署连接切回原来的数据库，再谈首次同步恢复。
+- 如果刚部署完仍然看到旧的前端报错，先强制刷新浏览器或使用无痕窗口，确认页面已经加载新 bundle。
 
 ### 什么时候才需要手动处理数据库
 

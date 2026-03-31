@@ -12,6 +12,13 @@
 
 所有服务运行在 Docker 中，通过 Docker Compose 编排，数据库不暴露到宿主机。
 
+注意：
+
+- 上图只适用于“当前项目自己管理 PostgreSQL 容器”的场景。
+- 如果你要复用已有外部 PostgreSQL，不要照搬这里的 `docker-compose.baota.yml` 方案。
+- 复用外部库时应使用 [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml) 配合 [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker) 和 `--profile no-proxy`。
+- 否则应用会被固定连到内部 `postgres` 容器，页面看到的是一套新的空库。
+
 ---
 
 ## 涉及的文件和数据库

@@ -23,7 +23,7 @@ type ConflictResponsePayload = {
 };
 
 const DB_SYNC_REQUEST_TIMEOUT_MS = 15000;
-const DB_CHAT_REQUEST_TIMEOUT_MS = 20000;
+const DB_CHAT_REQUEST_TIMEOUT_MS = 60000;
 
 async function fetchWithTimeout(
   path: string,
@@ -261,21 +261,28 @@ export function createDatabaseSyncClient(_: SyncStore) {
       },
       expectation?: StoreSnapshotWriteExpectation,
     ) {
-      const conflict = await requestWithConflict("/api/db/chat-sync", {
-        method: "PUT",
-        headers: {
-          ...(expectation?.expectedUpdatedAt
-            ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
-            : {}),
-          ...(expectation?.expectedChecksum
-            ? { "x-expected-checksum": expectation.expectedChecksum }
-            : {}),
-          ...(expectation?.expectedMissing
-            ? { "x-expected-missing": "1" }
-            : {}),
+      const conflict = await requestWithConflict(
+        "/api/db/chat-sync",
+        {
+          method: "PUT",
+          headers: {
+            ...(expectation?.expectedUpdatedAt
+              ? { "x-expected-updated-at": expectation.expectedUpdatedAt }
+              : {}),
+            ...(expectation?.expectedChecksum
+              ? { "x-expected-checksum": expectation.expectedChecksum }
+              : {}),
+            ...(expectation?.expectedMissing
+              ? { "x-expected-missing": "1" }
+              : {}),
+          },
+          body: JSON.stringify(params),
         },
-        body: JSON.stringify(params),
-      });
+        {
+          timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
+          retries: 1,
+        },
+      );
 
       if (conflict) {
         throw new Error("[DB Sync] 409 Conflict");

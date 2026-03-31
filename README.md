@@ -34,6 +34,7 @@
 - 仅在数据库必须通过跳板机访问时叠加 `--profile ssh-tunnel`
 - 默认使用 `./scripts/docker-compose-safe.sh`
 - 默认使用 `.env.docker`
+- 如果宝塔环境要复用已有外部 PostgreSQL，不要直接使用 `docker-compose.baota.yml`，应改用 `docker-compose.yml + .env.docker + --profile no-proxy`
 
 最常用命令：
 

@@ -11,6 +11,29 @@
 
 **根本原因：** `provider_configs` 表为空
 
+**补充情况：** 如果聊天记录已经恢复，但 API 配置页仍然为空，同时控制台出现 `"[DB Sync] timeout after 15000ms"`，不一定是 `provider_configs` 丢了。
+
+页面初始化时会同时读取：
+
+1. `access-control`
+2. `app-config`
+
+如果 `app-config` 里保存了很大的模型快照，单条快照过大时可能先超时，继而让整段“恢复 API 配置”的流程提前失败，看起来像是 API 配置没有恢复。
+
+可以先执行：
+
+```sql
+select
+  pg_column_size(model_settings -> 'app-config') as app_config_size,
+  pg_column_size(security_settings -> 'access-control') as access_size
+from app_settings
+where user_id = (
+  select id from app_users where external_id = 'single-user' limit 1
+);
+```
+
+如果 `app_config_size` 明显大于 `access_size`，应优先排查模型快照体积，而不是先判断 API 配置是否丢失。
+
 NextChat 的同步功能需要：
 1. `provider_configs` 表中有提供商配置记录
 2. `sync_settings` 字段中有同步配置
