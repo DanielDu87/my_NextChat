@@ -54,11 +54,22 @@
 - 当前要使用的是本机新建 PostgreSQL。
 - 不需要复用历史外部数据库。
 
+当前推荐目录与命名：
+
+- 项目目录：`/www/dk_project/my_NextChat`
+- Docker Compose 项目名：`my_nextchat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
+- 站点域名：`ngpt.chat`
+
+注意：
+- `Compose 项目名`、`项目目录名`、`宝塔网站名称` 不是同一个概念
+- 其中最容易踩坑的是：宝塔网站名称必须直接使用域名 `ngpt.chat`
+
 #### 第一步：部署 Docker 容器
 
 1. **配置环境变量**
    ```bash
-   cd /www/wwwroot/nextchat
+   cd /www/dk_project/my_NextChat
    cp .env.baota .env.baota.local
    nano .env.baota.local  # 修改必填配置
    ```
@@ -143,10 +154,16 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 2. **添加反向代理网站**
    - 点击"添加网站"
    - 选择"反向代理"类型
-   - 网站名称：`my_NextChat`（使用项目名称，不要用服务器 IP）
+   - 网站名称：`ngpt.chat`
    - 填写域名：`ngpt.chat`
    - 填写备注：`NextChat AI 聊天应用`
    - 点击"提交"
+
+   关键约束：
+   - 宝塔里用于申请 SSL 的网站名称，必须直接使用主域名，例如 `ngpt.chat`
+   - 不要把网站名称写成项目名、容器名或服务器 IP
+   - `站点名称`、`域名`、`/www/dk_project/sites/{站点名}/`、`/www/server/panel/vhost/nginx/{站点名}.conf` 必须保持一致
+   - 否则后续申请 SSL 时，宝塔可能报：`读取配置文件失败，请删除网站重新添加！`
 
 3. **配置反向代理**
    - 网站创建后，点击"设置"
@@ -194,11 +211,36 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
    curl -I https://your-domain.com
    ```
 
+如果宝塔提示：
+
+```text
+读取配置文件失败，请删除网站重新添加！
+```
+
+优先检查下面几处是否完全一致：
+
+```bash
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from dk_sites;"
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from docker_sites;"
+cat /www/dk_project/sites/ngpt.chat/ngpt.chat.json
+cat /www/server/panel/vhost/nginx/ngpt.chat.conf
+```
+
+必须满足：
+- `dk_sites.name = ngpt.chat`
+- `docker_sites.name = ngpt.chat`
+- `docker_sites.path = /www/dk_project/wwwroot/ngpt.chat`
+- `ngpt.chat.json` 的 `site_name = ngpt.chat`
+
+不要残留旧的 IP 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`，否则宝塔 SSL 模块会读取到错误站点信息。
+
 #### 第四步：完成部署
 
 1. **访问网站**
    - 打开浏览器访问：`https://your-domain.com`
    - 输入访问密码（CODE 配置的密码）
+   - 如果刚启用 SSL 或刚更新登录逻辑，优先使用 `https://ngpt.chat`
+   - 不要继续使用服务器 IP 访问，否则浏览器会提示不安全，且站点密码验证后的跳转状态可能混乱
 
 2. **配置 AI 服务**（可选）
    - 如果服务器未配置默认 AI 服务
@@ -219,14 +261,15 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 
 1. **上传项目文件**
    ```bash
-   cd /www/wwwroot
-   git clone https://github.com/ChatGPTNextWeb/NextChat.git nextchat
-   cd nextchat
+   mkdir -p /www/dk_project
+   cd /www/dk_project
+   git clone https://github.com/DanielDu87/my_NextChat.git
+   cd my_NextChat
    ```
 
 2. **使用宝塔 Docker 管理器**
    - Docker → Compose 项目 → 添加项目
-   - 项目路径：`/www/wwwroot/nextchat`
+   - 项目路径：`/www/dk_project/my_NextChat`
    - Compose 文件：选择 `docker-compose.baota.yml`
    - 环境文件：选择 `.env.baota.local`（需提前创建并配置）
 
@@ -265,14 +308,30 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 
 ### 当前推荐命名
 
-- 宝塔 Docker 网站名称：`my_NextChat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
-- Docker 网站名称和域名分开维护，不要再把网站名称直接写成服务器 IP。
+- Docker Compose 项目名：`my_nextchat`
+- 项目目录名：`my_NextChat`
+- 宝塔网站名称、站点目录名、Nginx 配置文件名、SSL 证书目录名都应保持为同一个域名：`ngpt.chat`
+- 不要再把网站名称直接写成项目名或服务器 IP。
+
+### 本次实际踩坑总结
+
+1. 如果历史数据在外部 PostgreSQL，不能直接使用 `docker-compose.baota.yml`
+   否则页面会连到一套新的空库，看起来像“聊天没了”“API 配置没了”
+2. `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 必须同时进入构建参数和容器环境
+   否则浏览器会报 `[SyncUser] 缺少 NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`
+3. 如果 `app-config` 快照很大，API 配置恢复可能被模型快照超时一起拖垮
+   这种情况不要先判断“数据库没数据”，要先看快照体积和同步超时
+4. `Local` 类型的 provider 如果仍指向 `localhost/127.0.0.1`
+   在公网域名下刷新模型时会报代理 502，这通常不是线上服务坏了，而是这条配置本来就是本地专用
+5. 宝塔 SSL 申请前，`dk_sites`、`docker_sites`、站点 JSON、Nginx 配置文件名必须全部对齐到域名
+   否则会报“读取配置文件失败，请删除网站重新添加！”
 
 ## 📁 部署后的目录结构
 
 ```
-/www/wwwroot/nextchat/              # 项目目录
+/www/dk_project/my_NextChat/        # 项目目录
 ├── .env.baota.local                # 环境变量配置
 ├── docker-compose.baota.yml        # Docker Compose 配置
 ├── docker-compose.postgres.yml     # PostgreSQL 配置
@@ -391,7 +450,7 @@ certbot renew
 ## 🔄 更新升级
 
 ```bash
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 
 # 拉取最新代码
 git pull

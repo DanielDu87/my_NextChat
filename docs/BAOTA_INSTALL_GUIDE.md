@@ -2,6 +2,13 @@
 
 本指南详细说明如何在 Ubuntu 服务器上使用宝塔面板部署 NextChat 项目。
 
+当前推荐约定：
+
+- 项目目录：`/www/dk_project/my_NextChat`
+- Compose 项目名：`my_nextchat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
+- 访问域名：`https://ngpt.chat`
+
 ---
 
 ## 目录
@@ -114,7 +121,7 @@ password: xxxxxxxx
 |--------|-----|------|
 | 域名 | `your-domain.com` 或服务器 IP | 使用域名或 IP |
 | 备注 | `NextChat AI 聊天` | 便于识别 |
-| 根目录 | `/www/wwwroot/nextchat` | 自动创建 |
+| 根目录 | `/www/dk_project/my_NextChat` | 推荐与实际项目目录保持一致 |
 | FTP | 不创建 | 不需要 |
 | 数据库 | 不创建 | 单独创建 PostgreSQL |
 | PHP 版本 | 纯静态 | 不需要 PHP |
@@ -195,7 +202,7 @@ PGPASSWORD='YourStrongPassword123!' psql -h 127.0.0.1 -U nextchat_user -d nextch
 示例：
 
 ```bash
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 
 # 填好现有数据库连接
 vim .env.docker
@@ -223,17 +230,15 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 **在宝塔面板 -> 终端执行：**
 
 ```bash
-# 进入网站根目录
-cd /www/wwwroot
-
-# 删除默认创建的目录（如果有）
-rm -rf nextchat
+# 进入部署目录
+mkdir -p /www/dk_project
+cd /www/dk_project
 
 # 克隆项目
-git clone https://github.com/DanielDu87/my_NextChat.git nextchat
+git clone https://github.com/DanielDu87/my_NextChat.git
 
 # 进入项目目录
-cd nextchat
+cd my_NextChat
 
 # 查看项目文件
 ls -la
@@ -248,7 +253,7 @@ ls -la
 
 **在宝塔面板 -> 文件管理：**
 
-1. **进入 `/www/wwwroot/nextchat` 目录**
+1. **进入 `/www/dk_project/my_NextChat` 目录**
 2. **复制 `.env.baota` 文件并重命名为 `.env.baota.local`**
 3. **编辑 `.env.baota.local`**
 
@@ -288,7 +293,7 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 | 配置项 | 值 |
 |--------|-----|
 | 名称 | `my_nextchat` |
-| 项目路径 | `/www/wwwroot/nextchat` |
+| 项目路径 | `/www/dk_project/my_NextChat` |
 | Compose 文件 | `docker-compose.baota.yml` |
 | 环境文件 | `.env.baota.local` |
 
@@ -308,17 +313,27 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 1. 进入 `Docker -> Docker 网站`
 2. 点击 `添加网站`
-3. 网站名称填写：`my_NextChat`
+3. 网站名称填写：`ngpt.chat`
 4. 域名填写：`ngpt.chat`
 5. 代理目标填写：`http://127.0.0.1:3000`
 6. 开启 WebSocket 支持并保存
 
 补充说明：
 
-- Docker 网站名称建议固定使用项目名，例如 `my_NextChat`
-- 域名单独绑定为 `ngpt.chat`
-- 不要把 Docker 网站名称直接写成服务器 IP，例如 `43.163.5.9`
-- 否则后续切换域名时，宝塔数据库记录、站点 JSON、Nginx 配置都需要额外迁移
+- 宝塔里用于申请 SSL 的网站名称，建议直接使用主域名，例如 `ngpt.chat`
+- `站点名称`、`域名`、`/www/dk_project/sites/{站点名}/`、`/www/server/panel/vhost/nginx/{站点名}.conf` 必须保持同名
+- 不要把 Docker 网站名称写成项目名或服务器 IP，例如 `my_NextChat`、`43.163.5.9`
+- 否则宝塔申请证书时可能报：`读取配置文件失败，请删除网站重新添加！`
+- 这类问题通常还会伴随旧路径残留，例如 `/www/dk_project/wwwroot/43.163.5.9`
+
+如果已经踩坑，先检查：
+
+```bash
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from dk_sites;"
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from docker_sites;"
+cat /www/dk_project/sites/ngpt.chat/ngpt.chat.json
+cat /www/server/panel/vhost/nginx/ngpt.chat.conf
+```
 
 ---
 
@@ -334,7 +349,7 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 ### 首次验证步骤
 
-1. 浏览器打开站点并完成登录。
+1. 浏览器打开 `https://ngpt.chat` 并完成登录。
 2. 等待 1 到 3 秒，让页面自动同步完成。
 3. 打开设置页，确认服务器里已有的 API 配置、模型和聊天记录已经出现在本地页面。
 
@@ -344,6 +359,9 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 - 如果你把应用部署成了内置 `postgres`，而历史数据在另一台外部 PostgreSQL，上面的自动同步不会帮你跨库恢复数据。
 - 这种情况需要先把部署连接切回原来的数据库，再谈首次同步恢复。
 - 如果刚部署完仍然看到旧的前端报错，先强制刷新浏览器或使用无痕窗口，确认页面已经加载新 bundle。
+- 如果浏览器已经提示证书正常，后续访问统一使用 `https://ngpt.chat`，不要再使用 IP 地址访问。
+- 如果输入密码后页面没有进入系统，先确认当前访问地址不是 `http://服务器IP`
+- 这种情况优先用无痕窗口重新打开 `https://ngpt.chat`
 
 ### 什么时候才需要手动处理数据库
 
@@ -353,6 +371,19 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 - 你明确要清空某个用户的云端快照并重新导入。
 
 如果只是“全新部署后首次打开页面”，默认不需要执行任何手动初始化 SQL。
+
+### 这次部署里实际出现过的问题
+
+1. 宝塔专用 Compose 默认连接内置 `postgres`
+   如果你的历史聊天和 API 配置在外部 PostgreSQL，必须切到 `docker-compose.yml + .env.docker + --profile no-proxy`
+2. 浏览器缺少 `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 会直接导致数据库同步报错
+   修改后必须重新 `build`，不是只重启容器
+3. `app-config` 快照过大时，模型同步和 API 配置恢复可能一起超时
+   此时要优先排查快照体积，不要误判成“数据库没有配置”
+4. `Local` provider 指向 `localhost`
+   在公网域名下刷新模型会报 502，这种配置通常应视为本地开发专用
+5. SSL 正常后必须统一使用域名访问
+   继续使用 IP 访问会触发浏览器不安全提示，也会干扰站点密码验证和跳转
 
 ---
 
@@ -501,7 +532,7 @@ docker logs nextchat
 
 ```bash
 # 项目目录
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 
 # 查看容器状态
 docker ps
@@ -528,7 +559,7 @@ PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SEL
 ### 更新项目
 
 ```bash
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 
 # 拉取最新代码
 git pull
@@ -542,7 +573,7 @@ git pull
 
 #### 修改访问密码
 
-1. **文件管理 -> `/www/wwwroot/nextchat`**
+1. **文件管理 -> `/www/dk_project/my_NextChat`**
 2. **编辑 `.env.baota.local`**
 3. **修改 `CODE` 的值**
 4. **保存**
@@ -710,7 +741,7 @@ VACUUM ANALYZE;
 
 ```bash
 # 进入项目目录
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 
 # 查看容器状态
 docker ps

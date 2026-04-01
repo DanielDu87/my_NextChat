@@ -16,16 +16,27 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function App() {
+export default async function App({
+  searchParams,
+}: {
+  searchParams?: { [key: string]: string | string[] | undefined };
+}) {
   await ensureSitePasswordConfigured(DEFAULT_SITE_PASSWORD);
   const cookieStore = cookies();
   const isUnlocked = await verifySiteAccessCookie(
     cookieStore.get(getSiteAccessCookieName())?.value,
   );
+  const siteAuthError = Array.isArray(searchParams?.["site-auth-error"])
+    ? searchParams?.["site-auth-error"]?.[0]
+    : searchParams?.["site-auth-error"];
 
   return (
     <>
-      {isUnlocked ? <HomeEntry /> : <SitePasswordGate />}
+      {isUnlocked ? (
+        <HomeEntry />
+      ) : (
+        <SitePasswordGate initialError={siteAuthError} />
+      )}
       {serverConfig?.isVercel && (
         <>
           <Analytics />

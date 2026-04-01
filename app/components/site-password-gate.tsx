@@ -2,16 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { IconButton } from "./button";
-import { PasswordInput, showToast } from "./ui-lib";
+import { PasswordInput } from "./ui-lib";
 import Logo from "../icons/logo.svg";
 import styles from "./site-password-gate.module.scss";
 
-export default function SitePasswordGate() {
+export default function SitePasswordGate(props: { initialError?: string }) {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(props.initialError || "");
 
-  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (!password.trim()) {
       setError("请输入访问密码");
@@ -20,37 +20,17 @@ export default function SitePasswordGate() {
 
     setSubmitting(true);
     setError("");
-
-    try {
-      const response = await fetch("/api/site-auth", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ password }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
-
-      if (!response.ok) {
-        const message = payload.error || "验证失败，请稍后重试";
-        setError(message);
-        return;
-      }
-
-      showToast("验证成功");
-      window.location.reload();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "验证失败，请稍后重试");
-    } finally {
-      setSubmitting(false);
-    }
+    event?.currentTarget.submit();
   };
 
   return (
     <div className={styles.page}>
-      <form className={styles.card} onSubmit={handleSubmit}>
+      <form
+        className={styles.card}
+        onSubmit={handleSubmit}
+        action="/api/site-auth?redirect=1"
+        method="post"
+      >
         <div className={styles.logo}>
           <Logo />
         </div>
@@ -59,12 +39,15 @@ export default function SitePasswordGate() {
           请输入站点访问密码。验证成功后，当前浏览器 60 天内无需再次输入。
         </div>
         <div className={styles.input}>
+          <input type="hidden" name="redirectTo" value="/" />
           <PasswordInput
+            name="password"
             aria="站点访问密码"
             aria-label="站点访问密码"
             value={password}
             placeholder="请输入访问密码"
             autoFocus
+            required
             onChange={(e) => {
               setPassword(e.currentTarget.value);
               if (error) {

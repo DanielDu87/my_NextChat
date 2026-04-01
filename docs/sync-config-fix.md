@@ -11,7 +11,7 @@
 
 **根本原因：** `provider_configs` 表为空
 
-**补充情况：** 如果聊天记录已经恢复，但 API 配置页仍然为空，同时控制台出现 `"[DB Sync] timeout after 15000ms"`，不一定是 `provider_configs` 丢了。
+**补充情况：** 如果聊天记录已经恢复，但 API 配置页仍然为空，同时控制台出现 `"[DB Sync] timeout after ...ms"`，不一定是 `provider_configs` 丢了。
 
 页面初始化时会同时读取：
 
@@ -33,6 +33,11 @@ where user_id = (
 ```
 
 如果 `app_config_size` 明显大于 `access_size`，应优先排查模型快照体积，而不是先判断 API 配置是否丢失。
+
+当前版本已经把数据库同步超时提高到 `60000ms`，但如果快照体积过大，依然可能表现为：
+- 模型同步慢
+- 首次恢复时间明显变长
+- 控制台里出现和 `Config` / `ModelCache` 相关的超时日志
 
 NextChat 的同步功能需要：
 1. `provider_configs` 表中有提供商配置记录
@@ -74,7 +79,7 @@ sync_settings = {
 ### 方法 1：使用初始化脚本（推荐）
 
 ```bash
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 ./scripts/init-provider-configs.sh
 ```
 
@@ -262,6 +267,10 @@ A: 在 API 配置页面中，可以添加任意数量的提供商配置。
 
 A: 同步功能可以将您的 API 配置保存到数据库，可以在不同设备间同步配置。
 
+### Q: 为什么只有某一个 provider 刷新模型时报 502？
+
+A: 如果这条 provider 是 `Local` 类型，且 `baseUrl` 仍然写成 `localhost` 或 `127.0.0.1`，在公网域名下刷新模型时通常会失败。这不是数据库同步坏了，而是这条配置本来就是本地开发专用。
+
 ---
 
 ## 🛠️ 故障排查
@@ -287,7 +296,7 @@ docker logs nextchat | grep -i sync
 **解决方案：**
 ```bash
 # 重新运行初始化脚本
-cd /www/wwwroot/nextchat
+cd /www/dk_project/my_NextChat
 ./scripts/init-provider-configs.sh
 
 # 强制刷新浏览器

@@ -12,6 +12,13 @@
 
 所有服务运行在 Docker 中，通过 Docker Compose 编排，数据库不暴露到宿主机。
 
+当前推荐命名：
+
+- 项目目录：`/www/dk_project/my_NextChat`
+- Compose 项目名：`my_nextchat`
+- 宝塔网站名称：`ngpt.chat`
+- 站点域名：`ngpt.chat`
+
 注意：
 
 - 上图只适用于“当前项目自己管理 PostgreSQL 容器”的场景。
@@ -73,6 +80,13 @@ PGPASSWORD=nextchat_password
 ```
 
 **数据库连接说明：** PGHOST 必须是 `postgres`（Docker Compose 服务名），不能是 `127.0.0.1`，因为容器内无法通过 127.0.0.1 访问宿主机。
+
+如果你复用的是外部 PostgreSQL，这一节不适用，应改用：
+
+```bash
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy build
+docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy up -d
+```
 
 ### 2. 构建并启动容器
 
@@ -275,6 +289,16 @@ curl -sk -o /dev/null -w "%{http_code}" https://your-domain.com/api/config
 docker exec nextchat-postgres pg_isready -U nextchat_user -d nextchat
 ```
 
+补充检查：
+
+```bash
+# 检查 HTTP 是否已经跳到 HTTPS
+curl -I http://ngpt.chat/
+
+# 检查公网证书
+echo | openssl s_client -connect ngpt.chat:443 -servername ngpt.chat 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+```
+
 ---
 
 ## 重要注意事项
@@ -313,6 +337,25 @@ bt reload    # 只重载面板逻辑，不影响 Nginx 和文件
 - `/www/dk_project/sites/{域名}/{域名}.json` 文件是否存在且格式正确
 - Nginx 配置文件 `/www/server/panel/vhost/nginx/{域名}.conf` 是否存在
 - SSL 证书文件 `/www/server/panel/vhost/cert/{域名}/` 目录是否存在
+- `dk_sites.name`、`docker_sites.name`、站点 JSON 的 `site_name`、Nginx 配置文件名是否都使用同一个域名
+- `docker_sites.path` 是否仍残留旧 IP 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`
+
+推荐检查命令：
+
+```bash
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from dk_sites;"
+sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from docker_sites;"
+cat /www/dk_project/sites/ngpt.chat/ngpt.chat.json
+cat /www/server/panel/vhost/nginx/ngpt.chat.conf
+```
+
+如果宝塔申请 SSL 时提示：
+
+```text
+读取配置文件失败，请删除网站重新添加！
+```
+
+通常不是必须重建网站，而是以上 4 处元数据没有对齐。
 
 ---
 
@@ -362,6 +405,30 @@ docker exec -i nextchat-postgres psql -U nextchat_user nextchat < backup_2026033
 2. 检查 SSL 证书目录是否存在：`ls /www/server/panel/vhost/cert/{域名}/`
 3. 检查 Nginx 是否加载了该配置：`/www/server/nginx/sbin/nginx -T 2>&1 | grep server_name`
 4. 如果文件被删，重新创建配置文件并重载 Nginx
+
+### 宝塔 SSL 提示“读取配置文件失败”
+
+1. 检查 `dk_sites` 与 `docker_sites` 是否仍残留旧站点名或旧站点路径
+2. 检查 `/www/dk_project/sites/{域名}/{域名}.json` 中的 `site_name` 是否与域名一致
+3. 检查 `/www/server/panel/vhost/nginx/{域名}.conf` 是否与站点名一致
+4. 修正后执行：
+
+```bash
+nginx -t
+nginx -s reload
+```
+
+5. 再回宝塔面板重新申请证书
+
+### HTTPS 已启用但浏览器仍提示不安全
+
+1. 确认访问地址是不是 `https://ngpt.chat`
+2. 不要再使用服务器 IP 访问
+3. 检查 HTTP 是否已经 301 到 HTTPS
+4. 检查证书主题是否是 `CN=ngpt.chat`
+5. 强制刷新浏览器或使用无痕窗口重新访问
+
+如果服务端证书和跳转都正常，这类“不安全”通常是旧 HTTP/IP 缓存页面，不是证书本身无效。
 
 ### 容器启动失败
 

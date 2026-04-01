@@ -224,6 +224,35 @@ function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 }
 
+function isLoopbackHostname(hostname: string) {
+  const normalizedHostname = String(hostname || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalizedHostname === "localhost" ||
+    normalizedHostname === "127.0.0.1" ||
+    normalizedHostname === "::1"
+  );
+}
+
+function shouldSkipRemoteLocalProvider(baseUrl?: string) {
+  if (!baseUrl || isServerSide()) {
+    return false;
+  }
+
+  try {
+    const targetUrl = new URL(baseUrl);
+    const pageUrl = new URL(window.location.href);
+
+    return (
+      isLoopbackHostname(targetUrl.hostname) &&
+      !isLoopbackHostname(pageUrl.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 从 baseUrl 中提取平台名称用于显示
  */
@@ -738,6 +767,12 @@ export async function fetchModelsFromProvider(
       break;
     case ServiceProvider.Local:
       if (baseUrl) {
+        if (shouldSkipRemoteLocalProvider(baseUrl)) {
+          console.log(
+            `[Fetch Models] ℹ️ 跳过 Local 模型探测: 当前站点为远程访问，配置仍指向 ${baseUrl}`,
+          );
+          return { models: [], total: 0 };
+        }
         apiPath = "/api/proxy/v1/models";
         providerId = profileName
           ? `${String(provider).toLowerCase()}_${profileName}`.toLowerCase()
