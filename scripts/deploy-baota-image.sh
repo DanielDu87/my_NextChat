@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# ⚠️ 已弃用：本脚本用于本地构建后上传镜像到服务器
+# 新的部署方式：直接在服务器上使用 Git SSH 同步代码并本地构建
+# 请参考 README_BAOTA.md 中的更新升级流程
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

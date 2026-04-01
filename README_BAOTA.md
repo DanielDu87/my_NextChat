@@ -80,23 +80,31 @@
 
 ## Git 同步约定
 
-- 每次提交后，服务器代码优先使用 Git 同步到：
+- 每次提交后，服务器代码使用 Git SSH 方式同步到：
   - `NextChat` -> `/www/dk_project/my_NextChat`
   - `my_sub2api` -> `/www/dk_project/my_sub2api`
-- 如果服务器无法直接访问 GitHub/Gitee，可临时使用 `git bundle` 作为 Git 离线同步介质
+- 服务器 Git 远程仓库配置为 SSH 方式：`git@github.com:DanielDu87/my_NextChat.git`
+- 同步命令：`git pull`
+- 如果服务器无法直接访问 GitHub，可临时使用 `git bundle` 作为 Git 离线同步介质
 - `git bundle` 只作为临时文件，完成同步后应删除
 - 不再把普通文件覆盖作为默认更新方式
 
 #### 第一步：部署 Docker 容器
 
-1. **配置环境变量**
+1. **配置 Git 远程仓库（SSH 方式）**
    ```bash
    cd /www/dk_project/my_NextChat
+   git remote set-url origin git@github.com:DanielDu87/my_NextChat.git
+   git branch --set-upstream-to=origin/main main
+   ```
+
+2. **配置环境变量**
+   ```bash
    cp .env.baota .env.baota.local
    nano .env.baota.local  # 修改必填配置
    ```
 
-2. **修改必填配置**
+3. **修改必填配置**
    ```bash
    # 访问密码
    CODE=your-access-password
@@ -110,19 +118,20 @@
    NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
    ```
 
-3. **启动 PostgreSQL 数据库**
+4. **启动 PostgreSQL 数据库**
    ```bash
    docker-compose -f docker-compose.postgres.yml up -d
    ```
 
-4. **构建并启动 NextChat**
+5. **构建并启动 NextChat**
    ```bash
    docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy build
    docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy up -d
    ```
 
-   当前推荐约定：
-   - 直接在远程服务器构建并启动
+   构建约定：
+   - 直接在远程服务器构建（无需本地构建）
+   - 构建平台：`linux/amd64`
    - 构建源使用官方仓库
    - `APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine`
    - `NPM_REGISTRY=https://registry.npmjs.org/`
@@ -500,12 +509,18 @@ certbot renew
 ```bash
 cd /www/dk_project/my_NextChat
 
-# 拉取最新代码
+# 拉取最新代码（Git SSH 方式）
 git pull
+
+# 停止并删除旧容器
+docker stop nextchat && docker rm nextchat
 
 # 重新构建并部署
 docker-compose -f docker-compose.baota.yml --env-file .env.baota.local build
 docker-compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
+
+# 清理未使用的镜像
+docker image prune -a -f
 ```
 
 ## 💾 数据备份
