@@ -36,6 +36,11 @@ function normalizeManagedProviderId(profile: SyncProfileLike) {
     return `custom_${String(profile.name || "")}`.toLowerCase();
   }
 
+  if (profile.provider === "Local") {
+    const profileName = String(profile.name || "").trim();
+    return profileName ? `local_${profileName}`.toLowerCase() : "local";
+  }
+
   return String(profile.provider || "").toLowerCase();
 }
 

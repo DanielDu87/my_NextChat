@@ -2,6 +2,7 @@ import { ServiceProvider, StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { withSyncUserHeaders } from "./sync-user-client";
+import { MODEL_SYNC_STORE_KEYS } from "./sync-store-keys";
 import {
   runWithImmediateStoreSyncPaused,
   waitForImmediateStoreSyncQueueIdle,
@@ -209,7 +210,7 @@ export async function syncAllProfilesToDatabase(params: {
 
     console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
     await waitForImmediateStoreSyncQueueIdle();
-    await syncStore.sync();
+    await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
     await updateRemoteModelCount(totalFetched, results, profiles);
 
     return {

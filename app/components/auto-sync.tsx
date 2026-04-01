@@ -33,6 +33,7 @@ import {
 } from "../utils/sync-tab-coordination";
 
 let autoSyncEffectActive = false;
+const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 
 function hasNonEmptyString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
@@ -360,10 +361,24 @@ export default function AutoSync() {
     }
     autoSyncEffectActive = true;
 
-    const tabId =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionStorage =
+      typeof window !== "undefined" ? window.sessionStorage : null;
+    const getOrCreateTabId = () => {
+      const existing = String(
+        sessionStorage?.getItem(AUTO_SYNC_TAB_ID_KEY) || "",
+      ).trim();
+      if (existing) {
+        return existing;
+      }
+
+      const nextId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage?.setItem(AUTO_SYNC_TAB_ID_KEY, nextId);
+      return nextId;
+    };
+    const tabId = getOrCreateTabId();
     const localStorage =
       typeof window !== "undefined" ? window.localStorage : null;
     const channel =

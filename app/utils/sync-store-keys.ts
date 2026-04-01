@@ -41,7 +41,6 @@ export const AUTO_SYNC_STORE_KEYS = SYNC_STORE_KEYS.filter(
 ) as SyncStoreKey[];
 
 export const MODEL_SYNC_STORE_KEYS = [
-  StoreKey.Config,
   StoreKey.Access,
   StoreKey.ModelCache,
 ] as const;
