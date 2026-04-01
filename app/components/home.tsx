@@ -206,6 +206,7 @@ function Screen() {
             <Route path={Path.Masks} element={<MaskPage />} />
             <Route path={Path.Plugins} element={<PluginPage />} />
             <Route path={Path.SearchChat} element={<SearchChat />} />
+            <Route path={Path.ChatWithId} element={<Chat />} />
             <Route path={Path.Chat} element={<Chat />} />
             <Route path={Path.Settings} element={<Settings />} />
             <Route path={Path.ApiConfig} element={<ApiConfigPage />} />

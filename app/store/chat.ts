@@ -1256,27 +1256,6 @@ export const useChatStore = createPersistStore(
           currentSessionId,
         });
 
-        // 在插入新空会话之前，先判断之前选中的会话是否被过滤掉了
-        const previousSession =
-          currentSessions[currentState.currentSessionIndex];
-        const wasEmptySession =
-          previousSession &&
-          isDefaultTopic(previousSession.topic) &&
-          previousSession.messages.length === 0 &&
-          !previousSession.memoryPrompt;
-
-        // 查找之前选中的会话在过滤后数组中的位置（如果存在）
-        const indexInFilteredSessions = sessions.findIndex(
-          (session) => session.id === currentSessionId,
-        );
-        const previousSessionKept = indexInFilteredSessions >= 0;
-
-        console.log("[initializeForNewPage] 会话分析", {
-          wasEmptySession,
-          previousSessionKept,
-          indexInFilteredSessions,
-        });
-
         // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
           if (session.messages.length > 0 && isDefaultTopic(session.topic)) {
@@ -1288,43 +1267,21 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        // 始终在开头创建新的空会话
+        // 始终在 index 0 插入新的空会话
         const newEmptySession = createEmptySession();
         sessions.unshift(newEmptySession);
         changed = true;
-        console.log("[initializeForNewPage] 创建新的空会话", {
-          id: newEmptySession.id,
-        });
 
-        // 计算新的索引：
-        // - 如果之前选中的是空会话（被过滤掉了），切换到新空会话（index 0）
-        // - 如果之前选中的是有消息的会话（被保留了），索引 = 原索引 + 1
-        let newSessionIndex: number;
-        if (!previousSessionKept) {
-          // 之前选中的是空会话，被过滤掉了，切换到新空会话
-          newSessionIndex = 0;
-        } else {
-          // 之前选中的是有消息的会话，被保留了，索引 + 1（因为前面插入了新会话）
-          newSessionIndex = indexInFilteredSessions + 1;
+        // 恢复之前的对话选中（通过 ID 查找）
+        let newIndex = 0;
+        if (currentSessionId) {
+          const idx = sessions.findIndex((s) => s.id === currentSessionId);
+          if (idx >= 0) newIndex = idx;
         }
-
-        console.log("[initializeForNewPage] 焦点处理", {
-          wasEmptySession,
-          previousSessionKept,
-          newSessionIndex,
-          previousSessionId: previousSession?.id,
-        });
 
         console.log("[initializeForNewPage] 完成", {
           sessionsCount: sessions.length,
-          currentSessionIndex: newSessionIndex,
-          firstSession: {
-            id: sessions[0]?.id,
-            topic: sessions[0]?.topic,
-            hasMessages: sessions[0]?.messages.length > 0,
-          },
-          wasEmptySession,
-          switchedToNewEmpty: newSessionIndex === 0,
+          currentSessionIndex: newIndex,
         });
 
         const nextState = {
@@ -1333,7 +1290,7 @@ export const useChatStore = createPersistStore(
             sessions,
             currentState.sessionSummaries,
           ),
-          currentSessionIndex: newSessionIndex,
+          currentSessionIndex: newIndex,
           hydratedSessionIds: sessions
             .filter(
               (session) =>
@@ -1344,7 +1301,7 @@ export const useChatStore = createPersistStore(
 
         if (
           changed ||
-          currentState.currentSessionIndex !== newSessionIndex ||
+          currentState.currentSessionIndex !== newIndex ||
           currentState.sessions[0]?.id !== sessions[0]?.id
         ) {
           console.log("[initializeForNewPage] 应用新状态");

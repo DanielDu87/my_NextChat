@@ -529,7 +529,7 @@ export function ChatList(props: { narrow?: boolean }) {
                     count={item.messageCount}
                     selected={item.id === currentSessionId}
                     onClick={() => {
-                      navigate(Path.Chat);
+                      navigate(`/chat/${item.id}`);
                       selectChatSessionById(item.id);
                     }}
                     onDelete={() => void onDeleteSession(item.id)}

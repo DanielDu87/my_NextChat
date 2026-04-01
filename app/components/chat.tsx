@@ -133,7 +133,7 @@ import {
   showPrompt,
   showToast,
 } from "./ui-lib";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   CHAT_PAGE_SIZE,
   DEFAULT_TTS_ENGINE,
@@ -4507,6 +4507,32 @@ export function Chat() {
   const session = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
+  const { id: urlSessionId } = useParams();
+  const navigate = useNavigate();
+  const isNavigatingFromUrl = useRef(false);
+
+  // 从 URL 恢复对话选中
+  useEffect(() => {
+    if (urlSessionId) {
+      const store = useChatStore.getState();
+      const currentId = store.sessions[store.currentSessionIndex]?.id;
+      if (currentId !== urlSessionId) {
+        isNavigatingFromUrl.current = true;
+        store.selectSessionById(urlSessionId);
+      }
+    }
+  }, [urlSessionId]);
+
+  // 对话变化时同步 URL
+  useEffect(() => {
+    if (isNavigatingFromUrl.current) {
+      isNavigatingFromUrl.current = false;
+      return;
+    }
+    if (session?.id && session.messages.length > 0) {
+      navigate(`/chat/${session.id}`, { replace: true });
+    }
+  }, [session?.id, navigate]);
 
   if (!session?.id) {
     return null;
