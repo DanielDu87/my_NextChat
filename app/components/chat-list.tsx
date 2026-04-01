@@ -1,12 +1,6 @@
 import DeleteIcon from "../icons/delete.svg";
 
 import styles from "./home.module.scss";
-import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-  OnDragEndResponder,
-} from "@hello-pangea/dnd";
 
 import {
   selectChatSessionById,
@@ -48,8 +42,6 @@ type FilterMatchMeta = {
 
 type DisplayedSession = {
   session: ChatSessionSummary;
-  originalIndex: number;
-  pinned: boolean;
 };
 
 type FilteredSession = DisplayedSession & FilterMatchMeta;
@@ -81,9 +73,6 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   narrow?: boolean;
   avatar: string;
   model: string;
-  draggableRef?: (element: HTMLDivElement | null) => void;
-  draggableProps?: any;
-  dragHandleProps?: any;
 }) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
   const { pathname: currentPath } = useLocation();
@@ -134,10 +123,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
       onClick={props.onClick}
       ref={(element) => {
         draggableRef.current = element;
-        props.draggableRef?.(element);
       }}
-      {...props.draggableProps}
-      {...props.dragHandleProps}
       title={`${props.title}\n${Locale.ChatItem.ChatItemCount(props.count)}`}
     >
       {props.narrow ? (
@@ -179,28 +165,6 @@ const ChatItemCard = memo(function ChatItemCard(props: {
     </div>
   );
 });
-
-function DraggableChatItem(
-  props: {
-    id: string;
-    index: number;
-  } & ComponentProps<typeof ChatItemCard>,
-) {
-  const { id, index, ...rest } = props;
-
-  return (
-    <Draggable draggableId={id} index={index}>
-      {(provided) => (
-        <ChatItemCard
-          {...rest}
-          draggableRef={provided.innerRef}
-          draggableProps={provided.draggableProps}
-          dragHandleProps={provided.dragHandleProps}
-        />
-      )}
-    </Draggable>
-  );
-}
 
 function StaticChatItem(props: ComponentProps<typeof ChatItemCard>) {
   return <ChatItemCard {...props} />;
@@ -284,23 +248,15 @@ export function ChatList(props: { narrow?: boolean }) {
         ? [
             {
               session: pinnedSession,
-              originalIndex: summaryList.findIndex(
-                (item) => item.id === pinnedSession.id,
-              ),
-              pinned: true,
             },
             ...summaryList
-              .map((session, index) => ({
+              .map((session) => ({
                 session,
-                originalIndex: index,
-                pinned: false,
               }))
               .filter((item) => item.session.id !== pinnedSession.id),
           ]
-        : summaryList.map((session, index) => ({
+        : summaryList.map((session) => ({
             session,
-            originalIndex: index,
-            pinned: false,
           })),
     [pinnedSession, summaryList],
   );
@@ -337,7 +293,6 @@ export function ChatList(props: { narrow?: boolean }) {
     ? FILTERED_ITEM_HEIGHT
     : NORMAL_ITEM_HEIGHT;
   const shouldVirtualize = filteredSessions.length > VIRTUAL_LIST_THRESHOLD;
-  const dragEnabled = !deferredFilterText && !shouldVirtualize;
 
   useEffect(() => {
     if (!shouldVirtualize || !listRef.current) {
@@ -402,36 +357,6 @@ export function ChatList(props: { narrow?: boolean }) {
         useChatStore.getState().deleteSession(originalIndex);
       }
     }
-  };
-
-  const onDragEnd: OnDragEndResponder = (result) => {
-    const { destination, source } = result;
-    if (!destination) {
-      return;
-    }
-
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-
-    const sourceItem = displayedSessions[source.index];
-    const destinationItem = displayedSessions[destination.index];
-
-    if (
-      !sourceItem ||
-      !destinationItem ||
-      sourceItem.pinned ||
-      destinationItem.pinned
-    ) {
-      return;
-    }
-
-    useChatStore
-      .getState()
-      .moveSession(sourceItem.originalIndex, destinationItem.originalIndex);
   };
 
   const renderScrollContainer = useCallback(
@@ -509,44 +434,7 @@ export function ChatList(props: { narrow?: boolean }) {
     return <div className={styles["chat-list-panel"]} />;
   }
 
-  const listContent = dragEnabled
-    ? renderScrollContainer(
-        <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="chat-list">
-            {(provided) => (
-              <div
-                className={styles["chat-list"]}
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-              >
-                {filteredSessions.map(({ session: item, preview }, i) => (
-                  <DraggableChatItem
-                    key={item.id}
-                    id={item.id}
-                    index={i}
-                    title={item.topic}
-                    keyword={filterText.trim()}
-                    preview={preview}
-                    time={formatChinaDateTime(item.displayTime)}
-                    count={item.messageCount}
-                    selected={item.id === currentSessionId}
-                    onClick={() => {
-                      navigate(`/chat/${item.id}`);
-                      selectChatSessionById(item.id);
-                    }}
-                    onDelete={() => void onDeleteSession(item.id)}
-                    narrow={props.narrow}
-                    avatar={item.avatar}
-                    model={item.model}
-                  />
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>,
-      )
-    : !shouldVirtualize
+  const listContent = !shouldVirtualize
     ? renderScrollContainer(
         <div className={styles["chat-list"]}>
           {filteredSessions.map(({ session: item, preview }) => (
@@ -559,7 +447,7 @@ export function ChatList(props: { narrow?: boolean }) {
               count={item.messageCount}
               selected={item.id === currentSessionId}
               onClick={() => {
-                navigate(Path.Chat);
+                navigate(`/chat/${item.id}`);
                 selectChatSessionById(item.id);
               }}
               onDelete={() => void onDeleteSession(item.id)}
@@ -594,7 +482,7 @@ export function ChatList(props: { narrow?: boolean }) {
                   count={item.messageCount}
                   selected={item.id === currentSessionId}
                   onClick={() => {
-                    navigate(Path.Chat);
+                    navigate(`/chat/${item.id}`);
                     selectChatSessionById(item.id);
                   }}
                   onDelete={() => void onDeleteSession(item.id)}
