@@ -9,6 +9,7 @@
 - 宝塔 Docker 网站名称：`ngpt.chat`
 - 访问域名：`https://ngpt.chat`
 - 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
+- Sub2API 项目目录：`/www/dk_project/my_sub2api`
 - Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
@@ -330,7 +331,17 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 - 项目名应写在备注字段，例如 `docker_sites.remark = nextchat`、`dk_sites.ps = nextchat`
 - 站点路径固定使用 `/www/dk_project/my_NextChat`
 - 不要再把站点目录放到 `/www/dk_project/wwwroot/...`
+- Sub2API 的站点路径固定使用 `/www/dk_project/my_sub2api`
+- 不再使用旧目录 `/www/dk_project/sub2api_runtime`
 - 如果残留旧路径，例如 `/www/dk_project/wwwroot/43.163.5.9` 或 `/www/dk_project/wwwroot/ngpt.chat`，需要清理后再维护
+
+代码同步规则：
+
+- 提交完成后，服务器代码默认通过 Git 同步到：
+  - `/www/dk_project/my_NextChat`
+  - `/www/dk_project/my_sub2api`
+- 如果服务器无法直接访问远端仓库，可临时使用 `git bundle` 到服务器后再 `git fetch bundle`
+- `git bundle` 只作为临时同步方式，完成后应删除 bundle 文件
 
 如果已经踩坑，先检查：
 

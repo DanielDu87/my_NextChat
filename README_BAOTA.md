@@ -61,6 +61,7 @@
 - 宝塔 Docker 网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
 - 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
+- Sub2API 项目目录：`/www/dk_project/my_sub2api`
 - Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
@@ -71,9 +72,20 @@
 - NextChat 的访问域名用 `ngpt.chat`
 - NextChat 的站点路径用 `/www/dk_project/my_NextChat`
 - NextChat 的项目名写在备注里，例如 `nextchat`
+- Sub2API 的项目目录固定用 `/www/dk_project/my_sub2api`
 - Sub2API 的宝塔网站名称用 `sub2api.ngpt.chat`
 - Sub2API 的项目名写在备注里，例如 `sub2api`
 - 不再使用 `/www/dk_project/wwwroot/...`
+- 不再使用旧目录 `/www/dk_project/sub2api_runtime`
+
+## Git 同步约定
+
+- 每次提交后，服务器代码优先使用 Git 同步到：
+  - `NextChat` -> `/www/dk_project/my_NextChat`
+  - `my_sub2api` -> `/www/dk_project/my_sub2api`
+- 如果服务器无法直接访问 GitHub/Gitee，可临时使用 `git bundle` 作为 Git 离线同步介质
+- `git bundle` 只作为临时文件，完成同步后应删除
+- 不再把普通文件覆盖作为默认更新方式
 
 #### 第一步：部署 Docker 容器
 
@@ -175,7 +187,8 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
    - 域名、站点 JSON、Nginx 配置文件名、SSL 证书目录必须继续使用同一个域名，例如 `ngpt.chat`
    - 不要把 `docker_sites.name` 或 `dk_sites.name` 改成 `nextchat` 这类项目名
    - 否则宝塔 Docker 面板会按网站名称去查 `/www/server/panel/vhost/cert/{name}` 和 `/www/server/panel/vhost/nginx/{name}.conf`，SSL 状态会被误判为未配置
-   - `docker_sites.path`、`dk_sites.path`、站点 JSON 的 `site_path`、Nginx `root` 必须都指向 `/www/dk_project/my_NextChat`
+- `docker_sites.path`、`dk_sites.path`、站点 JSON 的 `site_path`、Nginx `root` 必须都指向 `/www/dk_project/my_NextChat`
+- `sub2api.ngpt.chat` 对应的 `docker_sites.path`、`dk_sites.path`、站点 JSON 的 `site_path` 必须都指向 `/www/dk_project/my_sub2api`
    - 否则宝塔可能读到旧路径，后续 SSL 或站点管理会异常
 
 3. **配置反向代理**
@@ -250,8 +263,16 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 如果只是想在面板里区分项目，请使用：
 - `docker_sites.remark = nextchat`
 - `dk_sites.ps = nextchat`
+- `sub2api.ngpt.chat` 也应同时满足：
+  - `docker_sites.name = sub2api.ngpt.chat`
+  - `docker_sites.path = /www/dk_project/my_sub2api`
+  - `dk_sites.name = sub2api.ngpt.chat`
+  - `dk_sites.path = /www/dk_project/my_sub2api`
+  - `docker_sites.remark = sub2api`
+  - `dk_sites.ps = sub2api`
 
 不要残留旧的 IP 路径或旧的 `wwwroot` 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`、`/www/dk_project/wwwroot/ngpt.chat`。
+同时不要继续使用旧目录 `/www/dk_project/sub2api_runtime`。
 
 #### 第四步：完成部署
 

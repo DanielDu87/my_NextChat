@@ -19,6 +19,7 @@
 - 宝塔网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
 - 站点路径：`/www/dk_project/my_NextChat`
+- Sub2API 项目目录：`/www/dk_project/my_sub2api`
 - Sub2API 宝塔网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
@@ -30,6 +31,13 @@
 - 否则应用会被固定连到内部 `postgres` 容器，页面看到的是一套新的空库。
 - `Sub2API` 如果不需要代理，务必把 `AUTH_DIR_SYNC_PROXY_ENABLED=false`，并清空 `AUTH_DIR_SYNC_PROXY_HOST`、`AUTH_DIR_SYNC_PROXY_PORT`。
 - 否则容器重建后会继续带上旧的 `172.17.0.1:7890` 代理，聊天请求会在上游转发阶段超时。
+
+额外约定：
+
+- `Sub2API` 服务器最终项目目录使用 `/www/dk_project/my_sub2api`
+- 旧目录 `/www/dk_project/sub2api_runtime` 已废弃，不再作为部署目录使用
+- 提交后，优先使用 Git 同步服务器代码
+- 如果服务器无法直接访问远端仓库，可临时使用 `git bundle` 作为 Git 离线同步介质
 
 ---
 
