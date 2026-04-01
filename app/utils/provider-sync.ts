@@ -10,6 +10,7 @@ import {
 import { ProviderType } from "./cloud";
 import { FetchModelsResult, modelsToCustomModelsString } from "./models";
 import { parseStoreStatePayload } from "./sync-store-keys";
+import { runWithBalanceRefreshPaused } from "../store/update";
 
 type ApiProfile = {
   id: string;
@@ -131,91 +132,93 @@ export async function syncAllProfilesToDatabase(params: {
 }) {
   const { fetchFromProvider } = params;
 
-  return runWithImmediateStoreSyncPaused(async () => {
-    const accessStore = useAccessStore.getState() as any;
-    const syncStore = useSyncStore.getState() as any;
-    let profiles = (useAccessStore.getState().apiProfiles ||
-      []) as ApiProfile[];
+  return runWithBalanceRefreshPaused(() =>
+    runWithImmediateStoreSyncPaused(async () => {
+      const accessStore = useAccessStore.getState() as any;
+      const syncStore = useSyncStore.getState() as any;
+      let profiles = (useAccessStore.getState().apiProfiles ||
+        []) as ApiProfile[];
 
-    if (profiles.length === 0) {
-      profiles = await ensureProfilesLoadedFromDatabase();
-    }
-
-    if (profiles.length === 0) {
-      throw new Error(
-        "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
-      );
-    }
-
-    accessStore.update((access: any) => {
-      access.useCustomConfig = true;
-    });
-
-    syncStore.update((state: any) => {
-      state.provider = ProviderType.Database;
-    });
-
-    let totalFetched = 0;
-    const results: SyncAllProfilesResult["results"] = [];
-
-    for (const profile of profiles) {
-      console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
-
-      try {
-        const result = await fetchFromProvider(
-          profile.provider,
-          profile.baseUrl,
-          profile.apiKey,
-          {
-            silent: true,
-            throwOnError: true,
-            profileName: profile.name,
-            apiKeyGroups: profile.apiKeyGroups,
-          },
-        );
-
-        const fetchedModels = modelsToCustomModelsString(result.models);
-
-        accessStore.update((state: any) => {
-          if (
-            state.apiProfiles.find((p: ApiProfile) => p.id === profile.id)
-              ?.enabled
-          ) {
-            state.customModels = fetchedModels;
-          }
-        });
-        useModelCacheStore.getState().upsertProfileCache(profile.id, {
-          cachedModels: fetchedModels,
-          modelCount: result.total,
-        });
-
-        const mergedCount = getProfileActualCount(profile);
-        totalFetched += mergedCount;
-        results.push({
-          name: profile.name,
-          count: mergedCount,
-          success: true,
-        });
-
-        console.log(`[API Config] ✅ ${profile.name} 获取完成`);
-      } catch (error) {
-        results.push({
-          name: profile.name,
-          count: 0,
-          success: false,
-        });
-        console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
+      if (profiles.length === 0) {
+        profiles = await ensureProfilesLoadedFromDatabase();
       }
-    }
 
-    console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
-    await waitForImmediateStoreSyncQueueIdle();
-    await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
-    await updateRemoteModelCount(totalFetched, results, profiles);
+      if (profiles.length === 0) {
+        throw new Error(
+          "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
+        );
+      }
 
-    return {
-      totalFetched,
-      results,
-    } satisfies SyncAllProfilesResult;
-  });
+      accessStore.update((access: any) => {
+        access.useCustomConfig = true;
+      });
+
+      syncStore.update((state: any) => {
+        state.provider = ProviderType.Database;
+      });
+
+      let totalFetched = 0;
+      const results: SyncAllProfilesResult["results"] = [];
+
+      for (const profile of profiles) {
+        console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
+
+        try {
+          const result = await fetchFromProvider(
+            profile.provider,
+            profile.baseUrl,
+            profile.apiKey,
+            {
+              silent: true,
+              throwOnError: true,
+              profileName: profile.name,
+              apiKeyGroups: profile.apiKeyGroups,
+            },
+          );
+
+          const fetchedModels = modelsToCustomModelsString(result.models);
+
+          accessStore.update((state: any) => {
+            if (
+              state.apiProfiles.find((p: ApiProfile) => p.id === profile.id)
+                ?.enabled
+            ) {
+              state.customModels = fetchedModels;
+            }
+          });
+          useModelCacheStore.getState().upsertProfileCache(profile.id, {
+            cachedModels: fetchedModels,
+            modelCount: result.total,
+          });
+
+          const mergedCount = getProfileActualCount(profile);
+          totalFetched += mergedCount;
+          results.push({
+            name: profile.name,
+            count: mergedCount,
+            success: true,
+          });
+
+          console.log(`[API Config] ✅ ${profile.name} 获取完成`);
+        } catch (error) {
+          results.push({
+            name: profile.name,
+            count: 0,
+            success: false,
+          });
+          console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
+        }
+      }
+
+      console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
+      await waitForImmediateStoreSyncQueueIdle();
+      await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
+      await updateRemoteModelCount(totalFetched, results, profiles);
+
+      return {
+        totalFetched,
+        results,
+      } satisfies SyncAllProfilesResult;
+    }),
+  );
 }

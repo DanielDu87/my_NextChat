@@ -64,6 +64,7 @@ import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { syncAllProfilesToDatabase } from "../utils/provider-sync";
+import { runWithBalanceRefreshPaused } from "../store/update";
 import {
   getProviderDisplayName,
   modelsToCustomModelsString,
@@ -1357,100 +1358,102 @@ export function ApiConfigPage() {
       return;
     }
 
-    await runWithImmediateStoreSyncPaused(async () => {
-      let totalFetched = 0;
-      const results: Array<{
-        name: string;
-        count: number;
-        success: boolean;
-      }> = [];
+    await runWithBalanceRefreshPaused(() =>
+      runWithImmediateStoreSyncPaused(async () => {
+        let totalFetched = 0;
+        const results: Array<{
+          name: string;
+          count: number;
+          success: boolean;
+        }> = [];
 
-      for (const profile of allProfiles) {
-        console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
-        setModelFetchStatusMap((prev) => ({
-          ...prev,
-          [profile.id]: {
-            ...prev[profile.id],
-            fetching: true,
-            error: undefined,
-          },
-        }));
-        try {
-          const result = await fetchFromProvider(
-            profile.provider,
-            profile.baseUrl,
-            profile.apiKey,
-            {
-              silent: true,
-              throwOnError: true,
-              apiKeyGroups: profile.apiKeyGroups,
-            },
-          );
-          const previousProfileCount = getProfileActualCount(
-            profile,
-            useAppConfig.getState().models,
-          );
-          const fetchedModels = modelsToCustomModelsString(result.models);
-
-          accessStore.update((state) => {
-            if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
-              state.customModels = fetchedModels;
-            }
-          });
-          useModelCacheStore.getState().upsertProfileCache(profile.id, {
-            cachedModels: fetchedModels,
-            modelCount: result.total,
-          });
-          const mergedCount = getProfileActualCount(
-            profile,
-            useAppConfig.getState().models,
-          );
-          totalFetched += mergedCount;
-          results.push({
-            name: profile.name,
-            count: mergedCount,
-            success: true,
-          });
-
+        for (const profile of allProfiles) {
+          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
           setModelFetchStatusMap((prev) => ({
             ...prev,
             [profile.id]: {
-              count: mergedCount,
-              fetching: false,
+              ...prev[profile.id],
+              fetching: true,
               error: undefined,
             },
           }));
-          console.log(`[API Config] ✅ ${profile.name} 获取完成`);
-          console.log(`远程: ${result.total} 个`);
-          console.log(`云端原有: ${previousProfileCount} 个`);
-          console.log(`合并后: ${mergedCount} 个`);
-          console.log(LOG_SEPARATOR);
-        } catch (error) {
-          results.push({
-            name: profile.name,
-            count: 0,
-            success: false,
-          });
-          setModelFetchStatusMap((prev) => ({
-            ...prev,
-            [profile.id]: {
-              count: 0,
-              fetching: false,
-              error: error instanceof Error ? error.message : "获取模型失败",
-            },
-          }));
-          console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
-          console.log(LOG_SEPARATOR);
-        }
-      }
+          try {
+            const result = await fetchFromProvider(
+              profile.provider,
+              profile.baseUrl,
+              profile.apiKey,
+              {
+                silent: true,
+                throwOnError: true,
+                apiKeyGroups: profile.apiKeyGroups,
+              },
+            );
+            const previousProfileCount = getProfileActualCount(
+              profile,
+              useAppConfig.getState().models,
+            );
+            const fetchedModels = modelsToCustomModelsString(result.models);
 
-      console.log(`[API Config] 📊 模型获取汇总`);
-      results.forEach(({ name, count, success }) => {
-        console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
-      });
-      console.log(`[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`);
-      console.log(LOG_SEPARATOR);
-    });
+            accessStore.update((state) => {
+              if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
+                state.customModels = fetchedModels;
+              }
+            });
+            useModelCacheStore.getState().upsertProfileCache(profile.id, {
+              cachedModels: fetchedModels,
+              modelCount: result.total,
+            });
+            const mergedCount = getProfileActualCount(
+              profile,
+              useAppConfig.getState().models,
+            );
+            totalFetched += mergedCount;
+            results.push({
+              name: profile.name,
+              count: mergedCount,
+              success: true,
+            });
+
+            setModelFetchStatusMap((prev) => ({
+              ...prev,
+              [profile.id]: {
+                count: mergedCount,
+                fetching: false,
+                error: undefined,
+              },
+            }));
+            console.log(`[API Config] ✅ ${profile.name} 获取完成`);
+            console.log(`远程: ${result.total} 个`);
+            console.log(`云端原有: ${previousProfileCount} 个`);
+            console.log(`合并后: ${mergedCount} 个`);
+            console.log(LOG_SEPARATOR);
+          } catch (error) {
+            results.push({
+              name: profile.name,
+              count: 0,
+              success: false,
+            });
+            setModelFetchStatusMap((prev) => ({
+              ...prev,
+              [profile.id]: {
+                count: 0,
+                fetching: false,
+                error: error instanceof Error ? error.message : "获取模型失败",
+              },
+            }));
+            console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
+            console.log(LOG_SEPARATOR);
+          }
+        }
+
+        console.log(`[API Config] 📊 模型获取汇总`);
+        results.forEach(({ name, count, success }) => {
+          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+        });
+        console.log(`[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`);
+        console.log(LOG_SEPARATOR);
+      }),
+    );
     await syncStore.syncModels();
     const client = syncStore.getClient() as any;
     if (typeof client.getMeta === "function") {
@@ -2126,36 +2129,38 @@ export function ApiConfigPage() {
     console.clear();
     try {
       setSyncing(true);
-      await waitForImmediateStoreSyncQueueIdle();
-      await waitForSyncIdle();
-      ensureDatabaseSyncProvider();
-      await ensureRemoteAccessProfilesLoaded();
-      const activeProfile = accessStore.apiProfiles.find(
-        (profile) => profile.enabled,
-      );
-      if (activeProfile) {
-        syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-      }
+      await runWithBalanceRefreshPaused(async () => {
+        await waitForImmediateStoreSyncQueueIdle();
+        await waitForSyncIdle();
+        ensureDatabaseSyncProvider();
+        await ensureRemoteAccessProfilesLoaded();
+        const activeProfile = accessStore.apiProfiles.find(
+          (profile) => profile.enabled,
+        );
+        if (activeProfile) {
+          syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+        }
 
-      const { results, totalFetched } = await syncAllProfilesToDatabase({
-        fetchFromProvider,
+        const { results, totalFetched } = await syncAllProfilesToDatabase({
+          fetchFromProvider,
+        });
+        const client = syncStore.getClient() as any;
+        if (typeof client.getMeta === "function") {
+          updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+        }
+
+        await refreshRemoteSignals();
+        console.log("[API Config] ✅ 数据库同步完成");
+        console.log(LOG_SEPARATOR);
+        console.log("[API Config] 📊 模型同步汇总");
+        results.forEach(({ name, count, success }) => {
+          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+        });
+        console.log(`[API Config] - 总模型数: ${totalFetched} 个`);
+        console.log(LOG_SEPARATOR);
+
+        showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
       });
-      const client = syncStore.getClient() as any;
-      if (typeof client.getMeta === "function") {
-        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
-      }
-
-      await refreshRemoteSignals();
-      console.log("[API Config] ✅ 数据库同步完成");
-      console.log(LOG_SEPARATOR);
-      console.log("[API Config] 📊 模型同步汇总");
-      results.forEach(({ name, count, success }) => {
-        console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
-      });
-      console.log(`[API Config] - 总模型数: ${totalFetched} 个`);
-      console.log(LOG_SEPARATOR);
-
-      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
       console.error("[API Config] ❌ 数据库同步失败:", error);
       showToast("同步到 PostgreSQL 失败，请检查数据库连接");
@@ -2181,16 +2186,18 @@ export function ApiConfigPage() {
         previousPlatformCounts,
         fetchedModelEntries,
         totalFetched,
-      } = await runWithImmediateStoreSyncPaused(async () => {
-        ensureDatabaseSyncProvider();
-        const activeProfile = accessStore.apiProfiles.find(
-          (profile) => profile.enabled,
-        );
-        if (activeProfile) {
-          syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-        }
-        return refreshAllProfilesForSync();
-      });
+      } = await runWithBalanceRefreshPaused(() =>
+        runWithImmediateStoreSyncPaused(async () => {
+          ensureDatabaseSyncProvider();
+          const activeProfile = accessStore.apiProfiles.find(
+            (profile) => profile.enabled,
+          );
+          if (activeProfile) {
+            syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+          }
+          return refreshAllProfilesForSync();
+        }),
+      );
       logSyncSummary(
         "模型数量变化预览",
         previousCloudKeys,

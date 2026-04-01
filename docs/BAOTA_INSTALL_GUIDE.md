@@ -6,10 +6,10 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Compose 项目名：`my_nextchat`
-- 宝塔 Docker 网站名称：`nextchat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
 - 访问域名：`https://ngpt.chat`
 - 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
-- Sub2API 宝塔 Docker 网站名称：`sub2api`
+- Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
 ---
@@ -316,15 +316,18 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 1. 进入 `Docker -> Docker 网站`
 2. 点击 `添加网站`
-3. 网站名称填写：`nextchat`
+3. 网站名称填写：`ngpt.chat`
 4. 域名填写：`ngpt.chat`
 5. 代理目标填写：`http://127.0.0.1:3000`
 6. 开启 WebSocket 支持并保存
 
 补充说明：
 
-- 当前实际约定里，宝塔显示名称用 `nextchat`
-- 域名、站点 JSON、Nginx 配置文件名、证书目录继续使用 `ngpt.chat`
+- 当前实际约定里，宝塔 Docker 网站名称必须直接使用域名 `ngpt.chat`
+- 域名、站点 JSON、Nginx 配置文件名、证书目录继续使用同一个域名 `ngpt.chat`
+- 不要把 `docker_sites.name` / `dk_sites.name` 改成 `nextchat` 这种项目名
+- 否则宝塔 Docker 面板会按网站名称去读取 `/www/server/panel/vhost/cert/{name}` 和 `/www/server/panel/vhost/nginx/{name}.conf`，SSL 状态会显示异常
+- 项目名应写在备注字段，例如 `docker_sites.remark = nextchat`、`dk_sites.ps = nextchat`
 - 站点路径固定使用 `/www/dk_project/my_NextChat`
 - 不要再把站点目录放到 `/www/dk_project/wwwroot/...`
 - 如果残留旧路径，例如 `/www/dk_project/wwwroot/43.163.5.9` 或 `/www/dk_project/wwwroot/ngpt.chat`，需要清理后再维护
@@ -337,6 +340,15 @@ sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from docker_sit
 cat /www/dk_project/sites/ngpt.chat/ngpt.chat.json
 cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 ```
+
+必须满足：
+
+- `dk_sites.name = ngpt.chat`
+- `docker_sites.name = ngpt.chat`
+- `docker_sites.path = /www/dk_project/my_NextChat`
+- `ngpt.chat.json` 的 `site_path = /www/dk_project/my_NextChat`
+- `ngpt.chat.conf` 的 `root = /www/dk_project/my_NextChat`
+- SSL 证书目录必须存在：`/www/server/panel/vhost/cert/ngpt.chat/`
 
 ---
 
@@ -387,6 +399,9 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
    在公网域名下刷新模型会报 502，这种配置通常应视为本地开发专用
 5. SSL 正常后必须统一使用域名访问
    继续使用 IP 访问会触发浏览器不安全提示，也会干扰站点密码验证和跳转
+6. `Sub2API` 如果不需要代理，必须显式关闭 `AUTH_DIR_SYNC_PROXY_ENABLED`
+   并清空 `AUTH_DIR_SYNC_PROXY_HOST`、`AUTH_DIR_SYNC_PROXY_PORT`
+   否则每次按 `.env` / `docker-compose.yml` 重建时，都会把 `172.17.0.1:7890` 再带回容器，导致聊天转发超时
 
 ---
 

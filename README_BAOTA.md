@@ -58,19 +58,21 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Docker Compose 项目名：`my_nextchat`
-- 宝塔 Docker 网站名称：`nextchat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
 - 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
-- Sub2API 宝塔 Docker 网站名称：`sub2api`
+- Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
 注意：
 - `Compose 项目名`、`项目目录名`、`宝塔网站名称` 不是同一个概念
 - 当前实际约定里三者分开：
-- NextChat 的宝塔显示名称用 `nextchat`
+- NextChat 的宝塔网站名称用 `ngpt.chat`
 - NextChat 的访问域名用 `ngpt.chat`
 - NextChat 的站点路径用 `/www/dk_project/my_NextChat`
-- Sub2API 的宝塔显示名称用 `sub2api`
+- NextChat 的项目名写在备注里，例如 `nextchat`
+- Sub2API 的宝塔网站名称用 `sub2api.ngpt.chat`
+- Sub2API 的项目名写在备注里，例如 `sub2api`
 - 不再使用 `/www/dk_project/wwwroot/...`
 
 #### 第一步：部署 Docker 容器
@@ -162,15 +164,17 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 2. **添加反向代理网站**
    - 点击"添加网站"
    - 选择"反向代理"类型
-   - 网站名称：`nextchat`
+   - 网站名称：`ngpt.chat`
    - 填写域名：`ngpt.chat`
    - 站点路径：`/www/dk_project/my_NextChat`
-   - 填写备注：`NextChat AI 聊天应用`
+   - 填写备注：`nextchat`
    - 点击"提交"
 
    关键约束：
-   - Docker 网站显示名称可以使用 `nextchat`
-   - 域名、站点 JSON、Nginx 配置文件名、SSL 证书目录继续使用 `ngpt.chat`
+   - Docker 网站名称必须与真实域名一致，例如 `ngpt.chat`
+   - 域名、站点 JSON、Nginx 配置文件名、SSL 证书目录必须继续使用同一个域名，例如 `ngpt.chat`
+   - 不要把 `docker_sites.name` 或 `dk_sites.name` 改成 `nextchat` 这类项目名
+   - 否则宝塔 Docker 面板会按网站名称去查 `/www/server/panel/vhost/cert/{name}` 和 `/www/server/panel/vhost/nginx/{name}.conf`，SSL 状态会被误判为未配置
    - `docker_sites.path`、`dk_sites.path`、站点 JSON 的 `site_path`、Nginx `root` 必须都指向 `/www/dk_project/my_NextChat`
    - 否则宝塔可能读到旧路径，后续 SSL 或站点管理会异常
 
@@ -236,11 +240,16 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 ```
 
 必须满足：
-- `dk_sites.name = nextchat`
-- `docker_sites.name = nextchat`
+- `dk_sites.name = ngpt.chat`
+- `docker_sites.name = ngpt.chat`
 - `docker_sites.path = /www/dk_project/my_NextChat`
 - `ngpt.chat.json` 的 `site_path = /www/dk_project/my_NextChat`
 - `ngpt.chat.conf` 的 `root = /www/dk_project/my_NextChat`
+- SSL 证书目录必须存在：`/www/server/panel/vhost/cert/ngpt.chat/`
+
+如果只是想在面板里区分项目，请使用：
+- `docker_sites.remark = nextchat`
+- `dk_sites.ps = nextchat`
 
 不要残留旧的 IP 路径或旧的 `wwwroot` 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`、`/www/dk_project/wwwroot/ngpt.chat`。
 
@@ -318,14 +327,15 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 
 ### 当前推荐命名
 
-- 宝塔 Docker 网站名称：`nextchat`
+- 宝塔 Docker 网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
 - Docker Compose 项目名：`my_nextchat`
 - 项目目录名：`my_NextChat`
 - NextChat 站点目录：`/www/dk_project/my_NextChat`
-- Sub2API 宝塔 Docker 网站名称：`sub2api`
+- Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
 - Sub2API 站点域名：`sub2api.ngpt.chat`
-- 访问域名和配置文件名使用真实域名，面板显示名称使用项目名。
+- 访问域名、站点名称、配置文件名、证书目录统一使用真实域名。
+- 项目名放在备注字段，不要放在站点 `name` 字段。
 
 ### 本次实际踩坑总结
 
@@ -337,8 +347,13 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
    这种情况不要先判断“数据库没数据”，要先看快照体积和同步超时
 4. `Local` 类型的 provider 如果仍指向 `localhost/127.0.0.1`
    在公网域名下刷新模型时会报代理 502，这通常不是线上服务坏了，而是这条配置本来就是本地专用
-5. 宝塔 SSL 申请前，`dk_sites`、`docker_sites`、站点 JSON、Nginx 配置文件名必须全部对齐到域名
+5. 宝塔 SSL 申请前，`dk_sites`、`docker_sites`、站点 JSON、Nginx 配置文件名、证书目录必须全部对齐到域名
+6. 如果把宝塔 Docker 网站名称改成 `nextchat` 这类项目名，面板会误判 SSL 状态
+   正确做法是保持 `docker_sites.name = ngpt.chat`，把 `nextchat` 写到 `remark/ps`
    否则会报“读取配置文件失败，请删除网站重新添加！”
+7. `Sub2API` 如果不需要代理，不要保留 `AUTH_DIR_SYNC_PROXY_*` 默认值
+   否则容器重建后会继续带上 `172.17.0.1:7890`，聊天请求可能在上游转发时报 `proxyconnect tcp ... connect: connection timed out`
+   建议固定为 `AUTH_DIR_SYNC_PROXY_ENABLED=false`，并把 `AUTH_DIR_SYNC_PROXY_HOST`、`AUTH_DIR_SYNC_PROXY_PORT` 置空
 
 ## 📁 部署后的目录结构
 

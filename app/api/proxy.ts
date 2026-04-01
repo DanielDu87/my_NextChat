@@ -13,6 +13,37 @@ function isContainerRuntime() {
   }
 }
 
+function decodeLinuxGatewayHex(gatewayHex: string) {
+  if (!/^[0-9A-Fa-f]{8}$/.test(gatewayHex)) return "";
+  const octets: number[] = [];
+  for (let i = 0; i < 8; i += 2) {
+    octets.push(Number.parseInt(gatewayHex.slice(i, i + 2), 16));
+  }
+  return octets.reverse().join(".");
+}
+
+function getContainerDefaultGateway() {
+  if (!isContainerRuntime()) return "";
+
+  try {
+    const routeText = fs.readFileSync("/proc/net/route", "utf8");
+    const lines = routeText.trim().split("\n").slice(1);
+    for (const line of lines) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 3) continue;
+      const destination = columns[1];
+      const gateway = columns[2];
+      if (destination === "00000000") {
+        return decodeLinuxGatewayHex(gateway);
+      }
+    }
+  } catch {
+    // 忽略读取失败，继续走后续兜底逻辑
+  }
+
+  return "";
+}
+
 function normalizeLoopbackUrlForContainer(fetchUrl: string) {
   try {
     const url = new URL(fetchUrl);
@@ -20,7 +51,7 @@ function normalizeLoopbackUrlForContainer(fetchUrl: string) {
       isContainerRuntime() &&
       ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
     ) {
-      url.hostname = "host.docker.internal";
+      url.hostname = getContainerDefaultGateway() || "host.docker.internal";
     }
     return url.toString();
   } catch {

@@ -144,6 +144,8 @@ import {
   StoreKey,
   UNFINISHED_INPUT,
 } from "../constant";
+
+const LOG_SEPARATOR = "=".repeat(30);
 import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { Avatar } from "./emoji";
@@ -573,7 +575,6 @@ function ChatProviderBalance(props: {
   providerDisplayName: string;
   autoModeEnabled: boolean;
   refreshSignal: string;
-  sessionRefreshSignal: string;
   balanceCacheKey: string;
   profile?: BalanceAwareProfile;
 }) {
@@ -584,10 +585,7 @@ function ChatProviderBalance(props: {
     if (value === 0) {
       return "$0.00";
     }
-    if (Math.abs(value) >= 0.01) {
-      return `$${value.toFixed(2)}`;
-    }
-    return `$${value.toFixed(6)}`;
+    return `$${value.toFixed(4)}`;
   }
 
   const updateUsage = useUpdateStore((state) => state.updateUsage);
@@ -727,13 +725,6 @@ function ChatProviderBalance(props: {
     }
     refreshUsage(true);
   }, [props.balanceCacheKey, refreshUsage]);
-
-  useEffect(() => {
-    if (!props.sessionRefreshSignal) {
-      return;
-    }
-    refreshUsage(true);
-  }, [props.sessionRefreshSignal, refreshUsage]);
 
   useEffect(() => {
     if (!props.refreshSignal) {
@@ -2827,11 +2818,13 @@ function _Chat() {
         modelUpdateDoneTimerRef.current = null;
       }, 1800);
 
+      console.log(LOG_SEPARATOR);
       console.log(`[API Config] 📊 模型同步汇总`);
       results.forEach(({ name, count, success }) => {
         console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
       });
       console.log(`[API Config] ✅ 所有平台同步完成，共 ${totalFetched} 个`);
+      console.log(LOG_SEPARATOR);
       showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {
       console.error("[Chat] 同步失败:", error);
@@ -3716,7 +3709,6 @@ function _Chat() {
               providerDisplayName={currentProviderDisplayName}
               autoModeEnabled={autoModeEnabled}
               refreshSignal={balanceRefreshSignal}
-              sessionRefreshSignal={safeSession.id}
               balanceCacheKey={currentBalanceCacheKey}
               profile={currentProfile as BalanceAwareProfile | undefined}
             />

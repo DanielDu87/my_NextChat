@@ -20,8 +20,10 @@ import { useAccessStore } from "./access";
 
 const ONE_MINUTE = 60 * 1000;
 const BALANCE_REFRESH_INTERVAL = 60 * 1000;
+const LOG_SEPARATOR = "=".repeat(30);
 const isApp = !!getClientConfig()?.isApp;
 const inflightBalanceQueries = new Map<string, Promise<void>>();
+let balanceRefreshPauseCount = 0;
 
 export type BalanceSnapshot = {
   used: number;
@@ -109,6 +111,22 @@ function logBalanceQueryStart(payload: Record<string, unknown>) {
 
 function logBalanceQueryResult(payload: Record<string, unknown>) {
   console.log("[Balance] 查询结果", payload);
+  console.log(LOG_SEPARATOR);
+}
+
+export async function runWithBalanceRefreshPaused<T>(
+  task: () => Promise<T> | T,
+): Promise<T> {
+  balanceRefreshPauseCount += 1;
+  try {
+    return await task();
+  } finally {
+    balanceRefreshPauseCount = Math.max(0, balanceRefreshPauseCount - 1);
+  }
+}
+
+export function isBalanceRefreshPaused() {
+  return balanceRefreshPauseCount > 0;
 }
 
 function formatVersionDate(t: string) {
@@ -662,6 +680,10 @@ export const useUpdateStore = createPersistStore(
       provider: ServiceProvider = ServiceProvider.OpenAI,
       profile?: BalanceAwareProfile,
     ) {
+      if (isBalanceRefreshPaused()) {
+        return;
+      }
+
       const activeProfile =
         provider === ServiceProvider.Custom
           ? profile || getActiveCustomProfile()

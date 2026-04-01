@@ -16,10 +16,10 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Compose 项目名：`my_nextchat`
-- 宝塔网站名称：`nextchat`
+- 宝塔网站名称：`ngpt.chat`
 - 站点域名：`ngpt.chat`
 - 站点路径：`/www/dk_project/my_NextChat`
-- Sub2API 宝塔网站名称：`sub2api`
+- Sub2API 宝塔网站名称：`sub2api.ngpt.chat`
 - Sub2API 域名：`sub2api.ngpt.chat`
 
 注意：
@@ -28,6 +28,8 @@
 - 如果你要复用已有外部 PostgreSQL，不要照搬这里的 `docker-compose.baota.yml` 方案。
 - 复用外部库时应使用 [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml) 配合 [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker) 和 `--profile no-proxy`。
 - 否则应用会被固定连到内部 `postgres` 容器，页面看到的是一套新的空库。
+- `Sub2API` 如果不需要代理，务必把 `AUTH_DIR_SYNC_PROXY_ENABLED=false`，并清空 `AUTH_DIR_SYNC_PROXY_HOST`、`AUTH_DIR_SYNC_PROXY_PORT`。
+- 否则容器重建后会继续带上旧的 `172.17.0.1:7890` 代理，聊天请求会在上游转发阶段超时。
 
 ---
 
@@ -188,11 +190,11 @@ DB="/www/server/panel/data/db/docker.db"
 
 ```bash
 sqlite3 "$DB" "INSERT INTO docker_sites (name, path, run_path, status, remark, addtime, type, service_info, container_id, classify) VALUES (
-  'nextchat',
+  'ngpt.chat',
   '/www/dk_project/my_NextChat',
   '/',
   1,
-  'NextChat AI 聊天应用',
+  'nextchat',
   '$(date +%Y-%m-%d\ %H:%M:%S)',
   'proxy',
   '{\"image\": \"my_nextchat-nextchat:latest\", \"compose_project\": \"my_nextchat\", \"port\": \"3000\"}',
@@ -205,7 +207,7 @@ sqlite3 "$DB" "INSERT INTO docker_sites (name, path, run_path, status, remark, a
 
 ```bash
 sqlite3 "$DB" "INSERT INTO docker_domain (pid, name, port, addtime) VALUES (
-  (SELECT id FROM docker_sites WHERE name='nextchat'),
+  (SELECT id FROM docker_sites WHERE name='ngpt.chat'),
   'your-domain.com',
   443,
   '$(date +%Y-%m-%d\ %H:%M:%S)'
@@ -340,8 +342,10 @@ bt reload    # 只重载面板逻辑，不影响 Nginx 和文件
 - `/www/dk_project/sites/{域名}/{域名}.json` 文件是否存在且格式正确
 - Nginx 配置文件 `/www/server/panel/vhost/nginx/{域名}.conf` 是否存在
 - SSL 证书文件 `/www/server/panel/vhost/cert/{域名}/` 目录是否存在
-- `dk_sites.name`、`docker_sites.name` 是否与约定显示名一致，例如 `nextchat`
-- 域名绑定、站点 JSON 文件名、Nginx 配置文件名是否仍使用真实域名，例如 `ngpt.chat`
+- `dk_sites.name`、`docker_sites.name` 是否与真实域名一致，例如 `ngpt.chat`
+- 域名绑定、站点 JSON 文件名、Nginx 配置文件名、证书目录是否仍使用同一个真实域名，例如 `ngpt.chat`
+- 不要把 `docker_sites.name`、`dk_sites.name` 改成 `nextchat` 这种项目名，否则宝塔 Docker 面板会误判 SSL 未配置
+- 项目名请写在 `docker_sites.remark`、`dk_sites.ps`，例如 `nextchat`
 - `docker_sites.path` 是否仍残留旧 IP 路径或旧 `wwwroot` 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`
 
 推荐检查命令：
