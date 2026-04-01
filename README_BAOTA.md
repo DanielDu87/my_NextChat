@@ -89,6 +89,45 @@
 - `git bundle` 只作为临时文件，完成同步后应删除
 - 不再把普通文件覆盖作为默认更新方式
 
+### 线上更新流程
+
+当前线上 NextChat 宝塔项目目录固定为 `/www/dk_project/my_NextChat`。
+
+标准更新顺序：
+
+1. 本地提交并推送代码
+2. 服务器进入项目目录执行 `git pull`
+3. 按当前部署方式重建并重启容器
+4. 检查容器健康状态与域名访问
+
+如果线上当前跑的是宝塔专用 Compose：
+
+```bash
+cd /www/dk_project/my_NextChat
+git pull
+export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
+mkdir -p "$BUILDX_CONFIG"
+docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat
+docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat
+docker inspect nextchat --format '{{.State.Health.Status}}'
+```
+
+如果线上当前跑的是主生产 Compose：
+
+```bash
+cd /www/dk_project/my_NextChat
+git pull
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
+docker inspect nextchat --format '{{.State.Health.Status}}'
+```
+
+补充说明：
+
+- `docker-compose.baota.yml` 当前用于“宝塔面板 + 内置 PostgreSQL 容器”的部署。
+- `docker-compose.yml + .env.docker + --profile no-proxy` 当前用于“直连已有 PostgreSQL”的生产部署。
+- 两套方式不要混用，否则容易出现“页面能打开但数据不在同一套库里”的问题。
+
 #### 第一步：部署 Docker 容器
 
 1. **配置 Git 远程仓库（SSH 方式）**
@@ -125,8 +164,10 @@
 
 5. **构建并启动 NextChat**
    ```bash
-   docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy build
-   docker-compose -f docker-compose.baota.yml --env-file .env.baota.local --profile no-proxy up -d
+   export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
+   mkdir -p "$BUILDX_CONFIG"
+   docker compose -f docker-compose.baota.yml --env-file .env.baota.local build nextchat
+   docker compose -f docker-compose.baota.yml --env-file .env.baota.local up -d
    ```
 
    构建约定：
@@ -150,8 +191,8 @@
 3. 使用 [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml) 启动：
 
 ```bash
-docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy build
-docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy up -d
+   ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+   ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
 4. 宝塔仍然只负责反向代理到 `127.0.0.1:3000`
@@ -174,7 +215,8 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 5. **验证容器运行**
    ```bash
    docker ps | grep nextchat
-   curl http://127.0.0.1:3000
+   docker inspect nextchat --format '{{.State.Health.Status}}'
+   curl http://127.0.0.1:3000/api/config
    ```
 
 #### 第二步：在宝塔面板创建网站

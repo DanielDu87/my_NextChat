@@ -1272,10 +1272,14 @@ export const useChatStore = createPersistStore(
         sessions.unshift(newEmptySession);
         changed = true;
 
-        // 恢复之前的对话选中（通过 ID 查找）
+        // 恢复对话选中：优先从 URL hash 中获取 session ID
         let newIndex = 0;
-        if (currentSessionId) {
-          const idx = sessions.findIndex((s) => s.id === currentSessionId);
+        const hash = typeof window !== "undefined" ? window.location.hash : "";
+        const chatMatch = hash.match(/#\/chat\/([^/]+)/);
+        const urlId = chatMatch ? chatMatch[1] : "";
+        const targetId = urlId || currentSessionId;
+        if (targetId) {
+          const idx = sessions.findIndex((s) => s.id === targetId);
           if (idx >= 0) newIndex = idx;
         }
 

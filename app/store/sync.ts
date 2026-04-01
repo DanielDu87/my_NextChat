@@ -585,15 +585,28 @@ function prependLeadingEmptySession(chatState: any, emptySession: any) {
   }
 
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const currentSessionIndex = Math.max(
+    0,
+    Number(chatState?.currentSessionIndex) || 0,
+  );
+  const currentSessionId = sessions[currentSessionIndex]?.id;
+
   const nextSessions = [
     emptySession,
     ...sessions.filter((session: any) => session?.id !== emptySession.id),
   ];
 
+  // 保持当前选中的 session 不变，只在前面插入空会话
+  let nextIndex = 0;
+  if (currentSessionId) {
+    const idx = nextSessions.findIndex((s: any) => s?.id === currentSessionId);
+    if (idx >= 0) nextIndex = idx;
+  }
+
   return {
     ...chatState,
     sessions: nextSessions,
-    currentSessionIndex: 0,
+    currentSessionIndex: nextIndex,
   };
 }
 

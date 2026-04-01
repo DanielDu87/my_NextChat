@@ -107,11 +107,43 @@ docker compose -f docker-compose.yml --env-file .env.docker --profile no-proxy u
 cd /www/dk_project/my_NextChat
 
 # 构建镜像（首次约 5-10 分钟）
-docker compose -f docker-compose.baota.yml --env-file .env.baota build
+export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
+mkdir -p "$BUILDX_CONFIG"
+docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat
 
 # 启动所有服务（postgres 会先启动，健康检查通过后再启动 nextchat）
 docker compose -f docker-compose.baota.yml --env-file .env.baota up -d
 ```
+
+说明：
+
+- `docker-compose.baota.yml` 当前没有 `profile` 配置，不要附带 `--profile no-proxy`。
+- 如果你需要直连已有 PostgreSQL，请切换到主部署方式：
+
+```bash
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
+```
+
+### 2.1 提交后的远端更新
+
+推荐使用 Git 更新服务器代码，不再把普通文件覆盖作为默认更新方式。
+
+```bash
+cd /www/dk_project/my_NextChat
+git pull
+export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
+mkdir -p "$BUILDX_CONFIG"
+docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat
+docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat
+docker inspect nextchat --format '{{.State.Health.Status}}'
+```
+
+如果 `git pull` 失败，先检查：
+
+- 服务器仓库远程地址是否为 `git@github.com:DanielDu87/my_NextChat.git`
+- 服务器 SSH key 是否可访问远程仓库
+- 当前分支是否为 `main`
 
 ### 3. 配置 Nginx 反向代理
 

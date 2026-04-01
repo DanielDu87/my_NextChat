@@ -127,7 +127,9 @@ const ChatItemCard = memo(function ChatItemCard(props: {
       className={clsx(styles["chat-item"], {
         [styles["chat-item-selected"]]:
           props.selected &&
-          (currentPath === Path.Chat || currentPath === Path.Home),
+          (currentPath === Path.Chat ||
+            currentPath === Path.Home ||
+            currentPath.startsWith(Path.Chat + "/")),
       })}
       onClick={props.onClick}
       ref={(element) => {

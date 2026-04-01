@@ -90,11 +90,8 @@ export async function POST(request: Request) {
       buildRelativeRedirectPath(request, redirectTo || "/"),
       "http://localhost",
     );
-    successUrl.searchParams.set("site-unlocked-at", String(Date.now()));
     const response = prefersRedirect
-      ? createHtmlRedirectResponse(
-          `${successUrl.pathname}${successUrl.search}${successUrl.hash}`,
-        )
+      ? createHtmlRedirectResponse(`${successUrl.pathname}${successUrl.hash}`)
       : NextResponse.json({ ok: true });
     response.cookies.set({
       name: getSiteAccessCookieName(),
