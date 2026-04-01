@@ -2,6 +2,7 @@ import type { LLMModel } from "@/app/client/api";
 import { ServiceProvider } from "@/app/constant";
 import { useAppConfig } from "@/app/store/config";
 import { useAccessStore } from "@/app/store/access";
+import { runWithImmediateStoreSyncPaused } from "@/app/utils/store";
 
 type CustomProfile = {
   id: string;
@@ -223,18 +224,20 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     newGroup: groupName,
   });
 
-  configStore.update((state: { models: LLMModel[] }) => {
-    const currentModel = state.models[targetIndex];
-    if (!currentModel) {
-      return;
-    }
-    state.models[targetIndex] = {
-      ...currentModel,
-      apiKeyGroup: groupName,
-    };
+  void runWithImmediateStoreSyncPaused(async () => {
+    configStore.update((state: { models: LLMModel[] }) => {
+      const currentModel = state.models[targetIndex];
+      if (!currentModel) {
+        return;
+      }
+      state.models[targetIndex] = {
+        ...currentModel,
+        apiKeyGroup: groupName,
+      };
+    });
   });
 
-  console.log("[API Key Memory] 模型 API Key 分组已更新并同步到数据库", {
+  console.log("[API Key Memory] 模型 API Key 分组已更新（跳过立即同步）", {
     modelName,
     groupName,
   });

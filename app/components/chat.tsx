@@ -716,17 +716,6 @@ function ChatProviderBalance(props: {
   );
 
   useEffect(() => {
-    refreshUsage(false);
-  }, [refreshUsage]);
-
-  useEffect(() => {
-    if (!props.balanceCacheKey) {
-      return;
-    }
-    refreshUsage(true);
-  }, [props.balanceCacheKey, refreshUsage]);
-
-  useEffect(() => {
     if (!props.refreshSignal) {
       return;
     }
@@ -2107,6 +2096,7 @@ function _Chat() {
   const [modelUpdateDone, setModelUpdateDone] = useState(false);
   const lastAssistantSignatureRef = useRef("");
   const lastCompletedAssistantRef = useRef("");
+  const lastBalanceProviderKeyRef = useRef("");
   const streamingScrollResumeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -2115,6 +2105,25 @@ function _Chat() {
     null,
   );
   const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
+  const staleStreamingStateRef = useRef<{
+    sessionId: string;
+    messageIds: Set<string>;
+  }>({
+    sessionId: "",
+    messageIds: new Set<string>(),
+  });
+
+  if (staleStreamingStateRef.current.sessionId !== session.id) {
+    staleStreamingStateRef.current = {
+      sessionId: session.id,
+      messageIds: new Set(
+        sessionMessages
+          .filter((message) => message.streaming)
+          .map((message) => message.id ?? "")
+          .filter(Boolean),
+      ),
+    };
+  }
 
   // current model name
   const currentModel = sessionMask?.modelConfig?.model || "";
@@ -2586,11 +2595,18 @@ function _Chat() {
   useEffect(() => {
     const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
     const shouldNormalizeMessages = sessionMessages.some((m) => {
+      if (m.streaming) {
+        return (
+          staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
+          !ChatControllerPool.has(session.id, m.id ?? "")
+        );
+      }
+
       if (!(m.isError || new Date(m.date).getTime() < stopTiming)) {
         return false;
       }
 
-      return Boolean(m.streaming) || m.content.length === 0;
+      return m.content.length === 0;
     });
 
     let nextModelConfig = sessionMask.modelConfig;
@@ -2651,19 +2667,41 @@ function _Chat() {
     chatStore.updateTargetSession(session, (session) => {
       if (shouldNormalizeMessages) {
         session.messages.forEach((m) => {
-          // check if should stop all stale messages
-          if (m.isError || new Date(m.date).getTime() < stopTiming) {
-            if (m.streaming) {
-              m.streaming = false;
-            }
+          const hasActiveController =
+            Boolean(m.streaming) &&
+            ChatControllerPool.has(session.id, m.id ?? "");
+          const shouldInterruptStaleStreaming =
+            Boolean(m.streaming) &&
+            staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
+            !hasActiveController;
+          const shouldNormalizeEmptyResponse =
+            (m.isError || new Date(m.date).getTime() < stopTiming) &&
+            m.content.length === 0;
 
-            if (m.content.length === 0) {
-              m.isError = true;
-              m.content = prettyObject({
-                error: true,
-                message: "empty response",
-              });
-            }
+          if (!shouldInterruptStaleStreaming && !shouldNormalizeEmptyResponse) {
+            return;
+          }
+
+          if (shouldInterruptStaleStreaming) {
+            const interruptedSuffix = "\n\n响应因页面刷新而中断";
+            const currentContent = getMessageTextContent(m).trimEnd();
+            m.streaming = false;
+            m.isError = true;
+            staleStreamingStateRef.current.messageIds.delete(m.id ?? "");
+            m.content = currentContent
+              ? currentContent.endsWith("响应因页面刷新而中断")
+                ? currentContent
+                : `${currentContent}${interruptedSuffix}`
+              : "响应因页面刷新而中断";
+          }
+
+          if (shouldNormalizeEmptyResponse) {
+            m.streaming = false;
+            m.isError = true;
+            m.content = prettyObject({
+              error: true,
+              message: "empty response",
+            });
           }
         });
       }
@@ -3103,22 +3141,47 @@ function _Chat() {
     };
   }, [clearStreamingScrollResumeTimer]);
 
-  const completedAssistantRefreshSignal = useMemo(() => {
-    const lastAssistantMessage = [...sessionMessages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === "assistant" &&
-          !message.streaming &&
-          String(message.content).length > 0,
-      );
+  const lastCompletedAssistantMessage = useMemo(
+    () =>
+      [...sessionMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "assistant" &&
+            !message.streaming &&
+            String(message.content).length > 0,
+        ) || null,
+    [sessionMessages],
+  );
 
-    return lastAssistantMessage
-      ? `${lastAssistantMessage.id}:${lastAssistantMessage.date}:${Number(
-          lastAssistantMessage.isError,
-        )}`
-      : "";
-  }, [sessionMessages]);
+  const completedAssistantRefreshSignal = useMemo(() => {
+    if (
+      !lastCompletedAssistantMessage ||
+      lastCompletedAssistantMessage.isError
+    ) {
+      return "";
+    }
+
+    return `${lastCompletedAssistantMessage.id}:${lastCompletedAssistantMessage.date}:${currentBalanceCacheKey}`;
+  }, [currentBalanceCacheKey, lastCompletedAssistantMessage]);
+
+  useEffect(() => {
+    if (!currentBalanceCacheKey || autoModeEnabled) {
+      return;
+    }
+
+    if (lastBalanceProviderKeyRef.current === currentBalanceCacheKey) {
+      return;
+    }
+
+    const reason = lastBalanceProviderKeyRef.current
+      ? "provider-change"
+      : "page-load";
+    lastBalanceProviderKeyRef.current = currentBalanceCacheKey;
+    setBalanceRefreshSignal(
+      `${reason}:${currentBalanceCacheKey}:${Date.now()}`,
+    );
+  }, [autoModeEnabled, currentBalanceCacheKey]);
 
   useEffect(() => {
     if (
@@ -3587,21 +3650,21 @@ function _Chat() {
                     ? "同步中..."
                     : modelUpdateDone
                     ? "同步完成"
-                    : "一键刷新"
+                    : "一键同步"
                 }
                 title={
                   syncingAll
                     ? "同步中..."
                     : modelUpdateDone
                     ? "同步完成"
-                    : "一键刷新"
+                    : "一键同步"
                 }
                 aria={
                   syncingAll
                     ? "同步中..."
                     : modelUpdateDone
                     ? "同步完成"
-                    : "一键刷新"
+                    : "一键同步"
                 }
                 onClick={() => {
                   void syncAllProfilesFromChat();

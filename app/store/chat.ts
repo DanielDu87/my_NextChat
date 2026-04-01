@@ -1237,6 +1237,8 @@ export const useChatStore = createPersistStore(
         const currentSessions = Array.isArray(currentState.sessions)
           ? currentState.sessions.slice()
           : [];
+        const currentSessionId =
+          currentSessions[currentState.currentSessionIndex]?.id ?? "";
 
         let sessions = currentSessions.filter(
           (session) =>
@@ -1251,14 +1253,21 @@ export const useChatStore = createPersistStore(
         console.log("[initializeForNewPage] 开始", {
           currentSessionsCount: currentSessions.length,
           removedEmptySessionsCount: currentSessions.length - sessions.length,
+          currentSessionId,
         });
 
-        const newEmptySession = createEmptySession();
-        sessions.unshift(newEmptySession);
-        changed = true;
-        console.log("[initializeForNewPage] 创建新的空会话", {
-          id: newEmptySession.id,
-        });
+        if (sessions.length === 0) {
+          const newEmptySession = createEmptySession();
+          sessions.unshift(newEmptySession);
+          changed = true;
+          console.log("[initializeForNewPage] 创建新的空会话", {
+            id: newEmptySession.id,
+          });
+        } else {
+          console.log("[initializeForNewPage] 保留现有会话，不创建空会话", {
+            sessionsCount: sessions.length,
+          });
+        }
 
         // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
@@ -1271,8 +1280,12 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        // 默认选中第一个会话（空会话）
-        const newSessionIndex = 0;
+        let newSessionIndex = sessions.findIndex(
+          (session) => session.id === currentSessionId,
+        );
+        if (newSessionIndex < 0) {
+          newSessionIndex = 0;
+        }
 
         console.log("[initializeForNewPage] 完成", {
           sessionsCount: sessions.length,
@@ -2480,10 +2493,9 @@ export const useChatStore = createPersistStore(
         const longTermMemoryStartIndex = session.lastSummarizeIndex;
 
         // short term memory
-        const shortTermMemoryStartIndex = Math.max(
-          0,
-          totalMessageCount - modelConfig.historyMessageCount,
-        );
+        // 不再机械截断最近固定条数，而是优先从当前会话的清空边界后尽可能多地携带上下文，
+        // 具体由后面的 token 上限控制。这样切换模型或供应商后继续追问时，上下文更连贯。
+        const shortTermMemoryStartIndex = clearContextIndex;
 
         // lets concat send messages, including 4 parts:
         // 0. system prompt: to get close to OpenAI Web ChatGPT
