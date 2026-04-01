@@ -1256,18 +1256,13 @@ export const useChatStore = createPersistStore(
           currentSessionId,
         });
 
-        if (sessions.length === 0) {
-          const newEmptySession = createEmptySession();
-          sessions.unshift(newEmptySession);
-          changed = true;
-          console.log("[initializeForNewPage] 创建新的空会话", {
-            id: newEmptySession.id,
-          });
-        } else {
-          console.log("[initializeForNewPage] 保留现有会话，不创建空会话", {
-            sessionsCount: sessions.length,
-          });
-        }
+        // 始终在开头创建新的空会话
+        const newEmptySession = createEmptySession();
+        sessions.unshift(newEmptySession);
+        changed = true;
+        console.log("[initializeForNewPage] 创建新的空会话", {
+          id: newEmptySession.id,
+        });
 
         // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
@@ -1280,12 +1275,29 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        let newSessionIndex = sessions.findIndex(
-          (session) => session.id === currentSessionId,
-        );
+        // 判断之前选中的会话是否是空会话
+        const previousSession =
+          currentSessions[currentState.currentSessionIndex];
+        const wasEmptySession =
+          previousSession &&
+          isDefaultTopic(previousSession.topic) &&
+          previousSession.messages.length === 0 &&
+          !previousSession.memoryPrompt;
+
+        // 如果之前选中的是空会话，切换到新空会话（index 0）
+        // 如果之前选中是有消息的会话，保持选中（index + 1 因为前面插入了新会话）
+        let newSessionIndex = wasEmptySession
+          ? 0
+          : sessions.findIndex((session) => session.id === currentSessionId);
         if (newSessionIndex < 0) {
           newSessionIndex = 0;
         }
+
+        console.log("[initializeForNewPage] 焦点处理", {
+          wasEmptySession,
+          newSessionIndex,
+          previousSessionId: previousSession?.id,
+        });
 
         console.log("[initializeForNewPage] 完成", {
           sessionsCount: sessions.length,
@@ -1295,6 +1307,8 @@ export const useChatStore = createPersistStore(
             topic: sessions[0]?.topic,
             hasMessages: sessions[0]?.messages.length > 0,
           },
+          wasEmptySession,
+          switchedToNewEmpty: newSessionIndex === 0,
         });
 
         const nextState = {
