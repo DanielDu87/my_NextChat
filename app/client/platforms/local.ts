@@ -6,14 +6,7 @@ import { useAccessStore } from "@/app/store/access";
 import { useAppConfig } from "@/app/store/config";
 import { usePluginStore } from "@/app/store/plugin";
 import { streamWithThink } from "@/app/utils/chat";
-import {
-  ChatOptions,
-  getHeaders,
-  LLMApi,
-  LLMModel,
-  SpeechOptions,
-} from "../api";
-import { getClientConfig } from "@/app/config/client";
+import { ChatOptions, LLMApi, LLMModel, LLMUsage, SpeechOptions } from "../api";
 import {
   getMessageTextContent,
   getMessageTextContentWithoutThinking,
@@ -23,32 +16,72 @@ import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
 
-export class LocalApi implements LLMApi {
-  private resolveBaseUrl(): string {
-    const accessStore = useAccessStore.getState();
+function normalizeSub2ApiBaseUrl(baseUrl: string) {
+  const normalizedBaseUrl = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!normalizedBaseUrl) return "";
 
-    let baseUrl = "";
-
-    if (accessStore.useCustomConfig) {
-      // 从 apiProfiles 中查找 Local 配置
-      const profile = accessStore.apiProfiles?.find(
-        (p) => p.provider === ServiceProvider.Local && p.enabled,
-      );
-      baseUrl = profile?.baseUrl || "";
+  try {
+    const url = new URL(
+      normalizedBaseUrl.startsWith("http")
+        ? normalizedBaseUrl
+        : `https://${normalizedBaseUrl}`,
+    );
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === "sub2api.ngpt.chat") {
+      url.protocol = "http:";
+      url.host = "127.0.0.1:8080";
+      return url.toString().replace(/\/+$/, "");
     }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return normalizedBaseUrl.startsWith("http")
+      ? normalizedBaseUrl
+      : `https://${normalizedBaseUrl}`;
+  }
+}
+
+export class LocalApi implements LLMApi {
+  private getCurrentProfile() {
+    const accessStore = useAccessStore.getState();
+    return accessStore.apiProfiles?.find(
+      (p) => p.provider === ServiceProvider.Local && p.enabled,
+    );
+  }
+
+  private resolveBaseUrl(): string {
+    let baseUrl = "";
+    const profile = this.getCurrentProfile();
+    baseUrl = profile?.baseUrl || "";
 
     if (baseUrl.length === 0) {
       baseUrl = Local.ExampleEndpoint;
     }
+    return normalizeSub2ApiBaseUrl(baseUrl);
+  }
 
-    if (baseUrl.endsWith("/")) {
-      baseUrl = baseUrl.slice(0, baseUrl.length - 1);
-    }
-    if (!baseUrl.startsWith("http")) {
-      baseUrl = "https://" + baseUrl;
+  private buildHeaders() {
+    const profile = this.getCurrentProfile();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "x-base-url": this.resolveBaseUrl(),
+    };
+
+    const balanceQueryApiKey = String(profile?.balanceQueryApiKey || "").trim();
+    const defaultGroupApiKey = String(
+      profile?.apiKeyGroups?.default || "",
+    ).trim();
+    const apiKey = String(
+      balanceQueryApiKey || defaultGroupApiKey || profile?.apiKey || "",
+    ).trim();
+
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    return baseUrl;
+    return { headers, profile, balanceQueryApiKey };
   }
 
   path(path: string): string {
@@ -124,11 +157,12 @@ export class LocalApi implements LLMApi {
 
     try {
       const chatPath = this.path(Local.ChatPath);
+      const { headers } = this.buildHeaders();
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers,
       };
 
       const requestTimeoutId = setTimeout(
@@ -145,7 +179,7 @@ export class LocalApi implements LLMApi {
         return streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          headers,
           tools as any,
           funcs,
           controller,
@@ -236,12 +270,9 @@ export class LocalApi implements LLMApi {
     }
   }
 
-  async usage() {
+  async usage(): Promise<LLMUsage> {
     try {
-      const accessStore = useAccessStore.getState();
-      const profile = accessStore.apiProfiles?.find(
-        (p) => p.provider === ServiceProvider.Local && p.enabled,
-      );
+      const { headers, profile, balanceQueryApiKey } = this.buildHeaders();
 
       if (!profile?.baseUrl) {
         return {
@@ -253,10 +284,16 @@ export class LocalApi implements LLMApi {
       const usagePath = this.path(Local.UsagePath);
       const res = await fetch(usagePath, {
         method: "GET",
-        headers: getHeaders(),
+        headers,
       });
 
       if (!res.ok) {
+        console.warn("[Local API] usage 查询失败", {
+          status: res.status,
+          statusText: res.statusText,
+          baseUrl: profile.baseUrl,
+          hasBalanceQueryApiKey: !!balanceQueryApiKey,
+        });
         return {
           used: 0,
           total: 0,
@@ -273,46 +310,119 @@ export class LocalApi implements LLMApi {
       const dailyLimit = Number(data?.subscription?.daily_limit_usd);
       const dailyUsage = Number(data?.subscription?.daily_usage_usd);
       const totalActualCost = Number(data?.usage?.total?.actual_cost);
+      const totalCost = Number(data?.usage?.total?.cost);
+      const totalRequests = Number(data?.usage?.total?.requests);
+      const totalTokens = Number(data?.usage?.total?.total_tokens);
 
-      // 优先使用 Sub2API 返回的剩余额度；若是不限额模式，则回退到各周期额度信息。
-      if (Number.isFinite(remaining) && remaining >= 0) {
-        return {
-          used: 0,
-          total: remaining,
-        };
-      }
-
-      if (Number.isFinite(monthlyLimit) && monthlyLimit > 0) {
-        return {
-          used: Number.isFinite(monthlyUsage) ? monthlyUsage : 0,
-          total: monthlyLimit,
-        };
-      }
-
-      if (Number.isFinite(weeklyLimit) && weeklyLimit > 0) {
-        return {
-          used: Number.isFinite(weeklyUsage) ? weeklyUsage : 0,
-          total: weeklyLimit,
-        };
-      }
-
-      if (Number.isFinite(dailyLimit) && dailyLimit > 0) {
-        return {
-          used: Number.isFinite(dailyUsage) ? dailyUsage : 0,
-          total: dailyLimit,
-        };
-      }
-
-      if (Number.isFinite(totalActualCost) && totalActualCost >= 0) {
+      // Local/Sub2API 在聊天页展示的是“总使用量”，优先取累计消费。
+      if (Number.isFinite(totalActualCost) && totalActualCost > 0) {
         return {
           used: totalActualCost,
           total: totalActualCost,
+          metricType: "currency" as const,
+          displayValue: totalActualCost,
+          displayLabel: `${profile.name || "Sub2API"} 累计消费`,
+        };
+      }
+
+      if (Number.isFinite(totalCost) && totalCost > 0) {
+        return {
+          used: totalCost,
+          total: totalCost,
+          metricType: "currency" as const,
+          displayValue: totalCost,
+          displayLabel: `${profile.name || "Sub2API"} 累计消费`,
+        };
+      }
+
+      if (Number.isFinite(totalRequests) && totalRequests > 0) {
+        return {
+          used: totalRequests,
+          total: totalRequests,
+          metricType: "requests" as const,
+          displayValue: totalRequests,
+          displayLabel: `${profile.name || "Sub2API"} 累计请求数`,
+        };
+      }
+
+      if (Number.isFinite(totalTokens) && totalTokens > 0) {
+        return {
+          used: totalTokens,
+          total: totalTokens,
+          metricType: "tokens" as const,
+          displayValue: totalTokens,
+          displayLabel: `${profile.name || "Sub2API"} 累计 Tokens`,
+        };
+      }
+
+      if (Number.isFinite(monthlyUsage) && monthlyUsage >= 0) {
+        return {
+          used: monthlyUsage,
+          total:
+            Number.isFinite(monthlyLimit) && monthlyLimit > 0
+              ? monthlyLimit
+              : monthlyUsage,
+          metricType: "currency" as const,
+          displayValue: monthlyUsage,
+          displayLabel: `${profile.name || "Sub2API"} 月度使用量`,
+        };
+      }
+
+      if (Number.isFinite(weeklyUsage) && weeklyUsage >= 0) {
+        return {
+          used: weeklyUsage,
+          total:
+            Number.isFinite(weeklyLimit) && weeklyLimit > 0
+              ? weeklyLimit
+              : weeklyUsage,
+          metricType: "currency" as const,
+          displayValue: weeklyUsage,
+          displayLabel: `${profile.name || "Sub2API"} 周度使用量`,
+        };
+      }
+
+      if (Number.isFinite(dailyUsage) && dailyUsage >= 0) {
+        return {
+          used: dailyUsage,
+          total:
+            Number.isFinite(dailyLimit) && dailyLimit > 0
+              ? dailyLimit
+              : dailyUsage,
+          metricType: "currency" as const,
+          displayValue: dailyUsage,
+          displayLabel: `${profile.name || "Sub2API"} 日使用量`,
+        };
+      }
+
+      // 当接口只返回 remaining 时，无法反推出累计消费，这里仅作为兜底。
+      if (Number.isFinite(remaining) && remaining >= 0) {
+        return {
+          used:
+            Number.isFinite(totalRequests) && totalRequests > 0
+              ? totalRequests
+              : 0,
+          total: remaining,
+          metricType:
+            Number.isFinite(totalRequests) && totalRequests > 0
+              ? ("requests" as const)
+              : ("currency" as const),
+          displayValue:
+            Number.isFinite(totalRequests) && totalRequests > 0
+              ? totalRequests
+              : remaining,
+          displayLabel:
+            Number.isFinite(totalRequests) && totalRequests > 0
+              ? `${profile.name || "Sub2API"} 累计请求数`
+              : `${profile.name || "Sub2API"} 剩余额度`,
         };
       }
 
       return {
-        used: data.used || 0,
-        total: data.total || 0,
+        used: Number(data.used || 0),
+        total: Number(data.total || 0),
+        metricType: "currency" as const,
+        displayValue: Number(data.used || 0),
+        displayLabel: `${profile.name || "Sub2API"} 总使用量`,
       };
     } catch (e) {
       console.error("[Local API] failed to fetch usage", e);
@@ -325,10 +435,7 @@ export class LocalApi implements LLMApi {
 
   async models(): Promise<LLMModel[]> {
     try {
-      const accessStore = useAccessStore.getState();
-      const profile = accessStore.apiProfiles?.find(
-        (p) => p.provider === ServiceProvider.Local && p.enabled,
-      );
+      const { headers, profile } = this.buildHeaders();
 
       if (!profile?.baseUrl) {
         console.error("[Local API] No enabled Local profile found");
@@ -336,18 +443,6 @@ export class LocalApi implements LLMApi {
       }
 
       const modelsPath = this.path(Local.ListModelPath);
-      const normalizedBaseUrl = this.resolveBaseUrl();
-
-      // 直接使用 profile 的 API Key 构建请求头
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "x-base-url": normalizedBaseUrl,
-      };
-
-      if (profile.apiKey) {
-        headers["Authorization"] = `Bearer ${profile.apiKey}`;
-      }
 
       console.log("[Local API] Fetching models from:", modelsPath);
 

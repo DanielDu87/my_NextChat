@@ -1653,7 +1653,7 @@ export function ApiConfigPage() {
                 }
 
                 console.log(
-                  '[API Config] ℹ️ 检测到云端模型数量变化，已保留本地缓存；请点击"保存并同步"手动刷新模型',
+                  "[API Config] ℹ️ 检测到云端模型数量变化，已继续使用本地缓存",
                 );
                 console.log(LOG_SEPARATOR);
               })
@@ -2518,11 +2518,6 @@ export function ApiConfigPage() {
                     "当前使用服务端默认配置"
                   )}
                 </span>
-                {shouldShowModelUpdateNotice && (
-                  <span className={styles.modelUpdateInlineNotice}>
-                    服务器模型数据有更新
-                  </span>
-                )}
               </div>
             }
           />

@@ -112,6 +112,9 @@ export interface ChatOptions {
 export interface LLMUsage {
   used: number;
   total: number;
+  metricType?: "currency" | "requests" | "tokens";
+  displayValue?: number;
+  displayLabel?: string;
 }
 
 export interface LLMModel {

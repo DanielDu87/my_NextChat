@@ -27,6 +27,9 @@ export type BalanceSnapshot = {
   used: number;
   total: number;
   remaining: number;
+  metricType?: "currency" | "requests" | "tokens";
+  displayValue?: number;
+  displayLabel?: string;
   exactUsed?: number;
   exactTotal?: number;
   exactRemaining?: number;
@@ -521,13 +524,14 @@ export async function queryBalanceSnapshot(
   const exactUsed = Math.max(0, Number(usage.used || 0));
   const exactTotal = Math.max(0, Number(usage.total || 0));
   const exactRemaining = Math.max(0, exactTotal - exactUsed);
-  const used = Math.round(exactUsed * 100) / 100;
-  const total = Math.round(exactTotal * 100) / 100;
-  const remaining = Math.round(exactRemaining * 100) / 100;
   return {
-    used,
-    total,
-    remaining,
+    used: exactUsed,
+    total: exactTotal,
+    remaining: exactRemaining,
+    metricType: usage.metricType,
+    displayValue:
+      typeof usage.displayValue === "number" ? usage.displayValue : undefined,
+    displayLabel: usage.displayLabel,
     exactUsed,
     exactTotal,
     exactRemaining,

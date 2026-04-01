@@ -16,8 +16,11 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Compose 项目名：`my_nextchat`
-- 宝塔网站名称：`ngpt.chat`
+- 宝塔网站名称：`nextchat`
 - 站点域名：`ngpt.chat`
+- 站点路径：`/www/dk_project/my_NextChat`
+- Sub2API 宝塔网站名称：`sub2api`
+- Sub2API 域名：`sub2api.ngpt.chat`
 
 注意：
 
@@ -111,7 +114,7 @@ server {
     http2 on;
 
     server_name your-domain.com;
-    root /www/dk_project/wwwroot/your-domain.com;
+    root /www/dk_project/my_NextChat;
 
     # SSL 证书配置
     ssl_certificate    /www/server/panel/vhost/cert/your-domain.com/fullchain.pem;
@@ -185,8 +188,8 @@ DB="/www/server/panel/data/db/docker.db"
 
 ```bash
 sqlite3 "$DB" "INSERT INTO docker_sites (name, path, run_path, status, remark, addtime, type, service_info, container_id, classify) VALUES (
-  'your-domain.com',
-  '/www/dk_project/wwwroot/your-domain.com',
+  'nextchat',
+  '/www/dk_project/my_NextChat',
   '/',
   1,
   'NextChat AI 聊天应用',
@@ -202,7 +205,7 @@ sqlite3 "$DB" "INSERT INTO docker_sites (name, path, run_path, status, remark, a
 
 ```bash
 sqlite3 "$DB" "INSERT INTO docker_domain (pid, name, port, addtime) VALUES (
-  (SELECT id FROM docker_sites WHERE name='your-domain.com'),
+  (SELECT id FROM docker_sites WHERE name='nextchat'),
   'your-domain.com',
   443,
   '$(date +%Y-%m-%d\ %H:%M:%S)'
@@ -226,7 +229,7 @@ sqlite3 "$DB" "INSERT INTO stacks (name, status, path, template_id, time, remark
 
 ```bash
 mkdir -p /www/dk_project/sites/your-domain.com
-mkdir -p /www/dk_project/wwwroot/your-domain.com
+mkdir -p /www/dk_project/my_NextChat
 ```
 
 创建 `/www/dk_project/sites/your-domain.com/your-domain.com.json`，参考 `/www/dk_project/sites/sub2api.ngpt.chat/sub2api.ngpt.chat.json` 的格式，关键字段：
@@ -237,7 +240,7 @@ mkdir -p /www/dk_project/wwwroot/your-domain.com
   "domain_list": ["your-domain.com"],
   "primary_port": "443",
   "site_port": ["80", "443"],
-  "site_path": "/www/dk_project/wwwroot/your-domain.com",
+  "site_path": "/www/dk_project/my_NextChat",
   "stop_site": false,
   "proxy_info": [
     {
@@ -337,8 +340,9 @@ bt reload    # 只重载面板逻辑，不影响 Nginx 和文件
 - `/www/dk_project/sites/{域名}/{域名}.json` 文件是否存在且格式正确
 - Nginx 配置文件 `/www/server/panel/vhost/nginx/{域名}.conf` 是否存在
 - SSL 证书文件 `/www/server/panel/vhost/cert/{域名}/` 目录是否存在
-- `dk_sites.name`、`docker_sites.name`、站点 JSON 的 `site_name`、Nginx 配置文件名是否都使用同一个域名
-- `docker_sites.path` 是否仍残留旧 IP 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`
+- `dk_sites.name`、`docker_sites.name` 是否与约定显示名一致，例如 `nextchat`
+- 域名绑定、站点 JSON 文件名、Nginx 配置文件名是否仍使用真实域名，例如 `ngpt.chat`
+- `docker_sites.path` 是否仍残留旧 IP 路径或旧 `wwwroot` 路径，例如 `/www/dk_project/wwwroot/43.163.5.9`
 
 推荐检查命令：
 

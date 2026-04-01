@@ -224,32 +224,23 @@ function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 }
 
-function isLoopbackHostname(hostname: string) {
-  const normalizedHostname = String(hostname || "")
-    .trim()
-    .toLowerCase();
-  return (
-    normalizedHostname === "localhost" ||
-    normalizedHostname === "127.0.0.1" ||
-    normalizedHostname === "::1"
-  );
-}
-
-function shouldSkipRemoteLocalProvider(baseUrl?: string) {
-  if (!baseUrl || isServerSide()) {
-    return false;
-  }
+function normalizeLocalProxyBaseUrl(baseUrl?: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(String(baseUrl || "").trim());
+  if (!normalizedBaseUrl) return normalizedBaseUrl;
 
   try {
-    const targetUrl = new URL(baseUrl);
-    const pageUrl = new URL(window.location.href);
-
-    return (
-      isLoopbackHostname(targetUrl.hostname) &&
-      !isLoopbackHostname(pageUrl.hostname)
+    const url = new URL(
+      normalizedBaseUrl.startsWith("http")
+        ? normalizedBaseUrl
+        : `https://${normalizedBaseUrl}`,
     );
+    if (url.hostname.toLowerCase() === "sub2api.ngpt.chat") {
+      url.protocol = "http:";
+      url.host = "127.0.0.1:8080";
+    }
+    return normalizeBaseUrl(url.toString());
   } catch {
-    return false;
+    return normalizedBaseUrl;
   }
 }
 
@@ -767,12 +758,6 @@ export async function fetchModelsFromProvider(
       break;
     case ServiceProvider.Local:
       if (baseUrl) {
-        if (shouldSkipRemoteLocalProvider(baseUrl)) {
-          console.log(
-            `[Fetch Models] ℹ️ 跳过 Local 模型探测: 当前站点为远程访问，配置仍指向 ${baseUrl}`,
-          );
-          return { models: [], total: 0 };
-        }
         apiPath = "/api/proxy/v1/models";
         providerId = profileName
           ? `${String(provider).toLowerCase()}_${profileName}`.toLowerCase()
@@ -815,7 +800,12 @@ export async function fetchModelsFromProvider(
         ServiceProvider.Local,
       ].includes(provider)
     ) {
-      const baseWithoutV1 = normalizedBaseUrl!.replace(/\/v1$/, "");
+      const effectiveBaseUrl =
+        provider === ServiceProvider.Local
+          ? normalizeLocalProxyBaseUrl(baseUrl)
+          : baseUrl;
+      const effectiveNormalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl);
+      const baseWithoutV1 = effectiveNormalizedBaseUrl.replace(/\/v1$/, "");
       const proxyBaseUrl = isServerSide() ? baseUrl : baseWithoutV1;
 
       // 为代理型供应商设置 x-base-url header
@@ -823,7 +813,8 @@ export async function fetchModelsFromProvider(
         provider === ServiceProvider.Custom ||
         provider === ServiceProvider.Local
       ) {
-        headers["x-base-url"] = proxyBaseUrl;
+        headers["x-base-url"] =
+          provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
       }
 
       // 某些聚合平台需要特殊接口获取模型列表
@@ -846,7 +837,7 @@ export async function fetchModelsFromProvider(
 
       console.log(`[Fetch Models] 🔍 检测 baseUrl:`, {
         baseUrl,
-        normalizedBaseUrl,
+        normalizedBaseUrl: effectiveNormalizedBaseUrl,
         isOcoolai,
         isServerSide: isServerSide(),
         hasApiKey: !!apiKey,

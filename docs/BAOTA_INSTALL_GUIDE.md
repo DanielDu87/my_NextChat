@@ -6,8 +6,11 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Compose 项目名：`my_nextchat`
-- 宝塔 Docker 网站名称：`ngpt.chat`
+- 宝塔 Docker 网站名称：`nextchat`
 - 访问域名：`https://ngpt.chat`
+- 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
+- Sub2API 宝塔 Docker 网站名称：`sub2api`
+- Sub2API 域名：`sub2api.ngpt.chat`
 
 ---
 
@@ -313,18 +316,18 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
 
 1. 进入 `Docker -> Docker 网站`
 2. 点击 `添加网站`
-3. 网站名称填写：`ngpt.chat`
+3. 网站名称填写：`nextchat`
 4. 域名填写：`ngpt.chat`
 5. 代理目标填写：`http://127.0.0.1:3000`
 6. 开启 WebSocket 支持并保存
 
 补充说明：
 
-- 宝塔里用于申请 SSL 的网站名称，建议直接使用主域名，例如 `ngpt.chat`
-- `站点名称`、`域名`、`/www/dk_project/sites/{站点名}/`、`/www/server/panel/vhost/nginx/{站点名}.conf` 必须保持同名
-- 不要把 Docker 网站名称写成项目名或服务器 IP，例如 `my_NextChat`、`43.163.5.9`
-- 否则宝塔申请证书时可能报：`读取配置文件失败，请删除网站重新添加！`
-- 这类问题通常还会伴随旧路径残留，例如 `/www/dk_project/wwwroot/43.163.5.9`
+- 当前实际约定里，宝塔显示名称用 `nextchat`
+- 域名、站点 JSON、Nginx 配置文件名、证书目录继续使用 `ngpt.chat`
+- 站点路径固定使用 `/www/dk_project/my_NextChat`
+- 不要再把站点目录放到 `/www/dk_project/wwwroot/...`
+- 如果残留旧路径，例如 `/www/dk_project/wwwroot/43.163.5.9` 或 `/www/dk_project/wwwroot/ngpt.chat`，需要清理后再维护
 
 如果已经踩坑，先检查：
 

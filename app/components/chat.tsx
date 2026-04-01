@@ -565,32 +565,7 @@ function ChatModelUpdateNotice() {
     remoteSignalsLoaded,
   ]);
 
-  if (!remoteSignalsLoaded || autoReconciling || hasExactModelCountMatch) {
-    return null;
-  }
-
-  if (!hasStaleModels) {
-    return null;
-  }
-
-  // 判断实际渲染的主题（考虑 auto 模式下的系统偏好）
-  const isDark =
-    config.theme === "dark" ||
-    (config.theme === "auto" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
-
-  return (
-    <button
-      type="button"
-      className={clsx(
-        styles["chat-model-update-notice"],
-        isDark && styles["chat-model-update-notice-dark"],
-      )}
-      onClick={() => navigate(Path.ApiConfig)}
-    >
-      服务器模型数据有更新，点击上方一键刷新进行更新
-    </button>
-  );
+  return null;
 }
 
 function ChatProviderBalance(props: {
@@ -602,6 +577,19 @@ function ChatProviderBalance(props: {
   balanceCacheKey: string;
   profile?: BalanceAwareProfile;
 }) {
+  function formatUsageCurrency(value: number) {
+    if (!Number.isFinite(value)) {
+      return "--";
+    }
+    if (value === 0) {
+      return "$0.00";
+    }
+    if (Math.abs(value) >= 0.01) {
+      return `$${value.toFixed(2)}`;
+    }
+    return `$${value.toFixed(6)}`;
+  }
+
   const updateUsage = useUpdateStore((state) => state.updateUsage);
   const setBalanceSnapshot = useUpdateStore(
     (state) => state.setBalanceSnapshot,
@@ -650,6 +638,9 @@ function ChatProviderBalance(props: {
             used?: number;
             total?: number;
             remaining?: number;
+            metricType?: "currency" | "requests" | "tokens";
+            displayValue?: number;
+            displayLabel?: string;
             updatedAt?: number;
             provider?: ServiceProvider;
             profileId?: string;
@@ -671,6 +662,12 @@ function ChatProviderBalance(props: {
           used: Number(snapshot.used || 0),
           total: Number(snapshot.total || 0),
           remaining: Number(snapshot.remaining || 0),
+          metricType: snapshot.metricType,
+          displayValue:
+            typeof snapshot.displayValue === "number"
+              ? Number(snapshot.displayValue)
+              : undefined,
+          displayLabel: snapshot.displayLabel,
           updatedAt: Number(snapshot.updatedAt || 0),
           provider: snapshot.provider || props.providerName,
           profileId: snapshot.profileId,
@@ -755,17 +752,30 @@ function ChatProviderBalance(props: {
       : null;
   const totalUsed =
     typeof displayedBalance?.used === "number" ? displayedBalance.used : null;
+  const displayValue =
+    typeof displayedBalance?.displayValue === "number"
+      ? displayedBalance.displayValue
+      : totalUsed;
   const balanceDisplay =
     props.providerName === ServiceProvider.Local
-      ? totalUsed !== null
-        ? `$${totalUsed.toFixed(2)}`
+      ? displayedBalance?.metricType === "requests"
+        ? displayValue !== null
+          ? `${Math.round(displayValue).toLocaleString()} 次`
+          : "--"
+        : displayedBalance?.metricType === "tokens"
+        ? displayValue !== null
+          ? `${Math.round(displayValue).toLocaleString()} Tokens`
+          : "--"
+        : displayValue !== null
+        ? formatUsageCurrency(displayValue)
         : "--"
       : remaining !== null
       ? `$${remaining.toFixed(2)}`
       : "--";
   const balanceLabel =
     props.providerName === ServiceProvider.Local
-      ? `${props.providerDisplayName} 总使用量`
+      ? displayedBalance?.displayLabel ||
+        `${props.providerDisplayName} 总使用量`
       : `${props.providerDisplayName} 余额`;
 
   return (
