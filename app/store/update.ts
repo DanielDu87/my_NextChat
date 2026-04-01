@@ -15,7 +15,7 @@ import { clientUpdate } from "../utils";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import ChatGptIcon from "../icons/chatgpt.png";
 import Locale from "../locales";
-import { ClientApi, getClientApi } from "../client/api";
+import { ClientApi, getClientApi, type LLMUsage } from "../client/api";
 import { useAccessStore } from "./access";
 
 const ONE_MINUTE = 60 * 1000;
@@ -486,7 +486,7 @@ export async function queryBalanceSnapshot(
   provider: ServiceProvider,
   profile?: BalanceAwareProfile,
 ) {
-  let usage: { used: number; total: number } | undefined;
+  let usage: LLMUsage | undefined;
 
   if (provider === ServiceProvider.Custom) {
     const rule = getRequiredCustomBalanceRule(profile);
