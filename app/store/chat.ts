@@ -1256,12 +1256,25 @@ export const useChatStore = createPersistStore(
           currentSessionId,
         });
 
-        // 始终在开头创建新的空会话
-        const newEmptySession = createEmptySession();
-        sessions.unshift(newEmptySession);
-        changed = true;
-        console.log("[initializeForNewPage] 创建新的空会话", {
-          id: newEmptySession.id,
+        // 在插入新空会话之前，先判断之前选中的会话是否被过滤掉了
+        const previousSession =
+          currentSessions[currentState.currentSessionIndex];
+        const wasEmptySession =
+          previousSession &&
+          isDefaultTopic(previousSession.topic) &&
+          previousSession.messages.length === 0 &&
+          !previousSession.memoryPrompt;
+
+        // 查找之前选中的会话在过滤后数组中的位置（如果存在）
+        const indexInFilteredSessions = sessions.findIndex(
+          (session) => session.id === currentSessionId,
+        );
+        const previousSessionKept = indexInFilteredSessions >= 0;
+
+        console.log("[initializeForNewPage] 会话分析", {
+          wasEmptySession,
+          previousSessionKept,
+          indexInFilteredSessions,
         });
 
         // 更新有消息但主题是默认的会话
@@ -1275,26 +1288,29 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        // 判断之前选中的会话是否是空会话
-        const previousSession =
-          currentSessions[currentState.currentSessionIndex];
-        const wasEmptySession =
-          previousSession &&
-          isDefaultTopic(previousSession.topic) &&
-          previousSession.messages.length === 0 &&
-          !previousSession.memoryPrompt;
+        // 始终在开头创建新的空会话
+        const newEmptySession = createEmptySession();
+        sessions.unshift(newEmptySession);
+        changed = true;
+        console.log("[initializeForNewPage] 创建新的空会话", {
+          id: newEmptySession.id,
+        });
 
-        // 如果之前选中的是空会话，切换到新空会话（index 0）
-        // 如果之前选中是有消息的会话，保持选中（index + 1 因为前面插入了新会话）
-        let newSessionIndex = wasEmptySession
-          ? 0
-          : sessions.findIndex((session) => session.id === currentSessionId);
-        if (newSessionIndex < 0) {
+        // 计算新的索引：
+        // - 如果之前选中的是空会话（被过滤掉了），切换到新空会话（index 0）
+        // - 如果之前选中的是有消息的会话（被保留了），索引 = 原索引 + 1
+        let newSessionIndex: number;
+        if (!previousSessionKept) {
+          // 之前选中的是空会话，被过滤掉了，切换到新空会话
           newSessionIndex = 0;
+        } else {
+          // 之前选中的是有消息的会话，被保留了，索引 + 1（因为前面插入了新会话）
+          newSessionIndex = indexInFilteredSessions + 1;
         }
 
         console.log("[initializeForNewPage] 焦点处理", {
           wasEmptySession,
+          previousSessionKept,
           newSessionIndex,
           previousSessionId: previousSession?.id,
         });
