@@ -277,24 +277,29 @@
 }
 
 .rowAction {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
   width: 60px;
-  flex-shrink: 0;
   display: flex;
   justify-content: center;
   align-items: center;
+  cursor: pointer;
 }
 
 .selectMark {
   display: inline-flex;
   align-items: center;
   user-select: none;
+  cursor: pointer;
 }
 
 .selectMark input {
   margin: 0;
-  pointer-events: none;
   width: 16px;
   height: 16px;
+  cursor: pointer;
 }
 
 .userInfoItem {

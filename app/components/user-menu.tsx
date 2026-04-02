@@ -325,9 +325,23 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
 
     if (deleteMode && isDeletableUser(managedUser)) {
       return (
-        <div className={styles.rowAction}>
+        <div
+          className={styles.rowAction}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleUserSelection(managedUser);
+          }}
+        >
           <label className={styles.selectMark}>
-            <input type="checkbox" readOnly checked={isSelected} />
+            <input
+              type="checkbox"
+              readOnly
+              checked={isSelected}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleUserSelection(managedUser);
+              }}
+            />
           </label>
         </div>
       );
