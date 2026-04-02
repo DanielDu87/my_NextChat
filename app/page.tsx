@@ -4,13 +4,13 @@ import { getServerSideConfig } from "./config/server";
 import { cookies } from "next/headers";
 import SitePasswordGate from "./components/site-password-gate";
 import {
-  ensureSitePasswordConfigured,
-  getSiteAccessCookieName,
-  verifySiteAccessCookie,
-} from "./utils/server/site-password";
+  ensureAuthSchemaAndSeed,
+  getAuthContextFromCookies,
+  getAuthSessionCookieName,
+  getEffectiveUserCookieName,
+} from "./utils/server/auth";
 
 const serverConfig = getServerSideConfig();
-const DEFAULT_SITE_PASSWORD = "dyxchat123";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,21 +21,22 @@ export default async function App({
 }: {
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
-  await ensureSitePasswordConfigured(DEFAULT_SITE_PASSWORD);
+  await ensureAuthSchemaAndSeed();
   const cookieStore = cookies();
-  const isUnlocked = await verifySiteAccessCookie(
-    cookieStore.get(getSiteAccessCookieName())?.value,
-  );
-  const siteAuthError = Array.isArray(searchParams?.["site-auth-error"])
-    ? searchParams?.["site-auth-error"]?.[0]
-    : searchParams?.["site-auth-error"];
+  const authContext = await getAuthContextFromCookies({
+    sessionToken: cookieStore.get(getAuthSessionCookieName())?.value,
+    effectiveUserId: cookieStore.get(getEffectiveUserCookieName())?.value,
+  });
+  const loginError = Array.isArray(searchParams?.["login-error"])
+    ? searchParams?.["login-error"]?.[0]
+    : searchParams?.["login-error"];
 
   return (
     <>
-      {isUnlocked ? (
+      {authContext ? (
         <HomeEntry />
       ) : (
-        <SitePasswordGate initialError={siteAuthError} />
+        <SitePasswordGate initialError={loginError} />
       )}
       {serverConfig?.isVercel && (
         <>

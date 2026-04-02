@@ -2343,13 +2343,6 @@ export function ApiConfigPage() {
 
         try {
           const parsedState = parseStoreStatePayload(remoteStateText);
-          if (
-            key !== StoreKey.ModelCache &&
-            (!parsedState || typeof parsedState !== "object")
-          ) {
-            throw new Error(`${key} 格式不正确`);
-          }
-
           (nextState as Record<string, unknown>)[key] =
             normalizeDownloadedStoreState(
               key,
@@ -2392,9 +2385,10 @@ export function ApiConfigPage() {
         : [];
 
       if (localAccessProfiles.length === 0 && nextAccessProfiles.length === 0) {
-        throw new Error(
-          "数据库中的 API 配置为空或不可用，请先确认云端已保存 access-control 配置",
+        console.warn(
+          "[API Config] ⚠️ 数据库中的 access-control 为空或不可用，将保留当前本地 API 配置状态",
         );
+        fallbackKeys.push(StoreKey.Access);
       }
 
       console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");

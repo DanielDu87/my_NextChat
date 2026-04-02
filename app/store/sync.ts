@@ -40,6 +40,7 @@ import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
+import { useAuthStore } from "./auth";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import {
   buildSessionSummaries,
@@ -1308,7 +1309,10 @@ export const useSyncStore = createPersistStore(
 
     return {
       cloudSync() {
-        return get().provider === ProviderType.Database;
+        return (
+          get().provider === ProviderType.Database &&
+          !useAuthStore.getState().readOnly
+        );
       },
 
       markSyncTime() {
@@ -1410,6 +1414,12 @@ export const useSyncStore = createPersistStore(
       },
 
       async resumePendingDebounceSync() {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过恢复未完成同步");
+          clearPendingDebounceTask();
+          return false;
+        }
+
         const pendingTask = readPendingDebounceTask();
         if (!pendingTask) {
           return false;
@@ -1462,6 +1472,11 @@ export const useSyncStore = createPersistStore(
       },
 
       async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过同步请求");
+          return;
+        }
+
         const normalizedStoreKeys = normalizeSyncKeys(storeKeys);
         normalizedStoreKeys.forEach((key) => queuedSyncKeys.add(key));
 
@@ -1806,6 +1821,11 @@ export const useSyncStore = createPersistStore(
       },
 
       async autoSync() {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过自动同步");
+          return;
+        }
+
         await this.sync([StoreKey.Chat]);
 
         const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
@@ -1817,6 +1837,11 @@ export const useSyncStore = createPersistStore(
       },
 
       async syncModels() {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过模型同步");
+          return;
+        }
+
         return this.sync([...MODEL_SYNC_STORE_KEYS]);
       },
 

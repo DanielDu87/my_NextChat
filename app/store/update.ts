@@ -17,6 +17,7 @@ import ChatGptIcon from "../icons/chatgpt.png";
 import Locale from "../locales";
 import { ClientApi, getClientApi, type LLMUsage } from "../client/api";
 import { useAccessStore } from "./access";
+import { useAuthStore } from "./auth";
 
 const ONE_MINUTE = 60 * 1000;
 const BALANCE_REFRESH_INTERVAL = 60 * 1000;
@@ -564,6 +565,10 @@ async function persistBalanceSnapshot(
   key: string,
   snapshot: BalanceSnapshot,
 ): Promise<void> {
+  if (useAuthStore.getState().readOnly) {
+    return;
+  }
+
   try {
     const response = await fetch("/api/db/balance", {
       method: "PUT",

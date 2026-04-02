@@ -5,6 +5,7 @@ import { deepClone } from "./clone";
 import { indexedDbStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { StoreKey } from "../constant";
 import type { SyncStoreKey } from "./sync-store-keys";
+import { useAuthStore } from "../store/auth";
 
 type SecondParam<T> = T extends (
   _f: infer _F,
@@ -108,6 +109,7 @@ function triggerImmediateStoreSync(storeName?: string) {
   if (
     typeof window === "undefined" ||
     immediateStoreSyncPauseCount > 0 ||
+    useAuthStore.getState().readOnly ||
     !syncStoreKey ||
     !IMMEDIATE_SYNC_STORE_KEYS.has(syncStoreKey)
   ) {

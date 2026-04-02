@@ -7,7 +7,11 @@ import {
   setStoreSnapshot,
 } from "@/app/utils/server/sync-store-repository";
 import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import {
+  requireWritableStoreSyncUserId,
+  resolveStoreSyncUserId,
+} from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +32,7 @@ export async function GET(_: NextRequest, { params }: Params) {
       );
     }
 
-    const userId = resolveSyncUserId(_);
+    const userId = await resolveStoreSyncUserId(params.key, _);
     const payload = await withRetryablePostgresOperation(() =>
       getStoreSnapshot(params.key, userId),
     );
@@ -49,12 +53,13 @@ export async function GET(_: NextRequest, { params }: Params) {
       },
     });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }
@@ -74,7 +79,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       bytes: Buffer.byteLength(rawBody, "utf8"),
     });
     const payload = JSON.parse(rawBody);
-    const userId = resolveSyncUserId(req);
+    const userId = await requireWritableStoreSyncUserId(params.key, req);
     const expectedUpdatedAt = req.headers.get("x-expected-updated-at") || "";
     const expectedChecksum = req.headers.get("x-expected-checksum") || "";
     const expectedMissing = req.headers.get("x-expected-missing") === "1";
@@ -122,12 +127,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
       error:
         error instanceof Error ? error.stack || error.message : String(error),
     });
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }
@@ -141,18 +147,19 @@ export async function DELETE(_: NextRequest, { params }: Params) {
       );
     }
 
-    const userId = resolveSyncUserId(_);
+    const userId = await requireWritableStoreSyncUserId(params.key, _);
     await withRetryablePostgresOperation(() =>
       removeStoreSnapshot(params.key, userId),
     );
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

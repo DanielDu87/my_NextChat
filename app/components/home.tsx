@@ -29,6 +29,7 @@ import { getClientConfig } from "../config/client";
 import { useAccessStore, useChatIndexStore, useChatStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
+import { useAuthStore } from "../store/auth";
 
 export function Loading(props: { noLogo?: boolean }) {
   return (
@@ -240,10 +241,18 @@ export function Home() {
   useLoadData();
   useHtmlLang();
   const hasHydrated = useHasHydrated();
+  const authInitialized = useAuthStore((state) => state.initialized);
 
   useEffect(() => {
     // console.log("[Config] got config from build time", getClientConfig());
     (useAccessStore.getState() as any).fetch();
+    void useAuthStore
+      .getState()
+      .fetchMe()
+      .catch((error) => {
+        console.error("[Auth] failed to fetch current user", error);
+        window.location.reload();
+      });
 
     const initMcp = async () => {
       try {
@@ -261,15 +270,15 @@ export function Home() {
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated) {
+    if (!hasHydrated || !authInitialized) {
       return;
     }
 
     void useChatIndexStore.getState().initialize();
     useChatStore.getState().initializeForNewPage();
-  }, [hasHydrated]);
+  }, [authInitialized, hasHydrated]);
 
-  if (!hasHydrated) {
+  if (!hasHydrated || !authInitialized) {
     return <Loading />;
   }
 

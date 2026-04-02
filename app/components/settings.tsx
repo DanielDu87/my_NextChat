@@ -87,6 +87,7 @@ import { nanoid } from "nanoid";
 import { useMaskStore } from "../store/mask";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
+import { UserMenu } from "./user-menu";
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
@@ -1377,7 +1378,9 @@ export function Settings() {
           </div>
         </div>
         <div className="window-actions">
-          <div className="window-action-button"></div>
+          <div className="window-action-button">
+            <UserMenu />
+          </div>
           <div className="window-action-button"></div>
           <div className="window-action-button">
             <IconButton

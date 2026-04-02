@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureSyncStorageSchema } from "@/app/utils/server/postgres";
 import { setLatestModelRefreshState } from "@/app/utils/server/model-refresh-state-repository";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import { requireWritableSharedSyncUserId } from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const revalidate = 0;
 export async function POST(req: NextRequest) {
   try {
     await ensureSyncStorageSchema();
-    const userId = resolveSyncUserId(req);
+    const userId = await requireWritableSharedSyncUserId(req);
     const body = await req.json();
     const { count, providers } = body;
 
@@ -43,12 +44,13 @@ export async function POST(req: NextRequest) {
       },
     );
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

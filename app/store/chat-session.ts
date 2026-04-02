@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ChatSession, useChatStore } from "./chat";
+import { ChatSession, normalizeSession, useChatStore } from "./chat";
 
 export function getCurrentChatSession() {
   return useChatStore.getState().currentSession();
@@ -29,7 +29,9 @@ export function useCurrentSession() {
       return undefined;
     }
 
-    return state.sessions.find((session) => session.id === currentSessionId);
+    return normalizeSession(
+      state.sessions.find((session) => session.id === currentSessionId),
+    );
   });
   const isPrunedInMemorySession =
     !!inMemorySession &&
@@ -63,7 +65,7 @@ export function useCurrentSession() {
           return;
         }
 
-        setLoadedSession(session);
+        setLoadedSession(normalizeSession(session));
       })
       .catch((error) => {
         if (cancelled) {
@@ -72,7 +74,9 @@ export function useCurrentSession() {
 
         console.error("[Chat] ❌ 加载会话正文失败:", error);
         setLoadedSession(
-          useChatStore.getState().getSessionById(currentSessionId),
+          normalizeSession(
+            useChatStore.getState().getSessionById(currentSessionId),
+          ),
         );
       });
 

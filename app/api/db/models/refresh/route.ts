@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refreshConfiguredProviderModels } from "@/app/utils/server/provider-model-sync";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import { requireWritableSharedSyncUserId } from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     const result = await refreshConfiguredProviderModels(
       "api",
-      resolveSyncUserId(req),
+      await requireWritableSharedSyncUserId(req),
     );
     return NextResponse.json(result, {
       headers: {
@@ -35,12 +36,13 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

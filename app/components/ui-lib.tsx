@@ -206,6 +206,7 @@ interface ModalProps {
   children?: any;
   actions?: React.ReactNode[];
   defaultMax?: boolean;
+  hideMaxToggle?: boolean;
   isSmall?: boolean;
   footer?: React.ReactNode;
   onClose?: () => void;
@@ -244,12 +245,14 @@ export function Modal(props: ModalProps) {
         <div className={styles["modal-title"]}>{props.title}</div>
 
         <div className={styles["modal-header-actions"]}>
-          <div
-            className={styles["modal-header-action"]}
-            onClick={() => setMax(!isMax)}
-          >
-            {isMax ? <MinIcon /> : <MaxIcon />}
-          </div>
+          {!props.hideMaxToggle && (
+            <div
+              className={styles["modal-header-action"]}
+              onClick={() => setMax(!isMax)}
+            >
+              {isMax ? <MinIcon /> : <MaxIcon />}
+            </div>
+          )}
           <div
             className={styles["modal-header-action"]}
             onClick={props.onClose}

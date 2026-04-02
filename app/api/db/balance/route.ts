@@ -4,7 +4,11 @@ import {
   getProviderBalanceSnapshot,
   setProviderBalanceSnapshot,
 } from "@/app/utils/server/provider-balance-repository";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import {
+  requireWritableSharedSyncUserId,
+  resolveSharedSyncUserId,
+} from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,15 +31,19 @@ export async function GET(req: NextRequest) {
   try {
     return NextResponse.json({
       ok: true,
-      snapshot: await getProviderBalanceSnapshot(resolveSyncUserId(req), key),
+      snapshot: await getProviderBalanceSnapshot(
+        await resolveSharedSyncUserId(req),
+        key,
+      ),
     });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }
@@ -60,19 +68,20 @@ export async function PUT(req: NextRequest) {
     }
 
     await setProviderBalanceSnapshot(
-      resolveSyncUserId(req),
+      await requireWritableSharedSyncUserId(req),
       key,
       payload?.snapshot ?? {},
     );
 
     return NextResponse.json({ ok: true, persisted: true });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

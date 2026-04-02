@@ -4,7 +4,11 @@ import {
   getLatestModelRefreshState,
   removeLatestModelRefreshState,
 } from "@/app/utils/server/model-refresh-state-repository";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import {
+  requireWritableSharedSyncUserId,
+  resolveSharedSyncUserId,
+} from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +33,7 @@ type LatestModelRefreshRow = {
 export async function GET(request: Request) {
   try {
     await ensureSyncStorageSchema();
-    const userId = resolveSyncUserId(new Headers(request.headers));
+    const userId = await resolveSharedSyncUserId(new Headers(request.headers));
     const row = (await getLatestModelRefreshState(
       userId,
     )) as LatestModelRefreshRow | null;
@@ -52,6 +56,7 @@ export async function GET(request: Request) {
       },
     );
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: true,
@@ -60,6 +65,7 @@ export async function GET(request: Request) {
         error: error instanceof Error ? error.message : "unknown_error",
       },
       {
+        status,
         headers: {
           "Cache-Control": "no-store",
         },
@@ -71,7 +77,9 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
   try {
     await ensureSyncStorageSchema();
-    const userId = resolveSyncUserId(new Headers(request.headers));
+    const userId = await requireWritableSharedSyncUserId(
+      new Headers(request.headers),
+    );
     await removeLatestModelRefreshState(userId);
 
     return NextResponse.json(
@@ -83,12 +91,13 @@ export async function DELETE(request: Request) {
       },
     );
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

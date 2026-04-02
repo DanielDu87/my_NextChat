@@ -33,9 +33,10 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
 import dynamic from "next/dynamic";
-import { Selector, showConfirm } from "./ui-lib";
+import { Selector, showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { isMcpEnabled } from "../mcp/actions";
+import { useAuthStore } from "../store/auth";
 
 const DISCOVERY = [
   { name: Locale.Plugin.Name, path: Path.Plugins },
@@ -500,6 +501,7 @@ export function SideBar(props: { className?: string }) {
   const navigate = useNavigate();
   const config = useAppConfig();
   const chatStore = useChatStore();
+  const readOnly = useAuthStore((state) => state.readOnly);
   const [mcpEnabled, setMcpEnabled] = useState(false);
 
   const themeSelectorRef = useRef<HTMLDivElement>(null);
@@ -610,6 +612,10 @@ export function SideBar(props: { className?: string }) {
               <IconButton
                 icon={<DeleteIcon />}
                 onClick={async () => {
+                  if (readOnly) {
+                    showToast("管理员查看他人数据时为只读模式，不能删除会话");
+                    return;
+                  }
                   if (await showConfirm(Locale.Home.DeleteChat)) {
                     chatStore.deleteCurrentSession();
                   }
@@ -696,6 +702,10 @@ export function SideBar(props: { className?: string }) {
             icon={<AddIcon />}
             text={shouldNarrow ? undefined : Locale.Home.NewChat}
             onClick={() => {
+              if (readOnly) {
+                showToast("管理员查看他人数据时为只读模式，不能新建会话");
+                return;
+              }
               if (config.dontShowMaskSplashScreen) {
                 chatStore.newSession();
                 navigate(Path.Chat);

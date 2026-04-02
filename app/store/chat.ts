@@ -408,18 +408,66 @@ export function createEmptySession(): ChatSession {
   };
 }
 
+export function normalizeSession(
+  session?: ChatSession,
+): ChatSession | undefined {
+  if (!session) {
+    return session;
+  }
+
+  const fallbackSession = createEmptySession();
+  const fallbackMask = fallbackSession.mask;
+  const currentMask =
+    session.mask && typeof session.mask === "object" ? session.mask : undefined;
+
+  return {
+    ...fallbackSession,
+    ...session,
+    messages: Array.isArray(session.messages) ? session.messages : [],
+    stat:
+      session.stat && typeof session.stat === "object"
+        ? {
+            ...fallbackSession.stat,
+            ...session.stat,
+          }
+        : fallbackSession.stat,
+    mask: {
+      ...fallbackMask,
+      ...currentMask,
+      context:
+        currentMask && Array.isArray(currentMask.context)
+          ? currentMask.context
+          : [],
+      plugin:
+        currentMask && Array.isArray(currentMask.plugin)
+          ? currentMask.plugin
+          : [],
+      modelConfig: {
+        ...fallbackMask.modelConfig,
+        ...(currentMask?.modelConfig || {}),
+      },
+    },
+  };
+}
+
 export function buildSessionSummary(session: ChatSession): ChatSessionSummary {
+  const normalizedSession = normalizeSession(session) ?? createEmptySession();
   const fallbackMask = createEmptyMask();
 
   return {
-    id: session.id,
-    topic: session.topic,
-    messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
-    createdAt: session.createdAt,
-    displayTime: session.createdAt || session.lastUpdate || Date.now(),
-    avatar: session.mask?.avatar || fallbackMask.avatar,
-    model: session.mask?.modelConfig?.model || fallbackMask.modelConfig.model,
-    searchText: buildSessionSearchText(session),
+    id: normalizedSession.id,
+    topic: normalizedSession.topic,
+    messageCount: Array.isArray(normalizedSession.messages)
+      ? normalizedSession.messages.length
+      : 0,
+    createdAt: normalizedSession.createdAt,
+    displayTime:
+      normalizedSession.createdAt || normalizedSession.lastUpdate || Date.now(),
+    avatar: normalizedSession.mask?.avatar || fallbackMask.avatar,
+    model:
+      normalizedSession.mask?.modelConfig?.model ||
+      fallbackMask.modelConfig.model,
+    searchText: buildSessionSearchText(normalizedSession),
   };
 }
 
@@ -1640,13 +1688,16 @@ export const useChatStore = createPersistStore(
           summary,
         );
         if (persistedSession && !isPersistedPlaceholder) {
-          return persistedSession;
+          return normalizeSession(persistedSession);
         }
 
         const remoteSession = await fetchRemoteSessionById(sessionId);
         if (remoteSession) {
-          await get().saveSessionToPersistedStorage(remoteSession);
-          return remoteSession;
+          const normalizedRemoteSession = normalizeSession(remoteSession);
+          if (normalizedRemoteSession) {
+            await get().saveSessionToPersistedStorage(normalizedRemoteSession);
+          }
+          return normalizedRemoteSession;
         }
 
         return undefined;
@@ -1685,7 +1736,9 @@ export const useChatStore = createPersistStore(
         set(() => ({ hydratingSessionId: sessionId }));
 
         try {
-          const persistedSession = await get().loadSessionById(sessionId);
+          const persistedSession = normalizeSession(
+            await get().loadSessionById(sessionId),
+          );
           if (!persistedSession) {
             return undefined;
           }
@@ -1774,7 +1827,6 @@ export const useChatStore = createPersistStore(
         }
 
         const session = sessions[index];
-
         return session;
       },
 

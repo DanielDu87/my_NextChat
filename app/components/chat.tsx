@@ -55,6 +55,7 @@ import {
   ChatMessage,
   createMessage,
   createEmptySession,
+  normalizeSession,
   useChatStore,
 } from "../store/chat";
 import { DEFAULT_TOPIC, getBotHelloContent } from "../store/chat-defaults";
@@ -175,6 +176,8 @@ import {
 } from "../utils/model";
 import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
+import { useAuthStore } from "../store/auth";
+import { UserMenu } from "./user-menu";
 
 type RemoteModelRefreshArtifact = {
   updatedAt?: string;
@@ -722,6 +725,25 @@ function ChatProviderBalance(props: {
     refreshUsage(true);
   }, [props.refreshSignal, refreshUsage]);
 
+  useEffect(() => {
+    if (
+      props.autoModeEnabled ||
+      !supportsBalance ||
+      !props.balanceCacheKey ||
+      typeof displayedBalance?.remaining === "number"
+    ) {
+      return;
+    }
+
+    void refreshUsage(true);
+  }, [
+    displayedBalance?.remaining,
+    props.autoModeEnabled,
+    props.balanceCacheKey,
+    refreshUsage,
+    supportsBalance,
+  ]);
+
   if (props.autoModeEnabled || !supportsBalance) {
     return null;
   }
@@ -895,8 +917,8 @@ function PromptToast(props: {
     (state) => state.sessions[state.currentSessionIndex],
   );
   const { session: loadedSession } = useCurrentSession();
-  const session = loadedSession ?? currentSessionSnapshot;
-  const context = session?.mask.context ?? [];
+  const session = normalizeSession(loadedSession ?? currentSessionSnapshot);
+  const context = session?.mask?.context ?? [];
 
   return (
     <div className={styles["prompt-toast"]} key="prompt-toast">
@@ -2163,9 +2185,38 @@ function _Chat() {
   );
   const currentProviderDisplayName =
     currentProfile?.name || currentProviderName;
+  const fallbackBalanceProfile = useMemo(
+    () =>
+      apiProfiles.find((profile) => {
+        if (!profile.enabled) {
+          return false;
+        }
+
+        if (profile.provider === ServiceProvider.Custom) {
+          return !!profile.baseUrl && !!profile.apiKey;
+        }
+
+        return profile.provider === ServiceProvider.Local;
+      }),
+    [apiProfiles],
+  );
+  const balanceProviderName =
+    currentProviderName === ServiceProvider.Custom ||
+    currentProviderName === ServiceProvider.Local
+      ? currentProviderName
+      : fallbackBalanceProfile?.provider;
+  const balanceProfile =
+    balanceProviderName === currentProviderName
+      ? currentProfile
+      : fallbackBalanceProfile;
+  const balanceProviderDisplayName =
+    balanceProfile?.name || balanceProviderName || currentProviderDisplayName;
   const currentBalanceCacheKey = useMemo(
-    () => buildBalanceCacheKey(currentProviderName, currentProfile),
-    [currentProfile, currentProviderName],
+    () =>
+      balanceProviderName
+        ? buildBalanceCacheKey(balanceProviderName, balanceProfile)
+        : "",
+    [balanceProfile, balanceProviderName],
   );
   const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
@@ -2552,6 +2603,10 @@ function _Chat() {
   }, [promptHints.length]);
 
   const doSubmit = (userInput: string) => {
+    if (readOnly) {
+      showToast("管理员查看他人数据时为只读模式，不能发送消息");
+      return;
+    }
     if (userInput.trim() === "" && isEmpty(attachImages)) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
@@ -3563,6 +3618,8 @@ function _Chat() {
   }, [messages, chatStore, navigate, session]);
 
   const [showChatSidePanel, setShowChatSidePanel] = useState(false);
+  const readOnly = useAuthStore((state) => state.readOnly);
+  const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
 
   if (!session) {
     return null;
@@ -3602,7 +3659,11 @@ function _Chat() {
                 "window-header-main-title",
                 styles["chat-body-main-title"],
               )}
-              onClickCapture={() => setIsEditingMessage(true)}
+              onClickCapture={() => {
+                if (!readOnly) {
+                  setIsEditingMessage(true);
+                }
+              }}
             >
               {!safeSession.topic ? DEFAULT_TOPIC : safeSession.topic}
             </div>
@@ -3626,6 +3687,7 @@ function _Chat() {
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
+                disabled={readOnly}
               />
             </div>
             <div
@@ -3669,7 +3731,7 @@ function _Chat() {
                 onClick={() => {
                   void syncAllProfilesFromChat();
                 }}
-                disabled={syncingAll}
+                disabled={syncingAll || readOnly}
               />
             </div>
             <div
@@ -3685,6 +3747,7 @@ function _Chat() {
                 title="API 配置"
                 aria="API 配置"
                 onClick={() => navigate(Path.ApiConfig)}
+                disabled={readOnly || effectiveAuthUser?.role !== "admin"}
               />
             </div>
             <div
@@ -3702,6 +3765,7 @@ function _Chat() {
                   showToast(Locale.Chat.Actions.RefreshToast);
                   chatStore.summarizeSession(true, session);
                 }}
+                disabled={readOnly}
               />
             </div>
             {!isMobileScreen && (
@@ -3718,6 +3782,7 @@ function _Chat() {
                   title={Locale.Chat.EditMessage.Title}
                   aria={Locale.Chat.EditMessage.Title}
                   onClick={() => setIsEditingMessage(true)}
+                  disabled={readOnly}
                 />
               </div>
             )}
@@ -3767,14 +3832,17 @@ function _Chat() {
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
             <ChatModelUpdateNotice />
-            <ChatProviderBalance
-              providerName={currentProviderName}
-              providerDisplayName={currentProviderDisplayName}
-              autoModeEnabled={autoModeEnabled}
-              refreshSignal={balanceRefreshSignal}
-              balanceCacheKey={currentBalanceCacheKey}
-              profile={currentProfile as BalanceAwareProfile | undefined}
-            />
+            <div className={styles["chat-balance-user-panel"]}>
+              <ChatProviderBalance
+                providerName={balanceProviderName || currentProviderName}
+                providerDisplayName={balanceProviderDisplayName}
+                autoModeEnabled={autoModeEnabled}
+                refreshSignal={balanceRefreshSignal}
+                balanceCacheKey={currentBalanceCacheKey}
+                profile={balanceProfile as BalanceAwareProfile | undefined}
+              />
+              <UserMenu variant="chat-floating" />
+            </div>
             <div
               className={styles["chat-body"]}
               ref={scrollRef}
@@ -4105,7 +4173,11 @@ function _Chat() {
                   id="chat-input"
                   ref={inputRef}
                   className={styles["chat-input"]}
-                  placeholder={Locale.Chat.Input(submitKey)}
+                  placeholder={
+                    readOnly
+                      ? "管理员查看模式下不可发送消息"
+                      : Locale.Chat.Input(submitKey)
+                  }
                   onInput={(e) => onInput(e.currentTarget.value)}
                   value={userInput}
                   onKeyDown={onInputKeyDown}
@@ -4114,6 +4186,7 @@ function _Chat() {
                   onPaste={handlePaste}
                   rows={inputRows}
                   autoFocus={autoFocus}
+                  disabled={readOnly}
                   style={{
                     fontSize: config.fontSize,
                     fontFamily: config.fontFamily,
@@ -4147,6 +4220,7 @@ function _Chat() {
                   text={Locale.Chat.Send}
                   className={styles["chat-input-send"]}
                   type="primary"
+                  disabled={readOnly}
                   onClick={() => doSubmit(userInput)}
                 />
               </label>
@@ -4507,6 +4581,9 @@ export function Chat() {
   const session = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
+  const sessionIdListKey = useChatStore((state) =>
+    state.sessions.map((item) => item.id).join(","),
+  );
   const { id: urlSessionId } = useParams();
   const navigate = useNavigate();
   const isNavigatingFromUrl = useRef(false);
@@ -4521,7 +4598,7 @@ export function Chat() {
         store.selectSessionById(urlSessionId);
       }
     }
-  }, [urlSessionId]);
+  }, [sessionIdListKey, urlSessionId]);
 
   // 对话变化时同步 URL
   useEffect(() => {

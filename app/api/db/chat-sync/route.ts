@@ -6,7 +6,11 @@ import {
 } from "@/app/utils/server/sync-store-repository";
 import { StoreKey } from "@/app/constant";
 import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
-import { resolveSyncUserId } from "@/app/utils/server/sync-user";
+import {
+  requireWritableSyncUserId,
+  resolveSyncUserId,
+} from "@/app/utils/server/sync-user";
+import { AuthError } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +18,7 @@ export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = resolveSyncUserId(req);
+    const userId = await resolveSyncUserId(req);
     const index = await withRetryablePostgresOperation(() =>
       getChatIndexSnapshot(userId),
     );
@@ -24,6 +28,7 @@ export async function GET(req: NextRequest) {
       index: index ?? null,
     });
   } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: true,
@@ -32,6 +37,7 @@ export async function GET(req: NextRequest) {
         error: error instanceof Error ? error.message : "unknown_error",
       },
       {
+        status,
         headers: {
           "Cache-Control": "no-store",
         },
@@ -42,7 +48,7 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const userId = resolveSyncUserId(req);
+    const userId = await requireWritableSyncUserId(req);
     const payload = (await req.json()) as {
       index?: any;
       upsertSessions?: Array<Record<string, unknown>>;
@@ -105,12 +111,13 @@ export async function PUT(req: NextRequest) {
       error:
         error instanceof Error ? error.stack || error.message : String(error),
     });
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "unknown_error",
       },
-      { status: 500 },
+      { status },
     );
   }
 }

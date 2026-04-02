@@ -1,52 +1,88 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { IconButton } from "./button";
 import { PasswordInput } from "./ui-lib";
 import Logo from "../icons/logo.svg";
 import styles from "./site-password-gate.module.scss";
 
 export default function SitePasswordGate(props: { initialError?: string }) {
+  const router = useRouter();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(props.initialError || "");
 
-  const handleSubmit = (event?: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    if (!username.trim()) {
+      setError("请输入用户名");
+      return;
+    }
     if (!password.trim()) {
-      setError("请输入访问密码");
+      setError("请输入密码");
       return;
     }
 
     setSubmitting(true);
     setError("");
-    event?.currentTarget.submit();
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify({
+          username,
+          password,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok || payload?.ok !== true) {
+        setError(String(payload?.error || "登录失败"));
+        return;
+      }
+
+      router.refresh();
+      window.location.reload();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "登录失败");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className={styles.page}>
-      <form
-        className={styles.card}
-        onSubmit={handleSubmit}
-        action="/api/site-auth?redirect=1"
-        method="post"
-      >
+      <form className={styles.card} onSubmit={handleSubmit}>
         <div className={styles.logo}>
           <Logo />
         </div>
-        <div className={styles.title}>访问验证</div>
-        <div className={styles.desc}>
-          请输入站点访问密码。验证成功后，当前浏览器 60 天内无需再次输入。
-        </div>
-        <div className={styles.input}>
-          <input type="hidden" name="redirectTo" value="/" />
-          <PasswordInput
-            name="password"
-            aria="站点访问密码"
-            aria-label="站点访问密码"
-            value={password}
-            placeholder="请输入访问密码"
+        <div className={styles.title}>账号登录</div>
+        <div className={styles.desc}>请使用管理员创建的账号进入系统。</div>
+        <div className={`${styles.input} ${styles.usernameInput}`}>
+          <input
+            aria-label="用户名"
+            value={username}
+            placeholder="请输入用户名"
             autoFocus
+            required
+            onChange={(e) => {
+              setUsername(e.currentTarget.value);
+              if (error) {
+                setError("");
+              }
+            }}
+          />
+        </div>
+        <div className={`${styles.input} ${styles.passwordInput}`}>
+          <PasswordInput
+            aria="登录密码"
+            aria-label="登录密码"
+            value={password}
+            placeholder="请输入密码"
             required
             onChange={(e) => {
               setPassword(e.currentTarget.value);
@@ -61,7 +97,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
             type="primary"
             text={
               <span className={styles.actionText}>
-                {submitting ? "验证中..." : "进入系统"}
+                {submitting ? "登录中..." : "进入系统"}
               </span>
             }
             disabled={submitting}
@@ -77,7 +113,8 @@ export default function SitePasswordGate(props: { initialError?: string }) {
           </div>
         </div>
         <div className={styles.tips}>
-          密码已存入数据库，修改后旧 cookie 会自动失效。
+          首次启动默认管理员账号为 `admin`，密码为
+          `admin123456`，建议登录后立即新增正式账号。
         </div>
       </form>
     </div>
