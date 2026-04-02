@@ -147,6 +147,64 @@
   margin-right: 12px;
 }
 
+.createModal {
+  width: min(620px, 82vw);
+}
+
+.createModal :global(.modal-content) {
+  padding: 16px;
+}
+
+.createForm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.createInput {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: var(--border-in-light);
+  background: var(--white);
+  color: var(--black);
+  font-size: 13px;
+  outline: none;
+}
+
+.createInput:focus {
+  border-color: var(--primary);
+}
+
+.adminCheck {
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: var(--border-in-light);
+  background: var(--white);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.adminCheck input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.adminCheckText {
+  color: var(--black-alpha-80);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .manageModal :global(.list-item) {
   min-height: 0;
   padding: 0;
@@ -216,6 +274,27 @@
   padding-left: 40px;
   padding-right: 20px;
   box-sizing: border-box;
+}
+
+.rowAction {
+  width: 60px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.selectMark {
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+}
+
+.selectMark input {
+  margin: 0;
+  pointer-events: none;
+  width: 16px;
+  height: 16px;
 }
 
 .userInfoItem {

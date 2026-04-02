@@ -41,7 +41,9 @@
     border-color: rgba($color: red, $alpha: 0.5);
     background-color: rgba($color: red, $alpha: 0.05);
 
-    &:hover {
+    &:hover,
+    &:focus,
+    &:active {
       border-color: red;
       background-color: rgba($color: red, $alpha: 0.1);
     }

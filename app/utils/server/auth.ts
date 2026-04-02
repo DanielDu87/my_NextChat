@@ -597,6 +597,57 @@ export async function createManagedUser(params: {
   return buildAuthUser(result.rows[0]);
 }
 
+export async function deleteManagedUser(params: {
+  actorUserId: string;
+  userId: string;
+}) {
+  await ensureAuthSchemaAndSeed();
+
+  const actorUserId = String(params.actorUserId || "").trim();
+  const userId = String(params.userId || "").trim();
+
+  if (!userId) {
+    throw new AuthError("missing_user_id", 400);
+  }
+
+  if (actorUserId && actorUserId === userId) {
+    throw new AuthError("cannot_delete_self", 400);
+  }
+
+  const targetResult = await pgQuery<AuthUserRow>(
+    `select
+       id::text as id,
+       external_id,
+       username,
+       display_name,
+       role,
+       is_active,
+       last_login_at::text as last_login_at
+     from app_users
+     where id = $1::uuid
+       and username is not null
+     limit 1`,
+    [userId],
+  );
+
+  const targetRow = targetResult.rows[0];
+  if (!targetRow) {
+    throw new AuthError("target_user_not_found", 404);
+  }
+
+  if (targetRow.role === "admin") {
+    throw new AuthError("cannot_delete_admin", 400);
+  }
+
+  await pgQuery(
+    `delete from app_users
+     where id = $1::uuid`,
+    [userId],
+  );
+
+  return buildAuthUser(targetRow);
+}
+
 export async function resolveSyncUserContext(source?: AuthSource) {
   const context = await requireAuthContext(source);
 
