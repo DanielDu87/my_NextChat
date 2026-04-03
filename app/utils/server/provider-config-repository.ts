@@ -95,6 +95,32 @@ function sanitizeProviderProfile(profile: AccessProfile) {
   return nextProfile;
 }
 
+function safeDecryptProviderSecret(
+  encryptedSecret: string | null,
+  context: {
+    externalUserId: string;
+    providerCode: string;
+    keyName: string | null;
+  },
+) {
+  if (!encryptedSecret) {
+    return "";
+  }
+
+  try {
+    const decrypted = decryptSyncSecretPayload(encryptedSecret);
+    return typeof decrypted === "string" ? decrypted : "";
+  } catch (error) {
+    console.error(
+      `[ProviderConfigRepo] 解密 provider key 失败，已忽略 user=${
+        context.externalUserId
+      } provider=${context.providerCode} key=${context.keyName || "unknown"}`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return "";
+  }
+}
+
 function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
   const rows: Array<{
     keyName: string;
@@ -348,11 +374,11 @@ export async function getProviderProfilesForAccessState(
       existing.balanceQueryField = requestConfig.balanceQueryField;
     }
 
-    const decryptedSecret = row.encrypted_secret
-      ? decryptSyncSecretPayload(row.encrypted_secret)
-      : null;
-    const secretValue =
-      typeof decryptedSecret === "string" ? decryptedSecret : "";
+    const secretValue = safeDecryptProviderSecret(row.encrypted_secret, {
+      externalUserId,
+      providerCode: row.provider_code,
+      keyName: row.key_name,
+    });
 
     if (row.key_name === "default" && secretValue) {
       existing.apiKey = secretValue;

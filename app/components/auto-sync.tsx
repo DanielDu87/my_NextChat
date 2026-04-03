@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import type { LLMModel } from "../client/api";
 import {
   buildProviderDiffSummaries,
   countCloudMergedModels,
   describeModelCountDiff,
   getCloudMergedPlatformCounts,
 } from "../utils/auto-sync-model-diff";
-import { ServiceProvider, StoreKey } from "../constant";
+import { StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
@@ -18,6 +17,7 @@ import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
 import { getNonFunctionFileds } from "../utils/sync";
+import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import {
   buildChatIndexPayload,
   getSyncableChatSessions,
@@ -92,71 +92,6 @@ function hasMeaningfulLocalChatState(state: Record<string, any>) {
       (Array.isArray(session?.messages) && session.messages.length > 0) ||
       sessions.length > 1,
   );
-}
-
-function getProfileProviderId(profile: { provider: string; name: string }) {
-  return profile.provider === ServiceProvider.Custom
-    ? `custom_${profile.name}`.toLowerCase()
-    : profile.provider === ServiceProvider.Local
-    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
-    : String(profile.provider).toLowerCase();
-}
-
-function rebuildManagedModelsFromCache() {
-  const accessStore = useAccessStore.getState();
-  const appConfig = useAppConfig.getState();
-  const modelCacheStore = useModelCacheStore.getState();
-  const profiles = accessStore.apiProfiles || [];
-  const existingManagedCount = countCloudMergedModels(
-    appConfig.models || [],
-    profiles,
-  );
-
-  if (existingManagedCount > 0) {
-    return;
-  }
-
-  const rebuiltModels: LLMModel[] = [];
-
-  profiles.forEach((profile) => {
-    const cache = modelCacheStore.profiles?.[profile.id];
-    const cachedModels = cache?.cachedModels || profile.cachedModels || "";
-    if (!cachedModels) {
-      return;
-    }
-
-    const providerId = getProfileProviderId(profile);
-    cachedModels
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .forEach((modelName, index) => {
-        rebuiltModels.push({
-          name: modelName,
-          displayName: modelName,
-          available: true,
-          sorted: index,
-          provider: {
-            id: providerId,
-            providerName: profile.provider,
-            providerType:
-              profile.provider === ServiceProvider.Local ? "openai" : "custom",
-            sorted: 0,
-          },
-        });
-      });
-  });
-
-  if (rebuiltModels.length === 0) {
-    return;
-  }
-
-  appConfig.mergeModels(rebuiltModels, {
-    silent: true,
-    allowedProviderIds: profiles.map((profile) =>
-      getProfileProviderId(profile),
-    ),
-  });
 }
 
 export default function AutoSync() {

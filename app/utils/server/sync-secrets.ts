@@ -116,5 +116,13 @@ export async function getEncryptedSyncSecret<T = unknown>(params: {
     return null;
   }
 
-  return decryptSyncSecretPayload(value) as T;
+  try {
+    return decryptSyncSecretPayload(value) as T;
+  } catch (error) {
+    console.error(
+      `[SyncSecrets] 解密失败，已忽略 secretKey=${params.secretKey} userId=${params.userId}`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }

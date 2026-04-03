@@ -1140,6 +1140,32 @@ function countMessages(msgs: ChatMessage[]) {
   );
 }
 
+function canAutoGenerateSessionTitle(messages: ChatMessage[]) {
+  let hasUserMessage = false;
+  let lastCompletedAssistantMessage = false;
+
+  for (const message of messages) {
+    if (message.isError) {
+      continue;
+    }
+
+    if (message.role === "user" && getMessageTextContent(message).trim()) {
+      hasUserMessage = true;
+      lastCompletedAssistantMessage = false;
+    }
+
+    if (
+      message.role === "assistant" &&
+      getMessageTextContent(message).trim() &&
+      !message.streaming
+    ) {
+      lastCompletedAssistantMessage = true;
+    }
+  }
+
+  return hasUserMessage && lastCompletedAssistantMessage;
+}
+
 function getMessageIconModel(
   model: string,
   providerName?: ServiceProvider,
@@ -2648,12 +2674,9 @@ export const useChatStore = createPersistStore(
         // remove error messages if any
         const messages = session.messages;
 
-        // should summarize topic after chating more than 50 words
-        const SUMMARIZE_MIN_LEN = 50;
         if (
           config.enableAutoGenerateTitle &&
-          session.topic === getDefaultTopic() &&
-          countMessages(messages) >= SUMMARIZE_MIN_LEN
+          canAutoGenerateSessionTitle(messages)
         ) {
           const startIndex = Math.max(
             0,

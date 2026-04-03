@@ -437,9 +437,14 @@ export async function revokeAuthSession(sessionToken?: string | null) {
 }
 
 export async function getAuthContextFromCookies(values: AuthCookieValues) {
+  const sessionToken = String(values.sessionToken || "").trim();
+  if (!sessionToken) {
+    return null;
+  }
+
   await ensureAuthSchemaAndSeed();
 
-  const actor = await getSessionUser(String(values.sessionToken || ""));
+  const actor = await getSessionUser(sessionToken);
   if (!actor) {
     return null;
   }

@@ -4,7 +4,6 @@ import { getServerSideConfig } from "./config/server";
 import { cookies } from "next/headers";
 import SitePasswordGate from "./components/site-password-gate";
 import {
-  ensureAuthSchemaAndSeed,
   getAuthContextFromCookies,
   getAuthSessionCookieName,
   getEffectiveUserCookieName,
@@ -21,7 +20,6 @@ export default async function App({
 }: {
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
-  await ensureAuthSchemaAndSeed();
   const cookieStore = cookies();
   const authContext = await getAuthContextFromCookies({
     sessionToken: cookieStore.get(getAuthSessionCookieName())?.value,

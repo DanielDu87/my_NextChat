@@ -6,6 +6,7 @@ import { withSyncUserHeaders } from "./sync-user-client";
 const DB_NAME = "nextchat-local-cache";
 const STORE_NAME = "state-cache";
 const DB_VERSION = 1;
+const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const localStorage = (() => {
   try {
     return typeof window !== "undefined" ? window.localStorage : null;
@@ -87,6 +88,11 @@ async function readRemoteValue(name: string) {
     cache: "no-store",
     headers: withSyncUserHeaders(),
   });
+
+  if (response.status === 401) {
+    removeLocalStorageValue(AUTH_CACHE_MARKER_KEY);
+    return null;
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");

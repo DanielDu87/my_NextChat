@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStoreSnapshotMetas } from "@/app/utils/server/sync-store-repository";
 import { PERSIST_STORE_KEYS } from "@/app/utils/sync-store-keys";
 import {
   isSharedSyncStoreKey,
@@ -7,6 +6,7 @@ import {
   resolveSyncUserId,
 } from "@/app/utils/server/sync-user";
 import { AuthError } from "@/app/utils/server/auth";
+import { loadStoreSnapshotMetasSafely } from "@/app/utils/server/sync-meta-loader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,10 +20,13 @@ export async function GET(req: NextRequest) {
     const userKeys = keys.filter((key) => !isSharedSyncStoreKey(key));
     const metas = [
       ...(userKeys.length > 0
-        ? await getStoreSnapshotMetas(userKeys, await resolveSyncUserId(req))
+        ? await loadStoreSnapshotMetasSafely(
+            userKeys,
+            await resolveSyncUserId(req),
+          )
         : []),
       ...(sharedKeys.length > 0
-        ? await getStoreSnapshotMetas(
+        ? await loadStoreSnapshotMetasSafely(
             sharedKeys,
             await resolveSharedSyncUserId(req),
           )

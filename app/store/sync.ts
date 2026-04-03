@@ -48,6 +48,7 @@ import {
   ChatSessionSummary,
   createEmptySession,
 } from "./chat";
+import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 
 type DatabaseCacheMeta = Record<
   string,
@@ -1530,6 +1531,35 @@ export const useSyncStore = createPersistStore(
               displayName: string,
               stepLabel: string,
             ) => {
+              const fallbackToLatestRemote = async () => {
+                const latestRemoteDataText = await withRetry<string>(
+                  () => client.get(key),
+                  {
+                    retries: 1,
+                    retryable: (error) =>
+                      error instanceof Error &&
+                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                  },
+                );
+                const latestRemoteState = latestRemoteDataText
+                  ? parseStoreStatePayload(latestRemoteDataText)
+                  : localAppStateCache[key];
+                const resolvedStoreState = mergeStoreState(
+                  key,
+                  localAppStateCache[key],
+                  latestRemoteState,
+                );
+
+                setLocalStoreState(key, resolvedStoreState);
+                localAppStateCache[key] = resolvedStoreState;
+
+                return {
+                  summary: getStoreSummary(key, resolvedStoreState),
+                  status: "merged" as const,
+                  remoteSummary: getStoreSummary(key, latestRemoteState),
+                };
+              };
+
               for (let attempt = 0; attempt < 2; attempt += 1) {
                 const remoteDataText = await withRetry<string>(
                   () => client.get(key),
@@ -1576,6 +1606,15 @@ export const useSyncStore = createPersistStore(
                       ]);
                       continue;
                     }
+                    if (
+                      error instanceof Error &&
+                      /\[DB Sync\] 409\b/.test(error.message)
+                    ) {
+                      console.warn(
+                        `[Sync] ⚠️ [${stepLabel}] ${displayName}发生重复冲突，回退到最新云端数据`,
+                      );
+                      return fallbackToLatestRemote();
+                    }
                     throw error;
                   }
 
@@ -1621,6 +1660,15 @@ export const useSyncStore = createPersistStore(
                       ...latestMetas,
                     ]);
                     continue;
+                  }
+                  if (
+                    error instanceof Error &&
+                    /\[DB Sync\] 409\b/.test(error.message)
+                  ) {
+                    console.warn(
+                      `[Sync] ⚠️ [${stepLabel}] ${displayName}发生重复冲突，回退到最新云端数据`,
+                    );
+                    return fallbackToLatestRemote();
                   }
                   throw error;
                 }
@@ -1826,10 +1874,21 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
+        const priorityKeys = AUTO_SYNC_STORE_KEYS.filter(
+          (key) => key === StoreKey.Access || key === StoreKey.ModelCache,
+        );
+        if (priorityKeys.length > 0) {
+          await this.sync(priorityKeys);
+          rebuildManagedModelsFromCache();
+        }
+
         await this.sync([StoreKey.Chat]);
 
         const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
-          (key) => key !== StoreKey.Chat,
+          (key) =>
+            key !== StoreKey.Chat &&
+            key !== StoreKey.Access &&
+            key !== StoreKey.ModelCache,
         );
         if (remainingKeys.length > 0) {
           await this.sync(remainingKeys);
