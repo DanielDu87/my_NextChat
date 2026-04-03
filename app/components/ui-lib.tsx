@@ -380,17 +380,20 @@ export function PasswordInput(
 
   return (
     <div className={"password-input-container"}>
-      <IconButton
-        aria={aria}
-        icon={visible ? <EyeIcon /> : <EyeOffIcon />}
-        onClick={changeVisibility}
-        className={"password-eye"}
-      />
       <input
         {...inputProps}
         type={visible ? "text" : "password"}
         className={clsx("password-input", className)}
       />
+      <button
+        type="button"
+        aria-label={aria}
+        onClick={changeVisibility}
+        tabIndex={-1}
+        className={clsx("clickable", "password-eye")}
+      >
+        {visible ? <EyeIcon /> : <EyeOffIcon />}
+      </button>
     </div>
   );
 }

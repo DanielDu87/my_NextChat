@@ -114,7 +114,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         </div>
         <div className={styles.tips}>
           首次启动默认管理员账号为 `admin`，密码为
-          `admin123456`，建议登录后立即新增正式账号。
+          `admin123`，建议登录后立即新增正式账号。
         </div>
       </form>
     </div>

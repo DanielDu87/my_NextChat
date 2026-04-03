@@ -13,7 +13,7 @@ const AUTH_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ADMIN_USERNAME =
   process.env.NEXTCHAT_ADMIN_USERNAME?.trim() || "admin";
 const DEFAULT_ADMIN_PASSWORD =
-  process.env.NEXTCHAT_ADMIN_PASSWORD?.trim() || "admin123456";
+  process.env.NEXTCHAT_ADMIN_PASSWORD?.trim() || "admin123";
 
 declare global {
   var __nextchatAuthSchemaReady: Promise<void> | undefined;
@@ -328,8 +328,6 @@ export async function ensureAuthSchemaAndSeed() {
         delete from auth_sessions
         where expires_at <= now()
       `);
-
-      await ensureDefaultAdminSeeded();
     })().catch((error) => {
       globalThis.__nextchatAuthSchemaReady = undefined;
       throw error;
@@ -337,6 +335,7 @@ export async function ensureAuthSchemaAndSeed() {
   }
 
   await globalThis.__nextchatAuthSchemaReady;
+  await ensureDefaultAdminSeeded();
 }
 
 export function getAuthSessionCookieName() {

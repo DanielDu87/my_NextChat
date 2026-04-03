@@ -80,11 +80,12 @@ services:
       - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
 
       # 数据库配置 - 直连远程 PostgreSQL
-      - PGHOST=${PGHOST:-postgres}
+      # 这里不要再给出本地 postgres 容器默认值，避免漏配时误连到另一套数据库
+      - PGHOST=${PGHOST:-}
       - PGPORT=${PGPORT:-5432}
       - PGDATABASE=${PGDATABASE:-nextchat}
-      - PGUSER=${PGUSER:-nextchat_user}
-      - PGPASSWORD=${PGPASSWORD:-nextchat_password}
+      - PGUSER=${PGUSER:-}
+      - PGPASSWORD=${PGPASSWORD:-}
       - PGSSL=${PGSSL:-false}
       - PGSSLMODE=${PGSSLMODE:-disable}
       - PGPOOL_MAX=${PGPOOL_MAX:-10}
