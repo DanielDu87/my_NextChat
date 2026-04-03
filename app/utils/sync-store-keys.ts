@@ -37,7 +37,7 @@ SYNC_STORE_KEYS.sort((a, b) => {
 });
 
 export const AUTO_SYNC_STORE_KEYS = SYNC_STORE_KEYS.filter(
-  (key) => key !== StoreKey.Config && key !== StoreKey.ModelCache,
+  (key) => key !== StoreKey.Config,
 ) as SyncStoreKey[];
 
 export const MODEL_SYNC_STORE_KEYS = [

@@ -121,8 +121,8 @@
 
 ## 6. 自动刷新/同步说明
 
-- `app/components/auto-sync.tsx` 在每次页面加载时会驱动一次 `syncStore.autoSync()`，先完成“本地优先”展示，再自动同步会话和非模型业务数据。
-- 自动同步不会触发模型刷新，也不会自动同步 `app-config.models` / `model-cache-store`。
+- `app/components/auto-sync.tsx` 在每次页面加载时会驱动一次 `syncStore.autoSync()`，先完成“本地优先”展示，再自动同步会话、非模型业务数据和 `model-cache-store`。
+- 自动同步不会触发模型刷新，也不会自动同步 `app-config.models`；页面会在拿到 `model-cache-store` 后重建本地模型列表。
 - `API 配置页` 页面打开时只展示本地模型缓存，不自动刷新模型；模型刷新只会在点击“获取模型数据”或“保存并同步”时触发。
 
 ## 7. 云端版本判断表
