@@ -1,0 +1,158 @@
+# =============================================================================
+# NextChat Docker Compose 配置 - 宝塔面板专用版
+# =============================================================================
+# 使用方法：
+# 1. 在宝塔面板 -> Docker -> Compose 项目 中导入此文件
+# 2. 环境变量通过 .env.baota 文件配置
+# 3. 通过 ngpt.chat 域名访问（Nginx 反代到 3000 端口）
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 数据库服务
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: nextchat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-nextchat}
+      POSTGRES_USER: ${PGUSER:-nextchat_user}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-nextchat_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - nextchat-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-nextchat_user} -d ${PGDATABASE:-nextchat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - nextchat-network
+
+  # ---------------------------------------------------------------------------
+  # NextChat 主服务
+  # ---------------------------------------------------------------------------
+  nextchat:
+    platform: ${NEXTCHAT_PLATFORM:-linux/amd64}
+    image: ${NEXTCHAT_IMAGE:-nextchat-baota:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        - ALPINE_MIRROR=${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
+        - NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
+        - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+        - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+        - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+        - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+        - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
+        - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
+
+    container_name: nextchat
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-3000}:3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      # 运行环境
+      - NODE_ENV=production
+      - PORT=${PORT:-3000}
+      - HOSTNAME=0.0.0.0
+      - APP_SECRET=${APP_SECRET:-}
+
+      # 访问控制
+      - CODE=${CODE}
+      - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-false}
+      - DISABLE_GPT4=${DISABLE_GPT4:-false}
+      - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
+      - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
+      - ENABLE_MCP=${ENABLE_MCP:-false}
+      - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
+
+      # AI 服务商配置
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AZURE_URL=${AZURE_URL:-}
+      - AZURE_API_KEY=${AZURE_API_KEY:-}
+      - BAIDU_API_KEY=${BAIDU_API_KEY:-}
+      - BAIDU_SECRET_KEY=${BAIDU_SECRET_KEY:-}
+      - BYTEDANCE_API_KEY=${BYTEDANCE_API_KEY:-}
+      - ALIBABA_API_KEY=${ALIBABA_API_KEY:-}
+      - TENCENT_SECRET_KEY=${TENCENT_SECRET_KEY:-}
+      - TENCENT_SECRET_ID=${TENCENT_SECRET_ID:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - IFLYTEK_API_KEY=${IFLYTEK_API_KEY:-}
+      - IFLYTEK_API_SECRET=${IFLYTEK_API_SECRET:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - CHATGLM_API_KEY=${CHATGLM_API_KEY:-}
+      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY:-}
+      - AI302_API_KEY=${AI302_API_KEY:-}
+
+      # 自定义 API 地址
+      - BASE_URL=${BASE_URL:-}
+
+      # 用户标识（三个必须一致）
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID:-single-user}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID:-single-user}
+      - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
+
+      # 数据库配置 - 连接同 compose 网络中的 postgres 容器
+      - PGHOST=${PGHOST:-postgres}
+      - PGPORT=${PGPORT:-5432}
+      - PGDATABASE=${PGDATABASE:-nextchat}
+      - PGUSER=${PGUSER:-nextchat_user}
+      - PGPASSWORD=${PGPASSWORD:-nextchat_password}
+      - PGSSL=${PGSSL:-false}
+      - PGSSLMODE=${PGSSLMODE:-disable}
+      - PGPOOL_MAX=${PGPOOL_MAX:-10}
+      - PG_CONNECT_TIMEOUT_MS=${PG_CONNECT_TIMEOUT_MS:-10000}
+      - PG_IDLE_TIMEOUT_MS=${PG_IDLE_TIMEOUT_MS:-30000}
+
+      # GitHub 配置
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
+      - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
+      - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
+
+      # 默认模型
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-}
+
+    volumes:
+      - nextchat-data:/app/data
+
+    networks:
+      - nextchat-network
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 数据卷定义
+volumes:
+  nextchat-data:
+    driver: local
+  nextchat-postgres-data:
+    driver: local
+
+# 网络定义
+networks:
+  nextchat-network:
+    driver: bridge
