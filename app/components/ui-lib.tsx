@@ -21,6 +21,7 @@ import React, {
   HTMLProps,
   MouseEvent,
   useEffect,
+  useMemo,
   useState,
   useCallback,
   useRef,
@@ -764,7 +765,7 @@ export function Selector<T>(props: {
     }
   };
 
-  const availableGroups = (() => {
+  const availableGroups = useMemo(() => {
     const groups = Array.from(
       new Set(props.items.map((item) => item.group?.trim()).filter(Boolean)),
     ) as string[];
@@ -772,7 +773,6 @@ export function Selector<T>(props: {
       new Set([...groups, ...(props.extraGroups ?? [])]),
     );
 
-    // 按规范化名称去重，当多个原始名称规范化为同一个时，只保留第一个
     const deduplicatedGroups: string[] = [];
     const seenNormalized = new Set<string>();
 
@@ -800,7 +800,7 @@ export function Selector<T>(props: {
         (group) => !preferredGroupOrder.includes(normalizeGroupForOrder(group)),
       ),
     ];
-  })();
+  }, [props.extraGroups, props.items]);
   const groupFilterOptions = ["All", ...availableGroups];
   const getGroupFilterLabel = (group: string) => {
     if (group === "All") return "全部模型商";
@@ -883,22 +883,32 @@ export function Selector<T>(props: {
     });
   };
 
-  const filteredItems = props.items.filter((item) => {
+  const filteredItems = useMemo(() => {
     const quickFilter = props.quickFilters?.find(
       (filter) => filter.key === selectedQuickFilter,
     );
-    const matchGroup =
-      !props.showGroupFilter ||
-      selectedGroup === "All" ||
-      (item.group?.trim() || "__default__") === selectedGroup;
-    const matchQuickFilter = !quickFilter || quickFilter.match(item);
-    const matchSearch =
-      !searchText.trim() ||
-      item.title.toLowerCase().includes(searchText.toLowerCase());
-    return matchGroup && matchQuickFilter && matchSearch;
-  });
 
-  const groupedItems = (() => {
+    return props.items.filter((item) => {
+      const matchGroup =
+        !props.showGroupFilter ||
+        selectedGroup === "All" ||
+        (item.group?.trim() || "__default__") === selectedGroup;
+      const matchQuickFilter = !quickFilter || quickFilter.match(item);
+      const matchSearch =
+        !searchText.trim() ||
+        item.title.toLowerCase().includes(searchText.toLowerCase());
+      return matchGroup && matchQuickFilter && matchSearch;
+    });
+  }, [
+    props.items,
+    props.quickFilters,
+    props.showGroupFilter,
+    searchText,
+    selectedGroup,
+    selectedQuickFilter,
+  ]);
+
+  const groupedItems = useMemo(() => {
     const buckets = new Map<string, typeof filteredItems>();
     const groupOrder: string[] = [];
     const entries: Array<
@@ -949,7 +959,7 @@ export function Selector<T>(props: {
     });
 
     return entries;
-  })();
+  }, [availableGroups, filteredItems]);
 
   const selectorNode = (
     <div

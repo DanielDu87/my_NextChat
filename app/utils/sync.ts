@@ -144,6 +144,10 @@ function getManagedProviderIdsFromProfiles(
     profiles.map((profile) =>
       profile.provider === ServiceProvider.Custom
         ? `custom_${profile.name}`.toLowerCase()
+        : profile.provider === ServiceProvider.Local
+        ? `${String(profile.provider).toLowerCase()}_${
+            profile.name
+          }`.toLowerCase()
         : String(profile.provider).toLowerCase(),
     ),
   );
@@ -153,7 +157,63 @@ function hasNonEmptyString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasMeaningfulConfigState(state: Record<string, any>) {
+function hasNonEmptyRecord(value: unknown) {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value as Record<string, unknown>).length > 0
+  );
+}
+
+function isDefaultBootstrapProfile(profile: Record<string, any>) {
+  return (
+    String(profile?.id || "") === "default_aihubmix_profile" &&
+    String(profile?.name || "") === "AihubMix" &&
+    String(profile?.provider || "") === ServiceProvider.Custom &&
+    String(profile?.baseUrl || "") === "https://aihubmix.com" &&
+    !hasNonEmptyString(profile?.apiKey) &&
+    !hasNonEmptyString(profile?.modelFetchApiKey) &&
+    !hasNonEmptyString(profile?.balanceQueryApiKey) &&
+    !hasNonEmptyString(profile?.balanceQueryUrl) &&
+    !hasNonEmptyString(profile?.balanceQueryField) &&
+    !hasNonEmptyString(profile?.cachedModels) &&
+    !Number(profile?.modelCount || 0) &&
+    !hasNonEmptyRecord(profile?.apiKeyGroups)
+  );
+}
+
+function hasMeaningfulAccessProfiles(profiles: unknown) {
+  if (!Array.isArray(profiles)) {
+    return false;
+  }
+
+  return profiles.some((profile) => {
+    if (!isObjectLike(profile)) {
+      return false;
+    }
+
+    if (isDefaultBootstrapProfile(profile)) {
+      return false;
+    }
+
+    return (
+      hasNonEmptyString(profile.id) ||
+      hasNonEmptyString(profile.name) ||
+      hasNonEmptyString(profile.baseUrl) ||
+      hasNonEmptyString(profile.apiKey) ||
+      hasNonEmptyString(profile.modelFetchApiKey) ||
+      hasNonEmptyString(profile.balanceQueryApiKey) ||
+      hasNonEmptyString(profile.balanceQueryUrl) ||
+      hasNonEmptyString(profile.balanceQueryField) ||
+      hasNonEmptyString(profile.cachedModels) ||
+      Number(profile.modelCount || 0) > 0 ||
+      hasNonEmptyRecord(profile.apiKeyGroups)
+    );
+  });
+}
+
+export function hasMeaningfulConfigState(state: Record<string, any>) {
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
     (Array.isArray(state?.models) && state.models.length > 0) ||
@@ -162,11 +222,12 @@ function hasMeaningfulConfigState(state: Record<string, any>) {
   );
 }
 
-function hasMeaningfulAccessState(state: Record<string, any>) {
+export function hasMeaningfulAccessState(state: Record<string, any>) {
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
-    (Array.isArray(state?.apiProfiles) && state.apiProfiles.length > 0) ||
-    hasNonEmptyString(state?.defaultModel) ||
+    hasMeaningfulAccessProfiles(state?.apiProfiles) ||
+    (hasNonEmptyString(state?.defaultModel) &&
+      state.defaultModel !== "gpt-5.4") ||
     hasNonEmptyString(state?.customModels) ||
     hasNonEmptyString(state?.visionModels) ||
     hasNonEmptyString(state?.openaiApiKey) ||
@@ -191,6 +252,21 @@ function hasMeaningfulAccessState(state: Record<string, any>) {
     hasNonEmptyString(state?.customApiKey) ||
     hasNonEmptyString(state?.localApiKey)
   );
+}
+
+export function hasMeaningfulModelCacheState(state: Record<string, any>) {
+  return Object.values(state?.profiles || {}).some((profile) => {
+    if (!isObjectLike(profile)) {
+      return false;
+    }
+
+    return (
+      hasNonEmptyString(profile.cachedModels) ||
+      Number(profile.modelCount || 0) > 0 ||
+      Number(profile.updatedAt || 0) > 0 ||
+      hasNonEmptyString(profile.lastError)
+    );
+  });
 }
 
 function hasMeaningfulSdState(state: Record<string, any>) {
@@ -349,7 +425,7 @@ const MergeStates: StateMerger = {
       Array.from(sessionMap.values()),
     );
 
-    console.log("[mergeChat] 同步合并完成", {
+    logSyncDebug("[mergeChat] 同步合并完成", {
       currentSessionId,
       sessionsCount: localState.sessions.length,
       currentSessionIndex: localState.currentSessionIndex,
@@ -368,7 +444,7 @@ const MergeStates: StateMerger = {
     const emptySessions = localState.sessions.filter(isEmptyDefaultSession);
 
     if (emptySessions.length > 1) {
-      console.log("[mergeChat] 发现多个空会话，开始清理", {
+      logSyncDebug("[mergeChat] 发现多个空会话，开始清理", {
         emptySessionsCount: emptySessions.length,
       });
 
@@ -383,7 +459,7 @@ const MergeStates: StateMerger = {
           session.id === preservedEmptySession.id,
       );
 
-      console.log("[mergeChat] 清理完成", {
+      logSyncDebug("[mergeChat] 清理完成", {
         sessionsCount: localState.sessions.length,
         preservedEmptySession: preservedEmptySession.id,
       });
@@ -393,16 +469,16 @@ const MergeStates: StateMerger = {
       const nextIndex = localState.sessions.findIndex(
         (session) => session.id === currentSessionId,
       );
-      console.log("[mergeChat] 查找当前会话", {
+      logSyncDebug("[mergeChat] 查找当前会话", {
         currentSessionId,
         nextIndex,
         found: nextIndex >= 0,
       });
       if (nextIndex >= 0) {
         localState.currentSessionIndex = nextIndex;
-        console.log("[mergeChat] 更新 currentSessionIndex 为", nextIndex);
+        logSyncDebug("[mergeChat] 更新 currentSessionIndex 为", nextIndex);
       } else {
-        console.log(
+        logSyncDebug(
           "[mergeChat] 当前会话未找到，保持索引",
           localState.currentSessionIndex,
         );
@@ -545,7 +621,7 @@ const MergeStates: StateMerger = {
     const mergedProfiles: typeof localState.apiProfiles = [];
     const localUpdateTime = localState.lastUpdateTime || 0;
     const remoteUpdateTime = remoteState.lastUpdateTime || 0;
-    const preferRemoteOnBootstrap =
+    const shouldPreferRemoteState =
       !hasMeaningfulAccessState(localState as Record<string, any>) &&
       hasMeaningfulAccessState(remoteState as Record<string, any>);
 
@@ -554,8 +630,12 @@ const MergeStates: StateMerger = {
       const remoteProfile = remoteProfileMap.get(id);
       if (remoteProfile) {
         mergedProfiles.push({
-          ...remoteProfile,
-          ...localProfile,
+          ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
+            ? localProfile
+            : remoteProfile),
+          ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
+            ? remoteProfile
+            : localProfile),
         });
       } else {
         mergedProfiles.push(localProfile);
@@ -563,7 +643,7 @@ const MergeStates: StateMerger = {
     });
 
     // 添加远程独有的 profile（仅当远程更新时，避免删除后恢复）
-    if (remoteUpdateTime > localUpdateTime) {
+    if (remoteUpdateTime > localUpdateTime || shouldPreferRemoteState) {
       remoteProfileMap.forEach((profile, id) => {
         if (!localProfileMap.has(id)) {
           mergedProfiles.push(profile);
@@ -572,11 +652,13 @@ const MergeStates: StateMerger = {
     }
 
     const mergedState = {
-      ...(preferRemoteOnBootstrap ? localState : remoteState),
-      ...(preferRemoteOnBootstrap ? remoteState : localState),
-      apiProfiles: preferRemoteOnBootstrap
-        ? remoteState.apiProfiles || []
-        : mergedProfiles,
+      ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
+        ? localState
+        : remoteState),
+      ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
+        ? remoteState
+        : localState),
+      apiProfiles: mergedProfiles,
       lastUpdateTime: markMergedUpdateTime(
         localState.lastUpdateTime,
         remoteState.lastUpdateTime,

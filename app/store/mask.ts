@@ -8,14 +8,13 @@ import {
   ModelType,
   useAppConfig,
 } from "./config";
-import { StoreKey } from "../constant";
+import { ServiceProvider, StoreKey } from "../constant";
 import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
 import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
-  getLatestOpenAIModelForCurrentSupplier,
-  getLatestOpenAIModelForProviderId,
+  getPreferredDefaultChatModel,
 } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { buildAutoModelCandidates } from "../utils/auto-model";
@@ -46,6 +45,47 @@ export type MaskState = typeof DEFAULT_MASK_STATE & {
 };
 
 export const DEFAULT_MASK_AVATAR = "gpt-bot";
+
+export function getPreferredStartupProfile(
+  apiProfiles: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    enabled?: boolean;
+    baseUrl?: string;
+  }>,
+) {
+  const profiles = apiProfiles || [];
+  const isAihubMixProfile = (profile: {
+    name?: string;
+    provider?: string;
+    baseUrl?: string;
+  }) =>
+    profile.provider === ServiceProvider.Custom &&
+    (String(profile.name || "")
+      .trim()
+      .toLowerCase() === "aihubmix" ||
+      String(profile.baseUrl || "")
+        .toLowerCase()
+        .includes("aihubmix.com"));
+
+  return (
+    profiles.find((profile) => profile.enabled && isAihubMixProfile(profile)) ||
+    profiles.find(
+      (profile) =>
+        profile.enabled && profile.provider === ServiceProvider.Custom,
+    ) ||
+    profiles.find(
+      (profile) =>
+        profile.enabled && profile.provider !== ServiceProvider.Local,
+    ) ||
+    profiles.find((profile) => isAihubMixProfile(profile)) ||
+    profiles.find((profile) => profile.provider === ServiceProvider.Custom) ||
+    profiles.find((profile) => profile.enabled) ||
+    profiles[0]
+  );
+}
+
 export const createEmptyMask = () => {
   const appConfig = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
@@ -64,13 +104,9 @@ export const createEmptyMask = () => {
           autoModelSeries,
         )
       : [];
-  const enabledProfile = accessStore.apiProfiles.find(
-    (profile) => profile.enabled,
+  const enabledProfile = getPreferredStartupProfile(
+    accessStore.apiProfiles || [],
   );
-  const enabledProviderId =
-    enabledProfile?.provider === "Custom"
-      ? `custom_${enabledProfile.name}`.toLowerCase()
-      : String(enabledProfile?.provider || "").toLowerCase();
   const initialModelConfig =
     autoCandidates.length > 0
       ? sanitizeModelConfigForCapability({
@@ -80,13 +116,16 @@ export const createEmptyMask = () => {
         })
       : sanitizeModelConfigForCapability({
           ...appConfig.modelConfig,
-          ...(getLatestOpenAIModelForProviderId(allModels, enabledProviderId) ||
-            getLatestOpenAIModelForCurrentSupplier(
-              allModels,
-              appConfig.modelConfig,
-              accessStore.apiProfiles,
-            ) ||
-            {}),
+          ...(getPreferredDefaultChatModel(
+            allModels,
+            {
+              ...appConfig.modelConfig,
+              providerName:
+                (enabledProfile?.provider as ServiceProvider | undefined) ||
+                appConfig.modelConfig.providerName,
+            },
+            accessStore.apiProfiles,
+          ) || {}),
         });
 
   return {

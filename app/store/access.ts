@@ -61,13 +61,32 @@ const DEFAULT_SILICONFLOW_URL = isApp
   : ApiPath.SiliconFlow;
 
 const DEFAULT_AI302_URL = isApp ? AI302_BASE_URL : ApiPath["302.AI"];
+const DEFAULT_AIHUBMIX_URL = "https://aihubmix.com";
+const DEFAULT_AIHUBMIX_PROFILE_ID = "default_aihubmix_profile";
 
 const DEFAULT_ACCESS_STATE = {
   accessCode: "",
-  useCustomConfig: false,
+  useCustomConfig: true,
 
-  provider: ServiceProvider.OpenAI,
-  apiProfiles: [] as Array<{
+  provider: ServiceProvider.Custom,
+  apiProfiles: [
+    {
+      id: DEFAULT_AIHUBMIX_PROFILE_ID,
+      name: "AihubMix",
+      provider: ServiceProvider.Custom,
+      baseUrl: DEFAULT_AIHUBMIX_URL,
+      apiKey: "",
+      modelFetchApiKey: "",
+      balanceQueryApiKey: "",
+      balanceQueryUrl: "",
+      balanceQueryField: "",
+      apiKeyGroups: {},
+      enabled: true,
+      openAICompatible: true,
+      cachedModels: "",
+      modelCount: 0,
+    },
+  ] as Array<{
     id: string;
     name: string;
     provider: ServiceProvider;
@@ -85,7 +104,7 @@ const DEFAULT_ACCESS_STATE = {
   }>,
 
   // custom
-  customUrl: "",
+  customUrl: DEFAULT_AIHUBMIX_URL,
   customApiKey: "",
   customOpenAICompatible: true,
 
@@ -170,7 +189,7 @@ const DEFAULT_ACCESS_STATE = {
   disableGPT4: false,
   disableFastLink: false,
   customModels: "",
-  defaultModel: "",
+  defaultModel: "gpt-5.4",
   visionModels: "",
 
   // tts config

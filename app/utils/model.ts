@@ -217,6 +217,61 @@ type ModelLike = ReturnType<typeof collectModelsWithDefaultModel>[number];
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 
+function isOfficialProviderName(providerName: string | undefined) {
+  return (
+    !!providerName &&
+    providerName !== ServiceProvider.Custom &&
+    providerName !== ServiceProvider.Local
+  );
+}
+
+function isReservedDefaultModelAlias(
+  modelName: string | undefined,
+  exactModelName: string,
+) {
+  const normalizedModelName = String(modelName || "").toLowerCase();
+  const normalizedExactModelName = String(exactModelName || "").toLowerCase();
+  return (
+    normalizedModelName === normalizedExactModelName ||
+    normalizedModelName.startsWith(`${normalizedExactModelName}-`)
+  );
+}
+
+export function normalizeReservedDisplayModelName(
+  modelName: string | undefined,
+  exactModelName = "gpt-5.4",
+) {
+  const rawModelName = String(modelName || "").trim();
+  if (!rawModelName) {
+    return rawModelName;
+  }
+
+  const [nameOnly] = rawModelName.split(/@(?!.*@)/);
+  if (isReservedDefaultModelAlias(nameOnly, exactModelName)) {
+    return exactModelName;
+  }
+
+  return nameOnly;
+}
+
+function getExactModelForProviderId(
+  allModels: readonly ModelLike[],
+  providerId: string | undefined,
+  exactModelName: string,
+) {
+  const normalizedProviderId = String(providerId || "").toLowerCase();
+  if (!normalizedProviderId) {
+    return undefined;
+  }
+
+  return allModels.find(
+    (model) =>
+      model.available &&
+      model.name === exactModelName &&
+      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
+  );
+}
+
 function getEnabledProviderId(
   providerName: string | undefined,
   accessProfiles: readonly AccessProfileLike[],
@@ -444,6 +499,148 @@ export function getLatestOpenAIModelForCurrentSupplier(
     model: matchedModel.name,
     providerName: matchedModel.provider.providerName as ServiceProviderValue,
   };
+}
+
+export function getPreferredDefaultChatModel(
+  allModels: readonly ModelLike[],
+  currentModelConfig: ProviderScopedModelConfig | undefined,
+  accessProfiles: readonly AccessProfileLike[] = [],
+  exactModelName = "gpt-5.4",
+): { model: string; providerName: ServiceProviderValue } | undefined {
+  const preferredProviderId = resolveModelProviderId(
+    allModels,
+    currentModelConfig,
+    accessProfiles,
+  );
+  const currentProviderName = currentModelConfig?.providerName;
+
+  if (isOfficialProviderName(currentProviderName)) {
+    const preferredExactModel = getExactModelForProviderId(
+      allModels,
+      preferredProviderId,
+      exactModelName,
+    );
+    if (preferredExactModel?.provider?.providerName) {
+      return {
+        model: preferredExactModel.name,
+        providerName: preferredExactModel.provider
+          .providerName as ServiceProviderValue,
+      };
+    }
+  }
+
+  const enabledOfficialProviderIds = accessProfiles
+    .filter(
+      (profile) => profile.enabled && isOfficialProviderName(profile.provider),
+    )
+    .map((profile) => String(profile.provider).toLowerCase());
+
+  for (const providerId of enabledOfficialProviderIds) {
+    const matchedModel = getExactModelForProviderId(
+      allModels,
+      providerId,
+      exactModelName,
+    );
+    if (matchedModel?.provider?.providerName) {
+      return {
+        model: matchedModel.name,
+        providerName: matchedModel.provider
+          .providerName as ServiceProviderValue,
+      };
+    }
+  }
+
+  const anyOfficialExactModel = allModels.find(
+    (model) =>
+      model.available &&
+      model.name === exactModelName &&
+      isOfficialProviderName(
+        model.provider?.providerName as string | undefined,
+      ),
+  );
+  if (anyOfficialExactModel?.provider?.providerName) {
+    return {
+      model: anyOfficialExactModel.name,
+      providerName: anyOfficialExactModel.provider
+        .providerName as ServiceProviderValue,
+    };
+  }
+
+  return getLatestOpenAIModelForCurrentSupplier(
+    allModels,
+    currentModelConfig,
+    accessProfiles,
+  );
+}
+
+export function getPreferredDisplayModelConfig(
+  allModels: readonly ModelLike[],
+  currentModelConfig: ProviderScopedModelConfig | undefined,
+  accessProfiles: readonly AccessProfileLike[] = [],
+  exactModelName = "gpt-5.4",
+): { model: string; providerName: ServiceProviderValue } | undefined {
+  if (
+    isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName) &&
+    currentModelConfig?.providerName &&
+    currentModelConfig?.providerName !== ServiceProvider.Custom
+  ) {
+    if (currentModelConfig.providerName === ServiceProvider.Local) {
+      const preferredDefaultModel = getPreferredDefaultChatModel(
+        allModels,
+        currentModelConfig,
+        accessProfiles,
+        exactModelName,
+      );
+
+      return {
+        model: exactModelName,
+        providerName:
+          preferredDefaultModel?.providerName || ServiceProvider.OpenAI,
+      };
+    }
+
+    return {
+      model: exactModelName,
+      providerName: currentModelConfig.providerName,
+    };
+  }
+
+  if (
+    currentModelConfig?.providerName !== ServiceProvider.Local ||
+    !isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName)
+  ) {
+    return undefined;
+  }
+
+  const preferredDefaultModel = getPreferredDefaultChatModel(
+    allModels,
+    currentModelConfig,
+    accessProfiles,
+    exactModelName,
+  );
+
+  return {
+    model: exactModelName,
+    providerName: preferredDefaultModel?.providerName || ServiceProvider.OpenAI,
+  };
+}
+
+export function getPreferredRuntimeModelConfig(
+  allModels: readonly ModelLike[],
+  currentModelConfig: ProviderScopedModelConfig | undefined,
+  accessProfiles: readonly AccessProfileLike[] = [],
+  exactModelName = "gpt-5.4",
+): { model: string; providerName: ServiceProviderValue } | undefined {
+  if (!isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName)) {
+    return undefined;
+  }
+
+  return getPreferredDefaultChatModel(
+    allModels,
+    currentModelConfig,
+    accessProfiles,
+    exactModelName,
+  );
 }
 
 export function getLatestOpenAIModelForProviderId(

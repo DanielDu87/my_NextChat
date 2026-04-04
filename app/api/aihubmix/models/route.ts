@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_BROWSER_USER_AGENT } from "@/app/api/user-agent";
 import { requestUpstream } from "@/app/api/upstream";
+import { AIHUBMIX_APP_CODE } from "@/app/utils/aihubmix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
       dnsServers: ["1.1.1.1", "8.8.8.8"],
       headers: {
         ...(authHeader ? { Authorization: authHeader } : {}),
+        "APP-Code": AIHUBMIX_APP_CODE,
         Accept: "application/json",
         "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       },

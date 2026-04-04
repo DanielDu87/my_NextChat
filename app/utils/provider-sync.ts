@@ -179,6 +179,17 @@ export async function syncAllProfilesToDatabase(params: {
           const fetchedModels = modelsToCustomModelsString(result.models);
 
           accessStore.update((state: any) => {
+            state.apiProfiles = (state.apiProfiles || []).map(
+              (item: ApiProfile) =>
+                item.id === profile.id
+                  ? {
+                      ...item,
+                      cachedModels: fetchedModels,
+                      modelCount: result.total,
+                    }
+                  : item,
+            );
+
             if (
               state.apiProfiles.find((p: ApiProfile) => p.id === profile.id)
                 ?.enabled

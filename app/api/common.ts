@@ -91,12 +91,14 @@ export async function requestOpenai(req: NextRequest) {
 
   const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
   console.log("fetchUrl", fetchUrl);
+  const appCode = req.headers.get("APP-Code") ?? "";
   const fetchOptions: RequestInit = {
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "User-Agent": DEFAULT_BROWSER_USER_AGENT,
       [authHeaderName]: authValue,
+      ...(appCode ? { "APP-Code": appCode } : {}),
       ...(serverConfig.openaiOrgId && {
         "OpenAI-Organization": serverConfig.openaiOrgId,
       }),

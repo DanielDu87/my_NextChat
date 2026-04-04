@@ -6,7 +6,10 @@ import { useChatStore } from "@/app/store/chat";
 import { useAccessStore } from "@/app/store/access";
 import { useAppConfig } from "@/app/store/config";
 import { usePluginStore } from "@/app/store/plugin";
-import { collectModelsWithDefaultModel } from "@/app/utils/model";
+import {
+  collectModelsWithDefaultModel,
+  normalizeReservedDisplayModelName,
+} from "@/app/utils/model";
 import {
   preProcessImageContent,
   uploadImage,
@@ -1044,11 +1047,14 @@ export class ChatGPTApi implements LLMApi {
   }
 
   async chat(options: ChatOptions) {
+    const requestedModel = normalizeReservedDisplayModelName(
+      options.config.model,
+    );
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
       ...{
-        model: options.config.model,
+        model: requestedModel,
         providerName: normalizeServiceProvider(
           options.config.providerName,
           useAccessStore.getState().useCustomConfig,
@@ -1062,12 +1068,10 @@ export class ChatGPTApi implements LLMApi {
       | Record<string, unknown>
       | FormData;
 
-    const isDalle3 = _isDalle3(options.config.model);
-    const isImageModel = isImageGenerationModel(options.config.model);
-    const isVideoModel = isVideoGenerationModel(options.config.model);
-    const isGeminiImagePreview = isGeminiImagePreviewModel(
-      options.config.model,
-    );
+    const isDalle3 = _isDalle3(requestedModel);
+    const isImageModel = isImageGenerationModel(requestedModel);
+    const isVideoModel = isVideoGenerationModel(requestedModel);
+    const isGeminiImagePreview = isGeminiImagePreviewModel(requestedModel);
     const currentAccessState = useAccessStore.getState();
     const currentBaseUrlForRequest =
       modelConfig.providerName === ServiceProvider.Custom
@@ -1079,47 +1083,53 @@ export class ChatGPTApi implements LLMApi {
       isImageModel &&
       !isGeminiImagePreview &&
       isAiHubMixBaseUrl(currentBaseUrlForRequest)
-        ? getAiHubMixPredictionModelPath(options.config.model)
+        ? getAiHubMixPredictionModelPath(requestedModel)
         : null;
     const aiHubMixVideoPath =
       isVideoModel && isAiHubMixBaseUrl(currentBaseUrlForRequest)
         ? "v1/videos"
         : null;
     const isReasoningOpenAIModel =
-      options.config.model.startsWith("o1") ||
-      options.config.model.startsWith("o3") ||
-      options.config.model.startsWith("o4") ||
-      options.config.model.startsWith("o5");
-    const isGpt5 = options.config.model.startsWith("gpt-5");
+      requestedModel.startsWith("o1") ||
+      requestedModel.startsWith("o3") ||
+      requestedModel.startsWith("o4") ||
+      requestedModel.startsWith("o5");
+    const isGpt5 = requestedModel.startsWith("gpt-5");
     const parameterSupport = getModelParameterSupport(modelConfig.model);
     if (aiHubMixPredictionPath) {
-      requestPayload = buildAiHubMixPredictionPayload(
-        options.config.model,
-        options,
-      );
+      requestPayload = buildAiHubMixPredictionPayload(requestedModel, {
+        ...options,
+        config: {
+          ...options.config,
+          model: requestedModel,
+        },
+      });
     } else if (aiHubMixVideoPath) {
-      requestPayload = await buildAiHubMixVideoRequestBody(
-        options.config.model,
-        options,
-      );
+      requestPayload = await buildAiHubMixVideoRequestBody(requestedModel, {
+        ...options,
+        config: {
+          ...options.config,
+          model: requestedModel,
+        },
+      });
     } else if (isImageModel && !isGeminiImagePreview) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
       );
-      const lowerImageModel = options.config.model.toLowerCase();
+      const lowerImageModel = requestedModel.toLowerCase();
       const isGptImage15 = lowerImageModel === "gpt-image-1.5";
       requestPayload = {
-        model: options.config.model,
+        model: requestedModel,
         prompt,
         // URLs are only valid for 60 minutes after the image has been generated.
         response_format: "b64_json", // using b64_json, and save image in CacheStorage
         n: 1,
-        size: normalizeModelSize(options.config.model, options.config?.size),
+        size: normalizeModelSize(requestedModel, options.config?.size),
         ...(lowerImageModel === "dall-e-2" || isGptImage15
           ? {}
           : {
               quality: normalizeImageQuality(
-                options.config.model,
+                requestedModel,
                 options.config?.quality,
               ),
             }),
@@ -1130,7 +1140,7 @@ export class ChatGPTApi implements LLMApi {
           : {}),
       };
     } else {
-      const visionModel = isVisionModel(options.config.model);
+      const visionModel = isVisionModel(requestedModel);
       const messages: ChatOptions["messages"] = [];
       for (const v of options.messages) {
         const content = visionModel
@@ -1177,7 +1187,10 @@ export class ChatGPTApi implements LLMApi {
       );
 
       // web_search_options 仅 OpenAI 官方支持，第三方中转会报 Unknown parameter 错误
-      if (modelConfig.webSearch && !isAiHubMixBaseUrl(currentBaseUrlForRequest)) {
+      if (
+        modelConfig.webSearch &&
+        !isAiHubMixBaseUrl(currentBaseUrlForRequest)
+      ) {
         requestPayload["web_search_options"] = {
           ...(normalizeSearchContextSize(modelConfig.webSearchContextSize)
             ? {

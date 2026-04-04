@@ -2,6 +2,7 @@ import constants from "../constant";
 import type { LLMModel } from "../client/api";
 import { useAccessStore } from "../store";
 import { writeAccessSnapshot } from "./access-snapshot";
+import { appendAihubmixHeaders, isAiHubMixUrl } from "./aihubmix";
 import { normalizeModelClassification } from "./model-classification";
 import modelPublishedAtUtils from "./model-published-at";
 
@@ -278,16 +279,6 @@ export function getProviderDisplayName(
     return hostname;
   } catch {
     return baseUrl;
-  }
-}
-
-function isAiHubMixUrl(baseUrl?: string) {
-  if (!baseUrl) return false;
-
-  try {
-    return new URL(baseUrl).hostname === "aihubmix.com";
-  } catch {
-    return false;
   }
 }
 
@@ -778,6 +769,7 @@ export async function fetchModelsFromProvider(
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
+    appendAihubmixHeaders(headers, baseUrl);
 
     let data: any;
     const normalizedBaseUrl = baseUrl ? normalizeBaseUrl(baseUrl) : undefined;
@@ -1255,6 +1247,15 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
   // 当前启用平台的可用模型只跟随本次真实获取结果，不再叠加历史缓存。
   accessStore.update((state) => {
     state.customModels = modelsString;
+    state.apiProfiles = (state.apiProfiles || []).map((profile) =>
+      profile.enabled
+        ? {
+            ...profile,
+            cachedModels: modelsString,
+            modelCount: models.length,
+          }
+        : profile,
+    );
   });
   const enabledProfile = useAccessStore
     .getState()

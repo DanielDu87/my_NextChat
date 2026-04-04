@@ -13,6 +13,7 @@ import { getClientConfig } from "../config/client";
 import { createPersistStore } from "../utils/store";
 import { clientUpdate } from "../utils";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
+import { appendAihubmixHeaders } from "../utils/aihubmix";
 import ChatGptIcon from "../icons/chatgpt.png";
 import Locale from "../locales";
 import { ClientApi, getClientApi, type LLMUsage } from "../client/api";
@@ -330,14 +331,18 @@ async function queryAihubMixUsage(
   profile?: ActiveCustomProfile,
 ) {
   const requestBaseUrl = getBalanceQueryBaseUrl(rule, profile);
-
-  const res = await fetch(`${requestBaseUrl}/api/user/self`, {
-    method: "GET",
-    headers: {
+  const headers = appendAihubmixHeaders(
+    {
       Authorization: `Bearer ${getBalanceQueryApiKey(rule, profile)}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
+    requestBaseUrl,
+  );
+
+  const res = await fetch(`${requestBaseUrl}/api/user/self`, {
+    method: "GET",
+    headers,
   });
 
   if (!res.ok) {

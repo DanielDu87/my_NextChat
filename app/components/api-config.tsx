@@ -1395,6 +1395,15 @@ export function ApiConfigPage() {
             const fetchedModels = modelsToCustomModelsString(result.models);
 
             accessStore.update((state) => {
+              state.apiProfiles = (state.apiProfiles || []).map((item) =>
+                item.id === profile.id
+                  ? {
+                      ...item,
+                      cachedModels: fetchedModels,
+                      modelCount: result.total,
+                    }
+                  : item,
+              );
               if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
                 state.customModels = fetchedModels;
               }
@@ -1992,6 +2001,15 @@ export function ApiConfigPage() {
             previousCloudModels,
           );
           accessStore.update((state) => {
+            state.apiProfiles = (state.apiProfiles || []).map((item) =>
+              item.id === profile.id
+                ? {
+                    ...item,
+                    cachedModels: fetchedModels,
+                    modelCount: result.total,
+                  }
+                : item,
+            );
             if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
               state.customModels = fetchedModels;
             }

@@ -38,6 +38,7 @@ import { getSessionMessages } from "../utils/chat-session-merge";
 import { getPersistedChatSession } from "../utils/chat-persist-storage";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
+import { useModelCacheStore } from "./model-cache";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
 import { useAuthStore } from "./auth";
@@ -1874,12 +1875,34 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        const priorityKeys = AUTO_SYNC_STORE_KEYS.filter(
-          (key) => key === StoreKey.Access || key === StoreKey.ModelCache,
+        await this.autoSyncCritical();
+        await this.autoSyncDeferred();
+      },
+
+      async autoSyncCritical() {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
+          return;
+        }
+
+        const priorityKeys = [
+          StoreKey.Access,
+          StoreKey.ModelCache,
+          StoreKey.Config,
+        ].filter((key): key is SyncStoreKey =>
+          (AUTO_SYNC_STORE_KEYS as readonly StoreKey[]).includes(key),
         );
         if (priorityKeys.length > 0) {
           await this.sync(priorityKeys);
+          useModelCacheStore.getState().migrateFromAccessProfiles?.();
           rebuildManagedModelsFromCache();
+        }
+      },
+
+      async autoSyncDeferred() {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
+          return;
         }
 
         await this.sync([StoreKey.Chat]);
@@ -1888,7 +1911,8 @@ export const useSyncStore = createPersistStore(
           (key) =>
             key !== StoreKey.Chat &&
             key !== StoreKey.Access &&
-            key !== StoreKey.ModelCache,
+            key !== StoreKey.ModelCache &&
+            key !== StoreKey.Config,
         );
         if (remainingKeys.length > 0) {
           await this.sync(remainingKeys);

@@ -109,8 +109,8 @@ export const DEFAULT_CONFIG = {
   autoModelSeries: [] as AutoModelSeriesKey[],
 
   modelConfig: {
-    model: "gpt-4o-mini" as ModelType,
-    providerName: "OpenAI" as ServiceProvider,
+    model: "gpt-5.4" as ModelType,
+    providerName: "Custom" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,
     max_tokens: 4000,
@@ -225,7 +225,11 @@ export const useAppConfig = createPersistStore(
 
     mergeModels(
       newModels: LLMModel[],
-      options?: { silent?: boolean; allowedProviderIds?: string[] },
+      options?: {
+        silent?: boolean;
+        allowedProviderIds?: string[];
+        skipMarkUpdate?: boolean;
+      },
     ) {
       if (!newModels || newModels.length === 0) {
         return;
@@ -238,6 +242,11 @@ export const useAppConfig = createPersistStore(
 
       const oldModels = get().models;
       const modelMap: Record<string, LLMModel> = {};
+      // 预构建 oldModelLookup，将 O(n*m) 的 find 降为 O(1) 的 Map 查找
+      const oldModelLookup = new Map<string, LLMModel>();
+      for (const m of oldModels) {
+        oldModelLookup.set(`${m.name}@${m?.provider?.id}`, m);
+      }
       const allowedProviderIds = options?.allowedProviderIds
         ? new Set(
             options.allowedProviderIds.map((id) => String(id).toLowerCase()),
@@ -291,9 +300,7 @@ export const useAppConfig = createPersistStore(
       for (const model of newModels) {
         model.available = true;
         const key = `${model.name}@${model?.provider?.id}`;
-        const existing = oldModels.find(
-          (item) => `${item.name}@${item?.provider?.id}` === key,
-        );
+        const existing = oldModelLookup.get(key);
         const shouldPreserveManualCategory =
           !!existing?.category &&
           (existing.categorySource === 1 ||
@@ -370,8 +377,9 @@ export const useAppConfig = createPersistStore(
         models: mergedModels,
       }));
 
-      // 确保持久化触发
-      get().markUpdate();
+      if (!options?.skipMarkUpdate) {
+        get().markUpdate();
+      }
     },
 
     allModels() {},

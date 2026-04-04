@@ -50,10 +50,6 @@ export const useModelCacheStore = createPersistStore(
     },
 
     migrateFromAccessProfiles() {
-      if (get().migratedFromLegacyAccess) {
-        return;
-      }
-
       const accessStore = useAccessStore.getState();
       const legacyProfiles = accessStore.apiProfiles || [];
       const nextProfiles = { ...get().profiles };
@@ -64,30 +60,20 @@ export const useModelCacheStore = createPersistStore(
           return;
         }
 
-        if (!nextProfiles[profile.id]) {
-          nextProfiles[profile.id] = {
-            profileId: profile.id,
-            cachedModels: profile.cachedModels || "",
-            modelCount: profile.modelCount || 0,
-            updatedAt: Date.now(),
-          };
-        }
+        const current = nextProfiles[profile.id];
+        nextProfiles[profile.id] = {
+          profileId: profile.id,
+          cachedModels: profile.cachedModels || "",
+          modelCount: profile.modelCount || 0,
+          updatedAt: current?.updatedAt ?? Date.now(),
+          lastError: current?.lastError,
+        };
         migrated = true;
       });
 
-      if (migrated) {
-        accessStore.update((state) => {
-          state.apiProfiles = state.apiProfiles.map((profile) => ({
-            ...profile,
-            cachedModels: undefined,
-            modelCount: undefined,
-          }));
-        });
-      }
-
       set({
         profiles: nextProfiles,
-        migratedFromLegacyAccess: true,
+        migratedFromLegacyAccess: get().migratedFromLegacyAccess || migrated,
       });
     },
   }),

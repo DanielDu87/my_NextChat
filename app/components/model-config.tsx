@@ -1,5 +1,6 @@
 import { ServiceProvider } from "@/app/constant";
 import { ModelConfig } from "../store";
+import { useAccessStore } from "../store/access";
 
 import Locale from "../locales";
 import { InputRange } from "./input-range";
@@ -7,7 +8,10 @@ import { ListItem, Select } from "./ui-lib";
 import { useAllModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
-import { getModelProvider } from "../utils/model";
+import {
+  getModelProvider,
+  getPreferredDisplayModelConfig,
+} from "../utils/model";
 import { SUMMARIZE_MODEL } from "../constant";
 import { ModalConfigValidator } from "../store/config";
 import {
@@ -22,6 +26,7 @@ export function ModelConfigList(props: {
   updateConfig: (updater: (config: ModelConfig) => void) => void;
 }) {
   const allModels = useAllModels();
+  const apiProfiles = useAccessStore((state) => state.apiProfiles);
 
   // 按供应商分组，如果没有供应商信息则按 provider 分组
   const groupModels = groupBy(
@@ -79,7 +84,10 @@ export function ModelConfigList(props: {
     return a.localeCompare(b);
   });
 
-  const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
+  const displayModelConfig =
+    getPreferredDisplayModelConfig(allModels, props.modelConfig, apiProfiles) ||
+    props.modelConfig;
+  const value = `${displayModelConfig.model}@${displayModelConfig?.providerName}`;
   const parameterSupport = getModelParameterSupport(props.modelConfig.model);
   const supportsTemperature = parameterSupport.temperature;
   const supportsTopP = parameterSupport.top_p;

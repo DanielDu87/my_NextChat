@@ -36,13 +36,12 @@ SYNC_STORE_KEYS.sort((a, b) => {
   return 0;
 });
 
-export const AUTO_SYNC_STORE_KEYS = SYNC_STORE_KEYS.filter(
-  (key) => key !== StoreKey.Config,
-) as SyncStoreKey[];
+export const AUTO_SYNC_STORE_KEYS = [...SYNC_STORE_KEYS] as SyncStoreKey[];
 
 export const MODEL_SYNC_STORE_KEYS = [
   StoreKey.Access,
   StoreKey.ModelCache,
+  StoreKey.Config,
 ] as const;
 
 export function isPersistStoreKey(

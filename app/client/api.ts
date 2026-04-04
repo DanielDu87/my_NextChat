@@ -25,6 +25,7 @@ import {
   getCustomModelApiKeySelection,
   isRememberedApiKeyProfile,
 } from "../utils/model-api-key-memory";
+import { appendAihubmixHeaders } from "../utils/aihubmix";
 
 const { ACCESS_CODE_PREFIX, ModelProvider, ServiceProvider } = constants;
 type ModelProviderValue = (typeof ModelProvider)[keyof typeof ModelProvider];
@@ -572,6 +573,13 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     }
   } else if (!isLocal) {
     console.log("[API Headers] 没有 fallback keys，无法重试");
+  }
+
+  if (isCustom) {
+    appendAihubmixHeaders(
+      headers,
+      currentCustomProfile?.baseUrl || accessStore.customUrl,
+    );
   }
 
   return headers;

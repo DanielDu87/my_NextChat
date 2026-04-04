@@ -94,6 +94,7 @@ import {
   selectOrCopy,
 } from "../utils";
 import { safeLocalStorage } from "../utils/safe-local-storage";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 
 import { useAllModels } from "../utils/hooks";
 import {
@@ -106,7 +107,7 @@ import {
   ModelCategoryMetadata,
 } from "../utils/model-category-rules";
 import { resolveModelProviderId } from "../utils/model";
-import { withSyncUserHeaders } from "../utils/sync-user-client";
+import { getPreferredDefaultChatModel } from "../utils/model";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
@@ -170,9 +171,11 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
+  getPreferredDisplayModelConfig,
   getLatestOpenAIModelForProviderId,
-  getLatestOpenAIModelForCurrentSupplier,
   getModelProvider,
+  getPreferredRuntimeModelConfig,
+  normalizeReservedDisplayModelName,
 } from "../utils/model";
 import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
@@ -308,6 +311,7 @@ function ChatModelUpdateNotice() {
   const [remoteSignalsLoaded, setRemoteSignalsLoaded] = useState(false);
   const [autoReconciling, setAutoReconciling] = useState(false);
   const lastAutoSyncedRevisionRef = useRef("");
+  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reconcileRemoteModelStores = useCallback(async () => {
     const syncStoreState = useSyncStore.getState();
@@ -407,32 +411,8 @@ function ChatModelUpdateNotice() {
 
             state.apiProfiles = mergedProfiles;
           });
+          useModelCacheStore.getState().migrateFromAccessProfiles?.();
         }
-      }
-
-      const remoteModelCacheJson = await client.get(StoreKey.ModelCache);
-      if (remoteModelCacheJson) {
-        const remoteModelCache =
-          parseStoreStatePayload<any>(remoteModelCacheJson);
-        const remoteProfiles =
-          remoteModelCache &&
-          typeof remoteModelCache === "object" &&
-          remoteModelCache.profiles &&
-          typeof remoteModelCache.profiles === "object"
-            ? remoteModelCache.profiles
-            : {};
-
-        Object.entries(remoteProfiles).forEach(([profileId, payload]) => {
-          if (!payload || typeof payload !== "object") {
-            return;
-          }
-
-          useModelCacheStore.getState().upsertProfileCache(profileId, {
-            cachedModels: String((payload as any).cachedModels || ""),
-            modelCount: Number((payload as any).modelCount || 0),
-            updatedAt: Number((payload as any).updatedAt || Date.now()),
-          });
-        });
       }
     });
   }, []);
@@ -467,7 +447,7 @@ function ChatModelUpdateNotice() {
     void refreshRemoteSignals();
     const timer = window.setInterval(() => {
       void refreshRemoteSignals();
-    }, 60000);
+    }, 120000);
 
     return () => {
       window.clearInterval(timer);
@@ -478,32 +458,44 @@ function ChatModelUpdateNotice() {
     useAppConfig.getState().models || [],
     accessStore.apiProfiles || [],
   );
-  const hasExactModelCountMatch =
-    remoteModelRefresh?.modelCount !== undefined &&
-    remoteModelRefresh.modelCount === localTotalCount;
+  const hasExactModelCountMatch = useMemo(
+    () =>
+      remoteModelRefresh?.modelCount !== undefined &&
+      remoteModelRefresh.modelCount === localTotalCount,
+    [remoteModelRefresh?.modelCount, localTotalCount],
+  );
 
-  const hasStaleModels = (accessStore.apiProfiles || []).some((profile) => {
-    const providerId = getProfileProviderId(profile).toLowerCase();
-    const remote = remoteModelRefresh?.providers?.find(
-      (item) =>
-        item.profileId === profile.id ||
-        String(item.providerId || "").toLowerCase() === providerId ||
-        item.profileName === profile.name,
-    );
+  const hasStaleModels = useMemo(
+    () =>
+      (accessStore.apiProfiles || []).some((profile) => {
+        const providerId = getProfileProviderId(profile).toLowerCase();
+        const remote = remoteModelRefresh?.providers?.find(
+          (item) =>
+            item.profileId === profile.id ||
+            String(item.providerId || "").toLowerCase() === providerId ||
+            item.profileName === profile.name,
+        );
 
-    // 只比较模型数量，数量一致则不显示提醒
-    const localModelCount = modelCacheStore.profiles?.[profile.id]?.modelCount;
-    if (localModelCount === undefined) {
-      return false;
-    }
+        // 只比较模型数量，数量一致则不显示提醒
+        const localModelCount =
+          modelCacheStore.profiles?.[profile.id]?.modelCount;
+        if (localModelCount === undefined) {
+          return false;
+        }
 
-    // 云端统计已清空，或存在但缺少当前平台记录时，视为需要手动刷新
-    if (!remote) {
-      return true;
-    }
+        // 云端统计已清空，或存在但缺少当前平台记录时，视为需要手动刷新
+        if (!remote) {
+          return true;
+        }
 
-    return remote.fetchedCount !== localModelCount;
-  });
+        return remote.fetchedCount !== localModelCount;
+      }),
+    [
+      accessStore.apiProfiles,
+      remoteModelRefresh?.providers,
+      modelCacheStore.profiles,
+    ],
+  );
 
   const remoteRevision = useMemo(() => {
     if (!remoteModelRefresh) {
@@ -538,9 +530,16 @@ function ChatModelUpdateNotice() {
 
     let cancelled = false;
     lastAutoSyncedRevisionRef.current = remoteRevision;
-    setAutoReconciling(true);
 
-    void (async () => {
+    // 30 秒防抖：避免短时间内多次触发 reconcile
+    if (reconcileTimerRef.current) {
+      clearTimeout(reconcileTimerRef.current);
+    }
+    reconcileTimerRef.current = setTimeout(async () => {
+      reconcileTimerRef.current = null;
+      if (cancelled) return;
+      setAutoReconciling(true);
+
       try {
         await waitForSyncIdle();
         await reconcileRemoteModelStores();
@@ -555,10 +554,14 @@ function ChatModelUpdateNotice() {
           setAutoReconciling(false);
         }
       }
-    })();
+    }, 30000);
 
     return () => {
       cancelled = true;
+      if (reconcileTimerRef.current) {
+        clearTimeout(reconcileTimerRef.current);
+        reconcileTimerRef.current = null;
+      }
     };
   }, [
     autoReconciling,
@@ -592,9 +595,6 @@ function ChatProviderBalance(props: {
   }
 
   const updateUsage = useUpdateStore((state) => state.updateUsage);
-  const setBalanceSnapshot = useUpdateStore(
-    (state) => state.setBalanceSnapshot,
-  );
   const balance = useUpdateStore(
     (state) => state.balances[props.balanceCacheKey],
   );
@@ -610,90 +610,6 @@ function ChatProviderBalance(props: {
       setDisplayedBalance(balance);
     }
   }, [balance]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadPersistedBalance() {
-      if (!props.balanceCacheKey || props.autoModeEnabled || !supportsBalance) {
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/db/balance?key=${encodeURIComponent(props.balanceCacheKey)}`,
-          {
-            method: "GET",
-            cache: "no-store",
-            headers: withSyncUserHeaders(),
-          },
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          ok?: boolean;
-          snapshot?: {
-            used?: number;
-            total?: number;
-            remaining?: number;
-            metricType?: "currency" | "requests" | "tokens";
-            displayValue?: number;
-            displayLabel?: string;
-            updatedAt?: number;
-            provider?: ServiceProvider;
-            profileId?: string;
-            profileName?: string;
-          } | null;
-        };
-
-        const snapshot = payload?.snapshot;
-        if (
-          cancelled ||
-          !payload?.ok ||
-          !snapshot ||
-          typeof snapshot.remaining !== "number"
-        ) {
-          return;
-        }
-
-        setBalanceSnapshot(props.balanceCacheKey, {
-          used: Number(snapshot.used || 0),
-          total: Number(snapshot.total || 0),
-          remaining: Number(snapshot.remaining || 0),
-          metricType: snapshot.metricType,
-          displayValue:
-            typeof snapshot.displayValue === "number"
-              ? Number(snapshot.displayValue)
-              : undefined,
-          displayLabel: snapshot.displayLabel,
-          updatedAt: Number(snapshot.updatedAt || 0),
-          provider: snapshot.provider || props.providerName,
-          profileId: snapshot.profileId,
-          profileName: snapshot.profileName,
-        });
-      } catch (error) {
-        console.error(
-          "[Balance] 读取数据库快照失败",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-
-    void loadPersistedBalance();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    props.autoModeEnabled,
-    props.balanceCacheKey,
-    props.providerName,
-    setBalanceSnapshot,
-    supportsBalance,
-  ]);
 
   const refreshUsage = useCallback(
     async (force = false) => {
@@ -724,25 +640,6 @@ function ChatProviderBalance(props: {
     }
     refreshUsage(true);
   }, [props.refreshSignal, refreshUsage]);
-
-  useEffect(() => {
-    if (
-      props.autoModeEnabled ||
-      !supportsBalance ||
-      !props.balanceCacheKey ||
-      typeof displayedBalance?.remaining === "number"
-    ) {
-      return;
-    }
-
-    void refreshUsage(true);
-  }, [
-    displayedBalance?.remaining,
-    props.autoModeEnabled,
-    props.balanceCacheKey,
-    refreshUsage,
-    supportsBalance,
-  ]);
 
   if (props.autoModeEnabled || !supportsBalance) {
     return null;
@@ -1164,22 +1061,18 @@ function useScrollToBottom(
   );
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
-    console.log("[scrollDomToBottom] called, dom:", !!dom);
     if (dom) {
       const runScroll = () => {
         setAutoScroll(true);
-        console.log("[scrollDomToBottom] scrolling to", dom.scrollHeight);
         dom.scrollTo(0, dom.scrollHeight);
       };
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(runScroll);
-      });
+      requestAnimationFrame(runScroll);
 
       if (fallbackScrollTimerRef.current) {
         clearTimeout(fallbackScrollTimerRef.current);
       }
-      fallbackScrollTimerRef.current = setTimeout(runScroll, 80);
+      fallbackScrollTimerRef.current = setTimeout(runScroll, 48);
     }
   }, [scrollRef]);
 
@@ -1245,97 +1138,100 @@ export function ChatActions(props: {
   const autoModeEnabled = (config.autoModelSeries?.length || 0) > 0;
   const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
 
-  const getModelGroup = (
-    modelName: string,
-    providerName?: string,
-    vendorName?: string,
-    displayName?: string,
-  ) => {
-    const normalizedModelName = modelName.toLowerCase();
-    const normalizedDisplayName = String(displayName ?? "").toLowerCase();
-
-    if (
-      normalizedModelName.includes("aihubmix") ||
-      normalizedDisplayName.includes("aihubmix")
-    ) {
-      return "AihubMix";
-    }
-
-    if (vendorName?.trim()) {
-      return vendorName.trim();
-    }
-
-    const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
-
-    const groupByKeywords = (
-      label: string,
-      keywords: string[],
-      matcher?: (name: string) => boolean,
+  const getModelGroup = useCallback(
+    (
+      modelName: string,
+      providerName?: string,
+      vendorName?: string,
+      displayName?: string,
     ) => {
-      if (keywords.some((keyword) => fullName.includes(keyword))) {
-        return label;
-      }
-      if (matcher?.(modelName.toLowerCase())) {
-        return label;
-      }
-      return null;
-    };
+      const normalizedModelName = modelName.toLowerCase();
+      const normalizedDisplayName = String(displayName ?? "").toLowerCase();
 
-    return (
-      groupByKeywords(
-        "OpenAI",
-        ["gpt", "chatgpt", "openai", "codex"],
-        (name) =>
-          /^o[1345](?:$|[^a-z])/i.test(name) ||
-          name.includes("o1-") ||
-          name.includes("o3-") ||
-          name.includes("o4-") ||
-          name.includes("o5-"),
-      ) ||
-      groupByKeywords("Claude", ["claude", "anthropic"]) ||
-      groupByKeywords("Gemini", ["gemini", "google"]) ||
-      groupByKeywords("Minimax", ["minimax", "abab"]) ||
-      groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
-      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
-      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
-      groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-      groupByKeywords("豆包", [
-        "doubao",
-        "seed",
-        "bytedance",
-        "volc",
-        "字节",
-      ]) ||
-      groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
-      groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-      groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-      groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
-      groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-      groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-      groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
-      groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
-      groupByKeywords("Cohere", ["cohere", "command-r"]) ||
-      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
-      groupByKeywords("Stability", [
-        "stable-diffusion",
-        "stability",
-        "sdxl",
-        "sd3",
-      ]) ||
-      groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
-      groupByKeywords("Baichuan", ["baichuan"]) ||
-      groupByKeywords("Ideogram", ["ideogram"]) ||
-      groupByKeywords("Jina AI", ["jina"]) ||
-      groupByKeywords("Flux", ["flux-"]) ||
-      groupByKeywords("Meituan", ["longcat", "meituan"]) ||
-      groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
-      groupByKeywords("BAAI", ["bge-", "baai"]) ||
-      groupByKeywords("OpenRouter", ["openrouter"]) ||
-      groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
-      "Other"
-    );
-  };
+      if (
+        normalizedModelName.includes("aihubmix") ||
+        normalizedDisplayName.includes("aihubmix")
+      ) {
+        return "AihubMix";
+      }
+
+      if (vendorName?.trim()) {
+        return vendorName.trim();
+      }
+
+      const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
+
+      const groupByKeywords = (
+        label: string,
+        keywords: string[],
+        matcher?: (name: string) => boolean,
+      ) => {
+        if (keywords.some((keyword) => fullName.includes(keyword))) {
+          return label;
+        }
+        if (matcher?.(modelName.toLowerCase())) {
+          return label;
+        }
+        return null;
+      };
+
+      return (
+        groupByKeywords(
+          "OpenAI",
+          ["gpt", "chatgpt", "openai", "codex"],
+          (name) =>
+            /^o[1345](?:$|[^a-z])/i.test(name) ||
+            name.includes("o1-") ||
+            name.includes("o3-") ||
+            name.includes("o4-") ||
+            name.includes("o5-"),
+        ) ||
+        groupByKeywords("Claude", ["claude", "anthropic"]) ||
+        groupByKeywords("Gemini", ["gemini", "google"]) ||
+        groupByKeywords("Minimax", ["minimax", "abab"]) ||
+        groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
+        groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
+        groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
+        groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
+        groupByKeywords("豆包", [
+          "doubao",
+          "seed",
+          "bytedance",
+          "volc",
+          "字节",
+        ]) ||
+        groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+        groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
+        groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+        groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+        groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
+        groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
+        groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+        groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+        groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
+        groupByKeywords("Cohere", ["cohere", "command-r"]) ||
+        groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
+        groupByKeywords("Stability", [
+          "stable-diffusion",
+          "stability",
+          "sdxl",
+          "sd3",
+        ]) ||
+        groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
+        groupByKeywords("Baichuan", ["baichuan"]) ||
+        groupByKeywords("Ideogram", ["ideogram"]) ||
+        groupByKeywords("Jina AI", ["jina"]) ||
+        groupByKeywords("Flux", ["flux-"]) ||
+        groupByKeywords("Meituan", ["longcat", "meituan"]) ||
+        groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
+        groupByKeywords("BAAI", ["bge-", "baai"]) ||
+        groupByKeywords("OpenRouter", ["openrouter"]) ||
+        groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
+        "Other"
+      );
+    },
+    [],
+  );
   const matchesModelCategory = (
     item: {
       title: string;
@@ -1359,7 +1255,9 @@ export function ChatActions(props: {
   const stopAll = () => ChatControllerPool.stopAll();
 
   // switch model
-  const currentModel = session.mask.modelConfig.model;
+  const currentModel = normalizeReservedDisplayModelName(
+    session.mask.modelConfig.model,
+  );
   const currentProviderName =
     session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
 
@@ -2118,7 +2016,6 @@ function _Chat() {
   const [modelUpdateDone, setModelUpdateDone] = useState(false);
   const lastAssistantSignatureRef = useRef("");
   const lastCompletedAssistantRef = useRef("");
-  const lastBalanceProviderKeyRef = useRef("");
   const streamingScrollResumeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -2148,7 +2045,9 @@ function _Chat() {
   }
 
   // current model name
-  const currentModel = sessionMask?.modelConfig?.model || "";
+  const currentModel = normalizeReservedDisplayModelName(
+    sessionMask?.modelConfig?.model || "",
+  );
   const currentProviderName =
     sessionMask?.modelConfig?.providerName || ServiceProvider.OpenAI;
   const currentModelSupport = getModelParameterSupport(currentModel);
@@ -2183,8 +2082,35 @@ function _Chat() {
       }),
     [apiProfiles, currentProviderId],
   );
+  const currentDisplayModelConfig = useMemo(
+    () =>
+      getPreferredDisplayModelConfig(
+        allModels,
+        sessionMask?.modelConfig,
+        apiProfiles,
+      ),
+    [allModels, apiProfiles, sessionMask?.modelConfig],
+  );
+  const currentDisplayProviderProfile = useMemo(
+    () =>
+      currentDisplayModelConfig?.providerName
+        ? apiProfiles.find(
+            (profile) =>
+              profile.enabled &&
+              profile.provider === currentDisplayModelConfig.providerName,
+          ) ||
+          apiProfiles.find(
+            (profile) =>
+              profile.provider === currentDisplayModelConfig.providerName,
+          )
+        : undefined,
+    [apiProfiles, currentDisplayModelConfig?.providerName],
+  );
   const currentProviderDisplayName =
-    currentProfile?.name || currentProviderName;
+    currentDisplayProviderProfile?.name ||
+    currentDisplayModelConfig?.providerName ||
+    currentProfile?.name ||
+    currentProviderName;
   const fallbackBalanceProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
@@ -2242,13 +2168,22 @@ function _Chat() {
     return filteredModels;
   }, [allModels, currentProviderId]);
   const currentModelName = useMemo(() => {
+    if (currentDisplayModelConfig?.model) {
+      return currentDisplayModelConfig.model;
+    }
+
     const matchedModel = models.find(
       (model) =>
         model.name === currentModel &&
         String(model?.provider?.id || "").toLowerCase() === currentProviderId,
     );
     return matchedModel?.displayName ?? currentModel;
-  }, [currentModel, currentProviderId, models]);
+  }, [
+    currentDisplayModelConfig?.model,
+    currentModel,
+    currentProviderId,
+    models,
+  ]);
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
     : "";
@@ -2283,6 +2218,10 @@ function _Chat() {
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
     : `${currentProviderDisplayName} ${currentModelName}`;
+  const currentDisplaySelectorValue =
+    currentDisplayModelConfig?.model && currentDisplayModelConfig?.providerName
+      ? `${currentDisplayModelConfig.model}@${currentDisplayModelConfig.providerName}`
+      : `${currentModel}@${currentProviderName}`;
   const autoModelSeriesItems = useMemo(
     () =>
       (["gpt", "deepseek", "doubao"] as AutoModelSeriesKey[]).map((value) => ({
@@ -2511,6 +2450,68 @@ function _Chat() {
   const isThinkingModel = (item: any) => {
     return matchesModelCategory(item, "thinking");
   };
+  const modelSelectorItems = useMemo(
+    () =>
+      models.map((m) => ({
+        title: `${m.displayName}`,
+        sortKey: m.name,
+        value: `${m.name}@${m?.provider?.providerName}`,
+        disable: manualModelSelectionDisabled,
+        order: m.sorted,
+        publishedAt: m.publishedAt,
+        group: globalCustomModelValueSet.has(
+          `${m.name}@${m?.provider?.providerName}`,
+        )
+          ? "自定义模型"
+          : getModelGroup(
+              m.name,
+              m?.provider?.providerName,
+              m?.vendor?.name,
+              m.displayName,
+            ),
+        meta: {
+          category: m.category,
+          categorySource: m.categorySource,
+          type: m.type,
+          types: m.types,
+          features: m.features,
+          capabilities: m.capabilities,
+          categories: m.categories,
+          vendorName: m.vendor?.name,
+        },
+      })),
+    [
+      getModelGroup,
+      globalCustomModelValueSet,
+      manualModelSelectionDisabled,
+      models,
+    ],
+  );
+  const modelSelectorQuickFilters = useMemo(
+    () => [
+      {
+        key: "image",
+        label: "图片模型",
+        match: (item: any) => isImageGenerationModel(item),
+      },
+      {
+        key: "video",
+        label: "视频模型",
+        match: (item: any) => isVideoGenerationModel(item),
+      },
+      {
+        key: "web-search",
+        label: "联网模型",
+        match: (item: any) => isWebSearchModel(item),
+      },
+      {
+        key: "thinking",
+        label: "思考模型",
+        match: (item: any) => isThinkingModel(item),
+      },
+    ],
+    [],
+  );
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -2647,6 +2648,7 @@ function _Chat() {
     ChatControllerPool.stop(session.id, messageId);
   };
 
+  // Effect A：消息标准化（修复残留 streaming 和空响应）
   useEffect(() => {
     const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
     const shouldNormalizeMessages = sessionMessages.some((m) => {
@@ -2664,8 +2666,65 @@ function _Chat() {
       return m.content.length === 0;
     });
 
+    if (!shouldNormalizeMessages) {
+      return;
+    }
+
+    chatStore.updateTargetSession(session, (session) => {
+      session.messages.forEach((m) => {
+        const hasActiveController =
+          Boolean(m.streaming) &&
+          ChatControllerPool.has(session.id, m.id ?? "");
+        const shouldInterruptStaleStreaming =
+          Boolean(m.streaming) &&
+          staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
+          !hasActiveController;
+        const shouldNormalizeEmptyResponse =
+          (m.isError || new Date(m.date).getTime() < stopTiming) &&
+          m.content.length === 0;
+
+        if (!shouldInterruptStaleStreaming && !shouldNormalizeEmptyResponse) {
+          return;
+        }
+
+        if (shouldInterruptStaleStreaming) {
+          const interruptedSuffix = "\n\n响应因页面刷新而中断";
+          const currentContent = getMessageTextContent(m).trimEnd();
+          m.streaming = false;
+          m.isError = true;
+          staleStreamingStateRef.current.messageIds.delete(m.id ?? "");
+          m.content = currentContent
+            ? currentContent.endsWith("响应因页面刷新而中断")
+              ? currentContent
+              : `${currentContent}${interruptedSuffix}`
+            : "响应因页面刷新而中断";
+        }
+
+        if (shouldNormalizeEmptyResponse) {
+          m.streaming = false;
+          m.isError = true;
+          m.content = prettyObject({
+            error: true,
+            message: "empty response",
+          });
+        }
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatStore, session, sessionMessages]);
+
+  // Effect B：模型配置同步（全局配置下发到会话 mask）
+  useEffect(() => {
     let nextModelConfig = sessionMask.modelConfig;
     let shouldSyncMaskConfig = false;
+    const preferredRuntimeModelConfig =
+      !autoModeEnabled && sessionMessages.length === 0
+        ? getPreferredRuntimeModelConfig(
+            allModels,
+            sessionMask.modelConfig,
+            apiProfiles,
+          )
+        : undefined;
 
     // 仅在空白会话时把全局模型配置下发到当前会话。
     // 一旦已经开始对话，继续自动回写会把会话模型在发送后覆盖成全局值。
@@ -2685,7 +2744,7 @@ function _Chat() {
       } else if (!autoModeEnabled && sessionMessages.length === 0) {
         nextModelConfig = sanitizeModelConfigForCapability({
           ...nextModelConfig,
-          ...(getLatestOpenAIModelForCurrentSupplier(
+          ...(getPreferredDefaultChatModel(
             allModels,
             nextModelConfig,
             apiProfiles,
@@ -2699,7 +2758,25 @@ function _Chat() {
       );
     }
 
-    if (!shouldNormalizeMessages && !shouldSyncMaskConfig) {
+    if (
+      !shouldSyncMaskConfig &&
+      preferredRuntimeModelConfig &&
+      !areModelConfigValuesEqual(
+        sessionMask.modelConfig as Record<string, unknown>,
+        {
+          ...sessionMask.modelConfig,
+          ...preferredRuntimeModelConfig,
+        } as Record<string, unknown>,
+      )
+    ) {
+      nextModelConfig = sanitizeModelConfigForCapability({
+        ...sessionMask.modelConfig,
+        ...preferredRuntimeModelConfig,
+      });
+      shouldSyncMaskConfig = true;
+    }
+
+    if (!shouldSyncMaskConfig) {
       return;
     }
 
@@ -2720,47 +2797,6 @@ function _Chat() {
     }
 
     chatStore.updateTargetSession(session, (session) => {
-      if (shouldNormalizeMessages) {
-        session.messages.forEach((m) => {
-          const hasActiveController =
-            Boolean(m.streaming) &&
-            ChatControllerPool.has(session.id, m.id ?? "");
-          const shouldInterruptStaleStreaming =
-            Boolean(m.streaming) &&
-            staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
-            !hasActiveController;
-          const shouldNormalizeEmptyResponse =
-            (m.isError || new Date(m.date).getTime() < stopTiming) &&
-            m.content.length === 0;
-
-          if (!shouldInterruptStaleStreaming && !shouldNormalizeEmptyResponse) {
-            return;
-          }
-
-          if (shouldInterruptStaleStreaming) {
-            const interruptedSuffix = "\n\n响应因页面刷新而中断";
-            const currentContent = getMessageTextContent(m).trimEnd();
-            m.streaming = false;
-            m.isError = true;
-            staleStreamingStateRef.current.messageIds.delete(m.id ?? "");
-            m.content = currentContent
-              ? currentContent.endsWith("响应因页面刷新而中断")
-                ? currentContent
-                : `${currentContent}${interruptedSuffix}`
-              : "响应因页面刷新而中断";
-          }
-
-          if (shouldNormalizeEmptyResponse) {
-            m.streaming = false;
-            m.isError = true;
-            m.content = prettyObject({
-              error: true,
-              message: "empty response",
-            });
-          }
-        });
-      }
-
       if (shouldSyncMaskConfig) {
         console.log("[Mask] syncing from global, name = ", session.mask.name);
         session.mask.modelConfig = nextModelConfig;
@@ -2770,13 +2806,12 @@ function _Chat() {
   }, [
     autoModeDefaultCandidate,
     autoModeEnabled,
-    chatStore,
     config.modelConfig,
     allModels,
     apiProfiles,
     session,
     sessionMask,
-    sessionMessages,
+    sessionMessages.length,
   ]);
 
   // check if should send message
@@ -3219,24 +3254,6 @@ function _Chat() {
 
     return `${lastCompletedAssistantMessage.id}:${lastCompletedAssistantMessage.date}:${currentBalanceCacheKey}`;
   }, [currentBalanceCacheKey, lastCompletedAssistantMessage]);
-
-  useEffect(() => {
-    if (!currentBalanceCacheKey || autoModeEnabled) {
-      return;
-    }
-
-    if (lastBalanceProviderKeyRef.current === currentBalanceCacheKey) {
-      return;
-    }
-
-    const reason = lastBalanceProviderKeyRef.current
-      ? "provider-change"
-      : "page-load";
-    lastBalanceProviderKeyRef.current = currentBalanceCacheKey;
-    setBalanceRefreshSignal(
-      `${reason}:${currentBalanceCacheKey}:${Date.now()}`,
-    );
-  }, [autoModeEnabled, currentBalanceCacheKey]);
 
   useEffect(() => {
     if (
@@ -3957,7 +3974,9 @@ function _Chat() {
                               </div>
                               {!isUser && (
                                 <div className={styles["chat-model-name"]}>
-                                  {message.modelDisplay || message.model}
+                                  {normalizeReservedDisplayModelName(
+                                    message.modelDisplay || message.model,
+                                  )}
                                 </div>
                               )}
 
@@ -4269,8 +4288,7 @@ function _Chat() {
           dataAutoModelEnabled={autoModeEnabled}
           resetKey={modelSelectorResetKey}
           defaultSelectedValue={
-            modelSelectorDefaultValue ??
-            `${currentModel}@${currentProviderName}`
+            modelSelectorDefaultValue ?? currentDisplaySelectorValue
           }
           defaultGroup={modelSelectorDefaultGroup}
           headerHint={
@@ -4310,7 +4328,7 @@ function _Chat() {
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
                 >
-                  <span>{currentProfile?.name || currentProviderName}</span>
+                  <span>{currentProviderDisplayName}</span>
                   <DownIcon />
                 </button>
                 <span className={styles["model-selector-hint-count"]}>
@@ -4480,57 +4498,9 @@ function _Chat() {
           groupFilterDisabled={manualModelSelectionDisabled}
           onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
           onDisabledItemClick={handleManualModelSelectionDisabled}
-          items={models.map((m) => ({
-            title: `${m.displayName}`,
-            sortKey: m.name,
-            value: `${m.name}@${m?.provider?.providerName}`,
-            disable: manualModelSelectionDisabled,
-            order: m.sorted,
-            publishedAt: m.publishedAt,
-            group: globalCustomModelValueSet.has(
-              `${m.name}@${m?.provider?.providerName}`,
-            )
-              ? "自定义模型"
-              : getModelGroup(
-                  m.name,
-                  m?.provider?.providerName,
-                  m?.vendor?.name,
-                  m.displayName,
-                ),
-            meta: {
-              category: m.category,
-              categorySource: m.categorySource,
-              type: m.type,
-              types: m.types,
-              features: m.features,
-              capabilities: m.capabilities,
-              categories: m.categories,
-              vendorName: m.vendor?.name,
-            },
-          }))}
+          items={modelSelectorItems}
           showGroupFilter={true}
-          quickFilters={[
-            {
-              key: "image",
-              label: "图片模型",
-              match: (item) => isImageGenerationModel(item),
-            },
-            {
-              key: "video",
-              label: "视频模型",
-              match: (item) => isVideoGenerationModel(item),
-            },
-            {
-              key: "web-search",
-              label: "联网模型",
-              match: (item) => isWebSearchModel(item),
-            },
-            {
-              key: "thinking",
-              label: "思考模型",
-              match: (item) => isThinkingModel(item),
-            },
-          ]}
+          quickFilters={modelSelectorQuickFilters}
           showSearch={true}
           extraGroups={["自定义模型"]}
           onClose={() => {

@@ -16,7 +16,12 @@ import { useSyncStore } from "../store/sync";
 import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
-import { getNonFunctionFileds } from "../utils/sync";
+import {
+  getNonFunctionFileds,
+  hasMeaningfulAccessState,
+  hasMeaningfulConfigState,
+  hasMeaningfulModelCacheState,
+} from "../utils/sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import {
   buildChatIndexPayload,
@@ -35,50 +40,32 @@ import {
 let autoSyncEffectActive = false;
 const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 
-function hasNonEmptyString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0;
+function logCriticalModelSyncBanner(
+  phase: "start" | "complete",
+  detail?: string,
+) {
+  const title = phase === "start" ? "🔄 模型同步开始" : "✅ 模型同步完成";
+  console.info(`===== ${title} =====`);
+  if (detail) {
+    console.info(`[AutoSync] ${detail}`);
+  }
+  console.info("=====");
 }
 
-function hasMeaningfulLocalConfigState(state: Record<string, any>) {
-  return (
-    (Array.isArray(state?.models) && state.models.length > 0) ||
-    hasNonEmptyString(state?.customModels) ||
-    (Array.isArray(state?.autoModelSeries) && state.autoModelSeries.length > 0)
-  );
-}
+function scheduleIdleTask(task: () => void, timeout = 800) {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    (
+      window as typeof window & {
+        requestIdleCallback: (
+          callback: () => void,
+          options?: { timeout?: number },
+        ) => number;
+      }
+    ).requestIdleCallback(task, { timeout });
+    return;
+  }
 
-function hasMeaningfulLocalAccessState(state: Record<string, any>) {
-  return (
-    (Array.isArray(state?.apiProfiles) && state.apiProfiles.length > 0) ||
-    hasNonEmptyString(state?.defaultModel) ||
-    hasNonEmptyString(state?.customModels) ||
-    hasNonEmptyString(state?.visionModels) ||
-    hasNonEmptyString(state?.openaiApiKey) ||
-    hasNonEmptyString(state?.googleApiKey) ||
-    hasNonEmptyString(state?.anthropicApiKey) ||
-    hasNonEmptyString(state?.azureApiKey) ||
-    hasNonEmptyString(state?.baiduApiKey) ||
-    hasNonEmptyString(state?.baiduSecretKey) ||
-    hasNonEmptyString(state?.bytedanceApiKey) ||
-    hasNonEmptyString(state?.alibabaApiKey) ||
-    hasNonEmptyString(state?.moonshotApiKey) ||
-    hasNonEmptyString(state?.stabilityApiKey) ||
-    hasNonEmptyString(state?.tencentSecretId) ||
-    hasNonEmptyString(state?.tencentSecretKey) ||
-    hasNonEmptyString(state?.iflytekApiKey) ||
-    hasNonEmptyString(state?.iflytekApiSecret) ||
-    hasNonEmptyString(state?.deepseekApiKey) ||
-    hasNonEmptyString(state?.xaiApiKey) ||
-    hasNonEmptyString(state?.chatglmApiKey) ||
-    hasNonEmptyString(state?.siliconflowApiKey) ||
-    hasNonEmptyString(state?.ai302ApiKey) ||
-    hasNonEmptyString(state?.customApiKey) ||
-    hasNonEmptyString(state?.localApiKey)
-  );
-}
-
-function hasMeaningfulLocalModelCacheState(state: Record<string, any>) {
-  return Object.keys(state?.profiles || {}).length > 0;
+  setTimeout(task, 0);
 }
 
 function hasMeaningfulLocalChatState(state: Record<string, any>) {
@@ -124,9 +111,9 @@ export default function AutoSync() {
       any
     >;
     const hasStoreBootstrapData =
-      hasMeaningfulLocalConfigState(localConfig) ||
-      hasMeaningfulLocalAccessState(localAccess) ||
-      hasMeaningfulLocalModelCacheState(localModelCache);
+      hasMeaningfulConfigState(localConfig) ||
+      hasMeaningfulAccessState(localAccess) ||
+      hasMeaningfulModelCacheState(localModelCache);
 
     if (missingStoreKeys.length > 0 && !hasStoreBootstrapData) {
       console.log(
@@ -324,6 +311,7 @@ export default function AutoSync() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let hasCompletedAutoSync = false;
     let autoSyncInProgress = false;
+    let hasRestoredModelsFromHydratedCache = false;
 
     const writeLock = () => {
       if (!localStorage) {
@@ -414,10 +402,31 @@ export default function AutoSync() {
     };
 
     console.log("[AutoSync] 📍 组件已挂载");
-    rebuildManagedModelsFromCache();
+    // 移除挂载时立即调用的 rebuildManagedModelsFromCache()
+    // hydration 完成后（scheduleStart）会调用，数据更完整
 
-    // 延迟执行，确保 stores 初始化
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+    const getHydrationState = () => {
+      return {
+        sync: Boolean(useSyncStore.getState()._hasHydrated),
+        access: Boolean(useAccessStore.getState()._hasHydrated),
+        config: Boolean(useAppConfig.getState()._hasHydrated),
+        modelCache: Boolean(useModelCacheStore.getState()._hasHydrated),
+        chat: Boolean(useChatStore.getState()._hasHydrated),
+      };
+    };
+    const areCriticalStoresHydrated = () => {
+      const hydrationState = getHydrationState();
+      return (
+        hydrationState.sync &&
+        hydrationState.access &&
+        hydrationState.config &&
+        hydrationState.modelCache
+      );
+    };
+
+    const startAutoSync = () => {
       console.log("[AutoSync] ⏰ 延迟时间到，开始检查同步配置");
 
       const syncStore = useSyncStore.getState();
@@ -461,10 +470,12 @@ export default function AutoSync() {
 
         clearRetryTimer();
         autoSyncInProgress = true;
+        const criticalSyncStartedAt = Date.now();
         heartbeatTimer = setInterval(
           refreshLock,
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
         );
+        logCriticalModelSyncBanner("start", "开始执行首开关键模型同步");
         console.log("[AutoSync] 🚀 开始自动同步...");
 
         Promise.resolve()
@@ -482,14 +493,31 @@ export default function AutoSync() {
               return;
             }
 
-            return syncStore.autoSync();
+            return syncStore.autoSyncCritical?.() || syncStore.autoSync();
           })
           .then(async () => {
             await ensureRemoteBootstrapState();
-            rebuildManagedModelsFromCache();
             hasCompletedAutoSync = true;
-            console.log("[AutoSync] ✅ 自动同步完成");
-            return logModelCountWithRemote();
+            const elapsedMs = Date.now() - criticalSyncStartedAt;
+            logCriticalModelSyncBanner(
+              "complete",
+              `关键模型数据已恢复，用时 ${elapsedMs} ms`,
+            );
+            console.log("[AutoSync] ✅ 关键自动同步完成，模型数据已优先恢复");
+            scheduleIdleTask(() => {
+              void logModelCountWithRemote();
+            });
+            setTimeout(() => {
+              const deferredSync =
+                syncStore.autoSyncDeferred?.() ?? Promise.resolve();
+              void deferredSync
+                .then(() => {
+                  console.log("[AutoSync] ✅ 后台同步完成");
+                })
+                .catch((error: unknown) => {
+                  console.error("[AutoSync] ❌ 后台同步失败:", error);
+                });
+            }, 0);
           })
           .catch((error: unknown) => {
             console.error("[AutoSync] ❌ 同步失败:", error);
@@ -511,12 +539,47 @@ export default function AutoSync() {
       });
 
       attemptAutoSync();
-    }, 1000); // 延迟 1 秒
+    };
+
+    const scheduleStart = () => {
+      const elapsed = Date.now() - startedAt;
+      if (!hasRestoredModelsFromHydratedCache && areCriticalStoresHydrated()) {
+        useModelCacheStore.getState().migrateFromAccessProfiles?.();
+        rebuildManagedModelsFromCache();
+        hasRestoredModelsFromHydratedCache = true;
+        console.info("===== 📦 本地模型缓存恢复完成 =====");
+        console.info("[AutoSync] 已在首开同步前恢复本地模型缓存");
+        console.info("=====");
+      }
+
+      if (!areCriticalStoresHydrated() && elapsed < 5000) {
+        timer = setTimeout(scheduleStart, 80);
+        return;
+      }
+
+      if (!areCriticalStoresHydrated()) {
+        const hydrationState = getHydrationState();
+        const pendingStores = Object.entries(hydrationState)
+          .filter(([, hydrated]) => !hydrated)
+          .map(([name]) => name);
+        console.log(
+          `[AutoSync] ℹ️ 关键 store hydration 等待超时，继续执行首开同步；未完成: ${pendingStores.join(
+            ", ",
+          )}`,
+        );
+      }
+
+      timer = setTimeout(startAutoSync, 80);
+    };
+
+    scheduleStart();
 
     return () => {
       console.log("[AutoSync] 🧹 组件卸载");
       autoSyncEffectActive = false;
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       clearRetryTimer();
       releaseLock();
       channel?.close();

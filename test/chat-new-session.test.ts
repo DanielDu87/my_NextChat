@@ -2,7 +2,13 @@ import {
   applyAutoModeModelConfig,
   mergeNewSessionModelConfig,
 } from "../app/utils/chat-session-model";
-import { resolveModelProviderId } from "../app/utils/model";
+import {
+  getPreferredDisplayModelConfig,
+  getPreferredDefaultChatModel,
+  getPreferredRuntimeModelConfig,
+  normalizeReservedDisplayModelName,
+  resolveModelProviderId,
+} from "../app/utils/model";
 import { ServiceProvider } from "../app/constant";
 
 describe("chat session model config", () => {
@@ -130,5 +136,162 @@ describe("new session model config", () => {
         ] as any,
       ),
     ).toBe("custom_toapi");
+  });
+
+  test("首开默认聊天模型应优先使用官方保留的 gpt-5.4，而不是 Local 变体", () => {
+    expect(
+      getPreferredDefaultChatModel(
+        [
+          {
+            name: "gpt-5.4-2026-03-05",
+            available: true,
+            displayName: "gpt-5.4-2026-03-05",
+            sorted: 0,
+            provider: {
+              id: "local_llama.cpp",
+              providerName: ServiceProvider.Local,
+              providerType: "openai",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 1,
+            provider: {
+              id: "openai",
+              providerName: ServiceProvider.OpenAI,
+              providerType: "openai",
+              sorted: 1,
+            },
+          },
+        ] as any,
+        {
+          model: "gpt-5.4-2026-03-05",
+          providerName: ServiceProvider.Local,
+        },
+        [
+          {
+            name: "OpenAI",
+            provider: ServiceProvider.OpenAI,
+            enabled: true,
+          },
+          {
+            name: "Local",
+            provider: ServiceProvider.Local,
+            enabled: true,
+          },
+        ] as any,
+      ),
+    ).toEqual({
+      model: "gpt-5.4",
+      providerName: ServiceProvider.OpenAI,
+    });
+  });
+
+  test("首开使用 Local 兜底时，界面展示仍应保持官方 gpt-5.4 名称", () => {
+    expect(
+      getPreferredDisplayModelConfig(
+        [
+          {
+            name: "gpt-5.4-2026-03-05",
+            available: true,
+            displayName: "gpt-5.4-2026-03-05",
+            sorted: 0,
+            provider: {
+              id: "local_llama.cpp",
+              providerName: ServiceProvider.Local,
+              providerType: "openai",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 1,
+            provider: {
+              id: "openai",
+              providerName: ServiceProvider.OpenAI,
+              providerType: "openai",
+              sorted: 1,
+            },
+          },
+        ] as any,
+        {
+          model: "gpt-5.4-2026-03-05",
+          providerName: ServiceProvider.Local,
+        },
+        [
+          {
+            name: "OpenAI",
+            provider: ServiceProvider.OpenAI,
+            enabled: true,
+          },
+          {
+            name: "Local",
+            provider: ServiceProvider.Local,
+            enabled: true,
+          },
+        ] as any,
+      ),
+    ).toEqual({
+      model: "gpt-5.4",
+      providerName: ServiceProvider.OpenAI,
+    });
+  });
+
+  test("保留模型显示名应去掉日期后缀和 @Local", () => {
+    expect(
+      normalizeReservedDisplayModelName("gpt-5.4-2026-03-05@Local"),
+    ).toBe("gpt-5.4");
+  });
+
+  test("首开空白会话实际发送前也应把本地日期变体切到官方 gpt-5.4", () => {
+    expect(
+      getPreferredRuntimeModelConfig(
+        [
+          {
+            name: "gpt-5.4-2026-03-05",
+            available: true,
+            displayName: "gpt-5.4-2026-03-05",
+            sorted: 0,
+            provider: {
+              id: "local_llama.cpp",
+              providerName: ServiceProvider.Local,
+              providerType: "openai",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 1,
+            provider: {
+              id: "openai",
+              providerName: ServiceProvider.OpenAI,
+              providerType: "openai",
+              sorted: 1,
+            },
+          },
+        ] as any,
+        {
+          model: "gpt-5.4-2026-03-05",
+          providerName: ServiceProvider.Local,
+        },
+        [
+          {
+            name: "OpenAI",
+            provider: ServiceProvider.OpenAI,
+            enabled: true,
+          },
+        ] as any,
+      ),
+    ).toEqual({
+      model: "gpt-5.4",
+      providerName: ServiceProvider.OpenAI,
+    });
   });
 });

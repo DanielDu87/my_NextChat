@@ -50,8 +50,10 @@ import {
   collectModelsWithDefaultModel,
   getLatestOpenAIModelForCurrentSupplier,
   getLatestOpenAIModelForProviderId,
+  getPreferredDisplayModelConfig,
+  getPreferredRuntimeModelConfig,
 } from "../utils/model";
-import { createEmptyMask, Mask } from "./mask";
+import { createEmptyMask, getPreferredStartupProfile, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
@@ -80,6 +82,33 @@ const pendingSessionRefreshTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+
+function isChatDebugLoggingEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return (
+      localStorage.getItem("debug-chat-logs") === "1" ||
+      process.env.NEXT_PUBLIC_DEBUG_CHAT_LOGS === "1"
+    );
+  } catch {
+    return process.env.NEXT_PUBLIC_DEBUG_CHAT_LOGS === "1";
+  }
+}
+
+function logChatDebug(...args: unknown[]) {
+  if (!isChatDebugLoggingEnabled()) {
+    return;
+  }
+
+  if (args.length === 0) {
+    return;
+  }
+
+  console.log(...args);
+}
 
 export type ChatMessageTool = {
   id: string;
@@ -925,9 +954,21 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   ];
 }
 
-function resolveDisplayProviderName(modelConfig: ModelConfig) {
-  if (modelConfig.providerName !== ServiceProvider.Custom) {
-    return modelConfig.providerName;
+function resolveDisplayProviderName(
+  modelConfig: ModelConfig,
+  allModels = collectModelsWithDefaultModel(
+    useAppConfig.getState().models,
+    useAppConfig.getState().customModels,
+    useAccessStore.getState().defaultModel,
+  ),
+  accessProfiles = useAccessStore.getState().apiProfiles,
+) {
+  const displayModelConfig =
+    getPreferredDisplayModelConfig(allModels, modelConfig, accessProfiles) ||
+    modelConfig;
+
+  if (displayModelConfig.providerName !== ServiceProvider.Custom) {
+    return displayModelConfig.providerName;
   }
 
   const enabledProfile = useAccessStore
@@ -972,6 +1013,24 @@ function buildAutoModeFailureSummary(
       } / ${providerLabel}: ${reason}`;
     }),
   ].join("\n");
+}
+
+function logRequestBanner(
+  kind: "chat" | "title",
+  payload: {
+    model: string;
+    provider: string;
+    baseUrl?: string;
+    chatPath?: string;
+    stream?: boolean;
+    profileName?: string | null;
+    attempt?: string;
+  },
+) {
+  const title = kind === "chat" ? "💬💬💬 对话请求开始" : "🏷️🏷️🏷️ 标题请求开始";
+  console.log(`===== ${title} =====`);
+  console.log(`[${kind === "chat" ? "ChatRequest" : "TitleRequest"}]`, payload);
+  console.log("=====");
 }
 
 async function refreshSessionTitle(targetSession: ChatSession) {
@@ -1324,7 +1383,7 @@ export const useChatStore = createPersistStore(
         );
         let changed = sessions.length !== currentSessions.length;
 
-        console.log("[initializeForNewPage] 开始", {
+        logChatDebug("[initializeForNewPage] 开始", {
           currentSessionsCount: currentSessions.length,
           removedEmptySessionsCount: currentSessions.length - sessions.length,
           currentSessionId,
@@ -1341,10 +1400,19 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        // 始终在 index 0 插入新的空会话
-        const newEmptySession = createEmptySession();
-        sessions.unshift(newEmptySession);
-        changed = true;
+        const hasMeaningfulSession = sessions.some(
+          (session) =>
+            session.messages.length > 0 ||
+            !isDefaultTopic(session.topic) ||
+            !!session.memoryPrompt,
+        );
+
+        // 只有在当前没有任何有效会话时才补一个新的空会话，避免首开时与远端当前会话重复显示。
+        if (!hasMeaningfulSession) {
+          const newEmptySession = createEmptySession();
+          sessions.unshift(newEmptySession);
+          changed = true;
+        }
 
         // 恢复对话选中：优先从 URL hash 中获取 session ID
         let newIndex = 0;
@@ -1357,7 +1425,7 @@ export const useChatStore = createPersistStore(
           if (idx >= 0) newIndex = idx;
         }
 
-        console.log("[initializeForNewPage] 完成", {
+        logChatDebug("[initializeForNewPage] 完成", {
           sessionsCount: sessions.length,
           currentSessionIndex: newIndex,
         });
@@ -1382,7 +1450,7 @@ export const useChatStore = createPersistStore(
           currentState.currentSessionIndex !== newIndex ||
           currentState.sessions[0]?.id !== sessions[0]?.id
         ) {
-          console.log("[initializeForNewPage] 应用新状态");
+          logChatDebug("[initializeForNewPage] 应用新状态");
           set(() => nextState);
         }
 
@@ -1546,8 +1614,8 @@ export const useChatStore = createPersistStore(
               appConfig.customModels,
               accessStore.defaultModel,
             );
-            const enabledProfile = accessStore.apiProfiles.find(
-              (profile) => profile.enabled,
+            const enabledProfile = getPreferredStartupProfile(
+              accessStore.apiProfiles || [],
             );
             const enabledProviderId =
               enabledProfile?.provider === ServiceProvider.Custom
@@ -1928,7 +1996,7 @@ export const useChatStore = createPersistStore(
         attachImages?: string[],
         isMcpResponse?: boolean,
       ) {
-        console.log("[Chat] 💬 用户输入:", {
+        logChatDebug("[Chat] 💬 用户输入:", {
           contentLength: content.length,
           hasImages: attachImages && attachImages.length > 0,
           isMcpResponse,
@@ -1961,20 +2029,36 @@ export const useChatStore = createPersistStore(
                 model: autoCandidates[0].model as ModelType,
                 providerName: autoCandidates[0].providerName,
               })
-            : modelConfig;
+            : sanitizeModelConfigForCapability({
+                ...modelConfig,
+                ...(getPreferredRuntimeModelConfig(
+                  allModels,
+                  modelConfig,
+                  accessStore.apiProfiles,
+                ) || {}),
+              });
 
         // 获取实际提供商名称（对于 Custom provider，显示 profile 名称）
-        const displayProviderName =
-          resolveDisplayProviderName(initialModelConfig);
+        const displayModelConfig =
+          getPreferredDisplayModelConfig(
+            allModels,
+            initialModelConfig,
+            accessStore.apiProfiles,
+          ) || initialModelConfig;
+        const displayProviderName = resolveDisplayProviderName(
+          initialModelConfig,
+          allModels,
+          accessStore.apiProfiles,
+        );
 
-        console.log(
+        logChatDebug(
           "[Chat] 🤖 使用模型:",
           initialModelConfig.model,
           "提供商:",
           displayProviderName,
         );
         if (autoModeEnabled) {
-          console.log("[Chat] 🔄 自动模式已启用:", {
+          logChatDebug("[Chat] 🔄 自动模式已启用:", {
             selectedSeries: selectedAutoSeries || null,
             candidateCount: autoCandidates.length,
             candidates: autoCandidates.map((candidate, index) => ({
@@ -2012,7 +2096,7 @@ export const useChatStore = createPersistStore(
           role: "assistant",
           streaming: true,
           model: initialModelConfig.model,
-          modelDisplay: initialModelConfig.model,
+          modelDisplay: displayModelConfig.model,
           modelIcon: getMessageIconModel(
             initialModelConfig.model,
             initialModelConfig.providerName,
@@ -2025,7 +2109,7 @@ export const useChatStore = createPersistStore(
         const sendMessages = recentMessages.concat(userMessage);
         const messageIndex = session.messages.length + 1;
 
-        console.log("[Chat] 📨 发送消息:", {
+        logChatDebug("[Chat] 📨 发送消息:", {
           contextMessages: recentMessages.length,
           totalMessages: sendMessages.length,
         });
@@ -2063,10 +2147,20 @@ export const useChatStore = createPersistStore(
             initialModelConfig.providerName as ServiceProvider,
             getEnabledCustomBalanceProfile(),
           );
-          console.log("[Chat] 🚀 开始 API 调用...");
+          logChatDebug("[Chat] 🚀 开始 API 调用...");
           api.llm.chat({
             messages: sendMessages,
             config: { ...initialModelConfig, stream: true },
+            onRequest(request) {
+              logRequestBanner("chat", {
+                model: request.model,
+                provider: request.provider,
+                baseUrl: request.baseUrl,
+                chatPath: request.chatPath,
+                stream: request.stream,
+                profileName: displayProviderName,
+              });
+            },
             onUpdate(message) {
               botMessage.streaming = true;
               if (message) {
@@ -2262,6 +2356,15 @@ export const useChatStore = createPersistStore(
                     profileName: candidateProfile?.name || null,
                     model: candidate.model,
                     url: requestUrl,
+                  });
+                  logRequestBanner("chat", {
+                    model: candidate.model,
+                    provider: String(candidate.providerName),
+                    baseUrl: request?.baseUrl,
+                    chatPath: request?.chatPath,
+                    stream: true,
+                    profileName: candidateProfile?.name || null,
+                    attempt: attemptLabel,
                   });
                 },
                 onUpdate(message) {
@@ -2696,14 +2799,14 @@ export const useChatStore = createPersistStore(
 
           // 使用多供应商切换逻辑生成标题
           const candidates = getRefreshTitleCandidates(session);
-          console.log(
+          logChatDebug(
             "[AutoGenerateTitle] Trying",
             candidates.length,
             "candidates",
           );
 
           for (const candidate of candidates) {
-            console.log("[AutoGenerateTitle] Trying candidate:", {
+            logChatDebug("[AutoGenerateTitle] Trying candidate:", {
               model: candidate.model,
               providerId: candidate.providerId,
               profileName: candidate.profile?.name,
@@ -2733,6 +2836,16 @@ export const useChatStore = createPersistStore(
                         stream: false,
                         providerName: candidate.providerName,
                       },
+                      onRequest(request) {
+                        logRequestBanner("title", {
+                          model: request.model,
+                          provider: request.provider,
+                          baseUrl: request.baseUrl,
+                          chatPath: request.chatPath,
+                          stream: request.stream,
+                          profileName: candidate.profile?.name || null,
+                        });
+                      },
                       onFinish(message, responseRes) {
                         const success =
                           responseRes?.status === 200 &&
@@ -2761,7 +2874,9 @@ export const useChatStore = createPersistStore(
               });
 
               if (success) {
-                console.log("[AutoGenerateTitle] Successfully generated title");
+                logChatDebug(
+                  "[AutoGenerateTitle] Successfully generated title",
+                );
                 break;
               }
             } catch (error) {

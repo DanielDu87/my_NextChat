@@ -12,11 +12,35 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : String(profile.provider).toLowerCase();
 }
 
+// 模块级缓存：如果传入数据与上次完全相同则跳过执行
+let lastProfilesHash = "";
+
+function computeProfilesHash(
+  profiles: Array<{ id: string; cachedModels?: string }>,
+  modelCacheProfiles: Record<string, { cachedModels?: string }> | undefined,
+): string {
+  const parts: string[] = [];
+  for (const p of profiles) {
+    const cache = modelCacheProfiles?.[p.id];
+    const models = cache?.cachedModels || p.cachedModels || "";
+    parts.push(`${p.id}:${models}`);
+  }
+  return parts.join("|");
+}
+
 export function rebuildManagedModelsFromCache() {
   const accessStore = useAccessStore.getState();
   const appConfig = useAppConfig.getState();
   const modelCacheStore = useModelCacheStore.getState();
   const profiles = accessStore.apiProfiles || [];
+
+  // 数据去重：与上次相同则跳过
+  const currentHash = computeProfilesHash(profiles, modelCacheStore.profiles);
+  if (currentHash === lastProfilesHash) {
+    return;
+  }
+  lastProfilesHash = currentHash;
+
   const rebuiltModels: LLMModel[] = [];
 
   profiles.forEach((profile) => {
@@ -54,6 +78,7 @@ export function rebuildManagedModelsFromCache() {
 
   appConfig.mergeModels(rebuiltModels, {
     silent: true,
+    skipMarkUpdate: true,
     allowedProviderIds: profiles.map((profile) =>
       getProfileProviderId(profile),
     ),
