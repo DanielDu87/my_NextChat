@@ -47,7 +47,7 @@ async function resetClientCache(nextUserId = "") {
   }
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   effectiveUser: null,
   isImpersonating: false,
@@ -72,7 +72,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     if (!response.ok) {
-      throw new Error(`[Auth] ${response.status} ${response.statusText}`);
+      console.error(`[Auth] ${response.status} ${response.statusText}`);
+      set((state) => ({
+        ...state,
+        initialized: true,
+      }));
+      return get().user;
     }
 
     const payload = await response.json();
@@ -83,7 +88,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     if (effectiveUserId && cacheMarker !== effectiveUserId) {
       await resetClientCache(effectiveUserId);
-      window.location.reload();
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
       return null;
     }
 

@@ -111,7 +111,11 @@ import { getPreferredDefaultChatModel } from "../utils/model";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
-import { syncAllProfilesToDatabase } from "../utils/provider-sync";
+import {
+  ensureProviderModelsReady,
+  syncAllProfilesToDatabase,
+} from "../utils/provider-sync";
+import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 import dynamic from "next/dynamic";
 
@@ -131,6 +135,7 @@ import {
   ListItem,
   Modal,
   Selector,
+  compareSelectorItems,
   showConfirm,
   showPrompt,
   showToast,
@@ -257,6 +262,149 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : String(profile.provider).toLowerCase();
 }
 
+function getActiveAccessProfile(
+  profiles: Array<{
+    name: string;
+    provider: ServiceProvider;
+    baseUrl?: string;
+    apiKey?: string;
+    enabled?: boolean;
+  }> = [],
+  providerName: ServiceProvider | undefined,
+  activeBaseUrl?: string,
+  activeApiKey?: string,
+) {
+  if (
+    providerName !== ServiceProvider.Custom &&
+    providerName !== ServiceProvider.Local
+  ) {
+    return undefined;
+  }
+
+  const activeProfile = profiles.find((profile) => {
+    if (profile.provider !== providerName || !profile.baseUrl) {
+      return false;
+    }
+
+    if (profile.baseUrl !== activeBaseUrl) {
+      return false;
+    }
+
+    if (!activeApiKey) {
+      return true;
+    }
+
+    return (profile.apiKey || "") === activeApiKey;
+  });
+
+  if (activeProfile) {
+    return activeProfile;
+  }
+
+  return profiles.find(
+    (profile) => profile.provider === providerName && profile.enabled,
+  );
+}
+
+function applyProfileToAccessStore(
+  access: any,
+  profile: {
+    id?: string;
+    name: string;
+    provider: ServiceProvider;
+    baseUrl?: string;
+    apiKey?: string;
+    openAICompatible?: boolean;
+  },
+  options?: {
+    customModels?: string;
+  },
+) {
+  access.provider = profile.provider;
+  if (options?.customModels !== undefined) {
+    access.customModels = options.customModels;
+  }
+
+  access.apiProfiles = access.apiProfiles.map((item: any) => ({
+    ...item,
+    enabled: item.id === profile.id,
+  }));
+
+  switch (profile.provider) {
+    case ServiceProvider.Custom:
+      access.customUrl = profile.baseUrl || "";
+      access.customApiKey = profile.apiKey || "";
+      access.customOpenAICompatible = profile.openAICompatible ?? true;
+      break;
+    case ServiceProvider.OpenAI:
+      access.openaiUrl = profile.baseUrl || access.openaiUrl;
+      access.openaiApiKey = profile.apiKey || access.openaiApiKey;
+      break;
+    case ServiceProvider.Azure:
+      access.azureUrl = profile.baseUrl || access.azureUrl;
+      access.azureApiKey = profile.apiKey || access.azureApiKey;
+      break;
+    case ServiceProvider.Google:
+      access.googleUrl = profile.baseUrl || access.googleUrl;
+      access.googleApiKey = profile.apiKey || access.googleApiKey;
+      break;
+    case ServiceProvider.Anthropic:
+      access.anthropicUrl = profile.baseUrl || access.anthropicUrl;
+      access.anthropicApiKey = profile.apiKey || access.anthropicApiKey;
+      break;
+    case ServiceProvider.Baidu:
+      access.baiduUrl = profile.baseUrl || access.baiduUrl;
+      access.baiduApiKey = profile.apiKey || access.baiduApiKey;
+      break;
+    case ServiceProvider.ByteDance:
+      access.bytedanceUrl = profile.baseUrl || access.bytedanceUrl;
+      access.bytedanceApiKey = profile.apiKey || access.bytedanceApiKey;
+      break;
+    case ServiceProvider.Alibaba:
+      access.alibabaUrl = profile.baseUrl || access.alibabaUrl;
+      access.alibabaApiKey = profile.apiKey || access.alibabaApiKey;
+      break;
+    case ServiceProvider.Moonshot:
+      access.moonshotUrl = profile.baseUrl || access.moonshotUrl;
+      access.moonshotApiKey = profile.apiKey || access.moonshotApiKey;
+      break;
+    case ServiceProvider.Stability:
+      access.stabilityUrl = profile.baseUrl || access.stabilityUrl;
+      access.stabilityApiKey = profile.apiKey || access.stabilityApiKey;
+      break;
+    case ServiceProvider.Iflytek:
+      access.iflytekUrl = profile.baseUrl || access.iflytekUrl;
+      access.iflytekApiKey = profile.apiKey || access.iflytekApiKey;
+      break;
+    case ServiceProvider.XAI:
+      access.xaiUrl = profile.baseUrl || access.xaiUrl;
+      access.xaiApiKey = profile.apiKey || access.xaiApiKey;
+      break;
+    case ServiceProvider.ChatGLM:
+      access.chatglmUrl = profile.baseUrl || access.chatglmUrl;
+      access.chatglmApiKey = profile.apiKey || access.chatglmApiKey;
+      break;
+    case ServiceProvider.DeepSeek:
+      access.deepseekUrl = profile.baseUrl || access.deepseekUrl;
+      access.deepseekApiKey = profile.apiKey || access.deepseekApiKey;
+      break;
+    case ServiceProvider.SiliconFlow:
+      access.siliconflowUrl = profile.baseUrl || access.siliconflowUrl;
+      access.siliconflowApiKey = profile.apiKey || access.siliconflowApiKey;
+      break;
+    case ServiceProvider["302.AI"]:
+      access.ai302Url = profile.baseUrl || access.ai302Url;
+      access.ai302ApiKey = profile.apiKey || access.ai302ApiKey;
+      break;
+    case ServiceProvider.Local:
+      access.localUrl = profile.baseUrl || access.localUrl;
+      access.localApiKey = profile.apiKey || access.localApiKey;
+      break;
+    default:
+      break;
+  }
+}
+
 function countManagedCloudModels(
   models: Array<{ provider?: { id?: string } }> = [],
   profiles: Array<{ provider: string; name: string }> = [],
@@ -312,6 +460,7 @@ function ChatModelUpdateNotice() {
   const [autoReconciling, setAutoReconciling] = useState(false);
   const lastAutoSyncedRevisionRef = useRef("");
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enableAutomaticModelReconcile = false;
 
   const reconcileRemoteModelStores = useCallback(async () => {
     const syncStoreState = useSyncStore.getState();
@@ -516,6 +665,10 @@ function ChatModelUpdateNotice() {
   }, [remoteModelRefresh]);
 
   useEffect(() => {
+    if (!enableAutomaticModelReconcile) {
+      return;
+    }
+
     if (
       !remoteSignalsLoaded ||
       useSyncStore.getState().provider !== ProviderType.Database ||
@@ -565,6 +718,7 @@ function ChatModelUpdateNotice() {
     };
   }, [
     autoReconciling,
+    enableAutomaticModelReconcile,
     hasExactModelCountMatch,
     hasStaleModels,
     reconcileRemoteModelStores,
@@ -600,13 +754,14 @@ function ChatProviderBalance(props: {
   );
   const [displayedBalance, setDisplayedBalance] = useState(balance);
   const [loadingUsage, setLoadingUsage] = useState(false);
+  const lastAutoRefreshKeyRef = useRef("");
   const showUsage = true;
   const supportsBalance =
     props.providerName === ServiceProvider.Custom ||
     props.providerName === ServiceProvider.Local;
 
   useEffect(() => {
-    if (typeof balance?.remaining === "number") {
+    if (balance) {
       setDisplayedBalance(balance);
     }
   }, [balance]);
@@ -640,6 +795,32 @@ function ChatProviderBalance(props: {
     }
     refreshUsage(true);
   }, [props.refreshSignal, refreshUsage]);
+
+  useEffect(() => {
+    if (props.autoModeEnabled || !supportsBalance || !props.balanceCacheKey) {
+      return;
+    }
+
+    const refreshKey = `${props.balanceCacheKey}:${props.profile?.id || ""}`;
+    const lastRefreshAt = recentBalanceAutoRefresh.get(refreshKey) || 0;
+    if (
+      lastAutoRefreshKeyRef.current === refreshKey ||
+      Date.now() - lastRefreshAt < 5000
+    ) {
+      return;
+    }
+    lastAutoRefreshKeyRef.current = refreshKey;
+    recentBalanceAutoRefresh.set(refreshKey, Date.now());
+
+    void refreshUsage(false);
+  }, [
+    props.autoModeEnabled,
+    props.balanceCacheKey,
+    props.profile?.id,
+    props.providerName,
+    refreshUsage,
+    supportsBalance,
+  ]);
 
   if (props.autoModeEnabled || !supportsBalance) {
     return null;
@@ -692,6 +873,8 @@ import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
 const localStorage = safeLocalStorage();
+const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
+const recentBalanceAutoRefresh = new Map<string, number>();
 
 const ttsPlayer = createTTSPlayer();
 
@@ -732,8 +915,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
-  const { session: loadedSession } = useCurrentSession();
-  const session = loadedSession ?? currentSessionSnapshot;
+  const session = currentSessionSnapshot;
   const maskStore = useMaskStore();
   const navigate = useNavigate();
 
@@ -809,12 +991,10 @@ function PromptToast(props: {
   showModal?: boolean;
   setShowModal: (_: boolean) => void;
 }) {
-  const chatStore = useChatStore();
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
-  const { session: loadedSession } = useCurrentSession();
-  const session = normalizeSession(loadedSession ?? currentSessionSnapshot);
+  const session = normalizeSession(currentSessionSnapshot);
   const context = session?.mask?.context ?? [];
 
   return (
@@ -1942,6 +2122,21 @@ function _Chat() {
     useCurrentSession();
   const session = loadedSession ?? currentSessionSnapshot;
   const safeSession = session ?? emptySessionRef.current;
+
+  useEffect(() => {
+    if (!safeSession?.id || typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.sessionStorage.setItem(
+        "nextchat_tab_current_session_id",
+        safeSession.id,
+      );
+      window.sessionStorage.setItem("nextchat_tab_initialized", "1");
+    } catch {}
+  }, [safeSession?.id]);
+
   const config = useAppConfig();
   const fontSize = config.fontSize;
   const fontFamily = config.fontFamily;
@@ -2058,6 +2253,7 @@ function _Chat() {
   const allModels = useAllModels();
   const globalCustomModels = useAppConfig((state) => state.customModels);
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const accessStore = useAccessStore() as any;
   const currentProviderId = useMemo(() => {
     return (
       resolveModelProviderId(
@@ -2070,17 +2266,32 @@ function _Chat() {
   const currentProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
-        const profileProviderId =
-          profile.provider === ServiceProvider.Custom
-            ? `custom_${profile.name}`.toLowerCase()
-            : profile.provider === ServiceProvider.Local
-            ? `${String(profile.provider).toLowerCase()}_${
-                profile.name
-              }`.toLowerCase()
-            : String(profile.provider).toLowerCase();
-        return profileProviderId === currentProviderId;
+        return (
+          getProfileProviderId(profile).toLowerCase() === currentProviderId
+        );
       }),
     [apiProfiles, currentProviderId],
+  );
+  const currentActiveProviderProfile = useMemo(
+    () =>
+      getActiveAccessProfile(
+        apiProfiles,
+        currentProviderName as ServiceProvider,
+        currentProviderName === ServiceProvider.Local
+          ? accessStore.localUrl
+          : accessStore.customUrl,
+        currentProviderName === ServiceProvider.Local
+          ? accessStore.localApiKey
+          : accessStore.customApiKey,
+      ),
+    [
+      accessStore.customApiKey,
+      accessStore.customUrl,
+      accessStore.localApiKey,
+      accessStore.localUrl,
+      apiProfiles,
+      currentProviderName,
+    ],
   );
   const currentDisplayModelConfig = useMemo(
     () =>
@@ -2091,26 +2302,45 @@ function _Chat() {
       ),
     [allModels, apiProfiles, sessionMask?.modelConfig],
   );
-  const currentDisplayProviderProfile = useMemo(
-    () =>
-      currentDisplayModelConfig?.providerName
-        ? apiProfiles.find(
-            (profile) =>
-              profile.enabled &&
-              profile.provider === currentDisplayModelConfig.providerName,
-          ) ||
-          apiProfiles.find(
-            (profile) =>
-              profile.provider === currentDisplayModelConfig.providerName,
-          )
-        : undefined,
-    [apiProfiles, currentDisplayModelConfig?.providerName],
-  );
+  const currentDisplayProviderProfile = useMemo(() => {
+    if (!currentDisplayModelConfig?.providerName) {
+      return undefined;
+    }
+
+    if (
+      currentDisplayModelConfig.providerName === ServiceProvider.Custom ||
+      currentDisplayModelConfig.providerName === ServiceProvider.Local
+    ) {
+      return currentActiveProviderProfile || currentProfile;
+    }
+
+    return (
+      apiProfiles.find(
+        (profile) =>
+          profile.enabled &&
+          profile.provider === currentDisplayModelConfig.providerName,
+      ) ||
+      apiProfiles.find(
+        (profile) =>
+          profile.provider === currentDisplayModelConfig.providerName,
+      )
+    );
+  }, [
+    apiProfiles,
+    currentActiveProviderProfile,
+    currentDisplayModelConfig?.providerName,
+    currentProfile,
+  ]);
   const currentProviderDisplayName =
-    currentDisplayProviderProfile?.name ||
-    currentDisplayModelConfig?.providerName ||
-    currentProfile?.name ||
-    currentProviderName;
+    currentProviderName === ServiceProvider.Custom ||
+    currentProviderName === ServiceProvider.Local
+      ? currentActiveProviderProfile?.name ||
+        currentProfile?.name ||
+        currentProviderName
+      : currentDisplayProviderProfile?.name ||
+        currentDisplayModelConfig?.providerName ||
+        currentProfile?.name ||
+        currentProviderName;
   const fallbackBalanceProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
@@ -2133,7 +2363,7 @@ function _Chat() {
       : fallbackBalanceProfile?.provider;
   const balanceProfile =
     balanceProviderName === currentProviderName
-      ? currentProfile
+      ? currentActiveProviderProfile || currentProfile
       : fallbackBalanceProfile;
   const balanceProviderDisplayName =
     balanceProfile?.name || balanceProviderName || currentProviderDisplayName;
@@ -2146,6 +2376,11 @@ function _Chat() {
   );
   const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
+  const selectedAutoModelSeriesLabel = selectedAutoModelSeries
+    ? getAutoModelSeriesLabel(selectedAutoModelSeries)
+    : "";
+  const autoModelSelectionEmpty = showAutoModelSelector && !autoModeEnabled;
+  const manualModelSelectionDisabled = autoModeEnabled;
   const autoModeDefaultCandidate = useMemo(() => {
     if (!autoModeEnabled) {
       return null;
@@ -2159,14 +2394,315 @@ function _Chat() {
 
     return candidates[0] ?? null;
   }, [allModels, apiProfiles, autoModeEnabled, autoModelSeries]);
-  const models = useMemo(() => {
-    const filteredModels = allModels.filter(
-      (m) =>
-        m.available &&
-        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
-    );
-    return filteredModels;
-  }, [allModels, currentProviderId]);
+  const globalCustomModelEntries = useMemo(
+    () =>
+      globalCustomModels
+        .split(",")
+        .map((v) => v.trim())
+        .filter((v) => !!v),
+    [globalCustomModels],
+  );
+  const globalCustomModelValueSet = useMemo(() => {
+    return new Set(globalCustomModelEntries);
+  }, [globalCustomModelEntries]);
+  const globalCustomModelEntryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    globalCustomModelEntries.forEach((entry) => {
+      map.set(entry, entry);
+    });
+    return map;
+  }, [globalCustomModelEntries]);
+  const globalCustomModelKey = `${currentModel}@${currentProviderName}`;
+  const isCustomModel = globalCustomModelValueSet.has(globalCustomModelKey);
+  const getModelGroup = useCallback(
+    (
+      modelName: string,
+      providerName?: string,
+      vendorName?: string,
+      displayName?: string,
+    ) => {
+      const normalizedModelName = modelName.toLowerCase();
+      const normalizedDisplayName = String(displayName ?? "").toLowerCase();
+
+      if (
+        normalizedModelName.includes("aihubmix") ||
+        normalizedDisplayName.includes("aihubmix")
+      ) {
+        return "AihubMix";
+      }
+
+      if (vendorName?.trim()) {
+        return vendorName.trim();
+      }
+
+      const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
+
+      const groupByKeywords = (
+        label: string,
+        keywords: string[],
+        matcher?: (name: string) => boolean,
+      ) => {
+        if (keywords.some((keyword) => fullName.includes(keyword))) {
+          return label;
+        }
+        if (matcher?.(modelName.toLowerCase())) {
+          return label;
+        }
+        return null;
+      };
+
+      return (
+        groupByKeywords(
+          "OpenAI",
+          ["gpt", "chatgpt", "openai", "codex"],
+          (name) =>
+            /^o[1345](?:$|[^a-z])/i.test(name) ||
+            name.includes("o1-") ||
+            name.includes("o3-") ||
+            name.includes("o4-") ||
+            name.includes("o5-"),
+        ) ||
+        groupByKeywords("Claude", ["claude", "anthropic"]) ||
+        groupByKeywords("Gemini", ["gemini", "google"]) ||
+        groupByKeywords("Minimax", ["minimax", "abab"]) ||
+        groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
+        groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
+        groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
+        groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
+        groupByKeywords("豆包", [
+          "doubao",
+          "seed",
+          "bytedance",
+          "volc",
+          "字节",
+        ]) ||
+        groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+        groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
+        groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
+        groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+        groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
+        groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
+        groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+        groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+        groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
+        groupByKeywords("Cohere", ["cohere", "command-r"]) ||
+        groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
+        groupByKeywords("Stability", [
+          "stable-diffusion",
+          "stability",
+          "sdxl",
+          "sd3",
+        ]) ||
+        groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
+        groupByKeywords("Baichuan", ["baichuan"]) ||
+        groupByKeywords("Ideogram", ["ideogram"]) ||
+        groupByKeywords("Jina AI", ["jina"]) ||
+        groupByKeywords("Flux", ["flux-"]) ||
+        groupByKeywords("Meituan", ["longcat", "meituan"]) ||
+        groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
+        groupByKeywords("BAAI", ["bge-", "baai"]) ||
+        groupByKeywords("OpenRouter", ["openrouter"]) ||
+        groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
+        "Other"
+      );
+    },
+    [],
+  );
+  const matchesModelCategory = (
+    item: {
+      title: string;
+      meta?: ModelCategoryMetadata;
+    },
+    category: "image" | "video" | "web" | "thinking",
+  ) => matchModelCategory(category, item);
+  const isImageGenerationModel = useCallback(
+    (item: any) => matchesModelCategory(item, "image"),
+    [],
+  );
+  const isVideoGenerationModel = useCallback(
+    (item: any) => matchesModelCategory(item, "video"),
+    [],
+  );
+  const isWebSearchModel = useCallback(
+    (item: any) => matchesModelCategory(item, "web"),
+    [],
+  );
+  const isThinkingModel = useCallback(
+    (item: any) => matchesModelCategory(item, "thinking"),
+    [],
+  );
+  const useModelSelectorIndex = isPerfFeatureEnabled(
+    "PERF_ENABLE_MODEL_SELECTOR_INDEX",
+  );
+  type ModelSelectorIndexedItem = {
+    title: string;
+    searchText: string;
+    sortKey: string;
+    value: string;
+    order: number | undefined;
+    publishedAt: number | undefined;
+    group: string;
+    meta: ModelCategoryMetadata;
+    rawModel: (typeof allModels)[number];
+  };
+  const modelSelectorIndex = useMemo<
+    Map<string, ModelSelectorIndexedItem[]>
+  >(() => {
+    if (!useModelSelectorIndex) {
+      return new Map();
+    }
+
+    const byProviderId = new Map<string, ModelSelectorIndexedItem[]>();
+
+    allModels.forEach((model) => {
+      if (!model.available) {
+        return;
+      }
+
+      const providerId = String(model?.provider?.id || "").toLowerCase();
+      if (!providerId) {
+        return;
+      }
+
+      const item = {
+        title: `${model.displayName}`,
+        searchText: [
+          model.name,
+          model.displayName,
+          model.provider?.providerName,
+          model.vendor?.name,
+          ...(model.capabilities || []),
+          ...(model.features || []),
+          ...(model.types || []),
+          ...(model.categories || []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase(),
+        sortKey: model.name,
+        value: `${model.name}@${String(
+          model?.provider?.id || "",
+        ).toLowerCase()}`,
+        order: model.sorted,
+        publishedAt: model.publishedAt,
+        group: globalCustomModelValueSet.has(
+          `${model.name}@${model?.provider?.providerName}`,
+        )
+          ? "自定义模型"
+          : getModelGroup(
+              model.name,
+              model?.provider?.providerName,
+              model?.vendor?.name,
+              model.displayName,
+            ),
+        meta: {
+          category: model.category,
+          categorySource: model.categorySource,
+          type: model.type,
+          types: model.types,
+          features: model.features,
+          capabilities: model.capabilities,
+          categories: model.categories,
+          vendorName: model.vendor?.name,
+        },
+        rawModel: model,
+      };
+
+      const items = byProviderId.get(providerId) ?? [];
+      items.push(item);
+      byProviderId.set(providerId, items);
+    });
+
+    byProviderId.forEach((items) => {
+      items.sort(compareSelectorItems);
+    });
+
+    return byProviderId;
+  }, [
+    allModels,
+    getModelGroup,
+    globalCustomModelValueSet,
+    useModelSelectorIndex,
+  ]);
+  const models = useMemo(
+    () =>
+      useModelSelectorIndex
+        ? (modelSelectorIndex.get(currentProviderId) ?? []).map(
+            (item: ModelSelectorIndexedItem) => item.rawModel,
+          )
+        : allModels.filter(
+            (model) =>
+              model.available &&
+              String(model?.provider?.id || "").toLowerCase() ===
+                currentProviderId,
+          ),
+    [allModels, currentProviderId, modelSelectorIndex, useModelSelectorIndex],
+  );
+  const modelSelectorItems = useMemo(() => {
+    if (!useModelSelectorIndex) {
+      return models.map((model) => ({
+        title: `${model.displayName}`,
+        searchText: [
+          model.name,
+          model.displayName,
+          model.provider?.providerName,
+          model.vendor?.name,
+          ...(model.capabilities || []),
+          ...(model.features || []),
+          ...(model.types || []),
+          ...(model.categories || []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase(),
+        sortKey: model.name,
+        value: `${model.name}@${String(
+          model?.provider?.id || "",
+        ).toLowerCase()}`,
+        disable: manualModelSelectionDisabled,
+        order: model.sorted,
+        publishedAt: model.publishedAt,
+        group: globalCustomModelValueSet.has(
+          `${model.name}@${model?.provider?.providerName}`,
+        )
+          ? "自定义模型"
+          : getModelGroup(
+              model.name,
+              model?.provider?.providerName,
+              model?.vendor?.name,
+              model.displayName,
+            ),
+        meta: {
+          category: model.category,
+          categorySource: model.categorySource,
+          type: model.type,
+          types: model.types,
+          features: model.features,
+          capabilities: model.capabilities,
+          categories: model.categories,
+          vendorName: model.vendor?.name,
+        },
+      }));
+    }
+
+    const providerItems = modelSelectorIndex.get(currentProviderId) ?? [];
+    if (!manualModelSelectionDisabled) {
+      return providerItems;
+    }
+
+    return providerItems.map((item) => ({
+      ...item,
+      disable: true,
+    }));
+  }, [
+    currentProviderId,
+    getModelGroup,
+    globalCustomModelValueSet,
+    manualModelSelectionDisabled,
+    modelSelectorIndex,
+    models,
+    useModelSelectorIndex,
+  ]);
   const currentModelName = useMemo(() => {
     if (currentDisplayModelConfig?.model) {
       return currentDisplayModelConfig.model;
@@ -2184,11 +2720,6 @@ function _Chat() {
     currentProviderId,
     models,
   ]);
-  const selectedAutoModelSeriesLabel = selectedAutoModelSeries
-    ? getAutoModelSeriesLabel(selectedAutoModelSeries)
-    : "";
-  const autoModelSelectionEmpty = showAutoModelSelector && !autoModeEnabled;
-  const manualModelSelectionDisabled = autoModeEnabled;
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
   const handleManualModelSelectionDisabled = () => {
     setModelSelectorNotice(modelSelectionDisabledToast);
@@ -2218,10 +2749,13 @@ function _Chat() {
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
     : `${currentProviderDisplayName} ${currentModelName}`;
-  const currentDisplaySelectorValue =
-    currentDisplayModelConfig?.model && currentDisplayModelConfig?.providerName
-      ? `${currentDisplayModelConfig.model}@${currentDisplayModelConfig.providerName}`
-      : `${currentModel}@${currentProviderName}`;
+  const currentDisplaySelectorValue = currentDisplayModelConfig?.model
+    ? `${currentDisplayModelConfig.model}@${
+        currentProviderId || String(currentProviderName).toLowerCase()
+      }`
+    : `${currentModel}@${
+        currentProviderId || String(currentProviderName).toLowerCase()
+      }`;
   const autoModelSeriesItems = useMemo(
     () =>
       (["gpt", "deepseek", "doubao"] as AutoModelSeriesKey[]).map((value) => ({
@@ -2241,6 +2775,7 @@ function _Chat() {
   }>({ show: false, message: "" });
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
+  const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
@@ -2302,27 +2837,6 @@ function _Chat() {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [autoModelSelectionEmpty]);
-
-  const globalCustomModelEntries = useMemo(
-    () =>
-      globalCustomModels
-        .split(",")
-        .map((v) => v.trim())
-        .filter((v) => !!v),
-    [globalCustomModels],
-  );
-  const globalCustomModelValueSet = useMemo(() => {
-    return new Set(globalCustomModelEntries);
-  }, [globalCustomModelEntries]);
-  const globalCustomModelEntryMap = useMemo(() => {
-    const map = new Map<string, string>();
-    globalCustomModelEntries.forEach((entry) => {
-      map.set(entry, entry);
-    });
-    return map;
-  }, [globalCustomModelEntries]);
-  const globalCustomModelKey = `${currentModel}@${currentProviderName}`;
-  const isCustomModel = globalCustomModelValueSet.has(globalCustomModelKey);
   const openAIModels = models.filter(
     (m) => m?.provider?.providerName === ServiceProvider.OpenAI,
   );
@@ -2340,153 +2854,6 @@ function _Chat() {
 
     return openAIModels[0];
   }, [openAIModels]);
-  const getModelGroup = (
-    modelName: string,
-    providerName?: string,
-    vendorName?: string,
-    displayName?: string,
-  ) => {
-    const normalizedModelName = modelName.toLowerCase();
-    const normalizedDisplayName = String(displayName ?? "").toLowerCase();
-
-    if (
-      normalizedModelName.includes("aihubmix") ||
-      normalizedDisplayName.includes("aihubmix")
-    ) {
-      return "AihubMix";
-    }
-
-    if (vendorName?.trim()) {
-      return vendorName.trim();
-    }
-
-    const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
-
-    const groupByKeywords = (
-      label: string,
-      keywords: string[],
-      matcher?: (name: string) => boolean,
-    ) => {
-      if (keywords.some((keyword) => fullName.includes(keyword))) {
-        return label;
-      }
-      if (matcher?.(modelName.toLowerCase())) {
-        return label;
-      }
-      return null;
-    };
-
-    return (
-      groupByKeywords(
-        "OpenAI",
-        ["gpt", "chatgpt", "openai", "codex"],
-        (name) =>
-          /^o[1345](?:$|[^a-z])/i.test(name) ||
-          name.includes("o1-") ||
-          name.includes("o3-") ||
-          name.includes("o4-") ||
-          name.includes("o5-"),
-      ) ||
-      groupByKeywords("Claude", ["claude", "anthropic"]) ||
-      groupByKeywords("Gemini", ["gemini", "google"]) ||
-      groupByKeywords("Minimax", ["minimax", "abab"]) ||
-      groupByKeywords("Grok", ["grok", "xai", "x.ai"]) ||
-      groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
-      groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
-      groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-      groupByKeywords("豆包", [
-        "doubao",
-        "seed",
-        "bytedance",
-        "volc",
-        "字节",
-      ]) ||
-      groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
-      groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-      groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-      groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
-      groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-      groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
-      groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-      groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
-      groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
-      groupByKeywords("Cohere", ["cohere", "command-r"]) ||
-      groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
-      groupByKeywords("Stability", [
-        "stable-diffusion",
-        "stability",
-        "sdxl",
-        "sd3",
-      ]) ||
-      groupByKeywords("Nvidia", ["nvidia", "nemotron", "phi-"]) ||
-      groupByKeywords("Baichuan", ["baichuan"]) ||
-      groupByKeywords("Ideogram", ["ideogram"]) ||
-      groupByKeywords("Jina AI", ["jina"]) ||
-      groupByKeywords("Flux", ["flux-"]) ||
-      groupByKeywords("Meituan", ["longcat", "meituan"]) ||
-      groupByKeywords("InclusionAI", ["inclusion", "ling-", "ring-"]) ||
-      groupByKeywords("BAAI", ["bge-", "baai"]) ||
-      groupByKeywords("OpenRouter", ["openrouter"]) ||
-      groupByKeywords("Microsoft", ["microsoft", "wizardlm"]) ||
-      "Other"
-    );
-  };
-  const matchesModelCategory = (
-    item: {
-      title: string;
-      meta?: ModelCategoryMetadata;
-    },
-    category: "image" | "video" | "web" | "thinking",
-  ) => matchModelCategory(category, item);
-  const isImageGenerationModel = (item: any) => {
-    return matchesModelCategory(item, "image");
-  };
-  const isVideoGenerationModel = (item: any) => {
-    return matchesModelCategory(item, "video");
-  };
-  const isWebSearchModel = (item: any) => {
-    return matchesModelCategory(item, "web");
-  };
-  const isThinkingModel = (item: any) => {
-    return matchesModelCategory(item, "thinking");
-  };
-  const modelSelectorItems = useMemo(
-    () =>
-      models.map((m) => ({
-        title: `${m.displayName}`,
-        sortKey: m.name,
-        value: `${m.name}@${m?.provider?.providerName}`,
-        disable: manualModelSelectionDisabled,
-        order: m.sorted,
-        publishedAt: m.publishedAt,
-        group: globalCustomModelValueSet.has(
-          `${m.name}@${m?.provider?.providerName}`,
-        )
-          ? "自定义模型"
-          : getModelGroup(
-              m.name,
-              m?.provider?.providerName,
-              m?.vendor?.name,
-              m.displayName,
-            ),
-        meta: {
-          category: m.category,
-          categorySource: m.categorySource,
-          type: m.type,
-          types: m.types,
-          features: m.features,
-          capabilities: m.capabilities,
-          categories: m.categories,
-          vendorName: m.vendor?.name,
-        },
-      })),
-    [
-      getModelGroup,
-      globalCustomModelValueSet,
-      manualModelSelectionDisabled,
-      models,
-    ],
-  );
   const modelSelectorQuickFilters = useMemo(
     () => [
       {
@@ -2510,7 +2877,12 @@ function _Chat() {
         match: (item: any) => isThinkingModel(item),
       },
     ],
-    [],
+    [
+      isImageGenerationModel,
+      isThinkingModel,
+      isVideoGenerationModel,
+      isWebSearchModel,
+    ],
   );
 
   // prompt hints
@@ -2923,7 +3295,6 @@ function _Chat() {
     });
   };
 
-  const accessStore = useAccessStore() as any;
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
 
@@ -3272,6 +3643,7 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
+    modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
     setModelSelectorDefaultValue(undefined);
     setModelSelectorDefaultGroup(undefined);
@@ -3284,6 +3656,7 @@ function _Chat() {
       const profile = apiProfiles.find((p) => p.name === profileName);
 
       if (profile) {
+        const switchStartedAt = nowMs();
         const selectedProviderId =
           profile.provider === ServiceProvider.Custom
             ? `custom_${profile.name}`.toLowerCase()
@@ -3292,12 +3665,16 @@ function _Chat() {
                 profile.name
               }`.toLowerCase()
             : String(profile.provider).toLowerCase();
-        const providerModels = allModels.filter(
-          (model) =>
-            model.available &&
-            String(model.provider?.id || "").toLowerCase() ===
-              selectedProviderId,
-        );
+        const providerModels = useModelSelectorIndex
+          ? (modelSelectorIndex.get(selectedProviderId) ?? []).map(
+              (item: ModelSelectorIndexedItem) => item.rawModel,
+            )
+          : allModels.filter(
+              (model) =>
+                model.available &&
+                String(model.provider?.id || "").toLowerCase() ===
+                  selectedProviderId,
+            );
         const preferredProviderModelName =
           getLatestOpenAIModelForProviderId(providerModels, selectedProviderId)
             ?.model || "";
@@ -3315,21 +3692,19 @@ function _Chat() {
         // 记录切换时间
         lastProviderSwitchTimeRef.current = Date.now();
 
+        const cachedProfileModels =
+          useModelCacheStore.getState().profiles?.[profile.id]?.cachedModels ||
+          "";
+        const hasCachedProviderModels =
+          providerModels.length > 0 || Boolean(cachedProfileModels);
+
         // 更新 access store 中当前真正参与请求的配置
         const accessStoreState = useAccessStore.getState();
         accessStoreState.update((access) => {
           access.useCustomConfig = true;
-          access.provider = profile.provider;
-          access.apiProfiles = access.apiProfiles.map((p) => ({
-            ...p,
-            enabled: p.name === profileName,
-          }));
-          if (profile.provider === ServiceProvider.Custom) {
-            access.customUrl = profile.baseUrl;
-            access.customApiKey = profile.apiKey;
-            access.customOpenAICompatible = profile.openAICompatible ?? true;
-          }
-          access.customModels = nextCustomModels;
+          applyProfileToAccessStore(access, profile as any, {
+            customModels: nextCustomModels,
+          });
         });
 
         if (nextModel) {
@@ -3372,9 +3747,45 @@ function _Chat() {
         setTimeout(() => {
           setProviderSwitchToast((prev) => ({ ...prev, show: false }));
         }, 2000);
+
+        setModelSelectorNotice(
+          hasCachedProviderModels
+            ? "已找到缓存模型，正在后台更新"
+            : `首次使用该供应商，正在同步模型`,
+        );
+        void ensureProviderModelsReady(profile.id, {
+          background: hasCachedProviderModels,
+          silent: true,
+          reason: "switch",
+        })
+          .then(() => {
+            setModelSelectorNotice(
+              hasCachedProviderModels ? "模型已更新到最新" : "模型同步完成",
+            );
+          })
+          .catch((error) => {
+            console.error("[Chat] provider 模型同步失败:", error);
+            setModelSelectorNotice("模型同步失败，请重试");
+          });
+
+        logPerfSummary("ModelSelector", {
+          providerSwitchDurationMs: Number(
+            (nowMs() - switchStartedAt).toFixed(2),
+          ),
+          providerName: profileName,
+          providerModelCount: providerModels.length,
+        });
       }
     },
-    [allModels, apiProfiles, chatStore, config, session],
+    [
+      allModels,
+      apiProfiles,
+      chatStore,
+      config,
+      modelSelectorIndex,
+      session,
+      useModelSelectorIndex,
+    ],
   );
 
   // clear context index = context length + index in messages
@@ -3446,21 +3857,36 @@ function _Chat() {
   const [isEditingMessage, setIsEditingMessage] = useState(false);
 
   // remember unfinished input
+  const unfinishedInputKey = useMemo(
+    () => UNFINISHED_INPUT(safeSession.id),
+    [safeSession.id],
+  );
+
   useEffect(() => {
-    // try to load from local storage
-    const key = UNFINISHED_INPUT(safeSession.id);
-    const mayBeUnfinishedInput = localStorage.getItem(key);
+    const mayBeUnfinishedInput =
+      localStorage.getItem(unfinishedInputKey) ||
+      localStorage.getItem(ACTIVE_UNFINISHED_INPUT_KEY);
     if (mayBeUnfinishedInput && userInput.length === 0) {
       setUserInput(mayBeUnfinishedInput);
-      localStorage.removeItem(key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unfinishedInputKey]);
+
+  useEffect(() => {
+    if (!unfinishedInputKey) {
+      return;
     }
 
-    const dom = inputRef.current;
-    return () => {
-      localStorage.setItem(key, dom?.value ?? "");
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [safeSession.id, userInput.length]);
+    const draftValue = userInput ?? "";
+    if (draftValue.length > 0) {
+      localStorage.setItem(unfinishedInputKey, draftValue);
+      localStorage.setItem(ACTIVE_UNFINISHED_INPUT_KEY, draftValue);
+      return;
+    }
+
+    localStorage.removeItem(unfinishedInputKey);
+    localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
+  }, [unfinishedInputKey, userInput]);
 
   const handlePaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -4370,7 +4796,9 @@ function _Chat() {
                   ) : (
                     availableProviders.map((providerOption) => {
                       const isActive =
-                        providerOption.label === currentProfile?.name;
+                        providerOption.label ===
+                        (currentActiveProviderProfile?.name ||
+                          currentProfile?.name);
                       const providerIcon =
                         getProviderIcon(providerOption.provider) ||
                         getProviderIcon(providerOption.label);
@@ -4499,6 +4927,16 @@ function _Chat() {
           onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
           onDisabledItemClick={handleManualModelSelectionDisabled}
           items={modelSelectorItems}
+          itemsArePreSorted={isPerfFeatureEnabled(
+            "PERF_ENABLE_MODEL_SELECTOR_INDEX",
+          )}
+          enableVirtualization={isPerfFeatureEnabled(
+            "PERF_ENABLE_MODEL_SELECTOR_VIRTUAL_LIST",
+          )}
+          virtualizationThreshold={60}
+          searchDebounceMs={120}
+          perfScope="ModelSelector"
+          perfStartedAt={modelSelectorOpenStartedAtRef.current || undefined}
           showGroupFilter={true}
           quickFilters={modelSelectorQuickFilters}
           showSearch={true}
@@ -4509,13 +4947,47 @@ function _Chat() {
           }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
-            const [model, _providerName] = getModelProvider(s[0]);
+            const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
+            const selectedProviderId = String(
+              selectedProviderIdRaw || currentProviderId || "",
+            ).toLowerCase();
+            const selectedModel = allModels.find(
+              (item) =>
+                item.available &&
+                item.name === model &&
+                String(item.provider?.id || "").toLowerCase() ===
+                  selectedProviderId,
+            );
+            const selectedProfile = apiProfiles.find(
+              (profile) =>
+                getProfileProviderId(profile).toLowerCase() ===
+                selectedProviderId,
+            );
+            const actualProviderName = (selectedProfile?.provider ||
+              selectedModel?.provider?.providerName ||
+              currentProfile?.provider ||
+              currentProviderName) as ServiceProvider;
+            const selectedProviderModels = useModelSelectorIndex
+              ? (modelSelectorIndex.get(selectedProviderId) ?? []).map(
+                  (item: ModelSelectorIndexedItem) => item.rawModel,
+                )
+              : allModels.filter(
+                  (item) =>
+                    item.available &&
+                    String(item.provider?.id || "").toLowerCase() ===
+                      selectedProviderId,
+                );
 
-            // 使用当前选中的供应商，而不是模型自带的 providerName
-            // 这样可以确保切换供应商后，选择的模型使用正确的供应商配置
-            const actualProviderName = currentProfile?.provider
-              ? currentProfile.provider
-              : _providerName;
+            if (selectedProfile) {
+              useAccessStore.getState().update((access) => {
+                access.useCustomConfig = true;
+                applyProfileToAccessStore(access, selectedProfile as any, {
+                  customModels: modelsToCustomModelsString(
+                    selectedProviderModels as any,
+                  ),
+                });
+              });
+            }
 
             config.update((config) => {
               config.modelConfig.model = model as ModelType;

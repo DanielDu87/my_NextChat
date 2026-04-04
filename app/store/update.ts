@@ -168,13 +168,30 @@ async function getVersion(type: VersionType) {
 
 function getActiveCustomProfile() {
   const accessStore = useAccessStore.getState();
-  return accessStore.apiProfiles.find(
-    (profile) =>
-      profile.enabled &&
-      profile.provider === ServiceProvider.Custom &&
-      !!profile.baseUrl &&
-      !!profile.apiKey,
-  ) as BalanceAwareProfile | undefined;
+  const activeProfile = accessStore.apiProfiles.find((profile) => {
+    if (
+      profile.provider !== ServiceProvider.Custom ||
+      !profile.baseUrl ||
+      profile.baseUrl !== accessStore.customUrl
+    ) {
+      return false;
+    }
+
+    if (!accessStore.customApiKey) {
+      return true;
+    }
+
+    return profile.apiKey === accessStore.customApiKey;
+  });
+
+  return (activeProfile ||
+    accessStore.apiProfiles.find(
+      (profile) =>
+        profile.enabled &&
+        profile.provider === ServiceProvider.Custom &&
+        !!profile.baseUrl &&
+        !!profile.apiKey,
+    )) as BalanceAwareProfile | undefined;
 }
 
 function normalizeCustomBaseUrl(baseUrl: string) {

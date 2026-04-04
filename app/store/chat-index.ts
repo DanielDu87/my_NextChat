@@ -5,12 +5,14 @@ import {
   getChatIndexStorageKey,
 } from "../utils/chat-persist-storage";
 import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
+import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
 import { ChatSessionSummary, createEmptySession, useChatStore } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
 
 const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 20;
 const LOAD_MORE_SESSION_TITLE_COUNT = 10;
+const INITIAL_PRELOAD_SESSION_BODY_COUNT = 8;
 
 type ChatIndexState = {
   allOrderedSessionIds: string[];
@@ -97,12 +99,70 @@ function isPinnedNewChatSummary(
 function getInitialPreloadSessionIds(
   orderedSessionIds: string[],
   sessionSummaries: Record<string, ChatSessionSummary>,
+  currentSessionId: string,
 ) {
-  const preloadSessionIds = orderedSessionIds.filter(
-    (sessionId) => !isPinnedNewChatSummary(sessionSummaries[sessionId]),
-  );
+  const preloadSessionIds = orderedSessionIds.filter((sessionId) => {
+    if (sessionId === currentSessionId) {
+      return true;
+    }
 
-  return preloadSessionIds.slice(0, INITIAL_VISIBLE_SESSION_TITLE_COUNT);
+    return !isPinnedNewChatSummary(sessionSummaries[sessionId]);
+  });
+
+  return preloadSessionIds.slice(0, INITIAL_PRELOAD_SESSION_BODY_COUNT);
+}
+
+function ensureSessionPlaceholders(sessionIds: string[]) {
+  if (sessionIds.length === 0) {
+    return;
+  }
+
+  ensureSessionsInChatStore(sessionIds);
+}
+
+function preloadSessionRange(sessionIds: string[]) {
+  ensureSessionPlaceholders(sessionIds);
+
+  if (!isPerfFeatureEnabled("PERF_ENABLE_CHAT_LAZY_HYDRATE")) {
+    sessionIds.forEach((sessionId) => {
+      if (!sessionId) {
+        return;
+      }
+
+      void useChatStore
+        .getState()
+        .hydrateSessionIntoMemory(sessionId)
+        .catch((error) => {
+          console.error("[ChatIndex] 预加载会话失败:", sessionId, error);
+        });
+    });
+    return;
+  }
+
+  const currentSessionId = useChatIndexStore.getState().currentSessionId;
+  if (!currentSessionId) {
+    return;
+  }
+
+  void useChatStore
+    .getState()
+    .hydrateSessionIntoMemory(currentSessionId)
+    .catch((error) => {
+      console.error("[ChatIndex] 预加载当前会话失败:", currentSessionId, error);
+    });
+}
+
+function recordChatIndexPerf(metrics: Record<string, unknown>) {
+  logPerfSummary("ChatIndex", metrics);
+}
+
+function maybePreloadVisibleSessionRange(sessionIds: string[]) {
+  if (isPerfFeatureEnabled("PERF_ENABLE_CHAT_LAZY_HYDRATE")) {
+    ensureSessionPlaceholders(sessionIds);
+    return;
+  }
+
+  preloadSessionRange(sessionIds);
 }
 
 function buildSnapshotFromPersistedIndex(
@@ -147,6 +207,7 @@ function buildSnapshotFromChatStore(): ChatIndexSnapshot {
     .map((summary) => String(summary?.id || ""))
     .filter(Boolean);
   const currentSessionId =
+    chatState.selectedSessionId ||
     chatState.sessions?.[Math.max(0, chatState.currentSessionIndex || 0)]?.id ||
     orderedSessionIds[Math.max(0, chatState.currentSessionIndex || 0)] ||
     "";
@@ -230,22 +291,6 @@ function ensureSessionsInChatStore(sessionIds: string[]) {
   }
 }
 
-function preloadSessionRange(sessionIds: string[]) {
-  ensureSessionsInChatStore(sessionIds);
-  sessionIds.forEach((sessionId) => {
-    if (!sessionId) {
-      return;
-    }
-
-    void useChatStore
-      .getState()
-      .hydrateSessionIntoMemory(sessionId)
-      .catch((error) => {
-        console.error("[ChatIndex] 预加载会话失败:", sessionId, error);
-      });
-  });
-}
-
 export const useChatIndexStore = create<ChatIndexState>((set) => ({
   allOrderedSessionIds: [],
   orderedSessionIds: [],
@@ -256,6 +301,7 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
   visibleCount: INITIAL_VISIBLE_SESSION_TITLE_COUNT,
   initialized: false,
   async initialize() {
+    const startedAt = nowMs();
     bindChatStoreSubscription();
 
     const indexText = await indexedDbStateStorage.getRawItem(
@@ -278,8 +324,20 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
       getInitialPreloadSessionIds(
         nextSnapshot.orderedSessionIds,
         nextSnapshot.sessionSummaries,
+        nextSnapshot.currentSessionId,
       ),
     );
+
+    recordChatIndexPerf({
+      chatIndexInitDurationMs: Number((nowMs() - startedAt).toFixed(2)),
+      sessionCount: nextSnapshot.allOrderedSessionIds.length,
+      hydratedSessionCount: getInitialPreloadSessionIds(
+        nextSnapshot.orderedSessionIds,
+        nextSnapshot.sessionSummaries,
+        nextSnapshot.currentSessionId,
+      ).length,
+      currentSessionId: nextSnapshot.currentSessionId,
+    });
   },
   syncFromChatStore() {
     set(() => ({
@@ -308,16 +366,11 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
     });
 
     const state = useChatIndexStore.getState();
-    const nextSessionIds = state.orderedSessionIds
-      .slice(
-        Math.max(0, state.visibleCount - LOAD_MORE_SESSION_TITLE_COUNT),
-        state.visibleCount,
-      )
-      .filter(
-        (sessionId) =>
-          !isPinnedNewChatSummary(state.sessionSummaries[sessionId]),
-      );
-    preloadSessionRange(nextSessionIds);
+    const nextSessionIds = state.orderedSessionIds.slice(
+      Math.max(0, state.visibleCount - LOAD_MORE_SESSION_TITLE_COUNT),
+      state.visibleCount,
+    );
+    maybePreloadVisibleSessionRange(nextSessionIds);
   },
 }));
 

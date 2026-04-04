@@ -71,6 +71,7 @@ export function getPreferredStartupProfile(
 
   return (
     profiles.find((profile) => profile.enabled && isAihubMixProfile(profile)) ||
+    profiles.find((profile) => isAihubMixProfile(profile)) ||
     profiles.find(
       (profile) =>
         profile.enabled && profile.provider === ServiceProvider.Custom,
@@ -79,7 +80,6 @@ export function getPreferredStartupProfile(
       (profile) =>
         profile.enabled && profile.provider !== ServiceProvider.Local,
     ) ||
-    profiles.find((profile) => isAihubMixProfile(profile)) ||
     profiles.find((profile) => profile.provider === ServiceProvider.Custom) ||
     profiles.find((profile) => profile.enabled) ||
     profiles[0]

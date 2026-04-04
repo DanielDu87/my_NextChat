@@ -34,6 +34,7 @@ import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
+import { logPerfSummary, nowMs } from "../utils/perf";
 import {
   DEFAULT_TOPIC,
   getBotHelloContent,
@@ -78,10 +79,34 @@ import {
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
+const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
+const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
 const pendingSessionRefreshTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+
+function readSessionStorageItem(key: string) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return window.sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeSessionStorageItem(key: string, value: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {}
+}
 
 function isChatDebugLoggingEnabled() {
   if (process.env.NODE_ENV === "test") {
@@ -245,15 +270,22 @@ function extractMessageUsage(
 }
 
 function getEnabledCustomBalanceProfile() {
-  return useAccessStore
-    .getState()
-    .apiProfiles.find(
-      (profile) =>
-        profile.enabled &&
-        profile.provider === ServiceProvider.Custom &&
-        !!profile.baseUrl &&
-        !!profile.apiKey,
-    ) as BalanceAwareProfile | undefined;
+  const accessState = useAccessStore.getState();
+  const activeProfile = getActiveAccessProfile(
+    accessState,
+    ServiceProvider.Custom,
+  );
+  if (activeProfile?.baseUrl && activeProfile?.apiKey) {
+    return activeProfile as BalanceAwareProfile | undefined;
+  }
+
+  return accessState.apiProfiles.find(
+    (profile) =>
+      profile.enabled &&
+      profile.provider === ServiceProvider.Custom &&
+      !!profile.baseUrl &&
+      !!profile.apiKey,
+  ) as BalanceAwareProfile | undefined;
 }
 
 function normalizeUsageCost(value: number) {
@@ -369,6 +401,18 @@ function isFreshDefaultSession(session: ChatSession | undefined) {
   );
 }
 
+function isMeaningfulSession(session: ChatSession | undefined) {
+  if (!session) {
+    return false;
+  }
+
+  return (
+    session.messages.length > 0 ||
+    !isDefaultTopic(session.topic) ||
+    !!session.memoryPrompt
+  );
+}
+
 function shouldRemoveEmptyDefaultSession(session: ChatSession | undefined) {
   if (!session) {
     return false;
@@ -379,6 +423,26 @@ function shouldRemoveEmptyDefaultSession(session: ChatSession | undefined) {
     session.messages.length === 0 &&
     !session.memoryPrompt
   );
+}
+
+function ensureFreshDefaultSession(
+  sessions: ChatSession[],
+  options?: {
+    preserveSessionId?: string;
+  },
+) {
+  const preserveSessionId = String(options?.preserveSessionId || "");
+  const normalizedSessions = sessions.filter(
+    (session) =>
+      !shouldRemoveEmptyDefaultSession(session) ||
+      session.id === preserveSessionId,
+  );
+
+  if (normalizedSessions.some((session) => isFreshDefaultSession(session))) {
+    return normalizedSessions;
+  }
+
+  return [createEmptySession(), ...normalizedSessions];
 }
 
 function areSessionArraysEqual(
@@ -700,6 +764,110 @@ function clearPendingSessionRefresh(sessionId: string | undefined) {
   }
 }
 
+function getAccessProviderId(profile: {
+  provider: ServiceProvider;
+  name: string;
+}) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`.toLowerCase()
+    : profile.provider === ServiceProvider.Local
+    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
+    : String(profile.provider).toLowerCase();
+}
+
+function getActiveAccessProfile(
+  accessState: ReturnType<typeof useAccessStore.getState>,
+  providerName: ServiceProvider | undefined,
+) {
+  if (!providerName) {
+    return undefined;
+  }
+
+  if (providerName === ServiceProvider.Custom) {
+    const activeProfile = accessState.apiProfiles.find((profile) => {
+      if (
+        profile.provider !== ServiceProvider.Custom ||
+        !profile.baseUrl ||
+        profile.baseUrl !== accessState.customUrl
+      ) {
+        return false;
+      }
+
+      if (!accessState.customApiKey) {
+        return true;
+      }
+
+      return profile.apiKey === accessState.customApiKey;
+    });
+
+    return (
+      activeProfile ??
+      accessState.apiProfiles.find(
+        (profile) =>
+          profile.enabled && profile.provider === ServiceProvider.Custom,
+      )
+    );
+  }
+
+  if (providerName === ServiceProvider.Local) {
+    const activeProfile = accessState.apiProfiles.find((profile) => {
+      if (
+        profile.provider !== ServiceProvider.Local ||
+        !profile.baseUrl ||
+        profile.baseUrl !== accessState.localUrl
+      ) {
+        return false;
+      }
+
+      if (!accessState.localApiKey) {
+        return true;
+      }
+
+      return profile.apiKey === accessState.localApiKey;
+    });
+
+    return (
+      activeProfile ??
+      accessState.apiProfiles.find(
+        (profile) =>
+          profile.enabled && profile.provider === ServiceProvider.Local,
+      )
+    );
+  }
+
+  return (
+    accessState.apiProfiles.find(
+      (profile) => profile.enabled && profile.provider === providerName,
+    ) ??
+    accessState.apiProfiles.find((profile) => profile.provider === providerName)
+  );
+}
+
+function getPreferredRefreshTitleModelForProvider(
+  allModels: ReturnType<typeof collectModelsWithDefaultModel>,
+  providerId: string,
+) {
+  const scopedModels = allModels.filter(
+    (model) =>
+      model.available &&
+      String(model.provider?.id || "").toLowerCase() === providerId,
+  );
+
+  const candidates = scopedModels
+    .filter((model) => isLooseRefreshTitleModel(model.name))
+    .slice()
+    .sort((left, right) => {
+      const leftExact = normalizeModelKeyword(left.name) === "gpt4omini";
+      const rightExact = normalizeModelKeyword(right.name) === "gpt4omini";
+      if (leftExact !== rightExact) {
+        return leftExact ? -1 : 1;
+      }
+      return String(left.name || "").localeCompare(String(right.name || ""));
+    });
+
+  return candidates[0];
+}
+
 function getSummarizeTarget(targetSession?: ChatSession) {
   const configStore = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
@@ -710,9 +878,9 @@ function getSummarizeTarget(targetSession?: ChatSession) {
   );
   const sessionProviderName =
     targetSession?.mask.modelConfig.providerName ?? ServiceProvider.Custom;
-  const activeProfile = accessStore.apiProfiles.find(
-    (profile) => profile.enabled,
-  );
+  const activeProfile =
+    getActiveAccessProfile(accessStore, sessionProviderName) ??
+    accessStore.apiProfiles.find((profile) => profile.enabled);
   const targetProfile =
     sessionProviderName === ServiceProvider.Custom
       ? activeProfile
@@ -820,40 +988,119 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   );
   const currentProviderName =
     targetSession.mask.modelConfig.providerName ?? ServiceProvider.Custom;
-  const currentProfile =
-    currentProviderName === ServiceProvider.Custom
-      ? accessStore.apiProfiles.find(
-          (profile) =>
-            profile.enabled && profile.provider === ServiceProvider.Custom,
-        )
-      : accessStore.apiProfiles.find(
-          (profile) =>
-            profile.enabled && profile.provider === currentProviderName,
-        );
-  const currentProviderId =
-    currentProviderName === ServiceProvider.Custom
-      ? `custom_${currentProfile?.name || ""}`.toLowerCase()
-      : String(currentProviderName || "").toLowerCase();
-  const currentProviderCandidate = {
-    model: SUMMARIZE_MODEL,
-    providerName: currentProviderName,
-    profile: currentProfile,
-    providerId: currentProviderId,
-    score: 9999,
-  };
+  const currentProfile = getActiveAccessProfile(
+    accessStore,
+    currentProviderName,
+  );
+  const currentProviderId = currentProfile
+    ? getAccessProviderId(currentProfile)
+    : String(currentProviderName || "").toLowerCase();
+  const currentRefreshModel = getPreferredRefreshTitleModelForProvider(
+    allModels,
+    currentProviderId,
+  );
 
-  // 按供应商分组，确保每个供应商只选择一个 gpt-4o-mini 模型
-  const providerModelMap = new Map<
+  const candidates: Array<{
+    model: string;
+    providerName: ServiceProvider;
+    profile: any;
+    providerId: string;
+    score: number;
+  }> = [];
+
+  if (currentProfile && currentRefreshModel) {
+    candidates.push({
+      model: currentRefreshModel.name,
+      providerName: (currentRefreshModel.provider?.providerName ||
+        currentProviderName) as ServiceProvider,
+      profile: currentProfile,
+      providerId: currentProviderId,
+      score: 1000,
+    });
+  }
+
+  const aihubMixProfile = accessStore.apiProfiles.find(
+    (profile) =>
+      profile.provider === ServiceProvider.Custom &&
+      profile.name === "AihubMix",
+  );
+  const aihubMixProviderId = aihubMixProfile
+    ? getAccessProviderId(aihubMixProfile)
+    : "custom_aihubmix";
+  const aihubMixRefreshModel = getPreferredRefreshTitleModelForProvider(
+    allModels,
+    aihubMixProviderId,
+  );
+
+  if (
+    aihubMixProfile &&
+    aihubMixRefreshModel &&
+    aihubMixProviderId !== currentProviderId
+  ) {
+    candidates.push({
+      model: aihubMixRefreshModel.name,
+      providerName:
+        (aihubMixRefreshModel.provider?.providerName as ServiceProvider) ||
+        ServiceProvider.Custom,
+      profile: aihubMixProfile,
+      providerId: aihubMixProviderId,
+      score: 100,
+    });
+  }
+
+  const appendedProviderIds = new Set(
+    candidates.map((candidate) => candidate.providerId),
+  );
+  const fallbackProviderMap = new Map<
     string,
     {
       model: string;
-      providerName: ServiceProvider | undefined;
+      providerName: ServiceProvider;
       profile: any;
       providerId: string;
-      isExact: boolean;
+      score: number;
     }
   >();
-  const unique = new Set<string>();
+
+  allModels.forEach((model) => {
+    if (!model.available || !isLooseRefreshTitleModel(model.name)) {
+      return;
+    }
+
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    if (!providerId || appendedProviderIds.has(providerId)) {
+      return;
+    }
+
+    const providerName = model.provider?.providerName as
+      | ServiceProvider
+      | undefined;
+    const profile = getProfileForModel(model.provider?.id, providerName);
+    if (!profile) {
+      return;
+    }
+
+    const isExact = normalizeModelKeyword(model.name) === "gpt4omini";
+    const existing = fallbackProviderMap.get(providerId);
+    if (
+      !existing ||
+      (isExact && normalizeModelKeyword(existing.model) !== "gpt4omini")
+    ) {
+      fallbackProviderMap.set(providerId, {
+        model: model.name,
+        providerName: (providerName as ServiceProvider) || profile.provider,
+        profile,
+        providerId,
+        score: isExact ? 10 : 1,
+      });
+    }
+  });
+
+  candidates.push(
+    ...Array.from(fallbackProviderMap.values()).sort(
+      (left, right) => right.score - left.score,
+    ),
+  );
 
   console.log(
     "[RefreshTitle] Available API profiles:",
@@ -865,66 +1112,6 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   );
   console.log("[RefreshTitle] Total models count:", allModels.length);
   console.log("[RefreshTitle] Current provider:", currentProviderId);
-
-  for (const model of allModels) {
-    if (!model.available || !isLooseRefreshTitleModel(model.name)) continue;
-
-    const providerName = model.provider?.providerName as
-      | ServiceProvider
-      | undefined;
-    const providerId = String(model.provider?.id || "").toLowerCase();
-    const profile = getProfileForModel(model.provider?.id, providerName);
-    const isExact = normalizeModelKeyword(model.name) === "gpt4omini";
-
-    console.log("[RefreshTitle] Matched model:", {
-      name: model.name,
-      providerId,
-      providerName,
-      hasProfile: !!profile,
-      isExact,
-    });
-
-    // 如果该供应商已经有模型，优先保留精确匹配的
-    const existing = providerModelMap.get(providerId);
-    if (!existing || (isExact && !existing.isExact)) {
-      providerModelMap.set(providerId, {
-        model: model.name,
-        providerName,
-        profile,
-        providerId,
-        isExact,
-      });
-    }
-  }
-
-  console.log(
-    "[RefreshTitle] Provider model map:",
-    Array.from(providerModelMap.keys()),
-  );
-
-  // 生成候选列表，当前供应商排第一，其他供应商按精确匹配优先
-  const matched = Array.from(providerModelMap.values())
-    .map((item) => {
-      const isCurrentProvider = item.providerId === currentProviderId;
-      return {
-        model: item.model,
-        providerName: item.providerName ?? ServiceProvider.Custom,
-        profile: item.profile,
-        providerId: item.providerId,
-        score: (isCurrentProvider ? 1000 : 0) + (item.isExact ? 100 : 0),
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  // 使用 Map 去重，确保每个供应商只出现一次
-  const candidates = [currentProviderCandidate, ...matched].filter((item) => {
-    const key = item.providerId;
-    if (unique.has(key)) {
-      return false;
-    }
-    unique.add(key);
-    return true;
-  });
 
   console.log(
     "[RefreshTitle] Final candidates:",
@@ -971,13 +1158,29 @@ function resolveDisplayProviderName(
     return displayModelConfig.providerName;
   }
 
-  const enabledProfile = useAccessStore
-    .getState()
-    .apiProfiles.find(
-      (p) => p.enabled && p.provider === ServiceProvider.Custom,
-    );
+  const accessState = useAccessStore.getState();
+  const activeProfile = accessState.apiProfiles.find((profile) => {
+    if (
+      profile.provider !== ServiceProvider.Custom ||
+      !profile.baseUrl ||
+      profile.baseUrl !== accessState.customUrl
+    ) {
+      return false;
+    }
 
-  return enabledProfile?.name || modelConfig.providerName;
+    if (!accessState.customApiKey) {
+      return true;
+    }
+
+    return profile.apiKey === accessState.customApiKey;
+  });
+  const enabledProfile = accessState.apiProfiles.find(
+    (p) => p.enabled && p.provider === ServiceProvider.Custom,
+  );
+
+  return (
+    activeProfile?.name || enabledProfile?.name || modelConfig.providerName
+  );
 }
 
 function isApiFailurePayload(message: string) {
@@ -1028,9 +1231,12 @@ function logRequestBanner(
   },
 ) {
   const title = kind === "chat" ? "💬💬💬 对话请求开始" : "🏷️🏷️🏷️ 标题请求开始";
-  console.log(`===== ${title} =====`);
-  console.log(`[${kind === "chat" ? "ChatRequest" : "TitleRequest"}]`, payload);
-  console.log("=====");
+  console.log(
+    `===== ${title} | ${
+      kind === "chat" ? "ChatRequest" : "TitleRequest"
+    } =====`,
+    payload,
+  );
 }
 
 async function refreshSessionTitle(targetSession: ChatSession) {
@@ -1347,6 +1553,7 @@ const DEFAULT_CHAT_STATE = {
   sessions: [DEFAULT_SESSION],
   sessionSummaries: [buildSessionSummary(DEFAULT_SESSION)],
   currentSessionIndex: 0,
+  selectedSessionId: DEFAULT_SESSION.id,
   hydratingSessionId: "",
   hydratedSessionIds: [] as string[],
   lastInput: "",
@@ -1371,16 +1578,13 @@ export const useChatStore = createPersistStore(
           ? currentState.sessions.slice()
           : [];
         const currentSessionId =
-          currentSessions[currentState.currentSessionIndex]?.id ?? "";
+          currentState.selectedSessionId ||
+          currentSessions[currentState.currentSessionIndex]?.id ||
+          "";
 
-        let sessions = currentSessions.filter(
-          (session) =>
-            !(
-              isDefaultTopic(session.topic) &&
-              session.messages.length === 0 &&
-              !session.memoryPrompt
-            ),
-        );
+        let sessions = ensureFreshDefaultSession(currentSessions, {
+          preserveSessionId: currentSessionId,
+        });
         let changed = sessions.length !== currentSessions.length;
 
         logChatDebug("[initializeForNewPage] 开始", {
@@ -1400,27 +1604,45 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        const hasMeaningfulSession = sessions.some(
-          (session) =>
-            session.messages.length > 0 ||
-            !isDefaultTopic(session.topic) ||
-            !!session.memoryPrompt,
-        );
-
-        // 只有在当前没有任何有效会话时才补一个新的空会话，避免首开时与远端当前会话重复显示。
-        if (!hasMeaningfulSession) {
-          const newEmptySession = createEmptySession();
-          sessions.unshift(newEmptySession);
-          changed = true;
-        }
-
         // 恢复对话选中：优先从 URL hash 中获取 session ID
         let newIndex = 0;
         const hash = typeof window !== "undefined" ? window.location.hash : "";
         const chatMatch = hash.match(/#\/chat\/([^/]+)/);
         const urlId = chatMatch ? chatMatch[1] : "";
-        const targetId = urlId || currentSessionId;
-        if (targetId) {
+        const hasTabInitialized =
+          readSessionStorageItem(TAB_INITIALIZED_KEY) === "1";
+        const tabCurrentSessionId = readSessionStorageItem(
+          TAB_CURRENT_SESSION_ID_KEY,
+        );
+        const resolveSessionById = (sessionId: string) =>
+          sessions.find((session) => session.id === sessionId);
+        let preferredRememberedSessionId =
+          urlId ||
+          (isMeaningfulSession(resolveSessionById(tabCurrentSessionId))
+            ? tabCurrentSessionId
+            : "") ||
+          (isMeaningfulSession(resolveSessionById(currentSessionId))
+            ? currentSessionId
+            : "");
+
+        if (!urlId && (!hasTabInitialized || !preferredRememberedSessionId)) {
+          const startupSession = createEmptySession();
+          sessions = [
+            startupSession,
+            ...sessions.filter((session) => !isFreshDefaultSession(session)),
+          ];
+          changed = true;
+          newIndex = 0;
+          preferredRememberedSessionId = startupSession.id;
+          writeSessionStorageItem(TAB_INITIALIZED_KEY, "1");
+          writeSessionStorageItem(
+            TAB_CURRENT_SESSION_ID_KEY,
+            startupSession.id,
+          );
+        }
+
+        const targetId = preferredRememberedSessionId || sessions[0]?.id || "";
+        if (targetId && (urlId || hasTabInitialized)) {
           const idx = sessions.findIndex((s) => s.id === targetId);
           if (idx >= 0) newIndex = idx;
         }
@@ -1437,6 +1659,7 @@ export const useChatStore = createPersistStore(
             currentState.sessionSummaries,
           ),
           currentSessionIndex: newIndex,
+          selectedSessionId: sessions[newIndex]?.id || "",
           hydratedSessionIds: sessions
             .filter(
               (session) =>
@@ -1454,13 +1677,16 @@ export const useChatStore = createPersistStore(
           set(() => nextState);
         }
 
+        writeSessionStorageItem(TAB_INITIALIZED_KEY, "1");
+        writeSessionStorageItem(
+          TAB_CURRENT_SESSION_ID_KEY,
+          sessions[newIndex]?.id || "",
+        );
+
         get().pruneInactiveSessionsInMemory();
 
-        if (changed) {
-          import("./sync").then(({ useSyncStore }) => {
-            useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
-          });
-        }
+        // 首开页面对“新空对话”的本地整理不再触发远端聊天同步，
+        // 避免首次进入就因为空会话变更打远端接口。
       },
 
       forkSession() {
@@ -1485,6 +1711,7 @@ export const useChatStore = createPersistStore(
 
         set((state) => ({
           currentSessionIndex: 0,
+          selectedSessionId: newSession.id,
           sessionSummaries: [
             buildSessionSummary(newSession),
             ...state.sessionSummaries,
@@ -1509,6 +1736,7 @@ export const useChatStore = createPersistStore(
           sessions: newSessions,
           sessionSummaries: buildSessionSummaries(newSessions),
           currentSessionIndex: 0,
+          selectedSessionId: newSessions[0]?.id || "",
           globalClearAt,
           deletedSessionTimestamps,
         }));
@@ -1527,11 +1755,12 @@ export const useChatStore = createPersistStore(
       },
 
       selectSession(index: number) {
+        const sessionId = get().sessions[index]?.id || "";
         set({
           currentSessionIndex: index,
+          selectedSessionId: sessionId,
         });
 
-        const sessionId = get().sessions[index]?.id;
         if (sessionId) {
           void get().hydrateSessionIntoMemory(sessionId);
         }
@@ -1577,6 +1806,7 @@ export const useChatStore = createPersistStore(
 
           return {
             currentSessionIndex: newIndex,
+            selectedSessionId: newSessions[newIndex]?.id || "",
             sessionSummaries: newSessionSummaries,
             sessions: newSessions,
           };
@@ -1649,6 +1879,7 @@ export const useChatStore = createPersistStore(
 
         set((state) => ({
           currentSessionIndex: 0,
+          selectedSessionId: session.id,
           sessionSummaries: [
             buildSessionSummary(session),
             ...state.sessionSummaries,
@@ -1692,6 +1923,7 @@ export const useChatStore = createPersistStore(
         // for undo delete action
         const restoreState = {
           currentSessionIndex: get().currentSessionIndex,
+          selectedSessionId: get().currentSessionId(),
           sessions: get().sessions.slice(),
           sessionSummaries: get().sessionSummaries.slice(),
           deletedSessionTimestamps: {
@@ -1706,6 +1938,7 @@ export const useChatStore = createPersistStore(
 
         set(() => ({
           currentSessionIndex: nextIndex,
+          selectedSessionId: sessions[nextIndex]?.id || "",
           sessionSummaries: buildSessionSummaries(sessions),
           sessions,
           hydratedSessionIds: get().hydratedSessionIds.filter(
@@ -1813,6 +2046,8 @@ export const useChatStore = createPersistStore(
           return undefined;
         }
 
+        const hydrateStartedAt = nowMs();
+
         const summary = get().sessionSummaries.find(
           (session) => session.id === sessionId,
         );
@@ -1874,6 +2109,13 @@ export const useChatStore = createPersistStore(
 
           return persistedSession;
         } finally {
+          logPerfSummary("ChatHydrate", {
+            currentSessionHydrateDurationMs: Number(
+              (nowMs() - hydrateStartedAt).toFixed(2),
+            ),
+            sessionId,
+            messageCount: Number(summary?.messageCount || 0),
+          });
           set(() => ({ hydratingSessionId: "" }));
         }
       },
@@ -1899,8 +2141,11 @@ export const useChatStore = createPersistStore(
       },
 
       currentSessionId() {
-        const selectedSession = get().sessions[get().currentSessionIndex];
-        return selectedSession?.id ?? "";
+        return (
+          get().selectedSessionId ||
+          get().sessions[get().currentSessionIndex]?.id ||
+          ""
+        );
       },
 
       currentSession() {
@@ -1914,10 +2159,21 @@ export const useChatStore = createPersistStore(
         }
 
         let index = get().currentSessionIndex;
+        if (currentSessionId) {
+          const targetIndex = sessions.findIndex(
+            (session) => session.id === currentSessionId,
+          );
+          if (targetIndex >= 0) {
+            index = targetIndex;
+          }
+        }
 
         if (index < 0 || index >= sessions.length) {
           index = Math.min(sessions.length - 1, Math.max(0, index));
-          set(() => ({ currentSessionIndex: index }));
+          set(() => ({
+            currentSessionIndex: index,
+            selectedSessionId: sessions[index]?.id || "",
+          }));
         }
 
         const session = sessions[index];
@@ -2003,6 +2259,31 @@ export const useChatStore = createPersistStore(
         });
 
         const session = get().currentSession();
+        if (
+          isFreshDefaultSession(session) &&
+          !get().sessions.some(
+            (item) => item.id !== session.id && isFreshDefaultSession(item),
+          )
+        ) {
+          const freshSession = createEmptySession();
+          set((state) => {
+            const nextSessions = [freshSession, ...state.sessions];
+            const selectedSessionId = session.id;
+            const nextIndex = nextSessions.findIndex(
+              (item) => item.id === selectedSessionId,
+            );
+
+            return {
+              sessions: nextSessions,
+              sessionSummaries: [
+                buildSessionSummary(freshSession),
+                ...state.sessionSummaries,
+              ],
+              currentSessionIndex: Math.max(0, nextIndex),
+              selectedSessionId,
+            };
+          });
+        }
         const modelConfig = session.mask.modelConfig;
         const appConfig = useAppConfig.getState();
         const accessStore = useAccessStore.getState();
@@ -3185,6 +3466,11 @@ export const useChatStore = createPersistStore(
               )
               .map((session: ChatSession) => session.id)
           : [];
+      }
+
+      if (!(newState as any).selectedSessionId) {
+        (newState as any).selectedSessionId =
+          newState.sessions?.[newState.currentSessionIndex]?.id || "";
       }
 
       if (

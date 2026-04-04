@@ -50,6 +50,7 @@ import {
   createEmptySession,
 } from "./chat";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
+import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 type DatabaseCacheMeta = Record<
   string,
@@ -85,6 +86,9 @@ const LOG_SEPARATOR = "=".repeat(30);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
+// 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
+const RETRYABLE_NETWORK_ERROR =
+  /Failed to fetch|NetworkError|ERR_CONNECTION|net::ERR_|Load failed|abort|timeout/i;
 
 export async function waitForSyncIdle() {
   while (syncInFlight || queuedSyncKeys.size > 0) {
@@ -137,6 +141,45 @@ function warnSyncDebug(message: string, payload?: unknown) {
     return;
   }
   console.warn(message, payload);
+}
+
+function getLocalStoreLastUpdateTime(state: unknown) {
+  if (!isObjectLike(state)) {
+    return 0;
+  }
+
+  const nextValue = Number(state.lastUpdateTime);
+  return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function shouldSkipSyncByChecksum(params: {
+  key: SyncStoreKey;
+  localStoreState: unknown;
+  remoteMetaMap: Map<SyncStoreKey, StoreSnapshotMeta>;
+  databaseCacheMeta: DatabaseCacheMeta;
+  lastSyncTime: number;
+}) {
+  if (!isPerfFeatureEnabled("PERF_ENABLE_SYNC_CHECKSUM_SKIP")) {
+    return false;
+  }
+
+  const remoteMeta = params.remoteMetaMap.get(params.key);
+  const cachedMeta = params.databaseCacheMeta[params.key];
+  if (!remoteMeta || !cachedMeta) {
+    return false;
+  }
+
+  const localLastUpdateTime = getLocalStoreLastUpdateTime(
+    params.localStoreState,
+  );
+  if (localLastUpdateTime > params.lastSyncTime) {
+    return false;
+  }
+
+  return (
+    remoteMeta.updatedAt === cachedMeta.updatedAt &&
+    remoteMeta.checksum === cachedMeta.checksum
+  );
 }
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
@@ -339,8 +382,12 @@ function formatBytes(bytes: number) {
   return `${mb.toFixed(2)} MB`;
 }
 
-function buildMetaMap(metas: StoreSnapshotMeta[] = []) {
-  return new Map(metas.map((meta) => [meta.key, meta] as const));
+function buildMetaMap(
+  metas: StoreSnapshotMeta[] = [],
+): Map<SyncStoreKey, StoreSnapshotMeta> {
+  return new Map(
+    metas.map((meta) => [meta.key as SyncStoreKey, meta] as const),
+  );
 }
 
 function normalizeMergedChatState(chatState: any) {
@@ -1508,12 +1555,19 @@ export const useSyncStore = createPersistStore(
             logSyncDebug(`[Sync] 🔄 开始同步到 ${providerName}...`);
 
             const client = this.getClient() as any;
+            const getMetaStartedAt = nowMs();
             const initialMetas =
               typeof client.getMeta === "function" &&
               currentStoreKeys.length > 0
                 ? await client.getMeta(currentStoreKeys)
                 : [];
             let remoteMetaMap = buildMetaMap(initialMetas);
+            logPerfSummary("Sync", {
+              selectedKeys: currentStoreKeys,
+              getMetaDurationMs: Number(
+                (nowMs() - getMetaStartedAt).toFixed(2),
+              ),
+            });
 
             logSyncDebug(
               `[Sync] 📋 准备同步 ${currentStoreKeys.length} 个数据块`,
@@ -1532,14 +1586,16 @@ export const useSyncStore = createPersistStore(
               displayName: string,
               stepLabel: string,
             ) => {
+              const isRetryableError = (error: unknown) =>
+                error instanceof Error &&
+                (RETRYABLE_DB_SYNC_ERROR.test(error.message) ||
+                  RETRYABLE_NETWORK_ERROR.test(error.message));
               const fallbackToLatestRemote = async () => {
                 const latestRemoteDataText = await withRetry<string>(
                   () => client.get(key),
                   {
                     retries: 1,
-                    retryable: (error) =>
-                      error instanceof Error &&
-                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                    retryable: isRetryableError,
                   },
                 );
                 const latestRemoteState = latestRemoteDataText
@@ -1562,13 +1618,12 @@ export const useSyncStore = createPersistStore(
               };
 
               for (let attempt = 0; attempt < 2; attempt += 1) {
+                const getPayloadStartedAt = nowMs();
                 const remoteDataText = await withRetry<string>(
                   () => client.get(key),
                   {
                     retries: 1,
-                    retryable: (error) =>
-                      error instanceof Error &&
-                      RETRYABLE_DB_SYNC_ERROR.test(error.message),
+                    retryable: isRetryableError,
                     onRetry: (retryAttempt, error) => {
                       warnSyncDebug(
                         `[Sync] ⚠️ [${stepLabel}] ${displayName}读取失败，准备第 ${retryAttempt} 次重试:`,
@@ -1577,20 +1632,37 @@ export const useSyncStore = createPersistStore(
                     },
                   },
                 );
+                const getPayloadDurationMs = nowMs() - getPayloadStartedAt;
 
                 const currentMeta = remoteMetaMap.get(key);
                 if (!remoteDataText || remoteDataText === "") {
                   const localStoreState = localAppStateCache[key];
+                  const stringifyStartedAt = nowMs();
+                  const payloadText = stringifyPersistedStoreState(
+                    key,
+                    localStoreState,
+                  );
+                  const stringifyDurationMs = nowMs() - stringifyStartedAt;
                   try {
-                    await client.set(
+                    const writeBackStartedAt = nowMs();
+                    await client.set(key, payloadText, {
+                      expectedMissing: !currentMeta,
+                      expectedUpdatedAt: currentMeta?.updatedAt,
+                      expectedChecksum: currentMeta?.checksum,
+                    });
+                    logPerfSummary("Sync", {
                       key,
-                      stringifyPersistedStoreState(key, localStoreState),
-                      {
-                        expectedMissing: !currentMeta,
-                        expectedUpdatedAt: currentMeta?.updatedAt,
-                        expectedChecksum: currentMeta?.checksum,
-                      },
-                    );
+                      getPayloadDurationMs: Number(
+                        getPayloadDurationMs.toFixed(2),
+                      ),
+                      stringifyDurationMs: Number(
+                        stringifyDurationMs.toFixed(2),
+                      ),
+                      writeBackDurationMs: Number(
+                        (nowMs() - writeBackStartedAt).toFixed(2),
+                      ),
+                      payloadBytes: payloadText.length,
+                    });
                   } catch (error) {
                     if (
                       attempt === 0 &&
@@ -1625,27 +1697,47 @@ export const useSyncStore = createPersistStore(
                   };
                 }
 
+                const parseStartedAt = nowMs();
                 const parsedRemoteState =
                   parseStoreStatePayload(remoteDataText);
+                const parseDurationMs = nowMs() - parseStartedAt;
+                const mergeStartedAt = nowMs();
                 const mergedStoreState = mergeStoreState(
                   key,
                   localAppStateCache[key],
                   parsedRemoteState,
                 );
+                const mergeDurationMs = nowMs() - mergeStartedAt;
 
                 setLocalStoreState(key, mergedStoreState);
                 localAppStateCache[key] = mergedStoreState;
 
+                const stringifyStartedAt = nowMs();
+                const payloadText = stringifyPersistedStoreState(
+                  key,
+                  mergedStoreState,
+                );
+                const stringifyDurationMs = nowMs() - stringifyStartedAt;
                 try {
-                  await client.set(
+                  const writeBackStartedAt = nowMs();
+                  await client.set(key, payloadText, {
+                    expectedMissing: !currentMeta,
+                    expectedUpdatedAt: currentMeta?.updatedAt,
+                    expectedChecksum: currentMeta?.checksum,
+                  });
+                  logPerfSummary("Sync", {
                     key,
-                    stringifyPersistedStoreState(key, mergedStoreState),
-                    {
-                      expectedMissing: !currentMeta,
-                      expectedUpdatedAt: currentMeta?.updatedAt,
-                      expectedChecksum: currentMeta?.checksum,
-                    },
-                  );
+                    getPayloadDurationMs: Number(
+                      getPayloadDurationMs.toFixed(2),
+                    ),
+                    parseDurationMs: Number(parseDurationMs.toFixed(2)),
+                    mergeDurationMs: Number(mergeDurationMs.toFixed(2)),
+                    stringifyDurationMs: Number(stringifyDurationMs.toFixed(2)),
+                    writeBackDurationMs: Number(
+                      (nowMs() - writeBackStartedAt).toFixed(2),
+                    ),
+                    payloadBytes: remoteDataText.length,
+                  });
                 } catch (error) {
                   if (
                     attempt === 0 &&
@@ -1726,7 +1818,7 @@ export const useSyncStore = createPersistStore(
                 key: SyncStoreKey;
                 name: string;
                 summary: string;
-                status: "downloaded" | "uploaded" | "merged";
+                status: "downloaded" | "uploaded" | "merged" | "skipped";
               }> = [];
               const failedKeys: Array<{
                 key: SyncStoreKey;
@@ -1738,10 +1830,36 @@ export const useSyncStore = createPersistStore(
                 try {
                   const displayName = STORE_DISPLAY_NAMES[key];
                   const stepLabel = `${index + 1}/${currentStoreKeys.length}`;
+                  const keySyncStartedAt = nowMs();
                   logSyncDebug(
                     `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                   );
                   const localStoreState = localAppStateCache[key];
+
+                  if (
+                    shouldSkipSyncByChecksum({
+                      key,
+                      localStoreState,
+                      remoteMetaMap,
+                      databaseCacheMeta: get().database.cacheMeta,
+                      lastSyncTime: get().lastSyncTime,
+                    })
+                  ) {
+                    syncResults.push({
+                      key,
+                      name: displayName,
+                      summary: "远端元数据未变化，跳过同步",
+                      status: "skipped",
+                    });
+                    logPerfSummary("Sync", {
+                      key,
+                      skippedByChecksumCount: 1,
+                      durationMs: Number(
+                        (nowMs() - keySyncStartedAt).toFixed(2),
+                      ),
+                    });
+                    continue;
+                  }
 
                   if (
                     key === StoreKey.Chat &&
@@ -1778,6 +1896,16 @@ export const useSyncStore = createPersistStore(
                     setLocalStoreState(key, chatResult.mergedStoreState as any);
                     localAppStateCache[key] =
                       chatResult.mergedStoreState as any;
+                    logPerfSummary("Sync", {
+                      key,
+                      durationMs: Number(
+                        (nowMs() - keySyncStartedAt).toFixed(2),
+                      ),
+                      downloadedSessionCount:
+                        chatResult.metrics.downloadedSessionCount,
+                      uploadedSessionCount:
+                        chatResult.metrics.uploadedSessionCount,
+                    });
                     continue;
                   }
 
@@ -1796,6 +1924,11 @@ export const useSyncStore = createPersistStore(
                     key,
                     name: displayName,
                     summary: regularResult.summary,
+                    status: regularResult.status,
+                  });
+                  logPerfSummary("Sync", {
+                    key,
+                    durationMs: Number((nowMs() - keySyncStartedAt).toFixed(2)),
                     status: regularResult.status,
                   });
                 } catch (e) {
@@ -1840,7 +1973,7 @@ export const useSyncStore = createPersistStore(
                   )
                   .join(" | ");
                 console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
-                throw new Error(`[Sync] 部分数据同步失败: ${failedSummary}`);
+                // 不再抛出异常，已成功的 store 数据仍然生效
               }
 
               logSyncDebug("[Sync] ✅ 同步完成");
@@ -1885,17 +2018,12 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        const priorityKeys = [
-          StoreKey.Access,
-          StoreKey.ModelCache,
-          StoreKey.Config,
-        ].filter((key): key is SyncStoreKey =>
-          (AUTO_SYNC_STORE_KEYS as readonly StoreKey[]).includes(key),
+        const priorityKeys = [StoreKey.Access, StoreKey.Config].filter(
+          (key): key is SyncStoreKey =>
+            (AUTO_SYNC_STORE_KEYS as readonly StoreKey[]).includes(key),
         );
         if (priorityKeys.length > 0) {
           await this.sync(priorityKeys);
-          useModelCacheStore.getState().migrateFromAccessProfiles?.();
-          rebuildManagedModelsFromCache();
         }
       },
 
@@ -1905,7 +2033,9 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
+        console.log("[Sync] 💬 开始同步聊天记录");
         await this.sync([StoreKey.Chat]);
+        console.log("[Sync] ✅ 聊天记录同步完成");
 
         const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
           (key) =>
@@ -1915,7 +2045,9 @@ export const useSyncStore = createPersistStore(
             key !== StoreKey.Config,
         );
         if (remainingKeys.length > 0) {
+          console.log("[Sync] ⚙️ 开始同步剩余数据:", remainingKeys);
           await this.sync(remainingKeys);
+          console.log("[Sync] ✅ 剩余数据同步完成");
         }
       },
 

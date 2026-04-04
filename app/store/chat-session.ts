@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatSession, normalizeSession, useChatStore } from "./chat";
 
@@ -16,31 +16,38 @@ export async function getChatSessionDetail(sessionId: string) {
 }
 
 export function useCurrentSession() {
-  const currentSessionId = useChatStore((state) => {
-    const selectedSession = state.sessions[state.currentSessionIndex];
-    return selectedSession?.id ?? "";
-  });
+  const currentSessionId = useChatStore(
+    (state) =>
+      state.selectedSessionId ||
+      state.sessions[state.currentSessionIndex]?.id ||
+      "",
+  );
   const hydratingSessionId = useChatStore((state) => state.hydratingSessionId);
   const currentSessionSummary = useChatStore((state) =>
     state.sessionSummaries.find((summary) => summary.id === currentSessionId),
   );
-  const inMemorySession = useChatStore((state) => {
+  const rawInMemorySession = useChatStore((state) => {
     if (!currentSessionId) {
       return undefined;
     }
 
-    return normalizeSession(
-      state.sessions.find((session) => session.id === currentSessionId),
-    );
+    return state.sessions.find((session) => session.id === currentSessionId);
   });
+  const inMemorySession = useMemo(
+    () => normalizeSession(rawInMemorySession),
+    [rawInMemorySession],
+  );
   const isPrunedInMemorySession =
     !!inMemorySession &&
     Number(currentSessionSummary?.messageCount || 0) > 0 &&
     (!Array.isArray(inMemorySession.messages) ||
       inMemorySession.messages.length === 0);
+  const readyInMemorySession =
+    inMemorySession && !isPrunedInMemorySession ? inMemorySession : undefined;
   const [loadedSession, setLoadedSession] = useState<ChatSession | undefined>(
     isPrunedInMemorySession ? undefined : inMemorySession,
   );
+  const lastRequestedSessionIdRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -50,11 +57,16 @@ export function useCurrentSession() {
       return;
     }
 
-    if (inMemorySession && !isPrunedInMemorySession) {
-      setLoadedSession(inMemorySession);
+    if (readyInMemorySession) {
+      lastRequestedSessionIdRef.current = "";
       return;
     }
 
+    if (lastRequestedSessionIdRef.current === currentSessionId) {
+      return;
+    }
+
+    lastRequestedSessionIdRef.current = currentSessionId;
     setLoadedSession(undefined);
 
     void useChatStore
@@ -65,6 +77,7 @@ export function useCurrentSession() {
           return;
         }
 
+        lastRequestedSessionIdRef.current = "";
         setLoadedSession(normalizeSession(session));
       })
       .catch((error) => {
@@ -73,6 +86,7 @@ export function useCurrentSession() {
         }
 
         console.error("[Chat] ❌ 加载会话正文失败:", error);
+        lastRequestedSessionIdRef.current = "";
         setLoadedSession(
           normalizeSession(
             useChatStore.getState().getSessionById(currentSessionId),
@@ -83,13 +97,14 @@ export function useCurrentSession() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, inMemorySession, isPrunedInMemorySession]);
+  }, [currentSessionId, readyInMemorySession, isPrunedInMemorySession]);
 
   return {
-    session: loadedSession,
+    session: readyInMemorySession || loadedSession,
     loading:
       !!currentSessionId &&
       hydratingSessionId === currentSessionId &&
-      (!loadedSession || loadedSession.messages.length === 0),
+      (!(readyInMemorySession || loadedSession) ||
+        (readyInMemorySession || loadedSession)?.messages.length === 0),
   };
 }

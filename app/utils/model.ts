@@ -3,7 +3,11 @@ import type { LLMModel } from "../client/api";
 import modelPublishedAtUtils from "./model-published-at";
 
 const { DEFAULT_MODELS, ServiceProvider } = constants;
-const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
+const {
+  applyModelPublishedAt,
+  comparePublishedAt,
+  extractPublishedAtFromName,
+} = modelPublishedAtUtils;
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -26,13 +30,117 @@ const customProvider = (providerName: string) => ({
   sorted: CustomSeq.next(providerName),
 });
 
+type RuntimeCollectedModel = {
+  available: boolean;
+  name: string;
+  displayName: string;
+  sorted: number;
+  publishedAt?: number;
+  publishedAtSource?: LLMModel["publishedAtSource"];
+  publishedAtUrl?: LLMModel["publishedAtUrl"];
+  publishedAtNote?: LLMModel["publishedAtNote"];
+  provider?: LLMModel["provider"];
+  vendor?: LLMModel["vendor"];
+  category?: LLMModel["category"];
+  categorySource?: LLMModel["categorySource"];
+  type?: LLMModel["type"];
+  types?: LLMModel["types"];
+  features?: LLMModel["features"];
+  capabilities?: LLMModel["capabilities"];
+  categories?: LLMModel["categories"];
+  isDefault?: boolean;
+  __normalizedSortName?: string;
+  __primaryVersion?: number[];
+  __publishedAtSortValue?: number;
+};
+
+function getModelVersionParts(text: string) {
+  const versionMatches = Array.from(
+    text.toLowerCase().matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
+  ).map((match) => match[0]);
+  const versions = versionMatches.map((value) =>
+    value.split(".").map((part) => Number(part)),
+  );
+  if (versions.length === 0) {
+    return [];
+  }
+
+  const semanticVersions = versions.filter((parts) => parts.length > 1);
+  const candidates = semanticVersions.length > 0 ? semanticVersions : versions;
+
+  return candidates.reduce((best, current) => {
+    const maxParts = Math.max(best.length, current.length);
+    for (let index = 0; index < maxParts; index += 1) {
+      const diff = (current[index] ?? -1) - (best[index] ?? -1);
+      if (diff > 0) {
+        return current;
+      }
+      if (diff < 0) {
+        return best;
+      }
+    }
+    return best;
+  }, candidates[0]);
+}
+
+function compareVersionPartsDesc(left: number[] = [], right: number[] = []) {
+  const maxLength = Math.max(left.length, right.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const diff = (right[index] ?? -1) - (left[index] ?? -1);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function applyRuntimeModelSortFields<T extends RuntimeCollectedModel>(
+  model: T,
+) {
+  model.__normalizedSortName = String(model.name || "").toLowerCase();
+  model.__primaryVersion = getModelVersionParts(model.name || "");
+  model.__publishedAtSortValue =
+    model.publishedAt ?? extractPublishedAtFromName(model.name) ?? 0;
+  return model;
+}
+
 /**
  * Sorts an array of models based on specified rules.
  *
  * First, sorted by provider; if the same, sorted by model
  */
-const sortModelTable = (models: ReturnType<typeof collectModels>) =>
-  models.sort((a, b) => comparePublishedAt(a, b));
+const sortModelTable = <T extends RuntimeCollectedModel>(models: T[]) =>
+  models.sort((a, b) => {
+    const publishedAtDiff =
+      (b.__publishedAtSortValue ?? 0) - (a.__publishedAtSortValue ?? 0);
+    if (publishedAtDiff !== 0) {
+      return publishedAtDiff;
+    }
+
+    const versionDiff = compareVersionPartsDesc(
+      a.__primaryVersion,
+      b.__primaryVersion,
+    );
+    if (versionDiff !== 0) {
+      return versionDiff;
+    }
+
+    const orderDiff =
+      Number(a.sorted ?? Number.MAX_SAFE_INTEGER) -
+      Number(b.sorted ?? Number.MAX_SAFE_INTEGER);
+    if (orderDiff !== 0) {
+      return orderDiff;
+    }
+
+    return String(a.__normalizedSortName || a.name || "").localeCompare(
+      String(b.__normalizedSortName || b.name || ""),
+      undefined,
+      {
+        numeric: true,
+        sensitivity: "base",
+      },
+    );
+  });
 
 /**
  * get model name and provider from a formatted string,
@@ -49,37 +157,34 @@ export function collectModelTable(
   models: readonly LLMModel[],
   customModels: string,
 ) {
-  const modelTable: Record<
-    string,
-    {
-      available: boolean;
-      name: string;
-      displayName: string;
-      sorted: number;
-      publishedAt?: number;
-      publishedAtSource?: LLMModel["publishedAtSource"];
-      publishedAtUrl?: LLMModel["publishedAtUrl"];
-      publishedAtNote?: LLMModel["publishedAtNote"];
-      provider?: LLMModel["provider"]; // Marked as optional
-      vendor?: LLMModel["vendor"]; // 供应商信息
-      category?: LLMModel["category"];
-      categorySource?: LLMModel["categorySource"];
-      type?: LLMModel["type"];
-      types?: LLMModel["types"];
-      features?: LLMModel["features"];
-      capabilities?: LLMModel["capabilities"];
-      categories?: LLMModel["categories"];
-      isDefault?: boolean;
+  const modelTable: Record<string, RuntimeCollectedModel> = {};
+  const fullNameByModelName = new Map<string, string[]>();
+  const fullNameByModelAndProvider = new Map<string, string>();
+
+  const registerModelTableEntry = (fullName: string) => {
+    const [modelName, providerName] = getModelProvider(fullName);
+    const normalizedModelName = String(modelName || "").toLowerCase();
+    const normalizedProviderName = String(providerName || "").toLowerCase();
+    const currentEntries = fullNameByModelName.get(normalizedModelName) ?? [];
+    if (!currentEntries.includes(fullName)) {
+      currentEntries.push(fullName);
+      fullNameByModelName.set(normalizedModelName, currentEntries);
     }
-  > = {};
+    fullNameByModelAndProvider.set(
+      `${normalizedModelName}@${normalizedProviderName}`,
+      fullName,
+    );
+  };
 
   // default models
   models.forEach((m) => {
     // using <modelName>@<providerId> as fullName
-    modelTable[`${m.name}@${m?.provider?.id}`] = {
+    const fullName = `${m.name}@${m?.provider?.id}`;
+    modelTable[fullName] = applyRuntimeModelSortFields({
       ...m,
       displayName: m.name, // 'provider' is copied over if it exists
-    };
+    });
+    registerModelTableEntry(fullName);
   });
 
   // server custom models
@@ -100,26 +205,38 @@ export function collectModelTable(
       } else {
         // 1. find model by name, and set available value
         const [customModelName, customProviderName] = getModelProvider(name);
+        const normalizedModelName = String(customModelName || "").toLowerCase();
+        const normalizedProviderName = String(
+          customProviderName || "",
+        ).toLowerCase();
+        const matchedFullNames = normalizedProviderName
+          ? ([
+              fullNameByModelAndProvider.get(
+                `${normalizedModelName}@${normalizedProviderName}`,
+              ),
+            ].filter(Boolean) as string[])
+          : fullNameByModelName.get(normalizedModelName) ?? [];
+
         let count = 0;
-        for (const fullName in modelTable) {
+        matchedFullNames.forEach((fullName) => {
           const [modelName, providerName] = getModelProvider(fullName);
-          if (
-            customModelName == modelName &&
-            (customProviderName === undefined ||
-              customProviderName === providerName)
-          ) {
-            count += 1;
-            modelTable[fullName]["available"] = available;
-            // swap name and displayName for bytedance
-            if (providerName === "bytedance") {
-              [name, displayName] = [displayName, modelName];
-              modelTable[fullName]["name"] = name;
-            }
-            if (displayName) {
-              modelTable[fullName]["displayName"] = displayName;
-            }
+          const targetModel = modelTable[fullName];
+          if (!targetModel) {
+            return;
           }
-        }
+
+          count += 1;
+          targetModel.available = available;
+          // swap name and displayName for bytedance
+          if (providerName === "bytedance" && displayName) {
+            [name, displayName] = [displayName, modelName];
+            targetModel.name = name;
+            applyRuntimeModelSortFields(targetModel);
+          }
+          if (displayName) {
+            targetModel.displayName = displayName;
+          }
+        });
         // 2. if model not exists, create new model with available value
         if (count === 0) {
           let [customModelName, customProviderName] = getModelProvider(name);
@@ -130,13 +247,15 @@ export function collectModelTable(
           if (displayName && provider.providerName == "ByteDance") {
             [customModelName, displayName] = [displayName, customModelName];
           }
-          modelTable[`${customModelName}@${provider?.id}`] = {
+          const fullName = `${customModelName}@${provider?.id}`;
+          modelTable[fullName] = applyRuntimeModelSortFields({
             name: customModelName,
             displayName: displayName || customModelName,
             available,
             provider, // Use optional chaining
             sorted: CustomSeq.next(`${customModelName}@${provider?.id}`),
-          };
+          });
+          registerModelTableEntry(fullName);
         }
       }
     });
@@ -425,17 +544,6 @@ function getOpenAIMainModelBaseVersion(model: ModelLike) {
     return [];
   }
   return match[1].split(".").map((part) => Number(part));
-}
-
-function compareVersionPartsDesc(left: number[], right: number[]) {
-  const maxLength = Math.max(left.length, right.length);
-  for (let i = 0; i < maxLength; i += 1) {
-    const diff = (right[i] ?? -1) - (left[i] ?? -1);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-  return 0;
 }
 
 function compareOpenAIMainModelPriority(left: ModelLike, right: ModelLike) {

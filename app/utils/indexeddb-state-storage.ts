@@ -274,23 +274,6 @@ class IndexedDbStateStorage implements StateStorage {
         return resolvedValue;
       }
 
-      const remoteValue = await this.seedFromRemote(name);
-      if (remoteValue) {
-        const resolvedValue = resolveHydratedStateValue(
-          pendingValue,
-          remoteValue,
-        );
-        if (resolvedValue === null) {
-          return null;
-        }
-        if (pendingValue) {
-          await this.flushPendingWrite(name);
-        }
-        this.cache.set(name, resolvedValue);
-        this.hydrated.add(name);
-        return resolvedValue;
-      }
-
       this.hydrated.add(name);
       await this.flushPendingWrite(name);
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;

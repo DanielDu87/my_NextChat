@@ -3,13 +3,10 @@ import HomeEntry from "./components/home-entry";
 import { getServerSideConfig } from "./config/server";
 import { cookies } from "next/headers";
 import SitePasswordGate from "./components/site-password-gate";
-import {
-  getAuthContextFromCookies,
-  getAuthSessionCookieName,
-  getEffectiveUserCookieName,
-} from "./utils/server/auth";
 
 const serverConfig = getServerSideConfig();
+const AUTH_SESSION_COOKIE_NAME = "nextchat_auth_session";
+const EFFECTIVE_USER_COOKIE_NAME = "nextchat_effective_user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,20 +18,48 @@ export default async function App({
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
   const cookieStore = cookies();
-  const authContext = await getAuthContextFromCookies({
-    sessionToken: cookieStore.get(getAuthSessionCookieName())?.value,
-    effectiveUserId: cookieStore.get(getEffectiveUserCookieName())?.value,
-  });
+  const sessionToken = cookieStore.get(AUTH_SESSION_COOKIE_NAME)?.value;
+  const effectiveUserId = cookieStore.get(EFFECTIVE_USER_COOKIE_NAME)?.value;
+
   const loginError = Array.isArray(searchParams?.["login-error"])
     ? searchParams?.["login-error"]?.[0]
     : searchParams?.["login-error"];
 
+  if (!sessionToken) {
+    return (
+      <>
+        <SitePasswordGate initialError={loginError} />
+        {serverConfig?.isVercel && (
+          <>
+            <Analytics />
+          </>
+        )}
+      </>
+    );
+  }
+
+  const { getAuthContextFromCookies } = await import("./utils/server/auth");
+  let authContext = null;
+  let authError = "";
+
+  try {
+    authContext = await getAuthContextFromCookies({
+      sessionToken,
+      effectiveUserId,
+    });
+  } catch (error) {
+    console.error("[Auth] 页面鉴权失败:", error);
+    authError =
+      error instanceof Error && /timeout|connect|postgres/i.test(error.message)
+        ? "数据库连接超时，请稍后重试"
+        : "认证服务暂不可用";
+  }
   return (
     <>
       {authContext ? (
         <HomeEntry />
       ) : (
-        <SitePasswordGate initialError={loginError} />
+        <SitePasswordGate initialError={loginError || authError} />
       )}
       {serverConfig?.isVercel && (
         <>

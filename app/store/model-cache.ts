@@ -7,6 +7,18 @@ export type ProfileModelCache = {
   cachedModels: string;
   modelCount: number;
   updatedAt: number;
+  source?: "builtin" | "cache" | "remote" | "derived";
+  syncStatus?:
+    | "idle"
+    | "using_cache"
+    | "checking_remote"
+    | "first_sync"
+    | "syncing"
+    | "ready"
+    | "error";
+  hydrated?: boolean;
+  hasRemoteChecked?: boolean;
+  lastSyncAt?: number;
   lastError?: string;
 };
 
@@ -33,6 +45,49 @@ export const useModelCacheStore = createPersistStore(
             cachedModels: payload.cachedModels,
             modelCount: payload.modelCount,
             updatedAt: payload.updatedAt ?? Date.now(),
+            source: payload.source ?? current?.source,
+            syncStatus: payload.syncStatus ?? current?.syncStatus,
+            hydrated: payload.hydrated ?? current?.hydrated,
+            hasRemoteChecked:
+              payload.hasRemoteChecked ?? current?.hasRemoteChecked,
+            lastSyncAt: payload.lastSyncAt ?? current?.lastSyncAt,
+            lastError: payload.lastError ?? current?.lastError,
+          },
+        },
+      });
+    },
+
+    setProfileSyncState(
+      profileId: string,
+      payload: Partial<
+        Pick<
+          ProfileModelCache,
+          | "source"
+          | "syncStatus"
+          | "hydrated"
+          | "hasRemoteChecked"
+          | "lastSyncAt"
+          | "lastError"
+          | "cachedModels"
+          | "modelCount"
+        >
+      >,
+    ) {
+      const current = get().profiles[profileId];
+      set({
+        profiles: {
+          ...get().profiles,
+          [profileId]: {
+            profileId,
+            cachedModels: payload.cachedModels ?? current?.cachedModels ?? "",
+            modelCount: payload.modelCount ?? current?.modelCount ?? 0,
+            updatedAt: Date.now(),
+            source: payload.source ?? current?.source,
+            syncStatus: payload.syncStatus ?? current?.syncStatus,
+            hydrated: payload.hydrated ?? current?.hydrated,
+            hasRemoteChecked:
+              payload.hasRemoteChecked ?? current?.hasRemoteChecked,
+            lastSyncAt: payload.lastSyncAt ?? current?.lastSyncAt,
             lastError: payload.lastError ?? current?.lastError,
           },
         },
@@ -71,9 +126,22 @@ export const useModelCacheStore = createPersistStore(
         migrated = true;
       });
 
+      const currentState = get();
+      const profilesChanged =
+        JSON.stringify(currentState.profiles) !== JSON.stringify(nextProfiles);
+      const nextMigratedFromLegacyAccess =
+        currentState.migratedFromLegacyAccess || migrated;
+
+      if (
+        !profilesChanged &&
+        currentState.migratedFromLegacyAccess === nextMigratedFromLegacyAccess
+      ) {
+        return;
+      }
+
       set({
         profiles: nextProfiles,
-        migratedFromLegacyAccess: get().migratedFromLegacyAccess || migrated,
+        migratedFromLegacyAccess: nextMigratedFromLegacyAccess,
       });
     },
   }),

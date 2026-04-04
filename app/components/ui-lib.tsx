@@ -21,15 +21,18 @@ import React, {
   HTMLProps,
   MouseEvent,
   useEffect,
+  useDeferredValue,
   useMemo,
   useState,
   useCallback,
   useRef,
+  startTransition,
 } from "react";
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
 import { comparePublishedAt } from "../utils/model-published-at";
+import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 type SelectorItemMeta = {
   category?: string;
@@ -47,6 +50,7 @@ type SelectorItemBase<T> = {
   subTitle?: string;
   value: T;
   disable?: boolean;
+  searchText?: string;
   group?: string;
   order?: number;
   publishedAt?: number;
@@ -57,6 +61,40 @@ type SelectorItemBase<T> = {
   };
   meta?: SelectorItemMeta;
 };
+
+const SELECTOR_PREFERRED_GROUP_ORDER = [
+  "OpenAI",
+  "Anthropic",
+  "Google",
+  "DeepSeek",
+  "xAI",
+  "AihubMix",
+  "Alibaba",
+  "ByteDance",
+  "Zhipu",
+  "Cohere",
+  "Mistral",
+  "Meta",
+  "Microsoft",
+  "01.AI",
+  "Moonshot",
+  "StepFun",
+  "Nvidia",
+  "Minimax",
+  "Perplexity",
+  "Baichuan",
+  "Tencent",
+  "Baidu",
+  "Ideogram",
+  "Jina AI",
+  "Stability",
+  "Flux",
+  "Meituan",
+  "InclusionAI",
+  "BAAI",
+  "Xiaomi",
+  "Other",
+] as const;
 
 export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
@@ -178,9 +216,18 @@ export function List(props: {
   children: React.ReactNode;
   id?: string;
   className?: string;
+  style?: CSSProperties;
+  onScroll?: React.UIEventHandler<HTMLDivElement>;
+  listRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
-    <div className={clsx(styles.list, props.className)} id={props.id}>
+    <div
+      className={clsx(styles.list, props.className)}
+      id={props.id}
+      onScroll={props.onScroll}
+      ref={props.listRef}
+      style={props.style}
+    >
       {props.children}
     </div>
   );
@@ -636,6 +683,14 @@ export function Selector<T>(props: {
   centerContent?: boolean;
   resetKey?: number | string;
   onDisabledItemClick?: () => void;
+  itemsArePreSorted?: boolean;
+  searchDebounceMs?: number;
+  enableVirtualization?: boolean;
+  virtualizationThreshold?: number;
+  estimatedItemHeight?: number;
+  estimatedGroupHeight?: number;
+  perfScope?: string;
+  perfStartedAt?: number;
   groupFilterAction?:
     | React.ReactNode
     | ((ctx: {
@@ -655,16 +710,24 @@ export function Selector<T>(props: {
       ? [props.defaultSelectedValue]
       : [],
   );
+  const [searchInput, setSearchInput] = useState("");
   const [searchText, setSearchText] = useState("");
   const [selectedGroup, setSelectedGroup] = useState(
     props.defaultGroup ?? "All",
   );
   const [selectedQuickFilter, setSelectedQuickFilter] = useState("all");
   const [isGroupFilterOpen, setIsGroupFilterOpen] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(520);
   const groupFilterWrapRef = useRef<HTMLDivElement>(null);
   const groupFilterButtonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const initialViewportScrollYRef = useRef(0);
   const [portalReady, setPortalReady] = useState(false);
+  const renderCommitCountRef = useRef(0);
+  const searchStartedAtRef = useRef(0);
+
+  renderCommitCountRef.current += 1;
 
   useEffect(() => {
     initialViewportScrollYRef.current = window.scrollY;
@@ -676,44 +739,51 @@ export function Selector<T>(props: {
 
   useEffect(() => {
     setIsGroupFilterOpen(false);
+    setSearchInput("");
+    setSearchText("");
+    setSelectedQuickFilter("all");
+    setScrollTop(0);
   }, [props.resetKey]);
 
-  // 常用供应商优先顺序（来自 model-config.tsx）
-  // 其余按照 aihubmix API 的 developer_id 分类顺序
-  const preferredGroupOrder = [
-    "OpenAI",
-    "Anthropic",
-    "Google",
-    "DeepSeek",
-    "xAI",
-    "AihubMix",
-    "Alibaba",
-    // 以下按 aihubmix developer_id 顺序补充
-    "ByteDance",
-    "Zhipu",
-    "Cohere",
-    "Mistral",
-    "Meta",
-    "Microsoft",
-    "01.AI",
-    "Moonshot",
-    "StepFun",
-    "Nvidia",
-    "Minimax",
-    "Perplexity",
-    "Baichuan",
-    "Tencent",
-    "Baidu",
-    "Ideogram",
-    "Jina AI",
-    "Stability",
-    "Flux",
-    "Meituan",
-    "InclusionAI",
-    "BAAI",
-    "Xiaomi",
-    "Other",
-  ];
+  useEffect(() => {
+    const debounceDelay = props.searchDebounceMs ?? 120;
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        setSearchText(searchInput);
+      });
+    }, debounceDelay);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [props.searchDebounceMs, searchInput]);
+
+  useEffect(() => {
+    const updateViewportHeight = () => {
+      setViewportHeight(listRef.current?.clientHeight ?? 520);
+    };
+
+    updateViewportHeight();
+    window.addEventListener("resize", updateViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", updateViewportHeight);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!props.perfScope || props.perfStartedAt === undefined) {
+      return;
+    }
+
+    logPerfSummary(props.perfScope, {
+      selectorOpenDurationMs: Number(
+        (nowMs() - props.perfStartedAt).toFixed(2),
+      ),
+      itemCount: props.items.length,
+    });
+  }, [props.items.length, props.perfScope, props.perfStartedAt]);
+
   const normalizeGroupForOrder = (group: string) => {
     switch (group) {
       case "GPT":
@@ -789,7 +859,7 @@ export function Selector<T>(props: {
     );
 
     return [
-      ...preferredGroupOrder.flatMap((group) =>
+      ...SELECTOR_PREFERRED_GROUP_ORDER.flatMap((group) =>
         orderedCanonicalGroups.has(group)
           ? deduplicatedGroups.filter(
               (candidate) => normalizeGroupForOrder(candidate) === group,
@@ -797,7 +867,12 @@ export function Selector<T>(props: {
           : [],
       ),
       ...deduplicatedGroups.filter(
-        (group) => !preferredGroupOrder.includes(normalizeGroupForOrder(group)),
+        (group) =>
+          !SELECTOR_PREFERRED_GROUP_ORDER.includes(
+            normalizeGroupForOrder(
+              group,
+            ) as (typeof SELECTOR_PREFERRED_GROUP_ORDER)[number],
+          ),
       ),
     ];
   }, [props.extraGroups, props.items]);
@@ -883,6 +958,7 @@ export function Selector<T>(props: {
     });
   };
 
+  const deferredSearchText = useDeferredValue(searchText.trim().toLowerCase());
   const filteredItems = useMemo(() => {
     const quickFilter = props.quickFilters?.find(
       (filter) => filter.key === selectedQuickFilter,
@@ -895,15 +971,17 @@ export function Selector<T>(props: {
         (item.group?.trim() || "__default__") === selectedGroup;
       const matchQuickFilter = !quickFilter || quickFilter.match(item);
       const matchSearch =
-        !searchText.trim() ||
-        item.title.toLowerCase().includes(searchText.toLowerCase());
+        !deferredSearchText ||
+        (item.searchText || item.title || String(item.value))
+          .toLowerCase()
+          .includes(deferredSearchText);
       return matchGroup && matchQuickFilter && matchSearch;
     });
   }, [
+    deferredSearchText,
     props.items,
     props.quickFilters,
     props.showGroupFilter,
-    searchText,
     selectedGroup,
     selectedQuickFilter,
   ]);
@@ -935,9 +1013,9 @@ export function Selector<T>(props: {
     ];
 
     sortedGroupOrder.forEach((groupKey) => {
-      const items = (buckets.get(groupKey) ?? [])
-        .slice()
-        .sort(compareSelectorItems);
+      const items = props.itemsArePreSorted
+        ? (buckets.get(groupKey) ?? []).slice()
+        : (buckets.get(groupKey) ?? []).slice().sort(compareSelectorItems);
       const groupLabel = groupKey === "__default__" ? "" : groupKey;
 
       if (groupLabel) {
@@ -959,7 +1037,104 @@ export function Selector<T>(props: {
     });
 
     return entries;
-  }, [availableGroups, filteredItems]);
+  }, [availableGroups, filteredItems, props.itemsArePreSorted]);
+
+  const selectorVirtualizationEnabled =
+    props.enableVirtualization !== false &&
+    isPerfFeatureEnabled("PERF_ENABLE_MODEL_SELECTOR_VIRTUAL_LIST");
+  const virtualizationThreshold = props.virtualizationThreshold ?? 80;
+  const shouldVirtualize =
+    selectorVirtualizationEnabled &&
+    groupedItems.length >= virtualizationThreshold;
+  const estimatedGroupHeight = props.estimatedGroupHeight ?? 48;
+  const estimatedItemHeight = props.estimatedItemHeight ?? 56;
+  const virtualRows = useMemo(() => {
+    let top = 0;
+    const rows = groupedItems.map((entry) => {
+      const height =
+        entry.type === "group" ? estimatedGroupHeight : estimatedItemHeight;
+      const row = {
+        entry,
+        top,
+        height,
+      };
+      top += height;
+      return row;
+    });
+
+    return {
+      rows,
+      totalHeight: top,
+    };
+  }, [estimatedGroupHeight, estimatedItemHeight, groupedItems]);
+
+  const overscanPx = estimatedItemHeight * 6;
+  const visibleVirtualRows = useMemo(() => {
+    if (!shouldVirtualize) {
+      return virtualRows.rows;
+    }
+
+    const minTop = Math.max(0, scrollTop - overscanPx);
+    const maxTop = scrollTop + viewportHeight + overscanPx;
+
+    return virtualRows.rows.filter((row) => {
+      const rowBottom = row.top + row.height;
+      return rowBottom >= minTop && row.top <= maxTop;
+    });
+  }, [
+    overscanPx,
+    scrollTop,
+    shouldVirtualize,
+    viewportHeight,
+    virtualRows.rows,
+  ]);
+
+  useEffect(() => {
+    if (searchStartedAtRef.current <= 0 || !props.perfScope) {
+      return;
+    }
+
+    logPerfSummary(props.perfScope, {
+      searchInputToCommitDurationMs: Number(
+        (nowMs() - searchStartedAtRef.current).toFixed(2),
+      ),
+      filteredCount: filteredItems.length,
+      renderedRowCount: shouldVirtualize
+        ? visibleVirtualRows.length
+        : groupedItems.length,
+      renderCommitCount: renderCommitCountRef.current,
+    });
+    searchStartedAtRef.current = 0;
+  }, [
+    filteredItems.length,
+    groupedItems.length,
+    props.perfScope,
+    shouldVirtualize,
+    visibleVirtualRows.length,
+  ]);
+
+  useEffect(() => {
+    if (!props.perfScope) {
+      return;
+    }
+
+    logPerfSummary(props.perfScope, {
+      modelCount: props.items.length,
+      filteredCount: filteredItems.length,
+      renderedRowCount: shouldVirtualize
+        ? visibleVirtualRows.length
+        : groupedItems.length,
+      renderCommitCount: renderCommitCountRef.current,
+      virtualized: shouldVirtualize,
+    });
+  }, [
+    filteredItems.length,
+    groupedItems.length,
+    props.items.length,
+    props.perfScope,
+    shouldVirtualize,
+    visibleVirtualRows.length,
+  ]);
 
   const selectorNode = (
     <div
@@ -1094,14 +1269,15 @@ export function Selector<T>(props: {
               type="text"
               className={styles["selector-search"]}
               placeholder="搜索模型..."
-              value={searchText}
+              value={searchInput}
               disabled={props.filterControlsDisabled}
               onChange={(e) => {
                 if (props.filterControlsDisabled) {
                   props.onFilterControlsDisabledClick?.();
                   return;
                 }
-                setSearchText(e.target.value);
+                searchStartedAtRef.current = nowMs();
+                setSearchInput(e.target.value);
               }}
             />
           </div>
@@ -1172,65 +1348,156 @@ export function Selector<T>(props: {
                 ? styles["selector-list-disabled"]
                 : undefined
             }
-          >
-            {groupedItems.map((entry) => {
-              if (entry.type === "group") {
-                return (
-                  <div className={styles["selector-group"]} key={entry.key}>
-                    <span className={styles["selector-group-label"]}>
-                      {entry.label}
-                    </span>
-                    <span className={styles["selector-group-count"]}>
-                      共 {entry.count} 个
-                    </span>
-                  </div>
-                );
+            listRef={listRef}
+            onScroll={(event) => {
+              if (!shouldVirtualize) {
+                return;
               }
+              setScrollTop(event.currentTarget.scrollTop);
+            }}
+          >
+            {!shouldVirtualize ? (
+              groupedItems.map((entry) => {
+                if (entry.type === "group") {
+                  return (
+                    <div className={styles["selector-group"]} key={entry.key}>
+                      <span className={styles["selector-group-label"]}>
+                        {entry.label}
+                      </span>
+                      <span className={styles["selector-group-count"]}>
+                        共 {entry.count} 个
+                      </span>
+                    </div>
+                  );
+                }
 
-              const { item } = entry;
-              const selected = selectedValues.includes(item.value);
+                const { item } = entry;
+                const selected = selectedValues.includes(item.value);
 
-              return (
-                <ListItem
-                  className={clsx(styles["selector-item"], {
-                    [styles["selector-item-disabled"]]: item.disable,
-                    [styles["selector-item-active"]]: selected,
-                  })}
-                  key={entry.key}
-                  title={item.title}
-                  subTitle={item.subTitle}
-                  icon={<Avatar model={(item.group || item.value) as string} />}
-                  onClick={(e) => {
-                    if (item.disable) {
-                      e.stopPropagation();
-                      props.onDisabledItemClick?.();
-                    } else {
-                      handleSelection(e, item.value);
+                return (
+                  <ListItem
+                    className={clsx(styles["selector-item"], {
+                      [styles["selector-item-disabled"]]: item.disable,
+                      [styles["selector-item-active"]]: selected,
+                    })}
+                    key={entry.key}
+                    title={item.title}
+                    subTitle={item.subTitle}
+                    icon={
+                      <Avatar model={(item.group || item.value) as string} />
                     }
-                  }}
-                >
-                  <div className={styles["selector-item-actions"]}>
-                    {selected ? (
-                      <div className={styles["selector-item-selected"]}>
-                        <ConfirmIcon />
+                    onClick={(e) => {
+                      if (item.disable) {
+                        e.stopPropagation();
+                        props.onDisabledItemClick?.();
+                      } else {
+                        handleSelection(e, item.value);
+                      }
+                    }}
+                  >
+                    <div className={styles["selector-item-actions"]}>
+                      {selected ? (
+                        <div className={styles["selector-item-selected"]}>
+                          <ConfirmIcon />
+                        </div>
+                      ) : null}
+                      {item.rightAction ? (
+                        <button
+                          type="button"
+                          className={styles["selector-item-action"]}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            item.rightAction?.onClick(item.value);
+                          }}
+                        >
+                          {item.rightAction.text}
+                        </button>
+                      ) : null}
+                    </div>
+                  </ListItem>
+                );
+              })
+            ) : (
+              <div
+                className={styles["selector-virtual-spacer"]}
+                style={{ height: virtualRows.totalHeight }}
+              >
+                {visibleVirtualRows.map(({ entry, top, height }) => {
+                  if (entry.type === "group") {
+                    return (
+                      <div
+                        className={clsx(
+                          styles["selector-group"],
+                          styles["selector-virtual-row"],
+                        )}
+                        key={entry.key}
+                        style={{ height, transform: `translateY(${top}px)` }}
+                      >
+                        <span className={styles["selector-group-label"]}>
+                          {entry.label}
+                        </span>
+                        <span className={styles["selector-group-count"]}>
+                          共 {entry.count} 个
+                        </span>
                       </div>
-                    ) : null}
-                    {item.rightAction ? (
-                      <button
-                        type="button"
-                        className={styles["selector-item-action"]}
+                    );
+                  }
+
+                  const { item } = entry;
+                  const selected = selectedValues.includes(item.value);
+
+                  return (
+                    <div
+                      className={styles["selector-virtual-row"]}
+                      key={entry.key}
+                      style={{ height, transform: `translateY(${top}px)` }}
+                    >
+                      <ListItem
+                        className={clsx(styles["selector-item"], {
+                          [styles["selector-item-disabled"]]: item.disable,
+                          [styles["selector-item-active"]]: selected,
+                        })}
+                        title={item.title}
+                        subTitle={item.subTitle}
+                        icon={
+                          <Avatar
+                            model={(item.group || item.value) as string}
+                          />
+                        }
                         onClick={(e) => {
-                          e.stopPropagation();
-                          item.rightAction?.onClick(item.value);
+                          if (item.disable) {
+                            e.stopPropagation();
+                            props.onDisabledItemClick?.();
+                          } else {
+                            handleSelection(e, item.value);
+                          }
                         }}
                       >
-                        {item.rightAction.text}
-                      </button>
-                    ) : null}
-                  </div>
-                </ListItem>
-              );
-            })}
+                        <div className={styles["selector-item-actions"]}>
+                          {selected ? (
+                            <div className={styles["selector-item-selected"]}>
+                              <ConfirmIcon />
+                            </div>
+                          ) : null}
+                          {item.rightAction ? (
+                            <button
+                              type="button"
+                              className={styles["selector-item-action"]}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                item.rightAction?.onClick(item.value);
+                              }}
+                            >
+                              {item.rightAction.text}
+                            </button>
+                          ) : null}
+                        </div>
+                      </ListItem>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </List>
         ) : null}
         {typeof props.footer === "function"

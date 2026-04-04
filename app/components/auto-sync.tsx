@@ -13,6 +13,7 @@ import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useChatStore } from "../store/chat";
 import { useSyncStore } from "../store/sync";
+import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
@@ -29,6 +30,10 @@ import {
 } from "../utils/chat-sync";
 import { isEffectivelyEmptyRemoteChatState } from "../utils/chat-sync-state";
 import {
+  ensureProviderModelsReady,
+  getDefaultBootstrapProfile,
+} from "../utils/provider-sync";
+import {
   AUTO_SYNC_CHANNEL_NAME,
   AUTO_SYNC_LOCK_KEY,
   AUTO_SYNC_LOCK_TTL_MS,
@@ -36,8 +41,10 @@ import {
   parseAutoSyncLock,
   shouldAutoSyncLockBeTakenOver,
 } from "../utils/sync-tab-coordination";
+import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 let autoSyncEffectActive = false;
+let lastAutoSyncBootstrapAt = 0;
 const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 
 function logCriticalModelSyncBanner(
@@ -45,11 +52,9 @@ function logCriticalModelSyncBanner(
   detail?: string,
 ) {
   const title = phase === "start" ? "🔄 模型同步开始" : "✅ 模型同步完成";
-  console.info(`===== ${title} =====`);
-  if (detail) {
-    console.info(`[AutoSync] ${detail}`);
-  }
-  console.info("=====");
+  console.info(
+    detail ? `===== ${title} | ${detail} =====` : `===== ${title} =====`,
+  );
 }
 
 function scheduleIdleTask(task: () => void, timeout = 800) {
@@ -82,6 +87,8 @@ function hasMeaningfulLocalChatState(state: Record<string, any>) {
 }
 
 export default function AutoSync() {
+  const authUser = useAuthStore((state) => state.user);
+  const authInitialized = useAuthStore((state) => state.initialized);
   const ensureRemoteBootstrapState = async () => {
     const syncStore = useSyncStore.getState();
     const client = syncStore.getClient() as any;
@@ -277,6 +284,10 @@ export default function AutoSync() {
   };
 
   useEffect(() => {
+    if (!authInitialized || !authUser) {
+      return;
+    }
+
     if (autoSyncEffectActive) {
       console.log("[AutoSync] ⏭️ 已存在自动同步实例，跳过重复挂载");
       return;
@@ -368,7 +379,9 @@ export default function AutoSync() {
       }
 
       if (!localStorage) {
-        channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+        try {
+          channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+        } catch {}
         return;
       }
 
@@ -379,7 +392,9 @@ export default function AutoSync() {
         localStorage.removeItem(AUTO_SYNC_LOCK_KEY);
       }
 
-      channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+      try {
+        channel?.postMessage({ type: "auto-sync-finished", owner: tabId });
+      } catch {}
     };
 
     const clearRetryTimer = () => {
@@ -406,7 +421,8 @@ export default function AutoSync() {
     // hydration 完成后（scheduleStart）会调用，数据更完整
 
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const startedAt = Date.now();
+    let clearHydrationBarrier: (() => void) | null = null;
+    const startedAt = nowMs();
     const getHydrationState = () => {
       return {
         sync: Boolean(useSyncStore.getState()._hasHydrated),
@@ -424,6 +440,107 @@ export default function AutoSync() {
         hydrationState.config &&
         hydrationState.modelCache
       );
+    };
+
+    const restoreLocalCriticalState = () => {
+      if (hasRestoredModelsFromHydratedCache || !areCriticalStoresHydrated()) {
+        return;
+      }
+
+      const restoreStartedAt = nowMs();
+      hasRestoredModelsFromHydratedCache = true;
+      useModelCacheStore.getState().migrateFromAccessProfiles?.();
+      rebuildManagedModelsFromCache();
+      const bootstrapProfile = getDefaultBootstrapProfile();
+      if (bootstrapProfile?.id) {
+        console.info(
+          `===== 🗂️ Provider 模型就绪检查 | ${bootstrapProfile.name} =====`,
+        );
+        void ensureProviderModelsReady(bootstrapProfile.id, {
+          background: true,
+          silent: false,
+          reason: "bootstrap",
+        }).catch((error) => {
+          console.error(
+            `[AutoSync] 默认 provider 模型校验失败: ${bootstrapProfile.name}`,
+            error,
+          );
+        });
+      }
+      console.info(
+        "===== 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 =====",
+      );
+      logPerfSummary("StartupSync", {
+        localCriticalRestoreDurationMs: Number(
+          (nowMs() - restoreStartedAt).toFixed(2),
+        ),
+      });
+    };
+
+    const waitForCriticalStoreHydration = async () => {
+      if (!isPerfFeatureEnabled("PERF_ENABLE_LIGHT_STARTUP_SYNC")) {
+        return {
+          timedOut: false,
+          pendingStores: [] as string[],
+          durationMs: 0,
+        };
+      }
+
+      const waitStartedAt = nowMs();
+      if (areCriticalStoresHydrated()) {
+        return {
+          timedOut: false,
+          pendingStores: [] as string[],
+          durationMs: Number((nowMs() - waitStartedAt).toFixed(2)),
+        };
+      }
+
+      return new Promise<{
+        timedOut: boolean;
+        pendingStores: string[];
+        durationMs: number;
+      }>((resolve) => {
+        const finish = (timedOut: boolean) => {
+          clearHydrationBarrier?.();
+          clearHydrationBarrier = null;
+          const hydrationState = getHydrationState();
+          const pendingStores = Object.entries(hydrationState)
+            .filter(
+              ([name, hydrated]) =>
+                !hydrated &&
+                ["sync", "access", "config", "modelCache"].includes(name),
+            )
+            .map(([name]) => name);
+
+          resolve({
+            timedOut,
+            pendingStores,
+            durationMs: Number((nowMs() - waitStartedAt).toFixed(2)),
+          });
+        };
+
+        const check = () => {
+          restoreLocalCriticalState();
+          if (areCriticalStoresHydrated()) {
+            finish(false);
+          }
+        };
+
+        const timeoutId = window.setTimeout(() => finish(true), 5000);
+        const unsubscribers = [
+          useSyncStore.subscribe(check),
+          useAccessStore.subscribe(check),
+          useAppConfig.subscribe(check),
+          useModelCacheStore.subscribe(check),
+        ];
+
+        clearHydrationBarrier = () => {
+          window.clearTimeout(timeoutId);
+          unsubscribers.forEach((unsubscribe) => unsubscribe());
+        };
+
+        check();
+      });
     };
 
     const startAutoSync = () => {
@@ -457,6 +574,12 @@ export default function AutoSync() {
           return;
         }
 
+        if (Date.now() - lastAutoSyncBootstrapAt < 5000) {
+          console.log("[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过");
+          return;
+        }
+        lastAutoSyncBootstrapAt = Date.now();
+
         // 迁移模型缓存
         modelCacheStore.migrateFromAccessProfiles?.();
 
@@ -470,7 +593,7 @@ export default function AutoSync() {
 
         clearRetryTimer();
         autoSyncInProgress = true;
-        const criticalSyncStartedAt = Date.now();
+        const criticalSyncStartedAt = nowMs();
         heartbeatTimer = setInterval(
           refreshLock,
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
@@ -495,10 +618,19 @@ export default function AutoSync() {
 
             return syncStore.autoSyncCritical?.() || syncStore.autoSync();
           })
+          .catch((error: unknown) => {
+            console.error(
+              "[AutoSync] ⚠️ 关键同步失败（不阻止后台同步）:",
+              error,
+            );
+          })
+          .then(async () => {})
           .then(async () => {
-            await ensureRemoteBootstrapState();
             hasCompletedAutoSync = true;
-            const elapsedMs = Date.now() - criticalSyncStartedAt;
+            const elapsedMs = nowMs() - criticalSyncStartedAt;
+            logPerfSummary("StartupSync", {
+              autoSyncCriticalDurationMs: Number(elapsedMs.toFixed(2)),
+            });
             logCriticalModelSyncBanner(
               "complete",
               `关键模型数据已恢复，用时 ${elapsedMs} ms`,
@@ -508,14 +640,32 @@ export default function AutoSync() {
               void logModelCountWithRemote();
             });
             setTimeout(() => {
+              console.info("===== 💾 对话与设置后台同步开始 =====");
               const deferredSync =
                 syncStore.autoSyncDeferred?.() ?? Promise.resolve();
               void deferredSync
                 .then(() => {
-                  console.log("[AutoSync] ✅ 后台同步完成");
+                  console.log("[AutoSync] ✅ 后台同步完成（含对话记录）");
+                  console.info("===== 💾 对话与设置后台同步完成 =====");
                 })
                 .catch((error: unknown) => {
-                  console.error("[AutoSync] ❌ 后台同步失败:", error);
+                  console.error(
+                    "[AutoSync] ❌ 后台同步失败（含对话记录）:",
+                    error,
+                  );
+                });
+
+              const ensureRemoteBootstrapStartedAt = nowMs();
+              void ensureRemoteBootstrapState()
+                .then(() => {
+                  logPerfSummary("StartupSync", {
+                    ensureRemoteBootstrapStateDurationMs: Number(
+                      (nowMs() - ensureRemoteBootstrapStartedAt).toFixed(2),
+                    ),
+                  });
+                })
+                .catch((error: unknown) => {
+                  console.error("[AutoSync] ❌ 远端初始化补齐失败:", error);
                 });
             }, 0);
           })
@@ -541,38 +691,32 @@ export default function AutoSync() {
       attemptAutoSync();
     };
 
-    const scheduleStart = () => {
-      const elapsed = Date.now() - startedAt;
-      if (!hasRestoredModelsFromHydratedCache && areCriticalStoresHydrated()) {
-        useModelCacheStore.getState().migrateFromAccessProfiles?.();
-        rebuildManagedModelsFromCache();
-        hasRestoredModelsFromHydratedCache = true;
-        console.info("===== 📦 本地模型缓存恢复完成 =====");
-        console.info("[AutoSync] 已在首开同步前恢复本地模型缓存");
-        console.info("=====");
-      }
-
-      if (!areCriticalStoresHydrated() && elapsed < 5000) {
-        timer = setTimeout(scheduleStart, 80);
+    void waitForCriticalStoreHydration().then((result) => {
+      if (!autoSyncEffectActive) {
         return;
       }
 
-      if (!areCriticalStoresHydrated()) {
-        const hydrationState = getHydrationState();
-        const pendingStores = Object.entries(hydrationState)
-          .filter(([, hydrated]) => !hydrated)
-          .map(([name]) => name);
+      restoreLocalCriticalState();
+      logPerfSummary("StartupSync", {
+        hydrationWaitDurationMs: result.durationMs,
+        firstInteractiveAt: Number((nowMs() - startedAt).toFixed(2)),
+        pendingHydrationStores: result.pendingStores,
+        hydrationTimedOut: result.timedOut,
+      });
+
+      if (result.timedOut && result.pendingStores.length > 0) {
         console.log(
-          `[AutoSync] ℹ️ 关键 store hydration 等待超时，继续执行首开同步；未完成: ${pendingStores.join(
+          `[AutoSync] ℹ️ 关键 store hydration 等待超时，继续执行首开同步；未完成: ${result.pendingStores.join(
             ", ",
           )}`,
         );
       }
 
-      timer = setTimeout(startAutoSync, 80);
-    };
-
-    scheduleStart();
+      timer = setTimeout(
+        startAutoSync,
+        isPerfFeatureEnabled("PERF_ENABLE_LIGHT_STARTUP_SYNC") ? 0 : 80,
+      );
+    });
 
     return () => {
       console.log("[AutoSync] 🧹 组件卸载");
@@ -580,13 +724,15 @@ export default function AutoSync() {
       if (timer) {
         clearTimeout(timer);
       }
+      clearHydrationBarrier?.();
+      clearHydrationBarrier = null;
       clearRetryTimer();
       releaseLock();
       channel?.close();
     };
     // 仅在客户端初始化后执行一次自动同步。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authInitialized, authUser]);
 
   return null;
 }

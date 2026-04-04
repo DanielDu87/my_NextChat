@@ -5,6 +5,12 @@ import {
 } from "./sync-store-keys";
 import { indexedDbStateStorage } from "./indexeddb-state-storage";
 import { resolveHydratedStateValue } from "./state-storage-helpers";
+import {
+  isPerfDebugEnabled,
+  isPerfFeatureEnabled,
+  logPerfSummary,
+  nowMs,
+} from "./perf";
 
 type PersistedEnvelope = {
   state?: Record<string, unknown>;
@@ -22,8 +28,7 @@ export type ChatPersistSplitIndex = {
 const CHAT_INDEX_SUFFIX = "::index";
 const CHAT_SESSION_SUFFIX = "::session::";
 const CHAT_STORE_KEY = "chat-next-web-store";
-const PERF_DEBUG_KEY = "nextchat_perf_debug";
-export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 20;
+export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 8;
 
 export function getChatIndexStorageKey(name: string) {
   return `${name}${CHAT_INDEX_SUFFIX}`;
@@ -49,19 +54,22 @@ function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isPerfDebugEnabled() {
-  try {
-    return (
-      typeof window !== "undefined" &&
-      window.localStorage.getItem(PERF_DEBUG_KEY) === "1"
-    );
-  } catch {
-    return false;
-  }
-}
-
 function measureBytes(value: string) {
   return new TextEncoder().encode(value).length;
+}
+
+function getSessionSummariesFromIndex(index: ChatPersistSplitIndex) {
+  return Array.isArray((index.state as any).sessionSummaries)
+    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
+    : [];
+}
+
+function createSessionSummaryMap(index: ChatPersistSplitIndex) {
+  return new Map(
+    getSessionSummariesFromIndex(index)
+      .filter((summary) => summary?.id)
+      .map((summary) => [String(summary.id), summary]),
+  );
 }
 
 export function splitChatPersistedState(text: string) {
@@ -93,12 +101,15 @@ export function splitChatPersistedState(text: string) {
 
 export function rebuildChatPersistedState(
   index: ChatPersistSplitIndex,
-  sessionPayloads: Array<string | null>,
+  sessionPayloads: Array<string | Record<string, unknown> | null>,
 ) {
   const sessions = index.state.sessionIds
     .map((sessionId, indexPosition) => {
-      const sessionText = sessionPayloads[indexPosition];
-      const parsed = parseJson<Record<string, unknown>>(sessionText);
+      const sessionPayload = sessionPayloads[indexPosition];
+      const parsed =
+        typeof sessionPayload === "string"
+          ? parseJson<Record<string, unknown>>(sessionPayload)
+          : sessionPayload;
       if (!parsed || String(parsed.id || "") !== sessionId) {
         return null;
       }
@@ -125,11 +136,9 @@ function getInitialHydratedSessionIds(index: ChatPersistSplitIndex) {
     Number(index.state.currentSessionIndex) || 0,
   );
   const currentSessionId = sessionIds[currentSessionIndex] || "";
-  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
-    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
-    : [];
+  const sessionSummaryMap = createSessionSummaryMap(index);
   const isMeaningfulSession = (sessionId: string) => {
-    const summary = sessionSummaries.find((item) => item?.id === sessionId);
+    const summary = sessionSummaryMap.get(sessionId);
     return Number(summary?.messageCount || 0) > 0;
   };
   const recentSessionIds = sessionIds
@@ -147,13 +156,11 @@ function getInitialHydratedSessionIds(index: ChatPersistSplitIndex) {
 function buildSessionPlaceholder(
   index: ChatPersistSplitIndex,
   sessionId: string,
+  summaryMap = createSessionSummaryMap(index),
 ) {
-  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
-    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
-    : [];
-  const summary = sessionSummaries.find((item) => item?.id === sessionId);
+  const summary = summaryMap.get(sessionId);
 
-  return JSON.stringify({
+  return {
     id: sessionId,
     topic: String(summary?.topic || ""),
     messages: [],
@@ -177,7 +184,7 @@ function buildSessionPlaceholder(
         providerName: "",
       },
     },
-  });
+  };
 }
 
 function getSessionIdsFromIndexText(indexText: string | null) {
@@ -207,11 +214,9 @@ function getSessionsFromPersistedEnvelope(text: string | null | undefined) {
 function getSessionSummaryMessageCount(
   index: ChatPersistSplitIndex,
   sessionId: string,
+  summaryMap = createSessionSummaryMap(index),
 ) {
-  const sessionSummaries = Array.isArray((index.state as any).sessionSummaries)
-    ? ((index.state as any).sessionSummaries as Array<Record<string, unknown>>)
-    : [];
-  const summary = sessionSummaries.find((item) => item?.id === sessionId);
+  const summary = summaryMap.get(sessionId);
   return Number(summary?.messageCount || 0);
 }
 
@@ -219,8 +224,13 @@ function isPrunedSessionPayload(
   index: ChatPersistSplitIndex,
   sessionId: string,
   value: string,
+  summaryMap = createSessionSummaryMap(index),
 ) {
-  const summaryMessageCount = getSessionSummaryMessageCount(index, sessionId);
+  const summaryMessageCount = getSessionSummaryMessageCount(
+    index,
+    sessionId,
+    summaryMap,
+  );
   if (summaryMessageCount <= 0) {
     return false;
   }
@@ -245,9 +255,9 @@ class ChatPersistStorage implements StateStorage {
   }
 
   private async writeSplitValue(name: string, value: string) {
-    const startedAt =
-      typeof performance !== "undefined" ? performance.now() : Date.now();
+    const startedAt = nowMs();
     const nextPayload = splitChatPersistedState(value);
+    const summaryMap = createSessionSummaryMap(nextPayload.index);
     const nextIndexKey = getChatIndexStorageKey(name);
     const previousIndexText =
       await indexedDbStateStorage.getRawItem(nextIndexKey);
@@ -272,6 +282,7 @@ class ChatPersistStorage implements StateStorage {
         nextPayload.index,
         entry.sessionId,
         entry.value,
+        summaryMap,
       );
 
       if (previousSessionPayloads[storageKey] === entry.value) {
@@ -308,8 +319,6 @@ class ChatPersistStorage implements StateStorage {
     });
 
     if (isPerfDebugEnabled()) {
-      const endedAt =
-        typeof performance !== "undefined" ? performance.now() : Date.now();
       const sessionBytes = nextPayload.sessionEntries.reduce(
         (total, entry) => total + measureBytes(entry.value),
         0,
@@ -318,7 +327,7 @@ class ChatPersistStorage implements StateStorage {
         (total, entry) => total + measureBytes(entry.value),
         0,
       );
-      console.info("[Perf][ChatPersist]", {
+      logPerfSummary("ChatPersist", {
         mode: "write",
         sessionCount: nextPayload.sessionEntries.length,
         changedSessionCount: changedSessionEntries.length,
@@ -327,7 +336,7 @@ class ChatPersistStorage implements StateStorage {
         sessionBytes,
         changedSessionBytes,
         staleSessionCount: staleSessionIds.length,
-        durationMs: Number((endedAt - startedAt).toFixed(2)),
+        durationMs: Number((nowMs() - startedAt).toFixed(2)),
       });
     }
   }
@@ -372,17 +381,25 @@ class ChatPersistStorage implements StateStorage {
       if (indexText) {
         const index = parseJson<ChatPersistSplitIndex>(indexText);
         if (index) {
-          const startedAt =
-            typeof performance !== "undefined" ? performance.now() : Date.now();
+          const startedAt = nowMs();
+          const summaryMap = createSessionSummaryMap(index);
           const hydratedSessionIds = getInitialHydratedSessionIds(index);
           const sessionPayloadMap = await indexedDbStateStorage.getRawItems(
             hydratedSessionIds.map((sessionId) =>
               getChatSessionStorageKey(name, sessionId),
             ),
           );
+          const placeholderStartedAt = nowMs();
           const sessionPayloads = index.state.sessionIds.map((sessionId) => {
             if (!hydratedSessionIds.includes(sessionId)) {
-              return buildSessionPlaceholder(index, sessionId);
+              const placeholder = buildSessionPlaceholder(
+                index,
+                sessionId,
+                summaryMap,
+              );
+              return isPerfFeatureEnabled("PERF_ENABLE_CHAT_LAZY_HYDRATE")
+                ? placeholder
+                : JSON.stringify(placeholder);
             }
             return (
               sessionPayloadMap[getChatSessionStorageKey(name, sessionId)] ??
@@ -403,21 +420,29 @@ class ChatPersistStorage implements StateStorage {
           this.cache.set(name, resolvedValue);
           this.hydrated.add(name);
           if (isPerfDebugEnabled()) {
-            const endedAt =
-              typeof performance !== "undefined"
-                ? performance.now()
-                : Date.now();
             const sessionBytes = sessionPayloads.reduce(
-              (total, payloadText) => total + measureBytes(payloadText ?? ""),
+              (total, payloadText) =>
+                total +
+                measureBytes(
+                  typeof payloadText === "string"
+                    ? payloadText
+                    : JSON.stringify(payloadText ?? {}),
+                ),
               0,
             );
-            console.info("[Perf][ChatPersist]", {
+            logPerfSummary("ChatPersist", {
               mode: "read",
               sessionCount: index.state.sessionIds.length,
+              hydratedSessionCount: hydratedSessionIds.length,
+              placeholderSessionCount:
+                index.state.sessionIds.length - hydratedSessionIds.length,
+              placeholderBuildDurationMs: Number(
+                (nowMs() - placeholderStartedAt).toFixed(2),
+              ),
               rebuiltBytes: measureBytes(resolvedValue),
               indexBytes: measureBytes(indexText),
               sessionBytes,
-              durationMs: Number((endedAt - startedAt).toFixed(2)),
+              durationMs: Number((nowMs() - startedAt).toFixed(2)),
             });
           }
           return resolvedValue;

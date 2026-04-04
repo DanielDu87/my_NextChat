@@ -2,7 +2,7 @@
 
 require("../polyfill");
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import styles from "./home.module.scss";
 
 import BotIcon from "../icons/bot.svg";
@@ -30,6 +30,7 @@ import { useAccessStore, useChatIndexStore, useChatStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
+import { isPerfDebugEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 export function Loading(props: { noLogo?: boolean }) {
   return (
@@ -242,6 +243,35 @@ export function Home() {
   useHtmlLang();
   const hasHydrated = useHasHydrated();
   const authInitialized = useAuthStore((state) => state.initialized);
+  const [chatBootstrapped, setChatBootstrapped] = useState(false);
+  const bootStartedAtRef = useRef(nowMs());
+  const bootLongTaskCountRef = useRef(0);
+  const bootPerfObserverRef = useRef<PerformanceObserver | null>(null);
+
+  useEffect(() => {
+    if (
+      !isPerfDebugEnabled() ||
+      typeof PerformanceObserver === "undefined" ||
+      bootPerfObserverRef.current
+    ) {
+      return;
+    }
+
+    try {
+      const observer = new PerformanceObserver((list) => {
+        bootLongTaskCountRef.current += list.getEntries().length;
+      });
+      observer.observe({ entryTypes: ["longtask"] });
+      bootPerfObserverRef.current = observer;
+    } catch {
+      bootPerfObserverRef.current = null;
+    }
+
+    return () => {
+      bootPerfObserverRef.current?.disconnect();
+      bootPerfObserverRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     // console.log("[Config] got config from build time", getClientConfig());
@@ -251,7 +281,6 @@ export function Home() {
       .fetchMe()
       .catch((error) => {
         console.error("[Auth] failed to fetch current user", error);
-        window.location.reload();
       });
 
     const initMcp = async () => {
@@ -274,11 +303,49 @@ export function Home() {
       return;
     }
 
-    void useChatIndexStore.getState().initialize();
-    useChatStore.getState().initializeForNewPage();
+    let cancelled = false;
+
+    void useChatIndexStore
+      .getState()
+      .initialize()
+      .catch((error) => {
+        console.error("[Home] 初始化 chat-index 失败:", error);
+      })
+      .finally(() => {
+        useChatStore.getState().initializeForNewPage();
+        useChatIndexStore.getState().syncFromChatStore();
+        if (!cancelled) {
+          setChatBootstrapped(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [authInitialized, hasHydrated]);
 
-  if (!hasHydrated || !authInitialized) {
+  useEffect(() => {
+    if (!hasHydrated || !authInitialized) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      logPerfSummary("Boot", {
+        firstInteractiveAt: Number(
+          (nowMs() - bootStartedAtRef.current).toFixed(2),
+        ),
+        longTaskCountDuringBoot: bootLongTaskCountRef.current,
+      });
+      bootPerfObserverRef.current?.disconnect();
+      bootPerfObserverRef.current = null;
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [authInitialized, hasHydrated]);
+
+  if (!hasHydrated || !authInitialized || !chatBootstrapped) {
     return <Loading />;
   }
 

@@ -545,8 +545,17 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     }
   }
 
-  // Local 不启用 fallback keys，仅对 Custom 供应商生效。
-  if (!isLocal && fallbackApiKeys && fallbackApiKeys.length > 0) {
+  const shouldEnableFallbackApiKeys =
+    !isLocal &&
+    isCustom &&
+    Boolean(
+      currentCustomProfile && isRememberedApiKeyProfile(currentCustomProfile),
+    ) &&
+    fallbackApiKeys &&
+    fallbackApiKeys.length > 1;
+
+  // Local 不启用 fallback keys，仅 YutoAPI / Ocoolai 这类支持分组的平台在多 key 时生效。
+  if (shouldEnableFallbackApiKeys) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
     console.log("[API Headers] 已添加 fallback keys:", {

@@ -38,6 +38,10 @@ const SERIES_LABELS: Record<AutoModelSeriesKey, string> = {
 };
 
 const SERIES_ORDER: AutoModelSeriesKey[] = ["gpt", "deepseek", "doubao"];
+const autoModelCandidateCache = new WeakMap<
+  AutoModelInput[],
+  Map<string, AutoModelCandidate[]>
+>();
 
 export const AUTO_MODEL_WHITELIST = [
   "gpt",
@@ -258,6 +262,25 @@ function getProviderIdFromProfile(profile: AccessProfileLike) {
   return profile.provider === CUSTOM_SERVICE_PROVIDER
     ? `custom_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
+}
+
+function buildAutoModelCandidateCacheKey(
+  profiles: AccessProfileLike[],
+  enabledSeries: AutoModelSeriesKey[],
+) {
+  return [
+    normalizeAutoModelSeries(enabledSeries).join(","),
+    profiles
+      .map((profile) =>
+        [
+          profile.name,
+          profile.provider,
+          profile.enabled ? "1" : "0",
+          profile.baseUrl ? "1" : "0",
+        ].join(":"),
+      )
+      .join("|"),
+  ].join("::");
 }
 
 function normalizeKeywordText(text: string) {
@@ -897,6 +920,13 @@ export function buildAutoModelCandidates(
   const normalizedSeries = normalizeAutoModelSeries(enabledSeries);
   if (normalizedSeries.length === 0) return [];
 
+  const cacheKey = buildAutoModelCandidateCacheKey(profiles, normalizedSeries);
+  const cachedByModels = autoModelCandidateCache.get(allModels);
+  const cachedCandidates = cachedByModels?.get(cacheKey);
+  if (cachedCandidates) {
+    return cachedCandidates;
+  }
+
   const activeProfiles = profiles.filter(
     (profile) =>
       profile.provider !== CUSTOM_SERVICE_PROVIDER || !!profile.baseUrl,
@@ -941,6 +971,12 @@ export function buildAutoModelCandidates(
       });
     });
   });
+
+  if (cachedByModels) {
+    cachedByModels.set(cacheKey, candidates);
+  } else {
+    autoModelCandidateCache.set(allModels, new Map([[cacheKey, candidates]]));
+  }
 
   return candidates;
 }
