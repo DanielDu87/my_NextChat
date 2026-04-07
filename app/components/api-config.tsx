@@ -264,7 +264,11 @@ function restoreEncryptedAccessSecrets(
       : {};
 
   ACCESS_SECRET_FIELD_KEYS.forEach((key) => {
-    if (nextAccessState[key] === ENCRYPTED_SECRET_PLACEHOLDER) {
+    if (
+      nextAccessState[key] === ENCRYPTED_SECRET_PLACEHOLDER ||
+      (String(nextAccessState[key] || "").trim().length === 0 &&
+        String(currentLocalAccessState[key] || "").trim().length > 0)
+    ) {
       nextAccessState[key] = currentLocalAccessState[key] || "";
     }
   });
@@ -289,7 +293,11 @@ function restoreEncryptedAccessSecrets(
         const nextProfile = { ...profile };
 
         ["apiKey", "modelFetchApiKey", "balanceQueryApiKey"].forEach((key) => {
-          if (nextProfile[key] === ENCRYPTED_SECRET_PLACEHOLDER) {
+          if (
+            nextProfile[key] === ENCRYPTED_SECRET_PLACEHOLDER ||
+            (String(nextProfile[key] || "").trim().length === 0 &&
+              String(localProfile?.[key] || "").trim().length > 0)
+          ) {
             nextProfile[key] = localProfile?.[key] || "";
           }
         });
@@ -307,7 +315,9 @@ function restoreEncryptedAccessSecrets(
             Object.entries(nextProfile.apiKeyGroups).map(
               ([groupKey, value]) => [
                 groupKey,
-                value === ENCRYPTED_SECRET_PLACEHOLDER
+                value === ENCRYPTED_SECRET_PLACEHOLDER ||
+                (String(value || "").trim().length === 0 &&
+                  String(localGroups[groupKey] || "").trim().length > 0)
                   ? localGroups[groupKey] || ""
                   : value,
               ],
@@ -1609,6 +1619,39 @@ export function ApiConfigPage() {
 
   // 页面加载时只展示本地缓存，不自动刷新模型
   const initialSyncRef = useRef(false);
+  const accessSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accessProfilesSyncFingerprint = JSON.stringify(
+    accessStore.apiProfiles || [],
+  );
+
+  const scheduleAccessConfigSync = useCallback((reason: string) => {
+    if (accessSyncTimerRef.current) {
+      clearTimeout(accessSyncTimerRef.current);
+    }
+
+    accessSyncTimerRef.current = setTimeout(() => {
+      accessSyncTimerRef.current = null;
+      if (useSyncStore.getState().provider !== ProviderType.Database) {
+        return;
+      }
+
+      const latestProfiles = useAccessStore.getState().apiProfiles || [];
+      if (latestProfiles.length === 0) {
+        return;
+      }
+
+      console.log(`[API Config] ☁️ 触发 API 配置同步: ${reason}`);
+      void useSyncStore
+        .getState()
+        .sync([StoreKey.Access], { isolateQueue: true } as any)
+        .then(() => {
+          console.log("[API Config] ✅ API 配置已同步到数据库");
+        })
+        .catch((error: unknown) => {
+          console.error("[API Config] ❌ API 配置同步失败:", error);
+        });
+    }, 800);
+  }, []);
   useEffect(() => {
     const syncFromCloudOnLoad = async () => {
       if (initialSyncRef.current) return;
@@ -1690,6 +1733,56 @@ export function ApiConfigPage() {
 
     syncFromCloudOnLoad();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!initialSyncRef.current) {
+      return;
+    }
+
+    scheduleAccessConfigSync("本地配置已更新");
+  }, [
+    scheduleAccessConfigSync,
+    accessProfilesSyncFingerprint,
+    accessStore.customApiKey,
+    accessStore.customUrl,
+    accessStore.openaiApiKey,
+    accessStore.azureApiKey,
+    accessStore.googleApiKey,
+    accessStore.anthropicApiKey,
+    accessStore.baiduApiKey,
+    accessStore.bytedanceApiKey,
+    accessStore.alibabaApiKey,
+    accessStore.moonshotApiKey,
+    accessStore.stabilityApiKey,
+    accessStore.iflytekApiKey,
+    accessStore.deepseekApiKey,
+    accessStore.xaiApiKey,
+    accessStore.chatglmApiKey,
+    accessStore.siliconflowApiKey,
+    accessStore.ai302ApiKey,
+    accessStore.localApiKey,
+  ]);
+
+  useEffect(() => {
+    writeAccessSnapshot({
+      useCustomConfig: accessStore.useCustomConfig,
+      provider: accessStore.provider,
+      apiProfiles: accessStore.apiProfiles || [],
+      customModels: accessStore.customModels,
+      customUrl: accessStore.customUrl,
+      customApiKey: accessStore.customApiKey,
+      customOpenAICompatible: accessStore.customOpenAICompatible,
+    });
+  }, [
+    accessProfilesSyncFingerprint,
+    accessStore.apiProfiles,
+    accessStore.useCustomConfig,
+    accessStore.provider,
+    accessStore.customModels,
+    accessStore.customUrl,
+    accessStore.customApiKey,
+    accessStore.customOpenAICompatible,
+  ]);
 
   const anyFetching = Object.values(modelFetchStatusMap).some(
     (status) => status?.fetching === true,

@@ -819,6 +819,30 @@ export function streamWithThink(
     return true;
   };
 
+  const tryCompatibilityRetry = (reason: string) => {
+    const nextPayload = options?.onCompatibilityRetry?.(reason, requestPayload);
+    if (!nextPayload) {
+      return false;
+    }
+
+    console.warn("[Chat Compatibility] 检测到不兼容参数，已关闭后重试");
+    pendingRetry = true;
+    lastErrorText = reason;
+    responseText = "";
+    remainText = "";
+    runTools = [];
+    isInThinkingMode = false;
+    lastIsThinking = false;
+    lastIsThinkingTagged = false;
+    requestPayload = nextPayload;
+
+    setTimeout(() => {
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, 0);
+
+    return true;
+  };
+
   const finish = () => {
     if (pendingRetry) {
       return;
@@ -908,6 +932,10 @@ export function streamWithThink(
         options,
         responseText + remainText,
       );
+      options?.onCompatibilitySuccess?.(
+        responseText + remainText,
+        requestPayload,
+      );
       options.onFinish(responseText + remainText, responseRes);
     }
   };
@@ -973,6 +1001,10 @@ export function streamWithThink(
           let extraInfo = await res.clone().text();
           lastErrorText =
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
+
+          if (tryCompatibilityRetry(lastErrorText)) {
+            return;
+          }
 
           if (tryYutoFallbackRetry(lastErrorText)) {
             return; // 不调用 finish，继续重试

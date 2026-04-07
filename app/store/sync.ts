@@ -1,5 +1,5 @@
 import { getClientConfig } from "../config/client";
-import { StoreKey } from "../constant";
+import { ServiceProvider, StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
 import {
   AppState,
@@ -38,9 +38,11 @@ import { getSessionMessages } from "../utils/chat-session-merge";
 import { getPersistedChatSession } from "../utils/chat-persist-storage";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
+import { ChatControllerPool } from "../client/controller";
 import { useModelCacheStore } from "./model-cache";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
+import { useAccessStore } from "./access";
 import { useAuthStore } from "./auth";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import {
@@ -49,8 +51,16 @@ import {
   ChatSessionSummary,
   createEmptySession,
 } from "./chat";
+import { logger } from "../utils/logger";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import {
+  AUTO_SYNC_CHANNEL_NAME,
+  CHAT_SYNC_HINT_KEY,
+  CHAT_SYNC_UPDATED_MESSAGE_TYPE,
+  buildChatSyncHint,
+  getOrCreateAutoSyncTabId,
+} from "../utils/sync-tab-coordination";
 
 type DatabaseCacheMeta = Record<
   string,
@@ -89,6 +99,60 @@ const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
 const RETRYABLE_NETWORK_ERROR =
   /Failed to fetch|NetworkError|ERR_CONNECTION|net::ERR_|Load failed|abort|timeout/i;
+let lastMissingApiKeyWarningKey = "";
+let lastRemoteChatMetaCheckAt = 0;
+
+function formatSyncLogTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+}
+
+function syncConsole(
+  level: "log" | "info" | "warn" | "error",
+  message: string,
+  payload?: unknown,
+) {
+  const prefixedMessage = `${formatSyncLogTimestamp()} ${message}`;
+  if (payload === undefined) {
+    console[level](prefixedMessage);
+    return;
+  }
+  console[level](prefixedMessage, payload);
+}
+
+function emitChatSyncHint() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const tabId = getOrCreateAutoSyncTabId(window.sessionStorage);
+  const hint = buildChatSyncHint(tabId);
+
+  try {
+    window.localStorage.setItem(CHAT_SYNC_HINT_KEY, JSON.stringify(hint));
+  } catch (error) {
+    logSyncDebug("[Sync] ⚠️ 写入聊天同步 hint 失败", error);
+  }
+
+  if (typeof BroadcastChannel === "undefined") {
+    return;
+  }
+
+  try {
+    const channel = new BroadcastChannel(AUTO_SYNC_CHANNEL_NAME);
+    channel.postMessage({
+      type: CHAT_SYNC_UPDATED_MESSAGE_TYPE,
+      ...hint,
+    });
+    channel.close();
+  } catch (error) {
+    logSyncDebug("[Sync] ⚠️ 广播聊天同步 hint 失败", error);
+  }
+}
 
 export async function waitForSyncIdle() {
   while (syncInFlight || queuedSyncKeys.size > 0) {
@@ -125,22 +189,14 @@ function logSyncDebug(message: string, payload?: unknown) {
   if (!isSyncDebugLoggingEnabled()) {
     return;
   }
-  if (payload === undefined) {
-    console.log(message);
-    return;
-  }
-  console.log(message, payload);
+  syncConsole("log", message, payload);
 }
 
 function warnSyncDebug(message: string, payload?: unknown) {
   if (!isSyncDebugLoggingEnabled()) {
     return;
   }
-  if (payload === undefined) {
-    console.warn(message);
-    return;
-  }
-  console.warn(message, payload);
+  syncConsole("warn", message, payload);
 }
 
 function getLocalStoreLastUpdateTime(state: unknown) {
@@ -160,6 +216,12 @@ function shouldSkipSyncByChecksum(params: {
   lastSyncTime: number;
 }) {
   if (!isPerfFeatureEnabled("PERF_ENABLE_SYNC_CHECKSUM_SKIP")) {
+    return false;
+  }
+
+  // Chat 首开/新标签页经常只有本地空白占位会话，不能仅凭 checksum
+  // 直接跳过，否则远端历史会话不会被重新拉回到当前页内存。
+  if (params.key === StoreKey.Chat) {
     return false;
   }
 
@@ -251,8 +313,11 @@ export function buildBackupState(
 
 // 防抖同步相关
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-const DEBOUNCE_DELAY = 3000; // 3秒防抖
+let debounceTaskKeys: SyncStoreKey[] = [];
+const DEFAULT_DEBOUNCE_DELAY = 1000;
 const SYNC_DEBOUNCE_KEY = "nextchat_sync_debounce";
+const CHAT_SYNC_COOLDOWN_MS = 500;
+let lastChatSyncCompletedAt = 0;
 
 type PendingDebounceSyncTask = {
   keys: SyncStoreKey[];
@@ -262,8 +327,8 @@ type PendingDebounceSyncTask = {
 const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
   [StoreKey.Plugin]: "插件",
-  [StoreKey.Access]: "设置",
-  [StoreKey.Config]: "模型",
+  [StoreKey.Access]: "API配置",
+  [StoreKey.Config]: "系统设置",
   [StoreKey.ModelCache]: "模型缓存",
   [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
@@ -356,12 +421,120 @@ function clearPendingDebounceTask() {
   localStorage.removeItem(SYNC_DEBOUNCE_KEY);
 }
 
+function mergePendingSyncKeys(keys: SyncStoreKey[]) {
+  return normalizeSyncKeys([...(debounceTaskKeys || []), ...keys]);
+}
+
+function formatSyncResultMessage(params: {
+  summary: string;
+  status: "downloaded" | "uploaded" | "merged" | "skipped";
+  remoteSummary?: string;
+}) {
+  if (params.status === "skipped") {
+    return params.summary;
+  }
+
+  if (params.remoteSummary) {
+    return `${params.summary}，远端 ${params.remoteSummary}`;
+  }
+
+  return params.summary;
+}
+
 function measureJsonBytes(value: unknown) {
   try {
     return new TextEncoder().encode(JSON.stringify(value)).length;
   } catch {
     return 0;
   }
+}
+
+function getEnabledAccessProfile() {
+  const accessState = useAccessStore.getState() as Record<string, any>;
+  const profiles = Array.isArray(accessState.apiProfiles)
+    ? accessState.apiProfiles
+    : [];
+
+  return (
+    profiles.find((profile) => profile?.enabled) ||
+    profiles.find(
+      (profile) =>
+        profile?.provider === ServiceProvider.Custom &&
+        String(profile?.baseUrl || "").trim() ===
+          String(accessState.customUrl || "").trim(),
+    ) ||
+    null
+  );
+}
+
+function resolveEffectiveAccessApiKey(profile: Record<string, any> | null) {
+  if (!profile) {
+    return "";
+  }
+
+  const accessState = useAccessStore.getState() as Record<string, any>;
+
+  switch (profile.provider) {
+    case ServiceProvider.Custom:
+      return String(profile.apiKey || accessState.customApiKey || "").trim();
+    case ServiceProvider.Local:
+      return String(profile.apiKey || accessState.localApiKey || "").trim();
+    case ServiceProvider.OpenAI:
+      return String(profile.apiKey || accessState.openaiApiKey || "").trim();
+    case ServiceProvider.Azure:
+      return String(profile.apiKey || accessState.azureApiKey || "").trim();
+    case ServiceProvider.Google:
+      return String(profile.apiKey || accessState.googleApiKey || "").trim();
+    case ServiceProvider.Anthropic:
+      return String(profile.apiKey || accessState.anthropicApiKey || "").trim();
+    case ServiceProvider.Baidu:
+      return String(profile.apiKey || accessState.baiduApiKey || "").trim();
+    case ServiceProvider.ByteDance:
+      return String(profile.apiKey || accessState.bytedanceApiKey || "").trim();
+    case ServiceProvider.Alibaba:
+      return String(profile.apiKey || accessState.alibabaApiKey || "").trim();
+    case ServiceProvider.Moonshot:
+      return String(profile.apiKey || accessState.moonshotApiKey || "").trim();
+    case ServiceProvider.Stability:
+      return String(profile.apiKey || accessState.stabilityApiKey || "").trim();
+    case ServiceProvider.Iflytek:
+      return String(profile.apiKey || accessState.iflytekApiKey || "").trim();
+    case ServiceProvider.XAI:
+      return String(profile.apiKey || accessState.xaiApiKey || "").trim();
+    case ServiceProvider.ChatGLM:
+      return String(profile.apiKey || accessState.chatglmApiKey || "").trim();
+    case ServiceProvider.DeepSeek:
+      return String(profile.apiKey || accessState.deepseekApiKey || "").trim();
+    case ServiceProvider.SiliconFlow:
+      return String(
+        profile.apiKey || accessState.siliconflowApiKey || "",
+      ).trim();
+    case ServiceProvider["302.AI"]:
+      return String(profile.apiKey || accessState.ai302ApiKey || "").trim();
+    default:
+      return "";
+  }
+}
+
+function warnMissingRecoveredApiKey() {
+  const profile = getEnabledAccessProfile();
+  const effectiveApiKey = resolveEffectiveAccessApiKey(profile);
+  if (!profile || effectiveApiKey) {
+    return;
+  }
+
+  const warningKey = `${String(profile.provider || "")}:${String(
+    profile.id || profile.name || "",
+  )}`;
+  if (lastMissingApiKeyWarningKey === warningKey) {
+    return;
+  }
+  lastMissingApiKeyWarningKey = warningKey;
+
+  const profileName = String(profile.name || "当前配置");
+  const message = `${profileName} 只恢复了公开配置，云端没有聊天密钥，请到 API 配置页重新保存`;
+  syncConsole("warn", `[Sync] ⚠️ ${message}`);
+  showToast(message, undefined, 6000);
 }
 
 function formatBytes(bytes: number) {
@@ -392,10 +565,17 @@ function buildMetaMap(
 
 function normalizeMergedChatState(chatState: any) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
-  const safeIndex = Math.min(
-    Math.max(Number(chatState?.currentSessionIndex) || 0, 0),
-    Math.max(sessions.length - 1, 0),
-  );
+  const preferredSessionId = String(chatState?.selectedSessionId || "");
+  const preferredSessionIndex = preferredSessionId
+    ? sessions.findIndex((session: any) => session?.id === preferredSessionId)
+    : -1;
+  const safeIndex =
+    preferredSessionIndex >= 0
+      ? preferredSessionIndex
+      : Math.min(
+          Math.max(Number(chatState?.currentSessionIndex) || 0, 0),
+          Math.max(sessions.length - 1, 0),
+        );
   const existingSummaries = Array.isArray(chatState?.sessionSummaries)
     ? chatState.sessionSummaries
     : [];
@@ -476,6 +656,7 @@ function normalizeMergedChatState(chatState: any) {
     ...chatState,
     sessions,
     currentSessionIndex: safeIndex,
+    selectedSessionId: sessions[safeIndex]?.id || preferredSessionId || "",
     hydratedSessionIds,
     sessionSummaries,
   };
@@ -629,7 +810,13 @@ function buildUploadableChatSessionMap(chatState: any) {
   return sessionMap;
 }
 
-function prependLeadingEmptySession(chatState: any, emptySession: any) {
+function prependLeadingEmptySession(
+  chatState: any,
+  emptySession: any,
+  options?: {
+    preferLeadingEmptySession?: boolean;
+  },
+) {
   if (!emptySession?.id) {
     return chatState;
   }
@@ -646,9 +833,9 @@ function prependLeadingEmptySession(chatState: any, emptySession: any) {
     ...sessions.filter((session: any) => session?.id !== emptySession.id),
   ];
 
-  // 保持当前选中的 session 不变，只在前面插入空会话
-  let nextIndex = 0;
-  if (currentSessionId) {
+  // 在新标签页/首开场景中，如果本地原本就聚焦空白会话，则同步后继续保持空白会话聚焦。
+  let nextIndex = options?.preferLeadingEmptySession ? 0 : 0;
+  if (!options?.preferLeadingEmptySession && currentSessionId) {
     const idx = nextSessions.findIndex((s: any) => s?.id === currentSessionId);
     if (idx >= 0) nextIndex = idx;
   }
@@ -657,6 +844,7 @@ function prependLeadingEmptySession(chatState: any, emptySession: any) {
     ...chatState,
     sessions: nextSessions,
     currentSessionIndex: nextIndex,
+    selectedSessionId: nextSessions[nextIndex]?.id || "",
   };
 }
 
@@ -674,11 +862,18 @@ function findLocalLeadingEmptySession(sessions: any[]) {
   });
 }
 
-async function materializeLocalChatState(chatState: any) {
+async function materializeLocalChatState(chatState: any, lightMode = false) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
   const sessionSummaries = Array.isArray(chatState?.sessionSummaries)
     ? chatState.sessionSummaries
     : [];
+  const selectedSessionId = String(chatState?.selectedSessionId || "");
+  const currentSessionId =
+    selectedSessionId ||
+    String(
+      sessions[Math.max(0, Number(chatState?.currentSessionIndex) || 0)]?.id ||
+        "",
+    );
 
   const nextSessions = await Promise.all(
     sessions.map(async (session: any) => {
@@ -692,6 +887,10 @@ async function materializeLocalChatState(chatState: any) {
         Number(summary?.messageCount || 0) > 0;
 
       if (!shouldHydrate) {
+        return session;
+      }
+
+      if (lightMode && String(session?.id || "") !== currentSessionId) {
         return session;
       }
 
@@ -870,6 +1069,8 @@ async function withRetry<T>(
 
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.Database,
+  criticalSyncReady: false,
+  criticalSyncInProgress: false,
 
   database: {
     cacheMeta: {} as DatabaseCacheMeta,
@@ -903,9 +1104,21 @@ export const useSyncStore = createPersistStore(
       },
       localChatState: any,
       chatMeta?: StoreSnapshotMeta,
+      options?: {
+        downloadOnly?: boolean;
+        remoteIndex?: any;
+      },
     ) {
-      const materializedLocalChatState =
-        await materializeLocalChatState(localChatState);
+      const lightMode = get().criticalSyncInProgress;
+      const hasPendingChatRequest = ChatControllerPool.hasPending();
+      const downloadOnly = options?.downloadOnly === true;
+      const uploadOrMergeStatus: "uploaded" | "merged" = downloadOnly
+        ? "merged"
+        : "uploaded";
+      const materializedLocalChatState = await materializeLocalChatState(
+        localChatState,
+        lightMode,
+      );
       const localSessions = Array.isArray(materializedLocalChatState.sessions)
         ? materializedLocalChatState.sessions
         : [];
@@ -925,7 +1138,12 @@ export const useSyncStore = createPersistStore(
       const syncableLocalSessions = getSyncableChatSessions(localSessions);
       const localLeadingEmptySession =
         findLocalLeadingEmptySession(localSessions);
-      const remoteIndex = await client.getChatIndex?.();
+      const preferLeadingEmptySession =
+        Boolean(localLeadingEmptySession?.id) &&
+        String(materializedLocalChatState?.selectedSessionId || "") ===
+          String(localLeadingEmptySession?.id || "");
+      const remoteIndex =
+        options?.remoteIndex ?? (await client.getChatIndex?.());
       const localDeletedSessionTimestamps = getDeletedSessionTimestamps(
         materializedLocalChatState,
       );
@@ -935,18 +1153,41 @@ export const useSyncStore = createPersistStore(
         const uploadBytes =
           measureJsonBytes(localIndex) +
           measureJsonBytes(syncableLocalSessions);
-        await client.setChatDelta?.(
-          {
-            index: localIndex,
-            upsertSessions: syncableLocalSessions,
-            deleteSessionIds: [],
-          },
-          {
-            expectedMissing: !chatMeta,
-            expectedUpdatedAt: chatMeta?.updatedAt,
-            expectedChecksum: chatMeta?.checksum,
-          },
-        );
+        if (hasPendingChatRequest) {
+          return {
+            remoteSummary: "远端 0 个会话",
+            mergedStoreState: normalizeMergedChatState({
+              ...materializedLocalChatState,
+              remoteIndexSessions: [],
+            }),
+            mergedSummary: getStoreSummary(
+              StoreKey.Chat,
+              materializedLocalChatState,
+            ),
+            status: "merged" as const,
+            metrics: {
+              downloadedSessionCount: 0,
+              downloadedBytes: 0,
+              uploadedSessionCount: 0,
+              uploadedBytes: 0,
+              deletedSessionCount: 0,
+            },
+          };
+        }
+        if (!downloadOnly) {
+          await client.setChatDelta?.(
+            {
+              index: localIndex,
+              upsertSessions: syncableLocalSessions,
+              deleteSessionIds: [],
+            },
+            {
+              expectedMissing: !chatMeta,
+              expectedUpdatedAt: chatMeta?.updatedAt,
+              expectedChecksum: chatMeta?.checksum,
+            },
+          );
+        }
 
         return {
           remoteSummary: "远端 0 个会话",
@@ -958,7 +1199,7 @@ export const useSyncStore = createPersistStore(
             StoreKey.Chat,
             materializedLocalChatState,
           ),
-          status: "uploaded" as const,
+          status: uploadOrMergeStatus,
           metrics: {
             downloadedSessionCount: 0,
             downloadedBytes: 0,
@@ -990,24 +1231,26 @@ export const useSyncStore = createPersistStore(
           measureJsonBytes(localIndex) +
           measureJsonBytes(syncableLocalSessions);
 
-        await client.setChatDelta?.(
-          {
-            index: localIndex,
-            upsertSessions: syncableLocalSessions,
-            deleteSessionIds: [],
-          },
-          {
-            expectedMissing: !chatMeta,
-            expectedUpdatedAt: chatMeta?.updatedAt,
-            expectedChecksum: chatMeta?.checksum,
-          },
-        );
+        if (!downloadOnly) {
+          await client.setChatDelta?.(
+            {
+              index: localIndex,
+              upsertSessions: syncableLocalSessions,
+              deleteSessionIds: [],
+            },
+            {
+              expectedMissing: !chatMeta,
+              expectedUpdatedAt: chatMeta?.updatedAt,
+              expectedChecksum: chatMeta?.checksum,
+            },
+          );
+        }
 
         return {
           remoteSummary: "远端 0 个会话",
           mergedStoreState: normalizeMergedChatState(localChatState),
           mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
-          status: "uploaded" as const,
+          status: uploadOrMergeStatus,
           metrics: {
             downloadedSessionCount: 0,
             downloadedBytes: 0,
@@ -1020,11 +1263,13 @@ export const useSyncStore = createPersistStore(
 
       const preferredRemoteSessionIds = new Set<string>([
         String(remoteIndex?.state?.currentSessionId || ""),
-        ...(Array.isArray(localChatState?.hydratedSessionIds)
+        ...(lightMode
+          ? []
+          : Array.isArray(localChatState?.hydratedSessionIds)
           ? localChatState.hydratedSessionIds
           : []),
         ...((remoteIndex.sessions || []) as ChatIndexSessionEntry[])
-          .slice(0, INITIAL_HYDRATED_RECENT_SESSION_LIMIT)
+          .slice(0, lightMode ? 2 : INITIAL_HYDRATED_RECENT_SESSION_LIMIT)
           .map((entry) => entry.id),
       ]);
       const remoteSessionIdsToFetch = (remoteIndex.sessions || [])
@@ -1118,7 +1363,11 @@ export const useSyncStore = createPersistStore(
             (session: unknown) => session as unknown as Record<string, unknown>,
           );
 
-        if (upsertSessions.length > 0) {
+        if (
+          !downloadOnly &&
+          !hasPendingChatRequest &&
+          upsertSessions.length > 0
+        ) {
           await client.setChatDelta?.(
             {
               index: mergedIndex,
@@ -1141,6 +1390,7 @@ export const useSyncStore = createPersistStore(
               deletedSessionTimestamps: {},
             },
             localLeadingEmptySession,
+            { preferLeadingEmptySession },
           ),
         );
 
@@ -1228,18 +1478,20 @@ export const useSyncStore = createPersistStore(
         const uploadedBytes =
           measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-        await client.setChatDelta?.(
-          {
-            index: mergedIndex,
-            upsertSessions,
-            deleteSessionIds,
-          },
-          {
-            expectedMissing: !chatMeta,
-            expectedUpdatedAt: chatMeta?.updatedAt,
-            expectedChecksum: chatMeta?.checksum,
-          },
-        );
+        if (!downloadOnly && !hasPendingChatRequest) {
+          await client.setChatDelta?.(
+            {
+              index: mergedIndex,
+              upsertSessions,
+              deleteSessionIds,
+            },
+            {
+              expectedMissing: !chatMeta,
+              expectedUpdatedAt: chatMeta?.updatedAt,
+              expectedChecksum: chatMeta?.checksum,
+            },
+          );
+        }
 
         const normalizedMergedStoreState = normalizeMergedChatState(
           prependLeadingEmptySession(
@@ -1249,6 +1501,7 @@ export const useSyncStore = createPersistStore(
               deletedSessionTimestamps: {},
             },
             localLeadingEmptySession,
+            { preferLeadingEmptySession },
           ),
         );
 
@@ -1265,9 +1518,13 @@ export const useSyncStore = createPersistStore(
           metrics: {
             downloadedSessionCount: remoteSessionIdsToFetch.length,
             downloadedBytes,
-            uploadedSessionCount: upsertSessions.length,
-            uploadedBytes,
-            deletedSessionCount: deleteSessionIds.length,
+            uploadedSessionCount: hasPendingChatRequest
+              ? 0
+              : upsertSessions.length,
+            uploadedBytes: hasPendingChatRequest ? 0 : uploadedBytes,
+            deletedSessionCount: hasPendingChatRequest
+              ? 0
+              : deleteSessionIds.length,
           },
         };
       }
@@ -1312,18 +1569,20 @@ export const useSyncStore = createPersistStore(
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-      await client.setChatDelta?.(
-        {
-          index: mergedIndex,
-          upsertSessions,
-          deleteSessionIds,
-        },
-        {
-          expectedMissing: !chatMeta,
-          expectedUpdatedAt: chatMeta?.updatedAt,
-          expectedChecksum: chatMeta?.checksum,
-        },
-      );
+      if (!downloadOnly && !hasPendingChatRequest) {
+        await client.setChatDelta?.(
+          {
+            index: mergedIndex,
+            upsertSessions,
+            deleteSessionIds,
+          },
+          {
+            expectedMissing: !chatMeta,
+            expectedUpdatedAt: chatMeta?.updatedAt,
+            expectedChecksum: chatMeta?.checksum,
+          },
+        );
+      }
 
       const normalizedMergedStoreState = normalizeMergedChatState(
         prependLeadingEmptySession(
@@ -1333,6 +1592,7 @@ export const useSyncStore = createPersistStore(
             deletedSessionTimestamps: {},
           },
           localLeadingEmptySession,
+          { preferLeadingEmptySession },
         ),
       );
 
@@ -1349,9 +1609,13 @@ export const useSyncStore = createPersistStore(
         metrics: {
           downloadedSessionCount: remoteSessionIdsToFetch.length,
           downloadedBytes,
-          uploadedSessionCount: upsertSessions.length,
-          uploadedBytes,
-          deletedSessionCount: deleteSessionIds.length,
+          uploadedSessionCount: hasPendingChatRequest
+            ? 0
+            : upsertSessions.length,
+          uploadedBytes: hasPendingChatRequest ? 0 : uploadedBytes,
+          deletedSessionCount: hasPendingChatRequest
+            ? 0
+            : deleteSessionIds.length,
         },
       };
     }
@@ -1410,7 +1674,7 @@ export const useSyncStore = createPersistStore(
             logSyncDebug("[Import] 用户取消选择备份文件");
             return;
           }
-          console.error("[Import]", e);
+          logger.sync.error("[Import]", e);
           showToast(Locale.Settings.Sync.ImportFailed);
         }
       },
@@ -1421,45 +1685,100 @@ export const useSyncStore = createPersistStore(
         return client;
       },
 
-      triggerDebounceSync(storeKeys?: SyncStoreKey[]) {
+      triggerDebounceSync(
+        storeKeys?: SyncStoreKey[],
+        options?: { delayMs?: number },
+      ) {
         const keysToSync = normalizeSyncKeys(storeKeys);
+        const delayMs = Math.max(0, options?.delayMs ?? DEFAULT_DEBOUNCE_DELAY);
+        debounceTaskKeys = mergePendingSyncKeys(keysToSync);
 
         // 清除之前的定时器
         if (debounceTimer) {
           clearTimeout(debounceTimer);
         }
 
+        const MAX_DEBOUNCE_RETRY = 3;
+        const DEBOUNCE_RETRY_DELAYS = [2000, 4000, 8000];
+        let debounceRetryCount = 0;
+
         const executeSync = async () => {
+          const pendingKeys = normalizeSyncKeys(debounceTaskKeys);
+          debounceTaskKeys = [];
+          debounceTimer = null;
           clearPendingDebounceTask();
 
-          // 检查是否已配置同步
           if (!this.cloudSync()) {
             logSyncDebug("[Sync] 🔕 同步未配置，跳过防抖同步");
             return;
           }
 
           logSyncDebug("[Sync] 🚀 防抖同步触发", {
-            keys: keysToSync.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+            keys: pendingKeys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+            retryAttempt:
+              debounceRetryCount > 0 ? debounceRetryCount : undefined,
           });
 
           try {
-            await this.sync(keysToSync);
+            await this.sync(pendingKeys);
+            debounceRetryCount = 0;
           } catch (error) {
-            console.error("[Sync] ❌ 防抖同步失败:", error);
-            writePendingDebounceTask({
-              keys: keysToSync,
-              scheduledAt: Date.now(),
-            });
+            debounceRetryCount += 1;
+            if (debounceRetryCount <= MAX_DEBOUNCE_RETRY) {
+              const retryDelay = DEBOUNCE_RETRY_DELAYS[debounceRetryCount - 1];
+              logger.sync.error(
+                `[Sync] ❌ 防抖同步失败，${retryDelay}ms 后重试 (${debounceRetryCount}/${MAX_DEBOUNCE_RETRY}):`,
+                error,
+              );
+              debounceTaskKeys = mergePendingSyncKeys(pendingKeys);
+              debounceTimer = setTimeout(executeSync, retryDelay);
+              writePendingDebounceTask({
+                keys: debounceTaskKeys,
+                scheduledAt: Date.now() + retryDelay,
+              });
+            } else {
+              logger.sync.error(
+                `[Sync] ❌ 防抖同步已耗尽重试 (${MAX_DEBOUNCE_RETRY} 次):`,
+                error,
+              );
+              debounceRetryCount = 0;
+              writePendingDebounceTask({
+                keys: pendingKeys,
+                scheduledAt: Date.now(),
+              });
+            }
           }
         };
 
         // 设置新的防抖定时器
-        debounceTimer = setTimeout(executeSync, DEBOUNCE_DELAY);
+        debounceTimer = setTimeout(executeSync, delayMs);
 
         writePendingDebounceTask({
-          keys: keysToSync,
-          scheduledAt: Date.now() + DEBOUNCE_DELAY,
+          keys: debounceTaskKeys,
+          scheduledAt: Date.now() + delayMs,
         });
+      },
+
+      flushPendingDebounceSync(storeKeys?: SyncStoreKey[]) {
+        const extraKeys = Array.isArray(storeKeys)
+          ? normalizeSyncKeys(storeKeys)
+          : [];
+        const pendingKeys = mergePendingSyncKeys(extraKeys);
+        if (pendingKeys.length === 0) {
+          return false;
+        }
+
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+
+        debounceTaskKeys = pendingKeys;
+        writePendingDebounceTask({
+          keys: pendingKeys,
+          scheduledAt: Date.now(),
+        });
+        return true;
       },
 
       async resumePendingDebounceSync() {
@@ -1489,7 +1808,7 @@ export const useSyncStore = createPersistStore(
           await this.sync(pendingTask.keys);
           return true;
         } catch (error) {
-          console.error("[Sync] ❌ 恢复防抖同步失败:", error);
+          logger.sync.error("[Sync] ❌ 恢复防抖同步失败:", error);
           writePendingDebounceTask({
             keys: pendingTask.keys,
             scheduledAt: Date.now(),
@@ -1520,16 +1839,48 @@ export const useSyncStore = createPersistStore(
         });
       },
 
-      async sync(storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS]) {
+      async sync(
+        storeKeys: SyncStoreKey[] = [...SYNC_STORE_KEYS],
+        options?: {
+          isolateQueue?: boolean;
+          force?: boolean;
+          broadcastChatHint?: boolean;
+          downloadOnlyChat?: boolean;
+        },
+      ): Promise<void> {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过同步请求");
           return;
         }
 
         const normalizedStoreKeys = normalizeSyncKeys(storeKeys);
-        normalizedStoreKeys.forEach((key) => queuedSyncKeys.add(key));
+        if (
+          !options?.force &&
+          normalizedStoreKeys.length === 1 &&
+          normalizedStoreKeys[0] === StoreKey.Chat &&
+          Date.now() - lastChatSyncCompletedAt < CHAT_SYNC_COOLDOWN_MS
+        ) {
+          logSyncDebug("[Sync] ⏭️ 会话同步冷却中，跳过重复请求", {
+            cooldownMs: CHAT_SYNC_COOLDOWN_MS,
+          });
+          return;
+        }
+        const targetQueue = options?.isolateQueue
+          ? new Set<SyncStoreKey>(normalizedStoreKeys)
+          : queuedSyncKeys;
+        normalizedStoreKeys.forEach((key) => targetQueue.add(key));
 
         if (syncInFlight) {
+          if (options?.isolateQueue) {
+            logSyncDebug(
+              "[Sync] ⏳ 已有同步进行中，本次隔离同步等待当前任务结束",
+              {
+                keys: normalizedStoreKeys
+                  .map((k) => STORE_DISPLAY_NAMES[k])
+                  .join(", "),
+              },
+            );
+          }
           logSyncDebug(
             "[Sync] ⏳ 已有同步进行中，已合并到队列等待当前任务完成",
             {
@@ -1539,13 +1890,22 @@ export const useSyncStore = createPersistStore(
             },
           );
           await syncInFlight;
+          if (options?.isolateQueue) {
+            return this.sync(normalizedStoreKeys, options);
+          }
           return;
         }
 
         syncInFlight = (async () => {
-          while (queuedSyncKeys.size > 0) {
-            const currentStoreKeys = [...queuedSyncKeys];
-            queuedSyncKeys = new Set<SyncStoreKey>();
+          const isolatedQueue = options?.isolateQueue ? targetQueue : null;
+
+          while ((isolatedQueue ?? queuedSyncKeys).size > 0) {
+            const currentStoreKeys = [...(isolatedQueue ?? queuedSyncKeys)];
+            if (isolatedQueue) {
+              isolatedQueue.clear();
+            } else {
+              queuedSyncKeys = new Set<SyncStoreKey>();
+            }
 
             const state = getNonFunctionFileds(this) as SyncStore;
             const providerName =
@@ -1556,17 +1916,27 @@ export const useSyncStore = createPersistStore(
 
             const client = this.getClient() as any;
             const getMetaStartedAt = nowMs();
-            const initialMetas =
+            const shouldPreFetchChatIndex =
+              currentStoreKeys.includes(StoreKey.Chat) &&
+              typeof client.getChatIndex === "function";
+
+            const [initialMetas, preFetchedChatIndex] = await Promise.all([
               typeof client.getMeta === "function" &&
               currentStoreKeys.length > 0
-                ? await client.getMeta(currentStoreKeys)
-                : [];
+                ? client.getMeta(currentStoreKeys)
+                : Promise.resolve([]),
+              shouldPreFetchChatIndex
+                ? client.getChatIndex()
+                : Promise.resolve(undefined),
+            ]);
+
             let remoteMetaMap = buildMetaMap(initialMetas);
             logPerfSummary("Sync", {
               selectedKeys: currentStoreKeys,
               getMetaDurationMs: Number(
                 (nowMs() - getMetaStartedAt).toFixed(2),
               ),
+              preFetchedChatIndex: !!preFetchedChatIndex,
             });
 
             logSyncDebug(
@@ -1683,7 +2053,7 @@ export const useSyncStore = createPersistStore(
                       error instanceof Error &&
                       /\[DB Sync\] 409\b/.test(error.message)
                     ) {
-                      console.warn(
+                      logSyncDebug(
                         `[Sync] ⚠️ [${stepLabel}] ${displayName}发生重复冲突，回退到最新云端数据`,
                       );
                       return fallbackToLatestRemote();
@@ -1758,7 +2128,7 @@ export const useSyncStore = createPersistStore(
                     error instanceof Error &&
                     /\[DB Sync\] 409\b/.test(error.message)
                   ) {
-                    console.warn(
+                    logSyncDebug(
                       `[Sync] ⚠️ [${stepLabel}] ${displayName}发生重复冲突，回退到最新云端数据`,
                     );
                     return fallbackToLatestRemote();
@@ -1778,24 +2148,31 @@ export const useSyncStore = createPersistStore(
 
             const syncChatStoreWithRetry = async (
               localStoreState: AppState[typeof StoreKey.Chat],
+              options?: {
+                downloadOnly?: boolean;
+                remoteIndex?: any;
+              },
             ) => {
-              for (let attempt = 0; attempt < 2; attempt += 1) {
+              for (let attempt = 0; attempt < 3; attempt += 1) {
                 try {
                   return await syncChatStore(
                     client,
                     localStoreState,
                     remoteMetaMap.get(StoreKey.Chat),
+                    options,
                   );
                 } catch (error) {
                   if (
-                    attempt === 0 &&
                     error instanceof Error &&
                     /\[DB Sync\] 409\b/.test(error.message) &&
                     typeof client.getMeta === "function"
                   ) {
-                    console.log(
-                      "[Sync] ⚠️ 检测到 409 冲突，正在获取最新元数据重试...",
-                    );
+                    if (attempt === 0) {
+                      syncConsole(
+                        "log",
+                        "[Sync] ⚠️ 检测到 409 冲突，正在获取最新元数据重试...",
+                      );
+                    }
                     const latestMetas = await client.getMeta([StoreKey.Chat]);
                     remoteMetaMap = buildMetaMap([
                       ...Array.from(remoteMetaMap.values()).filter(
@@ -1803,8 +2180,34 @@ export const useSyncStore = createPersistStore(
                       ),
                       ...latestMetas,
                     ]);
-                    console.log("[Sync] 🔄 使用最新元数据重试同步");
-                    continue;
+                    if (attempt < 2) {
+                      syncConsole("log", "[Sync] 🔄 使用最新元数据重试同步");
+                      // 冲突重试时清空预取的 Index，强制重新获取
+                      return await syncChatStore(
+                        client,
+                        localStoreState,
+                        remoteMetaMap.get(StoreKey.Chat),
+                        {
+                          ...options,
+                          remoteIndex: undefined,
+                        },
+                      );
+                    }
+
+                    syncConsole(
+                      "log",
+                      "[Sync] ℹ️ 会话发生持续冲突，回退为只读拉取远端最新数据",
+                    );
+                    return await syncChatStore(
+                      client,
+                      localStoreState,
+                      remoteMetaMap.get(StoreKey.Chat),
+                      {
+                        ...options,
+                        downloadOnly: true,
+                        remoteIndex: undefined,
+                      },
+                    );
                   }
                   throw error;
                 }
@@ -1831,6 +2234,23 @@ export const useSyncStore = createPersistStore(
                   const displayName = STORE_DISPLAY_NAMES[key];
                   const stepLabel = `${index + 1}/${currentStoreKeys.length}`;
                   const keySyncStartedAt = nowMs();
+                  if (
+                    !options?.force &&
+                    key === StoreKey.Chat &&
+                    Date.now() - lastChatSyncCompletedAt < CHAT_SYNC_COOLDOWN_MS
+                  ) {
+                    logSyncDebug(
+                      `[Sync] ⏭️ [${stepLabel}] ${displayName}冷却中，跳过队列内重复同步`,
+                      {
+                        cooldownMs: CHAT_SYNC_COOLDOWN_MS,
+                      },
+                    );
+                    continue;
+                  }
+                  syncConsole(
+                    "log",
+                    `[Sync] 🚀 [${stepLabel}] 开始同步${displayName}`,
+                  );
                   logSyncDebug(
                     `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                   );
@@ -1845,6 +2265,10 @@ export const useSyncStore = createPersistStore(
                       lastSyncTime: get().lastSyncTime,
                     })
                   ) {
+                    syncConsole(
+                      "log",
+                      `[Sync] ⏭️ [${stepLabel}] ${displayName}跳过: 远端元数据未变化，跳过同步`,
+                    );
                     syncResults.push({
                       key,
                       name: displayName,
@@ -1869,6 +2293,10 @@ export const useSyncStore = createPersistStore(
                   ) {
                     const chatResult = await syncChatStoreWithRetry(
                       localStoreState as AppState[typeof StoreKey.Chat],
+                      {
+                        downloadOnly: options?.downloadOnlyChat === true,
+                        remoteIndex: preFetchedChatIndex,
+                      },
                     );
                     logSyncDebug(
                       `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
@@ -1879,6 +2307,16 @@ export const useSyncStore = createPersistStore(
                       summary: chatResult.mergedSummary,
                       status: chatResult.status,
                     });
+                    syncConsole(
+                      "log",
+                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${formatSyncResultMessage(
+                        {
+                          summary: chatResult.mergedSummary,
+                          status: chatResult.status,
+                          remoteSummary: chatResult.remoteSummary,
+                        },
+                      )}`,
+                    );
 
                     logSyncDebug(
                       `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
@@ -1926,6 +2364,20 @@ export const useSyncStore = createPersistStore(
                     summary: regularResult.summary,
                     status: regularResult.status,
                   });
+                  const regularRemoteSummary =
+                    "remoteSummary" in regularResult
+                      ? regularResult.remoteSummary
+                      : undefined;
+                  syncConsole(
+                    "log",
+                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${formatSyncResultMessage(
+                      {
+                        summary: regularResult.summary,
+                        status: regularResult.status,
+                        remoteSummary: regularRemoteSummary,
+                      },
+                    )}`,
+                  );
                   logPerfSummary("Sync", {
                     key,
                     durationMs: Number((nowMs() - keySyncStartedAt).toFixed(2)),
@@ -1937,7 +2389,7 @@ export const useSyncStore = createPersistStore(
                     name: STORE_DISPLAY_NAMES[key],
                     error: e,
                   });
-                  console.error(
+                  logger.sync.error(
                     `[Sync] ❌ [${index + 1}/${currentStoreKeys.length}] ${
                       STORE_DISPLAY_NAMES[key]
                     }同步失败:`,
@@ -1972,7 +2424,10 @@ export const useSyncStore = createPersistStore(
                       }`,
                   )
                   .join(" | ");
-                console.error(`[Sync] ❌ 本次同步存在失败项: ${failedSummary}`);
+                syncConsole(
+                  "error",
+                  `[Sync] ❌ 本次同步存在失败项: ${failedSummary}`,
+                );
                 // 不再抛出异常，已成功的 store 数据仍然生效
               }
 
@@ -1986,8 +2441,18 @@ export const useSyncStore = createPersistStore(
                 const latestMetas = await client.getMeta(currentStoreKeys);
                 this.updateDatabaseMeta(latestMetas);
               }
+
+              if (
+                currentStoreKeys.length === 1 &&
+                currentStoreKeys[0] === StoreKey.Chat
+              ) {
+                lastChatSyncCompletedAt = Date.now();
+                if (options?.broadcastChatHint !== false) {
+                  emitChatSyncHint();
+                }
+              }
             } catch (e) {
-              console.error("[Sync] ❌ 同步失败:", e);
+              syncConsole("error", "[Sync] ❌ 同步失败:", e);
               throw e;
             }
 
@@ -2015,15 +2480,160 @@ export const useSyncStore = createPersistStore(
       async autoSyncCritical() {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
+          set({
+            criticalSyncReady: true,
+            criticalSyncInProgress: false,
+          });
           return;
         }
 
-        const priorityKeys = [StoreKey.Access, StoreKey.Config].filter(
-          (key): key is SyncStoreKey =>
-            (AUTO_SYNC_STORE_KEYS as readonly StoreKey[]).includes(key),
-        );
-        if (priorityKeys.length > 0) {
-          await this.sync(priorityKeys);
+        set({
+          criticalSyncReady: false,
+          criticalSyncInProgress: true,
+        });
+
+        try {
+          // 优先同步聊天记录和 API 配置，完成后立即允许对话
+          // 将两者放在同一个 sync 调用中可以并行化元数据获取和数据拉取
+          syncConsole("log", "[Sync] 💬 开始同步关键数据 (聊天记录 & API配置)");
+          await this.sync([StoreKey.Chat, StoreKey.Access], {
+            isolateQueue: true,
+            force: true,
+            broadcastChatHint: false,
+            downloadOnlyChat: true,
+          });
+          syncConsole("log", "[Sync] ✅ 关键数据同步完成，页面已可对话");
+          warnMissingRecoveredApiKey();
+        } catch (error) {
+          syncConsole("error", "[Sync] ❌ 关键数据同步失败:", error);
+        } finally {
+          // 同步完成后立即解除阻塞，无论成功与否
+          set({
+            criticalSyncReady: true,
+            criticalSyncInProgress: false,
+          });
+        }
+      },
+
+      async syncChatIfRemoteChanged(options?: {
+        minIntervalMs?: number;
+        source?: string;
+      }) {
+        if (useAuthStore.getState().readOnly) {
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过远端聊天检查");
+          return false;
+        }
+
+        const now = Date.now();
+        const minIntervalMs = Math.max(0, options?.minIntervalMs ?? 1500);
+        if (now - lastRemoteChatMetaCheckAt < minIntervalMs) {
+          logSyncDebug("[Sync] ⏭️ 远端聊天元数据检查冷却中，跳过", {
+            minIntervalMs,
+            source: options?.source || "unknown",
+          });
+          return false;
+        }
+        lastRemoteChatMetaCheckAt = now;
+
+        const isRetryable = (error: unknown) =>
+          error instanceof Error &&
+          (RETRYABLE_DB_SYNC_ERROR.test(error.message) ||
+            RETRYABLE_NETWORK_ERROR.test(error.message));
+
+        try {
+          const { updatedAt } = await withRetry(
+            async () => {
+              const resp = await fetch("/api/db/chat-updated-at", {
+                method: "GET",
+                cache: "no-store",
+                credentials: "same-origin",
+              });
+              if (!resp.ok) {
+                if (resp.status >= 500 || resp.status === 408) {
+                  throw new Error(
+                    `[DB Sync] ${resp.status} chat-updated-at 请求失败`,
+                  );
+                }
+                return { updatedAt: null };
+              }
+              const data = await resp.json();
+              if (!data?.ok || !data.updatedAt) {
+                return { updatedAt: null };
+              }
+              return { updatedAt: data.updatedAt as string };
+            },
+            {
+              retries: 3,
+              retryable: isRetryable,
+              onRetry: (attempt, error) => {
+                logSyncDebug(
+                  `[Sync] ⚠️ 远端聊天元数据检查重试 ${attempt}/3:`,
+                  error,
+                );
+              },
+            },
+          );
+
+          if (!updatedAt) {
+            return false;
+          }
+
+          const cachedMeta = get().database.cacheMeta[StoreKey.Chat];
+          const hasChanged = !cachedMeta || cachedMeta.updatedAt !== updatedAt;
+
+          if (!hasChanged) {
+            logSyncDebug("[Sync] ⏭️ 远端聊天未变化，跳过差异拉取", {
+              source: options?.source || "unknown",
+            });
+            if (cachedMeta) {
+              set((state) => ({
+                database: {
+                  ...state.database,
+                  cacheMeta: {
+                    ...state.database.cacheMeta,
+                    [StoreKey.Chat]: {
+                      ...cachedMeta,
+                      updatedAt,
+                    },
+                  },
+                },
+              }));
+            }
+            return false;
+          }
+
+          syncConsole("log", "[Sync] 🔄 检测到远端聊天变更，开始拉取", {
+            source: options?.source || "unknown",
+          });
+
+          await withRetry(
+            () =>
+              this.sync([StoreKey.Chat], {
+                isolateQueue: true,
+                force: true,
+                broadcastChatHint: false,
+                downloadOnlyChat: true,
+              }),
+            {
+              retries: 2,
+              retryable: isRetryable,
+              onRetry: (attempt, error) => {
+                syncConsole(
+                  "log",
+                  `[Sync] ⚠️ 远端聊天数据拉取重试 ${attempt}/2:`,
+                  error,
+                );
+              },
+            },
+          );
+          return true;
+        } catch (error) {
+          syncConsole(
+            "error",
+            "[Sync] ❌ 远端聊天检查失败（已耗尽重试）:",
+            error,
+          );
+          return false;
         }
       },
 
@@ -2033,21 +2643,16 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        console.log("[Sync] 💬 开始同步聊天记录");
-        await this.sync([StoreKey.Chat]);
-        console.log("[Sync] ✅ 聊天记录同步完成");
-
         const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
           (key) =>
             key !== StoreKey.Chat &&
             key !== StoreKey.Access &&
-            key !== StoreKey.ModelCache &&
-            key !== StoreKey.Config,
+            key !== StoreKey.ModelCache,
         );
         if (remainingKeys.length > 0) {
-          console.log("[Sync] ⚙️ 开始同步剩余数据:", remainingKeys);
-          await this.sync(remainingKeys);
-          console.log("[Sync] ✅ 剩余数据同步完成");
+          syncConsole("log", "[Sync] ⚙️ 开始同步剩余数据:", remainingKeys);
+          await this.sync(remainingKeys, { isolateQueue: true });
+          syncConsole("log", "[Sync] ✅ 剩余数据同步完成");
         }
       },
 

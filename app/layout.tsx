@@ -11,6 +11,10 @@ import { getServerSideConfig } from "./config/server";
 import { cookies } from "next/headers";
 import { getAuthSessionCookieName } from "./utils/server/auth";
 
+const AUTH_BYPASS_ENABLED =
+  process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
+  process.env.NEXTCHAT_DISABLE_AUTH === "true";
+
 export const metadata: Metadata = {
   title: "NextChat",
   description: "Your personal ChatGPT Chat Bot.",
@@ -41,6 +45,7 @@ export default function RootLayout({
   const hasAuthSession = Boolean(
     cookies().get(getAuthSessionCookieName())?.value,
   );
+  const shouldMountAutoSync = AUTH_BYPASS_ENABLED || hasAuthSession;
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -59,7 +64,7 @@ export default function RootLayout({
         <script src="/serviceWorkerRegister.js" defer></script>
       </head>
       <body suppressHydrationWarning>
-        {hasAuthSession && <AutoSyncEntry />}
+        {shouldMountAutoSync && <AutoSyncEntry />}
         {children}
         {serverConfig?.isVercel && (
           <>

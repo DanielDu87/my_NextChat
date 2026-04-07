@@ -20,7 +20,8 @@
     &:hover,
     &:focus {
       border-color: var(--border-in-light);
-      background-color: var(--white);
+      background-color: inherit;
+      color: inherit;
       box-shadow: none;
     }
   }

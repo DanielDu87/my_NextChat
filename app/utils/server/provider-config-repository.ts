@@ -49,6 +49,86 @@ function unwrapState(payload: unknown) {
   return (payload || {}) as AccessState;
 }
 
+function getFallbackApiKeyFromState(
+  state: AccessState,
+  profile: AccessProfile,
+): string {
+  switch (profile.provider) {
+    case ServiceProvider.Custom: {
+      const activeBaseUrl = String(state.customUrl || "").trim();
+      if (
+        profile.enabled ||
+        (activeBaseUrl &&
+          activeBaseUrl === String(profile.baseUrl || "").trim())
+      ) {
+        return String(state.customApiKey || "").trim();
+      }
+      return "";
+    }
+    case ServiceProvider.Local: {
+      const activeBaseUrl = String(state.localUrl || "").trim();
+      if (
+        profile.enabled ||
+        (activeBaseUrl &&
+          activeBaseUrl === String(profile.baseUrl || "").trim())
+      ) {
+        return String(state.localApiKey || "").trim();
+      }
+      return "";
+    }
+    case ServiceProvider.OpenAI:
+      return String(state.openaiApiKey || "").trim();
+    case ServiceProvider.Azure:
+      return String(state.azureApiKey || "").trim();
+    case ServiceProvider.Google:
+      return String(state.googleApiKey || "").trim();
+    case ServiceProvider.Anthropic:
+      return String(state.anthropicApiKey || "").trim();
+    case ServiceProvider.Baidu:
+      return String(state.baiduApiKey || "").trim();
+    case ServiceProvider.ByteDance:
+      return String(state.bytedanceApiKey || "").trim();
+    case ServiceProvider.Alibaba:
+      return String(state.alibabaApiKey || "").trim();
+    case ServiceProvider.Moonshot:
+      return String(state.moonshotApiKey || "").trim();
+    case ServiceProvider.Stability:
+      return String(state.stabilityApiKey || "").trim();
+    case ServiceProvider.Iflytek:
+      return String(state.iflytekApiKey || "").trim();
+    case ServiceProvider.XAI:
+      return String(state.xaiApiKey || "").trim();
+    case ServiceProvider.ChatGLM:
+      return String(state.chatglmApiKey || "").trim();
+    case ServiceProvider.DeepSeek:
+      return String(state.deepseekApiKey || "").trim();
+    case ServiceProvider.SiliconFlow:
+      return String(state.siliconflowApiKey || "").trim();
+    case ServiceProvider["302.AI"]:
+      return String(state.ai302ApiKey || "").trim();
+    default:
+      return "";
+  }
+}
+
+function normalizeProfilesWithFallbackSecrets(state: AccessState) {
+  const profiles = Array.isArray(state.apiProfiles)
+    ? state.apiProfiles.filter((profile) => profile?.id)
+    : [];
+
+  return profiles.map((profile) => {
+    const fallbackApiKey = getFallbackApiKeyFromState(state, profile);
+    if (profile.apiKey || !fallbackApiKey) {
+      return profile;
+    }
+
+    return {
+      ...profile,
+      apiKey: fallbackApiKey,
+    };
+  });
+}
+
 function maskSecret(secret: string) {
   if (!secret) return "";
   if (secret.length <= 8) {
@@ -186,9 +266,7 @@ export async function syncProviderConfigsFromAccessState(
   await ensureSyncStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
   const state = unwrapState(payload);
-  const profiles = Array.isArray(state.apiProfiles)
-    ? state.apiProfiles.filter((profile) => profile?.id)
-    : [];
+  const profiles = normalizeProfilesWithFallbackSecrets(state);
 
   const syncWithClient = async (client: QueryClient) => {
     const keptProviderCodes = profiles.map((profile) => profile.id);

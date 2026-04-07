@@ -158,6 +158,8 @@ const loadAsyncGoogleFont = () => {
   document.head.appendChild(linkEl);
 };
 
+const CHAT_BOOTSTRAP_READY_KEY = "nextchat_chat_bootstrap_ready";
+
 export function WindowContent(props: { children: React.ReactNode }) {
   return (
     <div className={styles["window-content"]} id={SlotID.AppBody}>
@@ -304,6 +306,13 @@ export function Home() {
     }
 
     let cancelled = false;
+    try {
+      window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
+    } catch {}
+
+    if (!cancelled) {
+      setChatBootstrapped(true);
+    }
 
     void useChatIndexStore
       .getState()
@@ -314,9 +323,9 @@ export function Home() {
       .finally(() => {
         useChatStore.getState().initializeForNewPage();
         useChatIndexStore.getState().syncFromChatStore();
-        if (!cancelled) {
-          setChatBootstrapped(true);
-        }
+        try {
+          window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "1");
+        } catch {}
       });
 
     return () => {

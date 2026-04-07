@@ -9,6 +9,7 @@ import {
   usePluginStore,
   useUpdateStore,
 } from "../store";
+import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import { merge } from "lodash-es";
 import { useMaskStore } from "../store/mask";
@@ -166,6 +167,43 @@ function hasNonEmptyRecord(value: unknown) {
   );
 }
 
+const ACCESS_SECRET_FIELD_KEYS = [
+  "customApiKey",
+  "openaiApiKey",
+  "azureApiKey",
+  "googleApiKey",
+  "anthropicApiKey",
+  "baiduApiKey",
+  "baiduSecretKey",
+  "bytedanceApiKey",
+  "alibabaApiKey",
+  "moonshotApiKey",
+  "stabilityApiKey",
+  "tencentSecretKey",
+  "tencentSecretId",
+  "iflytekApiKey",
+  "iflytekApiSecret",
+  "deepseekApiKey",
+  "xaiApiKey",
+  "chatglmApiKey",
+  "siliconflowApiKey",
+  "ai302ApiKey",
+  "localApiKey",
+  "apiKey",
+  "modelFetchApiKey",
+  "balanceQueryApiKey",
+] as const;
+
+function preserveLocalSecret<T extends Record<string, any>>(
+  localState: T | undefined,
+  remoteState: T | undefined,
+  key: (typeof ACCESS_SECRET_FIELD_KEYS)[number],
+) {
+  const localValue = String(localState?.[key] || "").trim();
+  const remoteValue = String(remoteState?.[key] || "").trim();
+  return remoteValue || localValue || "";
+}
+
 function isDefaultBootstrapProfile(profile: Record<string, any>) {
   return (
     String(profile?.id || "") === "default_aihubmix_profile" &&
@@ -314,7 +352,9 @@ const MergeStates: StateMerger = {
     const debugLoggingEnabled = isSyncDebugLoggingEnabled();
     const MAX_DEBUG_SESSION_IDS = 10;
     const currentSessionId =
-      localState.sessions?.[localState.currentSessionIndex]?.id ?? "";
+      String(localState.selectedSessionId || "") ||
+      localState.sessions?.[localState.currentSessionIndex]?.id ||
+      "";
     const localSessionCount = localSessions.length;
     const remoteSessionCount = remoteSessions.length;
     let adoptedRemoteCount = 0;
@@ -476,6 +516,8 @@ const MergeStates: StateMerger = {
       });
       if (nextIndex >= 0) {
         localState.currentSessionIndex = nextIndex;
+        (localState as any).selectedSessionId =
+          localState.sessions[nextIndex]?.id || "";
         logSyncDebug("[mergeChat] 更新 currentSessionIndex 为", nextIndex);
       } else {
         logSyncDebug(
@@ -548,47 +590,22 @@ const MergeStates: StateMerger = {
   },
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
-    // - 当前管理的供应商模型以本地为准，避免云端历史模型回流
-    // - 其他模型保留双向合并
+    // - 当前版本的模型列表以本地 access/model-cache 重建结果为准
+    // - 不再把远端 app-config.models 与本地模型拼接，避免重复翻倍
     // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
-    // - 其他配置字段以本地为准
+    // - 其他配置字段继续走“本地优先，远端补全”
     const localModels = localState.models || [];
     const remoteModels = remoteState.models || [];
-    const managedProviderIds = getManagedProviderIdsFromProfiles(
-      useAccessStore.getState().apiProfiles || [],
-    );
     const currentConfig = useAppConfig.getState();
     const preferRemoteOnBootstrap =
       !hasMeaningfulConfigState(localState as Record<string, any>) &&
       hasMeaningfulConfigState(remoteState as Record<string, any>);
-
-    const modelMap = new Map<string, LLMModel>();
-
-    // 先添加本地所有模型
-    localModels.forEach((m: LLMModel) => {
-      const key = `${m.name}@${m.provider?.id}`;
-      modelMap.set(key, m);
-    });
-
-    // 添加远程独有的模型（如果 key 不同则视为新增）
-    remoteModels.forEach((m: LLMModel) => {
-      const providerId = String(m.provider?.id || "").toLowerCase();
-      if (managedProviderIds.has(providerId)) {
-        return;
-      }
-      const key = `${m.name}@${m.provider?.id}`;
-      if (!modelMap.has(key)) {
-        modelMap.set(key, m);
-      } else {
-        // 同名模型：如果本地不可用但远程可用，更新为可用
-        const existing = modelMap.get(key)!;
-        if (!existing.available && m.available) {
-          modelMap.set(key, { ...existing, available: true });
-        }
-      }
-    });
-
-    const mergedModels = [...modelMap.values()];
+    const mergedModels =
+      localModels.length > 0
+        ? localModels
+        : preferRemoteOnBootstrap
+        ? remoteModels
+        : localModels;
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
@@ -629,14 +646,49 @@ const MergeStates: StateMerger = {
     localProfileMap.forEach((localProfile, id) => {
       const remoteProfile = remoteProfileMap.get(id);
       if (remoteProfile) {
-        mergedProfiles.push({
+        const mergedProfile = {
           ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
             ? localProfile
             : remoteProfile),
           ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
             ? remoteProfile
             : localProfile),
-        });
+        } as Record<string, any>;
+
+        (["apiKey", "modelFetchApiKey", "balanceQueryApiKey"] as const).forEach(
+          (key) => {
+            mergedProfile[key] = preserveLocalSecret(
+              localProfile as Record<string, any>,
+              remoteProfile as Record<string, any>,
+              key,
+            );
+          },
+        );
+
+        const localGroups =
+          localProfile?.apiKeyGroups &&
+          typeof localProfile.apiKeyGroups === "object"
+            ? (localProfile.apiKeyGroups as Record<string, string>)
+            : {};
+        const remoteGroups =
+          remoteProfile?.apiKeyGroups &&
+          typeof remoteProfile.apiKeyGroups === "object"
+            ? (remoteProfile.apiKeyGroups as Record<string, string>)
+            : {};
+        const mergedGroupKeys = new Set([
+          ...Object.keys(localGroups),
+          ...Object.keys(remoteGroups),
+        ]);
+        mergedProfile.apiKeyGroups = Object.fromEntries(
+          [...mergedGroupKeys].map((groupKey) => [
+            groupKey,
+            String(
+              remoteGroups[groupKey] || localGroups[groupKey] || "",
+            ).trim(),
+          ]),
+        );
+
+        mergedProfiles.push(mergedProfile as any);
       } else {
         mergedProfiles.push(localProfile);
       }
@@ -664,6 +716,15 @@ const MergeStates: StateMerger = {
         remoteState.lastUpdateTime,
       ),
     };
+
+    const mergedAccessState = mergedState as Record<string, any>;
+    ACCESS_SECRET_FIELD_KEYS.forEach((key) => {
+      mergedAccessState[key] = preserveLocalSecret(
+        localState as Record<string, any>,
+        remoteState as Record<string, any>,
+        key,
+      );
+    });
 
     Object.assign(localState, mergedState);
 
@@ -767,6 +828,14 @@ export function getLocalAppState() {
 export function setLocalAppState(appState: AppState) {
   Object.entries(LocalStateSetters).forEach(([key, setter]) => {
     const storeKey = key as keyof AppState;
+    if (storeKey === StoreKey.Access) {
+      setter(
+        normalizeAccessStateDerivedFields(
+          appState[storeKey] as AppState[typeof StoreKey.Access],
+        ) as AppState[keyof AppState],
+      );
+      return;
+    }
     if (storeKey === StoreKey.Config) {
       setter(
         normalizeImportedConfigState(
@@ -783,6 +852,15 @@ export function setLocalStoreState<T extends keyof AppState>(
   key: T,
   state: AppState[T],
 ) {
+  if (key === StoreKey.Access) {
+    LocalStateSetters[key](
+      normalizeAccessStateDerivedFields(
+        state as AppState[typeof StoreKey.Access],
+      ) as AppState[T],
+    );
+    return;
+  }
+
   if (key === StoreKey.Config) {
     LocalStateSetters[key]({
       ...normalizeImportedConfigState(

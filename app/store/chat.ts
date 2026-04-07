@@ -35,6 +35,7 @@ import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { logPerfSummary, nowMs } from "../utils/perf";
+import { logger } from "../utils/logger";
 import {
   DEFAULT_TOPIC,
   getBotHelloContent,
@@ -132,7 +133,12 @@ function logChatDebug(...args: unknown[]) {
     return;
   }
 
-  console.log(...args);
+  const now = new Date();
+  const pad = (v: number) => String(v).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+    now.getDate(),
+  )} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  console.log(`[Debug][Chat] ${timestamp}`, ...args);
 }
 
 export type ChatMessageTool = {
@@ -357,7 +363,7 @@ async function createBalanceCostTracker(
       },
     };
   } catch (error) {
-    console.warn(
+    logger.chat.warn(
       "[BalanceCost] create tracker failed",
       error instanceof Error ? error.message : String(error),
     );
@@ -1102,19 +1108,19 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     ),
   );
 
-  console.log(
-    "[RefreshTitle] Available API profiles:",
+  logger.chat.log(
+    "Available API profiles:",
     accessStore.apiProfiles.map((p) => ({
       name: p.name,
       provider: p.provider,
       enabled: p.enabled,
     })),
   );
-  console.log("[RefreshTitle] Total models count:", allModels.length);
-  console.log("[RefreshTitle] Current provider:", currentProviderId);
+  logger.chat.log("Total models count:", allModels.length);
+  logger.chat.log("Current provider:", currentProviderId);
 
-  console.log(
-    "[RefreshTitle] Final candidates:",
+  logger.chat.log(
+    "Final candidates:",
     candidates.map((c) => ({
       model: c.model,
       providerId: c.providerId,
@@ -1231,7 +1237,7 @@ function logRequestBanner(
   },
 ) {
   const title = kind === "chat" ? "💬💬💬 对话请求开始" : "🏷️🏷️🏷️ 标题请求开始";
-  console.log(
+  logger.chat.log(
     `===== ${title} | ${
       kind === "chat" ? "ChatRequest" : "TitleRequest"
     } =====`,
@@ -1267,7 +1273,7 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     );
 
   for (const candidate of candidates) {
-    console.log("[RefreshTitle] Trying candidate:", {
+    logger.chat.log("Trying candidate:", {
       model: candidate.model,
       providerId: candidate.providerId,
       profileName: candidate.profile?.name,
@@ -1313,13 +1319,13 @@ async function refreshSessionTitle(targetSession: ChatSession) {
                 finish(success);
               },
               onError(err) {
-                console.error("[RefreshTitle] ", err);
+                logger.chat.error("RefreshTitle error:", err);
                 finish(false);
               },
             }),
           ),
         ).catch((error) => {
-          console.error("[RefreshTitle] request failed", error);
+          logger.chat.error("RefreshTitle request failed", error);
           finish(false);
         });
       });
@@ -1328,7 +1334,7 @@ async function refreshSessionTitle(targetSession: ChatSession) {
         return true;
       }
     } catch (error) {
-      console.error("[RefreshTitle] candidate failed", candidate, error);
+      logger.chat.error("RefreshTitle candidate failed", candidate, error);
     }
   }
 
@@ -1361,7 +1367,7 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: accessStore.customOpenAICompatible,
   };
 
-  console.log("[WithSummarizeProfile] Setting profile:", {
+  logger.chat.log("[WithSummarizeProfile] Setting profile:", {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey ? "***" : "missing",
     openAICompatible: profile.openAICompatible,
@@ -1374,7 +1380,7 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: profile.openAICompatible ?? true,
   } as any);
 
-  console.log(
+  logger.chat.log(
     "[WithSummarizeProfile] After setState, accessStore.customUrl:",
     useAccessStore.getState().customUrl,
   );
@@ -1385,7 +1391,7 @@ function withSummarizeProfile<T>(
     if (result instanceof Promise) {
       return (result as Promise<T>).finally(() => {
         useAccessStore.setState(prevState as any);
-        console.log(
+        logger.chat.log(
           "[WithSummarizeProfile] Restored previous state (after Promise)",
         );
       }) as T;
@@ -1393,7 +1399,9 @@ function withSummarizeProfile<T>(
     return result;
   } catch (error) {
     useAccessStore.setState(prevState as any);
-    console.log("[WithSummarizeProfile] Restored previous state (after error)");
+    logger.chat.log(
+      "[WithSummarizeProfile] Restored previous state (after error)",
+    );
     throw error;
   }
 }
@@ -1593,7 +1601,6 @@ export const useChatStore = createPersistStore(
           currentSessionId,
         });
 
-        // 更新有消息但主题是默认的会话
         sessions.forEach((session) => {
           if (session.messages.length > 0 && isDefaultTopic(session.topic)) {
             const fallbackTopic = getSessionFallbackTopic(session);
@@ -1604,7 +1611,6 @@ export const useChatStore = createPersistStore(
           }
         });
 
-        // 恢复对话选中：优先从 URL hash 中获取 session ID
         let newIndex = 0;
         const hash = typeof window !== "undefined" ? window.location.hash : "";
         const chatMatch = hash.match(/#\/chat\/([^/]+)/);
@@ -1616,16 +1622,12 @@ export const useChatStore = createPersistStore(
         );
         const resolveSessionById = (sessionId: string) =>
           sessions.find((session) => session.id === sessionId);
-        let preferredRememberedSessionId =
-          urlId ||
-          (isMeaningfulSession(resolveSessionById(tabCurrentSessionId))
-            ? tabCurrentSessionId
-            : "") ||
-          (isMeaningfulSession(resolveSessionById(currentSessionId))
-            ? currentSessionId
-            : "");
 
-        if (!urlId && (!hasTabInitialized || !preferredRememberedSessionId)) {
+        const isNewTab = !hasTabInitialized;
+        const isRefreshWithChatUrl =
+          hasTabInitialized && !!urlId && !!resolveSessionById(urlId);
+
+        if (isNewTab) {
           const startupSession = createEmptySession();
           sessions = [
             startupSession,
@@ -1633,18 +1635,33 @@ export const useChatStore = createPersistStore(
           ];
           changed = true;
           newIndex = 0;
-          preferredRememberedSessionId = startupSession.id;
           writeSessionStorageItem(TAB_INITIALIZED_KEY, "1");
           writeSessionStorageItem(
             TAB_CURRENT_SESSION_ID_KEY,
             startupSession.id,
           );
-        }
-
-        const targetId = preferredRememberedSessionId || sessions[0]?.id || "";
-        if (targetId && (urlId || hasTabInitialized)) {
-          const idx = sessions.findIndex((s) => s.id === targetId);
+        } else if (isRefreshWithChatUrl) {
+          const idx = sessions.findIndex((s) => s.id === urlId);
           if (idx >= 0) newIndex = idx;
+
+          if (!sessions.some((s) => isFreshDefaultSession(s))) {
+            const emptySession = createEmptySession();
+            sessions = [emptySession, ...sessions];
+            changed = true;
+            newIndex += 1;
+          }
+        } else {
+          const startupSession = createEmptySession();
+          sessions = [
+            startupSession,
+            ...sessions.filter((session) => !isFreshDefaultSession(session)),
+          ];
+          changed = true;
+          newIndex = 0;
+          writeSessionStorageItem(
+            TAB_CURRENT_SESSION_ID_KEY,
+            startupSession.id,
+          );
         }
 
         logChatDebug("[initializeForNewPage] 完成", {
@@ -1720,7 +1737,9 @@ export const useChatStore = createPersistStore(
         }));
 
         import("./sync").then(({ useSyncStore }) => {
-          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
+          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat], {
+            delayMs: 0,
+          });
         });
       },
 
@@ -1746,11 +1765,11 @@ export const useChatStore = createPersistStore(
           const { useSyncStore } = await import("./sync");
           const syncStore = useSyncStore.getState();
           if (syncStore.cloudSync()) {
-            await syncStore.sync([StoreKey.Chat]);
-            console.log("[Chat] ✅ 清空对话已同步到服务器");
+            await syncStore.sync([StoreKey.Chat], { force: true });
+            logger.chat.log("✅ 清空对话已同步到服务器");
           }
         } catch (error) {
-          console.error("[Chat] ❌ 同步清空对话失败:", error);
+          logger.chat.error("❌ 同步清空对话失败:", error);
         }
       },
 
@@ -1956,9 +1975,9 @@ export const useChatStore = createPersistStore(
               import("./sync").then(({ useSyncStore }) => {
                 useSyncStore
                   .getState()
-                  .sync([StoreKey.Chat])
+                  .sync([StoreKey.Chat], { force: true })
                   .catch((error) => {
-                    console.error("[Chat] ❌ 撤销删除后立即同步失败:", error);
+                    logger.chat.error("❌ 撤销删除后立即同步失败:", error);
                   });
               });
             },
@@ -1970,9 +1989,9 @@ export const useChatStore = createPersistStore(
         import("./sync").then(({ useSyncStore }) => {
           useSyncStore
             .getState()
-            .sync([StoreKey.Chat])
+            .sync([StoreKey.Chat], { force: true })
             .catch((error) => {
-              console.error("[Chat] ❌ 删除会话后立即同步失败:", error);
+              logger.chat.error("❌ 删除会话后立即同步失败:", error);
             });
         });
         void removePersistedChatSession(deletedSession.id);
@@ -2259,31 +2278,6 @@ export const useChatStore = createPersistStore(
         });
 
         const session = get().currentSession();
-        if (
-          isFreshDefaultSession(session) &&
-          !get().sessions.some(
-            (item) => item.id !== session.id && isFreshDefaultSession(item),
-          )
-        ) {
-          const freshSession = createEmptySession();
-          set((state) => {
-            const nextSessions = [freshSession, ...state.sessions];
-            const selectedSessionId = session.id;
-            const nextIndex = nextSessions.findIndex(
-              (item) => item.id === selectedSessionId,
-            );
-
-            return {
-              sessions: nextSessions,
-              sessionSummaries: [
-                buildSessionSummary(freshSession),
-                ...state.sessionSummaries,
-              ],
-              currentSessionIndex: Math.max(0, nextIndex),
-              selectedSessionId,
-            };
-          });
-        }
         const modelConfig = session.mask.modelConfig;
         const appConfig = useAppConfig.getState();
         const accessStore = useAccessStore.getState();
@@ -2417,11 +2411,6 @@ export const useChatStore = createPersistStore(
           ]);
         });
 
-        // 触发防抖同步（动态导入避免循环依赖）
-        import("./sync").then(({ useSyncStore }) => {
-          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
-        });
-
         if (!autoModeEnabled) {
           const api: ClientApi = getClientApi(initialModelConfig.providerName);
           const balanceCostTracker = await createBalanceCostTracker(
@@ -2468,13 +2457,13 @@ export const useChatStore = createPersistStore(
                 userMessage.isError = hasFailure;
 
                 if (hasFailure) {
-                  console.error(
-                    "[Chat] ❌ API 调用失败(响应错误体), 响应长度:",
+                  logger.chat.error(
+                    "❌ API 调用失败(响应错误体), 响应长度:",
                     finalMessage.length,
                   );
                 } else {
-                  console.log(
-                    "[Chat] ✅ API 调用完成, 响应长度:",
+                  logger.chat.log(
+                    "✅ API 调用完成, 响应长度:",
                     finalMessage.length,
                   );
                 }
@@ -2501,10 +2490,15 @@ export const useChatStore = createPersistStore(
               } else {
                 get().flushTargetSessionRefresh(session);
               }
+              import("./sync").then(({ useSyncStore }) => {
+                useSyncStore
+                  .getState()
+                  .triggerDebounceSync([StoreKey.Chat], { delayMs: 0 });
+              });
               ChatControllerPool.remove(session.id, botMessage.id);
             },
             onBeforeTool(tool: ChatMessageTool) {
-              console.log("[Chat] 🔧 工具调用:", tool.function?.name);
+              logger.chat.log("🔧 工具调用:", tool.function?.name);
               (botMessage.tools = botMessage?.tools || []).push(tool);
               get().flushTargetSessionRefresh(session);
             },
@@ -2519,8 +2513,8 @@ export const useChatStore = createPersistStore(
             onError(error) {
               get().flushTargetSessionRefresh(session);
               const isAborted = error.message?.includes?.("aborted");
-              console.error(
-                "[Chat] ❌ API 调用失败:",
+              logger.chat.error(
+                "❌ API 调用失败:",
                 error.message,
                 isAborted ? "(已中止)" : "",
               );
@@ -2539,7 +2533,12 @@ export const useChatStore = createPersistStore(
                 botMessage.id ?? messageIndex,
               );
 
-              console.error("[Chat] failed ", error);
+              logger.chat.error("API failed:", error);
+              import("./sync").then(({ useSyncStore }) => {
+                useSyncStore
+                  .getState()
+                  .triggerDebounceSync([StoreKey.Chat], { delayMs: 0 });
+              });
             },
             onController(controller) {
               ChatControllerPool.addController(
@@ -2627,7 +2626,7 @@ export const useChatStore = createPersistStore(
                 config: { ...candidateConfig, stream: true },
                 onRequest(request: { chatPath: string; baseUrl: string }) {
                   requestUrl = request?.chatPath || request?.baseUrl || "";
-                  console.log("[Chat] 🚀 自动模式尝试:", {
+                  logger.chat.log("🚀 自动模式尝试:", {
                     attempt: attemptLabel,
                     selectedSeries: selectedAutoSeries || candidate.series,
                     series: candidate.series,
@@ -2667,7 +2666,7 @@ export const useChatStore = createPersistStore(
                       candidate,
                       reason: "空响应",
                     });
-                    console.warn("[Chat] 自动模式尝试失败:", {
+                    logger.chat.warn("自动模式尝试失败:", {
                       attempt: attemptLabel,
                       provider: candidate.providerDisplayName,
                       providerId: candidate.providerId,
@@ -2690,7 +2689,7 @@ export const useChatStore = createPersistStore(
                       candidate,
                       reason: finalMessage,
                     });
-                    console.warn("[Chat] 自动模式尝试失败:", {
+                    logger.chat.warn("自动模式尝试失败:", {
                       attempt: attemptLabel,
                       provider: candidate.providerDisplayName,
                       providerId: candidate.providerId,
@@ -2740,7 +2739,7 @@ export const useChatStore = createPersistStore(
                       });
                     });
                   }
-                  console.log("[Chat] ✅ 自动模式尝试成功:", {
+                  logger.chat.log("✅ 自动模式尝试成功:", {
                     attempt: attemptLabel,
                     provider: candidate.providerDisplayName,
                     providerId: candidate.providerId,
@@ -2754,7 +2753,7 @@ export const useChatStore = createPersistStore(
                   finalize("success");
                 },
                 onBeforeTool(tool: ChatMessageTool) {
-                  console.log("[Chat] 🔧 工具调用:", tool.function?.name);
+                  logger.chat.log("🔧 工具调用:", tool.function?.name);
                   (botMessage.tools = botMessage?.tools || []).push(tool);
                   get().flushTargetSessionRefresh(session);
                 },
@@ -2769,8 +2768,10 @@ export const useChatStore = createPersistStore(
                 onError(error) {
                   get().flushTargetSessionRefresh(session);
                   const isAborted = error.message?.includes?.("aborted");
-                  const logMethod = isAborted ? console.log : console.warn;
-                  logMethod("[Chat] 自动模式尝试失败:", {
+                  const logMethod = isAborted
+                    ? logger.chat.log.bind(logger.chat)
+                    : logger.chat.warn.bind(logger.chat);
+                  logMethod("自动模式尝试失败:", {
                     attempt: attemptLabel,
                     provider: candidate.providerDisplayName,
                     providerId: candidate.providerId,
@@ -2811,7 +2812,7 @@ export const useChatStore = createPersistStore(
             ).catch((error) => {
               const message =
                 error instanceof Error ? error.message : String(error);
-              console.warn("[Chat] 自动模式尝试失败:", {
+              logger.chat.warn("自动模式尝试失败:", {
                 attempt: attemptLabel,
                 provider: candidate.providerDisplayName,
                 providerId: candidate.providerId,
@@ -3143,13 +3144,13 @@ export const useChatStore = createPersistStore(
                         finish(success);
                       },
                       onError(err) {
-                        console.error("[AutoGenerateTitle] ", err);
+                        logger.chat.error("AutoGenerateTitle error:", err);
                         finish(false);
                       },
                     }),
                   ),
                 ).catch((error) => {
-                  console.error("[AutoGenerateTitle] request failed", error);
+                  logger.chat.error("AutoGenerateTitle request failed", error);
                   finish(false);
                 });
               });
@@ -3161,7 +3162,7 @@ export const useChatStore = createPersistStore(
                 break;
               }
             } catch (error) {
-              console.error("[AutoGenerateTitle] candidate failed", error);
+              logger.chat.error("AutoGenerateTitle candidate failed", error);
             }
           }
         }
@@ -3224,7 +3225,7 @@ export const useChatStore = createPersistStore(
               },
               onFinish(message, responseRes) {
                 if (responseRes?.status === 200) {
-                  console.log("[Memory] ", message);
+                  logger.chat.log("[Memory] ", message);
                   get().updateTargetSession(session, (session) => {
                     session.lastSummarizeIndex = lastSummarizeIndex;
                     session.memoryPrompt = message;
@@ -3232,7 +3233,7 @@ export const useChatStore = createPersistStore(
                 }
               },
               onError(err) {
-                console.error("[Summarize] ", err);
+                logger.chat.error("[Summarize] ", err);
               },
             }),
           );
@@ -3336,11 +3337,11 @@ export const useChatStore = createPersistStore(
           try {
             const mcpRequest = extractMcpJson(content);
             if (mcpRequest) {
-              console.debug("[MCP Request]", mcpRequest);
+              logger.chat.log("[MCP Request]", mcpRequest);
 
               executeMcpAction(mcpRequest.clientId, mcpRequest.mcp)
                 .then((result) => {
-                  console.log("[MCP Response]", result);
+                  logger.chat.log("[MCP Response]", result);
                   const mcpResponse =
                     typeof result === "object"
                       ? JSON.stringify(result)
@@ -3354,7 +3355,7 @@ export const useChatStore = createPersistStore(
                 .catch((error) => showToast("MCP execution failed", error));
             }
           } catch (error) {
-            console.error("[Check MCP JSON]", error);
+            logger.chat.error("[Check MCP JSON]", error);
           }
         }
       },

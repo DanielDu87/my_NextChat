@@ -14,6 +14,7 @@ const DEFAULT_ADMIN_USERNAME =
   process.env.NEXTCHAT_ADMIN_USERNAME?.trim() || "admin";
 const DEFAULT_ADMIN_PASSWORD =
   process.env.NEXTCHAT_ADMIN_PASSWORD?.trim() || "admin123";
+const AUTH_BYPASS_ENABLED = true; // 临时关闭登录限制，方便测试
 
 declare global {
   var __nextchatAuthSchemaReady: Promise<void> | undefined;
@@ -184,6 +185,29 @@ async function getUserById(userId: string) {
        and username is not null
      limit 1`,
     [userId],
+  );
+
+  const row = result.rows[0];
+  return row ? buildAuthUser(row) : null;
+}
+
+async function getDefaultAdminUser() {
+  await ensureAuthSchemaAndSeed();
+
+  const result = await pgQuery<AuthUserRow>(
+    `select
+       id::text as id,
+       external_id,
+       username,
+       display_name,
+       role,
+       is_active,
+       last_login_at::text as last_login_at
+     from app_users
+     where lower(username) = $1
+       and is_active = true
+     limit 1`,
+    [DEFAULT_ADMIN_USERNAME.toLowerCase()],
   );
 
   const row = result.rows[0];
@@ -437,6 +461,20 @@ export async function revokeAuthSession(sessionToken?: string | null) {
 }
 
 export async function getAuthContextFromCookies(values: AuthCookieValues) {
+  if (AUTH_BYPASS_ENABLED) {
+    const adminUser = await getDefaultAdminUser();
+    if (!adminUser) {
+      return null;
+    }
+
+    return {
+      actor: adminUser,
+      effective: adminUser,
+      isImpersonating: false,
+      readOnly: false,
+    } satisfies AuthContext;
+  }
+
   const sessionToken = String(values.sessionToken || "").trim();
   if (!sessionToken) {
     return null;

@@ -6,6 +6,7 @@ type ChatSessionLike = {
   createdAt?: number;
   lastUpdate?: number;
   messages?: unknown[];
+  messageCount?: number;
   memoryPrompt?: string;
 };
 
@@ -31,28 +32,50 @@ export type ChatIndexPayload = {
   sessions: ChatIndexSessionEntry[];
 };
 
+function getSessionMessageCount(session: ChatSessionLike | undefined) {
+  if (!session) {
+    return 0;
+  }
+
+  if (Array.isArray(session.messages)) {
+    return session.messages.length;
+  }
+
+  return toFiniteNumber(session.messageCount);
+}
+
 export function shouldSyncChatSession(session: ChatSessionLike | undefined) {
   if (!session?.id) {
     return false;
   }
 
-  const messageCount = Array.isArray(session.messages)
-    ? session.messages.length
-    : 0;
-  const topic = String(session.topic || "").trim();
+  const messageCount = getSessionMessageCount(session);
   const hasMemoryPrompt =
     typeof session.memoryPrompt === "string" &&
     session.memoryPrompt.trim().length > 0;
-  const isUntouchedEmptyChat =
-    messageCount === 0 &&
-    !hasMemoryPrompt &&
-    (!topic || topic === DEFAULT_TOPIC || topic === "新的聊天");
+  const isEmptyChat = messageCount === 0 && !hasMemoryPrompt;
 
-  if (isUntouchedEmptyChat) {
+  if (isEmptyChat) {
     return false;
   }
 
   return true;
+}
+
+function shouldKeepChatSessionBySummary(
+  session: ChatSessionLike | undefined,
+  sessionSummaryMap: Map<string, Record<string, unknown>>,
+) {
+  if (!session?.id) {
+    return false;
+  }
+
+  if (shouldSyncChatSession(session)) {
+    return true;
+  }
+
+  const summary = sessionSummaryMap.get(String(session.id || ""));
+  return Number(summary?.messageCount || 0) > 0;
 }
 
 export function getSyncableChatSessions<T extends ChatSessionLike>(
@@ -80,7 +103,17 @@ export function buildChatIndexPayload(
   const allSessions = normalizeChatSessions(
     chatState.sessions as ChatSessionLike[],
   );
-  const sessions = getSyncableChatSessions(allSessions);
+  const sessionSummaries = Array.isArray((chatState as any)?.sessionSummaries)
+    ? ((chatState as any).sessionSummaries as Array<Record<string, unknown>>)
+    : [];
+  const sessionSummaryMap = new Map(
+    sessionSummaries
+      .filter((summary) => summary?.id)
+      .map((summary) => [String(summary.id), summary]),
+  );
+  const sessions = allSessions.filter((session) =>
+    shouldKeepChatSessionBySummary(session, sessionSummaryMap),
+  );
   const currentSessionIndex = toFiniteNumber(chatState.currentSessionIndex);
   const rawCurrentSessionId = allSessions[currentSessionIndex]?.id;
   const currentSessionId =
@@ -110,9 +143,7 @@ export function buildChatIndexPayload(
       topic: String(session.topic || ""),
       createdAt: toFiniteNumber(session.createdAt),
       lastUpdate: toFiniteNumber(session.lastUpdate),
-      messageCount: Array.isArray(session.messages)
-        ? session.messages.length
-        : 0,
+      messageCount: getSessionMessageCount(session),
     })),
   };
 }

@@ -17,6 +17,13 @@ import {
   streamWithThink,
   supportsApiKeyGrouping,
 } from "@/app/utils/chat";
+import {
+  applyRequestCompatibilityState,
+  buildRequestCompatibilityKey,
+  getRequestCompatibilityFallback,
+  getRequestCompatibilityState,
+  rememberRequestCompatibilityState,
+} from "@/app/utils/request-compat-memory";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { ModelSize, DalleQuality, DalleStyle } from "@/app/typing";
 
@@ -1079,6 +1086,14 @@ export class ChatGPTApi implements LLMApi {
         : modelConfig.providerName === ServiceProvider.Azure
         ? currentAccessState.azureUrl
         : currentAccessState.openaiUrl;
+    const requestCompatibilityKey = buildRequestCompatibilityKey({
+      providerName: modelConfig.providerName,
+      model: modelConfig.model,
+      baseUrl: currentBaseUrlForRequest,
+    });
+    let requestCompatibilityState = getRequestCompatibilityState(
+      requestCompatibilityKey,
+    );
     const aiHubMixPredictionPath =
       isImageModel &&
       !isGeminiImagePreview &&
@@ -1292,6 +1307,36 @@ export class ChatGPTApi implements LLMApi {
       };
     }
 
+    requestPayload = applyRequestCompatibilityState(
+      requestPayload,
+      requestCompatibilityState,
+    );
+
+    const tryRequestCompatibilityRetry = (reason: string) => {
+      const fallback = getRequestCompatibilityFallback(
+        reason,
+        requestCompatibilityState,
+      );
+      if (!fallback) {
+        return false;
+      }
+
+      requestCompatibilityState = fallback.nextState;
+      rememberRequestCompatibilityState(
+        requestCompatibilityKey,
+        requestCompatibilityState,
+      );
+      requestPayload = applyRequestCompatibilityState(
+        requestPayload,
+        requestCompatibilityState,
+      );
+
+      console.warn(
+        `[Chat Compatibility] ${modelConfig.providerName}/${modelConfig.model} 关闭 ${fallback.disabledField} 后重试`,
+      );
+      return true;
+    };
+
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -1374,6 +1419,20 @@ export class ChatGPTApi implements LLMApi {
         // console.log("getAsTools", tools, funcs);
         const streamOptions = {
           ...options,
+          onCompatibilityRetry(reason: string) {
+            if (!tryRequestCompatibilityRetry(reason)) {
+              return false;
+            }
+            return requestPayload;
+          },
+          onCompatibilitySuccess() {
+            if (JSON.stringify(requestCompatibilityState) === "{}") {
+              rememberRequestCompatibilityState(
+                requestCompatibilityKey,
+                requestCompatibilityState,
+              );
+            }
+          },
           onFinish(message: string, responseRes: Response) {
             if (latestReasoningDetails) {
               (responseRes as any).__reasoning_details = latestReasoningDetails;
@@ -1541,6 +1600,27 @@ export class ChatGPTApi implements LLMApi {
         while (true) {
           resText = await res.text();
           resJson = parseJsonOrSSEPayload(resText);
+
+          if (!res.ok && tryRequestCompatibilityRetry(resText)) {
+            chatPayload = {
+              method: "POST",
+              body:
+                requestPayload instanceof FormData
+                  ? requestPayload
+                  : JSON.stringify(requestPayload),
+              signal: controller.signal,
+              headers: requestHeaders,
+            };
+            const retryTimeoutId = setTimeout(
+              () => controller.abort(),
+              getTimeoutMSByModel(options.config.model),
+            );
+            res = await fetch(chatPath, chatPayload);
+            clearTimeout(retryTimeoutId);
+            retryCount = 0;
+            continue;
+          }
+
           const retryableError = supportsGrouping
             ? getYutoRetryableErrorMessage(resJson)
             : "";

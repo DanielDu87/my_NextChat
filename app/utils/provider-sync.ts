@@ -17,6 +17,8 @@ import {
 import { parseStoreStatePayload } from "./sync-store-keys";
 import { runWithBalanceRefreshPaused } from "../store/update";
 import { writeAccessSnapshot } from "./access-snapshot";
+import { rebuildManagedModelsFromCache } from "./managed-model-rebuild";
+import { logger } from "./logger";
 
 export type ApiProfile = {
   id: string;
@@ -161,10 +163,9 @@ export async function syncProfileModels(
 
   const displayName = getProviderDisplayName(profile.provider, profile.baseUrl);
   if (!options?.silent) {
-    console.log(
-      `[Provider Sync] 🚀 开始同步 ${displayName} (${
-        options?.reason || "manual"
-      })`,
+    logger.providerSync.banner(
+      "Provider 同步开始",
+      `${displayName} (${options?.reason || "manual"})`,
     );
   }
 
@@ -219,8 +220,9 @@ export async function syncProfileModels(
   persistAccessSnapshot();
 
   if (!options?.silent) {
-    console.log(
-      `[Provider Sync] ✅ ${displayName} 同步完成: ${result.total} 个模型`,
+    logger.providerSync.banner(
+      "Provider 同步完成",
+      `${displayName} 同步完成: ${result.total} 个模型`,
     );
   }
 
@@ -245,13 +247,15 @@ export async function ensureProviderModelsReady(
   const modelCacheStore = useModelCacheStore.getState() as any;
   const cache = modelCacheStore.profiles?.[profileId];
   const hasCache = Boolean(cache?.cachedModels || profile.cachedModels);
+  const displayName = getProviderDisplayName(profile.provider, profile.baseUrl);
 
   if (hasCache) {
     if (!options?.silent) {
-      console.log(
-        `[Provider Sync] 🗂️ ${profile.name} 已命中缓存，先展示缓存，再检查远端更新`,
+      logger.providerSync.log(
+        `${displayName} | 已命中缓存，先展示缓存，再检查远端更新`,
       );
     }
+    rebuildManagedModelsFromCache();
     modelCacheStore.setProfileSyncState?.(profileId, {
       source: cache?.source || "cache",
       syncStatus: "using_cache",
@@ -262,7 +266,7 @@ export async function ensureProviderModelsReady(
 
   if (!hasCache) {
     if (!options?.silent) {
-      console.log(`[Provider Sync] 🆕 ${profile.name} 首次同步模型`);
+      logger.providerSync.log(`${displayName} | 首次同步模型`);
     }
     return syncProfileModels(profileId, {
       silent: options?.silent,
@@ -297,7 +301,7 @@ export async function ensureProviderModelsReady(
 
     if (remoteCount !== undefined && remoteCount === localCount) {
       if (!options?.silent) {
-        console.log(`[Provider Sync] ✅ ${profile.name} 远端未变化，跳过同步`);
+        logger.providerSync.log(`${displayName} | 远端未变化，跳过同步`);
       }
       modelCacheStore.setProfileSyncState?.(profileId, {
         syncStatus: "ready",
@@ -311,10 +315,7 @@ export async function ensureProviderModelsReady(
     }
   } catch (error) {
     if (!options?.silent) {
-      console.warn(
-        "[Provider Sync] 远端 provider 校验失败，继续使用缓存",
-        error,
-      );
+      logger.providerSync.warn("远端 provider 校验失败，继续使用缓存", error);
     }
     modelCacheStore.setProfileSyncState?.(profileId, {
       syncStatus: "ready",
@@ -330,7 +331,7 @@ export async function ensureProviderModelsReady(
 
   if (options?.background) {
     if (!options?.silent) {
-      console.log(`[Provider Sync] 🔄 ${profile.name} 后台同步开始`);
+      logger.providerSync.log(`${displayName} | 后台同步开始`);
     }
     void syncProfileModels(profileId, {
       silent: options?.silent ?? true,
@@ -341,7 +342,7 @@ export async function ensureProviderModelsReady(
         hydrated: true,
         lastError: error instanceof Error ? error.message : "同步失败",
       });
-      console.error("[Provider Sync] 后台同步 provider 失败:", error);
+      logger.providerSync.error("后台同步 provider 失败:", error);
     });
 
     return {
@@ -466,7 +467,7 @@ export async function syncAllProfilesToDatabase(params: {
       const results: SyncAllProfilesResult["results"] = [];
 
       for (const profile of profiles) {
-        console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
+        logger.providerSync.log(`正在获取 ${profile.name} 的模型...`);
 
         try {
           const result = await fetchFromProvider(
@@ -515,18 +516,18 @@ export async function syncAllProfilesToDatabase(params: {
             success: true,
           });
 
-          console.log(`[API Config] ✅ ${profile.name} 获取完成`);
+          logger.providerSync.log(`${profile.name} 获取完成`);
         } catch (error) {
           results.push({
             name: profile.name,
             count: 0,
             success: false,
           });
-          console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
+          logger.providerSync.error(`${profile.name} 获取失败`, error);
         }
       }
 
-      console.log("[API Config] ⏳ 模型获取完成，等待数据库同步完成...");
+      logger.providerSync.log("模型获取完成，等待数据库同步完成...");
       await waitForImmediateStoreSyncQueueIdle();
       await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
       await updateRemoteModelCount(totalFetched, results, profiles);

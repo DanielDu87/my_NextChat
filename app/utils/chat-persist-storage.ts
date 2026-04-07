@@ -11,6 +11,7 @@ import {
   logPerfSummary,
   nowMs,
 } from "./perf";
+import { logger } from "./logger";
 
 type PersistedEnvelope = {
   state?: Record<string, unknown>;
@@ -28,7 +29,8 @@ export type ChatPersistSplitIndex = {
 const CHAT_INDEX_SUFFIX = "::index";
 const CHAT_SESSION_SUFFIX = "::session::";
 const CHAT_STORE_KEY = "chat-next-web-store";
-export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 8;
+export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 3;
+export const INITIAL_RETAINED_SESSION_LIMIT = 20;
 
 export function getChatIndexStorageKey(name: string) {
   return `${name}${CHAT_INDEX_SUFFIX}`;
@@ -150,6 +152,22 @@ function getInitialHydratedSessionIds(index: ChatPersistSplitIndex) {
 
   return Array.from(
     new Set([currentSessionId, ...recentSessionIds].filter(Boolean)),
+  );
+}
+
+function getInitialRetainedSessionIds(index: ChatPersistSplitIndex) {
+  const sessionIds = Array.isArray(index.state.sessionIds)
+    ? index.state.sessionIds.filter(Boolean)
+    : [];
+  const currentSessionIndex = Math.max(
+    0,
+    Number(index.state.currentSessionIndex) || 0,
+  );
+  const currentSessionId = sessionIds[currentSessionIndex] || "";
+  const leadingSessionIds = sessionIds.slice(0, INITIAL_RETAINED_SESSION_LIMIT);
+
+  return Array.from(
+    new Set([currentSessionId, ...leadingSessionIds].filter(Boolean)),
   );
 }
 
@@ -383,6 +401,9 @@ class ChatPersistStorage implements StateStorage {
         if (index) {
           const startedAt = nowMs();
           const summaryMap = createSessionSummaryMap(index);
+          const retainedSessionIds = new Set(
+            getInitialRetainedSessionIds(index),
+          );
           const hydratedSessionIds = getInitialHydratedSessionIds(index);
           const sessionPayloadMap = await indexedDbStateStorage.getRawItems(
             hydratedSessionIds.map((sessionId) =>
@@ -391,6 +412,9 @@ class ChatPersistStorage implements StateStorage {
           );
           const placeholderStartedAt = nowMs();
           const sessionPayloads = index.state.sessionIds.map((sessionId) => {
+            if (!retainedSessionIds.has(sessionId)) {
+              return null;
+            }
             if (!hydratedSessionIds.includes(sessionId)) {
               const placeholder = buildSessionPlaceholder(
                 index,
@@ -434,8 +458,9 @@ class ChatPersistStorage implements StateStorage {
               mode: "read",
               sessionCount: index.state.sessionIds.length,
               hydratedSessionCount: hydratedSessionIds.length,
+              retainedSessionCount: retainedSessionIds.size,
               placeholderSessionCount:
-                index.state.sessionIds.length - hydratedSessionIds.length,
+                retainedSessionIds.size - hydratedSessionIds.length,
               placeholderBuildDurationMs: Number(
                 (nowMs() - placeholderStartedAt).toFixed(2),
               ),
@@ -472,7 +497,7 @@ class ChatPersistStorage implements StateStorage {
       }
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } catch (error) {
-      console.error(`[ChatPersistStorage] 读取 ${name} 失败`, error);
+      logger.chatPersist.error(`读取 ${name} 失败`, error);
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } finally {
       this.hydrating.delete(name);

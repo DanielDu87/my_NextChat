@@ -2,6 +2,7 @@ import { StateStorage } from "zustand/middleware";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
 import { resolveHydratedStateValue } from "./state-storage-helpers";
 import { withSyncUserHeaders } from "./sync-user-client";
+import { logger } from "./logger";
 
 const DB_NAME = "nextchat-local-cache";
 const STORE_NAME = "state-cache";
@@ -278,7 +279,7 @@ class IndexedDbStateStorage implements StateStorage {
       await this.flushPendingWrite(name);
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } catch (error) {
-      console.error(`[IndexedDBStateStorage] 读取 ${name} 失败`, error);
+      logger.indexedDB.error(`读取 ${name} 失败`, error);
       return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
     } finally {
       this.hydrating.delete(name);

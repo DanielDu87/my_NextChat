@@ -12,23 +12,14 @@ import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useChatStore } from "../store/chat";
+import { useChatIndexStore } from "../store/chat-index";
 import { useSyncStore } from "../store/sync";
 import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
-import { waitForImmediateStoreSyncQueueIdle } from "../utils/store";
-import {
-  getNonFunctionFileds,
-  hasMeaningfulAccessState,
-  hasMeaningfulConfigState,
-  hasMeaningfulModelCacheState,
-} from "../utils/sync";
+import { hasMeaningfulAccessState } from "../utils/sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
-import {
-  buildChatIndexPayload,
-  getSyncableChatSessions,
-} from "../utils/chat-sync";
-import { isEffectivelyEmptyRemoteChatState } from "../utils/chat-sync-state";
+import { readAccessSnapshot } from "../utils/access-snapshot";
 import {
   ensureProviderModelsReady,
   getDefaultBootstrapProfile,
@@ -37,7 +28,11 @@ import {
   AUTO_SYNC_CHANNEL_NAME,
   AUTO_SYNC_LOCK_KEY,
   AUTO_SYNC_LOCK_TTL_MS,
+  CHAT_SYNC_HINT_KEY,
+  CHAT_SYNC_UPDATED_MESSAGE_TYPE,
   buildAutoSyncLock,
+  getOrCreateAutoSyncTabId,
+  parseChatSyncHint,
   parseAutoSyncLock,
   shouldAutoSyncLockBeTakenOver,
 } from "../utils/sync-tab-coordination";
@@ -45,14 +40,36 @@ import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 let autoSyncEffectActive = false;
 let lastAutoSyncBootstrapAt = 0;
-const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 
-function logCriticalModelSyncBanner(
+function formatAutoSyncLogTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+}
+
+function autoSyncConsole(
+  level: "log" | "info" | "warn" | "error",
+  message: string,
+  payload?: unknown,
+) {
+  const prefixedMessage = `${formatAutoSyncLogTimestamp()} ${message}`;
+  if (payload === undefined) {
+    console[level](prefixedMessage);
+    return;
+  }
+  console[level](prefixedMessage, payload);
+}
+
+function logCriticalStartupSyncBanner(
   phase: "start" | "complete",
   detail?: string,
 ) {
-  const title = phase === "start" ? "🔄 模型同步开始" : "✅ 模型同步完成";
-  console.info(
+  const title = phase === "start" ? "🔄 开始同步检查" : "✅ 同步检查完成";
+  autoSyncConsole(
+    "info",
     detail ? `===== ${title} | ${detail} =====` : `===== ${title} =====`,
   );
 }
@@ -73,19 +90,6 @@ function scheduleIdleTask(task: () => void, timeout = 800) {
   setTimeout(task, 0);
 }
 
-function hasMeaningfulLocalChatState(state: Record<string, any>) {
-  const sessions = getSyncableChatSessions(state?.sessions || []);
-  if (sessions.length === 0) {
-    return false;
-  }
-
-  return sessions.some(
-    (session) =>
-      (Array.isArray(session?.messages) && session.messages.length > 0) ||
-      sessions.length > 1,
-  );
-}
-
 export default function AutoSync() {
   const authUser = useAuthStore((state) => state.user);
   const authInitialized = useAuthStore((state) => state.initialized);
@@ -96,101 +100,37 @@ export default function AutoSync() {
       return false;
     }
 
-    const metas = await client.getMeta([
-      StoreKey.Config,
-      StoreKey.Access,
-      StoreKey.ModelCache,
-      StoreKey.Chat,
-    ]);
+    const metas = await client.getMeta([StoreKey.Access, StoreKey.Chat]);
     const remoteMetaKeys = new Set(
       (metas || []).map((meta: { key: string }) => meta.key),
     );
-    const missingStoreKeys = [
-      StoreKey.Config,
-      StoreKey.Access,
-      StoreKey.ModelCache,
-    ].filter((key) => !remoteMetaKeys.has(key));
+    const missingStoreKeys = [StoreKey.Access].filter(
+      (key) => !remoteMetaKeys.has(key),
+    );
 
-    const localConfig = useAppConfig.getState() as Record<string, any>;
     const localAccess = useAccessStore.getState() as Record<string, any>;
-    const localModelCache = useModelCacheStore.getState() as Record<
-      string,
-      any
-    >;
-    const hasStoreBootstrapData =
-      hasMeaningfulConfigState(localConfig) ||
-      hasMeaningfulAccessState(localAccess) ||
-      hasMeaningfulModelCacheState(localModelCache);
+    const hasStoreBootstrapData = hasMeaningfulAccessState(localAccess);
 
     if (missingStoreKeys.length > 0 && !hasStoreBootstrapData) {
-      console.log(
+      autoSyncConsole(
+        "log",
         `[AutoSync] ℹ️ 云端缺少初始化配置(${missingStoreKeys.join(
           ", ",
         )})，但本地也暂无可上传数据，跳过初始化上传`,
       );
     } else if (missingStoreKeys.length > 0) {
-      console.log(
+      autoSyncConsole(
+        "log",
         `[AutoSync] ☁️ 检测到云端缺少初始化配置(${missingStoreKeys.join(
           ", ",
         )})，开始上传本地配置`,
       );
-      await syncStore.sync([
-        StoreKey.Config,
-        StoreKey.Access,
-        StoreKey.ModelCache,
-      ]);
+      await syncStore.sync([StoreKey.Access]);
       showToast(
         `检测到云端缺少初始化配置，已自动上传本地数据：${missingStoreKeys.join(
           ", ",
         )}`,
       );
-    }
-
-    const localChatState = getNonFunctionFileds(
-      useChatStore.getState(),
-    ) as Record<string, any>;
-    const localChatSessions = getSyncableChatSessions(
-      localChatState.sessions || [],
-    );
-    const localChatIndex = buildChatIndexPayload(localChatState as any);
-    const remoteChatIndex =
-      typeof client.getChatIndex === "function"
-        ? await client.getChatIndex()
-        : null;
-    const remoteChatSessions = Array.isArray(remoteChatIndex?.sessions)
-      ? remoteChatIndex.sessions
-      : [];
-    const remoteChatLooksEmpty =
-      !remoteChatIndex ||
-      (remoteChatSessions.length === 0 &&
-        isEffectivelyEmptyRemoteChatState(remoteChatIndex?.state)) ||
-      (remoteChatSessions.every(
-        (session: { messageCount?: number }) =>
-          Number(session?.messageCount || 0) <= 0,
-      ) &&
-        isEffectivelyEmptyRemoteChatState(remoteChatIndex?.state));
-
-    if (
-      remoteChatLooksEmpty &&
-      hasMeaningfulLocalChatState(localChatState) &&
-      typeof client.setChatDelta === "function"
-    ) {
-      const localSessionIds = new Set(
-        (localChatIndex.state.sessionIds as string[]) || [],
-      );
-      const deleteSessionIds = remoteChatSessions
-        .map((session: { id?: string }) => String(session?.id || ""))
-        .filter(Boolean)
-        .filter((id: string) => !localSessionIds.has(id));
-
-      console.log("[AutoSync] ☁️ 检测到云端缺少聊天数据，开始上传本地会话");
-      await client.setChatDelta({
-        index: localChatIndex,
-        upsertSessions: localChatSessions as Array<Record<string, unknown>>,
-        deleteSessionIds,
-      });
-      showToast("检测到云端缺少聊天数据，已自动上传本地会话");
-      return true;
     }
 
     return missingStoreKeys.length > 0;
@@ -208,35 +148,38 @@ export default function AutoSync() {
       currentProfiles,
     );
 
-    console.log("[AutoSync] 📊 模型数据汇总:");
-    console.log("[AutoSync] 📍 本地数据:");
-    console.log(`[AutoSync] - 本地模型总数: ${localTotalCount} 个`);
-    console.log("[AutoSync] 📋 本地各平台模型数量:");
+    autoSyncConsole("log", "[AutoSync] 📊 模型数据汇总:");
+    autoSyncConsole("log", "[AutoSync] 📍 本地数据:");
+    autoSyncConsole("log", `[AutoSync] - 本地模型总数: ${localTotalCount} 个`);
+    autoSyncConsole("log", "[AutoSync] 📋 本地各平台模型数量:");
     localPlatformCounts.forEach(({ name, count }) => {
-      console.log(`[AutoSync] - ${name}: ${count} 个模型`);
+      autoSyncConsole("log", `[AutoSync] - ${name}: ${count} 个模型`);
     });
 
-    console.log("[AutoSync] ☁️ 云端数据:");
+    autoSyncConsole("log", "[AutoSync] ☁️ 云端数据:");
     if (remoteCount !== undefined) {
-      console.log(`[AutoSync] - 云端模型总数: ${remoteCount} 个`);
+      autoSyncConsole("log", `[AutoSync] - 云端模型总数: ${remoteCount} 个`);
       if (remoteProviders && remoteProviders.length > 0) {
-        console.log("[AutoSync] 📋 云端各平台模型数量:");
+        autoSyncConsole("log", "[AutoSync] 📋 云端各平台模型数量:");
         remoteProviders.forEach((provider: any) => {
-          console.log(
+          autoSyncConsole(
+            "log",
             `[AutoSync] - ${provider.profileName}: ${provider.fetchedCount} 个模型`,
           );
         });
       } else {
-        console.log("[AutoSync] - 云端无平台数据");
+        autoSyncConsole("log", "[AutoSync] - 云端无平台数据");
       }
 
-      console.log("[AutoSync] 🔍 比较结果:");
-      console.log(
+      autoSyncConsole("log", "[AutoSync] 🔍 比较结果:");
+      autoSyncConsole(
+        "log",
         `[AutoSync] - 状态: ${
           localTotalCount === remoteCount ? "✅ 一致" : "❌ 不一致，提示更新"
         }`,
       );
-      console.log(
+      autoSyncConsole(
+        "log",
         `[AutoSync] - 差异: ${describeModelCountDiff(
           localTotalCount,
           remoteCount,
@@ -248,17 +191,21 @@ export default function AutoSync() {
         remoteProviders || [],
       );
       if (providerDiffs.length > 0) {
-        console.log("[AutoSync] 📋 平台差异明细:");
+        autoSyncConsole("log", "[AutoSync] 📋 平台差异明细:");
         providerDiffs.forEach((item) => {
-          console.log(
+          autoSyncConsole(
+            "log",
             `[AutoSync] - ${item.name}: 本地 ${item.localCount} / 云端 ${item.remoteCount}，${item.description}`,
           );
         });
       }
     } else {
-      console.log("[AutoSync] - 云端模型总数: 无数据（已清空）");
-      console.log("[AutoSync] 🔍 比较结果:");
-      console.log("[AutoSync] - 状态: ℹ️ 云端数据已清空，建议同步更新云端数据");
+      autoSyncConsole("log", "[AutoSync] - 云端模型总数: 无数据（已清空）");
+      autoSyncConsole("log", "[AutoSync] 🔍 比较结果:");
+      autoSyncConsole(
+        "log",
+        "[AutoSync] - 状态: ℹ️ 云端数据已清空，建议同步更新云端数据",
+      );
     }
   };
 
@@ -278,7 +225,7 @@ export default function AutoSync() {
       }
       logModelCount();
     } catch (e) {
-      console.error("[AutoSync] ❌ 获取云端数据失败:", e);
+      autoSyncConsole("error", "[AutoSync] ❌ 获取云端数据失败:", e);
       logModelCount();
     }
   };
@@ -289,29 +236,14 @@ export default function AutoSync() {
     }
 
     if (autoSyncEffectActive) {
-      console.log("[AutoSync] ⏭️ 已存在自动同步实例，跳过重复挂载");
+      autoSyncConsole("log", "[AutoSync] ⏭️ 已存在自动同步实例，跳过重复挂载");
       return;
     }
     autoSyncEffectActive = true;
 
     const sessionStorage =
       typeof window !== "undefined" ? window.sessionStorage : null;
-    const getOrCreateTabId = () => {
-      const existing = String(
-        sessionStorage?.getItem(AUTO_SYNC_TAB_ID_KEY) || "",
-      ).trim();
-      if (existing) {
-        return existing;
-      }
-
-      const nextId =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      sessionStorage?.setItem(AUTO_SYNC_TAB_ID_KEY, nextId);
-      return nextId;
-    };
-    const tabId = getOrCreateTabId();
+    const tabId = getOrCreateAutoSyncTabId(sessionStorage);
     const localStorage =
       typeof window !== "undefined" ? window.localStorage : null;
     const channel =
@@ -322,7 +254,13 @@ export default function AutoSync() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let hasCompletedAutoSync = false;
     let autoSyncInProgress = false;
+    let lastForegroundSyncAt = 0;
+    let lastExternalChatHintAt = 0;
     let hasRestoredModelsFromHydratedCache = false;
+    let pendingBootstrapProfileId = "";
+    let pendingBootstrapProfileName = "";
+    let chatMetaPollTimer: ReturnType<typeof setInterval> | null = null;
+    let deferredFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
     const writeLock = () => {
       if (!localStorage) {
@@ -377,6 +315,10 @@ export default function AutoSync() {
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      if (chatMetaPollTimer) {
+        clearInterval(chatMetaPollTimer);
+        chatMetaPollTimer = null;
+      }
 
       if (!localStorage) {
         try {
@@ -405,6 +347,36 @@ export default function AutoSync() {
       retryTimer = null;
     };
 
+    const triggerExternalChatSync = (source: string) => {
+      if (!authInitialized || !authUser || autoSyncInProgress) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastExternalChatHintAt < 300) {
+        return;
+      }
+      lastExternalChatHintAt = now;
+
+      const syncStore = useSyncStore.getState() as any;
+      void Promise.resolve()
+        .then(() => syncStore.resumePendingDebounceSync?.())
+        .then(
+          () =>
+            syncStore.syncChatIfRemoteChanged?.({
+              source,
+              minIntervalMs: 0,
+            }),
+        )
+        .catch((error: unknown) => {
+          autoSyncConsole(
+            "error",
+            "[AutoSync] ❌ 外部聊天变更同步失败:",
+            error,
+          );
+        });
+    };
+
     const scheduleRetry = (attemptAutoSync: () => void) => {
       if (retryTimer || hasCompletedAutoSync || autoSyncInProgress) {
         return;
@@ -416,7 +388,7 @@ export default function AutoSync() {
       }, AUTO_SYNC_LOCK_TTL_MS + 500);
     };
 
-    console.log("[AutoSync] 📍 组件已挂载");
+    autoSyncConsole("log", "[AutoSync] 📍 组件已挂载");
     // 移除挂载时立即调用的 rebuildManagedModelsFromCache()
     // hydration 完成后（scheduleStart）会调用，数据更完整
 
@@ -438,7 +410,7 @@ export default function AutoSync() {
         hydrationState.sync &&
         hydrationState.access &&
         hydrationState.config &&
-        hydrationState.modelCache
+        hydrationState.chat
       );
     };
 
@@ -449,29 +421,75 @@ export default function AutoSync() {
 
       const restoreStartedAt = nowMs();
       hasRestoredModelsFromHydratedCache = true;
+      const accessSnapshot = readAccessSnapshot();
+      const currentAccessState = useAccessStore.getState() as Record<
+        string,
+        any
+      >;
+      const currentProfiles = Array.isArray(currentAccessState.apiProfiles)
+        ? currentAccessState.apiProfiles
+        : [];
+      const shouldRestoreAccessSnapshot =
+        currentProfiles.length <= 1 &&
+        currentProfiles.every(
+          (profile: Record<string, any>) =>
+            String(profile?.id || "") === "default_aihubmix_profile",
+        ) &&
+        Array.isArray(accessSnapshot?.apiProfiles) &&
+        (accessSnapshot?.apiProfiles?.length || 0) > 1;
+
+      if (shouldRestoreAccessSnapshot) {
+        useAccessStore.setState({
+          ...currentAccessState,
+          ...accessSnapshot,
+          _hasHydrated: true,
+        } as any);
+        autoSyncConsole(
+          "log",
+          `[AutoSync] ♻️ 已从本地快照恢复 API 配置: ${
+            accessSnapshot?.apiProfiles.length || 0
+          } 个`,
+        );
+      }
+      hasRestoredModelsFromHydratedCache = true;
+      logPerfSummary("StartupSync", {
+        localCriticalRestoreDurationMs: Number(
+          (nowMs() - restoreStartedAt).toFixed(2),
+        ),
+      });
+    };
+
+    const restoreLocalModelCacheState = () => {
+      const restoreStartedAt = nowMs();
       useModelCacheStore.getState().migrateFromAccessProfiles?.();
       rebuildManagedModelsFromCache();
       const bootstrapProfile = getDefaultBootstrapProfile();
+      const hasBootstrapCache = Boolean(
+        bootstrapProfile?.id &&
+          (useModelCacheStore.getState() as any).profiles?.[bootstrapProfile.id]
+            ?.cachedModels,
+      );
       if (bootstrapProfile?.id) {
-        console.info(
+        pendingBootstrapProfileId = bootstrapProfile.id;
+        pendingBootstrapProfileName = bootstrapProfile.name;
+        autoSyncConsole(
+          "info",
           `===== 🗂️ Provider 模型就绪检查 | ${bootstrapProfile.name} =====`,
         );
-        void ensureProviderModelsReady(bootstrapProfile.id, {
-          background: true,
-          silent: false,
-          reason: "bootstrap",
-        }).catch((error) => {
-          console.error(
-            `[AutoSync] 默认 provider 模型校验失败: ${bootstrapProfile.name}`,
-            error,
-          );
-        });
       }
-      console.info(
-        "===== 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 =====",
-      );
+      if (hasBootstrapCache) {
+        autoSyncConsole(
+          "info",
+          "===== 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 =====",
+        );
+      } else {
+        autoSyncConsole(
+          "info",
+          "===== 📦 本地模型缓存检查完成 | [AutoSync] 当前没有可用缓存，将走首次同步 =====",
+        );
+      }
       logPerfSummary("StartupSync", {
-        localCriticalRestoreDurationMs: Number(
+        localModelRestoreDurationMs: Number(
           (nowMs() - restoreStartedAt).toFixed(2),
         ),
       });
@@ -544,12 +562,12 @@ export default function AutoSync() {
     };
 
     const startAutoSync = () => {
-      console.log("[AutoSync] ⏰ 延迟时间到，开始检查同步配置");
+      autoSyncConsole("log", "[AutoSync] ⏰ 延迟时间到，开始检查同步配置");
 
       const syncStore = useSyncStore.getState();
       const modelCacheStore = useModelCacheStore.getState();
 
-      console.log("[AutoSync] 🔍 检查同步配置:", {
+      autoSyncConsole("log", "[AutoSync] 🔍 检查同步配置:", {
         provider: syncStore.provider,
         cloudSyncResult: syncStore.cloudSync(),
         databaseConfig: syncStore.database,
@@ -557,15 +575,15 @@ export default function AutoSync() {
 
       // 检查是否已配置同步
       if (!syncStore.provider) {
-        console.log("[AutoSync] 🔕 没有设置 provider，跳过自动同步");
+        autoSyncConsole("log", "[AutoSync] 🔕 没有设置 provider，跳过自动同步");
         return;
       }
 
       const canSync = syncStore.cloudSync();
-      console.log("[AutoSync] 🔍 cloudSync() 返回:", canSync);
+      autoSyncConsole("log", "[AutoSync] 🔍 cloudSync() 返回:", canSync);
 
       if (!canSync) {
-        console.log("[AutoSync] 🔕 同步未配置，跳过自动同步");
+        autoSyncConsole("log", "[AutoSync] 🔕 同步未配置，跳过自动同步");
         return;
       }
 
@@ -575,7 +593,10 @@ export default function AutoSync() {
         }
 
         if (Date.now() - lastAutoSyncBootstrapAt < 5000) {
-          console.log("[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过");
+          autoSyncConsole(
+            "log",
+            "[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过",
+          );
           return;
         }
         lastAutoSyncBootstrapAt = Date.now();
@@ -584,7 +605,8 @@ export default function AutoSync() {
         modelCacheStore.migrateFromAccessProfiles?.();
 
         if (!acquireLock()) {
-          console.log(
+          autoSyncConsole(
+            "log",
             "[AutoSync] 🔒 其他标签页正在执行自动同步，当前标签页等待锁释放",
           );
           scheduleRetry(attemptAutoSync);
@@ -598,58 +620,115 @@ export default function AutoSync() {
           refreshLock,
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
         );
-        logCriticalModelSyncBanner("start", "开始执行首开关键模型同步");
-        console.log("[AutoSync] 🚀 开始自动同步...");
+        logCriticalStartupSyncBanner("start", "聊天记录优先");
+        autoSyncConsole("log", "[AutoSync] 🚀 开始自动同步...");
 
         Promise.resolve()
-          .then(async () => {
-            await waitForImmediateStoreSyncQueueIdle();
-            return syncStore.resumePendingDebounceSync?.();
-          })
+          .then(() => syncStore.autoSyncCritical?.() || syncStore.autoSync())
           .catch((error: unknown) => {
-            console.error("[AutoSync] ❌ 恢复未完成同步失败:", error);
-            return false;
-          })
-          .then((resumed: boolean | void) => {
-            if (resumed) {
-              console.log("[AutoSync] ℹ️ 已恢复待执行同步，跳过重复自动同步");
-              return;
-            }
-
-            return syncStore.autoSyncCritical?.() || syncStore.autoSync();
-          })
-          .catch((error: unknown) => {
-            console.error(
+            autoSyncConsole(
+              "error",
               "[AutoSync] ⚠️ 关键同步失败（不阻止后台同步）:",
               error,
             );
           })
-          .then(async () => {})
           .then(async () => {
             hasCompletedAutoSync = true;
             const elapsedMs = nowMs() - criticalSyncStartedAt;
+            const elapsedSeconds = (elapsedMs / 1000).toFixed(2);
             logPerfSummary("StartupSync", {
               autoSyncCriticalDurationMs: Number(elapsedMs.toFixed(2)),
             });
-            logCriticalModelSyncBanner(
+            logCriticalStartupSyncBanner(
               "complete",
-              `关键模型数据已恢复，用时 ${elapsedMs} ms`,
+              `用时 ${elapsedSeconds} 秒`,
             );
-            console.log("[AutoSync] ✅ 关键自动同步完成，模型数据已优先恢复");
-            scheduleIdleTask(() => {
-              void logModelCountWithRemote();
-            });
-            setTimeout(() => {
-              console.info("===== 💾 对话与设置后台同步开始 =====");
+            autoSyncConsole(
+              "log",
+              "[AutoSync] ✅ 关键同步完成，页面已可直接对话",
+            );
+
+            let deferredSyncExecuted = false;
+            const deferredSyncTask = () => {
+              if (deferredSyncExecuted) return;
+              deferredSyncExecuted = true;
+              if (deferredFallbackTimer) {
+                clearTimeout(deferredFallbackTimer);
+                deferredFallbackTimer = null;
+              }
+
+              void Promise.resolve()
+                .then(() => {
+                  autoSyncConsole(
+                    "log",
+                    "[AutoSync] 📤 后台上传本地会话到远端...",
+                  );
+                  return syncStore.sync([StoreKey.Chat], {
+                    isolateQueue: true,
+                    force: true,
+                  });
+                })
+                .then(() => {
+                  autoSyncConsole("log", "[AutoSync] ✅ 本地会话上传完成");
+                })
+                .catch((uploadError: unknown) => {
+                  autoSyncConsole(
+                    "error",
+                    "[AutoSync] ⚠️ 本地会话上传失败:",
+                    uploadError,
+                  );
+                })
+                .then(() => syncStore.resumePendingDebounceSync?.())
+                .then((resumed: boolean | void) => {
+                  if (resumed) {
+                    autoSyncConsole(
+                      "log",
+                      "[AutoSync] ♻️ 已补跑未完成的本地同步任务",
+                    );
+                  }
+                })
+                .catch((error: unknown) => {
+                  autoSyncConsole(
+                    "error",
+                    "[AutoSync] ❌ 补跑未完成同步失败:",
+                    error,
+                  );
+                });
+
+              autoSyncConsole("info", "===== 💾 对话与设置后台同步开始 =====");
               const deferredSync =
                 syncStore.autoSyncDeferred?.() ?? Promise.resolve();
               void deferredSync
                 .then(() => {
-                  console.log("[AutoSync] ✅ 后台同步完成（含对话记录）");
-                  console.info("===== 💾 对话与设置后台同步完成 =====");
+                  restoreLocalModelCacheState();
+                  if (pendingBootstrapProfileId) {
+                    void ensureProviderModelsReady(pendingBootstrapProfileId, {
+                      background: true,
+                      silent: false,
+                      reason: "bootstrap",
+                    }).catch((error) => {
+                      autoSyncConsole(
+                        "error",
+                        `[AutoSync] 默认 provider 模型校验失败: ${pendingBootstrapProfileName}`,
+                        error,
+                      );
+                    });
+                  }
+                  scheduleIdleTask(() => {
+                    void logModelCountWithRemote();
+                  });
+                  autoSyncConsole(
+                    "log",
+                    "[AutoSync] ✅ 后台同步完成（含对话记录）",
+                  );
+                  autoSyncConsole(
+                    "info",
+                    "===== 💾 对话与设置后台同步完成 =====",
+                  );
                 })
                 .catch((error: unknown) => {
-                  console.error(
+                  autoSyncConsole(
+                    "error",
                     "[AutoSync] ❌ 后台同步失败（含对话记录）:",
                     error,
                   );
@@ -665,12 +744,19 @@ export default function AutoSync() {
                   });
                 })
                 .catch((error: unknown) => {
-                  console.error("[AutoSync] ❌ 远端初始化补齐失败:", error);
+                  autoSyncConsole(
+                    "error",
+                    "[AutoSync] ❌ 远端初始化补齐失败:",
+                    error,
+                  );
                 });
-            }, 0);
+            };
+
+            scheduleIdleTask(deferredSyncTask, 800);
+            deferredFallbackTimer = setTimeout(deferredSyncTask, 2000);
           })
           .catch((error: unknown) => {
-            console.error("[AutoSync] ❌ 同步失败:", error);
+            autoSyncConsole("error", "[AutoSync] ❌ 同步失败:", error);
           })
           .finally(() => {
             autoSyncInProgress = false;
@@ -679,6 +765,15 @@ export default function AutoSync() {
       };
 
       channel?.addEventListener("message", (event: MessageEvent) => {
+        if (
+          event.data?.type === CHAT_SYNC_UPDATED_MESSAGE_TYPE &&
+          event.data?.owner &&
+          event.data.owner !== tabId
+        ) {
+          triggerExternalChatSync("broadcast");
+          return;
+        }
+
         if (
           event.data?.type === "auto-sync-finished" &&
           !hasCompletedAutoSync &&
@@ -696,6 +791,7 @@ export default function AutoSync() {
         return;
       }
 
+      autoSyncConsole("info", "===== 🚀 AutoSync 启动流程开始 =====");
       restoreLocalCriticalState();
       logPerfSummary("StartupSync", {
         hydrationWaitDurationMs: result.durationMs,
@@ -705,7 +801,8 @@ export default function AutoSync() {
       });
 
       if (result.timedOut && result.pendingStores.length > 0) {
-        console.log(
+        autoSyncConsole(
+          "log",
           `[AutoSync] ℹ️ 关键 store hydration 等待超时，继续执行首开同步；未完成: ${result.pendingStores.join(
             ", ",
           )}`,
@@ -718,15 +815,104 @@ export default function AutoSync() {
       );
     });
 
+    const triggerForegroundChatSync = () => {
+      if (
+        !authInitialized ||
+        !authUser ||
+        document.hidden ||
+        autoSyncInProgress ||
+        !hasCompletedAutoSync
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastForegroundSyncAt < 3000) {
+        return;
+      }
+      lastForegroundSyncAt = now;
+
+      const syncStore = useSyncStore.getState();
+      void Promise.resolve()
+        .then(() => syncStore.resumePendingDebounceSync?.())
+        .then(
+          () =>
+            (syncStore as any).syncChatIfRemoteChanged?.({
+              source: "foreground",
+              minIntervalMs: 0,
+            }),
+        )
+        .catch((error: unknown) => {
+          autoSyncConsole(
+            "error",
+            "[AutoSync] ❌ 前台快速聊天同步失败:",
+            error,
+          );
+        });
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        triggerForegroundChatSync();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      triggerForegroundChatSync();
+    };
+
+    const handlePageHide = () => {
+      const syncStore = useSyncStore.getState() as any;
+      syncStore.flushPendingDebounceSync?.([StoreKey.Chat]);
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== CHAT_SYNC_HINT_KEY) {
+        return;
+      }
+
+      const hint = parseChatSyncHint(event.newValue);
+      if (!hint || hint.owner === tabId) {
+        return;
+      }
+
+      triggerExternalChatSync("storage");
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("storage", handleStorage);
+
+    chatMetaPollTimer = setInterval(() => {
+      if (autoSyncInProgress || !hasCompletedAutoSync) {
+        return;
+      }
+      if (document.hidden) {
+        const now = Date.now();
+        if (now - lastExternalChatHintAt < 5000) {
+          return;
+        }
+      }
+      triggerExternalChatSync("poll");
+    }, 1500);
+
     return () => {
-      console.log("[AutoSync] 🧹 组件卸载");
+      autoSyncConsole("log", "[AutoSync] 🧹 组件卸载");
       autoSyncEffectActive = false;
       if (timer) {
         clearTimeout(timer);
       }
+      if (deferredFallbackTimer) {
+        clearTimeout(deferredFallbackTimer);
+      }
       clearHydrationBarrier?.();
       clearHydrationBarrier = null;
       clearRetryTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("storage", handleStorage);
       releaseLock();
       channel?.close();
     };

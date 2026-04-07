@@ -7,6 +7,7 @@ import SitePasswordGate from "./components/site-password-gate";
 const serverConfig = getServerSideConfig();
 const AUTH_SESSION_COOKIE_NAME = "nextchat_auth_session";
 const EFFECTIVE_USER_COOKIE_NAME = "nextchat_effective_user";
+const AUTH_BYPASS_ENABLED = true; // 临时关闭登录限制，方便测试
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,19 @@ export default async function App({
 }: {
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
+  if (AUTH_BYPASS_ENABLED) {
+    return (
+      <>
+        <HomeEntry />
+        {serverConfig?.isVercel && (
+          <>
+            <Analytics />
+          </>
+        )}
+      </>
+    );
+  }
+
   const cookieStore = cookies();
   const sessionToken = cookieStore.get(AUTH_SESSION_COOKIE_NAME)?.value;
   const effectiveUserId = cookieStore.get(EFFECTIVE_USER_COOKIE_NAME)?.value;

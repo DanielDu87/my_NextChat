@@ -63,30 +63,219 @@ const DEFAULT_SILICONFLOW_URL = isApp
 const DEFAULT_AI302_URL = isApp ? AI302_BASE_URL : ApiPath["302.AI"];
 const DEFAULT_AIHUBMIX_URL = "https://aihubmix.com";
 const DEFAULT_AIHUBMIX_PROFILE_ID = "default_aihubmix_profile";
+const DEFAULT_YUTO_PROFILE_ID = "default_yuto_profile";
+const DEFAULT_OCOOL_PROFILE_ID = "default_ocool_profile";
+const DEFAULT_TOAPIS_PROFILE_ID = "default_toapis_profile";
+const DEFAULT_YUTO_URL = "https://cn.gptapi.asia";
+const DEFAULT_OCOOL_URL = "https://one.ooo.cool";
+const DEFAULT_TOAPIS_URL = "https://toapis.com";
+const DEFAULT_YUTO_API_KEY_GROUPS = {
+  default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
+  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
+  discount: "sk-JcPXIRfVD27TqRmBEFGsbtZ5zWpsppiMQCFjQRUpri5u7nLv",
+  anthropic: "sk-g8N4StogM4emnJvcLZ37TxTUcL71xPDWlQH0sZpQtMztkHEt",
+  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
+} as const;
+
+function createDefaultCustomProfiles() {
+  return [
+    {
+      id: DEFAULT_AIHUBMIX_PROFILE_ID,
+      name: "AihubMix",
+      provider: ServiceProvider.Custom,
+      baseUrl: DEFAULT_AIHUBMIX_URL,
+      apiKey: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
+      modelFetchApiKey: "",
+      balanceQueryApiKey: "",
+      balanceQueryUrl: "",
+      balanceQueryField: "",
+      apiKeyGroups: {
+        default: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
+        user: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
+      },
+      enabled: true,
+      openAICompatible: true,
+      cachedModels: "",
+      modelCount: 0,
+    },
+    {
+      id: DEFAULT_YUTO_PROFILE_ID,
+      name: "YutoAPI",
+      provider: ServiceProvider.Custom,
+      baseUrl: DEFAULT_YUTO_URL,
+      apiKey: DEFAULT_YUTO_API_KEY_GROUPS.user,
+      modelFetchApiKey: "",
+      balanceQueryApiKey: "",
+      balanceQueryUrl: "",
+      balanceQueryField: "",
+      apiKeyGroups: { ...DEFAULT_YUTO_API_KEY_GROUPS },
+      enabled: false,
+      openAICompatible: true,
+      cachedModels: "",
+      modelCount: 0,
+    },
+    {
+      id: DEFAULT_OCOOL_PROFILE_ID,
+      name: "Ocoolai",
+      provider: ServiceProvider.Custom,
+      baseUrl: DEFAULT_OCOOL_URL,
+      apiKey: "1e64d2329f18493784eba5b2390bcf0b",
+      modelFetchApiKey: "",
+      balanceQueryApiKey: "",
+      balanceQueryUrl: "",
+      balanceQueryField: "",
+      apiKeyGroups: {},
+      enabled: false,
+      openAICompatible: true,
+      cachedModels: "",
+      modelCount: 0,
+    },
+    {
+      id: DEFAULT_TOAPIS_PROFILE_ID,
+      name: "ToAPIs",
+      provider: ServiceProvider.Custom,
+      baseUrl: DEFAULT_TOAPIS_URL,
+      apiKey: "sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx",
+      modelFetchApiKey: "",
+      balanceQueryApiKey: "",
+      balanceQueryUrl: "",
+      balanceQueryField: "",
+      apiKeyGroups: {},
+      enabled: false,
+      openAICompatible: true,
+      cachedModels: "",
+      modelCount: 0,
+    },
+  ];
+}
+
+function ensureDefaultCustomProfiles(state: Record<string, any>) {
+  const profiles = Array.isArray(state.apiProfiles) ? state.apiProfiles : [];
+  const nextProfiles = [...profiles];
+  const existingIds = new Set(
+    profiles.map((profile: Record<string, any>) => String(profile?.id || "")),
+  );
+
+  createDefaultCustomProfiles().forEach((profile) => {
+    if (existingIds.has(profile.id)) {
+      return;
+    }
+    nextProfiles.push(profile);
+  });
+
+  state.apiProfiles = nextProfiles;
+  return state;
+}
+
+function applyEnabledProfileDerivedFields(state: Record<string, any>) {
+  ensureDefaultCustomProfiles(state);
+  const enabledProfile = Array.isArray(state.apiProfiles)
+    ? state.apiProfiles.find((profile: any) => profile?.enabled)
+    : undefined;
+
+  if (!enabledProfile) {
+    return state;
+  }
+
+  state.provider = enabledProfile.provider || state.provider;
+  const fillProfileApiKey = (fallbackKey: string) => {
+    const nextKey = String(enabledProfile.apiKey || fallbackKey || "").trim();
+    if (nextKey) {
+      enabledProfile.apiKey = nextKey;
+    }
+    return nextKey;
+  };
+
+  switch (enabledProfile.provider) {
+    case ServiceProvider.Custom:
+      state.useCustomConfig = true;
+      state.customUrl = enabledProfile.baseUrl || state.customUrl || "";
+      state.customApiKey = fillProfileApiKey(state.customApiKey);
+      state.customOpenAICompatible =
+        enabledProfile.openAICompatible ?? state.customOpenAICompatible ?? true;
+      break;
+    case ServiceProvider.OpenAI:
+      state.openaiUrl = enabledProfile.baseUrl || state.openaiUrl || "";
+      state.openaiApiKey = fillProfileApiKey(state.openaiApiKey);
+      break;
+    case ServiceProvider.Azure:
+      state.azureUrl = enabledProfile.baseUrl || state.azureUrl || "";
+      state.azureApiKey = fillProfileApiKey(state.azureApiKey);
+      break;
+    case ServiceProvider.Google:
+      state.googleUrl = enabledProfile.baseUrl || state.googleUrl || "";
+      state.googleApiKey = fillProfileApiKey(state.googleApiKey);
+      break;
+    case ServiceProvider.Anthropic:
+      state.anthropicUrl = enabledProfile.baseUrl || state.anthropicUrl || "";
+      state.anthropicApiKey = fillProfileApiKey(state.anthropicApiKey);
+      break;
+    case ServiceProvider.Baidu:
+      state.baiduUrl = enabledProfile.baseUrl || state.baiduUrl || "";
+      state.baiduApiKey = fillProfileApiKey(state.baiduApiKey);
+      break;
+    case ServiceProvider.ByteDance:
+      state.bytedanceUrl = enabledProfile.baseUrl || state.bytedanceUrl || "";
+      state.bytedanceApiKey = fillProfileApiKey(state.bytedanceApiKey);
+      break;
+    case ServiceProvider.Alibaba:
+      state.alibabaUrl = enabledProfile.baseUrl || state.alibabaUrl || "";
+      state.alibabaApiKey = fillProfileApiKey(state.alibabaApiKey);
+      break;
+    case ServiceProvider.Moonshot:
+      state.moonshotUrl = enabledProfile.baseUrl || state.moonshotUrl || "";
+      state.moonshotApiKey = fillProfileApiKey(state.moonshotApiKey);
+      break;
+    case ServiceProvider.Stability:
+      state.stabilityUrl = enabledProfile.baseUrl || state.stabilityUrl || "";
+      state.stabilityApiKey = fillProfileApiKey(state.stabilityApiKey);
+      break;
+    case ServiceProvider.Iflytek:
+      state.iflytekUrl = enabledProfile.baseUrl || state.iflytekUrl || "";
+      state.iflytekApiKey = fillProfileApiKey(state.iflytekApiKey);
+      break;
+    case ServiceProvider.XAI:
+      state.xaiUrl = enabledProfile.baseUrl || state.xaiUrl || "";
+      state.xaiApiKey = fillProfileApiKey(state.xaiApiKey);
+      break;
+    case ServiceProvider.ChatGLM:
+      state.chatglmUrl = enabledProfile.baseUrl || state.chatglmUrl || "";
+      state.chatglmApiKey = fillProfileApiKey(state.chatglmApiKey);
+      break;
+    case ServiceProvider.DeepSeek:
+      state.deepseekUrl = enabledProfile.baseUrl || state.deepseekUrl || "";
+      state.deepseekApiKey = fillProfileApiKey(state.deepseekApiKey);
+      break;
+    case ServiceProvider.SiliconFlow:
+      state.siliconflowUrl =
+        enabledProfile.baseUrl || state.siliconflowUrl || "";
+      state.siliconflowApiKey = fillProfileApiKey(state.siliconflowApiKey);
+      break;
+    case ServiceProvider["302.AI"]:
+      state.ai302Url = enabledProfile.baseUrl || state.ai302Url || "";
+      state.ai302ApiKey = fillProfileApiKey(state.ai302ApiKey);
+      break;
+    case ServiceProvider.Local:
+      state.localUrl = enabledProfile.baseUrl || state.localUrl || "";
+      state.localApiKey = fillProfileApiKey(state.localApiKey);
+      break;
+  }
+
+  return state;
+}
+
+export function normalizeAccessStateDerivedFields<
+  T extends Record<string, any>,
+>(state: T): T {
+  return applyEnabledProfileDerivedFields(state) as T;
+}
 
 const DEFAULT_ACCESS_STATE = {
   accessCode: "",
   useCustomConfig: true,
 
   provider: ServiceProvider.Custom,
-  apiProfiles: [
-    {
-      id: DEFAULT_AIHUBMIX_PROFILE_ID,
-      name: "AihubMix",
-      provider: ServiceProvider.Custom,
-      baseUrl: DEFAULT_AIHUBMIX_URL,
-      apiKey: "",
-      modelFetchApiKey: "",
-      balanceQueryApiKey: "",
-      balanceQueryUrl: "",
-      balanceQueryField: "",
-      apiKeyGroups: {},
-      enabled: true,
-      openAICompatible: true,
-      cachedModels: "",
-      modelCount: 0,
-    },
-  ] as Array<{
+  apiProfiles: createDefaultCustomProfiles() as Array<{
     id: string;
     name: string;
     provider: ServiceProvider;
@@ -347,6 +536,16 @@ export const useAccessStore = createPersistStore(
   {
     name: StoreKey.Access,
     version: 5,
+    onRehydrateStorage() {
+      return () => {
+        const normalizedState = normalizeAccessStateDerivedFields(
+          ensureDefaultCustomProfiles({
+            ...(useAccessStore.getState() as any),
+          }),
+        );
+        useAccessStore.setState(normalizedState as any);
+      };
+    },
     migrate(persistedState, version) {
       if (version < 2) {
         const state = persistedState as {
@@ -381,6 +580,9 @@ export const useAccessStore = createPersistStore(
         delete state.webdavUsername;
         delete state.webdavPassword;
       }
+
+      ensureDefaultCustomProfiles(persistedState as Record<string, any>);
+      normalizeAccessStateDerivedFields(persistedState as Record<string, any>);
 
       return persistedState as any;
     },

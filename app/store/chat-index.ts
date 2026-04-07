@@ -9,10 +9,11 @@ import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
 import { ChatSessionSummary, createEmptySession, useChatStore } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
+import { logger } from "../utils/logger";
 
 const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 20;
 const LOAD_MORE_SESSION_TITLE_COUNT = 10;
-const INITIAL_PRELOAD_SESSION_BODY_COUNT = 8;
+const INITIAL_PRELOAD_SESSION_BODY_COUNT = 2;
 
 type ChatIndexState = {
   allOrderedSessionIds: string[];
@@ -133,7 +134,7 @@ function preloadSessionRange(sessionIds: string[]) {
         .getState()
         .hydrateSessionIntoMemory(sessionId)
         .catch((error) => {
-          console.error("[ChatIndex] 预加载会话失败:", sessionId, error);
+          logger.chatIndex.error("预加载会话失败:", sessionId, error);
         });
     });
     return;
@@ -148,7 +149,7 @@ function preloadSessionRange(sessionIds: string[]) {
     .getState()
     .hydrateSessionIntoMemory(currentSessionId)
     .catch((error) => {
-      console.error("[ChatIndex] 预加载当前会话失败:", currentSessionId, error);
+      logger.chatIndex.error("预加载当前会话失败:", currentSessionId, error);
     });
 }
 
@@ -231,6 +232,8 @@ function buildSnapshotFromChatStore(): ChatIndexSnapshot {
 }
 
 let hasBoundChatStoreSubscription = false;
+let syncFromChatStoreDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const SYNC_FROM_CHAT_STORE_DEBOUNCE_MS = 150;
 
 function bindChatStoreSubscription() {
   if (hasBoundChatStoreSubscription) {
@@ -238,8 +241,31 @@ function bindChatStoreSubscription() {
   }
 
   hasBoundChatStoreSubscription = true;
-  useChatStore.subscribe(() => {
-    useChatIndexStore.getState().syncFromChatStore();
+  useChatStore.subscribe((state, prevState) => {
+    const sessionsChanged = state.sessions !== prevState.sessions;
+    const indexChanged =
+      state.currentSessionIndex !== prevState.currentSessionIndex;
+    const selectionChanged =
+      state.selectedSessionId !== prevState.selectedSessionId;
+    const summariesChanged =
+      state.sessionSummaries !== prevState.sessionSummaries;
+
+    if (
+      !sessionsChanged &&
+      !indexChanged &&
+      !selectionChanged &&
+      !summariesChanged
+    ) {
+      return;
+    }
+
+    if (syncFromChatStoreDebounceTimer) {
+      clearTimeout(syncFromChatStoreDebounceTimer);
+    }
+    syncFromChatStoreDebounceTimer = setTimeout(() => {
+      syncFromChatStoreDebounceTimer = null;
+      useChatIndexStore.getState().syncFromChatStore();
+    }, SYNC_FROM_CHAT_STORE_DEBOUNCE_MS);
   });
 }
 
@@ -304,16 +330,29 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
     const startedAt = nowMs();
     bindChatStoreSubscription();
 
-    const indexText = await indexedDbStateStorage.getRawItem(
-      getChatIndexStorageKey(StoreKey.Chat),
-    );
-    const snapshot = indexText
-      ? buildSnapshotFromPersistedIndex(
-          parseStoreStatePayload<ChatPersistSplitIndex>(indexText),
-        )
-      : null;
+    // 优先从 chatStore 内存构建，避免重复 IndexedDB 读取
+    const chatStoreState = useChatStore.getState();
+    const hasChatStoreHydrated = Boolean((chatStoreState as any)._hasHydrated);
 
-    const nextSnapshot = snapshot ?? buildSnapshotFromChatStore();
+    let nextSnapshot: ChatIndexSnapshot;
+
+    if (
+      hasChatStoreHydrated &&
+      Array.isArray(chatStoreState.sessions) &&
+      chatStoreState.sessions.length > 0
+    ) {
+      nextSnapshot = buildSnapshotFromChatStore();
+    } else {
+      const indexText = await indexedDbStateStorage.getRawItem(
+        getChatIndexStorageKey(StoreKey.Chat),
+      );
+      const snapshot = indexText
+        ? buildSnapshotFromPersistedIndex(
+            parseStoreStatePayload<ChatPersistSplitIndex>(indexText),
+          )
+        : null;
+      nextSnapshot = snapshot ?? buildSnapshotFromChatStore();
+    }
 
     set(() => ({
       ...nextSnapshot,

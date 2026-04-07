@@ -449,6 +449,8 @@ function areModelConfigValuesEqual(
 }
 
 function ChatModelUpdateNotice() {
+  const authUser = useAuthStore((state) => state.user);
+  const authInitialized = useAuthStore((state) => state.initialized);
   const navigate = useNavigate();
   const accessStore = useAccessStore();
   const modelCacheStore = useModelCacheStore();
@@ -567,6 +569,12 @@ function ChatModelUpdateNotice() {
   }, []);
 
   const refreshRemoteSignals = useCallback(async () => {
+    if (!authInitialized || !authUser) {
+      setRemoteModelRefresh(null);
+      setRemoteSignalsLoaded(true);
+      return;
+    }
+
     if (useSyncStore.getState().provider !== ProviderType.Database) {
       setRemoteModelRefresh(null);
       setRemoteSignalsLoaded(true);
@@ -590,7 +598,7 @@ function ChatModelUpdateNotice() {
     } finally {
       setRemoteSignalsLoaded(true);
     }
-  }, []);
+  }, [authInitialized, authUser]);
 
   useEffect(() => {
     void refreshRemoteSignals();
@@ -737,7 +745,17 @@ function ChatProviderBalance(props: {
   refreshSignal: string;
   balanceCacheKey: string;
   profile?: BalanceAwareProfile;
+  deferInitialRefresh?: boolean;
 }) {
+  const authUser = useAuthStore((state) => state.user);
+  const authInitialized = useAuthStore((state) => state.initialized);
+  const syncProvider = useSyncStore((state) => state.provider);
+  const criticalSyncReady = useSyncStore(
+    (state: any) => state.criticalSyncReady,
+  );
+  const criticalSyncInProgress = useSyncStore(
+    (state: any) => state.criticalSyncInProgress,
+  );
   function formatUsageCurrency(value: number) {
     if (!Number.isFinite(value)) {
       return "--";
@@ -768,7 +786,15 @@ function ChatProviderBalance(props: {
 
   const refreshUsage = useCallback(
     async (force = false) => {
-      if (props.autoModeEnabled || !supportsBalance || !showUsage) {
+      if (
+        !authInitialized ||
+        !authUser ||
+        props.autoModeEnabled ||
+        (syncProvider === ProviderType.Database &&
+          (!criticalSyncReady || criticalSyncInProgress)) ||
+        !supportsBalance ||
+        !showUsage
+      ) {
         return;
       }
 
@@ -780,10 +806,15 @@ function ChatProviderBalance(props: {
       }
     },
     [
+      authInitialized,
+      authUser,
+      criticalSyncInProgress,
+      criticalSyncReady,
       props.autoModeEnabled,
       props.profile,
       props.providerName,
       showUsage,
+      syncProvider,
       supportsBalance,
       updateUsage,
     ],
@@ -798,6 +829,15 @@ function ChatProviderBalance(props: {
 
   useEffect(() => {
     if (props.autoModeEnabled || !supportsBalance || !props.balanceCacheKey) {
+      return;
+    }
+    if (props.deferInitialRefresh) {
+      return;
+    }
+    if (
+      syncProvider === ProviderType.Database &&
+      (!criticalSyncReady || criticalSyncInProgress)
+    ) {
       return;
     }
 
@@ -816,13 +856,22 @@ function ChatProviderBalance(props: {
   }, [
     props.autoModeEnabled,
     props.balanceCacheKey,
+    props.deferInitialRefresh,
     props.profile?.id,
     props.providerName,
+    criticalSyncInProgress,
+    criticalSyncReady,
     refreshUsage,
+    syncProvider,
     supportsBalance,
   ]);
 
-  if (props.autoModeEnabled || !supportsBalance) {
+  if (
+    !authInitialized ||
+    !authUser ||
+    props.autoModeEnabled ||
+    !supportsBalance
+  ) {
     return null;
   }
 
@@ -2156,6 +2205,13 @@ function _Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const criticalSyncReady = useSyncStore(
+    (state: any) => state.criticalSyncReady,
+  );
+  const criticalSyncInProgress = useSyncStore(
+    (state: any) => state.criticalSyncInProgress,
+  );
+  const syncProvider = useSyncStore((state) => state.provider);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isScrolledToBottom = scrollRef?.current
@@ -3563,7 +3619,6 @@ function _Chat() {
             const maxScroll = dom.scrollHeight - dom.clientHeight;
             // 只有当不在最底部时才滚动
             if (currentScroll < maxScroll) {
-              console.log("[StreamingScroll] auto-scrolling to bottom");
               dom.scrollTo(0, dom.scrollHeight);
             }
           }
@@ -4283,6 +4338,7 @@ function _Chat() {
                 refreshSignal={balanceRefreshSignal}
                 balanceCacheKey={currentBalanceCacheKey}
                 profile={balanceProfile as BalanceAwareProfile | undefined}
+                deferInitialRefresh={sessionMessages.length === 0}
               />
               <UserMenu variant="chat-floating" />
             </div>
@@ -4621,6 +4677,9 @@ function _Chat() {
                   placeholder={
                     readOnly
                       ? "管理员查看模式下不可发送消息"
+                      : syncProvider === ProviderType.Database &&
+                        (!criticalSyncReady || criticalSyncInProgress)
+                      ? "正在后台恢复聊天记录和 API 配置，可直接对话"
                       : Locale.Chat.Input(submitKey)
                   }
                   onInput={(e) => onInput(e.currentTarget.value)}
@@ -5036,6 +5095,13 @@ export function Chat() {
       const store = useChatStore.getState();
       const currentId = store.sessions[store.currentSessionIndex]?.id;
       if (currentId !== urlSessionId) {
+        const isNewTab =
+          typeof window !== "undefined" &&
+          window.sessionStorage?.getItem("nextchat_tab_initialized") !== "1";
+        if (isNewTab) {
+          navigate("/", { replace: true });
+          return;
+        }
         isNavigatingFromUrl.current = true;
         store.selectSessionById(urlSessionId);
       }

@@ -42,6 +42,9 @@ export function rebuildManagedModelsFromCache() {
   lastProfilesHash = currentHash;
 
   const rebuiltModels: LLMModel[] = [];
+  const allowedProviderIds = profiles.map((profile) =>
+    getProfileProviderId(profile),
+  );
 
   profiles.forEach((profile) => {
     const cache = modelCacheStore.profiles?.[profile.id];
@@ -76,11 +79,22 @@ export function rebuildManagedModelsFromCache() {
     return;
   }
 
+  const allowedProviderIdSet = new Set(
+    allowedProviderIds.map((id) => String(id).toLowerCase()),
+  );
+  const unmanagedModels = (appConfig.models || []).filter((model) => {
+    const providerId = String(model?.provider?.id || "").toLowerCase();
+    return !allowedProviderIdSet.has(providerId);
+  });
+
+  useAppConfig.setState({
+    ...appConfig,
+    models: unmanagedModels,
+  });
+
   appConfig.mergeModels(rebuiltModels, {
     silent: true,
     skipMarkUpdate: true,
-    allowedProviderIds: profiles.map((profile) =>
-      getProfileProviderId(profile),
-    ),
+    allowedProviderIds,
   });
 }

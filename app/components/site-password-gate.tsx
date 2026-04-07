@@ -45,8 +45,8 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         return;
       }
 
+      router.replace("/");
       router.refresh();
-      window.location.reload();
     } catch (error) {
       setError(error instanceof Error ? error.message : "登录失败");
     } finally {
@@ -62,35 +62,40 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         </div>
         <div className={styles.title}>账号登录</div>
         <div className={styles.desc}>请使用管理员创建的账号进入系统。</div>
-        <div className={`${styles.input} ${styles.usernameInput}`}>
-          <input
-            aria-label="用户名"
-            value={username}
-            placeholder="请输入用户名"
-            autoFocus
-            required
-            onChange={(e) => {
-              setUsername(e.currentTarget.value);
-              if (error) {
-                setError("");
-              }
-            }}
-          />
+        <div className={styles.usernameInput}>
+          <div className={styles.inputBox}>
+            <input
+              className={styles.inputField}
+              aria-label="用户名"
+              value={username}
+              placeholder="请输入用户名"
+              autoFocus
+              required
+              onChange={(e) => {
+                setUsername(e.currentTarget.value);
+                if (error) {
+                  setError("");
+                }
+              }}
+            />
+          </div>
         </div>
-        <div className={`${styles.input} ${styles.passwordInput}`}>
-          <PasswordInput
-            aria="登录密码"
-            aria-label="登录密码"
-            value={password}
-            placeholder="请输入密码"
-            required
-            onChange={(e) => {
-              setPassword(e.currentTarget.value);
-              if (error) {
-                setError("");
-              }
-            }}
-          />
+        <div className={styles.passwordInput}>
+          <div className={styles.inputBox}>
+            <PasswordInput
+              aria="登录密码"
+              aria-label="登录密码"
+              value={password}
+              placeholder="请输入密码"
+              required
+              onChange={(e) => {
+                setPassword(e.currentTarget.value);
+                if (error) {
+                  setError("");
+                }
+              }}
+            />
+          </div>
         </div>
         <div className={styles.actions}>
           <IconButton

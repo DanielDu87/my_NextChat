@@ -6,6 +6,7 @@ import { indexedDbStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { StoreKey } from "../constant";
 import type { SyncStoreKey } from "./sync-store-keys";
 import { useAuthStore } from "../store/auth";
+import { logger } from "./logger";
 
 type SecondParam<T> = T extends (
   _f: infer _F,
@@ -62,7 +63,7 @@ async function processSyncQueue() {
   }
 
   isSyncQueueProcessing = true;
-  console.log("[Store] 📝 同步队列开始处理，待处理数量:", syncQueue.length);
+  logger.store.log("📝 同步队列开始处理，待处理数量:", syncQueue.length);
 
   while (syncQueue.length > 0) {
     const task = syncQueue.shift();
@@ -70,13 +71,13 @@ async function processSyncQueue() {
       try {
         await task();
       } catch (error) {
-        console.error("[Store] ❌ 同步队列任务失败:", error);
+        logger.store.error("❌ 同步队列任务失败:", error);
       }
     }
   }
 
   isSyncQueueProcessing = false;
-  console.log("[Store] ✅ 同步队列处理完成");
+  logger.store.log("✅ 同步队列处理完成");
   resolveSyncQueueIdle();
 }
 
@@ -123,7 +124,7 @@ function triggerImmediateStoreSync(storeName?: string) {
         return useSyncStore.getState().sync([syncStoreKey]);
       })
       .catch((error) => {
-        console.error(`[Store] ❌ ${storeName} 立即同步失败:`, error);
+        logger.store.error(`❌ ${storeName} 立即同步失败:`, error);
       });
 
   syncQueue.push(syncTask);

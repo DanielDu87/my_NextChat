@@ -26,7 +26,7 @@ services:
         - GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL:-https://api.github.com}
         - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
         - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
-        - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
+        - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-user:admin}
 
     container_name: nextchat
     restart: unless-stopped
@@ -75,9 +75,10 @@ services:
       - BASE_URL=${BASE_URL:-}
 
       # 用户标识（三个必须一致）
-      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID:-single-user}
-      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID:-single-user}
-      - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-single-user}
+      - NEXTCHAT_DISABLE_AUTH=${NEXTCHAT_DISABLE_AUTH:-false}
+      - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID:-user:admin}
+      - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID:-user:admin}
+      - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-user:admin}
 
       # 数据库配置 - 直连远程 PostgreSQL
       # 这里不要再给出本地 postgres 容器默认值，避免漏配时误连到另一套数据库

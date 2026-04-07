@@ -23,9 +23,33 @@ export type AccessSnapshot = {
 };
 
 export function readAccessSnapshot(): AccessSnapshot | null {
-  return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ACCESS_SNAPSHOT_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    return parsed as AccessSnapshot;
+  } catch {
+    return null;
+  }
 }
 
 export function writeAccessSnapshot(snapshot: AccessSnapshot) {
-  void snapshot;
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ACCESS_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {}
 }

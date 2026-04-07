@@ -587,7 +587,7 @@ async function persistBalanceSnapshot(
   key: string,
   snapshot: BalanceSnapshot,
 ): Promise<void> {
-  if (useAuthStore.getState().readOnly) {
+  if (useAuthStore.getState().readOnly || !useAuthStore.getState().user) {
     return;
   }
 
