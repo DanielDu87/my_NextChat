@@ -2326,12 +2326,6 @@ export const useChatStore = createPersistStore(
           accessStore.apiProfiles,
         );
 
-        logChatDebug(
-          "[Chat] 🤖 使用模型:",
-          initialModelConfig.model,
-          "提供商:",
-          displayProviderName,
-        );
         if (autoModeEnabled) {
           logChatDebug("[Chat] 🔄 自动模式已启用:", {
             selectedSeries: selectedAutoSeries || null,
@@ -2417,7 +2411,6 @@ export const useChatStore = createPersistStore(
             initialModelConfig.providerName as ServiceProvider,
             getEnabledCustomBalanceProfile(),
           );
-          logChatDebug("[Chat] 🚀 开始 API 调用...");
           api.llm.chat({
             messages: sendMessages,
             config: { ...initialModelConfig, stream: true },
