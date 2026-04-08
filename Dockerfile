@@ -71,6 +71,19 @@ RUN set -eux; \
 
 FROM base AS dev
 
+ENV HUSKY=0
+
+# 预装开发依赖到镜像缓存目录，避免每次容器启动都完整重新安装
+COPY package.json yarn.lock ./
+COPY vendor ./vendor
+RUN yarn install --frozen-lockfile --network-timeout 600000 && \
+    mkdir -p /opt/nextchat-node_modules && \
+    cp -a node_modules/. /opt/nextchat-node_modules/ && \
+    cat package.json yarn.lock | sha256sum | awk '{print $1}' > /opt/nextchat-node_modules/.nextchat-deps-hash
+
+COPY scripts/dev-container-start.sh /usr/local/bin/dev-container-start.sh
+RUN chmod +x /usr/local/bin/dev-container-start.sh
+
 # 开发环境变量
 ENV HOSTNAME=0.0.0.0 \
     NODE_ENV=development \
@@ -78,7 +91,7 @@ ENV HOSTNAME=0.0.0.0 \
 
 EXPOSE 3000
 
-CMD ["yarn", "dev", "--hostname", "0.0.0.0"]
+CMD ["sh", "/usr/local/bin/dev-container-start.sh"]
 
 # =============================================================================
 # 依赖安装阶段 - 优化缓存利用

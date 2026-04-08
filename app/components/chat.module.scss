@@ -250,6 +250,18 @@
   }
 }
 
+.model-selector-hint-provider-button-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+
+  &:hover {
+    border-color: var(--border-in-light);
+    box-shadow: none;
+    transform: none;
+  }
+}
+
 .model-selector-provider-open :global(svg:last-child) {
   transform: rotate(180deg);
 }

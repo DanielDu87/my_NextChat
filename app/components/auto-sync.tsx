@@ -23,6 +23,7 @@ import { readAccessSnapshot } from "../utils/access-snapshot";
 import {
   ensureProviderModelsReady,
   getDefaultBootstrapProfile,
+  getProfileProviderId,
 } from "../utils/provider-sync";
 import {
   AUTO_SYNC_CHANNEL_NAME,
@@ -91,6 +92,36 @@ function scheduleIdleTask(task: () => void, timeout = 800) {
   }
 
   setTimeout(task, 0);
+}
+
+function scheduleDeferredSyncTask(
+  task: () => void,
+  options: {
+    visibleDelayMs: number;
+    hiddenDelayMs: number;
+  },
+) {
+  const delayMs = document.hidden
+    ? options.hiddenDelayMs
+    : options.visibleDelayMs;
+
+  // 前台页面严格按延时执行，避免 requestIdleCallback 抢跑影响首屏交互。
+  if (!document.hidden) {
+    return setTimeout(task, delayMs);
+  }
+
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    return (
+      window as typeof window & {
+        requestIdleCallback: (
+          callback: () => void,
+          options?: { timeout?: number },
+        ) => number;
+      }
+    ).requestIdleCallback(task, { timeout: delayMs });
+  }
+
+  return setTimeout(task, delayMs);
 }
 
 export default function AutoSync() {
@@ -257,6 +288,9 @@ export default function AutoSync() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let hasCompletedAutoSync = false;
     let autoSyncInProgress = false;
+    let hasBootstrappedProviderModels = false;
+    let hasDeferredRemoteBootstrap = false;
+    let bootstrapProviderModelsPromise: Promise<void> | null = null;
     let lastForegroundSyncAt = 0;
     let lastExternalChatHintAt = 0;
     let hasRestoredModelsFromHydratedCache = false;
@@ -363,7 +397,12 @@ export default function AutoSync() {
 
       const syncStore = useSyncStore.getState() as any;
       void Promise.resolve()
-        .then(() => syncStore.resumePendingDebounceSync?.())
+        .then(
+          () =>
+            syncStore.resumePendingDebounceSync?.({
+              excludeKeys: [StoreKey.Config],
+            }),
+        )
         .then(
           () =>
             syncStore.syncChatIfRemoteChanged?.({
@@ -465,8 +504,15 @@ export default function AutoSync() {
     const restoreLocalModelCacheState = () => {
       const restoreStartedAt = nowMs();
       useModelCacheStore.getState().migrateFromAccessProfiles?.();
-      rebuildManagedModelsFromCache();
       const bootstrapProfile = getDefaultBootstrapProfile();
+      if (bootstrapProfile?.id) {
+        rebuildManagedModelsFromCache({
+          force: true,
+          providerIds: [getProfileProviderId(bootstrapProfile)],
+        });
+      } else {
+        rebuildManagedModelsFromCache({ force: true });
+      }
       const hasBootstrapCache = Boolean(
         bootstrapProfile?.id &&
           (useModelCacheStore.getState() as any).profiles?.[bootstrapProfile.id]
@@ -498,6 +544,44 @@ export default function AutoSync() {
       });
     };
 
+    const bootstrapProviderModels = (options?: { remoteRefresh?: boolean }) => {
+      restoreLocalModelCacheState();
+      if (!pendingBootstrapProfileId) {
+        bootstrapProviderModelsPromise = Promise.resolve();
+        return bootstrapProviderModelsPromise;
+      }
+
+      const shouldRemoteRefresh = Boolean(options?.remoteRefresh);
+
+      if (!shouldRemoteRefresh) {
+        if (hasBootstrappedProviderModels) {
+          return bootstrapProviderModelsPromise ?? Promise.resolve();
+        }
+        hasBootstrappedProviderModels = true;
+      } else {
+        if (hasDeferredRemoteBootstrap) {
+          return bootstrapProviderModelsPromise ?? Promise.resolve();
+        }
+        hasDeferredRemoteBootstrap = true;
+      }
+
+      bootstrapProviderModelsPromise = ensureProviderModelsReady(
+        pendingBootstrapProfileId,
+        {
+          background: shouldRemoteRefresh,
+          silent: false,
+          reason: shouldRemoteRefresh ? "bootstrap" : "background",
+        },
+      ).catch((error) => {
+        autoSyncConsole(
+          "error",
+          `[AutoSync] 默认 provider 模型校验失败: ${pendingBootstrapProfileName}`,
+          error,
+        );
+      });
+
+      return bootstrapProviderModelsPromise;
+    };
     const waitForCriticalStoreHydration = async () => {
       if (!isPerfFeatureEnabled("PERF_ENABLE_LIGHT_STARTUP_SYNC")) {
         return {
@@ -640,6 +724,7 @@ export default function AutoSync() {
             );
           })
           .then(async () => {
+            void bootstrapProviderModels();
             hasCompletedAutoSync = true;
             const elapsedMs = nowMs() - criticalSyncStartedAt;
             const elapsedSeconds = (elapsedMs / 1000).toFixed(2);
@@ -685,7 +770,12 @@ export default function AutoSync() {
                     uploadError,
                   );
                 })
-                .then(() => syncStore.resumePendingDebounceSync?.())
+                .then(
+                  () =>
+                    syncStore.resumePendingDebounceSync?.({
+                      excludeKeys: [StoreKey.Config],
+                    }),
+                )
                 .then((resumed: boolean | void) => {
                   if (resumed) {
                     autoSyncConsole(
@@ -710,20 +800,7 @@ export default function AutoSync() {
                 syncStore.autoSyncDeferred?.() ?? Promise.resolve();
               void deferredSync
                 .then(() => {
-                  restoreLocalModelCacheState();
-                  if (pendingBootstrapProfileId) {
-                    void ensureProviderModelsReady(pendingBootstrapProfileId, {
-                      background: true,
-                      silent: false,
-                      reason: "bootstrap",
-                    }).catch((error) => {
-                      autoSyncConsole(
-                        "error",
-                        `[AutoSync] 默认 provider 模型校验失败: ${pendingBootstrapProfileName}`,
-                        error,
-                      );
-                    });
-                  }
+                  void bootstrapProviderModels({ remoteRefresh: true });
                   scheduleIdleTask(() => {
                     void logModelCountWithRemote();
                   });
@@ -762,8 +839,17 @@ export default function AutoSync() {
                 });
             };
 
-            scheduleIdleTask(deferredSyncTask, 800);
-            deferredFallbackTimer = setTimeout(deferredSyncTask, 2000);
+            const deferredVisibleDelayMs = 15000;
+            const deferredHiddenDelayMs = 2500;
+            const deferredFallbackDelayMs = document.hidden ? 5000 : 20000;
+            scheduleDeferredSyncTask(deferredSyncTask, {
+              visibleDelayMs: deferredVisibleDelayMs,
+              hiddenDelayMs: deferredHiddenDelayMs,
+            });
+            deferredFallbackTimer = setTimeout(
+              deferredSyncTask,
+              deferredFallbackDelayMs,
+            );
           })
           .catch((error: unknown) => {
             autoSyncConsole("error", "[AutoSync] ❌ 同步失败:", error);
@@ -843,7 +929,12 @@ export default function AutoSync() {
 
       const syncStore = useSyncStore.getState();
       void Promise.resolve()
-        .then(() => syncStore.resumePendingDebounceSync?.())
+        .then(
+          () =>
+            syncStore.resumePendingDebounceSync?.({
+              excludeKeys: [StoreKey.Config],
+            }),
+        )
         .then(
           () =>
             (syncStore as any).syncChatIfRemoteChanged?.({
@@ -897,14 +988,17 @@ export default function AutoSync() {
       if (autoSyncInProgress || !hasCompletedAutoSync) {
         return;
       }
-      if (document.hidden) {
-        const now = Date.now();
-        if (now - lastExternalChatHintAt < 5000) {
-          return;
-        }
+      if (!document.hidden) {
+        return;
       }
+
+      const now = Date.now();
+      if (now - startedAt < 15000 || now - lastExternalChatHintAt < 15000) {
+        return;
+      }
+
       triggerExternalChatSync("poll");
-    }, 1500);
+    }, 15000);
 
     return () => {
       autoSyncConsole("log", "[AutoSync] 🧹 组件卸载");

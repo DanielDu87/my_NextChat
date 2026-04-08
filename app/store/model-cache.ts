@@ -121,6 +121,11 @@ export const useModelCacheStore = createPersistStore(
           cachedModels: profile.cachedModels || "",
           modelCount: profile.modelCount || 0,
           updatedAt: current?.updatedAt ?? Date.now(),
+          source: current?.source,
+          syncStatus: current?.syncStatus,
+          hydrated: current?.hydrated,
+          hasRemoteChecked: current?.hasRemoteChecked,
+          lastSyncAt: current?.lastSyncAt,
           lastError: current?.lastError,
         };
         migrated = true;

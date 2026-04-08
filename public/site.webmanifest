@@ -1,6 +1,7 @@
 {
   "name": "NextChat",
   "short_name": "NextChat",
+  "lang": "zh-CN",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",

@@ -50,8 +50,10 @@ import {
 import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
+  getLatestOpenAIModelForProviderId,
   getPreferredDisplayModelConfig,
   getPreferredRuntimeModelConfig,
+  resolveModelProviderId,
 } from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
@@ -1852,6 +1854,23 @@ export const useChatStore = createPersistStore(
         } else {
           const currentSession = get().currentSession();
           if (currentSession) {
+            const configStore = useAppConfig.getState();
+            const accessStore = useAccessStore.getState();
+            const allModels = collectModelsWithDefaultModel(
+              configStore.models,
+              configStore.customModels,
+              accessStore.defaultModel,
+            );
+            const currentProviderId = (
+              resolveModelProviderId(
+                allModels,
+                currentSession.mask.modelConfig,
+                accessStore.apiProfiles,
+              ) ||
+              String((currentSession.mask.modelConfig as any)?.providerId || "")
+            ).toLowerCase();
+            const latestOpenAIModelForProvider =
+              getLatestOpenAIModelForProviderId(allModels, currentProviderId);
             session.mask = {
               ...currentSession.mask,
               id: session.mask.id,
@@ -1859,6 +1878,7 @@ export const useChatStore = createPersistStore(
               syncGlobalConfig: false,
               modelConfig: sanitizeModelConfigForCapability({
                 ...currentSession.mask.modelConfig,
+                ...(latestOpenAIModelForProvider || {}),
               }),
             };
           }

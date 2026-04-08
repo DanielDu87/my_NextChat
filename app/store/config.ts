@@ -17,6 +17,7 @@ import {
 import { createPersistStore } from "../utils/store";
 import { safeLocalStorage } from "../utils/safe-local-storage";
 import { normalizePublishedAt } from "../utils/model-published-at";
+import { hydrateModelsWithAiHubMixMetadata } from "../utils/aihubmix-model-metadata";
 import type { Voice } from "rt-client";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
@@ -90,6 +91,10 @@ function normalizeModelAlias(name: unknown) {
 
 function buildModelProviderKey(name: unknown, providerId: unknown) {
   return `${normalizeModelAlias(name)}@${normalizeModelProviderId(providerId)}`;
+}
+
+function hydrateModelsForStore(models: LLMModel[]) {
+  return hydrateModelsWithAiHubMixMetadata(models);
 }
 
 export function getLocalOnlyAppConfig() {
@@ -253,9 +258,11 @@ export const useAppConfig = createPersistStore(
         return;
       }
 
+      const hydratedNewModels = hydrateModelsForStore(newModels);
+
       // 收集新模型涉及的 provider id
       const newProviderIds = new Set(
-        newModels
+        hydratedNewModels
           .map((m) => normalizeModelProviderId(m?.provider?.id))
           .filter(Boolean),
       );
@@ -318,7 +325,7 @@ export const useAppConfig = createPersistStore(
         modelMap[buildModelProviderKey(model.name, pid)] = model;
       }
 
-      for (const model of newModels) {
+      for (const model of hydratedNewModels) {
         model.available = true;
         const key = buildModelProviderKey(model.name, model?.provider?.id);
         const existing = oldModelLookup.get(key);
@@ -389,7 +396,7 @@ export const useAppConfig = createPersistStore(
       if (!options?.silent) {
         console.log(
           "[mergeModels] 正在合并模型",
-          newModels.length,
+          hydratedNewModels.length,
           "个，合并后总数：",
           mergedModels.length,
         );
@@ -451,7 +458,7 @@ export const useAppConfig = createPersistStore(
         } as typeof currentState;
       }
       const models = currentState.models.slice();
-      state.models.forEach((pModel) => {
+      hydrateModelsForStore(state.models || []).forEach((pModel) => {
         const idx = models.findIndex(
           (v) =>
             v.name === pModel.name &&
@@ -464,7 +471,7 @@ export const useAppConfig = createPersistStore(
       return {
         ...currentState,
         ...state,
-        models: models,
+        models: hydrateModelsForStore(models),
         theme: readThemeFromLocalStorage(),
         tightBorder: readTightBorderFromLocalStorage(),
         sidebarWidth: readSidebarWidthFromLocalStorage(),

@@ -339,14 +339,21 @@ export function matchModelCategory(
   category: ModelCategoryKey,
   input: {
     title: string;
-    meta?: ModelCategoryMetadata;
+    meta?: ModelCategoryMetadata & {
+      capabilities?: string[];
+      categories?: string[];
+      category?: string;
+    };
   },
 ) {
   const rule = getModelCategoryRule(category);
   const metaValues = [
+    input.meta?.category,
     input.meta?.type,
     ...(input.meta?.types ?? []),
     ...(input.meta?.features ?? []),
+    ...(input.meta?.capabilities ?? []),
+    ...(input.meta?.categories ?? []),
   ]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());

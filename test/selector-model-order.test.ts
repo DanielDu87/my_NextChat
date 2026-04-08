@@ -1,7 +1,7 @@
 import { compareSelectorItems } from "../app/components/ui-lib";
 
 describe("selector model order", () => {
-  test("应优先按真实模型名排序，而不是展示名", () => {
+  test("未命中 AihubMix 时，应优先保留原始顺序而不是按展示名排序", () => {
     const items = [
       {
         title: "OpenAI 最新旗舰",
@@ -30,12 +30,12 @@ describe("selector model order", () => {
 
     expect(sorted.map((item) => item.sortKey)).toEqual([
       "gpt-4.1",
-      "gpt-4.1-mini",
       "gpt-4o",
+      "gpt-4.1-mini",
     ]);
   });
 
-  test("应把发布时间新的模型排在最前面", () => {
+  test("未命中 AihubMix 时，应保留原始顺序而不是按发布时间抢前", () => {
     const items = [
       {
         title: "aistudio_gpt-4.1-mini",
@@ -69,46 +69,23 @@ describe("selector model order", () => {
     const sorted = items.slice().sort(compareSelectorItems);
 
     expect(sorted.map((item) => item.sortKey)).toEqual([
-      "gpt-5.4",
-      "gpt-5.4-mini",
       "aistudio_gpt-4.1-mini",
       "aihubmix-router",
+      "gpt-5.4",
+      "gpt-5.4-mini",
     ]);
   });
 
-  test("OpenAI 分组里应把 yuto 异常前置的 audio 和 pro 模型压后", () => {
+  test("命中 AihubMix catalogRank 时应严格按 URL 顺序排序", () => {
     const items = [
       {
-        title: "gpt-audio-1.5",
-        sortKey: "gpt-audio-1.5",
-        value: "gpt-audio-1.5@Custom",
+        title: "gpt-4o-realtime-preview-2025-06-03",
+        sortKey: "gpt-4o-realtime-preview-2025-06-03",
+        value: "gpt-4o-realtime-preview-2025-06-03@Custom",
         group: "OpenAI",
-        publishedAt: 20260320,
+        publishedAt: 20250603,
         order: 1,
-      },
-      {
-        title: "gpt-audio-mini",
-        sortKey: "gpt-audio-mini",
-        value: "gpt-audio-mini@Custom",
-        group: "OpenAI",
-        publishedAt: 20260319,
-        order: 2,
-      },
-      {
-        title: "gpt-audio",
-        sortKey: "gpt-audio",
-        value: "gpt-audio@Custom",
-        group: "OpenAI",
-        publishedAt: 20260318,
-        order: 3,
-      },
-      {
-        title: "gpt-5.4-pro",
-        sortKey: "gpt-5.4-pro",
-        value: "gpt-5.4-pro@Custom",
-        group: "OpenAI",
-        publishedAt: 20260321,
-        order: 4,
+        catalogRank: 0,
       },
       {
         title: "gpt-5.4",
@@ -116,7 +93,8 @@ describe("selector model order", () => {
         value: "gpt-5.4@Custom",
         group: "OpenAI",
         publishedAt: 20260305,
-        order: 5,
+        order: 2,
+        catalogRank: 5,
       },
       {
         title: "gpt-5.4-mini",
@@ -124,15 +102,134 @@ describe("selector model order", () => {
         value: "gpt-5.4-mini@Custom",
         group: "OpenAI",
         publishedAt: 20260305,
-        order: 6,
+        order: 3,
+        catalogRank: 6,
       },
     ];
 
     const sorted = items.slice().sort(compareSelectorItems);
 
-    expect(sorted.map((item) => item.sortKey).slice(0, 2)).toEqual([
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-4o-realtime-preview-2025-06-03",
       "gpt-5.4",
       "gpt-5.4-mini",
+    ]);
+  });
+
+  test("带日期的模型名应去除日期后按同一个 AihubMix 顺序排序", () => {
+    const items = [
+      {
+        title: "gpt-4o-mini-2025-06-03",
+        sortKey: "gpt-4o-mini-2025-06-03",
+        value: "gpt-4o-mini-2025-06-03@Custom",
+        group: "OpenAI",
+        publishedAt: 20250603,
+        order: 1,
+        catalogRank: 8,
+      },
+      {
+        title: "gpt-4o",
+        sortKey: "gpt-4o",
+        value: "gpt-4o@Custom",
+        group: "OpenAI",
+        publishedAt: 20240513,
+        order: 2,
+        catalogRank: 3,
+      },
+      {
+        title: "gpt-4o-mini",
+        sortKey: "gpt-4o-mini",
+        value: "gpt-4o-mini@Custom",
+        group: "OpenAI",
+        publishedAt: 20240718,
+        order: 3,
+        catalogRank: 8,
+      },
+    ];
+
+    const sorted = items.slice().sort(compareSelectorItems);
+
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-4o",
+      "gpt-4o-mini-2025-06-03",
+      "gpt-4o-mini",
+    ]);
+  });
+
+  test("未匹配到 AihubMix 顺序的模型应统一排在最后", () => {
+    const items = [
+      {
+        title: "custom-unknown-model",
+        sortKey: "custom-unknown-model",
+        value: "custom-unknown-model@Custom",
+        group: "Custom",
+        publishedAt: 20270101,
+        order: 1,
+      },
+      {
+        title: "gpt-4o-mini-2025-06-03",
+        sortKey: "gpt-4o-mini-2025-06-03",
+        value: "gpt-4o-mini-2025-06-03@Custom",
+        group: "OpenAI",
+        publishedAt: 20250603,
+        order: 2,
+        catalogRank: 8,
+      },
+      {
+        title: "gpt-4o",
+        sortKey: "gpt-4o",
+        value: "gpt-4o@Custom",
+        group: "OpenAI",
+        publishedAt: 20240513,
+        order: 3,
+        catalogRank: 3,
+      },
+    ];
+
+    const sorted = items.slice().sort(compareSelectorItems);
+
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-4o",
+      "gpt-4o-mini-2025-06-03",
+      "custom-unknown-model",
+    ]);
+  });
+
+  test("两个都未匹配到 AihubMix 时，应保留原始顺序而不是按日期抢前面", () => {
+    const items = [
+      {
+        title: "gpt-5.4",
+        sortKey: "gpt-5.4",
+        value: "gpt-5.4@Custom",
+        group: "OpenAI",
+        publishedAt: 20260305,
+        order: 1,
+        catalogRank: 6,
+      },
+      {
+        title: "gpt-audio-mini-2025-12-15",
+        sortKey: "gpt-audio-mini-2025-12-15",
+        value: "gpt-audio-mini-2025-12-15@Custom",
+        group: "OpenAI",
+        publishedAt: 20251215,
+        order: 2,
+      },
+      {
+        title: "gpt-4o-realtime-preview-2025-06-03",
+        sortKey: "gpt-4o-realtime-preview-2025-06-03",
+        value: "gpt-4o-realtime-preview-2025-06-03@Custom",
+        group: "OpenAI",
+        publishedAt: 20250603,
+        order: 3,
+      },
+    ];
+
+    const sorted = items.slice().sort(compareSelectorItems);
+
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-5.4",
+      "gpt-audio-mini-2025-12-15",
+      "gpt-4o-realtime-preview-2025-06-03",
     ]);
   });
 });

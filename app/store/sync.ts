@@ -1781,7 +1781,9 @@ export const useSyncStore = createPersistStore(
         return true;
       },
 
-      async resumePendingDebounceSync() {
+      async resumePendingDebounceSync(options?: {
+        excludeKeys?: SyncStoreKey[];
+      }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过恢复未完成同步");
           clearPendingDebounceTask();
@@ -1793,24 +1795,34 @@ export const useSyncStore = createPersistStore(
           return false;
         }
 
+        const excludedKeys = new Set(options?.excludeKeys || []);
+        const resumedKeys = pendingTask.keys.filter(
+          (key) => !excludedKeys.has(key),
+        );
+
+        if (resumedKeys.length === 0) {
+          clearPendingDebounceTask();
+          return false;
+        }
+
         if (debounceTimer) {
           clearTimeout(debounceTimer);
           debounceTimer = null;
         }
 
         logSyncDebug("[Sync] ♻️ 恢复未完成的防抖同步", {
-          keys: pendingTask.keys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
+          keys: resumedKeys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
         });
 
         clearPendingDebounceTask();
 
         try {
-          await this.sync(pendingTask.keys);
+          await this.sync(resumedKeys);
           return true;
         } catch (error) {
           logger.sync.error("[Sync] ❌ 恢复防抖同步失败:", error);
           writePendingDebounceTask({
-            keys: pendingTask.keys,
+            keys: resumedKeys,
             scheduledAt: Date.now(),
           });
           throw error;
@@ -2647,7 +2659,8 @@ export const useSyncStore = createPersistStore(
           (key) =>
             key !== StoreKey.Chat &&
             key !== StoreKey.Access &&
-            key !== StoreKey.ModelCache,
+            key !== StoreKey.ModelCache &&
+            key !== StoreKey.Config,
         );
         if (remainingKeys.length > 0) {
           syncConsole("log", "[Sync] ⚙️ 开始同步剩余数据:", remainingKeys);

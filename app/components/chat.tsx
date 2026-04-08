@@ -115,7 +115,9 @@ import {
   ensureProviderModelsReady,
   syncAllProfilesToDatabase,
 } from "../utils/provider-sync";
+import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import { getActiveModelSelectorProviderId } from "../utils/model-selector-provider";
 
 import dynamic from "next/dynamic";
 
@@ -160,7 +162,10 @@ import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
-import { runWithImmediateStoreSyncPaused } from "../utils/store";
+import {
+  runWithImmediateStoreSyncPaused,
+  runWithImmediateStoreSyncPausedSync,
+} from "../utils/store";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
@@ -176,6 +181,7 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
+  getLatestOpenAIModelForCurrentSupplier,
   getModelProvider,
   getPreferredRuntimeModelConfig,
   normalizeReservedDisplayModelName,
@@ -212,6 +218,53 @@ async function loadRemoteModelRefreshArtifact() {
 
   const latestData = await latestRes.json();
   return latestData?.ok ? latestData.latest ?? null : null;
+}
+
+function areSelectorItemsEqual(
+  left: Array<{
+    title: string;
+    value: string;
+    disable?: boolean;
+    order?: number;
+    publishedAt?: number;
+    catalogRank?: number;
+    group?: string;
+  }>,
+  right: Array<{
+    title: string;
+    value: string;
+    disable?: boolean;
+    order?: number;
+    publishedAt?: number;
+    catalogRank?: number;
+    group?: string;
+  }>,
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const current = left[index];
+    const next = right[index];
+    if (
+      current.title !== next.title ||
+      current.value !== next.value ||
+      current.disable !== next.disable ||
+      current.order !== next.order ||
+      current.publishedAt !== next.publishedAt ||
+      current.catalogRank !== next.catalogRank ||
+      current.group !== next.group
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function formatMessageUsage(
@@ -752,6 +805,7 @@ function ChatProviderBalance(props: {
   balanceCacheKey: string;
   profile?: BalanceAwareProfile;
   deferInitialRefresh?: boolean;
+  suppressAutoRefresh?: boolean;
 }) {
   const authUser = useAuthStore((state) => state.user);
   const authInitialized = useAuthStore((state) => state.initialized);
@@ -840,6 +894,9 @@ function ChatProviderBalance(props: {
     if (props.deferInitialRefresh) {
       return;
     }
+    if (props.suppressAutoRefresh) {
+      return;
+    }
     if (
       syncProvider === ProviderType.Database &&
       (!criticalSyncReady || criticalSyncInProgress)
@@ -865,6 +922,7 @@ function ChatProviderBalance(props: {
     props.deferInitialRefresh,
     props.profile?.id,
     props.providerName,
+    props.suppressAutoRefresh,
     criticalSyncInProgress,
     criticalSyncReady,
     refreshUsage,
@@ -1363,6 +1421,7 @@ export function ChatActions(props: {
     React.SetStateAction<string | undefined>
   >;
   openModelSelector: () => void;
+  modelSelectorDisabled?: boolean;
 }) {
   const config = useAppConfig();
   const navigate = useNavigate();
@@ -1685,6 +1744,7 @@ export function ChatActions(props: {
             autoModeEnabled ? autoModeButtonText : props.currentModelButtonText
           }
           icon={<RobotIcon />}
+          disabled={props.modelSelectorDisabled}
         />
       </div>
 
@@ -2212,6 +2272,10 @@ function _Chat() {
     ).trim();
     return storedGroup || undefined;
   });
+  const [modelSelectorProviderId, setModelSelectorProviderId] = useState("");
+  const [modelSelectorItemsCache, setModelSelectorItemsCache] = useState<
+    Record<string, any[]>
+  >({});
   const resetModelSelectorGroupToAll = useCallback(() => {
     setModelSelectorDefaultGroup("All");
     localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, "All");
@@ -2326,6 +2390,7 @@ function _Chat() {
   const allModels = useAllModels();
   const globalCustomModels = useAppConfig((state) => state.customModels);
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
   const accessStore = useAccessStore() as any;
   const currentProviderId = useMemo(() => {
     return (
@@ -2373,6 +2438,22 @@ function _Chat() {
         currentProfile?.name ||
         currentProviderName
       : currentProfile?.name || currentProviderName;
+  const activeModelSelectorProviderId = getActiveModelSelectorProviderId({
+    showModelSelector,
+    modelSelectorProviderId,
+    currentProviderId,
+  });
+  const activeModelSelectorProfile = useMemo(
+    () =>
+      apiProfiles.find(
+        (profile) =>
+          getProfileProviderId(profile).toLowerCase() ===
+          activeModelSelectorProviderId,
+      ),
+    [activeModelSelectorProviderId, apiProfiles],
+  );
+  const activeModelSelectorProviderDisplayName =
+    activeModelSelectorProfile?.name || currentProviderDisplayName;
   const fallbackBalanceProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
@@ -2563,118 +2644,19 @@ function _Chat() {
     (item: any) => matchesModelCategory(item, "thinking"),
     [],
   );
-  const useModelSelectorIndex = isPerfFeatureEnabled(
-    "PERF_ENABLE_MODEL_SELECTOR_INDEX",
-  );
-  type ModelSelectorIndexedItem = {
-    title: string;
-    searchText: string;
-    sortKey: string;
-    value: string;
-    order: number | undefined;
-    publishedAt: number | undefined;
-    group: string;
-    meta: ModelCategoryMetadata;
-    rawModel: (typeof allModels)[number];
-  };
-  const modelSelectorIndex = useMemo<
-    Map<string, ModelSelectorIndexedItem[]>
-  >(() => {
-    if (!useModelSelectorIndex) {
-      return new Map();
-    }
-
-    const byProviderId = new Map<string, ModelSelectorIndexedItem[]>();
-
-    allModels.forEach((model) => {
-      if (!model.available) {
-        return;
-      }
-
-      const providerId = String(model?.provider?.id || "").toLowerCase();
-      if (!providerId) {
-        return;
-      }
-
-      const item = {
-        title: `${model.displayName}`,
-        searchText: [
-          model.name,
-          model.displayName,
-          model.provider?.providerName,
-          model.vendor?.name,
-          ...(model.capabilities || []),
-          ...(model.features || []),
-          ...(model.types || []),
-          ...(model.categories || []),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase(),
-        sortKey: model.name,
-        value: `${model.name}@${String(
-          model?.provider?.id || "",
-        ).toLowerCase()}`,
-        order: model.sorted,
-        publishedAt: model.publishedAt,
-        publishedAtSource: model.publishedAtSource,
-        catalogRank: model.catalogRank,
-        group: globalCustomModelValueSet.has(
-          `${model.name}@${model?.provider?.providerName}`,
-        )
-          ? "自定义模型"
-          : getModelGroup(
-              model.name,
-              model?.provider?.providerName,
-              model?.vendor?.name,
-              model.displayName,
-            ),
-        meta: {
-          category: model.category,
-          categorySource: model.categorySource,
-          type: model.type,
-          types: model.types,
-          features: model.features,
-          capabilities: model.capabilities,
-          categories: model.categories,
-          vendorName: model.vendor?.name,
-        },
-        rawModel: model,
-      };
-
-      const items = byProviderId.get(providerId) ?? [];
-      items.push(item);
-      byProviderId.set(providerId, items);
-    });
-
-    byProviderId.forEach((items) => {
-      items.sort(compareSelectorItems);
-    });
-
-    return byProviderId;
-  }, [
-    allModels,
-    getModelGroup,
-    globalCustomModelValueSet,
-    useModelSelectorIndex,
-  ]);
   const models = useMemo(
     () =>
-      useModelSelectorIndex
-        ? (modelSelectorIndex.get(currentProviderId) ?? []).map(
-            (item: ModelSelectorIndexedItem) => item.rawModel,
-          )
-        : allModels.filter(
-            (model) =>
-              model.available &&
-              String(model?.provider?.id || "").toLowerCase() ===
-                currentProviderId,
-          ),
-    [allModels, currentProviderId, modelSelectorIndex, useModelSelectorIndex],
+      allModels.filter(
+        (model) =>
+          model.available &&
+          String(model?.provider?.id || "").toLowerCase() ===
+            activeModelSelectorProviderId,
+      ),
+    [activeModelSelectorProviderId, allModels],
   );
   const modelSelectorItems = useMemo(() => {
-    if (!useModelSelectorIndex) {
-      return models.map((model) => ({
+    const providerItems = models
+      .map((model) => ({
         title: `${model.displayName}`,
         searchText: [
           model.name,
@@ -2718,95 +2700,40 @@ function _Chat() {
           categories: model.categories,
           vendorName: model.vendor?.name,
         },
-      }));
-    }
+      }))
+      .sort(compareSelectorItems);
 
-    // 从索引中获取当前供应商的模型列表
-    let providerItems = modelSelectorIndex.get(currentProviderId);
-
-    // 如果索引中没有当前供应商的数据，回退到使用 allModels 过滤
-    // 这可能发生在供应商切换时，索引数据还没有更新的情况
-    if (!providerItems || providerItems.length === 0) {
-      providerItems = allModels
-        .filter(
-          (model) =>
-            model.available &&
-            String(model?.provider?.id || "").toLowerCase() ===
-              currentProviderId,
-        )
-        .map((model) => ({
-          title: `${model.displayName}`,
-          searchText: [
-            model.name,
-            model.displayName,
-            model.provider?.providerName,
-            model.vendor?.name,
-            ...(model.capabilities || []),
-            ...(model.features || []),
-            ...(model.types || []),
-            ...(model.categories || []),
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase(),
-          sortKey: model.name,
-          value: `${model.name}@${String(
-            model?.provider?.id || "",
-          ).toLowerCase()}`,
-          disable: manualModelSelectionDisabled,
-          order: model.sorted,
-          publishedAt: model.publishedAt,
-          publishedAtSource: model.publishedAtSource,
-          catalogRank: model.catalogRank,
-          group: globalCustomModelValueSet.has(
-            `${model.name}@${model?.provider?.providerName}`,
-          )
-            ? "自定义模型"
-            : getModelGroup(
-                model.name,
-                model?.provider?.providerName,
-                model?.vendor?.name,
-                model.displayName,
-              ),
-          meta: {
-            category: model.category,
-            categorySource: model.categorySource,
-            type: model.type,
-            types: model.types,
-            features: model.features,
-            capabilities: model.capabilities,
-            categories: model.categories,
-            vendorName: model.vendor?.name,
-          },
-          rawModel: model,
-        }));
-    }
+    const cachedProviderItems =
+      modelSelectorItemsCache[activeModelSelectorProviderId] || [];
+    const effectiveProviderItems =
+      providerItems.length > 0 ? providerItems : cachedProviderItems;
 
     if (!manualModelSelectionDisabled) {
-      return providerItems;
+      return effectiveProviderItems;
     }
 
-    return providerItems.map((item) => ({
+    return effectiveProviderItems.map((item) => ({
       ...item,
       disable: true,
     }));
   }, [
     allModels,
-    currentProviderId,
-    getModelGroup,
+    activeModelSelectorProviderId,
     globalCustomModelValueSet,
+    getModelGroup,
     manualModelSelectionDisabled,
-    modelSelectorIndex,
-    useModelSelectorIndex,
+    modelSelectorItemsCache,
+    models,
   ]);
   const currentModelName = useMemo(() => {
     const matchedModel = models.find(
       (model) =>
         model.name === currentModel &&
-        String(model?.provider?.id || "").toLowerCase() === currentProviderId,
+        String(model?.provider?.id || "").toLowerCase() ===
+          activeModelSelectorProviderId,
     );
     return matchedModel?.displayName ?? currentModel;
-  }, [currentModel, currentProviderId, models]);
+  }, [activeModelSelectorProviderId, currentModel, models]);
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
   const handleManualModelSelectionDisabled = () => {
     setModelSelectorNotice(modelSelectionDisabledToast);
@@ -2826,7 +2753,7 @@ function _Chat() {
   ) : (
     <>
       <span className={styles["provider-button-name"]}>
-        {currentProviderDisplayName}
+        {activeModelSelectorProviderDisplayName}
       </span>{" "}
       <span className={styles["provider-button-model"]}>
         {currentModelName}
@@ -2835,9 +2762,9 @@ function _Chat() {
   );
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
-    : `${currentProviderDisplayName} ${currentModelName}`;
+    : `${activeModelSelectorProviderDisplayName} ${currentModelName}`;
   const currentDisplaySelectorValue = `${currentRawModel}@${
-    currentProviderId || String(currentProviderName).toLowerCase()
+    activeModelSelectorProviderId || String(currentProviderName).toLowerCase()
   }`;
   const autoModelSeriesItems = useMemo(
     () =>
@@ -2856,10 +2783,13 @@ function _Chat() {
     show: boolean;
     message: string;
   }>({ show: false, message: "" });
+  const [suppressBalanceAutoRefresh, setSuppressBalanceAutoRefresh] =
+    useState(false);
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const balanceAutoRefreshResumeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
       Array<{ label: string; provider: string }>
@@ -2879,11 +2809,50 @@ function _Chat() {
   }, [apiProfiles]);
 
   useEffect(() => {
-    if (!showModelSelector) return;
+    if (!showModelSelector) {
+      setModelSelectorProviderId("");
+      setModelSelectorItemsCache({});
+      return;
+    }
     setIsProviderSelectorOpen(false);
     setShowAutoModelSelector(false);
     setModelSelectorNotice("");
   }, [showModelSelector]);
+
+  useEffect(() => {
+    if (!showModelSelector || modelSelectorItems.length === 0) {
+      return;
+    }
+
+    if (!activeModelSelectorProviderId) {
+      return;
+    }
+
+    setModelSelectorItemsCache((prev) => {
+      const previousItems = prev[activeModelSelectorProviderId] || [];
+      if (areSelectorItemsEqual(previousItems, modelSelectorItems)) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [activeModelSelectorProviderId]: modelSelectorItems,
+      };
+    });
+  }, [activeModelSelectorProviderId, modelSelectorItems, showModelSelector]);
+
+  useEffect(() => {
+    if (!showModelSelector || modelSelectorItems.length === 0) {
+      return;
+    }
+
+    if (
+      modelSelectorNotice.includes("正在载入") ||
+      modelSelectorNotice.includes("正在同步")
+    ) {
+      setModelSelectorNotice("");
+    }
+  }, [modelSelectorItems.length, modelSelectorNotice, showModelSelector]);
 
   useEffect(() => {
     if (!autoModeEnabled) return;
@@ -2895,7 +2864,87 @@ function _Chat() {
       if (modelSelectorNoticeTimerRef.current) {
         clearTimeout(modelSelectorNoticeTimerRef.current);
       }
+      if (balanceAutoRefreshResumeTimerRef.current) {
+        clearTimeout(balanceAutoRefreshResumeTimerRef.current);
+      }
     };
+  }, []);
+
+  const providerSwitchDisabled = useMemo(() => {
+    if (apiProfiles.length <= 1) {
+      return false;
+    }
+    const currentProfile = apiProfiles.find(
+      (profile) =>
+        getProfileProviderId(profile).toLowerCase() === currentProviderId,
+    );
+    if (!currentProfile) {
+      return false;
+    }
+
+    const hasLoadedModels = allModels.some(
+      (model) =>
+        model.available &&
+        String(model?.provider?.id || "").toLowerCase() === currentProviderId,
+    );
+    const cache = modelCacheProfiles?.[currentProfile.id];
+    const syncStatus = String(cache?.syncStatus || "").toLowerCase();
+    const hasCache = Boolean(
+      cache?.cachedModels || currentProfile.cachedModels,
+    );
+
+    if (
+      syncStatus === "first_sync" ||
+      syncStatus === "syncing" ||
+      syncStatus === "checking_remote"
+    ) {
+      return true;
+    }
+
+    if (hasLoadedModels) {
+      return false;
+    }
+
+    return !hasCache && !["ready", "using_cache", "error"].includes(syncStatus);
+  }, [allModels, apiProfiles, currentProviderId, modelCacheProfiles]);
+
+  const isAiHubMixOrderingReady = useMemo(() => {
+    const aiHubMixProfile = apiProfiles.find(
+      (profile) => String(profile.id || "") === "default_aihubmix_profile",
+    );
+    if (!aiHubMixProfile) {
+      return true;
+    }
+
+    const aiHubMixProviderId =
+      getProfileProviderId(aiHubMixProfile).toLowerCase();
+    const hasLoadedModels = allModels.some(
+      (model) =>
+        model.available &&
+        String(model?.provider?.id || "").toLowerCase() === aiHubMixProviderId,
+    );
+    const cache = modelCacheProfiles?.[aiHubMixProfile.id];
+    const syncStatus = String(cache?.syncStatus || "").toLowerCase();
+
+    if (syncStatus === "first_sync" || syncStatus === "syncing") {
+      return false;
+    }
+
+    if (syncStatus === "checking_remote" && !hasLoadedModels) {
+      return false;
+    }
+
+    return true;
+  }, [allModels, apiProfiles, modelCacheProfiles]);
+
+  const handleModelSelectorBlockedDuringSync = useCallback(() => {
+    setProviderSwitchToast({
+      show: true,
+      message: "模型同步中，完成后再打开模型选择器",
+    });
+    window.setTimeout(() => {
+      setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+    }, 2200);
   }, []);
 
   useEffect(() => {
@@ -3740,6 +3789,11 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
+    if (providerSwitchDisabled) {
+      handleModelSelectorBlockedDuringSync();
+      return;
+    }
+
     const latestModelName = sessionMask?.modelConfig?.model || currentRawModel;
     const latestProviderName =
       sessionMask?.modelConfig?.providerName || currentProviderName;
@@ -3767,9 +3821,32 @@ function _Chat() {
         undefined,
         currentSelectedItem?.title || latestModelName,
       );
+    const activeProfile = apiProfiles.find(
+      (profile) =>
+        getProfileProviderId(profile).toLowerCase() === latestProviderId,
+    );
+    const hasLoadedProviderModels = allModels.some(
+      (model) =>
+        model.available &&
+        String(model.provider?.id || "").toLowerCase() === latestProviderId,
+    );
+    const hasCachedProviderModels = Boolean(
+      activeProfile &&
+        ((useModelCacheStore.getState() as any).profiles?.[activeProfile.id]
+          ?.cachedModels ||
+          activeProfile.cachedModels),
+    );
+
+    if (hasCachedProviderModels && latestProviderId) {
+      rebuildManagedModelsFromCache({
+        force: true,
+        providerIds: [latestProviderId],
+      });
+    }
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
+    setModelSelectorProviderId(latestProviderId);
     setModelSelectorDefaultGroup(fallbackDefaultGroup);
     setModelSelectorDefaultValue(fallbackDefaultValue);
     setShowModelSelector(true);
@@ -3781,7 +3858,9 @@ function _Chat() {
     currentProfile?.provider,
     currentProviderName,
     getModelGroup,
+    handleModelSelectorBlockedDuringSync,
     modelSelectorItems,
+    providerSwitchDisabled,
     session.id,
     sessionMask,
   ]);
@@ -3789,14 +3868,9 @@ function _Chat() {
   // 切换供应商
   const handleProviderChange = useCallback(
     (profileName: string) => {
-      // 先关闭所有菜单
-      setIsProviderSelectorOpen(false);
-      setShowAutoModelSelector(false);
-
       const profile = apiProfiles.find((p) => p.name === profileName);
 
       if (profile) {
-        const switchStartedAt = nowMs();
         const selectedProviderId =
           profile.provider === ServiceProvider.Custom
             ? `custom_${profile.name}`.toLowerCase()
@@ -3805,108 +3879,202 @@ function _Chat() {
                 profile.name
               }`.toLowerCase()
             : String(profile.provider).toLowerCase();
-        const providerModels = useModelSelectorIndex
-          ? (modelSelectorIndex.get(selectedProviderId) ?? []).map(
-              (item: ModelSelectorIndexedItem) => item.rawModel,
-            )
-          : allModels.filter(
-              (model) =>
-                model.available &&
-                String(model.provider?.id || "").toLowerCase() ===
-                  selectedProviderId,
-            );
-        const nextModel =
-          providerModels[0] ?? providerModels.find((model) => model.isDefault);
-        // 记录切换时间
-        lastProviderSwitchTimeRef.current = Date.now();
+
+        if (
+          selectedProviderId !== "custom_aihubmix" &&
+          !isAiHubMixOrderingReady
+        ) {
+          setModelSelectorNotice(
+            "AihubMix 排序基准同步中，请稍后再切换其他供应商",
+          );
+          if (modelSelectorNoticeTimerRef.current) {
+            clearTimeout(modelSelectorNoticeTimerRef.current);
+          }
+          modelSelectorNoticeTimerRef.current = setTimeout(() => {
+            setModelSelectorNotice("");
+            modelSelectorNoticeTimerRef.current = null;
+          }, 2200);
+          return;
+        }
 
         const cachedProfileModels =
           useModelCacheStore.getState().profiles?.[profile.id]?.cachedModels ||
           "";
-        const hasCachedProviderModels =
-          providerModels.length > 0 || Boolean(cachedProfileModels);
+        const initialProviderModels = allModels.filter(
+          (model) =>
+            model.available &&
+            String(model.provider?.id || "").toLowerCase() ===
+              selectedProviderId,
+        );
+        const hasLoadedProviderModels = initialProviderModels.length > 0;
+        const hasCachedProviderModels = Boolean(cachedProfileModels);
 
-        // 更新 access store 中当前真正参与请求的配置
-        const accessStoreState = useAccessStore.getState();
-        accessStoreState.update((access) => {
-          access.useCustomConfig = true;
-          applyProfileToAccessStore(access, profile as any);
-        });
+        const commitProviderSwitch = (
+          providerModels: typeof initialProviderModels,
+        ) => {
+          const switchStartedAt = nowMs();
+          const preferredProviderModelConfig =
+            getLatestOpenAIModelForCurrentSupplier(
+              providerModels,
+              {
+                ...session.mask.modelConfig,
+                providerName: profile.provider as ServiceProvider,
+                ...(session.mask.modelConfig as any),
+                providerId: selectedProviderId,
+                profileId: profile.id,
+              } as any,
+              apiProfiles,
+            ) ||
+            getPreferredDefaultChatModel(
+              providerModels,
+              {
+                ...session.mask.modelConfig,
+                providerName: profile.provider as ServiceProvider,
+                ...(session.mask.modelConfig as any),
+                providerId: selectedProviderId,
+                profileId: profile.id,
+              } as any,
+              apiProfiles,
+            );
+          const nextModel =
+            providerModels.find(
+              (model) => model.name === preferredProviderModelConfig?.model,
+            ) ??
+            providerModels.find((model) => model.isDefault) ??
+            providerModels[0];
 
-        // 更新当前会话的模型配置
-        // 使用 currentSession() 获取最新值，避免闭包捕获的 session 过时
-        const latestSession = chatStore.currentSession();
-        if (!latestSession) {
-          console.error(
-            "[handleProviderChange] currentSession() returned null",
-          );
-          return;
-        }
-        chatStore.updateTargetSession(latestSession, (session) => {
-          session.mask.modelConfig.providerName =
-            profile.provider as ServiceProvider;
-          if (nextModel) {
-            session.mask.modelConfig.model = nextModel.name as ModelType;
+          setIsProviderSelectorOpen(false);
+          setShowAutoModelSelector(false);
+          lastProviderSwitchTimeRef.current = Date.now();
+          setModelSelectorProviderId(selectedProviderId);
+
+          const accessStoreState = useAccessStore.getState();
+          runWithImmediateStoreSyncPausedSync(() => {
+            accessStoreState.update((access) => {
+              access.useCustomConfig = true;
+              applyProfileToAccessStore(access, profile as any);
+            });
+          });
+          setSuppressBalanceAutoRefresh(true);
+          if (balanceAutoRefreshResumeTimerRef.current) {
+            clearTimeout(balanceAutoRefreshResumeTimerRef.current);
           }
-          (session.mask.modelConfig as any).providerId = selectedProviderId;
-          (session.mask.modelConfig as any).profileId = profile.id;
-          session.mask.modelConfig = sanitizeModelConfigForCapability(
-            session.mask.modelConfig,
-          );
-          session.mask.syncGlobalConfig = false;
-        });
+          balanceAutoRefreshResumeTimerRef.current = setTimeout(() => {
+            setSuppressBalanceAutoRefresh(false);
+            balanceAutoRefreshResumeTimerRef.current = null;
+          }, 3000);
 
-        console.info("[Model Selector] provider changed", {
-          sessionId: latestSession.id,
-          profileName,
-          providerName: profile.provider,
-          model: nextModel?.name || latestSession.mask.modelConfig.model,
-          providerId: selectedProviderId,
-        });
-        localStorage.setItem(MODEL_SELECTOR_PROVIDER_STORAGE_KEY, profileName);
-        if (nextModel) {
+          const latestSession = chatStore.currentSession();
+          if (!latestSession) {
+            console.error(
+              "[handleProviderChange] currentSession() returned null",
+            );
+            return;
+          }
+          chatStore.updateTargetSession(latestSession, (session) => {
+            session.mask.modelConfig.providerName =
+              profile.provider as ServiceProvider;
+            if (nextModel) {
+              session.mask.modelConfig.model = nextModel.name as ModelType;
+            }
+            (session.mask.modelConfig as any).providerId = selectedProviderId;
+            (session.mask.modelConfig as any).profileId = profile.id;
+            session.mask.modelConfig = sanitizeModelConfigForCapability(
+              session.mask.modelConfig,
+            );
+            session.mask.syncGlobalConfig = false;
+          });
+
+          console.info("[Model Selector] provider changed", {
+            sessionId: latestSession.id,
+            profileName,
+            providerName: profile.provider,
+            model: nextModel?.name || latestSession.mask.modelConfig.model,
+            providerId: selectedProviderId,
+          });
           localStorage.setItem(
-            LAST_MODEL_SELECTION_STORAGE_KEY,
-            `${nextModel.name}@${selectedProviderId}`,
+            MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+            profileName,
           );
-        }
+          if (nextModel) {
+            localStorage.setItem(
+              LAST_MODEL_SELECTION_STORAGE_KEY,
+              `${nextModel.name}@${selectedProviderId}`,
+            );
+          }
 
-        // 显示切换成功提示
-        setProviderSwitchToast({
-          show: true,
-          message: `已切换到 ${profileName}`,
-        });
-        setTimeout(() => {
-          setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-        }, 2000);
-        resetModelSelectorGroupToAll();
-        setModelSelectorResetKey((key) => key + 1);
+          setModelSelectorNotice(`已切换到 ${profileName}`);
+          if (modelSelectorNoticeTimerRef.current) {
+            clearTimeout(modelSelectorNoticeTimerRef.current);
+          }
+          modelSelectorNoticeTimerRef.current = setTimeout(() => {
+            setModelSelectorNotice("");
+            modelSelectorNoticeTimerRef.current = null;
+          }, 1600);
+          resetModelSelectorGroupToAll();
+          setModelSelectorResetKey((key) => key + 1);
+
+          logPerfSummary("ModelSelector", {
+            providerSwitchDurationMs: Number(
+              (nowMs() - switchStartedAt).toFixed(2),
+            ),
+            providerName: profileName,
+            providerModelCount: providerModels.length,
+          });
+        };
 
         if (hasCachedProviderModels) {
-          setModelSelectorNotice("");
-        } else {
-          setModelSelectorNotice(`首次使用该供应商，正在同步模型`);
-          void ensureProviderModelsReady(profile.id, {
-            background: false,
-            silent: true,
-            reason: "switch",
-          })
-            .then(() => {
-              setModelSelectorNotice("模型同步完成");
-            })
-            .catch((error) => {
-              console.error("[Chat] provider 模型同步失败:", error);
-              setModelSelectorNotice("模型同步失败，请重试");
-            });
+          rebuildManagedModelsFromCache({
+            force: true,
+            providerIds: [selectedProviderId],
+          });
         }
 
-        logPerfSummary("ModelSelector", {
-          providerSwitchDurationMs: Number(
-            (nowMs() - switchStartedAt).toFixed(2),
-          ),
-          providerName: profileName,
-          providerModelCount: providerModels.length,
-        });
+        const rebuiltProviderModels = (
+          useAppConfig.getState().models || []
+        ).filter(
+          (model) =>
+            model.available &&
+            String(model.provider?.id || "").toLowerCase() ===
+              selectedProviderId,
+        );
+
+        if (rebuiltProviderModels.length > 0) {
+          commitProviderSwitch(rebuiltProviderModels);
+          return;
+        }
+
+        setModelSelectorNotice(
+          hasCachedProviderModels
+            ? `正在载入 ${profileName} 模型`
+            : `正在同步 ${profileName} 模型`,
+        );
+
+        void ensureProviderModelsReady(profile.id, {
+          background: hasCachedProviderModels,
+          silent: true,
+          reason: "switch",
+        })
+          .then(() => {
+            const latestModels = useAppConfig.getState().models || [];
+            const readyProviderModels = latestModels.filter(
+              (item) =>
+                item.available &&
+                String(item.provider?.id || "").toLowerCase() ===
+                  selectedProviderId,
+            );
+
+            if (readyProviderModels.length === 0) {
+              setModelSelectorNotice("模型同步失败，请重试");
+              return;
+            }
+
+            commitProviderSwitch(readyProviderModels);
+          })
+          .catch((error) => {
+            console.error("[Chat] provider 模型同步失败:", error);
+            setModelSelectorNotice("模型同步失败，请重试");
+          });
       }
     },
     [
@@ -3914,9 +4082,8 @@ function _Chat() {
       apiProfiles,
       chatStore,
       config,
-      modelSelectorIndex,
       resetModelSelectorGroupToAll,
-      useModelSelectorIndex,
+      isAiHubMixOrderingReady,
     ],
   );
 
@@ -4416,6 +4583,7 @@ function _Chat() {
                 balanceCacheKey={currentBalanceCacheKey}
                 profile={balanceProfile as BalanceAwareProfile | undefined}
                 deferInitialRefresh={sessionMessages.length === 0}
+                suppressAutoRefresh={suppressBalanceAutoRefresh}
               />
               <UserMenu variant="chat-floating" />
             </div>
@@ -4739,6 +4907,7 @@ function _Chat() {
                 modelSelectorDefaultGroup={modelSelectorDefaultGroup}
                 setModelSelectorDefaultGroup={setModelSelectorDefaultGroup}
                 openModelSelector={openModelSelector}
+                modelSelectorDisabled={providerSwitchDisabled}
               />
               <label
                 className={clsx(styles["chat-input-panel-inner"], {
@@ -4887,10 +5056,11 @@ function _Chat() {
                       return;
                     }
                     setShowAutoModelSelector(false);
+                    setModelSelectorProviderId(currentProviderId);
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
                 >
-                  <span>{currentProviderDisplayName}</span>
+                  <span>{activeModelSelectorProviderDisplayName}</span>
                   <DownIcon />
                 </button>
                 <span className={styles["model-selector-hint-count"]}>
@@ -4931,10 +5101,12 @@ function _Chat() {
                     </div>
                   ) : (
                     availableProviders.map((providerOption) => {
+                      const optionProviderId = getProfileProviderId({
+                        provider: providerOption.provider as ServiceProvider,
+                        name: providerOption.label,
+                      } as any).toLowerCase();
                       const isActive =
-                        providerOption.label ===
-                        (currentActiveProviderProfile?.name ||
-                          currentProfile?.name);
+                        optionProviderId === activeModelSelectorProviderId;
                       const providerIcon =
                         getProviderIcon(providerOption.provider) ||
                         getProviderIcon(providerOption.label);
@@ -5069,9 +5241,7 @@ function _Chat() {
           onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
           onDisabledItemClick={handleManualModelSelectionDisabled}
           items={modelSelectorItems}
-          itemsArePreSorted={isPerfFeatureEnabled(
-            "PERF_ENABLE_MODEL_SELECTOR_INDEX",
-          )}
+          itemsArePreSorted={false}
           enableVirtualization={isPerfFeatureEnabled(
             "PERF_ENABLE_MODEL_SELECTOR_VIRTUAL_LIST",
           )}
@@ -5093,11 +5263,15 @@ function _Chat() {
           }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
+
+            // 选择模型后关闭自动模型选择器（但保持主模型选择器打开）
+            setShowAutoModelSelector(false);
             setModelSelectorDefaultValue(s[0]);
             const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
             const selectedProviderId = String(
               selectedProviderIdRaw || currentProviderId || "",
             ).toLowerCase();
+            setModelSelectorProviderId(selectedProviderId);
             const selectedModel = allModels.find(
               (item) =>
                 item.available &&
@@ -5114,16 +5288,12 @@ function _Chat() {
               selectedModel?.provider?.providerName ||
               currentProfile?.provider ||
               currentProviderName) as ServiceProvider;
-            const selectedProviderModels = useModelSelectorIndex
-              ? (modelSelectorIndex.get(selectedProviderId) ?? []).map(
-                  (item: ModelSelectorIndexedItem) => item.rawModel,
-                )
-              : allModels.filter(
-                  (item) =>
-                    item.available &&
-                    String(item.provider?.id || "").toLowerCase() ===
-                      selectedProviderId,
-                );
+            const selectedProviderModels = allModels.filter(
+              (item) =>
+                item.available &&
+                String(item.provider?.id || "").toLowerCase() ===
+                  selectedProviderId,
+            );
 
             if (selectedProfile) {
               useAccessStore.getState().update((access) => {
@@ -5172,9 +5342,6 @@ function _Chat() {
             if (timeSinceProviderSwitch > 1000) {
               showToast(`已选择 ${model}`);
             }
-
-            // 选择模型后关闭模型选择器
-            setShowModelSelector(false);
           }}
         />
       )}

@@ -1235,8 +1235,20 @@ export function comparePublishedAt(
 ) {
   const leftCatalogRank = left?.catalogRank ?? Number.MAX_SAFE_INTEGER;
   const rightCatalogRank = right?.catalogRank ?? Number.MAX_SAFE_INTEGER;
+  const leftHasCatalogRank = leftCatalogRank !== Number.MAX_SAFE_INTEGER;
+  const rightHasCatalogRank = rightCatalogRank !== Number.MAX_SAFE_INTEGER;
   if (leftCatalogRank !== rightCatalogRank) {
     return leftCatalogRank - rightCatalogRank;
+  }
+
+  const leftSorted = left?.order ?? left?.sorted ?? Number.MAX_SAFE_INTEGER;
+  const rightSorted = right?.order ?? right?.sorted ?? Number.MAX_SAFE_INTEGER;
+  if (
+    !leftHasCatalogRank &&
+    !rightHasCatalogRank &&
+    leftSorted !== rightSorted
+  ) {
+    return leftSorted - rightSorted;
   }
 
   const leftVersion = getPrimaryVersion(
@@ -1250,8 +1262,6 @@ export function comparePublishedAt(
     return versionDiff;
   }
 
-  const leftSorted = left?.order ?? left?.sorted ?? Number.MAX_SAFE_INTEGER;
-  const rightSorted = right?.order ?? right?.sorted ?? Number.MAX_SAFE_INTEGER;
   if (leftSorted !== rightSorted) {
     return leftSorted - rightSorted;
   }

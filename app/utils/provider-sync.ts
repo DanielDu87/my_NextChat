@@ -19,6 +19,7 @@ import { runWithBalanceRefreshPaused } from "../store/update";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { rebuildManagedModelsFromCache } from "./managed-model-rebuild";
 import { logger } from "./logger";
+import { comparePublishedAt } from "./model-published-at";
 
 export type ApiProfile = {
   id: string;
@@ -187,10 +188,16 @@ export async function syncProfileModels(
       profile.apiKeyGroups,
     );
 
-    const fetchedModels = modelsToCustomModelsString(result.models);
+    const sortedModels = [...result.models]
+      .sort((left, right) => comparePublishedAt(left, right))
+      .map((model, index) => ({
+        ...model,
+        sorted: index,
+      }));
+    const fetchedModels = modelsToCustomModelsString(sortedModels);
 
     await runWithImmediateStoreSyncPaused(async () => {
-      useAppConfig.getState().mergeModels(result.models, {
+      useAppConfig.getState().mergeModels(sortedModels, {
         silent: true,
         allowedProviderIds: [providerId],
       });
@@ -236,7 +243,10 @@ export async function syncProfileModels(
       );
     }
 
-    return result;
+    return {
+      ...result,
+      models: sortedModels,
+    };
   })().finally(() => {
     providerSyncInFlight.delete(profileId);
   });
@@ -268,7 +278,7 @@ export async function ensureProviderModelsReady(
   if (hasCache) {
     if (!options?.silent) {
       logger.providerSync.log(
-        `${displayName} | 已命中缓存，先展示缓存，再检查远端更新`,
+        `${displayName} | 已命中缓存，直接使用本地/数据库缓存`,
       );
     }
     rebuildManagedModelsFromCache();
@@ -288,6 +298,23 @@ export async function ensureProviderModelsReady(
       silent: options?.silent,
       reason: options?.reason || "bootstrap",
     });
+  }
+
+  const shouldRefreshRemote =
+    options?.reason === "manual" || options?.reason === "bootstrap";
+
+  if (!shouldRefreshRemote) {
+    modelCacheStore.setProfileSyncState?.(profileId, {
+      syncStatus: "ready",
+      source: cache?.source || "cache",
+      hydrated: true,
+      hasRemoteChecked: Boolean(cache?.hasRemoteChecked),
+      lastError: undefined,
+    });
+    return {
+      models: [],
+      total: cache?.modelCount || profile.modelCount || 0,
+    } satisfies FetchModelsResult;
   }
 
   const lastSyncAt = Number(cache?.lastSyncAt || 0);

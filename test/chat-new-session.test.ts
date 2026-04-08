@@ -3,6 +3,7 @@ import {
   mergeNewSessionModelConfig,
 } from "../app/utils/chat-session-model";
 import {
+  getLatestOpenAIModelForProviderId,
   getPreferredDisplayModelConfig,
   getPreferredDefaultChatModel,
   getPreferredRuntimeModelConfig,
@@ -292,6 +293,92 @@ describe("new session model config", () => {
     ).toEqual({
       model: "gpt-5.4",
       providerName: ServiceProvider.OpenAI,
+    });
+  });
+
+  test("同一供应商下新会话应优先使用最新 OpenAI 主模型", () => {
+    expect(
+      getLatestOpenAIModelForProviderId(
+        [
+          {
+            name: "gpt-4.1",
+            available: true,
+            displayName: "gpt-4.1",
+            sorted: 0,
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 1,
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4-mini",
+            available: true,
+            displayName: "gpt-5.4-mini",
+            sorted: 2,
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            },
+          },
+        ] as any,
+        "custom_yutoapi",
+      ),
+    ).toEqual({
+      model: "gpt-5.4",
+      providerName: ServiceProvider.Custom,
+    });
+  });
+
+  test("新会话默认模型选择不应跳到其他供应商", () => {
+    expect(
+      getLatestOpenAIModelForProviderId(
+        [
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 0,
+            provider: {
+              id: "custom_ocoolai",
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            },
+          },
+          {
+            name: "gpt-5.4",
+            available: true,
+            displayName: "gpt-5.4",
+            sorted: 1,
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+              providerType: "custom",
+              sorted: 0,
+            },
+          },
+        ] as any,
+        "custom_ocoolai",
+      ),
+    ).toEqual({
+      model: "gpt-5.4",
+      providerName: ServiceProvider.Custom,
     });
   });
 });

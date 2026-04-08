@@ -17,7 +17,7 @@ const AUTH_BYPASS_ENABLED =
 
 export const metadata: Metadata = {
   title: "NextChat",
-  description: "Your personal ChatGPT Chat Bot.",
+  description: "你的个人 AI 对话助手。",
   appleWebApp: {
     title: "NextChat",
     statusBarStyle: "default",
@@ -48,9 +48,10 @@ export default function RootLayout({
   const shouldMountAutoSync = AUTH_BYPASS_ENABLED || hasAuthSession;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <meta name="config" content={JSON.stringify(buildConfig)} />
+        <meta httpEquiv="Content-Language" content="zh-CN" />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"

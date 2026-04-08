@@ -2,6 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatSession, normalizeSession, useChatStore } from "./chat";
 
+export function shouldShowCurrentSessionLoading(params: {
+  currentSessionId?: string;
+  hydratingSessionId?: string;
+  inMemorySession?: ChatSession;
+  loadedSession?: ChatSession;
+  summaryMessageCount?: number;
+}) {
+  if (Number(params.summaryMessageCount || 0) <= 0) {
+    return false;
+  }
+
+  return (
+    !!params.currentSessionId &&
+    params.hydratingSessionId === params.currentSessionId &&
+    !(params.inMemorySession || params.loadedSession)
+  );
+}
+
 export function getCurrentChatSession() {
   return useChatStore.getState().currentSession();
 }
@@ -101,10 +119,12 @@ export function useCurrentSession() {
 
   return {
     session: readyInMemorySession || loadedSession,
-    loading:
-      !!currentSessionId &&
-      hydratingSessionId === currentSessionId &&
-      (!(readyInMemorySession || loadedSession) ||
-        (readyInMemorySession || loadedSession)?.messages.length === 0),
+    loading: shouldShowCurrentSessionLoading({
+      currentSessionId,
+      hydratingSessionId,
+      inMemorySession,
+      loadedSession,
+      summaryMessageCount: Number(currentSessionSummary?.messageCount || 0),
+    }),
   };
 }

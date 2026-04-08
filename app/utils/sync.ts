@@ -23,6 +23,7 @@ import {
   mergeSessionMessages,
   sortSessionsByCreatedAt,
 } from "./chat-session-merge";
+import { runWithImmediateStoreSyncPausedSync } from "./store";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 function isSyncDebugLoggingEnabled() {
@@ -826,25 +827,27 @@ export function getLocalAppState() {
 }
 
 export function setLocalAppState(appState: AppState) {
-  Object.entries(LocalStateSetters).forEach(([key, setter]) => {
-    const storeKey = key as keyof AppState;
-    if (storeKey === StoreKey.Access) {
-      setter(
-        normalizeAccessStateDerivedFields(
-          appState[storeKey] as AppState[typeof StoreKey.Access],
-        ) as AppState[keyof AppState],
-      );
-      return;
-    }
-    if (storeKey === StoreKey.Config) {
-      setter(
-        normalizeImportedConfigState(
-          appState[storeKey],
-        ) as AppState[keyof AppState],
-      );
-      return;
-    }
-    setter(appState[storeKey]);
+  runWithImmediateStoreSyncPausedSync(() => {
+    Object.entries(LocalStateSetters).forEach(([key, setter]) => {
+      const storeKey = key as keyof AppState;
+      if (storeKey === StoreKey.Access) {
+        setter(
+          normalizeAccessStateDerivedFields(
+            appState[storeKey] as AppState[typeof StoreKey.Access],
+          ) as AppState[keyof AppState],
+        );
+        return;
+      }
+      if (storeKey === StoreKey.Config) {
+        setter(
+          normalizeImportedConfigState(
+            appState[storeKey],
+          ) as AppState[keyof AppState],
+        );
+        return;
+      }
+      setter(appState[storeKey]);
+    });
   });
 }
 
@@ -852,26 +855,28 @@ export function setLocalStoreState<T extends keyof AppState>(
   key: T,
   state: AppState[T],
 ) {
-  if (key === StoreKey.Access) {
-    LocalStateSetters[key](
-      normalizeAccessStateDerivedFields(
-        state as AppState[typeof StoreKey.Access],
-      ) as AppState[T],
-    );
-    return;
-  }
+  runWithImmediateStoreSyncPausedSync(() => {
+    if (key === StoreKey.Access) {
+      LocalStateSetters[key](
+        normalizeAccessStateDerivedFields(
+          state as AppState[typeof StoreKey.Access],
+        ) as AppState[T],
+      );
+      return;
+    }
 
-  if (key === StoreKey.Config) {
-    LocalStateSetters[key]({
-      ...normalizeImportedConfigState(
-        state as AppState[typeof StoreKey.Config],
-      ),
-      ...getLocalOnlyAppConfig(),
-    } as AppState[T]);
-    return;
-  }
+    if (key === StoreKey.Config) {
+      LocalStateSetters[key]({
+        ...normalizeImportedConfigState(
+          state as AppState[typeof StoreKey.Config],
+        ),
+        ...getLocalOnlyAppConfig(),
+      } as AppState[T]);
+      return;
+    }
 
-  LocalStateSetters[key](state);
+    LocalStateSetters[key](state);
+  });
 }
 
 export function mergeAppState(localState: AppState, remoteState: AppState) {

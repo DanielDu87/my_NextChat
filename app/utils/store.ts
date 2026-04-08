@@ -95,6 +95,18 @@ export async function runWithImmediateStoreSyncPaused<T>(
   }
 }
 
+export function runWithImmediateStoreSyncPausedSync<T>(task: () => T): T {
+  immediateStoreSyncPauseCount += 1;
+  try {
+    return task();
+  } finally {
+    immediateStoreSyncPauseCount = Math.max(
+      0,
+      immediateStoreSyncPauseCount - 1,
+    );
+  }
+}
+
 export async function waitForImmediateStoreSyncQueueIdle() {
   if (!isSyncQueueProcessing && syncQueue.length === 0) {
     return;

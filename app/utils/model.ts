@@ -116,11 +116,20 @@ function applyRuntimeModelSortFields<T extends RuntimeCollectedModel>(
  */
 const sortModelTable = <T extends RuntimeCollectedModel>(models: T[]) =>
   models.sort((a, b) => {
-    const catalogRankDiff =
-      (a.__catalogRank ?? Number.MAX_SAFE_INTEGER) -
-      (b.__catalogRank ?? Number.MAX_SAFE_INTEGER);
+    const leftCatalogRank = a.__catalogRank ?? Number.MAX_SAFE_INTEGER;
+    const rightCatalogRank = b.__catalogRank ?? Number.MAX_SAFE_INTEGER;
+    const leftHasCatalogRank = leftCatalogRank !== Number.MAX_SAFE_INTEGER;
+    const rightHasCatalogRank = rightCatalogRank !== Number.MAX_SAFE_INTEGER;
+    const catalogRankDiff = leftCatalogRank - rightCatalogRank;
     if (catalogRankDiff !== 0) {
       return catalogRankDiff;
+    }
+
+    const orderDiff =
+      Number(a.sorted ?? Number.MAX_SAFE_INTEGER) -
+      Number(b.sorted ?? Number.MAX_SAFE_INTEGER);
+    if (!leftHasCatalogRank && !rightHasCatalogRank && orderDiff !== 0) {
+      return orderDiff;
     }
 
     const versionDiff = compareVersionPartsDesc(
@@ -131,9 +140,6 @@ const sortModelTable = <T extends RuntimeCollectedModel>(models: T[]) =>
       return versionDiff;
     }
 
-    const orderDiff =
-      Number(a.sorted ?? Number.MAX_SAFE_INTEGER) -
-      Number(b.sorted ?? Number.MAX_SAFE_INTEGER);
     if (orderDiff !== 0) {
       return orderDiff;
     }
