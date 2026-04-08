@@ -2721,7 +2721,67 @@ function _Chat() {
       }));
     }
 
-    const providerItems = modelSelectorIndex.get(currentProviderId) ?? [];
+    // 从索引中获取当前供应商的模型列表
+    let providerItems = modelSelectorIndex.get(currentProviderId);
+
+    // 如果索引中没有当前供应商的数据，回退到使用 allModels 过滤
+    // 这可能发生在供应商切换时，索引数据还没有更新的情况
+    if (!providerItems || providerItems.length === 0) {
+      providerItems = allModels
+        .filter(
+          (model) =>
+            model.available &&
+            String(model?.provider?.id || "").toLowerCase() ===
+              currentProviderId,
+        )
+        .map((model) => ({
+          title: `${model.displayName}`,
+          searchText: [
+            model.name,
+            model.displayName,
+            model.provider?.providerName,
+            model.vendor?.name,
+            ...(model.capabilities || []),
+            ...(model.features || []),
+            ...(model.types || []),
+            ...(model.categories || []),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+          sortKey: model.name,
+          value: `${model.name}@${String(
+            model?.provider?.id || "",
+          ).toLowerCase()}`,
+          disable: manualModelSelectionDisabled,
+          order: model.sorted,
+          publishedAt: model.publishedAt,
+          publishedAtSource: model.publishedAtSource,
+          catalogRank: model.catalogRank,
+          group: globalCustomModelValueSet.has(
+            `${model.name}@${model?.provider?.providerName}`,
+          )
+            ? "自定义模型"
+            : getModelGroup(
+                model.name,
+                model?.provider?.providerName,
+                model?.vendor?.name,
+                model.displayName,
+              ),
+          meta: {
+            category: model.category,
+            categorySource: model.categorySource,
+            type: model.type,
+            types: model.types,
+            features: model.features,
+            capabilities: model.capabilities,
+            categories: model.categories,
+            vendorName: model.vendor?.name,
+          },
+          rawModel: model,
+        }));
+    }
+
     if (!manualModelSelectionDisabled) {
       return providerItems;
     }
@@ -2731,12 +2791,12 @@ function _Chat() {
       disable: true,
     }));
   }, [
+    allModels,
     currentProviderId,
     getModelGroup,
     globalCustomModelValueSet,
     manualModelSelectionDisabled,
     modelSelectorIndex,
-    models,
     useModelSelectorIndex,
   ]);
   const currentModelName = useMemo(() => {
