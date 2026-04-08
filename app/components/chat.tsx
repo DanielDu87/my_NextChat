@@ -5172,6 +5172,9 @@ function _Chat() {
             if (timeSinceProviderSwitch > 1000) {
               showToast(`已选择 ${model}`);
             }
+
+            // 选择模型后关闭模型选择器
+            setShowModelSelector(false);
           }}
         />
       )}
