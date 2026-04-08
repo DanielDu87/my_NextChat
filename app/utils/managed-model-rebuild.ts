@@ -3,6 +3,9 @@ import { ServiceProvider } from "../constant";
 import { useAccessStore } from "../store/access";
 import { useAppConfig } from "../store/config";
 import { useModelCacheStore } from "../store/model-cache";
+import modelPublishedAtUtils from "./model-published-at";
+
+const { applyModelPublishedAt } = modelPublishedAtUtils;
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -59,19 +62,23 @@ export function rebuildManagedModelsFromCache() {
       .map((item) => item.trim())
       .filter(Boolean)
       .forEach((modelName, index) => {
-        rebuiltModels.push({
-          name: modelName,
-          displayName: modelName,
-          available: true,
-          sorted: index,
-          provider: {
-            id: providerId,
-            providerName: profile.provider,
-            providerType:
-              profile.provider === ServiceProvider.Local ? "openai" : "custom",
-            sorted: 0,
-          },
-        });
+        rebuiltModels.push(
+          applyModelPublishedAt({
+            name: modelName,
+            displayName: modelName,
+            available: true,
+            sorted: index,
+            provider: {
+              id: providerId,
+              providerName: profile.provider,
+              providerType:
+                profile.provider === ServiceProvider.Local
+                  ? "openai"
+                  : "custom",
+              sorted: 0,
+            },
+          }),
+        );
       });
   });
 

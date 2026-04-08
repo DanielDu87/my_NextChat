@@ -34,6 +34,7 @@
     "test:ci": "node --no-warnings --experimental-vm-modules ./node_modules/.bin/jest --ci"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.67",
     "@fortaine/fetch-event-source": "^3.0.6",
     "@hello-pangea/dnd": "^16.5.0",
     "@modelcontextprotocol/sdk": "^1.0.4",

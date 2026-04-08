@@ -176,7 +176,6 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
-  getPreferredDisplayModelConfig,
   getLatestOpenAIModelForProviderId,
   getModelProvider,
   getPreferredRuntimeModelConfig,
@@ -961,8 +960,8 @@ const MCPAction = () => {
 
 export function SessionConfigModel(props: { onClose: () => void }) {
   const chatStore = useChatStore();
-  const currentSessionSnapshot = useChatStore(
-    (state) => state.sessions[state.currentSessionIndex],
+  const currentSessionSnapshot = useChatStore((state) =>
+    state.currentSession(),
   );
   const session = currentSessionSnapshot;
   const maskStore = useMaskStore();
@@ -2170,6 +2169,7 @@ function _Chat() {
   const { session: loadedSession, loading: sessionLoading } =
     useCurrentSession();
   const session = loadedSession ?? currentSessionSnapshot;
+  const liveSession = currentSessionSnapshot ?? session;
   const safeSession = session ?? emptySessionRef.current;
 
   useEffect(() => {
@@ -2236,7 +2236,8 @@ function _Chat() {
     () => (Array.isArray(safeSession.messages) ? safeSession.messages : []),
     [safeSession.messages],
   );
-  const sessionMask = safeSession.mask ?? emptySessionRef.current.mask;
+  const sessionMask =
+    liveSession?.mask ?? safeSession.mask ?? emptySessionRef.current.mask;
   const sessionContext = useMemo(
     () => (Array.isArray(sessionMask?.context) ? sessionMask.context : []),
     [sessionMask?.context],
@@ -2296,6 +2297,7 @@ function _Chat() {
   }
 
   // current model name
+  const currentRawModel = sessionMask?.modelConfig?.model || "";
   const currentModel = normalizeReservedDisplayModelName(
     sessionMask?.modelConfig?.model || "",
   );
@@ -2349,54 +2351,13 @@ function _Chat() {
       currentProviderName,
     ],
   );
-  const currentDisplayModelConfig = useMemo(
-    () =>
-      getPreferredDisplayModelConfig(
-        allModels,
-        sessionMask?.modelConfig,
-        apiProfiles,
-      ),
-    [allModels, apiProfiles, sessionMask?.modelConfig],
-  );
-  const currentDisplayProviderProfile = useMemo(() => {
-    if (!currentDisplayModelConfig?.providerName) {
-      return undefined;
-    }
-
-    if (
-      currentDisplayModelConfig.providerName === ServiceProvider.Custom ||
-      currentDisplayModelConfig.providerName === ServiceProvider.Local
-    ) {
-      return currentActiveProviderProfile || currentProfile;
-    }
-
-    return (
-      apiProfiles.find(
-        (profile) =>
-          profile.enabled &&
-          profile.provider === currentDisplayModelConfig.providerName,
-      ) ||
-      apiProfiles.find(
-        (profile) =>
-          profile.provider === currentDisplayModelConfig.providerName,
-      )
-    );
-  }, [
-    apiProfiles,
-    currentActiveProviderProfile,
-    currentDisplayModelConfig?.providerName,
-    currentProfile,
-  ]);
   const currentProviderDisplayName =
     currentProviderName === ServiceProvider.Custom ||
     currentProviderName === ServiceProvider.Local
       ? currentActiveProviderProfile?.name ||
         currentProfile?.name ||
         currentProviderName
-      : currentDisplayProviderProfile?.name ||
-        currentDisplayModelConfig?.providerName ||
-        currentProfile?.name ||
-        currentProviderName;
+      : currentProfile?.name || currentProviderName;
   const fallbackBalanceProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
@@ -2760,22 +2721,13 @@ function _Chat() {
     useModelSelectorIndex,
   ]);
   const currentModelName = useMemo(() => {
-    if (currentDisplayModelConfig?.model) {
-      return currentDisplayModelConfig.model;
-    }
-
     const matchedModel = models.find(
       (model) =>
         model.name === currentModel &&
         String(model?.provider?.id || "").toLowerCase() === currentProviderId,
     );
     return matchedModel?.displayName ?? currentModel;
-  }, [
-    currentDisplayModelConfig?.model,
-    currentModel,
-    currentProviderId,
-    models,
-  ]);
+  }, [currentModel, currentProviderId, models]);
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
   const handleManualModelSelectionDisabled = () => {
     setModelSelectorNotice(modelSelectionDisabledToast);
@@ -2805,13 +2757,9 @@ function _Chat() {
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
     : `${currentProviderDisplayName} ${currentModelName}`;
-  const currentDisplaySelectorValue = currentDisplayModelConfig?.model
-    ? `${currentDisplayModelConfig.model}@${
-        currentProviderId || String(currentProviderName).toLowerCase()
-      }`
-    : `${currentModel}@${
-        currentProviderId || String(currentProviderName).toLowerCase()
-      }`;
+  const currentDisplaySelectorValue = `${currentRawModel}@${
+    currentProviderId || String(currentProviderName).toLowerCase()
+  }`;
   const autoModelSeriesItems = useMemo(
     () =>
       (["gpt", "deepseek", "doubao"] as AutoModelSeriesKey[]).map((value) => ({
@@ -2855,7 +2803,6 @@ function _Chat() {
     if (!showModelSelector) return;
     setIsProviderSelectorOpen(false);
     setShowAutoModelSelector(false);
-    setModelSelectorResetKey((key) => key + 1);
     setModelSelectorNotice("");
   }, [showModelSelector]);
 
@@ -3698,12 +3645,33 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
+    const latestModelName = sessionMask?.modelConfig?.model || currentRawModel;
+    const latestProviderName =
+      sessionMask?.modelConfig?.providerName || currentProviderName;
+    const latestProviderId =
+      resolveModelProviderId(
+        allModels,
+        sessionMask?.modelConfig,
+        apiProfiles,
+      ) || String(latestProviderName || "").toLowerCase();
+    const fallbackDefaultValue = latestProviderId
+      ? `${latestModelName}@${latestProviderId}`
+      : undefined;
+
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
-    setModelSelectorDefaultValue(undefined);
     setModelSelectorDefaultGroup(undefined);
+    setModelSelectorDefaultValue(fallbackDefaultValue);
     setShowModelSelector(true);
-  }, []);
+    setModelSelectorResetKey((key) => key + 1);
+  }, [
+    allModels,
+    apiProfiles,
+    currentRawModel,
+    currentProviderName,
+    session.id,
+    sessionMask,
+  ]);
 
   // 切换供应商
   const handleProviderChange = useCallback(
@@ -3783,7 +3751,15 @@ function _Chat() {
         }
 
         // 更新当前会话的模型配置
-        chatStore.updateTargetSession(session, (session) => {
+        // 使用 currentSession() 获取最新值，避免闭包捕获的 session 过时
+        const latestSession = chatStore.currentSession();
+        if (!latestSession) {
+          console.error(
+            "[handleProviderChange] currentSession() returned null",
+          );
+          return;
+        }
+        chatStore.updateTargetSession(latestSession, (session) => {
           session.mask.modelConfig.providerName =
             profile.provider as ServiceProvider;
           if (nextModel) {
@@ -3792,6 +3768,15 @@ function _Chat() {
           session.mask.modelConfig = sanitizeModelConfigForCapability(
             session.mask.modelConfig,
           );
+          session.mask.syncGlobalConfig = false;
+        });
+
+        console.info("[Model Selector] provider changed", {
+          sessionId: latestSession.id,
+          profileName,
+          providerName: profile.provider,
+          model: nextModel?.name || latestSession.mask.modelConfig.model,
+          providerId: selectedProviderId,
         });
 
         // 显示切换成功提示
@@ -3838,7 +3823,6 @@ function _Chat() {
       chatStore,
       config,
       modelSelectorIndex,
-      session,
       useModelSelectorIndex,
     ],
   );
@@ -5006,6 +4990,7 @@ function _Chat() {
           }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
+            setModelSelectorDefaultValue(s[0]);
             const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
             const selectedProviderId = String(
               selectedProviderIdRaw || currentProviderId || "",
@@ -5048,23 +5033,33 @@ function _Chat() {
               });
             }
 
-            config.update((config) => {
-              config.modelConfig.model = model as ModelType;
-              config.modelConfig.providerName =
-                actualProviderName as ServiceProvider;
-              config.modelConfig = sanitizeModelConfigForCapability(
-                config.modelConfig,
-              );
+            const nextModelConfig = sanitizeModelConfigForCapability({
+              ...session.mask.modelConfig,
+              model: model as ModelType,
+              providerName: actualProviderName as ServiceProvider,
             });
+
+            // 更新全局配置，供新会话或同步全局配置的会话复用
+            config.update((config) => {
+              config.modelConfig = nextModelConfig;
+            });
+
+            // 手动切换模型必须立即写回当前会话。
+            // Effect B 仅会在空白会话时把全局配置同步到会话，
+            // 已有消息的会话如果不在这里更新，会继续沿用旧模型发起请求。
             chatStore.updateTargetSession(session, (session) => {
-              session.mask.modelConfig.model = model as ModelType;
-              session.mask.modelConfig.providerName =
-                actualProviderName as ServiceProvider;
-              session.mask.modelConfig = sanitizeModelConfigForCapability(
-                session.mask.modelConfig,
-              );
+              session.mask.modelConfig = nextModelConfig;
               session.mask.syncGlobalConfig = false;
             });
+
+            console.info("[Model Selector] model changed", {
+              sessionId: session.id,
+              model: nextModelConfig.model,
+              providerName: nextModelConfig.providerName,
+              providerId: selectedProviderId,
+              profileName: selectedProfile?.name,
+            });
+
             // 只有在非供应商切换后的1秒内才显示提示
             const timeSinceProviderSwitch =
               Date.now() - lastProviderSwitchTimeRef.current;

@@ -209,13 +209,17 @@ export function collectModelTable(
         const normalizedProviderName = String(
           customProviderName || "",
         ).toLowerCase();
-        const matchedFullNames = normalizedProviderName
+        let matchedFullNames = normalizedProviderName
           ? ([
               fullNameByModelAndProvider.get(
                 `${normalizedModelName}@${normalizedProviderName}`,
               ),
             ].filter(Boolean) as string[])
           : fullNameByModelName.get(normalizedModelName) ?? [];
+
+        if (matchedFullNames.length === 0 && normalizedProviderName) {
+          matchedFullNames = fullNameByModelName.get(normalizedModelName) ?? [];
+        }
 
         let count = 0;
         matchedFullNames.forEach((fullName) => {
@@ -350,10 +354,7 @@ function isReservedDefaultModelAlias(
 ) {
   const normalizedModelName = String(modelName || "").toLowerCase();
   const normalizedExactModelName = String(exactModelName || "").toLowerCase();
-  return (
-    normalizedModelName === normalizedExactModelName ||
-    normalizedModelName.startsWith(`${normalizedExactModelName}-`)
-  );
+  return normalizedModelName === normalizedExactModelName;
 }
 
 export function normalizeReservedDisplayModelName(

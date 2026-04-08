@@ -3263,22 +3263,35 @@ export const useChatStore = createPersistStore(
             },
           },
         };
-        updater(sessions[index]);
-        sessions[index].lastUpdate = Date.now();
+        // 创建新 session 对象，避免 mutation 导致选择器无法检测变化
+        const updatedSession = {
+          ...sessions[index],
+          messages: sessions[index].messages.slice(),
+          mask: {
+            ...sessions[index].mask,
+            modelConfig: {
+              ...sessions[index].mask.modelConfig,
+            },
+          },
+        };
+        updater(updatedSession);
+        updatedSession.lastUpdate = Date.now();
+        const newSessions = sessions.slice();
+        newSessions[index] = updatedSession;
         set((state) => {
-          if (!shouldRefreshSessionSummary(previousSession, sessions[index])) {
-            return { sessions };
+          if (!shouldRefreshSessionSummary(previousSession, updatedSession)) {
+            return { sessions: newSessions };
           }
 
           const sessionSummaries = state.sessionSummaries.slice();
-          sessionSummaries[index] = buildSessionSummary(sessions[index]);
+          sessionSummaries[index] = buildSessionSummary(updatedSession);
 
           return {
-            sessions,
+            sessions: newSessions,
             sessionSummaries,
           };
         });
-        void get().saveSessionToPersistedStorage(sessions[index]);
+        void get().saveSessionToPersistedStorage(updatedSession);
       },
       async clearAllData() {
         await clearPersistedStateStorage();

@@ -100,43 +100,6 @@ export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
   right: SelectorItemBase<T>,
 ) {
-  const normalizedText = (item: SelectorItemBase<T>) =>
-    [item.sortKey, item.title, String(item.value)].join(" ").toLowerCase();
-  const isAihubMixGroup = (item: SelectorItemBase<T>) =>
-    String(item.group || "")
-      .trim()
-      .toLowerCase() === "aihubmix";
-  const isAihubMixRouter = (item: SelectorItemBase<T>) =>
-    normalizedText(item).includes("aihubmix-router");
-  const isOpenAIGroup = (item: SelectorItemBase<T>) =>
-    ["openai", "gpt"].includes(
-      String(item.group || "")
-        .trim()
-        .toLowerCase(),
-    );
-  const isDeprioritizedOpenAIModel = (item: SelectorItemBase<T>) =>
-    ["gpt-audio-1.5", "gpt-audio-mini", "gpt-audio", "gpt-5.4-pro"].some(
-      (name) => normalizedText(item).includes(name),
-    );
-
-  if (isAihubMixGroup(left) && isAihubMixGroup(right)) {
-    const leftIsRouter = isAihubMixRouter(left);
-    const rightIsRouter = isAihubMixRouter(right);
-
-    if (leftIsRouter !== rightIsRouter) {
-      return leftIsRouter ? -1 : 1;
-    }
-  }
-
-  if (isOpenAIGroup(left) && isOpenAIGroup(right)) {
-    const leftIsDeprioritized = isDeprioritizedOpenAIModel(left);
-    const rightIsDeprioritized = isDeprioritizedOpenAIModel(right);
-
-    if (leftIsDeprioritized !== rightIsDeprioritized) {
-      return leftIsDeprioritized ? 1 : -1;
-    }
-  }
-
   return comparePublishedAt(
     {
       name: left.sortKey || left.title,
@@ -742,8 +705,16 @@ export function Selector<T>(props: {
     setSearchInput("");
     setSearchText("");
     setSelectedQuickFilter("all");
+    setSelectedValues(
+      Array.isArray(props.defaultSelectedValue)
+        ? props.defaultSelectedValue
+        : props.defaultSelectedValue !== undefined
+        ? [props.defaultSelectedValue]
+        : [],
+    );
+    setSelectedGroup(props.defaultGroup ?? "All");
     setScrollTop(0);
-  }, [props.resetKey]);
+  }, [props.defaultGroup, props.defaultSelectedValue, props.resetKey]);
 
   useEffect(() => {
     const debounceDelay = props.searchDebounceMs ?? 120;
@@ -1047,7 +1018,7 @@ export function Selector<T>(props: {
     selectorVirtualizationEnabled &&
     groupedItems.length >= virtualizationThreshold;
   const estimatedGroupHeight = props.estimatedGroupHeight ?? 48;
-  const estimatedItemHeight = props.estimatedItemHeight ?? 56;
+  const estimatedItemHeight = props.estimatedItemHeight ?? 52;
   const virtualRows = useMemo(() => {
     let top = 0;
     const rows = groupedItems.map((entry) => {
