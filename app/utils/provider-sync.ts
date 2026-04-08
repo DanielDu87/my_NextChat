@@ -55,12 +55,13 @@ type SyncAllProfilesResult = {
 };
 
 const PROVIDER_MODEL_SYNC_TTL_MS = 5 * 60 * 1000;
+const providerSyncInFlight = new Map<string, Promise<FetchModelsResult>>();
 
 export function getProfileProviderId(
   profile: Pick<ApiProfile, "provider" | "name">,
 ) {
   return profile.provider === ServiceProvider.Custom
-    ? `custom_${profile.name}`
+    ? `custom_${profile.name}`.toLowerCase()
     : profile.provider === ServiceProvider.Local
     ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
@@ -162,71 +163,86 @@ export async function syncProfileModels(
   });
 
   const displayName = getProviderDisplayName(profile.provider, profile.baseUrl);
-  if (!options?.silent) {
-    logger.providerSync.banner(
-      "Provider 同步开始",
-      `${displayName} (${options?.reason || "manual"})`,
-    );
+  const existingSync = providerSyncInFlight.get(profileId);
+  if (existingSync) {
+    if (!options?.silent) {
+      logger.providerSync.log(`${displayName} | 已有同步进行中，复用当前任务`);
+    }
+    return existingSync;
   }
 
-  const result = await fetchModelsFromProvider(
-    profile.provider,
-    profile.baseUrl,
-    profile.apiKey,
-    profile.name,
-    profile.apiKeyGroups,
-  );
-
-  const fetchedModels = modelsToCustomModelsString(result.models);
-
-  await runWithImmediateStoreSyncPaused(async () => {
-    useAppConfig.getState().mergeModels(result.models, {
-      silent: true,
-      allowedProviderIds: [providerId],
-    });
-
-    useAccessStore.getState().update((state: any) => {
-      state.apiProfiles = (state.apiProfiles || []).map((item: ApiProfile) =>
-        item.id === profileId
-          ? {
-              ...item,
-              cachedModels: fetchedModels,
-              modelCount: result.total,
-            }
-          : item,
+  const syncPromise = (async () => {
+    if (!options?.silent) {
+      logger.providerSync.banner(
+        "Provider 同步开始",
+        `${displayName} (${options?.reason || "manual"})`,
       );
+    }
 
-      if (
-        (state.apiProfiles || []).find(
-          (item: ApiProfile) => item.id === profileId,
-        )?.enabled
-      ) {
-        state.customModels = fetchedModels;
-      }
+    const result = await fetchModelsFromProvider(
+      profile.provider,
+      profile.baseUrl,
+      profile.apiKey,
+      profile.name,
+      profile.apiKeyGroups,
+    );
+
+    const fetchedModels = modelsToCustomModelsString(result.models);
+
+    await runWithImmediateStoreSyncPaused(async () => {
+      useAppConfig.getState().mergeModels(result.models, {
+        silent: true,
+        allowedProviderIds: [providerId],
+      });
+
+      useAccessStore.getState().update((state: any) => {
+        state.apiProfiles = (state.apiProfiles || []).map((item: ApiProfile) =>
+          item.id === profileId
+            ? {
+                ...item,
+                cachedModels: fetchedModels,
+                modelCount: result.total,
+              }
+            : item,
+        );
+
+        if (
+          (state.apiProfiles || []).find(
+            (item: ApiProfile) => item.id === profileId,
+          )?.enabled
+        ) {
+          state.customModels = fetchedModels;
+        }
+      });
+
+      modelCacheStore.upsertProfileCache(profileId, {
+        cachedModels: fetchedModels,
+        modelCount: result.total,
+        source: "remote",
+        syncStatus: "ready",
+        hydrated: true,
+        hasRemoteChecked: true,
+        lastSyncAt: Date.now(),
+        lastError: undefined,
+      });
     });
 
-    modelCacheStore.upsertProfileCache(profileId, {
-      cachedModels: fetchedModels,
-      modelCount: result.total,
-      source: "remote",
-      syncStatus: "ready",
-      hydrated: true,
-      hasRemoteChecked: true,
-      lastSyncAt: Date.now(),
-      lastError: undefined,
-    });
+    persistAccessSnapshot();
+
+    if (!options?.silent) {
+      logger.providerSync.banner(
+        "Provider 同步完成",
+        `${displayName} 同步完成: ${result.total} 个模型`,
+      );
+    }
+
+    return result;
+  })().finally(() => {
+    providerSyncInFlight.delete(profileId);
   });
 
-  persistAccessSnapshot();
-
-  if (!options?.silent) {
-    logger.providerSync.banner(
-      "Provider 同步完成",
-      `${displayName} 同步完成: ${result.total} 个模型`,
-    );
-  }
-
-  return result;
+  providerSyncInFlight.set(profileId, syncPromise);
+  return syncPromise;
 }
 
 export async function ensureProviderModelsReady(
@@ -436,7 +452,7 @@ async function ensureProfilesLoadedFromDatabase() {
 export async function syncAllProfilesToDatabase(params: {
   fetchFromProvider: FetchFromProvider;
 }) {
-  const { fetchFromProvider } = params;
+  void params;
 
   return runWithBalanceRefreshPaused(() =>
     runWithImmediateStoreSyncPaused(async () => {
@@ -467,45 +483,12 @@ export async function syncAllProfilesToDatabase(params: {
       const results: SyncAllProfilesResult["results"] = [];
 
       for (const profile of profiles) {
-        logger.providerSync.log(`正在获取 ${profile.name} 的模型...`);
+        logger.providerSync.banner("Provider 同步开始", profile.name);
 
         try {
-          const result = await fetchFromProvider(
-            profile.provider,
-            profile.baseUrl,
-            profile.apiKey,
-            {
-              silent: true,
-              throwOnError: true,
-              profileName: profile.name,
-              apiKeyGroups: profile.apiKeyGroups,
-            },
-          );
-
-          const fetchedModels = modelsToCustomModelsString(result.models);
-
-          accessStore.update((state: any) => {
-            state.apiProfiles = (state.apiProfiles || []).map(
-              (item: ApiProfile) =>
-                item.id === profile.id
-                  ? {
-                      ...item,
-                      cachedModels: fetchedModels,
-                      modelCount: result.total,
-                    }
-                  : item,
-            );
-
-            if (
-              state.apiProfiles.find((p: ApiProfile) => p.id === profile.id)
-                ?.enabled
-            ) {
-              state.customModels = fetchedModels;
-            }
-          });
-          useModelCacheStore.getState().upsertProfileCache(profile.id, {
-            cachedModels: fetchedModels,
-            modelCount: result.total,
+          const result = await syncProfileModels(profile.id, {
+            silent: true,
+            reason: "manual",
           });
 
           const mergedCount = getProfileActualCount(profile);
@@ -516,7 +499,10 @@ export async function syncAllProfilesToDatabase(params: {
             success: true,
           });
 
-          logger.providerSync.log(`${profile.name} 获取完成`);
+          logger.providerSync.banner(
+            "Provider 同步完成",
+            `${profile.name} 同步完成: ${mergedCount} 个模型`,
+          );
         } catch (error) {
           results.push({
             name: profile.name,

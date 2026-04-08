@@ -12,6 +12,7 @@ function formatTimestamp(date: Date = new Date()): string {
 
 function createLogger(scope: string) {
   const prefix = (msg: string) => `${formatTimestamp()} [${scope}] ${msg}`;
+  const line = "=".repeat(5);
   return {
     log: (msg: string, ...payload: unknown[]) =>
       payload.length === 0
@@ -30,12 +31,10 @@ function createLogger(scope: string) {
         ? console.error(prefix(msg))
         : console.error(prefix(msg), ...payload),
     banner: (title: string, detail?: string) => {
-      const line = "=".repeat(40);
-      console.info(
-        detail
-          ? `${formatTimestamp()} ${line} ${title} | ${detail} ${line}`
-          : `${formatTimestamp()} ${line} ${title} ${line}`,
-      );
+      console.info(`${formatTimestamp()} ${line} ${title} ${line}`);
+      if (detail) {
+        console.info(prefix(detail));
+      }
     },
   };
 }

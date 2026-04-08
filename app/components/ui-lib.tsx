@@ -54,6 +54,8 @@ type SelectorItemBase<T> = {
   group?: string;
   order?: number;
   publishedAt?: number;
+  publishedAtSource?: string;
+  catalogRank?: number;
   sortKey?: string;
   rightAction?: {
     text: string;
@@ -104,11 +106,15 @@ export function compareSelectorItems<T>(
     {
       name: left.sortKey || left.title,
       publishedAt: left.publishedAt,
+      publishedAtSource: left.publishedAtSource as any,
+      catalogRank: left.catalogRank,
       order: left.order,
     },
     {
       name: right.sortKey || right.title,
       publishedAt: right.publishedAt,
+      publishedAtSource: right.publishedAtSource as any,
+      catalogRank: right.catalogRank,
       order: right.order,
     },
   );
@@ -640,6 +646,7 @@ export function Selector<T>(props: {
   onFilterControlsDisabledClick?: () => void;
   groupFilterDisabled?: boolean;
   onGroupFilterDisabledClick?: () => void;
+  onGroupChange?: (group: string) => void;
   footer?:
     | React.ReactNode
     | ((ctx: { selectedGroup: string }) => React.ReactNode);
@@ -1202,6 +1209,8 @@ export function Selector<T>(props: {
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSelectedGroup(group);
+                        props.onGroupChange?.(group);
+                        setIsGroupFilterOpen(false);
                         stabilizeSelectorPosition();
                       }}
                     >

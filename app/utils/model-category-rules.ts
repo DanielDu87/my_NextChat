@@ -343,23 +343,12 @@ export function matchModelCategory(
   },
 ) {
   const rule = getModelCategoryRule(category);
-  const lowerTitle = input.title.toLowerCase();
   const metaValues = [
-    input.meta?.category,
     input.meta?.type,
     ...(input.meta?.types ?? []),
     ...(input.meta?.features ?? []),
-    ...(input.meta?.capabilities ?? []),
-    ...(input.meta?.categories ?? []),
   ]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());
-
-  const matchedByMetadata = rule.metadataKeywords.some((keyword) =>
-    metaValues.some((value) => value.includes(keyword)),
-  );
-
-  if (matchedByMetadata) return true;
-
-  return rule.titleKeywords.some((keyword) => lowerTitle.includes(keyword));
+  return rule.aliases.some((alias) => metaValues.includes(alias));
 }

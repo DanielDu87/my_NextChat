@@ -6,6 +6,7 @@
 
 ### 部署相关
 
+- **🔥 本地开发部署：[docs/local-dev-guide.md](docs/local-dev-guide.md)** - Docker + PostgreSQL 本地开发环境
 - **🔥 宝塔面板部署：[docs/BAOTA_INSTALL_GUIDE.md](docs/BAOTA_INSTALL_GUIDE.md)** - 推荐！使用宝塔面板图形界面一键部署
 - 部署说明：[DEPLOY.md](DEPLOY.md)
 - Docker 部署指南：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)

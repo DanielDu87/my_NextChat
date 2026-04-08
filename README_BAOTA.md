@@ -1,5 +1,7 @@
 # NextChat 宝塔部署说明
 
+> **本地开发**：查看 [本地开发部署指南](docs/local-dev-guide.md) 了解如何在本地使用 Docker + PostgreSQL 进行开发。
+
 当前线上部署约定已经调整为：
 
 - 宝塔 Nginx 只负责把域名反代到 `127.0.0.1:3000`
@@ -178,3 +180,24 @@ curl http://127.0.0.1:3000/api/db/health
 - 在 `docker-compose.baota.yml` 内启动本地 PostgreSQL
 - 通过 `docker-compose.postgres.yml` 单独维护一套宝塔本地数据库
 - 让 `docker-compose.baota.yml` 和 `docker-compose.yml` 混用到不同数据库
+
+## 本地开发
+
+如果您想在本地开发环境使用 Docker + PostgreSQL，请参考 [本地开发部署指南](docs/local-dev-guide.md)。
+
+本地开发环境特点：
+
+- 使用 `docker-compose.yml`（不是 `docker-compose.baota.yml`）
+- 使用 `--profile dev` 启动热加载开发服务器
+- 使用 `--profile local-db` 启动内置 PostgreSQL 数据库
+- 代码修改自动同步到容器，无需重新构建
+
+快速启动：
+
+```bash
+# 启动本地开发环境（包含数据库）
+docker-compose --profile local-db --profile dev up -d
+
+# 访问
+open http://localhost:3000
+```

@@ -28,6 +28,8 @@ type SortableModelLike = {
   name?: string;
   title?: string;
   publishedAt?: number;
+  publishedAtSource?: ModelPublishedAtSource;
+  catalogRank?: number;
   sorted?: number;
   order?: number;
 };
@@ -36,6 +38,15 @@ const RELEASE_DATE_PATTERN =
   /20\d{2}[-_.]?(0[1-9]|1[0-2])[-_.]?([0-2]\d|3[01])/;
 const RELEASE_MONTH_DAY_PATTERN =
   /(?:^|[-_.])(0[1-9]|1[0-2])[-_.]([0-2]\d|3[01])$/;
+
+function normalizeSortableModelAlias(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/\bgpt-40\b/g, "gpt-4o")
+    .replace(/\bgpt-40(?=[-_.])/g, "gpt-4o")
+    .replace(/\bchatgpt-40\b/g, "chatgpt-4o")
+    .replace(/\bchatgpt-40(?=[-_.])/g, "chatgpt-4o");
+}
 
 // 这些规则只用于官方可追溯的模型家族/系列日期回填。
 const PUBLISHED_AT_RULES: PublishedAtRule[] = [
@@ -1175,11 +1186,11 @@ export function applyModelPublishedAt<T extends Record<string, unknown>>(
 }
 
 function getSortableName(model?: SortableModelLike) {
-  return model?.name || model?.title || "";
+  return normalizeSortableModelAlias(model?.name || model?.title || "");
 }
 
 function getSortTokens(text: string) {
-  const normalized = text.toLowerCase();
+  const normalized = normalizeSortableModelAlias(text);
   const versionMatches = Array.from(
     normalized.matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
   ).map((match) => match[0]);
@@ -1222,14 +1233,10 @@ export function comparePublishedAt(
   left?: SortableModelLike,
   right?: SortableModelLike,
 ) {
-  const leftPublishedAt =
-    left?.publishedAt ?? extractPublishedAtFromName(getSortableName(left)) ?? 0;
-  const rightPublishedAt =
-    right?.publishedAt ??
-    extractPublishedAtFromName(getSortableName(right)) ??
-    0;
-  if (rightPublishedAt !== leftPublishedAt) {
-    return rightPublishedAt - leftPublishedAt;
+  const leftCatalogRank = left?.catalogRank ?? Number.MAX_SAFE_INTEGER;
+  const rightCatalogRank = right?.catalogRank ?? Number.MAX_SAFE_INTEGER;
+  if (leftCatalogRank !== rightCatalogRank) {
+    return leftCatalogRank - rightCatalogRank;
   }
 
   const leftVersion = getPrimaryVersion(

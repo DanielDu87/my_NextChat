@@ -5,6 +5,7 @@ import { useAccessStore } from "../store/access";
 import Locale from "../locales";
 import { InputRange } from "./input-range";
 import { ListItem, Select } from "./ui-lib";
+import { compareSelectorItems } from "./ui-lib";
 import { useAllModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
@@ -127,7 +128,29 @@ export function ModelConfigList(props: {
           {sortedGroupNames.map((vendorName, index) => (
             <optgroup label={vendorName} key={index}>
               {groupModels[vendorName]
-                .sort((a, b) => a.sorted - b.sorted)
+                .slice()
+                .sort((a, b) =>
+                  compareSelectorItems(
+                    {
+                      title: a.displayName || a.name,
+                      value: `${a.name}@${a.provider?.providerName}`,
+                      sortKey: a.name,
+                      order: a.sorted,
+                      publishedAt: a.publishedAt,
+                      publishedAtSource: a.publishedAtSource,
+                      catalogRank: a.catalogRank,
+                    },
+                    {
+                      title: b.displayName || b.name,
+                      value: `${b.name}@${b.provider?.providerName}`,
+                      sortKey: b.name,
+                      order: b.sorted,
+                      publishedAt: b.publishedAt,
+                      publishedAtSource: b.publishedAtSource,
+                      catalogRank: b.catalogRank,
+                    },
+                  ),
+                )
                 .map((v, i) => (
                   <option
                     value={`${v.name}@${v.provider?.providerName}`}

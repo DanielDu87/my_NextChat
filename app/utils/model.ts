@@ -3,11 +3,7 @@ import type { LLMModel } from "../client/api";
 import modelPublishedAtUtils from "./model-published-at";
 
 const { DEFAULT_MODELS, ServiceProvider } = constants;
-const {
-  applyModelPublishedAt,
-  comparePublishedAt,
-  extractPublishedAtFromName,
-} = modelPublishedAtUtils;
+const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -39,6 +35,7 @@ type RuntimeCollectedModel = {
   publishedAtSource?: LLMModel["publishedAtSource"];
   publishedAtUrl?: LLMModel["publishedAtUrl"];
   publishedAtNote?: LLMModel["publishedAtNote"];
+  catalogRank?: number;
   provider?: LLMModel["provider"];
   vendor?: LLMModel["vendor"];
   category?: LLMModel["category"];
@@ -51,12 +48,21 @@ type RuntimeCollectedModel = {
   isDefault?: boolean;
   __normalizedSortName?: string;
   __primaryVersion?: number[];
-  __publishedAtSortValue?: number;
+  __catalogRank?: number;
 };
+
+function normalizeModelSortAlias(text: string) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\bgpt-40\b/g, "gpt-4o")
+    .replace(/\bgpt-40(?=[-_.])/g, "gpt-4o")
+    .replace(/\bchatgpt-40\b/g, "chatgpt-4o")
+    .replace(/\bchatgpt-40(?=[-_.])/g, "chatgpt-4o");
+}
 
 function getModelVersionParts(text: string) {
   const versionMatches = Array.from(
-    text.toLowerCase().matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
+    normalizeModelSortAlias(text).matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
   ).map((match) => match[0]);
   const versions = versionMatches.map((value) =>
     value.split(".").map((part) => Number(part)),
@@ -97,10 +103,9 @@ function compareVersionPartsDesc(left: number[] = [], right: number[] = []) {
 function applyRuntimeModelSortFields<T extends RuntimeCollectedModel>(
   model: T,
 ) {
-  model.__normalizedSortName = String(model.name || "").toLowerCase();
+  model.__normalizedSortName = normalizeModelSortAlias(model.name || "");
   model.__primaryVersion = getModelVersionParts(model.name || "");
-  model.__publishedAtSortValue =
-    model.publishedAt ?? extractPublishedAtFromName(model.name) ?? 0;
+  model.__catalogRank = Number(model.catalogRank ?? Number.MAX_SAFE_INTEGER);
   return model;
 }
 
@@ -111,10 +116,11 @@ function applyRuntimeModelSortFields<T extends RuntimeCollectedModel>(
  */
 const sortModelTable = <T extends RuntimeCollectedModel>(models: T[]) =>
   models.sort((a, b) => {
-    const publishedAtDiff =
-      (b.__publishedAtSortValue ?? 0) - (a.__publishedAtSortValue ?? 0);
-    if (publishedAtDiff !== 0) {
-      return publishedAtDiff;
+    const catalogRankDiff =
+      (a.__catalogRank ?? Number.MAX_SAFE_INTEGER) -
+      (b.__catalogRank ?? Number.MAX_SAFE_INTEGER);
+    if (catalogRankDiff !== 0) {
+      return catalogRankDiff;
     }
 
     const versionDiff = compareVersionPartsDesc(
@@ -432,6 +438,15 @@ export function resolveModelProviderId(
   currentModelConfig: ProviderScopedModelConfig | undefined,
   accessProfiles: readonly AccessProfileLike[] = [],
 ) {
+  const explicitProviderId = String(
+    (currentModelConfig as any)?.providerId || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (explicitProviderId) {
+    return explicitProviderId;
+  }
+
   const providerName = currentModelConfig?.providerName;
   const modelName = currentModelConfig?.model;
   if (!providerName) {

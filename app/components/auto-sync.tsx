@@ -40,6 +40,7 @@ import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 let autoSyncEffectActive = false;
 let lastAutoSyncBootstrapAt = 0;
+const LOG_SEPARATOR = "=".repeat(5);
 
 function formatAutoSyncLogTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -70,7 +71,9 @@ function logCriticalStartupSyncBanner(
   const title = phase === "start" ? "🔄 开始同步检查" : "✅ 同步检查完成";
   autoSyncConsole(
     "info",
-    detail ? `===== ${title} | ${detail} =====` : `===== ${title} =====`,
+    detail
+      ? `${LOG_SEPARATOR} ${title} | ${detail} ${LOG_SEPARATOR}`
+      : `${LOG_SEPARATOR} ${title} ${LOG_SEPARATOR}`,
   );
 }
 
@@ -474,18 +477,18 @@ export default function AutoSync() {
         pendingBootstrapProfileName = bootstrapProfile.name;
         autoSyncConsole(
           "info",
-          `===== 🗂️ Provider 模型就绪检查 | ${bootstrapProfile.name} =====`,
+          `${LOG_SEPARATOR} 🗂️ Provider 模型就绪检查 | ${bootstrapProfile.name} ${LOG_SEPARATOR}`,
         );
       }
       if (hasBootstrapCache) {
         autoSyncConsole(
           "info",
-          "===== 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 =====",
+          `${LOG_SEPARATOR} 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 ${LOG_SEPARATOR}`,
         );
       } else {
         autoSyncConsole(
           "info",
-          "===== 📦 本地模型缓存检查完成 | [AutoSync] 当前没有可用缓存，将走首次同步 =====",
+          `${LOG_SEPARATOR} 📦 本地模型缓存检查完成 | [AutoSync] 当前没有可用缓存，将走首次同步 ${LOG_SEPARATOR}`,
         );
       }
       logPerfSummary("StartupSync", {
@@ -620,6 +623,10 @@ export default function AutoSync() {
           refreshLock,
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
         );
+        autoSyncConsole(
+          "info",
+          `${LOG_SEPARATOR} 🚀 AutoSync 启动流程开始 ${LOG_SEPARATOR}`,
+        );
         logCriticalStartupSyncBanner("start", "聊天记录优先");
         autoSyncConsole("log", "[AutoSync] 🚀 开始自动同步...");
 
@@ -695,7 +702,10 @@ export default function AutoSync() {
                   );
                 });
 
-              autoSyncConsole("info", "===== 💾 对话与设置后台同步开始 =====");
+              autoSyncConsole(
+                "info",
+                `${LOG_SEPARATOR} 💾 对话与设置后台同步开始 ${LOG_SEPARATOR}`,
+              );
               const deferredSync =
                 syncStore.autoSyncDeferred?.() ?? Promise.resolve();
               void deferredSync
@@ -723,7 +733,7 @@ export default function AutoSync() {
                   );
                   autoSyncConsole(
                     "info",
-                    "===== 💾 对话与设置后台同步完成 =====",
+                    `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`,
                   );
                 })
                 .catch((error: unknown) => {
@@ -791,7 +801,6 @@ export default function AutoSync() {
         return;
       }
 
-      autoSyncConsole("info", "===== 🚀 AutoSync 启动流程开始 =====");
       restoreLocalCriticalState();
       logPerfSummary("StartupSync", {
         hydrationWaitDurationMs: result.durationMs,

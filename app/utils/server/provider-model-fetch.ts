@@ -18,6 +18,7 @@ export type SyncedLLMModel = {
   publishedAtSource?: string;
   publishedAtUrl?: string;
   publishedAtNote?: string;
+  catalogRank?: number;
   vendor?: {
     id: number;
     name: string;
@@ -80,6 +81,37 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   30: { name: "BAAI", icon: "BAAI" },
   31: { name: "Xiaomi", icon: "Xiaomi" },
 };
+
+let aihubmixCatalogMetadataMapPromise: Promise<
+  Map<
+    string,
+    { rank: number; vendor?: { id: number; name: string; icon?: string } }
+  >
+> | null = null;
+let aihubmixClassificationMapPromise: Promise<
+  Map<string, { features?: string[]; types?: string[] }>
+> | null = null;
+const TRAILING_RELEASE_DATE_PATTERN =
+  /(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|1[0-2])[-_.](?:0[1-9]|[12]\d|3[01])))$/i;
+
+function getAiHubMixLookupKeys(name: string) {
+  const normalizedName = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\bgpt-40\b/g, "gpt-4o")
+    .replace(/\bgpt-40(?=[-_.])/g, "gpt-4o")
+    .replace(/\bchatgpt-40\b/g, "chatgpt-4o")
+    .replace(/\bchatgpt-40(?=[-_.])/g, "chatgpt-4o");
+  if (!normalizedName) {
+    return [];
+  }
+
+  const withoutTrailingDate = normalizedName
+    .replace(TRAILING_RELEASE_DATE_PATTERN, "")
+    .replace(/[-_.]+$/, "");
+
+  return [...new Set([normalizedName, withoutTrailingDate].filter(Boolean))];
+}
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
@@ -220,7 +252,7 @@ function resolveProviderFetchPreset(
       ...preset,
       providerId:
         provider === ServiceProvider.Custom && profileName
-          ? `custom_${profileName}`
+          ? `custom_${profileName}`.toLowerCase()
           : preset.providerId,
     };
   }
@@ -371,12 +403,34 @@ function mapModels(
   sorted: number,
   vendorsMap?: Record<number, { name: string; icon?: string }>,
   apiKeyGroup?: string,
+  catalogMetadataMap?: Map<
+    string,
+    { rank: number; vendor?: { id: number; name: string; icon?: string } }
+  >,
+  classificationMap?: Map<string, { features?: string[]; types?: string[] }>,
 ) {
   let seq = 1000;
   return models.map((model: any) => {
     const modelName =
       model.id || model.name || model.model_id || model.model_name;
-    const normalized = normalizeModelClassification(model);
+    const lookupKeys = getAiHubMixLookupKeys(String(modelName || ""));
+    const catalogMetadata = lookupKeys
+      .map((key) => catalogMetadataMap?.get(key))
+      .find(Boolean);
+    const catalogRank = catalogMetadata?.rank ?? undefined;
+    const classificationMeta = lookupKeys
+      .map((key) => classificationMap?.get(key))
+      .find(Boolean);
+    const normalized = normalizeModelClassification(
+      classificationMeta
+        ? {
+            name: modelName,
+            features: classificationMeta.features,
+            types: classificationMeta.types,
+            type: classificationMeta.types?.[0],
+          }
+        : model,
+    );
     const isAiHubMixBrandedModel = String(modelName || "")
       .toLowerCase()
       .includes("aihubmix");
@@ -411,6 +465,10 @@ function mapModels(
       }
     }
 
+    if (catalogMetadata?.vendor) {
+      vendor = catalogMetadata.vendor;
+    }
+
     if (isAiHubMixBrandedModel) {
       vendor = {
         id: -2,
@@ -423,6 +481,7 @@ function mapModels(
       name: modelName,
       available: true,
       sorted: seq++,
+      catalogRank,
       category: normalized.category,
       categorySource: normalized.categorySource,
       type: normalized.type,
@@ -440,6 +499,139 @@ function mapModels(
       vendor,
     }) as SyncedLLMModel;
   });
+}
+
+async function fetchAiHubMixCatalogMetadataMap() {
+  const response = await requestUpstream("https://aihubmix.com/api/v1/models", {
+    method: "GET",
+    dnsServers: ["1.1.1.1", "8.8.8.8"],
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `AihubMix 模型目录请求失败: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload = await response.json();
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  const metadataMap = new Map<
+    string,
+    { rank: number; vendor?: { id: number; name: string; icon?: string } }
+  >();
+
+  items.forEach((item: any, index: number) => {
+    const modelName =
+      item?.id ||
+      item?.model ||
+      item?.name ||
+      item?.model_id ||
+      item?.model_name;
+    const normalizedName = String(modelName || "")
+      .trim()
+      .toLowerCase();
+    if (!normalizedName || metadataMap.has(normalizedName)) {
+      return;
+    }
+    const vendorInfo = AIHUBMIX_VENDOR_MAP[Number(item?.developer_id)];
+    metadataMap.set(normalizedName, {
+      rank: index + 1,
+      vendor:
+        item?.developer_id !== undefined && vendorInfo
+          ? {
+              id: Number(item.developer_id),
+              name: vendorInfo.name,
+              icon: vendorInfo.icon,
+            }
+          : undefined,
+    });
+  });
+
+  return metadataMap;
+}
+
+async function fetchAiHubMixClassificationMap() {
+  const response = await requestUpstream(
+    "https://aihubmix.com/call/mdl_info_pagination?p=0&num=10000",
+    {
+      method: "GET",
+      dnsServers: ["1.1.1.1", "8.8.8.8"],
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `AihubMix 分类元数据请求失败: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload = await response.json();
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  const classificationMap = new Map<
+    string,
+    { features?: string[]; types?: string[] }
+  >();
+
+  items.forEach((item: any) => {
+    const modelName =
+      item?.model ||
+      item?.id ||
+      item?.name ||
+      item?.model_id ||
+      item?.model_name;
+    const normalizedName = String(modelName || "")
+      .trim()
+      .toLowerCase();
+    if (!normalizedName || classificationMap.has(normalizedName)) {
+      return;
+    }
+
+    const features = String(item?.features || "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const types = String(item?.modalities || "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+
+    classificationMap.set(normalizedName, {
+      features: features.length > 0 ? features : undefined,
+      types: types.length > 0 ? types : undefined,
+    });
+  });
+
+  return classificationMap;
+}
+
+async function getAiHubMixCatalogMetadataMap() {
+  if (!aihubmixCatalogMetadataMapPromise) {
+    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap().catch(
+      (error) => {
+        aihubmixCatalogMetadataMapPromise = null;
+        throw error;
+      },
+    );
+  }
+  return aihubmixCatalogMetadataMapPromise;
+}
+
+async function getAiHubMixClassificationMap() {
+  if (!aihubmixClassificationMapPromise) {
+    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap().catch(
+      (error) => {
+        aihubmixClassificationMapPromise = null;
+        throw error;
+      },
+    );
+  }
+  return aihubmixClassificationMapPromise;
 }
 
 async function fetchJsonWithCandidates(
@@ -641,6 +833,32 @@ export async function fetchModelsFromProviderForServer(
 
   let models: any[] = [];
   let vendorsMap: Record<number, { name: string; icon?: string }> | undefined;
+  let catalogMetadataMap:
+    | Map<
+        string,
+        { rank: number; vendor?: { id: number; name: string; icon?: string } }
+      >
+    | undefined;
+  let classificationMap:
+    | Map<string, { features?: string[]; types?: string[] }>
+    | undefined;
+
+  try {
+    catalogMetadataMap = await getAiHubMixCatalogMetadataMap();
+  } catch (error) {
+    console.warn(
+      "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到本地兜底排序",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  try {
+    classificationMap = await getAiHubMixClassificationMap();
+  } catch (error) {
+    console.warn(
+      "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   if (data.vendors && Array.isArray(data.vendors)) {
     vendorsMap = {};
@@ -723,6 +941,8 @@ export async function fetchModelsFromProviderForServer(
         sorted,
         groupedVendorsMap,
         groupName,
+        catalogMetadataMap,
+        classificationMap,
       ).forEach((model) => {
         const key = `${model.name}@${model.provider?.id}`;
         const existing = mergedModelMap.get(key);
@@ -769,6 +989,9 @@ export async function fetchModelsFromProviderForServer(
         providerType,
         sorted,
         vendorsMap,
+        undefined,
+        catalogMetadataMap,
+        classificationMap,
       );
       return {
         models: mappedModels,
@@ -812,6 +1035,8 @@ export async function fetchModelsFromProviderForServer(
           sorted,
           vendorsMap,
           groupName,
+          catalogMetadataMap,
+          classificationMap,
         ).forEach((model) => {
           const key = `${model.name}@${model.provider?.id}`;
           const existing = mergedModelMap.get(key);
@@ -851,6 +1076,9 @@ export async function fetchModelsFromProviderForServer(
     providerType,
     sorted,
     vendorsMap,
+    undefined,
+    catalogMetadataMap,
+    classificationMap,
   );
 
   return {

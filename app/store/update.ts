@@ -22,7 +22,7 @@ import { useAuthStore } from "./auth";
 
 const ONE_MINUTE = 60 * 1000;
 const BALANCE_REFRESH_INTERVAL = 60 * 1000;
-const LOG_SEPARATOR = "=".repeat(30);
+const LOG_SEPARATOR = "=".repeat(5);
 const isApp = !!getClientConfig()?.isApp;
 const inflightBalanceQueries = new Map<string, Promise<void>>();
 let balanceRefreshPauseCount = 0;

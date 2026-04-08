@@ -152,7 +152,7 @@ import {
   UNFINISHED_INPUT,
 } from "../constant";
 
-const LOG_SEPARATOR = "=".repeat(30);
+const LOG_SEPARATOR = "=".repeat(5);
 import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { Avatar } from "./emoji";
@@ -176,12 +176,10 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
-  getLatestOpenAIModelForProviderId,
   getModelProvider,
   getPreferredRuntimeModelConfig,
   normalizeReservedDisplayModelName,
 } from "../utils/model";
-import { modelsToCustomModelsString } from "../utils/models";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import { useAuthStore } from "../store/auth";
 import { UserMenu } from "./user-menu";
@@ -197,6 +195,24 @@ type RemoteModelRefreshArtifact = {
     updatedAt?: string;
   }>;
 };
+
+async function loadRemoteModelRefreshArtifact() {
+  if (useSyncStore.getState().provider !== ProviderType.Database) {
+    return null;
+  }
+
+  const latestRes = await fetch("/api/db/models/latest", {
+    cache: "no-store",
+    headers: withSyncUserHeaders(),
+  });
+
+  if (!latestRes.ok) {
+    return null;
+  }
+
+  const latestData = await latestRes.json();
+  return latestData?.ok ? latestData.latest ?? null : null;
+}
 
 function formatMessageUsage(
   usage?: Partial<{
@@ -447,6 +463,106 @@ function areModelConfigValuesEqual(
   return true;
 }
 
+async function reconcileRemoteModelStoresInternal() {
+  const syncStoreState = useSyncStore.getState();
+  const client = syncStoreState.getClient() as any;
+
+  await runWithImmediateStoreSyncPaused(async () => {
+    const currentProfiles = useAccessStore.getState().apiProfiles || [];
+    const managedProviderIds = getManagedProviderIds(currentProfiles);
+    const allowedProviderIds = [...managedProviderIds];
+
+    const remoteConfigJson = await client.get(StoreKey.Config);
+    if (remoteConfigJson) {
+      const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
+      const remoteModels = (remoteConfig?.models || []).filter((model: any) => {
+        const providerId = String(model?.provider?.id || "").toLowerCase();
+        return providerId && managedProviderIds.has(providerId);
+      });
+      if (remoteModels.length > 0) {
+        useAppConfig.getState().mergeModels(remoteModels, {
+          silent: true,
+          allowedProviderIds,
+        });
+      }
+    }
+
+    const remoteAccessJson = await client.get(StoreKey.Access);
+    if (remoteAccessJson) {
+      const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
+      const remoteProfiles = Array.isArray(remoteAccess?.apiProfiles)
+        ? remoteAccess.apiProfiles
+        : [];
+
+      if (remoteProfiles.length > 0) {
+        useAccessStore.getState().update((state) => {
+          const localProfileMap = new Map(
+            (state.apiProfiles || []).map((profile: any) => [
+              String(profile?.id || ""),
+              profile,
+            ]),
+          );
+          const mergedProfiles = [...(state.apiProfiles || [])];
+
+          remoteProfiles.forEach((remoteProfile: any) => {
+            const remoteProfileId = String(remoteProfile?.id || "");
+            if (!remoteProfileId) {
+              return;
+            }
+
+            if (!localProfileMap.has(remoteProfileId)) {
+              if (
+                remoteProfile.cachedModels ||
+                Number(remoteProfile.modelCount || 0) > 0
+              ) {
+                useModelCacheStore
+                  .getState()
+                  .upsertProfileCache(remoteProfileId, {
+                    cachedModels: String(remoteProfile.cachedModels || ""),
+                    modelCount: Number(remoteProfile.modelCount || 0),
+                  });
+              }
+              mergedProfiles.push(remoteProfile);
+              return;
+            }
+
+            const localIndex = mergedProfiles.findIndex(
+              (profile: any) => String(profile?.id || "") === remoteProfileId,
+            );
+            if (localIndex < 0) {
+              return;
+            }
+
+            const localProfile = mergedProfiles[localIndex] as any;
+            const localModels = new Set(
+              String(localProfile?.cachedModels || "")
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            );
+            String(remoteProfile.cachedModels || "")
+              .split(",")
+              .map((item: string) => item.trim())
+              .filter(Boolean)
+              .forEach((modelName: string) => localModels.add(modelName));
+
+            useModelCacheStore.getState().upsertProfileCache(remoteProfileId, {
+              cachedModels: [...localModels].join(","),
+              modelCount: Math.max(
+                Number(localProfile?.modelCount || 0),
+                Number(remoteProfile?.modelCount || 0),
+              ),
+            });
+          });
+
+          state.apiProfiles = mergedProfiles;
+        });
+        useModelCacheStore.getState().migrateFromAccessProfiles?.();
+      }
+    }
+  });
+}
+
 function ChatModelUpdateNotice() {
   const authUser = useAuthStore((state) => state.user);
   const authInitialized = useAuthStore((state) => state.initialized);
@@ -463,109 +579,10 @@ function ChatModelUpdateNotice() {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enableAutomaticModelReconcile = false;
 
-  const reconcileRemoteModelStores = useCallback(async () => {
-    const syncStoreState = useSyncStore.getState();
-    const client = syncStoreState.getClient() as any;
-
-    await runWithImmediateStoreSyncPaused(async () => {
-      const currentProfiles = useAccessStore.getState().apiProfiles || [];
-      const managedProviderIds = getManagedProviderIds(currentProfiles);
-      const allowedProviderIds = [...managedProviderIds];
-
-      const remoteConfigJson = await client.get(StoreKey.Config);
-      if (remoteConfigJson) {
-        const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
-        const remoteModels = (remoteConfig?.models || []).filter(
-          (model: any) => {
-            const providerId = String(model?.provider?.id || "").toLowerCase();
-            return providerId && managedProviderIds.has(providerId);
-          },
-        );
-        if (remoteModels.length > 0) {
-          useAppConfig.getState().mergeModels(remoteModels, {
-            silent: true,
-            allowedProviderIds,
-          });
-        }
-      }
-
-      const remoteAccessJson = await client.get(StoreKey.Access);
-      if (remoteAccessJson) {
-        const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
-        const remoteProfiles = Array.isArray(remoteAccess?.apiProfiles)
-          ? remoteAccess.apiProfiles
-          : [];
-
-        if (remoteProfiles.length > 0) {
-          useAccessStore.getState().update((state) => {
-            const localProfileMap = new Map(
-              (state.apiProfiles || []).map((profile: any) => [
-                String(profile?.id || ""),
-                profile,
-              ]),
-            );
-            const mergedProfiles = [...(state.apiProfiles || [])];
-
-            remoteProfiles.forEach((remoteProfile: any) => {
-              const remoteProfileId = String(remoteProfile?.id || "");
-              if (!remoteProfileId) {
-                return;
-              }
-
-              if (!localProfileMap.has(remoteProfileId)) {
-                if (
-                  remoteProfile.cachedModels ||
-                  Number(remoteProfile.modelCount || 0) > 0
-                ) {
-                  useModelCacheStore
-                    .getState()
-                    .upsertProfileCache(remoteProfileId, {
-                      cachedModels: String(remoteProfile.cachedModels || ""),
-                      modelCount: Number(remoteProfile.modelCount || 0),
-                    });
-                }
-                mergedProfiles.push(remoteProfile);
-                return;
-              }
-
-              const localIndex = mergedProfiles.findIndex(
-                (profile: any) => String(profile?.id || "") === remoteProfileId,
-              );
-              if (localIndex < 0) {
-                return;
-              }
-
-              const localProfile = mergedProfiles[localIndex] as any;
-              const localModels = new Set(
-                String(localProfile?.cachedModels || "")
-                  .split(",")
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              );
-              String(remoteProfile.cachedModels || "")
-                .split(",")
-                .map((item: string) => item.trim())
-                .filter(Boolean)
-                .forEach((modelName: string) => localModels.add(modelName));
-
-              useModelCacheStore
-                .getState()
-                .upsertProfileCache(remoteProfileId, {
-                  cachedModels: [...localModels].join(","),
-                  modelCount: Math.max(
-                    Number(localProfile?.modelCount || 0),
-                    Number(remoteProfile?.modelCount || 0),
-                  ),
-                });
-            });
-
-            state.apiProfiles = mergedProfiles;
-          });
-          useModelCacheStore.getState().migrateFromAccessProfiles?.();
-        }
-      }
-    });
-  }, []);
+  const reconcileRemoteModelStores = useCallback(
+    async () => reconcileRemoteModelStoresInternal(),
+    [],
+  );
 
   const refreshRemoteSignals = useCallback(async () => {
     if (!authInitialized || !authUser) {
@@ -581,17 +598,7 @@ function ChatModelUpdateNotice() {
     }
 
     try {
-      const latestRes = await fetch("/api/db/models/latest", {
-        cache: "no-store",
-        headers: withSyncUserHeaders(),
-      });
-
-      if (latestRes.ok) {
-        const latestData = await latestRes.json();
-        if (latestData?.ok) {
-          setRemoteModelRefresh(latestData.latest ?? null);
-        }
-      }
+      setRemoteModelRefresh(await loadRemoteModelRefreshArtifact());
     } catch {
       setRemoteModelRefresh(null);
     } finally {
@@ -922,6 +929,9 @@ import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
 const localStorage = safeLocalStorage();
 const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
+const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
+const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
+const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const recentBalanceAutoRefresh = new Map<string, number>();
 
 const ttsPlayer = createTTSPlayer();
@@ -1547,13 +1557,9 @@ export function ChatActions(props: {
   ]);
 
   const models = useMemo(() => {
-    const filteredModels = allModels.filter(
-      (m) =>
-        m.available &&
-        String(m?.provider?.id || "").toLowerCase() === currentProviderId,
-    );
+    const filteredModels = allModels.filter((m) => m.available);
     return filteredModels;
-  }, [allModels, currentProviderId]);
+  }, [allModels]);
   const latestOpenAIModel = useMemo(() => {
     const openAIModels = config.models.filter(
       (item) => item?.provider?.providerName === ServiceProvider.OpenAI,
@@ -2200,7 +2206,16 @@ function _Chat() {
   >(undefined);
   const [modelSelectorDefaultGroup, setModelSelectorDefaultGroup] = useState<
     string | undefined
-  >(undefined);
+  >(() => {
+    const storedGroup = String(
+      localStorage.getItem(MODEL_SELECTOR_GROUP_STORAGE_KEY) || "",
+    ).trim();
+    return storedGroup || undefined;
+  });
+  const resetModelSelectorGroupToAll = useCallback(() => {
+    setModelSelectorDefaultGroup("All");
+    localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, "All");
+  }, []);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
@@ -2602,6 +2617,8 @@ function _Chat() {
         ).toLowerCase()}`,
         order: model.sorted,
         publishedAt: model.publishedAt,
+        publishedAtSource: model.publishedAtSource,
+        catalogRank: model.catalogRank,
         group: globalCustomModelValueSet.has(
           `${model.name}@${model?.provider?.providerName}`,
         )
@@ -2679,6 +2696,8 @@ function _Chat() {
         disable: manualModelSelectionDisabled,
         order: model.sorted,
         publishedAt: model.publishedAt,
+        publishedAtSource: model.publishedAtSource,
+        catalogRank: model.catalogRank,
         group: globalCustomModelValueSet.has(
           `${model.name}@${model?.provider?.providerName}`,
         )
@@ -3093,7 +3112,9 @@ function _Chat() {
     let nextModelConfig = sessionMask.modelConfig;
     let shouldSyncMaskConfig = false;
     const preferredRuntimeModelConfig =
-      !autoModeEnabled && sessionMessages.length === 0
+      sessionMask.syncGlobalConfig &&
+      !autoModeEnabled &&
+      sessionMessages.length === 0
         ? getPreferredRuntimeModelConfig(
             allModels,
             sessionMask.modelConfig,
@@ -3300,17 +3321,26 @@ function _Chat() {
 
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
+  const reconcileRemoteModelStores = useCallback(
+    async () => reconcileRemoteModelStoresInternal(),
+    [],
+  );
+  const refreshRemoteSignals = useCallback(async () => {
+    try {
+      await loadRemoteModelRefreshArtifact();
+    } catch {}
+  }, []);
 
   const syncAllProfilesFromChat = useCallback(async () => {
     if (syncingAll) return;
-
-    console.clear();
 
     try {
       setSyncingAll(true);
       const { results, totalFetched } = await syncAllProfilesToDatabase({
         fetchFromProvider,
       });
+      await reconcileRemoteModelStores();
+      await refreshRemoteSignals();
       if (modelUpdateDoneTimerRef.current) {
         clearTimeout(modelUpdateDoneTimerRef.current);
       }
@@ -3339,7 +3369,12 @@ function _Chat() {
     } finally {
       setSyncingAll(false);
     }
-  }, [fetchFromProvider, syncingAll]);
+  }, [
+    fetchFromProvider,
+    reconcileRemoteModelStores,
+    refreshRemoteSignals,
+    syncingAll,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -3657,10 +3692,25 @@ function _Chat() {
     const fallbackDefaultValue = latestProviderId
       ? `${latestModelName}@${latestProviderId}`
       : undefined;
+    const currentSelectedItem = modelSelectorItems.find(
+      (item) => item.value === fallbackDefaultValue,
+    );
+    const storedDefaultGroup = String(
+      localStorage.getItem(MODEL_SELECTOR_GROUP_STORAGE_KEY) || "",
+    ).trim();
+    const fallbackDefaultGroup =
+      storedDefaultGroup ||
+      currentSelectedItem?.group ||
+      getModelGroup(
+        latestModelName,
+        currentProfile?.provider || latestProviderName,
+        undefined,
+        currentSelectedItem?.title || latestModelName,
+      );
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
-    setModelSelectorDefaultGroup(undefined);
+    setModelSelectorDefaultGroup(fallbackDefaultGroup);
     setModelSelectorDefaultValue(fallbackDefaultValue);
     setShowModelSelector(true);
     setModelSelectorResetKey((key) => key + 1);
@@ -3668,7 +3718,10 @@ function _Chat() {
     allModels,
     apiProfiles,
     currentRawModel,
+    currentProfile?.provider,
     currentProviderName,
+    getModelGroup,
+    modelSelectorItems,
     session.id,
     sessionMask,
   ]);
@@ -3676,6 +3729,10 @@ function _Chat() {
   // 切换供应商
   const handleProviderChange = useCallback(
     (profileName: string) => {
+      // 先关闭所有菜单
+      setIsProviderSelectorOpen(false);
+      setShowAutoModelSelector(false);
+
       const profile = apiProfiles.find((p) => p.name === profileName);
 
       if (profile) {
@@ -3698,20 +3755,8 @@ function _Chat() {
                 String(model.provider?.id || "").toLowerCase() ===
                   selectedProviderId,
             );
-        const preferredProviderModelName =
-          getLatestOpenAIModelForProviderId(providerModels, selectedProviderId)
-            ?.model || "";
-        const preferredProviderModel = providerModels.find(
-          (model) => model.name === preferredProviderModelName,
-        );
         const nextModel =
-          preferredProviderModel ??
-          providerModels.find((model) => model.isDefault) ??
-          providerModels[0];
-        const nextCustomModels = modelsToCustomModelsString(
-          providerModels as any,
-        );
-
+          providerModels[0] ?? providerModels.find((model) => model.isDefault);
         // 记录切换时间
         lastProviderSwitchTimeRef.current = Date.now();
 
@@ -3725,30 +3770,8 @@ function _Chat() {
         const accessStoreState = useAccessStore.getState();
         accessStoreState.update((access) => {
           access.useCustomConfig = true;
-          applyProfileToAccessStore(access, profile as any, {
-            customModels: nextCustomModels,
-          });
+          applyProfileToAccessStore(access, profile as any);
         });
-
-        if (nextModel) {
-          config.update((config) => {
-            config.modelConfig.model = nextModel.name as ModelType;
-            config.modelConfig.providerName =
-              profile.provider as ServiceProvider;
-            config.modelConfig = sanitizeModelConfigForCapability(
-              config.modelConfig,
-            );
-          });
-        } else {
-          // 即使没有找到模型，也要更新 providerName 以便正确显示
-          config.update((config) => {
-            config.modelConfig.providerName =
-              profile.provider as ServiceProvider;
-            config.modelConfig = sanitizeModelConfigForCapability(
-              config.modelConfig,
-            );
-          });
-        }
 
         // 更新当前会话的模型配置
         // 使用 currentSession() 获取最新值，避免闭包捕获的 session 过时
@@ -3765,6 +3788,8 @@ function _Chat() {
           if (nextModel) {
             session.mask.modelConfig.model = nextModel.name as ModelType;
           }
+          (session.mask.modelConfig as any).providerId = selectedProviderId;
+          (session.mask.modelConfig as any).profileId = profile.id;
           session.mask.modelConfig = sanitizeModelConfigForCapability(
             session.mask.modelConfig,
           );
@@ -3778,6 +3803,13 @@ function _Chat() {
           model: nextModel?.name || latestSession.mask.modelConfig.model,
           providerId: selectedProviderId,
         });
+        localStorage.setItem(MODEL_SELECTOR_PROVIDER_STORAGE_KEY, profileName);
+        if (nextModel) {
+          localStorage.setItem(
+            LAST_MODEL_SELECTION_STORAGE_KEY,
+            `${nextModel.name}@${selectedProviderId}`,
+          );
+        }
 
         // 显示切换成功提示
         setProviderSwitchToast({
@@ -3787,26 +3819,26 @@ function _Chat() {
         setTimeout(() => {
           setProviderSwitchToast((prev) => ({ ...prev, show: false }));
         }, 2000);
+        resetModelSelectorGroupToAll();
+        setModelSelectorResetKey((key) => key + 1);
 
-        setModelSelectorNotice(
-          hasCachedProviderModels
-            ? "已找到缓存模型，正在后台更新"
-            : `首次使用该供应商，正在同步模型`,
-        );
-        void ensureProviderModelsReady(profile.id, {
-          background: hasCachedProviderModels,
-          silent: true,
-          reason: "switch",
-        })
-          .then(() => {
-            setModelSelectorNotice(
-              hasCachedProviderModels ? "模型已更新到最新" : "模型同步完成",
-            );
+        if (hasCachedProviderModels) {
+          setModelSelectorNotice("");
+        } else {
+          setModelSelectorNotice(`首次使用该供应商，正在同步模型`);
+          void ensureProviderModelsReady(profile.id, {
+            background: false,
+            silent: true,
+            reason: "switch",
           })
-          .catch((error) => {
-            console.error("[Chat] provider 模型同步失败:", error);
-            setModelSelectorNotice("模型同步失败，请重试");
-          });
+            .then(() => {
+              setModelSelectorNotice("模型同步完成");
+            })
+            .catch((error) => {
+              console.error("[Chat] provider 模型同步失败:", error);
+              setModelSelectorNotice("模型同步失败，请重试");
+            });
+        }
 
         logPerfSummary("ModelSelector", {
           providerSwitchDurationMs: Number(
@@ -3823,6 +3855,7 @@ function _Chat() {
       chatStore,
       config,
       modelSelectorIndex,
+      resetModelSelectorGroupToAll,
       useModelSelectorIndex,
     ],
   );
@@ -4856,9 +4889,15 @@ function _Chat() {
                                 isActive,
                             },
                           )}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleProviderChange(providerOption.label);
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const providerLabel = providerOption.label;
+                            localStorage.setItem(
+                              MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+                              providerLabel,
+                            );
+                            // 处理供应商切换（函数内部会关闭供应商菜单）
+                            handleProviderChange(providerLabel);
                           }}
                         >
                           <span
@@ -4984,6 +5023,10 @@ function _Chat() {
           quickFilters={modelSelectorQuickFilters}
           showSearch={true}
           extraGroups={["自定义模型"]}
+          onGroupChange={(group) => {
+            setModelSelectorDefaultGroup(group);
+            localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, group);
+          }}
           onClose={() => {
             setShowAutoModelSelector(false);
             setShowModelSelector(false);
@@ -5025,11 +5068,7 @@ function _Chat() {
             if (selectedProfile) {
               useAccessStore.getState().update((access) => {
                 access.useCustomConfig = true;
-                applyProfileToAccessStore(access, selectedProfile as any, {
-                  customModels: modelsToCustomModelsString(
-                    selectedProviderModels as any,
-                  ),
-                });
+                applyProfileToAccessStore(access, selectedProfile as any);
               });
             }
 
@@ -5038,11 +5077,8 @@ function _Chat() {
               model: model as ModelType,
               providerName: actualProviderName as ServiceProvider,
             });
-
-            // 更新全局配置，供新会话或同步全局配置的会话复用
-            config.update((config) => {
-              config.modelConfig = nextModelConfig;
-            });
+            (nextModelConfig as any).providerId = selectedProviderId;
+            (nextModelConfig as any).profileId = selectedProfile?.id || "";
 
             // 手动切换模型必须立即写回当前会话。
             // Effect B 仅会在空白会话时把全局配置同步到会话，
@@ -5059,6 +5095,16 @@ function _Chat() {
               providerId: selectedProviderId,
               profileName: selectedProfile?.name,
             });
+            if (selectedProfile?.name) {
+              localStorage.setItem(
+                MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+                selectedProfile.name,
+              );
+            }
+            localStorage.setItem(
+              LAST_MODEL_SELECTION_STORAGE_KEY,
+              `${nextModelConfig.model}@${selectedProviderId}`,
+            );
 
             // 只有在非供应商切换后的1秒内才显示提示
             const timeSinceProviderSwitch =

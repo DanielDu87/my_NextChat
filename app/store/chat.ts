@@ -50,12 +50,10 @@ import {
 import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
-  getLatestOpenAIModelForCurrentSupplier,
-  getLatestOpenAIModelForProviderId,
   getPreferredDisplayModelConfig,
   getPreferredRuntimeModelConfig,
 } from "../utils/model";
-import { createEmptyMask, getPreferredStartupProfile, Mask } from "./mask";
+import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
@@ -70,7 +68,6 @@ export {
   getBotHelloContent,
   getDefaultTopic,
 } from "./chat-defaults";
-import { mergeNewSessionModelConfig } from "../utils/chat-session-model";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import {
   BalanceAwareProfile,
@@ -1237,10 +1234,11 @@ function logRequestBanner(
   },
 ) {
   const title = kind === "chat" ? "💬💬💬 对话请求开始" : "🏷️🏷️🏷️ 标题请求开始";
+  const line = "=".repeat(5);
   logger.chat.log(
-    `===== ${title} | ${
+    `${line} ${title} | ${
       kind === "chat" ? "ChatRequest" : "TitleRequest"
-    } =====`,
+    } ${line}`,
     payload,
   );
 }
@@ -1854,43 +1852,13 @@ export const useChatStore = createPersistStore(
         } else {
           const currentSession = get().currentSession();
           if (currentSession) {
-            const appConfig = useAppConfig.getState();
-            const accessStore = useAccessStore.getState();
-            const autoModeEnabled =
-              (appConfig.autoModelSeries?.length || 0) > 0;
-            const allModels = collectModelsWithDefaultModel(
-              appConfig.models,
-              appConfig.customModels,
-              accessStore.defaultModel,
-            );
-            const enabledProfile = getPreferredStartupProfile(
-              accessStore.apiProfiles || [],
-            );
-            const enabledProviderId =
-              enabledProfile?.provider === ServiceProvider.Custom
-                ? `custom_${enabledProfile.name}`.toLowerCase()
-                : String(enabledProfile?.provider || "").toLowerCase();
-            const latestOpenAIModel = autoModeEnabled
-              ? undefined
-              : getLatestOpenAIModelForProviderId(
-                  allModels,
-                  enabledProviderId,
-                ) ||
-                getLatestOpenAIModelForCurrentSupplier(
-                  allModels,
-                  currentSession.mask.modelConfig,
-                  accessStore.apiProfiles,
-                );
             session.mask = {
-              ...session.mask,
-              syncGlobalConfig: currentSession.mask.syncGlobalConfig,
+              ...currentSession.mask,
+              id: session.mask.id,
+              name: session.mask.name,
+              syncGlobalConfig: false,
               modelConfig: sanitizeModelConfigForCapability({
-                ...mergeNewSessionModelConfig(
-                  currentSession.mask.modelConfig,
-                  session.mask.modelConfig,
-                  autoModeEnabled,
-                ),
-                ...(latestOpenAIModel || {}),
+                ...currentSession.mask.modelConfig,
               }),
             };
           }
@@ -2306,11 +2274,13 @@ export const useChatStore = createPersistStore(
               })
             : sanitizeModelConfigForCapability({
                 ...modelConfig,
-                ...(getPreferredRuntimeModelConfig(
-                  allModels,
-                  modelConfig,
-                  accessStore.apiProfiles,
-                ) || {}),
+                ...(session.mask.syncGlobalConfig
+                  ? getPreferredRuntimeModelConfig(
+                      allModels,
+                      modelConfig,
+                      accessStore.apiProfiles,
+                    ) || {}
+                  : {}),
               });
 
         // 获取实际提供商名称（对于 Custom provider，显示 profile 名称）

@@ -74,6 +74,24 @@ function readSidebarWidthFromLocalStorage() {
   return Number.isFinite(width) ? width : DEFAULT_LOCAL_SIDEBAR_WIDTH;
 }
 
+function normalizeModelProviderId(providerId: unknown) {
+  return String(providerId || "").toLowerCase();
+}
+
+function normalizeModelAlias(name: unknown) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\bgpt-40\b/g, "gpt-4o")
+    .replace(/\bgpt-40(?=[-_.])/g, "gpt-4o")
+    .replace(/\bchatgpt-40\b/g, "chatgpt-4o")
+    .replace(/\bchatgpt-40(?=[-_.])/g, "chatgpt-4o");
+}
+
+function buildModelProviderKey(name: unknown, providerId: unknown) {
+  return `${normalizeModelAlias(name)}@${normalizeModelProviderId(providerId)}`;
+}
+
 export function getLocalOnlyAppConfig() {
   return {
     theme: readThemeFromLocalStorage(),
@@ -237,7 +255,9 @@ export const useAppConfig = createPersistStore(
 
       // 收集新模型涉及的 provider id
       const newProviderIds = new Set(
-        newModels.map((m) => m?.provider?.id).filter(Boolean),
+        newModels
+          .map((m) => normalizeModelProviderId(m?.provider?.id))
+          .filter(Boolean),
       );
 
       const oldModels = get().models;
@@ -245,7 +265,7 @@ export const useAppConfig = createPersistStore(
       // 预构建 oldModelLookup，将 O(n*m) 的 find 降为 O(1) 的 Map 查找
       const oldModelLookup = new Map<string, LLMModel>();
       for (const m of oldModels) {
-        oldModelLookup.set(`${m.name}@${m?.provider?.id}`, m);
+        oldModelLookup.set(buildModelProviderKey(m.name, m?.provider?.id), m);
       }
       const allowedProviderIds = options?.allowedProviderIds
         ? new Set(
@@ -255,19 +275,20 @@ export const useAppConfig = createPersistStore(
 
       for (const model of oldModels) {
         const pid = model?.provider?.id;
+        const normalizedPid = normalizeModelProviderId(pid);
         if (
           allowedProviderIds &&
           pid &&
-          !allowedProviderIds.has(String(pid).toLowerCase())
+          !allowedProviderIds.has(normalizedPid)
         ) {
           continue;
         }
         // 跳过即将被新模型替换的 provider 的旧模型
-        if (pid && newProviderIds.has(pid)) {
+        if (normalizedPid && newProviderIds.has(normalizedPid)) {
           continue;
         }
         // 清理旧的 "custom" provider 模型（已迁移为 custom_XXX）
-        if (pid === "custom") {
+        if (normalizedPid === "custom") {
           continue;
         }
         // 清理内置供应商的旧模型（用户只用自定义供应商）
@@ -291,15 +312,15 @@ export const useAppConfig = createPersistStore(
           "siliconflow",
           "302ai",
         ];
-        if (pid && builtinProviders.includes(pid.toLowerCase())) {
+        if (normalizedPid && builtinProviders.includes(normalizedPid)) {
           continue;
         }
-        modelMap[`${model.name}@${pid}`] = model;
+        modelMap[buildModelProviderKey(model.name, pid)] = model;
       }
 
       for (const model of newModels) {
         model.available = true;
-        const key = `${model.name}@${model?.provider?.id}`;
+        const key = buildModelProviderKey(model.name, model?.provider?.id);
         const existing = oldModelLookup.get(key);
         const shouldPreserveManualCategory =
           !!existing?.category &&
@@ -360,7 +381,8 @@ export const useAppConfig = createPersistStore(
               "缺少明确发布日期的模型统一回退到 2026-01-01";
           }
         }
-        modelMap[`${model.name}@${model?.provider?.id}`] = model;
+        modelMap[buildModelProviderKey(model.name, model?.provider?.id)] =
+          model;
       }
 
       const mergedModels = Object.values(modelMap);
@@ -431,7 +453,10 @@ export const useAppConfig = createPersistStore(
       const models = currentState.models.slice();
       state.models.forEach((pModel) => {
         const idx = models.findIndex(
-          (v) => v.name === pModel.name && v.provider.id === pModel.provider.id,
+          (v) =>
+            v.name === pModel.name &&
+            normalizeModelProviderId(v.provider.id) ===
+              normalizeModelProviderId(pModel.provider.id),
         );
         if (idx !== -1) models[idx] = pModel;
         else models.push(pModel);

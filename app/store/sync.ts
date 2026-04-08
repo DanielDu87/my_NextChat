@@ -92,7 +92,7 @@ type BackupState = AppState & {
 
 const isApp = !!getClientConfig()?.isApp;
 export type SyncStore = GetStoreState<typeof useSyncStore>;
-const LOG_SEPARATOR = "=".repeat(30);
+const LOG_SEPARATOR = "=".repeat(5);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;

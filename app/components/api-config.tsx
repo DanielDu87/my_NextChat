@@ -200,7 +200,7 @@ type ProviderField = {
   profileManaged?: boolean;
 };
 
-const LOG_SEPARATOR = "=".repeat(30);
+const LOG_SEPARATOR = "=".repeat(5);
 const DATABASE_META_KEYS = [StoreKey.Config, StoreKey.Access] as const;
 const BUILTIN_PROVIDER_IDS = new Set([
   "openai",
@@ -2261,6 +2261,7 @@ export function ApiConfigPage() {
         }
 
         await refreshRemoteSignals();
+        await performCloudSync();
         console.log("[API Config] ✅ 数据库同步完成");
         console.log(LOG_SEPARATOR);
         console.log("[API Config] 📊 模型同步汇总");
