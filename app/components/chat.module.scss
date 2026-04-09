@@ -1465,6 +1465,44 @@
     font-size: 12px;
   }
 
+  .chat-window-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .chat-window-action-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+
+    :global(.icon-button) {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+
+      .icon-button-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        svg {
+          display: block;
+
+          > g {
+            transform: translate(2px, 2px);
+          }
+        }
+      }
+    }
+  }
+
 }
 
 .chat-model-update-notice {

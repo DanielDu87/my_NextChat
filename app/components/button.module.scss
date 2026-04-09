@@ -84,7 +84,38 @@
 
 @media only screen and (max-width: 600px) {
   .icon-button {
-    padding: 16px;
+    padding: 0 !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    .icon-button-icon {
+      flex-shrink: 0;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 20px !important;
+      height: 20px !important;
+      margin: auto !important;
+
+      > svg {
+        width: 20px !important;
+        height: 20px !important;
+        display: block !important;
+
+        > g {
+          transform: translate(2px, 2px);
+        }
+      }
+    }
+
+    .icon-button-text {
+      display: none !important;
+    }
   }
 }
 
