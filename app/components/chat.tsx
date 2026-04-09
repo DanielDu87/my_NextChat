@@ -1346,6 +1346,50 @@ function AutoModeStateIcon(props: { enabled: boolean }) {
   );
 }
 
+function PanelToggleIcon(props: { visible: boolean }) {
+  if (props.visible) {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          d="M2.5 4.25C2.5 3.56 3.06 3 3.75 3H12.25C12.94 3 13.5 3.56 13.5 4.25V11.75C13.5 12.44 12.94 13 12.25 13H3.75C3.06 13 2.5 12.44 2.5 11.75V4.25Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M10.25 3.75V12.25"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M2.5 4.25C2.5 3.56 3.06 3 3.75 3H12.25C12.94 3 13.5 3.56 13.5 4.25V11.75C13.5 12.44 12.94 13 12.25 13H3.75C3.06 13 2.5 12.44 2.5 11.75V4.25Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M10.25 3.75V12.25"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M3.6 12.4L12.4 3.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function useScrollToBottom(
   scrollRef: RefObject<HTMLDivElement>,
   detach: boolean = false,
@@ -1411,6 +1455,8 @@ export function ChatActions(props: {
   setShowShortcutKeyModal: React.Dispatch<React.SetStateAction<boolean>>;
   setUserInput: (input: string) => void;
   setShowChatSidePanel: React.Dispatch<React.SetStateAction<boolean>>;
+  showBalanceUserPanel: boolean;
+  setShowBalanceUserPanel: React.Dispatch<React.SetStateAction<boolean>>;
   showModelSelector: boolean;
   setShowModelSelector: React.Dispatch<React.SetStateAction<boolean>>;
   modelSelectorDefaultValue: string | undefined;
@@ -1926,6 +1972,14 @@ export function ChatActions(props: {
         text={Locale.Chat.ShortcutKey.Title}
         icon={<ShortcutkeyIcon />}
       />
+
+      {isMobileScreen && (
+        <ChatAction
+          onClick={() => props.setShowBalanceUserPanel((visible) => !visible)}
+          text={props.showBalanceUserPanel ? "隐藏面板" : "显示面板"}
+          icon={<PanelToggleIcon visible={props.showBalanceUserPanel} />}
+        />
+      )}
 
       {/* 各种选择器（隐藏） */}
       {showSizeSelector && (
@@ -4366,6 +4420,7 @@ function _Chat() {
   }, [messages, chatStore, navigate, session]);
 
   const [showChatSidePanel, setShowChatSidePanel] = useState(false);
+  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(true);
   const readOnly = useAuthStore((state) => state.readOnly);
   const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
 
@@ -4392,6 +4447,7 @@ function _Chat() {
                 <IconButton
                   icon={<ReturnIcon />}
                   bordered
+                  className={styles["chat-window-icon-button"]}
                   title={Locale.Chat.Actions.ChatList}
                   onClick={() => navigate(Path.Home)}
                 />
@@ -4432,6 +4488,7 @@ function _Chat() {
               <IconButton
                 icon={<RobotIcon />}
                 bordered
+                className={styles["chat-window-icon-button"]}
                 text={modelSelectorButtonText}
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
@@ -4456,6 +4513,7 @@ function _Chat() {
                   )
                 }
                 bordered
+                className={styles["chat-window-icon-button"]}
                 text={
                   syncingAll
                     ? "同步中..."
@@ -4492,6 +4550,7 @@ function _Chat() {
               <IconButton
                 icon={<ConfigIcon />}
                 bordered
+                className={styles["chat-window-icon-button"]}
                 text="API 配置"
                 title="API 配置"
                 aria="API 配置"
@@ -4508,6 +4567,7 @@ function _Chat() {
               <IconButton
                 icon={<ReloadIcon />}
                 bordered
+                className={styles["chat-window-icon-button"]}
                 text={Locale.Chat.Actions.RefreshTitle}
                 title={Locale.Chat.Actions.RefreshTitle}
                 onClick={() => {
@@ -4527,6 +4587,7 @@ function _Chat() {
                 <IconButton
                   icon={<RenameIcon />}
                   bordered
+                  className={styles["chat-window-icon-button"]}
                   text={Locale.Chat.EditMessage.Title}
                   title={Locale.Chat.EditMessage.Title}
                   aria={Locale.Chat.EditMessage.Title}
@@ -4544,6 +4605,7 @@ function _Chat() {
               <IconButton
                 icon={<ExportIcon />}
                 bordered
+                className={styles["chat-window-icon-button"]}
                 text={Locale.Chat.Actions.Export}
                 title={Locale.Chat.Actions.Export}
                 onClick={() => {
@@ -4561,6 +4623,7 @@ function _Chat() {
                 <IconButton
                   icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
                   bordered
+                  className={styles["chat-window-icon-button"]}
                   text={Locale.Chat.Actions.FullScreen}
                   title={Locale.Chat.Actions.FullScreen}
                   aria={Locale.Chat.Actions.FullScreen}
@@ -4581,19 +4644,21 @@ function _Chat() {
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
             <ChatModelUpdateNotice />
-            <div className={styles["chat-balance-user-panel"]}>
-              <ChatProviderBalance
-                providerName={balanceProviderName || currentProviderName}
-                providerDisplayName={balanceProviderDisplayName}
-                autoModeEnabled={autoModeEnabled}
-                refreshSignal={balanceRefreshSignal}
-                balanceCacheKey={currentBalanceCacheKey}
-                profile={balanceProfile as BalanceAwareProfile | undefined}
-                deferInitialRefresh={sessionMessages.length === 0}
-                suppressAutoRefresh={suppressBalanceAutoRefresh}
-              />
-              <UserMenu variant="chat-floating" />
-            </div>
+            {showBalanceUserPanel && (
+              <div className={styles["chat-balance-user-panel"]}>
+                <ChatProviderBalance
+                  providerName={balanceProviderName || currentProviderName}
+                  providerDisplayName={balanceProviderDisplayName}
+                  autoModeEnabled={autoModeEnabled}
+                  refreshSignal={balanceRefreshSignal}
+                  balanceCacheKey={currentBalanceCacheKey}
+                  profile={balanceProfile as BalanceAwareProfile | undefined}
+                  deferInitialRefresh={sessionMessages.length === 0}
+                  suppressAutoRefresh={suppressBalanceAutoRefresh}
+                />
+                <UserMenu variant="chat-floating" />
+              </div>
+            )}
             <div
               className={styles["chat-body"]}
               ref={scrollRef}
@@ -4907,6 +4972,8 @@ function _Chat() {
                 setShowShortcutKeyModal={setShowShortcutKeyModal}
                 setUserInput={setUserInput}
                 setShowChatSidePanel={setShowChatSidePanel}
+                showBalanceUserPanel={showBalanceUserPanel}
+                setShowBalanceUserPanel={setShowBalanceUserPanel}
                 showModelSelector={showModelSelector}
                 setShowModelSelector={setShowModelSelector}
                 modelSelectorDefaultValue={modelSelectorDefaultValue}
@@ -5067,7 +5134,14 @@ function _Chat() {
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
                 >
-                  <span>{activeModelSelectorProviderDisplayName}</span>
+                  <span>
+                    {activeModelSelectorProviderDisplayName}
+                    <span
+                      className={styles["model-selector-hint-count-inline"]}
+                    >
+                      （共 {models.length} 个模型）
+                    </span>
+                  </span>
                   <DownIcon />
                 </button>
                 <span className={styles["model-selector-hint-count"]}>

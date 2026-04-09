@@ -550,7 +550,7 @@ export function SideBar(props: { className?: string }) {
           <IconButton
             icon={<MaskIcon />}
             text={shouldNarrow ? undefined : Locale.Mask.Name}
-            className={styles["sidebar-bar-button"]}
+            className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
             onClick={() => {
               if (config.dontShowMaskSplashScreen !== true) {
                 navigate(Path.NewChat, { state: { fromHome: true } });
@@ -564,7 +564,7 @@ export function SideBar(props: { className?: string }) {
             <IconButton
               icon={<McpIcon />}
               text={shouldNarrow ? undefined : Locale.Mcp.Name}
-              className={styles["sidebar-bar-button"]}
+              className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
               onClick={() => {
                 navigate(Path.McpMarket, { state: { fromHome: true } });
               }}
@@ -574,7 +574,7 @@ export function SideBar(props: { className?: string }) {
           <IconButton
             icon={<DiscoveryIcon />}
             text={shouldNarrow ? undefined : Locale.Discovery.Name}
-            className={styles["sidebar-bar-button"]}
+            className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
             onClick={() => setshowDiscoverySelector(true)}
             shadow
           />
@@ -613,19 +613,10 @@ export function SideBar(props: { className?: string }) {
                 <IconButton
                   aria={Locale.Settings.Title}
                   icon={<SettingsIcon />}
+                  className={styles["sidebar-icon-button"]}
                   shadow
                 />
               </Link>
-            </div>
-            <div className={styles["sidebar-action"]}>
-              <IconButton
-                aria="切换宽度"
-                icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
-                shadow
-                onClick={() => {
-                  config.setTightBorder(!config.tightBorder);
-                }}
-              />
             </div>
             <div className={styles["sidebar-action"]}>
               <div
@@ -639,6 +630,7 @@ export function SideBar(props: { className?: string }) {
                   icon={
                     config.theme === Theme.Dark ? <DarkIcon /> : <LightIcon />
                   }
+                  className={styles["sidebar-icon-button"]}
                   shadow
                 />
                 {showThemeSelector && (
@@ -688,6 +680,7 @@ export function SideBar(props: { className?: string }) {
             <div className={clsx(styles["sidebar-action"], styles.mobile)}>
               <IconButton
                 icon={<DeleteIcon />}
+                className={styles["sidebar-icon-button"]}
                 onClick={async () => {
                   if (readOnly) {
                     showToast("管理员查看他人数据时为只读模式，不能删除会话");
@@ -701,6 +694,7 @@ export function SideBar(props: { className?: string }) {
             </div>
             <IconButton
               icon={<AddIcon />}
+              className={styles["sidebar-icon-button"]}
               text={shouldNarrow ? undefined : Locale.Home.NewChat}
               onClick={() => {
                 if (readOnly) {
