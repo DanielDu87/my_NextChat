@@ -1687,17 +1687,26 @@
 
   .model-selector-hint-provider-button {
     grid-column: 1 / -1;
-    justify-content: space-between;
+    justify-content: center;
     width: 100%;
     min-width: 0;
     min-height: 36px;
     padding: 0 12px;
+    position: relative;
 
     span {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: center;
+    }
+
+    > :global(svg:last-child) {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
     }
   }
 

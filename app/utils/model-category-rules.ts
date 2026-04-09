@@ -339,6 +339,7 @@ export function matchModelCategory(
   category: ModelCategoryKey,
   input: {
     title: string;
+    searchText?: string;
     meta?: ModelCategoryMetadata & {
       capabilities?: string[];
       categories?: string[];
@@ -357,5 +358,31 @@ export function matchModelCategory(
   ]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());
-  return rule.aliases.some((alias) => metaValues.includes(alias));
+  const normalizedTitle = String(input.title || "").toLowerCase();
+  const normalizedSearchText = String(input.searchText || "").toLowerCase();
+  const combinedText = `${normalizedTitle} ${normalizedSearchText}`.trim();
+
+  if (rule.aliases.some((alias) => metaValues.includes(alias))) {
+    return true;
+  }
+
+  if (rule.metadataKeywords.some((keyword) => metaValues.includes(keyword))) {
+    return true;
+  }
+
+  if (
+    combinedText &&
+    rule.titleKeywords.some((keyword) => combinedText.includes(keyword))
+  ) {
+    return true;
+  }
+
+  if (
+    combinedText &&
+    rule.namePatterns.some((pattern) => pattern.test(combinedText))
+  ) {
+    return true;
+  }
+
+  return false;
 }
