@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 import styles from "./api-config.module.scss";
 
@@ -1070,7 +1070,6 @@ export function ApiConfigPage() {
   const [syncing, setSyncing] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [isTightMode, setIsTightMode] = useState(false);
   const [modelFetchStatusMap, setModelFetchStatusMap] = useState<
     Partial<Record<string, ModelFetchStatus>>
   >({});
@@ -1079,30 +1078,6 @@ export function ApiConfigPage() {
     useState<RemoteModelRefreshArtifact | null>(null);
   const [remoteDataLoaded, setRemoteDataLoaded] = useState(false);
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
-
-  // 检测是否是沾满模式
-  useEffect(() => {
-    const checkTightMode = () => {
-      // 全局查询 tight-container 类
-      const hasTightContainer =
-        document.querySelector('[class*="tight-container"]') !== null;
-      setIsTightMode(!!hasTightContainer);
-    };
-
-    // 初始检查
-    checkTightMode();
-
-    // 监听 DOM 变化
-    const observer = new MutationObserver(checkTightMode);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const hasMissingYutoGroups = accessStore.apiProfiles.some(
@@ -1197,60 +1172,6 @@ export function ApiConfigPage() {
       document.head.appendChild(style);
     }
   }, []);
-
-  // 注入全局样式 - 只影响 API 配置页面的表格
-  useEffect(() => {
-    const styleId = "api-config-styles";
-    const styleElement =
-      (document.getElementById(styleId) as HTMLStyleElement) ||
-      document.createElement("style");
-    styleElement.id = styleId;
-
-    // 只在非沾满模式下（有留白）应用样式
-    styleElement.textContent = `
-      /* 当前模式: ${isTightMode ? "沾满" : "有留白"} */
-      .api-config_profileTable,
-      div[class*="api-config_profileTable"] {
-        ${
-          !isTightMode
-            ? `
-        /* 有留白模式 - 显示下拉箭头 */
-        .select-with-icon-icon,
-        [class*="select-with-icon-icon"] {
-          display: block !important;
-        }
-
-        /* 调整 select 的 padding 为箭头留空间 */
-        .select-with-icon-select,
-        [class*="select-with-icon-select"] {
-          padding-left: 8px !important;
-          padding-right: 18px !important;
-          font-size: 12px !important;
-          text-align-last: center !important;
-        }
-        `
-            : `
-        /* 沾满模式 - 显示下拉箭头 */
-        .select-with-icon-icon,
-        [class*="select-with-icon-icon"] {
-          display: block !important;
-        }
-
-        .select-with-icon-select,
-        [class*="select-with-icon-select"] {
-          padding-left: 10px !important;
-          padding-right: 28px !important;
-          font-size: 11px !important;
-        }
-        `
-        }
-      }
-    `;
-
-    if (!document.getElementById(styleId)) {
-      document.head.appendChild(styleElement);
-    }
-  }, [isTightMode]);
 
   const usingCustomConfig = accessStore.useCustomConfig;
 
@@ -1620,8 +1541,22 @@ export function ApiConfigPage() {
   // 页面加载时只展示本地缓存，不自动刷新模型
   const initialSyncRef = useRef(false);
   const accessSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const accessProfilesSyncFingerprint = JSON.stringify(
-    accessStore.apiProfiles || [],
+  const accessProfilesSyncFingerprint = useMemo(
+    () =>
+      JSON.stringify(
+        (accessStore.apiProfiles || []).map((profile) => ({
+          id: profile.id,
+          provider: profile.provider,
+          name: profile.name,
+          baseUrl: profile.baseUrl,
+          apiKey: profile.apiKey,
+          enabled: profile.enabled,
+          openAICompatible: profile.openAICompatible,
+          modelCount: profile.modelCount,
+          apiKeyGroups: profile.apiKeyGroups,
+        })),
+      ),
+    [accessStore.apiProfiles],
   );
 
   const scheduleAccessConfigSync = useCallback((reason: string) => {
@@ -2605,7 +2540,13 @@ export function ApiConfigPage() {
             <IconButton
               aria="关闭"
               icon={<CloseIcon />}
-              onClick={() => navigate(Path.Home)}
+              onClick={() => {
+                if (window.history.length > 1) {
+                  navigate(-1);
+                  return;
+                }
+                navigate(Path.Home);
+              }}
               bordered
             />
           </div>
@@ -3089,14 +3030,7 @@ export function ApiConfigPage() {
             vertical
           >
             <div className={styles.actions}>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  flexWrap: "wrap",
-                  flex: 1,
-                }}
-              >
+              <div className={styles.actionPrimaryRow}>
                 <IconButton
                   icon={backingUp ? <LoadingIcon /> : <UploadIcon />}
                   text={backingUp ? "上传中..." : "上传到数据库"}
@@ -3125,6 +3059,32 @@ export function ApiConfigPage() {
                     void downloadAllAndOverwriteLocalFromDatabase();
                   }}
                 />
+                <IconButton
+                  icon={<DeleteIcon />}
+                  text="清空所有对话"
+                  bordered
+                  className={styles.dangerButton}
+                  onClick={async () => {
+                    const confirmed = await showConfirm(
+                      "确定要清空所有对话吗？这会删除本地和数据库中的全部对话记录，且不可恢复。",
+                    );
+                    if (confirmed) {
+                      chatStore.clearSessions();
+                      showToast("已清空本地和数据库中的所有对话");
+                    }
+                  }}
+                />
+                <IconButton
+                  icon={<TrashIcon />}
+                  text="清空模型数据"
+                  bordered
+                  className={styles.dangerButton}
+                  onClick={() => {
+                    void clearLocalAndCloudModels();
+                  }}
+                />
+              </div>
+              <div className={styles.actionSecondaryRow}>
                 <button
                   type="button"
                   className={styles.modelFetchHint}
@@ -3152,30 +3112,6 @@ export function ApiConfigPage() {
                   </span>
                 </button>
               </div>
-              <IconButton
-                icon={<DeleteIcon />}
-                text="清空所有对话"
-                bordered
-                className={styles.dangerButton}
-                onClick={async () => {
-                  const confirmed = await showConfirm(
-                    "确定要清空所有对话吗？这会删除本地和数据库中的全部对话记录，且不可恢复。",
-                  );
-                  if (confirmed) {
-                    chatStore.clearSessions();
-                    showToast("已清空本地和数据库中的所有对话");
-                  }
-                }}
-              />
-              <IconButton
-                icon={<TrashIcon />}
-                text="清空模型数据"
-                bordered
-                className={styles.dangerButton}
-                onClick={() => {
-                  void clearLocalAndCloudModels();
-                }}
-              />
             </div>
           </ListItem>
         </List>

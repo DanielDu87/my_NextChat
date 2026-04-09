@@ -12,7 +12,7 @@
 .hint {
   margin: 0 0 16px;
   padding: 12px 14px;
-  border: var(--border-in-light);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 12px;
   background: var(--white);
   color: var(--black);
@@ -22,11 +22,40 @@
 
 .actions {
   display: flex;
+  flex-direction: column;
   justify-content: flex-start;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: stretch;
   gap: 10px;
   margin-top: 20px;
+  width: 100%;
+}
+
+.actionPrimaryRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.actionSecondaryRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.actionPrimaryRow > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.actionPrimaryRow :global(.icon-button) {
+  width: 100%;
+  justify-content: center;
+}
+
+.actionSecondaryRow .modelFetchHint {
   width: 100%;
 }
 
@@ -107,7 +136,7 @@
   max-width: 100%;
   min-height: 48px;
   box-sizing: border-box;
-  border: var(--border-in-light);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 12px;
   background: var(--white);
   color: var(--black);
@@ -192,7 +221,7 @@
   gap: 6px;
   min-height: 40px;
   padding: 10px 12px;
-  border: var(--border-in-light);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 10px;
   background: var(--white);
   color: var(--black);
@@ -294,7 +323,7 @@
 .profileTable {
   width: 100%;
   max-width: 100%;
-  border: var(--border-in-light);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 14px;
   background: var(--white);
   overflow: hidden;
@@ -451,12 +480,19 @@
     position: absolute !important;
     top: 50% !important;
     right: -52px !important;
+    margin-top: 0 !important;
     transform: translateY(-50%) !important;
     width: 12px !important;
     height: 12px !important;
     color: var(--black) !important;
     opacity: 0.4 !important;
     pointer-events: none !important;
+  }
+
+  :global([class*="select-with-icon-icon"] svg) {
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
   }
 }
 
@@ -637,14 +673,411 @@
 }
 
 @media screen and (max-width: 600px) {
+  .page {
+    :global(.window-header) {
+      align-items: center;
+      justify-content: center;
+    }
+
+    :global(.window-header-title) {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 96px);
+      max-width: calc(100% - 96px);
+      text-align: center;
+    }
+
+    :global(.window-header-main-title),
+    :global(.window-header-sub-title) {
+      width: 100%;
+      max-width: none;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    :global(.window-actions) {
+      position: absolute;
+      right: 12px;
+      top: 10px;
+      z-index: 1;
+    }
+  }
+
+  .content {
+    padding: 12px;
+    overflow-x: hidden;
+  }
+
+  .hint {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .actions {
+    gap: 8px;
+    margin-top: 14px;
+    align-items: stretch;
+    padding-bottom: 2px;
+  }
+
+  .actionPrimaryRow {
+    width: 100%;
+    gap: 8px;
+    flex-wrap: wrap;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    justify-content: space-between;
+  }
+
+  .actionPrimaryRow > *,
+  .actionSecondaryRow > *,
+  .actions .modelFetchHint {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    flex: 1 1 100%;
+  }
+
+  .actionPrimaryRow > * {
+    flex: 1 1 100%;
+  }
+
+  .actionSecondaryRow {
+    width: 100%;
+  }
+
+  .actionSecondaryRow .modelFetchHint {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dangerButton {
+    margin-left: 0 !important;
+    width: auto;
+  }
+
+  .fieldGroup,
+  .profileList {
+    gap: 12px;
+  }
+
+  .fieldLabel {
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .fieldSubTitle {
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .textInput {
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+
+  .profileSectionTitle {
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .addProfileButton {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+
+  .profileTable {
+    border-radius: 12px;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+  }
+
+  .profileTableHeader {
+    display: none;
+  }
+
+  .profileRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: var(--border-in-light);
+    border-radius: 14px;
+    background: var(--white);
+  }
+
+  .profileCell {
+    display: grid;
+    justify-content: stretch;
+    text-align: left;
+  }
+
+  .profileColProvider,
+  .profileColName,
+  .profileColBaseUrl,
+  .profileColApiKey,
+  .profileColCompatible,
+  .profileColToggle,
+  .profileColActions {
+    grid-column: auto;
+    min-width: 0;
+    justify-content: stretch !important;
+    text-align: left !important;
+  }
+
+  .profileColProvider,
+  .profileColName,
+  .profileColBaseUrl,
+  .profileColApiKey {
+    grid-column: 1 / -1;
+  }
+
+  .profileColCompatible,
+  .profileColToggle,
+  .profileColActions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profileRow {
+    .profileColCompatible,
+    .profileColToggle,
+    .profileColActions {
+      width: 100%;
+    }
+  }
+
+  .profileColCompatible,
+  .profileColToggle {
+    display: inline-grid;
+  }
+
+  .profileColCompatible {
+    grid-column: 1 / 2;
+  }
+
+  .profileColToggle {
+    grid-column: 2 / 3;
+  }
+
+  .profileColActions {
+    grid-column: 3 / 4;
+    align-self: end;
+  }
+
+  .profileCellLabel {
+    display: block;
+  }
+
+  .profileColCompatible .profileCellLabel,
+  .profileColToggle .profileCellLabel,
+  .profileColActions .profileCellLabel {
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  .profileColCompatible .profileCellLabel {
+    width: max-content;
+    max-width: none;
+    justify-self: center;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow: visible;
+  }
+
+  .profileColProvider {
+    :global([class*="select-with-icon"]) {
+      min-width: 0 !important;
+    }
+
+    :global([class*="select-with-icon-select"]) {
+      min-height: 36px !important;
+      height: 36px !important;
+      padding: 6px 38px 6px 12px !important;
+      text-align: center !important;
+      text-align-last: center !important;
+      font-size: 14px !important;
+      line-height: 1.4 !important;
+      border-radius: 10px !important;
+      box-sizing: border-box !important;
+    }
+
+    :global([class*="select-with-icon-select"] option) {
+      font-size: 14px !important;
+      line-height: 1.5 !important;
+      text-align: center !important;
+    }
+
+    :global([class*="select-with-icon-icon"]) {
+      right: 12px !important;
+      width: 14px !important;
+      height: 36px !important;
+      top: 28px !important;
+      margin: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      line-height: 0 !important;
+    }
+
+    .profileColProvider :global(select) {
+      background-position: right 12px center !important;
+    }
+
+    .profileColProvider :global([class*="select-with-icon-icon"] svg) {
+      width: 14px !important;
+      height: 14px !important;
+    }
+  }
+
+  .profileCheck {
+    justify-content: center;
+    min-height: 40px;
+    font-size: 13px;
+    padding: 0 2px;
+    white-space: nowrap;
+  }
+
+  .profileCheck input {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+
+  .profileCheck span {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1.2;
+  }
+
+  .profileApiKeyEditor,
+  .profileRowActions {
+    width: 100%;
+  }
+
+  .profileRowActions {
+    justify-content: center;
+    align-items: center;
+    min-height: 40px;
+  }
+
+  .profileApiKeyButton {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  .profileColActions :global(.icon-button) {
+    width: auto;
+    min-width: 84px;
+    min-height: 40px;
+    padding: 0 12px !important;
+    justify-content: center;
+  }
+
+  .profileColActions .dangerButton,
+  .profileRowActions .dangerButton {
+    width: auto !important;
+    min-width: 96px !important;
+    max-width: none !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 12px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+  }
+
+  .profileColActions .dangerButton > div:last-child,
+  .profileRowActions .dangerButton > div:last-child {
+    display: block !important;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  .profileColActions .dangerButton > div:first-child,
+  .profileRowActions .dangerButton > div:first-child {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .profileColActions .dangerButton > div:first-child > svg,
+  .profileRowActions .dangerButton > div:first-child > svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
   .profileYutoModalBody,
   .profileYutoModalHeader,
   .profileYutoModalFooter {
     padding: 16px;
   }
 
+  .profileYutoModalContainer {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    border-radius: 14px;
+  }
+
+  .profileYutoModalTitle {
+    width: auto;
+    max-width: calc(100% - 40px);
+    font-size: 15px;
+    line-height: 1.4;
+  }
+
   .profileYutoKeyInner,
   .profileYutoKeyInner .textInput {
     max-width: 100%;
+  }
+
+  .syncCard {
+    margin-top: 12px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .syncCardTitle {
+    gap: 4px;
+  }
+
+  .syncCardTitleMain {
+    font-size: 15px;
+  }
+
+  .syncCardTitleSub {
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .modelFetchHint {
+    min-height: 40px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .modelUpdateInlineNotice {
+    display: block;
+    margin-top: 6px;
+    margin-left: 0;
+    font-size: 12px;
   }
 }

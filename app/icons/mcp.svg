@@ -1,22 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
   <path
-    d="M6.1 10.6L4.3 12.4C3.2 13.5 1.6 13.5 0.6 12.4C-0.4 11.4 -0.4 9.8 0.6 8.7L4.2 5.1C5.3 4 6.9 4 7.9 5"
-    transform="translate(2 0)"
+    d="M6.2 10.6L4.4 12.4C3.3 13.5 1.7 13.5 0.7 12.4C-0.3 11.4 -0.3 9.8 0.7 8.7L4.3 5.1C5.4 4 7 4 8 5"
+    transform="translate(1.4 0)"
     stroke="currentColor"
     stroke-width="1.4"
     stroke-linecap="round"
     stroke-linejoin="round"
   />
   <path
-    d="M1.9 5.4L3.7 3.6C4.8 2.5 6.4 2.5 7.4 3.6C8.4 4.6 8.4 6.2 7.4 7.3L3.8 10.9C2.7 12 1.1 12 0.1 11"
-    transform="translate(6 0)"
+    d="M7.9 5.4L9.7 3.6C10.8 2.5 12.4 2.5 13.4 3.6C14.4 4.6 14.4 6.2 13.4 7.3L9.8 10.9C8.7 12 7.1 12 6.1 11"
     stroke="currentColor"
     stroke-width="1.4"
     stroke-linecap="round"
     stroke-linejoin="round"
   />
   <path
-    d="M4.8 6.2L7.2 8.6"
+    d="M6 6.2L10 9.8"
     stroke="currentColor"
     stroke-width="1.4"
     stroke-linecap="round"

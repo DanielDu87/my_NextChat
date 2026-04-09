@@ -36,6 +36,8 @@ function useMaskGroup(masks: Mask[]) {
   const [groups, setGroups] = useState<Mask[][]>([]);
 
   useEffect(() => {
+    let frameId = 0;
+
     const computeGroup = () => {
       const appBody = document.getElementById(SlotID.AppBody);
       if (!appBody || masks.length === 0) return;
@@ -66,8 +68,23 @@ function useMaskGroup(masks: Mask[]) {
 
     computeGroup();
 
-    window.addEventListener("resize", computeGroup);
-    return () => window.removeEventListener("resize", computeGroup);
+    const handleResize = () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+      frameId = requestAnimationFrame(() => {
+        frameId = 0;
+        computeGroup();
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", handleResize);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

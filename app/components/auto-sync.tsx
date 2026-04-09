@@ -42,6 +42,46 @@ import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 let autoSyncEffectActive = false;
 let lastAutoSyncBootstrapAt = 0;
 const LOG_SEPARATOR = "=".repeat(5);
+const autoSyncLogQueue: Array<{
+  level: "log" | "info" | "warn" | "error";
+  message: string;
+  payload?: unknown;
+}> = [];
+let autoSyncLogFlushScheduled = false;
+
+function flushAutoSyncLogs() {
+  autoSyncLogFlushScheduled = false;
+  const logs = autoSyncLogQueue.splice(0, autoSyncLogQueue.length);
+  logs.forEach(({ level, message, payload }) => {
+    if (payload === undefined) {
+      console[level](message);
+      return;
+    }
+    console[level](message, payload);
+  });
+}
+
+function scheduleAutoSyncLogFlush() {
+  if (autoSyncLogFlushScheduled) {
+    return;
+  }
+
+  autoSyncLogFlushScheduled = true;
+
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    (
+      window as typeof window & {
+        requestIdleCallback: (
+          callback: () => void,
+          options?: { timeout?: number },
+        ) => number;
+      }
+    ).requestIdleCallback(flushAutoSyncLogs, { timeout: 500 });
+    return;
+  }
+
+  setTimeout(flushAutoSyncLogs, 0);
+}
 
 function formatAutoSyncLogTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -58,11 +98,21 @@ function autoSyncConsole(
   payload?: unknown,
 ) {
   const prefixedMessage = `${formatAutoSyncLogTimestamp()} ${message}`;
-  if (payload === undefined) {
-    console[level](prefixedMessage);
+  if (level === "warn" || level === "error") {
+    if (payload === undefined) {
+      console[level](prefixedMessage);
+      return;
+    }
+    console[level](prefixedMessage, payload);
     return;
   }
-  console[level](prefixedMessage, payload);
+
+  autoSyncLogQueue.push({
+    level,
+    message: prefixedMessage,
+    payload,
+  });
+  scheduleAutoSyncLogFlush();
 }
 
 function logCriticalStartupSyncBanner(

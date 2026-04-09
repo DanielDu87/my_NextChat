@@ -117,6 +117,35 @@
       display: none !important;
     }
   }
+
+  :global(.modal-footer-action) {
+    .icon-button {
+      width: 100% !important;
+      min-width: 0 !important;
+      height: 40px !important;
+      min-height: 40px !important;
+      padding: 0 12px !important;
+      justify-content: center !important;
+      border-radius: 10px;
+      box-sizing: border-box;
+    }
+
+    .icon-button-text {
+      display: block !important;
+      margin-left: 6px;
+    }
+
+    .icon-button-icon {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+
+      > svg {
+        width: 16px !important;
+        height: 16px !important;
+      }
+    }
+  }
 }
 
 .icon-button-text {

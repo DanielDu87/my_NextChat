@@ -26,6 +26,7 @@ import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
+import SyncIcon from "../icons/sync.svg";
 import BreakIcon from "../icons/break.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
 import DownIcon from "../icons/down.svg";
@@ -142,7 +143,7 @@ import {
   showPrompt,
   showToast,
 } from "./ui-lib";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   CHAT_PAGE_SIZE,
   DEFAULT_TTS_ENGINE,
@@ -2227,6 +2228,7 @@ export function ShortcutKeyModal(props: { onClose: () => void }) {
 function _Chat() {
   type RenderMessage = ChatMessage & { preview?: boolean };
 
+  const location = useLocation();
   const chatStore = useChatStore();
   const emptySessionRef = useRef(createEmptySession());
   const currentSessionSnapshot = useChatStore(
@@ -4383,8 +4385,8 @@ function _Chat() {
       )}
 
       <div className={styles.chat} key={safeSession.id}>
-        <div className="window-header" data-tauri-drag-region>
-          {isMobileScreen && (
+        <div className="window-header">
+          {isMobileScreen && location.pathname !== Path.Home && (
             <div className="window-actions">
               <div className={"window-action-button"}>
                 <IconButton
@@ -4399,6 +4401,7 @@ function _Chat() {
 
           <div
             className={clsx("window-header-title", styles["chat-body-title"])}
+            data-tauri-drag-region
           >
             <div
               className={clsx(
@@ -4449,7 +4452,7 @@ function _Chat() {
                   ) : modelUpdateDone ? (
                     <ConfirmIcon />
                   ) : (
-                    <ReloadIcon />
+                    <SyncIcon />
                   )
                 }
                 bordered
@@ -5360,6 +5363,7 @@ export function Chat() {
     state.sessions.map((item) => item.id).join(","),
   );
   const { id: urlSessionId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const isNavigatingFromUrl = useRef(false);
 
@@ -5388,10 +5392,14 @@ export function Chat() {
       isNavigatingFromUrl.current = false;
       return;
     }
-    if (session?.id && session.messages.length > 0) {
+    if (
+      location.pathname !== Path.Home &&
+      session?.id &&
+      session.messages.length > 0
+    ) {
       navigate(`/chat/${session.id}`, { replace: true });
     }
-  }, [session?.id, navigate]);
+  }, [location.pathname, navigate, session?.id, session?.messages.length]);
 
   if (!session?.id) {
     return null;

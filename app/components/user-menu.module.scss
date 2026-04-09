@@ -345,6 +345,55 @@
 @media screen and (max-width: 600px) {
   .manageModal {
     width: min(100vw, 420px);
+    height: 50dvh;
+    max-height: 50dvh;
+  }
+
+  .manageModal :global(.modal-content) {
+    max-height: none;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .manageModal :global(.modal-footer) {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: var(--white);
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    margin-top: auto;
+  }
+
+  .manageModal :global(.modal-actions) {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .manageModal :global(.modal-action) {
+    margin-right: 0 !important;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+
+  .manageModal :global(.modal-action .icon-button) {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .userInfoGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(64px, 0.7fr) minmax(96px, 1fr);
+    gap: 12px;
+    padding-left: 0;
+    padding-right: 52px;
+    align-items: start;
+  }
+
+  .rowAction,
+  .badge {
+    right: 0;
   }
 }
 

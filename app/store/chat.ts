@@ -1779,10 +1779,6 @@ export const useChatStore = createPersistStore(
           currentSessionIndex: index,
           selectedSessionId: sessionId,
         });
-
-        if (sessionId) {
-          void get().hydrateSessionIntoMemory(sessionId);
-        }
       },
 
       selectSessionById(sessionId: string) {

@@ -168,9 +168,28 @@ export function useWindowSize() {
 
 export const MOBILE_MAX_WIDTH = 600;
 export function useMobileScreen() {
-  const { width } = useWindowSize();
+  const getIsMobileScreen = () =>
+    window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches;
+  const [isMobileScreen, setIsMobileScreen] = useState(getIsMobileScreen);
 
-  return width <= MOBILE_MAX_WIDTH;
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`);
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsMobileScreen(event.matches);
+    };
+
+    setIsMobileScreen(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
+
+  return isMobileScreen;
 }
 
 export function isFirefox() {

@@ -16,6 +16,7 @@ import CloseIcon from "../icons/close.svg";
 import EyeIcon from "../icons/eye.svg";
 import Locale from "../locales";
 import { Path } from "../constant";
+import { useMobileScreen } from "../utils";
 
 import { selectChatSessionById, useChatIndexStore } from "../store";
 import { ChatSessionSummary } from "../store/chat";
@@ -31,6 +32,7 @@ const SNIPPET_CONTEXT_LENGTH = 35;
 
 export function SearchChatPage() {
   const navigate = useNavigate();
+  const isMobileScreen = useMobileScreen();
 
   const { orderedSessionIds, sessionSummaries, initialized } =
     useChatIndexStore();
@@ -187,7 +189,13 @@ export function SearchChatPage() {
               <IconButton
                 icon={<CloseIcon />}
                 bordered
-                onClick={() => navigate(-1)}
+                onClick={() => {
+                  if (window.history.length > 1) {
+                    navigate(-1);
+                    return;
+                  }
+                  navigate(Path.Home);
+                }}
               />
             </div>
           </div>
@@ -200,7 +208,7 @@ export function SearchChatPage() {
               type="text"
               className={styles["search-bar"]}
               placeholder={Locale.SearchChat.Page.Search}
-              autoFocus
+              autoFocus={!isMobileScreen}
               ref={searchInputRef}
               value={searchText}
               onChange={(e) => setSearchText(e.currentTarget.value)}

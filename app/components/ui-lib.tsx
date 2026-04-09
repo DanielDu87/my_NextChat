@@ -283,9 +283,12 @@ export function Modal(props: ModalProps) {
 
       <div className={styles["modal-footer"]}>
         {props.footer}
-        <div className={styles["modal-actions"]}>
+        <div className={clsx(styles["modal-actions"], "modal-footer-actions")}>
           {props.actions?.map((action, i) => (
-            <div key={i} className={styles["modal-action"]}>
+            <div
+              key={i}
+              className={clsx(styles["modal-action"], "modal-footer-action")}
+            >
               {action}
             </div>
           ))}
@@ -737,15 +740,30 @@ export function Selector<T>(props: {
   }, [props.searchDebounceMs, searchInput]);
 
   useEffect(() => {
+    let frameId = 0;
+
     const updateViewportHeight = () => {
       setViewportHeight(listRef.current?.clientHeight ?? 520);
     };
 
+    const handleResize = () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+      frameId = requestAnimationFrame(() => {
+        frameId = 0;
+        updateViewportHeight();
+      });
+    };
+
     updateViewportHeight();
-    window.addEventListener("resize", updateViewportHeight);
+    window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener("resize", updateViewportHeight);
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
