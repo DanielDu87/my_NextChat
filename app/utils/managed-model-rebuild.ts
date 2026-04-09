@@ -43,7 +43,7 @@ function computeProfilesHash(
     : null;
   const parts: string[] = [];
   for (const p of profiles) {
-    const providerId = getProfileProviderId(p).toLowerCase();
+    const providerId = p.id.toLowerCase();
     if (providerIdFilter && !providerIdFilter.has(providerId)) {
       continue;
     }

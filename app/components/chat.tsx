@@ -4040,7 +4040,9 @@ function _Chat() {
         );
 
         if (rebuiltProviderModels.length > 0) {
-          commitProviderSwitch(rebuiltProviderModels);
+          commitProviderSwitch(
+            rebuiltProviderModels as typeof initialProviderModels,
+          );
           return;
         }
 
@@ -4069,7 +4071,9 @@ function _Chat() {
               return;
             }
 
-            commitProviderSwitch(readyProviderModels);
+            commitProviderSwitch(
+              readyProviderModels as typeof initialProviderModels,
+            );
           })
           .catch((error) => {
             console.error("[Chat] provider 模型同步失败:", error);
@@ -5252,7 +5256,6 @@ function _Chat() {
           showGroupFilter={true}
           quickFilters={modelSelectorQuickFilters}
           showSearch={true}
-          extraGroups={["自定义模型"]}
           onGroupChange={(group) => {
             setModelSelectorDefaultGroup(group);
             localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, group);

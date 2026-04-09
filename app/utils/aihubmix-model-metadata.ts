@@ -240,13 +240,13 @@ export function seedAiHubMixMetadataCacheFromModels(models: LLMModel[]) {
       continue;
     }
 
-    if (Number.isFinite(Number(model.catalogRank))) {
+    if (Number.isFinite(Number((model as any).catalogRank))) {
       for (const key of lookupKeys) {
         if (catalogMetadataMap.has(key)) {
           continue;
         }
         catalogMetadataMap.set(key, {
-          rank: Number(model.catalogRank),
+          rank: Number((model as any).catalogRank),
           vendor: model.vendor,
         });
         catalogChanged = true;
@@ -334,7 +334,7 @@ export function hydrateModelsWithAiHubMixMetadata(models: LLMModel[]) {
 
     return {
       ...model,
-      catalogRank: catalogMetadata?.rank ?? model.catalogRank,
+      catalogRank: catalogMetadata?.rank ?? (model as any).catalogRank,
       vendor: catalogMetadata?.vendor ?? model.vendor,
       category: normalizedClassification?.category ?? model.category,
       categorySource:

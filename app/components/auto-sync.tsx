@@ -290,7 +290,7 @@ export default function AutoSync() {
     let autoSyncInProgress = false;
     let hasBootstrappedProviderModels = false;
     let hasDeferredRemoteBootstrap = false;
-    let bootstrapProviderModelsPromise: Promise<void> | null = null;
+    let bootstrapProviderModelsPromise: Promise<any> | null = null;
     let lastForegroundSyncAt = 0;
     let lastExternalChatHintAt = 0;
     let hasRestoredModelsFromHydratedCache = false;
