@@ -33,7 +33,7 @@ import ShareIcon from "../icons/share.svg";
 import DownloadIcon from "../icons/download.svg";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSelector, useMessageSelector } from "./message-selector";
-import { Avatar } from "./emoji";
+import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import dynamic from "next/dynamic";
 import NextImage from "next/image";
 
@@ -553,7 +553,7 @@ export function ImagePreviewer(props: {
               {repoUrl.replace(/^https?:\/\//, "")}
             </div>
             <div className={styles["icons"]}>
-              <MaskAvatar avatar={config.avatar} />
+              <MaskAvatar avatar={FIXED_USER_AVATAR} />
               <span className={styles["icon-space"]}>&</span>
               <MaskAvatar
                 avatar={mask.avatar}
@@ -587,7 +587,7 @@ export function ImagePreviewer(props: {
             >
               <div className={styles["avatar"]}>
                 {m.role === "user" ? (
-                  <Avatar avatar={config.avatar}></Avatar>
+                  <Avatar avatar={FIXED_USER_AVATAR}></Avatar>
                 ) : (
                   <MaskAvatar
                     avatar={session.mask.avatar}

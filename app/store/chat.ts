@@ -75,6 +75,7 @@ import {
   BalanceAwareProfile,
   getCustomProfileBalanceRefreshDelay,
   queryBalanceSnapshot,
+  useUpdateStore,
 } from "./update";
 
 const localStorage = safeLocalStorage();
@@ -295,6 +296,28 @@ function getEnabledCustomBalanceProfile() {
 
 function normalizeUsageCost(value: number) {
   return Math.max(0, value);
+}
+
+function refreshBalanceAfterChat(
+  providerName: ServiceProvider,
+  profile?: BalanceAwareProfile,
+) {
+  if (
+    providerName !== ServiceProvider.Custom &&
+    providerName !== ServiceProvider.Local
+  ) {
+    return;
+  }
+
+  void useUpdateStore
+    .getState()
+    .updateUsage(true, providerName, profile)
+    .catch((error) => {
+      logger.chat.warn(
+        "[BalanceRefresh] update after chat failed",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
 }
 
 async function createBalanceCostTracker(
@@ -2447,6 +2470,12 @@ export const useChatStore = createPersistStore(
                   );
                 }
                 get().onNewMessage(botMessage, session);
+                if (!hasFailure) {
+                  refreshBalanceAfterChat(
+                    initialModelConfig.providerName as ServiceProvider,
+                    getEnabledCustomBalanceProfile(),
+                  );
+                }
                 if (!hasFailure && balanceCostTracker) {
                   void balanceCostTracker.resolve().then((costUsage) => {
                     if (!costUsage) {
@@ -2699,6 +2728,10 @@ export const useChatStore = createPersistStore(
                   botMessage.isError = false;
                   userMessage.isError = false;
                   get().onNewMessage(botMessage, session);
+                  refreshBalanceAfterChat(
+                    candidate.providerName as ServiceProvider,
+                    candidateProfile as BalanceAwareProfile | undefined,
+                  );
                   if (balanceCostTracker) {
                     void balanceCostTracker.resolve().then((costUsage) => {
                       if (!costUsage) {

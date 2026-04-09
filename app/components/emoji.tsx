@@ -1,3 +1,4 @@
+import React from "react";
 import EmojiPicker, {
   Emoji,
   EmojiStyle,
@@ -22,6 +23,8 @@ import BotIconGrok from "../icons/llm-icons/grok.svg";
 import BotIconHunyuan from "../icons/llm-icons/hunyuan.svg";
 import BotIconDoubao from "../icons/llm-icons/doubao.svg";
 import BotIconChatglm from "../icons/llm-icons/chatglm.svg";
+
+export const FIXED_USER_AVATAR = "__fixed_user_avatar__";
 
 export function getEmojiUrl(unified: string, style: EmojiStyle) {
   void style;
@@ -185,8 +188,30 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
 
   return (
     <div className="user-avatar">
-      {props.avatar && <EmojiAvatar avatar={props.avatar} />}
+      {props.avatar === FIXED_USER_AVATAR ? (
+        <FixedUserAvatar />
+      ) : (
+        props.avatar && <EmojiAvatar avatar={props.avatar} />
+      )}
     </div>
+  );
+}
+
+function FixedUserAvatar() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="7.5" r="4.5" fill="#9CA3AF" />
+      <path
+        d="M4.5 20C4.5 15.8579 7.85786 12.5 12 12.5C16.1421 12.5 19.5 15.8579 19.5 20"
+        fill="#9CA3AF"
+      />
+    </svg>
   );
 }
 

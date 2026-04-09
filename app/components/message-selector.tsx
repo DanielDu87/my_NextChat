@@ -7,7 +7,7 @@ import {
 } from "../store";
 import { Updater } from "../typing";
 import { IconButton } from "./button";
-import { Avatar } from "./emoji";
+import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { MaskAvatar } from "./mask";
 import Locale from "../locales";
 import { formatChinaDateTime } from "../utils";
@@ -217,7 +217,7 @@ export function MessageSelector(props: {
             >
               <div className={styles["avatar"]}>
                 {m.role === "user" ? (
-                  <Avatar avatar={config.avatar}></Avatar>
+                  <Avatar avatar={FIXED_USER_AVATAR}></Avatar>
                 ) : (
                   <MaskAvatar
                     avatar={session.mask.avatar}

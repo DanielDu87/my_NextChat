@@ -158,7 +158,7 @@ import {
 const LOG_SEPARATOR = "=".repeat(5);
 import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
-import { Avatar } from "./emoji";
+import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
@@ -4754,7 +4754,7 @@ function _Chat() {
                                   </div>
                                 )}
                                 {isUser ? (
-                                  <Avatar avatar={config.avatar} />
+                                  <Avatar avatar={FIXED_USER_AVATAR} />
                                 ) : (
                                   <>
                                     {["system"].includes(message.role) ? (
