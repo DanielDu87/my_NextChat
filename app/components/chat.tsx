@@ -2411,6 +2411,9 @@ function _Chat() {
     null,
   );
   const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
+  const inputFontSize = isMobileScreen
+    ? Math.max(Number(config.fontSize) || 16, 16)
+    : config.fontSize;
   const staleStreamingStateRef = useRef<{
     sessionId: string;
     messageIds: Set<string>;
@@ -5010,7 +5013,7 @@ function _Chat() {
                   autoFocus={autoFocus}
                   disabled={readOnly}
                   style={{
-                    fontSize: config.fontSize,
+                    fontSize: inputFontSize,
                     fontFamily: config.fontFamily,
                   }}
                 />
