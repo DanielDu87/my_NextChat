@@ -107,8 +107,8 @@ export function Sd() {
     <>
       <SideBar className={clsx({ [homeStyles["sidebar-show"]]: isSd })} />
       <WindowContent>
-        <div className={chatStyles.chat} key={"1"}>
-          <div className="window-header" data-tauri-drag-region>
+        <div className={clsx(chatStyles.chat, styles["sd-page"])} key={"1"}>
+          <div className="window-header">
             {isMobileScreen && (
               <div className="window-actions">
                 <div className={"window-action-button"}>
@@ -126,6 +126,7 @@ export function Sd() {
                 "window-header-title",
                 chatStyles["chat-body-title"],
               )}
+              data-tauri-drag-region
             >
               <div className={`window-header-main-title`}>Stability AI</div>
               <div className="window-header-sub-title">

@@ -2439,19 +2439,21 @@
   .selector {
     align-items: center !important;
     justify-content: center !important;
-    padding-bottom: 6dvh !important;
+    padding: 10px !important;
     box-sizing: border-box;
   }
 
   .selector-content {
-    width: calc(100vw - 24px) !important;
-    max-width: calc(100vw - 24px) !important;
-    height: 80dvh !important;
-    max-height: 80dvh !important;
-    padding: 10px !important;
-    border-radius: 16px !important;
-    gap: 8px !important;
-    margin: auto !important;
+    width: min(560px, calc(100vw - 20px)) !important;
+    max-width: min(560px, calc(100vw - 20px)) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 20px) !important;
+    min-height: 0 !important;
+    padding: 12px !important;
+    border-radius: 18px !important;
+    gap: 10px !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
   }
 
   .selector-title {
@@ -2697,8 +2699,8 @@
   .selector-content {
     width: calc(100vw - 16px) !important;
     max-width: calc(100vw - 16px) !important;
-    margin: auto !important;
-    padding: 8px !important;
+    margin: 0 auto !important;
+    padding: 10px !important;
     border-radius: 14px !important;
   }
 

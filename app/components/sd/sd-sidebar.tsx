@@ -1,11 +1,11 @@
 import { IconButton } from "@/app/components/button";
-import GithubIcon from "@/app/icons/github.svg";
 import SDIcon from "@/app/icons/sd.svg";
 import ReturnIcon from "@/app/icons/return.svg";
 import HistoryIcon from "@/app/icons/history.svg";
 import Locale from "@/app/locales";
+import styles from "./sd.module.scss";
 
-import { Path, getRepoUrl } from "@/app/constant";
+import { Path } from "@/app/constant";
 
 import { useNavigate } from "react-router-dom";
 import dynamic from "next/dynamic";
@@ -31,7 +31,6 @@ const SdPanel = dynamic(
 );
 
 export function SideBar(props: { className?: string }) {
-  const repoUrl = getRepoUrl();
   useHotKey();
   const isMobileScreen = useMobileScreen();
   const { onDragStart, shouldNarrow } = useDragSideBar();
@@ -77,7 +76,6 @@ export function SideBar(props: { className?: string }) {
       {isMobileScreen ? (
         <div
           className="window-header"
-          data-tauri-drag-region
           style={{
             paddingLeft: 0,
             paddingRight: 0,
@@ -93,7 +91,9 @@ export function SideBar(props: { className?: string }) {
               />
             </div>
           </div>
-          <SDIcon width={50} height={50} />
+          <div data-tauri-drag-region>
+            <SDIcon width={50} height={50} />
+          </div>
           <div className="window-actions">
             <div className="window-action-button">
               <IconButton
@@ -119,19 +119,17 @@ export function SideBar(props: { className?: string }) {
         ></SideBarHeader>
       )}
       <SideBarBody>
-        <SdPanel />
+        <div className={styles["sd-panel-scroll"]}>
+          <SdPanel />
+        </div>
       </SideBarBody>
       <SideBarTail
-        primaryAction={
-          <a href={repoUrl} target="_blank" rel="noopener noreferrer">
-            <IconButton icon={<GithubIcon />} shadow />
-          </a>
-        }
         secondaryAction={
           <IconButton
             text={Locale.SdPanel.Submit}
             type="primary"
             shadow
+            className={styles["sd-submit-button"]}
             onClick={handleSubmit}
           ></IconButton>
         }
