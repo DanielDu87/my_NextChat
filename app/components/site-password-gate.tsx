@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IconButton } from "./button";
 import Logo from "../icons/logo.svg";
 import EyeIcon from "../icons/eye.svg";
 import EyeOffIcon from "../icons/eye-off.svg";
@@ -109,15 +108,15 @@ export default function SitePasswordGate(props: { initialError?: string }) {
           </div>
         </div>
         <div className={styles.actions}>
-          <IconButton
-            type="primary"
-            text={
-              <span className={styles.actionText}>
-                {submitting ? "登录中..." : "进入系统"}
-              </span>
-            }
+          <button
+            type="submit"
+            className={styles.submitButton}
             disabled={submitting}
-          />
+          >
+            <span className={styles.actionText}>
+              {submitting ? "登录中..." : "进入系统"}
+            </span>
+          </button>
         </div>
         <div className={styles.errorWrap}>
           <div

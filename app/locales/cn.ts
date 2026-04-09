@@ -72,9 +72,9 @@ const cn = {
     Rename: "重命名对话",
     Typing: "正在输入…",
     Input: (submitKey: string) => {
-      var inputHints = `${submitKey} 发送`;
+      let inputHints = `${submitKey} 发送`;
       if (submitKey === "Enter") {
-        inputHints += "，Shift + Enter 换行";
+        inputHints = "回车发送，Shift + 回车换行";
       }
       return inputHints + "，/ 触发补全，: 触发命令";
     },
