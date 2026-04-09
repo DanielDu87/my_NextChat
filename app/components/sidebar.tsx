@@ -608,20 +608,6 @@ export function SideBar(props: { className?: string }) {
       <SideBarTail
         primaryAction={
           <>
-            <div className={clsx(styles["sidebar-action"], styles.mobile)}>
-              <IconButton
-                icon={<DeleteIcon />}
-                onClick={async () => {
-                  if (readOnly) {
-                    showToast("管理员查看他人数据时为只读模式，不能删除会话");
-                    return;
-                  }
-                  if (await showConfirm(Locale.Home.DeleteChat)) {
-                    chatStore.deleteCurrentSession();
-                  }
-                }}
-              />
-            </div>
             <div className={styles["sidebar-action"]}>
               <Link to={Path.Settings}>
                 <IconButton
@@ -698,23 +684,39 @@ export function SideBar(props: { className?: string }) {
           </>
         }
         secondaryAction={
-          <IconButton
-            icon={<AddIcon />}
-            text={shouldNarrow ? undefined : Locale.Home.NewChat}
-            onClick={() => {
-              if (readOnly) {
-                showToast("管理员查看他人数据时为只读模式，不能新建会话");
-                return;
-              }
-              if (config.dontShowMaskSplashScreen) {
-                chatStore.newSession();
-                navigate(Path.Chat);
-              } else {
-                navigate(Path.NewChat);
-              }
-            }}
-            shadow
-          />
+          <>
+            <div className={clsx(styles["sidebar-action"], styles.mobile)}>
+              <IconButton
+                icon={<DeleteIcon />}
+                onClick={async () => {
+                  if (readOnly) {
+                    showToast("管理员查看他人数据时为只读模式，不能删除会话");
+                    return;
+                  }
+                  if (await showConfirm(Locale.Home.DeleteChat)) {
+                    chatStore.deleteCurrentSession();
+                  }
+                }}
+              />
+            </div>
+            <IconButton
+              icon={<AddIcon />}
+              text={shouldNarrow ? undefined : Locale.Home.NewChat}
+              onClick={() => {
+                if (readOnly) {
+                  showToast("管理员查看他人数据时为只读模式，不能新建会话");
+                  return;
+                }
+                if (config.dontShowMaskSplashScreen) {
+                  chatStore.newSession();
+                  navigate(Path.Chat);
+                } else {
+                  navigate(Path.NewChat);
+                }
+              }}
+              shadow
+            />
+          </>
         }
       />
     </SideBarContainer>

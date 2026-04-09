@@ -2437,17 +2437,21 @@
 // 移动端模型选择器优化
 @media screen and (max-width: 768px) {
   .selector {
+    inset: 0 !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
     align-items: center !important;
     justify-content: center !important;
     padding: 10px !important;
     box-sizing: border-box;
+    overflow: hidden !important;
   }
 
   .selector-content {
     width: min(560px, calc(100vw - 20px)) !important;
     max-width: min(560px, calc(100vw - 20px)) !important;
-    height: auto !important;
-    max-height: calc(100dvh - 20px) !important;
+    height: 80dvh !important;
+    max-height: 80dvh !important;
     min-height: 0 !important;
     padding: 12px !important;
     border-radius: 18px !important;

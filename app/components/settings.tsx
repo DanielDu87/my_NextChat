@@ -1367,9 +1367,16 @@ export function Settings() {
 
   return (
     <ErrorBoundary>
-      <div className="window-header" data-tauri-drag-region>
-        <div className="window-header-title">
-          <div className="window-header-main-title">
+      <div
+        className={`window-header ${styles["settings-header"]}`}
+        data-tauri-drag-region
+      >
+        <div
+          className={`window-header-title ${styles["settings-header-title"]}`}
+        >
+          <div
+            className={`window-header-main-title ${styles["settings-header-main-title"]}`}
+          >
             {Locale.Settings.Title}
           </div>
           <div className="window-header-sub-title">

@@ -162,3 +162,46 @@
     overflow:visible ;
   }
 }
+
+@media screen and (max-width: 768px) {
+  .settings {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .settings-header {
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  .settings-header-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 96px);
+    max-width: none;
+    text-align: center;
+    align-items: center;
+  }
+
+  .settings-header-title :global(.window-header-main-title),
+  .settings-header-title :global(.window-header-sub-title) {
+    width: 100%;
+    text-align: center;
+  }
+
+  .settings-header-main-title {
+    max-width: none !important;
+    width: 100%;
+    text-align: center;
+  }
+
+  .settings-header :global(.window-actions) {
+    position: absolute;
+    right: 20px;
+    top: 10px;
+    z-index: 1;
+  }
+}
