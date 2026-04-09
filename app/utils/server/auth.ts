@@ -14,7 +14,9 @@ const DEFAULT_ADMIN_USERNAME =
   process.env.NEXTCHAT_ADMIN_USERNAME?.trim() || "admin";
 const DEFAULT_ADMIN_PASSWORD =
   process.env.NEXTCHAT_ADMIN_PASSWORD?.trim() || "admin123";
-const AUTH_BYPASS_ENABLED = true; // 临时关闭登录限制，方便测试
+const AUTH_BYPASS_ENABLED =
+  process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
+  process.env.NEXTCHAT_DISABLE_AUTH === "true";
 
 declare global {
   var __nextchatAuthSchemaReady: Promise<void> | undefined;

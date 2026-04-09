@@ -7,7 +7,9 @@ import SitePasswordGate from "./components/site-password-gate";
 const serverConfig = getServerSideConfig();
 const AUTH_SESSION_COOKIE_NAME = "nextchat_auth_session";
 const EFFECTIVE_USER_COOKIE_NAME = "nextchat_effective_user";
-const AUTH_BYPASS_ENABLED = true; // 临时关闭登录限制，方便测试
+const AUTH_BYPASS_ENABLED =
+  process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
+  process.env.NEXTCHAT_DISABLE_AUTH === "true";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

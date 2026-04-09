@@ -3,14 +3,16 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconButton } from "./button";
-import { PasswordInput } from "./ui-lib";
 import Logo from "../icons/logo.svg";
+import EyeIcon from "../icons/eye.svg";
+import EyeOffIcon from "../icons/eye-off.svg";
 import styles from "./site-password-gate.module.scss";
 
 export default function SitePasswordGate(props: { initialError?: string }) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(props.initialError || "");
 
@@ -81,12 +83,13 @@ export default function SitePasswordGate(props: { initialError?: string }) {
           </div>
         </div>
         <div className={styles.passwordInput}>
-          <div className={styles.inputBox}>
-            <PasswordInput
-              aria="登录密码"
+          <div className={styles.passwordBox}>
+            <input
+              className={styles.passwordField}
               aria-label="登录密码"
               value={password}
               placeholder="请输入密码"
+              type={passwordVisible ? "text" : "password"}
               required
               onChange={(e) => {
                 setPassword(e.currentTarget.value);
@@ -95,6 +98,14 @@ export default function SitePasswordGate(props: { initialError?: string }) {
                 }
               }}
             />
+            <button
+              type="button"
+              className={styles.passwordToggle}
+              aria-label="登录密码"
+              onClick={() => setPasswordVisible((visible) => !visible)}
+            >
+              {passwordVisible ? <EyeIcon /> : <EyeOffIcon />}
+            </button>
           </div>
         </div>
         <div className={styles.actions}>
@@ -116,10 +127,6 @@ export default function SitePasswordGate(props: { initialError?: string }) {
           >
             {error || " "}
           </div>
-        </div>
-        <div className={styles.tips}>
-          首次启动默认管理员账号为 `admin`，密码为
-          `admin123`，建议登录后立即新增正式账号。
         </div>
       </form>
     </div>
