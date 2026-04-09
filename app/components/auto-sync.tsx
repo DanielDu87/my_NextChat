@@ -800,7 +800,6 @@ export default function AutoSync() {
                 syncStore.autoSyncDeferred?.() ?? Promise.resolve();
               void deferredSync
                 .then(() => {
-                  void bootstrapProviderModels({ remoteRefresh: true });
                   scheduleIdleTask(() => {
                     void logModelCountWithRemote();
                   });
