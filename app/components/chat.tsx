@@ -3833,9 +3833,7 @@ function _Chat() {
       completedAssistantRefreshSignal &&
       completedAssistantRefreshSignal !== lastCompletedAssistantRef.current
     ) {
-      if (lastCompletedAssistantRef.current) {
-        setBalanceRefreshSignal(completedAssistantRefreshSignal);
-      }
+      setBalanceRefreshSignal(completedAssistantRefreshSignal);
       lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
       return;
     }
