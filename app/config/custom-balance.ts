@@ -12,6 +12,7 @@ export type CustomBalanceQueryRule = {
   apiKey?: string;
   field?: string;
   aliases?: string[];
+  modelFetchApiKey?: string;
 };
 
 // 在这里为每个 Custom 配置条目单独指定余额查询方式。
@@ -22,7 +23,8 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
     aliases: ["aihubmix", "aihubmix.com"],
     mode: "aihubmix",
     url: "https://aihubmix.com",
-    apiKey: "cd2d40b608024227b5af7ba655a5a7b4",
+    apiKey: "14eaca5379ca4b91b442a2a11759ffce",
+    modelFetchApiKey: "14eaca5379ca4b91b442a2a11759ffce",
   },
   {
     profileName: "YutoAPI",
@@ -30,13 +32,15 @@ export const CUSTOM_BALANCE_QUERY_RULES: CustomBalanceQueryRule[] = [
     mode: "openai-compatible",
     url: "https://cn.gptapi.asia",
     apiKey: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
+    modelFetchApiKey: "HTPCPWgEfsBLkJbzegZZKZvxOoBDgr7f",
   },
   {
     profileName: "Ocoolai",
     aliases: ["ocoolai", "one.ooo.cool"],
     mode: "ocoolai",
     url: "https://one.ooo.cool",
-    apiKey: "1e64d2329f18493784eba5b2390bcf0b",
+    apiKey: "15bf40c0df864872a64cb7f4d37d3709",
+    modelFetchApiKey: "15bf40c0df864872a64cb7f4d37d3709",
   },
   {
     profileName: "ToAPIs",

@@ -1160,25 +1160,6 @@ export function Selector<T>(props: {
             data-selector-group-filter-root="true"
             className={styles["selector-group-filter-wrap"]}
           >
-            {props.groupFilterAction ? (
-              <div className={styles["selector-group-filter-extra"]}>
-                {typeof props.groupFilterAction === "function"
-                  ? props.groupFilterAction({
-                      buttonClassName: styles["selector-group-filter"],
-                      menuClassName: styles["selector-group-filter-menu"],
-                      optionClassName: styles["selector-group-filter-option"],
-                      optionActiveClassName:
-                        styles["selector-group-filter-option-active"],
-                      optionLeadingClassName:
-                        styles["selector-group-filter-option-leading"],
-                      iconFrameClassName:
-                        styles["selector-group-filter-icon-frame"],
-                      iconImageClassName:
-                        styles["selector-group-filter-icon-image"],
-                    })
-                  : props.groupFilterAction}
-              </div>
-            ) : null}
             <button
               type="button"
               ref={groupFilterButtonRef}
@@ -1202,7 +1183,7 @@ export function Selector<T>(props: {
                   )?.();
                   return;
                 }
-                setIsGroupFilterOpen((prev) => !prev);
+                setIsGroupFilterOpen(!isGroupFilterOpen);
               }}
             >
               {selectedGroup !== "All" ? (
@@ -1248,6 +1229,25 @@ export function Selector<T>(props: {
                 })}
               </div>
             )}
+            {props.groupFilterAction ? (
+              <div className={styles["selector-group-filter-extra"]}>
+                {typeof props.groupFilterAction === "function"
+                  ? props.groupFilterAction({
+                      buttonClassName: styles["selector-group-filter"],
+                      menuClassName: styles["selector-group-filter-menu"],
+                      optionClassName: styles["selector-group-filter-option"],
+                      optionActiveClassName:
+                        styles["selector-group-filter-option-active"],
+                      optionLeadingClassName:
+                        styles["selector-group-filter-option-leading"],
+                      iconFrameClassName:
+                        styles["selector-group-filter-icon-frame"],
+                      iconImageClassName:
+                        styles["selector-group-filter-icon-image"],
+                    })
+                  : props.groupFilterAction}
+              </div>
+            ) : null}
           </div>
         )}
         {props.showSearch && !isGroupFilterOpen && (

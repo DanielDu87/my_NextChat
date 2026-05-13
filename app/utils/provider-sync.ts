@@ -218,7 +218,8 @@ export async function syncProfileModels(
             (item: ApiProfile) => item.id === profileId,
           )?.enabled
         ) {
-          state.customModels = fetchedModels;
+          // 不再全量覆盖 customModels，只更新模型数据（mergeModels 已处理）
+          // customModels 仅由用户手动添加/删除模型时修改
         }
       });
 
@@ -485,14 +486,14 @@ export async function syncAllProfilesToDatabase(params: {
     runWithImmediateStoreSyncPaused(async () => {
       const accessStore = useAccessStore.getState() as any;
       const syncStore = useSyncStore.getState() as any;
-      let profiles = (useAccessStore.getState().apiProfiles ||
+      let allProfiles = (useAccessStore.getState().apiProfiles ||
         []) as ApiProfile[];
 
-      if (profiles.length === 0) {
-        profiles = await ensureProfilesLoadedFromDatabase();
+      if (allProfiles.length === 0) {
+        allProfiles = await ensureProfilesLoadedFromDatabase();
       }
 
-      if (profiles.length === 0) {
+      if (allProfiles.length === 0) {
         throw new Error(
           "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
         );
@@ -505,6 +506,28 @@ export async function syncAllProfilesToDatabase(params: {
       syncStore.update((state: any) => {
         state.provider = ProviderType.Database;
       });
+
+      // 只同步用户已添加的模型涉及的 profiles
+      const customModels = String(useAppConfig.getState().customModels || "");
+      const addedProviderIds = new Set(
+        customModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m.startsWith("+"))
+          .map((m) => {
+            const cleaned = m.substring(1);
+            const atIdx = cleaned.lastIndexOf("@");
+            return atIdx > 0 ? cleaned.substring(atIdx + 1).toLowerCase() : "";
+          })
+          .filter(Boolean),
+      );
+
+      const profiles =
+        addedProviderIds.size > 0
+          ? allProfiles.filter((p) =>
+              addedProviderIds.has(getProfileProviderId(p).toLowerCase()),
+            )
+          : allProfiles;
 
       let totalFetched = 0;
       const results: SyncAllProfilesResult["results"] = [];

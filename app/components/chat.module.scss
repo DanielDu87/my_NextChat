@@ -1705,10 +1705,9 @@
   }
 
   .model-selector-hint-provider-button {
-    grid-column: 1 / -1;
-    justify-content: center;
-    width: 100%;
+    flex: 1;
     min-width: 0;
+    justify-content: center;
     min-height: 36px;
     padding: 0 12px;
     position: relative;

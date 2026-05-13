@@ -442,15 +442,17 @@ async function queryToApisUsage(
   const json = (await res.json()) as {
     success?: boolean;
     remain_balance?: number;
+    used_balance?: number;
   };
 
   if (json.success === false) {
     throw new Error("ToAPIs 余额查询失败");
   }
 
-  const total = Number(json.remain_balance || 0);
+  const remain = Number(json.remain_balance || 0);
+  const used = Number(json.used_balance || 0);
 
-  return { used: 0, total };
+  return { used, total: remain + used };
 }
 
 async function queryOpenAICompatibleCustomUsage(

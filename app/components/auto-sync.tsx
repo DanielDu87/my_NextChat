@@ -774,7 +774,8 @@ export default function AutoSync() {
             );
           })
           .then(async () => {
-            void bootstrapProviderModels();
+            // 不再自动同步全量模型，模型由用户手动添加后按需获取
+            // void bootstrapProviderModels();
             hasCompletedAutoSync = true;
             const elapsedMs = nowMs() - criticalSyncStartedAt;
             const elapsedSeconds = (elapsedMs / 1000).toFixed(2);

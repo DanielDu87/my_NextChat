@@ -28,7 +28,7 @@ const { ServiceProvider } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 const { applyModelPublishedAt } = modelPublishedAtUtils;
-const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "4216a3b60ebf4850bf822e97c02e0e55";
+const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "15bf40c0df864872a64cb7f4d37d3709";
 let aihubmixCatalogMetadataMapPromise: Promise<
   Map<
     string,
@@ -77,10 +77,12 @@ function getModelFetchApiKeyCandidates(params: {
   };
   apiKey?: string;
   apiKeyGroups?: Record<string, string>;
+  baseUrl?: string;
 }) {
   const profile = params.profile;
   const groupedKeys = params.apiKeyGroups || profile?.apiKeyGroups || {};
-  if (profile?.baseUrl && isOcoolaiUrl(profile.baseUrl)) {
+  const effectiveBaseUrl = params.baseUrl || profile?.baseUrl;
+  if (effectiveBaseUrl && isOcoolaiUrl(effectiveBaseUrl)) {
     return [OCOOLAI_FIXED_MODEL_FETCH_API_KEY];
   }
   const candidates = [
@@ -683,34 +685,6 @@ async function getAiHubMixClassificationMap() {
   return aihubmixClassificationMapPromise;
 }
 
-function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
-  const normalizedGroup = String(groupName || "default")
-    .trim()
-    .toLowerCase();
-  const lowerModelName = modelName.toLowerCase();
-  const isClaudeModel = lowerModelName.startsWith("claude");
-
-  if (isClaudeModel) {
-    const priorityMap: Record<string, number> = {
-      anthropic: 50,
-      enterprise: 40,
-      discount: 30,
-      user: 20,
-      default: 10,
-    };
-    return priorityMap[normalizedGroup] ?? 0;
-  }
-
-  const priorityMap: Record<string, number> = {
-    enterprise: 50,
-    discount: 40,
-    user: 30,
-    anthropic: 20,
-    default: 10,
-  };
-  return priorityMap[normalizedGroup] ?? 0;
-}
-
 /**
  * 将相对路径转为完整 URL 用于日志显示
  */
@@ -1006,6 +980,7 @@ export async function fetchModelsFromProvider(
             profile: matchedCustomProfile,
             apiKey,
             apiKeyGroups,
+            baseUrl,
           })
         : apiKey
         ? [apiKey]
@@ -1188,83 +1163,71 @@ export async function fetchModelsFromProvider(
       const candidateUrls = isServerSide()
         ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
         : ["/api/yuto/pricing"];
-      const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
-        ([, value]) => Boolean(value?.trim()),
+
+      // 从 custom-balance 规则获取专用模型获取 key
+      const { findCustomBalanceQueryRule } = await import(
+        "../config/custom-balance"
       );
-      const fetchEntries =
-        groupedEntries.length > 0
-          ? groupedEntries
-          : [["default", apiKey || ""]];
-      const mergedModelMap = new Map<string, LLMModel>();
-      for (const [groupName, groupApiKey] of fetchEntries) {
-        if (!groupApiKey) continue;
-        const groupedHeaders: Record<string, string> = {
-          Authorization: `Bearer ${groupApiKey}`,
-          ...(baseUrl ? { "x-base-url": baseUrl } : {}),
+      const yutoRule = findCustomBalanceQueryRule({ name: profileName || "" });
+      const fetchKey = yutoRule?.modelFetchApiKey || apiKey || "";
+
+      const fetchHeaders: Record<string, string> = {
+        Authorization: `Bearer ${fetchKey}`,
+        ...(baseUrl ? { "x-base-url": baseUrl } : {}),
+      };
+      const pricingData = await fetchJsonWithCandidates(
+        candidateUrls,
+        fetchHeaders,
+        baseUrl,
+        {
+          logSuccess: false,
+          authCacheKey: `yuto:${normalizedBaseUrl}`,
+          suppressCandidateErrors: true,
+          suppressStatusCodes: [404],
+        },
+      );
+
+      const pricingModels =
+        pricingData?.vendors &&
+        Array.isArray(pricingData.vendors) &&
+        pricingData?.data &&
+        Array.isArray(pricingData.data)
+          ? pricingData.data
+          : [];
+      const vendorsMap: Record<number, { name: string; icon?: string }> = {};
+      (pricingData?.vendors || []).forEach((vendor: any) => {
+        vendorsMap[vendor.id] = { name: vendor.name, icon: vendor.icon };
+      });
+
+      // 单次请求获取全部模型，根据 enable_groups 分配最优 apiKeyGroup
+      const autoGroups: string[] = pricingData?.auto_groups || [];
+      const mappedModels = mapModels(
+        pricingModels,
+        providerId,
+        providerName,
+        providerType,
+        sorted,
+        vendorsMap,
+        undefined,
+        catalogMetadataMap,
+        classificationMap,
+      ).map((model) => {
+        const raw = pricingModels.find((m: any) => m.model_name === model.name);
+        const enableGroups: string[] = raw?.enable_groups || [];
+        const bestGroup = autoGroups
+          .filter((g) => enableGroups.includes(g))
+          .sort((a, b) => {
+            const availableGroupKeys = Object.keys(apiKeyGroups || {});
+            const aHas = availableGroupKeys.includes(a) ? 1 : 0;
+            const bHas = availableGroupKeys.includes(b) ? 1 : 0;
+            return bHas - aHas;
+          })[0];
+        return {
+          ...model,
+          apiKeyGroup: bestGroup || "default",
         };
-        const groupedData = await fetchJsonWithCandidates(
-          candidateUrls,
-          groupedHeaders,
-          baseUrl,
-          {
-            logSuccess: false,
-            authCacheKey: `yuto-group:${normalizedBaseUrl}:${groupName}`,
-            suppressCandidateErrors: true,
-            suppressStatusCodes: [404],
-          },
-        );
-        const groupedModels =
-          groupedData?.vendors &&
-          Array.isArray(groupedData.vendors) &&
-          groupedData?.data &&
-          Array.isArray(groupedData.data)
-            ? groupedData.data
-            : [];
-        const groupedVendorsMap: Record<
-          number,
-          { name: string; icon?: string }
-        > = {};
-        (groupedData?.vendors || []).forEach((vendor: any) => {
-          groupedVendorsMap[vendor.id] = {
-            name: vendor.name,
-            icon: vendor.icon,
-          };
-        });
+      });
 
-        mapModels(
-          groupedModels,
-          providerId,
-          providerName,
-          providerType,
-          sorted,
-          groupedVendorsMap,
-          groupName,
-          catalogMetadataMap,
-          classificationMap,
-        ).forEach((model) => {
-          const key = `${model.name}@${model.provider?.id}`;
-          const existing = mergedModelMap.get(key);
-
-          if (!existing) {
-            mergedModelMap.set(key, model);
-          } else {
-            const existingPriority = getYutoApiKeyGroupPriority(
-              model.name,
-              existing.apiKeyGroup,
-            );
-            const nextPriority = getYutoApiKeyGroupPriority(
-              model.name,
-              groupName,
-            );
-
-            if (nextPriority > existingPriority) {
-              mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
-            }
-          }
-        });
-      }
-
-      const mappedModels = [...mergedModelMap.values()];
       return {
         models: mappedModels,
         total: mappedModels.length,
@@ -1298,6 +1261,7 @@ export async function fetchModelsFromProvider(
         profile: matchedCustomProfile,
         apiKey,
         apiKeyGroups,
+        baseUrl,
       });
       const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");

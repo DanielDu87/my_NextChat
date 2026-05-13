@@ -6,7 +6,7 @@ import Locale from "../locales";
 import { InputRange } from "./input-range";
 import { ListItem, Select } from "./ui-lib";
 import { compareSelectorItems } from "./ui-lib";
-import { useAllModels } from "../utils/hooks";
+import { useUserModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
 import {
@@ -26,7 +26,7 @@ export function ModelConfigList(props: {
   modelConfig: ModelConfig;
   updateConfig: (updater: (config: ModelConfig) => void) => void;
 }) {
-  const allModels = useAllModels();
+  const allModels = useUserModels();
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
 
   // 按供应商分组，如果没有供应商信息则按 provider 分组

@@ -137,6 +137,7 @@ export interface LLMModel {
   capabilities?: string[];
   categories?: string[];
   apiKeyGroup?: string;
+  catalogRank?: number;
 }
 
 export interface LLMModelProvider {

@@ -190,6 +190,7 @@ import {
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import { useAuthStore } from "../store/auth";
 import { UserMenu } from "./user-menu";
+import { AddModelSelector } from "./add-model-modal";
 
 type RemoteModelRefreshArtifact = {
   updatedAt?: string;
@@ -2316,6 +2317,11 @@ function _Chat() {
   const [showExport, setShowExport] = useState(false);
   const [showAutoModelSelector, setShowAutoModelSelector] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showAddModelModal, setShowAddModelModal] = useState(false);
+  const [addModelProfile, setAddModelProfile] = useState<{
+    profiles: any[];
+    currentProviderId: string;
+  } | null>(null);
 
   const [modelSelectorDefaultValue, setModelSelectorDefaultValue] = useState<
     string | undefined
@@ -2703,16 +2709,33 @@ function _Chat() {
     (item: any) => matchesModelCategory(item, "thinking"),
     [],
   );
-  const models = useMemo(
-    () =>
-      allModels.filter(
-        (model) =>
-          model.available &&
-          String(model?.provider?.id || "").toLowerCase() ===
-            activeModelSelectorProviderId,
-      ),
-    [activeModelSelectorProviderId, allModels],
-  );
+  const models = useMemo(() => {
+    // 只显示用户手动添加的模型（customModels 中 + 前缀的条目）
+    const customModels = String(config.customModels || "");
+    const userAddedKeys = new Set(
+      customModels
+        .split(",")
+        .map((m) => m.trim())
+        .filter((m) => m.startsWith("+"))
+        .map((m) => {
+          const cleaned = m.substring(1);
+          return cleaned.toLowerCase();
+        }),
+    );
+    if (userAddedKeys.size === 0) return [];
+
+    return allModels.filter((model) => {
+      const modelKey = `${model.name}@${String(
+        model?.provider?.id || "",
+      ).toLowerCase()}`;
+      return (
+        model.available &&
+        userAddedKeys.has(modelKey) &&
+        String(model?.provider?.id || "").toLowerCase() ===
+          activeModelSelectorProviderId
+      );
+    });
+  }, [activeModelSelectorProviderId, allModels, config.customModels]);
   const modelSelectorItems = useMemo(() => {
     const providerItems = models
       .map((model) => ({
@@ -2930,42 +2953,8 @@ function _Chat() {
   }, []);
 
   const providerSwitchDisabled = useMemo(() => {
-    if (apiProfiles.length <= 1) {
-      return false;
-    }
-    const currentProfile = apiProfiles.find(
-      (profile) =>
-        getProfileProviderId(profile).toLowerCase() === currentProviderId,
-    );
-    if (!currentProfile) {
-      return false;
-    }
-
-    const hasLoadedModels = allModels.some(
-      (model) =>
-        model.available &&
-        String(model?.provider?.id || "").toLowerCase() === currentProviderId,
-    );
-    const cache = modelCacheProfiles?.[currentProfile.id];
-    const syncStatus = String(cache?.syncStatus || "").toLowerCase();
-    const hasCache = Boolean(
-      cache?.cachedModels || currentProfile.cachedModels,
-    );
-
-    if (
-      syncStatus === "first_sync" ||
-      syncStatus === "syncing" ||
-      syncStatus === "checking_remote"
-    ) {
-      return true;
-    }
-
-    if (hasLoadedModels) {
-      return false;
-    }
-
-    return !hasCache && !["ready", "using_cache", "error"].includes(syncStatus);
-  }, [allModels, apiProfiles, currentProviderId, modelCacheProfiles]);
+    return false;
+  }, []);
 
   const isAiHubMixOrderingReady = useMemo(() => {
     const aiHubMixProfile = apiProfiles.find(
@@ -3846,11 +3835,6 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
-    if (providerSwitchDisabled) {
-      handleModelSelectorBlockedDuringSync();
-      return;
-    }
-
     const latestModelName = sessionMask?.modelConfig?.model || currentRawModel;
     const latestProviderName =
       sessionMask?.modelConfig?.providerName || currentProviderName;
@@ -3863,61 +3847,18 @@ function _Chat() {
     const fallbackDefaultValue = latestProviderId
       ? `${latestModelName}@${latestProviderId}`
       : undefined;
-    const currentSelectedItem = modelSelectorItems.find(
-      (item) => item.value === fallbackDefaultValue,
-    );
-    const storedDefaultGroup = String(
-      localStorage.getItem(MODEL_SELECTOR_GROUP_STORAGE_KEY) || "",
-    ).trim();
-    const fallbackDefaultGroup =
-      storedDefaultGroup ||
-      currentSelectedItem?.group ||
-      getModelGroup(
-        latestModelName,
-        currentProfile?.provider || latestProviderName,
-        undefined,
-        currentSelectedItem?.title || latestModelName,
-      );
-    const activeProfile = apiProfiles.find(
-      (profile) =>
-        getProfileProviderId(profile).toLowerCase() === latestProviderId,
-    );
-    const hasLoadedProviderModels = allModels.some(
-      (model) =>
-        model.available &&
-        String(model.provider?.id || "").toLowerCase() === latestProviderId,
-    );
-    const hasCachedProviderModels = Boolean(
-      activeProfile &&
-        ((useModelCacheStore.getState() as any).profiles?.[activeProfile.id]
-          ?.cachedModels ||
-          activeProfile.cachedModels),
-    );
-
-    if (hasCachedProviderModels && latestProviderId) {
-      rebuildManagedModelsFromCache({
-        force: true,
-        providerIds: [latestProviderId],
-      });
-    }
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
     setModelSelectorProviderId(latestProviderId);
-    setModelSelectorDefaultGroup(fallbackDefaultGroup);
     setModelSelectorDefaultValue(fallbackDefaultValue);
-    setShowModelSelector(true);
     setModelSelectorResetKey((key) => key + 1);
+    setShowModelSelector(true);
   }, [
     allModels,
     apiProfiles,
     currentRawModel,
-    currentProfile?.provider,
     currentProviderName,
-    getModelGroup,
-    handleModelSelectorBlockedDuringSync,
-    modelSelectorItems,
-    providerSwitchDisabled,
     session.id,
     sessionMask,
   ]);
@@ -4103,39 +4044,8 @@ function _Chat() {
           return;
         }
 
-        setModelSelectorNotice(
-          hasCachedProviderModels
-            ? `正在载入 ${profileName} 模型`
-            : `正在同步 ${profileName} 模型`,
-        );
-
-        void ensureProviderModelsReady(profile.id, {
-          background: hasCachedProviderModels,
-          silent: true,
-          reason: "switch",
-        })
-          .then(() => {
-            const latestModels = useAppConfig.getState().models || [];
-            const readyProviderModels = latestModels.filter(
-              (item) =>
-                item.available &&
-                String(item.provider?.id || "").toLowerCase() ===
-                  selectedProviderId,
-            );
-
-            if (readyProviderModels.length === 0) {
-              setModelSelectorNotice("模型同步失败，请重试");
-              return;
-            }
-
-            commitProviderSwitch(
-              readyProviderModels as typeof initialProviderModels,
-            );
-          })
-          .catch((error) => {
-            console.error("[Chat] provider 模型同步失败:", error);
-            setModelSelectorNotice("模型同步失败，请重试");
-          });
+        // 无模型时直接切换供应商
+        commitProviderSwitch([] as typeof initialProviderModels);
       }
     },
     [
@@ -5332,6 +5242,30 @@ function _Chat() {
           perfScope="ModelSelector"
           perfStartedAt={modelSelectorOpenStartedAtRef.current || undefined}
           showGroupFilter={true}
+          groupFilterAction={({ buttonClassName }) => (
+            <button
+              type="button"
+              className={buttonClassName}
+              style={{
+                flex: "0 0 auto",
+                width: "auto",
+                minWidth: 0,
+                paddingLeft: 14,
+                paddingRight: 14,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setAddModelProfile({
+                  profiles: apiProfiles,
+                  currentProviderId: activeModelSelectorProviderId,
+                });
+                setShowAddModelModal(true);
+              }}
+            >
+              <span>管理模型</span>
+            </button>
+          )}
           quickFilters={modelSelectorQuickFilters}
           showSearch={true}
           onGroupChange={(group) => {
@@ -5424,6 +5358,17 @@ function _Chat() {
               showToast(`已选择 ${model}`);
             }
           }}
+        />
+      )}
+
+      {showAddModelModal && addModelProfile && (
+        <AddModelSelector
+          onClose={() => {
+            setShowAddModelModal(false);
+            setAddModelProfile(null);
+          }}
+          profiles={addModelProfile.profiles}
+          initialProviderId={addModelProfile.currentProviderId}
         />
       )}
     </>
