@@ -124,59 +124,6 @@ export function AddModelSelector(props: {
     };
   }, [activeProfile, selectedProviderId]);
 
-  const selectorItems = useMemo(() => {
-    return fetchedModels.map((model) => {
-      const modelKey = `${model.name}@${selectedProviderId}`;
-      const isAdded = addedModelKeys.has(modelKey);
-      return {
-        title: model.displayName || model.name,
-        value: modelKey,
-        group: model.vendor?.name || model.provider?.providerName || "Other",
-        disable: isAdded,
-        searchText: `${model.displayName} ${model.name}`,
-        order: model.sorted,
-        publishedAt: model.publishedAt,
-        publishedAtSource: model.publishedAtSource,
-        catalogRank: model.catalogRank,
-        sortKey: model.name,
-        meta: {
-          category: model.category,
-          categorySource: model.categorySource,
-          type: model.type,
-          types: model.types,
-          features: model.features,
-          capabilities: model.capabilities,
-          categories: model.categories,
-          vendorName: model.vendor?.name,
-        },
-      };
-    });
-  }, [fetchedModels, addedModelKeys, selectedProviderId]);
-
-  const handleSelectionChange = useCallback(
-    (selected: string[]) => {
-      setPendingSelection(selected.filter((s) => !addedModelKeys.has(s)));
-    },
-    [addedModelKeys],
-  );
-
-  const handleConfirm = useCallback(() => {
-    if (pendingSelection.length === 0) return;
-    const currentCustomModels = config.customModels || "";
-    const currentModels = currentCustomModels
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-    const newModels = pendingSelection.map((m) => `+${m}`);
-    const allModels = [...currentModels, ...newModels];
-    const uniqueModels = Array.from(new Set(allModels));
-    config.update((state) => {
-      state.customModels = uniqueModels.join(",");
-    });
-    setPendingSelection([]);
-    props.onClose();
-  }, [config, pendingSelection, props.onClose]);
-
   const removeModel = useCallback(
     (key: string) => {
       const customModels = config.customModels || "";
@@ -212,140 +159,91 @@ export function AddModelSelector(props: {
     });
   }, [config, selectedProviderId]);
 
+  const selectorItems = useMemo(() => {
+    // 已添加模式：只显示已添加的模型，右边显示删除按钮
+    if (showAdded) {
+      return addedModelsList.map((model) => {
+        const modelName = model.key.split("@")[0];
+        const fetchedModel = fetchedModels.find((m) => m.name === modelName);
+        return {
+          title: model.name,
+          value: model.key,
+          group:
+            fetchedModel?.vendor?.name ||
+            fetchedModel?.provider?.providerName ||
+            "已添加",
+          disable: false,
+          searchText: model.name,
+          rightAction: {
+            text: "删除",
+            onClick: (value: string) => removeModel(value),
+          },
+        };
+      });
+    }
+
+    // 添加模式：显示所有可获取的模型
+    return fetchedModels.map((model) => {
+      const modelKey = `${model.name}@${selectedProviderId}`;
+      const isAdded = addedModelKeys.has(modelKey);
+      return {
+        title: model.displayName || model.name,
+        value: modelKey,
+        group: model.vendor?.name || model.provider?.providerName || "Other",
+        disable: isAdded,
+        searchText: `${model.displayName} ${model.name}`,
+        order: model.sorted,
+        publishedAt: model.publishedAt,
+        publishedAtSource: model.publishedAtSource,
+        catalogRank: model.catalogRank,
+        sortKey: model.name,
+        meta: {
+          category: model.category,
+          categorySource: model.categorySource,
+          type: model.type,
+          types: model.types,
+          features: model.features,
+          capabilities: model.capabilities,
+          categories: model.categories,
+          vendorName: model.vendor?.name,
+        },
+      };
+    });
+  }, [
+    showAdded,
+    addedModelsList,
+    fetchedModels,
+    addedModelKeys,
+    selectedProviderId,
+    removeModel,
+  ]);
+
+  const handleSelectionChange = useCallback(
+    (selected: string[]) => {
+      setPendingSelection(selected.filter((s) => !addedModelKeys.has(s)));
+    },
+    [addedModelKeys],
+  );
+
+  const handleConfirm = useCallback(() => {
+    if (pendingSelection.length === 0) return;
+    const currentCustomModels = config.customModels || "";
+    const currentModels = currentCustomModels
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
+    const newModels = pendingSelection.map((m) => `+${m}`);
+    const allModels = [...currentModels, ...newModels];
+    const uniqueModels = Array.from(new Set(allModels));
+    config.update((state) => {
+      state.customModels = uniqueModels.join(",");
+    });
+    setPendingSelection([]);
+    props.onClose();
+  }, [config, pendingSelection, props.onClose]);
+
   const displayName =
     activeProfile?.name || String(activeProfile?.provider || "");
-
-  // 已添加视图
-  if (showAdded) {
-    return (
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          height: "100vh",
-          width: "100vw",
-          background: "rgba(15, 23, 42, 0.24)",
-          backdropFilter: "blur(10px)",
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "center",
-          zIndex: 99999999999999,
-          padding: "44px 20px 32px",
-          animation: "fadeIn 0.15s ease",
-        }}
-        onClick={props.onClose}
-      >
-        <div
-          style={{
-            background: "var(--second)",
-            borderRadius: 12,
-            boxShadow: "var(--card-shadow)",
-            width: "100%",
-            maxWidth: 520,
-            maxHeight: "70vh",
-            display: "flex",
-            flexDirection: "column",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className={styles["add-modal-footer"]}>
-            <span
-              style={{
-                fontWeight: 600,
-                fontSize: 16,
-                color: "var(--primary)",
-              }}
-            >
-              已添加 - {displayName} ({addedModelsList.length})
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={removeAll}
-                disabled={addedModelsList.length === 0}
-                className={styles["add-modal-btn-danger"]}
-              >
-                全部删除
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowAdded(false)}
-                className={styles["add-modal-btn"]}
-              >
-                ← 返回添加
-              </button>
-              <button
-                type="button"
-                onClick={props.onClose}
-                className={styles["add-modal-btn"]}
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-          <div style={{ overflowY: "auto", flex: 1, padding: "4px 0" }}>
-            {addedModelsList.length === 0 ? (
-              <div
-                style={{
-                  padding: "24px 20px",
-                  textAlign: "center",
-                  color: "var(--primary)",
-                  opacity: 0.5,
-                  fontSize: 14,
-                }}
-              >
-                暂无已添加的模型
-              </div>
-            ) : (
-              addedModelsList.map((model) => (
-                <div
-                  key={model.key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 20px",
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 14,
-                        color: "var(--primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {model.name}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeModel(model.key)}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 4,
-                      border: "none",
-                      background: "transparent",
-                      color: "#ef4444",
-                      cursor: "pointer",
-                      fontSize: 18,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <Selector
@@ -516,37 +414,68 @@ export function AddModelSelector(props: {
       }
       footer={
         <div className={styles["add-modal-footer"]}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={() => setShowAdded(true)}
-              className={styles["add-modal-btn"]}
-            >
-              已添加 ({addedModelsList.length})
-            </button>
-            {pendingSelection.length > 0 && (
-              <span className={styles["add-modal-count"]}>
-                已选 {pendingSelection.length} 个
-              </span>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={props.onClose}
-              className={styles["add-modal-btn"]}
-            >
-              关闭
-            </button>
-            <button
-              type="button"
-              disabled={pendingSelection.length === 0}
-              onClick={handleConfirm}
-              className={styles["add-modal-btn-confirm"]}
-            >
-              确认添加
-            </button>
-          </div>
+          {showAdded ? (
+            <>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdded(false)}
+                  className={styles["add-modal-btn"]}
+                >
+                  浏览模型
+                </button>
+                <button
+                  type="button"
+                  onClick={removeAll}
+                  disabled={addedModelsList.length === 0}
+                  className={styles["add-modal-btn-danger"]}
+                >
+                  全部删除
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={props.onClose}
+                className={styles["add-modal-btn"]}
+              >
+                关闭
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdded(true)}
+                  className={styles["add-modal-btn"]}
+                >
+                  已添加 ({addedModelsList.length})
+                </button>
+                {pendingSelection.length > 0 && (
+                  <span className={styles["add-modal-count"]}>
+                    已选 {pendingSelection.length} 个
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  disabled={pendingSelection.length === 0}
+                  onClick={handleConfirm}
+                  className={styles["add-modal-btn-confirm"]}
+                >
+                  确认添加
+                </button>
+                <button
+                  type="button"
+                  onClick={props.onClose}
+                  className={styles["add-modal-btn"]}
+                >
+                  关闭
+                </button>
+              </div>
+            </>
+          )}
         </div>
       }
     />
