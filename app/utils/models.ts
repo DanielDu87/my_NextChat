@@ -824,7 +824,11 @@ async function fetchJsonWithCandidates(
         }
         return data;
       } catch (error) {
-        lastError = error instanceof Error ? error : new Error("请求失败");
+        if (error instanceof DOMException && error.name === "AbortError") {
+          lastError = new Error("请求超时，请检查网络连接");
+        } else {
+          lastError = error instanceof Error ? error : new Error("请求失败");
+        }
         if (!options?.suppressCandidateErrors) {
           console.log(`[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`, error);
         }

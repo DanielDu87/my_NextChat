@@ -570,6 +570,10 @@
     cursor: not-allowed;
     background-color: #f1f5f9 !important;
 
+    .selector-item-selected {
+      opacity: 1;
+    }
+
     * {
       cursor: not-allowed !important;
     }
@@ -1521,8 +1525,9 @@
 
     .selector-item-selected {
       position: absolute;
-      right: 65px;
+      right: 75px;
       top: 50%;
+      transform: translateY(-50%);
       width: 18px;
       height: 18px;
       display: flex;
@@ -1531,7 +1536,6 @@
       color: #2563eb;
       flex: 0 0 18px;
       filter: none;
-      transform: translateY(-50%);
 
       svg,
       path {

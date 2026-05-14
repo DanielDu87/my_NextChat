@@ -215,16 +215,6 @@ export function AddModelSelector(props: {
   const displayName =
     activeProfile?.name || String(activeProfile?.provider || "");
 
-  const btnBase: React.CSSProperties = {
-    padding: "6px 14px",
-    borderRadius: 8,
-    border: "var(--border-in-light)",
-    background: "var(--second)",
-    color: "var(--primary)",
-    cursor: "pointer",
-    fontSize: 13,
-  };
-
   // 已添加视图
   if (showAdded) {
     return (
@@ -259,15 +249,7 @@ export function AddModelSelector(props: {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "14px 20px",
-              borderBottom: "1px solid var(--border-in-light)",
-            }}
-          >
+          <div className={styles["add-modal-footer"]}>
             <span
               style={{
                 fontWeight: 600,
@@ -282,30 +264,21 @@ export function AddModelSelector(props: {
                 type="button"
                 onClick={removeAll}
                 disabled={addedModelsList.length === 0}
-                style={{
-                  ...btnBase,
-                  fontSize: 12,
-                  padding: "4px 10px",
-                  borderColor:
-                    addedModelsList.length > 0
-                      ? "rgba(239,68,68,0.4)"
-                      : undefined,
-                  color: addedModelsList.length > 0 ? "#ef4444" : "var(--gray)",
-                }}
+                className={styles["add-modal-btn-danger"]}
               >
                 全部删除
               </button>
               <button
                 type="button"
                 onClick={() => setShowAdded(false)}
-                style={{ ...btnBase, fontSize: 12, padding: "4px 10px" }}
+                className={styles["add-modal-btn"]}
               >
                 ← 返回添加
               </button>
               <button
                 type="button"
                 onClick={props.onClose}
-                style={{ ...btnBase, fontSize: 12, padding: "4px 10px" }}
+                className={styles["add-modal-btn"]}
               >
                 关闭
               </button>
@@ -542,51 +515,34 @@ export function AddModelSelector(props: {
         </div>
       }
       footer={
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 16px",
-            borderTop: "1px solid var(--border-in-light)",
-            gap: 8,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setShowAdded(true)}
-            style={btnBase}
-          >
-            已添加 ({addedModelsList.length})
-          </button>
+        <div className={styles["add-modal-footer"]}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => setShowAdded(true)}
+              className={styles["add-modal-btn"]}
+            >
+              已添加 ({addedModelsList.length})
+            </button>
             {pendingSelection.length > 0 && (
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "var(--primary)",
-                  opacity: 0.7,
-                }}
-              >
+              <span className={styles["add-modal-count"]}>
                 已选 {pendingSelection.length} 个
               </span>
             )}
-            <button type="button" onClick={props.onClose} style={btnBase}>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={props.onClose}
+              className={styles["add-modal-btn"]}
+            >
               关闭
             </button>
             <button
               type="button"
               disabled={pendingSelection.length === 0}
               onClick={handleConfirm}
-              style={{
-                ...btnBase,
-                border: "none",
-                background:
-                  pendingSelection.length > 0 ? "#2563eb" : "var(--gray)",
-                color: pendingSelection.length > 0 ? "#fff" : "var(--primary)",
-                cursor: pendingSelection.length > 0 ? "pointer" : "not-allowed",
-                fontWeight: 600,
-              }}
+              className={styles["add-modal-btn-confirm"]}
             >
               确认添加
             </button>
