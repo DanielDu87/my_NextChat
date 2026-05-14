@@ -2724,7 +2724,7 @@ function _Chat() {
     );
     if (userAddedKeys.size === 0) return [];
 
-    return allModels.filter((model) => {
+    const result = allModels.filter((model) => {
       const modelKey = `${model.name}@${String(
         model?.provider?.id || "",
       ).toLowerCase()}`;
@@ -2735,6 +2735,33 @@ function _Chat() {
           activeModelSelectorProviderId
       );
     });
+
+    // 调试：检查为什么某些供应商模型不显示
+    const matchedKeys = [...userAddedKeys].filter((k) =>
+      k.includes(activeModelSelectorProviderId),
+    );
+    if (matchedKeys.length > 0 && result.length === 0) {
+      console.log(
+        "[ModelSelector Debug] 供应商:",
+        activeModelSelectorProviderId,
+      );
+      console.log(
+        "[ModelSelector Debug] userAddedKeys 包含此供应商:",
+        matchedKeys,
+      );
+      console.log(
+        "[ModelSelector Debug] allModels 中此供应商的模型:",
+        allModels
+          .filter(
+            (m) =>
+              String(m?.provider?.id || "").toLowerCase() ===
+              activeModelSelectorProviderId,
+          )
+          .map((m) => `${m.name}@${m?.provider?.id} available=${m.available}`),
+      );
+    }
+
+    return result;
   }, [activeModelSelectorProviderId, allModels, config.customModels]);
   const modelSelectorItems = useMemo(() => {
     const providerItems = models
@@ -5366,6 +5393,10 @@ function _Chat() {
           onClose={() => {
             setShowAddModelModal(false);
             setAddModelProfile(null);
+            setShowModelSelector(true);
+            setModelSelectorResetKey((k) => k + 1);
+            setModelSelectorItemsCache({});
+            resetModelSelectorGroupToAll();
           }}
           profiles={addModelProfile.profiles}
           initialProviderId={addModelProfile.currentProviderId}

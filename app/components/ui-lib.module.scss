@@ -568,6 +568,7 @@
   .selector-item-disabled {
     opacity: 0.58;
     cursor: not-allowed;
+    background-color: #f1f5f9 !important;
 
     * {
       cursor: not-allowed !important;
@@ -1537,6 +1538,11 @@
         fill: currentColor;
         stroke: currentColor;
       }
+    }
+
+    .selector-item-selected-hidden {
+      visibility: hidden;
+      pointer-events: none;
     }
 
     .selector-item-action {

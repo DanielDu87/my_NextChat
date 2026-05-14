@@ -1394,11 +1394,14 @@ export function Selector<T>(props: {
                     }}
                   >
                     <div className={styles["selector-item-actions"]}>
-                      {selected ? (
-                        <div className={styles["selector-item-selected"]}>
-                          <ConfirmIcon />
-                        </div>
-                      ) : null}
+                      <div
+                        className={clsx(styles["selector-item-selected"], {
+                          [styles["selector-item-selected-hidden"]]:
+                            !selected && !item.disable,
+                        })}
+                      >
+                        <ConfirmIcon />
+                      </div>
                       {item.rightAction ? (
                         <button
                           type="button"
@@ -1472,7 +1475,7 @@ export function Selector<T>(props: {
                         }}
                       >
                         <div className={styles["selector-item-actions"]}>
-                          {selected ? (
+                          {selected || item.disable ? (
                             <div className={styles["selector-item-selected"]}>
                               <ConfirmIcon />
                             </div>

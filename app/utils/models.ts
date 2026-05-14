@@ -783,10 +783,13 @@ async function fetchJsonWithCandidates(
       }
       const display = fullUrl(url, displayBaseUrl);
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15_000);
         const response = await fetch(url, {
           method: "GET",
           headers: requestHeaders,
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
 
         if (!response.ok) {
           lastError = new Error(`${response.status} ${response.statusText}`);

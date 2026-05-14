@@ -229,10 +229,6 @@ export function collectModelTable(
             ].filter(Boolean) as string[])
           : fullNameByModelName.get(normalizedModelName) ?? [];
 
-        if (matchedFullNames.length === 0 && normalizedProviderName) {
-          matchedFullNames = fullNameByModelName.get(normalizedModelName) ?? [];
-        }
-
         let count = 0;
         matchedFullNames.forEach((fullName) => {
           const [modelName, providerName] = getModelProvider(fullName);

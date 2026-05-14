@@ -12,6 +12,9 @@ import { getProviderIcon } from "../config/provider-icons";
 import styles from "./chat.module.scss";
 import clsx from "clsx";
 
+// 模块级缓存：页面刷新即清空，同页面内切换供应商不重复获取
+const modelCache = new Map<string, LLMModel[]>();
+
 export function AddModelSelector(props: {
   onClose: () => void;
   profiles: ApiProfile[];
@@ -24,6 +27,7 @@ export function AddModelSelector(props: {
   );
   const [fetchedModels, setFetchedModels] = useState<LLMModel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
   const [pendingSelection, setPendingSelection] = useState<string[]>([]);
   const [showAdded, setShowAdded] = useState(false);
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
@@ -63,10 +67,19 @@ export function AddModelSelector(props: {
       });
   }, [addedModelKeys, selectedProviderId]);
 
-  // 切换供应商时获取模型
+  // 切换供应商时获取模型（有缓存则直接使用）
   useEffect(() => {
     if (!activeProfile) return;
     fetchCancelRef.current = false;
+    setFetchError("");
+
+    const cached = modelCache.get(selectedProviderId);
+    if (cached) {
+      setFetchedModels(cached);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setFetchedModels([]);
 
@@ -86,14 +99,22 @@ export function AddModelSelector(props: {
     )
       .then((result) => {
         if (fetchCancelRef.current) return;
-        const sorted = [...result.models]
-          .sort((a, b) => comparePublishedAt(a, b))
-          .map((model, index) => ({ ...model, sorted: index }));
-        setFetchedModels(sorted);
+        if (result.models.length === 0) {
+          setFetchError("未获取到模型，请检查网络或 API Key 配置");
+        } else {
+          const sorted = [...result.models]
+            .sort((a, b) => comparePublishedAt(a, b))
+            .map((model, index) => ({ ...model, sorted: index }));
+          modelCache.set(selectedProviderId, sorted);
+          setFetchedModels(sorted);
+        }
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
         if (fetchCancelRef.current) return;
+        const msg =
+          err instanceof Error ? err.message : String(err || "未知错误");
+        setFetchError(msg);
         setFetchedModels([]);
         setLoading(false);
       });
@@ -101,7 +122,7 @@ export function AddModelSelector(props: {
     return () => {
       fetchCancelRef.current = true;
     };
-  }, [activeProfile]);
+  }, [activeProfile, selectedProviderId]);
 
   const selectorItems = useMemo(() => {
     return fetchedModels.map((model) => {
@@ -153,30 +174,8 @@ export function AddModelSelector(props: {
       state.customModels = uniqueModels.join(",");
     });
     setPendingSelection([]);
-    setLoading(true);
-    setFetchedModels([]);
-    // 重新获取以刷新 disable 状态
-    if (activeProfile) {
-      fetchModelsFromProvider(
-        activeProfile.provider,
-        activeProfile.baseUrl,
-        activeProfile.apiKey,
-        activeProfile.name,
-        activeProfile.apiKeyGroups,
-      )
-        .then((result) => {
-          const sorted = [...result.models]
-            .sort((a, b) => comparePublishedAt(a, b))
-            .map((model, index) => ({ ...model, sorted: index }));
-          setFetchedModels(sorted);
-          setLoading(false);
-        })
-        .catch(() => {
-          setFetchedModels([]);
-          setLoading(false);
-        });
-    }
-  }, [config, pendingSelection, activeProfile]);
+    props.onClose();
+  }, [config, pendingSelection, props.onClose]);
 
   const removeModel = useCallback(
     (key: string) => {
@@ -383,6 +382,10 @@ export function AddModelSelector(props: {
             正在获取 <span style={{ color: "#2563eb" }}>{displayName}</span>
              模型
           </>
+        ) : fetchError ? (
+          <span style={{ color: "#ef4444" }}>
+            获取 {displayName} 模型失败：{fetchError}
+          </span>
         ) : (
           "管理模型"
         )
@@ -412,7 +415,13 @@ export function AddModelSelector(props: {
             <span>
               {displayName}
               <span className={styles["model-selector-hint-count-inline"]}>
-                （{loading ? "获取中" : `${fetchedModels.length} 个模型`}）
+                （
+                {loading
+                  ? "获取中"
+                  : fetchError
+                  ? "获取失败"
+                  : `${fetchedModels.length} 个模型`}
+                ）
               </span>
             </span>
             <DownIcon />
@@ -420,6 +429,8 @@ export function AddModelSelector(props: {
           <span className={styles["model-selector-hint-count"]}>
             {loading
               ? "正在获取模型..."
+              : fetchError
+              ? "获取失败，请检查网络或配置"
               : `共 ${fetchedModels.length} 个模型可用`}
           </span>
           {providerDropdownOpen && (
