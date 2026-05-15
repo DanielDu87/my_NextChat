@@ -91,8 +91,9 @@ const LocalStateGetters = {
   [StoreKey.Access]: () => getNonFunctionFileds(useAccessStore.getState()),
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
-    // 排除 theme / sidebarWidth / tightBorder，不参与同步（本地 UI 偏好设置）
-    const { theme, sidebarWidth, tightBorder, ...configToSync } = config as any;
+    // 排除本地 UI 偏好和动态模型列表，只同步用户手动添加的模型（customModels）
+    const { theme, sidebarWidth, tightBorder, models, ...configToSync } =
+      config as any;
     return configToSync;
   },
   [StoreKey.ModelCache]: () =>
@@ -253,9 +254,9 @@ function hasMeaningfulAccessProfiles(profiles: unknown) {
 }
 
 export function hasMeaningfulConfigState(state: Record<string, any>) {
+  // models 不参与同步，不作为"有意义"的判断依据
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
-    (Array.isArray(state?.models) && state.models.length > 0) ||
     hasNonEmptyString(state?.customModels) ||
     (Array.isArray(state?.autoModelSeries) && state.autoModelSeries.length > 0)
   );
@@ -591,26 +592,19 @@ const MergeStates: StateMerger = {
   },
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
-    // - 当前版本的模型列表以本地 access/model-cache 重建结果为准
-    // - 不再把远端 app-config.models 与本地模型拼接，避免重复翻倍
+    // - models 数组不参与同步，始终保持本地（由 API 拉取/目录重建）
+    // - customModels 双向合并，本地优先（用户手动添加的模型）
     // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
-    // - 其他配置字段继续走“本地优先，远端补全”
-    const localModels = localState.models || [];
-    const remoteModels = remoteState.models || [];
+    // - 其他配置字段走”本地优先，远端补全”
     const currentConfig = useAppConfig.getState();
     const preferRemoteOnBootstrap =
       !hasMeaningfulConfigState(localState as Record<string, any>) &&
       hasMeaningfulConfigState(remoteState as Record<string, any>);
-    const mergedModels =
-      localModels.length > 0
-        ? localModels
-        : preferRemoteOnBootstrap
-        ? remoteModels
-        : localModels;
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
-      models: mergedModels,
+      // models 始终保持本地，不被远端覆盖
+      models: currentConfig.models,
       theme: currentConfig.theme,
       sidebarWidth: currentConfig.sidebarWidth,
       tightBorder: currentConfig.tightBorder,
