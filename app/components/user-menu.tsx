@@ -167,19 +167,33 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     user?.role === "admin" && effectiveUser?.role === "admin";
 
   const loadUsers = async () => {
+    console.log("🔄 加载用户列表...");
     setLoadingUsers(true);
     try {
       const response: Response = await fetch("/api/admin/users", {
         method: "GET",
         cache: "no-store",
       });
+      console.log("📥 收到响应:", response.status, response.statusText);
+
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.ok !== true) {
         throw new Error(String(payload?.error || "获取用户列表失败"));
       }
 
+      console.log(
+        "✅ 用户列表加载成功，共",
+        payload.users?.length || 0,
+        "个用户",
+      );
+      console.log(
+        "用户:",
+        (payload.users || []).map((u: any) => `${u.username} (${u.role})`),
+      );
+
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
     } catch (error) {
+      console.error("❌ 加载用户列表失败:", error);
       showToast(error instanceof Error ? error.message : "获取用户列表失败");
     } finally {
       setLoadingUsers(false);
@@ -214,8 +228,19 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
+    console.log("=== 开始删除用户 ===");
+    console.log("待删除用户数量:", deletableUsers.length);
+    console.log(
+      "用户列表:",
+      deletableUsers.map((u) => `${u.username} (${u.displayName})`),
+    );
+
     try {
       for (const managedUser of deletableUsers) {
+        console.log(`\n📤 删除用户: ${managedUser.username}`);
+        console.log("用户ID:", managedUser.id);
+        console.log("发送请求: DELETE /api/admin/users");
+
         const response = await fetch("/api/admin/users", {
           method: "DELETE",
           headers: {
@@ -225,21 +250,34 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
             userId: managedUser.id,
           }),
         });
+
+        console.log("📥 收到响应:", response.status, response.statusText);
+
         const payload = await response.json().catch(() => null);
+        console.log("响应数据:", payload);
+
         if (!response.ok || payload?.ok !== true) {
           throw new Error(String(payload?.error || "删除用户失败"));
         }
 
+        console.log(`✅ 用户 ${managedUser.username} 删除成功`);
+
         if (effectiveUser.id === managedUser.id && isImpersonating) {
+          console.log("🔄 退出用户切换...");
           await exitSwitch();
         }
       }
 
+      console.log("\n🔄 刷新用户列表...");
       showToast("删除用户成功");
       setDeleteMode(false);
       setSelectedUserIds([]);
       await loadUsers();
+
+      console.log("✅ 用户列表已刷新");
+      console.log("=== 删除用户完成 ===\n");
     } catch (error) {
+      console.error("❌ 删除用户失败:", error);
       showToast(error instanceof Error ? error.message : "删除用户失败");
     }
   };
@@ -292,29 +330,53 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
+    console.log("=== 开始新增用户 ===");
+    console.log("用户名:", username);
+    console.log("角色:", form.isAdmin ? "admin" : "user");
+
     try {
+      console.log("📤 发送请求: POST /api/admin/users");
+      const requestBody = {
+        username,
+        displayName: username,
+        password,
+        role: form.isAdmin ? "admin" : "user",
+      };
+      console.log("请求体:", { ...requestBody, password: "***" });
+
       const response = await fetch("/api/admin/users", {
         method: "POST",
         headers: {
           "Content-Type": "application/json; charset=utf-8",
         },
-        body: JSON.stringify({
-          username,
-          displayName: username,
-          password,
-          role: form.isAdmin ? "admin" : "user",
-        }),
+        body: JSON.stringify(requestBody),
       });
-      const responsePayload: { ok?: boolean; error?: string } | null =
-        await response.json().catch(() => null);
+
+      console.log("📥 收到响应:", response.status, response.statusText);
+
+      const responsePayload: {
+        ok?: boolean;
+        error?: string;
+        user?: any;
+      } | null = await response.json().catch(() => null);
+
+      console.log("响应数据:", responsePayload);
+
       if (!response.ok || responsePayload?.ok !== true) {
         throw new Error(String(responsePayload?.error || "新增用户失败"));
       }
 
+      console.log("✅ 用户创建成功:", responsePayload?.user);
+      console.log("🔄 刷新用户列表...");
+
       showToast("新增用户成功");
       setShowCreateModal(false);
       await loadUsers();
+
+      console.log("✅ 用户列表已刷新");
+      console.log("=== 新增用户完成 ===\n");
     } catch (error) {
+      console.error("❌ 新增用户失败:", error);
       showToast(error instanceof Error ? error.message : "新增用户失败");
     }
   };

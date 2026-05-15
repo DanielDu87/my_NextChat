@@ -4,9 +4,17 @@
 
 ## 文档入口
 
+### 开发相关
+
+- **🚀 开发指南：[docs/development.md](docs/development.md)** - 本地开发和远程部署完整指南
+  - 本地开发环境配置（通过 SSH 隧道连接远程数据库）
+  - 远程服务器部署配置（直接连接本地数据库）
+  - Docker 和热加载两种启动方式
+  - 数据库连接规范和故障排查
+
 ### 部署相关
 
-- **🔥 本地开发部署：[docs/local-dev-guide.md](docs/local-dev-guide.md)** - Docker + PostgreSQL 本地开发环境
+- **🔥 本地开发部署：[docs/local-dev-guide.md](docs/local-dev-guide.md)** - Docker + PostgreSQL 本地开发环境（旧版）
 - **🔥 宝塔面板部署：[docs/BAOTA_INSTALL_GUIDE.md](docs/BAOTA_INSTALL_GUIDE.md)** - 推荐！使用宝塔面板图形界面一键部署
 - 部署说明：[DEPLOY.md](DEPLOY.md)
 - Docker 部署指南：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)

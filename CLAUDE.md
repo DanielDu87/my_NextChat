@@ -6,6 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working on code
 
 NextChat 是一个基于 Next.js 14 的跨平台 AI 聊天应用，支持多个 AI 服务提供商（OpenAI、Claude、Gemini、DeepSeek 等）。项目可作为 Web 应用（PWA）或 Tauri 桌面应用运行。
 
+## 数据库连接规范
+
+**⚠️ 重要：本项目永远连接远程数据库，不使用本地 Docker PostgreSQL 容器作为数据存储。**
+
+### 连接方式
+
+应用通过 SSH 隧道连接远程数据库（42.193.15.117）：
+
+```
+本地应用 → host.docker.internal:15432 → SSH 隧道 → 远程数据库:5432
+```
+
+### 开发前必须操作
+
+启动应用前，必须先建立 SSH 隧道：
+
+```bash
+ssh -f -N -L 15432:127.0.0.1:5432 root@42.193.15.117 -p 222
+```
+
+详细说明请参考 [docs/development.md](./docs/development.md)
+
 ## 常用命令
 
 ### 开发
