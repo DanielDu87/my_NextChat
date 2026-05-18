@@ -21,10 +21,9 @@ export function AddModelSelector(props: {
   initialProviderId: string;
 }) {
   const config = useAppConfig();
-  const { profiles } = props;
-  const [selectedProviderId, setSelectedProviderId] = useState(
-    props.initialProviderId,
-  );
+  const { profiles, initialProviderId, onClose } = props;
+  const [selectedProviderId, setSelectedProviderId] =
+    useState(initialProviderId);
   const [fetchedModels, setFetchedModels] = useState<LLMModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
@@ -238,9 +237,10 @@ export function AddModelSelector(props: {
     config.update((state) => {
       state.customModels = uniqueModels.join(",");
     });
+
     setPendingSelection([]);
-    props.onClose();
-  }, [config, pendingSelection, props.onClose]);
+    onClose();
+  }, [config, onClose, pendingSelection]);
 
   const displayName =
     activeProfile?.name || String(activeProfile?.provider || "");
@@ -266,7 +266,7 @@ export function AddModelSelector(props: {
       showSearch={true}
       showGroupFilter={true}
       onSelection={handleSelectionChange}
-      onClose={props.onClose}
+      onClose={onClose}
       resetKey={selectorResetKey}
       enableVirtualization={true}
       virtualizationThreshold={50}
@@ -435,7 +435,7 @@ export function AddModelSelector(props: {
               </div>
               <button
                 type="button"
-                onClick={props.onClose}
+                onClick={onClose}
                 className={styles["add-modal-btn"]}
               >
                 关闭
@@ -468,7 +468,7 @@ export function AddModelSelector(props: {
                 </button>
                 <button
                   type="button"
-                  onClick={props.onClose}
+                  onClick={onClose}
                   className={styles["add-modal-btn"]}
                 >
                   关闭

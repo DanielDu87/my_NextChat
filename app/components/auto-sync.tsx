@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { countCloudMergedModels } from "../utils/auto-sync-model-diff";
 import { StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
@@ -10,7 +9,6 @@ import { useChatStore } from "../store/chat";
 import { useSyncStore } from "../store/sync";
 import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
-import { withSyncUserHeaders } from "../utils/sync-user-client";
 import { hasMeaningfulAccessState } from "../utils/sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { readAccessSnapshot } from "../utils/access-snapshot";
@@ -42,6 +40,7 @@ const autoSyncLogQueue: Array<{
   payload?: unknown;
 }> = [];
 let autoSyncLogFlushScheduled = false;
+const autoSyncLogDedupMap = new Map<string, number>();
 
 function flushAutoSyncLogs() {
   autoSyncLogFlushScheduled = false;
@@ -91,6 +90,16 @@ function autoSyncConsole(
   message: string,
   payload?: unknown,
 ) {
+  const dedupKey = `${level}|${message}|${
+    payload === undefined ? "" : JSON.stringify(payload)
+  }`;
+  const now = Date.now();
+  const lastDedupAt = autoSyncLogDedupMap.get(dedupKey) || 0;
+  if (level !== "warn" && level !== "error" && now - lastDedupAt < 1500) {
+    return;
+  }
+  autoSyncLogDedupMap.set(dedupKey, now);
+
   const prefixedMessage = `${formatAutoSyncLogTimestamp()} ${message}`;
   if (level === "warn" || level === "error") {
     if (payload === undefined) {
@@ -113,7 +122,7 @@ function logCriticalStartupSyncBanner(
   phase: "start" | "complete",
   detail?: string,
 ) {
-  const title = phase === "start" ? "🔄 开始同步检查" : "✅ 同步检查完成";
+  const title = phase === "start" ? "🔄 同步检查" : "✅ 同步检查完成";
   autoSyncConsole(
     "info",
     detail
@@ -212,52 +221,6 @@ export default function AutoSync() {
     }
 
     return missingStoreKeys.length > 0;
-  };
-
-  const logModelCount = (remoteCount?: number) => {
-    const currentProfiles = useAccessStore.getState().apiProfiles || [];
-    const currentModels = useAppConfig.getState().models || [];
-    const localTotalCount = countCloudMergedModels(
-      currentModels,
-      currentProfiles,
-    );
-
-    if (remoteCount !== undefined) {
-      const status =
-        localTotalCount === remoteCount
-          ? "✅ 一致"
-          : `不一致（本地 ${localTotalCount}，云端 ${remoteCount}）`;
-      autoSyncConsole(
-        "log",
-        `[AutoSync] 📊 模型数据: 本地 ${localTotalCount} / 云端 ${remoteCount} — ${status}`,
-      );
-    } else {
-      autoSyncConsole(
-        "log",
-        `[AutoSync] 📊 模型数据: 本地 ${localTotalCount}，云端无数据`,
-      );
-    }
-  };
-
-  const logModelCountWithRemote = async () => {
-    try {
-      const res = await fetch("/api/db/models/latest", {
-        cache: "no-store",
-        headers: withSyncUserHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.ok && data.latest) {
-          const remote = data.latest;
-          logModelCount(remote.modelCount);
-          return;
-        }
-      }
-      logModelCount();
-    } catch (e) {
-      autoSyncConsole("error", "[AutoSync] ❌ 获取云端数据失败:", e);
-      logModelCount();
-    }
   };
 
   useEffect(() => {
@@ -426,7 +389,7 @@ export default function AutoSync() {
       }, AUTO_SYNC_LOCK_TTL_MS + 500);
     };
 
-    autoSyncConsole("log", "[AutoSync] 📍 组件已挂载");
+    console.debug("[AutoSync] 📍 组件已挂载");
     // 移除挂载时立即调用的 rebuildManagedModelsFromCache()
     // hydration 完成后（scheduleStart）会调用，数据更完整
 
@@ -645,7 +608,7 @@ export default function AutoSync() {
     };
 
     const startAutoSync = () => {
-      autoSyncConsole("log", "[AutoSync] ⏰ 延迟时间到，开始检查同步配置");
+      autoSyncConsole("log", "[AutoSync] ⏰ 延迟时间到，检查同步配置");
 
       const syncStore = useSyncStore.getState();
       const modelCacheStore = useModelCacheStore.getState();
@@ -676,10 +639,7 @@ export default function AutoSync() {
         }
 
         if (Date.now() - lastAutoSyncBootstrapAt < 5000) {
-          autoSyncConsole(
-            "log",
-            "[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过",
-          );
+          console.debug("[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过");
           return;
         }
         lastAutoSyncBootstrapAt = Date.now();
@@ -708,7 +668,6 @@ export default function AutoSync() {
           `${LOG_SEPARATOR} 🚀 AutoSync 启动流程开始 ${LOG_SEPARATOR}`,
         );
         logCriticalStartupSyncBanner("start", "聊天记录优先");
-        autoSyncConsole("log", "[AutoSync] 🚀 开始自动同步...");
 
         Promise.resolve()
           .then(() => syncStore.autoSyncCritical?.() || syncStore.autoSync())
@@ -756,7 +715,6 @@ export default function AutoSync() {
                     isolateQueue: true,
                     force: true,
                   });
-                  autoSyncConsole("log", "[AutoSync] ✅ 本地会话上传完成");
                 } catch (uploadError) {
                   autoSyncConsole(
                     "error",
@@ -785,13 +743,10 @@ export default function AutoSync() {
 
                 autoSyncConsole(
                   "info",
-                  `${LOG_SEPARATOR} 💾 对话与设置后台同步开始 ${LOG_SEPARATOR}`,
+                  `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`,
                 );
                 try {
                   await (syncStore.autoSyncDeferred?.() ?? Promise.resolve());
-                  scheduleIdleTask(() => {
-                    void logModelCountWithRemote();
-                  });
                   autoSyncConsole(
                     "log",
                     "[AutoSync] ✅ 后台同步完成（含对话记录）",
@@ -985,7 +940,7 @@ export default function AutoSync() {
     }, 15000);
 
     return () => {
-      autoSyncConsole("log", "[AutoSync] 🧹 组件卸载");
+      console.debug("[AutoSync] 🧹 组件卸载");
       autoSyncEffectActive = false;
       if (timer) {
         clearTimeout(timer);

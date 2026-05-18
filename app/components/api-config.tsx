@@ -54,7 +54,6 @@ import {
   type SyncStoreKey,
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
-import { withSyncUserHeaders } from "../utils/sync-user-client";
 import {
   runWithImmediateStoreSyncPaused,
   waitForImmediateStoreSyncQueueIdle,
@@ -160,30 +159,6 @@ type ModelFetchStatus = {
   count?: number;
   fetching?: boolean;
   error?: string;
-};
-
-type RemoteModelRefreshProvider = {
-  profileId?: string;
-  profileName?: string;
-  provider?: string;
-  providerId?: string;
-  fetchedCount?: number;
-  updatedAt?: string;
-};
-
-type RemoteModelRefreshArtifact = {
-  finishedAt?: string;
-  updatedAt?: string;
-  modelCount?: number; // 模型总数
-  providers?: RemoteModelRefreshProvider[];
-};
-
-type StaleModelUpdateNotice = {
-  profileId: string;
-  profileName: string;
-  providerId: string;
-  remoteCount: number;
-  localCount: number;
 };
 
 type RemoteStoreMeta = {
@@ -417,17 +392,6 @@ function normalizeDownloadedStoreState(
     );
   }
 
-  if (key === StoreKey.ModelCache) {
-    const modelCacheState =
-      parsedState && typeof parsedState === "object"
-        ? parsedState
-        : {
-            profiles: {},
-            migratedFromLegacyAccess: false,
-          };
-    return modelCacheState;
-  }
-
   if (key === StoreKey.Config) {
     if (
       !parsedState ||
@@ -509,10 +473,6 @@ function getManagedCloudModels(
   });
 }
 
-function getManagedProviderIdList(profiles: AccessState["apiProfiles"] = []) {
-  return [...getManagedProviderIds(profiles)];
-}
-
 function countCloudMergedModels(
   models: LLMModel[] = [],
   profiles: AccessState["apiProfiles"] = [],
@@ -549,45 +509,6 @@ function getCloudMergedPlatformCounts(
     name: profile.name,
     count: counts.get(getProfileProviderId(profile).toLowerCase()) ?? 0,
   }));
-}
-
-function getStaleModelUpdateNotices(
-  profiles: AccessState["apiProfiles"],
-  modelCacheProfiles: Record<
-    string,
-    { updatedAt?: number; cachedModels?: string; modelCount?: number }
-  >,
-  artifact: RemoteModelRefreshArtifact | null,
-) {
-  // 检查是否有远程模型总数
-  if (artifact?.modelCount === undefined) {
-    return [];
-  }
-
-  const remoteCount = artifact.modelCount;
-
-  // 使用与实际模型存储相同的方式计算本地总数
-  const currentModels = useAppConfig.getState().models || [];
-  const localCount = countCloudMergedModels(currentModels, profiles);
-
-  // 比较总数，不一致就提示更新
-  if (remoteCount === localCount) {
-    return [];
-  }
-
-  // 返回所有需要更新的 profile
-  return profiles
-    .map(
-      (profile) =>
-        ({
-          profileId: profile.id,
-          profileName: profile.name,
-          providerId: getProfileProviderId(profile).toLowerCase(),
-          remoteCount,
-          localCount,
-        }) satisfies StaleModelUpdateNotice,
-    )
-    .filter(() => true); // 总数不一致，所有 profile 都提示
 }
 
 function formatModelDelta(delta: number) {
@@ -1066,7 +987,6 @@ export function ApiConfigPage() {
   const appConfig = useAppConfig() as any;
   const chatStore = useChatStore();
   const syncStore = useSyncStore();
-  const modelCacheStore = useModelCacheStore();
   const [syncing, setSyncing] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -1074,9 +994,6 @@ export function ApiConfigPage() {
     Partial<Record<string, ModelFetchStatus>>
   >({});
   const [editingYutoProfileId, setEditingYutoProfileId] = useState("");
-  const [remoteModelRefresh, setRemoteModelRefresh] =
-    useState<RemoteModelRefreshArtifact | null>(null);
-  const [remoteDataLoaded, setRemoteDataLoaded] = useState(false);
   const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
 
   useEffect(() => {
@@ -1108,42 +1025,6 @@ export function ApiConfigPage() {
       });
     });
   }, [accessStore]);
-
-  const refreshRemoteSignals = useCallback(async () => {
-    if (useSyncStore.getState().provider !== ProviderType.Database) {
-      setRemoteModelRefresh(null);
-      setRemoteDataLoaded(false);
-      return;
-    }
-
-    try {
-      const latestRes = await fetch("/api/db/models/latest", {
-        cache: "no-store",
-        headers: withSyncUserHeaders(),
-      });
-
-      if (latestRes.ok) {
-        const latestData = await latestRes.json();
-        if (latestData?.ok) {
-          setRemoteModelRefresh(latestData.latest ?? null);
-        }
-      }
-
-      // 远程数据加载完成，设置为已加载状态
-      setRemoteDataLoaded(true);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    void refreshRemoteSignals();
-    const timer = window.setInterval(() => {
-      void refreshRemoteSignals();
-    }, 60000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [refreshRemoteSignals, syncStore.provider]);
 
   useEffect(() => {
     const styleId = "small-modal-style";
@@ -1188,23 +1069,6 @@ export function ApiConfigPage() {
   const updateStoredMeta = (metas: StoreSnapshotMeta[]) => {
     useSyncStore.getState().updateDatabaseMeta?.(metas);
   };
-  const hasRemoteModelCountChanges = (remoteCount?: number) => {
-    if (remoteCount === undefined) return false;
-
-    const currentProfiles = useAccessStore.getState().apiProfiles || [];
-    const currentModels = useAppConfig.getState().models || [];
-    const localCount = countCloudMergedModels(currentModels, currentProfiles);
-
-    return localCount !== remoteCount;
-  };
-  const staleModelUpdateNotices = getStaleModelUpdateNotices(
-    allProfiles,
-    modelCacheStore.profiles || {},
-    remoteModelRefresh,
-  );
-  const shouldShowModelUpdateNotice =
-    remoteDataLoaded && staleModelUpdateNotices.length > 0;
-
   // 页面加载时输出缓存的模型数量（延迟到云端同步完成后）
   const buildApiConfigSyncSnapshot = () => {
     const currentProfiles = useAccessStore.getState().apiProfiles || [];
@@ -1235,48 +1099,12 @@ export function ApiConfigPage() {
       currentProfiles,
     );
 
-    console.log(`[API Config] 📊 模型总数对比:`);
-
-    // 先输出云端数据
-    if (remoteModelRefresh?.modelCount !== undefined) {
-      console.log(`[API Config] ☁️ 云端数据:`);
-      console.log(
-        `[API Config] - 云端模型总数: ${remoteModelRefresh.modelCount} 个`,
-      );
-      if (remoteModelRefresh.providers) {
-        console.log(`[API Config] 📋 云端各平台模型数量:`);
-        remoteModelRefresh.providers.forEach((provider) => {
-          console.log(
-            `[API Config] - ${provider.profileName}: ${provider.fetchedCount} 个模型`,
-          );
-        });
-      }
-    }
-
-    // 再输出本地数据
-    console.log(`[API Config] 📍 本地数据:`);
-    console.log(`[API Config] - 本地模型总数: ${localTotalCount} 个`);
+    console.log(`[API Config] 📊 本地临时模型数据:`);
+    console.log(`[API Config] - 本地临时模型总数: ${localTotalCount} 个`);
     console.log(`[API Config] 📋 本地各平台模型数量:`);
     localPlatformCounts.forEach(({ name, count }) => {
       console.log(`[API Config] - ${name}: ${count} 个模型`);
     });
-
-    // 比较结果（仅在云端数据存在时）
-    if (remoteModelRefresh?.modelCount !== undefined) {
-      console.log(`[API Config] 🔍 比较结果:`);
-      console.log(
-        `[API Config] - 状态: ${
-          localTotalCount === remoteModelRefresh.modelCount
-            ? "✅ 一致"
-            : "❌ 不一致，提示更新"
-        }`,
-      );
-      console.log(
-        `[API Config] - 差异: ${
-          localTotalCount - remoteModelRefresh.modelCount > 0 ? "+" : ""
-        }${localTotalCount - remoteModelRefresh.modelCount} 个`,
-      );
-    }
   };
 
   const fetchModelsForAllProfiles = async () => {
@@ -1399,7 +1227,6 @@ export function ApiConfigPage() {
     if (typeof client.getMeta === "function") {
       updateStoredMeta(await client.getMeta([...MODEL_SYNC_STORE_KEYS]));
     }
-    await refreshRemoteSignals();
   };
 
   // 云端同步逻辑（提取为函数以复用）
@@ -1410,7 +1237,7 @@ export function ApiConfigPage() {
       let accessSyncError: unknown = null;
 
       try {
-        // 先恢复 access-control，避免大体积模型快照阻塞 API 配置恢复。
+        // 先恢复 access-control。完整模型列表只作为本地临时数据，不从远端恢复。
         const remoteAccessJson = await client.get(StoreKey.Access);
         if (remoteAccessJson) {
           const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
@@ -1423,44 +1250,22 @@ export function ApiConfigPage() {
               const mergedProfiles = [...(state.apiProfiles || [])];
 
               remoteProfiles.forEach((remoteProfile: any) => {
+                const {
+                  cachedModels,
+                  modelCount,
+                  ...remoteProfileWithoutModelCache
+                } = remoteProfile;
+                void cachedModels;
+                void modelCount;
+
                 if (!localProfileMap.has(remoteProfile.id)) {
-                  if (remoteProfile.cachedModels || remoteProfile.modelCount) {
-                    useModelCacheStore
-                      .getState()
-                      .upsertProfileCache(remoteProfile.id, {
-                        cachedModels: remoteProfile.cachedModels || "",
-                        modelCount: remoteProfile.modelCount || 0,
-                      });
-                  }
-                  mergedProfiles.push(remoteProfile);
+                  mergedProfiles.push(remoteProfileWithoutModelCache);
                 } else {
-                  // 同 ID 配置：合并 cachedModels
                   const localIndex = mergedProfiles.findIndex(
                     (p: any) => p.id === remoteProfile.id,
                   );
                   if (localIndex >= 0) {
                     const local = mergedProfiles[localIndex];
-                    const localModels = new Set(
-                      getProfileCachedModels(local).split(",").filter(Boolean),
-                    );
-                    const remoteModels = new Set(
-                      getProfileCachedModels(remoteProfile)
-                        .split(",")
-                        .filter(Boolean),
-                    );
-                    remoteModels.forEach((m: unknown) =>
-                      localModels.add(m as string),
-                    );
-                    const mergedCachedModels = [...localModels].join(",");
-                    useModelCacheStore
-                      .getState()
-                      .upsertProfileCache(remoteProfile.id, {
-                        cachedModels: mergedCachedModels,
-                        modelCount: Math.max(
-                          getProfileCachedModelCount(local),
-                          getProfileCachedModelCount(remoteProfile),
-                        ),
-                      });
                     mergedProfiles[localIndex] = {
                       ...local,
                     };
@@ -1475,35 +1280,6 @@ export function ApiConfigPage() {
       } catch (error) {
         accessSyncError = error;
         console.error("[API Config] ❌ 恢复 access-control 失败:", error);
-      }
-
-      try {
-        const currentProfiles = useAccessStore.getState().apiProfiles || [];
-        const managedProviderIds = getManagedProviderIds(currentProfiles);
-
-        if (managedProviderIds.size > 0) {
-          const remoteConfigJson = await client.get(StoreKey.Config);
-          if (remoteConfigJson) {
-            const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
-            const remoteModels = (remoteConfig.models || []).filter(
-              (model: any) =>
-                managedProviderIds.has(
-                  String(model?.provider?.id || "").toLowerCase(),
-                ),
-            );
-            if (remoteModels.length > 0) {
-              appConfig.mergeModels(remoteModels, {
-                silent: true,
-                allowedProviderIds: getManagedProviderIdList(currentProfiles),
-              });
-            }
-          }
-        }
-      } catch (error) {
-        console.warn(
-          "[API Config] ⚠️ 恢复 app-config 失败，已跳过模型快照恢复:",
-          error,
-        );
       }
 
       if (accessSyncError) {
@@ -1617,43 +1393,10 @@ export function ApiConfigPage() {
               );
             }
 
-            console.log(`[API Config] 🔍 正在检查云端模型数量...`);
-            fetch("/api/db/models/latest", {
-              cache: "no-store",
-              headers: withSyncUserHeaders(),
-            })
-              .then((response) => {
-                if (!response.ok) {
-                  throw new Error(
-                    `[API Config] ${response.status} ${response.statusText}`,
-                  );
-                }
-
-                return response.json();
-              })
-              .then((payload) => {
-                const remoteCount = payload?.ok
-                  ? payload?.latest?.modelCount
-                  : undefined;
-
-                if (!hasRemoteModelCountChanges(remoteCount)) {
-                  console.log("[API Config] ✅ 云端无更新，继续使用本地缓存");
-                  console.log(LOG_SEPARATOR);
-                  return;
-                }
-
-                console.log(
-                  "[API Config] ℹ️ 检测到云端模型数量变化，已继续使用本地缓存",
-                );
-                console.log(LOG_SEPARATOR);
-              })
-              .catch((error: unknown) => {
-                console.log(
-                  "[API Config] ℹ️ 云端数量检查失败，继续使用本地缓存:",
-                  error,
-                );
-                console.log(LOG_SEPARATOR);
-              });
+            console.log(
+              "[API Config] ℹ️ 远端不保存完整模型列表，管理模型时按需拉取本地临时列表",
+            );
+            console.log(LOG_SEPARATOR);
           } else {
             console.log(LOG_SEPARATOR);
             console.log("[API Config] ℹ️ 当前未启用数据库同步");
@@ -2195,7 +1938,6 @@ export function ApiConfigPage() {
           updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
         }
 
-        await refreshRemoteSignals();
         await performCloudSync();
         console.log("[API Config] ✅ 数据库同步完成");
         console.log(LOG_SEPARATOR);
@@ -2272,67 +2014,6 @@ export function ApiConfigPage() {
         updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
       }
 
-      // 更新云端保存的模型总数
-      try {
-        const providersData = Array.from(fetchedModelEntries.values()).reduce(
-          (acc, entry) => {
-            const existing = acc.find(
-              (p: any) => p.profileId === entry.profileId,
-            );
-            if (existing) {
-              return acc;
-            }
-            return [
-              ...acc,
-              {
-                profileId: entry.profileId,
-                profileName: entry.profileName,
-                providerId: entry.providerId,
-                fetchedCount: 0,
-              },
-            ];
-          },
-          [] as Array<{
-            profileId: string;
-            profileName: string;
-            providerId: string;
-            fetchedCount: number;
-          }>,
-        );
-
-        // 计算每个平台的实际数量
-        const platformModelMap = new Map<string, string[]>();
-        fetchedModelEntries.forEach((entry) => {
-          if (!platformModelMap.has(entry.profileName)) {
-            platformModelMap.set(entry.profileName, []);
-          }
-          platformModelMap.get(entry.profileName)!.push(entry.name);
-        });
-
-        platformModelMap.forEach((models, profileName) => {
-          const provider = providersData.find(
-            (p: any) => p.profileName === profileName,
-          );
-          if (provider) {
-            provider.fetchedCount = models.length;
-          }
-        });
-
-        await fetch("/api/db/models/count", {
-          method: "POST",
-          headers: withSyncUserHeaders({
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify({
-            count: fetchedModelEntries.size,
-            providers: providersData,
-          }),
-        });
-        console.log("[API Config] ✅ 已更新云端模型总数");
-      } catch (e) {
-        console.error("[API Config] ❌ 更新云端模型总数失败:", e);
-      }
-
       console.log("[API Config] ✅ 数据库写入完成");
       logSyncSummary(
         "模型同步汇总",
@@ -2353,7 +2034,7 @@ export function ApiConfigPage() {
 
   const downloadAllAndOverwriteLocalFromDatabase = async () => {
     const confirmed = await showConfirm(
-      "确定要从数据库下载全部配置、对话和模型数据，并完全覆盖本地吗？本地当前数据将被替换。",
+      "确定要从数据库下载全部配置、对话和已添加模型，并完全覆盖本地吗？本地当前数据将被替换。",
     );
     if (!confirmed) return;
 
@@ -2473,7 +2154,7 @@ export function ApiConfigPage() {
           )}`,
         );
       } else {
-        showToast("已从 PostgreSQL 下载全部配置、对话和模型数据，并覆盖本地");
+        showToast("已从 PostgreSQL 下载全部配置、对话和已添加模型，并覆盖本地");
       }
     } catch (error) {
       console.error("[API Config] ❌ 数据库下载失败:", error);
@@ -2487,11 +2168,11 @@ export function ApiConfigPage() {
 
   const clearLocalAndCloudModels = async () => {
     const confirmed = await showConfirm(
-      "确定要清空模型数据吗？这会同时删除本地模型数据和云端保存的模型统计记录，且不可恢复。",
+      "确定要清空已添加模型吗？这会删除本地已添加模型列表和本地临时模型缓存，且不可恢复。",
     );
     if (!confirmed) return;
 
-    console.log("[API Config] 🗑️ 开始清空本地和云端模型数据...");
+    console.log("[API Config] 🗑️ 开始清空本地已添加模型和临时模型缓存...");
     try {
       appConfig.update((config: any) => {
         config.models = [];
@@ -2509,20 +2190,12 @@ export function ApiConfigPage() {
 
       useModelCacheStore.getState().clearProfileCaches();
 
-      // 清空云端保存的模型统计数据（user_model_refresh_states 表中的 latest 记录）
-      await fetch("/api/db/models/latest", {
-        method: "DELETE",
-        headers: withSyncUserHeaders(),
-      });
-
-      await refreshRemoteSignals();
-
-      console.log("[API Config] ✅ 本地和云端模型数据已清空");
+      console.log("[API Config] ✅ 本地已添加模型和临时模型缓存已清空");
       console.log(LOG_SEPARATOR);
-      showToast("已清空本地和云端模型数据");
+      showToast("已清空本地已添加模型和临时模型缓存");
     } catch (error) {
       console.error("[API Config] ❌ 清空失败:", error);
-      showToast("清空本地和云端模型数据失败");
+      showToast("清空本地模型数据失败");
     }
   };
 
@@ -3005,7 +2678,7 @@ export function ApiConfigPage() {
               <div className={styles.syncCardTitle}>
                 <div className={styles.syncCardTitleMain}>数据库同步</div>
                 <div className={styles.syncCardTitleSub}>
-                  当前页面会保存多个平台的配置。你可以为每条配置单独选择平台，启用某条后会同步更新当前聊天默认平台；模型、API
+                  当前页面会保存多个平台的配置。你可以为每条配置单独选择平台，启用某条后会同步更新当前聊天默认平台；用户已添加模型、API
                   配置、聊天、插件、提示词和面具等数据会一起同步到 PostgreSQL。
                 </div>
               </div>
@@ -3015,7 +2688,7 @@ export function ApiConfigPage() {
                 <div>同步方式：通过服务端 API 直接读写 PostgreSQL。</div>
                 <div>目标数据库：{dbSyncTargetLabel}</div>
                 <div>
-                  上传到数据库：把本地聊天、插件、设置、提示词、面具、更新状态、绘图和当前模型缓存等数据写入数据库。
+                  上传到数据库：把本地聊天、插件、设置、用户已添加模型、提示词、面具、更新状态和绘图等数据写入数据库。
                 </div>
                 <div>
                   保存并同步：先按当前启用配置刷新模型，再和 PostgreSQL
@@ -3023,7 +2696,7 @@ export function ApiConfigPage() {
                 </div>
                 <div>
                   从数据库下载：读取 PostgreSQL 中的完整快照，覆盖本地对话、API
-                  配置、模型缓存、插件、提示词、面具和绘图记录。
+                  配置、用户已添加模型、插件、提示词、面具和绘图记录。
                 </div>
               </>
             }
@@ -3076,7 +2749,7 @@ export function ApiConfigPage() {
                 />
                 <IconButton
                   icon={<TrashIcon />}
-                  text="清空模型数据"
+                  text="清空已添加模型"
                   bordered
                   className={styles.dangerButton}
                   onClick={() => {

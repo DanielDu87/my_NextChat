@@ -7,7 +7,6 @@ describe("auto sync deferred keys", () => {
       (key) =>
         key !== StoreKey.Chat &&
         key !== StoreKey.Access &&
-        key !== StoreKey.ModelCache &&
         key !== StoreKey.Config,
     );
 

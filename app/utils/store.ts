@@ -33,7 +33,6 @@ type SetStoreState<T> = (
 const IMMEDIATE_SYNC_STORE_KEYS = new Set<SyncStoreKey>([
   StoreKey.Access,
   StoreKey.Config,
-  StoreKey.ModelCache,
   StoreKey.Mask,
   StoreKey.Prompt,
   StoreKey.Plugin,
@@ -63,8 +62,6 @@ async function processSyncQueue() {
   }
 
   isSyncQueueProcessing = true;
-  logger.store.log("📝 同步队列开始处理，待处理数量:", syncQueue.length);
-
   while (syncQueue.length > 0) {
     const task = syncQueue.shift();
     if (task) {

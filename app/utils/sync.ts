@@ -69,6 +69,15 @@ export function getNonFunctionFileds<T extends object>(obj: T) {
   return ret as NonFunctionFields<T>;
 }
 
+function stripProfileModelCacheFields<T extends Record<string, any>>(
+  profile: T,
+) {
+  const { cachedModels, modelCount, ...rest } = profile;
+  void cachedModels;
+  void modelCount;
+  return rest as Omit<T, "cachedModels" | "modelCount">;
+}
+
 export type GetStoreState<T> = T extends { getState: () => infer U }
   ? NonFunctionFields<U>
   : never;
@@ -88,7 +97,13 @@ const LocalStateSetters = {
 const LocalStateGetters = {
   [StoreKey.Chat]: () => getNonFunctionFileds(useChatStore.getState()),
   [StoreKey.Plugin]: () => getNonFunctionFileds(usePluginStore.getState()),
-  [StoreKey.Access]: () => getNonFunctionFileds(useAccessStore.getState()),
+  [StoreKey.Access]: () => {
+    const access = getNonFunctionFileds(useAccessStore.getState()) as any;
+    return {
+      ...access,
+      apiProfiles: (access.apiProfiles || []).map(stripProfileModelCacheFields),
+    };
+  },
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
     // 排除本地 UI 偏好和动态模型列表，只同步用户手动添加的模型（customModels）
@@ -321,7 +336,7 @@ const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.Chat]: "双向合并",
   [StoreKey.Plugin]: "双向合并",
   [StoreKey.Access]: "按 profile 合并，派生字段以云端为准",
-  [StoreKey.Config]: "模型双向合并，其他配置本地覆盖云端",
+  [StoreKey.Config]: "用户添加模型双向合并，其他配置本地覆盖云端",
   [StoreKey.ModelCache]: "按 profile 合并，较新的缓存优先",
   [StoreKey.Mask]: "双向合并",
   [StoreKey.Prompt]: "双向合并",
@@ -623,12 +638,14 @@ const MergeStates: StateMerger = {
     // - 模型缓存已迁移到独立 store，这里不再主导 cachedModels/modelCount
     // - 如果本地更新时间更新，不自动恢复远程独有的 profile（避免删除后恢复）
 
-    const localProfileMap = new Map(
-      (localState.apiProfiles || []).map((p) => [p.id, p]),
-    );
-    const remoteProfileMap = new Map(
-      (remoteState.apiProfiles || []).map((p) => [p.id, p]),
-    );
+    const localProfiles = (localState.apiProfiles || []) as Array<
+      Record<string, any>
+    >;
+    const remoteProfiles = (remoteState.apiProfiles || []) as Array<
+      Record<string, any>
+    >;
+    const localProfileMap = new Map(localProfiles.map((p) => [p.id, p]));
+    const remoteProfileMap = new Map(remoteProfiles.map((p) => [p.id, p]));
 
     const mergedProfiles: typeof localState.apiProfiles = [];
     const localUpdateTime = localState.lastUpdateTime || 0;
@@ -683,9 +700,11 @@ const MergeStates: StateMerger = {
           ]),
         );
 
-        mergedProfiles.push(mergedProfile as any);
+        mergedProfiles.push(stripProfileModelCacheFields(mergedProfile) as any);
       } else {
-        mergedProfiles.push(localProfile);
+        mergedProfiles.push(
+          stripProfileModelCacheFields(localProfile as any) as any,
+        );
       }
     });
 
@@ -693,7 +712,9 @@ const MergeStates: StateMerger = {
     if (remoteUpdateTime > localUpdateTime || shouldPreferRemoteState) {
       remoteProfileMap.forEach((profile, id) => {
         if (!localProfileMap.has(id)) {
-          mergedProfiles.push(profile);
+          mergedProfiles.push(
+            stripProfileModelCacheFields(profile as any) as any,
+          );
         }
       });
     }

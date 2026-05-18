@@ -1,7 +1,6 @@
 import { ServiceProvider, StoreKey } from "../constant";
 import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
 import { useSyncStore } from "../store/sync";
-import { withSyncUserHeaders } from "./sync-user-client";
 import { MODEL_SYNC_STORE_KEYS } from "./sync-store-keys";
 import {
   runWithImmediateStoreSyncPaused,
@@ -90,38 +89,6 @@ function getProfileActualModelsString(profile: ApiProfile) {
       (model) => String(model.provider?.id || "").toLowerCase() === providerId,
     ),
   );
-}
-
-async function fetchRemoteLatestModelArtifact() {
-  if (useSyncStore.getState().provider !== ProviderType.Database) {
-    return null;
-  }
-
-  const response = await fetch("/api/db/models/latest", {
-    cache: "no-store",
-    headers: withSyncUserHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `[Provider Sync] ${response.status} ${response.statusText}`,
-    );
-  }
-  const payload = await response.json();
-  return payload?.ok ? payload.latest ?? null : null;
-}
-
-function getRemoteFetchedCountForProfile(
-  artifact: any,
-  profile: ApiProfile,
-): number | undefined {
-  const providerId = getProfileProviderId(profile).toLowerCase();
-  const matched = (artifact?.providers || []).find(
-    (item: any) =>
-      item?.profileId === profile.id ||
-      String(item?.providerId || "").toLowerCase() === providerId ||
-      item?.profileName === profile.name,
-  );
-  return matched?.fetchedCount;
 }
 
 function persistAccessSnapshot() {
@@ -330,49 +297,6 @@ export async function ensureProviderModelsReady(
     } satisfies FetchModelsResult;
   }
 
-  modelCacheStore.setProfileSyncState?.(profileId, {
-    syncStatus: "checking_remote",
-    hydrated: true,
-  });
-
-  try {
-    const remoteArtifact = await fetchRemoteLatestModelArtifact();
-    const remoteCount = getRemoteFetchedCountForProfile(
-      remoteArtifact,
-      profile,
-    );
-    const localCount = Number(cache?.modelCount || profile.modelCount || 0);
-
-    if (remoteCount !== undefined && remoteCount === localCount) {
-      if (!options?.silent) {
-        logger.providerSync.log(`${displayName} | 远端未变化，跳过同步`);
-      }
-      modelCacheStore.setProfileSyncState?.(profileId, {
-        syncStatus: "ready",
-        source: cache?.source || "cache",
-        hydrated: true,
-        hasRemoteChecked: true,
-        lastSyncAt: Date.now(),
-        lastError: undefined,
-      });
-      return { models: [], total: localCount } satisfies FetchModelsResult;
-    }
-  } catch (error) {
-    if (!options?.silent) {
-      logger.providerSync.warn("远端 provider 校验失败，继续使用缓存", error);
-    }
-    modelCacheStore.setProfileSyncState?.(profileId, {
-      syncStatus: "ready",
-      source: cache?.source || "cache",
-      hydrated: true,
-      lastError: undefined,
-    });
-    return {
-      models: [],
-      total: cache?.modelCount || 0,
-    } satisfies FetchModelsResult;
-  }
-
   if (options?.background) {
     if (!options?.silent) {
       logger.providerSync.log(`${displayName} | 后台同步开始`);
@@ -406,39 +330,6 @@ function getProfileActualCount(profile: Pick<ApiProfile, "provider" | "name">) {
   return (useAppConfig.getState().models || []).filter(
     (model) => String(model.provider?.id || "").toLowerCase() === providerId,
   ).length;
-}
-
-async function updateRemoteModelCount(
-  totalCount: number,
-  results: SyncAllProfilesResult["results"],
-  profiles: ApiProfile[],
-) {
-  const providers = results
-    .map((entry) => {
-      const profile = profiles.find((item) => item.name === entry.name);
-      if (!profile) {
-        return null;
-      }
-
-      return {
-        profileId: profile.id,
-        profileName: profile.name,
-        providerId: getProfileProviderId(profile).toLowerCase(),
-        fetchedCount: entry.success ? entry.count : 0,
-      };
-    })
-    .filter(Boolean);
-
-  await fetch("/api/db/models/count", {
-    method: "POST",
-    headers: withSyncUserHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
-      count: totalCount,
-      providers,
-    }),
-  });
 }
 
 async function ensureProfilesLoadedFromDatabase() {
@@ -566,7 +457,6 @@ export async function syncAllProfilesToDatabase(params: {
       logger.providerSync.log("模型获取完成，等待数据库同步完成...");
       await waitForImmediateStoreSyncQueueIdle();
       await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
-      await updateRemoteModelCount(totalFetched, results, profiles);
 
       return {
         totalFetched,

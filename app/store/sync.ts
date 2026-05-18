@@ -40,7 +40,6 @@ import { getPersistedChatSession } from "../utils/chat-persist-storage";
 import { showToast } from "../components/ui-lib";
 import Locale from "../locales";
 import { ChatControllerPool } from "../client/controller";
-import { useModelCacheStore } from "./model-cache";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
 import { useAccessStore } from "./access";
@@ -102,6 +101,7 @@ const RETRYABLE_NETWORK_ERROR =
   /Failed to fetch|NetworkError|ERR_CONNECTION|net::ERR_|Load failed|abort|timeout/i;
 let lastMissingApiKeyWarningKey = "";
 let lastRemoteChatMetaCheckAt = 0;
+const syncConsoleDedupMap = new Map<string, number>();
 
 function formatSyncLogTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -117,6 +117,16 @@ function syncConsole(
   message: string,
   payload?: unknown,
 ) {
+  const dedupKey = `${level}|${message}|${
+    payload === undefined ? "" : JSON.stringify(payload)
+  }`;
+  const now = Date.now();
+  const lastDedupAt = syncConsoleDedupMap.get(dedupKey) || 0;
+  if (level !== "warn" && level !== "error" && now - lastDedupAt < 1500) {
+    return;
+  }
+  syncConsoleDedupMap.set(dedupKey, now);
+
   const prefixedMessage = `${formatSyncLogTimestamp()} ${message}`;
   if (payload === undefined) {
     console[level](prefixedMessage);
@@ -329,13 +339,19 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
   [StoreKey.Plugin]: "插件",
   [StoreKey.Access]: "API配置",
-  [StoreKey.Config]: "系统设置",
-  [StoreKey.ModelCache]: "模型缓存",
+  [StoreKey.Config]: "模型",
   [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Update]: "应用更新状态",
   [StoreKey.SdList]: "绘图",
 };
+
+function countCustomModelEntries(customModels?: string) {
+  return String(customModels || "")
+    .split(",")
+    .map((model) => model.trim())
+    .filter((model) => model.startsWith("+")).length;
+}
 
 function getStoreSummary(key: SyncStoreKey, state: any) {
   switch (key) {
@@ -348,9 +364,7 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
         Array.isArray(state?.apiProfiles) ? state.apiProfiles.length : 0
       } 个API配置`;
     case StoreKey.Config:
-      return `${Array.isArray(state?.models) ? state.models.length : 0} 个模型`;
-    case StoreKey.ModelCache:
-      return `${Object.keys(state?.profiles ?? {}).length} 个平台缓存`;
+      return `${countCustomModelEntries(state?.customModels)} 个用户添加模型`;
     case StoreKey.Mask:
       return `${Object.keys(state?.masks ?? {}).length} 个面具`;
     case StoreKey.Prompt:
@@ -449,6 +463,59 @@ function formatSyncResultMessage(params: {
   }
 
   return params.summary;
+}
+
+function parseSyncCount(key: SyncStoreKey, summary?: string) {
+  const text = String(summary || "");
+
+  if (key === StoreKey.Chat) {
+    const matched = text.match(/(\d+) 个会话(?:（可同步 (\d+) 个）)?/);
+    const total = Number(matched?.[1] || 0);
+    return {
+      total,
+      synced: Number(matched?.[2] || matched?.[1] || 0),
+    };
+  }
+
+  const matched = text.match(/(\d+)/);
+  const total = Number(matched?.[1] || 0);
+  return { total, synced: total };
+}
+
+function logOverallSyncSummary(
+  results: Array<{
+    key: SyncStoreKey;
+    name: string;
+    summary: string;
+    status: "downloaded" | "uploaded" | "merged" | "skipped";
+    remoteSummary?: string;
+  }>,
+) {
+  const summaryKeys = [StoreKey.Access, StoreKey.Config, StoreKey.Chat];
+  const preferredResults = summaryKeys
+    .map((key) => results.find((item) => item.key === key))
+    .filter(Boolean) as typeof results;
+  const summaryResults =
+    preferredResults.length > 0 ? preferredResults : results;
+
+  if (summaryResults.length === 0) {
+    return;
+  }
+
+  syncConsole(
+    "log",
+    preferredResults.length > 0
+      ? "[Sync] ✅ 同步总体情况"
+      : "[Sync] ✅ 后台同步结果",
+  );
+  summaryResults.forEach((item) => {
+    const local = parseSyncCount(item.key, item.summary);
+    const remote = parseSyncCount(item.key, item.remoteSummary ?? item.summary);
+    syncConsole(
+      "log",
+      `[Sync] ✅ 已同步${item.name}: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
+    );
+  });
 }
 
 function measureJsonBytes(value: unknown) {
@@ -2406,6 +2473,7 @@ export const useSyncStore = createPersistStore(
                 name: string;
                 summary: string;
                 status: "downloaded" | "uploaded" | "merged" | "skipped";
+                remoteSummary?: string;
               }> = [];
               const failedKeys: Array<{
                 key: SyncStoreKey;
@@ -2431,10 +2499,6 @@ export const useSyncStore = createPersistStore(
                     );
                     continue;
                   }
-                  syncConsole(
-                    "log",
-                    `[Sync] 🚀 [${stepLabel}] 开始同步${displayName}`,
-                  );
                   logSyncDebug(
                     `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                   );
@@ -2490,17 +2554,8 @@ export const useSyncStore = createPersistStore(
                       name: displayName,
                       summary: chatResult.mergedSummary,
                       status: chatResult.status,
+                      remoteSummary: chatResult.remoteSummary,
                     });
-                    syncConsole(
-                      "log",
-                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${formatSyncResultMessage(
-                        {
-                          summary: chatResult.mergedSummary,
-                          status: chatResult.status,
-                          remoteSummary: chatResult.remoteSummary,
-                        },
-                      )}`,
-                    );
 
                     if (options?.downloadOnlyChat !== true) {
                       try {
@@ -2518,11 +2573,6 @@ export const useSyncStore = createPersistStore(
                           syncConsole(
                             "warn",
                             `[Sync] ⚠️ 会话上传后复核不一致: 本地可同步 ${localSyncableCount} 个，远端 ${remoteSyncableCount} 个`,
-                          );
-                        } else {
-                          syncConsole(
-                            "log",
-                            `[Sync] ✅ 会话上传后复核一致: ${remoteSyncableCount} 个可同步会话`,
                           );
                         }
                       } catch (verifyError) {
@@ -2579,21 +2629,11 @@ export const useSyncStore = createPersistStore(
                     name: displayName,
                     summary: regularResult.summary,
                     status: regularResult.status,
+                    remoteSummary:
+                      "remoteSummary" in regularResult
+                        ? regularResult.remoteSummary
+                        : undefined,
                   });
-                  const regularRemoteSummary =
-                    "remoteSummary" in regularResult
-                      ? regularResult.remoteSummary
-                      : undefined;
-                  syncConsole(
-                    "log",
-                    `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${formatSyncResultMessage(
-                      {
-                        summary: regularResult.summary,
-                        status: regularResult.status,
-                        remoteSummary: regularRemoteSummary,
-                      },
-                    )}`,
-                  );
                   logPerfSummary("Sync", {
                     key,
                     durationMs: Number((nowMs() - keySyncStartedAt).toFixed(2)),
@@ -2628,6 +2668,13 @@ export const useSyncStore = createPersistStore(
               syncResults.forEach((item) => {
                 logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
               });
+              const shouldLogOverallSummary = !(
+                currentStoreKeys.length === 1 &&
+                currentStoreKeys[0] === StoreKey.Chat
+              );
+              if (shouldLogOverallSummary) {
+                logOverallSyncSummary(syncResults);
+              }
 
               if (failedKeys.length > 0) {
                 const failedSummary = failedKeys
@@ -2709,16 +2756,13 @@ export const useSyncStore = createPersistStore(
         });
 
         try {
-          // 优先同步聊天记录和 API 配置，完成后立即允许对话
-          // 将两者放在同一个 sync 调用中可以并行化元数据获取和数据拉取
-          syncConsole("log", "[Sync] 💬 开始同步关键数据 (聊天记录 & API配置)");
-          await this.sync([StoreKey.Chat, StoreKey.Access], {
+          // 优先同步聊天记录、API 配置和用户已添加模型，完成后立即允许对话。
+          await this.sync([StoreKey.Chat, StoreKey.Access, StoreKey.Config], {
             isolateQueue: true,
             force: true,
             broadcastChatHint: false,
             downloadOnlyChat: true,
           });
-          syncConsole("log", "[Sync] ✅ 关键数据同步完成，页面已可对话");
           warnMissingRecoveredApiKey();
         } catch (error) {
           syncConsole("error", "[Sync] ❌ 关键数据同步失败:", error);
@@ -2872,13 +2916,10 @@ export const useSyncStore = createPersistStore(
           (key) =>
             key !== StoreKey.Chat &&
             key !== StoreKey.Access &&
-            key !== StoreKey.ModelCache &&
             key !== StoreKey.Config,
         );
         if (remainingKeys.length > 0) {
-          syncConsole("log", "[Sync] ⚙️ 开始同步剩余数据:", remainingKeys);
           await this.sync(remainingKeys, { isolateQueue: true });
-          syncConsole("log", "[Sync] ✅ 剩余数据同步完成");
         }
       },
 
@@ -2888,6 +2929,12 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
+        const configState = useAppConfig.getState() as any;
+        logger.sync.log(
+          `🧩 模型同步开始: ${countCustomModelEntries(
+            configState.customModels,
+          )} 个用户添加模型`,
+        );
         return this.sync([...MODEL_SYNC_STORE_KEYS]);
       },
 

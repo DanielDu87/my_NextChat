@@ -14,10 +14,13 @@ export const PERSIST_STORE_KEYS = [
 ] as const satisfies readonly StoreKey[];
 
 export type PersistStoreKey = (typeof PERSIST_STORE_KEYS)[number];
-export type SyncStoreKey = Exclude<PersistStoreKey, StoreKey.Sync>;
+export type SyncStoreKey = Exclude<
+  PersistStoreKey,
+  StoreKey.Sync | StoreKey.ModelCache
+>;
 
 export const SYNC_STORE_KEYS = PERSIST_STORE_KEYS.filter(
-  (key) => key !== StoreKey.Sync,
+  (key) => key !== StoreKey.Sync && key !== StoreKey.ModelCache,
 ) as SyncStoreKey[];
 
 const SYNC_KEY_PRIORITIES: Partial<Record<StoreKey, number>> = {
@@ -38,11 +41,7 @@ SYNC_STORE_KEYS.sort((a, b) => {
 
 export const AUTO_SYNC_STORE_KEYS = [...SYNC_STORE_KEYS] as SyncStoreKey[];
 
-export const MODEL_SYNC_STORE_KEYS = [
-  StoreKey.Access,
-  StoreKey.ModelCache,
-  StoreKey.Config,
-] as const;
+export const MODEL_SYNC_STORE_KEYS = [StoreKey.Config] as const;
 
 export function isPersistStoreKey(
   key: string,
