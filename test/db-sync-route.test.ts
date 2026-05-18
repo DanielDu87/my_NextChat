@@ -16,6 +16,9 @@ const getStoreSnapshotMetaMock = jest.fn<
 >();
 const setStoreSnapshotMock = jest.fn(async () => undefined);
 const applyChatDeltaMock = jest.fn(async () => undefined);
+const requireWritableStoreSyncUserIdMock = jest.fn(() => "route-user");
+const resolveStoreSyncUserIdMock = jest.fn(() => "route-user");
+const requireWritableSyncUserIdMock = jest.fn(() => "route-user");
 const withRetryablePostgresOperationMock = jest.fn(
   async <T>(handler: () => Promise<T>) => handler(),
 );
@@ -52,10 +55,18 @@ jest.unstable_mockModule("../app/utils/server/sync-store-repository", () => ({
 }));
 
 jest.unstable_mockModule("../app/utils/server/postgres", () => ({
+  ensureSyncStorageSchema: jest.fn(async () => undefined),
+  pgQuery: jest.fn(async () => ({ rows: [] })),
+  withPgTransaction: jest.fn(async (handler: (client: unknown) => unknown) =>
+    handler({ query: jest.fn() }),
+  ),
   withRetryablePostgresOperation: withRetryablePostgresOperationMock,
 }));
 
 jest.unstable_mockModule("../app/utils/server/sync-user", () => ({
+  requireWritableStoreSyncUserId: requireWritableStoreSyncUserIdMock,
+  resolveStoreSyncUserId: resolveStoreSyncUserIdMock,
+  requireWritableSyncUserId: requireWritableSyncUserIdMock,
   resolveSyncUserId: resolveSyncUserIdMock,
 }));
 
@@ -76,8 +87,14 @@ describe("db sync routes", () => {
     getStoreSnapshotMetaMock.mockReset();
     setStoreSnapshotMock.mockClear();
     applyChatDeltaMock.mockClear();
+    requireWritableStoreSyncUserIdMock.mockClear();
+    resolveStoreSyncUserIdMock.mockClear();
+    requireWritableSyncUserIdMock.mockClear();
     withRetryablePostgresOperationMock.mockClear();
     resolveSyncUserIdMock.mockClear();
+    requireWritableStoreSyncUserIdMock.mockReturnValue("route-user");
+    resolveStoreSyncUserIdMock.mockReturnValue("route-user");
+    requireWritableSyncUserIdMock.mockReturnValue("route-user");
     resolveSyncUserIdMock.mockReturnValue("route-user");
   });
 

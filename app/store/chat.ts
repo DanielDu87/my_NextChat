@@ -394,7 +394,15 @@ async function createBalanceCostTracker(
 }
 
 function isDefaultTopic(topic: string | undefined) {
-  return !topic || topic === getDefaultTopic();
+  const normalizedTopic = String(topic || "").trim();
+
+  return (
+    !normalizedTopic ||
+    normalizedTopic === getDefaultTopic() ||
+    normalizedTopic === DEFAULT_TOPIC ||
+    normalizedTopic === "新的聊天" ||
+    normalizedTopic === "New Chat"
+  );
 }
 
 function getSessionFallbackTopic(session: ChatSession) {
@@ -1796,6 +1804,33 @@ export const useChatStore = createPersistStore(
         }
       },
 
+      async resetForUserSwitch() {
+        const newSessions = [createEmptySession()];
+        set(() => ({
+          sessions: newSessions,
+          sessionSummaries: buildSessionSummaries(newSessions),
+          currentSessionIndex: 0,
+          selectedSessionId: newSessions[0]?.id || "",
+          globalClearAt: 0,
+          deletedSessionTimestamps: {},
+          hydratedSessionIds: [],
+          hydratingSessionId: "",
+        }));
+
+        await clearPersistedStateStorage();
+
+        try {
+          const { useSyncStore } = await import("./sync");
+          await useSyncStore.getState().sync([StoreKey.Chat], {
+            isolateQueue: true,
+            force: true,
+            downloadOnlyChat: true,
+          });
+        } catch (error) {
+          logger.chat.error("❌ 切换用户后同步失败:", error);
+        }
+      },
+
       selectSession(index: number) {
         const sessionId = get().sessions[index]?.id || "";
         set({
@@ -2051,6 +2086,16 @@ export const useChatStore = createPersistStore(
             await get().saveSessionToPersistedStorage(normalizedRemoteSession);
           }
           return normalizedRemoteSession;
+        }
+
+        // 三个来源都找不到内容，删除孤儿会话
+        const orphanIndex = get().sessions.findIndex((s) => s.id === sessionId);
+        if (orphanIndex >= 0) {
+          console.warn(
+            "[Chat] 会话内容在本地和远端均不存在，自动删除孤儿会话:",
+            sessionId,
+          );
+          get().deleteSession(orphanIndex);
         }
 
         return undefined;

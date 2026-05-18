@@ -235,13 +235,10 @@ export async function ensureSyncStorageSchema() {
         create table if not exists app_users (
           id uuid primary key default generate_uuid_v4(),
           external_id text unique,
-          email text,
           display_name text,
-          avatar_url text,
           locale text default 'zh-CN',
           timezone text default 'Asia/Shanghai',
           is_active boolean not null default true,
-          profile_json jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         )
@@ -254,8 +251,6 @@ export async function ensureSyncStorageSchema() {
           provider_name text not null,
           provider_type text not null,
           base_url text,
-          api_path text,
-          api_format text,
           is_enabled boolean not null default true,
           is_default boolean not null default false,
           request_config jsonb not null default '{}'::jsonb,
@@ -276,7 +271,6 @@ export async function ensureSyncStorageSchema() {
           masked_secret text,
           metadata_json jsonb not null default '{}'::jsonb,
           is_enabled boolean not null default true,
-          last_verified_at timestamptz,
           expires_at timestamptz,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now(),
@@ -286,11 +280,8 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create table if not exists app_settings (
           user_id uuid primary key references app_users(id) on delete cascade,
-          ui_settings jsonb not null default '{}'::jsonb,
           chat_settings jsonb not null default '{}'::jsonb,
-          model_settings jsonb not null default '{}'::jsonb,
           plugin_settings jsonb not null default '{}'::jsonb,
-          sync_settings jsonb not null default '{}'::jsonb,
           security_settings jsonb not null default '{}'::jsonb,
           extra_settings jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
@@ -299,23 +290,11 @@ export async function ensureSyncStorageSchema() {
       `);
         await client.query(`
         alter table app_settings
-        add column if not exists ui_settings jsonb not null default '{}'::jsonb
-      `);
-        await client.query(`
-        alter table app_settings
         add column if not exists chat_settings jsonb not null default '{}'::jsonb
       `);
         await client.query(`
         alter table app_settings
-        add column if not exists model_settings jsonb not null default '{}'::jsonb
-      `);
-        await client.query(`
-        alter table app_settings
         add column if not exists plugin_settings jsonb not null default '{}'::jsonb
-      `);
-        await client.query(`
-        alter table app_settings
-        add column if not exists sync_settings jsonb not null default '{}'::jsonb
       `);
         await client.query(`
         alter table app_settings
@@ -332,8 +311,6 @@ export async function ensureSyncStorageSchema() {
           external_session_id text,
           provider_config_id uuid references provider_configs(id) on delete set null,
           title text,
-          summary text,
-          system_prompt text,
           model_name text,
           provider_name text,
           conversation_type text not null default 'chat',
@@ -342,8 +319,7 @@ export async function ensureSyncStorageSchema() {
           is_deleted boolean not null default false,
           metadata_json jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          deleted_at timestamptz
+          updated_at timestamptz not null default now()
         )
       `);
         await client.query(`
@@ -359,19 +335,12 @@ export async function ensureSyncStorageSchema() {
         create table if not exists messages (
           id uuid primary key default generate_uuid_v4(),
           conversation_id uuid not null references conversations(id) on delete cascade,
-          parent_id uuid references messages(id) on delete set null,
           external_message_id text,
           seq integer not null,
           role text not null check (role in ('system', 'user', 'assistant', 'tool')),
           status text not null default 'done',
-          model_name text,
-          provider_name text,
           content_text text,
           content_json jsonb not null default '{}'::jsonb,
-          reasoning_text text,
-          tool_calls jsonb not null default '[]'::jsonb,
-          token_usage jsonb not null default '{}'::jsonb,
-          metadata_json jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now(),
           unique (conversation_id, seq)

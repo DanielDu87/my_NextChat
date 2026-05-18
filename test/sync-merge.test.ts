@@ -49,7 +49,10 @@ describe("sync merge safety", () => {
           topic: "目标会话",
           createdAt: 200,
           lastUpdate: 200,
-          messages: [{ id: "m1" }],
+          messages: [
+            { id: "m1", role: "user" },
+            { id: "m2", role: "assistant" },
+          ],
         },
       ],
       currentSessionIndex: 1,
@@ -71,7 +74,10 @@ describe("sync merge safety", () => {
       {
         id: "filled",
         topic: "非空会话",
-        messages: [{ id: "m1" }],
+        messages: [
+          { id: "m1", role: "user" },
+          { id: "m2", role: "assistant" },
+        ],
       },
     ]);
 

@@ -222,6 +222,7 @@ interface ModalProps {
   title: string;
   children?: any;
   actions?: React.ReactNode[];
+  leftActions?: React.ReactNode[];
   defaultMax?: boolean;
   hideMaxToggle?: boolean;
   isSmall?: boolean;
@@ -283,6 +284,23 @@ export function Modal(props: ModalProps) {
 
       <div className={styles["modal-footer"]}>
         {props.footer}
+        {props.leftActions && props.leftActions.length > 0 && (
+          <div
+            className={clsx(
+              styles["modal-actions"],
+              styles["modal-actions-left"],
+            )}
+          >
+            {props.leftActions.map((action, i) => (
+              <div
+                key={i}
+                className={clsx(styles["modal-action"], "modal-footer-action")}
+              >
+                {action}
+              </div>
+            ))}
+          </div>
+        )}
         <div className={clsx(styles["modal-actions"], "modal-footer-actions")}>
           {props.actions?.map((action, i) => (
             <div

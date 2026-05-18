@@ -1601,10 +1601,10 @@ export function ChatActions(props: {
 
   // switch model
   const currentModel = normalizeReservedDisplayModelName(
-    session.mask.modelConfig.model,
+    session?.mask?.modelConfig?.model || "",
   );
   const currentProviderName =
-    session.mask.modelConfig?.providerName || ServiceProvider.OpenAI;
+    session?.mask?.modelConfig?.providerName || ServiceProvider.OpenAI;
 
   // 只使用真实模型集合和用户手动维护的全局自定义模型。
   const globalCustomModels = useAppConfig((state) => state.customModels);
@@ -3378,7 +3378,6 @@ function _Chat() {
 
     chatStore.updateTargetSession(session, (session) => {
       if (shouldSyncMaskConfig) {
-        console.log("[Mask] syncing from global, name = ", session.mask.name);
         session.mask.modelConfig = nextModelConfig;
       }
     });
@@ -4631,7 +4630,7 @@ function _Chat() {
                       i === clearContextIndex - 1;
 
                     return (
-                      <Fragment key={message.id}>
+                      <Fragment key={message.id ?? i}>
                         <div
                           className={
                             isUser

@@ -49,14 +49,19 @@ export function shouldSyncChatSession(session: ChatSessionLike | undefined) {
     return false;
   }
 
-  const messageCount = getSessionMessageCount(session);
-  const hasMemoryPrompt =
-    typeof session.memoryPrompt === "string" &&
-    session.memoryPrompt.trim().length > 0;
-  const isEmptyChat = messageCount === 0 && !hasMemoryPrompt;
-
-  if (isEmptyChat) {
+  if (getSessionMessageCount(session) === 0) {
     return false;
+  }
+
+  // 必须同时有 user 和 assistant 消息
+  if (Array.isArray(session.messages)) {
+    let hasUser = false;
+    let hasAssistant = false;
+    for (const msg of session.messages) {
+      if ((msg as any)?.role === "user") hasUser = true;
+      if ((msg as any)?.role === "assistant") hasAssistant = true;
+    }
+    if (!hasUser || !hasAssistant) return false;
   }
 
   return true;

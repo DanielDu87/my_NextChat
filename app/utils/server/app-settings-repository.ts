@@ -5,19 +5,13 @@ import { getOrCreateSyncAppUserId } from "./sync-app-user";
 type QueryFn = (text: string, params?: unknown[]) => Promise<unknown>;
 
 type SettingsColumn =
-  | "ui_settings"
   | "chat_settings"
-  | "model_settings"
   | "plugin_settings"
-  | "sync_settings"
   | "security_settings"
   | "extra_settings";
 
 const STORE_COLUMN_MAP: Partial<Record<string, SettingsColumn>> = {
-  [StoreKey.Config]: "model_settings",
-  [StoreKey.ModelCache]: "model_settings",
   [StoreKey.Plugin]: "plugin_settings",
-  [StoreKey.Sync]: "sync_settings",
   [StoreKey.Access]: "security_settings",
   [StoreKey.Mask]: "extra_settings",
   [StoreKey.Prompt]: "extra_settings",

@@ -146,6 +146,73 @@ function CreateUserModal(props: {
   );
 }
 
+function SwitchUserPasswordModal(props: {
+  open: boolean;
+  username: string;
+  onClose: () => void;
+  onConfirm: (password: string) => Promise<void>;
+}) {
+  const { open, username, onClose, onConfirm } = props;
+  const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setPassword("");
+    }
+  }, [open]);
+
+  if (!open || typeof document === "undefined") {
+    return null;
+  }
+
+  const handleClose = () => {
+    setPassword("");
+    onClose();
+  };
+
+  return createPortal(
+    <div className="modal-mask">
+      <Modal
+        title="切换用户"
+        className={styles.createModal}
+        isSmall
+        hideMaxToggle
+        onClose={handleClose}
+        actions={[
+          <IconButton
+            key="cancel"
+            text="取消"
+            bordered
+            onClick={handleClose}
+          />,
+          <IconButton
+            key="confirm"
+            text="确认切换"
+            bordered
+            type="primary"
+            onClick={() => void onConfirm(password)}
+          />,
+        ]}
+      >
+        <div className={styles.createForm}>
+          <div className={styles.switchUserInfo}>
+            切换到用户：<strong>{username}</strong>
+          </div>
+          <input
+            className={styles.createInput}
+            value={password}
+            onChange={(e) => setPassword(e.currentTarget.value)}
+            placeholder="请输入该用户的密码"
+            type="password"
+            autoFocus
+          />
+        </div>
+      </Modal>
+    </div>,
+    document.body,
+  );
+}
+
 export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const user = useAuthStore((state) => state.user);
   const effectiveUser = useAuthStore((state) => state.effectiveUser);
@@ -162,6 +229,10 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [targetSwitchUser, setTargetSwitchUser] = useState<ManagedUser | null>(
+    null,
+  );
   const currentEffectiveUserId = effectiveUser?.id ?? "";
   const canManageUsers =
     user?.role === "admin" && effectiveUser?.role === "admin";
@@ -381,6 +452,75 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     }
   };
 
+  const handleSwitchUser = async (managedUser: ManagedUser) => {
+    if (!user) {
+      return;
+    }
+
+    // 点击自己的原始账号时，退出切换
+    if (isImpersonating && user.id === managedUser.id) {
+      try {
+        await exitSwitch();
+        setShowManageModal(false);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "退出查看失败");
+      }
+      return;
+    }
+
+    // 管理员直接切换，不需要密码
+    if (user.role === "admin") {
+      try {
+        await switchUser(managedUser.id);
+        setShowManageModal(false);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "切换用户失败");
+      }
+      return;
+    }
+
+    // 普通用户需要输入密码
+    setTargetSwitchUser(managedUser);
+    setShowPasswordModal(true);
+  };
+
+  const handleSwitchUserWithPassword = async (password: string) => {
+    if (!targetSwitchUser) {
+      return;
+    }
+
+    if (!password.trim()) {
+      showToast("请输入密码");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/admin/switch-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify({
+          userId: targetSwitchUser.id,
+          password: password.trim(),
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) {
+        throw new Error(String(payload?.error || "切换用户失败"));
+      }
+
+      setShowPasswordModal(false);
+      setTargetSwitchUser(null);
+
+      // 重新加载页面以应用新的登录会话
+      window.location.reload();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "切换用户失败");
+    }
+  };
+
   const renderRowAction = (managedUser: ManagedUser) => {
     const isCurrent = currentEffectiveUserId === managedUser.id;
     const isSelected = selectedUserIds.includes(managedUser.id);
@@ -481,8 +621,20 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                 className={styles.manageModal}
                 hideMaxToggle
                 onClose={() => setShowManageModal(false)}
+                leftActions={[
+                  <IconButton
+                    key="logout"
+                    text="注销登录"
+                    bordered
+                    type="danger"
+                    onClick={() => {
+                      setShowManageModal(false);
+                      void logout();
+                    }}
+                  />,
+                ]}
                 actions={[
-                  isImpersonating && effectiveUser.role === "admin" ? (
+                  isImpersonating ? (
                     <IconButton
                       key="exit"
                       text="退出查看"
@@ -586,17 +738,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                             return;
                           }
 
-                          if (user.role !== "admin") {
-                            return;
-                          }
-
-                          void switchUser(managedUser.id).catch((error) => {
-                            showToast(
-                              error instanceof Error
-                                ? error.message
-                                : "切换用户失败",
-                            );
-                          });
+                          handleSwitchUser(managedUser);
                         }}
                       />
                     ))
@@ -645,7 +787,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                   }}
                 />
               )}
-              {isImpersonating && effectiveUser.role === "admin" && (
+              {isImpersonating && (
                 <ListItem
                   title="退出查看"
                   subTitle="回到管理员自己的数据视角"
@@ -696,6 +838,18 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
             title="用户管理"
             className={styles.manageModal}
             onClose={() => setShowManageModal(false)}
+            leftActions={[
+              <IconButton
+                key="logout"
+                text="注销登录"
+                bordered
+                type="danger"
+                onClick={() => {
+                  setShowManageModal(false);
+                  void logout();
+                }}
+              />,
+            ]}
             actions={[
               canManageUsers ? (
                 <IconButton
@@ -772,13 +926,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                         return;
                       }
 
-                      void switchUser(managedUser.id).catch((error) => {
-                        showToast(
-                          error instanceof Error
-                            ? error.message
-                            : "切换用户失败",
-                        );
-                      });
+                      handleSwitchUser(managedUser);
                     }}
                   />
                 ))
@@ -792,6 +940,17 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onConfirm={handleCreateUser}
+      />
+      <SwitchUserPasswordModal
+        open={showPasswordModal}
+        username={
+          targetSwitchUser?.displayName || targetSwitchUser?.username || ""
+        }
+        onClose={() => {
+          setShowPasswordModal(false);
+          setTargetSwitchUser(null);
+        }}
+        onConfirm={handleSwitchUserWithPassword}
       />
     </>
   );

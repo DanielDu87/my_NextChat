@@ -1,0 +1,1297 @@
+[
+  {
+    "table_name": "app_settings",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "ui_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "chat_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "model_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "plugin_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "sync_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "security_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "extra_settings",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "app_settings",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "external_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "email",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "display_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "avatar_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "locale",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'zh-CN'::text"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "timezone",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'Asia/Shanghai'::text"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "is_active",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "profile_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "username",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "password_hash",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "role",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'user'::text"
+  },
+  {
+    "table_name": "app_users",
+    "column_name": "last_login_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "session_token_hash",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "expires_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "last_seen_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "auth_sessions",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "external_session_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "provider_config_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "title",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "summary",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "system_prompt",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "model_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "provider_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "conversation_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'chat'::text"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "is_archived",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "is_pinned",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "is_deleted",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "metadata_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "conversations",
+    "column_name": "deleted_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "message_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "attachment_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "file_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "mime_type",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "storage_kind",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'object_storage'::text"
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "storage_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "file_size_bytes",
+    "data_type": "bigint",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "sha256",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "metadata_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "message_attachments",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "conversation_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "parent_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "external_message_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "seq",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "role",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "status",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'done'::text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "model_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "provider_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "content_text",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "content_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "reasoning_text",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "messages",
+    "column_name": "tool_calls",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "token_usage",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "metadata_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "model_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "alias_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "alias_kind",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'display'::text"
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "source",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_aliases",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "provider_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "provider_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "source_file",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "model_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "display_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "vendor_name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "vendor_icon",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "model_type",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "category",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "category_source",
+    "data_type": "smallint",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "types",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "categories",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "features",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "capabilities",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "published_at_int",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "published_at_source",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "published_at_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "published_at_note",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "is_available",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "sort_order",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "api_key_group",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "raw_payload",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "first_seen_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "last_seen_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_catalog",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_source_index_snapshots",
+    "column_name": "source_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "model_source_index_snapshots",
+    "column_name": "payload_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "model_source_index_snapshots",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_source_index_snapshots",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "trigger_source",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'manual'::text"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "provider_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "status",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'running'::text"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "summary_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "error_message",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "started_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "finished_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "model_sync_runs",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "provider_config_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "key_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "key_scope",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "api_key_group",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "encrypted_secret",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "masked_secret",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "metadata_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "is_enabled",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "last_verified_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "expires_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "provider_api_keys",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "provider_code",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "provider_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "provider_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "base_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "api_path",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "api_format",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "is_enabled",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "is_default",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "request_config",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "raw_payload",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "provider_configs",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "conversation_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "created_by",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "share_token",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "permission",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'read_only'::text"
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "expires_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "metadata_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "share_links",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "site_access_settings",
+    "column_name": "setting_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "site_access_settings",
+    "column_name": "password_hash",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "site_access_settings",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "site_access_settings",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "user_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "secret_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "encrypted_payload",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "sync_secrets",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "tags",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "generate_uuid_v4()"
+  },
+  {
+    "table_name": "tags",
+    "column_name": "user_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "tags",
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "tags",
+    "column_name": "color",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "tags",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "tags",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "user_model_refresh_states",
+    "column_name": "user_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "user_model_refresh_states",
+    "column_name": "refresh_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "user_model_refresh_states",
+    "column_name": "payload_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "user_model_refresh_states",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "user_model_refresh_states",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "user_provider_balance_snapshots",
+    "column_name": "user_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "user_provider_balance_snapshots",
+    "column_name": "balance_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "user_provider_balance_snapshots",
+    "column_name": "payload_json",
+    "data_type": "jsonb",
+    "is_nullable": "NO",
+    "column_default": "'{}'::jsonb"
+  },
+  {
+    "table_name": "user_provider_balance_snapshots",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "user_provider_balance_snapshots",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  }
+]

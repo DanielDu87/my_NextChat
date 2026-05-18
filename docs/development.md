@@ -10,6 +10,7 @@
 - **数据库连接**：通过 SSH 隧道连接远程数据库（42.193.15.117）
 - **配置文件**：`.env`
 - **连接方式**：`host.docker.internal:15432 → SSH 隧道 → 远程数据库:5432`
+- **⚠️ 重要**：不使用本地 Docker PostgreSQL 容器，只连接远程数据库
 
 ### 场景二：远程服务器部署
 
@@ -19,6 +20,7 @@
 - **连接方式**：`localhost:5432 → 本地数据库`
 
 **⚠️ 重要规范：**
+- 本地开发永远连接远程数据库，不使用本地 Docker PostgreSQL 容器
 - 永远不使用代理（HTTP_PROXY、HTTPS_PROXY）
 - Docker 容器内和系统都不使用代理
 - 确保配置文件中没有代理相关环境变量
@@ -27,7 +29,41 @@
 
 ## 本地开发环境配置
 
+### 快速开始（推荐）
+
+**一键启动 Docker 热加载开发环境：**
+
+```bash
+# 进入项目目录
+cd /Users/dyx/Code/NextChat
+
+# 运行启动脚本
+./scripts/dev-docker-start.sh
+```
+
+脚本会自动完成所有准备工作，包括：
+- ✅ 检查并建立 SSH 隧道
+- ✅ 构建 Docker 镜像（首次需要 3-5 分钟）
+- ✅ 启动开发容器
+- ✅ 显示实时日志
+
+**访问地址：** http://localhost:3000
+
+**停止服务：**
+
+```bash
+# 停止容器
+docker-compose --profile dev down
+
+# 停止 SSH 隧道（可选）
+./scripts/dev-stop.sh
+```
+
 ---
+
+## 本地开发环境配置（详细说明）
+
+
 
 ## 远程服务器部署配置
 
@@ -219,9 +255,53 @@ kill <PID>
 
 ---
 
-### 方式一：热加载开发模式（推荐）
+### 方式一：Docker 热加载模式（推荐）
 
-适用于日常开发，支持代码热更新，无需重启服务。
+**适用于日常开发，代码挂载实现热更新，无需重启容器。**
+
+使用一键启动脚本：
+
+```bash
+# 快速启动（推荐）
+./scripts/dev-docker-start.sh
+```
+
+或手动启动：
+
+```bash
+# 1. 建立 SSH 隧道（如果还没有）
+ssh -f -N -L 15432:127.0.0.1:5432 root@42.193.15.117 -p 222
+
+# 2. 启动 Docker 开发容器
+docker-compose --profile dev up -d --build
+
+# 3. 查看日志
+docker-compose logs -f nextchat-dev
+
+# 4. 停止容器
+docker-compose --profile dev down
+```
+
+**特点：**
+- ✅ 代码修改后自动热更新（挂载代码目录）
+- ✅ 环境隔离，与生产环境一致
+- ✅ 无需本地安装 Node.js
+- ✅ 支持 React Fast Refresh
+- ✅ 实时查看修改效果
+- ⚠️ 首次启动需要构建镜像（约 3-5 分钟）
+
+**访问地址：** http://localhost:3000
+
+**工作原理：**
+- 代码目录挂载到容器：`.:/app`
+- node_modules 使用独立卷：避免宿主机干扰
+- 容器内运行 `yarn dev`：支持热更新
+
+---
+
+### 方式二：本地热加载模式
+
+适用于不想使用 Docker 的开发场景。
 
 ```bash
 # 1. 安装依赖
@@ -238,43 +318,10 @@ yarn next dev
 - ✅ 代码修改后自动热更新
 - ✅ 启动速度快
 - ✅ 支持 React Fast Refresh
-- ✅ 实时查看修改效果
 - ⚠️ 需要本地安装 Node.js 18+
+- ⚠️ 环境可能与生产不一致
 
 **访问地址：** http://localhost:3000
-
----
-
-### 方式二：Docker 容器模式
-
-适用于生产环境模拟、完整功能测试。
-
-```bash
-# 1. 构建并启动容器
-docker-compose up -d
-
-# 2. 查看日志
-docker-compose logs -f nextchat
-
-# 3. 停止容器
-docker-compose down
-```
-
-**特点：**
-- ✅ 环境隔离，与生产环境一致
-- ✅ 无需本地安装 Node.js
-- ✅ 适合完整功能测试
-- ⚠️ 代码修改需要重新构建镜像
-- ⚠️ 启动速度较慢
-
-**访问地址：** http://localhost:3000
-
-**重新构建镜像：**
-
-```bash
-# 代码修改后需要重新构建
-docker-compose up -d --build
-```
 
 ---
 
@@ -521,19 +568,36 @@ ORDER BY created_at DESC;
 - [ ] 依赖已安装（`yarn install`）
 - [ ] 远程数据库可访问
 
-### 2. 代码提交规范
+### 2. Git 提交规范
 
-提交信息格式：
+**⚠️ 重要规则：**
+
+1. **不主动提交和推送**
+   - 开发过程中不自动提交代码
+   - 只有当用户明确说"提交"时才执行 `git commit`
+   - 提交后自动推送到远程仓库
+
+2. **提交信息格式**
+   ```
+   YYYY-MM-DD HH:MM 提交内容描述
+   ```
+
+3. **提交流程**
+   ```bash
+   # 用户说"提交"时执行：
+   git add -A
+   git commit -m "2026-05-15 10:30 优化数据库连接配置，添加开发文档"
+   git push
+   ```
+
+**示例对话：**
 
 ```
-YYYY-MM-DD HH:MM 提交内容描述
-```
+用户: "修改完成了"
+助手: [不提交，仅确认修改完成]
 
-示例：
-
-```bash
-git add -A
-git commit -m "2026-05-15 10:30 优化数据库连接配置，添加开发文档"
+用户: "提交"
+助手: [执行 git add、git commit、git push]
 ```
 
 ### 3. 数据库操作规范

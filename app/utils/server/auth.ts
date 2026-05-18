@@ -279,16 +279,14 @@ async function ensureDefaultAdminSeeded() {
        password_hash,
        display_name,
        role,
-       is_active,
-       profile_json
+       is_active
      ) values (
        $1,
        $2,
        $3,
        $4,
        'admin',
-       true,
-       '{}'::jsonb
+       true
      )
      on conflict do nothing`,
     [
@@ -504,7 +502,7 @@ export async function getAuthContextFromCookies(values: AuthCookieValues) {
     actor,
     effective,
     isImpersonating: actor.id !== effective.id,
-    readOnly: false,
+    readOnly: actor.id !== effective.id,
   } satisfies AuthContext;
 }
 
@@ -569,6 +567,75 @@ export async function listManagedUsers() {
   }));
 }
 
+async function initializeUserSettings(userId: string) {
+  const templateResult = await pgQuery<{
+    chat_settings: any;
+    plugin_settings: any;
+    security_settings: any;
+    extra_settings: any;
+  }>(
+    `select
+       chat_settings,
+       plugin_settings,
+       security_settings,
+       extra_settings
+     from app_settings
+     where user_id = (
+       select id from app_users
+       where role = 'admin'
+       order by created_at
+       limit 1
+     )
+     limit 1`,
+  );
+
+  const template = templateResult.rows[0];
+  if (!template) {
+    await pgQuery(
+      `insert into app_settings (
+         user_id,
+         chat_settings,
+         plugin_settings,
+         security_settings,
+         extra_settings
+       ) values (
+         $1::uuid,
+         '{}'::jsonb,
+         '{}'::jsonb,
+         '{}'::jsonb,
+         '{}'::jsonb
+       )
+       on conflict (user_id) do nothing`,
+      [userId],
+    );
+    return;
+  }
+
+  await pgQuery(
+    `insert into app_settings (
+       user_id,
+       chat_settings,
+       plugin_settings,
+       security_settings,
+       extra_settings
+     ) values (
+       $1::uuid,
+       $2::jsonb,
+       $3::jsonb,
+       $4::jsonb,
+       $5::jsonb
+     )
+     on conflict (user_id) do nothing`,
+    [
+      userId,
+      template.chat_settings || {},
+      template.plugin_settings || {},
+      template.security_settings || {},
+      template.extra_settings || {},
+    ],
+  );
+}
+
 export async function createManagedUser(params: {
   username: string;
   password: string;
@@ -610,16 +677,14 @@ export async function createManagedUser(params: {
        password_hash,
        display_name,
        role,
-       is_active,
-       profile_json
+       is_active
      ) values (
        $1,
        $2,
        $3,
        $4,
        $5,
-       true,
-       '{}'::jsonb
+       true
      )
      returning
        id::text as id,
@@ -638,7 +703,11 @@ export async function createManagedUser(params: {
     ],
   );
 
-  return buildAuthUser(result.rows[0]);
+  const newUser = buildAuthUser(result.rows[0]);
+
+  await initializeUserSettings(newUser.id);
+
+  return newUser;
 }
 
 export async function deleteManagedUser(params: {

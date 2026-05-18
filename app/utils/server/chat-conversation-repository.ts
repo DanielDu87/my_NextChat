@@ -138,7 +138,6 @@ async function upsertConversation(
            provider_name = $5,
            metadata_json = $6::jsonb,
            is_deleted = false,
-           deleted_at = null,
            updated_at = now()
        where user_id = $1::uuid
          and external_session_id = $2
@@ -277,19 +276,36 @@ export async function syncNormalizedChatSessions(
       continue;
     }
 
-    await replaceConversationMessages(client, conversationId, session);
+    // 只有上传的 session 包含消息时才替换远端消息，避免占位符（空 messages）覆盖远端完整数据
+    if (getSessionMessages(session).length > 0) {
+      await replaceConversationMessages(client, conversationId, session);
+    }
   }
 
   const deleteSessionIds = Array.from(
     new Set((params.deleteSessionIds || []).filter(Boolean)),
   );
   if (deleteSessionIds.length > 0) {
-    await client.query(
-      `delete from conversations
+    const deletedConversations = await client.query<{ id: string }>(
+      `update conversations
+       set is_deleted = true,
+           updated_at = now()
        where user_id = $1::uuid
-         and external_session_id = any($2::text[])`,
+         and external_session_id = any($2::text[])
+       returning id::text as id`,
       [appUserId, deleteSessionIds],
     );
+    const deletedConversationIds = deletedConversations.rows.map(
+      (row) => row.id,
+    );
+
+    if (deletedConversationIds.length > 0) {
+      await client.query(
+        `delete from messages
+         where conversation_id = any($1::uuid[])`,
+        [deletedConversationIds],
+      );
+    }
   }
 }
 
@@ -316,6 +332,7 @@ export async function getNormalizedChatSessionSnapshots(
      from conversations
      where user_id = $1::uuid
        and external_session_id = any($2::text[])
+       and is_deleted = false
      order by external_session_id`,
     [appUserId, normalizedIds],
   );
@@ -369,16 +386,21 @@ export async function buildNormalizedChatIndexSnapshot(
     external_session_id: string;
     metadata_json: JsonObject;
     updated_at: string;
+    actual_message_count: string;
   }>(
     `select
-       external_session_id,
-       metadata_json,
-       updated_at::text as updated_at
-     from conversations
-     where user_id = $1::uuid
+       c.external_session_id,
+       c.metadata_json,
+       c.updated_at::text as updated_at,
+       (select count(*)::text from messages m where m.conversation_id = c.id) as actual_message_count
+     from conversations c
+     where c.user_id = $1::uuid
+       and c.is_deleted = false
+       and exists (select 1 from messages m where m.conversation_id = c.id and m.role = 'user')
+       and exists (select 1 from messages m where m.conversation_id = c.id and m.role = 'assistant')
      order by
-       coalesce((metadata_json ->> '_syncIndexOrder')::integer, 2147483647),
-       updated_at desc`,
+       coalesce((c.metadata_json ->> '_syncIndexOrder')::integer, 2147483647),
+       c.updated_at desc`,
     [appUserId],
   );
 
@@ -394,7 +416,10 @@ export async function buildNormalizedChatIndexSnapshot(
         : "",
     createdAt: Number(row.metadata_json?.createdAt || 0) || 0,
     lastUpdate: Number(row.metadata_json?.lastUpdate || 0) || 0,
-    messageCount: Number(row.metadata_json?._syncMessageCount || 0) || 0,
+    messageCount:
+      Number(row.actual_message_count || 0) ||
+      Number(row.metadata_json?._syncMessageCount || 0) ||
+      0,
   }));
 
   const statePayload =

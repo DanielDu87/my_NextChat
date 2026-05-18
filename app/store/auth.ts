@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
+const IMPERSONATION_FLAG_KEY = "nextchat_impersonation_active";
 
 type AuthUserInfo = {
   id: string;
@@ -38,6 +39,29 @@ function setCacheMarker(userId: string) {
   getLocalStorage()?.setItem(AUTH_CACHE_MARKER_KEY, userId);
 }
 
+function setImpersonationFlag() {
+  try {
+    sessionStorage.setItem(IMPERSONATION_FLAG_KEY, Date.now().toString());
+  } catch {}
+}
+
+function clearImpersonationFlag() {
+  try {
+    sessionStorage.removeItem(IMPERSONATION_FLAG_KEY);
+  } catch {}
+}
+
+function checkAndClearImpersonationFlag(): boolean {
+  try {
+    const flag = sessionStorage.getItem(IMPERSONATION_FLAG_KEY);
+    if (flag) {
+      clearImpersonationFlag();
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 async function resetClientCache(nextUserId = "") {
   await clearPersistedStateStorage();
   if (nextUserId) {
@@ -54,6 +78,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   readOnly: false,
   initialized: false,
   async fetchMe() {
+    const shouldExitImpersonation = checkAndClearImpersonationFlag();
+    if (shouldExitImpersonation) {
+      console.log("[Auth] 检测到页面刷新，退出切换模式");
+      await fetch("/api/admin/switch-user", {
+        method: "DELETE",
+      }).catch(() => null);
+    }
+
     const response = await fetch("/api/auth/me", {
       method: "GET",
       cache: "no-store",
@@ -88,10 +120,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (effectiveUserId && cacheMarker !== effectiveUserId) {
       await resetClientCache(effectiveUserId);
-      if (typeof window !== "undefined") {
-        window.location.reload();
-      }
-      return null;
     }
 
     if (effectiveUserId && !cacheMarker) {
@@ -105,6 +133,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       readOnly: payload?.readOnly === true,
       initialized: true,
     });
+
+    if (shouldExitImpersonation) {
+      window.location.reload();
+      return null;
+    }
 
     return user;
   },
@@ -128,8 +161,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error(String(payload?.error || "切换用户失败"));
     }
 
-    await resetClientCache(String(payload?.effectiveUser?.id || ""));
-    window.location.reload();
+    setImpersonationFlag();
+
+    const effectiveUser = payload.effectiveUser
+      ? {
+          id: String(payload.effectiveUser.id || ""),
+          username: String(payload.effectiveUser.username || ""),
+          displayName: String(payload.effectiveUser.displayName || ""),
+          role: (payload.effectiveUser.role === "admin" ? "admin" : "user") as
+            | "admin"
+            | "user",
+        }
+      : null;
+
+    set({
+      effectiveUser,
+      isImpersonating: true,
+      readOnly: true,
+    });
+
+    await resetClientCache(String(effectiveUser?.id || ""));
+
+    const { useChatStore } = await import("./chat");
+    await useChatStore.getState().resetForUserSwitch();
   },
   async exitSwitch() {
     const response = await fetch("/api/admin/switch-user", {
@@ -140,7 +194,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error(String(payload?.error || "退出查看失败"));
     }
 
-    await resetClientCache(String(payload?.effectiveUser?.id || ""));
+    clearImpersonationFlag();
+
+    const currentUser = get().user;
+    await resetClientCache(String(currentUser?.id || ""));
+
     window.location.reload();
   },
 }));

@@ -214,9 +214,9 @@
 .manageListItem {
   margin-bottom: 6px;
   display: block;
-  border: 2px solid #d6dde6;
+  border: 1px solid var(--border-in-light);
   border-radius: 12px;
-  background: var(--white);
+  background: var(--hover-color);
   box-shadow: none;
   width: 100%;
   box-sizing: border-box;
@@ -230,17 +230,28 @@
 
 .manageList .manageListItem:last-child {
   margin-bottom: 0;
-  border: 2px solid #d6dde6;
 }
 
 .manageListItemActive {
-  border-color: #d6dde6;
-  background: rgba(72, 154, 221, 0.1);
+  background: rgba(72, 154, 221, 0.12);
   box-shadow: none;
 }
 
 .manageListItemActive:hover {
-  background: rgba(72, 154, 221, 0.16);
+  background: rgba(72, 154, 221, 0.18);
+}
+
+.switchUserInfo {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--black-alpha-80);
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.switchUserInfo strong {
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .manageListItem :global(.list-header) {
@@ -401,25 +412,20 @@
 :global(body.dark) .manageModal {
   .manageListItem,
   .manageList .manageListItem:last-child {
-    border-color: rgba(100, 116, 139, 0.72);
-    background: linear-gradient(
-      180deg,
-      rgba(30, 41, 59, 0.96) 0%,
-      rgba(15, 23, 42, 0.96) 100%
-    );
+    border-color: rgba(100, 116, 139, 0.4);
+    background: rgba(51, 65, 85, 0.5);
   }
 
   .manageListItem:hover {
-    background: rgba(59, 130, 246, 0.14);
-  }
-
-  .manageListItemActive {
-    border-color: rgba(100, 116, 139, 0.72);
     background: rgba(59, 130, 246, 0.18);
   }
 
+  .manageListItemActive {
+    background: rgba(59, 130, 246, 0.22);
+  }
+
   .manageListItemActive:hover {
-    background: rgba(59, 130, 246, 0.24);
+    background: rgba(59, 130, 246, 0.28);
   }
 
   .userInfoLabel {
@@ -435,25 +441,20 @@
   :global(body:not(.light):not(.dark)) .manageModal {
     .manageListItem,
     .manageList .manageListItem:last-child {
-      border-color: rgba(100, 116, 139, 0.72);
-      background: linear-gradient(
-        180deg,
-        rgba(30, 41, 59, 0.96) 0%,
-        rgba(15, 23, 42, 0.96) 100%
-      );
+      border-color: rgba(100, 116, 139, 0.4);
+      background: rgba(51, 65, 85, 0.5);
     }
 
     .manageListItem:hover {
-      background: rgba(59, 130, 246, 0.14);
-    }
-
-    .manageListItemActive {
-      border-color: rgba(100, 116, 139, 0.72);
       background: rgba(59, 130, 246, 0.18);
     }
 
+    .manageListItemActive {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
     .manageListItemActive:hover {
-      background: rgba(59, 130, 246, 0.24);
+      background: rgba(59, 130, 246, 0.28);
     }
 
     .userInfoLabel {

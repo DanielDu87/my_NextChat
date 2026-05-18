@@ -1,0 +1,81 @@
+{
+  "table": "user_model_refresh_states",
+  "rowCount": 2,
+  "timestamp": "2026-05-14T08:52:00.446Z",
+  "data": [
+    {
+      "user_id": "single-user",
+      "refresh_key": "latest",
+      "payload_json": {
+        "providers": [
+          {
+            "profileId": "default_aihubmix_profile",
+            "providerId": "custom_aihubmix",
+            "profileName": "AihubMix",
+            "fetchedCount": 758
+          },
+          {
+            "profileId": "default_yuto_profile",
+            "providerId": "custom_yutoapi",
+            "profileName": "YutoAPI",
+            "fetchedCount": 1063
+          },
+          {
+            "profileId": "default_ocool_profile",
+            "providerId": "custom_ocoolai",
+            "profileName": "Ocoolai",
+            "fetchedCount": 653
+          },
+          {
+            "profileId": "default_toapis_profile",
+            "providerId": "custom_toapis",
+            "profileName": "ToAPIs",
+            "fetchedCount": 102
+          }
+        ],
+        "finishedAt": "2026-04-08T12:57:22.469Z",
+        "modelCount": 2576,
+        "triggerSource": "manual_sync"
+      },
+      "created_at": "2026-04-08T12:57:24.550Z",
+      "updated_at": "2026-04-08T12:57:24.550Z"
+    },
+    {
+      "user_id": "user:admin",
+      "refresh_key": "latest",
+      "payload_json": {
+        "providers": [
+          {
+            "profileId": "default_aihubmix_profile",
+            "providerId": "custom_aihubmix",
+            "profileName": "AihubMix",
+            "fetchedCount": 796
+          },
+          {
+            "profileId": "default_yuto_profile",
+            "providerId": "custom_yutoapi",
+            "profileName": "YutoAPI",
+            "fetchedCount": 1099
+          },
+          {
+            "profileId": "default_ocool_profile",
+            "providerId": "custom_ocoolai",
+            "profileName": "Ocoolai",
+            "fetchedCount": 648
+          },
+          {
+            "profileId": "default_toapis_profile",
+            "providerId": "custom_toapis",
+            "profileName": "ToAPIs",
+            "fetchedCount": 101
+          }
+        ],
+        "finishedAt": "2026-05-12T02:43:43.614Z",
+        "modelCount": 2644,
+        "triggerSource": "manual_sync"
+      },
+      "created_at": "2026-04-08T08:27:23.193Z",
+      "updated_at": "2026-05-12T02:43:43.646Z"
+    }
+  ]
+}

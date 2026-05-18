@@ -18,6 +18,12 @@ NextChat 是一个基于 Next.js 14 的跨平台 AI 聊天应用，支持多个 
 本地应用 → host.docker.internal:15432 → SSH 隧道 → 远程数据库:5432
 ```
 
+### 数据库规范
+
+- ✅ **本地开发**：通过 SSH 隧道连接远程数据库
+- ❌ **禁止使用**：本地 Docker PostgreSQL 容器（`--profile local-db`）
+- ✅ **远程服务器部署**：直接连接本地数据库（localhost:5432）
+
 ### 开发前必须操作
 
 启动应用前，必须先建立 SSH 隧道：
@@ -28,19 +34,85 @@ ssh -f -N -L 15432:127.0.0.1:5432 root@42.193.15.117 -p 222
 
 详细说明请参考 [docs/development.md](./docs/development.md)
 
+## Git 提交规范
+
+**⚠️ 重要：只有用户明确说"提交"时才执行 git commit 和 push。**
+
+### 提交规则
+
+1. **不主动提交**
+   - 开发过程中不自动提交代码
+   - 完成修改后不主动提交
+   - 只有当用户明确说"提交"、"commit"、"提交代码"等明确指令时才执行提交
+
+2. **提交后自动推送**
+   - 执行 `git commit` 后自动执行 `git push`
+   - 确保本地提交同步到远程仓库
+
+3. **提交信息格式**
+   ```
+   YYYY-MM-DD HH:MM 提交内容描述
+   ```
+
+### 提交流程
+
+当用户说"提交"时：
+
+```bash
+# 1. 暂存所有修改
+git add -A
+
+# 2. 创建提交（使用规范格式）
+git commit -m "$(cat <<'EOF'
+2026-05-15 10:30 提交内容描述
+
+详细说明（可选）
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+EOF
+)"
+
+# 3. 推送到远程
+git push
+```
+
+### 示例对话
+
+**错误示例（不要这样做）：**
+```
+用户: "修改完成了"
+助手: [自动执行 git commit] ❌ 错误！
+```
+
+**正确示例：**
+```
+用户: "修改完成了"
+助手: "修改已完成。" ✅ 正确，不提交
+
+用户: "提交"
+助手: [执行 git add、git commit、git push] ✅ 正确
+```
+
 ## 常用命令
 
 ### 开发
 
+**⚠️ 重要：本地开发必须使用 Docker 热加载模式，禁止直接使用 `yarn dev`。**
+
+脚本会自动处理 SSH 隧道（绑定 0.0.0.0 供容器访问）、构建镜像、启动容器，代码修改自动热更新。
+
 ```bash
-# 本地开发（包含 mask 监听）
-yarn dev
+# 启动 Docker 热加载开发环境（标准方式）
+bash scripts/dev-docker-start.sh
 
-# 仅启动 Next.js（不监听 mask）
-next dev
-
-# Tauri 桌面应用开发
+# Tauri 桌面应用开发（例外，不走 Docker）
 yarn app:dev
+```
+
+停止开发环境：
+
+```bash
+docker-compose --profile dev down
 ```
 
 ### 构建

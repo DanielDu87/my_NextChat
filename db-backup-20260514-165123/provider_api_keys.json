@@ -1,0 +1,381 @@
+{
+  "table": "provider_api_keys",
+  "rowCount": 22,
+  "timestamp": "2026-05-14T08:52:00.207Z",
+  "data": [
+    {
+      "id": "24f44db6-1198-4e91-921e-6b7b98f66e4e",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "6fIuiSThV7B4t0UPfCnlYzzjrb/I9JgNJxm+/MuhMLt50E9+r5xy5ldc+EIn84jHXdzqhamcsQ82/jHJfZpdHkjounEOWaj0S1MCGvXlNKxa",
+      "masked_secret": "sk-k***217a",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "2691c37f-78c3-458c-b5d1-57ce7fa88445",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "group:default",
+      "key_scope": "group",
+      "api_key_group": "default",
+      "encrypted_secret": "T0cAb+jllW0eV7a/+PfTWGmVTm6y6B33cr0I0SIRdQQYLWqUxgRVam7r6O5IVKeJrcgNT5A+11SELxxznEEfYVCUrUgDSCtkYXVOu2MavXGu",
+      "masked_secret": "sk-T***JApt",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "0f7e5323-0cbc-486c-ab9d-4795a79bb752",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "group:user",
+      "key_scope": "group",
+      "api_key_group": "user",
+      "encrypted_secret": "qe55KNj96bsNrRTiVI7kLEeDUORkFmKNkYj3ZYIMdb0R3/qdpxe+SdTvS7B8ny0VMGfRhfDD+c6MFsOjMFJw8P6ZXYSQPVeYEQo9C0tt8qp6",
+      "masked_secret": "sk-k***217a",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "c43762de-4e67-44f0-b35f-a4cd30c628d4",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "group:discount",
+      "key_scope": "group",
+      "api_key_group": "discount",
+      "encrypted_secret": "Vbw7yWJfc0t8oE7SXCeTDErcbSjZy+LDP6Hr0l6SmsR+GZNyPdtzrU0RfCqMSXvYdl8xUZf8i/TjXJO9ee8bSPduTB43vYpHguTXKjx8gPKt",
+      "masked_secret": "sk-J***7nLv",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "46530b68-fd0b-4e86-b3c0-0113cc361e58",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "group:anthropic",
+      "key_scope": "group",
+      "api_key_group": "anthropic",
+      "encrypted_secret": "gAl2GkqgSf6al1rTWKDYxODcCtJ0bYKxUdQBjPETXPOZnM12ruphxPtajuHpe811EvZJ4PC+D77vqYVmIXjKupOHtH2mK9k0TPMAHHjI8aAx",
+      "masked_secret": "sk-g***kHEt",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "5c06f618-2ae4-41c1-ab35-4e901da54a90",
+      "provider_config_id": "5ec3e364-00a0-44dd-8a7d-0e6230840e7d",
+      "key_name": "group:enterprise",
+      "key_scope": "group",
+      "api_key_group": "enterprise",
+      "encrypted_secret": "ELlLcEzYUgrEKlEa0EmGsuiazgWh/s/McTEVlYgtxj/fRASL7zhtVUGDR5SsCEGES2i2UzufDwDjdLoRykKoUCkp9+H31yx2HPW502GaNX7N",
+      "masked_secret": "sk-5***xNTj",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "169fa13c-a8c1-4059-8de0-5142dfb04b51",
+      "provider_config_id": "869212f1-247c-4930-b307-1c2b5bc108b5",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "qRPlADVjH+8zN0jFOxIZE8csoOjhs4BX1IWwzLYXuD5anwKOQmNsmx4tQHJQEMrgZOwTevpcRH7kHKZ7hDM=",
+      "masked_secret": "1e64***cf0b",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "6f878a23-5b80-43ac-885f-de7a51130cf3",
+      "provider_config_id": "0746d929-dc7d-4253-919f-1702fa54124e",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "0xoU1arfOQ/inz5hbq91eSri3j5s1bn8U/IFw0vHVZq3o3mIpGTtR6YeqPeeCqlhxH+zGyT14n9nhXCmI/dbC1YtqfKSU+RnVv536nl3aIAK",
+      "masked_secret": "sk-P***rSBx",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T06:41:57.478Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "6c0ae1d7-7d34-4c4b-a347-3d4d13b151d9",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "group:discount",
+      "key_scope": "group",
+      "api_key_group": "discount",
+      "encrypted_secret": "ya5DIyT2/sxcv8fI4kW3jrQehZ5qD70Ar8t628n8PAxiF075JdTraARrU/DgD1V65TymJiOcWobR87470qd09Sw5aJOqdK/Iije7E4ZhmDDd",
+      "masked_secret": "sk-J***7nLv",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "46171c39-5f90-4751-9e09-2e6dbafee6e3",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "group:anthropic",
+      "key_scope": "group",
+      "api_key_group": "anthropic",
+      "encrypted_secret": "vEQiVqvZoyYQFh2SOwx718Rap9QCH0EDDWNXq1J/s5RryZHFdDinAZ/Vx3DUm5KE2dh8xjOxgM+i1l9ip+Q1E3khp+B0VUjek4ddDbNzJwox",
+      "masked_secret": "sk-g***kHEt",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "ed92eb51-65ca-4a1a-981e-59037282910e",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "group:enterprise",
+      "key_scope": "group",
+      "api_key_group": "enterprise",
+      "encrypted_secret": "7LQiaeroRCB6RCAUW2ImZJbwaGbbMpvWBJXyNa16xA/shZmHr5c/X/W0AvgG3u2qqkOs+l1BkjinLlWH5gNZT9jHmQrHtTGu5Recrz3QMXRg",
+      "masked_secret": "sk-5***xNTj",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "57a963e6-bb91-4c9b-ad5d-a5f85e607506",
+      "provider_config_id": "410de5d4-ac2f-4cd3-8bdf-a2a7cb4ce8eb",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "5w/NsUCtHiEPxMantAVGuQ+u8DRyYkQloI8FuaxrNKlxYNbsqQmDgtZXifBYZwGslq//SQGpANDhUM0t1ZA=",
+      "masked_secret": "1e64***cf0b",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "fed98f61-2e39-4258-800e-243deced6510",
+      "provider_config_id": "6db35780-d743-4700-9a6c-8beecf151586",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "JdP/6IA9Vq/xh24Bbbj+rztR8qGNGepMcKdVOEJ6jccrKgStuM+Hbdy/Z0RSgbi/5XO/hg6o16logi0zq36WKzghJYjyL+irDC4AjORiKhFI",
+      "masked_secret": "sk-P***rSBx",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "cd9dd8e9-ee5a-419f-b2ea-8ee49bc88f8d",
+      "provider_config_id": "26ca9091-4ea1-43f9-bd9b-b6d186fb059b",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "TV/HzH/1Vmsz0SIUxadlhCordL0GvpunLWRX4JzINxDtDqRwKN0mA7nsOSmuimXcOazr1YSX1J+pfTCaSfdKWNoMBcIZWXS67h6DBu6y+TeT",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "2e40b80a-3528-4f02-b916-ea2f60c7c299",
+      "provider_config_id": "26ca9091-4ea1-43f9-bd9b-b6d186fb059b",
+      "key_name": "group:default",
+      "key_scope": "group",
+      "api_key_group": "default",
+      "encrypted_secret": "6n4wkC1kywwdtUJyTAnqdjZOMf9CjLnaH0mYLN+w9EzyEcT/tjpKOZGd0b1Kjy+7v5+DhUSTNYZpWsIJs6jzC9HhUvz/jsNzxCpsZNHGZH3L",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "2d1b77b4-24de-414f-add2-46202437a416",
+      "provider_config_id": "26ca9091-4ea1-43f9-bd9b-b6d186fb059b",
+      "key_name": "group:user",
+      "key_scope": "group",
+      "api_key_group": "user",
+      "encrypted_secret": "4I9XKwuvA//i/5fja+U31eUVuQIblGv6BBh2tTmgE2KmEkupOThNG6dWpfdTmFa3Mv29xa3AOQXWTRhUoafZCj9hfG35jtCCU19tJ8iduzKT",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "99b3c47c-b15a-40a8-a883-be41233be944",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "UWG8qEcfXO26GmpMVFddq4tL//ICb7Zvf2ztddD9MEkjVkDhbg58eQ6+UUfxD7NZqFtjhSwCPnkDVlwR51tXe3t4IQqFxRDVRf+9WOBGpNjv",
+      "masked_secret": "sk-k***217a",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "84ff5824-9c7f-455c-92e6-fe2d43c0e5b3",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "group:default",
+      "key_scope": "group",
+      "api_key_group": "default",
+      "encrypted_secret": "pOooCQw+aiER2JKbB9DZ3J7pdnckqPgyYbGtwsh01S262oCubTr6/MW9OTOU9S77XDHGXZzsXyq7GaAVNWd9v/Z6i1lwk1K9fNy2fsdCl4Vt",
+      "masked_secret": "sk-T***JApt",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "ec94ea63-68cc-4075-952d-34fb2c9f469c",
+      "provider_config_id": "096ebcf9-6aa6-4cdc-a814-3fa373bcb4b8",
+      "key_name": "group:user",
+      "key_scope": "group",
+      "api_key_group": "user",
+      "encrypted_secret": "V8BglLFa73PeXznUS/I39Vxrsw2v6h/GEUhE9A27xSkNVg1TbrOD0ULfH3dXm29jww/O/SPidZSSiGASk9cwB+MY7pDn7bYXCfS1sto3sKA2",
+      "masked_secret": "sk-k***217a",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T04:24:18.642Z",
+      "updated_at": "2026-05-13T07:09:56.685Z"
+    },
+    {
+      "id": "5ce1b10e-2edb-40db-9d92-8584357e5fee",
+      "provider_config_id": "cf22b6ac-b247-4b43-adf8-08db1d8419da",
+      "key_name": "default",
+      "key_scope": "api",
+      "api_key_group": null,
+      "encrypted_secret": "dmTScdcQGocJkteB602jC8ev6sdG7XpSe/0oxcztb7LG/HDhZp3Q6SkLkQR6FesgNcB7vx7I/00oEjQLxUmWdVT9FAXSH7J0IHiLLwxfYXAu",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-05T04:22:24.663Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "f2d0ecad-671b-4863-820b-c5fe85e6028e",
+      "provider_config_id": "cf22b6ac-b247-4b43-adf8-08db1d8419da",
+      "key_name": "group:default",
+      "key_scope": "group",
+      "api_key_group": "default",
+      "encrypted_secret": "SsA2vQTpPS/fYdPK3cvt3dLughe18S6usujVEQO3qC24ISxlZ7NInioaSnGrxaqtvtfExC3CDa4t1fPhiT8FfmWkjgDEFgjazs/b/fsac2iR",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T07:57:06.189Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    },
+    {
+      "id": "5b0ebf71-48ac-4839-ab73-1717df9cfb20",
+      "provider_config_id": "cf22b6ac-b247-4b43-adf8-08db1d8419da",
+      "key_name": "group:user",
+      "key_scope": "group",
+      "api_key_group": "user",
+      "encrypted_secret": "1oqmXtf9d7aNPOg/KT+GPh/bdcvJ6YgWhAxK0sWIYVOl0msLSw426aSogwgiUUz1QJ1IgPLv09RBCwYDkl5R4YRvrHOc1X1H35jYZuk6wP8b",
+      "masked_secret": "sk-B***40B3",
+      "metadata_json": {
+        "syncedFrom": "access-control"
+      },
+      "is_enabled": true,
+      "last_verified_at": null,
+      "expires_at": null,
+      "created_at": "2026-04-07T07:57:06.189Z",
+      "updated_at": "2026-05-14T08:25:23.062Z"
+    }
+  ]
+}

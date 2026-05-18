@@ -19,8 +19,8 @@ export async function getOrCreateSyncAppUserId(externalUserId: string) {
   }
 
   const inserted = await pgQuery<{ id: string }>(
-    `insert into app_users (external_id, display_name, profile_json)
-     values ($1, $2, '{}'::jsonb)
+    `insert into app_users (external_id, display_name)
+     values ($1, $2)
      on conflict (external_id) do update set
        updated_at = now()
      returning id::text as id`,

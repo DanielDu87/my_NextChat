@@ -26,6 +26,7 @@ import {
   createChatIndexEntryMap,
   createChatSessionMap,
   getSyncableChatSessions,
+  shouldSyncChatSession,
   type ChatIndexSessionEntry,
 } from "../utils/chat-sync";
 import { INITIAL_HYDRATED_RECENT_SESSION_LIMIT } from "../utils/chat-persist-storage";
@@ -339,9 +340,7 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
 function getStoreSummary(key: SyncStoreKey, state: any) {
   switch (key) {
     case StoreKey.Chat:
-      return `${
-        Array.isArray(state?.sessions) ? state.sessions.length : 0
-      } 个会话`;
+      return getChatStoreSummary(state);
     case StoreKey.Plugin:
       return `${Object.keys(state?.plugins ?? {}).length} 个插件`;
     case StoreKey.Access:
@@ -363,6 +362,17 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
     default:
       return "0 项";
   }
+}
+
+function getChatStoreSummary(state: any) {
+  const totalCount = Array.isArray(state?.sessions) ? state.sessions.length : 0;
+  const syncableCount = buildChatIndexPayload(state || {}).sessions.length;
+
+  if (totalCount === syncableCount) {
+    return `${totalCount} 个会话`;
+  }
+
+  return `${totalCount} 个会话（可同步 ${syncableCount} 个）`;
 }
 
 function isSyncStoreKey(key: unknown): key is SyncStoreKey {
@@ -564,8 +574,72 @@ function buildMetaMap(
 }
 
 function normalizeMergedChatState(chatState: any) {
-  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
-  const preferredSessionId = String(chatState?.selectedSessionId || "");
+  const rawSessions = Array.isArray(chatState?.sessions)
+    ? chatState.sessions
+    : [];
+  const selectedId = String(chatState?.selectedSessionId || "");
+
+  // 构建远端索引和 summary 的查找表，用于判断占位符
+  const existingSummaries = Array.isArray(chatState?.sessionSummaries)
+    ? chatState.sessionSummaries
+    : [];
+  const existingSummaryMap = new Map<string, any>(
+    existingSummaries
+      .filter((s: any) => s?.id)
+      .map((s: any) => [String(s.id), s]),
+  );
+  const remoteIndexEntries = Array.isArray(chatState?.remoteIndexSessions)
+    ? (chatState.remoteIndexSessions as ChatIndexSessionEntry[])
+    : [];
+  const remoteEntryMap = new Map<string, ChatIndexSessionEntry>(
+    remoteIndexEntries.filter((e) => e?.id).map((e) => [String(e.id), e]),
+  );
+
+  // 判断是否为占位符（本地 messages 为空，但远端/summary 有数据）
+  const isPlaceholder = (session: any) => {
+    const msgs = session?.messages;
+    if (Array.isArray(msgs) && msgs.length > 0) return false;
+    const id = String(session?.id || "");
+    // 标记为 _syncPlaceholder 的远端占位符
+    if (session?._syncPlaceholder) return true;
+    // summary 记录有消息但本地还没加载
+    const summary = existingSummaryMap.get(id);
+    if (summary && Number(summary.messageCount || 0) > 0) return true;
+    // 远端索引记录有消息
+    const remoteEntry = remoteEntryMap.get(id);
+    if (remoteEntry && Number(remoteEntry.messageCount || 0) > 0) return true;
+    return false;
+  };
+
+  // 判断对话是否同时有 user 和 assistant 消息
+  const hasBothSides = (session: any) => {
+    const msgs = session?.messages;
+    if (!Array.isArray(msgs) || msgs.length === 0) return false;
+    let hasUser = false;
+    let hasAssistant = false;
+    for (const msg of msgs) {
+      if (msg?.role === "user") hasUser = true;
+      if (msg?.role === "assistant") hasAssistant = true;
+      if (hasUser && hasAssistant) return true;
+    }
+    return false;
+  };
+
+  // 保留规则：有完整消息的 + 占位符（远端有数据但未下载） + 唯一一个默认空对话
+  let foundDefaultEmpty = false;
+  const sessions = rawSessions.filter((session: any) => {
+    if (hasBothSides(session)) return true;
+    if (isPlaceholder(session)) return true;
+    if (isDefaultEmptyChatSession(session) && !foundDefaultEmpty) {
+      foundDefaultEmpty = true;
+      return true;
+    }
+    return false;
+  });
+  if (sessions.length === 0) {
+    sessions.push(createEmptySession());
+  }
+  const preferredSessionId = selectedId;
   const preferredSessionIndex = preferredSessionId
     ? sessions.findIndex((session: any) => session?.id === preferredSessionId)
     : -1;
@@ -576,19 +650,6 @@ function normalizeMergedChatState(chatState: any) {
           Math.max(Number(chatState?.currentSessionIndex) || 0, 0),
           Math.max(sessions.length - 1, 0),
         );
-  const existingSummaries = Array.isArray(chatState?.sessionSummaries)
-    ? chatState.sessionSummaries
-    : [];
-  const existingSummaryMap = new Map<string, ChatSessionSummary>(
-    existingSummaries
-      .filter((summary: any) => summary?.id)
-      .map((summary: any) => [summary.id, summary as ChatSessionSummary]),
-  );
-  const remoteIndexEntryMap = createChatIndexEntryMap(
-    Array.isArray(chatState?.remoteIndexSessions)
-      ? (chatState.remoteIndexSessions as ChatIndexSessionEntry[])
-      : [],
-  );
   const hydratedSessionIds = Array.isArray(chatState?.hydratedSessionIds)
     ? chatState.hydratedSessionIds.filter(
         (sessionId: unknown) =>
@@ -605,7 +666,7 @@ function normalizeMergedChatState(chatState: any) {
         .map((session: any) => session.id);
   const sessionSummaries = sessions.map((session: any) => {
     const existingSummary = existingSummaryMap.get(session?.id);
-    const remoteIndexEntry = remoteIndexEntryMap.get(String(session?.id || ""));
+    const remoteIndexEntry = remoteEntryMap.get(String(session?.id || ""));
     const hasMessages =
       Array.isArray(session?.messages) && session.messages.length > 0;
 
@@ -687,6 +748,31 @@ function isRemoteSessionPlaceholder(
   );
 }
 
+function isDefaultChatTopic(topic: unknown) {
+  const normalizedTopic = String(topic || "").trim();
+  const localeDefaultTopic = String(Locale.Store?.DefaultTopic || "").trim();
+
+  return (
+    !normalizedTopic ||
+    normalizedTopic === localeDefaultTopic ||
+    normalizedTopic === "新的聊天" ||
+    normalizedTopic === "New Chat"
+  );
+}
+
+function isDefaultEmptyChatSession(session: any) {
+  if (!session?.id) {
+    return false;
+  }
+
+  const messages = getSessionMessages(session);
+  return (
+    messages.length === 0 &&
+    isDefaultChatTopic(session.topic) &&
+    !session.memoryPrompt
+  );
+}
+
 function createSessionSummaryMap(chatState: any) {
   const sessionSummaries = Array.isArray(chatState?.sessionSummaries)
     ? chatState.sessionSummaries
@@ -709,6 +795,27 @@ function isLocallyPrunedSession(session: any, summary: any) {
   );
 }
 
+function shouldKeepSessionInUploadIndex(
+  session: PlaceholderChatSession,
+  summary: any,
+  remoteEntry: ChatIndexSessionEntry | undefined,
+) {
+  if (!session?.id || isDefaultEmptyChatSession(session)) {
+    return false;
+  }
+
+  if (isRemoteSessionPlaceholder(session) && remoteEntry) {
+    return true;
+  }
+
+  // pruned session 只有远端有记录时才保留在索引里，否则是孤儿会话
+  if (isLocallyPrunedSession(session, summary)) {
+    return !!remoteEntry;
+  }
+
+  return shouldSyncChatSession(session);
+}
+
 function buildUploadChatIndexPayload(
   chatState: any,
   remoteEntryMap: Map<string, ChatIndexSessionEntry>,
@@ -729,7 +836,14 @@ function buildUploadChatIndexPayload(
   } = chatState ?? {};
 
   const sessionEntries = sessions
-    .filter((session: PlaceholderChatSession) => session?.id)
+    .filter((session: PlaceholderChatSession) => {
+      const sessionId = String(session?.id || "");
+      return shouldKeepSessionInUploadIndex(
+        session,
+        summaryMap.get(sessionId),
+        remoteEntryMap.get(sessionId),
+      );
+    })
     .map((session: PlaceholderChatSession) => {
       const sessionId = String(session.id || "");
       const remoteEntry = remoteEntryMap.get(sessionId);
@@ -804,6 +918,14 @@ function buildUploadableChatSessionMap(chatState: any) {
       return;
     }
 
+    if (isDefaultEmptyChatSession(session)) {
+      return;
+    }
+
+    if (!shouldSyncChatSession(session)) {
+      return;
+    }
+
     sessionMap.set(sessionId, session as Record<string, unknown>);
   });
 
@@ -849,17 +971,7 @@ function prependLeadingEmptySession(
 }
 
 function findLocalLeadingEmptySession(sessions: any[]) {
-  return sessions.find((session: any) => {
-    const topic = String(session?.topic || "");
-    const isDefaultTopic =
-      !topic || topic === "新的聊天" || topic === "New Chat";
-    return (
-      !!session?.id &&
-      isDefaultTopic &&
-      getSessionMessages(session).length === 0 &&
-      !session?.memoryPrompt
-    );
-  });
+  return sessions.find((session: any) => isDefaultEmptyChatSession(session));
 }
 
 async function materializeLocalChatState(chatState: any, lightMode = false) {
@@ -1327,7 +1439,7 @@ export const useSyncStore = createPersistStore(
         remoteSessionsWithPlaceholders,
       );
       const normalizedLocalChatState = applyDeletedSessionsToChatState(
-        localChatState,
+        materializedLocalChatState,
         mergedDeletedSessionTimestamps,
       );
       const normalizedRemoteChatState = applyDeletedSessionsToChatState(
@@ -1343,9 +1455,6 @@ export const useSyncStore = createPersistStore(
         const mergedIndex = buildUploadChatIndexPayload(
           normalizedRemoteChatState as any,
           remoteEntryMap,
-        );
-        const mergedSessionMap = createChatSessionMap(
-          normalizedRemoteChatState.sessions,
         );
         const uploadableSessionMap = buildUploadableChatSessionMap(
           normalizedRemoteChatState,
@@ -1534,6 +1643,64 @@ export const useSyncStore = createPersistStore(
         normalizedLocalChatState,
         normalizedRemoteChatState as any,
       );
+
+      // 识别孤儿会话：messages 为空、远端索引也没有消息内容、且非当前选中会话
+      // 包含两种情况：
+      // 1. 在远端索引有记录但 messageCount=0（曾同步过的空会话）
+      // 2. 不在远端索引但在数据库里存在的空会话（通过 deleteSessionIds 清理）
+      const mergedSummaryMap = createSessionSummaryMap(mergedStoreState);
+      const currentSelectedSessionId = String(
+        (mergedStoreState as any)?.selectedSessionId ||
+          (mergedStoreState as any)?.sessions?.[
+            (mergedStoreState as any)?.currentSessionIndex ?? 0
+          ]?.id ||
+          "",
+      );
+      const orphanSessionIds = new Set<string>(
+        (Array.isArray((mergedStoreState as any)?.sessions)
+          ? (mergedStoreState as any).sessions
+          : []
+        )
+          .filter((session: any) => {
+            const sessionId = String(session?.id || "");
+            if (!sessionId) return false;
+            if (sessionId === currentSelectedSessionId) return false;
+            const messages = Array.isArray(session?.messages)
+              ? session.messages
+              : [];
+            if (messages.length > 0) return false;
+            const remoteEntry = remoteEntryMap.get(sessionId);
+            const remoteMessageCount = Number(remoteEntry?.messageCount || 0);
+            const localSummaryCount = Number(
+              mergedSummaryMap.get(sessionId)?.messageCount || 0,
+            );
+            // 本地和远端都没有消息内容
+            return remoteMessageCount === 0 && localSummaryCount === 0;
+          })
+          .map((session: any) => String(session.id)),
+      );
+      if (orphanSessionIds.size > 0) {
+        syncConsole(
+          "log",
+          `[Sync] 🧹 清理孤儿会话 ${orphanSessionIds.size} 个:`,
+          [...orphanSessionIds],
+        );
+        (mergedStoreState as any).sessions = (
+          Array.isArray((mergedStoreState as any)?.sessions)
+            ? (mergedStoreState as any).sessions
+            : []
+        ).filter(
+          (session: any) => !orphanSessionIds.has(String(session?.id || "")),
+        );
+        (mergedStoreState as any).sessionSummaries = (
+          Array.isArray((mergedStoreState as any)?.sessionSummaries)
+            ? (mergedStoreState as any).sessionSummaries
+            : []
+        ).filter(
+          (summary: any) => !orphanSessionIds.has(String(summary?.id || "")),
+        );
+      }
+
       const mergedIndex = buildUploadChatIndexPayload(
         mergedStoreState as any,
         remoteEntryMap,
@@ -1557,15 +1724,20 @@ export const useSyncStore = createPersistStore(
         .map(
           (session: unknown) => session as unknown as Record<string, unknown>,
         );
-      const deleteSessionIds = [...remoteEntryMap.keys()].filter(
-        (sessionId) =>
-          !mergedSessionMap.has(sessionId) ||
-          wasChatSessionDeleted(
-            sessionId,
-            remoteEntryMap.get(sessionId)?.lastUpdate || 0,
-            mergedDeletedSessionTimestamps,
-          ),
-      );
+      const deleteSessionIds = [
+        // 远端有但合并后不存在的会话（已删除或孤儿）
+        ...[...remoteEntryMap.keys()].filter(
+          (sessionId) =>
+            !mergedSessionMap.has(sessionId) ||
+            wasChatSessionDeleted(
+              sessionId,
+              remoteEntryMap.get(sessionId)?.lastUpdate || 0,
+              mergedDeletedSessionTimestamps,
+            ),
+        ),
+        // 所有孤儿会话都通知服务端删除（包括不在远端索引里的）
+        ...[...orphanSessionIds],
+      ];
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
@@ -1860,7 +2032,7 @@ export const useSyncStore = createPersistStore(
           downloadOnlyChat?: boolean;
         },
       ): Promise<void> {
-        if (useAuthStore.getState().readOnly) {
+        if (useAuthStore.getState().readOnly && !options?.downloadOnlyChat) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过同步请求");
           return;
         }
@@ -2330,6 +2502,38 @@ export const useSyncStore = createPersistStore(
                       )}`,
                     );
 
+                    if (options?.downloadOnlyChat !== true) {
+                      try {
+                        const latestRemoteIndex = await client.getChatIndex();
+                        const localSyncableCount = buildChatIndexPayload(
+                          chatResult.mergedStoreState as any,
+                        ).sessions.length;
+                        const remoteSyncableCount = Array.isArray(
+                          latestRemoteIndex?.sessions,
+                        )
+                          ? latestRemoteIndex.sessions.length
+                          : 0;
+
+                        if (localSyncableCount !== remoteSyncableCount) {
+                          syncConsole(
+                            "warn",
+                            `[Sync] ⚠️ 会话上传后复核不一致: 本地可同步 ${localSyncableCount} 个，远端 ${remoteSyncableCount} 个`,
+                          );
+                        } else {
+                          syncConsole(
+                            "log",
+                            `[Sync] ✅ 会话上传后复核一致: ${remoteSyncableCount} 个可同步会话`,
+                          );
+                        }
+                      } catch (verifyError) {
+                        syncConsole(
+                          "warn",
+                          "[Sync] ⚠️ 会话上传后复核失败:",
+                          verifyError,
+                        );
+                      }
+                    }
+
                     logSyncDebug(
                       `[Sync] 📦 [${stepLabel}] ${displayName}分片统计:`,
                       {
@@ -2532,8 +2736,17 @@ export const useSyncStore = createPersistStore(
         source?: string;
       }) {
         if (useAuthStore.getState().readOnly) {
-          logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过远端聊天检查");
-          return false;
+          logSyncDebug("[Sync] 🔕 当前为只读查看模式，尝试 downloadOnly 拉取");
+          try {
+            await this.sync([StoreKey.Chat], {
+              isolateQueue: true,
+              force: true,
+              downloadOnlyChat: true,
+            });
+          } catch {
+            return false;
+          }
+          return true;
         }
 
         const now = Date.now();

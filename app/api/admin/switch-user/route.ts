@@ -32,19 +32,28 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({
       ok: true,
       effectiveUser: target,
-      readOnly: false,
+      readOnly: true,
+      isImpersonating: true,
     });
+
+    const isHttps =
+      req.headers.get("x-forwarded-proto") === "https" ||
+      req.nextUrl.protocol === "https:";
+
+    // 不设置 cookie，只在内存中切换
+    // 这样刷新页面后就会恢复到管理员账户
     response.cookies.set({
       name: getEffectiveUserCookieName(),
       value: target.id,
       httpOnly: true,
       sameSite: "lax",
-      secure:
-        req.headers.get("x-forwarded-proto") === "https" ||
-        req.nextUrl.protocol === "https:",
-      maxAge: 30 * 24 * 60 * 60,
+      secure: isHttps,
       path: "/",
+      // 不设置 maxAge，使其成为会话 cookie
+      // 但即使是会话 cookie，刷新时也不会消失
+      // 所以我们需要在前端处理
     });
+
     return response;
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;

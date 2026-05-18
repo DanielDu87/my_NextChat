@@ -1,18 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import {
-  buildProviderDiffSummaries,
-  countCloudMergedModels,
-  describeModelCountDiff,
-  getCloudMergedPlatformCounts,
-} from "../utils/auto-sync-model-diff";
+import { countCloudMergedModels } from "../utils/auto-sync-model-diff";
 import { StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useChatStore } from "../store/chat";
-import { useChatIndexStore } from "../store/chat-index";
 import { useSyncStore } from "../store/sync";
 import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
@@ -220,75 +214,27 @@ export default function AutoSync() {
     return missingStoreKeys.length > 0;
   };
 
-  const logModelCount = (remoteCount?: number, remoteProviders?: any[]) => {
+  const logModelCount = (remoteCount?: number) => {
     const currentProfiles = useAccessStore.getState().apiProfiles || [];
     const currentModels = useAppConfig.getState().models || [];
     const localTotalCount = countCloudMergedModels(
       currentModels,
       currentProfiles,
     );
-    const localPlatformCounts = getCloudMergedPlatformCounts(
-      currentModels,
-      currentProfiles,
-    );
 
-    autoSyncConsole("log", "[AutoSync] 📊 模型数据汇总:");
-    autoSyncConsole("log", "[AutoSync] 📍 本地数据:");
-    autoSyncConsole("log", `[AutoSync] - 本地模型总数: ${localTotalCount} 个`);
-    autoSyncConsole("log", "[AutoSync] 📋 本地各平台模型数量:");
-    localPlatformCounts.forEach(({ name, count }) => {
-      autoSyncConsole("log", `[AutoSync] - ${name}: ${count} 个模型`);
-    });
-
-    autoSyncConsole("log", "[AutoSync] ☁️ 云端数据:");
     if (remoteCount !== undefined) {
-      autoSyncConsole("log", `[AutoSync] - 云端模型总数: ${remoteCount} 个`);
-      if (remoteProviders && remoteProviders.length > 0) {
-        autoSyncConsole("log", "[AutoSync] 📋 云端各平台模型数量:");
-        remoteProviders.forEach((provider: any) => {
-          autoSyncConsole(
-            "log",
-            `[AutoSync] - ${provider.profileName}: ${provider.fetchedCount} 个模型`,
-          );
-        });
-      } else {
-        autoSyncConsole("log", "[AutoSync] - 云端无平台数据");
-      }
-
-      autoSyncConsole("log", "[AutoSync] 🔍 比较结果:");
+      const status =
+        localTotalCount === remoteCount
+          ? "✅ 一致"
+          : `不一致（本地 ${localTotalCount}，云端 ${remoteCount}）`;
       autoSyncConsole(
         "log",
-        `[AutoSync] - 状态: ${
-          localTotalCount === remoteCount ? "✅ 一致" : "❌ 不一致，提示更新"
-        }`,
+        `[AutoSync] 📊 模型数据: 本地 ${localTotalCount} / 云端 ${remoteCount} — ${status}`,
       );
-      autoSyncConsole(
-        "log",
-        `[AutoSync] - 差异: ${describeModelCountDiff(
-          localTotalCount,
-          remoteCount,
-        )}`,
-      );
-
-      const providerDiffs = buildProviderDiffSummaries(
-        localPlatformCounts,
-        remoteProviders || [],
-      );
-      if (providerDiffs.length > 0) {
-        autoSyncConsole("log", "[AutoSync] 📋 平台差异明细:");
-        providerDiffs.forEach((item) => {
-          autoSyncConsole(
-            "log",
-            `[AutoSync] - ${item.name}: 本地 ${item.localCount} / 云端 ${item.remoteCount}，${item.description}`,
-          );
-        });
-      }
     } else {
-      autoSyncConsole("log", "[AutoSync] - 云端模型总数: 无数据（已清空）");
-      autoSyncConsole("log", "[AutoSync] 🔍 比较结果:");
       autoSyncConsole(
         "log",
-        "[AutoSync] - 状态: ℹ️ 云端数据已清空，建议同步更新云端数据",
+        `[AutoSync] 📊 模型数据: 本地 ${localTotalCount}，云端无数据`,
       );
     }
   };
@@ -303,7 +249,7 @@ export default function AutoSync() {
         const data = await res.json();
         if (data?.ok && data.latest) {
           const remote = data.latest;
-          logModelCount(remote.modelCount, remote.providers);
+          logModelCount(remote.modelCount);
           return;
         }
       }
@@ -800,57 +746,49 @@ export default function AutoSync() {
                 deferredFallbackTimer = null;
               }
 
-              void Promise.resolve()
-                .then(() => {
+              void (async () => {
+                try {
                   autoSyncConsole(
                     "log",
                     "[AutoSync] 📤 后台上传本地会话到远端...",
                   );
-                  return syncStore.sync([StoreKey.Chat], {
+                  await syncStore.sync([StoreKey.Chat], {
                     isolateQueue: true,
                     force: true,
                   });
-                })
-                .then(() => {
                   autoSyncConsole("log", "[AutoSync] ✅ 本地会话上传完成");
-                })
-                .catch((uploadError: unknown) => {
+                } catch (uploadError) {
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ⚠️ 本地会话上传失败:",
                     uploadError,
                   );
-                })
-                .then(
-                  () =>
-                    syncStore.resumePendingDebounceSync?.({
-                      excludeKeys: [StoreKey.Config],
-                    }),
-                )
-                .then((resumed: boolean | void) => {
+                }
+
+                try {
+                  const resumed = await syncStore.resumePendingDebounceSync?.({
+                    excludeKeys: [StoreKey.Config],
+                  });
                   if (resumed) {
                     autoSyncConsole(
                       "log",
                       "[AutoSync] ♻️ 已补跑未完成的本地同步任务",
                     );
                   }
-                })
-                .catch((error: unknown) => {
+                } catch (error) {
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ❌ 补跑未完成同步失败:",
                     error,
                   );
-                });
+                }
 
-              autoSyncConsole(
-                "info",
-                `${LOG_SEPARATOR} 💾 对话与设置后台同步开始 ${LOG_SEPARATOR}`,
-              );
-              const deferredSync =
-                syncStore.autoSyncDeferred?.() ?? Promise.resolve();
-              void deferredSync
-                .then(() => {
+                autoSyncConsole(
+                  "info",
+                  `${LOG_SEPARATOR} 💾 对话与设置后台同步开始 ${LOG_SEPARATOR}`,
+                );
+                try {
+                  await (syncStore.autoSyncDeferred?.() ?? Promise.resolve());
                   scheduleIdleTask(() => {
                     void logModelCountWithRemote();
                   });
@@ -862,14 +800,14 @@ export default function AutoSync() {
                     "info",
                     `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`,
                   );
-                })
-                .catch((error: unknown) => {
+                } catch (error) {
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ❌ 后台同步失败（含对话记录）:",
                     error,
                   );
-                });
+                }
+              })();
 
               const ensureRemoteBootstrapStartedAt = nowMs();
               void ensureRemoteBootstrapState()
@@ -1038,16 +976,12 @@ export default function AutoSync() {
       if (autoSyncInProgress || !hasCompletedAutoSync) {
         return;
       }
-      if (!document.hidden) {
-        return;
-      }
-
       const now = Date.now();
       if (now - startedAt < 15000 || now - lastExternalChatHintAt < 15000) {
         return;
       }
 
-      triggerExternalChatSync("poll");
+      triggerExternalChatSync(document.hidden ? "poll-hidden" : "poll-visible");
     }, 15000);
 
     return () => {
@@ -1058,6 +992,9 @@ export default function AutoSync() {
       }
       if (deferredFallbackTimer) {
         clearTimeout(deferredFallbackTimer);
+      }
+      if (chatMetaPollTimer) {
+        clearInterval(chatMetaPollTimer);
       }
       clearHydrationBarrier?.();
       clearHydrationBarrier = null;

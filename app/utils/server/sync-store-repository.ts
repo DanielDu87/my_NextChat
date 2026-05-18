@@ -314,40 +314,13 @@ export async function getStoreSnapshotMetas(
   }>(
     `select * from (
        select
-         'app-config'::text as store_key,
+         'chat-next-web-plugin'::text as store_key,
          updated_at::text as updated_at,
-         md5((model_settings -> 'app-config')::text) as checksum,
-         pg_column_size(model_settings -> 'app-config') as size_bytes
-       from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
-         and model_settings ? 'app-config'
-       union all
-       select
-         'model-cache-store'::text,
-         updated_at::text,
-         md5((model_settings -> 'model-cache-store')::text),
-         pg_column_size(model_settings -> 'model-cache-store')
-       from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
-         and model_settings ? 'model-cache-store'
-       union all
-       select
-         'chat-next-web-plugin'::text,
-         updated_at::text,
-         md5((plugin_settings -> 'chat-next-web-plugin')::text),
-         pg_column_size(plugin_settings -> 'chat-next-web-plugin')
+         md5((plugin_settings -> 'chat-next-web-plugin')::text) as checksum,
+         pg_column_size(plugin_settings -> 'chat-next-web-plugin') as size_bytes
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and plugin_settings ? 'chat-next-web-plugin'
-       union all
-       select
-         'sync'::text,
-         updated_at::text,
-         md5((sync_settings -> 'sync')::text),
-         pg_column_size(sync_settings -> 'sync')
-       from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
-         and sync_settings ? 'sync'
        union all
        select
          'access-control'::text,
@@ -467,6 +440,9 @@ export async function applyChatDelta(params: {
   await ensureSyncStorageSchema();
   const userId = params.userId ?? getDefaultSyncUserId();
   const deleteSessionIds = dedupeDeleteSessionIds(params.deleteSessionIds);
+  const activeSessionIds = Array.isArray(params.index?.state?.sessionIds)
+    ? (params.index.state.sessionIds as string[]).filter(Boolean)
+    : [];
 
   await withPgTransaction(async (client) => {
     await syncNormalizedChatSessions(client, {
@@ -492,6 +468,22 @@ export async function applyChatDelta(params: {
         JSON.stringify(params.index.state ?? {}),
       ],
     );
+
+    // 清理孤儿会话：不在当前索引里、且消息数为 0 的会话
+    if (activeSessionIds.length > 0) {
+      await client.query(
+        `update conversations
+         set is_deleted = true,
+             updated_at = now()
+         where user_id = (select id from app_users where external_id = $1 limit 1)
+           and is_deleted = false
+           and external_session_id != all($2::text[])
+           and not exists (
+             select 1 from messages m where m.conversation_id = conversations.id
+           )`,
+        [userId, activeSessionIds],
+      );
+    }
   });
 }
 
