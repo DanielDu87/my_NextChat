@@ -3535,10 +3535,18 @@ function _Chat() {
 
       console.log(LOG_SEPARATOR);
       console.log(`[API Config] 📊 模型同步汇总`);
-      results.forEach(({ name, count, success }) => {
-        console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+      results.forEach(({ name, added, deleted, finalCount, success }) => {
+        console.log(
+          `[API Config] - ${name}: ${
+            success
+              ? `新增 ${added} 个，删除 ${deleted} 个，最终同步 ${finalCount} 个`
+              : "失败"
+          }`,
+        );
       });
-      console.log(`[API Config] ✅ 所有平台同步完成，共 ${totalFetched} 个`);
+      console.log(
+        `[API Config] ✅ 所有平台同步完成，最终同步 ${totalFetched} 个`,
+      );
       console.log(LOG_SEPARATOR);
       showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
     } catch (error) {

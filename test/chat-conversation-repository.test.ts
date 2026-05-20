@@ -1,6 +1,9 @@
 import { jest } from "@jest/globals";
 
-const pgQueryMock = jest.fn();
+type QueryResult = { rows: Array<Record<string, unknown>> };
+type QueryFn = (sql: string, params?: unknown[]) => Promise<QueryResult>;
+
+const pgQueryMock = jest.fn<QueryFn>();
 const ensureSyncStorageSchemaMock = jest.fn(async () => undefined);
 const getOrCreateSyncAppUserIdMock = jest.fn(async () => "app-user-id");
 
@@ -13,10 +16,8 @@ jest.unstable_mockModule("../app/utils/server/sync-app-user", () => ({
   getOrCreateSyncAppUserId: getOrCreateSyncAppUserIdMock,
 }));
 
-const {
-  buildNormalizedChatIndexSnapshot,
-  syncNormalizedChatSessions,
-} = await import("../app/utils/server/chat-conversation-repository");
+const { buildNormalizedChatIndexSnapshot, syncNormalizedChatSessions } =
+  await import("../app/utils/server/chat-conversation-repository");
 
 describe("chat conversation repository", () => {
   beforeEach(() => {
@@ -28,18 +29,15 @@ describe("chat conversation repository", () => {
 
   test("syncNormalizedChatSessions should soft-delete removed sessions and clear messages", async () => {
     const queryMock = jest
-      .fn()
+      .fn<QueryFn>()
       .mockResolvedValueOnce({ rows: [{ id: "conversation-id" }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await syncNormalizedChatSessions(
-      { query: queryMock } as any,
-      {
-        externalUserId: "single-user",
-        upsertSessions: [],
-        deleteSessionIds: ["s1", "s1", ""],
-      },
-    );
+    await syncNormalizedChatSessions({ query: queryMock } as any, {
+      externalUserId: "single-user",
+      upsertSessions: [],
+      deleteSessionIds: ["s1", "s1", ""],
+    });
 
     expect(queryMock).toHaveBeenCalledTimes(2);
     expect(queryMock.mock.calls[0]?.[0]).toContain("set is_deleted = true");

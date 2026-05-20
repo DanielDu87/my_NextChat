@@ -18,6 +18,7 @@ import { createPersistStore } from "../utils/store";
 import { safeLocalStorage } from "../utils/safe-local-storage";
 import { normalizePublishedAt } from "../utils/model-published-at";
 import { hydrateModelsWithAiHubMixMetadata } from "../utils/aihubmix-model-metadata";
+import { recordModelSyncDiff } from "../utils/model-sync-diff";
 import type { Voice } from "rt-client";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
@@ -252,6 +253,7 @@ export const useAppConfig = createPersistStore(
         silent?: boolean;
         allowedProviderIds?: string[];
         skipMarkUpdate?: boolean;
+        diffBaseModels?: LLMModel[];
       },
     ) {
       if (!newModels || newModels.length === 0) {
@@ -393,6 +395,15 @@ export const useAppConfig = createPersistStore(
       }
 
       const mergedModels = Object.values(modelMap);
+      const changedProviderIds =
+        allowedProviderIds && allowedProviderIds.size > 0
+          ? allowedProviderIds
+          : newProviderIds;
+      recordModelSyncDiff(
+        options?.diffBaseModels ?? oldModels,
+        mergedModels,
+        changedProviderIds,
+      );
       if (!options?.silent) {
         console.log(
           "[mergeModels] 正在合并模型",

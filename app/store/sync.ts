@@ -50,6 +50,7 @@ import {
   buildSessionSummary,
   ChatSessionSummary,
   createEmptySession,
+  useChatStore,
 } from "./chat";
 import { logger } from "../utils/logger";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
@@ -61,6 +62,13 @@ import {
   buildChatSyncHint,
   getOrCreateAutoSyncTabId,
 } from "../utils/sync-tab-coordination";
+import {
+  buildCustomModelSyncDiffBetween,
+  buildCustomModelSyncDiffFromLastSnapshot,
+  consumeRecentModelSyncDiff,
+  saveCustomModelSyncSnapshot,
+  type ModelSyncPlatformDiff,
+} from "../utils/model-sync-diff";
 
 type DatabaseCacheMeta = Record<
   string,
@@ -95,6 +103,8 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(5);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
+let lastKnownChatSessionIds = new Set<string>();
+let lastKnownCustomModelsSnapshot = "";
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
 const RETRYABLE_NETWORK_ERROR =
@@ -482,6 +492,65 @@ function parseSyncCount(key: SyncStoreKey, summary?: string) {
   return { total, synced: total };
 }
 
+function formatModelNameList(names: string[]) {
+  return names.length > 0 ? names.join("、") : "无";
+}
+
+function getSyncProfileProviderId(profile: {
+  provider?: ServiceProvider;
+  name?: string;
+}) {
+  if (profile.provider === ServiceProvider.Custom) {
+    return `custom_${profile.name || ""}`.toLowerCase();
+  }
+  if (profile.provider === ServiceProvider.Local) {
+    return `${String(profile.provider).toLowerCase()}_${
+      profile.name || ""
+    }`.toLowerCase();
+  }
+  return String(profile.provider || "").toLowerCase();
+}
+
+function getModelSyncProviderNameMap() {
+  const profiles = (useAccessStore.getState().apiProfiles || []) as Array<{
+    provider?: ServiceProvider;
+    name?: string;
+  }>;
+  return new Map(
+    profiles.map((profile) => [
+      getSyncProfileProviderId(profile),
+      String(profile.name || profile.provider || ""),
+    ]),
+  );
+}
+
+function resolveModelSyncProviderName(providerId: string) {
+  return getModelSyncProviderNameMap().get(String(providerId).toLowerCase());
+}
+
+function captureCustomModelSyncDiff(state: any, fallbackPreviousState?: any) {
+  const snapshotDiff = buildCustomModelSyncDiffFromLastSnapshot(
+    String(state?.customModels || ""),
+    resolveModelSyncProviderName,
+  );
+  if (snapshotDiff.length > 0 || !fallbackPreviousState) {
+    return snapshotDiff;
+  }
+
+  return buildCustomModelSyncDiffBetween(
+    String(fallbackPreviousState?.customModels || ""),
+    String(state?.customModels || ""),
+    resolveModelSyncProviderName,
+  );
+}
+
+function saveCustomModelSnapshotAfterSync(state: any) {
+  saveCustomModelSyncSnapshot(
+    String(state?.customModels || ""),
+    resolveModelSyncProviderName,
+  );
+}
+
 function logOverallSyncSummary(
   results: Array<{
     key: SyncStoreKey;
@@ -489,6 +558,7 @@ function logOverallSyncSummary(
     summary: string;
     status: "downloaded" | "uploaded" | "merged" | "skipped";
     remoteSummary?: string;
+    modelDiffs?: ModelSyncPlatformDiff[];
   }>,
 ) {
   const summaryKeys = [StoreKey.Access, StoreKey.Config, StoreKey.Chat];
@@ -502,8 +572,7 @@ function logOverallSyncSummary(
     return;
   }
 
-  syncConsole(
-    "log",
+  console.log(
     preferredResults.length > 0
       ? "[Sync] ✅ 同步总体情况"
       : "[Sync] ✅ 后台同步结果",
@@ -511,8 +580,113 @@ function logOverallSyncSummary(
   summaryResults.forEach((item) => {
     const local = parseSyncCount(item.key, item.summary);
     const remote = parseSyncCount(item.key, item.remoteSummary ?? item.summary);
-    syncConsole(
-      "log",
+    if (item.key === StoreKey.Config) {
+      const currentCustomModels =
+        (useAppConfig.getState() as any).customModels || "";
+
+      // 首次同步时仅记录快照，不输出日志
+      if (lastKnownCustomModelsSnapshot === "") {
+        lastKnownCustomModelsSnapshot = currentCustomModels;
+        return;
+      }
+
+      const beforeEntries = lastKnownCustomModelsSnapshot
+        .split(",")
+        .map((m: string) => m.trim())
+        .filter((m: string) => m.startsWith("+"))
+        .map((m: string) => m.slice(1));
+      const afterEntries = currentCustomModels
+        .split(",")
+        .map((m: string) => m.trim())
+        .filter((m: string) => m.startsWith("+"))
+        .map((m: string) => m.slice(1));
+      const beforeSet = new Set<string>(beforeEntries);
+      const afterSet = new Set<string>(afterEntries);
+      const added = afterEntries.filter((n: string) => !beforeSet.has(n));
+      const deleted = beforeEntries.filter((n: string) => !afterSet.has(n));
+      const afterCount = afterEntries.length;
+
+      // 输出新增的模型
+      added.forEach((m: string) => {
+        const atIdx = m.lastIndexOf("@");
+        const name = atIdx > 0 ? m.substring(0, atIdx) : m;
+        const provider =
+          atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
+        console.log(`[Sync] ➕ ${name}@${provider}`);
+      });
+      // 输出删除的模型
+      deleted.forEach((m: string) => {
+        const atIdx = m.lastIndexOf("@");
+        const name = atIdx > 0 ? m.substring(0, atIdx) : m;
+        const provider =
+          atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
+        console.log(`[Sync] ➖ ${name}@${provider}`);
+      });
+
+      // 按供应商统计
+      const providerCounts = new Map<string, number>();
+      afterEntries.forEach((m: string) => {
+        const atIdx = m.lastIndexOf("@");
+        const prov =
+          atIdx > 0
+            ? m.substring(atIdx + 1).replace(/^custom_/, "")
+            : "unknown";
+        providerCounts.set(prov, (providerCounts.get(prov) || 0) + 1);
+      });
+
+      if (added.length > 0 || deleted.length > 0) {
+        console.log(
+          `[Sync] ✅ 已同步${item.name}: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
+        );
+        // 分行显示各供应商
+        Array.from(providerCounts.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .forEach(([p, c]) => {
+            console.log(`[Sync]   ${p}: ${c}个`);
+          });
+      }
+
+      lastKnownCustomModelsSnapshot = currentCustomModels;
+      return;
+    }
+    if (item.key === StoreKey.Chat) {
+      // 计算会话的 diff（新增/删除）
+      const currentSessionIds = new Set(
+        (useChatStore.getState() as any)?.sessions?.map((s: any) => s.id) || [],
+      );
+      const beforeIds = lastKnownChatSessionIds;
+      const afterIds = currentSessionIds;
+      const added = [...afterIds].filter((id) => !beforeIds.has(id));
+      const deleted = [...beforeIds].filter((id) => !afterIds.has(id));
+
+      if (added.length > 0 || deleted.length > 0) {
+        console.log(
+          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，本次新增 ${added.length} 个，删除 ${deleted.length} 个`,
+        );
+        if (added.length > 0) {
+          console.log(
+            `[Sync] ➕ 新增会话: ${added.slice(0, 5).join("、")}${
+              added.length > 5 ? ` 等${added.length}个` : ""
+            }`,
+          );
+        }
+        if (deleted.length > 0) {
+          console.log(
+            `[Sync] ➖ 删除会话: ${deleted.slice(0, 5).join("、")}${
+              deleted.length > 5 ? ` 等${deleted.length}个` : ""
+            }`,
+          );
+        }
+      } else {
+        console.log(
+          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
+        );
+      }
+      // 更新快照
+      lastKnownChatSessionIds = afterIds;
+      return;
+    }
+    console.log(
       `[Sync] ✅ 已同步${item.name}: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
     );
   });
@@ -2230,11 +2404,19 @@ export const useSyncStore = createPersistStore(
 
                 setLocalStoreState(key, resolvedStoreState);
                 localAppStateCache[key] = resolvedStoreState;
+                const modelDiffs =
+                  key === StoreKey.Config
+                    ? captureCustomModelSyncDiff(resolvedStoreState)
+                    : undefined;
+                if (key === StoreKey.Config) {
+                  saveCustomModelSnapshotAfterSync(resolvedStoreState);
+                }
 
                 return {
                   summary: getStoreSummary(key, resolvedStoreState),
                   status: "merged" as const,
                   remoteSummary: getStoreSummary(key, latestRemoteState),
+                  modelDiffs,
                 };
               };
 
@@ -2265,6 +2447,10 @@ export const useSyncStore = createPersistStore(
                   );
                   const stringifyDurationMs = nowMs() - stringifyStartedAt;
                   try {
+                    const modelDiffs =
+                      key === StoreKey.Config
+                        ? captureCustomModelSyncDiff(localStoreState)
+                        : undefined;
                     const writeBackStartedAt = nowMs();
                     await client.set(key, payloadText, {
                       expectedMissing: !currentMeta,
@@ -2284,6 +2470,14 @@ export const useSyncStore = createPersistStore(
                       ),
                       payloadBytes: payloadText.length,
                     });
+                    if (key === StoreKey.Config) {
+                      saveCustomModelSnapshotAfterSync(localStoreState);
+                    }
+                    return {
+                      summary: getStoreSummary(key, localStoreState),
+                      status: "uploaded" as const,
+                      modelDiffs,
+                    };
                   } catch (error) {
                     if (
                       attempt === 0 &&
@@ -2312,10 +2506,7 @@ export const useSyncStore = createPersistStore(
                     throw error;
                   }
 
-                  return {
-                    summary: getStoreSummary(key, localStoreState),
-                    status: "uploaded" as const,
-                  };
+                  continue;
                 }
 
                 const parseStartedAt = nowMs();
@@ -2340,6 +2531,13 @@ export const useSyncStore = createPersistStore(
                 );
                 const stringifyDurationMs = nowMs() - stringifyStartedAt;
                 try {
+                  const modelDiffs =
+                    key === StoreKey.Config
+                      ? captureCustomModelSyncDiff(
+                          mergedStoreState,
+                          parsedRemoteState,
+                        )
+                      : undefined;
                   const writeBackStartedAt = nowMs();
                   await client.set(key, payloadText, {
                     expectedMissing: !currentMeta,
@@ -2359,6 +2557,15 @@ export const useSyncStore = createPersistStore(
                     ),
                     payloadBytes: remoteDataText.length,
                   });
+                  if (key === StoreKey.Config) {
+                    saveCustomModelSnapshotAfterSync(mergedStoreState);
+                  }
+                  return {
+                    summary: getStoreSummary(key, mergedStoreState),
+                    status: "merged" as const,
+                    remoteSummary: getStoreSummary(key, parsedRemoteState),
+                    modelDiffs,
+                  };
                 } catch (error) {
                   if (
                     attempt === 0 &&
@@ -2387,11 +2594,7 @@ export const useSyncStore = createPersistStore(
                   throw error;
                 }
 
-                return {
-                  summary: getStoreSummary(key, mergedStoreState),
-                  status: "merged" as const,
-                  remoteSummary: getStoreSummary(key, parsedRemoteState),
-                };
+                continue;
               }
 
               throw new Error(`[Sync] ${displayName}冲突重试失败`);
@@ -2930,12 +3133,52 @@ export const useSyncStore = createPersistStore(
         }
 
         const configState = useAppConfig.getState() as any;
-        logger.sync.log(
-          `🧩 模型同步开始: ${countCustomModelEntries(
-            configState.customModels,
-          )} 个用户添加模型`,
+        const beforeCustomModels = String(configState.customModels || "");
+        const beforeCount = countCustomModelEntries(beforeCustomModels);
+        const beforeEntries = beforeCustomModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m.startsWith("+"))
+          .map((m) => m.slice(1));
+
+        console.log(`[Sync] 🧩 模型同步开始: ${beforeCount} 个用户添加模型`);
+
+        await this.sync([...MODEL_SYNC_STORE_KEYS]);
+
+        const afterConfigState = useAppConfig.getState() as any;
+        const afterCustomModels = String(afterConfigState.customModels || "");
+        const afterCount = countCustomModelEntries(afterCustomModels);
+        const afterEntries = afterCustomModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m.startsWith("+"))
+          .map((m) => m.slice(1));
+        const beforeSet = new Set<string>(beforeEntries);
+        const afterSet = new Set<string>(afterEntries);
+        const added = afterEntries.filter((n) => !beforeSet.has(n));
+        const deleted = beforeEntries.filter((n) => !afterSet.has(n));
+
+        console.log(
+          `[Sync] ✅ 模型同步完成: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
         );
-        return this.sync([...MODEL_SYNC_STORE_KEYS]);
+        if (added.length > 0) {
+          added.forEach((m) => {
+            const atIdx = m.lastIndexOf("@");
+            const name = atIdx > 0 ? m.substring(0, atIdx) : m;
+            const provider =
+              atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
+            console.log(`[Sync] ➕ ${name}@${provider}`);
+          });
+        }
+        if (deleted.length > 0) {
+          deleted.forEach((m) => {
+            const atIdx = m.lastIndexOf("@");
+            const name = atIdx > 0 ? m.substring(0, atIdx) : m;
+            const provider =
+              atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
+            console.log(`[Sync] ➖ ${name}@${provider}`);
+          });
+        }
       },
 
       async check() {

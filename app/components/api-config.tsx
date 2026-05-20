@@ -1117,6 +1117,23 @@ export function ApiConfigPage() {
       return;
     }
 
+    // 记录每个 provider 的原始模型名集合，用于同步完成后计算 diff
+    const beforeModels = useAppConfig.getState().models || [];
+    const beforeNamesByProvider = new Map<string, Set<string>>();
+    for (const profile of allProfiles) {
+      const providerId = getProfileProviderId(profile).toLowerCase();
+      const names = new Set(
+        beforeModels
+          .filter(
+            (m: LLMModel) =>
+              String(m.provider?.id || "").toLowerCase() === providerId,
+          )
+          .map((m: LLMModel) => m.name)
+          .filter(Boolean),
+      );
+      beforeNamesByProvider.set(providerId, names);
+    }
+
     await runWithBalanceRefreshPaused(() =>
       runWithImmediateStoreSyncPaused(async () => {
         let totalFetched = 0;
@@ -1227,6 +1244,50 @@ export function ApiConfigPage() {
     if (typeof client.getMeta === "function") {
       updateStoredMeta(await client.getMeta([...MODEL_SYNC_STORE_KEYS]));
     }
+
+    // 同步完成后，对比每个 provider 的模型差异
+    const afterModels = useAppConfig.getState().models || [];
+    let totalAdded = 0;
+    let totalDeleted = 0;
+    let totalFinal = 0;
+    for (const profile of allProfiles) {
+      const providerId = getProfileProviderId(profile).toLowerCase();
+      const beforeNames = beforeNamesByProvider.get(providerId) || new Set();
+      const afterNames = new Set(
+        afterModels
+          .filter(
+            (m: LLMModel) =>
+              String(m.provider?.id || "").toLowerCase() === providerId,
+          )
+          .map((m: LLMModel) => m.name)
+          .filter(Boolean),
+      );
+      const added = [...afterNames].filter((n) => !beforeNames.has(n));
+      const deleted = [...beforeNames].filter((n) => !afterNames.has(n));
+      totalAdded += added.length;
+      totalDeleted += deleted.length;
+      totalFinal += afterNames.size;
+
+      if (added.length > 0 || deleted.length > 0) {
+        console.log(
+          `[API Config] 📊 ${profile.name}: 新增 ${added.length} 个，删除 ${deleted.length} 个，最终同步 ${afterNames.size} 个`,
+        );
+        if (added.length > 0) {
+          console.log(
+            `[API Config] ➕ ${profile.name} 新增: ${added.join("、")}`,
+          );
+        }
+        if (deleted.length > 0) {
+          console.log(
+            `[API Config] ➖ ${profile.name} 删除: ${deleted.join("、")}`,
+          );
+        }
+      }
+    }
+    console.log(
+      `[API Config] ✅ 模型同步完成: 新增 ${totalAdded} 个，删除 ${totalDeleted} 个，最终同步 ${totalFinal} 个`,
+    );
+    console.log(LOG_SEPARATOR);
   };
 
   // 云端同步逻辑（提取为函数以复用）
@@ -1942,10 +2003,16 @@ export function ApiConfigPage() {
         console.log("[API Config] ✅ 数据库同步完成");
         console.log(LOG_SEPARATOR);
         console.log("[API Config] 📊 模型同步汇总");
-        results.forEach(({ name, count, success }) => {
-          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
+        results.forEach(({ name, added, deleted, finalCount, success }) => {
+          console.log(
+            `[API Config] - ${name}: ${
+              success
+                ? `新增 ${added} 个，删除 ${deleted} 个，最终同步 ${finalCount} 个`
+                : "失败"
+            }`,
+          );
         });
-        console.log(`[API Config] - 总模型数: ${totalFetched} 个`);
+        console.log(`[API Config] - 最终同步总数: ${totalFetched} 个`);
         console.log(LOG_SEPARATOR);
 
         showToast("已同步全部配置、模型和对话记录到 PostgreSQL");

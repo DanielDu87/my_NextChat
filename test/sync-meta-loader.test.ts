@@ -1,6 +1,14 @@
 import { jest } from "@jest/globals";
 
-const getStoreSnapshotMetasMock = jest.fn();
+type StoreSnapshotMeta = {
+  key: string;
+  updatedAt: string;
+  checksum: string;
+  sizeBytes: number;
+};
+
+const getStoreSnapshotMetasMock =
+  jest.fn<(keys: string[], userId: string) => Promise<StoreSnapshotMeta[]>>();
 
 jest.unstable_mockModule("../app/utils/server/sync-store-repository", () => ({
   getStoreSnapshotMetas: getStoreSnapshotMetasMock,

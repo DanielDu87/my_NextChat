@@ -1,6 +1,9 @@
 import { jest } from "@jest/globals";
 
-const pgQueryMock = jest.fn();
+type QueryResult = { rows: Array<{ encrypted_payload: string }> };
+
+const pgQueryMock =
+  jest.fn<(sql: string, params?: unknown[]) => Promise<QueryResult>>();
 
 jest.unstable_mockModule("../app/utils/server/postgres", () => ({
   pgQuery: pgQueryMock,

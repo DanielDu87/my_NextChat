@@ -250,6 +250,34 @@ export type FetchModelsResult = {
   total: number;
 };
 
+const fetchModelsLogDedupMap = new Map<string, number>();
+
+function stringifyFetchModelsLogPayload(payload: unknown) {
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+function logFetchModels(message: string, payload?: unknown) {
+  const dedupKey = `${message}|${
+    payload === undefined ? "" : stringifyFetchModelsLogPayload(payload)
+  }`;
+  const now = Date.now();
+  const lastAt = fetchModelsLogDedupMap.get(dedupKey) || 0;
+  if (now - lastAt < 1500) {
+    return;
+  }
+  fetchModelsLogDedupMap.set(dedupKey, now);
+
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
+
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 }
@@ -797,13 +825,13 @@ async function fetchJsonWithCandidates(
             continue;
           }
           if (response.status === 404) {
-            console.log(
+            logFetchModels(
               `[Fetch Models] 💡 第 ${
                 i + 1
               } 个 URL 不存在 (404)，尝试下一个...`,
             );
           } else {
-            console.log(
+            logFetchModels(
               `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 返回 ${response.status}`,
             );
           }
@@ -812,12 +840,12 @@ async function fetchJsonWithCandidates(
 
         const data = await response.json();
         if (options?.validateJson && !options.validateJson(data)) {
-          console.log(`[Fetch Models] ❌ 验证失败，响应内容:`, data);
+          logFetchModels(`[Fetch Models] ❌ 验证失败，响应内容:`, data);
           lastError = new Error("响应内容无效");
           continue;
         }
         if (options?.logSuccess !== false) {
-          console.log(`[Fetch Models] ✅ 使用模型接口: ${display}`);
+          logFetchModels(`[Fetch Models] ✅ 使用模型接口: ${display}`);
         }
         if (options?.authCacheKey && authorization) {
           preferredAuthorizationCache.set(options.authCacheKey, authorization);
@@ -830,7 +858,10 @@ async function fetchJsonWithCandidates(
           lastError = error instanceof Error ? error : new Error("请求失败");
         }
         if (!options?.suppressCandidateErrors) {
-          console.log(`[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`, error);
+          logFetchModels(
+            `[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`,
+            error,
+          );
         }
       }
     }
@@ -997,7 +1028,7 @@ export async function fetchModelsFromProvider(
         headers["Authorization"] = `Bearer ${modelFetchApiKeyCandidates[0]}`;
       }
 
-      console.log(`[Fetch Models] 🔍 检测 baseUrl:`, {
+      logFetchModels(`[Fetch Models] 🔍 检测 baseUrl:`, {
         baseUrl,
         normalizedBaseUrl: effectiveNormalizedBaseUrl,
         isOcoolai,

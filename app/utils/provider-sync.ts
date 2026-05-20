@@ -1,4 +1,5 @@
 import { ServiceProvider, StoreKey } from "../constant";
+import type { LLMModel } from "../client/api";
 import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { MODEL_SYNC_STORE_KEYS } from "./sync-store-keys";
@@ -50,12 +51,47 @@ type SyncAllProfilesResult = {
   results: Array<{
     name: string;
     count: number;
+    added: number;
+    deleted: number;
+    finalCount: number;
     success: boolean;
   }>;
 };
 
 const PROVIDER_MODEL_SYNC_TTL_MS = 5 * 60 * 1000;
 const providerSyncInFlight = new Map<string, Promise<FetchModelsResult>>();
+
+function getProfileModelKeySet(
+  profile: Pick<ApiProfile, "provider" | "name">,
+  models: LLMModel[] = [],
+) {
+  const providerId = getProfileProviderId(profile).toLowerCase();
+  return new Set(
+    models
+      .filter(
+        (model) =>
+          String(model.provider?.id || "").toLowerCase() === providerId,
+      )
+      .map((model) => `${model.name}@${providerId}`),
+  );
+}
+
+function getProfileModelSyncStats(
+  profile: Pick<ApiProfile, "provider" | "name">,
+  beforeModels: LLMModel[],
+  afterModels: LLMModel[],
+) {
+  const beforeKeys = getProfileModelKeySet(profile, beforeModels);
+  const afterKeys = getProfileModelKeySet(profile, afterModels);
+  const added = [...afterKeys].filter((key) => !beforeKeys.has(key)).length;
+  const deleted = [...beforeKeys].filter((key) => !afterKeys.has(key)).length;
+
+  return {
+    added,
+    deleted,
+    finalCount: afterKeys.size,
+  };
+}
 
 export function getProfileProviderId(
   profile: Pick<ApiProfile, "provider" | "name">,
@@ -163,6 +199,17 @@ export async function syncProfileModels(
       }));
     const fetchedModels = modelsToCustomModelsString(sortedModels);
 
+    // 记录合并前的模型名集合，用于计算 diff
+    const beforeModels = useAppConfig.getState().models || [];
+    const beforeNames = new Set(
+      beforeModels
+        .filter(
+          (m) => String(m.provider?.id || "").toLowerCase() === providerId,
+        )
+        .map((m) => m.name)
+        .filter(Boolean),
+    );
+
     await runWithImmediateStoreSyncPaused(async () => {
       useAppConfig.getState().mergeModels(sortedModels, {
         silent: true,
@@ -202,12 +249,32 @@ export async function syncProfileModels(
       });
     });
 
+    // 计算合并后的模型 diff
+    const afterModels = useAppConfig.getState().models || [];
+    const afterNames = new Set(
+      afterModels
+        .filter(
+          (m) => String(m.provider?.id || "").toLowerCase() === providerId,
+        )
+        .map((m) => m.name)
+        .filter(Boolean),
+    );
+    const added = [...afterNames].filter((n) => !beforeNames.has(n));
+    const deleted = [...beforeNames].filter((n) => !afterNames.has(n));
+
     persistAccessSnapshot();
 
-    if (!options?.silent) {
-      logger.providerSync.banner(
-        "Provider 同步完成",
-        `${displayName} 同步完成: ${result.total} 个模型`,
+    console.log(
+      `[Provider Sync] ✅ ${displayName}: 新增 ${added.length} 个，删除 ${deleted.length} 个，最终同步 ${afterNames.size} 个模型`,
+    );
+    if (added.length > 0) {
+      console.log(
+        `[Provider Sync] ➕ ${displayName} 新增: ${added.join("、")}`,
+      );
+    }
+    if (deleted.length > 0) {
+      console.log(
+        `[Provider Sync] ➖ ${displayName} 删除: ${deleted.join("、")}`,
       );
     }
 
@@ -325,13 +392,6 @@ export async function ensureProviderModelsReady(
   });
 }
 
-function getProfileActualCount(profile: Pick<ApiProfile, "provider" | "name">) {
-  const providerId = getProfileProviderId(profile).toLowerCase();
-  return (useAppConfig.getState().models || []).filter(
-    (model) => String(model.provider?.id || "").toLowerCase() === providerId,
-  ).length;
-}
-
 async function ensureProfilesLoadedFromDatabase() {
   const syncStore = useSyncStore.getState() as any;
   if (syncStore.provider !== ProviderType.Database) {
@@ -427,27 +487,40 @@ export async function syncAllProfilesToDatabase(params: {
         logger.providerSync.banner("Provider 同步开始", profile.name);
 
         try {
-          const result = await syncProfileModels(profile.id, {
+          const beforeModels = useAppConfig.getState().models || [];
+          await syncProfileModels(profile.id, {
             silent: true,
             reason: "manual",
           });
 
-          const mergedCount = getProfileActualCount(profile);
+          const afterModels = useAppConfig.getState().models || [];
+          const syncStats = getProfileModelSyncStats(
+            profile,
+            beforeModels,
+            afterModels,
+          );
+          const mergedCount = syncStats.finalCount;
           totalFetched += mergedCount;
           results.push({
             name: profile.name,
             count: mergedCount,
+            added: syncStats.added,
+            deleted: syncStats.deleted,
+            finalCount: syncStats.finalCount,
             success: true,
           });
 
           logger.providerSync.banner(
             "Provider 同步完成",
-            `${profile.name} 同步完成: ${mergedCount} 个模型`,
+            `${profile.name} 本次新增 ${syncStats.added} 个，删除 ${syncStats.deleted} 个，最终同步 ${syncStats.finalCount} 个模型`,
           );
         } catch (error) {
           results.push({
             name: profile.name,
             count: 0,
+            added: 0,
+            deleted: 0,
+            finalCount: 0,
             success: false,
           });
           logger.providerSync.error(`${profile.name} 获取失败`, error);

@@ -33,6 +33,10 @@ export function AddModelSelector(props: {
   const [selectorResetKey, setSelectorResetKey] = useState(0);
   const fetchCancelRef = useRef(false);
 
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
   const activeProfile = useMemo(
     () =>
       profiles.find(
@@ -134,6 +138,9 @@ export function AddModelSelector(props: {
         const cleaned = m.replace(/^[+-]/, "");
         return cleaned !== key;
       });
+      const atIdx = key.lastIndexOf("@");
+      const modelName = atIdx > 0 ? key.substring(0, atIdx) : key;
+      console.log(`[ModelManager] ➖ 删除模型: ${modelName}`);
       config.update((state) => {
         state.customModels = updated.join(",");
       });
@@ -147,12 +154,23 @@ export function AddModelSelector(props: {
       .split(",")
       .map((m) => m.trim())
       .filter(Boolean);
+    const removed = models.filter((m) => {
+      const cleaned = m.replace(/^[+-]/, "");
+      const atIdx = cleaned.lastIndexOf("@");
+      const provider = atIdx > 0 ? cleaned.substring(atIdx + 1) : "";
+      return provider === selectedProviderId;
+    });
     const updated = models.filter((m) => {
       const cleaned = m.replace(/^[+-]/, "");
       const atIdx = cleaned.lastIndexOf("@");
       const provider = atIdx > 0 ? cleaned.substring(atIdx + 1) : "";
       return provider !== selectedProviderId;
     });
+    console.log(
+      `[ModelManager] 🗑️ 全部删除 ${removed.length} 个模型: ${removed.join(
+        "、",
+      )}`,
+    );
     config.update((state) => {
       state.customModels = updated.join(",");
     });
@@ -234,8 +252,9 @@ export function AddModelSelector(props: {
     const newModels = pendingSelection.map((m) => `+${m}`);
     const allModels = [...currentModels, ...newModels];
     const uniqueModels = Array.from(new Set(allModels));
+    const after = uniqueModels.join(",");
     config.update((state) => {
-      state.customModels = uniqueModels.join(",");
+      state.customModels = after;
     });
 
     setPendingSelection([]);
@@ -266,7 +285,7 @@ export function AddModelSelector(props: {
       showSearch={true}
       showGroupFilter={true}
       onSelection={handleSelectionChange}
-      onClose={onClose}
+      onClose={handleClose}
       resetKey={selectorResetKey}
       enableVirtualization={true}
       virtualizationThreshold={50}

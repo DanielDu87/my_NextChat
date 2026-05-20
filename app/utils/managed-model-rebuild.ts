@@ -241,5 +241,6 @@ export function rebuildManagedModelsFromCache(options?: {
     silent: true,
     skipMarkUpdate: true,
     allowedProviderIds,
+    diffBaseModels: appConfig.models || [],
   });
 }

@@ -10,18 +10,49 @@ function formatTimestamp(date: Date = new Date()): string {
   )}`;
 }
 
+function safeStringify(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function createLogger(scope: string) {
   const prefix = (msg: string) => `${formatTimestamp()} [${scope}] ${msg}`;
   const line = "=".repeat(5);
+  const dedupMap = new Map<string, number>();
+  const shouldSkipDuplicate = (
+    level: string,
+    msg: string,
+    payload: unknown[],
+  ) => {
+    if (level === "warn" || level === "error") {
+      return false;
+    }
+
+    const key = `${scope}|${level}|${msg}|${safeStringify(payload)}`;
+    const now = Date.now();
+    const lastAt = dedupMap.get(key) || 0;
+    if (now - lastAt < 1500) {
+      return true;
+    }
+    dedupMap.set(key, now);
+    return false;
+  };
   return {
-    log: (msg: string, ...payload: unknown[]) =>
+    log: (msg: string, ...payload: unknown[]) => {
+      if (shouldSkipDuplicate("log", msg, payload)) return;
       payload.length === 0
         ? console.log(prefix(msg))
-        : console.log(prefix(msg), ...payload),
-    info: (msg: string, ...payload: unknown[]) =>
+        : console.log(prefix(msg), ...payload);
+    },
+    info: (msg: string, ...payload: unknown[]) => {
+      if (shouldSkipDuplicate("info", msg, payload)) return;
       payload.length === 0
         ? console.info(prefix(msg))
-        : console.info(prefix(msg), ...payload),
+        : console.info(prefix(msg), ...payload);
+    },
     warn: (msg: string, ...payload: unknown[]) =>
       payload.length === 0
         ? console.warn(prefix(msg))
