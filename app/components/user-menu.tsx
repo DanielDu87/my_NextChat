@@ -234,8 +234,11 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     null,
   );
   const currentEffectiveUserId = effectiveUser?.id ?? "";
+  const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
+  const effectiveUserUsername = effectiveUser?.username ?? "";
+  const currentUserRole = user?.role;
   const canManageUsers =
-    user?.role === "admin" && effectiveUser?.role === "admin";
+    currentUserRole === "admin" && effectiveUser?.role === "admin";
 
   const loadUsers = async () => {
     console.log("🔄 加载用户列表...");
@@ -557,31 +560,31 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   };
 
   useEffect(() => {
-    if (!showManageModal || !user || !effectiveUser) {
+    if (!showManageModal || !currentUserRole || !currentEffectiveUserId) {
       return;
     }
 
-    if (user.role === "admin") {
+    if (currentUserRole === "admin") {
       void loadUsers();
       return;
     }
 
     setUsers([
       {
-        id: effectiveUser.id,
-        username: effectiveUser.username,
-        displayName: effectiveUser.displayName,
-        role: user.role,
+        id: currentEffectiveUserId,
+        username: effectiveUserUsername,
+        displayName: effectiveUserDisplayName,
+        role: currentUserRole,
         isActive: true,
         lastLoginAt: null,
       },
     ]);
   }, [
     showManageModal,
-    user?.role,
-    effectiveUser?.id,
-    effectiveUser?.username,
-    effectiveUser?.displayName,
+    currentUserRole,
+    currentEffectiveUserId,
+    effectiveUserUsername,
+    effectiveUserDisplayName,
   ]);
 
   useEffect(() => {

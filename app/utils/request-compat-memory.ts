@@ -8,6 +8,7 @@ type RequestCompatibilityState = {
   disableThinking?: boolean;
   disableStructuredOutput?: boolean;
   disableMediaResolution?: boolean;
+  disableTemperature?: boolean;
 };
 
 const REQUEST_COMPAT_STORAGE_KEY = "nextchat_request_compat_memory_v1";
@@ -138,6 +139,9 @@ export function applyRequestCompatibilityState(
   if (state.disableMediaResolution) {
     delete nextPayload.media_resolution;
   }
+  if (state.disableTemperature) {
+    delete nextPayload.temperature;
+  }
 
   return nextPayload;
 }
@@ -186,6 +190,12 @@ export function getRequestCompatibilityFallback(
       pattern: /Unknown parameter:\s*'media_resolution'/i,
       key: "disableMediaResolution",
       label: "media_resolution",
+    },
+    {
+      pattern:
+        /(?=.*temperature)(?:Unsupported value|unsupported_value|Only the default|default\s*\(1\)|param["']?\s*:\s*["']temperature["']?)/i,
+      key: "disableTemperature",
+      label: "temperature",
     },
   ];
 

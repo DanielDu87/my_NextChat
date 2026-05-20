@@ -435,7 +435,7 @@ export async function extractOpenAIMediaMessage(res: any) {
   return res?.choices?.at(0)?.message?.content ?? res;
 }
 
-export default {
+const openaiMediaUtils = {
   attachCompletedVideoContent,
   buildAiHubMixPredictionPayload,
   buildAiHubMixVideoPayload,
@@ -444,3 +444,5 @@ export default {
   inferModelCapability,
   isAiHubMixVideoModel,
 };
+
+export default openaiMediaUtils;

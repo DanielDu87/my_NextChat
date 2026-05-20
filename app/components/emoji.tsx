@@ -168,6 +168,7 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
     if (localIcon) {
       return (
         <div className="no-dark">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="user-avatar"
             src={localIcon}

@@ -102,6 +102,11 @@ export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
   right: SelectorItemBase<T>,
 ) {
+  const gptVersionDiff = compareGptVersionSelectorItems(left, right);
+  if (gptVersionDiff !== 0) {
+    return gptVersionDiff;
+  }
+
   return comparePublishedAt(
     {
       name: left.sortKey || left.title,
@@ -118,6 +123,86 @@ export function compareSelectorItems<T>(
       order: right.order,
     },
   );
+}
+
+function getGptVersionParts(text?: string) {
+  const match = String(text || "")
+    .toLowerCase()
+    .match(/^gpt-(\d+(?:\.\d+)?)(?:$|[-_.])/);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  return match[1].split(".").map((part) => Number(part));
+}
+
+function getGptVariantPriority(text?: string) {
+  const normalized = String(text || "").toLowerCase();
+  if (/^gpt-\d+(?:\.\d+)?$/.test(normalized)) {
+    return 0;
+  }
+  if (/(?:^|[-_.])pro(?:$|[-_.])/.test(normalized)) {
+    return 1;
+  }
+  if (/(?:^|[-_.])(?:high|low|free)(?:$|[-_.])/.test(normalized)) {
+    return 2;
+  }
+  if (/(?:^|[-_.])mini(?:$|[-_.])/.test(normalized)) {
+    return 3;
+  }
+  if (/(?:^|[-_.])nano(?:$|[-_.])/.test(normalized)) {
+    return 4;
+  }
+  return 5;
+}
+
+function shouldYieldToGptVersion(text?: string) {
+  const normalized = String(text || "").toLowerCase();
+  return /^gpt-(?:image|chat-latest)(?:$|[-_.])/.test(normalized);
+}
+
+function compareVersionPartsDesc(left: number[], right: number[]) {
+  const maxLength = Math.max(left.length, right.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const diff = (right[index] ?? -1) - (left[index] ?? -1);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function compareGptVersionSelectorItems<T>(
+  left: SelectorItemBase<T>,
+  right: SelectorItemBase<T>,
+) {
+  const leftName = left.sortKey || left.title;
+  const rightName = right.sortKey || right.title;
+  const leftVersion = getGptVersionParts(leftName);
+  const rightVersion = getGptVersionParts(rightName);
+
+  if (leftVersion && !rightVersion && shouldYieldToGptVersion(rightName)) {
+    return -1;
+  }
+  if (!leftVersion && rightVersion && shouldYieldToGptVersion(leftName)) {
+    return 1;
+  }
+  if (!leftVersion || !rightVersion) {
+    return 0;
+  }
+
+  const versionDiff = compareVersionPartsDesc(leftVersion, rightVersion);
+  if (versionDiff !== 0) {
+    return versionDiff;
+  }
+
+  const variantDiff =
+    getGptVariantPriority(leftName) - getGptVariantPriority(rightName);
+  if (variantDiff !== 0) {
+    return variantDiff;
+  }
+
+  return 0;
 }
 
 export function Popover(props: {

@@ -4171,6 +4171,19 @@ function _Chat() {
           return;
         }
 
+        rebuildManagedModelsFromCache({
+          force: true,
+          providerIds: [selectedProviderId],
+        });
+        setModelSelectorItemsCache((prev) => {
+          if (!prev[selectedProviderId]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[selectedProviderId];
+          return next;
+        });
+
         const {
           addedProviderModels,
           cachedProfileModels,
@@ -4181,7 +4194,6 @@ function _Chat() {
           "provider-switch",
         );
         const hasLoadedProviderModels = initialProviderModels.length > 0;
-        const hasCachedProviderModels = Boolean(cachedProfileModels);
 
         const commitProviderSwitch = (
           providerModels: typeof initialProviderModels,
@@ -4309,13 +4321,6 @@ function _Chat() {
             providerModelCount: providerModels.length,
           });
         };
-
-        if (hasCachedProviderModels) {
-          rebuildManagedModelsFromCache({
-            force: true,
-            providerIds: [selectedProviderId],
-          });
-        }
 
         const rebuiltProviderModels = (
           useAppConfig.getState().models || []

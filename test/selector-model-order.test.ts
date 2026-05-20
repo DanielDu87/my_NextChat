@@ -232,4 +232,109 @@ describe("selector model order", () => {
       "gpt-4o-realtime-preview-2025-06-03",
     ]);
   });
+
+  test("GPT 数字版本应按版本降序，并让基础模型优先于变体", () => {
+    const items = [
+      {
+        title: "gpt-5.4",
+        sortKey: "gpt-5.4",
+        value: "gpt-5.4@Custom",
+        group: "OpenAI",
+        publishedAt: 20260305,
+        order: 1,
+        catalogRank: 5,
+      },
+      {
+        title: "gpt-5.4-mini",
+        sortKey: "gpt-5.4-mini",
+        value: "gpt-5.4-mini@Custom",
+        group: "OpenAI",
+        publishedAt: 20260305,
+        order: 2,
+        catalogRank: 6,
+      },
+      {
+        title: "gpt-5.5-pro",
+        sortKey: "gpt-5.5-pro",
+        value: "gpt-5.5-pro@Custom",
+        group: "OpenAI",
+        publishedAt: 20260520,
+        order: 3,
+        catalogRank: 20,
+      },
+      {
+        title: "gpt-5.5",
+        sortKey: "gpt-5.5",
+        value: "gpt-5.5@Custom",
+        group: "OpenAI",
+        publishedAt: 20260520,
+        order: 4,
+        catalogRank: 21,
+      },
+    ];
+
+    const sorted = items.slice().sort(compareSelectorItems);
+
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+    ]);
+  });
+
+  test("GPT 数字版本应排在 gpt-image 和 gpt-chat-latest 前面", () => {
+    const items = [
+      {
+        title: "gpt-5.4",
+        sortKey: "gpt-5.4",
+        value: "gpt-5.4@Custom",
+        group: "OpenAI",
+        order: 1,
+        catalogRank: 5,
+      },
+      {
+        title: "gpt-image-2",
+        sortKey: "gpt-image-2",
+        value: "gpt-image-2@Custom",
+        group: "OpenAI",
+        order: 2,
+        catalogRank: 6,
+      },
+      {
+        title: "gpt-chat-latest",
+        sortKey: "gpt-chat-latest",
+        value: "gpt-chat-latest@Custom",
+        group: "OpenAI",
+        order: 3,
+        catalogRank: 7,
+      },
+      {
+        title: "gpt-5.5",
+        sortKey: "gpt-5.5",
+        value: "gpt-5.5@Custom",
+        group: "OpenAI",
+        order: 4,
+        catalogRank: 20,
+      },
+      {
+        title: "gpt-5.5-pro",
+        sortKey: "gpt-5.5-pro",
+        value: "gpt-5.5-pro@Custom",
+        group: "OpenAI",
+        order: 5,
+        catalogRank: 21,
+      },
+    ];
+
+    const sorted = items.slice().sort(compareSelectorItems);
+
+    expect(sorted.map((item) => item.sortKey)).toEqual([
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-image-2",
+      "gpt-chat-latest",
+    ]);
+  });
 });
