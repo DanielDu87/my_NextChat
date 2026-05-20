@@ -252,6 +252,15 @@ export function collectModelTable(
         // 2. if model not exists, create new model with available value
         if (count === 0) {
           let [customModelName, customProviderName] = getModelProvider(name);
+          const normalizedCustomModelName = String(
+            customModelName || "",
+          ).toLowerCase();
+          const templateFullName = (fullNameByModelName.get(
+            normalizedCustomModelName,
+          ) ?? [])[0];
+          const templateModel = templateFullName
+            ? modelTable[templateFullName]
+            : undefined;
           const provider = customProvider(
             customProviderName || customModelName,
           );
@@ -261,11 +270,16 @@ export function collectModelTable(
           }
           const fullName = `${customModelName}@${provider?.id}`;
           modelTable[fullName] = applyRuntimeModelSortFields({
+            ...templateModel,
             name: customModelName,
-            displayName: displayName || customModelName,
+            displayName:
+              displayName || templateModel?.displayName || customModelName,
             available,
             provider, // Use optional chaining
-            sorted: CustomSeq.next(`${customModelName}@${provider?.id}`),
+            sorted:
+              templateModel?.sorted ??
+              CustomSeq.next(`${customModelName}@${provider?.id}`),
+            isDefault: undefined,
           });
           registerModelTableEntry(fullName);
         }
@@ -590,6 +604,16 @@ function compareOpenAIMainModelPriority(left: ModelLike, right: ModelLike) {
   return String(left.name || "").localeCompare(String(right.name || ""));
 }
 
+function getOpenAIMainModelCandidates(models: readonly ModelLike[]) {
+  return models
+    .filter(
+      (model) =>
+        isPureOpenAIMainModel(model) || isFallbackOpenAIMainModel(model),
+    )
+    .slice()
+    .sort(compareOpenAIMainModelPriority);
+}
+
 export function getLatestOpenAIModelForCurrentSupplier(
   allModels: readonly ModelLike[],
   currentModelConfig: ProviderScopedModelConfig | undefined,
@@ -608,13 +632,7 @@ export function getLatestOpenAIModelForCurrentSupplier(
     return providerId === preferredProviderId;
   });
 
-  const candidates = scopedModels
-    .filter(
-      (model) =>
-        isPureOpenAIMainModel(model) || isFallbackOpenAIMainModel(model),
-    )
-    .slice()
-    .sort(compareOpenAIMainModelPriority);
+  const candidates = getOpenAIMainModelCandidates(scopedModels);
 
   const matchedModel = candidates[0];
   if (!matchedModel?.provider?.providerName) {
@@ -783,13 +801,7 @@ export function getLatestOpenAIModelForProviderId(
       String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
   );
 
-  const candidates = scopedModels
-    .filter(
-      (model) =>
-        isPureOpenAIMainModel(model) || isFallbackOpenAIMainModel(model),
-    )
-    .slice()
-    .sort(compareOpenAIMainModelPriority);
+  const candidates = getOpenAIMainModelCandidates(scopedModels);
 
   const matchedModel = candidates[0];
   if (!matchedModel?.provider?.providerName) {
@@ -800,6 +812,12 @@ export function getLatestOpenAIModelForProviderId(
     model: matchedModel.name,
     providerName: matchedModel.provider.providerName as ServiceProviderValue,
   };
+}
+
+export function getLatestOpenAIModelName(
+  allModels: readonly ModelLike[],
+): string | undefined {
+  return getOpenAIMainModelCandidates(allModels)[0]?.name;
 }
 
 export function isModelAvailableInServer(

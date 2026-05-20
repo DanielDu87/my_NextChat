@@ -6,7 +6,8 @@ export function getActiveModelSelectorProviderId(params: {
   const selectorProviderId = String(
     params.modelSelectorProviderId || "",
   ).trim();
-  if (params.showModelSelector && selectorProviderId) {
+  // 始终优先使用已切换的 providerId（切换供应商时已更新）
+  if (selectorProviderId) {
     return selectorProviderId;
   }
 

@@ -182,7 +182,9 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
+  getLatestOpenAIModelName,
   getLatestOpenAIModelForCurrentSupplier,
+  getLatestOpenAIModelForProviderId,
   getModelProvider,
   getPreferredRuntimeModelConfig,
   normalizeReservedDisplayModelName,
@@ -330,6 +332,119 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : profile.provider === ServiceProvider.Local
     ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
+}
+
+function buildProviderModelsFromCachedNames(
+  cachedModels: string,
+  providerId: string,
+  providerName: ServiceProvider,
+) {
+  return cachedModels
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name, index) => ({
+      name,
+      displayName: name,
+      available: true,
+      sorted: index,
+      provider: {
+        id: providerId,
+        providerName,
+        providerType:
+          providerName === ServiceProvider.Local ? "openai" : "custom",
+        sorted: 0,
+      },
+    }));
+}
+
+function buildProviderModelsFromAddedCustomModels(
+  customModels: string,
+  providerId: string,
+  providerName: ServiceProvider,
+) {
+  const normalizedProviderId = String(providerId || "").toLowerCase();
+  const seenNames = new Set<string>();
+
+  return customModels
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.startsWith("+"))
+    .map((entry) => entry.slice(1))
+    .map((entry) => entry.split("=")[0])
+    .map((entry) => {
+      const [modelName, entryProviderId] = getModelProvider(entry);
+      return {
+        modelName: modelName.trim(),
+        providerId: String(entryProviderId || "")
+          .trim()
+          .toLowerCase(),
+      };
+    })
+    .filter(
+      ({ modelName, providerId }) =>
+        !!modelName && providerId === normalizedProviderId,
+    )
+    .filter(({ modelName }) => {
+      const key = modelName.toLowerCase();
+      if (seenNames.has(key)) {
+        return false;
+      }
+      seenNames.add(key);
+      return true;
+    })
+    .map(({ modelName }, index) => ({
+      name: modelName,
+      displayName: modelName,
+      available: true,
+      sorted: index,
+      provider: {
+        id: normalizedProviderId,
+        providerName,
+        providerType:
+          providerName === ServiceProvider.Local ? "openai" : "custom",
+        sorted: 0,
+      },
+    }));
+}
+
+function hasProviderModel(
+  models: Array<{ name: string; provider?: { id?: string } }>,
+  modelName: string,
+  providerId: string,
+) {
+  const normalizedModelName = String(modelName || "").toLowerCase();
+  const normalizedProviderId = String(providerId || "").toLowerCase();
+
+  return models.some(
+    (model) =>
+      String(model.name || "").toLowerCase() === normalizedModelName &&
+      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
+  );
+}
+
+function addCustomModelEntry(
+  customModels: string,
+  modelName: string,
+  providerId: string,
+) {
+  const entry = `+${modelName}@${providerId}`;
+  const existingEntries = customModels
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const existingKeys = new Set(
+    existingEntries.map((item) => item.replace(/^[+-]/, "").toLowerCase()),
+  );
+
+  if (existingKeys.has(`${modelName}@${providerId}`.toLowerCase())) {
+    return { customModels, added: false };
+  }
+
+  return {
+    customModels: [...existingEntries, entry].join(","),
+    added: true,
+  };
 }
 
 function getActiveAccessProfile(
@@ -2826,7 +2941,6 @@ function _Chat() {
       disable: true,
     }));
   }, [
-    allModels,
     activeModelSelectorProviderId,
     globalCustomModelValueSet,
     getModelGroup,
@@ -2896,6 +3010,7 @@ function _Chat() {
     useState(false);
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
+  const latestOpenAIAutoCheckKeyRef = useRef("");
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const balanceAutoRefreshResumeTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -2916,6 +3031,119 @@ function _Chat() {
 
     return providers.length > 0 ? providers : [];
   }, [apiProfiles]);
+
+  const ensureLatestOpenAIModelForProfile = useCallback(
+    (
+      profile: {
+        id?: string;
+        name: string;
+        provider: ServiceProvider;
+        cachedModels?: string;
+      },
+      reason: string,
+    ) => {
+      const selectedProviderId = getProfileProviderId(profile).toLowerCase();
+      const cachedProfileModels =
+        useModelCacheStore.getState().profiles?.[profile.id || ""]
+          ?.cachedModels ||
+        profile.cachedModels ||
+        "";
+      const initialProviderModels = allModels.filter(
+        (model) =>
+          model.available &&
+          String(model.provider?.id || "").toLowerCase() === selectedProviderId,
+      );
+      const appConfigState = useAppConfig.getState();
+      let latestCustomModels = appConfigState.customModels || "";
+      let addedProviderModels = buildProviderModelsFromAddedCustomModels(
+        latestCustomModels,
+        selectedProviderId,
+        profile.provider,
+      );
+      const cachedProviderModels = buildProviderModelsFromCachedNames(
+        cachedProfileModels,
+        selectedProviderId,
+        profile.provider,
+      );
+      const latestOpenAIModelName = getLatestOpenAIModelName([
+        ...allModels,
+        ...initialProviderModels,
+        ...addedProviderModels,
+        ...cachedProviderModels,
+      ]);
+
+      if (
+        latestOpenAIModelName &&
+        !hasProviderModel(
+          [
+            ...initialProviderModels,
+            ...addedProviderModels,
+            ...cachedProviderModels,
+          ],
+          latestOpenAIModelName,
+          selectedProviderId,
+        )
+      ) {
+        const nextCustomModels = addCustomModelEntry(
+          latestCustomModels,
+          latestOpenAIModelName,
+          selectedProviderId,
+        );
+        if (nextCustomModels.added) {
+          latestCustomModels = nextCustomModels.customModels;
+          useAppConfig.getState().update((state) => {
+            state.customModels = nextCustomModels.customModels;
+          });
+          console.info("[Model Selector] latest OpenAI model auto added", {
+            reason,
+            profileName: profile.name,
+            providerId: selectedProviderId,
+            model: latestOpenAIModelName,
+          });
+        }
+        addedProviderModels = buildProviderModelsFromAddedCustomModels(
+          latestCustomModels,
+          selectedProviderId,
+          profile.provider,
+        );
+      }
+
+      return {
+        addedProviderModels,
+        cachedProfileModels,
+        cachedProviderModels,
+        initialProviderModels,
+        selectedProviderId,
+      };
+    },
+    [allModels],
+  );
+
+  useEffect(() => {
+    if (!currentProfile || !currentProviderId || allModels.length === 0) {
+      return;
+    }
+
+    const latestOpenAIModelName = getLatestOpenAIModelName(allModels);
+    const checkKey = [
+      currentProfile.id || currentProfile.name,
+      currentProviderId,
+      latestOpenAIModelName || "",
+      useAppConfig.getState().customModels || "",
+    ].join("|");
+
+    if (latestOpenAIAutoCheckKeyRef.current === checkKey) {
+      return;
+    }
+    latestOpenAIAutoCheckKeyRef.current = checkKey;
+
+    ensureLatestOpenAIModelForProfile(currentProfile as any, "page-refresh");
+  }, [
+    allModels,
+    currentProfile,
+    currentProviderId,
+    ensureLatestOpenAIModelForProfile,
+  ]);
 
   useEffect(() => {
     if (!showModelSelector) {
@@ -3869,18 +4097,32 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
-    const latestModelName = sessionMask?.modelConfig?.model || currentRawModel;
-    const latestProviderName =
-      sessionMask?.modelConfig?.providerName || currentProviderName;
+    // 优先使用已切换的 providerId，其次从 session 获取
     const latestProviderId =
+      modelSelectorProviderId ||
       resolveModelProviderId(
         allModels,
         sessionMask?.modelConfig,
         apiProfiles,
-      ) || String(latestProviderName || "").toLowerCase();
-    const fallbackDefaultValue = latestProviderId
-      ? `${latestModelName}@${latestProviderId}`
-      : undefined;
+      ) ||
+      String(
+        sessionMask?.modelConfig?.providerName || currentProviderName || "",
+      ).toLowerCase();
+
+    // 始终选择当前供应商的 OpenAI 最新模型
+    const latestOpenAIModel = getLatestOpenAIModelForProviderId(
+      allModels,
+      latestProviderId,
+    );
+    const latestModelName =
+      latestOpenAIModel?.model ||
+      sessionMask?.modelConfig?.model ||
+      currentRawModel;
+
+    const fallbackDefaultValue =
+      latestProviderId && latestModelName
+        ? `${latestModelName}@${latestProviderId}`
+        : undefined;
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
@@ -3893,7 +4135,7 @@ function _Chat() {
     apiProfiles,
     currentRawModel,
     currentProviderName,
-    session.id,
+    modelSelectorProviderId,
     sessionMask,
   ]);
 
@@ -3929,14 +4171,14 @@ function _Chat() {
           return;
         }
 
-        const cachedProfileModels =
-          useModelCacheStore.getState().profiles?.[profile.id]?.cachedModels ||
-          "";
-        const initialProviderModels = allModels.filter(
-          (model) =>
-            model.available &&
-            String(model.provider?.id || "").toLowerCase() ===
-              selectedProviderId,
+        const {
+          addedProviderModels,
+          cachedProfileModels,
+          cachedProviderModels,
+          initialProviderModels,
+        } = ensureLatestOpenAIModelForProfile(
+          profile as any,
+          "provider-switch",
         );
         const hasLoadedProviderModels = initialProviderModels.length > 0;
         const hasCachedProviderModels = Boolean(cachedProfileModels);
@@ -3945,13 +4187,20 @@ function _Chat() {
           providerModels: typeof initialProviderModels,
         ) => {
           const switchStartedAt = nowMs();
+          const latestSession = chatStore.currentSession();
+          if (!latestSession) {
+            console.error(
+              "[handleProviderChange] currentSession() returned null",
+            );
+            return;
+          }
           const preferredProviderModelConfig =
             getLatestOpenAIModelForCurrentSupplier(
               providerModels,
               {
-                ...session.mask.modelConfig,
+                ...latestSession.mask.modelConfig,
                 providerName: profile.provider as ServiceProvider,
-                ...(session.mask.modelConfig as any),
+                ...(latestSession.mask.modelConfig as any),
                 providerId: selectedProviderId,
                 profileId: profile.id,
               } as any,
@@ -3960,9 +4209,9 @@ function _Chat() {
             getPreferredDefaultChatModel(
               providerModels,
               {
-                ...session.mask.modelConfig,
+                ...latestSession.mask.modelConfig,
                 providerName: profile.provider as ServiceProvider,
-                ...(session.mask.modelConfig as any),
+                ...(latestSession.mask.modelConfig as any),
                 providerId: selectedProviderId,
                 profileId: profile.id,
               } as any,
@@ -3974,6 +4223,20 @@ function _Chat() {
             ) ??
             providerModels.find((model) => model.isDefault) ??
             providerModels[0];
+
+          if (!nextModel) {
+            setModelSelectorNotice(
+              `${profileName} 没有已添加模型，无法自动切换`,
+            );
+            if (modelSelectorNoticeTimerRef.current) {
+              clearTimeout(modelSelectorNoticeTimerRef.current);
+            }
+            modelSelectorNoticeTimerRef.current = setTimeout(() => {
+              setModelSelectorNotice("");
+              modelSelectorNoticeTimerRef.current = null;
+            }, 2200);
+            return;
+          }
 
           setIsProviderSelectorOpen(false);
           setShowAutoModelSelector(false);
@@ -3996,19 +4259,10 @@ function _Chat() {
             balanceAutoRefreshResumeTimerRef.current = null;
           }, 3000);
 
-          const latestSession = chatStore.currentSession();
-          if (!latestSession) {
-            console.error(
-              "[handleProviderChange] currentSession() returned null",
-            );
-            return;
-          }
           chatStore.updateTargetSession(latestSession, (session) => {
             session.mask.modelConfig.providerName =
               profile.provider as ServiceProvider;
-            if (nextModel) {
-              session.mask.modelConfig.model = nextModel.name as ModelType;
-            }
+            session.mask.modelConfig.model = nextModel.name as ModelType;
             (session.mask.modelConfig as any).providerId = selectedProviderId;
             (session.mask.modelConfig as any).profileId = profile.id;
             session.mask.modelConfig = sanitizeModelConfigForCapability(
@@ -4021,19 +4275,17 @@ function _Chat() {
             sessionId: latestSession.id,
             profileName,
             providerName: profile.provider,
-            model: nextModel?.name || latestSession.mask.modelConfig.model,
+            model: nextModel.name,
             providerId: selectedProviderId,
           });
           localStorage.setItem(
             MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
             profileName,
           );
-          if (nextModel) {
-            localStorage.setItem(
-              LAST_MODEL_SELECTION_STORAGE_KEY,
-              `${nextModel.name}@${selectedProviderId}`,
-            );
-          }
+          localStorage.setItem(
+            LAST_MODEL_SELECTION_STORAGE_KEY,
+            `${nextModel.name}@${selectedProviderId}`,
+          );
 
           setModelSelectorNotice(`已切换到 ${profileName}`);
           if (modelSelectorNoticeTimerRef.current) {
@@ -4045,6 +4297,9 @@ function _Chat() {
           }, 1600);
           resetModelSelectorGroupToAll();
           setModelSelectorResetKey((key) => key + 1);
+          setModelSelectorDefaultValue(
+            `${nextModel.name}@${selectedProviderId}`,
+          );
 
           logPerfSummary("ModelSelector", {
             providerSwitchDurationMs: Number(
@@ -4070,10 +4325,23 @@ function _Chat() {
             String(model.provider?.id || "").toLowerCase() ===
               selectedProviderId,
         );
+        if (addedProviderModels.length > 0) {
+          commitProviderSwitch(
+            addedProviderModels as typeof initialProviderModels,
+          );
+          return;
+        }
 
         if (rebuiltProviderModels.length > 0) {
           commitProviderSwitch(
             rebuiltProviderModels as typeof initialProviderModels,
+          );
+          return;
+        }
+
+        if (cachedProviderModels.length > 0) {
+          commitProviderSwitch(
+            cachedProviderModels as typeof initialProviderModels,
           );
           return;
         }
@@ -4083,10 +4351,9 @@ function _Chat() {
       }
     },
     [
-      allModels,
       apiProfiles,
       chatStore,
-      config,
+      ensureLatestOpenAIModelForProfile,
       resetModelSelectorGroupToAll,
       isAiHubMixOrderingReady,
     ],
@@ -5398,6 +5665,17 @@ function _Chat() {
       {showAddModelModal && addModelProfile && (
         <AddModelSelector
           onClose={() => {
+            const managedProfile = addModelProfile.profiles.find(
+              (profile) =>
+                getProfileProviderId(profile).toLowerCase() ===
+                addModelProfile.currentProviderId,
+            );
+            if (managedProfile) {
+              ensureLatestOpenAIModelForProfile(
+                managedProfile as any,
+                "model-manager-close",
+              );
+            }
             setShowAddModelModal(false);
             setAddModelProfile(null);
             setShowModelSelector(true);
@@ -5442,7 +5720,7 @@ export function Chat() {
         store.selectSessionById(urlSessionId);
       }
     }
-  }, [sessionIdListKey, urlSessionId]);
+  }, [navigate, sessionIdListKey, urlSessionId]);
 
   // 对话变化时同步 URL
   useEffect(() => {
