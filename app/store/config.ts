@@ -132,6 +132,11 @@ export const DEFAULT_CONFIG = {
   models: [] as LLMModel[],
   autoModelSeries: [] as AutoModelSeriesKey[],
 
+  // 字段级同步时间戳：跨浏览器同步时按字段独立判定胜方，避免相互覆盖
+  customModelsUpdatedAt: 0,
+  autoModelSeriesUpdatedAt: 0,
+  modelSelectionUpdatedAt: 0,
+
   modelConfig: {
     model: "gpt-5.4" as ModelType,
     providerName: "Custom" as ServiceProvider,
@@ -452,7 +457,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.4,
+    version: 4.5,
     partialize(state) {
       const { theme, tightBorder, sidebarWidth, ...rest } = state as ChatConfig;
       return rest as typeof state;
@@ -555,6 +560,12 @@ export const useAppConfig = createPersistStore(
 
       if (version < 4.4) {
         state.modelConfig.webSearch = true;
+      }
+
+      if (version < 4.5) {
+        (state as any).customModelsUpdatedAt = 0;
+        (state as any).autoModelSeriesUpdatedAt = 0;
+        (state as any).modelSelectionUpdatedAt = 0;
       }
 
       return state as any;

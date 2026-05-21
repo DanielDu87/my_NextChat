@@ -56,7 +56,7 @@ export const STORE_PERSIST_VERSION: Record<
   [StoreKey.Chat]: 3.7,
   [StoreKey.Plugin]: 1,
   [StoreKey.Access]: 4,
-  [StoreKey.Config]: 4.4,
+  [StoreKey.Config]: 4.5,
   [StoreKey.ModelCache]: 1,
   [StoreKey.Mask]: 3.1,
   [StoreKey.Prompt]: 3,

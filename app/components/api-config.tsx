@@ -1182,6 +1182,7 @@ export function ApiConfigPage() {
               );
               if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
                 state.customModels = fetchedModels;
+                (state as any).customModelsUpdatedAt = Date.now();
               }
             });
             useModelCacheStore.getState().upsertProfileCache(profile.id, {
@@ -1844,6 +1845,7 @@ export function ApiConfigPage() {
             );
             if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
               state.customModels = fetchedModels;
+              (state as any).customModelsUpdatedAt = Date.now();
             }
           });
           useModelCacheStore.getState().upsertProfileCache(profile.id, {
@@ -2244,6 +2246,7 @@ export function ApiConfigPage() {
       appConfig.update((config: any) => {
         config.models = [];
         config.customModels = "";
+        config.customModelsUpdatedAt = Date.now();
       });
 
       accessStore.update((state) => {

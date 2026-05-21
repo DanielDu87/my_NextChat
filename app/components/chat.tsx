@@ -3093,6 +3093,7 @@ function _Chat() {
           latestCustomModels = nextCustomModels.customModels;
           useAppConfig.getState().update((state) => {
             state.customModels = nextCustomModels.customModels;
+            (state as any).customModelsUpdatedAt = Date.now();
           });
           console.info("[Model Selector] latest OpenAI model auto added", {
             reason,
@@ -4281,6 +4282,17 @@ function _Chat() {
               session.mask.modelConfig,
             );
             session.mask.syncGlobalConfig = false;
+          });
+
+          // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次切换的供应商/模型，
+          // 并通过 Config store 跨浏览器同步当前模型/供应商。
+          useAppConfig.getState().update((config) => {
+            config.modelConfig = sanitizeModelConfigForCapability({
+              ...config.modelConfig,
+              model: nextModel.name as ModelType,
+              providerName: profile.provider as ServiceProvider,
+            });
+            (config as any).modelSelectionUpdatedAt = Date.now();
           });
 
           console.info("[Model Selector] provider changed", {
@@ -5494,6 +5506,8 @@ function _Chat() {
                             : normalizeAutoModelSeries([item.value]);
                           config.update((config) => {
                             config.autoModelSeries = normalized;
+                            (config as any).autoModelSeriesUpdatedAt =
+                              Date.now();
                           });
                         }}
                       >
@@ -5637,6 +5651,17 @@ function _Chat() {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig = nextModelConfig;
               session.mask.syncGlobalConfig = false;
+            });
+
+            // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次选择，
+            // 并通过 Config store 跨浏览器同步当前模型/供应商。
+            useAppConfig.getState().update((config) => {
+              config.modelConfig = sanitizeModelConfigForCapability({
+                ...config.modelConfig,
+                model: nextModelConfig.model,
+                providerName: nextModelConfig.providerName,
+              });
+              (config as any).modelSelectionUpdatedAt = Date.now();
             });
 
             console.info("[Model Selector] model changed", {

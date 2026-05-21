@@ -143,6 +143,7 @@ export function AddModelSelector(props: {
       console.log(`[ModelManager] ➖ 删除模型: ${modelName}`);
       config.update((state) => {
         state.customModels = updated.join(",");
+        (state as any).customModelsUpdatedAt = Date.now();
       });
     },
     [config],
@@ -173,6 +174,7 @@ export function AddModelSelector(props: {
     );
     config.update((state) => {
       state.customModels = updated.join(",");
+      (state as any).customModelsUpdatedAt = Date.now();
     });
   }, [config, selectedProviderId]);
 
@@ -255,6 +257,7 @@ export function AddModelSelector(props: {
     const after = uniqueModels.join(",");
     config.update((state) => {
       state.customModels = after;
+      (state as any).customModelsUpdatedAt = Date.now();
     });
 
     setPendingSelection([]);

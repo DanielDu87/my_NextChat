@@ -270,10 +270,16 @@ function hasMeaningfulAccessProfiles(profiles: unknown) {
 
 export function hasMeaningfulConfigState(state: Record<string, any>) {
   // models 不参与同步，不作为"有意义"的判断依据
+  // providerName 默认值是 ServiceProvider.Custom，必须排除以避免本地总被判为有意义
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
     hasNonEmptyString(state?.customModels) ||
-    (Array.isArray(state?.autoModelSeries) && state.autoModelSeries.length > 0)
+    (Array.isArray(state?.autoModelSeries) &&
+      state.autoModelSeries.length > 0) ||
+    (hasNonEmptyString(state?.modelConfig?.model) &&
+      state.modelConfig.model !== "gpt-5.4") ||
+    (hasNonEmptyString(state?.modelConfig?.providerName) &&
+      state.modelConfig.providerName !== ServiceProvider.Custom)
   );
 }
 
@@ -608,25 +614,76 @@ const MergeStates: StateMerger = {
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
     // - models 数组不参与同步，始终保持本地（由 API 拉取/目录重建）
-    // - customModels 双向合并，本地优先（用户手动添加的模型）
     // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
-    // - 其他配置字段走”本地优先，远端补全”
+    // - customModels / autoModelSeries / modelConfig.model+providerName
+    //   各自按字段级时间戳独立判定胜方，互不干扰
+    // - modelConfig 其他字段（temperature/top_p/max_tokens 等）保留"远端补全本地缺失"
     const currentConfig = useAppConfig.getState();
     const preferRemoteOnBootstrap =
       !hasMeaningfulConfigState(localState as Record<string, any>) &&
       hasMeaningfulConfigState(remoteState as Record<string, any>);
+
+    const local = localState as Record<string, any>;
+    const remote = remoteState as Record<string, any>;
+
+    // 字段级时间戳：各字段独立判定谁更新
+    const localCustomModelsAt = Number(local.customModelsUpdatedAt) || 0;
+    const remoteCustomModelsAt = Number(remote.customModelsUpdatedAt) || 0;
+    const useRemoteCustomModels =
+      preferRemoteOnBootstrap || remoteCustomModelsAt > localCustomModelsAt;
+
+    const localAutoSeriesAt = Number(local.autoModelSeriesUpdatedAt) || 0;
+    const remoteAutoSeriesAt = Number(remote.autoModelSeriesUpdatedAt) || 0;
+    const useRemoteAutoSeries =
+      preferRemoteOnBootstrap || remoteAutoSeriesAt > localAutoSeriesAt;
+
+    const localModelSelAt = Number(local.modelSelectionUpdatedAt) || 0;
+    const remoteModelSelAt = Number(remote.modelSelectionUpdatedAt) || 0;
+    const useRemoteModelSelection =
+      preferRemoteOnBootstrap || remoteModelSelAt > localModelSelAt;
+
+    // 整体配置仍以 lastUpdateTime 做基础 spread（temperature 等非关键字段）
+    const localUpdate = Number(local.lastUpdateTime) || 0;
+    const remoteUpdate = Number(remote.lastUpdateTime) || 0;
+
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
-      // models 始终保持本地，不被远端覆盖
+      // 始终保持本地：动态模型列表 / UI 偏好
       models: currentConfig.models,
       theme: currentConfig.theme,
       sidebarWidth: currentConfig.sidebarWidth,
       tightBorder: currentConfig.tightBorder,
-      lastUpdate: markMergedUpdateTime(
-        Number((localState as any).lastUpdate),
-        Number((remoteState as any).lastUpdate),
+      // 字段级独立判定
+      customModels: useRemoteCustomModels
+        ? String(remote.customModels ?? "")
+        : String(local.customModels ?? ""),
+      customModelsUpdatedAt: Math.max(
+        localCustomModelsAt,
+        remoteCustomModelsAt,
       ),
+      autoModelSeries: useRemoteAutoSeries
+        ? Array.isArray(remote.autoModelSeries)
+          ? [...remote.autoModelSeries]
+          : []
+        : Array.isArray(local.autoModelSeries)
+        ? [...local.autoModelSeries]
+        : [],
+      autoModelSeriesUpdatedAt: Math.max(localAutoSeriesAt, remoteAutoSeriesAt),
+      modelConfig: {
+        ...((preferRemoteOnBootstrap ? localState : remoteState) as any)
+          .modelConfig,
+        ...((preferRemoteOnBootstrap ? remoteState : localState) as any)
+          .modelConfig,
+        model: useRemoteModelSelection
+          ? remote.modelConfig?.model ?? local.modelConfig?.model
+          : local.modelConfig?.model ?? remote.modelConfig?.model,
+        providerName: useRemoteModelSelection
+          ? remote.modelConfig?.providerName ?? local.modelConfig?.providerName
+          : local.modelConfig?.providerName ?? remote.modelConfig?.providerName,
+      },
+      modelSelectionUpdatedAt: Math.max(localModelSelAt, remoteModelSelAt),
+      lastUpdateTime: markMergedUpdateTime(localUpdate, remoteUpdate),
     };
 
     Object.assign(localState, mergedState);

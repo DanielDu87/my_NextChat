@@ -24,7 +24,6 @@ import {
   buildChatIndexPayload,
   buildChatStateFromIndex,
   createChatIndexEntryMap,
-  createChatSessionMap,
   getSyncableChatSessions,
   shouldSyncChatSession,
   type ChatIndexSessionEntry,
@@ -583,10 +582,34 @@ function logOverallSyncSummary(
     if (item.key === StoreKey.Config) {
       const currentCustomModels =
         (useAppConfig.getState() as any).customModels || "";
+      const afterEntries = currentCustomModels
+        .split(",")
+        .map((m: string) => m.trim())
+        .filter((m: string) => m.startsWith("+"))
+        .map((m: string) => m.slice(1));
+      const afterCount = afterEntries.length;
 
-      // 首次同步时仅记录快照，不输出日志
+      // 按供应商统计
+      const providerCounts = new Map<string, number>();
+      afterEntries.forEach((m: string) => {
+        const atIdx = m.lastIndexOf("@");
+        const prov =
+          atIdx > 0
+            ? m.substring(atIdx + 1).replace(/^custom_/, "")
+            : "unknown";
+        providerCounts.set(prov, (providerCounts.get(prov) || 0) + 1);
+      });
+
       if (lastKnownCustomModelsSnapshot === "") {
         lastKnownCustomModelsSnapshot = currentCustomModels;
+        console.log(`[Sync] ✅ 已同步模型: 当前共 ${afterCount} 个`);
+        if (afterCount > 0) {
+          Array.from(providerCounts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .forEach(([p, c]) => {
+              console.log(`[Sync]   ${p}: ${c}个`);
+            });
+        }
         return;
       }
 
@@ -595,16 +618,10 @@ function logOverallSyncSummary(
         .map((m: string) => m.trim())
         .filter((m: string) => m.startsWith("+"))
         .map((m: string) => m.slice(1));
-      const afterEntries = currentCustomModels
-        .split(",")
-        .map((m: string) => m.trim())
-        .filter((m: string) => m.startsWith("+"))
-        .map((m: string) => m.slice(1));
       const beforeSet = new Set<string>(beforeEntries);
       const afterSet = new Set<string>(afterEntries);
       const added = afterEntries.filter((n: string) => !beforeSet.has(n));
       const deleted = beforeEntries.filter((n: string) => !afterSet.has(n));
-      const afterCount = afterEntries.length;
 
       // 输出新增的模型
       added.forEach((m: string) => {
@@ -623,22 +640,15 @@ function logOverallSyncSummary(
         console.log(`[Sync] ➖ ${name}@${provider}`);
       });
 
-      // 按供应商统计
-      const providerCounts = new Map<string, number>();
-      afterEntries.forEach((m: string) => {
-        const atIdx = m.lastIndexOf("@");
-        const prov =
-          atIdx > 0
-            ? m.substring(atIdx + 1).replace(/^custom_/, "")
-            : "unknown";
-        providerCounts.set(prov, (providerCounts.get(prov) || 0) + 1);
-      });
-
       if (added.length > 0 || deleted.length > 0) {
         console.log(
-          `[Sync] ✅ 已同步${item.name}: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
+          `[Sync] ✅ 已同步模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
         );
-        // 分行显示各供应商
+      } else {
+        console.log(`[Sync] ✅ 已同步模型: 无变化，当前共 ${afterCount} 个`);
+      }
+      // 分行显示各供应商
+      if (afterCount > 0) {
         Array.from(providerCounts.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
           .forEach(([p, c]) => {
@@ -1148,6 +1158,9 @@ function buildUploadableChatSessionMap(chatState: any) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
   const summaryMap = createSessionSummaryMap(chatState);
   const sessionMap = new Map<string, Record<string, unknown>>();
+  let prunedCount = 0;
+  let emptyCount = 0;
+  let notSyncableCount = 0;
 
   sessions.forEach((session: any) => {
     const sessionId = String(session?.id || "");
@@ -1156,19 +1169,36 @@ function buildUploadableChatSessionMap(chatState: any) {
     }
 
     if (isLocallyPrunedSession(session, summaryMap.get(sessionId))) {
+      prunedCount++;
       return;
     }
 
     if (isDefaultEmptyChatSession(session)) {
+      emptyCount++;
       return;
     }
 
     if (!shouldSyncChatSession(session)) {
+      notSyncableCount++;
       return;
     }
 
-    sessionMap.set(sessionId, session as Record<string, unknown>);
+    // 合并后的会话可能从远端占位符继承了 _syncPlaceholder 标记，
+    // 但既然已通过消息检查，说明是真实会话，必须剥离该标记以避免上传时被过滤
+    if (session._syncPlaceholder) {
+      const { _syncPlaceholder, ...cleanSession } = session;
+      sessionMap.set(sessionId, cleanSession as Record<string, unknown>);
+    } else {
+      sessionMap.set(sessionId, session as Record<string, unknown>);
+    }
   });
+
+  if (prunedCount > 0 || notSyncableCount > 0) {
+    syncConsole(
+      "log",
+      `[Sync] 🔬 buildUploadableMap 诊断: 总 ${sessions.length}, 可上传 ${sessionMap.size}, 被剪枝 ${prunedCount}, 空会话 ${emptyCount}, 不可同步 ${notSyncableCount}`,
+    );
+  }
 
   return sessionMap;
 }
@@ -1228,6 +1258,9 @@ async function materializeLocalChatState(chatState: any, lightMode = false) {
         "",
     );
 
+  let hydratedCount = 0;
+  let skippedLightMode = 0;
+  let failedHydration: string[] = [];
   const nextSessions = await Promise.all(
     sessions.map(async (session: any) => {
       const summary = sessionSummaries.find(
@@ -1244,12 +1277,32 @@ async function materializeLocalChatState(chatState: any, lightMode = false) {
       }
 
       if (lightMode && String(session?.id || "") !== currentSessionId) {
+        skippedLightMode++;
         return session;
       }
 
-      return (await getPersistedChatSession(session.id)) || session;
+      const hydrated = await getPersistedChatSession(session.id);
+      if (hydrated) {
+        hydratedCount++;
+        return hydrated;
+      }
+      failedHydration.push(String(session.id));
+      return session;
     }),
   );
+  if (!lightMode && (failedHydration.length > 0 || hydratedCount > 0)) {
+    syncConsole(
+      "log",
+      `[Sync] 🔬 materialize 诊断: 总会话 ${sessions.length}, 水合成功 ${hydratedCount}, 水合失败 ${failedHydration.length}, lightMode跳过 ${skippedLightMode}`,
+    );
+    if (failedHydration.length > 0) {
+      syncConsole(
+        "warn",
+        `[Sync] 🔬 水合失败的会话ID:`,
+        failedHydration.slice(0, 10),
+      );
+    }
+  }
 
   return {
     ...chatState,
@@ -1465,6 +1518,10 @@ export const useSyncStore = createPersistStore(
       const lightMode = get().criticalSyncInProgress;
       const hasPendingChatRequest = ChatControllerPool.hasPending();
       const downloadOnly = options?.downloadOnly === true;
+      syncConsole(
+        "log",
+        `[Sync] 🔬 syncChatStore 诊断: lightMode=${lightMode}, hasPendingChatRequest=${hasPendingChatRequest}, downloadOnly=${downloadOnly}`,
+      );
       const uploadOrMergeStatus: "uploaded" | "merged" = downloadOnly
         ? "merged"
         : "uploaded";
@@ -1797,10 +1854,13 @@ export const useSyncStore = createPersistStore(
           mergedStoreState,
           remoteEntryMap,
         );
-        const mergedSessionMap = createChatSessionMap(
-          Array.isArray(mergedStoreState?.sessions)
+        const allMergedSessionIds = new Set<string>(
+          (Array.isArray(mergedStoreState?.sessions)
             ? mergedStoreState.sessions
-            : [],
+            : []
+          )
+            .map((s: any) => String(s?.id || ""))
+            .filter(Boolean),
         );
         const uploadableSessionMap =
           buildUploadableChatSessionMap(mergedStoreState);
@@ -1818,7 +1878,7 @@ export const useSyncStore = createPersistStore(
           );
         const deleteSessionIds = [...remoteEntryMap.keys()].filter(
           (sessionId) =>
-            !mergedSessionMap.has(sessionId) ||
+            !allMergedSessionIds.has(sessionId) ||
             wasChatSessionDeleted(
               sessionId,
               remoteEntryMap.get(sessionId)?.lastUpdate || 0,
@@ -1946,30 +2006,60 @@ export const useSyncStore = createPersistStore(
         mergedStoreState as any,
         remoteEntryMap,
       );
-      const mergedSessionMap = createChatSessionMap(
-        Array.isArray((mergedStoreState as any)?.sessions)
+      // 删除逻辑需要包含所有会话 ID（含占位符），避免水合失败的远端会话被误删
+      const allMergedSessionIds = new Set<string>(
+        (Array.isArray((mergedStoreState as any)?.sessions)
           ? (mergedStoreState as any).sessions
-          : [],
+          : []
+        )
+          .map((s: any) => String(s?.id || ""))
+          .filter(Boolean),
       );
       const uploadableSessionMap =
         buildUploadableChatSessionMap(mergedStoreState);
-      const upsertSessions = mergedIndex.sessions
-        .filter((entry: ChatIndexSessionEntry) =>
+      const afterShouldUpload = mergedIndex.sessions.filter(
+        (entry: ChatIndexSessionEntry) =>
           shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
-        )
-        .map((entry: ChatIndexSessionEntry) =>
-          uploadableSessionMap.get(entry.id),
-        )
-        .filter(Boolean)
-        .filter((session: unknown) => !isRemoteSessionPlaceholder(session))
-        .map(
-          (session: unknown) => session as unknown as Record<string, unknown>,
+      );
+      const afterMapToSession = afterShouldUpload.map(
+        (entry: ChatIndexSessionEntry) => uploadableSessionMap.get(entry.id),
+      );
+      const afterFilterBoolean = afterMapToSession.filter(Boolean);
+      const afterFilterPlaceholder = afterFilterBoolean.filter(
+        (session: unknown) => !isRemoteSessionPlaceholder(session),
+      );
+      const upsertSessions = afterFilterPlaceholder.map(
+        (session: unknown) => session as unknown as Record<string, unknown>,
+      );
+      if (upsertSessions.length === 0 && mergedIndex.sessions.length > 0) {
+        syncConsole(
+          "warn",
+          `[Sync] 🔬 过滤链诊断: shouldUpload=${
+            afterShouldUpload.length
+          }, mapToSession(非null)=${afterMapToSession.filter(Boolean).length}/${
+            afterMapToSession.length
+          }, filterPlaceholder=${
+            afterFilterPlaceholder.length
+          }, uploadableMapSize=${uploadableSessionMap.size}`,
         );
+        if (
+          afterShouldUpload.length > 0 &&
+          afterMapToSession.filter(Boolean).length === 0
+        ) {
+          syncConsole(
+            "warn",
+            `[Sync] 🔬 uploadableMap 缺失的会话:`,
+            afterShouldUpload
+              .slice(0, 5)
+              .map((e: ChatIndexSessionEntry) => e.id),
+          );
+        }
+      }
       const deleteSessionIds = [
         // 远端有但合并后不存在的会话（已删除或孤儿）
         ...[...remoteEntryMap.keys()].filter(
           (sessionId) =>
-            !mergedSessionMap.has(sessionId) ||
+            !allMergedSessionIds.has(sessionId) ||
             wasChatSessionDeleted(
               sessionId,
               remoteEntryMap.get(sessionId)?.lastUpdate || 0,
@@ -1982,7 +2072,22 @@ export const useSyncStore = createPersistStore(
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-      if (!downloadOnly && !hasPendingChatRequest) {
+      syncConsole(
+        "log",
+        `[Sync] 🔬 上传决策诊断: mergedIndex.sessions=${mergedIndex.sessions.length}, upsertSessions=${upsertSessions.length}, deleteSessionIds=${deleteSessionIds.length}, remoteEntryMap=${remoteEntryMap.size}`,
+      );
+      if (downloadOnly) {
+        syncConsole("log", "[Sync] 🔬 跳过上传: downloadOnly=true");
+      } else if (hasPendingChatRequest) {
+        syncConsole(
+          "warn",
+          "[Sync] ⚠️ 跳过上传: hasPendingChatRequest=true（用户正在对话中）",
+        );
+      } else {
+        syncConsole(
+          "log",
+          `[Sync] 🔬 执行 setChatDelta: 上传 ${upsertSessions.length} 个会话`,
+        );
         await client.setChatDelta?.(
           {
             index: mergedIndex,
