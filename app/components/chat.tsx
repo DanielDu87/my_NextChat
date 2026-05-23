@@ -2468,6 +2468,9 @@ function _Chat() {
     (state: any) => state.criticalSyncInProgress,
   );
   const syncProvider = useSyncStore((state) => state.provider);
+  const isSyncBlocking =
+    syncProvider === ProviderType.Database &&
+    (!criticalSyncReady || criticalSyncInProgress);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isScrolledToBottom = scrollRef?.current
@@ -3415,6 +3418,10 @@ function _Chat() {
       showToast("管理员查看他人数据时为只读模式，不能发送消息");
       return;
     }
+    if (isSyncBlocking) {
+      showToast("模型配置同步中，请稍候…");
+      return;
+    }
     if (userInput.trim() === "" && isEmpty(attachImages)) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
@@ -4292,6 +4299,7 @@ function _Chat() {
               model: nextModel.name as ModelType,
               providerName: profile.provider as ServiceProvider,
             });
+            (config.modelConfig as any).providerId = selectedProviderId;
             (config as any).modelSelectionUpdatedAt = Date.now();
           });
 
@@ -4302,6 +4310,11 @@ function _Chat() {
             model: nextModel.name,
             providerId: selectedProviderId,
           });
+          console.log(
+            `[Sync] 📤 模型选择已变更，等待上传: ${
+              nextModel.name
+            }@${selectedProviderId.replace(/^custom_/, "")}`,
+          );
           localStorage.setItem(
             MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
             profileName,
@@ -5226,9 +5239,8 @@ function _Chat() {
                   placeholder={
                     readOnly
                       ? "管理员查看模式下不可发送消息"
-                      : syncProvider === ProviderType.Database &&
-                        (!criticalSyncReady || criticalSyncInProgress)
-                      ? "正在后台恢复聊天记录和 API 配置，可直接对话"
+                      : isSyncBlocking
+                      ? "正在同步模型配置，请稍候…"
                       : Locale.Chat.Input(submitKey)
                   }
                   onInput={(e) => onInput(e.currentTarget.value)}
@@ -5239,7 +5251,7 @@ function _Chat() {
                   onPaste={handlePaste}
                   rows={inputRows}
                   autoFocus={autoFocus}
-                  disabled={readOnly}
+                  disabled={readOnly || isSyncBlocking}
                   style={{
                     fontSize: inputFontSize,
                     fontFamily: config.fontFamily,
@@ -5273,7 +5285,7 @@ function _Chat() {
                   text={Locale.Chat.Send}
                   className={styles["chat-input-send"]}
                   type="primary"
-                  disabled={readOnly}
+                  disabled={readOnly || isSyncBlocking}
                   onClick={() => doSubmit(userInput)}
                 />
               </label>
@@ -5504,6 +5516,11 @@ function _Chat() {
                           const normalized = active
                             ? []
                             : normalizeAutoModelSeries([item.value]);
+                          console.log(
+                            `[AutoMode] 🎯 切换自动模式: ${
+                              autoModelSeries.join(",") || "(无)"
+                            } → ${normalized.join(",") || "(无)"}`,
+                          );
                           config.update((config) => {
                             config.autoModelSeries = normalized;
                             (config as any).autoModelSeriesUpdatedAt =
@@ -5661,6 +5678,7 @@ function _Chat() {
                 model: nextModelConfig.model,
                 providerName: nextModelConfig.providerName,
               });
+              (config.modelConfig as any).providerId = selectedProviderId;
               (config as any).modelSelectionUpdatedAt = Date.now();
             });
 
@@ -5671,6 +5689,11 @@ function _Chat() {
               providerId: selectedProviderId,
               profileName: selectedProfile?.name,
             });
+            console.log(
+              `[Sync] 📤 模型选择已变更，等待上传: ${
+                nextModelConfig.model
+              }@${selectedProviderId.replace(/^custom_/, "")}`,
+            );
             if (selectedProfile?.name) {
               localStorage.setItem(
                 MODEL_SELECTOR_PROVIDER_STORAGE_KEY,

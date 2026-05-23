@@ -366,6 +366,15 @@ export async function getStoreSnapshotMetas(
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and extra_settings ? 'sd-list'
+       union all
+       select
+         'app-config'::text,
+         updated_at::text,
+         md5((extra_settings -> 'app-config')::text),
+         pg_column_size(extra_settings -> 'app-config')
+       from app_settings
+       where user_id = (select id from app_users where external_id = $2 limit 1)
+         and extra_settings ? 'app-config'
      ) snapshots
      where store_key = any($1::text[])
      order by store_key`,

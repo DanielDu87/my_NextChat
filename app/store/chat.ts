@@ -1909,29 +1909,29 @@ export const useChatStore = createPersistStore(
           const currentSession = get().currentSession();
           if (currentSession) {
             const configStore = useAppConfig.getState();
+            const globalModelConfig = configStore.modelConfig;
             const accessStore = useAccessStore.getState();
             const allModels = collectModelsWithDefaultModel(
               configStore.models,
               configStore.customModels,
               accessStore.defaultModel,
             );
-            const currentProviderId = (
+            const globalProviderId = (
               resolveModelProviderId(
                 allModels,
-                currentSession.mask.modelConfig,
+                globalModelConfig,
                 accessStore.apiProfiles,
-              ) ||
-              String((currentSession.mask.modelConfig as any)?.providerId || "")
+              ) || String((globalModelConfig as any)?.providerId || "")
             ).toLowerCase();
             const latestOpenAIModelForProvider =
-              getLatestOpenAIModelForProviderId(allModels, currentProviderId);
+              getLatestOpenAIModelForProviderId(allModels, globalProviderId);
             session.mask = {
               ...currentSession.mask,
               id: session.mask.id,
               name: session.mask.name,
               syncGlobalConfig: false,
               modelConfig: sanitizeModelConfigForCapability({
-                ...currentSession.mask.modelConfig,
+                ...globalModelConfig,
                 ...(latestOpenAIModelForProvider || {}),
               }),
             };

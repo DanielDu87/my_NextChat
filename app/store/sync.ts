@@ -550,6 +550,30 @@ function saveCustomModelSnapshotAfterSync(state: any) {
   );
 }
 
+function syncModelSelectionToLocalStorage(state: any) {
+  const modelConfig = state?.modelConfig;
+  if (!modelConfig) return;
+  const model = String(modelConfig.model || "").trim();
+  const providerName = String(modelConfig.providerName || "").trim();
+  if (!model || !providerName) return;
+  const providerId = String(
+    modelConfig.providerId || providerName.toLowerCase(),
+  ).trim();
+  const prevSelection = localStorage.getItem("nextchat:last-model-selection");
+  const prevProvider = localStorage.getItem("nextchat:model-selector-provider");
+  const nextSelection = `${model}@${providerId}`;
+  console.log(
+    `[Sync] 🔄 模型选择localStorage同步: ${
+      prevSelection || "(空)"
+    } → ${nextSelection}` +
+      ` | provider: ${prevProvider || "(空)"} → ${providerName}`,
+  );
+  try {
+    localStorage.setItem("nextchat:last-model-selection", nextSelection);
+    localStorage.setItem("nextchat:model-selector-provider", providerName);
+  } catch (_) {}
+}
+
 function logOverallSyncSummary(
   results: Array<{
     key: SyncStoreKey;
@@ -602,7 +626,14 @@ function logOverallSyncSummary(
 
       if (lastKnownCustomModelsSnapshot === "") {
         lastKnownCustomModelsSnapshot = currentCustomModels;
-        console.log(`[Sync] ✅ 已同步模型: 当前共 ${afterCount} 个`);
+        const modelsArrayCount = Array.isArray(
+          (useAppConfig.getState() as any).models,
+        )
+          ? (useAppConfig.getState() as any).models.length
+          : 0;
+        console.log(
+          `[Sync] ✅ 已同步模型: customModels=${afterCount}个, models[]=${modelsArrayCount}个`,
+        );
         if (afterCount > 0) {
           Array.from(providerCounts.entries())
             .sort((a, b) => a[0].localeCompare(b[0]))
@@ -661,7 +692,7 @@ function logOverallSyncSummary(
     }
     if (item.key === StoreKey.Chat) {
       // 计算会话的 diff（新增/删除）
-      const currentSessionIds = new Set(
+      const currentSessionIds = new Set<string>(
         (useChatStore.getState() as any)?.sessions?.map((s: any) => s.id) || [],
       );
       const beforeIds = lastKnownChatSessionIds;
@@ -1194,8 +1225,7 @@ function buildUploadableChatSessionMap(chatState: any) {
   });
 
   if (prunedCount > 0 || notSyncableCount > 0) {
-    syncConsole(
-      "log",
+    logSyncDebug(
       `[Sync] 🔬 buildUploadableMap 诊断: 总 ${sessions.length}, 可上传 ${sessionMap.size}, 被剪枝 ${prunedCount}, 空会话 ${emptyCount}, 不可同步 ${notSyncableCount}`,
     );
   }
@@ -1291,16 +1321,11 @@ async function materializeLocalChatState(chatState: any, lightMode = false) {
     }),
   );
   if (!lightMode && (failedHydration.length > 0 || hydratedCount > 0)) {
-    syncConsole(
-      "log",
+    logSyncDebug(
       `[Sync] 🔬 materialize 诊断: 总会话 ${sessions.length}, 水合成功 ${hydratedCount}, 水合失败 ${failedHydration.length}, lightMode跳过 ${skippedLightMode}`,
     );
     if (failedHydration.length > 0) {
-      syncConsole(
-        "warn",
-        `[Sync] 🔬 水合失败的会话ID:`,
-        failedHydration.slice(0, 10),
-      );
+      logSyncDebug(`[Sync] 🔬 水合失败的会话ID:`, failedHydration.slice(0, 10));
     }
   }
 
@@ -1518,8 +1543,7 @@ export const useSyncStore = createPersistStore(
       const lightMode = get().criticalSyncInProgress;
       const hasPendingChatRequest = ChatControllerPool.hasPending();
       const downloadOnly = options?.downloadOnly === true;
-      syncConsole(
-        "log",
+      logSyncDebug(
         `[Sync] 🔬 syncChatStore 诊断: lightMode=${lightMode}, hasPendingChatRequest=${hasPendingChatRequest}, downloadOnly=${downloadOnly}`,
       );
       const uploadOrMergeStatus: "uploaded" | "merged" = downloadOnly
@@ -2032,8 +2056,7 @@ export const useSyncStore = createPersistStore(
         (session: unknown) => session as unknown as Record<string, unknown>,
       );
       if (upsertSessions.length === 0 && mergedIndex.sessions.length > 0) {
-        syncConsole(
-          "warn",
+        logSyncDebug(
           `[Sync] 🔬 过滤链诊断: shouldUpload=${
             afterShouldUpload.length
           }, mapToSession(非null)=${afterMapToSession.filter(Boolean).length}/${
@@ -2046,8 +2069,7 @@ export const useSyncStore = createPersistStore(
           afterShouldUpload.length > 0 &&
           afterMapToSession.filter(Boolean).length === 0
         ) {
-          syncConsole(
-            "warn",
+          logSyncDebug(
             `[Sync] 🔬 uploadableMap 缺失的会话:`,
             afterShouldUpload
               .slice(0, 5)
@@ -2072,20 +2094,18 @@ export const useSyncStore = createPersistStore(
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
-      syncConsole(
-        "log",
+      logSyncDebug(
         `[Sync] 🔬 上传决策诊断: mergedIndex.sessions=${mergedIndex.sessions.length}, upsertSessions=${upsertSessions.length}, deleteSessionIds=${deleteSessionIds.length}, remoteEntryMap=${remoteEntryMap.size}`,
       );
       if (downloadOnly) {
-        syncConsole("log", "[Sync] 🔬 跳过上传: downloadOnly=true");
+        logSyncDebug("[Sync] 🔬 跳过上传: downloadOnly=true");
       } else if (hasPendingChatRequest) {
         syncConsole(
           "warn",
           "[Sync] ⚠️ 跳过上传: hasPendingChatRequest=true（用户正在对话中）",
         );
       } else {
-        syncConsole(
-          "log",
+        logSyncDebug(
           `[Sync] 🔬 执行 setChatDelta: 上传 ${upsertSessions.length} 个会话`,
         );
         await client.setChatDelta?.(
@@ -2515,6 +2535,7 @@ export const useSyncStore = createPersistStore(
                     : undefined;
                 if (key === StoreKey.Config) {
                   saveCustomModelSnapshotAfterSync(resolvedStoreState);
+                  syncModelSelectionToLocalStorage(resolvedStoreState);
                 }
 
                 return {
@@ -2544,6 +2565,17 @@ export const useSyncStore = createPersistStore(
 
                 const currentMeta = remoteMetaMap.get(key);
                 if (!remoteDataText || remoteDataText === "") {
+                  if (key === StoreKey.Config) {
+                    console.log(
+                      `[Sync] 🔍 Config远端为空，上传本地状态` +
+                        ` | hasMeta=${!!currentMeta}` +
+                        ` | localModel=${(localAppStateCache[key] as any)
+                          ?.modelConfig?.model}` +
+                        ` | localCustomModels=${String(
+                          (localAppStateCache[key] as any)?.customModels || "",
+                        ).slice(0, 60)}`,
+                    );
+                  }
                   const localStoreState = localAppStateCache[key];
                   const stringifyStartedAt = nowMs();
                   const payloadText = stringifyPersistedStoreState(
@@ -2664,6 +2696,7 @@ export const useSyncStore = createPersistStore(
                   });
                   if (key === StoreKey.Config) {
                     saveCustomModelSnapshotAfterSync(mergedStoreState);
+                    syncModelSelectionToLocalStorage(mergedStoreState);
                   }
                   return {
                     summary: getStoreSummary(key, mergedStoreState),
@@ -3237,52 +3270,69 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        const configState = useAppConfig.getState() as any;
-        const beforeCustomModels = String(configState.customModels || "");
-        const beforeCount = countCustomModelEntries(beforeCustomModels);
-        const beforeEntries = beforeCustomModels
-          .split(",")
-          .map((m) => m.trim())
-          .filter((m) => m.startsWith("+"))
-          .map((m) => m.slice(1));
+        set({ criticalSyncReady: false, criticalSyncInProgress: true });
 
-        console.log(`[Sync] 🧩 模型同步开始: ${beforeCount} 个用户添加模型`);
+        try {
+          const configState = useAppConfig.getState() as any;
+          const beforeModel = String(configState.modelConfig?.model || "");
+          const beforeProviderId = String(
+            configState.modelConfig?.providerId || "",
+          );
+          const beforeCustomModels = String(configState.customModels || "");
+          const beforeCount = countCustomModelEntries(beforeCustomModels);
 
-        await this.sync([...MODEL_SYNC_STORE_KEYS]);
+          console.log(
+            `[Sync] 🧩 模型同步开始: 当前 ${beforeModel}@${beforeProviderId.replace(
+              /^custom_/,
+              "",
+            )}, customModels=${beforeCount}个`,
+          );
 
-        const afterConfigState = useAppConfig.getState() as any;
-        const afterCustomModels = String(afterConfigState.customModels || "");
-        const afterCount = countCustomModelEntries(afterCustomModels);
-        const afterEntries = afterCustomModels
-          .split(",")
-          .map((m) => m.trim())
-          .filter((m) => m.startsWith("+"))
-          .map((m) => m.slice(1));
-        const beforeSet = new Set<string>(beforeEntries);
-        const afterSet = new Set<string>(afterEntries);
-        const added = afterEntries.filter((n) => !beforeSet.has(n));
-        const deleted = beforeEntries.filter((n) => !afterSet.has(n));
+          await this.sync([...MODEL_SYNC_STORE_KEYS], { force: true });
 
-        console.log(
-          `[Sync] ✅ 模型同步完成: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
-        );
-        if (added.length > 0) {
-          added.forEach((m) => {
-            const atIdx = m.lastIndexOf("@");
-            const name = atIdx > 0 ? m.substring(0, atIdx) : m;
-            const provider =
-              atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
-            console.log(`[Sync] ➕ ${name}@${provider}`);
-          });
-        }
-        if (deleted.length > 0) {
-          deleted.forEach((m) => {
-            const atIdx = m.lastIndexOf("@");
-            const name = atIdx > 0 ? m.substring(0, atIdx) : m;
-            const provider =
-              atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
-            console.log(`[Sync] ➖ ${name}@${provider}`);
-          });
+          const afterConfigState = useAppConfig.getState() as any;
+          const afterModel = String(afterConfigState.modelConfig?.model || "");
+          const afterProviderId = String(
+            afterConfigState.modelConfig?.providerId || "",
+          );
+          const afterCustomModels = String(afterConfigState.customModels || "");
+          const afterCount = countCustomModelEntries(afterCustomModels);
+
+          const modelChanged =
+            beforeModel !== afterModel || beforeProviderId !== afterProviderId;
+          if (modelChanged) {
+            console.log(
+              `[Sync] 📥 模型选择已从远端同步: ${beforeModel}@${beforeProviderId.replace(
+                /^custom_/,
+                "",
+              )} → ${afterModel}@${afterProviderId.replace(/^custom_/, "")}`,
+            );
+          }
+
+          const beforeEntries = beforeCustomModels
+            .split(",")
+            .map((m) => m.trim())
+            .filter((m) => m.startsWith("+"))
+            .map((m) => m.slice(1));
+          const afterEntries = afterCustomModels
+            .split(",")
+            .map((m) => m.trim())
+            .filter((m) => m.startsWith("+"))
+            .map((m) => m.slice(1));
+          const beforeSet = new Set<string>(beforeEntries);
+          const afterSet = new Set<string>(afterEntries);
+          const added = afterEntries.filter((n) => !beforeSet.has(n));
+          const deleted = beforeEntries.filter((n) => !afterSet.has(n));
+
+          console.log(
+            `[Sync] ✅ 模型同步完成: ${
+              modelChanged ? "模型已变更" : "模型无变化"
+            }, customModels: 新增${added.length} 删除${
+              deleted.length
+            } 当前${afterCount}个`,
+          );
+        } finally {
+          set({ criticalSyncReady: true, criticalSyncInProgress: false });
         }
       },
 

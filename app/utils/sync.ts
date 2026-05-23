@@ -9,6 +9,7 @@ import {
   usePluginStore,
   useUpdateStore,
 } from "../store";
+import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import { merge } from "lodash-es";
@@ -106,9 +107,8 @@ const LocalStateGetters = {
   },
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
-    // 排除本地 UI 偏好和动态模型列表，只同步用户手动添加的模型（customModels）
-    const { theme, sidebarWidth, tightBorder, models, ...configToSync } =
-      config as any;
+    // 排除本地 UI 偏好，models 纳入同步以便跨浏览器共享已添加模型
+    const { theme, sidebarWidth, tightBorder, ...configToSync } = config as any;
     return configToSync;
   },
   [StoreKey.ModelCache]: () =>
@@ -271,24 +271,26 @@ function hasMeaningfulAccessProfiles(profiles: unknown) {
 export function hasMeaningfulConfigState(state: Record<string, any>) {
   // models 不参与同步，不作为"有意义"的判断依据
   // providerName 默认值是 ServiceProvider.Custom，必须排除以避免本地总被判为有意义
+  const defaultModel = DEFAULT_CONFIG.modelConfig.model;
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
     hasNonEmptyString(state?.customModels) ||
     (Array.isArray(state?.autoModelSeries) &&
       state.autoModelSeries.length > 0) ||
     (hasNonEmptyString(state?.modelConfig?.model) &&
-      state.modelConfig.model !== "gpt-5.4") ||
+      state.modelConfig.model !== defaultModel) ||
     (hasNonEmptyString(state?.modelConfig?.providerName) &&
       state.modelConfig.providerName !== ServiceProvider.Custom)
   );
 }
 
 export function hasMeaningfulAccessState(state: Record<string, any>) {
+  const defaultModel = DEFAULT_CONFIG.modelConfig.model;
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
     hasMeaningfulAccessProfiles(state?.apiProfiles) ||
     (hasNonEmptyString(state?.defaultModel) &&
-      state.defaultModel !== "gpt-5.4") ||
+      state.defaultModel !== defaultModel) ||
     hasNonEmptyString(state?.customModels) ||
     hasNonEmptyString(state?.visionModels) ||
     hasNonEmptyString(state?.openaiApiKey) ||
@@ -355,6 +357,30 @@ function markMergedUpdateTime(
   remoteUpdateTime?: number,
 ) {
   return Math.max(localUpdateTime ?? 0, remoteUpdateTime ?? 0, Date.now());
+}
+
+function mergeModelArrays(localModels: any[], remoteModels: any[]): any[] {
+  const local = Array.isArray(localModels) ? localModels : [];
+  const remote = Array.isArray(remoteModels) ? remoteModels : [];
+  if (remote.length === 0) return local;
+  if (local.length === 0) return remote;
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const m of local) {
+    const key = `${m.name}||${String(m.provider?.id || "").toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(m);
+    }
+  }
+  for (const m of remote) {
+    const key = `${m.name}||${String(m.provider?.id || "").toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(m);
+    }
+  }
+  return merged;
 }
 
 // we merge remote state to local state
@@ -613,7 +639,7 @@ const MergeStates: StateMerger = {
   },
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
-    // - models 数组不参与同步，始终保持本地（由 API 拉取/目录重建）
+    // - models 数组参与同步：本地已加载则保留本地，否则用远端（跨浏览器共享已添加模型）
     // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
     // - customModels / autoModelSeries / modelConfig.model+providerName
     //   各自按字段级时间戳独立判定胜方，互不干扰
@@ -629,18 +655,57 @@ const MergeStates: StateMerger = {
     // 字段级时间戳：各字段独立判定谁更新
     const localCustomModelsAt = Number(local.customModelsUpdatedAt) || 0;
     const remoteCustomModelsAt = Number(remote.customModelsUpdatedAt) || 0;
-    const useRemoteCustomModels =
-      preferRemoteOnBootstrap || remoteCustomModelsAt > localCustomModelsAt;
+    const localCustomModelsStr = String(local.customModels ?? "");
+    const remoteCustomModelsStr = String(remote.customModels ?? "");
 
     const localAutoSeriesAt = Number(local.autoModelSeriesUpdatedAt) || 0;
     const remoteAutoSeriesAt = Number(remote.autoModelSeriesUpdatedAt) || 0;
-    const useRemoteAutoSeries =
-      preferRemoteOnBootstrap || remoteAutoSeriesAt > localAutoSeriesAt;
+    const localAutoSeriesArr = Array.isArray(local.autoModelSeries)
+      ? local.autoModelSeries
+      : [];
+    const remoteAutoSeriesArr = Array.isArray(remote.autoModelSeries)
+      ? remote.autoModelSeries
+      : [];
+    // 时间戳相同（含双 0）时，倾向有内容的一边，避免空数组覆盖远端已选自动模式
+    const useRemoteAutoSeries = preferRemoteOnBootstrap
+      ? true
+      : remoteAutoSeriesAt > localAutoSeriesAt
+      ? true
+      : remoteAutoSeriesAt < localAutoSeriesAt
+      ? false
+      : remoteAutoSeriesArr.length > 0 && localAutoSeriesArr.length === 0;
 
     const localModelSelAt = Number(local.modelSelectionUpdatedAt) || 0;
     const remoteModelSelAt = Number(remote.modelSelectionUpdatedAt) || 0;
-    const useRemoteModelSelection =
-      preferRemoteOnBootstrap || remoteModelSelAt > localModelSelAt;
+    const defaultPlaceholderModel = DEFAULT_CONFIG.modelConfig.model;
+    const localHasMeaningfulModel =
+      hasNonEmptyString(local.modelConfig?.model) &&
+      local.modelConfig?.model !== defaultPlaceholderModel;
+    const remoteHasMeaningfulModel =
+      hasNonEmptyString(remote.modelConfig?.model) &&
+      remote.modelConfig?.model !== defaultPlaceholderModel;
+    // 时间戳相同（含双 0）时，倾向已设置具体模型的一边
+    const useRemoteModelSelection = preferRemoteOnBootstrap
+      ? true
+      : remoteModelSelAt > localModelSelAt
+      ? true
+      : remoteModelSelAt < localModelSelAt
+      ? false
+      : remoteHasMeaningfulModel && !localHasMeaningfulModel;
+
+    console.log(
+      `[Sync] 🔍 Config合并: model=${
+        useRemoteModelSelection ? "远端" : "本地"
+      }(${
+        useRemoteModelSelection
+          ? remote.modelConfig?.model
+          : local.modelConfig?.model
+      }) | autoSeries=${
+        useRemoteAutoSeries ? "远端" : "本地"
+      } | models: local=${
+        Array.isArray(currentConfig.models) ? currentConfig.models.length : 0
+      } remote=${Array.isArray(remote.models) ? remote.models.length : "无"}`,
+    );
 
     // 整体配置仍以 lastUpdateTime 做基础 spread（temperature 等非关键字段）
     const localUpdate = Number(local.lastUpdateTime) || 0;
@@ -649,15 +714,21 @@ const MergeStates: StateMerger = {
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
-      // 始终保持本地：动态模型列表 / UI 偏好
-      models: currentConfig.models,
+      // 始终保持本地 UI 偏好
       theme: currentConfig.theme,
       sidebarWidth: currentConfig.sidebarWidth,
       tightBorder: currentConfig.tightBorder,
-      // 字段级独立判定
-      customModels: useRemoteCustomModels
-        ? String(remote.customModels ?? "")
-        : String(local.customModels ?? ""),
+      // models：双方合并取并集，不删除任何一方的模型
+      models: mergeModelArrays(currentConfig.models, remote.models),
+      // customModels：以最新时间戳为准，支持删除
+      customModels:
+        remoteCustomModelsAt > localCustomModelsAt
+          ? remoteCustomModelsStr
+          : remoteCustomModelsAt < localCustomModelsAt
+          ? localCustomModelsStr
+          : remoteCustomModelsStr.length > localCustomModelsStr.length
+          ? remoteCustomModelsStr
+          : localCustomModelsStr,
       customModelsUpdatedAt: Math.max(
         localCustomModelsAt,
         remoteCustomModelsAt,
@@ -681,6 +752,9 @@ const MergeStates: StateMerger = {
         providerName: useRemoteModelSelection
           ? remote.modelConfig?.providerName ?? local.modelConfig?.providerName
           : local.modelConfig?.providerName ?? remote.modelConfig?.providerName,
+        providerId: useRemoteModelSelection
+          ? remote.modelConfig?.providerId ?? local.modelConfig?.providerId
+          : local.modelConfig?.providerId ?? remote.modelConfig?.providerId,
       },
       modelSelectionUpdatedAt: Math.max(localModelSelAt, remoteModelSelAt),
       lastUpdateTime: markMergedUpdateTime(localUpdate, remoteUpdate),

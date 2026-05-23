@@ -2,7 +2,7 @@ import { BUILTIN_MASKS } from "../masks";
 import { getLang, Lang } from "../locales";
 import type { ChatMessage } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
-import { ModelConfig, ModelType, useAppConfig } from "./config";
+import { DEFAULT_CONFIG, ModelConfig, ModelType, useAppConfig } from "./config";
 import { ServiceProvider, StoreKey } from "../constant";
 import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
@@ -14,6 +14,11 @@ import {
 } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { safeLocalStorage } from "../utils/safe-local-storage";
+import {
+  buildAutoModelCandidates,
+  type AutoModelCandidate,
+} from "../utils/auto-model";
+import type { AutoModelSeriesKey } from "./config";
 
 export type Mask = {
   id: string;
@@ -106,6 +111,94 @@ export const createEmptyMask = () => {
     appConfig.customModels,
     accessStore.defaultModel,
   );
+
+  // 自动模式优先：autoModelSeries 已通过云端同步，直接选首个候选
+  const autoSeries = (appConfig.autoModelSeries || []) as AutoModelSeriesKey[];
+  const defaultPlaceholder = DEFAULT_CONFIG.modelConfig.model;
+  const syncedModel = appConfig.modelConfig.model;
+  // 模型列表未加载时，直接信任已同步的 appConfig.modelConfig
+  if (
+    allModels.length === 0 &&
+    syncedModel &&
+    syncedModel !== defaultPlaceholder
+  ) {
+    const syncedModelConfig = sanitizeModelConfigForCapability({
+      ...appConfig.modelConfig,
+    });
+    const syncedProviderId = (appConfig.modelConfig as any).providerId;
+    if (syncedProviderId) {
+      (syncedModelConfig as any).providerId = syncedProviderId;
+    }
+    const syncedProfile = (accessStore.apiProfiles || []).find((profile) => {
+      const pid =
+        profile.provider === ServiceProvider.Custom
+          ? `custom_${profile.name}`.toLowerCase()
+          : String(profile.provider || "").toLowerCase();
+      return pid === syncedProviderId;
+    });
+    if (syncedProfile?.id) {
+      (syncedModelConfig as any).profileId = syncedProfile.id;
+    }
+    return {
+      id: nanoid(),
+      avatar: DEFAULT_MASK_AVATAR,
+      name: DEFAULT_TOPIC,
+      context: [],
+      syncGlobalConfig: false,
+      modelConfig: syncedModelConfig,
+      lang: getLang(),
+      builtin: false,
+      createdAt: Date.now(),
+      plugin: [],
+    } as Mask;
+  }
+  if (autoSeries.length > 0) {
+    const candidates: AutoModelCandidate[] = buildAutoModelCandidates(
+      allModels as any,
+      accessStore.apiProfiles || [],
+      autoSeries,
+    );
+    const autoCandidate = candidates[0];
+    console.log(
+      `[Mask] 🆕 自动模式分支: 候选数=${candidates.length}` +
+        ` | 选中=${
+          autoCandidate
+            ? `${autoCandidate.model}@${autoCandidate.providerId}`
+            : "(无候选)"
+        }`,
+    );
+    if (autoCandidate) {
+      const autoModelConfig = sanitizeModelConfigForCapability({
+        ...appConfig.modelConfig,
+        model: autoCandidate.model as ModelType,
+        providerName: autoCandidate.providerName,
+      });
+      (autoModelConfig as any).providerId = autoCandidate.providerId;
+      const autoProfile = (accessStore.apiProfiles || []).find((profile) => {
+        const providerId =
+          profile.provider === ServiceProvider.Custom
+            ? `custom_${profile.name}`.toLowerCase()
+            : String(profile.provider || "").toLowerCase();
+        return providerId === autoCandidate.providerId;
+      });
+      if (autoProfile?.id) {
+        (autoModelConfig as any).profileId = autoProfile.id;
+      }
+      return {
+        id: nanoid(),
+        avatar: DEFAULT_MASK_AVATAR,
+        name: DEFAULT_TOPIC,
+        context: [],
+        syncGlobalConfig: false,
+        modelConfig: autoModelConfig,
+        lang: getLang(),
+        builtin: false,
+        createdAt: Date.now(),
+        plugin: [],
+      } as Mask;
+    }
+  }
+
   const storedSelection = parseStoredModelSelection(
     localStorage.getItem(LAST_MODEL_SELECTION_STORAGE_KEY) || "",
   );
@@ -183,7 +276,7 @@ export const createEmptyMask = () => {
         allModels,
         {
           ...startupBaseModelConfig,
-          model: "gpt-5.4" as ModelType,
+          model: DEFAULT_CONFIG.modelConfig.model,
         },
         accessStore.apiProfiles,
       );
@@ -198,6 +291,15 @@ export const createEmptyMask = () => {
   if (startupProfile?.id) {
     (initialModelConfig as any).profileId = startupProfile.id;
   }
+
+  const modelSource = latestOpenAIModelForStartupProvider
+    ? "latestOpenAI"
+    : storedModel
+    ? "storedModel"
+    : fallbackProviderModel
+    ? "fallbackProvider"
+    : "getPreferredDefault";
+  void modelSource;
 
   return {
     id: nanoid(),
@@ -270,7 +372,7 @@ export const useMaskStore = createPersistStore(
       );
       return userMasks.concat(buildinMasks);
     },
-    search(text: string) {
+    search(_text: string) {
       return Object.values(get().masks);
     },
     setLanguage(language: Lang | undefined) {
