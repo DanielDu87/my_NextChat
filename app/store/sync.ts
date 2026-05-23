@@ -1501,7 +1501,7 @@ async function withRetry<T>(
 const DEFAULT_SYNC_STATE = {
   provider: ProviderType.Database,
   criticalSyncReady: false,
-  criticalSyncInProgress: false,
+  criticalSyncInProgress: true,
 
   database: {
     cacheMeta: {} as DatabaseCacheMeta,
@@ -3345,6 +3345,23 @@ export const useSyncStore = createPersistStore(
   {
     name: StoreKey.Sync,
     version: 1.5,
+    partialize(state) {
+      const {
+        criticalSyncReady: _criticalSyncReady,
+        criticalSyncInProgress: _criticalSyncInProgress,
+        ...persistedState
+      } = state as any;
+
+      return persistedState;
+    },
+    merge(persistedState, currentState) {
+      return {
+        ...(currentState as any),
+        ...(persistedState as any),
+        criticalSyncReady: false,
+        criticalSyncInProgress: true,
+      };
+    },
 
     migrate(persistedState, version) {
       const newState = persistedState as typeof DEFAULT_SYNC_STATE;

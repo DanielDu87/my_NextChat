@@ -13,6 +13,9 @@
   --hover-color: #f3f3f3;
   --bar-color: rgba(0, 0, 0, 0.1);
   --sidebar-search-placeholder: rgba(60, 60, 67, 0.62);
+  --chat-input-placeholder: rgba(60, 60, 67, 0.45);
+  --chat-input-disabled-bg: #f5f5f5;
+  --chat-input-disabled-placeholder: rgba(60, 60, 67, 0.52);
   --theme-color: var(--gray);
 
   /* shadow */
@@ -34,6 +37,9 @@
   --second: rgb(27 38 42);
   --hover-color: #323232;
   --sidebar-search-placeholder: rgba(235, 235, 245, 0.52);
+  --chat-input-placeholder: rgba(235, 235, 245, 0.5);
+  --chat-input-disabled-bg: rgba(255, 255, 255, 0.06);
+  --chat-input-disabled-placeholder: rgba(235, 235, 245, 0.56);
 
   --bar-color: rgba(255, 255, 255, 0.1);
 
