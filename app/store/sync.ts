@@ -1009,6 +1009,103 @@ function normalizeMergedChatState(chatState: any) {
   };
 }
 
+function clonePlainChatState<T>(state: T): T {
+  return JSON.parse(JSON.stringify(state || {}));
+}
+
+function getSelectedChatSessionId(chatState: any) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const currentSessionIndex = Math.max(
+    0,
+    Number(chatState?.currentSessionIndex) || 0,
+  );
+  return String(
+    chatState?.selectedSessionId || sessions[currentSessionIndex]?.id || "",
+  );
+}
+
+function getChatInteractionSignature(chatState: any) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  return JSON.stringify({
+    selectedSessionId: getSelectedChatSessionId(chatState),
+    sessions: sessions.map((session: any) => ({
+      id: String(session?.id || ""),
+      lastUpdate: Number(session?.lastUpdate || 0),
+      messageCount: Array.isArray(session?.messages)
+        ? session.messages.length
+        : Number(session?.messageCount || 0),
+    })),
+  });
+}
+
+function rebaseChatSyncResultOnLiveState(
+  mergedStoreState: any,
+  syncBaseState: any,
+) {
+  const liveChatState = getNonFunctionFileds(useChatStore.getState() as any);
+
+  if (
+    getChatInteractionSignature(liveChatState) ===
+    getChatInteractionSignature(syncBaseState)
+  ) {
+    return mergedStoreState;
+  }
+
+  const rebasedState = mergeStoreState(
+    StoreKey.Chat,
+    clonePlainChatState(liveChatState),
+    clonePlainChatState(mergedStoreState),
+  );
+
+  const mergedDeletedSessionTimestamps = mergeDeletedSessionTimestamps(
+    getDeletedSessionTimestamps(mergedStoreState),
+    getDeletedSessionTimestamps(rebasedState),
+  );
+
+  const normalizedRebasedState = normalizeMergedChatState({
+    ...mergedStoreState,
+    ...rebasedState,
+    remoteIndexSessions: Array.isArray(mergedStoreState?.remoteIndexSessions)
+      ? mergedStoreState.remoteIndexSessions
+      : [],
+    deletedSessionTimestamps: mergedDeletedSessionTimestamps,
+  });
+  const liveSelectedSessionId = getSelectedChatSessionId(liveChatState);
+  const normalizedSessions = Array.isArray(normalizedRebasedState.sessions)
+    ? normalizedRebasedState.sessions
+    : [];
+  const hasLiveSelectedSession = normalizedSessions.some(
+    (session: any) => String(session?.id || "") === liveSelectedSessionId,
+  );
+
+  if (liveSelectedSessionId && !hasLiveSelectedSession) {
+    const liveSelectedSession = Array.isArray(liveChatState.sessions)
+      ? liveChatState.sessions.find(
+          (session: any) => String(session?.id || "") === liveSelectedSessionId,
+        )
+      : undefined;
+
+    if (liveSelectedSession?.id) {
+      normalizedRebasedState.sessions = [
+        liveSelectedSession,
+        ...normalizedSessions,
+      ];
+      normalizedRebasedState.currentSessionIndex = 0;
+      normalizedRebasedState.selectedSessionId = liveSelectedSession.id;
+      normalizedRebasedState.sessionSummaries = buildSessionSummaries(
+        normalizedRebasedState.sessions,
+        normalizedRebasedState.sessionSummaries,
+      );
+    }
+  }
+
+  logSyncDebug("[Sync] 🧭 同步写回前保留当前会话焦点", {
+    selectedSessionId: getSelectedChatSessionId(normalizedRebasedState),
+  });
+
+  return normalizedRebasedState;
+}
+
 function buildRemoteSessionPlaceholder(entry: ChatIndexSessionEntry) {
   const session = createEmptySession();
   session.id = entry.id;
@@ -2894,10 +2991,14 @@ export const useSyncStore = createPersistStore(
                     logSyncDebug(
                       `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
                     );
+                    const appliedChatState = rebaseChatSyncResultOnLiveState(
+                      chatResult.mergedStoreState,
+                      localStoreState,
+                    );
                     syncResults.push({
                       key,
                       name: displayName,
-                      summary: chatResult.mergedSummary,
+                      summary: getStoreSummary(StoreKey.Chat, appliedChatState),
                       status: chatResult.status,
                       remoteSummary: chatResult.remoteSummary,
                     });
@@ -2942,9 +3043,8 @@ export const useSyncStore = createPersistStore(
                       },
                     );
 
-                    setLocalStoreState(key, chatResult.mergedStoreState as any);
-                    localAppStateCache[key] =
-                      chatResult.mergedStoreState as any;
+                    setLocalStoreState(key, appliedChatState as any);
+                    localAppStateCache[key] = appliedChatState as any;
                     logPerfSummary("Sync", {
                       key,
                       durationMs: Number(
