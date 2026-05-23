@@ -1219,6 +1219,25 @@ function resolveDisplayProviderName(
   );
 }
 
+function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
+  const model = String(modelName || "").trim();
+  const provider = String(providerName || "").trim();
+
+  if (!model) {
+    return provider;
+  }
+
+  if (!provider) {
+    return model;
+  }
+
+  if (model.toLowerCase().endsWith(`@${provider.toLowerCase()}`)) {
+    return model;
+  }
+
+  return `${model}@${provider}`;
+}
+
 function isApiFailurePayload(message: string) {
   try {
     const parsed = JSON.parse(message);
@@ -2419,7 +2438,10 @@ export const useChatStore = createPersistStore(
           role: "assistant",
           streaming: true,
           model: initialModelConfig.model,
-          modelDisplay: displayModelConfig.model,
+          modelDisplay: formatModelProviderLabel(
+            displayModelConfig.model,
+            displayProviderName,
+          ),
           modelIcon: getMessageIconModel(
             initialModelConfig.model,
             initialModelConfig.providerName,
@@ -2639,7 +2661,10 @@ export const useChatStore = createPersistStore(
           });
 
           botMessage.model = candidate.model as ModelType;
-          botMessage.modelDisplay = `${candidate.model}（${candidate.providerDisplayName}）`;
+          botMessage.modelDisplay = formatModelProviderLabel(
+            candidate.displayName || candidate.model,
+            candidate.providerDisplayName,
+          );
           botMessage.modelIcon = getMessageIconModel(
             candidate.model,
             candidate.providerName,

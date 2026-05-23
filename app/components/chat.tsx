@@ -1051,6 +1051,8 @@ function ChatProviderBalance(props: {
     !authInitialized ||
     !authUser ||
     props.autoModeEnabled ||
+    props.deferInitialRefresh ||
+    !displayedBalance ||
     !supportsBalance
   ) {
     return null;
@@ -1108,6 +1110,38 @@ const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const recentBalanceAutoRefresh = new Map<string, number>();
+
+function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
+  const model = String(modelName || "").trim();
+  const provider = String(providerName || "").trim();
+
+  if (!model) {
+    return provider;
+  }
+
+  if (!provider) {
+    return model;
+  }
+
+  if (model.toLowerCase().endsWith(`@${provider.toLowerCase()}`)) {
+    return model;
+  }
+
+  return `${model}@${provider}`;
+}
+
+function normalizeModelProviderDisplayLabel(
+  modelName: unknown,
+  providerName: unknown,
+) {
+  const model = normalizeReservedDisplayModelName(String(modelName || ""));
+  const parenMatch = model.match(/^(.+?)（(.+?)）$/);
+  if (parenMatch) {
+    return formatModelProviderLabel(parenMatch[1], parenMatch[2]);
+  }
+
+  return formatModelProviderLabel(model, providerName);
+}
 
 const ttsPlayer = createTTSPlayer();
 
@@ -5015,8 +5049,11 @@ function _Chat() {
                               </div>
                               {!isUser && (
                                 <div className={styles["chat-model-name"]}>
-                                  {normalizeReservedDisplayModelName(
-                                    message.modelDisplay || message.model,
+                                  {normalizeModelProviderDisplayLabel(
+                                    message.modelDisplay ||
+                                      message.model ||
+                                      sessionMask.modelConfig.model,
+                                    currentProviderDisplayName,
                                   )}
                                 </div>
                               )}

@@ -667,7 +667,7 @@ export default function AutoSync() {
           "info",
           `${LOG_SEPARATOR} 🚀 AutoSync 启动流程开始 ${LOG_SEPARATOR}`,
         );
-        logCriticalStartupSyncBanner("start", "聊天记录优先");
+        logCriticalStartupSyncBanner("start", "模型选择优先");
 
         Promise.resolve()
           .then(() => syncStore.autoSyncCritical?.() || syncStore.autoSync())
@@ -746,7 +746,9 @@ export default function AutoSync() {
                   `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`,
                 );
                 try {
-                  await (syncStore.autoSyncDeferred?.() ?? Promise.resolve());
+                  await (syncStore.autoSyncDeferred?.({
+                    includeChat: false,
+                  }) ?? Promise.resolve());
                   autoSyncConsole(
                     "log",
                     "[AutoSync] ✅ 后台同步完成（含对话记录）",

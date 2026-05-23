@@ -3097,12 +3097,11 @@ export const useSyncStore = createPersistStore(
         });
 
         try {
-          // 优先同步聊天记录、API 配置和用户已添加模型，完成后立即允许对话。
-          await this.sync([StoreKey.Chat, StoreKey.Access, StoreKey.Config], {
+          // 首屏只等待模型选择和用户已添加模型，完成后立即允许对话。
+          await this.sync([StoreKey.Config], {
             isolateQueue: true,
             force: true,
             broadcastChatHint: false,
-            downloadOnlyChat: true,
           });
           warnMissingRecoveredApiKey();
         } catch (error) {
@@ -3247,17 +3246,16 @@ export const useSyncStore = createPersistStore(
         }
       },
 
-      async autoSyncDeferred() {
+      async autoSyncDeferred(options?: { includeChat?: boolean }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
           return;
         }
 
+        const includeChat = options?.includeChat ?? true;
         const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
           (key) =>
-            key !== StoreKey.Chat &&
-            key !== StoreKey.Access &&
-            key !== StoreKey.Config,
+            key !== StoreKey.Config && (includeChat || key !== StoreKey.Chat),
         );
         if (remainingKeys.length > 0) {
           await this.sync(remainingKeys, { isolateQueue: true });
