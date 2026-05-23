@@ -118,6 +118,15 @@ function autoSyncConsole(
   scheduleAutoSyncLogFlush();
 }
 
+function autoSyncDebug(message: string, payload?: unknown) {
+  const prefixedMessage = `${formatAutoSyncLogTimestamp()} ${message}`;
+  if (payload === undefined) {
+    console.debug(prefixedMessage);
+    return;
+  }
+  console.debug(prefixedMessage, payload);
+}
+
 function logCriticalStartupSyncBanner(
   phase: "start" | "complete",
   detail?: string,
@@ -608,12 +617,12 @@ export default function AutoSync() {
     };
 
     const startAutoSync = () => {
-      autoSyncConsole("log", "[AutoSync] ⏰ 延迟时间到，检查同步配置");
+      autoSyncDebug("[AutoSync] ⏰ 延迟时间到，检查同步配置");
 
       const syncStore = useSyncStore.getState();
       const modelCacheStore = useModelCacheStore.getState();
 
-      autoSyncConsole("log", "[AutoSync] 🔍 检查同步配置:", {
+      autoSyncDebug("[AutoSync] 🔍 检查同步配置:", {
         provider: syncStore.provider,
         cloudSyncResult: syncStore.cloudSync(),
         databaseConfig: syncStore.database,
@@ -626,7 +635,7 @@ export default function AutoSync() {
       }
 
       const canSync = syncStore.cloudSync();
-      autoSyncConsole("log", "[AutoSync] 🔍 cloudSync() 返回:", canSync);
+      autoSyncDebug("[AutoSync] 🔍 cloudSync() 返回:", canSync);
 
       if (!canSync) {
         autoSyncConsole("log", "[AutoSync] 🔕 同步未配置，跳过自动同步");

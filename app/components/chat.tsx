@@ -334,6 +334,14 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : String(profile.provider).toLowerCase();
 }
 
+function normalizeProviderLookup(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(custom|local)[_\s-]+/, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function buildProviderModelsFromCachedNames(
   cachedModels: string,
   providerId: string,
@@ -917,7 +925,6 @@ function ChatModelUpdateNotice() {
 function ChatProviderBalance(props: {
   providerName: ServiceProvider;
   providerDisplayName: string;
-  autoModeEnabled: boolean;
   refreshSignal: string;
   balanceCacheKey: string;
   profile?: BalanceAwareProfile;
@@ -966,7 +973,6 @@ function ChatProviderBalance(props: {
       if (
         !authInitialized ||
         !authUser ||
-        props.autoModeEnabled ||
         (syncProvider === ProviderType.Database &&
           (!criticalSyncReady || criticalSyncInProgress)) ||
         !supportsBalance ||
@@ -987,7 +993,6 @@ function ChatProviderBalance(props: {
       authUser,
       criticalSyncInProgress,
       criticalSyncReady,
-      props.autoModeEnabled,
       props.profile,
       props.providerName,
       showUsage,
@@ -1005,7 +1010,7 @@ function ChatProviderBalance(props: {
   }, [props.refreshSignal, refreshUsage]);
 
   useEffect(() => {
-    if (props.autoModeEnabled || !supportsBalance || !props.balanceCacheKey) {
+    if (!supportsBalance || !props.balanceCacheKey) {
       return;
     }
     if (props.deferInitialRefresh) {
@@ -1034,7 +1039,6 @@ function ChatProviderBalance(props: {
 
     void refreshUsage(false);
   }, [
-    props.autoModeEnabled,
     props.balanceCacheKey,
     props.deferInitialRefresh,
     props.profile?.id,
@@ -1050,7 +1054,6 @@ function ChatProviderBalance(props: {
   if (
     !authInitialized ||
     !authUser ||
-    props.autoModeEnabled ||
     props.deferInitialRefresh ||
     !displayedBalance ||
     !supportsBalance
@@ -1141,6 +1144,30 @@ function normalizeModelProviderDisplayLabel(
   }
 
   return formatModelProviderLabel(model, providerName);
+}
+
+function extractProviderDisplayNameFromModelLabel(label: unknown) {
+  const value = String(label || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  const atIndex = value.lastIndexOf("@");
+  if (atIndex >= 0 && atIndex < value.length - 1) {
+    return value.slice(atIndex + 1).trim();
+  }
+
+  const parenMatch = value.match(/^.+?（(.+?)）$/);
+  return parenMatch?.[1]?.trim() || "";
+}
+
+function getMessageProviderDisplayName(message: ChatMessage) {
+  return (
+    String(message.profileName || "").trim() ||
+    extractProviderDisplayNameFromModelLabel(
+      message.modelDisplay || message.model,
+    )
+  );
 }
 
 const ttsPlayer = createTTSPlayer();
@@ -2569,6 +2596,7 @@ function _Chat() {
     null,
   );
   const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
+  const lastBalanceRefreshTargetRef = useRef("");
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -2671,6 +2699,87 @@ function _Chat() {
   );
   const activeModelSelectorProviderDisplayName =
     activeModelSelectorProfile?.name || currentProviderDisplayName;
+  const autoModeEnabled = autoModelSeries.length > 0;
+  const latestAutoModeProviderMessage = useMemo(() => {
+    if (!autoModeEnabled) {
+      return null;
+    }
+
+    return (
+      [...sessionMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message?.role === "assistant" &&
+            !message.isError &&
+            Boolean(
+              message.profileId ||
+                message.providerId ||
+                getMessageProviderDisplayName(message),
+            ),
+        ) || null
+    );
+  }, [autoModeEnabled, sessionMessages]);
+  const latestAutoModeProviderDisplayName = useMemo(() => {
+    if (!latestAutoModeProviderMessage) {
+      return "";
+    }
+
+    return getMessageProviderDisplayName(latestAutoModeProviderMessage);
+  }, [latestAutoModeProviderMessage]);
+  const autoModeBalanceProfile = useMemo(() => {
+    if (!autoModeEnabled || !latestAutoModeProviderMessage) {
+      return undefined;
+    }
+
+    const latestProfileId = String(
+      latestAutoModeProviderMessage.profileId || "",
+    );
+    const latestProviderKeys = [
+      latestAutoModeProviderMessage.providerId,
+      latestAutoModeProviderMessage.providerName,
+      latestAutoModeProviderDisplayName,
+    ]
+      .map(normalizeProviderLookup)
+      .filter(Boolean);
+    const matchProfileByProviderIdentity = (profile: {
+      provider: string;
+      name: string;
+    }) => {
+      const profileProviderId = getProfileProviderId(profile);
+      const profileKeys = [
+        profile.name,
+        profile.provider,
+        profileProviderId,
+        profileProviderId.replace(/^(custom|local)_/i, ""),
+      ]
+        .map(normalizeProviderLookup)
+        .filter(Boolean);
+
+      return latestProviderKeys.some((key) => profileKeys.includes(key));
+    };
+
+    return apiProfiles.find((profile) => {
+      if (!profile.enabled) {
+        return false;
+      }
+
+      return (
+        (!!latestProfileId && profile.id === latestProfileId) ||
+        matchProfileByProviderIdentity(profile)
+      );
+    });
+  }, [
+    apiProfiles,
+    autoModeEnabled,
+    latestAutoModeProviderMessage,
+    latestAutoModeProviderDisplayName,
+  ]);
+  const latestAutoModeProviderId = String(
+    latestAutoModeProviderMessage?.providerId || "",
+  )
+    .toLowerCase()
+    .trim();
   const fallbackBalanceProfile = useMemo(
     () =>
       apiProfiles.find((profile) => {
@@ -2686,17 +2795,23 @@ function _Chat() {
       }),
     [apiProfiles],
   );
-  const balanceProviderName =
-    currentProviderName === ServiceProvider.Custom ||
-    currentProviderName === ServiceProvider.Local
-      ? currentProviderName
-      : fallbackBalanceProfile?.provider;
-  const balanceProfile =
-    balanceProviderName === currentProviderName
-      ? currentActiveProviderProfile || currentProfile
-      : fallbackBalanceProfile;
-  const balanceProviderDisplayName =
-    balanceProfile?.name || balanceProviderName || currentProviderDisplayName;
+  const balanceProviderName = autoModeEnabled
+    ? autoModeBalanceProfile?.provider ||
+      (latestAutoModeProviderId.startsWith("custom_")
+        ? ServiceProvider.Custom
+        : undefined)
+    : currentProviderName === ServiceProvider.Custom ||
+      currentProviderName === ServiceProvider.Local
+    ? currentProviderName
+    : fallbackBalanceProfile?.provider;
+  const balanceProfile = autoModeEnabled
+    ? autoModeBalanceProfile
+    : balanceProviderName === currentProviderName
+    ? currentActiveProviderProfile || currentProfile
+    : fallbackBalanceProfile;
+  const balanceProviderDisplayName = autoModeEnabled
+    ? balanceProfile?.name || latestAutoModeProviderDisplayName
+    : balanceProfile?.name || balanceProviderName || currentProviderDisplayName;
   const currentBalanceCacheKey = useMemo(
     () =>
       balanceProviderName
@@ -2704,7 +2819,6 @@ function _Chat() {
         : "",
     [balanceProfile, balanceProviderName],
   );
-  const autoModeEnabled = autoModelSeries.length > 0;
   const selectedAutoModelSeries = autoModelSeries[0];
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
@@ -4137,6 +4251,43 @@ function _Chat() {
     lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
   }, [completedAssistantRefreshSignal]);
 
+  useEffect(() => {
+    if (
+      !lastCompletedAssistantMessage ||
+      lastCompletedAssistantMessage.isError ||
+      sessionMessages.length === 0 ||
+      !balanceProviderName ||
+      !currentBalanceCacheKey ||
+      (syncProvider === ProviderType.Database &&
+        (!criticalSyncReady || criticalSyncInProgress))
+    ) {
+      return;
+    }
+
+    const refreshTarget = `${lastCompletedAssistantMessage.id}:${currentBalanceCacheKey}`;
+    if (lastBalanceRefreshTargetRef.current === refreshTarget) {
+      return;
+    }
+    lastBalanceRefreshTargetRef.current = refreshTarget;
+
+    void useUpdateStore
+      .getState()
+      .updateUsage(
+        true,
+        balanceProviderName as ServiceProvider,
+        balanceProfile as BalanceAwareProfile | undefined,
+      );
+  }, [
+    balanceProfile,
+    balanceProviderName,
+    criticalSyncInProgress,
+    criticalSyncReady,
+    currentBalanceCacheKey,
+    lastCompletedAssistantMessage,
+    sessionMessages.length,
+    syncProvider,
+  ]);
+
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
     // 优先使用已切换的 providerId，其次从 session 获取
@@ -4922,16 +5073,17 @@ function _Chat() {
             <ChatModelUpdateNotice />
             {showBalanceUserPanel && (
               <div className={styles["chat-balance-user-panel"]}>
-                <ChatProviderBalance
-                  providerName={balanceProviderName || currentProviderName}
-                  providerDisplayName={balanceProviderDisplayName}
-                  autoModeEnabled={autoModeEnabled}
-                  refreshSignal={balanceRefreshSignal}
-                  balanceCacheKey={currentBalanceCacheKey}
-                  profile={balanceProfile as BalanceAwareProfile | undefined}
-                  deferInitialRefresh={sessionMessages.length === 0}
-                  suppressAutoRefresh={suppressBalanceAutoRefresh}
-                />
+                {balanceProviderName ? (
+                  <ChatProviderBalance
+                    providerName={balanceProviderName as ServiceProvider}
+                    providerDisplayName={balanceProviderDisplayName}
+                    refreshSignal={balanceRefreshSignal}
+                    balanceCacheKey={currentBalanceCacheKey}
+                    profile={balanceProfile as BalanceAwareProfile | undefined}
+                    deferInitialRefresh={sessionMessages.length === 0}
+                    suppressAutoRefresh={suppressBalanceAutoRefresh}
+                  />
+                ) : null}
                 <UserMenu variant="chat-floating" />
               </div>
             )}

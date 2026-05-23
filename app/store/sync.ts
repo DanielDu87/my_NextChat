@@ -562,12 +562,16 @@ function syncModelSelectionToLocalStorage(state: any) {
   const prevSelection = localStorage.getItem("nextchat:last-model-selection");
   const prevProvider = localStorage.getItem("nextchat:model-selector-provider");
   const nextSelection = `${model}@${providerId}`;
-  console.log(
-    `[Sync] 🔄 模型选择localStorage同步: ${
-      prevSelection || "(空)"
-    } → ${nextSelection}` +
-      ` | provider: ${prevProvider || "(空)"} → ${providerName}`,
-  );
+  const selectionChanged =
+    prevSelection !== nextSelection || prevProvider !== providerName;
+  if (selectionChanged) {
+    console.log(
+      `[Sync] 🔄 模型选择localStorage同步: ${
+        prevSelection || "(空)"
+      } → ${nextSelection}` +
+        ` | provider: ${prevProvider || "(空)"} → ${providerName}`,
+    );
+  }
   try {
     localStorage.setItem("nextchat:last-model-selection", nextSelection);
     localStorage.setItem("nextchat:model-selector-provider", providerName);

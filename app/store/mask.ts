@@ -49,6 +49,7 @@ export const DEFAULT_MASK_AVATAR = "gpt-bot";
 const localStorage = safeLocalStorage();
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const LAST_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
+let lastAutoModeBranchLogKey = "";
 
 function parseStoredModelSelection(value: string) {
   const trimmed = String(value || "").trim();
@@ -159,14 +160,22 @@ export const createEmptyMask = () => {
       autoSeries,
     );
     const autoCandidate = candidates[0];
-    console.log(
-      `[Mask] 🆕 自动模式分支: 候选数=${candidates.length}` +
-        ` | 选中=${
-          autoCandidate
-            ? `${autoCandidate.model}@${autoCandidate.providerId}`
-            : "(无候选)"
-        }`,
-    );
+    const autoModeBranchLogKey = `${candidates.length}|${
+      autoCandidate
+        ? `${autoCandidate.model}@${autoCandidate.providerId}`
+        : "(无候选)"
+    }`;
+    if (autoModeBranchLogKey !== lastAutoModeBranchLogKey) {
+      lastAutoModeBranchLogKey = autoModeBranchLogKey;
+      console.debug(
+        `[Mask] 🆕 自动模式分支: 候选数=${candidates.length}` +
+          ` | 选中=${
+            autoCandidate
+              ? `${autoCandidate.model}@${autoCandidate.providerId}`
+              : "(无候选)"
+          }`,
+      );
+    }
     if (autoCandidate) {
       const autoModelConfig = sanitizeModelConfigForCapability({
         ...appConfig.modelConfig,

@@ -74,7 +74,7 @@ async function processSyncQueue() {
   }
 
   isSyncQueueProcessing = false;
-  logger.store.log("✅ 同步队列处理完成");
+  console.debug("✅ 同步队列处理完成");
   resolveSyncQueueIdle();
 }
 

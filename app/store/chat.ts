@@ -172,6 +172,10 @@ export type ChatMessage = RequestMessage & {
   model?: ModelType;
   modelDisplay?: string;
   modelIcon?: ModelType;
+  providerName?: ServiceProvider;
+  providerId?: string;
+  profileId?: string;
+  profileName?: string;
   reasoning_details?: any;
   tools?: ChatMessageTool[];
   audio_url?: string;
@@ -811,6 +815,14 @@ function getAccessProviderId(profile: {
     : String(profile.provider).toLowerCase();
 }
 
+function normalizeProviderLookup(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(custom|local)[_\s-]+/, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function getActiveAccessProfile(
   accessState: ReturnType<typeof useAccessStore.getState>,
   providerName: ServiceProvider | undefined,
@@ -995,6 +1007,37 @@ function getProfileForModel(
 ) {
   const accessStore = useAccessStore.getState();
   const providerId = String(modelProviderId || "").toLowerCase();
+  const lookupKeys = [modelProviderId, providerName]
+    .map(normalizeProviderLookup)
+    .filter(Boolean);
+
+  if (lookupKeys.length > 0) {
+    const matchProfileByProviderIdentity = (profile: {
+      provider: ServiceProvider;
+      name: string;
+    }) => {
+      const profileProviderId = getAccessProviderId(profile);
+      const profileKeys = [
+        profile.name,
+        profile.provider,
+        profileProviderId,
+        profileProviderId.replace(/^(custom|local)_/i, ""),
+      ]
+        .map(normalizeProviderLookup)
+        .filter(Boolean);
+
+      return lookupKeys.some((key) => profileKeys.includes(key));
+    };
+
+    const matchedProfile =
+      accessStore.apiProfiles.find(
+        (profile) => profile.enabled && matchProfileByProviderIdentity(profile),
+      ) ?? accessStore.apiProfiles.find(matchProfileByProviderIdentity);
+
+    if (matchedProfile) {
+      return matchedProfile;
+    }
+  }
 
   if (providerName === ServiceProvider.Custom) {
     return accessStore.apiProfiles.find((profile) => {
@@ -2442,6 +2485,10 @@ export const useChatStore = createPersistStore(
             displayModelConfig.model,
             displayProviderName,
           ),
+          providerName: initialModelConfig.providerName as ServiceProvider,
+          providerId: String((initialModelConfig as any).providerId || ""),
+          profileId: String((initialModelConfig as any).profileId || ""),
+          profileName: displayProviderName,
           modelIcon: getMessageIconModel(
             initialModelConfig.model,
             initialModelConfig.providerName,
@@ -2665,6 +2712,11 @@ export const useChatStore = createPersistStore(
             candidate.displayName || candidate.model,
             candidate.providerDisplayName,
           );
+          botMessage.providerName = candidate.providerName as ServiceProvider;
+          botMessage.providerId = candidate.providerId;
+          botMessage.profileId = String(candidateProfile?.id || "");
+          botMessage.profileName =
+            candidateProfile?.name || candidate.providerDisplayName;
           botMessage.modelIcon = getMessageIconModel(
             candidate.model,
             candidate.providerName,

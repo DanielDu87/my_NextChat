@@ -693,7 +693,7 @@ const MergeStates: StateMerger = {
       ? false
       : remoteHasMeaningfulModel && !localHasMeaningfulModel;
 
-    console.log(
+    console.debug(
       `[Sync] 🔍 Config合并: model=${
         useRemoteModelSelection ? "远端" : "本地"
       }(${
