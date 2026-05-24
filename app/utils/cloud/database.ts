@@ -71,6 +71,10 @@ async function fetchWithRetry(
   throw lastError;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isSnapshotConflictPayload(
   payload: unknown,
 ): payload is ConflictResponsePayload {
@@ -88,22 +92,42 @@ export function createDatabaseSyncClient(_: SyncStore) {
   const request = async (
     path: string,
     init?: RequestInit,
-    options?: { timeoutMs?: number; retries?: number },
+    options?: {
+      timeoutMs?: number;
+      retries?: number;
+      retryOnStatuses?: number[];
+    },
   ) => {
-    const response = await fetchWithRetry(
-      path,
-      {
-        ...init,
-        headers: withSyncUserHeaders({
-          "Content-Type": "application/json; charset=utf-8",
-          ...(init?.headers || {}),
-        }),
-      },
-      options,
-    );
+    const retries = options?.retries ?? 0;
+    const retryOnStatuses = new Set(options?.retryOnStatuses || []);
+    let response: Response | null = null;
 
-    if (!response.ok) {
-      throw new Error(`[DB Sync] ${response.status} ${response.statusText}`);
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      response = await fetchWithRetry(
+        path,
+        {
+          ...init,
+          headers: withSyncUserHeaders({
+            "Content-Type": "application/json; charset=utf-8",
+            ...(init?.headers || {}),
+          }),
+        },
+        { ...options, retries: 0 },
+      );
+
+      if (
+        response.ok ||
+        attempt >= retries ||
+        !retryOnStatuses.has(response.status)
+      ) {
+        break;
+      }
+
+      await wait(300 * (attempt + 1));
+    }
+
+    if (!response?.ok) {
+      throw new Error(`[DB Sync] ${response?.status} ${response?.statusText}`);
     }
 
     return response;
@@ -205,10 +229,17 @@ export function createDatabaseSyncClient(_: SyncStore) {
       const query = new URLSearchParams();
       (keys || []).forEach((key) => query.append("key", key));
       const suffix = query.toString() ? `?${query.toString()}` : "";
-      const response = await request(`/api/db/sync-meta${suffix}`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await request(
+        `/api/db/sync-meta${suffix}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+        {
+          retries: 2,
+          retryOnStatuses: [500, 502, 503, 504],
+        },
+      );
       const payload = await response.json();
       return Array.isArray(payload?.metas)
         ? (payload.metas as StoreSnapshotMeta[])

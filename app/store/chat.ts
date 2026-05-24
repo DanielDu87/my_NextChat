@@ -872,18 +872,6 @@ function hasProviderModel(
   );
 }
 
-function isSameModelSelection(
-  left: Record<string, any> | undefined,
-  right: Record<string, any> | undefined,
-) {
-  return (
-    String(left?.model || "") === String(right?.model || "") &&
-    String(left?.providerName || "") === String(right?.providerName || "") &&
-    String(left?.providerId || "") === String(right?.providerId || "") &&
-    String(left?.profileId || "") === String(right?.profileId || "")
-  );
-}
-
 function normalizeProviderLookup(value: unknown) {
   return String(value || "")
     .trim()
@@ -2133,31 +2121,6 @@ export const useChatStore = createPersistStore(
             }
             if (enabledProfile?.id) {
               (nextModelConfig as any).profileId = enabledProfile.id;
-            }
-
-            if (latestOpenAIModelForProvider && activeProviderId) {
-              const nextGlobalModelConfig = sanitizeModelConfigForCapability({
-                ...globalModelConfig,
-                model: latestOpenAIModelForProvider.model as ModelType,
-                providerName:
-                  latestOpenAIModelForProvider.providerName as ServiceProvider,
-              });
-              (nextGlobalModelConfig as any).providerId = activeProviderId;
-              if (enabledProfile?.id) {
-                (nextGlobalModelConfig as any).profileId = enabledProfile.id;
-              }
-
-              if (
-                !isSameModelSelection(
-                  globalModelConfig as Record<string, any>,
-                  nextGlobalModelConfig as Record<string, any>,
-                )
-              ) {
-                useAppConfig.getState().update((config) => {
-                  config.modelConfig = nextGlobalModelConfig;
-                  (config as any).modelSelectionUpdatedAt = Date.now();
-                });
-              }
             }
 
             session.mask = {

@@ -165,7 +165,10 @@ function syncModelSelectionNow() {
     return;
   }
   void syncStore
-    .sync([StoreKey.Config], { force: true, isolateQueue: true })
+    .sync([StoreKey.Config, StoreKey.Access], {
+      force: true,
+      isolateQueue: true,
+    })
     .catch((error: unknown) => {
       console.error("[Model Selector] 模型选择立即同步失败", error);
     });
@@ -3225,6 +3228,7 @@ function _Chat() {
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const balanceAutoRefreshResumeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const suppressGlobalModelApplySessionRef = useRef("");
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
       Array<{ label: string; provider: string }>
@@ -3407,26 +3411,6 @@ function _Chat() {
           session.mask.syncGlobalConfig = false;
         });
       }
-
-      useAppConfig.getState().update((config) => {
-        const nextGlobalConfig = sanitizeModelConfigForCapability({
-          ...config.modelConfig,
-          model: latestOpenAIModel.model as ModelType,
-          providerName: latestOpenAIModel.providerName as ServiceProvider,
-        });
-        (nextGlobalConfig as any).providerId = selectedProviderId;
-        (nextGlobalConfig as any).profileId = profile.id || "";
-        if (
-          areModelConfigValuesEqual(
-            config.modelConfig as Record<string, unknown>,
-            nextGlobalConfig as Record<string, unknown>,
-          )
-        ) {
-          return;
-        }
-        config.modelConfig = nextGlobalConfig;
-        (config as any).modelSelectionUpdatedAt = Date.now();
-      });
 
       localStorage.setItem(MODEL_SELECTOR_PROVIDER_STORAGE_KEY, profile.name);
       localStorage.setItem(
@@ -3913,6 +3897,9 @@ function _Chat() {
         nextModelConfig as Record<string, unknown>,
       );
     } else if (shouldApplySyncedGlobalModelSelection) {
+      if (suppressGlobalModelApplySessionRef.current === session.id) {
+        return;
+      }
       nextModelConfig = sanitizeModelConfigForCapability({
         ...sessionMask.modelConfig,
         ...config.modelConfig,
@@ -4489,12 +4476,6 @@ function _Chat() {
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
     ensureLatestOpenAIModelsForAllProfiles("model-selector-open");
-    if (currentProfile) {
-      applyLatestOpenAIModelForProfile(
-        currentProfile as any,
-        "model-selector-open",
-      );
-    }
 
     // 优先使用已切换的 providerId，其次从 session 获取
     const latestProviderId =
@@ -4531,11 +4512,9 @@ function _Chat() {
     setShowModelSelector(true);
   }, [
     allModels,
-    applyLatestOpenAIModelForProfile,
     apiProfiles,
     currentRawModel,
     currentProviderName,
-    currentProfile,
     ensureLatestOpenAIModelsForAllProfiles,
     modelSelectorProviderId,
     sessionMask,
@@ -4690,15 +4669,17 @@ function _Chat() {
 
           // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次切换的供应商/模型，
           // 并通过 Config store 跨浏览器同步当前模型/供应商。
-          useAppConfig.getState().update((config) => {
-            config.modelConfig = sanitizeModelConfigForCapability({
-              ...config.modelConfig,
-              model: nextModel.name as ModelType,
-              providerName: profile.provider as ServiceProvider,
+          runWithImmediateStoreSyncPausedSync(() => {
+            useAppConfig.getState().update((config) => {
+              config.modelConfig = sanitizeModelConfigForCapability({
+                ...config.modelConfig,
+                model: nextModel.name as ModelType,
+                providerName: profile.provider as ServiceProvider,
+              });
+              (config.modelConfig as any).providerId = selectedProviderId;
+              (config.modelConfig as any).profileId = profile.id || "";
+              (config as any).modelSelectionUpdatedAt = Date.now();
             });
-            (config.modelConfig as any).providerId = selectedProviderId;
-            (config.modelConfig as any).profileId = profile.id || "";
-            (config as any).modelSelectionUpdatedAt = Date.now();
           });
           syncModelSelectionNow();
 
@@ -5999,12 +5980,6 @@ function _Chat() {
               onClick={(e) => {
                 e.stopPropagation();
                 ensureLatestOpenAIModelsForAllProfiles("model-manager-open");
-                if (currentProfile) {
-                  applyLatestOpenAIModelForProfile(
-                    currentProfile as any,
-                    "model-manager-open",
-                  );
-                }
                 setAddModelProfile({
                   profiles: apiProfiles,
                   currentProviderId: activeModelSelectorProviderId,
@@ -6058,6 +6033,34 @@ function _Chat() {
                 String(item.provider?.id || "").toLowerCase() ===
                   selectedProviderId,
             );
+            const latestOpenAIModelForSyncedSelection = selectedProfile
+              ? (() => {
+                  const {
+                    addedProviderModels,
+                    cachedProviderModels,
+                    initialProviderModels,
+                  } = ensureLatestOpenAIModelForProfile(
+                    selectedProfile as any,
+                    "manual-model-selection",
+                  );
+                  const latestOpenAIModel =
+                    getLatestOpenAIModelForProviderId(
+                      [
+                        ...initialProviderModels,
+                        ...addedProviderModels,
+                        ...cachedProviderModels,
+                        ...selectedProviderModels,
+                      ],
+                      selectedProviderId,
+                    ) ||
+                    ({
+                      model: LATEST_OPENAI_CHAT_MODEL_NAME,
+                      providerName: selectedProfile.provider,
+                    } as const);
+
+                  return latestOpenAIModel;
+                })()
+              : undefined;
 
             if (selectedProfile) {
               useAccessStore.getState().update((access) => {
@@ -6073,6 +6076,16 @@ function _Chat() {
             });
             (nextModelConfig as any).providerId = selectedProviderId;
             (nextModelConfig as any).profileId = selectedProfile?.id || "";
+            const syncedSelectionDiffersFromCurrent =
+              !!latestOpenAIModelForSyncedSelection &&
+              (String(latestOpenAIModelForSyncedSelection.model || "") !==
+                String(nextModelConfig.model || "") ||
+                String(
+                  latestOpenAIModelForSyncedSelection.providerName || "",
+                ) !== String(nextModelConfig.providerName || ""));
+            if (syncedSelectionDiffersFromCurrent) {
+              suppressGlobalModelApplySessionRef.current = session.id;
+            }
 
             // 手动切换模型必须立即写回当前会话。
             // Effect B 仅会在空白会话时把全局配置同步到会话，
@@ -6083,16 +6096,24 @@ function _Chat() {
             });
 
             // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次选择，
-            // 并通过 Config store 跨浏览器同步当前模型/供应商。
-            useAppConfig.getState().update((config) => {
-              config.modelConfig = sanitizeModelConfigForCapability({
-                ...config.modelConfig,
-                model: nextModelConfig.model,
-                providerName: nextModelConfig.providerName,
+            // 并通过 Config store 跨浏览器同步当前供应商。
+            // 手动选择非 OpenAI 模型只影响当前会话；其他浏览器仍按供应商自动使用最新 OpenAI 模型。
+            runWithImmediateStoreSyncPausedSync(() => {
+              useAppConfig.getState().update((config) => {
+                config.modelConfig = sanitizeModelConfigForCapability({
+                  ...config.modelConfig,
+                  model:
+                    (latestOpenAIModelForSyncedSelection?.model as ModelType) ||
+                    nextModelConfig.model,
+                  providerName:
+                    (latestOpenAIModelForSyncedSelection?.providerName as ServiceProvider) ||
+                    nextModelConfig.providerName,
+                });
+                (config.modelConfig as any).providerId = selectedProviderId;
+                (config.modelConfig as any).profileId =
+                  selectedProfile?.id || "";
+                (config as any).modelSelectionUpdatedAt = Date.now();
               });
-              (config.modelConfig as any).providerId = selectedProviderId;
-              (config.modelConfig as any).profileId = selectedProfile?.id || "";
-              (config as any).modelSelectionUpdatedAt = Date.now();
             });
             syncModelSelectionNow();
 
@@ -6144,12 +6165,6 @@ function _Chat() {
               );
             }
             ensureLatestOpenAIModelsForAllProfiles("model-manager-close");
-            if (currentProfile) {
-              applyLatestOpenAIModelForProfile(
-                currentProfile as any,
-                "model-manager-close",
-              );
-            }
             setShowAddModelModal(false);
             setAddModelProfile(null);
             setShowModelSelector(true);

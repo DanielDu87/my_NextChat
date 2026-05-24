@@ -20,6 +20,7 @@ import DiscoveryIcon from "../icons/discovery.svg";
 import Locale from "../locales";
 
 import { useAppConfig, useChatStore } from "../store";
+import { useSyncStore } from "../store/sync";
 import { Theme } from "../store/config";
 
 import {
@@ -28,6 +29,7 @@ import {
   MIN_SIDEBAR_WIDTH,
   NARROW_SIDEBAR_WIDTH,
   Path,
+  StoreKey,
 } from "../constant";
 
 import { Link, useNavigate } from "react-router-dom";
@@ -501,6 +503,7 @@ export function SideBar(props: { className?: string }) {
   const navigate = useNavigate();
   const config = useAppConfig();
   const chatStore = useChatStore();
+  const syncStore = useSyncStore();
   const readOnly = useAuthStore((state) => state.readOnly);
   const [mcpEnabled, setMcpEnabled] = useState(false);
 
@@ -705,6 +708,29 @@ export function SideBar(props: { className?: string }) {
                   if (config.dontShowMaskSplashScreen) {
                     chatStore.newSession();
                     navigate(Path.Chat);
+                    if (syncStore.cloudSync?.()) {
+                      useSyncStore.setState({
+                        criticalSyncReady: false,
+                        criticalSyncInProgress: true,
+                      } as any);
+                      void syncStore
+                        .sync([StoreKey.Config, StoreKey.Access], {
+                          isolateQueue: true,
+                          broadcastChatHint: false,
+                        })
+                        .catch((error) => {
+                          console.error(
+                            "[Sync] 新建对话模型选择同步失败:",
+                            error,
+                          );
+                        })
+                        .finally(() => {
+                          useSyncStore.setState({
+                            criticalSyncReady: true,
+                            criticalSyncInProgress: false,
+                          } as any);
+                        });
+                    }
                   } else {
                     navigate(Path.NewChat);
                   }
