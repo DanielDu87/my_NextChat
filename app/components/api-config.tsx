@@ -1634,6 +1634,7 @@ export function ApiConfigPage() {
 
     accessStore.update((access) => {
       access.customModels = actualProfileModels;
+      (access as any).profileSelectionUpdatedAt = Date.now();
       access.apiProfiles = access.apiProfiles.map((profile) => {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
@@ -2541,6 +2542,8 @@ export function ApiConfigPage() {
                             onChange={(e) => {
                               if (!e.currentTarget.checked) {
                                 accessStore.update((access) => {
+                                  (access as any).profileSelectionUpdatedAt =
+                                    Date.now();
                                   access.apiProfiles = access.apiProfiles.map(
                                     (item) =>
                                       item.id === profile.id

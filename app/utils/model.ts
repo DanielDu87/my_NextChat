@@ -5,6 +5,8 @@ import modelPublishedAtUtils from "./model-published-at";
 const { DEFAULT_MODELS, ServiceProvider } = constants;
 const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
 
+export const LATEST_OPENAI_CHAT_MODEL_NAME = "gpt-5.1";
+
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
   cache: new Map<string, number>(),
@@ -381,7 +383,7 @@ function isReservedDefaultModelAlias(
 
 export function normalizeReservedDisplayModelName(
   modelName: string | undefined,
-  exactModelName = "gpt-5.4",
+  exactModelName = LATEST_OPENAI_CHAT_MODEL_NAME,
 ) {
   const rawModelName = String(modelName || "").trim();
   if (!rawModelName) {
@@ -565,7 +567,7 @@ function isFallbackOpenAIMainModel(model: ModelLike) {
     return false;
   }
 
-  return !/(?:^|[-_.])(pro|mini|nano)(?:$|[-_.])/i.test(name);
+  return !/(?:^|[-_.])(free|pro|mini|nano)(?:$|[-_.])/i.test(name);
 }
 
 function getOpenAIMainModelBaseVersion(model: ModelLike) {
@@ -649,7 +651,7 @@ export function getPreferredDefaultChatModel(
   allModels: readonly ModelLike[],
   currentModelConfig: ProviderScopedModelConfig | undefined,
   accessProfiles: readonly AccessProfileLike[] = [],
-  exactModelName = "gpt-5.4",
+  exactModelName = LATEST_OPENAI_CHAT_MODEL_NAME,
 ): { model: string; providerName: ServiceProviderValue } | undefined {
   const preferredProviderId = resolveModelProviderId(
     allModels,
@@ -721,7 +723,7 @@ export function getPreferredDisplayModelConfig(
   allModels: readonly ModelLike[],
   currentModelConfig: ProviderScopedModelConfig | undefined,
   accessProfiles: readonly AccessProfileLike[] = [],
-  exactModelName = "gpt-5.4",
+  exactModelName = LATEST_OPENAI_CHAT_MODEL_NAME,
 ): { model: string; providerName: ServiceProviderValue } | undefined {
   if (
     isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName) &&
@@ -773,7 +775,7 @@ export function getPreferredRuntimeModelConfig(
   allModels: readonly ModelLike[],
   currentModelConfig: ProviderScopedModelConfig | undefined,
   accessProfiles: readonly AccessProfileLike[] = [],
-  exactModelName = "gpt-5.4",
+  exactModelName = LATEST_OPENAI_CHAT_MODEL_NAME,
 ): { model: string; providerName: ServiceProviderValue } | undefined {
   if (!isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName)) {
     return undefined;

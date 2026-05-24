@@ -79,6 +79,10 @@ function stripProfileModelCacheFields<T extends Record<string, any>>(
   return rest as Omit<T, "cachedModels" | "modelCount">;
 }
 
+function getEnabledProfileId(profiles: Array<Record<string, any>>) {
+  return String(profiles.find((profile) => profile?.enabled)?.id || "");
+}
+
 export type GetStoreState<T> = T extends { getState: () => infer U }
   ? NonFunctionFields<U>
   : never;
@@ -781,9 +785,27 @@ const MergeStates: StateMerger = {
     const mergedProfiles: typeof localState.apiProfiles = [];
     const localUpdateTime = localState.lastUpdateTime || 0;
     const remoteUpdateTime = remoteState.lastUpdateTime || 0;
+    const localSelectionAt =
+      Number((localState as Record<string, any>).profileSelectionUpdatedAt) ||
+      0;
+    const remoteSelectionAt =
+      Number((remoteState as Record<string, any>).profileSelectionUpdatedAt) ||
+      0;
     const shouldPreferRemoteState =
       !hasMeaningfulAccessState(localState as Record<string, any>) &&
       hasMeaningfulAccessState(remoteState as Record<string, any>);
+    const localEnabledProfileId = getEnabledProfileId(localProfiles);
+    const remoteEnabledProfileId = getEnabledProfileId(remoteProfiles);
+    const useRemoteProfileSelection = shouldPreferRemoteState
+      ? true
+      : remoteSelectionAt > localSelectionAt
+      ? true
+      : remoteSelectionAt < localSelectionAt
+      ? false
+      : !!remoteEnabledProfileId && !localEnabledProfileId;
+    const selectedProfileId = useRemoteProfileSelection
+      ? remoteEnabledProfileId || localEnabledProfileId
+      : localEnabledProfileId || remoteEnabledProfileId;
 
     // 处理本地有的 profile
     localProfileMap.forEach((localProfile, id) => {
@@ -797,6 +819,9 @@ const MergeStates: StateMerger = {
             ? remoteProfile
             : localProfile),
         } as Record<string, any>;
+        if (selectedProfileId) {
+          mergedProfile.enabled = String(id) === selectedProfileId;
+        }
 
         (["apiKey", "modelFetchApiKey", "balanceQueryApiKey"] as const).forEach(
           (key) => {
@@ -833,8 +858,12 @@ const MergeStates: StateMerger = {
 
         mergedProfiles.push(stripProfileModelCacheFields(mergedProfile) as any);
       } else {
+        const nextProfile = { ...(localProfile as any) };
+        if (selectedProfileId) {
+          nextProfile.enabled = String(id) === selectedProfileId;
+        }
         mergedProfiles.push(
-          stripProfileModelCacheFields(localProfile as any) as any,
+          stripProfileModelCacheFields(nextProfile as any) as any,
         );
       }
     });
@@ -843,11 +872,23 @@ const MergeStates: StateMerger = {
     if (remoteUpdateTime > localUpdateTime || shouldPreferRemoteState) {
       remoteProfileMap.forEach((profile, id) => {
         if (!localProfileMap.has(id)) {
-          mergedProfiles.push(
-            stripProfileModelCacheFields(profile as any) as any,
-          );
+          const nextProfile = { ...(profile as any) };
+          if (selectedProfileId) {
+            nextProfile.enabled = String(id) === selectedProfileId;
+          }
+          mergedProfiles.push(stripProfileModelCacheFields(nextProfile) as any);
         }
       });
+    } else if (selectedProfileId && !localProfileMap.has(selectedProfileId)) {
+      const selectedRemoteProfile = remoteProfileMap.get(selectedProfileId);
+      if (selectedRemoteProfile) {
+        mergedProfiles.push(
+          stripProfileModelCacheFields({
+            ...selectedRemoteProfile,
+            enabled: true,
+          } as any) as any,
+        );
+      }
     }
 
     const mergedState = {
@@ -858,6 +899,7 @@ const MergeStates: StateMerger = {
         ? remoteState
         : localState),
       apiProfiles: mergedProfiles,
+      profileSelectionUpdatedAt: Math.max(localSelectionAt, remoteSelectionAt),
       lastUpdateTime: markMergedUpdateTime(
         localState.lastUpdateTime,
         remoteState.lastUpdateTime,
@@ -873,7 +915,8 @@ const MergeStates: StateMerger = {
       );
     });
 
-    Object.assign(localState, mergedState);
+    normalizeAccessStateDerivedFields(mergedAccessState);
+    Object.assign(localState, mergedAccessState);
 
     return localState;
   },

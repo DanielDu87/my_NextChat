@@ -15,6 +15,7 @@ import {
   uploadImage,
   base64Image2Blob,
   streamWithThink,
+  stripInternalChatHeaders,
   supportsApiKeyGrouping,
 } from "@/app/utils/chat";
 import {
@@ -476,7 +477,7 @@ async function pollAiHubMixTask(
     const pollRes = await fetch(targetUrl, {
       method: "GET",
       signal: controller.signal,
-      headers: requestHeaders,
+      headers: stripInternalChatHeaders(requestHeaders),
     });
     const pollText = await pollRes.text();
     const pollJson = parseJsonOrSSEPayload(pollText);
@@ -526,7 +527,7 @@ async function attachCompletedVideoContent(
     const res = await fetch(contentUrl, {
       method: "GET",
       signal: controller.signal,
-      headers: requestHeaders,
+      headers: stripInternalChatHeaders(requestHeaders),
     });
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.startsWith("video/")) {
@@ -1561,7 +1562,7 @@ export class ChatGPTApi implements LLMApi {
               ? requestPayload
               : JSON.stringify(requestPayload),
           signal: controller.signal,
-          headers: requestHeaders,
+          headers: stripInternalChatHeaders(requestHeaders),
         };
 
         // make a fetch request
@@ -1594,7 +1595,7 @@ export class ChatGPTApi implements LLMApi {
                   ? requestPayload
                   : JSON.stringify(requestPayload),
               signal: controller.signal,
-              headers: requestHeaders,
+              headers: stripInternalChatHeaders(requestHeaders),
             };
             const retryTimeoutId = setTimeout(
               () => controller.abort(),
@@ -1647,7 +1648,7 @@ export class ChatGPTApi implements LLMApi {
                 ? requestPayload
                 : JSON.stringify(requestPayload),
             signal: controller.signal,
-            headers: requestHeaders,
+            headers: stripInternalChatHeaders(requestHeaders),
           };
 
           // 重试请求

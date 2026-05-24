@@ -20,8 +20,6 @@ import DiscoveryIcon from "../icons/discovery.svg";
 import Locale from "../locales";
 
 import { useAppConfig, useChatStore } from "../store";
-import { useSyncStore } from "../store/sync";
-import { ProviderType } from "../utils/cloud";
 import { Theme } from "../store/config";
 
 import {
@@ -504,7 +502,6 @@ export function SideBar(props: { className?: string }) {
   const config = useAppConfig();
   const chatStore = useChatStore();
   const readOnly = useAuthStore((state) => state.readOnly);
-  const syncStore = useSyncStore();
   const [mcpEnabled, setMcpEnabled] = useState(false);
 
   const themeSelectorRef = useRef<HTMLDivElement>(null);
@@ -712,11 +709,7 @@ export function SideBar(props: { className?: string }) {
                     navigate(Path.NewChat);
                   }
                 };
-                if (syncStore.provider === ProviderType.Database) {
-                  syncStore.syncModels().finally(startNewChat);
-                } else {
-                  startNewChat();
-                }
+                startNewChat();
               }}
               shadow
             />

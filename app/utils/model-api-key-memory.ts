@@ -70,7 +70,7 @@ export function supportsApiKeyGroupingForProfile(
 export const isRememberedApiKeyProfile = supportsApiKeyGroupingForProfile;
 
 function getProviderIdForProfile(profile: Pick<CustomProfile, "name">) {
-  return `custom_${profile.name}`;
+  return `custom_${profile.name}`.toLowerCase();
 }
 
 export function getCustomModelApiKeySelection(

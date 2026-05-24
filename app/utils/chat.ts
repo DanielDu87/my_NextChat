@@ -69,6 +69,25 @@ function getAuthHeaderName(headers: Record<string, string>) {
   );
 }
 
+const INTERNAL_CHAT_HEADER_KEYS = new Set([
+  "x-fallback-api-keys",
+  "x-fallback-api-key-groups",
+  "x-remembered-api-key-group",
+]);
+
+export function stripInternalChatHeaders<T extends Record<string, any>>(
+  headers: T,
+) {
+  const networkHeaders: Record<string, any> = {};
+  Object.entries(headers || {}).forEach(([key, value]) => {
+    if (INTERNAL_CHAT_HEADER_KEYS.has(key.toLowerCase())) {
+      return;
+    }
+    networkHeaders[key] = value;
+  });
+  return networkHeaders as T;
+}
+
 function getYutoGroupName(
   fallbackApiKeyGroups: string[],
   currentKeyIndex: number,
@@ -554,7 +573,7 @@ export function stream(
         tools: tools && tools.length ? tools : undefined,
       }),
       signal: controller.signal,
-      headers,
+      headers: stripInternalChatHeaders(headers),
     };
     const requestTimeoutId = setTimeout(
       () => controller.abort(),
@@ -965,7 +984,7 @@ export function streamWithThink(
         tools: tools && tools.length ? tools : undefined,
       }),
       signal: controller.signal,
-      headers,
+      headers: stripInternalChatHeaders(headers),
     };
     const requestTimeoutId = setTimeout(
       () => controller.abort(),

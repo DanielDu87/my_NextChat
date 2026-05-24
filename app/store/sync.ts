@@ -41,7 +41,7 @@ import Locale from "../locales";
 import { ChatControllerPool } from "../client/controller";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
-import { useAccessStore } from "./access";
+import { normalizeAccessStateDerivedFields, useAccessStore } from "./access";
 import { useAuthStore } from "./auth";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import {
@@ -559,23 +559,60 @@ function syncModelSelectionToLocalStorage(state: any) {
   const providerId = String(
     modelConfig.providerId || providerName.toLowerCase(),
   ).trim();
+  const matchedProfile = (useAccessStore.getState().apiProfiles || []).find(
+    (profile) => getSyncProfileProviderId(profile as any) === providerId,
+  );
+  const providerDisplayName =
+    matchedProfile?.name || matchedProfile?.provider || providerName;
   const prevSelection = localStorage.getItem("nextchat:last-model-selection");
   const prevProvider = localStorage.getItem("nextchat:model-selector-provider");
   const nextSelection = `${model}@${providerId}`;
   const selectionChanged =
-    prevSelection !== nextSelection || prevProvider !== providerName;
+    prevSelection !== nextSelection || prevProvider !== providerDisplayName;
   if (selectionChanged) {
     console.log(
       `[Sync] 🔄 模型选择localStorage同步: ${
         prevSelection || "(空)"
       } → ${nextSelection}` +
-        ` | provider: ${prevProvider || "(空)"} → ${providerName}`,
+        ` | provider: ${prevProvider || "(空)"} → ${providerDisplayName}`,
     );
   }
   try {
     localStorage.setItem("nextchat:last-model-selection", nextSelection);
-    localStorage.setItem("nextchat:model-selector-provider", providerName);
+    localStorage.setItem(
+      "nextchat:model-selector-provider",
+      providerDisplayName,
+    );
   } catch (_) {}
+}
+
+function applySyncedModelSelectionToAccess(state: any) {
+  const providerId = String(state?.modelConfig?.providerId || "")
+    .trim()
+    .toLowerCase();
+  if (!providerId) return;
+
+  const accessState = useAccessStore.getState() as any;
+  const matchedProfile = (accessState.apiProfiles || []).find(
+    (profile: any) => getSyncProfileProviderId(profile) === providerId,
+  );
+  if (!matchedProfile) return;
+
+  const nextAccessState = normalizeAccessStateDerivedFields({
+    ...accessState,
+    useCustomConfig: true,
+    provider: matchedProfile.provider || accessState.provider,
+    profileSelectionUpdatedAt: Math.max(
+      Number(accessState.profileSelectionUpdatedAt) || 0,
+      Number(state?.modelSelectionUpdatedAt) || Date.now(),
+    ),
+    apiProfiles: (accessState.apiProfiles || []).map((profile: any) => ({
+      ...profile,
+      enabled: profile.id === matchedProfile.id,
+    })),
+  });
+
+  useAccessStore.setState(nextAccessState as any);
 }
 
 function logOverallSyncSummary(
@@ -2636,6 +2673,7 @@ export const useSyncStore = createPersistStore(
                     : undefined;
                 if (key === StoreKey.Config) {
                   saveCustomModelSnapshotAfterSync(resolvedStoreState);
+                  applySyncedModelSelectionToAccess(resolvedStoreState);
                   syncModelSelectionToLocalStorage(resolvedStoreState);
                 }
 
@@ -2797,6 +2835,7 @@ export const useSyncStore = createPersistStore(
                   });
                   if (key === StoreKey.Config) {
                     saveCustomModelSnapshotAfterSync(mergedStoreState);
+                    applySyncedModelSelectionToAccess(mergedStoreState);
                     syncModelSelectionToLocalStorage(mergedStoreState);
                   }
                   return {

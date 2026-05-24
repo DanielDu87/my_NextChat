@@ -48,13 +48,16 @@ import {
   useAppConfig,
 } from "./config";
 import { useAccessStore } from "./access";
+import { useModelCacheStore } from "./model-cache";
 import {
+  LATEST_OPENAI_CHAT_MODEL_NAME,
   collectModelsWithDefaultModel,
   getLatestOpenAIModelForProviderId,
   getPreferredDisplayModelConfig,
   getPreferredRuntimeModelConfig,
   resolveModelProviderId,
 } from "../utils/model";
+import { buildCachedExtraModels } from "../utils/model-pool";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
@@ -815,6 +818,72 @@ function getAccessProviderId(profile: {
     : String(profile.provider).toLowerCase();
 }
 
+function addCustomModelEntryForProvider(
+  customModels: string,
+  modelName: string,
+  providerId: string,
+) {
+  const entry = `+${modelName}@${providerId}`;
+  const existingEntries = String(customModels || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const targetKey = `${modelName}@${providerId}`.toLowerCase();
+  let changed = false;
+  const normalizedEntries = existingEntries.map((item) => {
+    const key = item.replace(/^[+-]/, "").toLowerCase();
+    if (key !== targetKey) {
+      return item;
+    }
+    if (item !== entry) {
+      changed = true;
+      return entry;
+    }
+    return item;
+  });
+  const existingKeys = new Set(
+    normalizedEntries.map((item) => item.replace(/^[+-]/, "").toLowerCase()),
+  );
+
+  if (existingKeys.has(targetKey)) {
+    return {
+      customModels: changed ? normalizedEntries.join(",") : customModels,
+      changed,
+    };
+  }
+
+  return {
+    customModels: [...normalizedEntries, entry].join(","),
+    changed: true,
+  };
+}
+
+function hasProviderModel(
+  models: Array<{ name?: string; provider?: { id?: string } }>,
+  modelName: string,
+  providerId: string,
+) {
+  const normalizedModelName = String(modelName || "").toLowerCase();
+  const normalizedProviderId = String(providerId || "").toLowerCase();
+  return models.some(
+    (model) =>
+      String(model.name || "").toLowerCase() === normalizedModelName &&
+      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
+  );
+}
+
+function isSameModelSelection(
+  left: Record<string, any> | undefined,
+  right: Record<string, any> | undefined,
+) {
+  return (
+    String(left?.model || "") === String(right?.model || "") &&
+    String(left?.providerName || "") === String(right?.providerName || "") &&
+    String(left?.providerId || "") === String(right?.providerId || "") &&
+    String(left?.profileId || "") === String(right?.profileId || "")
+  );
+}
+
 function normalizeProviderLookup(value: unknown) {
   return String(value || "")
     .trim()
@@ -1235,6 +1304,24 @@ function resolveDisplayProviderName(
 
   if (displayModelConfig.providerName !== ServiceProvider.Custom) {
     return displayModelConfig.providerName;
+  }
+
+  const configProviderId = String((modelConfig as any)?.providerId || "")
+    .trim()
+    .toLowerCase();
+  const configProfileId = String((modelConfig as any)?.profileId || "").trim();
+  const configProfile = accessProfiles.find((profile) => {
+    if (configProfileId && profile.id === configProfileId) {
+      return true;
+    }
+    return (
+      configProviderId &&
+      profile.provider === ServiceProvider.Custom &&
+      `custom_${profile.name}`.toLowerCase() === configProviderId
+    );
+  });
+  if (configProfile?.name) {
+    return configProfile.name;
   }
 
   const accessState = useAccessStore.getState();
@@ -1973,29 +2060,112 @@ export const useChatStore = createPersistStore(
             const configStore = useAppConfig.getState();
             const globalModelConfig = configStore.modelConfig;
             const accessStore = useAccessStore.getState();
+            const modelCacheStore = useModelCacheStore.getState();
+            const enabledProfile =
+              (accessStore.apiProfiles || []).find(
+                (profile) => profile.enabled,
+              ) ||
+              (accessStore.apiProfiles || []).find(
+                (profile) => profile.provider === accessStore.provider,
+              );
+            const activeProviderId = enabledProfile
+              ? getAccessProviderId(enabledProfile).toLowerCase()
+              : (
+                  resolveModelProviderId(
+                    collectModelsWithDefaultModel(
+                      configStore.models,
+                      configStore.customModels,
+                      accessStore.defaultModel,
+                    ),
+                    globalModelConfig,
+                    accessStore.apiProfiles,
+                  ) || String((globalModelConfig as any)?.providerId || "")
+                ).toLowerCase();
+            const cachedExtras = buildCachedExtraModels(
+              accessStore.apiProfiles || [],
+              (modelCacheStore as any).profiles || {},
+            );
             const allModels = collectModelsWithDefaultModel(
-              configStore.models,
+              [...configStore.models, ...cachedExtras],
               configStore.customModels,
               accessStore.defaultModel,
             );
-            const globalProviderId = (
-              resolveModelProviderId(
+            const latestOpenAIModelForProvider = activeProviderId
+              ? getLatestOpenAIModelForProviderId(
+                  allModels,
+                  activeProviderId,
+                ) ||
+                ({
+                  model: LATEST_OPENAI_CHAT_MODEL_NAME,
+                  providerName:
+                    enabledProfile?.provider || globalModelConfig.providerName,
+                } as const)
+              : undefined;
+
+            if (
+              activeProviderId &&
+              latestOpenAIModelForProvider &&
+              !hasProviderModel(
                 allModels,
-                globalModelConfig,
-                accessStore.apiProfiles,
-              ) || String((globalModelConfig as any)?.providerId || "")
-            ).toLowerCase();
-            const latestOpenAIModelForProvider =
-              getLatestOpenAIModelForProviderId(allModels, globalProviderId);
+                latestOpenAIModelForProvider.model,
+                activeProviderId,
+              )
+            ) {
+              const nextCustomModels = addCustomModelEntryForProvider(
+                configStore.customModels,
+                latestOpenAIModelForProvider.model,
+                activeProviderId,
+              );
+              if (nextCustomModels.changed) {
+                useAppConfig.getState().update((config) => {
+                  config.customModels = nextCustomModels.customModels;
+                  (config as any).customModelsUpdatedAt = Date.now();
+                });
+              }
+            }
+
+            const nextModelConfig = sanitizeModelConfigForCapability({
+              ...globalModelConfig,
+              ...(latestOpenAIModelForProvider || {}),
+            });
+            if (activeProviderId) {
+              (nextModelConfig as any).providerId = activeProviderId;
+            }
+            if (enabledProfile?.id) {
+              (nextModelConfig as any).profileId = enabledProfile.id;
+            }
+
+            if (latestOpenAIModelForProvider && activeProviderId) {
+              const nextGlobalModelConfig = sanitizeModelConfigForCapability({
+                ...globalModelConfig,
+                model: latestOpenAIModelForProvider.model as ModelType,
+                providerName:
+                  latestOpenAIModelForProvider.providerName as ServiceProvider,
+              });
+              (nextGlobalModelConfig as any).providerId = activeProviderId;
+              if (enabledProfile?.id) {
+                (nextGlobalModelConfig as any).profileId = enabledProfile.id;
+              }
+
+              if (
+                !isSameModelSelection(
+                  globalModelConfig as Record<string, any>,
+                  nextGlobalModelConfig as Record<string, any>,
+                )
+              ) {
+                useAppConfig.getState().update((config) => {
+                  config.modelConfig = nextGlobalModelConfig;
+                  (config as any).modelSelectionUpdatedAt = Date.now();
+                });
+              }
+            }
+
             session.mask = {
               ...currentSession.mask,
               id: session.mask.id,
               name: session.mask.name,
               syncGlobalConfig: false,
-              modelConfig: sanitizeModelConfigForCapability({
-                ...globalModelConfig,
-                ...(latestOpenAIModelForProvider || {}),
-              }),
+              modelConfig: nextModelConfig,
             };
           }
         }
@@ -2010,10 +2180,7 @@ export const useChatStore = createPersistStore(
           sessions: [session].concat(state.sessions),
         }));
 
-        // 触发防抖同步（动态导入避免循环依赖）
-        import("./sync").then(({ useSyncStore }) => {
-          useSyncStore.getState().triggerDebounceSync([StoreKey.Chat]);
-        });
+        // 新建空白会话只更新本地 UI，不立即上传；等真正产生消息后再同步。
       },
 
       nextSession(delta: number) {
@@ -2441,6 +2608,25 @@ export const useChatStore = createPersistStore(
           allModels,
           accessStore.apiProfiles,
         );
+        const resolvedProviderId = (
+          resolveModelProviderId(
+            allModels,
+            initialModelConfig,
+            accessStore.apiProfiles,
+          ) || String((initialModelConfig as any).providerId || "")
+        ).toLowerCase();
+        const resolvedProfile = getProfileForModel(
+          resolvedProviderId,
+          initialModelConfig.providerName,
+        );
+        if (resolvedProviderId) {
+          (initialModelConfig as any).providerId = resolvedProviderId;
+        }
+        if (resolvedProfile?.id) {
+          (initialModelConfig as any).profileId = resolvedProfile.id;
+        }
+        const resolvedDisplayProviderName =
+          resolvedProfile?.name || displayProviderName;
 
         if (autoModeEnabled) {
           logChatDebug("[Chat] 🔄 自动模式已启用:", {
@@ -2483,12 +2669,12 @@ export const useChatStore = createPersistStore(
           model: initialModelConfig.model,
           modelDisplay: formatModelProviderLabel(
             displayModelConfig.model,
-            displayProviderName,
+            resolvedDisplayProviderName,
           ),
           providerName: initialModelConfig.providerName as ServiceProvider,
           providerId: String((initialModelConfig as any).providerId || ""),
           profileId: String((initialModelConfig as any).profileId || ""),
-          profileName: displayProviderName,
+          profileName: resolvedDisplayProviderName,
           modelIcon: getMessageIconModel(
             initialModelConfig.model,
             initialModelConfig.providerName,
@@ -2544,7 +2730,7 @@ export const useChatStore = createPersistStore(
                 baseUrl: request.baseUrl,
                 chatPath: request.chatPath,
                 stream: request.stream,
-                profileName: displayProviderName,
+                profileName: resolvedDisplayProviderName,
               });
             },
             onUpdate(message) {

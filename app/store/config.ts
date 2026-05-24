@@ -138,7 +138,7 @@ export const DEFAULT_CONFIG = {
   modelSelectionUpdatedAt: 0,
 
   modelConfig: {
-    model: "gpt-5.4" as ModelType,
+    model: "gpt-5.1" as ModelType,
     providerName: "Custom" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,

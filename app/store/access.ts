@@ -273,6 +273,7 @@ export function normalizeAccessStateDerivedFields<
 const DEFAULT_ACCESS_STATE = {
   accessCode: "",
   useCustomConfig: true,
+  profileSelectionUpdatedAt: 0,
 
   provider: ServiceProvider.Custom,
   apiProfiles: createDefaultCustomProfiles() as Array<{
