@@ -164,7 +164,7 @@ function syncModelSelectionNow() {
       isolateQueue: true,
     })
     .catch((error: unknown) => {
-      console.error("[Model Selector] 模型选择立即同步失败", error);
+      console.error("[模型选择器] 模型选择立即同步失败", error);
     });
 }
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
@@ -1140,6 +1140,17 @@ const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const recentBalanceAutoRefresh = new Map<string, number>();
+
+function formatModelSelectorReason(reason: string) {
+  const labels: Record<string, string> = {
+    "page-refresh": "页面刷新",
+    "model-selector-open": "打开模型选择器",
+    "model-manager-open": "打开模型管理器",
+    "model-manager-close": "关闭模型管理器",
+    "provider-switch": "切换供应商",
+  };
+  return labels[reason] || reason || "未知原因";
+}
 
 function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
   const model = String(modelName || "").trim();
@@ -3203,15 +3214,15 @@ function _Chat() {
     );
     if (matchedKeys.length > 0 && result.length === 0) {
       console.log(
-        "[ModelSelector Debug] 供应商:",
+        "[模型选择器调试] 当前供应商：",
         activeModelSelectorProviderId,
       );
       console.log(
-        "[ModelSelector Debug] userAddedKeys 包含此供应商:",
+        "[模型选择器调试] 用户已添加模型中匹配该供应商的条目：",
         matchedKeys,
       );
       console.log(
-        "[ModelSelector Debug] allModels 中此供应商的模型:",
+        "[模型选择器调试] 全部模型中该供应商的模型：",
         allModels
           .filter(
             (m) =>
@@ -3438,11 +3449,11 @@ function _Chat() {
             state.customModels = nextCustomModels.customModels;
             (state as any).customModelsUpdatedAt = Date.now();
           });
-          console.info("[Model Selector] latest OpenAI model auto added", {
-            reason,
-            profileName: profile.name,
-            providerId: selectedProviderId,
-            model: latestOpenAIModelName,
+          console.info("[模型选择器] 已自动补充最新 OpenAI 模型", {
+            原因: formatModelSelectorReason(reason),
+            配置名称: profile.name,
+            供应商ID: selectedProviderId,
+            模型: latestOpenAIModelName,
           });
         }
         addedProviderModels = buildProviderModelsFromAddedCustomModels(
@@ -3522,12 +3533,12 @@ function _Chat() {
           "model-manager-close",
         ].includes(reason);
       if (shouldDeferAutoApplyUntilSyncReady) {
-        console.info("[Model Selector] latest OpenAI model apply deferred", {
-          reason,
-          profileName: profile.name,
-          providerName: profile.provider,
-          providerId: selectedProviderId,
-          model: latestOpenAIModel.model,
+        console.info("[模型选择器] 最新 OpenAI 模型应用已延后", {
+          原因: formatModelSelectorReason(reason),
+          配置名称: profile.name,
+          供应商类型: profile.provider,
+          供应商ID: selectedProviderId,
+          模型: latestOpenAIModel.model,
         });
         return;
       }
@@ -3557,13 +3568,13 @@ function _Chat() {
         LAST_MODEL_SELECTION_STORAGE_KEY,
         `${latestOpenAIModel.model}@${selectedProviderId}`,
       );
-      console.info("[Model Selector] latest OpenAI model applied", {
-        reason,
-        sessionId: latestSession.id,
-        profileName: profile.name,
-        providerName: profile.provider,
-        providerId: selectedProviderId,
-        model: latestOpenAIModel.model,
+      console.info("[模型选择器] 已应用最新 OpenAI 模型", {
+        原因: formatModelSelectorReason(reason),
+        对话ID: latestSession.id,
+        配置名称: profile.name,
+        供应商类型: profile.provider,
+        供应商ID: selectedProviderId,
+        模型: latestOpenAIModel.model,
       });
     },
     [
@@ -4653,9 +4664,7 @@ function _Chat() {
           const switchStartedAt = nowMs();
           const latestSession = chatStore.currentSession();
           if (!latestSession) {
-            console.error(
-              "[handleProviderChange] currentSession() returned null",
-            );
+            console.error("[模型选择器] 切换供应商失败：当前对话不存在");
             return;
           }
           const preferredProviderModelConfig =
@@ -4754,15 +4763,15 @@ function _Chat() {
           });
           syncModelSelectionNow();
 
-          console.info("[Model Selector] provider changed", {
-            sessionId: latestSession.id,
-            profileName,
-            providerName: profile.provider,
-            model: nextModel.name,
-            providerId: selectedProviderId,
+          console.info("[模型选择器] 供应商已切换", {
+            对话ID: latestSession.id,
+            配置名称: profileName,
+            供应商类型: profile.provider,
+            模型: nextModel.name,
+            供应商ID: selectedProviderId,
           });
           console.log(
-            `[Sync] 📤 模型选择已变更，等待上传: ${
+            `[Sync] 📤 模型选择已变更，等待上传：${
               nextModel.name
             }@${selectedProviderId.replace(/^custom_/, "")}`,
           );
@@ -6155,15 +6164,15 @@ function _Chat() {
             });
             syncModelSelectionNow();
 
-            console.info("[Model Selector] model changed", {
-              sessionId: session.id,
-              model: nextModelConfig.model,
-              providerName: nextModelConfig.providerName,
-              providerId: selectedProviderId,
-              profileName: selectedProfile?.name,
+            console.info("[模型选择器] 模型已切换", {
+              对话ID: session.id,
+              模型: nextModelConfig.model,
+              供应商类型: nextModelConfig.providerName,
+              供应商ID: selectedProviderId,
+              配置名称: selectedProfile?.name,
             });
             console.log(
-              `[Sync] 📤 模型选择已变更，等待上传: ${
+              `[Sync] 📤 模型选择已变更，等待上传：${
                 nextModelConfig.model
               }@${selectedProviderId.replace(/^custom_/, "")}`,
             );

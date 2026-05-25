@@ -544,6 +544,18 @@ export function createEmptySession(): ChatSession {
   };
 }
 
+function formatChatSessionLogLabel(session: Pick<ChatSession, "id" | "topic">) {
+  const topic = String(session.topic || "").trim() || "未命名对话";
+  return `${topic}（ID: ${session.id}）`;
+}
+
+function formatLimitedChatSessionLogLabels(sessions: ChatSession[]) {
+  const labels = sessions.slice(0, 5).map(formatChatSessionLogLabel);
+  return `${labels.join("、")}${
+    sessions.length > 5 ? ` 等${sessions.length}个` : ""
+  }`;
+}
+
 export function normalizeSession(
   session?: ChatSession,
 ): ChatSession | undefined {
@@ -1913,11 +1925,10 @@ export const useChatStore = createPersistStore(
 
       async clearSessions() {
         const newSessions = [createEmptySession()];
+        const deletedSessions = get().sessions.filter((session) => session?.id);
         const globalClearAt = Date.now();
         const deletedSessionTimestamps = Object.fromEntries(
-          get()
-            .sessions.filter((session) => session?.id)
-            .map((session) => [session.id, globalClearAt]),
+          deletedSessions.map((session) => [session.id, globalClearAt]),
         );
         set(() => ({
           sessions: newSessions,
@@ -1927,6 +1938,14 @@ export const useChatStore = createPersistStore(
           globalClearAt,
           deletedSessionTimestamps,
         }));
+
+        if (deletedSessions.length > 0) {
+          console.log(
+            `[Chat] 🧹 清空对话：已删除 ${formatLimitedChatSessionLogLabels(
+              deletedSessions,
+            )}；已新建 ${formatChatSessionLogLabel(newSessions[0])}`,
+          );
+        }
 
         // 使用统一聊天同步链路传播删除，避免远端残留旧会话。
         try {
@@ -2162,6 +2181,10 @@ export const useChatStore = createPersistStore(
           };
         });
 
+        console.log(
+          `[Chat] ➕ 新增对话：${formatChatSessionLogLabel(session)}`,
+        );
+
         // 新建空白会话只更新本地 UI，不立即上传；等真正产生消息后再同步。
         return true;
       },
@@ -2219,6 +2242,10 @@ export const useChatStore = createPersistStore(
           ),
           deletedSessionTimestamps,
         }));
+
+        console.log(
+          `[Chat] ➖ 删除对话：${formatChatSessionLogLabel(deletedSession)}`,
+        );
 
         showToast(
           Locale.Home.DeleteToast,
@@ -2315,9 +2342,11 @@ export const useChatStore = createPersistStore(
         // 三个来源都找不到内容，删除孤儿会话
         const orphanIndex = get().sessions.findIndex((s) => s.id === sessionId);
         if (orphanIndex >= 0) {
+          const orphanSession = get().sessions[orphanIndex];
           console.warn(
-            "[Chat] 会话内容在本地和远端均不存在，自动删除孤儿会话:",
-            sessionId,
+            `[Chat] ⚠️ 会话内容在本地和远端均不存在，自动删除孤儿会话：${formatChatSessionLogLabel(
+              orphanSession,
+            )}`,
           );
           get().deleteSession(orphanIndex);
         }

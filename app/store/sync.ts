@@ -103,7 +103,7 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(5);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
-let lastKnownChatSessionIds = new Set<string>();
+let lastKnownChatSessionSnapshot = new Map<string, string>();
 let lastKnownCustomModelsSnapshot = "";
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
@@ -572,10 +572,11 @@ function syncModelSelectionToLocalStorage(state: any) {
     prevSelection !== nextSelection || prevProvider !== providerDisplayName;
   if (selectionChanged) {
     console.log(
-      `[Sync] 🔄 模型选择localStorage同步: ${
-        prevSelection || "(空)"
-      } → ${nextSelection}` +
-        ` | provider: ${prevProvider || "(空)"} → ${providerDisplayName}`,
+      `[Sync] 🔄 模型选择本地缓存已同步：模型 ${
+        prevSelection || "空"
+      } → ${nextSelection}；供应商 ${
+        prevProvider || "空"
+      } → ${providerDisplayName}`,
     );
   }
   try {
@@ -729,20 +730,25 @@ function logOverallSyncSummary(
     }
     if (item.key === StoreKey.Chat) {
       // 计算会话的 diff（新增/删除）
-      const currentSessionIds = new Set<string>(
-        (useChatStore.getState() as any)?.sessions?.map((s: any) => s.id) || [],
-      );
-      if (lastKnownChatSessionIds.size === 0) {
-        lastKnownChatSessionIds = currentSessionIds;
+      const currentSessionSnapshot = buildChatSessionLogSnapshot();
+      if (lastKnownChatSessionSnapshot.size === 0) {
+        lastKnownChatSessionSnapshot = currentSessionSnapshot;
         console.log(
           `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
         );
         return;
       }
-      const beforeIds = lastKnownChatSessionIds;
-      const afterIds = currentSessionIds;
+      const beforeIds = new Set(lastKnownChatSessionSnapshot.keys());
+      const afterIds = new Set(currentSessionSnapshot.keys());
       const added = [...afterIds].filter((id) => !beforeIds.has(id));
       const deleted = [...beforeIds].filter((id) => !afterIds.has(id));
+      const addedLabels = added.map(
+        (id) => currentSessionSnapshot.get(id) || formatSyncedSessionLabel(id),
+      );
+      const deletedLabels = deleted.map(
+        (id) =>
+          lastKnownChatSessionSnapshot.get(id) || formatSyncedSessionLabel(id),
+      );
 
       if (added.length > 0 || deleted.length > 0) {
         console.log(
@@ -750,16 +756,12 @@ function logOverallSyncSummary(
         );
         if (added.length > 0) {
           console.log(
-            `[Sync] ➕ 新增会话: ${added.slice(0, 5).join("、")}${
-              added.length > 5 ? ` 等${added.length}个` : ""
-            }`,
+            `[Sync] ➕ 新增会话: ${formatLimitedSessionLabels(addedLabels)}`,
           );
         }
         if (deleted.length > 0) {
           console.log(
-            `[Sync] ➖ 删除会话: ${deleted.slice(0, 5).join("、")}${
-              deleted.length > 5 ? ` 等${deleted.length}个` : ""
-            }`,
+            `[Sync] ➖ 删除会话: ${formatLimitedSessionLabels(deletedLabels)}`,
           );
         }
       } else {
@@ -768,13 +770,49 @@ function logOverallSyncSummary(
         );
       }
       // 更新快照
-      lastKnownChatSessionIds = afterIds;
+      lastKnownChatSessionSnapshot = currentSessionSnapshot;
       return;
     }
     console.log(
       `[Sync] ✅ 已同步${item.name}: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
     );
   });
+}
+
+function formatSyncedSessionLabel(sessionId: string, topic?: unknown) {
+  const normalizedTopic = String(topic || "").trim() || "未命名对话";
+  return `${normalizedTopic}（ID: ${sessionId}）`;
+}
+
+function buildChatSessionLogSnapshot() {
+  const chatState = useChatStore.getState() as any;
+  const summaries = Array.isArray(chatState?.sessionSummaries)
+    ? chatState.sessionSummaries
+    : [];
+  const summaryMap = new Map<string, any>(
+    summaries
+      .filter((summary: any) => summary?.id)
+      .map((summary: any) => [String(summary.id), summary]),
+  );
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+
+  return new Map<string, string>(
+    sessions
+      .filter((session: any) => session?.id)
+      .map((session: any) => {
+        const sessionId = String(session.id);
+        const summary = summaryMap.get(sessionId);
+        return [
+          sessionId,
+          formatSyncedSessionLabel(sessionId, session.topic || summary?.topic),
+        ];
+      }),
+  );
+}
+
+function formatLimitedSessionLabels(labels: string[]) {
+  const visibleLabels = labels.slice(0, 5).join("、");
+  return `${visibleLabels}${labels.length > 5 ? ` 等${labels.length}个` : ""}`;
 }
 
 function measureJsonBytes(value: unknown) {
@@ -2194,10 +2232,20 @@ export const useSyncStore = createPersistStore(
           .map((session: any) => String(session.id)),
       );
       if (orphanSessionIds.size > 0) {
+        const orphanSessionLabels = [...orphanSessionIds].map((sessionId) => {
+          const session = (mergedStoreState as any).sessions?.find(
+            (item: any) => String(item?.id || "") === sessionId,
+          );
+          return formatSyncedSessionLabel(
+            sessionId,
+            session?.topic || mergedSummaryMap.get(sessionId)?.topic,
+          );
+        });
         syncConsole(
           "log",
-          `[Sync] 🧹 清理孤儿会话 ${orphanSessionIds.size} 个:`,
-          [...orphanSessionIds],
+          `[Sync] 🧹 清理孤儿会话 ${
+            orphanSessionIds.size
+          } 个：${formatLimitedSessionLabels(orphanSessionLabels)}`,
         );
         (mergedStoreState as any).sessions = (
           Array.isArray((mergedStoreState as any)?.sessions)
@@ -2284,10 +2332,10 @@ export const useSyncStore = createPersistStore(
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
 
       logSyncDebug(
-        `[Sync] 🔬 上传决策诊断: mergedIndex.sessions=${mergedIndex.sessions.length}, upsertSessions=${upsertSessions.length}, deleteSessionIds=${deleteSessionIds.length}, remoteEntryMap=${remoteEntryMap.size}`,
+        `[Sync] 🔬 上传决策诊断：合并索引会话数=${mergedIndex.sessions.length}，待上传会话数=${upsertSessions.length}，待删除会话数=${deleteSessionIds.length}，远端索引会话数=${remoteEntryMap.size}`,
       );
       if (downloadOnly) {
-        logSyncDebug("[Sync] 🔬 跳过上传: downloadOnly=true");
+        logSyncDebug("[Sync] 🔬 跳过上传：当前为仅下载模式");
       } else if (hasPendingChatRequest) {
         syncConsole(
           "warn",
