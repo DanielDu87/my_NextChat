@@ -432,12 +432,7 @@ export function ChatList(props: { narrow?: boolean }) {
       (!props.narrow && !isMobileScreen) ||
       (await showConfirm(Locale.Home.DeleteChat))
     ) {
-      const originalIndex = orderedSessionIds.findIndex(
-        (id) => id === sessionId,
-      );
-      if (originalIndex >= 0) {
-        useChatStore.getState().deleteSession(originalIndex);
-      }
+      useChatStore.getState().deleteSessionById(sessionId);
     }
   };
 

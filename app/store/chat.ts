@@ -2028,6 +2028,17 @@ export const useChatStore = createPersistStore(
       },
 
       newSession(mask?: Mask) {
+        if (!mask) {
+          const existingEmptyIndex = get().sessions.findIndex((session) =>
+            isFreshDefaultSession(session),
+          );
+
+          if (existingEmptyIndex >= 0) {
+            get().selectSession(existingEmptyIndex);
+            return false;
+          }
+        }
+
         const session = createEmptySession();
 
         if (mask) {
@@ -2133,17 +2144,26 @@ export const useChatStore = createPersistStore(
           }
         }
 
-        set((state) => ({
-          currentSessionIndex: 0,
-          selectedSessionId: session.id,
-          sessionSummaries: [
-            buildSessionSummary(session),
-            ...state.sessionSummaries,
-          ],
-          sessions: [session].concat(state.sessions),
-        }));
+        set((state) => {
+          const sessions = mask
+            ? [session].concat(state.sessions)
+            : ensureFreshDefaultSession([session].concat(state.sessions), {
+                preserveSessionId: session.id,
+              });
+
+          return {
+            currentSessionIndex: 0,
+            selectedSessionId: session.id,
+            sessionSummaries: buildSessionSummaries(
+              sessions,
+              state.sessionSummaries,
+            ),
+            sessions,
+          };
+        });
 
         // 新建空白会话只更新本地 UI，不立即上传；等真正产生消息后再同步。
+        return true;
       },
 
       nextSession(delta: number) {
@@ -2229,6 +2249,18 @@ export const useChatStore = createPersistStore(
             });
         });
         void removePersistedChatSession(deletedSession.id);
+      },
+
+      deleteSessionById(sessionId: string) {
+        if (!sessionId) return;
+
+        const index = get().sessions.findIndex(
+          (session) => session.id === sessionId,
+        );
+
+        if (index < 0) return;
+
+        get().deleteSession(index);
       },
 
       deleteCurrentSession() {

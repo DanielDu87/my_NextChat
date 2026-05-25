@@ -1052,15 +1052,31 @@ function normalizeMergedChatState(chatState: any) {
 function pruneEmptyChatSessionsForDisplay(chatState: any) {
   const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
   const selectedSessionId = getSelectedChatSessionId(chatState);
+  const selectedDefaultEmptySessionId =
+    sessions.find(
+      (session: any) =>
+        String(session?.id || "") === selectedSessionId &&
+        isDefaultEmptyChatSession(session),
+    )?.id || "";
+  let hasKeptDefaultEmptySession = false;
   let selectedIndex = 0;
   const nextSessions = sessions.filter((session: any) => {
     const sessionId = String(session?.id || "");
     const messages = getSessionMessages(session);
-    const keep =
-      messages.length > 0 ||
-      isRemoteSessionPlaceholder(session) ||
-      (sessionId && sessionId === selectedSessionId);
-    return keep;
+
+    if (messages.length > 0 || isRemoteSessionPlaceholder(session)) {
+      return true;
+    }
+
+    if (isDefaultEmptyChatSession(session)) {
+      const keep = selectedDefaultEmptySessionId
+        ? sessionId === selectedDefaultEmptySessionId
+        : !hasKeptDefaultEmptySession;
+      hasKeptDefaultEmptySession = hasKeptDefaultEmptySession || keep;
+      return keep;
+    }
+
+    return sessionId && sessionId === selectedSessionId;
   });
 
   if (nextSessions.length === 0) {

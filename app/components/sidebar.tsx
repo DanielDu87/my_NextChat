@@ -706,9 +706,9 @@ export function SideBar(props: { className?: string }) {
                 }
                 const startNewChat = () => {
                   if (config.dontShowMaskSplashScreen) {
-                    chatStore.newSession();
+                    const createdNewSession = chatStore.newSession();
                     navigate(Path.Chat);
-                    if (syncStore.cloudSync?.()) {
+                    if (createdNewSession && syncStore.cloudSync?.()) {
                       useSyncStore.setState({
                         criticalSyncReady: false,
                         criticalSyncInProgress: true,
