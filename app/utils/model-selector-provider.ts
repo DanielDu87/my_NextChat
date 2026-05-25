@@ -13,3 +13,20 @@ export function getActiveModelSelectorProviderId(params: {
 
   return String(params.currentProviderId || "").trim();
 }
+
+export function getModelSelectorDefaultValue(params: {
+  providerId?: string;
+  currentModel?: string;
+  latestModel?: string;
+}) {
+  const providerId = String(params.providerId || "").trim();
+  const currentModel = String(params.currentModel || "").trim();
+  const latestModel = String(params.latestModel || "").trim();
+  const modelName = currentModel || latestModel;
+
+  if (!providerId || !modelName) {
+    return undefined;
+  }
+
+  return `${modelName}@${providerId}`;
+}

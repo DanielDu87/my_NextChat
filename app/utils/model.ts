@@ -6,6 +6,7 @@ const { DEFAULT_MODELS, ServiceProvider } = constants;
 const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
 
 export const LATEST_OPENAI_CHAT_MODEL_NAME = "gpt-5.1";
+export const AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME = "gpt-chat-latest";
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -616,6 +617,18 @@ function getOpenAIMainModelCandidates(models: readonly ModelLike[]) {
     .sort(compareOpenAIMainModelPriority);
 }
 
+function isAiHubMixProviderId(providerId: string | undefined) {
+  return String(providerId || "").toLowerCase() === "custom_aihubmix";
+}
+
+function getAiHubMixPreferredOpenAIChatModel(models: readonly ModelLike[]) {
+  return models.find(
+    (model) =>
+      model.available &&
+      model.name === AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
+  );
+}
+
 export function getLatestOpenAIModelForCurrentSupplier(
   allModels: readonly ModelLike[],
   currentModelConfig: ProviderScopedModelConfig | undefined,
@@ -636,7 +649,9 @@ export function getLatestOpenAIModelForCurrentSupplier(
 
   const candidates = getOpenAIMainModelCandidates(scopedModels);
 
-  const matchedModel = candidates[0];
+  const matchedModel = isAiHubMixProviderId(preferredProviderId)
+    ? getAiHubMixPreferredOpenAIChatModel(scopedModels) || candidates[0]
+    : candidates[0];
   if (!matchedModel?.provider?.providerName) {
     return undefined;
   }
@@ -805,7 +820,9 @@ export function getLatestOpenAIModelForProviderId(
 
   const candidates = getOpenAIMainModelCandidates(scopedModels);
 
-  const matchedModel = candidates[0];
+  const matchedModel = isAiHubMixProviderId(normalizedProviderId)
+    ? getAiHubMixPreferredOpenAIChatModel(scopedModels) || candidates[0]
+    : candidates[0];
   if (!matchedModel?.provider?.providerName) {
     return undefined;
   }

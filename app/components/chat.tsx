@@ -113,7 +113,10 @@ import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
-import { getActiveModelSelectorProviderId } from "../utils/model-selector-provider";
+import {
+  getActiveModelSelectorProviderId,
+  getModelSelectorDefaultValue,
+} from "../utils/model-selector-provider";
 
 import dynamic from "next/dynamic";
 
@@ -3424,13 +3427,18 @@ function _Chat() {
         selectedProviderId,
         profile.provider,
       );
+      const providerModelCandidates = [
+        ...initialProviderModels,
+        ...addedProviderModels,
+        ...cachedProviderModels,
+      ];
       const latestOpenAIModelName =
-        getLatestOpenAIModelName([
-          ...allModels,
-          ...initialProviderModels,
-          ...addedProviderModels,
-          ...cachedProviderModels,
-        ]) || LATEST_OPENAI_CHAT_MODEL_NAME;
+        getLatestOpenAIModelForProviderId(
+          providerModelCandidates,
+          selectedProviderId,
+        )?.model ||
+        getLatestOpenAIModelName([...allModels, ...providerModelCandidates]) ||
+        LATEST_OPENAI_CHAT_MODEL_NAME;
 
       if (
         latestOpenAIModelName &&
@@ -4555,21 +4563,16 @@ function _Chat() {
         sessionMask?.modelConfig?.providerName || currentProviderName || "",
       ).toLowerCase();
 
-    // 老会话保留自己的模型；空白新会话默认选择当前供应商的 OpenAI 最新模型。
+    // 打开选择器时默认选中按钮当前展示的模型，避免按钮与勾选项不一致。
     const latestOpenAIModel = getLatestOpenAIModelForProviderId(
       allModels,
       latestProviderId,
     );
-    const latestModelName = currentSessionHasMessages
-      ? sessionMask?.modelConfig?.model || currentRawModel
-      : latestOpenAIModel?.model ||
-        sessionMask?.modelConfig?.model ||
-        currentRawModel;
-
-    const fallbackDefaultValue =
-      latestProviderId && latestModelName
-        ? `${latestModelName}@${latestProviderId}`
-        : undefined;
+    const fallbackDefaultValue = getModelSelectorDefaultValue({
+      providerId: latestProviderId,
+      currentModel: sessionMask?.modelConfig?.model || currentRawModel,
+      latestModel: latestOpenAIModel?.model,
+    });
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setShowAutoModelSelector(false);
@@ -4582,7 +4585,6 @@ function _Chat() {
     apiProfiles,
     currentRawModel,
     currentProviderName,
-    currentSessionHasMessages,
     ensureLatestOpenAIModelsForAllProfiles,
     modelSelectorProviderId,
     sessionMask,

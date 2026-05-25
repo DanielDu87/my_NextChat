@@ -1,7 +1,11 @@
-import { getActiveModelSelectorProviderId } from "../app/utils/model-selector-provider";
+import {
+  getActiveModelSelectorProviderId,
+  getModelSelectorDefaultValue,
+} from "../app/utils/model-selector-provider";
 import {
   collectModels,
   getLatestOpenAIModelForCurrentSupplier,
+  getLatestOpenAIModelForProviderId,
   getLatestOpenAIModelName,
 } from "../app/utils/model";
 import { ServiceProvider } from "../app/constant";
@@ -25,6 +29,25 @@ describe("model selector provider state", () => {
         currentProviderId: "custom_aihubmix",
       }),
     ).toBe("custom_yutoapi");
+  });
+
+  test("打开模型选择器时应优先选中当前展示模型", () => {
+    expect(
+      getModelSelectorDefaultValue({
+        providerId: "custom_aihubmix",
+        currentModel: "gpt-chat-latest",
+        latestModel: "gpt-5.5",
+      }),
+    ).toBe("gpt-chat-latest@custom_aihubmix");
+  });
+
+  test("当前模型为空时才使用供应商最新模型兜底", () => {
+    expect(
+      getModelSelectorDefaultValue({
+        providerId: "custom_yutoapi",
+        latestModel: "gpt-5.5",
+      }),
+    ).toBe("gpt-5.5@custom_yutoapi");
   });
 
   test("切换供应商时应优先选择该供应商下最新 OpenAI 主模型", () => {
@@ -68,6 +91,81 @@ describe("model selector provider state", () => {
 
     expect(result).toEqual({
       model: "gpt-5.4",
+      providerName: ServiceProvider.Custom,
+    });
+  });
+
+  test("AIhubmix 自动选择应优先使用 gpt-chat-latest", () => {
+    const models = [
+      {
+        available: true,
+        name: "gpt-5.5",
+        provider: {
+          id: "custom_aihubmix",
+          providerName: ServiceProvider.Custom,
+        },
+        publishedAt: 20260501,
+      },
+      {
+        available: true,
+        name: "gpt-chat-latest",
+        provider: {
+          id: "custom_aihubmix",
+          providerName: ServiceProvider.Custom,
+        },
+        publishedAt: 20260401,
+      },
+    ] as any;
+
+    expect(getLatestOpenAIModelForProviderId(models, "custom_aihubmix")).toEqual(
+      {
+        model: "gpt-chat-latest",
+        providerName: ServiceProvider.Custom,
+      },
+    );
+    expect(
+      getLatestOpenAIModelForCurrentSupplier(
+        models,
+        {
+          model: "gpt-5.5",
+          providerName: ServiceProvider.Custom,
+          providerId: "custom_aihubmix",
+        } as any,
+        [],
+      ),
+    ).toEqual({
+      model: "gpt-chat-latest",
+      providerName: ServiceProvider.Custom,
+    });
+  });
+
+  test("非 AIhubmix 供应商仍应优先使用最新 OpenAI 主模型", () => {
+    expect(
+      getLatestOpenAIModelForProviderId(
+        [
+          {
+            available: true,
+            name: "gpt-chat-latest",
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+            },
+            publishedAt: 20260401,
+          },
+          {
+            available: true,
+            name: "gpt-5.5",
+            provider: {
+              id: "custom_yutoapi",
+              providerName: ServiceProvider.Custom,
+            },
+            publishedAt: 20260501,
+          },
+        ] as any,
+        "custom_yutoapi",
+      ),
+    ).toEqual({
+      model: "gpt-5.5",
       providerName: ServiceProvider.Custom,
     });
   });

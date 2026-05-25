@@ -12,6 +12,7 @@ type RequestCompatibilityState = {
 };
 
 const REQUEST_COMPAT_STORAGE_KEY = "nextchat_request_compat_memory_v1";
+const AIHUBMIX_CHAT_LATEST_MODEL = "gpt-chat-latest";
 
 function normalizeBaseUrl(baseUrl?: string) {
   return String(baseUrl || "")
@@ -66,7 +67,19 @@ export function buildRequestCompatibilityKey(params: {
 }
 
 export function getRequestCompatibilityState(key: string) {
-  return readRequestCompatibilityMap()[key] || {};
+  const currentMap = readRequestCompatibilityMap();
+  const savedState = currentMap[key];
+  if (savedState) {
+    return savedState;
+  }
+
+  const defaultState = getDefaultRequestCompatibilityState(key);
+  if (hasRequestCompatibilityOverrides(defaultState)) {
+    currentMap[key] = defaultState;
+    writeRequestCompatibilityMap(currentMap);
+  }
+
+  return defaultState;
 }
 
 export function hasRequestCompatibilityOverrides(
@@ -86,6 +99,22 @@ export function rememberRequestCompatibilityState(
     currentMap[key] = state;
   }
   writeRequestCompatibilityMap(currentMap);
+}
+
+function getDefaultRequestCompatibilityState(
+  key: string,
+): RequestCompatibilityState {
+  const [providerName, baseUrl, model] = key.split("::");
+  const isAiHubMixChatLatest =
+    providerName === ServiceProvider.Custom.toLowerCase() &&
+    baseUrl.includes("aihubmix.com") &&
+    model === AIHUBMIX_CHAT_LATEST_MODEL;
+
+  if (isAiHubMixChatLatest) {
+    return { disableTemperature: true };
+  }
+
+  return {};
 }
 
 function cloneRequestPayload(payload: any) {
