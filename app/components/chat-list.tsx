@@ -81,16 +81,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   avatar: string;
   model: string;
 }) {
-  const draggableRef = useRef<HTMLDivElement | null>(null);
   const { pathname: currentPath } = useLocation();
-
-  useEffect(() => {
-    if (props.selected && draggableRef.current) {
-      draggableRef.current.scrollIntoView({
-        block: "center",
-      });
-    }
-  }, [props.selected]);
 
   const renderHighlightedText = useCallback(
     (text: string): ReactNode => {
@@ -128,9 +119,6 @@ const ChatItemCard = memo(function ChatItemCard(props: {
             currentPath.startsWith(Path.Chat + "/")),
       })}
       onClick={props.onClick}
-      ref={(element) => {
-        draggableRef.current = element;
-      }}
       title={`${props.title}\n${Locale.ChatItem.ChatItemCount(props.count)}`}
     >
       {props.narrow ? (
@@ -391,33 +379,6 @@ export function ChatList(props: { narrow?: boolean }) {
 
     return () => observer.disconnect();
   }, [shouldVirtualize]);
-
-  useEffect(() => {
-    if (!shouldVirtualize || !listRef.current) {
-      return;
-    }
-
-    const displayedIndex = filteredSessions.findIndex(
-      (item) => item.session.id === currentSessionId,
-    );
-
-    if (displayedIndex < 0) {
-      return;
-    }
-
-    const itemTop = displayedIndex * itemHeight;
-    const itemBottom = itemTop + itemHeight;
-    const currentTop = listRef.current.scrollTop;
-    const currentBottom = currentTop + listRef.current.clientHeight;
-
-    if (itemTop >= currentTop && itemBottom <= currentBottom) {
-      return;
-    }
-
-    listRef.current.scrollTo({
-      top: Math.max(0, itemTop - listRef.current.clientHeight / 2 + itemHeight),
-    });
-  }, [currentSessionId, filteredSessions, itemHeight, shouldVirtualize]);
 
   useEffect(() => {
     return () => {
