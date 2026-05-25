@@ -1379,7 +1379,7 @@ export class ChatGPTApi implements LLMApi {
 
       currentBaseUrl = currentBaseUrlForRequest;
       const requestHeaders = {
-        ...getHeaders(requestPayload instanceof FormData),
+        ...getHeaders(requestPayload instanceof FormData, modelConfig),
         ...(modelConfig.anthropicBeta?.trim()
           ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
           : {}),

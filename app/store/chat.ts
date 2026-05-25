@@ -571,6 +571,7 @@ export function normalizeSession(
   return {
     ...fallbackSession,
     ...session,
+    createdAt: getSessionCreatedAt(session) || fallbackSession.createdAt,
     messages: Array.isArray(session.messages) ? session.messages : [],
     stat:
       session.stat && typeof session.stat === "object"
@@ -993,9 +994,11 @@ function getSummarizeTarget(targetSession?: ChatSession) {
     configStore.customModels,
     accessStore.defaultModel,
   );
+  const targetModelConfig = targetSession?.mask.modelConfig;
   const sessionProviderName =
-    targetSession?.mask.modelConfig.providerName ?? ServiceProvider.Custom;
+    targetModelConfig?.providerName ?? ServiceProvider.Custom;
   const activeProfile =
+    (targetModelConfig ? getProfileForModelConfig(targetModelConfig) : null) ??
     getActiveAccessProfile(accessStore, sessionProviderName) ??
     accessStore.apiProfiles.find((profile) => profile.enabled);
   const targetProfile =
@@ -1044,8 +1047,9 @@ function getSummarizeTarget(targetSession?: ChatSession) {
   }
 
   return {
-    model: SUMMARIZE_MODEL,
+    model: targetModelConfig?.model || SUMMARIZE_MODEL,
     providerName: activeProfile?.provider ?? ServiceProvider.Custom,
+    profile: activeProfile,
   };
 }
 
@@ -1126,6 +1130,31 @@ function getProfileForModel(
   );
 }
 
+function getProfileForModelConfig(modelConfig: ModelConfig) {
+  const accessStore = useAccessStore.getState();
+  const configProviderId = String((modelConfig as any)?.providerId || "")
+    .trim()
+    .toLowerCase();
+  const configProfileId = String((modelConfig as any)?.profileId || "").trim();
+
+  const matchedProfile = accessStore.apiProfiles.find((profile) => {
+    if (configProfileId && profile.id === configProfileId) {
+      return true;
+    }
+
+    return (
+      configProviderId &&
+      getAccessProviderId(profile).toLowerCase() === configProviderId
+    );
+  });
+
+  if (matchedProfile) {
+    return matchedProfile;
+  }
+
+  return getActiveAccessProfile(accessStore, modelConfig.providerName);
+}
+
 function getRefreshTitleCandidates(targetSession: ChatSession) {
   const configStore = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
@@ -1134,15 +1163,15 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     configStore.customModels,
     accessStore.defaultModel,
   );
+  const modelConfig = targetSession.mask.modelConfig;
   const currentProviderName =
-    targetSession.mask.modelConfig.providerName ?? ServiceProvider.Custom;
-  const currentProfile = getActiveAccessProfile(
-    accessStore,
-    currentProviderName,
-  );
+    modelConfig.providerName ?? ServiceProvider.Custom;
+  const currentProfile = getProfileForModelConfig(modelConfig);
   const currentProviderId = currentProfile
     ? getAccessProviderId(currentProfile)
-    : String(currentProviderName || "").toLowerCase();
+    : String((modelConfig as any).providerId || currentProviderName || "")
+        .trim()
+        .toLowerCase();
   const currentRefreshModel = getPreferredRefreshTitleModelForProvider(
     allModels,
     currentProviderId,
@@ -1164,6 +1193,33 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
       profile: currentProfile,
       providerId: currentProviderId,
       score: 1000,
+    });
+  }
+
+  if (currentProfile && !currentRefreshModel && currentProviderId) {
+    candidates.push({
+      model: SUMMARIZE_MODEL,
+      providerName: currentProviderName,
+      profile: currentProfile,
+      providerId: currentProviderId,
+      score: 1000,
+    });
+  }
+
+  const shouldTryCurrentDialogModel =
+    currentProfile &&
+    currentProviderId &&
+    modelConfig.model &&
+    normalizeModelKeyword(modelConfig.model) !==
+      normalizeModelKeyword(currentRefreshModel?.name || SUMMARIZE_MODEL);
+
+  if (shouldTryCurrentDialogModel) {
+    candidates.push({
+      model: modelConfig.model,
+      providerName: currentProviderName,
+      profile: currentProfile,
+      providerId: currentProviderId,
+      score: 900,
     });
   }
 
@@ -1251,25 +1307,25 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   );
 
   logger.chat.log(
-    "Available API profiles:",
+    "可用 API 配置:",
     accessStore.apiProfiles.map((p) => ({
-      name: p.name,
-      provider: p.provider,
-      enabled: p.enabled,
+      配置名称: p.name,
+      供应商类型: p.provider,
+      已启用: p.enabled,
     })),
   );
-  logger.chat.log("Total models count:", allModels.length);
-  logger.chat.log("Current provider:", currentProviderId);
+  logger.chat.log("模型总数:", allModels.length);
+  logger.chat.log("当前供应商:", currentProviderId);
 
   logger.chat.log(
-    "Final candidates:",
+    "最终候选模型:",
     candidates.map((c) => ({
-      model: c.model,
-      providerId: c.providerId,
-      profileName: c.profile?.name,
-      profileBaseUrl: c.profile?.baseUrl,
-      profileApiKey: c.profile?.apiKey ? "***" : "missing",
-      score: c.score,
+      模型: c.model,
+      供应商ID: c.providerId,
+      配置名称: c.profile?.name,
+      配置地址: c.profile?.baseUrl,
+      APIKey状态: c.profile?.apiKey ? "已配置" : "缺失",
+      评分: c.score,
     })),
   );
 
@@ -1283,7 +1339,9 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
       model: fallback.model,
       providerName: fallback.providerName,
       profile: fallback.profile,
-      providerId: String(fallback.profile?.provider || fallback.providerName),
+      providerId: fallback.profile
+        ? getAccessProviderId(fallback.profile)
+        : String(fallback.providerName).toLowerCase(),
       score: -1,
     },
   ];
@@ -1418,10 +1476,16 @@ function logRequestBanner(
   const title = kind === "chat" ? "💬💬💬 对话请求开始" : "🏷️🏷️🏷️ 标题请求开始";
   const line = "=".repeat(5);
   logger.chat.log(
-    `${line} ${title} | ${
-      kind === "chat" ? "ChatRequest" : "TitleRequest"
-    } ${line}`,
-    payload,
+    `${line} ${title} | ${kind === "chat" ? "对话请求" : "标题请求"} ${line}`,
+    {
+      模型: payload.model,
+      供应商: payload.provider,
+      基础地址: payload.baseUrl,
+      请求路径: payload.chatPath,
+      流式请求: payload.stream,
+      配置名称: payload.profileName,
+      尝试说明: payload.attempt,
+    },
   );
 }
 
@@ -1453,12 +1517,12 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     );
 
   for (const candidate of candidates) {
-    logger.chat.log("Trying candidate:", {
-      model: candidate.model,
-      providerId: candidate.providerId,
-      profileName: candidate.profile?.name,
-      profileBaseUrl: candidate.profile?.baseUrl,
-      hasProfile: !!candidate.profile,
+    logger.chat.log("正在尝试标题候选模型:", {
+      模型: candidate.model,
+      供应商ID: candidate.providerId,
+      配置名称: candidate.profile?.name,
+      配置地址: candidate.profile?.baseUrl,
+      是否有配置: !!candidate.profile,
     });
 
     const api: ClientApi = getClientApi(
@@ -1466,55 +1530,41 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     );
 
     try {
-      const result = await new Promise<boolean>((resolve) => {
-        let settled = false;
-        const finish = (ok: boolean) => {
-          if (settled) return;
-          settled = true;
-          resolve(ok);
-        };
+      const result = await withSummarizeProfile(candidate.profile, async () => {
+        let success = false;
 
-        Promise.resolve(
-          withSummarizeProfile(candidate.profile, () =>
-            api.llm.chat({
-              messages: topicMessages,
-              config: {
-                model: candidate.model,
-                stream: false,
-                providerName: candidate.providerName,
-              },
-              onFinish(message, responseRes) {
-                const success =
-                  responseRes?.status === 200 &&
-                  Boolean(trimTopic(message || ""));
+        await api.llm.chat({
+          messages: topicMessages,
+          config: {
+            model: candidate.model,
+            stream: false,
+            providerName: candidate.providerName,
+          },
+          onFinish(message, responseRes) {
+            success =
+              responseRes?.status === 200 && Boolean(trimTopic(message || ""));
 
-                if (success) {
-                  useChatStore
-                    .getState()
-                    .updateTargetSession(session, (session) => {
-                      session.topic = trimTopic(message);
-                    });
-                }
-
-                finish(success);
-              },
-              onError(err) {
-                logger.chat.error("RefreshTitle error:", err);
-                finish(false);
-              },
-            }),
-          ),
-        ).catch((error) => {
-          logger.chat.error("RefreshTitle request failed", error);
-          finish(false);
+            if (success) {
+              useChatStore
+                .getState()
+                .updateTargetSession(session, (session) => {
+                  session.topic = trimTopic(message);
+                });
+            }
+          },
+          onError(err) {
+            logger.chat.error("刷新标题出错:", err);
+          },
         });
+
+        return success;
       });
 
       if (result) {
         return true;
       }
     } catch (error) {
-      logger.chat.error("RefreshTitle candidate failed", candidate, error);
+      logger.chat.error("刷新标题候选模型失败", candidate, error);
     }
   }
 
@@ -1547,10 +1597,10 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: accessStore.customOpenAICompatible,
   };
 
-  logger.chat.log("[WithSummarizeProfile] Setting profile:", {
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey ? "***" : "missing",
-    openAICompatible: profile.openAICompatible,
+  logger.chat.log("[刷新标题配置] 正在切换供应商配置:", {
+    基础地址: profile.baseUrl,
+    APIKey状态: profile.apiKey ? "已配置" : "缺失",
+    OpenAI兼容: profile.openAICompatible,
   });
 
   useAccessStore.setState({
@@ -1561,7 +1611,7 @@ function withSummarizeProfile<T>(
   } as any);
 
   logger.chat.log(
-    "[WithSummarizeProfile] After setState, accessStore.customUrl:",
+    "[刷新标题配置] 切换后自定义地址:",
     useAccessStore.getState().customUrl,
   );
 
@@ -1571,17 +1621,13 @@ function withSummarizeProfile<T>(
     if (result instanceof Promise) {
       return (result as Promise<T>).finally(() => {
         useAccessStore.setState(prevState as any);
-        logger.chat.log(
-          "[WithSummarizeProfile] Restored previous state (after Promise)",
-        );
+        logger.chat.log("[刷新标题配置] 请求完成后已恢复原供应商配置");
       }) as T;
     }
     return result;
   } catch (error) {
     useAccessStore.setState(prevState as any);
-    logger.chat.log(
-      "[WithSummarizeProfile] Restored previous state (after error)",
-    );
+    logger.chat.log("[刷新标题配置] 出错后已恢复原供应商配置");
     throw error;
   }
 }
@@ -3415,18 +3461,18 @@ export const useChatStore = createPersistStore(
           // 使用多供应商切换逻辑生成标题
           const candidates = getRefreshTitleCandidates(session);
           logChatDebug(
-            "[AutoGenerateTitle] Trying",
+            "[自动生成标题] 正在尝试",
             candidates.length,
-            "candidates",
+            "个候选模型",
           );
 
           for (const candidate of candidates) {
-            logChatDebug("[AutoGenerateTitle] Trying candidate:", {
-              model: candidate.model,
-              providerId: candidate.providerId,
-              profileName: candidate.profile?.name,
-              profileBaseUrl: candidate.profile?.baseUrl,
-              hasProfile: !!candidate.profile,
+            logChatDebug("[自动生成标题] 正在尝试候选模型:", {
+              模型: candidate.model,
+              供应商ID: candidate.providerId,
+              配置名称: candidate.profile?.name,
+              配置地址: candidate.profile?.baseUrl,
+              是否有配置: !!candidate.profile,
             });
 
             const candidateApi: ClientApi = getClientApi(
@@ -3434,68 +3480,56 @@ export const useChatStore = createPersistStore(
             );
 
             try {
-              const success = await new Promise<boolean>((resolve) => {
-                let settled = false;
-                const finish = (ok: boolean) => {
-                  if (settled) return;
-                  settled = true;
-                  resolve(ok);
-                };
+              const success = await withSummarizeProfile(
+                candidate.profile,
+                async () => {
+                  let success = false;
 
-                Promise.resolve(
-                  withSummarizeProfile(candidate.profile, () =>
-                    candidateApi.llm.chat({
-                      messages: topicMessages,
-                      config: {
-                        model: candidate.model,
-                        stream: false,
-                        providerName: candidate.providerName,
-                      },
-                      onRequest(request) {
-                        logRequestBanner("title", {
-                          model: request.model,
-                          provider: request.provider,
-                          baseUrl: request.baseUrl,
-                          chatPath: request.chatPath,
-                          stream: request.stream,
-                          profileName: candidate.profile?.name || null,
-                        });
-                      },
-                      onFinish(message, responseRes) {
-                        const success =
-                          responseRes?.status === 200 &&
-                          Boolean(trimTopic(message || ""));
+                  await candidateApi.llm.chat({
+                    messages: topicMessages,
+                    config: {
+                      model: candidate.model,
+                      stream: false,
+                      providerName: candidate.providerName,
+                    },
+                    onRequest(request) {
+                      logRequestBanner("title", {
+                        model: request.model,
+                        provider: request.provider,
+                        baseUrl: request.baseUrl,
+                        chatPath: request.chatPath,
+                        stream: request.stream,
+                        profileName: candidate.profile?.name || null,
+                      });
+                    },
+                    onFinish(message, responseRes) {
+                      success =
+                        responseRes?.status === 200 &&
+                        Boolean(trimTopic(message || ""));
 
-                        if (success) {
-                          useChatStore
-                            .getState()
-                            .updateTargetSession(session, (session) => {
-                              session.topic = trimTopic(message);
-                            });
-                        }
+                      if (success) {
+                        useChatStore
+                          .getState()
+                          .updateTargetSession(session, (session) => {
+                            session.topic = trimTopic(message);
+                          });
+                      }
+                    },
+                    onError(err) {
+                      logger.chat.error("自动生成标题出错:", err);
+                    },
+                  });
 
-                        finish(success);
-                      },
-                      onError(err) {
-                        logger.chat.error("AutoGenerateTitle error:", err);
-                        finish(false);
-                      },
-                    }),
-                  ),
-                ).catch((error) => {
-                  logger.chat.error("AutoGenerateTitle request failed", error);
-                  finish(false);
-                });
-              });
+                  return success;
+                },
+              );
 
               if (success) {
-                logChatDebug(
-                  "[AutoGenerateTitle] Successfully generated title",
-                );
+                logChatDebug("[自动生成标题] 标题生成成功");
                 break;
               }
             } catch (error) {
-              logger.chat.error("AutoGenerateTitle candidate failed", error);
+              logger.chat.error("自动生成标题候选模型失败", error);
             }
           }
         }
@@ -3586,8 +3620,11 @@ export const useChatStore = createPersistStore(
         const sessions = get().sessions;
         const index = sessions.findIndex((s) => s.id === targetSession.id);
         if (index < 0) return;
+        const stableCreatedAt =
+          getSessionCreatedAt(sessions[index]) || Date.now();
         const previousSession = {
           ...sessions[index],
+          createdAt: stableCreatedAt,
           messages: sessions[index].messages.slice(),
           mask: {
             ...sessions[index].mask,
@@ -3599,6 +3636,7 @@ export const useChatStore = createPersistStore(
         // 创建新 session 对象，避免 mutation 导致选择器无法检测变化
         const updatedSession = {
           ...sessions[index],
+          createdAt: stableCreatedAt,
           messages: sessions[index].messages.slice(),
           mask: {
             ...sessions[index].mask,

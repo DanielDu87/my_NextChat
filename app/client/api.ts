@@ -297,7 +297,10 @@ export function validString(x: string): boolean {
   return x?.length > 0;
 }
 
-export function getHeaders(ignoreHeaders: boolean = false) {
+export function getHeaders(
+  ignoreHeaders: boolean = false,
+  requestModelConfig?: Partial<LLMConfig>,
+) {
   const accessStore = useAccessStore.getState();
   const appConfigStore = useAppConfig.getState();
   const chatStore = useChatStore.getState();
@@ -313,8 +316,12 @@ export function getHeaders(ignoreHeaders: boolean = false) {
 
   function getConfig() {
     const currentSession = chatStore.currentSession?.();
-    const modelConfig =
-      currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig;
+    const modelConfig = requestModelConfig
+      ? {
+          ...(currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig),
+          ...requestModelConfig,
+        }
+      : currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig;
     const isCustom = modelConfig.providerName === ServiceProvider.Custom;
     const isGoogle = modelConfig.providerName === ServiceProvider.Google;
     const isAzure = modelConfig.providerName === ServiceProvider.Azure;
@@ -573,8 +580,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
         .models.find(
           (model) =>
             model.name ===
-              (useChatStore.getState().currentSession?.()?.mask?.modelConfig
-                ?.model ?? DEFAULT_CONFIG.modelConfig.model) &&
+              (modelConfig.model ?? DEFAULT_CONFIG.modelConfig.model) &&
             model.provider?.id === `custom_${currentCustomProfile?.name || ""}`,
         )?.apiKeyGroup ||
         "");

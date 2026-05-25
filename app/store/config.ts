@@ -104,7 +104,7 @@ function getUiPreferenceSummary() {
   const state = useAppConfig.getState();
   return `主题=${state.theme}，页面=${
     state.tightBorder ? "全屏/无边框" : "普通/窄边框"
-  }`;
+  }，侧边栏宽度=${state.sidebarWidth}px`;
 }
 
 function scheduleUiPreferenceSync(reason: string) {
@@ -122,6 +122,9 @@ function scheduleUiPreferenceSync(reason: string) {
       .then(async ({ useSyncStore }) => {
         const syncStore = useSyncStore.getState();
         if (!syncStore.cloudSync()) {
+          console.log(
+            `[Config] ⏭️ 界面偏好未同步: 云同步未启用（${getUiPreferenceSummary()}）`,
+          );
           return false;
         }
 
@@ -484,6 +487,7 @@ export const useAppConfig = createPersistStore(
       window.dispatchEvent(
         new CustomEvent("sidebarWidthChanged", { detail: width }),
       );
+      scheduleUiPreferenceSync("侧边栏宽度");
     },
 
     setTheme(theme: Theme) {
