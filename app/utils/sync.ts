@@ -1,7 +1,6 @@
 import {
   ChatMessage,
   ChatSession,
-  getLocalOnlyAppConfig,
   useAccessStore,
   useAppConfig,
   useChatStore,
@@ -79,6 +78,14 @@ function stripProfileModelCacheFields<T extends Record<string, any>>(
   return rest as Omit<T, "cachedModels" | "modelCount">;
 }
 
+export function stripConfigLocalModelFields<T extends Record<string, any>>(
+  config: T,
+) {
+  const { models, ...configToSync } = config;
+  void models;
+  return configToSync as Omit<T, "models">;
+}
+
 function getEnabledProfileId(profiles: Array<Record<string, any>>) {
   return String(profiles.find((profile) => profile?.enabled)?.id || "");
 }
@@ -111,9 +118,7 @@ const LocalStateGetters = {
   },
   [StoreKey.Config]: () => {
     const config = getNonFunctionFileds(useAppConfig.getState());
-    // 排除本地 UI 偏好，models 纳入同步以便跨浏览器共享已添加模型
-    const { theme, sidebarWidth, tightBorder, ...configToSync } = config as any;
-    return configToSync;
+    return stripConfigLocalModelFields(config as any);
   },
   [StoreKey.ModelCache]: () =>
     getNonFunctionFileds(useModelCacheStore.getState()),
@@ -133,6 +138,9 @@ function normalizeImportedConfigState<T>(state: T): T {
 
   return {
     ...state,
+    models: Array.isArray(useAppConfig.getState().models)
+      ? useAppConfig.getState().models
+      : [],
     modelConfig: {
       ...((state as Record<string, any>).modelConfig || {}),
       webSearch: true,
@@ -361,30 +369,6 @@ function markMergedUpdateTime(
   remoteUpdateTime?: number,
 ) {
   return Math.max(localUpdateTime ?? 0, remoteUpdateTime ?? 0, Date.now());
-}
-
-function mergeModelArrays(localModels: any[], remoteModels: any[]): any[] {
-  const local = Array.isArray(localModels) ? localModels : [];
-  const remote = Array.isArray(remoteModels) ? remoteModels : [];
-  if (remote.length === 0) return local;
-  if (local.length === 0) return remote;
-  const seen = new Set<string>();
-  const merged: any[] = [];
-  for (const m of local) {
-    const key = `${m.name}||${String(m.provider?.id || "").toLowerCase()}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(m);
-    }
-  }
-  for (const m of remote) {
-    const key = `${m.name}||${String(m.provider?.id || "").toLowerCase()}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(m);
-    }
-  }
-  return merged;
 }
 
 // we merge remote state to local state
@@ -643,8 +627,8 @@ const MergeStates: StateMerger = {
   },
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
-    // - models 数组参与同步：本地已加载则保留本地，否则用远端（跨浏览器共享已添加模型）
-    // - theme / sidebarWidth / tightBorder 始终以当前本地 UI 偏好为准
+    // - models 数组是本地临时数据，不参与数据库同步
+    // - theme / sidebarWidth / tightBorder 跟随较新的配置同步
     // - customModels / autoModelSeries / modelConfig.model+providerName
     //   各自按字段级时间戳独立判定胜方，互不干扰
     // - modelConfig 其他字段（temperature/top_p/max_tokens 等）保留"远端补全本地缺失"
@@ -708,22 +692,25 @@ const MergeStates: StateMerger = {
         useRemoteAutoSeries ? "远端" : "本地"
       } | models: local=${
         Array.isArray(currentConfig.models) ? currentConfig.models.length : 0
-      } remote=${Array.isArray(remote.models) ? remote.models.length : "无"}`,
+      } remote=本地临时字段不参与数据库合并`,
     );
 
     // 整体配置仍以 lastUpdateTime 做基础 spread（temperature 等非关键字段）
     const localUpdate = Number(local.lastUpdateTime) || 0;
     const remoteUpdate = Number(remote.lastUpdateTime) || 0;
+    const useRemoteConfig = preferRemoteOnBootstrap
+      ? true
+      : remoteUpdate > localUpdate;
+    const preferredConfig = useRemoteConfig ? remote : local;
 
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
-      // 始终保持本地 UI 偏好
-      theme: currentConfig.theme,
-      sidebarWidth: currentConfig.sidebarWidth,
-      tightBorder: currentConfig.tightBorder,
-      // models：双方合并取并集，不删除任何一方的模型
-      models: mergeModelArrays(currentConfig.models, remote.models),
+      theme: preferredConfig.theme ?? currentConfig.theme,
+      sidebarWidth: preferredConfig.sidebarWidth ?? currentConfig.sidebarWidth,
+      tightBorder: preferredConfig.tightBorder ?? currentConfig.tightBorder,
+      // 供应商全量模型是本地临时数据，不从数据库恢复或合并。
+      models: Array.isArray(currentConfig.models) ? currentConfig.models : [],
       // customModels：以最新时间戳为准，支持删除
       customModels:
         remoteCustomModelsAt > localCustomModelsAt
@@ -1055,12 +1042,11 @@ export function setLocalStoreState<T extends keyof AppState>(
     }
 
     if (key === StoreKey.Config) {
-      LocalStateSetters[key]({
-        ...normalizeImportedConfigState(
+      LocalStateSetters[key](
+        normalizeImportedConfigState(
           state as AppState[typeof StoreKey.Config],
-        ),
-        ...getLocalOnlyAppConfig(),
-      } as AppState[T]);
+        ) as AppState[T],
+      );
       return;
     }
 

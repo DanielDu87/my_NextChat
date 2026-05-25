@@ -4,9 +4,16 @@ export const AUTO_SYNC_LOCK_TTL_MS = 30_000;
 export const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 export const CHAT_SYNC_HINT_KEY = "nextchat_chat_sync_hint";
 export const CHAT_SYNC_UPDATED_MESSAGE_TYPE = "chat-sync-updated";
+export const STARTUP_CHAT_SYNC_STATUS_KEY = "nextchat_startup_chat_sync_status";
+export const STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE = "startup-chat-sync-status";
 
 export type ChatSyncHint = {
   owner: string;
+  updatedAt: number;
+};
+
+export type StartupChatSyncStatus = {
+  status: "syncing" | "done" | "error";
   updatedAt: number;
 };
 

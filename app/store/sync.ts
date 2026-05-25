@@ -10,6 +10,7 @@ import {
   mergeStoreState,
   setLocalAppState,
   setLocalStoreState,
+  stripConfigLocalModelFields,
 } from "../utils/sync";
 import { downloadAs, readFromFile } from "../utils";
 import {
@@ -348,7 +349,7 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
   [StoreKey.Plugin]: "插件",
   [StoreKey.Access]: "API配置",
-  [StoreKey.Config]: "模型",
+  [StoreKey.Config]: "用户已添加模型与应用设置",
   [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Update]: "应用更新状态",
@@ -667,14 +668,7 @@ function logOverallSyncSummary(
 
       if (lastKnownCustomModelsSnapshot === "") {
         lastKnownCustomModelsSnapshot = currentCustomModels;
-        const modelsArrayCount = Array.isArray(
-          (useAppConfig.getState() as any).models,
-        )
-          ? (useAppConfig.getState() as any).models.length
-          : 0;
-        console.log(
-          `[Sync] ✅ 已同步模型: customModels=${afterCount}个, models[]=${modelsArrayCount}个`,
-        );
+        console.log(`[Sync] ✅ 已同步用户已添加模型: ${afterCount} 个`);
         if (afterCount > 0) {
           Array.from(providerCounts.entries())
             .sort((a, b) => a[0].localeCompare(b[0]))
@@ -714,10 +708,12 @@ function logOverallSyncSummary(
 
       if (added.length > 0 || deleted.length > 0) {
         console.log(
-          `[Sync] ✅ 已同步模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
+          `[Sync] ✅ 已同步用户已添加模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
         );
       } else {
-        console.log(`[Sync] ✅ 已同步模型: 无变化，当前共 ${afterCount} 个`);
+        console.log(
+          `[Sync] ✅ 已同步用户已添加模型: 无变化，当前共 ${afterCount} 个`,
+        );
       }
       // 分行显示各供应商
       if (afterCount > 0) {
@@ -736,6 +732,13 @@ function logOverallSyncSummary(
       const currentSessionIds = new Set<string>(
         (useChatStore.getState() as any)?.sessions?.map((s: any) => s.id) || [],
       );
+      if (lastKnownChatSessionIds.size === 0) {
+        lastKnownChatSessionIds = currentSessionIds;
+        console.log(
+          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
+        );
+        return;
+      }
       const beforeIds = lastKnownChatSessionIds;
       const afterIds = currentSessionIds;
       const added = [...afterIds].filter((id) => !beforeIds.has(id));
@@ -1046,6 +1049,46 @@ function normalizeMergedChatState(chatState: any) {
   };
 }
 
+function pruneEmptyChatSessionsForDisplay(chatState: any) {
+  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
+  const selectedSessionId = getSelectedChatSessionId(chatState);
+  let selectedIndex = 0;
+  const nextSessions = sessions.filter((session: any) => {
+    const sessionId = String(session?.id || "");
+    const messages = getSessionMessages(session);
+    const keep =
+      messages.length > 0 ||
+      isRemoteSessionPlaceholder(session) ||
+      (sessionId && sessionId === selectedSessionId);
+    return keep;
+  });
+
+  if (nextSessions.length === 0) {
+    nextSessions.push(createEmptySession());
+  }
+
+  selectedIndex = nextSessions.findIndex(
+    (session: any) => String(session?.id || "") === selectedSessionId,
+  );
+  if (selectedIndex < 0) selectedIndex = 0;
+
+  return {
+    ...chatState,
+    sessions: nextSessions,
+    currentSessionIndex: selectedIndex,
+    selectedSessionId: nextSessions[selectedIndex]?.id || "",
+    sessionSummaries: buildSessionSummaries(
+      nextSessions,
+      chatState?.sessionSummaries,
+    ),
+    hydratedSessionIds: Array.isArray(chatState?.hydratedSessionIds)
+      ? chatState.hydratedSessionIds.filter((sessionId: unknown) =>
+          nextSessions.some((session: any) => session?.id === sessionId),
+        )
+      : [],
+  };
+}
+
 function clonePlainChatState<T>(state: T): T {
   return JSON.parse(JSON.stringify(state || {}));
 }
@@ -1140,7 +1183,7 @@ function rebaseChatSyncResultOnLiveState(
     selectedSessionId: getSelectedChatSessionId(normalizedRebasedState),
   });
 
-  return normalizedRebasedState;
+  return pruneEmptyChatSessionsForDisplay(normalizedRebasedState);
 }
 
 function buildRemoteSessionPlaceholder(entry: ChatIndexSessionEntry) {
@@ -2107,18 +2150,11 @@ export const useSyncStore = createPersistStore(
         normalizedRemoteChatState as any,
       );
 
-      // 识别孤儿会话：messages 为空、远端索引也没有消息内容、且非当前选中会话
+      // 识别孤儿会话：messages 为空，且本地/远端都没有消息内容。
       // 包含两种情况：
       // 1. 在远端索引有记录但 messageCount=0（曾同步过的空会话）
       // 2. 不在远端索引但在数据库里存在的空会话（通过 deleteSessionIds 清理）
       const mergedSummaryMap = createSessionSummaryMap(mergedStoreState);
-      const currentSelectedSessionId = String(
-        (mergedStoreState as any)?.selectedSessionId ||
-          (mergedStoreState as any)?.sessions?.[
-            (mergedStoreState as any)?.currentSessionIndex ?? 0
-          ]?.id ||
-          "",
-      );
       const orphanSessionIds = new Set<string>(
         (Array.isArray((mergedStoreState as any)?.sessions)
           ? (mergedStoreState as any).sessions
@@ -2127,7 +2163,6 @@ export const useSyncStore = createPersistStore(
           .filter((session: any) => {
             const sessionId = String(session?.id || "");
             if (!sessionId) return false;
-            if (sessionId === currentSelectedSessionId) return false;
             const messages = Array.isArray(session?.messages)
               ? session.messages
               : [];
@@ -2534,6 +2569,7 @@ export const useSyncStore = createPersistStore(
           force?: boolean;
           broadcastChatHint?: boolean;
           downloadOnlyChat?: boolean;
+          silentSummary?: boolean;
         },
       ): Promise<void> {
         if (useAuthStore.getState().readOnly && !options?.downloadOnlyChat) {
@@ -2631,10 +2667,6 @@ export const useSyncStore = createPersistStore(
               `[Sync] 📋 准备同步 ${currentStoreKeys.length} 个数据块`,
             );
 
-            const appConfig = useAppConfig.getState() as any;
-            const localTheme = appConfig.theme;
-            const localSidebarWidth = localStorage.getItem("sidebarWidth");
-            const localTightBorder = appConfig.tightBorder;
             const localAppStateCache = {
               ...getLocalAppState(),
             } as { [K in SyncStoreKey]: AppState[K] };
@@ -2716,10 +2748,14 @@ export const useSyncStore = createPersistStore(
                     );
                   }
                   const localStoreState = localAppStateCache[key];
+                  const localStoreStateToPersist =
+                    key === StoreKey.Config
+                      ? stripConfigLocalModelFields(localStoreState as any)
+                      : localStoreState;
                   const stringifyStartedAt = nowMs();
                   const payloadText = stringifyPersistedStoreState(
                     key,
-                    localStoreState,
+                    localStoreStateToPersist,
                   );
                   const stringifyDurationMs = nowMs() - stringifyStartedAt;
                   try {
@@ -2800,10 +2836,14 @@ export const useSyncStore = createPersistStore(
                 setLocalStoreState(key, mergedStoreState);
                 localAppStateCache[key] = mergedStoreState;
 
+                const mergedStoreStateToPersist =
+                  key === StoreKey.Config
+                    ? stripConfigLocalModelFields(mergedStoreState as any)
+                    : mergedStoreState;
                 const stringifyStartedAt = nowMs();
                 const payloadText = stringifyPersistedStoreState(
                   key,
-                  mergedStoreState,
+                  mergedStoreStateToPersist,
                 );
                 const stringifyDurationMs = nowMs() - stringifyStartedAt;
                 try {
@@ -2980,7 +3020,8 @@ export const useSyncStore = createPersistStore(
                     );
                     continue;
                   }
-                  logSyncDebug(
+                  syncConsole(
+                    "log",
                     `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
                   );
                   const localStoreState = localAppStateCache[key];
@@ -3028,8 +3069,9 @@ export const useSyncStore = createPersistStore(
                         remoteIndex: preFetchedChatIndex,
                       },
                     );
-                    logSyncDebug(
-                      `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，${chatResult.remoteSummary}`,
+                    syncConsole(
+                      "log",
+                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${chatResult.remoteSummary}`,
                     );
                     const appliedChatState = rebaseChatSyncResultOnLiveState(
                       chatResult.mergedStoreState,
@@ -3104,10 +3146,16 @@ export const useSyncStore = createPersistStore(
                     stepLabel,
                   );
                   if (regularResult.status === "merged") {
-                    logSyncDebug(
-                      `[Sync] ✅ [${stepLabel}] ${displayName}读取完成，远端 ${regularResult.remoteSummary}`,
+                    syncConsole(
+                      "log",
+                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: 远端 ${regularResult.remoteSummary}`,
                     );
                     logSyncDebug(LOG_SEPARATOR);
+                  } else if (regularResult.status !== "skipped") {
+                    syncConsole(
+                      "log",
+                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${regularResult.summary}`,
+                    );
                   }
                   syncResults.push({
                     key,
@@ -3139,23 +3187,14 @@ export const useSyncStore = createPersistStore(
                 }
               }
 
-              if (localSidebarWidth && appConfig.setSidebarWidth) {
-                appConfig.setSidebarWidth(parseInt(localSidebarWidth));
-              }
-              if (localTightBorder !== undefined) {
-                useAppConfig.setState({ tightBorder: localTightBorder });
-              }
-              if (localTheme !== undefined) {
-                useAppConfig.setState({ theme: localTheme });
-              }
-
               logSyncDebug("[Sync] 📊 数据同步汇总");
               syncResults.forEach((item) => {
                 logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
               });
               const shouldLogOverallSummary = !(
-                currentStoreKeys.length === 1 &&
-                currentStoreKeys[0] === StoreKey.Chat
+                options?.silentSummary ||
+                (currentStoreKeys.length === 1 &&
+                  currentStoreKeys[0] === StoreKey.Chat)
               );
               if (shouldLogOverallSummary) {
                 logOverallSyncSummary(syncResults);

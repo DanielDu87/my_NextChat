@@ -27,6 +27,12 @@ import { showConfirm } from "./ui-lib";
 import { formatChinaDateTime, useMobileScreen } from "../utils";
 import clsx from "clsx";
 import { ChatSessionSummary, DEFAULT_TOPIC } from "../store/chat";
+import {
+  AUTO_SYNC_CHANNEL_NAME,
+  STARTUP_CHAT_SYNC_STATUS_KEY,
+  STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
+  StartupChatSyncStatus,
+} from "../utils/sync-tab-coordination";
 
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
@@ -35,6 +41,7 @@ const FILTERED_ITEM_HEIGHT = 108;
 const NARROW_ITEM_HEIGHT = 50;
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
 const SNIPPET_CONTEXT_LENGTH = 18;
+const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
 
 type FilterMatchMeta = {
   preview?: string;
@@ -186,10 +193,67 @@ export function ChatList(props: { narrow?: boolean }) {
   const [scrollTop, setScrollTop] = useState(0);
   const [filterText, setFilterText] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
+  const [initialEmptyListGuard, setInitialEmptyListGuard] = useState(true);
+  const [startupChatSyncStatus, setStartupChatSyncStatus] =
+    useState<StartupChatSyncStatus | null>(null);
+  const chatStoreHydrated = useChatStore((state) =>
+    Boolean((state as any)._hasHydrated),
+  );
   const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
   const loadingMoreTimerRef = useRef<number | null>(null);
   const hasMoreSessions =
     orderedSessionIds.length < allOrderedSessionIds.length;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setInitialEmptyListGuard(false);
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const readStatus = () => {
+      try {
+        const raw = window.localStorage.getItem(STARTUP_CHAT_SYNC_STATUS_KEY);
+        if (!raw) {
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as StartupChatSyncStatus;
+        if (
+          parsed &&
+          ["syncing", "done", "error"].includes(parsed.status) &&
+          Number.isFinite(parsed.updatedAt)
+        ) {
+          setStartupChatSyncStatus(parsed);
+        }
+      } catch {}
+    };
+
+    readStatus();
+
+    const channel =
+      typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(AUTO_SYNC_CHANNEL_NAME)
+        : null;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE) {
+        return;
+      }
+
+      setStartupChatSyncStatus({
+        status: event.data.status,
+        updatedAt: event.data.updatedAt,
+      });
+    };
+    channel?.addEventListener("message", onMessage);
+
+    return () => {
+      channel?.removeEventListener("message", onMessage);
+      channel?.close();
+    };
+  }, []);
 
   const triggerLoadMore = useCallback(() => {
     if (!hasMoreSessions) {
@@ -241,6 +305,24 @@ export function ChatList(props: { narrow?: boolean }) {
         .filter(Boolean),
     [orderedSessionIds, sessionSummaries],
   );
+  const totalChatCount = useMemo(
+    () =>
+      Object.values(sessionSummaries).filter(
+        (session) => session && session.messageCount > 0,
+      ).length,
+    [sessionSummaries],
+  );
+  const isChatListLoading =
+    !initialized ||
+    (!chatStoreHydrated &&
+      totalChatCount === 0 &&
+      allOrderedSessionIds.length === 0) ||
+    (initialEmptyListGuard && totalChatCount === 0) ||
+    (totalChatCount === 0 &&
+      (!startupChatSyncStatus || startupChatSyncStatus.status === "syncing") &&
+      Date.now() -
+        (startupChatSyncStatus?.updatedAt ?? performance.timeOrigin) <
+        STARTUP_CHAT_SYNC_WAIT_MS);
   const pinnedSession = summaryList.find(isPinnedNewChat);
   const displayedSessions = useMemo<DisplayedSession[]>(
     () =>
@@ -509,7 +591,16 @@ export function ChatList(props: { narrow?: boolean }) {
           />
         </div>
       )}
-      {filteredSessions.length === 0 ? (
+      {isChatListLoading ? (
+        <div className={styles["chat-list-load-more-indicator"]}>
+          <span className={styles["chat-list-load-more-dots"]}>
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>正在加载全部对话...</span>
+        </div>
+      ) : filteredSessions.length === 0 ? (
         <div className={styles["chat-list-empty"]}>没有匹配的会话</div>
       ) : (
         <>
@@ -526,9 +617,9 @@ export function ChatList(props: { narrow?: boolean }) {
                   <span>正在加载更多对话</span>
                 </>
               ) : hasMoreSessions ? (
-                <span>向下滚动以加载更多对话</span>
+                <span>向下滚动以加载更多对话，共 {totalChatCount} 个</span>
               ) : (
-                <span>已加载全部对话</span>
+                <span>已加载全部对话，共 {totalChatCount} 个</span>
               )}
             </div>
           )}

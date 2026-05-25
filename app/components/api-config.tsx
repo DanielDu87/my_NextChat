@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 import styles from "./api-config.module.scss";
 
@@ -7,7 +7,6 @@ import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import UploadIcon from "../icons/upload.svg";
 import DownloadIcon from "../icons/download.svg";
-import RobotIcon from "../icons/robot.svg";
 import TrashIcon from "../icons/trash.svg";
 import DeleteIcon from "../icons/delete.svg";
 
@@ -47,7 +46,6 @@ import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
 import {
-  MODEL_SYNC_STORE_KEYS,
   parseStoreStatePayload,
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
@@ -62,12 +60,12 @@ import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
-import { syncAllProfilesToDatabase } from "../utils/provider-sync";
 import { runWithBalanceRefreshPaused } from "../store/update";
 import {
   getProviderDisplayName,
   modelsToCustomModelsString,
 } from "../utils/models";
+import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 
 const YUTO_API_KEY_GROUPS = {
   default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
@@ -423,6 +421,13 @@ function countCachedModels(cachedModels?: string, fallbackCount?: number) {
     return cachedModels.split(",").filter(Boolean).length;
   }
   return fallbackCount ?? 0;
+}
+
+function countUserAddedModels(customModels?: string) {
+  return String(customModels || "")
+    .split(",")
+    .map((model) => model.trim())
+    .filter((model) => model.startsWith("+")).length;
 }
 
 function getProfileCacheSnapshot(profileId: string) {
@@ -994,7 +999,7 @@ export function ApiConfigPage() {
     Partial<Record<string, ModelFetchStatus>>
   >({});
   const [editingYutoProfileId, setEditingYutoProfileId] = useState("");
-  const { fetchFromProvider, loading: fetchingModels } = useModelFetcher();
+  const { fetchFromProvider } = useModelFetcher();
 
   useEffect(() => {
     const hasMissingYutoGroups = accessStore.apiProfiles.some(
@@ -1062,10 +1067,6 @@ export function ApiConfigPage() {
   const dbSyncTargetLabel = "PostgreSQL / nextchat";
 
   const allProfiles = accessStore.apiProfiles;
-  const mergedModelTotal = countCloudMergedModels(
-    appConfig.models || [],
-    allProfiles,
-  );
   const updateStoredMeta = (metas: StoreSnapshotMeta[]) => {
     useSyncStore.getState().updateDatabaseMeta?.(metas);
   };
@@ -1105,190 +1106,6 @@ export function ApiConfigPage() {
     localPlatformCounts.forEach(({ name, count }) => {
       console.log(`[API Config] - ${name}: ${count} 个模型`);
     });
-  };
-
-  const fetchModelsForAllProfiles = async () => {
-    const accessState = useAccessStore.getState();
-    const allProfiles = accessState.apiProfiles;
-
-    if (allProfiles.length === 0) {
-      const provider = accessState.provider;
-      refreshModelsForProvider(provider);
-      return;
-    }
-
-    // 记录每个 provider 的原始模型名集合，用于同步完成后计算 diff
-    const beforeModels = useAppConfig.getState().models || [];
-    const beforeNamesByProvider = new Map<string, Set<string>>();
-    for (const profile of allProfiles) {
-      const providerId = getProfileProviderId(profile).toLowerCase();
-      const names = new Set(
-        beforeModels
-          .filter(
-            (m: LLMModel) =>
-              String(m.provider?.id || "").toLowerCase() === providerId,
-          )
-          .map((m: LLMModel) => m.name)
-          .filter(Boolean),
-      );
-      beforeNamesByProvider.set(providerId, names);
-    }
-
-    await runWithBalanceRefreshPaused(() =>
-      runWithImmediateStoreSyncPaused(async () => {
-        let totalFetched = 0;
-        const results: Array<{
-          name: string;
-          count: number;
-          success: boolean;
-        }> = [];
-
-        for (const profile of allProfiles) {
-          console.log(`[API Config] 📋 正在获取 ${profile.name} 的模型...`);
-          setModelFetchStatusMap((prev) => ({
-            ...prev,
-            [profile.id]: {
-              ...prev[profile.id],
-              fetching: true,
-              error: undefined,
-            },
-          }));
-          try {
-            const result = await fetchFromProvider(
-              profile.provider,
-              profile.baseUrl,
-              profile.apiKey,
-              {
-                silent: true,
-                throwOnError: true,
-                apiKeyGroups: profile.apiKeyGroups,
-              },
-            );
-            const previousProfileCount = getProfileActualCount(
-              profile,
-              useAppConfig.getState().models,
-            );
-            const fetchedModels = modelsToCustomModelsString(result.models);
-
-            accessStore.update((state) => {
-              state.apiProfiles = (state.apiProfiles || []).map((item) =>
-                item.id === profile.id
-                  ? {
-                      ...item,
-                      cachedModels: fetchedModels,
-                      modelCount: result.total,
-                    }
-                  : item,
-              );
-              if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
-                state.customModels = fetchedModels;
-                (state as any).customModelsUpdatedAt = Date.now();
-              }
-            });
-            useModelCacheStore.getState().upsertProfileCache(profile.id, {
-              cachedModels: fetchedModels,
-              modelCount: result.total,
-            });
-            const mergedCount = getProfileActualCount(
-              profile,
-              useAppConfig.getState().models,
-            );
-            totalFetched += mergedCount;
-            results.push({
-              name: profile.name,
-              count: mergedCount,
-              success: true,
-            });
-
-            setModelFetchStatusMap((prev) => ({
-              ...prev,
-              [profile.id]: {
-                count: mergedCount,
-                fetching: false,
-                error: undefined,
-              },
-            }));
-            console.log(`[API Config] ✅ ${profile.name} 获取完成`);
-            console.log(`远程: ${result.total} 个`);
-            console.log(`云端原有: ${previousProfileCount} 个`);
-            console.log(`合并后: ${mergedCount} 个`);
-            console.log(LOG_SEPARATOR);
-          } catch (error) {
-            results.push({
-              name: profile.name,
-              count: 0,
-              success: false,
-            });
-            setModelFetchStatusMap((prev) => ({
-              ...prev,
-              [profile.id]: {
-                count: 0,
-                fetching: false,
-                error: error instanceof Error ? error.message : "获取模型失败",
-              },
-            }));
-            console.error(`[API Config] ❌ ${profile.name} 获取失败`, error);
-            console.log(LOG_SEPARATOR);
-          }
-        }
-
-        console.log(`[API Config] 📊 模型获取汇总`);
-        results.forEach(({ name, count, success }) => {
-          console.log(`[API Config] - ${name}: ${success ? count : "失败"} 个`);
-        });
-        console.log(`[API Config] ✅ 所有模型获取完成，共 ${totalFetched} 个`);
-        console.log(LOG_SEPARATOR);
-      }),
-    );
-    await syncStore.syncModels();
-    const client = syncStore.getClient() as any;
-    if (typeof client.getMeta === "function") {
-      updateStoredMeta(await client.getMeta([...MODEL_SYNC_STORE_KEYS]));
-    }
-
-    // 同步完成后，对比每个 provider 的模型差异
-    const afterModels = useAppConfig.getState().models || [];
-    let totalAdded = 0;
-    let totalDeleted = 0;
-    let totalFinal = 0;
-    for (const profile of allProfiles) {
-      const providerId = getProfileProviderId(profile).toLowerCase();
-      const beforeNames = beforeNamesByProvider.get(providerId) || new Set();
-      const afterNames = new Set(
-        afterModels
-          .filter(
-            (m: LLMModel) =>
-              String(m.provider?.id || "").toLowerCase() === providerId,
-          )
-          .map((m: LLMModel) => m.name)
-          .filter(Boolean),
-      );
-      const added = [...afterNames].filter((n) => !beforeNames.has(n));
-      const deleted = [...beforeNames].filter((n) => !afterNames.has(n));
-      totalAdded += added.length;
-      totalDeleted += deleted.length;
-      totalFinal += afterNames.size;
-
-      if (added.length > 0 || deleted.length > 0) {
-        console.log(
-          `[API Config] 📊 ${profile.name}: 新增 ${added.length} 个，删除 ${deleted.length} 个，最终同步 ${afterNames.size} 个`,
-        );
-        if (added.length > 0) {
-          console.log(
-            `[API Config] ➕ ${profile.name} 新增: ${added.join("、")}`,
-          );
-        }
-        if (deleted.length > 0) {
-          console.log(
-            `[API Config] ➖ ${profile.name} 删除: ${deleted.join("、")}`,
-          );
-        }
-      }
-    }
-    console.log(
-      `[API Config] ✅ 模型同步完成: 新增 ${totalAdded} 个，删除 ${totalDeleted} 个，最终同步 ${totalFinal} 个`,
-    );
-    console.log(LOG_SEPARATOR);
   };
 
   // 云端同步逻辑（提取为函数以复用）
@@ -1376,9 +1193,7 @@ export function ApiConfigPage() {
     return nextProfiles.length;
   };
 
-  // 页面加载时只展示本地缓存，不自动刷新模型
-  const initialSyncRef = useRef(false);
-  const accessSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 页面加载时只展示本地缓存，不自动触发数据库同步
   const accessProfilesSyncFingerprint = useMemo(
     () =>
       JSON.stringify(
@@ -1397,40 +1212,8 @@ export function ApiConfigPage() {
     [accessStore.apiProfiles],
   );
 
-  const scheduleAccessConfigSync = useCallback((reason: string) => {
-    if (accessSyncTimerRef.current) {
-      clearTimeout(accessSyncTimerRef.current);
-    }
-
-    accessSyncTimerRef.current = setTimeout(() => {
-      accessSyncTimerRef.current = null;
-      if (useSyncStore.getState().provider !== ProviderType.Database) {
-        return;
-      }
-
-      const latestProfiles = useAccessStore.getState().apiProfiles || [];
-      if (latestProfiles.length === 0) {
-        return;
-      }
-
-      console.log(`[API Config] ☁️ 触发 API 配置同步: ${reason}`);
-      void useSyncStore
-        .getState()
-        .sync([StoreKey.Access], { isolateQueue: true } as any)
-        .then(() => {
-          console.log("[API Config] ✅ API 配置已同步到数据库");
-        })
-        .catch((error: unknown) => {
-          console.error("[API Config] ❌ API 配置同步失败:", error);
-        });
-    }, 800);
-  }, []);
   useEffect(() => {
-    const syncFromCloudOnLoad = async () => {
-      if (initialSyncRef.current) return;
-      initialSyncRef.current = true;
-
-      // 等待 syncStore 完成水合后再检查数据库同步配置
+    const logLocalCacheOnLoad = () => {
       const checkInterval = setInterval(() => {
         const state = useSyncStore.getState() as any;
         const hasHydrated = state?._hasHydrated;
@@ -1441,22 +1224,11 @@ export function ApiConfigPage() {
           if (useSyncStore.getState().provider === ProviderType.Database) {
             useModelCacheStore.getState().migrateFromAccessProfiles?.();
             console.log(LOG_SEPARATOR);
-            console.log(`[API Config] 🗂️ 页面加载，优先使用本地缓存数据...`);
+            console.log(`[API Config] 🗂️ 页面加载，仅使用本地缓存数据`);
             console.log(LOG_SEPARATOR);
 
-            if ((useAccessStore.getState().apiProfiles || []).length === 0) {
-              void ensureRemoteAccessProfilesLoaded().catch(
-                (error: unknown) => {
-                  console.error(
-                    "[API Config] ❌ 页面初始化时从数据库恢复 API 配置失败:",
-                    error,
-                  );
-                },
-              );
-            }
-
             console.log(
-              "[API Config] ℹ️ 远端不保存完整模型列表，管理模型时按需拉取本地临时列表",
+              "[API Config] ℹ️ 进入页面不会自动同步；请使用上传、保存并同步或从数据库下载按钮手动同步",
             );
             console.log(LOG_SEPARATOR);
           } else {
@@ -1471,37 +1243,8 @@ export function ApiConfigPage() {
       setTimeout(() => clearInterval(checkInterval), 30000);
     };
 
-    syncFromCloudOnLoad();
+    logLocalCacheOnLoad();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!initialSyncRef.current) {
-      return;
-    }
-
-    scheduleAccessConfigSync("本地配置已更新");
-  }, [
-    scheduleAccessConfigSync,
-    accessProfilesSyncFingerprint,
-    accessStore.customApiKey,
-    accessStore.customUrl,
-    accessStore.openaiApiKey,
-    accessStore.azureApiKey,
-    accessStore.googleApiKey,
-    accessStore.anthropicApiKey,
-    accessStore.baiduApiKey,
-    accessStore.bytedanceApiKey,
-    accessStore.alibabaApiKey,
-    accessStore.moonshotApiKey,
-    accessStore.stabilityApiKey,
-    accessStore.iflytekApiKey,
-    accessStore.deepseekApiKey,
-    accessStore.xaiApiKey,
-    accessStore.chatglmApiKey,
-    accessStore.siliconflowApiKey,
-    accessStore.ai302ApiKey,
-    accessStore.localApiKey,
-  ]);
 
   useEffect(() => {
     writeAccessSnapshot({
@@ -1524,24 +1267,7 @@ export function ApiConfigPage() {
     accessStore.customOpenAICompatible,
   ]);
 
-  const anyFetching = Object.values(modelFetchStatusMap).some(
-    (status) => status?.fetching === true,
-  );
   const syncActionDisabled = syncing || backingUp || downloading;
-  const fetchedProgressCount = Object.values(modelFetchStatusMap).reduce(
-    (sum, status) => sum + (status?.count ?? 0),
-    0,
-  );
-  const shouldShowFetchedProgress = syncing || anyFetching;
-
-  const modelFetchCount = mergedModelTotal > 0 ? mergedModelTotal : undefined;
-  const modelFetchHint = shouldShowFetchedProgress
-    ? `已获取 ${fetchedProgressCount} 个远程模型`
-    : mergedModelTotal > 0
-    ? `共 ${mergedModelTotal} 个远程模型可用`
-    : fetchingModels
-    ? "正在获取模型..."
-    : "点击获取模型数据";
   // const customProviderUnsupported =
   //   accessStore.provider === ServiceProvider.Custom &&
   //   !accessStore.customOpenAICompatible;
@@ -1980,46 +1706,46 @@ export function ApiConfigPage() {
 
   const syncToDatabase = async () => {
     console.clear();
+    console.log("[API Config] 🚀 开始保存并同步到 PostgreSQL...");
     try {
       setSyncing(true);
-      await runWithBalanceRefreshPaused(async () => {
-        await waitForImmediateStoreSyncQueueIdle();
-        await waitForSyncIdle();
-        ensureDatabaseSyncProvider();
-        await ensureRemoteAccessProfilesLoaded();
-        const activeProfile = accessStore.apiProfiles.find(
-          (profile) => profile.enabled,
-        );
-        if (activeProfile) {
-          syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-        }
-
-        const { results, totalFetched } = await syncAllProfilesToDatabase({
-          fetchFromProvider,
-        });
-        const client = syncStore.getClient() as any;
-        if (typeof client.getMeta === "function") {
-          updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
-        }
-
-        await performCloudSync();
-        console.log("[API Config] ✅ 数据库同步完成");
-        console.log(LOG_SEPARATOR);
-        console.log("[API Config] 📊 模型同步汇总");
-        results.forEach(({ name, added, deleted, finalCount, success }) => {
-          console.log(
-            `[API Config] - ${name}: ${
-              success
-                ? `新增 ${added} 个，删除 ${deleted} 个，最终同步 ${finalCount} 个`
-                : "失败"
-            }`,
+      await runWithManualDatabaseSyncActive(() =>
+        runWithBalanceRefreshPaused(async () => {
+          await waitForImmediateStoreSyncQueueIdle();
+          await waitForSyncIdle();
+          ensureDatabaseSyncProvider();
+          await ensureRemoteAccessProfilesLoaded();
+          const activeProfile = accessStore.apiProfiles.find(
+            (profile) => profile.enabled,
           );
-        });
-        console.log(`[API Config] - 最终同步总数: ${totalFetched} 个`);
-        console.log(LOG_SEPARATOR);
+          if (activeProfile) {
+            await runWithImmediateStoreSyncPaused(async () => {
+              syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+            });
+          }
 
-        showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
-      });
+          await syncStore.sync([...SYNC_STORE_KEYS]);
+          const client = syncStore.getClient() as any;
+          if (typeof client.getMeta === "function") {
+            updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+          }
+
+          const syncedUserModelCount = countUserAddedModels(
+            useAppConfig.getState().customModels,
+          );
+          console.log("[API Config] ✅ 保存并同步完成");
+          console.log(LOG_SEPARATOR);
+          console.log(
+            `[API Config] ✅ 已同步用户添加模型: ${syncedUserModelCount} 个`,
+          );
+          console.log(
+            "[API Config] ℹ️ 本次未刷新供应商完整模型缓存，仅同步用户数据与界面偏好",
+          );
+          console.log(LOG_SEPARATOR);
+
+          showToast("已同步全部配置、用户已添加模型和对话记录到 PostgreSQL");
+        }),
+      );
     } catch (error) {
       console.error("[API Config] ❌ 数据库同步失败:", error);
       showToast("同步到 PostgreSQL 失败，请检查数据库连接");
@@ -2040,12 +1766,7 @@ export function ApiConfigPage() {
       setBackingUp(true);
       await waitForImmediateStoreSyncQueueIdle();
       await waitForSyncIdle();
-      const {
-        previousCloudKeys,
-        previousPlatformCounts,
-        fetchedModelEntries,
-        totalFetched,
-      } = await runWithBalanceRefreshPaused(() =>
+      await runWithBalanceRefreshPaused(() =>
         runWithImmediateStoreSyncPaused(async () => {
           ensureDatabaseSyncProvider();
           const activeProfile = accessStore.apiProfiles.find(
@@ -2054,17 +1775,12 @@ export function ApiConfigPage() {
           if (activeProfile) {
             syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
           }
-          return refreshAllProfilesForSync();
         }),
       );
-      logSyncSummary(
-        "模型数量变化预览",
-        previousCloudKeys,
-        previousPlatformCounts,
-        fetchedModelEntries,
-        totalFetched,
+      const syncedUserModelCount = countUserAddedModels(
+        useAppConfig.getState().customModels,
       );
-      console.log("[API Config] ⏳ 模型获取完成，等待数据库写入完成...");
+      console.log("[API Config] ⏳ 本地快照已准备，等待数据库写入完成...");
       console.log(LOG_SEPARATOR);
       const client = syncStore.getClient() as any;
       const localState = getLocalAppState();
@@ -2084,16 +1800,15 @@ export function ApiConfigPage() {
         updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
       }
 
-      console.log("[API Config] ✅ 数据库写入完成");
-      logSyncSummary(
-        "模型同步汇总",
-        previousCloudKeys,
-        previousPlatformCounts,
-        fetchedModelEntries,
-        totalFetched,
+      console.log("[API Config] ✅ 上传到数据库完成");
+      console.log(
+        `[API Config] ✅ 已上传用户添加模型: ${syncedUserModelCount} 个`,
+      );
+      console.log(
+        "[API Config] ℹ️ 本次未上传供应商完整模型缓存，仅上传用户数据与界面偏好",
       );
       console.log(LOG_SEPARATOR);
-      showToast("已上传全部配置、模型和对话记录到 PostgreSQL");
+      showToast("已上传全部配置、用户已添加模型和对话记录到 PostgreSQL");
     } catch (error) {
       console.error("[API Config] ❌ 数据库写入失败:", error);
       showToast("上传全部配置到 PostgreSQL 失败");
@@ -2210,7 +1925,7 @@ export function ApiConfigPage() {
           updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
         }
       });
-      console.log("[API Config] ✅ 数据库下载并覆盖本地完成");
+      console.log("[API Config] ✅ 从数据库下载并覆盖本地完成");
       console.log(LOG_SEPARATOR);
       if (fallbackKeys.length > 0) {
         console.warn(
@@ -2238,11 +1953,11 @@ export function ApiConfigPage() {
 
   const clearLocalAndCloudModels = async () => {
     const confirmed = await showConfirm(
-      "确定要清空已添加模型吗？这会删除本地已添加模型列表和本地临时模型缓存，且不可恢复。",
+      "确定要清空已添加模型吗？这会删除会同步到数据库的用户已添加模型，并清空当前浏览器的临时模型缓存。",
     );
     if (!confirmed) return;
 
-    console.log("[API Config] 🗑️ 开始清空本地已添加模型和临时模型缓存...");
+    console.log("[API Config] 🗑️ 开始清空用户已添加模型和本地临时模型缓存...");
     try {
       appConfig.update((config: any) => {
         config.models = [];
@@ -2261,9 +1976,9 @@ export function ApiConfigPage() {
 
       useModelCacheStore.getState().clearProfileCaches();
 
-      console.log("[API Config] ✅ 本地已添加模型和临时模型缓存已清空");
+      console.log("[API Config] ✅ 用户已添加模型和本地临时模型缓存已清空");
       console.log(LOG_SEPARATOR);
-      showToast("已清空本地已添加模型和临时模型缓存");
+      showToast("已清空用户已添加模型和当前浏览器临时模型缓存");
     } catch (error) {
       console.error("[API Config] ❌ 清空失败:", error);
       showToast("清空本地模型数据失败");
@@ -2341,7 +2056,7 @@ export function ApiConfigPage() {
                   />
                 </div>
               }
-              subTitle="可以新增多组 Base URL 与 API Key，但只能启用其中一组"
+              subTitle="可以新增多组 Base URL 与 API Key"
               vertical
             >
               <div className={styles.profileList}>
@@ -2354,7 +2069,6 @@ export function ApiConfigPage() {
                     <div className={styles.profileColCompatible}>
                       兼容OPENAI
                     </div>
-                    <div className={styles.profileColToggle}>是否启用</div>
                     <div className={styles.profileColActions}>操作</div>
                   </div>
 
@@ -2528,36 +2242,6 @@ export function ApiConfigPage() {
                           <span>
                             {profile.openAICompatible ?? true ? "是" : "否"}
                           </span>
-                        </label>
-                      </div>
-
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColToggle}`}
-                      >
-                        <div className={styles.profileCellLabel}>是否启用</div>
-                        <label className={styles.profileCheck}>
-                          <input
-                            type="checkbox"
-                            checked={profile.enabled}
-                            onChange={(e) => {
-                              if (!e.currentTarget.checked) {
-                                accessStore.update((access) => {
-                                  (access as any).profileSelectionUpdatedAt =
-                                    Date.now();
-                                  access.apiProfiles = access.apiProfiles.map(
-                                    (item) =>
-                                      item.id === profile.id
-                                        ? { ...item, enabled: false }
-                                        : item,
-                                  );
-                                });
-                                return;
-                              }
-
-                              syncProfileToAccess(profile.id);
-                            }}
-                          />
-                          <span>{profile.enabled ? "已启用" : "未启用"}</span>
                         </label>
                       </div>
 
@@ -2761,15 +2445,15 @@ export function ApiConfigPage() {
                 <div>同步方式：通过服务端 API 直接读写 PostgreSQL。</div>
                 <div>目标数据库：{dbSyncTargetLabel}</div>
                 <div>
-                  上传到数据库：把本地聊天、插件、设置、用户已添加模型、提示词、面具、更新状态和绘图等数据写入数据库。
+                  上传到数据库：把本地聊天、插件、设置、用户已添加模型、提示词、面具、更新状态和绘图等数据写入数据库，不上传供应商完整模型列表。
                 </div>
                 <div>
-                  保存并同步：先按当前启用配置刷新模型，再和 PostgreSQL
-                  执行双向合并，最后把最新结果回写到本地与数据库。
+                  保存并同步：和 PostgreSQL
+                  执行双向合并，最后把最新配置、用户已添加模型和对话记录回写到本地与数据库。
                 </div>
                 <div>
                   从数据库下载：读取 PostgreSQL 中的完整快照，覆盖本地对话、API
-                  配置、用户已添加模型、插件、提示词、面具和绘图记录。
+                  配置、用户已添加模型、插件、提示词、面具和绘图记录；供应商模型列表会在管理模型时按需本地拉取。
                 </div>
               </>
             }
@@ -2829,34 +2513,6 @@ export function ApiConfigPage() {
                     void clearLocalAndCloudModels();
                   }}
                 />
-              </div>
-              <div className={styles.actionSecondaryRow}>
-                <button
-                  type="button"
-                  className={styles.modelFetchHint}
-                  aria-live="polite"
-                  disabled={anyFetching || syncActionDisabled}
-                  onClick={() => {
-                    void fetchModelsForAllProfiles();
-                  }}
-                  title="点击获取模型数据"
-                >
-                  {anyFetching || syncing ? <LoadingIcon /> : <RobotIcon />}
-                  <span>
-                    {shouldShowFetchedProgress ? (
-                      <>
-                        已获取 <strong>{fetchedProgressCount}</strong>
-                        {" 个远程模型"}
-                      </>
-                    ) : typeof modelFetchCount === "number" ? (
-                      <>
-                        共 <strong>{modelFetchCount}</strong> 个远程模型可用
-                      </>
-                    ) : (
-                      modelFetchHint
-                    )}
-                  </span>
-                </button>
               </div>
             </div>
           </ListItem>

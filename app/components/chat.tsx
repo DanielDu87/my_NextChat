@@ -26,7 +26,6 @@ import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
-import SyncIcon from "../icons/sync.svg";
 import BreakIcon from "../icons/break.svg";
 import SettingsIcon from "../icons/chat-settings.svg";
 import DownIcon from "../icons/down.svg";
@@ -109,13 +108,9 @@ import {
 } from "../utils/model-category-rules";
 import { resolveModelProviderId } from "../utils/model";
 import { getPreferredDefaultChatModel } from "../utils/model";
-import { useModelFetcher } from "../utils/useModelFetcher";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
-import {
-  ensureProviderModelsReady,
-  syncAllProfilesToDatabase,
-} from "../utils/provider-sync";
+import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import { getActiveModelSelectorProviderId } from "../utils/model-selector-provider";
@@ -155,7 +150,6 @@ import {
   UNFINISHED_INPUT,
 } from "../constant";
 
-const LOG_SEPARATOR = "=".repeat(5);
 import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 
@@ -1714,8 +1708,10 @@ export function ChatActions(props: {
     (state) => state.sessions[state.currentSessionIndex],
   );
   const pluginStore = usePluginStore();
-  const { session: loadedSession } = useCurrentSession();
+  const { session: loadedSession, loading: sessionLoading } =
+    useCurrentSession();
   const session = loadedSession ?? currentSessionSnapshot;
+  const previousSessionIdRef = useRef<string | null>(null);
   const autoModeEnabled = (config.autoModelSeries?.length || 0) > 0;
   const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
 
@@ -1963,6 +1959,12 @@ export function ChatActions(props: {
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
+    const sessionId = session?.id ?? "";
+    const isSessionActivation = previousSessionIdRef.current !== sessionId;
+    previousSessionIdRef.current = sessionId;
+    const shouldShowCompatibilityToast =
+      !sessionLoading && !isSessionActivation;
+
     const show = canUseImageAttachments;
     if (showUploadImage !== show) {
       setShowUploadImage(show);
@@ -1972,13 +1974,16 @@ export function ChatActions(props: {
       props.setUploading(false);
     }
     previousShowUploadImageRef.current = show;
-    if (session.mask.modelConfig.size !== currentSize) {
+    if (supportsSizeControl && session.mask.modelConfig.size !== currentSize) {
       const previousSize = session.mask.modelConfig.size;
       chatStore.updateTargetSession(session, (session) => {
         session.mask.modelConfig.size = currentSize;
       });
       const adjustKey = `${currentModel}:${previousSize ?? ""}->${currentSize}`;
-      if (autoAdjustedSizeRef.current !== adjustKey) {
+      if (
+        shouldShowCompatibilityToast &&
+        autoAdjustedSizeRef.current !== adjustKey
+      ) {
         autoAdjustedSizeRef.current = adjustKey;
         showToast(`当前模型仅支持 ${currentSize}，已自动切换到兼容尺寸`);
       }
@@ -1987,13 +1992,19 @@ export function ChatActions(props: {
       currentModel,
       session.mask.modelConfig.quality,
     );
-    if (session.mask.modelConfig.quality !== normalizedQuality) {
+    if (
+      supportsQualityControl &&
+      session.mask.modelConfig.quality !== normalizedQuality
+    ) {
       const previousQuality = session.mask.modelConfig.quality ?? "standard";
       chatStore.updateTargetSession(session, (session) => {
         session.mask.modelConfig.quality = normalizedQuality as any;
       });
       const adjustKey = `${currentModel}:${previousQuality}->${normalizedQuality}`;
-      if (autoAdjustedQualityRef.current !== adjustKey) {
+      if (
+        shouldShowCompatibilityToast &&
+        autoAdjustedQualityRef.current !== adjustKey
+      ) {
         autoAdjustedQualityRef.current = adjustKey;
         if (normalizedQuality) {
           showToast(
@@ -2009,7 +2020,10 @@ export function ChatActions(props: {
     currentSize,
     props,
     session,
+    sessionLoading,
     showUploadImage,
+    supportsQualityControl,
+    supportsSizeControl,
   ]);
 
   return (
@@ -2644,17 +2658,12 @@ function _Chat() {
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [modelUpdateDone, setModelUpdateDone] = useState(false);
   const lastAssistantSignatureRef = useRef("");
   const lastCompletedAssistantRef = useRef("");
   const streamingScrollResumeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
   const streamingAutoScrollPausedRef = useRef(false);
-  const modelUpdateDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
   const lastBalanceRefreshTargetRef = useRef("");
   const inputFontSize = isMobileScreen
@@ -3211,7 +3220,6 @@ function _Chat() {
       })),
     [],
   );
-  const { fetchFromProvider } = useModelFetcher();
 
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
@@ -4073,77 +4081,6 @@ function _Chat() {
 
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
-  const reconcileRemoteModelStores = useCallback(
-    async () => reconcileRemoteModelStoresInternal(),
-    [],
-  );
-  const refreshRemoteSignals = useCallback(async () => {
-    try {
-      await loadRemoteModelRefreshArtifact();
-    } catch {}
-  }, []);
-
-  const syncAllProfilesFromChat = useCallback(async () => {
-    if (syncingAll) return;
-
-    try {
-      setSyncingAll(true);
-      const { results, totalFetched } = await syncAllProfilesToDatabase({
-        fetchFromProvider,
-      });
-      await reconcileRemoteModelStores();
-      await refreshRemoteSignals();
-      if (modelUpdateDoneTimerRef.current) {
-        clearTimeout(modelUpdateDoneTimerRef.current);
-      }
-      setModelUpdateDone(true);
-      modelUpdateDoneTimerRef.current = setTimeout(() => {
-        setModelUpdateDone(false);
-        modelUpdateDoneTimerRef.current = null;
-      }, 1800);
-
-      console.log(LOG_SEPARATOR);
-      console.log(`[API Config] 📊 模型同步汇总`);
-      results.forEach(({ name, added, deleted, finalCount, success }) => {
-        console.log(
-          `[API Config] - ${name}: ${
-            success
-              ? `新增 ${added} 个，删除 ${deleted} 个，最终同步 ${finalCount} 个`
-              : "失败"
-          }`,
-        );
-      });
-      console.log(
-        `[API Config] ✅ 所有平台同步完成，最终同步 ${totalFetched} 个`,
-      );
-      console.log(LOG_SEPARATOR);
-      showToast("已同步全部配置、模型和对话记录到 PostgreSQL");
-    } catch (error) {
-      console.error("[Chat] 同步失败:", error);
-      if (modelUpdateDoneTimerRef.current) {
-        clearTimeout(modelUpdateDoneTimerRef.current);
-        modelUpdateDoneTimerRef.current = null;
-      }
-      setModelUpdateDone(false);
-      showToast("同步到 PostgreSQL 失败，请检查数据库连接");
-    } finally {
-      setSyncingAll(false);
-    }
-  }, [
-    fetchFromProvider,
-    reconcileRemoteModelStores,
-    refreshRemoteSignals,
-    syncingAll,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      if (modelUpdateDoneTimerRef.current) {
-        clearTimeout(modelUpdateDoneTimerRef.current);
-      }
-    };
-  }, []);
-
   async function openaiSpeech(text: string) {
     if (speechStatus) {
       ttsPlayer.stop();
@@ -5125,51 +5062,6 @@ function _Chat() {
               )}
             >
               <IconButton
-                icon={
-                  syncingAll ? (
-                    <LoadingButtonIcon />
-                  ) : modelUpdateDone ? (
-                    <ConfirmIcon />
-                  ) : (
-                    <SyncIcon />
-                  )
-                }
-                bordered
-                className={styles["chat-window-icon-button"]}
-                text={
-                  syncingAll
-                    ? "同步中..."
-                    : modelUpdateDone
-                    ? "同步完成"
-                    : "一键同步"
-                }
-                title={
-                  syncingAll
-                    ? "同步中..."
-                    : modelUpdateDone
-                    ? "同步完成"
-                    : "一键同步"
-                }
-                aria={
-                  syncingAll
-                    ? "同步中..."
-                    : modelUpdateDone
-                    ? "同步完成"
-                    : "一键同步"
-                }
-                onClick={() => {
-                  void syncAllProfilesFromChat();
-                }}
-                disabled={syncingAll || readOnly}
-              />
-            </div>
-            <div
-              className={clsx(
-                "window-action-button",
-                styles["chat-window-action-button"],
-              )}
-            >
-              <IconButton
                 icon={<ConfigIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
@@ -5293,8 +5185,20 @@ function _Chat() {
             >
               {sessionLoading && (
                 <div className={styles["chat-session-loading"]}>
-                  <LoadingIcon />
-                  <span>正在加载会话内容...</span>
+                  <div className={styles["chat-session-loading-card"]}>
+                    <div className={styles["chat-session-loading-icon"]}>
+                      <LoadingIcon />
+                    </div>
+                    <div className={styles["chat-session-loading-content"]}>
+                      <div className={styles["chat-session-loading-badge"]}>
+                        历史对话
+                      </div>
+                      <div className={styles["chat-session-loading-text"]}>
+                        <strong>正在载入这段对话</strong>
+                        <span>正在恢复完整消息内容，完成后会自动显示。</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
               {!sessionLoading &&

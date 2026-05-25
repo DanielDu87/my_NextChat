@@ -39,12 +39,6 @@
   width: 100%;
 }
 
-.actionSecondaryRow {
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-
 .actionPrimaryRow > * {
   flex: 1 1 0;
   min-width: 0;
@@ -53,10 +47,6 @@
 .actionPrimaryRow :global(.icon-button) {
   width: 100%;
   justify-content: center;
-}
-
-.actionSecondaryRow .modelFetchHint {
-  width: 100%;
 }
 
 .dangerButton {
@@ -214,50 +204,6 @@
   display: inline;
 }
 
-.modelFetchHint {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 10px;
-  background: var(--white);
-  color: var(--black);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  user-select: none;
-  outline: none;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: normal;
-
-  &:hover,
-  &:focus {
-    border-color: var(--primary);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
-
-  :global(svg) {
-    width: 16px;
-    height: 16px;
-    flex: 0 0 auto;
-  }
-
-  span {
-    display: block;
-  }
-
-  strong {
-    font-weight: 700;
-  }
-}
-
 .modelUpdateInlineNotice {
   display: inline;
   margin-left: 12px;
@@ -333,8 +279,8 @@
 .profileTableHeader,
 .profileRow {
   display: grid;
-  /* 使用 fr 实现自适应，平台:名称:BaseUrl:ApiKey:兼容:启用:操作 */
-  grid-template-columns: 1fr 1.5fr 1.5fr 3fr 1fr 1fr 1fr;
+  /* 使用 fr 实现自适应，平台:名称:BaseUrl:ApiKey:兼容:操作 */
+  grid-template-columns: 1fr 1.5fr 1.5fr 3fr 1fr 1fr;
   column-gap: 12px;
   align-items: center;
   padding: 12px;
@@ -359,11 +305,8 @@
 .profileColCompatible {
   grid-column: 5;
 }
-.profileColToggle {
-  grid-column: 6;
-}
 .profileColActions {
-  grid-column: 7;
+  grid-column: 6;
 }
 
 .profileTableHeader {
@@ -410,7 +353,6 @@
 }
 
 .profileColCompatible,
-.profileColToggle,
 .profileColActions {
   justify-content: center !important;
   text-align: center !important;
@@ -733,9 +675,7 @@
     justify-content: space-between;
   }
 
-  .actionPrimaryRow > *,
-  .actionSecondaryRow > *,
-  .actions .modelFetchHint {
+  .actionPrimaryRow > * {
     width: 100%;
     min-width: 0;
     justify-content: center;
@@ -744,15 +684,6 @@
 
   .actionPrimaryRow > * {
     flex: 1 1 100%;
-  }
-
-  .actionSecondaryRow {
-    width: 100%;
-  }
-
-  .actionSecondaryRow .modelFetchHint {
-    width: 100%;
-    min-width: 0;
   }
 
   .dangerButton {
@@ -826,7 +757,6 @@
   .profileColBaseUrl,
   .profileColApiKey,
   .profileColCompatible,
-  .profileColToggle,
   .profileColActions {
     grid-column: auto;
     min-width: 0;
@@ -842,21 +772,18 @@
   }
 
   .profileColCompatible,
-  .profileColToggle,
   .profileColActions {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .profileRow {
     .profileColCompatible,
-    .profileColToggle,
     .profileColActions {
       width: 100%;
     }
   }
 
-  .profileColCompatible,
-  .profileColToggle {
+  .profileColCompatible {
     display: inline-grid;
   }
 
@@ -864,12 +791,8 @@
     grid-column: 1 / 2;
   }
 
-  .profileColToggle {
-    grid-column: 2 / 3;
-  }
-
   .profileColActions {
-    grid-column: 3 / 4;
+    grid-column: 2 / 4;
     align-self: end;
   }
 
@@ -878,7 +801,6 @@
   }
 
   .profileColCompatible .profileCellLabel,
-  .profileColToggle .profileCellLabel,
   .profileColActions .profileCellLabel {
     margin-bottom: 4px;
     text-align: center;
@@ -1066,12 +988,6 @@
   .syncCardTitleSub {
     font-size: 12px;
     line-height: 1.6;
-  }
-
-  .modelFetchHint {
-    min-height: 40px;
-    padding: 10px 12px;
-    font-size: 12px;
   }
 
   .modelUpdateInlineNotice {

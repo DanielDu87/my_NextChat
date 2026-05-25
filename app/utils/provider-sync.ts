@@ -265,7 +265,7 @@ export async function syncProfileModels(
     persistAccessSnapshot();
 
     console.log(
-      `[Provider Sync] ✅ ${displayName}: 新增 ${added.length} 个，删除 ${deleted.length} 个，最终同步 ${afterNames.size} 个模型`,
+      `[Provider Sync] ✅ ${displayName}: 新增 ${added.length} 个，删除 ${deleted.length} 个，本地可用 ${afterNames.size} 个模型`,
     );
     if (added.length > 0) {
       console.log(
@@ -478,10 +478,14 @@ export async function syncAllProfilesToDatabase(params: {
           ? allProfiles.filter((p) =>
               addedProviderIds.has(getProfileProviderId(p).toLowerCase()),
             )
-          : allProfiles;
+          : [];
 
       let totalFetched = 0;
       const results: SyncAllProfilesResult["results"] = [];
+
+      if (profiles.length === 0) {
+        logger.providerSync.log("没有用户手动添加模型，跳过供应商全量模型拉取");
+      }
 
       for (const profile of profiles) {
         logger.providerSync.banner("Provider 同步开始", profile.name);
@@ -512,7 +516,7 @@ export async function syncAllProfilesToDatabase(params: {
 
           logger.providerSync.banner(
             "Provider 同步完成",
-            `${profile.name} 本次新增 ${syncStats.added} 个，删除 ${syncStats.deleted} 个，最终同步 ${syncStats.finalCount} 个模型`,
+            `${profile.name} 本次新增 ${syncStats.added} 个，删除 ${syncStats.deleted} 个，本地可用 ${syncStats.finalCount} 个模型`,
           );
         } catch (error) {
           results.push({
@@ -527,7 +531,7 @@ export async function syncAllProfilesToDatabase(params: {
         }
       }
 
-      logger.providerSync.log("模型获取完成，等待数据库同步完成...");
+      logger.providerSync.log("本地远程模型检查完成，正在同步数据库配置...");
       await waitForImmediateStoreSyncQueueIdle();
       await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
 

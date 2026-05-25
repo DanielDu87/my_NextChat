@@ -23,6 +23,8 @@ import {
   AUTO_SYNC_LOCK_TTL_MS,
   CHAT_SYNC_HINT_KEY,
   CHAT_SYNC_UPDATED_MESSAGE_TYPE,
+  STARTUP_CHAT_SYNC_STATUS_KEY,
+  STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
   buildAutoSyncLock,
   getOrCreateAutoSyncTabId,
   parseChatSyncHint,
@@ -30,6 +32,7 @@ import {
   shouldAutoSyncLockBeTakenOver,
 } from "../utils/sync-tab-coordination";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import { isManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 
 let autoSyncEffectActive = false;
 let lastAutoSyncBootstrapAt = 0;
@@ -138,6 +141,34 @@ function logCriticalStartupSyncBanner(
       ? `${LOG_SEPARATOR} ${title} | ${detail} ${LOG_SEPARATOR}`
       : `${LOG_SEPARATOR} ${title} ${LOG_SEPARATOR}`,
   );
+}
+
+function publishStartupChatSyncStatus(
+  status: "syncing" | "done" | "error",
+  channel?: BroadcastChannel | null,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const payload = {
+    status,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    window.localStorage.setItem(
+      STARTUP_CHAT_SYNC_STATUS_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {}
+
+  try {
+    channel?.postMessage({
+      type: STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
+      ...payload,
+    });
+  } catch {}
 }
 
 function scheduleIdleTask(task: () => void, timeout = 800) {
@@ -708,6 +739,13 @@ export default function AutoSync() {
             let deferredSyncExecuted = false;
             const deferredSyncTask = () => {
               if (deferredSyncExecuted) return;
+              if (isManualDatabaseSyncActive()) {
+                autoSyncConsole(
+                  "log",
+                  "[AutoSync] ⏭️ 手动同步进行中，跳过本次后台同步",
+                );
+                return;
+              }
               deferredSyncExecuted = true;
               if (deferredFallbackTimer) {
                 clearTimeout(deferredFallbackTimer);
@@ -715,6 +753,7 @@ export default function AutoSync() {
               }
 
               void (async () => {
+                publishStartupChatSyncStatus("syncing", channel);
                 try {
                   autoSyncConsole(
                     "log",
@@ -724,7 +763,9 @@ export default function AutoSync() {
                     isolateQueue: true,
                     force: true,
                   });
+                  publishStartupChatSyncStatus("done", channel);
                 } catch (uploadError) {
+                  publishStartupChatSyncStatus("error", channel);
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ⚠️ 本地会话上传失败:",
@@ -883,12 +924,14 @@ export default function AutoSync() {
 
       const syncStore = useSyncStore.getState();
       void Promise.resolve()
-        .then(
-          () =>
-            syncStore.resumePendingDebounceSync?.({
-              excludeKeys: [StoreKey.Config],
-            }),
-        )
+        .then(() => {
+          if (isManualDatabaseSyncActive()) {
+            return undefined;
+          }
+          return syncStore.resumePendingDebounceSync?.({
+            excludeKeys: [StoreKey.Config],
+          });
+        })
         .then(
           () =>
             (syncStore as any).syncChatIfRemoteChanged?.({

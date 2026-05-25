@@ -7,6 +7,7 @@ export function shouldShowCurrentSessionLoading(params: {
   hydratingSessionId?: string;
   inMemorySession?: ChatSession;
   loadedSession?: ChatSession;
+  isPrunedInMemorySession?: boolean;
   summaryMessageCount?: number;
 }) {
   if (Number(params.summaryMessageCount || 0) <= 0) {
@@ -15,7 +16,8 @@ export function shouldShowCurrentSessionLoading(params: {
 
   return (
     !!params.currentSessionId &&
-    params.hydratingSessionId === params.currentSessionId &&
+    (params.hydratingSessionId === params.currentSessionId ||
+      params.isPrunedInMemorySession) &&
     !(params.inMemorySession || params.loadedSession)
   );
 }
@@ -65,6 +67,8 @@ export function useCurrentSession() {
   const [loadedSession, setLoadedSession] = useState<ChatSession | undefined>(
     isPrunedInMemorySession ? undefined : inMemorySession,
   );
+  const activeLoadedSession =
+    loadedSession?.id === currentSessionId ? loadedSession : undefined;
   const lastRequestedSessionIdRef = useRef("");
 
   useEffect(() => {
@@ -118,12 +122,13 @@ export function useCurrentSession() {
   }, [currentSessionId, readyInMemorySession, isPrunedInMemorySession]);
 
   return {
-    session: readyInMemorySession || loadedSession,
+    session: readyInMemorySession || activeLoadedSession,
     loading: shouldShowCurrentSessionLoading({
       currentSessionId,
       hydratingSessionId,
-      inMemorySession,
-      loadedSession,
+      inMemorySession: readyInMemorySession,
+      loadedSession: activeLoadedSession,
+      isPrunedInMemorySession,
       summaryMessageCount: Number(currentSessionSummary?.messageCount || 0),
     }),
   };

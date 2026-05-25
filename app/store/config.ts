@@ -98,12 +98,53 @@ function hydrateModelsForStore(models: LLMModel[]) {
   return hydrateModelsWithAiHubMixMetadata(models);
 }
 
-export function getLocalOnlyAppConfig() {
-  return {
-    theme: readThemeFromLocalStorage(),
-    tightBorder: readTightBorderFromLocalStorage(),
-    sidebarWidth: readSidebarWidthFromLocalStorage(),
-  };
+let uiPreferenceSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getUiPreferenceSummary() {
+  const state = useAppConfig.getState();
+  return `主题=${state.theme}，页面=${
+    state.tightBorder ? "全屏/无边框" : "普通/窄边框"
+  }`;
+}
+
+function scheduleUiPreferenceSync(reason: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (uiPreferenceSyncTimer) {
+    clearTimeout(uiPreferenceSyncTimer);
+  }
+
+  uiPreferenceSyncTimer = setTimeout(() => {
+    uiPreferenceSyncTimer = null;
+    void import("./sync")
+      .then(async ({ useSyncStore }) => {
+        const syncStore = useSyncStore.getState();
+        if (!syncStore.cloudSync()) {
+          return false;
+        }
+
+        console.log(
+          `[Config] ☁️ 自动同步界面偏好: ${reason}（${getUiPreferenceSummary()}）`,
+        );
+        await syncStore.sync([StoreKey.Config], {
+          isolateQueue: true,
+          silentSummary: true,
+        });
+        return true;
+      })
+      .then((synced) => {
+        if (synced) {
+          console.log(
+            `[Config] ✅ 界面偏好已同步（${getUiPreferenceSummary()}）`,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("[Config] ❌ 界面偏好同步失败:", error);
+      });
+  }, 500);
 }
 
 export const DEFAULT_CONFIG = {
@@ -439,7 +480,7 @@ export const useAppConfig = createPersistStore(
 
     setSidebarWidth(width: number) {
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-      set({ sidebarWidth: width });
+      set({ sidebarWidth: width, lastUpdateTime: Date.now() });
       window.dispatchEvent(
         new CustomEvent("sidebarWidthChanged", { detail: width }),
       );
@@ -447,21 +488,19 @@ export const useAppConfig = createPersistStore(
 
     setTheme(theme: Theme) {
       localStorage.setItem(THEME_KEY, theme);
-      set({ theme });
+      set({ theme, lastUpdateTime: Date.now() });
+      scheduleUiPreferenceSync("主题");
     },
 
     setTightBorder(tightBorder: boolean) {
       localStorage.setItem(TIGHT_BORDER_KEY, String(tightBorder));
-      set({ tightBorder });
+      set({ tightBorder, lastUpdateTime: Date.now() });
+      scheduleUiPreferenceSync("全屏/无边框模式");
     },
   }),
   {
     name: StoreKey.Config,
     version: 4.5,
-    partialize(state) {
-      const { theme, tightBorder, sidebarWidth, ...rest } = state as ChatConfig;
-      return rest as typeof state;
-    },
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -488,9 +527,9 @@ export const useAppConfig = createPersistStore(
         ...currentState,
         ...state,
         models: hydrateModelsForStore(models),
-        theme: readThemeFromLocalStorage(),
-        tightBorder: readTightBorderFromLocalStorage(),
-        sidebarWidth: readSidebarWidthFromLocalStorage(),
+        theme: state.theme ?? readThemeFromLocalStorage(),
+        tightBorder: state.tightBorder ?? readTightBorderFromLocalStorage(),
+        sidebarWidth: state.sidebarWidth ?? readSidebarWidthFromLocalStorage(),
       } as typeof currentState;
     },
 

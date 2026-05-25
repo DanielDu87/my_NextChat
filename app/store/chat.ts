@@ -2314,17 +2314,6 @@ export const useChatStore = createPersistStore(
         const summary = get().sessionSummaries.find(
           (session) => session.id === sessionId,
         );
-        const currentInMemorySession = get().getSessionById(sessionId);
-        const shouldShowLoadingToast =
-          !!summary &&
-          !!currentInMemorySession &&
-          currentInMemorySession.messages.length === 0 &&
-          summary.messageCount > 0;
-
-        if (shouldShowLoadingToast) {
-          showToast("正在加载会话内容...");
-        }
-
         set(() => ({ hydratingSessionId: sessionId }));
 
         try {
