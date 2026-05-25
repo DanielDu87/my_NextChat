@@ -1224,6 +1224,67 @@ function getMessageProviderDisplayName(
   );
 }
 
+function resolveMessageModelSelection(
+  message: ChatMessage | undefined,
+  profiles: Array<{ id?: string; name: string; provider: ServiceProvider }>,
+) {
+  if (!message) {
+    return null;
+  }
+
+  const rawModelLabel = String(
+    message.modelDisplay || message.model || "",
+  ).trim();
+  const [parsedModel, parsedProviderLabel] = getModelProvider(rawModelLabel);
+  const model = String(parsedModel || message.model || "").trim();
+  if (!model) {
+    return null;
+  }
+
+  const providerId = String(message.providerId || "")
+    .trim()
+    .toLowerCase();
+  const profileId = String(message.profileId || "").trim();
+  const providerDisplayName =
+    String(message.profileName || "").trim() ||
+    getMessageProviderDisplayName(message, profiles) ||
+    String(parsedProviderLabel || "").trim();
+  const normalizedProviderDisplayName =
+    normalizeProviderLookup(providerDisplayName);
+
+  const matchedProfile = profiles.find((profile) => {
+    const profileProviderId = getProfileProviderId(profile).toLowerCase();
+    return (
+      (!!profileId && profile.id === profileId) ||
+      (!!providerId && profileProviderId === providerId) ||
+      (!!normalizedProviderDisplayName &&
+        normalizeProviderLookup(profile.name) === normalizedProviderDisplayName)
+    );
+  });
+
+  const resolvedProviderName =
+    message.providerName ||
+    matchedProfile?.provider ||
+    (providerId.startsWith("custom_")
+      ? ServiceProvider.Custom
+      : providerId.startsWith("local_")
+      ? ServiceProvider.Local
+      : (providerId as ServiceProvider));
+  const resolvedProviderId =
+    providerId || (matchedProfile ? getProfileProviderId(matchedProfile) : "");
+
+  if (!resolvedProviderName || !resolvedProviderId) {
+    return null;
+  }
+
+  return {
+    model: model as ModelType,
+    providerName: resolvedProviderName as ServiceProvider,
+    providerId: resolvedProviderId.toLowerCase(),
+    profileId: profileId || matchedProfile?.id || "",
+  };
+}
+
 const ttsPlayer = createTTSPlayer();
 
 const Markdown = dynamic(async () => (await import("./markdown")).Markdown, {
@@ -2630,6 +2691,14 @@ function _Chat() {
     () => (Array.isArray(safeSession.messages) ? safeSession.messages : []),
     [safeSession.messages],
   );
+  const currentSessionSummaryMessageCount = useChatStore((state) => {
+    const summary = state.sessionSummaries.find(
+      (item) => item.id === safeSession.id,
+    );
+    return Number(summary?.messageCount || 0);
+  });
+  const currentSessionHasMessages =
+    sessionMessages.length > 0 || currentSessionSummaryMessageCount > 0;
   const sessionMask =
     liveSession?.mask ?? safeSession.mask ?? emptySessionRef.current.mask;
   const sessionContext = useMemo(
@@ -2704,6 +2773,18 @@ function _Chat() {
   const allModels = useAllModels();
   const globalCustomModels = useAppConfig((state) => state.customModels);
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const latestAssistantModelSelection = useMemo(() => {
+    const latestAssistantMessage = [...sessionMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.isError &&
+          Boolean(message.model || message.modelDisplay),
+      );
+
+    return resolveMessageModelSelection(latestAssistantMessage, apiProfiles);
+  }, [apiProfiles, sessionMessages]);
   const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
   const accessStore = useAccessStore() as any;
   const currentProviderId = useMemo(() => {
@@ -2748,8 +2829,8 @@ function _Chat() {
   const currentProviderDisplayName =
     currentProviderName === ServiceProvider.Custom ||
     currentProviderName === ServiceProvider.Local
-      ? currentActiveProviderProfile?.name ||
-        currentProfile?.name ||
+      ? currentProfile?.name ||
+        currentActiveProviderProfile?.name ||
         currentProviderName
       : currentProfile?.name || currentProviderName;
   const activeModelSelectorProviderId = getActiveModelSelectorProviderId({
@@ -2879,7 +2960,7 @@ function _Chat() {
   const balanceProfile = autoModeEnabled
     ? autoModeBalanceProfile
     : balanceProviderName === currentProviderName
-    ? currentActiveProviderProfile || currentProfile
+    ? currentProfile || currentActiveProviderProfile
     : fallbackBalanceProfile;
   const balanceProviderDisplayName = autoModeEnabled
     ? balanceProfile?.name || latestAutoModeProviderDisplayName
@@ -2891,6 +2972,48 @@ function _Chat() {
         : "",
     [balanceProfile, balanceProviderName],
   );
+
+  useEffect(() => {
+    if (!currentSessionHasMessages || !latestAssistantModelSelection) {
+      return;
+    }
+
+    const currentModelConfig = sessionMask.modelConfig;
+    const currentModelKey = [
+      currentModelConfig.model,
+      (currentModelConfig as any).providerId,
+      currentModelConfig.providerName,
+    ].join("|");
+    const nextModelKey = [
+      latestAssistantModelSelection.model,
+      latestAssistantModelSelection.providerId,
+      latestAssistantModelSelection.providerName,
+    ].join("|");
+
+    if (currentModelKey === nextModelKey) {
+      return;
+    }
+
+    chatStore.updateTargetSession(session, (session) => {
+      session.mask.modelConfig = sanitizeModelConfigForCapability({
+        ...session.mask.modelConfig,
+        model: latestAssistantModelSelection.model,
+        providerName: latestAssistantModelSelection.providerName,
+      });
+      (session.mask.modelConfig as any).providerId =
+        latestAssistantModelSelection.providerId;
+      (session.mask.modelConfig as any).profileId =
+        latestAssistantModelSelection.profileId;
+      session.mask.syncGlobalConfig = false;
+    });
+  }, [
+    chatStore,
+    currentSessionHasMessages,
+    latestAssistantModelSelection,
+    session,
+    sessionMask.modelConfig,
+  ]);
+
   const selectedAutoModelSeries = autoModelSeries[0];
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
@@ -3380,6 +3503,15 @@ function _Chat() {
       if (!latestSession) {
         return;
       }
+      const latestSessionSummary = useChatStore
+        .getState()
+        .sessionSummaries.find((summary) => summary.id === latestSession.id);
+      const latestSessionHasMessages =
+        latestSession.messages.length > 0 ||
+        Number(latestSessionSummary?.messageCount || 0) > 0;
+      if (reason === "page-refresh" && latestSessionHasMessages) {
+        return;
+      }
       const shouldDeferAutoApplyUntilSyncReady =
         syncProvider === ProviderType.Database &&
         (!criticalSyncReady || criticalSyncInProgress) &&
@@ -3856,7 +3988,7 @@ function _Chat() {
     const preferredRuntimeModelConfig =
       sessionMask.syncGlobalConfig &&
       !autoModeEnabled &&
-      sessionMessages.length === 0
+      !currentSessionHasMessages
         ? getPreferredRuntimeModelConfig(
             allModels,
             sessionMask.modelConfig,
@@ -3867,7 +3999,7 @@ function _Chat() {
     const shouldApplySyncedGlobalModelSelection =
       !sessionMask.syncGlobalConfig &&
       !autoModeEnabled &&
-      sessionMessages.length === 0 &&
+      !currentSessionHasMessages &&
       Number((config as any).modelSelectionUpdatedAt || 0) > 0 &&
       !areModelConfigValuesEqual(
         sessionMask.modelConfig as Record<string, unknown>,
@@ -3876,12 +4008,12 @@ function _Chat() {
 
     // 仅在空白会话时把全局模型配置下发到当前会话。
     // 一旦已经开始对话，继续自动回写会把会话模型在发送后覆盖成全局值。
-    if (sessionMask.syncGlobalConfig && sessionMessages.length === 0) {
+    if (sessionMask.syncGlobalConfig && !currentSessionHasMessages) {
       nextModelConfig = { ...config.modelConfig };
       if (
         autoModeEnabled &&
         autoModeDefaultCandidate &&
-        sessionMessages.length === 0
+        !currentSessionHasMessages
       ) {
         nextModelConfig = sanitizeModelConfigForCapability(
           applyAutoModeModelConfig(nextModelConfig, {
@@ -3889,7 +4021,7 @@ function _Chat() {
             providerName: autoModeDefaultCandidate.providerName,
           }),
         );
-      } else if (!autoModeEnabled && sessionMessages.length === 0) {
+      } else if (!autoModeEnabled && !currentSessionHasMessages) {
         nextModelConfig = sanitizeModelConfigForCapability({
           ...nextModelConfig,
           ...(getPreferredDefaultChatModel(
@@ -3940,7 +4072,7 @@ function _Chat() {
     const shouldSyncResolvedGlobalConfig =
       shouldSyncMaskConfig &&
       sessionMask.syncGlobalConfig &&
-      sessionMessages.length === 0 &&
+      !currentSessionHasMessages &&
       !autoModeEnabled &&
       !areModelConfigValuesEqual(
         config.modelConfig as Record<string, unknown>,
@@ -3965,9 +4097,9 @@ function _Chat() {
     config.modelConfig,
     allModels,
     apiProfiles,
+    currentSessionHasMessages,
     session,
     sessionMask,
-    sessionMessages.length,
   ]);
 
   // check if should send message
@@ -4426,15 +4558,16 @@ function _Chat() {
         sessionMask?.modelConfig?.providerName || currentProviderName || "",
       ).toLowerCase();
 
-    // 始终选择当前供应商的 OpenAI 最新模型
+    // 老会话保留自己的模型；空白新会话默认选择当前供应商的 OpenAI 最新模型。
     const latestOpenAIModel = getLatestOpenAIModelForProviderId(
       allModels,
       latestProviderId,
     );
-    const latestModelName =
-      latestOpenAIModel?.model ||
-      sessionMask?.modelConfig?.model ||
-      currentRawModel;
+    const latestModelName = currentSessionHasMessages
+      ? sessionMask?.modelConfig?.model || currentRawModel
+      : latestOpenAIModel?.model ||
+        sessionMask?.modelConfig?.model ||
+        currentRawModel;
 
     const fallbackDefaultValue =
       latestProviderId && latestModelName
@@ -4452,6 +4585,7 @@ function _Chat() {
     apiProfiles,
     currentRawModel,
     currentProviderName,
+    currentSessionHasMessages,
     ensureLatestOpenAIModelsForAllProfiles,
     modelSelectorProviderId,
     sessionMask,
