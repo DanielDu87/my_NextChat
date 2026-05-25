@@ -18,6 +18,7 @@ import {
   stripInternalChatHeaders,
   supportsApiKeyGrouping,
 } from "@/app/utils/chat";
+import { rememberSuccessfulCustomModelApiKeyGroup } from "@/app/utils/model-api-key-memory";
 import {
   applyRequestCompatibilityState,
   buildRequestCompatibilityKey,
@@ -68,6 +69,36 @@ const {
 } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
+
+function getAccessProviderId(profile: { provider: string; name: string }) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`.toLowerCase()
+    : String(profile.provider || "").toLowerCase();
+}
+
+function getCustomProfileForModelConfig(
+  accessStore: ReturnType<typeof useAccessStore.getState>,
+  modelConfig?: Partial<ChatOptions["config"]>,
+) {
+  const profileId = String((modelConfig as any)?.profileId || "").trim();
+  const providerId = String((modelConfig as any)?.providerId || "")
+    .trim()
+    .toLowerCase();
+
+  if (!profileId && !providerId) {
+    return undefined;
+  }
+
+  return accessStore.apiProfiles.find((profile) => {
+    if (profile.provider !== ServiceProvider.Custom) {
+      return false;
+    }
+    if (profileId && profile.id === profileId) {
+      return true;
+    }
+    return providerId && getAccessProviderId(profile) === providerId;
+  });
+}
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -775,13 +806,18 @@ function normalizeSearchContextSize(size: string | undefined) {
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
-  path(path: string): string {
+  path(path: string, modelConfig?: Partial<ChatOptions["config"]>): string {
     const accessStore = useAccessStore.getState() as any;
     const configStore = useChatStore.getState();
     const currentProvider = normalizeServiceProvider(
-      configStore.currentSession().mask.modelConfig.providerName,
+      modelConfig?.providerName ||
+        configStore.currentSession().mask.modelConfig.providerName,
       accessStore.useCustomConfig,
     );
+    const configuredCustomProfile =
+      currentProvider === ServiceProvider.Custom
+        ? getCustomProfileForModelConfig(accessStore, modelConfig)
+        : undefined;
 
     let baseUrl = "";
 
@@ -807,7 +843,7 @@ export class ChatGPTApi implements LLMApi {
         currentProvider === ServiceProvider.Custom &&
         accessStore.customOpenAICompatible
       ) {
-        baseUrl = accessStore.customUrl;
+        baseUrl = configuredCustomProfile?.baseUrl || accessStore.customUrl;
       } else {
         baseUrl = isAzure ? accessStore.azureUrl : accessStore.openaiUrl;
       }
@@ -1074,9 +1110,14 @@ export class ChatGPTApi implements LLMApi {
     const isVideoModel = isVideoGenerationModel(requestedModel);
     const isGeminiImagePreview = isGeminiImagePreviewModel(requestedModel);
     const currentAccessState = useAccessStore.getState();
+    const currentCustomProfileForRequest =
+      modelConfig.providerName === ServiceProvider.Custom
+        ? getCustomProfileForModelConfig(currentAccessState, modelConfig)
+        : undefined;
     const currentBaseUrlForRequest =
       modelConfig.providerName === ServiceProvider.Custom
-        ? currentAccessState.customUrl
+        ? currentCustomProfileForRequest?.baseUrl ||
+          currentAccessState.customUrl
         : modelConfig.providerName === ServiceProvider.Azure
         ? currentAccessState.azureUrl
         : currentAccessState.openaiUrl;
@@ -1364,6 +1405,7 @@ export class ChatGPTApi implements LLMApi {
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
+          modelConfig,
         );
       } else {
         chatPath = this.path(
@@ -1374,6 +1416,7 @@ export class ChatGPTApi implements LLMApi {
             : isImageModel && !isGeminiImagePreview
             ? OpenaiPath.ImagePath
             : OpenaiPath.ChatPath,
+          modelConfig,
         );
       }
 
@@ -1577,6 +1620,8 @@ export class ChatGPTApi implements LLMApi {
         // YutoAPI 降级重试：检测到任何失败都尝试下一个 API key
         const fallbackApiKeys: string[] =
           (requestHeaders as any)["x-fallback-api-keys"] || [];
+        const fallbackApiKeyGroups: string[] =
+          (requestHeaders as any)["x-fallback-api-key-groups"] || [];
         const supportsGrouping = supportsApiKeyGrouping(chatPath);
         chatPath.includes("cn.gptapi.asia") || chatPath.includes("gptapi.asia");
         let retryCount = 0;
@@ -1684,7 +1729,7 @@ export class ChatGPTApi implements LLMApi {
           }
           if (videoTaskId && isPendingTaskStatus(status)) {
             resJson = await pollAiHubMixTask(
-              this.path(`v1/videos/${videoTaskId}`),
+              this.path(`v1/videos/${videoTaskId}`, modelConfig),
               requestHeaders,
               controller,
               (payload) => {
@@ -1700,6 +1745,7 @@ export class ChatGPTApi implements LLMApi {
           ) {
             const contentUrl = this.path(
               `v1/videos/${completedVideoTaskId}/content`,
+              modelConfig,
             );
             options.onUpdate?.(
               `视频任务已完成，正在拉取内容...\n${contentUrl}`,
@@ -1721,6 +1767,14 @@ export class ChatGPTApi implements LLMApi {
         }
         if (resJson?.usage) {
           (res as any).__usage = resJson.usage;
+        }
+        if (res.ok && supportsGrouping && fallbackApiKeyGroups[retryCount]) {
+          rememberSuccessfulCustomModelApiKeyGroup({
+            modelName: modelConfig.model,
+            groupName: fallbackApiKeyGroups[retryCount],
+            profileId: (requestHeaders as any)["x-api-key-profile-id"],
+            providerId: (requestHeaders as any)["x-api-key-provider-id"],
+          });
         }
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);

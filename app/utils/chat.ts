@@ -73,6 +73,8 @@ const INTERNAL_CHAT_HEADER_KEYS = new Set([
   "x-fallback-api-keys",
   "x-fallback-api-key-groups",
   "x-remembered-api-key-group",
+  "x-api-key-profile-id",
+  "x-api-key-provider-id",
 ]);
 
 export function stripInternalChatHeaders<T extends Record<string, any>>(
@@ -108,6 +110,7 @@ function rememberApiKeyGroupIfNeeded(
   chatPath: string,
   fallbackApiKeyGroups: string[],
   currentKeyIndex: number,
+  headers: any,
   options: any,
   finalText: string,
 ) {
@@ -123,6 +126,8 @@ function rememberApiKeyGroupIfNeeded(
   rememberSuccessfulCustomModelApiKeyGroup({
     modelName: options?.config?.model,
     groupName: currentGroup,
+    profileId: headers["x-api-key-profile-id"],
+    providerId: headers["x-api-key-provider-id"],
   });
 }
 
@@ -541,6 +546,7 @@ export function stream(
         chatPath,
         fallbackApiKeyGroups,
         currentKeyIndex,
+        headers,
         options,
         responseText + remainText,
       );
@@ -948,6 +954,7 @@ export function streamWithThink(
         chatPath,
         fallbackApiKeyGroups,
         currentKeyIndex,
+        headers,
         options,
         responseText + remainText,
       );

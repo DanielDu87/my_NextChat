@@ -4,6 +4,8 @@ import { useAppConfig } from "@/app/store/config";
 import { useAccessStore } from "@/app/store/access";
 import { runWithImmediateStoreSyncPaused } from "@/app/utils/store";
 
+const API_KEY_GROUP_MEMORY_STORAGE_KEY = "nextchat:api-key-group-memory";
+
 type CustomProfile = {
   id: string;
   name: string;
@@ -73,6 +75,55 @@ function getProviderIdForProfile(profile: Pick<CustomProfile, "name">) {
   return `custom_${profile.name}`.toLowerCase();
 }
 
+function getMemoryKey(
+  profile: Pick<CustomProfile, "id" | "name">,
+  modelName: string,
+) {
+  const profileKey = String(profile.id || profile.name || "").trim();
+  return `${profileKey}:${String(modelName || "").trim()}`.toLowerCase();
+}
+
+function readApiKeyGroupMemory(): Record<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(
+      API_KEY_GROUP_MEMORY_STORAGE_KEY,
+    );
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeApiKeyGroupMemory(memory: Record<string, string>) {
+  try {
+    globalThis.localStorage?.setItem(
+      API_KEY_GROUP_MEMORY_STORAGE_KEY,
+      JSON.stringify(memory),
+    );
+  } catch {
+    // localStorage 不可用时跳过，保留原有模型配置记忆逻辑。
+  }
+}
+
+function getRememberedApiKeyGroup(
+  profile: Pick<CustomProfile, "id" | "name">,
+  modelName: string,
+) {
+  return readApiKeyGroupMemory()[getMemoryKey(profile, modelName)];
+}
+
+function setRememberedApiKeyGroup(params: {
+  profile: Pick<CustomProfile, "id" | "name">;
+  modelName: string;
+  groupName: string;
+}) {
+  const memory = readApiKeyGroupMemory();
+  memory[getMemoryKey(params.profile, params.modelName)] = params.groupName;
+  writeApiKeyGroupMemory(memory);
+}
+
 export function getCustomModelApiKeySelection(
   modelName: string,
   profile: CustomProfile | undefined,
@@ -121,11 +172,13 @@ export function getCustomModelApiKeySelection(
     fallbackApiKeyGroups.push(groupName);
   };
 
-  const matchedGroup = matchedModel?.apiKeyGroup;
+  const rememberedGroup = getRememberedApiKeyGroup(profile, modelName);
+  const matchedGroup = rememberedGroup || matchedModel?.apiKeyGroup;
   const hasMatchedGroup =
     Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
 
   console.log("[API Key Memory] 记忆分组检查", {
+    rememberedGroup,
     matchedGroup,
     hasMatchedGroup,
     hasKeyInGroup: Boolean(matchedGroup && groupedKeys[matchedGroup as string]),
@@ -157,8 +210,15 @@ export function getCustomModelApiKeySelection(
 export function rememberSuccessfulCustomModelApiKeyGroup(params: {
   modelName?: string;
   groupName?: string;
+  profileId?: string;
+  providerId?: string;
 }) {
-  const { modelName, groupName } = params;
+  const {
+    modelName,
+    groupName,
+    profileId,
+    providerId: targetProviderId,
+  } = params;
   if (!modelName || !groupName) {
     console.log("[API Key Memory] 记忆失败：缺少参数", {
       modelName,
@@ -173,12 +233,18 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
   });
 
   const accessStore = useAccessStore.getState();
-  const enabledCustomProfile = accessStore.apiProfiles.find(
-    (profile) =>
-      profile.enabled &&
+  const enabledCustomProfile = accessStore.apiProfiles.find((profile) => {
+    const profileProviderId = getProviderIdForProfile(profile);
+    const matchedByRequest =
+      (profileId && profile.id === profileId) ||
+      (targetProviderId &&
+        profileProviderId === targetProviderId.toLowerCase());
+    return (
       profile.provider === ServiceProvider.Custom &&
-      profile.baseUrl,
-  );
+      profile.baseUrl &&
+      (matchedByRequest || (!profileId && !targetProviderId && profile.enabled))
+    );
+  });
 
   if (
     !enabledCustomProfile ||
@@ -193,6 +259,12 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     return;
   }
 
+  setRememberedApiKeyGroup({
+    profile: enabledCustomProfile,
+    modelName,
+    groupName,
+  });
+
   const configStore = useAppConfig.getState() as any;
   const providerId = getProviderIdForProfile(enabledCustomProfile);
   const targetIndex = (configStore.models || []).findIndex(
@@ -201,11 +273,14 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
   );
 
   if (targetIndex < 0) {
-    console.log("[API Key Memory] 记忆失败：未找到模型", {
-      modelName,
-      providerId,
-      totalModels: (configStore.models || []).length,
-    });
+    console.log(
+      "[API Key Memory] localStorage 分组记忆已保存，跳过模型配置更新",
+      {
+        modelName,
+        providerId,
+        totalModels: (configStore.models || []).length,
+      },
+    );
     return;
   }
 

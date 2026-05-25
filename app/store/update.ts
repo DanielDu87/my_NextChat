@@ -519,7 +519,7 @@ export function getCustomProfileBalanceRefreshDelay(
   if (normalizedName === "aihubmix") {
     return 6000;
   }
-  if (normalizedName === "yutoapi" || normalizedName === "toapis") {
+  if (normalizedName === "yutoapi") {
     return 0;
   }
   return null;

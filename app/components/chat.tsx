@@ -2680,6 +2680,7 @@ function _Chat() {
     (!criticalSyncReady || criticalSyncInProgress);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const historyAutoBottomSessionRef = useRef("");
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
         scrollRef.current.scrollHeight -
@@ -2739,13 +2740,10 @@ function _Chat() {
   const [attachImages, setAttachImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const lastAssistantSignatureRef = useRef("");
-  const lastCompletedAssistantRef = useRef("");
   const streamingScrollResumeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
   const streamingAutoScrollPausedRef = useRef(false);
-  const [balanceRefreshSignal, setBalanceRefreshSignal] = useState("");
-  const lastBalanceRefreshTargetRef = useRef("");
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -4393,6 +4391,38 @@ function _Chat() {
   }, [renderMessages.length, scrollDomToBottom, setMsgRenderIndex]);
 
   useEffect(() => {
+    if (
+      sessionLoading ||
+      !safeSession.id ||
+      historyAutoBottomSessionRef.current === safeSession.id ||
+      !currentSessionHasMessages
+    ) {
+      return;
+    }
+
+    historyAutoBottomSessionRef.current = safeSession.id;
+    setAutoScroll(true);
+    setHitBottom(true);
+    scrollToBottom();
+
+    const timers = [120, 360].map((delay) =>
+      setTimeout(() => {
+        scrollToBottom();
+      }, delay),
+    );
+
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, [
+    currentSessionHasMessages,
+    safeSession.id,
+    scrollToBottom,
+    sessionLoading,
+    setAutoScroll,
+  ]);
+
+  useEffect(() => {
     const lastAssistantMessage = [...sessionMessages]
       .reverse()
       .find((message) => message.role === "assistant");
@@ -4478,80 +4508,6 @@ function _Chat() {
       clearStreamingScrollResumeTimer();
     };
   }, [clearStreamingScrollResumeTimer]);
-
-  const lastCompletedAssistantMessage = useMemo(
-    () =>
-      [...sessionMessages]
-        .reverse()
-        .find(
-          (message) =>
-            message.role === "assistant" &&
-            !message.streaming &&
-            String(message.content).length > 0,
-        ) || null,
-    [sessionMessages],
-  );
-
-  const completedAssistantRefreshSignal = useMemo(() => {
-    if (
-      !lastCompletedAssistantMessage ||
-      lastCompletedAssistantMessage.isError
-    ) {
-      return "";
-    }
-
-    return `${lastCompletedAssistantMessage.id}:${lastCompletedAssistantMessage.date}:${currentBalanceCacheKey}`;
-  }, [currentBalanceCacheKey, lastCompletedAssistantMessage]);
-
-  useEffect(() => {
-    if (
-      completedAssistantRefreshSignal &&
-      completedAssistantRefreshSignal !== lastCompletedAssistantRef.current
-    ) {
-      setBalanceRefreshSignal(completedAssistantRefreshSignal);
-      lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
-      return;
-    }
-
-    lastCompletedAssistantRef.current = completedAssistantRefreshSignal;
-  }, [completedAssistantRefreshSignal]);
-
-  useEffect(() => {
-    if (
-      !lastCompletedAssistantMessage ||
-      lastCompletedAssistantMessage.isError ||
-      sessionMessages.length === 0 ||
-      !balanceProviderName ||
-      !currentBalanceCacheKey ||
-      (syncProvider === ProviderType.Database &&
-        (!criticalSyncReady || criticalSyncInProgress))
-    ) {
-      return;
-    }
-
-    const refreshTarget = `${lastCompletedAssistantMessage.id}:${currentBalanceCacheKey}`;
-    if (lastBalanceRefreshTargetRef.current === refreshTarget) {
-      return;
-    }
-    lastBalanceRefreshTargetRef.current = refreshTarget;
-
-    void useUpdateStore
-      .getState()
-      .updateUsage(
-        true,
-        balanceProviderName as ServiceProvider,
-        balanceProfile as BalanceAwareProfile | undefined,
-      );
-  }, [
-    balanceProfile,
-    balanceProviderName,
-    criticalSyncInProgress,
-    criticalSyncReady,
-    currentBalanceCacheKey,
-    lastCompletedAssistantMessage,
-    sessionMessages.length,
-    syncProvider,
-  ]);
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
@@ -5307,7 +5263,7 @@ function _Chat() {
                   <ChatProviderBalance
                     providerName={balanceProviderName as ServiceProvider}
                     providerDisplayName={balanceProviderDisplayName}
-                    refreshSignal={balanceRefreshSignal}
+                    refreshSignal=""
                     balanceCacheKey={currentBalanceCacheKey}
                     profile={balanceProfile as BalanceAwareProfile | undefined}
                     deferInitialRefresh={sessionMessages.length === 0}

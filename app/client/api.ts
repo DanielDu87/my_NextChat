@@ -32,6 +32,36 @@ type ModelProviderValue = (typeof ModelProvider)[keyof typeof ModelProvider];
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 
+function getAccessProviderId(profile: { provider: string; name: string }) {
+  return profile.provider === ServiceProvider.Custom
+    ? `custom_${profile.name}`.toLowerCase()
+    : String(profile.provider || "").toLowerCase();
+}
+
+function getCustomProfileForModelConfig(
+  accessStore: ReturnType<typeof useAccessStore.getState>,
+  modelConfig: Partial<LLMConfig>,
+) {
+  const profileId = String((modelConfig as any)?.profileId || "").trim();
+  const providerId = String((modelConfig as any)?.providerId || "")
+    .trim()
+    .toLowerCase();
+
+  if (!profileId && !providerId) {
+    return undefined;
+  }
+
+  return accessStore.apiProfiles.find((profile) => {
+    if (profile.provider !== ServiceProvider.Custom) {
+      return false;
+    }
+    if (profileId && profile.id === profileId) {
+      return true;
+    }
+    return providerId && getAccessProviderId(profile) === providerId;
+  });
+}
+
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
 
@@ -375,8 +405,14 @@ export function getHeaders(
       return profile.apiKey === accessStore.customApiKey;
     });
 
+    const configuredCustomProfile = isCustom
+      ? getCustomProfileForModelConfig(accessStore, modelConfig)
+      : undefined;
     const currentCustomProfile =
-      activeCustomProfile ?? enabledCustomProfile ?? undefined;
+      configuredCustomProfile ??
+      activeCustomProfile ??
+      enabledCustomProfile ??
+      undefined;
     const enabledLocalProfile = accessStore.apiProfiles.find(
       (profile) =>
         profile.enabled &&
@@ -566,6 +602,10 @@ export function getHeaders(
   if (shouldEnableFallbackApiKeys) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
+    (headers as any)["x-api-key-profile-id"] = currentCustomProfile?.id || "";
+    (headers as any)["x-api-key-provider-id"] = currentCustomProfile?.name
+      ? `custom_${currentCustomProfile.name}`.toLowerCase()
+      : "";
     console.log("[API Headers] 已添加 fallback keys:", {
       keysCount: fallbackApiKeys.length,
       groupsCount: fallbackApiKeyGroups.length,

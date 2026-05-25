@@ -83,6 +83,7 @@ import {
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
+const AUTO_TITLE_REFRESH_USER_TEXT_THRESHOLD = 50;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
 const pendingSessionRefreshTimers = new Map<
@@ -318,7 +319,7 @@ function refreshBalanceAfterChat(
 
   void useUpdateStore
     .getState()
-    .updateUsage(true, providerName, profile)
+    .updateUsage(false, providerName, profile)
     .catch((error) => {
       logger.chat.warn(
         "[BalanceRefresh] update after chat failed",
@@ -1663,6 +1664,34 @@ function canAutoGenerateSessionTitle(messages: ChatMessage[]) {
   }
 
   return hasUserMessage && lastCompletedAssistantMessage;
+}
+
+function shouldAutoRefreshSessionTitle(session: ChatSession) {
+  const messages = session.messages;
+  if (!canAutoGenerateSessionTitle(messages)) {
+    return false;
+  }
+
+  const userMessages = messages.filter(
+    (message) =>
+      !message.isError &&
+      message.role === "user" &&
+      Boolean(getMessageTextContent(message).trim()),
+  );
+  const latestUserMessage = userMessages.at(-1);
+
+  if (!latestUserMessage) {
+    return false;
+  }
+
+  if (userMessages.length <= 1) {
+    return true;
+  }
+
+  return (
+    getMessageTextContent(latestUserMessage).trim().length >
+    AUTO_TITLE_REFRESH_USER_TEXT_THRESHOLD
+  );
 }
 
 function getMessageIconModel(
@@ -3440,7 +3469,7 @@ export const useChatStore = createPersistStore(
 
         if (
           config.enableAutoGenerateTitle &&
-          canAutoGenerateSessionTitle(messages)
+          shouldAutoRefreshSessionTitle(session)
         ) {
           const startIndex = Math.max(
             0,

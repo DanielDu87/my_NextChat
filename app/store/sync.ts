@@ -989,11 +989,13 @@ function normalizeMergedChatState(chatState: any) {
     return false;
   };
 
-  // 保留规则：有完整消息的 + 占位符（远端有数据但未下载） + 唯一一个默认空对话
+  // 保留规则：有完整消息的 + 占位符（远端有数据但未下载） + 当前选中的空对话 + 唯一一个默认空对话
   let foundDefaultEmpty = false;
   const sessions = rawSessions.filter((session: any) => {
+    const sessionId = String(session?.id || "");
     if (hasBothSides(session)) return true;
     if (isPlaceholder(session)) return true;
+    if (selectedId && sessionId === selectedId) return true;
     if (isDefaultEmptyChatSession(session) && !foundDefaultEmpty) {
       foundDefaultEmpty = true;
       return true;
@@ -2209,28 +2211,44 @@ export const useSyncStore = createPersistStore(
       // 1. 在远端索引有记录但 messageCount=0（曾同步过的空会话）
       // 2. 不在远端索引但在数据库里存在的空会话（通过 deleteSessionIds 清理）
       const mergedSummaryMap = createSessionSummaryMap(mergedStoreState);
-      const orphanSessionIds = new Set<string>(
-        (Array.isArray((mergedStoreState as any)?.sessions)
-          ? (mergedStoreState as any).sessions
-          : []
-        )
-          .filter((session: any) => {
-            const sessionId = String(session?.id || "");
-            if (!sessionId) return false;
-            const messages = Array.isArray(session?.messages)
-              ? session.messages
-              : [];
-            if (messages.length > 0) return false;
-            const remoteEntry = remoteEntryMap.get(sessionId);
-            const remoteMessageCount = Number(remoteEntry?.messageCount || 0);
-            const localSummaryCount = Number(
-              mergedSummaryMap.get(sessionId)?.messageCount || 0,
-            );
-            // 本地和远端都没有消息内容
-            return remoteMessageCount === 0 && localSummaryCount === 0;
-          })
-          .map((session: any) => String(session.id)),
+      const selectedSessionId = String(
+        materializedLocalChatState?.selectedSessionId ||
+          materializedLocalChatState?.sessions?.[
+            Math.max(
+              0,
+              Number(materializedLocalChatState?.currentSessionIndex) || 0,
+            )
+          ]?.id ||
+          "",
       );
+      const orphanSessionIds = hasPendingChatRequest
+        ? new Set<string>()
+        : new Set<string>(
+            (Array.isArray((mergedStoreState as any)?.sessions)
+              ? (mergedStoreState as any).sessions
+              : []
+            )
+              .filter((session: any) => {
+                const sessionId = String(session?.id || "");
+                if (!sessionId) return false;
+                // 当前正在聚焦的会话即使暂时还是空的，也不能在同步里当作孤儿删掉。
+                if (sessionId === selectedSessionId) return false;
+                const messages = Array.isArray(session?.messages)
+                  ? session.messages
+                  : [];
+                if (messages.length > 0) return false;
+                const remoteEntry = remoteEntryMap.get(sessionId);
+                const remoteMessageCount = Number(
+                  remoteEntry?.messageCount || 0,
+                );
+                const localSummaryCount = Number(
+                  mergedSummaryMap.get(sessionId)?.messageCount || 0,
+                );
+                // 本地和远端都没有消息内容
+                return remoteMessageCount === 0 && localSummaryCount === 0;
+              })
+              .map((session: any) => String(session.id)),
+          );
       if (orphanSessionIds.size > 0) {
         const orphanSessionLabels = [...orphanSessionIds].map((sessionId) => {
           const session = (mergedStoreState as any).sessions?.find(
@@ -2241,25 +2259,10 @@ export const useSyncStore = createPersistStore(
             session?.topic || mergedSummaryMap.get(sessionId)?.topic,
           );
         });
-        syncConsole(
-          "log",
-          `[Sync] 🧹 清理孤儿会话 ${
+        logSyncDebug(
+          `[Sync] 🧹 标记远端孤儿会话 ${
             orphanSessionIds.size
           } 个：${formatLimitedSessionLabels(orphanSessionLabels)}`,
-        );
-        (mergedStoreState as any).sessions = (
-          Array.isArray((mergedStoreState as any)?.sessions)
-            ? (mergedStoreState as any).sessions
-            : []
-        ).filter(
-          (session: any) => !orphanSessionIds.has(String(session?.id || "")),
-        );
-        (mergedStoreState as any).sessionSummaries = (
-          Array.isArray((mergedStoreState as any)?.sessionSummaries)
-            ? (mergedStoreState as any).sessionSummaries
-            : []
-        ).filter(
-          (summary: any) => !orphanSessionIds.has(String(summary?.id || "")),
         );
       }
 
@@ -3188,6 +3191,14 @@ export const useSyncStore = createPersistStore(
                         删除会话数: chatResult.metrics.deletedSessionCount,
                       },
                     );
+
+                    if (ChatControllerPool.hasPending()) {
+                      syncConsole(
+                        "warn",
+                        "[Sync] ⚠️ 跳过会话写回: hasPendingChatRequest=true（用户正在对话中）",
+                      );
+                      continue;
+                    }
 
                     setLocalStoreState(key, appliedChatState as any);
                     localAppStateCache[key] = appliedChatState as any;
