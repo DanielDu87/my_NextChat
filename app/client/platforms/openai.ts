@@ -446,6 +446,99 @@ function toVideoMarkdown(url: string) {
   return `[Generated Video](${url})`;
 }
 
+function toMediaItems(value: any) {
+  if (!value) {
+    return [];
+  }
+  return Array.isArray(value) ? value : [value];
+}
+
+function getStringField(value: any, keys: string[]) {
+  if (typeof value === "string") {
+    return value;
+  }
+  for (const key of keys) {
+    const fieldValue = value?.[key];
+    if (typeof fieldValue === "string" && fieldValue.length > 0) {
+      return fieldValue;
+    }
+    if (
+      fieldValue &&
+      typeof fieldValue === "object" &&
+      typeof fieldValue.url === "string" &&
+      fieldValue.url.length > 0
+    ) {
+      return fieldValue.url;
+    }
+    if (
+      fieldValue &&
+      typeof fieldValue === "object" &&
+      typeof fieldValue.bytesBase64 === "string" &&
+      fieldValue.bytesBase64.length > 0
+    ) {
+      return fieldValue.bytesBase64;
+    }
+    if (Array.isArray(fieldValue)) {
+      if (typeof fieldValue[0] === "string") {
+        return fieldValue[0];
+      }
+      const nestedValue = getStringField(fieldValue[0], [
+        "url",
+        "image_url",
+        "imageUrl",
+        "image",
+        "b64_json",
+        "b64",
+        "base64",
+        "bytesBase64",
+      ]);
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+  }
+  return "";
+}
+
+async function buildImageContentsFromMediaItems(items: any[]) {
+  const contents: MultimodalContent[] = [];
+
+  for (const item of items) {
+    const imageUrl = getStringField(item, [
+      "url",
+      "image_url",
+      "imageUrl",
+      "image",
+    ]);
+    const b64Json = getStringField(item, [
+      "b64_json",
+      "b64",
+      "base64",
+      "bytesBase64",
+    ]);
+
+    if (imageUrl && !isVideoUrl(imageUrl)) {
+      contents.push({
+        type: "image_url",
+        image_url: { url: imageUrl },
+      });
+      continue;
+    }
+
+    if (b64Json) {
+      const url = b64Json.startsWith("data:image/")
+        ? b64Json
+        : await uploadImage(base64Image2Blob(b64Json, "image/png"));
+      contents.push({
+        type: "image_url",
+        image_url: { url },
+      });
+    }
+  }
+
+  return contents;
+}
+
 const runtimeBlobUrls = new Set<string>();
 
 export function rememberRuntimeBlobUrl(url: string) {
@@ -894,27 +987,19 @@ export class ChatGPTApi implements LLMApi {
     }
     // dalle3 model return url, using url create image message
     if (res.data) {
-      let url = res.data?.at(0)?.url ?? "";
+      const mediaItems = toMediaItems(res.data);
+      const firstItem = mediaItems[0];
+      let url = getStringField(firstItem, ["url", "image_url", "imageUrl"]);
       const videoUrl =
-        res.data?.at(0)?.video_url ||
-        res.data?.at(0)?.videoUrl ||
+        getStringField(firstItem, ["video_url", "videoUrl"]) ||
         (isVideoUrl(url) ? url : "");
-      const b64_json = res.data?.at(0)?.b64_json ?? "";
       if (videoUrl) {
         return toVideoMarkdown(videoUrl);
       }
-      if (!url && b64_json) {
-        // uploadImage
-        url = await uploadImage(base64Image2Blob(b64_json, "image/png"));
+      const imageContents = await buildImageContentsFromMediaItems(mediaItems);
+      if (imageContents.length > 0) {
+        return imageContents;
       }
-      return [
-        {
-          type: "image_url",
-          image_url: {
-            url,
-          },
-        },
-      ];
     }
     if (Array.isArray(res.output) && res.output.length > 0) {
       const first = res.output[0];
@@ -955,6 +1040,10 @@ export class ChatGPTApi implements LLMApi {
       if (first?.polling_url) {
         return `图像生成任务已创建：${first.polling_url}`;
       }
+      const imageContents = await buildImageContentsFromMediaItems(res.output);
+      if (imageContents.length > 0) {
+        return imageContents;
+      }
     }
     if (res.output && typeof res.output === "object") {
       const outputVideoUrl =
@@ -966,12 +1055,12 @@ export class ChatGPTApi implements LLMApi {
         res.output?.urls?.[0] ||
         "";
       const outputError = res.output?.content_error;
-      const outputB64 =
-        res.output?.b64_json?.[0] ||
-        res.output?.b64_json ||
-        res.output?.b64?.[0] ||
-        res.output?.b64 ||
-        "";
+      const outputB64 = getStringField(res.output, [
+        "b64_json",
+        "b64",
+        "base64",
+        "bytesBase64",
+      ]);
       if (typeof outputVideoUrl === "string" && outputVideoUrl.length > 0) {
         return toVideoMarkdown(outputVideoUrl);
       }
@@ -1042,7 +1131,14 @@ export class ChatGPTApi implements LLMApi {
         return contents;
       }
     }
-    return res.choices?.at(0)?.message?.content ?? res;
+    const content = res.choices?.at(0)?.message?.content;
+    if (content) {
+      return content;
+    }
+    if (res && typeof res === "object") {
+      return "```\n" + JSON.stringify(res, null, 4) + "\n```";
+    }
+    return res;
   }
 
   async speech(options: SpeechOptions): Promise<ArrayBuffer> {

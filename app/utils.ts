@@ -431,7 +431,7 @@ export function getModelSizes(model: string): ModelSize[] {
 
 export function getSupportedImageQualityOptions(model: string): DalleQuality[] {
   const lowerModel = model.toLowerCase();
-  if (lowerModel.includes("gpt-image-1.5")) {
+  if (lowerModel.includes("gpt-image-")) {
     return ["auto", "low", "medium", "high"];
   }
   if (lowerModel.includes("dall-e-3")) {
@@ -513,7 +513,7 @@ export function normalizeImageQuality(
   preferredQuality?: string,
 ): string {
   const lowerModel = model.toLowerCase();
-  if (lowerModel.includes("gpt-image-1.5")) {
+  if (lowerModel.includes("gpt-image-")) {
     if (!preferredQuality || preferredQuality === "standard") {
       return "auto";
     }

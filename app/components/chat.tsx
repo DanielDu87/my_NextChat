@@ -177,6 +177,10 @@ import {
   runWithImmediateStoreSyncPausedSync,
 } from "../utils/store";
 import { prettyObject } from "../utils/format";
+import {
+  readManualSessionModelSelection,
+  saveManualSessionModelSelection,
+} from "../utils/manual-model-selection";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
 import { getProviderIcon } from "../config/provider-icons";
@@ -3994,6 +3998,9 @@ function _Chat() {
   useEffect(() => {
     let nextModelConfig = sessionMask.modelConfig;
     let shouldSyncMaskConfig = false;
+    const manualSessionModelSelection = readManualSessionModelSelection(
+      session.id,
+    );
     const preferredRuntimeModelConfig =
       sessionMask.syncGlobalConfig &&
       !autoModeEnabled &&
@@ -4017,7 +4024,22 @@ function _Chat() {
 
     // 仅在空白会话时把全局模型配置下发到当前会话。
     // 一旦已经开始对话，继续自动回写会把会话模型在发送后覆盖成全局值。
-    if (sessionMask.syncGlobalConfig && !currentSessionHasMessages) {
+    if (
+      manualSessionModelSelection &&
+      !areModelConfigValuesEqual(
+        sessionMask.modelConfig as Record<string, unknown>,
+        {
+          ...sessionMask.modelConfig,
+          ...manualSessionModelSelection,
+        } as Record<string, unknown>,
+      )
+    ) {
+      nextModelConfig = sanitizeModelConfigForCapability({
+        ...sessionMask.modelConfig,
+        ...manualSessionModelSelection,
+      });
+      shouldSyncMaskConfig = true;
+    } else if (sessionMask.syncGlobalConfig && !currentSessionHasMessages) {
       nextModelConfig = { ...config.modelConfig };
       if (
         autoModeEnabled &&
@@ -4152,11 +4174,16 @@ function _Chat() {
   };
 
   const onResend = (message: ChatMessage) => {
+    if (isSyncBlocking) {
+      showToast("模型配置同步中，完成后再重试");
+      return;
+    }
+
     // when it is resending a message
     // 1. for a user's message, find the next bot response
     // 2. for a bot's message, find the last user's input
-    // 3. delete original user input and bot's message
-    // 4. resend the user's input
+    // 3. delete original bot response only
+    // 4. resend by reusing the existing user input
 
     const resendingIndex = sessionMessages.findIndex(
       (m) => m.id === message.id,
@@ -4195,15 +4222,18 @@ function _Chat() {
       return;
     }
 
-    // delete the original messages
-    deleteMessage(userMessage.id);
+    // 保留原用户消息，只移除旧的 AI 回复，避免重试时用户输入闪烁。
     deleteMessage(botMessage?.id);
 
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
     const images = getMessageImages(userMessage);
-    chatStore.onUserInput(textContent, images).then(() => setIsLoading(false));
+    chatStore
+      .onUserInput(textContent, images, undefined, {
+        reuseUserMessageId: userMessage.id,
+      })
+      .then(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -4701,6 +4731,13 @@ function _Chat() {
               session.mask.modelConfig,
             );
             session.mask.syncGlobalConfig = false;
+          });
+          saveManualSessionModelSelection(latestSession.id, {
+            ...latestSession.mask.modelConfig,
+            model: nextModel.name,
+            providerName: profile.provider,
+            providerId: selectedProviderId,
+            profileId: profile.id || "",
           });
 
           // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次切换的供应商/模型，
@@ -5308,10 +5345,16 @@ function _Chat() {
                     const isUser = message.role === "user";
                     const isContext = i < context.length;
                     const messageTextContent = getMessageTextContent(message);
+                    const messageImages = getMessageImages(message);
+                    const isEmptyUserMessage =
+                      isUser &&
+                      messageTextContent.length === 0 &&
+                      messageImages.length === 0;
                     const showActions =
                       i > 0 &&
-                      !(message.preview || messageTextContent.length === 0) &&
-                      !isContext;
+                      !message.preview &&
+                      !isContext &&
+                      !isEmptyUserMessage;
                     const showTyping = message.preview || message.streaming;
                     const messageUsageText = formatMessageUsage(message.usage);
 
@@ -5423,11 +5466,13 @@ function _Chat() {
                                       />
                                     ) : (
                                       <>
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Retry}
-                                          icon={<ResetIcon />}
-                                          onClick={() => onResend(message)}
-                                        />
+                                        {!isSyncBlocking && (
+                                          <ChatAction
+                                            text={Locale.Chat.Actions.Retry}
+                                            icon={<ResetIcon />}
+                                            onClick={() => onResend(message)}
+                                          />
+                                        )}
 
                                         <ChatAction
                                           text={Locale.Chat.Actions.Delete}
@@ -5523,30 +5568,27 @@ function _Chat() {
                                 parentRef={scrollRef}
                                 defaultShow={i >= messages.length - 6}
                               />
-                              {getMessageImages(message).length == 1 &&
+                              {messageImages.length == 1 &&
                                 renderGeneratedMedia(
-                                  getMessageImages(message)[0],
+                                  messageImages[0],
                                   styles["chat-message-item-image"],
                                 )}
-                              {getMessageImages(message).length > 1 && (
+                              {messageImages.length > 1 && (
                                 <div
                                   className={styles["chat-message-item-images"]}
                                   style={
                                     {
-                                      "--image-count":
-                                        getMessageImages(message).length,
+                                      "--image-count": messageImages.length,
                                     } as React.CSSProperties
                                   }
                                 >
-                                  {getMessageImages(message).map(
-                                    (image, index) => {
-                                      return renderGeneratedMedia(
-                                        image,
-                                        styles["chat-message-item-image-multi"],
-                                        index,
-                                      );
-                                    },
-                                  )}
+                                  {messageImages.map((image, index) => {
+                                    return renderGeneratedMedia(
+                                      image,
+                                      styles["chat-message-item-image-multi"],
+                                      index,
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -6097,20 +6139,20 @@ function _Chat() {
               session.mask.modelConfig = nextModelConfig;
               session.mask.syncGlobalConfig = false;
             });
+            saveManualSessionModelSelection(session.id, {
+              ...nextModelConfig,
+              providerId: selectedProviderId,
+              profileId: selectedProfile?.id || "",
+            });
 
-            // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次选择，
-            // 并通过 Config store 跨浏览器同步当前供应商。
-            // 手动选择非 OpenAI 模型只影响当前会话；其他浏览器仍按供应商自动使用最新 OpenAI 模型。
+            // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次手动选择，
+            // 并通过 Config store 跨浏览器同步当前供应商/模型。
             runWithImmediateStoreSyncPausedSync(() => {
               useAppConfig.getState().update((config) => {
                 config.modelConfig = sanitizeModelConfigForCapability({
                   ...config.modelConfig,
-                  model:
-                    (latestOpenAIModelForSyncedSelection?.model as ModelType) ||
-                    nextModelConfig.model,
-                  providerName:
-                    (latestOpenAIModelForSyncedSelection?.providerName as ServiceProvider) ||
-                    nextModelConfig.providerName,
+                  model: nextModelConfig.model,
+                  providerName: nextModelConfig.providerName,
                 });
                 (config.modelConfig as any).providerId = selectedProviderId;
                 (config.modelConfig as any).profileId =

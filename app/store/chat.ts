@@ -36,6 +36,7 @@ import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { logPerfSummary, nowMs } from "../utils/perf";
 import { logger } from "../utils/logger";
+import { readManualSessionModelSelection } from "../utils/manual-model-selection";
 import {
   DEFAULT_TOPIC,
   getBotHelloContent,
@@ -1427,18 +1428,64 @@ function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
   return `${model}@${provider}`;
 }
 
-function isApiFailurePayload(message: string) {
+function getApiFailurePayloadText(message: unknown) {
+  if (typeof message === "string") {
+    return message;
+  }
+
+  if (Array.isArray(message)) {
+    return message
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item?.type === "text" && typeof item.text === "string") {
+          return item.text;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (message && typeof message === "object" && "error" in message) {
+    try {
+      return JSON.stringify(message);
+    } catch {
+      return String((message as { error?: unknown }).error || "");
+    }
+  }
+
+  return "";
+}
+
+function isApiFailurePayload(message: unknown) {
+  const failureText = getApiFailurePayloadText(message);
+  if (!failureText) {
+    return false;
+  }
+
   try {
-    const parsed = JSON.parse(message);
+    const parsed = JSON.parse(failureText);
     return Boolean(parsed?.error);
   } catch {
-    const lowerMessage = message.toLowerCase();
+    const lowerMessage = failureText.toLowerCase();
     return (
       lowerMessage.includes("model_not_found") ||
       lowerMessage.includes("service unavailable") ||
       lowerMessage.includes('"error"')
     );
   }
+}
+
+function getMessageContentLength(message: unknown) {
+  if (typeof message === "string") {
+    return message.length;
+  }
+  if (Array.isArray(message)) {
+    return message.length;
+  }
+  return getApiFailurePayloadText(message).length;
 }
 
 function buildAutoModeFailureSummary(
@@ -2639,6 +2686,7 @@ export const useChatStore = createPersistStore(
         content: string,
         attachImages?: string[],
         isMcpResponse?: boolean,
+        options?: { reuseUserMessageId?: string },
       ) {
         logChatDebug("[Chat] 💬 用户输入:", {
           contentLength: content.length,
@@ -2647,12 +2695,23 @@ export const useChatStore = createPersistStore(
         });
 
         const session = get().currentSession();
-        const modelConfig = session.mask.modelConfig;
+        const manualModelSelection = readManualSessionModelSelection(
+          session.id,
+        );
+        const modelConfig = manualModelSelection
+          ? ({
+              ...session.mask.modelConfig,
+              ...manualModelSelection,
+            } as ModelConfig)
+          : session.mask.modelConfig;
         const appConfig = useAppConfig.getState();
         const accessStore = useAccessStore.getState();
         const autoModelSeries = (appConfig.autoModelSeries ||
           []) as AutoModelSeriesKey[];
-        const autoModeEnabled = autoModelSeries.length > 0;
+        const autoModeEnabled =
+          autoModelSeries.length > 0 &&
+          session.mask.syncGlobalConfig &&
+          !manualModelSelection;
         const allModels = collectModelsWithDefaultModel(
           appConfig.models,
           appConfig.customModels,
@@ -2745,11 +2804,24 @@ export const useChatStore = createPersistStore(
           ];
         }
 
-        let userMessage: ChatMessage = createMessage({
-          role: "user",
-          content: mContent,
-          isMcpResponse,
-        });
+        const reusedUserMessage = options?.reuseUserMessageId
+          ? session.messages.find(
+              (message) =>
+                message.id === options.reuseUserMessageId &&
+                message.role === "user",
+            )
+          : undefined;
+        const userMessage: ChatMessage = reusedUserMessage
+          ? {
+              ...reusedUserMessage,
+              content: mContent,
+              isMcpResponse,
+            }
+          : createMessage({
+              role: "user",
+              content: mContent,
+              isMcpResponse,
+            });
 
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
@@ -2772,8 +2844,11 @@ export const useChatStore = createPersistStore(
         // get recent messages
         const recentMessages =
           await get().getMessagesWithMemory(initialModelConfig);
-        const sendMessages = recentMessages.concat(userMessage);
-        const messageIndex = session.messages.length + 1;
+        const sendMessages = reusedUserMessage
+          ? recentMessages
+          : recentMessages.concat(userMessage);
+        const messageIndex =
+          session.messages.length + (reusedUserMessage ? 0 : 1);
 
         logChatDebug("[Chat] 📨 发送消息:", {
           contextMessages: recentMessages.length,
@@ -2790,16 +2865,33 @@ export const useChatStore = createPersistStore(
             ...session.mask.modelConfig,
             ...initialModelConfig,
           };
+          if (manualModelSelection) {
+            session.mask.syncGlobalConfig = false;
+          }
           if (isDefaultTopic(session.topic)) {
             const fallbackTopic = trimTopic(content.trim());
             if (fallbackTopic) {
               session.topic = fallbackTopic;
             }
           }
-          session.messages = session.messages.concat([
-            savedUserMessage,
-            botMessage,
-          ]);
+          if (reusedUserMessage) {
+            const userIndex = session.messages.findIndex(
+              (message) => message.id === reusedUserMessage.id,
+            );
+            if (userIndex >= 0) {
+              const nextMessages = session.messages.slice();
+              nextMessages[userIndex] = savedUserMessage;
+              nextMessages.splice(userIndex + 1, 0, botMessage);
+              session.messages = nextMessages;
+            } else {
+              session.messages = session.messages.concat([botMessage]);
+            }
+          } else {
+            session.messages = session.messages.concat([
+              savedUserMessage,
+              botMessage,
+            ]);
+          }
         });
 
         if (!autoModeEnabled) {
@@ -2849,12 +2941,12 @@ export const useChatStore = createPersistStore(
                 if (hasFailure) {
                   logger.chat.error(
                     "❌ API 调用失败(响应错误体), 响应长度:",
-                    finalMessage.length,
+                    getMessageContentLength(finalMessage),
                   );
                 } else {
                   logger.chat.log(
                     "✅ API 调用完成, 响应长度:",
-                    finalMessage.length,
+                    getMessageContentLength(finalMessage),
                   );
                 }
                 get().onNewMessage(botMessage, session);

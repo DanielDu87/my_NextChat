@@ -83,7 +83,7 @@ export function getModelSizes(model: string): string[] {
 
 export function getSupportedImageQualityOptions(model: string): string[] {
   const lowerModel = model.toLowerCase();
-  if (lowerModel.includes("gpt-image-1.5")) {
+  if (lowerModel.includes("gpt-image-")) {
     return ["auto", "low", "medium", "high"];
   }
   if (lowerModel.includes("dall-e-3")) {

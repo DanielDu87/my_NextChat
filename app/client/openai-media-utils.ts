@@ -84,7 +84,7 @@ function normalizeModelSize(model: string, preferredSize?: string) {
 function normalizeImageQuality(model: string, preferredQuality?: string) {
   const lowerModel = model.toLowerCase();
   const supported = getSupportedImageQualityOptions(model);
-  if (lowerModel.includes("gpt-image-1.5")) {
+  if (lowerModel.includes("gpt-image-")) {
     if (!preferredQuality || preferredQuality === "standard") return "auto";
     if (preferredQuality === "hd") return "high";
     return supported.includes(preferredQuality) ? preferredQuality : "auto";
