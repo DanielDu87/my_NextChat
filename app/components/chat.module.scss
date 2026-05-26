@@ -117,6 +117,9 @@
 
 .chat-window-actions {
   align-items: stretch;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
 }
 
 .chat-window-action-button {
@@ -1267,6 +1270,7 @@
 
 .chat {
   --chat-composer-width: min(54%, 960px);
+  --chat-tight-content-padding: 0px;
 
   display: flex;
   flex-direction: column;
@@ -1280,12 +1284,22 @@
   overflow: hidden;
 }
 
+.chat-tight-desktop {
+  --chat-tight-content-padding: clamp(24px, 3vw, 56px);
+}
+
 .chat-body {
   flex: 1;
   overflow: auto;
   overflow-x: hidden;
   padding: 24px
-    max(72px, calc((100% - var(--chat-composer-width)) / 2 + 20px));
+    max(
+      72px,
+      calc(
+        (100% - var(--chat-composer-width)) / 2 + 20px +
+          var(--chat-tight-content-padding)
+      )
+    );
   padding-bottom: 40px;
   position: relative;
   overscroll-behavior: none;
@@ -1374,16 +1388,29 @@
 }
 
 .chat-body-main-title {
-  cursor: pointer;
+  cursor: default;
 
-  &:hover {
-    text-decoration: underline;
+  .chat-body-title:hover & {
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: break-word;
   }
+}
+
+.chat-body-title {
+  flex: 1 1 auto;
+  max-width: none;
+  min-width: 0;
+  margin-right: 16px;
 }
 
 @media only screen and (max-width: 600px) {
   .chat-body-title {
     text-align: center;
+    margin: 0 6px;
   }
 }
 
@@ -1645,7 +1672,10 @@
 .chat-input-panel {
   position: relative;
   display: flex;
-  width: var(--chat-composer-width);
+  width: min(
+    var(--chat-composer-width),
+    calc(100% - var(--chat-tight-content-padding) * 2)
+  );
   padding: 20px;
   padding-top: 10px;
   box-sizing: border-box;
@@ -2193,7 +2223,7 @@
 
 @container (max-width: 1500px) {
   .chat-body {
-    padding: 20px;
+    padding: 20px calc(20px + var(--chat-tight-content-padding));
     padding-bottom: 40px;
   }
 

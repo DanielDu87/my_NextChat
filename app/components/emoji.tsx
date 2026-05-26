@@ -188,7 +188,13 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
   }
 
   return (
-    <div className="user-avatar">
+    <div
+      className={
+        props.avatar === FIXED_USER_AVATAR
+          ? "user-avatar user-avatar-me"
+          : "user-avatar"
+      }
+    >
       {props.avatar === FIXED_USER_AVATAR ? (
         <FixedUserAvatar />
       ) : (
@@ -207,10 +213,10 @@ function FixedUserAvatar() {
       fill="none"
       aria-hidden="true"
     >
-      <circle cx="12" cy="7.5" r="4.5" fill="#9CA3AF" />
+      <circle cx="12" cy="7.5" r="4.5" fill="currentColor" />
       <path
         d="M4.5 20C4.5 15.8579 7.85786 12.5 12 12.5C16.1421 12.5 19.5 15.8579 19.5 20"
-        fill="#9CA3AF"
+        fill="currentColor"
       />
     </svg>
   );

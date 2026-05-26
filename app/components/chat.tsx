@@ -30,7 +30,6 @@ import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ConfigIcon from "../icons/config.svg";
 import DeleteIcon from "../icons/clear.svg";
-import PinIcon from "../icons/pin.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
 import ImageIcon from "../icons/image.svg";
@@ -4144,19 +4143,6 @@ function _Chat() {
     inputRef.current?.focus();
   };
 
-  const onPinMessage = (message: ChatMessage) => {
-    chatStore.updateTargetSession(session, (session) =>
-      session.mask.context.push(message),
-    );
-
-    showToast(Locale.Chat.Actions.PinToastContent, {
-      text: Locale.Chat.Actions.PinToastAction,
-      onClick: () => {
-        setIsEditingMessage(true);
-      },
-    });
-  };
-
   const [speechStatus, setSpeechStatus] = useState(false);
   const [speechLoading, setSpeechLoading] = useState(false);
   async function openaiSpeech(text: string) {
@@ -5173,6 +5159,8 @@ function _Chat() {
         className={clsx(styles.chat, {
           [styles["chat-mobile-keyboard-open"]]:
             isMobileScreen && isMobileInputFocused,
+          [styles["chat-tight-desktop"]]:
+            clientConfig?.isApp || (config.tightBorder && !isMobileScreen),
         })}
         key={safeSession.id}
       >
@@ -5200,11 +5188,6 @@ function _Chat() {
                 "window-header-main-title",
                 styles["chat-body-main-title"],
               )}
-              onClickCapture={() => {
-                if (!readOnly) {
-                  setIsEditingMessage(true);
-                }
-              }}
             >
               {!safeSession.topic ? DEFAULT_TOPIC : safeSession.topic}
             </div>
@@ -5547,11 +5530,6 @@ function _Chat() {
                                           }
                                         />
 
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Pin}
-                                          icon={<PinIcon />}
-                                          onClick={() => onPinMessage(message)}
-                                        />
                                         <ChatAction
                                           text={Locale.Chat.Actions.Copy}
                                           icon={<CopyIcon />}

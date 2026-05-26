@@ -38,7 +38,10 @@ export function trimTopic(topic: string) {
   );
 }
 
-export async function copyToClipboard(text: string) {
+export async function copyToClipboard(
+  text: string,
+  options?: { silent?: boolean },
+) {
   try {
     if (window.__TAURI__) {
       window.__TAURI__.writeText(text);
@@ -46,8 +49,11 @@ export async function copyToClipboard(text: string) {
       await navigator.clipboard.writeText(text);
     }
 
-    const { showToast, Locale } = await getToastHelpers();
-    showToast(Locale.Copy.Success);
+    if (!options?.silent) {
+      const { showToast, Locale } = await getToastHelpers();
+      showToast(Locale.Copy.Success);
+    }
+    return true;
   } catch (error) {
     const textArea = document.createElement("textarea");
     textArea.value = text;
@@ -56,13 +62,18 @@ export async function copyToClipboard(text: string) {
     textArea.select();
     try {
       document.execCommand("copy");
-      const { showToast, Locale } = await getToastHelpers();
-      showToast(Locale.Copy.Success);
+      if (!options?.silent) {
+        const { showToast, Locale } = await getToastHelpers();
+        showToast(Locale.Copy.Success);
+      }
+      return true;
     } catch (error) {
       const { showToast, Locale } = await getToastHelpers();
       showToast(Locale.Copy.Failed);
+      return false;
+    } finally {
+      document.body.removeChild(textArea);
     }
-    document.body.removeChild(textArea);
   }
 }
 

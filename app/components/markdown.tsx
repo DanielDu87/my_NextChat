@@ -75,8 +75,10 @@ export function Mermaid(props: { code: string }) {
 export function PreCode(props: { children: any }) {
   const ref = useRef<HTMLPreElement>(null);
   const previewRef = useRef<HTMLPreviewHandler>(null);
+  const copiedTimerRef = useRef<number | null>(null);
   const [mermaidCode, setMermaidCode] = useState("");
   const [htmlCode, setHtmlCode] = useState("");
+  const [copied, setCopied] = useState(false);
   const { height } = useWindowSize();
   const { session } = useCurrentSession();
 
@@ -102,6 +104,25 @@ export function PreCode(props: { children: any }) {
   const config = useAppConfig();
   const enableArtifacts =
     session?.mask?.enableArtifacts !== false && config.enableArtifacts;
+
+  const handleCopyCode = async () => {
+    if (!ref.current) return;
+
+    const ok = await copyToClipboard(
+      ref.current.querySelector("code")?.innerText ?? "",
+      { silent: true },
+    );
+    if (!ok) return;
+
+    setCopied(true);
+    if (copiedTimerRef.current) {
+      window.clearTimeout(copiedTimerRef.current);
+    }
+    copiedTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      copiedTimerRef.current = null;
+    }, 1800);
+  };
 
   //Wrap the paragraph for plain-text
   useEffect(() => {
@@ -130,19 +151,29 @@ export function PreCode(props: { children: any }) {
     }
   }, [renderArtifacts]);
 
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
     <>
       <pre ref={ref}>
-        <span
-          className="copy-code-button"
-          onClick={() => {
-            if (ref.current) {
-              copyToClipboard(
-                ref.current.querySelector("code")?.innerText ?? "",
-              );
-            }
-          }}
-        ></span>
+        <div className="copy-code-toolbar">
+          {copied && (
+            <span className="copy-code-tip">{Locale.Copy.Success}</span>
+          )}
+          <button
+            className="copy-code-button"
+            type="button"
+            aria-label="Copy code"
+            title="Copy code"
+            onClick={handleCopyCode}
+          />
+        </div>
         {props.children}
       </pre>
       {mermaidCode.length > 0 && (
@@ -195,7 +226,7 @@ function CustomCode(props: { children: any; className?: string }) {
     setCollapsed((collapsed) => !collapsed);
   };
   const renderShowMoreButton = () => {
-    if (showToggle && enableCodeFold && collapsed) {
+    if (showToggle && enableCodeFold) {
       return (
         <div
           className={clsx("show-hide-button", {
@@ -203,7 +234,9 @@ function CustomCode(props: { children: any; className?: string }) {
             expanded: !collapsed,
           })}
         >
-          <button onClick={toggleCollapsed}>{Locale.NewChat.More}</button>
+          <button onClick={toggleCollapsed} aria-expanded={!collapsed}>
+            {collapsed ? Locale.NewChat.More : Locale.NewChat.Less}
+          </button>
         </div>
       );
     }
