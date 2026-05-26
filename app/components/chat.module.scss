@@ -1841,7 +1841,7 @@
 
   .chat-input-send {
     position: static;
-    flex: 0 0 48px;
+    flex: 0 0 42px;
     margin-right: 8px;
     transform: none;
   }
@@ -1897,28 +1897,56 @@
   right: 8px;
   top: 50%;
   bottom: auto;
-  width: 48px;
-  height: 48px;
-  min-width: 48px;
-  min-height: 48px;
-  padding: 0;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0 !important;
   border-radius: 50%;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden;
   transform: translateY(-50%);
 
-  :global(.icon-button-icon) {
-    width: 20px;
-    height: 20px;
-    margin: 0;
+  :global([class*="icon-button-icon"]) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 20px !important;
+    height: 20px !important;
+    line-height: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex-shrink: 0;
   }
 
-  :global(.icon-button-text) {
+  :global([class*="icon-button-text"]) {
     display: none;
   }
 
   :global(svg) {
     display: block;
-    width: 20px;
-    height: 20px;
+    width: 20px !important;
+    height: 20px !important;
+    flex-shrink: 0;
+  }
+
+  &:disabled,
+  &[disabled] {
+    background-color: var(--primary);
+    color: white;
+    cursor: not-allowed;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background-color: var(--primary);
+      border-color: transparent;
+      box-shadow: none;
+      color: white;
+      filter: none;
+    }
   }
 }
 
@@ -1970,7 +1998,7 @@
     background: color-mix(in srgb, var(--black) 8%, transparent);
     color: var(--black);
 
-    :global(.icon-button-icon) {
+    :global([class*="icon-button-icon"]) {
       width: 22px !important;
       height: 22px !important;
       margin: 0 !important;
@@ -2008,17 +2036,27 @@
     min-height: 44px !important;
     border-radius: 50%;
     padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     transform: translateY(-50%);
 
-    :global(.icon-button-icon) {
-      width: 18px !important;
-      height: 18px !important;
+    :global([class*="icon-button-icon"]) {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 20px !important;
+      height: 20px !important;
       margin: 0 !important;
+      padding: 0 !important;
+      flex-shrink: 0;
     }
 
     :global(svg) {
-      width: 18px !important;
-      height: 18px !important;
+      display: block;
+      width: 20px !important;
+      height: 20px !important;
+      flex-shrink: 0;
 
       > g {
         transform: none !important;
