@@ -78,6 +78,7 @@ export function MaskConfig(props: {
   updateMask: Updater<Mask>;
   extraListItems?: JSX.Element;
   readonly?: boolean;
+  readonlyModel?: boolean;
   shouldSyncFromGlobal?: boolean;
   hideIdentitySettings?: boolean;
 }) {
@@ -240,6 +241,7 @@ export function MaskConfig(props: {
         <ModelConfigList
           modelConfig={{ ...props.mask.modelConfig }}
           updateConfig={updateConfig}
+          readonlyModel={props.readonlyModel}
         />
         {props.extraListItems}
       </List>

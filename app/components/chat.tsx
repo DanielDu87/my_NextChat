@@ -11,7 +11,6 @@ import React, {
 } from "react";
 
 import SendUpIcon from "../icons/send-up.svg";
-import AddIcon from "../icons/add.svg";
 import BrainIcon from "../icons/brain.svg";
 import RenameIcon from "../icons/rename.svg";
 import EditIcon from "../icons/rename.svg";
@@ -23,13 +22,10 @@ import SpeakStopIcon from "../icons/speak-stop.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import LoadingButtonIcon from "../icons/loading.svg";
 import PromptIcon from "../icons/prompt.svg";
-import MaskIcon from "../icons/mask.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
-import BreakIcon from "../icons/break.svg";
-import SettingsIcon from "../icons/chat-settings.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ConfigIcon from "../icons/config.svg";
@@ -39,17 +35,11 @@ import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
 import ImageIcon from "../icons/image.svg";
 
-import LightIcon from "../icons/light.svg";
-import DarkIcon from "../icons/dark.svg";
-import AutoIcon from "../icons/auto.svg";
-import BottomIcon from "../icons/bottom.svg";
 import StopIcon from "../icons/pause.svg";
 import PlayIcon from "../icons/play.svg";
 import RobotIcon from "../icons/robot.svg";
 import SizeIcon from "../icons/size.svg";
 import QualityIcon from "../icons/hd.svg";
-import PluginIcon from "../icons/plugin.svg";
-import ShortcutkeyIcon from "../icons/shortcutkey.svg";
 import BotIconOpenAI from "../icons/llm-icons/openai.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
@@ -66,12 +56,10 @@ import {
   AutoModelSeriesKey,
   ModelType,
   SubmitKey,
-  Theme,
   useAppConfig,
 } from "../store/config";
 import { useCurrentSession } from "../store/chat-session";
 import { useModelCacheStore } from "../store/model-cache";
-import { usePluginStore } from "../store/plugin";
 import { useUpdateStore } from "../store/update";
 
 import {
@@ -325,6 +313,13 @@ function formatMessageUsage(
   }
 
   return parts.length > 0 ? `Tokens: ${parts.join(" / ")}` : "";
+}
+
+function trimMessageBoundaryText(text: string) {
+  return text.replace(
+    /^[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0]+|[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0]+$/g,
+    "",
+  );
 }
 
 function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -1398,6 +1393,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
           }}
           shouldSyncFromGlobal
           hideIdentitySettings
+          readonlyModel
           extraListItems={
             session.mask.modelConfig.sendMemory ? (
               <ListItem
@@ -1415,11 +1411,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
   );
 }
 
-function PromptToast(props: {
-  showToast?: boolean;
-  showModal?: boolean;
-  setShowModal: (_: boolean) => void;
-}) {
+function PromptToast(props: { showToast?: boolean; onClick?: () => void }) {
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
@@ -1432,16 +1424,13 @@ function PromptToast(props: {
         <div
           className={clsx(styles["prompt-toast-inner"], "clickable")}
           role="button"
-          onClick={() => props.setShowModal(true)}
+          onClick={props.onClick}
         >
           <BrainIcon />
           <span className={styles["prompt-toast-content"]}>
             {Locale.Context.Toast(context.length)}
           </span>
         </div>
-      )}
-      {props.showModal && (
-        <SessionConfigModel onClose={() => props.setShowModal(false)} />
       )}
     </div>
   );
@@ -1645,6 +1634,20 @@ export function ChatAction(props: {
   );
 }
 
+function MobileAddIcon() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+      <path
+        d="M15 7.5V22.5M7.5 15H22.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function AutoModeStateIcon(props: { enabled: boolean }) {
   if (props.enabled) {
     return <ConfirmIcon />;
@@ -1654,50 +1657,6 @@ function AutoModeStateIcon(props: { enabled: boolean }) {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="M4.2 3.2L12.8 11.8L11.8 12.8L3.2 4.2Z" fill="currentColor" />
       <path d="M11.8 3.2L12.8 4.2L4.2 12.8L3.2 11.8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PanelToggleIcon(props: { visible: boolean }) {
-  if (props.visible) {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <path
-          d="M2.5 4.25C2.5 3.56 3.06 3 3.75 3H12.25C12.94 3 13.5 3.56 13.5 4.25V11.75C13.5 12.44 12.94 13 12.25 13H3.75C3.06 13 2.5 12.44 2.5 11.75V4.25Z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-        />
-        <path
-          d="M10.25 3.75V12.25"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M2.5 4.25C2.5 3.56 3.06 3 3.75 3H12.25C12.94 3 13.5 3.56 13.5 4.25V11.75C13.5 12.44 12.94 13 12.25 13H3.75C3.06 13 2.5 12.44 2.5 11.75V4.25Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-      <path
-        d="M10.25 3.75V12.25"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <path
-        d="M3.6 12.4L12.4 3.6"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
     </svg>
   );
 }
@@ -1758,43 +1717,17 @@ export function ChatActions(props: {
   uploadImage: () => void;
   setAttachImages: (images: string[]) => void;
   setUploading: (uploading: boolean) => void;
-  currentModelButtonText: string;
-  showPromptModal: () => void;
-  scrollToBottom: () => void;
-  showPromptHints: () => void;
-  hitBottom: boolean;
   uploading: boolean;
-  setShowShortcutKeyModal: React.Dispatch<React.SetStateAction<boolean>>;
-  setUserInput: (input: string) => void;
-  setShowChatSidePanel: React.Dispatch<React.SetStateAction<boolean>>;
-  showBalanceUserPanel: boolean;
-  setShowBalanceUserPanel: React.Dispatch<React.SetStateAction<boolean>>;
-  showModelSelector: boolean;
-  setShowModelSelector: React.Dispatch<React.SetStateAction<boolean>>;
-  modelSelectorDefaultValue: string | undefined;
-  setModelSelectorDefaultValue: React.Dispatch<
-    React.SetStateAction<string | undefined>
-  >;
-  modelSelectorDefaultGroup: string | undefined;
-  setModelSelectorDefaultGroup: React.Dispatch<
-    React.SetStateAction<string | undefined>
-  >;
-  openModelSelector: () => void;
-  modelSelectorDisabled?: boolean;
 }) {
   const config = useAppConfig();
-  const navigate = useNavigate();
   const chatStore = useChatStore();
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
-  const pluginStore = usePluginStore();
   const { session: loadedSession, loading: sessionLoading } =
     useCurrentSession();
   const session = loadedSession ?? currentSessionSnapshot;
   const previousSessionIdRef = useRef<string | null>(null);
-  const autoModeEnabled = (config.autoModelSeries?.length || 0) > 0;
-  const autoModeButtonText = `自动模式（${autoModeEnabled ? "✓" : "✗"}）`;
 
   const getModelGroup = useCallback(
     (
@@ -1898,20 +1831,6 @@ export function ChatActions(props: {
     category: "image" | "video" | "web" | "thinking",
   ) => matchModelCategory(category, item);
 
-  // switch themes
-  const theme = config.theme;
-
-  function nextTheme() {
-    const themes = [Theme.Auto, Theme.Light, Theme.Dark];
-    const themeIndex = themes.indexOf(theme);
-    const nextIndex = (themeIndex + 1) % themes.length;
-    config.setTheme(themes[nextIndex]);
-  }
-
-  // stop all responses
-  const couldStop = ChatControllerPool.hasPending();
-  const stopAll = () => ChatControllerPool.stopAll();
-
   // switch model
   const currentModel = normalizeReservedDisplayModelName(
     session?.mask?.modelConfig?.model || "",
@@ -2003,7 +1922,6 @@ export function ChatActions(props: {
 
     return openAIModels[0];
   }, [config.models]);
-  const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
 
   const [showSizeSelector, setShowSizeSelector] = useState(false);
@@ -2107,6 +2025,10 @@ export function ChatActions(props: {
     supportsSizeControl,
   ]);
 
+  if (!supportsImageGenerationControls && !supportsVideoGenerationControls) {
+    return null;
+  }
+
   return (
     <div
       className={clsx(
@@ -2115,91 +2037,6 @@ export function ChatActions(props: {
         styles["chat-actions-row-container"],
       )}
     >
-      {/* 模型设置 - 第一个按钮，始终显示模型名称 */}
-      <div className={clsx(styles["chat-action-always-show-text"])}>
-        <ChatAction
-          onClick={props.openModelSelector}
-          text={
-            autoModeEnabled ? autoModeButtonText : props.currentModelButtonText
-          }
-          icon={<RobotIcon />}
-          disabled={props.modelSelectorDisabled}
-        />
-      </div>
-
-      {/* 其他功能按钮 */}
-      {couldStop && (
-        <ChatAction
-          onClick={stopAll}
-          text={Locale.Chat.InputActions.Stop}
-          icon={<StopIcon />}
-        />
-      )}
-      {!props.hitBottom && (
-        <ChatAction
-          onClick={props.scrollToBottom}
-          text={Locale.Chat.InputActions.ToBottom}
-          icon={<BottomIcon />}
-        />
-      )}
-      {props.hitBottom && (
-        <ChatAction
-          onClick={props.showPromptModal}
-          text={Locale.Chat.InputActions.Settings}
-          icon={<SettingsIcon />}
-        />
-      )}
-
-      {showUploadImage && (
-        <ChatAction
-          onClick={props.uploadImage}
-          text={Locale.Chat.InputActions.UploadImage}
-          icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
-        />
-      )}
-      <ChatAction
-        onClick={props.showPromptHints}
-        text={Locale.Chat.InputActions.Prompt}
-        icon={<PromptIcon />}
-      />
-
-      <ChatAction
-        onClick={() => {
-          navigate(Path.Masks);
-        }}
-        text={Locale.Chat.InputActions.Masks}
-        icon={<MaskIcon />}
-      />
-
-      <ChatAction
-        onClick={nextTheme}
-        text={Locale.Chat.InputActions.Theme[theme]}
-        icon={
-          <>
-            {theme === Theme.Auto ? (
-              <AutoIcon />
-            ) : theme === Theme.Light ? (
-              <LightIcon />
-            ) : theme === Theme.Dark ? (
-              <DarkIcon />
-            ) : null}
-          </>
-        }
-      />
-      <ChatAction
-        text={Locale.Chat.InputActions.Clear}
-        icon={<BreakIcon />}
-        onClick={async () => {
-          if (await showConfirm("确认清除当前对话的所有消息？")) {
-            chatStore.updateTargetSession(session, (session) => {
-              session.messages = [];
-              session.memoryPrompt = "";
-              session.clearContextIndex = undefined;
-            });
-          }
-        }}
-      />
-
       {supportsImageGenerationControls && (
         <>
           {supportsSizeControl && (
@@ -2233,13 +2070,7 @@ export function ChatActions(props: {
           {supportsVideoReference && (
             <ChatAction
               onClick={props.uploadImage}
-              text={
-                props.uploading
-                  ? "上传参考图中"
-                  : props.hitBottom
-                  ? "参考图 / i2v"
-                  : "参考图 / i2v"
-              }
+              text={props.uploading ? "上传参考图中" : "参考图 / i2v"}
               icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
             />
           )}
@@ -2284,26 +2115,6 @@ export function ChatActions(props: {
           )}
         </>
       )}
-
-      {!supportsImageGenerationControls && (
-        <ChatAction
-          onClick={() => {
-            if (pluginStore.getAll().length == 0) {
-              navigate(Path.Plugins);
-            } else {
-              setShowPluginSelector(true);
-            }
-          }}
-          text={Locale.Plugin.Name}
-          icon={<PluginIcon />}
-        />
-      )}
-
-      <ChatAction
-        onClick={() => props.setShowShortcutKeyModal(true)}
-        text={Locale.Chat.ShortcutKey.Title}
-        icon={<ShortcutkeyIcon />}
-      />
 
       {/* 各种选择器（隐藏） */}
       {showSizeSelector && (
@@ -2389,38 +2200,19 @@ export function ChatActions(props: {
           }}
         />
       )}
-
-      {showPluginSelector && (
-        <Selector
-          centerContent={true}
-          multiple
-          defaultSelectedValue={session.mask?.plugin}
-          items={pluginStore.getAll().map((item) => ({
-            title: `${item?.title}@${item?.version}`,
-            value: item?.id,
-          }))}
-          onClose={() => setShowPluginSelector(false)}
-          onSelection={(s) => {
-            chatStore.updateTargetSession(session, (session) => {
-              session.mask.plugin = s as string[];
-            });
-          }}
-        />
-      )}
     </div>
   );
 }
 
 export function EditMessageModal(props: { onClose: () => void }) {
   const chatStore = useChatStore();
+  const maskStore = useMaskStore();
+  const navigate = useNavigate();
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
   const { session: loadedSession } = useCurrentSession();
   const session = loadedSession ?? currentSessionSnapshot;
-  const [messages, setMessages] = useState(
-    Array.isArray(session?.messages) ? session.messages.slice() : [],
-  );
 
   if (!session) {
     return null;
@@ -2432,6 +2224,32 @@ export function EditMessageModal(props: { onClose: () => void }) {
         title={Locale.Chat.EditMessage.Title}
         onClose={props.onClose}
         actions={[
+          <IconButton
+            key="reset"
+            icon={<ResetIcon />}
+            bordered
+            text={Locale.Chat.Config.Reset}
+            onClick={async () => {
+              if (await showConfirm(Locale.Memory.ResetConfirm)) {
+                chatStore.updateTargetSession(
+                  session,
+                  (session) => (session.memoryPrompt = ""),
+                );
+              }
+            }}
+          />,
+          <IconButton
+            key="copy"
+            icon={<CopyIcon />}
+            bordered
+            text={Locale.Chat.Config.SaveAs}
+            onClick={() => {
+              navigate(Path.Masks);
+              setTimeout(() => {
+                maskStore.create(session.mask);
+              }, 500);
+            }}
+          />,
           <IconButton
             text={Locale.UI.Cancel}
             icon={<CancelIcon />}
@@ -2446,40 +2264,35 @@ export function EditMessageModal(props: { onClose: () => void }) {
             icon={<ConfirmIcon />}
             key="ok"
             onClick={() => {
-              chatStore.updateTargetSession(
-                session,
-                (session) => (session.messages = messages),
-              );
               props.onClose();
             }}
           />,
         ]}
       >
-        <List>
-          <ListItem
-            title={Locale.Chat.EditMessage.Topic.Title}
-            subTitle={Locale.Chat.EditMessage.Topic.SubTitle}
-          >
-            <input
-              type="text"
-              value={session.topic}
-              onInput={(e) =>
-                chatStore.updateTargetSession(
-                  session,
-                  (session) => (session.topic = e.currentTarget.value),
-                )
-              }
-            ></input>
-          </ListItem>
-        </List>
-        <ContextPrompts
-          context={messages}
-          updateContext={(updater) => {
-            const newMessages = messages.slice();
-            updater(newMessages);
-            setMessages(newMessages);
+        <MaskConfig
+          mask={session.mask}
+          updateMask={(updater) => {
+            const mask = { ...session.mask };
+            updater(mask);
+            chatStore.updateTargetSession(
+              session,
+              (session) => (session.mask = mask),
+            );
           }}
-        />
+          shouldSyncFromGlobal
+          hideIdentitySettings
+          extraListItems={
+            session.mask.modelConfig.sendMemory ? (
+              <ListItem
+                className="copyable"
+                title={`${Locale.Memory.Title} (${session.lastSummarizeIndex} of ${session.messages.length})`}
+                subTitle={session.memoryPrompt || Locale.Memory.EmptyContent}
+              ></ListItem>
+            ) : (
+              <></>
+            )
+          }
+        ></MaskConfig>
       </Modal>
     </div>
   );
@@ -2748,9 +2561,7 @@ function _Chat() {
   );
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
-  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(
-    () => !isMobileScreen,
-  );
+  const [showBalanceUserPanel] = useState(() => !isMobileScreen);
 
   useLayoutEffect(() => {
     const panel = inputPanelRef.current;
@@ -4341,7 +4152,7 @@ function _Chat() {
     showToast(Locale.Chat.Actions.PinToastContent, {
       text: Locale.Chat.Actions.PinToastAction,
       onClick: () => {
-        setShowPromptModal(true);
+        setIsEditingMessage(true);
       },
     });
   };
@@ -5056,8 +4867,6 @@ function _Chat() {
       ? safeSession.clearContextIndex! + context.length - msgRenderIndex
       : -1;
 
-  const [showPromptModal, setShowPromptModal] = useState(false);
-
   const clientConfig = useMemo(() => getClientConfig(), []);
 
   const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
@@ -5406,23 +5215,6 @@ function _Chat() {
           <div
             className={clsx("window-actions", styles["chat-window-actions"])}
           >
-            {isMobileScreen && (
-              <div
-                className={clsx(
-                  "window-action-button",
-                  styles["chat-window-action-button"],
-                )}
-              >
-                <IconButton
-                  icon={<PanelToggleIcon visible={showBalanceUserPanel} />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
-                  title={showBalanceUserPanel ? "隐藏用户余额" : "用户余额"}
-                  aria={showBalanceUserPanel ? "隐藏用户余额" : "用户余额"}
-                  onClick={() => setShowBalanceUserPanel((visible) => !visible)}
-                />
-              </div>
-            )}
             <div
               className={clsx(
                 "window-action-button",
@@ -5554,8 +5346,7 @@ function _Chat() {
 
           <PromptToast
             showToast={!hitBottom}
-            showModal={showPromptModal}
-            setShowModal={setShowPromptModal}
+            onClick={() => setIsEditingMessage(true)}
           />
         </div>
         <div className={styles["chat-main"]}>
@@ -5584,7 +5375,9 @@ function _Chat() {
               </div>
             )}
             <div
-              className={styles["chat-body"]}
+              className={clsx(styles["chat-body"], {
+                [styles["chat-body-loading"]]: sessionLoading,
+              })}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
               onMouseDown={() => inputRef.current?.blur()}
@@ -5624,10 +5417,7 @@ function _Chat() {
                       messageTextContent.length === 0 &&
                       messageImages.length === 0;
                     const showActions =
-                      i > 0 &&
-                      !message.preview &&
-                      !isContext &&
-                      !isEmptyUserMessage;
+                      !message.preview && !isContext && !isEmptyUserMessage;
                     const showTyping = message.preview || message.streaming;
                     const messageUsageText = formatMessageUsage(message.usage);
 
@@ -5654,7 +5444,9 @@ function _Chat() {
                                       onClick={async () => {
                                         const newMessage = await showPrompt(
                                           Locale.Chat.Actions.Edit,
-                                          getMessageTextContent(message),
+                                          trimMessageBoundaryText(
+                                            getMessageTextContent(message),
+                                          ),
                                           10,
                                         );
                                         let newContent:
@@ -5765,7 +5557,9 @@ function _Chat() {
                                           icon={<CopyIcon />}
                                           onClick={() =>
                                             copyToClipboard(
-                                              getMessageTextContent(message),
+                                              trimMessageBoundaryText(
+                                                getMessageTextContent(message),
+                                              ),
                                             )
                                           }
                                         />
@@ -5899,6 +5693,13 @@ function _Chat() {
                   !isMobileScreen && promptHints.length > 0,
               })}
             >
+              <ChatActions
+                uploadImage={uploadImage}
+                setAttachImages={setAttachImages}
+                setUploading={setUploading}
+                uploading={uploading}
+              />
+
               <PromptHints
                 prompts={promptHints}
                 onPromptSelect={onPromptSelect}
@@ -5913,7 +5714,7 @@ function _Chat() {
               <div className={styles["chat-input-row"]}>
                 {isMobileScreen && (
                   <IconButton
-                    icon={<AddIcon />}
+                    icon={<MobileAddIcon />}
                     className={styles["chat-input-mobile-add"]}
                     title="添加照片"
                     aria="添加照片"

@@ -188,7 +188,8 @@ export const DEFAULT_CONFIG = {
   modelConfig: {
     model: "gpt-5.1" as ModelType,
     providerName: "Custom" as ServiceProvider,
-    temperature: 0.5,
+    stream: true,
+    temperature: 1,
     top_p: 1,
     max_tokens: 4000,
     presence_penalty: 0,
@@ -204,7 +205,7 @@ export const DEFAULT_CONFIG = {
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
     seconds: "4",
-    webSearch: true,
+    webSearch: false,
     webSearchContextSize: "",
     reasoningEffort: "",
     reasoningMaxTokens: 0,

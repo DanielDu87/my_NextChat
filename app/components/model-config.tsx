@@ -25,6 +25,7 @@ import {
 export function ModelConfigList(props: {
   modelConfig: ModelConfig;
   updateConfig: (updater: (config: ModelConfig) => void) => void;
+  readonlyModel?: boolean;
 }) {
   const allModels = useUserModels();
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
@@ -89,6 +90,12 @@ export function ModelConfigList(props: {
     getPreferredDisplayModelConfig(allModels, props.modelConfig, apiProfiles) ||
     props.modelConfig;
   const value = `${displayModelConfig.model}@${displayModelConfig?.providerName}`;
+  const hasCurrentModelOption = allModels.some(
+    (model) =>
+      model.available &&
+      model.name === displayModelConfig.model &&
+      model.provider?.providerName === displayModelConfig.providerName,
+  );
   const parameterSupport = getModelParameterSupport(props.modelConfig.model);
   const supportsTemperature = parameterSupport.temperature;
   const supportsTopP = parameterSupport.top_p;
@@ -114,6 +121,7 @@ export function ModelConfigList(props: {
           aria-label={Locale.Settings.Model}
           value={value}
           align="left"
+          disabled={props.readonlyModel}
           onChange={(e) => {
             const [model, providerName] = getModelProvider(
               e.currentTarget.value,
@@ -125,6 +133,14 @@ export function ModelConfigList(props: {
             });
           }}
         >
+          {!hasCurrentModelOption && (
+            <option value={value}>
+              {displayModelConfig.model}
+              {displayModelConfig.providerName
+                ? ` (${displayModelConfig.providerName})`
+                : ""}
+            </option>
+          )}
           {sortedGroupNames.map((vendorName, index) => (
             <optgroup label={vendorName} key={index}>
               {groupModels[vendorName]
@@ -162,6 +178,18 @@ export function ModelConfigList(props: {
             </optgroup>
           ))}
         </Select>
+      </ListItem>
+      <ListItem title="流式响应" subTitle="请求参数 stream">
+        <input
+          aria-label="流式响应"
+          type="checkbox"
+          checked={props.modelConfig.stream !== false}
+          onChange={(e) =>
+            props.updateConfig(
+              (config) => (config.stream = e.currentTarget.checked),
+            )
+          }
+        ></input>
       </ListItem>
       {supportsTemperature && (
         <ListItem

@@ -2902,7 +2902,10 @@ export const useChatStore = createPersistStore(
           );
           api.llm.chat({
             messages: sendMessages,
-            config: { ...initialModelConfig, stream: true },
+            config: {
+              ...initialModelConfig,
+              stream: initialModelConfig.stream !== false,
+            },
             onRequest(request) {
               logRequestBanner("chat", {
                 model: request.model,
@@ -3119,7 +3122,10 @@ export const useChatStore = createPersistStore(
             withSummarizeProfile(candidateProfile as any, () =>
               api.llm.chat({
                 messages: sendMessages,
-                config: { ...candidateConfig, stream: true },
+                config: {
+                  ...candidateConfig,
+                  stream: candidateConfig.stream !== false,
+                },
                 onRequest(request: { chatPath: string; baseUrl: string }) {
                   requestUrl = request?.chatPath || request?.baseUrl || "";
                   logger.chat.log("🚀 自动模式尝试:", {
@@ -3138,7 +3144,7 @@ export const useChatStore = createPersistStore(
                     provider: String(candidate.providerName),
                     baseUrl: request?.baseUrl,
                     chatPath: request?.chatPath,
-                    stream: true,
+                    stream: candidateConfig.stream !== false,
                     profileName: candidateProfile?.name || null,
                     attempt: attemptLabel,
                   });
@@ -3704,7 +3710,7 @@ export const useChatStore = createPersistStore(
               ),
               config: {
                 ...modelcfg,
-                stream: true,
+                stream: modelConfig.stream !== false,
                 model,
                 providerName,
               },
