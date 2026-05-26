@@ -4,12 +4,14 @@ import React, {
   RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
-import SendWhiteIcon from "../icons/send-white.svg";
+import SendUpIcon from "../icons/send-up.svg";
+import AddIcon from "../icons/add.svg";
 import BrainIcon from "../icons/brain.svg";
 import RenameIcon from "../icons/rename.svg";
 import EditIcon from "../icons/rename.svg";
@@ -2303,14 +2305,6 @@ export function ChatActions(props: {
         icon={<ShortcutkeyIcon />}
       />
 
-      {isMobileScreen && (
-        <ChatAction
-          onClick={() => props.setShowBalanceUserPanel((visible) => !visible)}
-          text={props.showBalanceUserPanel ? "隐藏面板" : "显示面板"}
-          icon={<PanelToggleIcon visible={props.showBalanceUserPanel} />}
-        />
-      )}
-
       {/* 各种选择器（隐藏） */}
       {showSizeSelector && (
         <Selector
@@ -2673,7 +2667,17 @@ function _Chat() {
   }, []);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputPanelRef = useRef<HTMLDivElement>(null);
+  const inputPanelRectRef = useRef<DOMRect | null>(null);
+  const inputPanelWasEmptyRef = useRef(true);
+  const balancePanelRef = useRef<HTMLDivElement>(null);
+  const balancePanelOverlapRafRef = useRef<number | null>(null);
+  const mobileViewportRafRef = useRef<number | null>(null);
+  const syncReadyFocusSessionRef = useRef("");
   const [userInput, setUserInput] = useState("");
+  const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
+  const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
+    useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const criticalSyncReady = useSyncStore(
     (state: any) => state.criticalSyncReady,
@@ -2718,6 +2722,7 @@ function _Chat() {
   });
   const currentSessionHasMessages =
     sessionMessages.length > 0 || currentSessionSummaryMessageCount > 0;
+
   const sessionMask =
     liveSession?.mask ?? safeSession.mask ?? emptySessionRef.current.mask;
   const sessionContext = useMemo(
@@ -2743,6 +2748,54 @@ function _Chat() {
   );
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
+  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(
+    () => !isMobileScreen,
+  );
+
+  useLayoutEffect(() => {
+    const panel = inputPanelRef.current;
+    if (!panel || typeof window === "undefined") return;
+
+    const previousRect = inputPanelRectRef.current;
+    const nextRect = panel.getBoundingClientRect();
+    const shouldAnimateToBottom =
+      !isMobileScreen &&
+      inputPanelWasEmptyRef.current &&
+      currentSessionHasMessages &&
+      previousRect;
+
+    inputPanelRectRef.current = nextRect;
+    inputPanelWasEmptyRef.current = !currentSessionHasMessages;
+
+    if (!shouldAnimateToBottom) return;
+
+    const deltaX = previousRect.left - nextRect.left;
+    const deltaY = previousRect.top - nextRect.top;
+
+    panel.style.transition = "none";
+    panel.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+    panel.style.willChange = "transform";
+
+    const raf = window.requestAnimationFrame(() => {
+      panel.style.transition = "transform 180ms cubic-bezier(0.2, 0, 0, 1)";
+      panel.style.transform = "translate3d(0, 0, 0)";
+    });
+
+    const timer = window.setTimeout(() => {
+      panel.style.transition = "";
+      panel.style.transform = "";
+      panel.style.willChange = "";
+    }, 220);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+      panel.style.transition = "";
+      panel.style.transform = "";
+      panel.style.willChange = "";
+    };
+  }, [currentSessionHasMessages, isMobileScreen]);
+
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -3815,10 +3868,7 @@ function _Chat() {
   const measure = useDebouncedCallback(
     () => {
       const rows = inputRef.current ? autoGrowTextArea(inputRef.current) : 1;
-      const inputRows = Math.min(
-        20,
-        Math.max(2 + Number(!isMobileScreen), rows),
-      );
+      const inputRows = Math.min(20, Math.max(1, rows));
       setInputRows(inputRows);
     },
     100,
@@ -3875,6 +3925,14 @@ function _Chat() {
       const isClickOnInput = inputRef.current?.contains(target);
       if (isClickOnInput) return;
 
+      const isClickOnPromptHints = target.closest(`.${styles["prompt-hints"]}`);
+      if (isClickOnPromptHints) return;
+
+      const isClickOnPromptAction = target.closest(
+        '[data-chat-prompt-action="true"]',
+      );
+      if (isClickOnPromptAction) return;
+
       // check if click on any chat action (especially prompt action)
       const isClickOnAction = target.closest(
         `.${styles["chat-input-actions"]}`,
@@ -3903,17 +3961,37 @@ function _Chat() {
       setUserInput("");
       setPromptHints([]);
       matchCommand.invoke();
+      if (isMobileScreen) {
+        setIsMobileInputFocused(false);
+        inputRef.current?.blur();
+      }
       return;
     }
     setIsLoading(true);
-    chatStore
-      .onUserInput(userInput, attachImages)
-      .then(() => setIsLoading(false));
+    chatStore.onUserInput(userInput, attachImages).then(() => {
+      setIsLoading(false);
+      if (isMobileScreen) {
+        scrollDomToBottom();
+      }
+    });
     setAttachImages([]);
     chatStore.setLastInput(userInput);
     setUserInput("");
     setPromptHints([]);
-    if (!isMobileScreen) inputRef.current?.focus();
+    if (isMobileScreen) {
+      setIsMobileInputFocused(false);
+      inputRef.current?.blur();
+      setAutoScroll(true);
+      setHitBottom(true);
+      [50, 180, 420].forEach((delay) => {
+        window.setTimeout(() => {
+          window.scrollTo(0, 0);
+          scrollDomToBottom();
+        }, delay);
+      });
+    } else {
+      inputRef.current?.focus();
+    }
   };
 
   const onPromptSelect = (prompt: RenderPrompt) => {
@@ -3931,6 +4009,16 @@ function _Chat() {
       inputRef.current?.focus();
     }, 30);
   };
+
+  const togglePromptHints = useCallback(() => {
+    if (promptHints.length > 0) {
+      setPromptHints([]);
+      return;
+    }
+
+    inputRef.current?.focus();
+    onSearch("");
+  }, [onSearch, promptHints.length]);
 
   // stop response
   const onUserStop = (messageId: string) => {
@@ -4306,17 +4394,10 @@ function _Chat() {
   const context: RenderMessage[] = useMemo(() => {
     const baseContext = sessionMask?.hideContext ? [] : sessionContext.slice();
 
-    // 动态检查是否需要显示欢迎消息或错误提示
-    if (
-      baseContext.length === 0 &&
-      sessionMessages.at(0)?.content !== getBotHelloContent()
-    ) {
+    // 未授权时仍显示错误提示；默认欢迎语改为输入框上方标题展示。
+    if (baseContext.length === 0 && !accessStore.isAuthorized()) {
       const copiedHello = Object.assign({}, BOT_HELLO);
-      copiedHello.content = getBotHelloContent();
-      // 动态检查授权状态
-      if (!accessStore.isAuthorized()) {
-        copiedHello.content = Locale.Error.Unauthorized;
-      }
+      copiedHello.content = Locale.Error.Unauthorized;
       baseContext.push(copiedHello);
     }
 
@@ -4330,24 +4411,12 @@ function _Chat() {
     }
 
     return baseContext;
-  }, [sessionContext, sessionMask?.hideContext, sessionMessages, accessStore]);
+  }, [sessionContext, sessionMask?.hideContext, accessStore]);
 
   // preview messages
   const renderMessages = useMemo(() => {
-    return context.concat(sessionMessages as RenderMessage[]).concat(
-      userInput.length > 0 && config.sendPreviewBubble
-        ? [
-            {
-              ...createMessage({
-                role: "user",
-                content: userInput,
-              }),
-              preview: true,
-            },
-          ]
-        : [],
-    );
-  }, [config.sendPreviewBubble, context, sessionMessages, userInput]);
+    return context.concat(sessionMessages as RenderMessage[]);
+  }, [context, sessionMessages]);
 
   const [msgRenderIndex, _setMsgRenderIndex] = useState(
     Math.max(0, renderMessages.length - CHAT_PAGE_SIZE),
@@ -4375,6 +4444,70 @@ function _Chat() {
     setHitBottom(true);
   }, [safeSession.id, renderMessages.length]);
 
+  const updateBalancePanelOverlap = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    if (balancePanelOverlapRafRef.current !== null) {
+      window.cancelAnimationFrame(balancePanelOverlapRafRef.current);
+    }
+
+    balancePanelOverlapRafRef.current = window.requestAnimationFrame(() => {
+      balancePanelOverlapRafRef.current = null;
+
+      const panel = balancePanelRef.current;
+      const chatBody = scrollRef.current;
+
+      if (!panel || !chatBody || !showBalanceUserPanel) {
+        setBalancePanelOverlapsMessages(false);
+        return;
+      }
+
+      const panelRect = panel.getBoundingClientRect();
+      const messageParts = chatBody.querySelectorAll(
+        [
+          `.${styles["chat-message-avatar"]}`,
+          `.${styles["chat-message-header"]}`,
+          `.${styles["chat-message-item"]}`,
+          `.${styles["chat-message-tools"]}`,
+          `.${styles["chat-message-action-date"]}`,
+          `.${styles["chat-message-usage"]}`,
+        ].join(", "),
+      );
+      const overlaps = Array.from(messageParts).some((messagePart) => {
+        const messageRect = messagePart.getBoundingClientRect();
+        const overlapWidth =
+          Math.min(panelRect.right, messageRect.right) -
+          Math.max(panelRect.left, messageRect.left);
+        const overlapHeight =
+          Math.min(panelRect.bottom, messageRect.bottom) -
+          Math.max(panelRect.top, messageRect.top);
+
+        return overlapWidth > 8 && overlapHeight > 8;
+      });
+
+      setBalancePanelOverlapsMessages(overlaps);
+    });
+  }, [showBalanceUserPanel]);
+
+  useEffect(() => {
+    updateBalancePanelOverlap();
+    window.addEventListener("resize", updateBalancePanelOverlap);
+
+    return () => {
+      window.removeEventListener("resize", updateBalancePanelOverlap);
+      if (balancePanelOverlapRafRef.current !== null) {
+        window.cancelAnimationFrame(balancePanelOverlapRafRef.current);
+        balancePanelOverlapRafRef.current = null;
+      }
+    };
+  }, [
+    messages.length,
+    msgRenderIndex,
+    safeSession.id,
+    showBalanceUserPanel,
+    updateBalancePanelOverlap,
+  ]);
+
   const clearStreamingScrollResumeTimer = useCallback(() => {
     if (streamingScrollResumeTimerRef.current) {
       clearTimeout(streamingScrollResumeTimerRef.current);
@@ -4383,6 +4516,8 @@ function _Chat() {
   }, []);
 
   const onChatBodyScroll = (e: HTMLElement) => {
+    updateBalancePanelOverlap();
+
     const bottomHeight = e.scrollTop + e.clientHeight;
     const edgeThreshold = e.clientHeight;
 
@@ -4427,6 +4562,77 @@ function _Chat() {
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
     scrollDomToBottom();
   }, [renderMessages.length, scrollDomToBottom, setMsgRenderIndex]);
+
+  const syncMobileKeyboardViewport = useCallback(() => {
+    if (!isMobileScreen || typeof window === "undefined") return;
+
+    const viewport = window.visualViewport;
+    const visualHeight = Math.floor(viewport?.height ?? window.innerHeight);
+    document.documentElement.style.setProperty(
+      "--chat-mobile-visual-height",
+      `${Math.max(320, visualHeight)}px`,
+    );
+
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    scrollToBottom();
+  }, [isMobileScreen, scrollToBottom]);
+
+  const scheduleMobileKeyboardViewportSync = useCallback(() => {
+    if (!isMobileScreen || typeof window === "undefined") return;
+
+    if (mobileViewportRafRef.current !== null) {
+      window.cancelAnimationFrame(mobileViewportRafRef.current);
+    }
+
+    mobileViewportRafRef.current = window.requestAnimationFrame(() => {
+      mobileViewportRafRef.current = null;
+      syncMobileKeyboardViewport();
+    });
+  }, [isMobileScreen, syncMobileKeyboardViewport]);
+
+  useEffect(() => {
+    if (
+      !isMobileScreen ||
+      !isMobileInputFocused ||
+      typeof window === "undefined"
+    ) {
+      document.documentElement.style.removeProperty(
+        "--chat-mobile-visual-height",
+      );
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    const sync = () => scheduleMobileKeyboardViewportSync();
+    const timers = [40, 160, 360].map((delay) =>
+      window.setTimeout(sync, delay),
+    );
+
+    sync();
+    viewport?.addEventListener("resize", sync);
+    viewport?.addEventListener("scroll", sync);
+    window.addEventListener("resize", sync);
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      viewport?.removeEventListener("resize", sync);
+      viewport?.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+      if (mobileViewportRafRef.current !== null) {
+        window.cancelAnimationFrame(mobileViewportRafRef.current);
+        mobileViewportRafRef.current = null;
+      }
+      document.documentElement.style.removeProperty(
+        "--chat-mobile-visual-height",
+      );
+    };
+  }, [
+    isMobileInputFocused,
+    isMobileScreen,
+    scheduleMobileKeyboardViewportSync,
+  ]);
 
   useEffect(() => {
     if (
@@ -5117,9 +5323,27 @@ function _Chat() {
   }, [messages, chatStore, navigate, session]);
 
   const [showChatSidePanel, setShowChatSidePanel] = useState(false);
-  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(true);
   const readOnly = useAuthStore((state) => state.readOnly);
   const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
+
+  useEffect(() => {
+    if (
+      isMobileScreen ||
+      readOnly ||
+      isSyncBlocking ||
+      !safeSession.id ||
+      syncReadyFocusSessionRef.current === safeSession.id
+    ) {
+      return;
+    }
+
+    syncReadyFocusSessionRef.current = safeSession.id;
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus({ preventScroll: true });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [isMobileScreen, isSyncBlocking, readOnly, safeSession.id]);
 
   if (!session) {
     return null;
@@ -5136,7 +5360,13 @@ function _Chat() {
         </div>
       )}
 
-      <div className={styles.chat} key={safeSession.id}>
+      <div
+        className={clsx(styles.chat, {
+          [styles["chat-mobile-keyboard-open"]]:
+            isMobileScreen && isMobileInputFocused,
+        })}
+        key={safeSession.id}
+      >
         <div className="window-header">
           {isMobileScreen && location.pathname !== Path.Home && (
             <div className="window-actions">
@@ -5176,6 +5406,23 @@ function _Chat() {
           <div
             className={clsx("window-actions", styles["chat-window-actions"])}
           >
+            {isMobileScreen && (
+              <div
+                className={clsx(
+                  "window-action-button",
+                  styles["chat-window-action-button"],
+                )}
+              >
+                <IconButton
+                  icon={<PanelToggleIcon visible={showBalanceUserPanel} />}
+                  bordered
+                  className={styles["chat-window-icon-button"]}
+                  title={showBalanceUserPanel ? "隐藏用户余额" : "用户余额"}
+                  aria={showBalanceUserPanel ? "隐藏用户余额" : "用户余额"}
+                  onClick={() => setShowBalanceUserPanel((visible) => !visible)}
+                />
+              </div>
+            )}
             <div
               className={clsx(
                 "window-action-button",
@@ -5190,7 +5437,25 @@ function _Chat() {
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
-                disabled={readOnly}
+                disabled={readOnly || isSyncBlocking}
+              />
+            </div>
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+              data-chat-prompt-action="true"
+            >
+              <IconButton
+                icon={<PromptIcon />}
+                bordered
+                className={styles["chat-window-icon-button"]}
+                text={Locale.Chat.InputActions.Prompt}
+                title={Locale.Chat.InputActions.Prompt}
+                aria={Locale.Chat.InputActions.Prompt}
+                onClick={togglePromptHints}
+                disabled={readOnly || isSyncBlocking}
               />
             </div>
             <div
@@ -5297,7 +5562,13 @@ function _Chat() {
           <div className={styles["chat-body-container"]}>
             <ChatModelUpdateNotice />
             {showBalanceUserPanel && (
-              <div className={styles["chat-balance-user-panel"]}>
+              <div
+                ref={balancePanelRef}
+                className={clsx(styles["chat-balance-user-panel"], {
+                  [styles["chat-balance-user-panel-dimmed"]]:
+                    balancePanelOverlapsMessages,
+                })}
+              >
                 {balanceProviderName ? (
                   <ChatProviderBalance
                     providerName={balanceProviderName as ServiceProvider}
@@ -5619,109 +5890,115 @@ function _Chat() {
                     );
                   })}
             </div>
-            <div className={styles["chat-input-panel"]}>
+            <div
+              ref={inputPanelRef}
+              className={clsx(styles["chat-input-panel"], {
+                [styles["chat-input-panel-empty-desktop"]]:
+                  !isMobileScreen && !currentSessionHasMessages,
+                [styles["chat-input-panel-with-prompts"]]:
+                  !isMobileScreen && promptHints.length > 0,
+              })}
+            >
               <PromptHints
                 prompts={promptHints}
                 onPromptSelect={onPromptSelect}
               />
 
-              <ChatActions
-                currentModelButtonText={`${currentProviderDisplayName} ${currentModelName}`}
-                uploadImage={uploadImage}
-                setAttachImages={setAttachImages}
-                setUploading={setUploading}
-                showPromptModal={() => setShowPromptModal(true)}
-                scrollToBottom={scrollToBottom}
-                hitBottom={hitBottom}
-                uploading={uploading}
-                showPromptHints={() => {
-                  // Click again to close
-                  if (promptHints.length > 0) {
-                    setPromptHints([]);
-                    return;
-                  }
+              {!isMobileScreen && !currentSessionHasMessages && (
+                <div className={styles["chat-input-empty-title"]}>
+                  {getBotHelloContent()}
+                </div>
+              )}
 
-                  inputRef.current?.focus();
-                  onSearch("");
-                }}
-                setShowShortcutKeyModal={setShowShortcutKeyModal}
-                setUserInput={setUserInput}
-                setShowChatSidePanel={setShowChatSidePanel}
-                showBalanceUserPanel={showBalanceUserPanel}
-                setShowBalanceUserPanel={setShowBalanceUserPanel}
-                showModelSelector={showModelSelector}
-                setShowModelSelector={setShowModelSelector}
-                modelSelectorDefaultValue={modelSelectorDefaultValue}
-                setModelSelectorDefaultValue={setModelSelectorDefaultValue}
-                modelSelectorDefaultGroup={modelSelectorDefaultGroup}
-                setModelSelectorDefaultGroup={setModelSelectorDefaultGroup}
-                openModelSelector={openModelSelector}
-                modelSelectorDisabled={providerSwitchDisabled}
-              />
-              <label
-                className={clsx(styles["chat-input-panel-inner"], {
-                  [styles["chat-input-panel-inner-attach"]]:
-                    attachImages.length !== 0,
-                })}
-                htmlFor="chat-input"
-              >
-                <textarea
-                  id="chat-input"
-                  ref={inputRef}
-                  className={styles["chat-input"]}
-                  placeholder={
-                    readOnly
-                      ? "管理员查看模式下不可发送消息"
-                      : isSyncBlocking
-                      ? "正在同步模型配置，请稍候…"
-                      : Locale.Chat.Input(submitKey)
-                  }
-                  onInput={(e) => onInput(e.currentTarget.value)}
-                  value={userInput}
-                  onKeyDown={onInputKeyDown}
-                  onFocus={scrollToBottom}
-                  onClick={scrollToBottom}
-                  onPaste={handlePaste}
-                  rows={inputRows}
-                  autoFocus={autoFocus}
-                  disabled={readOnly || isSyncBlocking}
-                  style={{
-                    fontSize: inputFontSize,
-                    fontFamily: config.fontFamily,
-                  }}
-                />
-                {attachImages.length != 0 && (
-                  <div className={styles["attach-images"]}>
-                    {attachImages.map((image, index) => {
-                      return (
-                        <div
-                          key={index}
-                          className={styles["attach-image"]}
-                          style={{ backgroundImage: `url("${image}")` }}
-                        >
-                          <div className={styles["attach-image-mask"]}>
-                            <DeleteImageButton
-                              deleteImage={() => {
-                                setAttachImages(
-                                  attachImages.filter((_, i) => i !== index),
-                                );
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+              <div className={styles["chat-input-row"]}>
+                {isMobileScreen && (
+                  <IconButton
+                    icon={<AddIcon />}
+                    className={styles["chat-input-mobile-add"]}
+                    title="添加照片"
+                    aria="添加照片"
+                    disabled={readOnly || isSyncBlocking || uploading}
+                    onClick={uploadImage}
+                  />
                 )}
-                <IconButton
-                  icon={<SendWhiteIcon />}
-                  text={Locale.Chat.Send}
-                  className={styles["chat-input-send"]}
-                  type="primary"
-                  disabled={readOnly || isSyncBlocking}
-                  onClick={() => doSubmit(userInput)}
-                />
-              </label>
+                <label
+                  className={clsx(styles["chat-input-panel-inner"], {
+                    [styles["chat-input-panel-inner-attach"]]:
+                      attachImages.length !== 0,
+                    [styles["chat-input-panel-inner-multiline"]]:
+                      !isMobileScreen && inputRows > 1,
+                  })}
+                  htmlFor="chat-input"
+                >
+                  <textarea
+                    id="chat-input"
+                    ref={inputRef}
+                    className={styles["chat-input"]}
+                    placeholder={
+                      isMobileScreen
+                        ? ""
+                        : readOnly
+                        ? "管理员查看模式下不可发送消息"
+                        : isSyncBlocking
+                        ? "正在同步模型配置，请稍候…"
+                        : Locale.Chat.Input(submitKey)
+                    }
+                    onInput={(e) => onInput(e.currentTarget.value)}
+                    value={userInput}
+                    onKeyDown={onInputKeyDown}
+                    onFocus={() => {
+                      setIsMobileInputFocused(true);
+                      scrollToBottom();
+                      scheduleMobileKeyboardViewportSync();
+                    }}
+                    onBlur={() => setIsMobileInputFocused(false)}
+                    onClick={scrollToBottom}
+                    onPaste={handlePaste}
+                    rows={inputRows}
+                    autoFocus={autoFocus}
+                    disabled={readOnly || isSyncBlocking}
+                    style={{
+                      fontSize: inputFontSize,
+                      fontFamily: config.fontFamily,
+                    }}
+                  />
+                  {attachImages.length != 0 && (
+                    <div className={styles["attach-images"]}>
+                      {attachImages.map((image, index) => {
+                        return (
+                          <div
+                            key={index}
+                            className={styles["attach-image"]}
+                            style={{ backgroundImage: `url("${image}")` }}
+                          >
+                            <div className={styles["attach-image-mask"]}>
+                              <DeleteImageButton
+                                deleteImage={() => {
+                                  setAttachImages(
+                                    attachImages.filter((_, i) => i !== index),
+                                  );
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <IconButton
+                    icon={<SendUpIcon />}
+                    className={styles["chat-input-send"]}
+                    type="primary"
+                    disabled={readOnly || isSyncBlocking}
+                    onClick={() => doSubmit(userInput)}
+                  />
+                </label>
+              </div>
+              {currentSessionHasMessages && (
+                <div className={styles["chat-input-footer-note"]}>
+                  专属于你的AI，也专属于我的偏爱。
+                </div>
+              )}
             </div>
           </div>
           <div

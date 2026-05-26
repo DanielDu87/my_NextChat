@@ -76,7 +76,7 @@ const cn = {
       if (submitKey === "Enter") {
         inputHints = "回车发送，Shift + 回车换行";
       }
-      return inputHints + "，/ 触发补全，: 触发命令";
+      return inputHints + "，/ 选择预设提示词，：触发命令";
     },
     Send: "发送",
     StartSpeak: "说话",
@@ -619,7 +619,7 @@ const cn = {
   },
   Store: {
     DefaultTopic: "新的聊天",
-    BotHello: "有什么可以帮你的吗",
+    BotHello: "有什么可以帮你的吗？",
     Error: "出错了，稍后重试吧",
     Prompt: {
       History: (content: string) => "这是历史聊天总结作为前情提要：" + content,

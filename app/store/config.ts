@@ -52,7 +52,7 @@ const THEME_KEY = "appConfig.theme";
 const TIGHT_BORDER_KEY = "appConfig.tightBorder";
 const SIDEBAR_WIDTH_KEY = "sidebarWidth";
 const DEFAULT_THEME = Theme.Auto;
-const DEFAULT_TIGHT_BORDER = !!config?.isApp;
+const DEFAULT_TIGHT_BORDER = true;
 const DEFAULT_LOCAL_SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH;
 
 function readThemeFromLocalStorage() {
@@ -67,6 +67,10 @@ function readTightBorderFromLocalStorage() {
   if (stored === "true") return true;
   if (stored === "false") return false;
   return DEFAULT_TIGHT_BORDER;
+}
+
+function hasStoredTightBorderPreference() {
+  return localStorage.getItem(TIGHT_BORDER_KEY) !== null;
 }
 
 function readSidebarWidthFromLocalStorage() {
@@ -532,7 +536,9 @@ export const useAppConfig = createPersistStore(
         ...state,
         models: hydrateModelsForStore(models),
         theme: state.theme ?? readThemeFromLocalStorage(),
-        tightBorder: state.tightBorder ?? readTightBorderFromLocalStorage(),
+        tightBorder: hasStoredTightBorderPreference()
+          ? readTightBorderFromLocalStorage()
+          : DEFAULT_TIGHT_BORDER,
         sidebarWidth: state.sidebarWidth ?? readSidebarWidthFromLocalStorage(),
       } as typeof currentState;
     },
