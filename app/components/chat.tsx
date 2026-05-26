@@ -2501,6 +2501,8 @@ function _Chat() {
   const isSyncBlocking =
     syncProvider === ProviderType.Database &&
     (!criticalSyncReady || criticalSyncInProgress);
+  const readOnly = useAuthStore((state) => state.readOnly);
+  const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyAutoBottomSessionRef = useRef("");
@@ -4857,6 +4859,13 @@ function _Chat() {
 
   const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
   const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
+  const useCompactInputHint =
+    !isMobileScreen && !clientConfig?.isApp && !config.tightBorder;
+  const chatInputHint = readOnly
+    ? "管理员查看模式下不可发送消息"
+    : isSyncBlocking
+    ? "正在同步模型配置，请稍候…"
+    : Locale.Chat.Input(submitKey);
 
   useCommand({
     fill: setUserInput,
@@ -5118,8 +5127,6 @@ function _Chat() {
   }, [messages, chatStore, navigate, session]);
 
   const [showChatSidePanel, setShowChatSidePanel] = useState(false);
-  const readOnly = useAuthStore((state) => state.readOnly);
-  const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
 
   useEffect(() => {
     if (
@@ -5669,6 +5676,7 @@ function _Chat() {
                   !isMobileScreen && !currentSessionHasMessages,
                 [styles["chat-input-panel-with-prompts"]]:
                   !isMobileScreen && promptHints.length > 0,
+                [styles["chat-input-panel-compact-hint"]]: useCompactInputHint,
               })}
             >
               <ChatActions
@@ -5714,13 +5722,7 @@ function _Chat() {
                     ref={inputRef}
                     className={styles["chat-input"]}
                     placeholder={
-                      isMobileScreen
-                        ? ""
-                        : readOnly
-                        ? "管理员查看模式下不可发送消息"
-                        : isSyncBlocking
-                        ? "正在同步模型配置，请稍候…"
-                        : Locale.Chat.Input(submitKey)
+                      isMobileScreen || useCompactInputHint ? "" : chatInputHint
                     }
                     onInput={(e) => onInput(e.currentTarget.value)}
                     value={userInput}
@@ -5773,6 +5775,11 @@ function _Chat() {
                   />
                 </label>
               </div>
+              {useCompactInputHint && (
+                <div className={styles["chat-input-compact-hint"]}>
+                  {chatInputHint}
+                </div>
+              )}
               {currentSessionHasMessages && (
                 <div className={styles["chat-input-footer-note"]}>
                   专属于你的AI，也专属于我的偏爱。

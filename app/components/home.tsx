@@ -159,6 +159,8 @@ const loadAsyncGoogleFont = () => {
 };
 
 const CHAT_BOOTSTRAP_READY_KEY = "nextchat_chat_bootstrap_ready";
+const SCROLLBAR_VISIBLE_CLASS = "scrollbar-visible";
+const SCROLLBAR_HIDE_DELAY_MS = 700;
 
 export function WindowContent(props: { children: React.ReactNode }) {
   return (
@@ -239,10 +241,43 @@ export function useLoadData() {
   }, []);
 }
 
+function useTransientScrollbars() {
+  useEffect(() => {
+    let hideTimer: number | undefined;
+
+    const showScrollbar = () => {
+      document.documentElement.classList.add(SCROLLBAR_VISIBLE_CLASS);
+
+      if (hideTimer !== undefined) {
+        window.clearTimeout(hideTimer);
+      }
+
+      hideTimer = window.setTimeout(() => {
+        document.documentElement.classList.remove(SCROLLBAR_VISIBLE_CLASS);
+        hideTimer = undefined;
+      }, SCROLLBAR_HIDE_DELAY_MS);
+    };
+
+    window.addEventListener("scroll", showScrollbar, {
+      capture: true,
+      passive: true,
+    });
+
+    return () => {
+      if (hideTimer !== undefined) {
+        window.clearTimeout(hideTimer);
+      }
+      document.documentElement.classList.remove(SCROLLBAR_VISIBLE_CLASS);
+      window.removeEventListener("scroll", showScrollbar, { capture: true });
+    };
+  }, []);
+}
+
 export function Home() {
   useSwitchTheme();
   useLoadData();
   useHtmlLang();
+  useTransientScrollbars();
   const hasHydrated = useHasHydrated();
   const authInitialized = useAuthStore((state) => state.initialized);
   const [chatBootstrapped, setChatBootstrapped] = useState(false);

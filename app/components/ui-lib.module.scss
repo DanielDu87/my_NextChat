@@ -648,14 +648,6 @@
       flex-shrink: 1;
     }
 
-    // 隐藏滚动条但保留滚动功能
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
-
-    &::-webkit-scrollbar {
-      display: none; /* Chrome, Safari, Opera */
-    }
-
     @keyframes slideUp {
       from {
         opacity: 0;
@@ -1378,8 +1370,6 @@
       margin: 0 !important;
       background: var(--white) !important;
       max-height: 520px;
-      -ms-overflow-style: none;
-      scrollbar-width: none;
 
       * {
         cursor: pointer;
@@ -1461,10 +1451,9 @@
         font-weight: 700;
       }
 
-      /* 自定义滚动条 */
       &::-webkit-scrollbar {
-        width: 0;
-        height: 0;
+        width: 10px;
+        height: 10px;
       }
 
       &::-webkit-scrollbar-track {
@@ -2779,4 +2768,3 @@
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
-

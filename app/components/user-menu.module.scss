@@ -104,8 +104,6 @@
   max-height: 52vh;
   overflow: auto;
   overflow-x: hidden;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
   margin-bottom: 0;
   border: 0;
   box-shadow: none;
@@ -117,8 +115,8 @@
 }
 
 .manageList::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  width: 10px;
+  height: 10px;
 }
 
 .manageModal {

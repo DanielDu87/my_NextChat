@@ -11,11 +11,10 @@ import DarkIcon from "../icons/dark.svg";
 import AutoIcon from "../icons/auto.svg";
 import ChatGptIcon from "../icons/chatgpt.svg";
 import AddIcon from "../icons/add.svg";
-import DeleteIcon from "../icons/delete.svg";
+import DeleteIcon from "../icons/trash.svg";
 import MaskIcon from "../icons/mask.svg";
 import McpIcon from "../icons/mcp.svg";
-import DragIcon from "../icons/drag.svg";
-import DiscoveryIcon from "../icons/discovery.svg";
+import DiscoveryIcon from "../icons/brain.svg";
 
 import Locale from "../locales";
 
@@ -25,8 +24,6 @@ import { Theme } from "../store/config";
 
 import {
   DEFAULT_SIDEBAR_WIDTH,
-  MAX_SIDEBAR_WIDTH,
-  MIN_SIDEBAR_WIDTH,
   NARROW_SIDEBAR_WIDTH,
   Path,
   StoreKey,
@@ -304,78 +301,25 @@ export function useHotKey() {
 }
 
 export function useDragSideBar() {
-  const limit = (x: number) => Math.min(MAX_SIDEBAR_WIDTH, x);
-
   const config = useAppConfig();
-  const startX = useRef(0);
-  const startDragWidth = useRef(config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
-  const lastUpdateTime = useRef(Date.now());
-
-  const toggleSideBar = () => {
-    const currentWidth = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
-    config.setSidebarWidth(
-      currentWidth < MIN_SIDEBAR_WIDTH
-        ? DEFAULT_SIDEBAR_WIDTH
-        : NARROW_SIDEBAR_WIDTH,
-    );
-  };
-
-  const onDragStart = (e: MouseEvent) => {
-    // Remembers the initial width each time the mouse is pressed
-    startX.current = e.clientX;
-    startDragWidth.current = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
-    const dragStartTime = Date.now();
-
-    const handleDragMove = (e: MouseEvent) => {
-      if (Date.now() < lastUpdateTime.current + 20) {
-        return;
-      }
-      lastUpdateTime.current = Date.now();
-      const d = e.clientX - startX.current;
-      const nextWidth = limit(startDragWidth.current + d);
-      config.setSidebarWidth(
-        nextWidth < MIN_SIDEBAR_WIDTH ? NARROW_SIDEBAR_WIDTH : nextWidth,
-      );
-    };
-
-    const handleDragEnd = () => {
-      // In useRef the data is non-responsive, so `config.sidebarWidth` can't get the dynamic sidebarWidth
-      window.removeEventListener("pointermove", handleDragMove);
-      window.removeEventListener("pointerup", handleDragEnd);
-
-      // if user click the drag icon, should toggle the sidebar
-      const shouldFireClick = Date.now() - dragStartTime < 300;
-      if (shouldFireClick) {
-        toggleSideBar();
-      }
-    };
-
-    window.addEventListener("pointermove", handleDragMove);
-    window.addEventListener("pointerup", handleDragEnd);
-  };
-
   const isMobileScreen = useMobileScreen();
-  const sidebarWidth = config.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH;
-
-  const shouldNarrow = !isMobileScreen && sidebarWidth < MIN_SIDEBAR_WIDTH;
 
   useEffect(() => {
-    const barWidth = shouldNarrow
-      ? NARROW_SIDEBAR_WIDTH
-      : limit(sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
-    const sideBarWidth = isMobileScreen ? "100vw" : `${barWidth}px`;
+    const sideBarWidth = isMobileScreen
+      ? "100vw"
+      : config.tightBorder
+      ? `${DEFAULT_SIDEBAR_WIDTH}px`
+      : `${NARROW_SIDEBAR_WIDTH}px`;
     document.documentElement.style.setProperty("--sidebar-width", sideBarWidth);
-  }, [sidebarWidth, isMobileScreen, shouldNarrow]);
+  }, [config.tightBorder, isMobileScreen]);
 
   return {
-    onDragStart,
-    shouldNarrow,
+    shouldNarrow: false,
   };
 }
 
 export function SideBarContainer(props: {
   children: React.ReactNode;
-  onDragStart: (e: MouseEvent) => void;
   shouldNarrow: boolean;
   className?: string;
 }) {
@@ -384,7 +328,7 @@ export function SideBarContainer(props: {
     () => isIOS() && isMobileScreen,
     [isMobileScreen],
   );
-  const { children, className, onDragStart, shouldNarrow } = props;
+  const { children, className, shouldNarrow } = props;
 
   return (
     <div
@@ -397,12 +341,6 @@ export function SideBarContainer(props: {
       }}
     >
       {children}
-      <div
-        className={styles["sidebar-drag"]}
-        onPointerDown={(e) => onDragStart(e as any)}
-      >
-        <DragIcon />
-      </div>
     </div>
   );
 }
@@ -497,7 +435,7 @@ export function SideBarTail(props: {
 
 export function SideBar(props: { className?: string }) {
   useHotKey();
-  const { onDragStart, shouldNarrow } = useDragSideBar();
+  const { shouldNarrow } = useDragSideBar();
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();
@@ -537,11 +475,7 @@ export function SideBar(props: { className?: string }) {
   }, []);
 
   return (
-    <SideBarContainer
-      onDragStart={onDragStart}
-      shouldNarrow={shouldNarrow}
-      {...props}
-    >
+    <SideBarContainer shouldNarrow={shouldNarrow} {...props}>
       <SideBarHeader
         title="NextChat"
         subTitle="Build your own AI assistant."

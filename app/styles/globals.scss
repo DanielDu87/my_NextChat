@@ -112,6 +112,7 @@
   }
 }
 
+
 @media (prefers-color-scheme: dark) {
   :root {
     @include dark;
@@ -166,10 +167,28 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--bar-color);
+  background-color: transparent;
   border-radius: 20px;
   background-clip: content-box;
   border: 1px solid transparent;
+  transition: background-color 0.2s ease;
+}
+
+html {
+  scrollbar-color: transparent transparent;
+}
+
+html * {
+  scrollbar-color: transparent transparent;
+}
+
+html.scrollbar-visible,
+html.scrollbar-visible * {
+  scrollbar-color: var(--bar-color) transparent;
+}
+
+html.scrollbar-visible ::-webkit-scrollbar-thumb {
+  background-color: var(--bar-color);
 }
 
 select {
