@@ -177,7 +177,7 @@ export function useWindowSize() {
   return size;
 }
 
-export const MOBILE_MAX_WIDTH = 600;
+export const MOBILE_MAX_WIDTH = 650;
 export function useMobileScreen() {
   const getIsMobileScreen = () =>
     window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches;

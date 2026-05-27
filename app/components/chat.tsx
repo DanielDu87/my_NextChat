@@ -80,6 +80,7 @@ import {
   supportsVideoDurationControl,
   supportsVideoImageReference,
   useMobileScreen,
+  useWindowSize,
   selectOrCopy,
 } from "../utils";
 import { safeLocalStorage } from "../utils/safe-local-storage";
@@ -2562,6 +2563,7 @@ function _Chat() {
   );
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
+  const { width: windowWidth } = useWindowSize();
   const [showBalanceUserPanel] = useState(() => !isMobileScreen);
 
   useLayoutEffect(() => {
@@ -4859,8 +4861,8 @@ function _Chat() {
 
   const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
   const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
-  const useCompactInputHint =
-    !isMobileScreen && !clientConfig?.isApp && !config.tightBorder;
+  const useHeaderIconOnly = windowWidth < 1000;
+  const useCompactInputHint = !isMobileScreen && windowWidth <= 1100;
   const chatInputHint = readOnly
     ? "管理员查看模式下不可发送消息"
     : isSyncBlocking
@@ -5215,7 +5217,7 @@ function _Chat() {
                 icon={<RobotIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text={modelSelectorButtonText}
+                text={useHeaderIconOnly ? undefined : modelSelectorButtonText}
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
@@ -5233,7 +5235,11 @@ function _Chat() {
                 icon={<PromptIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text={Locale.Chat.InputActions.Prompt}
+                text={
+                  useHeaderIconOnly
+                    ? undefined
+                    : Locale.Chat.InputActions.Prompt
+                }
                 title={Locale.Chat.InputActions.Prompt}
                 aria={Locale.Chat.InputActions.Prompt}
                 onClick={togglePromptHints}
@@ -5250,7 +5256,7 @@ function _Chat() {
                 icon={<ConfigIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text="API 配置"
+                text={useHeaderIconOnly ? undefined : "API 配置"}
                 title="API 配置"
                 aria="API 配置"
                 onClick={() => navigate(Path.ApiConfig)}
@@ -5267,7 +5273,11 @@ function _Chat() {
                 icon={<ReloadIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text={Locale.Chat.Actions.RefreshTitle}
+                text={
+                  useHeaderIconOnly
+                    ? undefined
+                    : Locale.Chat.Actions.RefreshTitle
+                }
                 title={Locale.Chat.Actions.RefreshTitle}
                 onClick={() => {
                   showToast(Locale.Chat.Actions.RefreshToast);
@@ -5287,7 +5297,11 @@ function _Chat() {
                   icon={<RenameIcon />}
                   bordered
                   className={styles["chat-window-icon-button"]}
-                  text={Locale.Chat.EditMessage.Title}
+                  text={
+                    useHeaderIconOnly
+                      ? undefined
+                      : Locale.Chat.EditMessage.Title
+                  }
                   title={Locale.Chat.EditMessage.Title}
                   aria={Locale.Chat.EditMessage.Title}
                   onClick={() => setIsEditingMessage(true)}
@@ -5305,7 +5319,9 @@ function _Chat() {
                 icon={<ExportIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text={Locale.Chat.Actions.Export}
+                text={
+                  useHeaderIconOnly ? undefined : Locale.Chat.Actions.Export
+                }
                 title={Locale.Chat.Actions.Export}
                 onClick={() => {
                   setShowExport(true);
@@ -5323,7 +5339,11 @@ function _Chat() {
                   icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
                   bordered
                   className={styles["chat-window-icon-button"]}
-                  text={Locale.Chat.Actions.FullScreen}
+                  text={
+                    useHeaderIconOnly
+                      ? undefined
+                      : Locale.Chat.Actions.FullScreen
+                  }
                   title={Locale.Chat.Actions.FullScreen}
                   aria={Locale.Chat.Actions.FullScreen}
                   onClick={() => {
@@ -5717,13 +5737,25 @@ function _Chat() {
                   })}
                   htmlFor="chat-input"
                 >
+                  {!isMobileScreen && !userInput && (
+                    <span
+                      className={clsx(styles["chat-input-placeholder"], {
+                        [styles["chat-input-placeholder-hidden"]]:
+                          useCompactInputHint,
+                      })}
+                      style={{
+                        fontSize: inputFontSize,
+                        fontFamily: config.fontFamily,
+                      }}
+                    >
+                      {chatInputHint}
+                    </span>
+                  )}
                   <textarea
                     id="chat-input"
                     ref={inputRef}
                     className={styles["chat-input"]}
-                    placeholder={
-                      isMobileScreen || useCompactInputHint ? "" : chatInputHint
-                    }
+                    placeholder=""
                     onInput={(e) => onInput(e.currentTarget.value)}
                     value={userInput}
                     onKeyDown={onInputKeyDown}
@@ -5775,8 +5807,13 @@ function _Chat() {
                   />
                 </label>
               </div>
-              {useCompactInputHint && (
-                <div className={styles["chat-input-compact-hint"]}>
+              {!isMobileScreen && !userInput && (
+                <div
+                  className={clsx(styles["chat-input-compact-hint"], {
+                    [styles["chat-input-compact-hint-hidden"]]:
+                      !useCompactInputHint,
+                  })}
+                >
                   {chatInputHint}
                 </div>
               )}

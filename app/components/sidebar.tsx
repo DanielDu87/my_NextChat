@@ -22,12 +22,7 @@ import { useAppConfig, useChatStore } from "../store";
 import { useSyncStore } from "../store/sync";
 import { Theme } from "../store/config";
 
-import {
-  DEFAULT_SIDEBAR_WIDTH,
-  NARROW_SIDEBAR_WIDTH,
-  Path,
-  StoreKey,
-} from "../constant";
+import { DEFAULT_SIDEBAR_WIDTH, Path, StoreKey } from "../constant";
 
 import { Link, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
@@ -300,18 +295,13 @@ export function useHotKey() {
   });
 }
 
-export function useDragSideBar() {
-  const config = useAppConfig();
-  const isMobileScreen = useMobileScreen();
-
+export function useFixedSideBar() {
   useEffect(() => {
-    const sideBarWidth = isMobileScreen
-      ? "100vw"
-      : config.tightBorder
-      ? `${DEFAULT_SIDEBAR_WIDTH}px`
-      : `${NARROW_SIDEBAR_WIDTH}px`;
-    document.documentElement.style.setProperty("--sidebar-width", sideBarWidth);
-  }, [config.tightBorder, isMobileScreen]);
+    document.documentElement.style.setProperty(
+      "--sidebar-width",
+      `${DEFAULT_SIDEBAR_WIDTH}px`,
+    );
+  }, []);
 
   return {
     shouldNarrow: false,
@@ -435,7 +425,7 @@ export function SideBarTail(props: {
 
 export function SideBar(props: { className?: string }) {
   useHotKey();
-  const { shouldNarrow } = useDragSideBar();
+  const { shouldNarrow } = useFixedSideBar();
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();

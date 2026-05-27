@@ -109,6 +109,7 @@
       {
         "fullscreen": false,
         "height": 600,
+        "minWidth": 350,
         "resizable": true,
         "title": "NextChat",
         "width": 960,

@@ -1683,6 +1683,56 @@ function applyDeletedSessionsToChatState(
   };
 }
 
+function removeChatSessionsFromState(state: any, sessionIds: Set<string>) {
+  if (sessionIds.size === 0) {
+    return state;
+  }
+
+  const sessions = Array.isArray(state?.sessions) ? state.sessions : [];
+  const nextSessions = sessions.filter((session: Record<string, unknown>) => {
+    const sessionId = String(session?.id || "");
+    return !sessionIds.has(sessionId);
+  });
+  const previousSelectedSessionId = String(
+    state?.selectedSessionId ||
+      sessions[Math.max(0, Number(state?.currentSessionIndex) || 0)]?.id ||
+      "",
+  );
+  let nextCurrentSessionIndex = previousSelectedSessionId
+    ? nextSessions.findIndex(
+        (session: Record<string, unknown>) =>
+          String(session?.id || "") === previousSelectedSessionId,
+      )
+    : 0;
+  if (nextCurrentSessionIndex < 0) {
+    nextCurrentSessionIndex = 0;
+  }
+
+  return {
+    ...state,
+    sessions: nextSessions,
+    currentSessionIndex: nextCurrentSessionIndex,
+    selectedSessionId: nextSessions[nextCurrentSessionIndex]?.id || "",
+    sessionSummaries: Array.isArray(state?.sessionSummaries)
+      ? state.sessionSummaries.filter(
+          (summary: Record<string, unknown>) =>
+            !sessionIds.has(String(summary?.id || "")),
+        )
+      : state?.sessionSummaries,
+    hydratedSessionIds: Array.isArray(state?.hydratedSessionIds)
+      ? state.hydratedSessionIds.filter(
+          (sessionId: unknown) => !sessionIds.has(String(sessionId || "")),
+        )
+      : state?.hydratedSessionIds,
+    remoteIndexSessions: Array.isArray(state?.remoteIndexSessions)
+      ? state.remoteIndexSessions.filter(
+          (entry: Record<string, unknown>) =>
+            !sessionIds.has(String(entry?.id || "")),
+        )
+      : state?.remoteIndexSessions,
+  };
+}
+
 function buildClearedChatState(state: any, clearAt: number) {
   const sessions: Array<Record<string, unknown>> = Array.isArray(
     state?.sessions,
@@ -2055,7 +2105,7 @@ export const useSyncStore = createPersistStore(
             {
               ...normalizedRemoteChatState,
               remoteIndexSessions: remoteIndex.sessions || [],
-              deletedSessionTimestamps: {},
+              deletedSessionTimestamps: mergedDeletedSessionTimestamps,
             },
             localLeadingEmptySession,
             { preferLeadingEmptySession },
@@ -2148,6 +2198,13 @@ export const useSyncStore = createPersistStore(
         );
         const uploadedBytes =
           measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
+        const mergedStoreStateForDisplay = removeChatSessionsFromState(
+          mergedStoreState,
+          new Set(deleteSessionIds),
+        );
+        const remoteIndexSessionsForDisplay = (
+          (remoteIndex.sessions || []) as ChatIndexSessionEntry[]
+        ).filter((entry) => !deleteSessionIds.includes(entry.id));
 
         if (!downloadOnly && !hasPendingChatRequest) {
           await client.setChatDelta?.(
@@ -2167,9 +2224,9 @@ export const useSyncStore = createPersistStore(
         const normalizedMergedStoreState = normalizeMergedChatState(
           prependLeadingEmptySession(
             {
-              ...mergedStoreState,
-              remoteIndexSessions: remoteIndex.sessions || [],
-              deletedSessionTimestamps: {},
+              ...mergedStoreStateForDisplay,
+              remoteIndexSessions: remoteIndexSessionsForDisplay,
+              deletedSessionTimestamps: mergedDeletedSessionTimestamps,
             },
             localLeadingEmptySession,
             { preferLeadingEmptySession },
@@ -2266,21 +2323,26 @@ export const useSyncStore = createPersistStore(
         );
       }
 
+      const mergedStoreStateForSync = removeChatSessionsFromState(
+        mergedStoreState,
+        orphanSessionIds,
+      );
       const mergedIndex = buildUploadChatIndexPayload(
-        mergedStoreState as any,
+        mergedStoreStateForSync as any,
         remoteEntryMap,
       );
       // 删除逻辑需要包含所有会话 ID（含占位符），避免水合失败的远端会话被误删
       const allMergedSessionIds = new Set<string>(
-        (Array.isArray((mergedStoreState as any)?.sessions)
-          ? (mergedStoreState as any).sessions
+        (Array.isArray((mergedStoreStateForSync as any)?.sessions)
+          ? (mergedStoreStateForSync as any).sessions
           : []
         )
           .map((s: any) => String(s?.id || ""))
           .filter(Boolean),
       );
-      const uploadableSessionMap =
-        buildUploadableChatSessionMap(mergedStoreState);
+      const uploadableSessionMap = buildUploadableChatSessionMap(
+        mergedStoreStateForSync,
+      );
       const afterShouldUpload = mergedIndex.sessions.filter(
         (entry: ChatIndexSessionEntry) =>
           shouldUploadChatSession(entry, remoteEntryMap.get(entry.id)),
@@ -2333,6 +2395,10 @@ export const useSyncStore = createPersistStore(
       ];
       const uploadedBytes =
         measureJsonBytes(mergedIndex) + measureJsonBytes(upsertSessions);
+      const deletedOrOrphanSessionIds = new Set(deleteSessionIds);
+      const remoteIndexSessionsForDisplay = (
+        (remoteIndex.sessions || []) as ChatIndexSessionEntry[]
+      ).filter((entry) => !deletedOrOrphanSessionIds.has(entry.id));
 
       logSyncDebug(
         `[Sync] 🔬 上传决策诊断：合并索引会话数=${mergedIndex.sessions.length}，待上传会话数=${upsertSessions.length}，待删除会话数=${deleteSessionIds.length}，远端索引会话数=${remoteEntryMap.size}`,
@@ -2365,9 +2431,9 @@ export const useSyncStore = createPersistStore(
       const normalizedMergedStoreState = normalizeMergedChatState(
         prependLeadingEmptySession(
           {
-            ...mergedStoreState,
-            remoteIndexSessions: remoteIndex.sessions || [],
-            deletedSessionTimestamps: {},
+            ...mergedStoreStateForSync,
+            remoteIndexSessions: remoteIndexSessionsForDisplay,
+            deletedSessionTimestamps: mergedDeletedSessionTimestamps,
           },
           localLeadingEmptySession,
           { preferLeadingEmptySession },

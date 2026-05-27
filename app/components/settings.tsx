@@ -259,7 +259,6 @@ function DangerItems() {
               appConfig.update((config) => {
                 Object.assign(config, {
                   ...DEFAULT_CONFIG,
-                  sidebarWidth: config.sidebarWidth,
                 });
               });
             }

@@ -53,7 +53,6 @@ const TIGHT_BORDER_KEY = "appConfig.tightBorder";
 const SIDEBAR_WIDTH_KEY = "sidebarWidth";
 const DEFAULT_THEME = Theme.Auto;
 const DEFAULT_TIGHT_BORDER = true;
-const DEFAULT_LOCAL_SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH;
 
 function readThemeFromLocalStorage() {
   const stored = String(localStorage.getItem(THEME_KEY) || "").trim();
@@ -74,10 +73,7 @@ function hasStoredTightBorderPreference() {
 }
 
 function readSidebarWidthFromLocalStorage() {
-  const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-  if (!stored) return DEFAULT_LOCAL_SIDEBAR_WIDTH;
-  const width = Number(stored);
-  return Number.isFinite(width) ? width : DEFAULT_LOCAL_SIDEBAR_WIDTH;
+  return DEFAULT_SIDEBAR_WIDTH;
 }
 
 function normalizeModelProviderId(providerId: unknown) {
@@ -165,7 +161,7 @@ export const DEFAULT_CONFIG = {
   tightBorder: DEFAULT_TIGHT_BORDER,
   sendPreviewBubble: true,
   enableAutoGenerateTitle: true,
-  sidebarWidth: DEFAULT_LOCAL_SIDEBAR_WIDTH,
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
 
   enableArtifacts: true, // show artifacts config
 
@@ -478,21 +474,19 @@ export const useAppConfig = createPersistStore(
 
     allModels() {},
 
-    // localStorage 专用方法：获取/设置 sidebarWidth
+    // 侧边栏宽度固定，保留方法仅用于兼容旧配置调用。
     getSidebarWidth() {
-      const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-      if (!stored) return get().sidebarWidth;
-      const width = Number(stored);
-      return Number.isFinite(width) ? width : get().sidebarWidth;
+      return DEFAULT_SIDEBAR_WIDTH;
     },
 
-    setSidebarWidth(width: number) {
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-      set({ sidebarWidth: width, lastUpdateTime: Date.now() });
+    setSidebarWidth() {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(DEFAULT_SIDEBAR_WIDTH));
+      set({ sidebarWidth: DEFAULT_SIDEBAR_WIDTH, lastUpdateTime: Date.now() });
       window.dispatchEvent(
-        new CustomEvent("sidebarWidthChanged", { detail: width }),
+        new CustomEvent("sidebarWidthChanged", {
+          detail: DEFAULT_SIDEBAR_WIDTH,
+        }),
       );
-      scheduleUiPreferenceSync("侧边栏宽度");
     },
 
     setTheme(theme: Theme) {
@@ -540,7 +534,7 @@ export const useAppConfig = createPersistStore(
         tightBorder: hasStoredTightBorderPreference()
           ? readTightBorderFromLocalStorage()
           : DEFAULT_TIGHT_BORDER,
-        sidebarWidth: state.sidebarWidth ?? readSidebarWidthFromLocalStorage(),
+        sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       } as typeof currentState;
     },
 
@@ -634,9 +628,11 @@ if (typeof window !== "undefined") {
     }
 
     if (state.sidebarWidth !== prevState.sidebarWidth) {
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(state.sidebarWidth));
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(DEFAULT_SIDEBAR_WIDTH));
       window.dispatchEvent(
-        new CustomEvent("sidebarWidthChanged", { detail: state.sidebarWidth }),
+        new CustomEvent("sidebarWidthChanged", {
+          detail: DEFAULT_SIDEBAR_WIDTH,
+        }),
       );
     }
   });

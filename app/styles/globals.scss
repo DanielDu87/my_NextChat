@@ -87,24 +87,19 @@
 
   --window-width: 90vw;
   --window-height: 90vh;
-  --sidebar-width: 300px;
+  --sidebar-width: 350px;
+  --window-min-width: var(--sidebar-width);
   --window-content-width: calc(100% - var(--sidebar-width));
   --message-max-width: 80%;
   --full-height: 100%;
 }
 
-@media only screen and (max-width: 600px) {
+@media only screen and (max-width: 650px) {
   :root {
     --window-width: 100vw;
     --window-height: var(--full-height);
-    --sidebar-width: 100vw;
     --window-content-width: var(--window-width);
     --message-max-width: 100%;
-  }
-
-  html,
-  body {
-    overflow-x: hidden;
   }
 
   .no-mobile {
@@ -121,6 +116,7 @@
 
 html {
   height: var(--full-height);
+  min-width: var(--window-min-width);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 
@@ -135,6 +131,7 @@ body {
   padding: 0;
   height: var(--full-height);
   width: 100vw;
+  min-width: var(--window-min-width);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -144,7 +141,7 @@ body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 
-  @media only screen and (max-width: 600px) {
+  @media only screen and (max-width: 650px) {
     background-color: var(--second);
     display: block;
     width: 100%;
@@ -320,7 +317,7 @@ div.math {
   align-items: center;
   justify-content: center;
 
-  @media screen and (max-width: 600px) {
+  @media screen and (max-width: 650px) {
     padding: 12px;
     align-items: center;
   }

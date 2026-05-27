@@ -15,7 +15,7 @@ import { merge } from "lodash-es";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
-import { ServiceProvider, StoreKey } from "../constant";
+import { DEFAULT_SIDEBAR_WIDTH, ServiceProvider, StoreKey } from "../constant";
 import {
   getMessageTime,
   getSessionCreatedAt,
@@ -628,7 +628,7 @@ const MergeStates: StateMerger = {
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
     // - models 数组是本地临时数据，不参与数据库同步
-    // - theme / sidebarWidth / tightBorder 跟随较新的配置同步
+    // - theme / tightBorder 跟随较新的配置同步
     // - customModels / autoModelSeries / modelConfig.model+providerName
     //   各自按字段级时间戳独立判定胜方，互不干扰
     // - modelConfig 其他字段（temperature/top_p/max_tokens 等）保留"远端补全本地缺失"
@@ -707,7 +707,7 @@ const MergeStates: StateMerger = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
       theme: preferredConfig.theme ?? currentConfig.theme,
-      sidebarWidth: preferredConfig.sidebarWidth ?? currentConfig.sidebarWidth,
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       tightBorder: preferredConfig.tightBorder ?? currentConfig.tightBorder,
       // 供应商全量模型是本地临时数据，不从数据库恢复或合并。
       models: Array.isArray(currentConfig.models) ? currentConfig.models : [],
