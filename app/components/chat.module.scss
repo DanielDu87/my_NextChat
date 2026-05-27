@@ -1337,7 +1337,7 @@
 }
 
 .chat {
-  --chat-composer-width: min(54%, 960px);
+  --chat-composer-width: min(58%, 1040px);
   --chat-tight-content-padding: 0px;
 
   display: flex;
@@ -1353,7 +1353,7 @@
 }
 
 .chat-tight-desktop {
-  --chat-tight-content-padding: clamp(24px, 3vw, 56px);
+  --chat-tight-content-padding: clamp(16px, 2vw, 40px);
 }
 
 .chat-body {
@@ -1362,7 +1362,7 @@
   overflow-x: hidden;
   padding: 24px
     max(
-      72px,
+      40px,
       calc(
         (100% - var(--chat-composer-width)) / 2 + 20px +
           var(--chat-tight-content-padding)
@@ -1879,18 +1879,9 @@
 .chat-input-empty-title {
   margin-bottom: 28px;
   color: var(--black);
-  font-family:
-    "-apple-system-body",
-    "ui-sans-serif",
-    "-apple-system",
-    "system-ui",
-    "Segoe UI",
-    "Helvetica",
-    "Apple Color Emoji",
-    "Arial",
-    "sans-serif",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol";
+  font-family: "-apple-system-body", "ui-sans-serif", "-apple-system",
+    "system-ui", "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial",
+    "sans-serif", "Segoe UI Emoji", "Segoe UI Symbol";
   font-size: 1.75rem;
   font-weight: 400;
   letter-spacing: 0.07px;
@@ -2533,7 +2524,6 @@
       }
     }
   }
-
 }
 
 .chat-model-update-notice {
@@ -2926,7 +2916,10 @@
   :global(.selector-group-filter.selector-control-disabled:hover),
 :global(body.dark)
   .model-selector-auto-mode-enabled
-  :global(.selector-group-filter-wrap:hover .selector-group-filter.selector-control-disabled),
+  :global(
+    .selector-group-filter-wrap:hover
+      .selector-group-filter.selector-control-disabled
+  ),
 :global(body.dark)
   .model-selector-auto-mode-enabled
   :global(.selector-group-filter.selector-control-disabled:focus),
@@ -3000,7 +2993,10 @@
     :global(.selector-group-filter.selector-control-disabled:hover),
   :global(body:not(.light):not(.dark))
     .model-selector-auto-mode-enabled
-    :global(.selector-group-filter-wrap:hover .selector-group-filter.selector-control-disabled),
+    :global(
+      .selector-group-filter-wrap:hover
+        .selector-group-filter.selector-control-disabled
+    ),
   :global(body:not(.light):not(.dark))
     .model-selector-auto-mode-enabled
     :global(.selector-group-filter.selector-control-disabled:focus),
