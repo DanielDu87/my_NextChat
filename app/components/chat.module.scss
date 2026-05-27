@@ -1821,7 +1821,7 @@
   color: var(--chat-input-placeholder);
   font-size: 12px;
   line-height: 18px;
-  max-height: 18px;
+  max-height: 72px;
   opacity: 1;
   text-align: center;
   transform: translateY(0);
@@ -1830,9 +1830,9 @@
     margin-top 180ms ease,
     opacity 160ms ease,
     transform 180ms ease;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-input-compact-hint-hidden {

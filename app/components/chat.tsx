@@ -2480,6 +2480,7 @@ function _Chat() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
+  const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
   const inputPanelRectRef = useRef<DOMRect | null>(null);
   const inputPanelWasEmptyRef = useRef(true);
   const balancePanelRef = useRef<HTMLDivElement>(null);
@@ -2487,6 +2488,7 @@ function _Chat() {
   const mobileViewportRafRef = useRef<number | null>(null);
   const syncReadyFocusSessionRef = useRef("");
   const [userInput, setUserInput] = useState("");
+  const [isInputHintOverflow, setIsInputHintOverflow] = useState(false);
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
   const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
     useState(false);
@@ -4867,6 +4869,41 @@ function _Chat() {
     : isSyncBlocking
     ? "正在同步模型配置，请稍候…"
     : Locale.Chat.Input(submitKey);
+  const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
+
+  useLayoutEffect(() => {
+    if (isMobileScreen || userInput) {
+      setIsInputHintOverflow(false);
+      return;
+    }
+
+    const placeholder = inputPlaceholderRef.current;
+    if (!placeholder) return;
+
+    const measureHintOverflow = () => {
+      setIsInputHintOverflow(
+        placeholder.scrollWidth > placeholder.clientWidth + 1,
+      );
+    };
+
+    measureHintOverflow();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measureHintOverflow);
+      return () => window.removeEventListener("resize", measureHintOverflow);
+    }
+
+    const resizeObserver = new ResizeObserver(measureHintOverflow);
+    resizeObserver.observe(placeholder);
+    return () => resizeObserver.disconnect();
+  }, [
+    chatInputHint,
+    config.fontFamily,
+    inputFontSize,
+    isMobileScreen,
+    userInput,
+    windowWidth,
+  ]);
 
   useCommand({
     fill: setUserInput,
@@ -5695,7 +5732,8 @@ function _Chat() {
                   !isMobileScreen && !currentSessionHasMessages,
                 [styles["chat-input-panel-with-prompts"]]:
                   !isMobileScreen && promptHints.length > 0,
-                [styles["chat-input-panel-compact-hint"]]: useCompactInputHint,
+                [styles["chat-input-panel-compact-hint"]]:
+                  shouldUseCompactInputHint,
               })}
             >
               <ChatActions
@@ -5738,9 +5776,10 @@ function _Chat() {
                 >
                   {!isMobileScreen && !userInput && (
                     <span
+                      ref={inputPlaceholderRef}
                       className={clsx(styles["chat-input-placeholder"], {
                         [styles["chat-input-placeholder-hidden"]]:
-                          useCompactInputHint,
+                          shouldUseCompactInputHint,
                       })}
                       style={{
                         fontSize: inputFontSize,
@@ -5810,7 +5849,7 @@ function _Chat() {
                 <div
                   className={clsx(styles["chat-input-compact-hint"], {
                     [styles["chat-input-compact-hint-hidden"]]:
-                      !useCompactInputHint,
+                      !shouldUseCompactInputHint,
                   })}
                 >
                   {chatInputHint}
