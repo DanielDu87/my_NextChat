@@ -183,13 +183,15 @@
   .modal-footer {
     padding: var(--modal-padding);
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
+    gap: 12px;
     border-top: var(--border-in-light);
     box-shadow: var(--shadow);
 
     .modal-actions {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
 
       .modal-action {
         &:not(:last-child) {
@@ -200,6 +202,18 @@
 
     .modal-actions-left {
       margin-right: auto;
+    }
+
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"])) {
+      background-color: var(--chat-input-disabled-bg);
+      border: var(--border-in-light);
+      color: var(--black);
+    }
+
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"]):hover),
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"]):focus) {
+      border-color: var(--primary);
+      background-color: var(--hover-color);
     }
   }
 }
@@ -403,10 +417,11 @@
 
     &:disabled {
       cursor: not-allowed;
-      color: rgba(100, 116, 139, 0.72);
-      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      color: var(--chat-input-disabled-placeholder);
+      background: var(--chat-input-disabled-bg);
       box-shadow: none;
-      opacity: 0.78;
+      opacity: 1;
+      -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
     }
 
     option {
@@ -493,14 +508,12 @@
 
 :global(.dark) .select-with-icon .select-with-icon-select:disabled,
 :global(body.dark) .select-with-icon .select-with-icon-select:disabled {
-  background: linear-gradient(
-    180deg,
-    rgba(30, 41, 59, 0.72) 0%,
-    rgba(15, 23, 42, 0.72) 100%
-  );
-  color: rgba(148, 163, 184, 0.78);
-  border-color: rgba(71, 85, 105, 0.62);
+  background: var(--chat-input-disabled-bg);
+  color: var(--chat-input-disabled-placeholder);
+  border: var(--border-in-light);
   box-shadow: none;
+  opacity: 1;
+  -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
 }
 
 :global(.dark) .select-with-icon .select-with-icon-select option,

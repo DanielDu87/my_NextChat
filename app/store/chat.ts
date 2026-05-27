@@ -585,6 +585,7 @@ export function normalizeSession(
     mask: {
       ...fallbackMask,
       ...currentMask,
+      syncGlobalConfig: true,
       context:
         currentMask && Array.isArray(currentMask.context)
           ? currentMask.context
@@ -2188,10 +2189,8 @@ export const useChatStore = createPersistStore(
 
           session.mask = {
             ...mask,
-            modelConfig: {
-              ...globalModelConfig,
-              ...mask.modelConfig,
-            },
+            syncGlobalConfig: true,
+            modelConfig: { ...globalModelConfig },
           };
           session.topic = mask.name;
         } else {
@@ -2279,7 +2278,7 @@ export const useChatStore = createPersistStore(
               ...currentSession.mask,
               id: session.mask.id,
               name: session.mask.name,
-              syncGlobalConfig: false,
+              syncGlobalConfig: true,
               modelConfig: nextModelConfig,
             };
           }
@@ -2865,9 +2864,6 @@ export const useChatStore = createPersistStore(
             ...session.mask.modelConfig,
             ...initialModelConfig,
           };
-          if (manualModelSelection) {
-            session.mask.syncGlobalConfig = false;
-          }
           if (isDefaultTopic(session.topic)) {
             const fallbackTopic = trimTopic(content.trim());
             if (fallbackTopic) {

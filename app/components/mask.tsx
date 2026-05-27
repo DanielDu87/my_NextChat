@@ -16,8 +16,7 @@ import DragIcon from "../icons/drag.svg";
 import { DEFAULT_MASK_AVATAR, Mask, useMaskStore } from "../store/mask";
 import {
   ChatMessage,
-  createMessage,
-  ModelConfig,
+  applyOpenAIStandardModelConfig,
   ModelType,
   useAppConfig,
   useChatStore,
@@ -78,23 +77,10 @@ export function MaskConfig(props: {
   updateMask: Updater<Mask>;
   extraListItems?: JSX.Element;
   readonly?: boolean;
-  readonlyModel?: boolean;
   shouldSyncFromGlobal?: boolean;
   hideIdentitySettings?: boolean;
 }) {
   const [showPicker, setShowPicker] = useState(false);
-
-  const updateConfig = (updater: (config: ModelConfig) => void) => {
-    if (props.readonly) return;
-
-    const config = { ...props.mask.modelConfig };
-    updater(config);
-    props.updateMask((mask) => {
-      mask.modelConfig = config;
-      // if user changed current session mask, it will disable auto sync
-      mask.syncGlobalConfig = false;
-    });
-  };
 
   const copyMaskLink = () => {
     const maskLink = `${location.protocol}//${location.host}/#${Path.NewChat}?mask=${props.mask.id}`;
@@ -102,6 +88,9 @@ export function MaskConfig(props: {
   };
 
   const globalConfig = useAppConfig();
+  const readonlyModelConfig = applyOpenAIStandardModelConfig({
+    ...globalConfig.modelConfig,
+  });
 
   return (
     <>
@@ -206,42 +195,13 @@ export function MaskConfig(props: {
             />
           </ListItem>
         ) : null}
-
-        {props.shouldSyncFromGlobal ? (
-          <ListItem
-            title={Locale.Mask.Config.Sync.Title}
-            subTitle={Locale.Mask.Config.Sync.SubTitle}
-          >
-            <input
-              aria-label={Locale.Mask.Config.Sync.Title}
-              type="checkbox"
-              checked={props.mask.syncGlobalConfig}
-              onChange={async (e) => {
-                const checked = e.currentTarget.checked;
-                if (
-                  checked &&
-                  (await showConfirm(Locale.Mask.Config.Sync.Confirm))
-                ) {
-                  props.updateMask((mask) => {
-                    mask.syncGlobalConfig = checked;
-                    mask.modelConfig = { ...globalConfig.modelConfig };
-                  });
-                } else if (!checked) {
-                  props.updateMask((mask) => {
-                    mask.syncGlobalConfig = checked;
-                  });
-                }
-              }}
-            ></input>
-          </ListItem>
-        ) : null}
       </List>
 
       <List>
         <ModelConfigList
-          modelConfig={{ ...props.mask.modelConfig }}
-          updateConfig={updateConfig}
-          readonlyModel={props.readonlyModel}
+          modelConfig={readonlyModelConfig}
+          updateConfig={() => {}}
+          readonly
         />
         {props.extraListItems}
       </List>
@@ -319,10 +279,6 @@ export function ContextPrompts(props: {
 }) {
   const context = props.context;
 
-  const addContextPrompt = (prompt: ChatMessage, i: number) => {
-    props.updateContext((context) => context.splice(i, 0, prompt));
-  };
-
   const removeContextPrompt = (i: number) => {
     props.updateContext((context) => context.splice(i, 1));
   };
@@ -381,22 +337,6 @@ export function ContextPrompts(props: {
                           update={(prompt) => updateContextPrompt(i, prompt)}
                           remove={() => removeContextPrompt(i)}
                         />
-                        {/* 隐藏插入按钮 */}
-                        {/* <div
-                          className={chatStyle["context-prompt-insert"]}
-                          onClick={() => {
-                            addContextPrompt(
-                              createMessage({
-                                role: "user",
-                                content: "",
-                                date: new Date().toLocaleString(),
-                              }),
-                              i + 1,
-                            );
-                          }}
-                        >
-                          <AddIcon />
-                        </div> */}
                       </div>
                     )}
                   </Draggable>
@@ -406,27 +346,6 @@ export function ContextPrompts(props: {
             )}
           </Droppable>
         </DragDropContext>
-
-        {props.context.length === 0 && (
-          <div className={chatStyle["context-prompt-row"]}>
-            <IconButton
-              icon={<AddIcon />}
-              text={Locale.Context.Add}
-              bordered
-              className={chatStyle["context-prompt-button"]}
-              onClick={() =>
-                addContextPrompt(
-                  createMessage({
-                    role: "user",
-                    content: "",
-                    date: "",
-                  }),
-                  props.context.length,
-                )
-              }
-            />
-          </div>
-        )}
       </div>
     </>
   );

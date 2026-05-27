@@ -191,24 +191,24 @@ export const DEFAULT_CONFIG = {
     presence_penalty: 0,
     frequency_penalty: 0,
     sendMemory: true,
-    historyMessageCount: 6,
+    historyMessageCount: 12,
     compressMessageLengthThreshold: 12000,
     compressModel: "",
     compressProviderName: "",
-    enableInjectSystemPrompts: false,
+    enableInjectSystemPrompts: true,
     template: config?.template ?? DEFAULT_INPUT_TEMPLATE,
     size: "1024x1024" as ModelSize,
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
     seconds: "4",
     webSearch: false,
-    webSearchContextSize: "",
-    reasoningEffort: "",
+    webSearchContextSize: "medium",
+    reasoningEffort: "none",
     reasoningMaxTokens: 0,
-    includeThoughts: false,
+    includeThoughts: true,
     anthropicBeta: "",
     mediaResolution: "",
-    structuredOutput: false,
+    structuredOutput: true,
     jsonSchema: "",
   },
 
@@ -240,6 +240,40 @@ export type ChatConfig = typeof DEFAULT_CONFIG;
 export type ModelConfig = ChatConfig["modelConfig"];
 export type TTSConfig = ChatConfig["ttsConfig"];
 export type RealtimeConfig = ChatConfig["realtimeConfig"];
+
+export function getOpenAIStandardReasoningEffort(model: string) {
+  const normalizedModel = String(model || "").toLowerCase();
+  if (normalizedModel === "gpt-5.1") {
+    return "none";
+  }
+  if (normalizedModel === "gpt-5-pro") {
+    return "high";
+  }
+  return "medium";
+}
+
+export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
+  modelConfig: T,
+): T {
+  const model = String(modelConfig.model || DEFAULT_CONFIG.modelConfig.model);
+  return {
+    ...modelConfig,
+    stream: true,
+    temperature: 1,
+    top_p: 1,
+    presence_penalty: 0,
+    frequency_penalty: 0,
+    webSearchContextSize: "medium",
+    reasoningEffort: getOpenAIStandardReasoningEffort(model),
+    reasoningMaxTokens: 0,
+    includeThoughts: true,
+    sendMemory: true,
+    enableInjectSystemPrompts: true,
+    historyMessageCount: 12,
+    structuredOutput: true,
+    jsonSchema: "",
+  };
+}
 
 export function limitNumber(
   x: number,
@@ -503,7 +537,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.5,
+    version: 4.6,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -529,6 +563,10 @@ export const useAppConfig = createPersistStore(
       return {
         ...currentState,
         ...state,
+        modelConfig: applyOpenAIStandardModelConfig({
+          ...currentState.modelConfig,
+          ...state.modelConfig,
+        }),
         models: hydrateModelsForStore(models),
         theme: state.theme ?? readThemeFromLocalStorage(),
         tightBorder: hasStoredTightBorderPreference()
@@ -610,6 +648,10 @@ export const useAppConfig = createPersistStore(
         (state as any).customModelsUpdatedAt = 0;
         (state as any).autoModelSeriesUpdatedAt = 0;
         (state as any).modelSelectionUpdatedAt = 0;
+      }
+
+      if (version < 4.6) {
+        state.modelConfig = applyOpenAIStandardModelConfig(state.modelConfig);
       }
 
       return state as any;

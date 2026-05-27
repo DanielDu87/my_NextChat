@@ -26,9 +26,11 @@ export function ModelConfigList(props: {
   modelConfig: ModelConfig;
   updateConfig: (updater: (config: ModelConfig) => void) => void;
   readonlyModel?: boolean;
+  readonly?: boolean;
 }) {
   const allModels = useUserModels();
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
+  const readonly = props.readonly || props.readonlyModel;
 
   // 按供应商分组，如果没有供应商信息则按 provider 分组
   const groupModels = groupBy(
@@ -97,16 +99,21 @@ export function ModelConfigList(props: {
       model.provider?.providerName === displayModelConfig.providerName,
   );
   const parameterSupport = getModelParameterSupport(props.modelConfig.model);
-  const supportsTemperature = parameterSupport.temperature;
-  const supportsTopP = parameterSupport.top_p;
-  const supportsPresencePenalty = parameterSupport.presence_penalty;
-  const supportsFrequencyPenalty = parameterSupport.frequency_penalty;
-  const supportsMaxTokens = parameterSupport.max_tokens;
+  const showAllParameters = readonly;
+  const supportsTemperature = showAllParameters || parameterSupport.temperature;
+  const supportsTopP = showAllParameters || parameterSupport.top_p;
+  const supportsPresencePenalty =
+    showAllParameters || parameterSupport.presence_penalty;
+  const supportsFrequencyPenalty =
+    showAllParameters || parameterSupport.frequency_penalty;
+  const supportsMaxTokens = showAllParameters || parameterSupport.max_tokens;
   const usesMaxCompletionTokens = parameterSupport.max_completion_tokens;
-  const supportsWebSearchToggle = parameterSupport.web_search;
-  const isReasoningModel = parameterSupport.reasoning;
-  const isClaudeModel = parameterSupport.anthropic_beta;
-  const supportsStructuredOutput = parameterSupport.structured_output;
+  const supportsWebSearchToggle =
+    showAllParameters || parameterSupport.web_search;
+  const isReasoningModel = showAllParameters || parameterSupport.reasoning;
+  const isClaudeModel = showAllParameters || parameterSupport.anthropic_beta;
+  const supportsStructuredOutput =
+    showAllParameters || parameterSupport.structured_output;
   const isGenerationCapability =
     parameterSupport.capability === "image" ||
     parameterSupport.capability === "video";
@@ -121,7 +128,7 @@ export function ModelConfigList(props: {
           aria-label={Locale.Settings.Model}
           value={value}
           align="left"
-          disabled={props.readonlyModel}
+          disabled={readonly}
           onChange={(e) => {
             const [model, providerName] = getModelProvider(
               e.currentTarget.value,
@@ -134,12 +141,7 @@ export function ModelConfigList(props: {
           }}
         >
           {!hasCurrentModelOption && (
-            <option value={value}>
-              {displayModelConfig.model}
-              {displayModelConfig.providerName
-                ? ` (${displayModelConfig.providerName})`
-                : ""}
-            </option>
+            <option value={value}>{displayModelConfig.model}</option>
           )}
           {sortedGroupNames.map((vendorName, index) => (
             <optgroup label={vendorName} key={index}>
@@ -184,6 +186,7 @@ export function ModelConfigList(props: {
           aria-label="流式响应"
           type="checkbox"
           checked={props.modelConfig.stream !== false}
+          disabled={readonly}
           onChange={(e) =>
             props.updateConfig(
               (config) => (config.stream = e.currentTarget.checked),
@@ -202,6 +205,7 @@ export function ModelConfigList(props: {
             min="0"
             max="1"
             step="0.1"
+            disabled={readonly}
             onChange={(e) => {
               props.updateConfig(
                 (config) =>
@@ -224,6 +228,7 @@ export function ModelConfigList(props: {
             min="0"
             max="1"
             step="0.1"
+            disabled={readonly}
             onChange={(e) => {
               props.updateConfig(
                 (config) =>
@@ -250,6 +255,7 @@ export function ModelConfigList(props: {
             min={1024}
             max={512000}
             value={props.modelConfig.max_tokens}
+            disabled={readonly}
             onChange={(e) =>
               props.updateConfig(
                 (config) =>
@@ -271,6 +277,7 @@ export function ModelConfigList(props: {
               aria-label="联网搜索"
               type="checkbox"
               checked={props.modelConfig.webSearch ?? false}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) => (config.webSearch = e.currentTarget.checked),
@@ -283,6 +290,7 @@ export function ModelConfigList(props: {
               aria-label="搜索上下文"
               type="text"
               value={props.modelConfig.webSearchContextSize ?? ""}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -303,6 +311,7 @@ export function ModelConfigList(props: {
               aria-label="推理强度"
               type="text"
               value={props.modelConfig.reasoningEffort ?? ""}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) => (config.reasoningEffort = e.currentTarget.value),
@@ -320,6 +329,7 @@ export function ModelConfigList(props: {
               min={0}
               max={512000}
               value={props.modelConfig.reasoningMaxTokens ?? 0}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -337,6 +347,7 @@ export function ModelConfigList(props: {
               aria-label="展示思考"
               type="checkbox"
               checked={props.modelConfig.includeThoughts ?? false}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -356,6 +367,7 @@ export function ModelConfigList(props: {
             aria-label="Anthropic Beta"
             type="text"
             value={props.modelConfig.anthropicBeta ?? ""}
+            disabled={readonly}
             onChange={(e) =>
               props.updateConfig(
                 (config) => (config.anthropicBeta = e.currentTarget.value),
@@ -370,6 +382,7 @@ export function ModelConfigList(props: {
             aria-label="媒体分辨率"
             type="text"
             value={props.modelConfig.mediaResolution ?? ""}
+            disabled={readonly}
             onChange={(e) =>
               props.updateConfig(
                 (config) => (config.mediaResolution = e.currentTarget.value),
@@ -388,6 +401,7 @@ export function ModelConfigList(props: {
               aria-label="结构化输出"
               type="checkbox"
               checked={props.modelConfig.structuredOutput ?? false}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -396,7 +410,7 @@ export function ModelConfigList(props: {
               }
             ></input>
           </ListItem>
-          {props.modelConfig.structuredOutput && (
+          {(props.modelConfig.structuredOutput || showAllParameters) && (
             <ListItem
               title="JSON Schema"
               subTitle="填入 schema 字符串，按 json_schema 透传"
@@ -405,6 +419,7 @@ export function ModelConfigList(props: {
                 aria-label="JSON Schema"
                 type="text"
                 value={props.modelConfig.jsonSchema ?? ""}
+                disabled={readonly}
                 onChange={(e) =>
                   props.updateConfig(
                     (config) => (config.jsonSchema = e.currentTarget.value),
@@ -421,7 +436,8 @@ export function ModelConfigList(props: {
 
       {props.modelConfig?.providerName == ServiceProvider.Google &&
       !supportsPresencePenalty &&
-      !supportsFrequencyPenalty ? null : (
+      !supportsFrequencyPenalty &&
+      !showAllParameters ? null : (
         <>
           {supportsPresencePenalty && (
             <ListItem
@@ -434,6 +450,7 @@ export function ModelConfigList(props: {
                 min="-2"
                 max="2"
                 step="0.1"
+                disabled={readonly}
                 onChange={(e) => {
                   props.updateConfig(
                     (config) =>
@@ -458,6 +475,7 @@ export function ModelConfigList(props: {
                 min="-2"
                 max="2"
                 step="0.1"
+                disabled={readonly}
                 onChange={(e) => {
                   props.updateConfig(
                     (config) =>
@@ -471,7 +489,7 @@ export function ModelConfigList(props: {
             </ListItem>
           )}
 
-          {!isNonConversational && (
+          {(!isNonConversational || showAllParameters) && (
             <>
               <ListItem
                 title={Locale.Settings.InjectSystemPrompts.Title}
@@ -481,6 +499,7 @@ export function ModelConfigList(props: {
                   aria-label={Locale.Settings.InjectSystemPrompts.Title}
                   type="checkbox"
                   checked={props.modelConfig.enableInjectSystemPrompts}
+                  disabled={readonly}
                   onChange={(e) =>
                     props.updateConfig(
                       (config) =>
@@ -499,6 +518,7 @@ export function ModelConfigList(props: {
                   aria-label={Locale.Settings.InputTemplate.Title}
                   type="text"
                   value={props.modelConfig.template}
+                  disabled={readonly}
                   onChange={(e) =>
                     props.updateConfig(
                       (config) => (config.template = e.currentTarget.value),
@@ -510,7 +530,7 @@ export function ModelConfigList(props: {
           )}
         </>
       )}
-      {!isNonConversational && (
+      {(!isNonConversational || showAllParameters) && (
         <>
           <ListItem
             title={Locale.Settings.HistoryCount.Title}
@@ -523,6 +543,7 @@ export function ModelConfigList(props: {
               min="0"
               max="64"
               step="1"
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -542,6 +563,7 @@ export function ModelConfigList(props: {
               min={500}
               max={4000}
               value={props.modelConfig.compressMessageLengthThreshold}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) =>
@@ -556,6 +578,7 @@ export function ModelConfigList(props: {
               aria-label={Locale.Memory.Title}
               type="checkbox"
               checked={props.modelConfig.sendMemory}
+              disabled={readonly}
               onChange={(e) =>
                 props.updateConfig(
                   (config) => (config.sendMemory = e.currentTarget.checked),

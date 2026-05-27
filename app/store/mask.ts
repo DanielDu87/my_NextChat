@@ -145,7 +145,7 @@ export const createEmptyMask = () => {
       avatar: DEFAULT_MASK_AVATAR,
       name: DEFAULT_TOPIC,
       context: [],
-      syncGlobalConfig: false,
+      syncGlobalConfig: true,
       modelConfig: syncedModelConfig,
       lang: getLang(),
       builtin: false,
@@ -198,7 +198,7 @@ export const createEmptyMask = () => {
         avatar: DEFAULT_MASK_AVATAR,
         name: DEFAULT_TOPIC,
         context: [],
-        syncGlobalConfig: false,
+        syncGlobalConfig: true,
         modelConfig: autoModelConfig,
         lang: getLang(),
         builtin: false,
@@ -315,7 +315,7 @@ export const createEmptyMask = () => {
     avatar: DEFAULT_MASK_AVATAR,
     name: DEFAULT_TOPIC,
     context: [],
-    syncGlobalConfig: false,
+    syncGlobalConfig: true,
     modelConfig: initialModelConfig,
     lang: getLang(),
     builtin: false,
@@ -361,22 +361,33 @@ export const useMaskStore = createPersistStore(
     },
 
     get(id?: string) {
-      return get().masks[id ?? 1145141919810];
+      const mask = get().masks[id ?? 1145141919810];
+      if (!mask) return mask;
+      return {
+        ...mask,
+        syncGlobalConfig: true,
+        modelConfig: { ...useAppConfig.getState().modelConfig },
+      };
     },
     getAll() {
-      const userMasks = Object.values(get().masks).sort(
-        (a, b) => b.createdAt - a.createdAt,
-      );
       const config = useAppConfig.getState();
+      const userMasks = Object.values(get().masks)
+        .map(
+          (mask) =>
+            ({
+              ...mask,
+              syncGlobalConfig: true,
+              modelConfig: { ...config.modelConfig },
+            }) as Mask,
+        )
+        .sort((a, b) => b.createdAt - a.createdAt);
       if (config.hideBuiltinMasks) return userMasks;
       const buildinMasks = BUILTIN_MASKS.map(
         (m) =>
           ({
             ...m,
-            modelConfig: {
-              ...config.modelConfig,
-              ...m.modelConfig,
-            },
+            syncGlobalConfig: true,
+            modelConfig: { ...config.modelConfig },
           }) as Mask,
       );
       return userMasks.concat(buildinMasks);

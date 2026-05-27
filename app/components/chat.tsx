@@ -1393,7 +1393,6 @@ export function SessionConfigModel(props: { onClose: () => void }) {
           }}
           shouldSyncFromGlobal
           hideIdentitySettings
-          readonlyModel
           extraListItems={
             session.mask.modelConfig.sendMemory ? (
               <ListItem
@@ -2887,7 +2886,7 @@ function _Chat() {
         latestAssistantModelSelection.providerId;
       (session.mask.modelConfig as any).profileId =
         latestAssistantModelSelection.profileId;
-      session.mask.syncGlobalConfig = false;
+      session.mask.syncGlobalConfig = true;
     });
   }, [
     chatStore,
@@ -3436,7 +3435,7 @@ function _Chat() {
       ) {
         chatStore.updateTargetSession(latestSession, (session) => {
           session.mask.modelConfig = nextModelConfig;
-          session.mask.syncGlobalConfig = false;
+          session.mask.syncGlobalConfig = true;
         });
       }
 
@@ -4739,7 +4738,7 @@ function _Chat() {
             session.mask.modelConfig = sanitizeModelConfigForCapability(
               session.mask.modelConfig,
             );
-            session.mask.syncGlobalConfig = false;
+            session.mask.syncGlobalConfig = true;
           });
           saveManualSessionModelSelection(latestSession.id, {
             ...latestSession.mask.modelConfig,
@@ -6239,7 +6238,7 @@ function _Chat() {
             // 已有消息的会话如果不在这里更新，会继续沿用旧模型发起请求。
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig = nextModelConfig;
-              session.mask.syncGlobalConfig = false;
+              session.mask.syncGlobalConfig = true;
             });
             saveManualSessionModelSelection(session.id, {
               ...nextModelConfig,

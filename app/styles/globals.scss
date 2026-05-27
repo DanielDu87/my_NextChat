@@ -299,6 +299,16 @@ input[type="password"] {
   font-family: inherit;
 }
 
+input[type="number"]:disabled,
+input[type="text"]:disabled,
+input[type="password"]:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  background: var(--chat-input-disabled-bg);
+  color: var(--chat-input-disabled-placeholder);
+  -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
+}
+
 div.math {
   overflow-x: auto;
 }
