@@ -453,7 +453,7 @@ function toMediaItems(value: any) {
   return Array.isArray(value) ? value : [value];
 }
 
-function getStringField(value: any, keys: string[]) {
+function getStringField(value: any, keys: string[]): string | undefined {
   if (typeof value === "string") {
     return value;
   }
