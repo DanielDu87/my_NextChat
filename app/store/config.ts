@@ -150,6 +150,74 @@ function scheduleUiPreferenceSync(reason: string) {
   }, 500);
 }
 
+const BUILTIN_CHAT_MODELS = DEFAULT_MODELS.filter(
+  (m) =>
+    m.available !== false &&
+    !/(?:dall-e|whisper|tts|embedding|moderation|realtime|audio|vision|image|video|omni-moderation|computer-use|search-preview|codex|spark|official)/i.test(
+      m.name,
+    ) &&
+    /(^|[^a-z])(gpt|chatgpt|o1|o3|o4|o5)([^a-z]|$)/i.test(m.name),
+);
+
+const LATEST_OPENAI_DEFAULT_MODEL =
+  BUILTIN_CHAT_MODELS.filter((m) => m.provider?.providerName === "OpenAI").sort(
+    (a, b) => b.sorted - a.sorted,
+  )[0]?.name ||
+  (BUILTIN_CHAT_MODELS[0]?.name ?? "gpt-5.4");
+
+const MANDATORY_OPENAI_MODEL_NAMES = BUILTIN_CHAT_MODELS.filter(
+  (m) => m.provider?.providerName === "OpenAI" && /^gpt-\d/i.test(m.name),
+)
+  .sort((a, b) => b.sorted - a.sorted)
+  .map((m) => m.name);
+
+const AIHUBMIX_MANDATORY_MODEL = "gpt-chat-latest";
+
+function ensureMandatoryCustomModels(models: LLMModel[]): LLMModel[] {
+  const customProviderIds = new Set(
+    models
+      .map((m) => normalizeModelProviderId(m?.provider?.id))
+      .filter((pid) => pid && pid.startsWith("custom_")),
+  );
+
+  const newModels: LLMModel[] = [];
+
+  customProviderIds.forEach((providerId) => {
+    const isAihubmix = providerId === "custom_aihubmix";
+    const mandatoryNames = isAihubmix
+      ? [
+          ...new Set([
+            ...MANDATORY_OPENAI_MODEL_NAMES,
+            AIHUBMIX_MANDATORY_MODEL,
+          ]),
+        ]
+      : MANDATORY_OPENAI_MODEL_NAMES;
+
+    mandatoryNames.forEach((modelName) => {
+      const key = buildModelProviderKey(modelName, providerId);
+      const exists = models.some(
+        (m) => buildModelProviderKey(m.name, m?.provider?.id) === key,
+      );
+
+      if (!exists) {
+        newModels.push({
+          name: modelName,
+          available: true,
+          provider: {
+            id: providerId,
+            providerName: ServiceProvider.Custom as string,
+            providerType: "openai",
+            sorted: 0,
+          },
+          sorted: 0,
+        } as LLMModel);
+      }
+    });
+  });
+
+  return newModels;
+}
+
 export const DEFAULT_CONFIG = {
   lastUpdate: Date.now(), // timestamp, to merge state
 
@@ -182,7 +250,7 @@ export const DEFAULT_CONFIG = {
   modelSelectionUpdatedAt: 0,
 
   modelConfig: {
-    model: "gpt-5.1" as ModelType,
+    model: LATEST_OPENAI_DEFAULT_MODEL as ModelType,
     providerName: "Custom" as ServiceProvider,
     stream: true,
     temperature: 1,
@@ -479,13 +547,20 @@ export const useAppConfig = createPersistStore(
       }
 
       const mergedModels = Object.values(modelMap);
+
+      const mandatoryModels = ensureMandatoryCustomModels(mergedModels);
+      mandatoryModels.forEach((m) => {
+        modelMap[buildModelProviderKey(m.name, m?.provider?.id)] = m;
+      });
+
+      const finalModels = Object.values(modelMap);
       const changedProviderIds =
         allowedProviderIds && allowedProviderIds.size > 0
           ? allowedProviderIds
           : newProviderIds;
       recordModelSyncDiff(
         options?.diffBaseModels ?? oldModels,
-        mergedModels,
+        finalModels,
         changedProviderIds,
       );
       if (!options?.silent) {
@@ -493,12 +568,12 @@ export const useAppConfig = createPersistStore(
           "[mergeModels] 正在合并模型",
           hydratedNewModels.length,
           "个，合并后总数：",
-          mergedModels.length,
+          finalModels.length,
         );
       }
 
       set(() => ({
-        models: mergedModels,
+        models: finalModels,
       }));
 
       if (!options?.skipMarkUpdate) {

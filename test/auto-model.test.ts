@@ -66,9 +66,7 @@ describe("buildAutoModelCandidates", () => {
 
     expect(candidates.map((item) => `${item.providerId}:${item.model}`)).toEqual([
       "custom_first:gpt-5.4",
-      "custom_first:gpt-5.4-mini",
       "custom_second:gpt-5.5",
-      "custom_second:gpt-5.5-mini",
     ]);
   });
 
@@ -150,71 +148,61 @@ describe("buildAutoModelCandidates", () => {
 
     expect(candidates.map((item) => `${item.providerId}:${item.model}`)).toEqual([
       "custom_first:gpt-5.4",
-      "custom_first:gpt-5.4-mini",
       "custom_second:gpt-5.5",
-      "custom_second:gpt-5.5-mini",
     ]);
   });
 
   it("同一模型同时存在裸别名和日期快照时，优先裸别名", () => {
     const models: LLMModel[] = [
-      createModel("gpt-5.4-2026-03-05", "custom_aihubmix", 20260305),
-      createModel("gpt-5.4", "custom_aihubmix", 20260305),
-      createModel("gpt-5.4-mini-2026-03-05", "custom_aihubmix", 20260305),
-      createModel("gpt-5.4-mini", "custom_aihubmix", 20260305),
-      createModel("gpt-5.4-nano-2026-03-05", "custom_aihubmix", 20260305),
-      createModel("gpt-5.4-nano", "custom_aihubmix", 20260305),
+      createModel("gpt-5.4-2026-03-05", "custom_yutoapi", 20260305),
+      createModel("gpt-5.4", "custom_yutoapi", 20260305),
+      createModel("gpt-5.4-mini-2026-03-05", "custom_yutoapi", 20260305),
+      createModel("gpt-5.4-mini", "custom_yutoapi", 20260305),
+      createModel("gpt-5.4-nano-2026-03-05", "custom_yutoapi", 20260305),
+      createModel("gpt-5.4-nano", "custom_yutoapi", 20260305),
     ];
 
     const candidates = buildAutoModelCandidates(
       models,
       [
         {
-          name: "AihubMix",
+          name: "YutoApi",
           provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
-          baseUrl: "https://aihubmix.com",
+          baseUrl: "https://yuto.example.com",
         },
       ],
       ["gpt"],
     );
 
-    expect(candidates.map((item) => item.model)).toEqual([
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.4-nano",
-    ]);
+    expect(candidates.map((item) => item.model)).toEqual(["gpt-5.4"]);
   });
 
-  it("GPT 自动模式只保留官方命名，并优先最新版本的 main mini nano", () => {
+  it("GPT 自动模式只保留官方命名，并优先最新版本主模型", () => {
     const models: LLMModel[] = [
-      createModel("aihubmix-router", "custom_aihubmix", 20260320),
-      createModel("gpt-5-mini-flex", "custom_aihubmix", 20260320),
-      createModel("gpt-4o-lite", "custom_aihubmix", 20260320),
-      createModel("gpt-5.3", "custom_aihubmix", 20260319),
-      createModel("gpt-5.4", "custom_aihubmix", 20260318),
-      createModel("gpt-5.4-mini", "custom_aihubmix", 20260318),
-      createModel("gpt-5.4-nano", "custom_aihubmix", 20260318),
+      createModel("aihubmix-router", "custom_yutoapi", 20260320),
+      createModel("gpt-5-mini-flex", "custom_yutoapi", 20260320),
+      createModel("gpt-4o-lite", "custom_yutoapi", 20260320),
+      createModel("gpt-5.3", "custom_yutoapi", 20260319),
+      createModel("gpt-5.4", "custom_yutoapi", 20260318),
+      createModel("gpt-5.4-mini", "custom_yutoapi", 20260318),
+      createModel("gpt-5.4-nano", "custom_yutoapi", 20260318),
     ];
 
     const candidates = buildAutoModelCandidates(
       models,
       [
         {
-          name: "AihubMix",
+          name: "YutoApi",
           provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
-          baseUrl: "https://aihubmix.com",
+          baseUrl: "https://yuto.example.com",
         },
       ],
       ["gpt"],
     );
 
-    expect(candidates.map((item) => item.model)).toEqual([
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.4-nano",
-    ]);
+    expect(candidates.map((item) => item.model)).toEqual(["gpt-5.4"]);
   });
 
   it("GPT 自动模式排除名称包含 aihubmix 的模型", () => {
@@ -246,19 +234,14 @@ describe("buildAutoModelCandidates", () => {
       ["gpt"],
     );
 
-    expect(candidates.map((item) => item.model)).toEqual([
-      "gpt-5.4",
-      "gpt-5.4-mini",
-    ]);
+    expect(candidates.map((item) => item.model)).toEqual([]);
   });
 
-  it("GPT 自动模式在最新版本没有 main 时，回退到同版本 mini 和 nano", () => {
+  it("AIhubmix 的 GPT 自动模式固定使用 gpt-chat-latest", () => {
     const models: LLMModel[] = [
-      createModel("gpt-5.3", "custom_aihubmix", 20260319),
-      createModel("gpt-5.4-mini-2026-03-05", "custom_aihubmix", 20260320),
-      createModel("gpt-5.4-mini", "custom_aihubmix", 20260320),
-      createModel("gpt-5.4-nano-2026-03-05", "custom_aihubmix", 20260320),
-      createModel("gpt-5.4-nano", "custom_aihubmix", 20260320),
+      createModel("gpt-5.5", "custom_aihubmix", 20260501),
+      createModel("gpt-5.5-mini", "custom_aihubmix", 20260501),
+      createModel("gpt-chat-latest", "custom_aihubmix", 20260401),
     ];
 
     const candidates = buildAutoModelCandidates(
@@ -274,10 +257,56 @@ describe("buildAutoModelCandidates", () => {
       ["gpt"],
     );
 
-    expect(candidates.map((item) => item.model)).toEqual([
-      "gpt-5.4-mini",
-      "gpt-5.4-nano",
-    ]);
+    expect(candidates.map((item) => item.model)).toEqual(["gpt-chat-latest"]);
+  });
+
+  it("非 AIhubmix 的 GPT 自动模式固定使用最新 OpenAI 主模型", () => {
+    const models: LLMModel[] = [
+      createModel("gpt-chat-latest", "custom_yutoapi", 20260401),
+      createModel("gpt-5.5-mini", "custom_yutoapi", 20260501),
+      createModel("gpt-5.5", "custom_yutoapi", 20260501),
+      createModel("gpt-5.4", "custom_yutoapi", 20260301),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "YutoApi",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://yuto.example.com",
+        },
+      ],
+      ["gpt"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual(["gpt-5.5"]);
+  });
+
+  it("非 AIhubmix 的 GPT 自动模式在最新版本没有 main 时，回退到同版本 mini", () => {
+    const models: LLMModel[] = [
+      createModel("gpt-5.3", "custom_yutoapi", 20260319),
+      createModel("gpt-5.4-mini-2026-03-05", "custom_yutoapi", 20260320),
+      createModel("gpt-5.4-mini", "custom_yutoapi", 20260320),
+      createModel("gpt-5.4-nano-2026-03-05", "custom_yutoapi", 20260320),
+      createModel("gpt-5.4-nano", "custom_yutoapi", 20260320),
+    ];
+
+    const candidates = buildAutoModelCandidates(
+      models,
+      [
+        {
+          name: "YutoApi",
+          provider: CUSTOM_SERVICE_PROVIDER,
+          enabled: true,
+          baseUrl: "https://yuto.example.com",
+        },
+      ],
+      ["gpt"],
+    );
+
+    expect(candidates.map((item) => item.model)).toEqual(["gpt-5.4-mini"]);
   });
 
   it("DeepSeek 自动模式优先最新官方 v 系列，再回退 chat reasoner r1", () => {
@@ -758,22 +787,22 @@ describe("buildAutoModelCandidates", () => {
 
   it("排除 realtime 和豆包图片视频系特殊命名", () => {
     const models: LLMModel[] = [
-      createModel("gpt-realtime-mini-2025-12-15", "custom_aihubmix", 20260320),
-      createModel("doubao-seedream-4-5", "custom_aihubmix", 20260319),
-      createModel("doubao-seedance-1-5", "custom_aihubmix", 20260318),
-      createModel("jimeng-3.0", "custom_aihubmix", 20260317),
-      createModel("gpt-5.4", "custom_aihubmix", 20260316),
-      createModel("gpt-5.4-mini", "custom_aihubmix", 20260315),
+      createModel("gpt-realtime-mini-2025-12-15", "custom_yutoapi", 20260320),
+      createModel("doubao-seedream-4-5", "custom_yutoapi", 20260319),
+      createModel("doubao-seedance-1-5", "custom_yutoapi", 20260318),
+      createModel("jimeng-3.0", "custom_yutoapi", 20260317),
+      createModel("gpt-5.4", "custom_yutoapi", 20260316),
+      createModel("gpt-5.4-mini", "custom_yutoapi", 20260315),
     ];
 
     const candidates = buildAutoModelCandidates(
       models,
       [
         {
-          name: "AihubMix",
+          name: "YutoApi",
           provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
-          baseUrl: "https://aihubmix.com",
+          baseUrl: "https://yuto.example.com",
         },
       ],
       ["gpt", "doubao"],
@@ -781,31 +810,30 @@ describe("buildAutoModelCandidates", () => {
 
     expect(candidates).toEqual([
       expect.objectContaining({ model: "gpt-5.4" }),
-      expect.objectContaining({ model: "gpt-5.4-mini" }),
     ]);
   });
 
-  it("GPT 系列内部按最新官方版本的 主模型 -> mini -> nano 取候选，并排除非官方扩展命名", () => {
+  it("非 AIhubmix 的 GPT 系列内部按最新官方版本取主候选，并排除非官方扩展命名", () => {
     const models: LLMModel[] = [
-      createModel("gpt-5.4", "custom_aihubmix", 20260320),
-      createModel("gpt-5.4-mini", "custom_aihubmix", 20260319),
-      createModel("gpt-5.4-lite", "custom_aihubmix", 20260318),
-      createModel("gpt-5.4-nano", "custom_aihubmix", 20260317),
-      createModel("gpt-5.4-codex-mini", "custom_aihubmix", 20260321),
-      createModel("gpt-5.4-code", "custom_aihubmix", 20260322),
-      createModel("doubao-seed-2-0", "custom_aihubmix", 20260320),
-      createModel("doubao-seed-2-0-mini", "custom_aihubmix", 20260319),
-      createModel("doubao-seed-2-0-lite", "custom_aihubmix", 20260318),
+      createModel("gpt-5.4", "custom_yutoapi", 20260320),
+      createModel("gpt-5.4-mini", "custom_yutoapi", 20260319),
+      createModel("gpt-5.4-lite", "custom_yutoapi", 20260318),
+      createModel("gpt-5.4-nano", "custom_yutoapi", 20260317),
+      createModel("gpt-5.4-codex-mini", "custom_yutoapi", 20260321),
+      createModel("gpt-5.4-code", "custom_yutoapi", 20260322),
+      createModel("doubao-seed-2-0", "custom_yutoapi", 20260320),
+      createModel("doubao-seed-2-0-mini", "custom_yutoapi", 20260319),
+      createModel("doubao-seed-2-0-lite", "custom_yutoapi", 20260318),
     ];
 
     const candidates = buildAutoModelCandidates(
       models,
       [
         {
-          name: "AihubMix",
+          name: "YutoApi",
           provider: CUSTOM_SERVICE_PROVIDER,
           enabled: true,
-          baseUrl: "https://aihubmix.com",
+          baseUrl: "https://yuto.example.com",
         },
       ],
       ["gpt"],
@@ -813,8 +841,6 @@ describe("buildAutoModelCandidates", () => {
 
     expect(candidates.map((item) => `${item.series}:${item.model}`)).toEqual([
       "gpt:gpt-5.4",
-      "gpt:gpt-5.4-mini",
-      "gpt:gpt-5.4-nano",
     ]);
   });
 });

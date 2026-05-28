@@ -188,6 +188,7 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
+  AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
   LATEST_OPENAI_CHAT_MODEL_NAME,
   getLatestOpenAIModelName,
   getLatestOpenAIModelForCurrentSupplier,
@@ -276,6 +277,10 @@ function areSelectorItemsEqual(
   }
 
   return true;
+}
+
+function isAiHubMixProviderId(providerId: string | undefined) {
+  return String(providerId || "").toLowerCase() === "custom_aihubmix";
 }
 
 function formatMessageUsage(
@@ -1921,8 +1926,6 @@ export function ChatActions(props: {
 
     return openAIModels[0];
   }, [config.models]);
-  const [showUploadImage, setShowUploadImage] = useState(false);
-
   const [showSizeSelector, setShowSizeSelector] = useState(false);
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [showStyleSelector, setShowStyleSelector] = useState(false);
@@ -1948,33 +1951,35 @@ export function ChatActions(props: {
   const canUseImageAttachments =
     isVisionModel(currentModel) && !supportsImageGenerationControls;
   const previousShowUploadImageRef = useRef<boolean>(canUseImageAttachments);
+  const setAttachImages = props.setAttachImages;
+  const setUploading = props.setUploading;
   const supportsSizeControl = supportsCustomSize(currentModel);
   const supportsQualityControl = supportsImageQualityControl(currentModel);
   const supportsStyleControl = supportsImageStyleControl(currentModel);
   const supportsVideoDuration = supportsVideoDurationControl(currentModel);
   const supportsVideoReference = supportsVideoImageReference(currentModel);
+  const sessionId = session?.id ?? "";
+  const sessionModelConfigSize = session.mask.modelConfig.size;
+  const sessionModelConfigQuality = session.mask.modelConfig.quality;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
-    const sessionId = session?.id ?? "";
     const isSessionActivation = previousSessionIdRef.current !== sessionId;
     previousSessionIdRef.current = sessionId;
     const shouldShowCompatibilityToast =
       !sessionLoading && !isSessionActivation;
 
-    const show = canUseImageAttachments;
-    if (showUploadImage !== show) {
-      setShowUploadImage(show);
+    if (!canUseImageAttachments && previousShowUploadImageRef.current) {
+      setAttachImages([]);
+      setUploading(false);
     }
-    if (!show && previousShowUploadImageRef.current) {
-      props.setAttachImages([]);
-      props.setUploading(false);
-    }
-    previousShowUploadImageRef.current = show;
-    if (supportsSizeControl && session.mask.modelConfig.size !== currentSize) {
-      const previousSize = session.mask.modelConfig.size;
-      chatStore.updateTargetSession(session, (session) => {
+    previousShowUploadImageRef.current = canUseImageAttachments;
+    if (supportsSizeControl && sessionModelConfigSize !== currentSize) {
+      const previousSize = sessionModelConfigSize;
+      chatStore.updateTargetSession(sessionRef.current, (session) => {
         session.mask.modelConfig.size = currentSize;
       });
       const adjustKey = `${currentModel}:${previousSize ?? ""}->${currentSize}`;
@@ -1988,14 +1993,14 @@ export function ChatActions(props: {
     }
     const normalizedQuality = normalizeImageQuality(
       currentModel,
-      session.mask.modelConfig.quality,
+      sessionModelConfigQuality,
     );
     if (
       supportsQualityControl &&
-      session.mask.modelConfig.quality !== normalizedQuality
+      sessionModelConfigQuality !== normalizedQuality
     ) {
-      const previousQuality = session.mask.modelConfig.quality ?? "standard";
-      chatStore.updateTargetSession(session, (session) => {
+      const previousQuality = sessionModelConfigQuality ?? "standard";
+      chatStore.updateTargetSession(sessionRef.current, (session) => {
         session.mask.modelConfig.quality = normalizedQuality as any;
       });
       const adjustKey = `${currentModel}:${previousQuality}->${normalizedQuality}`;
@@ -2016,10 +2021,12 @@ export function ChatActions(props: {
     chatStore,
     currentModel,
     currentSize,
-    props,
-    session,
+    sessionId,
     sessionLoading,
-    showUploadImage,
+    sessionModelConfigQuality,
+    sessionModelConfigSize,
+    setAttachImages,
+    setUploading,
     supportsQualityControl,
     supportsSizeControl,
   ]);
@@ -2470,9 +2477,7 @@ function _Chat() {
     return storedGroup || undefined;
   });
   const [modelSelectorProviderId, setModelSelectorProviderId] = useState("");
-  const [modelSelectorItemsCache, setModelSelectorItemsCache] = useState<
-    Record<string, any[]>
-  >({});
+  const modelSelectorItemsCacheRef = useRef<Record<string, any[]>>({});
   const resetModelSelectorGroupToAll = useCallback(() => {
     setModelSelectorDefaultGroup("All");
     localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, "All");
@@ -2541,6 +2546,10 @@ function _Chat() {
 
   const sessionMask =
     liveSession?.mask ?? safeSession.mask ?? emptySessionRef.current.mask;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionMaskRef = useRef(sessionMask);
+  sessionMaskRef.current = sessionMask;
   const sessionContext = useMemo(
     () => (Array.isArray(sessionMask?.context) ? sessionMask.context : []),
     [sessionMask?.context],
@@ -3108,8 +3117,8 @@ function _Chat() {
 
     return result;
   }, [activeModelSelectorProviderId, allModels, config.customModels]);
-  const modelSelectorItems = useMemo(() => {
-    const providerItems = models
+  const providerModelSelectorItems = useMemo(() => {
+    return models
       .map((model) => ({
         title: `${model.displayName}`,
         searchText: [
@@ -3156,11 +3165,15 @@ function _Chat() {
         },
       }))
       .sort(compareSelectorItems);
+  }, [
+    globalCustomModelValueSet,
+    getModelGroup,
+    manualModelSelectionDisabled,
+    models,
+  ]);
 
-    const cachedProviderItems =
-      modelSelectorItemsCache[activeModelSelectorProviderId] || [];
-    const effectiveProviderItems =
-      providerItems.length > 0 ? providerItems : cachedProviderItems;
+  const modelSelectorItems = useMemo(() => {
+    const effectiveProviderItems = providerModelSelectorItems;
 
     if (!manualModelSelectionDisabled) {
       return effectiveProviderItems;
@@ -3170,14 +3183,7 @@ function _Chat() {
       ...item,
       disable: true,
     }));
-  }, [
-    activeModelSelectorProviderId,
-    globalCustomModelValueSet,
-    getModelGroup,
-    manualModelSelectionDisabled,
-    modelSelectorItemsCache,
-    models,
-  ]);
+  }, [manualModelSelectionDisabled, providerModelSelectorItems]);
   const currentModelName = useMemo(() => {
     const matchedModel = models.find(
       (model) =>
@@ -3300,13 +3306,17 @@ function _Chat() {
         ...addedProviderModels,
         ...cachedProviderModels,
       ];
-      const latestOpenAIModelName =
-        getLatestOpenAIModelForProviderId(
-          providerModelCandidates,
-          selectedProviderId,
-        )?.model ||
-        getLatestOpenAIModelName([...allModels, ...providerModelCandidates]) ||
-        LATEST_OPENAI_CHAT_MODEL_NAME;
+      const latestOpenAIModelName = isAiHubMixProviderId(selectedProviderId)
+        ? AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME
+        : getLatestOpenAIModelForProviderId(
+            providerModelCandidates,
+            selectedProviderId,
+          )?.model ||
+          getLatestOpenAIModelName([
+            ...allModels,
+            ...providerModelCandidates,
+          ]) ||
+          LATEST_OPENAI_CHAT_MODEL_NAME;
 
       if (
         latestOpenAIModelName &&
@@ -3382,12 +3392,19 @@ function _Chat() {
         ...addedProviderModels,
         ...cachedProviderModels,
       ];
-      const latestOpenAIModel =
-        getLatestOpenAIModelForProviderId(providerModels, selectedProviderId) ||
-        ({
-          model: LATEST_OPENAI_CHAT_MODEL_NAME,
-          providerName: profile.provider,
-        } as const);
+      const latestOpenAIModel = isAiHubMixProviderId(selectedProviderId)
+        ? ({
+            model: AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
+            providerName: profile.provider,
+          } as const)
+        : getLatestOpenAIModelForProviderId(
+            providerModels,
+            selectedProviderId,
+          ) ||
+          ({
+            model: LATEST_OPENAI_CHAT_MODEL_NAME,
+            providerName: profile.provider,
+          } as const);
       const latestSession = chatStore.currentSession();
       if (!latestSession) {
         return;
@@ -3495,7 +3512,7 @@ function _Chat() {
   useEffect(() => {
     if (!showModelSelector) {
       setModelSelectorProviderId("");
-      setModelSelectorItemsCache({});
+      modelSelectorItemsCacheRef.current = {};
       return;
     }
     setIsProviderSelectorOpen(false);
@@ -3504,7 +3521,7 @@ function _Chat() {
   }, [showModelSelector]);
 
   useEffect(() => {
-    if (!showModelSelector || modelSelectorItems.length === 0) {
+    if (!showModelSelector || providerModelSelectorItems.length === 0) {
       return;
     }
 
@@ -3512,18 +3529,21 @@ function _Chat() {
       return;
     }
 
-    setModelSelectorItemsCache((prev) => {
-      const previousItems = prev[activeModelSelectorProviderId] || [];
-      if (areSelectorItemsEqual(previousItems, modelSelectorItems)) {
-        return prev;
-      }
+    const previousItems =
+      modelSelectorItemsCacheRef.current[activeModelSelectorProviderId] || [];
+    if (areSelectorItemsEqual(previousItems, providerModelSelectorItems)) {
+      return;
+    }
 
-      return {
-        ...prev,
-        [activeModelSelectorProviderId]: modelSelectorItems,
-      };
-    });
-  }, [activeModelSelectorProviderId, modelSelectorItems, showModelSelector]);
+    modelSelectorItemsCacheRef.current = {
+      ...modelSelectorItemsCacheRef.current,
+      [activeModelSelectorProviderId]: providerModelSelectorItems,
+    };
+  }, [
+    activeModelSelectorProviderId,
+    providerModelSelectorItems,
+    showModelSelector,
+  ]);
 
   useEffect(() => {
     if (!showModelSelector || modelSelectorItems.length === 0) {
@@ -3907,6 +3927,8 @@ function _Chat() {
 
   // Effect B：模型配置同步（全局配置下发到会话 mask）
   useEffect(() => {
+    const session = sessionRef.current;
+    const sessionMask = sessionMaskRef.current;
     let nextModelConfig = sessionMask.modelConfig;
     let shouldSyncMaskConfig = false;
     const manualSessionModelSelection = readManualSessionModelSelection(
@@ -3914,6 +3936,7 @@ function _Chat() {
     );
     const preferredRuntimeModelConfig =
       sessionMask.syncGlobalConfig &&
+      !manualSessionModelSelection &&
       !autoModeEnabled &&
       !currentSessionHasMessages
         ? getPreferredRuntimeModelConfig(
@@ -3925,6 +3948,7 @@ function _Chat() {
 
     const shouldApplySyncedGlobalModelSelection =
       !sessionMask.syncGlobalConfig &&
+      !manualSessionModelSelection &&
       !autoModeEnabled &&
       !currentSessionHasMessages &&
       Number((config as any).modelSelectionUpdatedAt || 0) > 0 &&
@@ -3947,10 +3971,16 @@ function _Chat() {
     ) {
       nextModelConfig = sanitizeModelConfigForCapability({
         ...sessionMask.modelConfig,
-        ...manualSessionModelSelection,
+        ...(manualSessionModelSelection as Partial<
+          typeof sessionMask.modelConfig
+        >),
       });
       shouldSyncMaskConfig = true;
-    } else if (sessionMask.syncGlobalConfig && !currentSessionHasMessages) {
+    } else if (
+      !manualSessionModelSelection &&
+      sessionMask.syncGlobalConfig &&
+      !currentSessionHasMessages
+    ) {
       nextModelConfig = { ...config.modelConfig };
       if (
         autoModeEnabled &&
@@ -4014,6 +4044,7 @@ function _Chat() {
     const shouldSyncResolvedGlobalConfig =
       shouldSyncMaskConfig &&
       sessionMask.syncGlobalConfig &&
+      !manualSessionModelSelection &&
       !currentSessionHasMessages &&
       !autoModeEnabled &&
       !areModelConfigValuesEqual(
@@ -4040,8 +4071,6 @@ function _Chat() {
     allModels,
     apiProfiles,
     currentSessionHasMessages,
-    session,
-    sessionMask,
   ]);
 
   // check if should send message
@@ -4634,14 +4663,11 @@ function _Chat() {
           force: true,
           providerIds: [selectedProviderId],
         });
-        setModelSelectorItemsCache((prev) => {
-          if (!prev[selectedProviderId]) {
-            return prev;
-          }
-          const next = { ...prev };
+        if (modelSelectorItemsCacheRef.current[selectedProviderId]) {
+          const next = { ...modelSelectorItemsCacheRef.current };
           delete next[selectedProviderId];
-          return next;
-        });
+          modelSelectorItemsCacheRef.current = next;
+        }
 
         const {
           addedProviderModels,
@@ -6354,7 +6380,7 @@ function _Chat() {
             setAddModelProfile(null);
             setShowModelSelector(true);
             setModelSelectorResetKey((k) => k + 1);
-            setModelSelectorItemsCache({});
+            modelSelectorItemsCacheRef.current = {};
             resetModelSelectorGroupToAll();
           }}
           profiles={addModelProfile.profiles}

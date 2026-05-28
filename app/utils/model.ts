@@ -5,7 +5,24 @@ import modelPublishedAtUtils from "./model-published-at";
 const { DEFAULT_MODELS, ServiceProvider } = constants;
 const { applyModelPublishedAt, comparePublishedAt } = modelPublishedAtUtils;
 
-export const LATEST_OPENAI_CHAT_MODEL_NAME = "gpt-5.1";
+const BUILTIN_OPENAI_CHAT_MODELS = DEFAULT_MODELS.filter(
+  (m) =>
+    m.provider?.providerName === "OpenAI" &&
+    m.available !== false &&
+    !/(?:dall-e|whisper|tts|embedding|moderation|realtime|audio|vision|image|video|omni-moderation|computer-use|search-preview|codex|spark|official)/i.test(
+      m.name,
+    ) &&
+    /(^|[^a-z])(gpt|chatgpt|o1|o3|o4|o5)([^a-z]|$)/i.test(m.name),
+);
+
+const LATEST_BUILTIN_OPENAI_MODEL =
+  BUILTIN_OPENAI_CHAT_MODELS.length > 0
+    ? [...BUILTIN_OPENAI_CHAT_MODELS].sort((a, b) => b.sorted - a.sorted)[0]
+        ?.name
+    : undefined;
+
+export const LATEST_OPENAI_CHAT_MODEL_NAME =
+  LATEST_BUILTIN_OPENAI_MODEL || "gpt-5.4";
 export const AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME = "gpt-chat-latest";
 
 const CustomSeq = {
@@ -529,7 +546,7 @@ function isOpenAIChatModel(model: ModelLike) {
     .toLowerCase();
 
   if (
-    /(embedding|moderation|whisper|transcri|tts|speech|realtime|audio|dall-e|dalle|image|video|vision|sora|omni-moderation|computer-use|search-preview)/i.test(
+    /(embedding|moderation|whisper|transcri|tts|speech|realtime|audio|dall-e|dalle|image|video|vision|sora|omni-moderation|computer-use|search-preview|codex|spark|official)/i.test(
       text,
     )
   ) {
@@ -740,49 +757,66 @@ export function getPreferredDisplayModelConfig(
   accessProfiles: readonly AccessProfileLike[] = [],
   exactModelName = LATEST_OPENAI_CHAT_MODEL_NAME,
 ): { model: string; providerName: ServiceProviderValue } | undefined {
-  if (
-    isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName) &&
-    currentModelConfig?.providerName &&
-    currentModelConfig?.providerName !== ServiceProvider.Custom
-  ) {
-    if (currentModelConfig.providerName === ServiceProvider.Local) {
-      const preferredDefaultModel = getPreferredDefaultChatModel(
-        allModels,
-        currentModelConfig,
-        accessProfiles,
-        exactModelName,
-      );
+  if (!isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName)) {
+    return undefined;
+  }
 
-      return {
-        model: exactModelName,
-        providerName:
-          preferredDefaultModel?.providerName || ServiceProvider.OpenAI,
-      };
+  if (!currentModelConfig?.providerName) {
+    return undefined;
+  }
+
+  if (currentModelConfig.providerName === ServiceProvider.Local) {
+    const preferredDefaultModel = getPreferredDefaultChatModel(
+      allModels,
+      currentModelConfig,
+      accessProfiles,
+      exactModelName,
+    );
+
+    if (!preferredDefaultModel) {
+      return undefined;
     }
 
     return {
       model: exactModelName,
-      providerName: currentModelConfig.providerName,
+      providerName: preferredDefaultModel.providerName,
     };
   }
 
-  if (
-    currentModelConfig?.providerName !== ServiceProvider.Local ||
-    !isReservedDefaultModelAlias(currentModelConfig?.model, exactModelName)
-  ) {
+  if (currentModelConfig.providerName === ServiceProvider.Custom) {
+    const latestModel = getLatestOpenAIModelForCurrentSupplier(
+      allModels,
+      currentModelConfig,
+      accessProfiles,
+    );
+
+    if (latestModel) {
+      return {
+        model: latestModel.model,
+        providerName: latestModel.providerName,
+      };
+    }
+
+    const preferredDefaultModel = getPreferredDefaultChatModel(
+      allModels,
+      currentModelConfig,
+      accessProfiles,
+      exactModelName,
+    );
+
+    if (preferredDefaultModel) {
+      return {
+        model: preferredDefaultModel.model,
+        providerName: preferredDefaultModel.providerName,
+      };
+    }
+
     return undefined;
   }
 
-  const preferredDefaultModel = getPreferredDefaultChatModel(
-    allModels,
-    currentModelConfig,
-    accessProfiles,
-    exactModelName,
-  );
-
   return {
     model: exactModelName,
-    providerName: preferredDefaultModel?.providerName || ServiceProvider.OpenAI,
+    providerName: currentModelConfig.providerName,
   };
 }
 

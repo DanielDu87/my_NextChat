@@ -1,6 +1,7 @@
 import type { LLMModel } from "../client/api";
 import type { ServiceProvider } from "../constant";
 import type { AutoModelSeriesKey } from "../store/config";
+import { AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME } from "./model";
 
 const CUSTOM_SERVICE_PROVIDER = "Custom";
 
@@ -262,6 +263,10 @@ function getProviderIdFromProfile(profile: AccessProfileLike) {
   return profile.provider === CUSTOM_SERVICE_PROVIDER
     ? `custom_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
+}
+
+function isAiHubMixProviderId(providerId: string | undefined) {
+  return String(providerId || "").toLowerCase() === "custom_aihubmix";
 }
 
 function buildAutoModelCandidateCacheKey(
@@ -912,6 +917,25 @@ function pickLatestSeriesModels(
   };
 }
 
+function pickPreferredOpenAIAutoModels(
+  models: AutoModelInput[],
+  providerId: string,
+) {
+  const { latestModels } = pickLatestSeriesModels(models, "gpt");
+
+  if (isAiHubMixProviderId(providerId)) {
+    const preferred = models.find(
+      (model) =>
+        isModelUsable(model) &&
+        model.name === AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
+    );
+
+    return preferred ? [preferred] : [];
+  }
+
+  return latestModels.slice(0, 1);
+}
+
 export function buildAutoModelCandidates(
   allModels: AutoModelInput[],
   profiles: AccessProfileLike[],
@@ -941,7 +965,10 @@ export function buildAutoModelCandidates(
     );
 
     normalizedSeries.forEach((series) => {
-      const { latestModels } = pickLatestSeriesModels(providerModels, series);
+      const latestModels =
+        series === "gpt"
+          ? pickPreferredOpenAIAutoModels(providerModels, providerId)
+          : pickLatestSeriesModels(providerModels, series).latestModels;
 
       latestModels.forEach((model) => {
         const modelProviderId = String(model.provider?.id || "").toLowerCase();
