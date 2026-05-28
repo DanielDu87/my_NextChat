@@ -637,8 +637,9 @@ export function SideBar(props: { className?: string }) {
                         criticalSyncReady: false,
                         criticalSyncInProgress: true,
                       } as any);
+                      // 只同步模型选择，API 配置在后台异步处理
                       void syncStore
-                        .sync([StoreKey.Config, StoreKey.Access], {
+                        .sync([StoreKey.Config], {
                           isolateQueue: true,
                           broadcastChatHint: false,
                         })

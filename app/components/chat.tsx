@@ -151,8 +151,9 @@ function syncModelSelectionNow() {
   if (!syncStore.cloudSync?.()) {
     return;
   }
+  // 只同步模型选择，API 配置由后台防抖同步处理
   void syncStore
-    .sync([StoreKey.Config, StoreKey.Access], {
+    .sync([StoreKey.Config], {
       force: true,
       isolateQueue: true,
     })

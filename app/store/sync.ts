@@ -3448,7 +3448,8 @@ export const useSyncStore = createPersistStore(
 
         try {
           // 首屏只等待模型选择和用户已添加模型，完成后立即允许对话。
-          await this.sync([StoreKey.Config, StoreKey.Access], {
+          // API 配置在后台同步（autoSyncDeferred），不阻塞对话。
+          await this.sync([StoreKey.Config], {
             isolateQueue: true,
             force: true,
             broadcastChatHint: false,
