@@ -3318,7 +3318,7 @@ export const useSyncStore = createPersistStore(
                       `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: 远端 ${regularResult.remoteSummary}`,
                     );
                     logSyncDebug(LOG_SEPARATOR);
-                  } else if (regularResult.status !== "skipped") {
+                  } else {
                     syncConsole(
                       "log",
                       `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${regularResult.summary}`,
