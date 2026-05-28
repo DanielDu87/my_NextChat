@@ -4871,8 +4871,12 @@ function _Chat() {
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
 
   useLayoutEffect(() => {
-    if (isMobileScreen || userInput) {
+    if (isMobileScreen) {
       setIsInputHintOverflow(false);
+      return;
+    }
+
+    if (userInput) {
       return;
     }
 
@@ -5781,12 +5785,12 @@ function _Chat() {
                   })}
                   htmlFor="chat-input"
                 >
-                  {!isMobileScreen && !userInput && (
+                  {!isMobileScreen && (
                     <span
                       ref={inputPlaceholderRef}
                       className={clsx(styles["chat-input-placeholder"], {
                         [styles["chat-input-placeholder-hidden"]]:
-                          shouldUseCompactInputHint,
+                          shouldUseCompactInputHint || !!userInput,
                       })}
                       style={{
                         fontSize: inputFontSize,
@@ -5858,11 +5862,11 @@ function _Chat() {
                   />
                 </label>
               </div>
-              {!isMobileScreen && !userInput && (
+              {!isMobileScreen && (
                 <div
                   className={clsx(styles["chat-input-compact-hint"], {
                     [styles["chat-input-compact-hint-hidden"]]:
-                      !shouldUseCompactInputHint,
+                      !shouldUseCompactInputHint || !!userInput,
                   })}
                 >
                   {chatInputHint}

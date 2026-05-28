@@ -2739,7 +2739,7 @@ export const useChatStore = createPersistStore(
               })
             : sanitizeModelConfigForCapability({
                 ...modelConfig,
-                ...(session.mask.syncGlobalConfig
+                ...(session.mask.syncGlobalConfig && !manualModelSelection
                   ? getPreferredRuntimeModelConfig(
                       allModels,
                       modelConfig,

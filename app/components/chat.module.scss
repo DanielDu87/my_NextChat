@@ -2031,11 +2031,6 @@
   box-shadow: 0 0 0 1px var(--primary);
 }
 
-.chat-input-panel-inner:has(.chat-input:focus) .chat-input-placeholder {
-  opacity: 0;
-  transform: translateY(calc(-50% + 8px));
-}
-
 .chat-input-placeholder {
   position: absolute;
   left: 22px;
