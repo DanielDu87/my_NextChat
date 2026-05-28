@@ -1773,6 +1773,7 @@
 .chat-input-panel {
   position: relative;
   display: flex;
+  min-width: 500px;
   width: min(
     var(--chat-composer-width),
     calc(100% - var(--chat-tight-content-padding) * 2)
@@ -2177,6 +2178,7 @@
   }
 
   .chat-input-panel {
+    min-width: 0;
     width: 100%;
     align-self: stretch;
     padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
@@ -2201,7 +2203,7 @@
     min-width: 44px !important;
     min-height: 44px !important;
     padding: 0 !important;
-    border-radius: 50%;
+    border-radius: 50% !important;
     background: color-mix(in srgb, var(--black) 8%, transparent);
     color: var(--black);
 

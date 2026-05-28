@@ -183,6 +183,20 @@ function Screen() {
     loadAsyncGoogleFont();
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.pointerEvents = "none";
+    const timer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        root.style.pointerEvents = "";
+      });
+    });
+    return () => {
+      cancelAnimationFrame(timer);
+      root.style.pointerEvents = "";
+    };
+  }, [location]);
+
   if (isArtifact) {
     return (
       <Routes>

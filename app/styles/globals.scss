@@ -470,7 +470,7 @@ pre {
   &:hover {
     filter: brightness(0.9);
   }
-  &:focus {
+  &:focus-visible {
     filter: brightness(0.95);
   }
 }

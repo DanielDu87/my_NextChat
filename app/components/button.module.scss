@@ -57,7 +57,7 @@
   }
 
   &:not(.danger):not(.primary):hover,
-  &:not(.danger):not(.primary):focus {
+  &:not(.danger):not(.primary):focus-visible {
     border-color: var(--primary);
   }
 }
