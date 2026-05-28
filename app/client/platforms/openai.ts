@@ -992,7 +992,7 @@ export class ChatGPTApi implements LLMApi {
       let url = getStringField(firstItem, ["url", "image_url", "imageUrl"]);
       const videoUrl =
         getStringField(firstItem, ["video_url", "videoUrl"]) ||
-        (isVideoUrl(url) ? url : "");
+        (isVideoUrl(url ?? "") ? url : "");
       if (videoUrl) {
         return toVideoMarkdown(videoUrl);
       }
