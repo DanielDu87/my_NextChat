@@ -176,7 +176,8 @@
   .modal-content {
     max-height: 40vh;
     padding: var(--modal-padding);
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     flex: 1 1 auto;
   }
 
