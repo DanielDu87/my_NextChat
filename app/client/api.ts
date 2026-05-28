@@ -503,6 +503,7 @@ export function getHeaders(
     // console.log("[API Request] Effective Provider:", effectiveProvider);
     // console.log("[API Request] API Key:", apiKeyInfo.current ? "***" : "EMPTY");
     return {
+      modelConfig,
       isCustom,
       isGoogle,
       isAzure,
@@ -538,6 +539,7 @@ export function getHeaders(
   }
 
   const {
+    modelConfig,
     isCustom,
     isGoogle,
     isAzure,
