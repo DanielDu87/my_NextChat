@@ -223,7 +223,7 @@ export const DEFAULT_CONFIG = {
 
   submitKey: SubmitKey.Enter,
   avatar: "1f603",
-  fontSize: 14,
+  fontSize: 16,
   fontFamily: "",
   theme: DEFAULT_THEME as Theme,
   tightBorder: DEFAULT_TIGHT_BORDER,

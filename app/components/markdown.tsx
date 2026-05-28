@@ -79,6 +79,7 @@ export function PreCode(props: { children: any }) {
   const [mermaidCode, setMermaidCode] = useState("");
   const [htmlCode, setHtmlCode] = useState("");
   const [copied, setCopied] = useState(false);
+  const [codeLang, setCodeLang] = useState("");
   const { height } = useWindowSize();
   const { session } = useCurrentSession();
 
@@ -147,6 +148,11 @@ export function PreCode(props: { children: any }) {
           codeElement.style.whiteSpace = "pre-wrap";
         }
       });
+      const firstCode = ref.current.querySelector("code");
+      if (firstCode) {
+        const match = firstCode.className.match(/language-(\w+)/);
+        setCodeLang(match ? match[1] : "");
+      }
       setTimeout(renderArtifacts, 1);
     }
   }, [renderArtifacts]);
@@ -163,16 +169,19 @@ export function PreCode(props: { children: any }) {
     <>
       <pre ref={ref}>
         <div className="copy-code-toolbar">
-          {copied && (
-            <span className="copy-code-tip">{Locale.Copy.Success}</span>
-          )}
-          <button
-            className="copy-code-button"
-            type="button"
-            aria-label="Copy code"
-            title="Copy code"
-            onClick={handleCopyCode}
-          />
+          <span className="copy-code-lang">{codeLang}</span>
+          <div className="copy-code-actions">
+            <span className="copy-code-tip">
+              {copied ? Locale.Copy.Success : ""}
+            </span>
+            <button
+              className="copy-code-button"
+              type="button"
+              aria-label="Copy code"
+              title="Copy code"
+              onClick={handleCopyCode}
+            />
+          </div>
         </div>
         {props.children}
       </pre>
@@ -205,58 +214,11 @@ export function PreCode(props: { children: any }) {
 }
 
 function CustomCode(props: { children: any; className?: string }) {
-  const { session } = useCurrentSession();
-  const config = useAppConfig();
-  const enableCodeFold =
-    session?.mask?.enableCodeFold !== false && config.enableCodeFold;
-
   const ref = useRef<HTMLPreElement>(null);
-  const [collapsed, setCollapsed] = useState(true);
-  const [showToggle, setShowToggle] = useState(false);
-
-  useEffect(() => {
-    if (ref.current) {
-      const codeHeight = ref.current.scrollHeight;
-      setShowToggle(codeHeight > 400);
-      ref.current.scrollTop = ref.current.scrollHeight;
-    }
-  }, [props.children]);
-
-  const toggleCollapsed = () => {
-    setCollapsed((collapsed) => !collapsed);
-  };
-  const renderShowMoreButton = () => {
-    if (showToggle && enableCodeFold) {
-      return (
-        <div
-          className={clsx("show-hide-button", {
-            collapsed,
-            expanded: !collapsed,
-          })}
-        >
-          <button onClick={toggleCollapsed} aria-expanded={!collapsed}>
-            {collapsed ? Locale.NewChat.More : Locale.NewChat.Less}
-          </button>
-        </div>
-      );
-    }
-    return null;
-  };
   return (
-    <>
-      <code
-        className={clsx(props?.className)}
-        ref={ref}
-        style={{
-          maxHeight: enableCodeFold && collapsed ? "400px" : "none",
-          overflowY: "hidden",
-        }}
-      >
-        {props.children}
-      </code>
-
-      {renderShowMoreButton()}
-    </>
+    <code className={clsx(props?.className)} ref={ref}>
+      {props.children}
+    </code>
   );
 }
 
@@ -380,7 +342,6 @@ export function Markdown(
     <div
       className="markdown-body"
       style={{
-        fontSize: `${props.fontSize ?? 14}px`,
         fontFamily: props.fontFamily || "inherit",
       }}
       ref={mdRef}

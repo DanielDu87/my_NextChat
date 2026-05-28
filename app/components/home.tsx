@@ -45,10 +45,6 @@ const Artifacts = dynamic(async () => (await import("./artifacts")).Artifacts, {
   loading: () => <Loading noLogo />,
 });
 
-const Settings = dynamic(async () => (await import("./settings")).Settings, {
-  loading: () => <Loading noLogo />,
-});
-
 const ApiConfigPage = dynamic(
   async () => (await import("./api-config")).ApiConfigPage,
   {
@@ -214,7 +210,6 @@ function Screen() {
             <Route path={Path.SearchChat} element={<SearchChat />} />
             <Route path={Path.ChatWithId} element={<Chat />} />
             <Route path={Path.Chat} element={<Chat />} />
-            <Route path={Path.Settings} element={<Settings />} />
             <Route path={Path.ApiConfig} element={<ApiConfigPage />} />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
           </Routes>

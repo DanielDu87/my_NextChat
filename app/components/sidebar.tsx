@@ -24,7 +24,7 @@ import { Theme } from "../store/config";
 
 import { DEFAULT_SIDEBAR_WIDTH, Path, StoreKey } from "../constant";
 
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
 import dynamic from "next/dynamic";
 import { Selector, showConfirm, showToast } from "./ui-lib";
@@ -536,14 +536,15 @@ export function SideBar(props: { className?: string }) {
         primaryAction={
           <>
             <div className={styles["sidebar-action"]}>
-              <Link to={Path.Settings}>
-                <IconButton
-                  aria={Locale.Settings.Title}
-                  icon={<SettingsIcon />}
-                  className={styles["sidebar-icon-button"]}
-                  shadow
-                />
-              </Link>
+              <IconButton
+                aria={Locale.Settings.Title}
+                icon={<SettingsIcon />}
+                className={styles["sidebar-icon-button"]}
+                shadow
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("openEditModal"));
+                }}
+              />
             </div>
             <div className={styles["sidebar-action"]}>
               <div
@@ -555,7 +556,13 @@ export function SideBar(props: { className?: string }) {
                 <IconButton
                   aria="切换主题"
                   icon={
-                    config.theme === Theme.Dark ? <DarkIcon /> : <LightIcon />
+                    config.theme === Theme.Dark ? (
+                      <DarkIcon />
+                    ) : config.theme === Theme.Auto ? (
+                      <AutoIcon />
+                    ) : (
+                      <LightIcon />
+                    )
                   }
                   className={styles["sidebar-icon-button"]}
                   shadow

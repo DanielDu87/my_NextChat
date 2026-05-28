@@ -1681,7 +1681,7 @@ function useScrollToBottom(
     if (dom) {
       const runScroll = () => {
         setAutoScroll(true);
-        dom.scrollTo(0, dom.scrollHeight);
+        dom.scrollTop = dom.scrollHeight;
       };
 
       requestAnimationFrame(runScroll);
@@ -2226,45 +2226,17 @@ export function EditMessageModal(props: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-mask">
+    <div
+      className="modal-mask"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) props.onClose();
+      }}
+    >
       <Modal
         title={Locale.Chat.EditMessage.Title}
         onClose={props.onClose}
+        hideMaxToggle
         actions={[
-          <IconButton
-            key="reset"
-            icon={<ResetIcon />}
-            bordered
-            text={Locale.Chat.Config.Reset}
-            onClick={async () => {
-              if (await showConfirm(Locale.Memory.ResetConfirm)) {
-                chatStore.updateTargetSession(
-                  session,
-                  (session) => (session.memoryPrompt = ""),
-                );
-              }
-            }}
-          />,
-          <IconButton
-            key="copy"
-            icon={<CopyIcon />}
-            bordered
-            text={Locale.Chat.Config.SaveAs}
-            onClick={() => {
-              navigate(Path.Masks);
-              setTimeout(() => {
-                maskStore.create(session.mask);
-              }, 500);
-            }}
-          />,
-          <IconButton
-            text={Locale.UI.Cancel}
-            icon={<CancelIcon />}
-            key="cancel"
-            onClick={() => {
-              props.onClose();
-            }}
-          />,
           <IconButton
             type="primary"
             text={Locale.UI.Confirm}
@@ -4547,7 +4519,7 @@ function _Chat() {
             const maxScroll = dom.scrollHeight - dom.clientHeight;
             // 只有当不在最底部时才滚动
             if (currentScroll < maxScroll) {
-              dom.scrollTo(0, dom.scrollHeight);
+              dom.scrollTop = dom.scrollHeight;
             }
           }
         }
@@ -4987,6 +4959,12 @@ function _Chat() {
   // edit / insert message modal
   const [isEditingMessage, setIsEditingMessage] = useState(false);
 
+  useEffect(() => {
+    const handler = () => setIsEditingMessage(true);
+    window.addEventListener("openEditModal", handler);
+    return () => window.removeEventListener("openEditModal", handler);
+  }, []);
+
   // remember unfinished input
   const unfinishedInputKey = useMemo(
     () => UNFINISHED_INPUT(safeSession.id),
@@ -5349,29 +5327,6 @@ function _Chat() {
                 disabled={readOnly}
               />
             </div>
-            {!isMobileScreen && (
-              <div
-                className={clsx(
-                  "window-action-button",
-                  styles["chat-window-action-button"],
-                )}
-              >
-                <IconButton
-                  icon={<RenameIcon />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
-                  text={
-                    useHeaderIconOnly
-                      ? undefined
-                      : Locale.Chat.EditMessage.Title
-                  }
-                  title={Locale.Chat.EditMessage.Title}
-                  aria={Locale.Chat.EditMessage.Title}
-                  onClick={() => setIsEditingMessage(true)}
-                  disabled={readOnly}
-                />
-              </div>
-            )}
             <div
               className={clsx(
                 "window-action-button",
@@ -5753,6 +5708,31 @@ function _Chat() {
                   })}
             </div>
             <div
+              className={clsx(styles["scroll-to-bottom"], {
+                [styles["scroll-to-bottom-visible"]]: !hitBottom,
+              })}
+              onClick={() => {
+                setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+                scrollRef.current?.scrollTo({
+                  top: scrollRef.current.scrollHeight,
+                  behavior: "smooth",
+                });
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+            <div
               ref={inputPanelRef}
               className={clsx(styles["chat-input-panel"], {
                 [styles["chat-input-panel-empty-desktop"]]:
@@ -5830,7 +5810,13 @@ function _Chat() {
                       scheduleMobileKeyboardViewportSync();
                     }}
                     onBlur={() => setIsMobileInputFocused(false)}
-                    onClick={scrollToBottom}
+                    onClick={() => {
+                      setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+                      scrollRef.current?.scrollTo({
+                        top: scrollRef.current.scrollHeight,
+                        behavior: "smooth",
+                      });
+                    }}
                     onPaste={handlePaste}
                     rows={inputRows}
                     autoFocus={autoFocus}

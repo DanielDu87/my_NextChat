@@ -20,7 +20,7 @@
 
   .hljs,
   pre {
-    background: #1a1b26;
+    background: var(--color-canvas-subtle);
     color: #cbd2ea;
   }
 
@@ -117,7 +117,7 @@
 @mixin light-code-highlight {
   .hljs,
   pre {
-    background: #f6f8fa;
+    background: var(--color-canvas-subtle);
     color: #24292f;
   }
 
