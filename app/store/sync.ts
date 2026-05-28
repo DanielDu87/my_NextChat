@@ -3051,6 +3051,7 @@ export const useSyncStore = createPersistStore(
               throw new Error(`[Sync] ${displayName}冲突重试失败`);
             };
 
+            let chatSyncRetryCount = 0;
             const syncChatStoreWithRetry = async (
               localStoreState: AppState[typeof StoreKey.Chat],
               options?: {
@@ -3060,11 +3061,18 @@ export const useSyncStore = createPersistStore(
             ) => {
               for (let attempt = 0; attempt < 3; attempt += 1) {
                 try {
+                  const retryOptions = { ...options };
+                  if (attempt > 0) {
+                    retryOptions.remoteIndex = undefined;
+                  }
+                  if (attempt >= 2) {
+                    retryOptions.downloadOnly = true;
+                  }
                   return await syncChatStore(
                     client,
                     localStoreState,
                     remoteMetaMap.get(StoreKey.Chat),
-                    options,
+                    retryOptions,
                   );
                 } catch (error) {
                   if (
@@ -3085,18 +3093,23 @@ export const useSyncStore = createPersistStore(
                       ),
                       ...latestMetas,
                     ]);
+                    chatSyncRetryCount += 1;
+                    const backoffMs = Math.min(
+                      300 * Math.pow(2, chatSyncRetryCount - 1) +
+                        Math.random() * 200,
+                      3000,
+                    );
                     if (attempt < 2) {
-                      syncConsole("log", "[Sync] 🔄 使用最新元数据重试同步");
-                      // 冲突重试时清空预取的 Index，强制重新获取
-                      return await syncChatStore(
-                        client,
-                        localStoreState,
-                        remoteMetaMap.get(StoreKey.Chat),
-                        {
-                          ...options,
-                          remoteIndex: undefined,
-                        },
+                      syncConsole(
+                        "log",
+                        `[Sync] 🔄 ${backoffMs}ms 后使用最新元数据重试同步 (${
+                          attempt + 1
+                        }/3)`,
                       );
+                      await new Promise((resolve) =>
+                        setTimeout(resolve, backoffMs),
+                      );
+                      continue;
                     }
 
                     syncConsole(
@@ -3118,7 +3131,20 @@ export const useSyncStore = createPersistStore(
                 }
               }
 
-              throw new Error("[Sync] 会话冲突重试失败");
+              syncConsole(
+                "log",
+                "[Sync] ℹ️ 会话冲突重试已耗尽，最终以只读模式拉取",
+              );
+              return await syncChatStore(
+                client,
+                localStoreState,
+                remoteMetaMap.get(StoreKey.Chat),
+                {
+                  ...options,
+                  downloadOnly: true,
+                  remoteIndex: undefined,
+                },
+              );
             };
 
             try {

@@ -2291,13 +2291,19 @@ export const useChatStore = createPersistStore(
                 preserveSessionId: session.id,
               });
 
+          const newSummary = buildSessionSummary(session);
+          const oldSummaryMap = new Map(
+            (state.sessionSummaries || []).map((s) => [s.id, s]),
+          );
+          const sessionSummaries: ChatSessionSummary[] = sessions.map((s) => {
+            if (s.id === session.id) return newSummary;
+            return oldSummaryMap.get(s.id) ?? buildSessionSummary(s);
+          });
+
           return {
             currentSessionIndex: 0,
             selectedSessionId: session.id,
-            sessionSummaries: buildSessionSummaries(
-              sessions,
-              state.sessionSummaries,
-            ),
+            sessionSummaries,
             sessions,
           };
         });
