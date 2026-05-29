@@ -34,6 +34,16 @@ export function getOcoolFallbackGroupOrder(modelName: string) {
   return ["default", "official", "open_source_cn", "cn", "cc"];
 }
 
+function shouldPreferOcoolDefaultGroup(
+  modelName: string,
+  profile: CustomProfile,
+) {
+  return (
+    isOcoolaiBaseUrl(profile.baseUrl) &&
+    modelName.toLowerCase().startsWith("gpt-image")
+  );
+}
+
 export function isYutoApiBaseUrl(baseUrl?: string) {
   if (!baseUrl) return false;
 
@@ -176,15 +186,20 @@ export function getCustomModelApiKeySelection(
   const matchedGroup = rememberedGroup || matchedModel?.apiKeyGroup;
   const hasMatchedGroup =
     Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
+  const preferOcoolDefaultGroup = shouldPreferOcoolDefaultGroup(
+    modelName,
+    profile,
+  );
 
   console.log("[API Key Memory] 记忆分组检查", {
     rememberedGroup,
     matchedGroup,
     hasMatchedGroup,
     hasKeyInGroup: Boolean(matchedGroup && groupedKeys[matchedGroup as string]),
+    preferOcoolDefaultGroup,
   });
 
-  if (hasMatchedGroup) {
+  if (hasMatchedGroup && !preferOcoolDefaultGroup) {
     console.log("[API Key Memory] 使用记忆分组", {
       groupName: matchedGroup,
     });
@@ -196,6 +211,17 @@ export function getCustomModelApiKeySelection(
 
   for (const group of groupOrder) {
     pushFallbackKey(group, groupedKeys[group]);
+  }
+
+  if (hasMatchedGroup && preferOcoolDefaultGroup) {
+    console.log("[API Key Memory] Ocoolai 图片模型优先使用全模型分组", {
+      rememberedGroup,
+      firstGroup: fallbackApiKeyGroups[0],
+    });
+    pushFallbackKey(
+      matchedGroup as string,
+      groupedKeys[matchedGroup as string],
+    );
   }
 
   const primaryApiKey = profile.apiKey || "";

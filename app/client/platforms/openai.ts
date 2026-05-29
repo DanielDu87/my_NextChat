@@ -48,7 +48,6 @@ import { getClientConfig } from "@/app/config/client";
 import {
   getMessageTextContent,
   getMessageImages,
-  isVisionModel,
   isDalle3 as _isDalle3,
   isImageGenerationModel,
   isVideoGenerationModel,
@@ -186,6 +185,17 @@ function isGeminiImagePreviewModel(model: string) {
 
 function isAiHubMixBaseUrl(baseUrl: string) {
   return baseUrl.includes("aihubmix.com");
+}
+
+function isToApisBaseUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname === "toapis.com" || hostname === "www.toapis.com";
+  } catch {
+    return false;
+  }
 }
 
 function isCustomDoubaoThinkingModel(
@@ -896,6 +906,162 @@ function normalizeSearchContextSize(size: string | undefined) {
   return undefined;
 }
 
+function buildImageGenerationPromptFromMessages(
+  messages: ChatOptions["messages"],
+) {
+  const usefulMessages = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => {
+      const text = getMessageTextContent(message).trim();
+      const imageCount = getMessageImages(message).length;
+      return { role: message.role, text, imageCount };
+    })
+    .filter((message) => message.text || message.imageCount > 0);
+
+  const latest = usefulMessages.at(-1);
+  if (!latest) return "";
+
+  const contextMessages = usefulMessages.slice(-8, -1);
+  if (contextMessages.length === 0) {
+    return latest.text;
+  }
+
+  const roleLabel = (role?: string) =>
+    role === "assistant" ? "助手" : role === "user" ? "用户" : "上下文";
+  const contextText = contextMessages
+    .map((message) => {
+      const imageHint =
+        message.imageCount > 0 ? `（包含 ${message.imageCount} 张图片）` : "";
+      return `${roleLabel(message.role)}${imageHint}: ${
+        message.text || "[图片]"
+      }`;
+    })
+    .join("\n");
+  const latestImageHint =
+    latest.imageCount > 0 ? `（包含 ${latest.imageCount} 张参考图片）` : "";
+
+  return [
+    "请根据以下对话上下文完成用户最新请求，保持上下文一致。",
+    "",
+    "对话上下文:",
+    contextText,
+    "",
+    `用户最新请求${latestImageHint}: ${latest.text || "[图片]"}`,
+  ]
+    .join("\n")
+    .slice(-6000);
+}
+
+async function buildImageEditRequestBody(
+  model: string,
+  options: ChatOptions,
+): Promise<FormData> {
+  const latestMessage = options.messages.slice(-1)?.pop() as any;
+  const prompt =
+    getMessageTextContent(latestMessage).trim() ||
+    buildImageGenerationPromptFromMessages(options.messages);
+  const imageUrls = getMessageImages(latestMessage);
+  const formData = new FormData();
+
+  formData.append("model", model);
+  formData.append("prompt", prompt);
+  formData.append("n", "1");
+  formData.append("size", normalizeModelSize(model, options.config?.size));
+
+  const quality = normalizeImageQuality(model, options.config?.quality);
+  if (quality) {
+    formData.append("quality", quality);
+  }
+
+  for (let index = 0; index < imageUrls.length; index += 1) {
+    const imageBlob = await fetch(imageUrls[index]).then((res) => res.blob());
+    const extension = imageBlob.type.split("/")[1] || "png";
+    formData.append(
+      imageUrls.length > 1 ? "image[]" : "image",
+      imageBlob,
+      `input-${index + 1}.${extension}`,
+    );
+  }
+
+  return formData;
+}
+
+function isInlineImageUrl(url: string) {
+  return url.startsWith("data:") || url.startsWith("blob:");
+}
+
+function isBase64ImageUrl(url: string) {
+  return /^data:image\/[^;]+;base64,/i.test(url);
+}
+
+async function inlineImageUrlToBlob(url: string) {
+  if (isBase64ImageUrl(url) || url.startsWith("blob:")) {
+    return fetch(url).then((res) => res.blob());
+  }
+  return null;
+}
+
+async function ensureUrlOnlyProviderImageUrls(imageUrls: string[]) {
+  const normalizedUrls: string[] = [];
+
+  for (const imageUrl of imageUrls) {
+    if (!imageUrl) continue;
+
+    if (!isInlineImageUrl(imageUrl)) {
+      normalizedUrls.push(imageUrl);
+      continue;
+    }
+
+    const imageBlob = await inlineImageUrlToBlob(imageUrl);
+    const uploadedUrl = imageBlob ? await uploadImage(imageBlob) : imageUrl;
+    if (isInlineImageUrl(uploadedUrl)) {
+      throw new Error(
+        "ToAPI 的图片参考接口不接受 base64 图片；当前图片没有可发送给上游的 URL，请改用 Ocoolai/Yuto/AihubMix，或先把图片上传到可访问的图片地址后再试。",
+      );
+    }
+    normalizedUrls.push(uploadedUrl);
+  }
+
+  return normalizedUrls;
+}
+
+async function buildToApisImageGenerationPayload(
+  model: string,
+  options: ChatOptions,
+): Promise<Record<string, unknown>> {
+  const latestMessage = options.messages.slice(-1)?.pop() as any;
+  const prompt =
+    getMessageTextContent(latestMessage).trim() ||
+    buildImageGenerationPromptFromMessages(options.messages);
+  const imageUrls = await ensureUrlOnlyProviderImageUrls(
+    getMessageImages(latestMessage),
+  );
+
+  return {
+    model,
+    prompt,
+    image_urls: imageUrls,
+    n: 1,
+    size: normalizeModelSize(model, options.config?.size),
+    quality: normalizeImageQuality(model, options.config?.quality),
+  };
+}
+
+function buildProxyPathForBaseUrl(baseUrl: string, path: string) {
+  let proxyBaseUrl = baseUrl.trim();
+  if (proxyBaseUrl.endsWith("/")) {
+    proxyBaseUrl = proxyBaseUrl.slice(0, -1);
+  }
+  const hasV1Path =
+    proxyBaseUrl.endsWith("/v1") || proxyBaseUrl.includes("/v1/");
+  const proxyPath =
+    hasV1Path && path.startsWith("v1/") ? path.substring(3) : path;
+  return {
+    chatPath: `/api/proxy/${proxyPath}`,
+    proxyBaseUrl,
+  };
+}
+
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
@@ -1205,6 +1371,14 @@ export class ChatGPTApi implements LLMApi {
     const isImageModel = isImageGenerationModel(requestedModel);
     const isVideoModel = isVideoGenerationModel(requestedModel);
     const isGeminiImagePreview = isGeminiImagePreviewModel(requestedModel);
+    const hasImageMessages = options.messages.some(
+      (message) => getMessageImages(message).length > 0,
+    );
+    const shouldUseImageEndpoint = isImageModel && !isGeminiImagePreview;
+    const shouldUseImageEditEndpoint =
+      shouldUseImageEndpoint && hasImageMessages;
+    const shouldUseImageGenerationEndpoint =
+      shouldUseImageEndpoint && !hasImageMessages;
     const currentAccessState = useAccessStore.getState();
     const currentCustomProfileForRequest =
       modelConfig.providerName === ServiceProvider.Custom
@@ -1217,6 +1391,8 @@ export class ChatGPTApi implements LLMApi {
         : modelConfig.providerName === ServiceProvider.Azure
         ? currentAccessState.azureUrl
         : currentAccessState.openaiUrl;
+    const shouldUseToApisImageReferenceEndpoint =
+      shouldUseImageEditEndpoint && isToApisBaseUrl(currentBaseUrlForRequest);
     const requestCompatibilityKey = buildRequestCompatibilityKey({
       providerName: modelConfig.providerName,
       model: modelConfig.model,
@@ -1226,8 +1402,7 @@ export class ChatGPTApi implements LLMApi {
       requestCompatibilityKey,
     );
     const aiHubMixPredictionPath =
-      isImageModel &&
-      !isGeminiImagePreview &&
+      shouldUseImageGenerationEndpoint &&
       isAiHubMixBaseUrl(currentBaseUrlForRequest)
         ? getAiHubMixPredictionModelPath(requestedModel)
         : null;
@@ -1242,7 +1417,37 @@ export class ChatGPTApi implements LLMApi {
       requestedModel.startsWith("o5");
     const isGpt5 = requestedModel.startsWith("gpt-5");
     const parameterSupport = getModelParameterSupport(modelConfig.model);
-    if (aiHubMixPredictionPath) {
+    if (shouldUseToApisImageReferenceEndpoint) {
+      try {
+        requestPayload = await buildToApisImageGenerationPayload(
+          requestedModel,
+          {
+            ...options,
+            config: {
+              ...options.config,
+              model: requestedModel,
+            },
+          },
+        );
+      } catch (e) {
+        console.error("[Chat Payload Error]", {
+          provider: modelConfig.providerName,
+          model: modelConfig.model,
+          baseUrl: currentBaseUrlForRequest,
+          error: e,
+        });
+        options.onError?.(e as Error);
+        return;
+      }
+    } else if (shouldUseImageEditEndpoint) {
+      requestPayload = await buildImageEditRequestBody(requestedModel, {
+        ...options,
+        config: {
+          ...options.config,
+          model: requestedModel,
+        },
+      });
+    } else if (aiHubMixPredictionPath) {
       requestPayload = buildAiHubMixPredictionPayload(requestedModel, {
         ...options,
         config: {
@@ -1258,10 +1463,8 @@ export class ChatGPTApi implements LLMApi {
           model: requestedModel,
         },
       });
-    } else if (isImageModel && !isGeminiImagePreview) {
-      const prompt = getMessageTextContent(
-        options.messages.slice(-1)?.pop() as any,
-      );
+    } else if (shouldUseImageGenerationEndpoint) {
+      const prompt = buildImageGenerationPromptFromMessages(options.messages);
       const lowerImageModel = requestedModel.toLowerCase();
       const isGptImage15 = lowerImageModel === "gpt-image-1.5";
       requestPayload = {
@@ -1286,10 +1489,10 @@ export class ChatGPTApi implements LLMApi {
           : {}),
       };
     } else {
-      const visionModel = isVisionModel(requestedModel);
       const messages: ChatOptions["messages"] = [];
       for (const v of options.messages) {
-        const content = visionModel
+        const shouldSendImages = getMessageImages(v).length > 0;
+        const content = shouldSendImages
           ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
         if (!(isReasoningOpenAIModel && v.role === "system")) {
@@ -1411,8 +1614,8 @@ export class ChatGPTApi implements LLMApi {
         requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
       }
 
-      // add max_tokens to vision model
-      if (visionModel && !parameterSupport.max_completion_tokens) {
+      // 图片消息按多模态内容发送，是否支持由真实接口返回决定
+      if (hasImageMessages && !parameterSupport.max_completion_tokens) {
         requestPayload["max_tokens"] = Math.max(modelConfig.max_tokens, 4000);
       }
     }
@@ -1421,7 +1624,7 @@ export class ChatGPTApi implements LLMApi {
 
     const shouldStream =
       isGeminiImagePreview ||
-      (!isImageModel && !isVideoModel && !!options.config.stream);
+      (!shouldUseImageEndpoint && !isVideoModel && !!options.config.stream);
 
     if (
       shouldStream &&
@@ -1473,6 +1676,7 @@ export class ChatGPTApi implements LLMApi {
 
     let chatPath = "";
     let currentBaseUrl = "";
+    let proxyBaseUrl = "";
 
     try {
       if (modelConfig.providerName === ServiceProvider.Azure) {
@@ -1495,25 +1699,38 @@ export class ChatGPTApi implements LLMApi {
             model?.provider?.providerName === ServiceProvider.Azure,
         );
         chatPath = this.path(
-          (isImageModel && !isGeminiImagePreview
-            ? Azure.ImagePath
-            : Azure.ChatPath)(
+          (shouldUseImageGenerationEndpoint ? Azure.ImagePath : Azure.ChatPath)(
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
           modelConfig,
         );
       } else {
-        chatPath = this.path(
-          aiHubMixPredictionPath
-            ? `v1/models/${aiHubMixPredictionPath}/predictions`
-            : aiHubMixVideoPath
-            ? aiHubMixVideoPath
-            : isImageModel && !isGeminiImagePreview
-            ? OpenaiPath.ImagePath
-            : OpenaiPath.ChatPath,
-          modelConfig,
-        );
+        const nextPath = aiHubMixPredictionPath
+          ? `v1/models/${aiHubMixPredictionPath}/predictions`
+          : aiHubMixVideoPath
+          ? aiHubMixVideoPath
+          : shouldUseToApisImageReferenceEndpoint
+          ? OpenaiPath.ImagePath
+          : shouldUseImageEditEndpoint
+          ? OpenaiPath.ImageEditPath
+          : shouldUseImageGenerationEndpoint
+          ? OpenaiPath.ImagePath
+          : OpenaiPath.ChatPath;
+        if (
+          shouldUseImageEndpoint &&
+          modelConfig.providerName === ServiceProvider.Custom &&
+          currentBaseUrlForRequest
+        ) {
+          const proxyTarget = buildProxyPathForBaseUrl(
+            currentBaseUrlForRequest,
+            nextPath,
+          );
+          chatPath = proxyTarget.chatPath;
+          proxyBaseUrl = proxyTarget.proxyBaseUrl;
+        } else {
+          chatPath = this.path(nextPath, modelConfig);
+        }
       }
 
       currentBaseUrl = currentBaseUrlForRequest;
@@ -1522,6 +1739,7 @@ export class ChatGPTApi implements LLMApi {
         ...(modelConfig.anthropicBeta?.trim()
           ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
           : {}),
+        ...(proxyBaseUrl ? { "x-base-url": proxyBaseUrl } : {}),
       };
       options.onRequest?.({
         provider: modelConfig.providerName,
@@ -1718,8 +1936,8 @@ export class ChatGPTApi implements LLMApi {
           (requestHeaders as any)["x-fallback-api-keys"] || [];
         const fallbackApiKeyGroups: string[] =
           (requestHeaders as any)["x-fallback-api-key-groups"] || [];
-        const supportsGrouping = supportsApiKeyGrouping(chatPath);
-        chatPath.includes("cn.gptapi.asia") || chatPath.includes("gptapi.asia");
+        const supportsGrouping =
+          supportsApiKeyGrouping(chatPath) || fallbackApiKeys.length > 1;
         let retryCount = 0;
         let resText = "";
         let resJson: any = null;

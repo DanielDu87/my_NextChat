@@ -211,6 +211,7 @@ export const OpenaiPath = {
   ChatPath: "v1/chat/completions",
   SpeechPath: "v1/audio/speech",
   ImagePath: "v1/images/generations",
+  ImageEditPath: "v1/images/edits",
   VideoPath: "v1/videos",
   UsagePath: "dashboard/billing/usage",
   SubsPath: "dashboard/billing/subscription",

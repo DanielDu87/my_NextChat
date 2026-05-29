@@ -190,7 +190,6 @@ export async function handle(
     "referer",
     "cookie",
     "content-length",
-    "content-type",
     "accept-encoding",
   ];
 

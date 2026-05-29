@@ -261,11 +261,17 @@ function bindChatStoreSubscription() {
 
     if (syncFromChatStoreDebounceTimer) {
       clearTimeout(syncFromChatStoreDebounceTimer);
-    }
-    syncFromChatStoreDebounceTimer = setTimeout(() => {
       syncFromChatStoreDebounceTimer = null;
+    }
+
+    if (sessionsChanged) {
       useChatIndexStore.getState().syncFromChatStore();
-    }, SYNC_FROM_CHAT_STORE_DEBOUNCE_MS);
+    } else {
+      syncFromChatStoreDebounceTimer = setTimeout(() => {
+        syncFromChatStoreDebounceTimer = null;
+        useChatIndexStore.getState().syncFromChatStore();
+      }, SYNC_FROM_CHAT_STORE_DEBOUNCE_MS);
+    }
   });
 }
 

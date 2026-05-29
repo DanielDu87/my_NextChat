@@ -87,6 +87,9 @@ const STREAM_REFRESH_DELAY = 48;
 const AUTO_TITLE_REFRESH_USER_TEXT_THRESHOLD = 50;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
+export const CHAT_DELETE_UI_GUARD_UNTIL_KEY =
+  "nextchat_chat_delete_ui_guard_until";
+const CHAT_DELETE_UI_GUARD_MS = 8000;
 const pendingSessionRefreshTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
@@ -112,6 +115,13 @@ function writeSessionStorageItem(key: string, value: string) {
   try {
     window.sessionStorage.setItem(key, value);
   } catch {}
+}
+
+function markChatDeleteUiGuard() {
+  writeSessionStorageItem(
+    CHAT_DELETE_UI_GUARD_UNTIL_KEY,
+    String(Date.now() + CHAT_DELETE_UI_GUARD_MS),
+  );
 }
 
 function isChatDebugLoggingEnabled() {
@@ -2365,13 +2375,17 @@ export const useChatStore = createPersistStore(
         set(() => ({
           currentSessionIndex: nextIndex,
           selectedSessionId: sessions[nextIndex]?.id || "",
-          sessionSummaries: buildSessionSummaries(sessions),
+          sessionSummaries: buildSessionSummaries(
+            sessions,
+            get().sessionSummaries,
+          ),
           sessions,
           hydratedSessionIds: get().hydratedSessionIds.filter(
             (sessionId) => sessionId !== deletedSession.id,
           ),
           deletedSessionTimestamps,
         }));
+        markChatDeleteUiGuard();
 
         console.log(
           `[Chat] ➖ 删除对话：${formatChatSessionLogLabel(deletedSession)}`,
@@ -2402,7 +2416,11 @@ export const useChatStore = createPersistStore(
         import("./sync").then(({ useSyncStore }) => {
           useSyncStore
             .getState()
-            .sync([StoreKey.Chat], { force: true })
+            .sync([StoreKey.Chat], {
+              force: true,
+              isolateQueue: true,
+              skipChatWriteBack: true,
+            })
             .catch((error) => {
               logger.chat.error("❌ 删除会话后立即同步失败:", error);
             });

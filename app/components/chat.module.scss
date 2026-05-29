@@ -2,18 +2,18 @@
 
 .attach-images {
   position: absolute;
-  left: 30px;
-  bottom: 32px;
+  left: 18px;
+  bottom: 8px;
   display: flex;
+  gap: 8px;
 }
 
 .attach-image {
   cursor: default;
-  width: 64px;
-  height: 64px;
+  width: 88px;
+  height: 88px;
   border: rgba($color: #888, $alpha: 0.2) 1px solid;
-  border-radius: 5px;
-  margin-right: 10px;
+  border-radius: 8px;
   background-size: cover;
   background-position: center;
   background-color: var(--white);
@@ -30,13 +30,13 @@
   }
 
   .delete-image {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 5px;
+    border-radius: 6px;
     float: right;
     background-color: var(--white);
   }
@@ -2009,7 +2009,7 @@
 }
 
 .chat-input-panel-inner-attach {
-  padding-bottom: 80px;
+  padding-bottom: 104px;
 }
 
 .chat-input-panel-inner-multiline {
@@ -2226,6 +2226,21 @@
   .chat-input-panel-inner {
     flex: 1 1 auto;
     min-height: 44px;
+  }
+
+  .chat-input-panel-inner-attach {
+    padding-bottom: 88px;
+  }
+
+  .attach-images {
+    left: 12px;
+    bottom: 6px;
+    gap: 6px;
+  }
+
+  .attach-image {
+    width: 76px;
+    height: 76px;
   }
 
   .chat-input {

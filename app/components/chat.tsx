@@ -13,7 +13,6 @@ import React, {
 import SendUpIcon from "../icons/send-up.svg";
 import BrainIcon from "../icons/brain.svg";
 import RenameIcon from "../icons/rename.svg";
-import EditIcon from "../icons/rename.svg";
 import ExportIcon from "../icons/share.svg";
 import ReturnIcon from "../icons/return.svg";
 import CopyIcon from "../icons/copy.svg";
@@ -67,7 +66,6 @@ import {
   formatChinaDateTime,
   getMessageImages,
   getMessageTextContent,
-  isVisionModel,
   getModelSizes,
   getSupportedVideoDurations,
   getSupportedImageQualityOptions,
@@ -326,6 +324,67 @@ function trimMessageBoundaryText(text: string) {
     /^[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0]+|[\s\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0]+$/g,
     "",
   );
+}
+
+function buildMessageCopyText(message: ChatMessage) {
+  const text = trimMessageBoundaryText(getMessageTextContent(message));
+  const images = getMessageImages(message).filter(Boolean);
+  if (images.length === 0) {
+    return text;
+  }
+
+  const imageText = images
+    .map((url, index) => `![图片${index + 1}](${url})`)
+    .join("\n");
+  return [text, imageText].filter(Boolean).join("\n\n");
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildMessageCopyHtml(message: ChatMessage) {
+  const text = trimMessageBoundaryText(getMessageTextContent(message));
+  const images = getMessageImages(message).filter(Boolean);
+  const textHtml = text
+    ? `<p>${escapeHtml(text).replace(/\n/g, "<br>")}</p>`
+    : "";
+  const imageHtml = images
+    .map((url) => `<p><img src="${escapeHtml(url)}"></p>`)
+    .join("");
+  return `${textHtml}${imageHtml}`;
+}
+
+async function copyMessageToClipboard(message: ChatMessage) {
+  const text = trimMessageBoundaryText(getMessageTextContent(message));
+  const images = getMessageImages(message).filter(Boolean);
+  if (
+    images.length === 0 ||
+    typeof ClipboardItem === "undefined" ||
+    !navigator.clipboard?.write
+  ) {
+    return copyToClipboard(buildMessageCopyText(message));
+  }
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/plain": new Blob([text], { type: "text/plain" }),
+        "text/html": new Blob([buildMessageCopyHtml(message)], {
+          type: "text/html",
+        }),
+      }),
+    ]);
+    showToast(Locale.Copy.Success);
+    return true;
+  } catch {
+    return copyToClipboard(buildMessageCopyText(message));
+  }
 }
 
 function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -1146,6 +1205,8 @@ import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
 const localStorage = safeLocalStorage();
 const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
+const UNFINISHED_ATTACH_IMAGES = (id: string) =>
+  "unfinished-attach-images-" + id;
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
@@ -1940,7 +2001,6 @@ export function ChatActions(props: {
     session.mask.modelConfig?.size,
   );
   const autoAdjustedSizeRef = useRef<string>("");
-  const autoAdjustedQualityRef = useRef<string>("");
   const currentQuality = session.mask.modelConfig?.quality ?? "standard";
   const currentStyle = session.mask.modelConfig?.style ?? "vivid";
   const currentSeconds = session.mask.modelConfig?.seconds ?? "4";
@@ -1949,11 +2009,6 @@ export function ChatActions(props: {
     currentModelSupport.capability === "image";
   const supportsVideoGenerationControls =
     currentModelSupport.capability === "video";
-  const canUseImageAttachments =
-    isVisionModel(currentModel) && !supportsImageGenerationControls;
-  const previousShowUploadImageRef = useRef<boolean>(canUseImageAttachments);
-  const setAttachImages = props.setAttachImages;
-  const setUploading = props.setUploading;
   const supportsSizeControl = supportsCustomSize(currentModel);
   const supportsQualityControl = supportsImageQualityControl(currentModel);
   const supportsStyleControl = supportsImageStyleControl(currentModel);
@@ -1973,11 +2028,6 @@ export function ChatActions(props: {
     const shouldShowCompatibilityToast =
       !sessionLoading && !isSessionActivation;
 
-    if (!canUseImageAttachments && previousShowUploadImageRef.current) {
-      setAttachImages([]);
-      setUploading(false);
-    }
-    previousShowUploadImageRef.current = canUseImageAttachments;
     if (supportsSizeControl && sessionModelConfigSize !== currentSize) {
       const previousSize = sessionModelConfigSize;
       chatStore.updateTargetSession(sessionRef.current, (session) => {
@@ -2000,25 +2050,11 @@ export function ChatActions(props: {
       supportsQualityControl &&
       sessionModelConfigQuality !== normalizedQuality
     ) {
-      const previousQuality = sessionModelConfigQuality ?? "standard";
       chatStore.updateTargetSession(sessionRef.current, (session) => {
         session.mask.modelConfig.quality = normalizedQuality as any;
       });
-      const adjustKey = `${currentModel}:${previousQuality}->${normalizedQuality}`;
-      if (
-        shouldShowCompatibilityToast &&
-        autoAdjustedQualityRef.current !== adjustKey
-      ) {
-        autoAdjustedQualityRef.current = adjustKey;
-        if (normalizedQuality) {
-          showToast(
-            `当前模型仅支持 ${normalizedQuality} 质量，已自动切换到兼容质量`,
-          );
-        }
-      }
     }
   }, [
-    canUseImageAttachments,
     chatStore,
     currentModel,
     currentSize,
@@ -2026,15 +2062,9 @@ export function ChatActions(props: {
     sessionLoading,
     sessionModelConfigQuality,
     sessionModelConfigSize,
-    setAttachImages,
-    setUploading,
     supportsQualityControl,
     supportsSizeControl,
   ]);
-
-  if (!supportsImageGenerationControls && !supportsVideoGenerationControls) {
-    return null;
-  }
 
   return (
     <div
@@ -2044,6 +2074,20 @@ export function ChatActions(props: {
         styles["chat-actions-row-container"],
       )}
     >
+      <ChatAction
+        onClick={props.uploadImage}
+        text={
+          props.uploading
+            ? "上传图片中"
+            : supportsVideoReference
+            ? "参考图 / i2v"
+            : supportsImageGenerationControls
+            ? "参考图"
+            : "图片"
+        }
+        icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
+      />
+
       {supportsImageGenerationControls && (
         <>
           {supportsSizeControl && (
@@ -2074,13 +2118,6 @@ export function ChatActions(props: {
 
       {supportsVideoGenerationControls && (
         <>
-          {supportsVideoReference && (
-            <ChatAction
-              onClick={props.uploadImage}
-              text={props.uploading ? "上传参考图中" : "参考图 / i2v"}
-              icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
-            />
-          )}
           {supportsSizeControl && (
             <ChatAction
               onClick={() => setShowSizeSelector(true)}
@@ -2631,9 +2668,6 @@ function _Chat() {
   );
   const currentProviderName =
     sessionMask?.modelConfig?.providerName || ServiceProvider.OpenAI;
-  const currentModelSupport = getModelParameterSupport(currentModel);
-  const isCurrentImageGenerationModel =
-    currentModelSupport.capability === "image";
 
   // 模型选择器所需变量
   const allModels = useAllModels();
@@ -4065,7 +4099,8 @@ function _Chat() {
   };
   const onRightClick = (e: any, message: ChatMessage) => {
     // copy to clipboard
-    if (selectOrCopy(e.currentTarget, getMessageTextContent(message))) {
+    const copyText = buildMessageCopyText(message);
+    if (selectOrCopy(e.currentTarget, copyText)) {
       if (userInput.length === 0) {
         setUserInput(getMessageTextContent(message));
       }
@@ -4974,6 +5009,11 @@ function _Chat() {
     () => UNFINISHED_INPUT(safeSession.id),
     [safeSession.id],
   );
+  const unfinishedAttachImagesKey = useMemo(
+    () => UNFINISHED_ATTACH_IMAGES(safeSession.id),
+    [safeSession.id],
+  );
+  const skipNextAttachImagesPersistKeyRef = useRef<string>("");
 
   useEffect(() => {
     const mayBeUnfinishedInput =
@@ -5001,51 +5041,166 @@ function _Chat() {
     localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
   }, [unfinishedInputKey, userInput]);
 
+  useEffect(() => {
+    skipNextAttachImagesPersistKeyRef.current = unfinishedAttachImagesKey;
+    const rawImages = localStorage.getItem(unfinishedAttachImagesKey);
+    if (!rawImages) {
+      setAttachImages([]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(rawImages);
+      setAttachImages(
+        Array.isArray(parsed)
+          ? parsed
+              .filter((item) => typeof item === "string" && item)
+              .slice(0, 3)
+          : [],
+      );
+    } catch {
+      setAttachImages([]);
+    }
+  }, [unfinishedAttachImagesKey]);
+
+  useEffect(() => {
+    if (
+      skipNextAttachImagesPersistKeyRef.current === unfinishedAttachImagesKey
+    ) {
+      skipNextAttachImagesPersistKeyRef.current = "";
+      return;
+    }
+
+    if (attachImages.length > 0) {
+      localStorage.setItem(
+        unfinishedAttachImagesKey,
+        JSON.stringify(attachImages.slice(0, 3)),
+      );
+      return;
+    }
+
+    localStorage.removeItem(unfinishedAttachImagesKey);
+  }, [attachImages, unfinishedAttachImagesKey]);
+
   const handlePaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const currentModel = sessionMask.modelConfig.model;
-      if (!isVisionModel(currentModel) || isCurrentImageGenerationModel) {
-        return;
-      }
-      const items = (event.clipboardData || window.clipboardData).items;
-      for (const item of items) {
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          event.preventDefault();
-          const file = item.getAsFile();
-          if (file) {
-            const images: string[] = [];
-            images.push(...attachImages);
-            images.push(
-              ...(await new Promise<string[]>((res, rej) => {
-                setUploading(true);
-                const imagesData: string[] = [];
-                uploadImageRemote(file)
-                  .then((dataUrl) => {
-                    imagesData.push(dataUrl);
-                    setUploading(false);
-                    res(imagesData);
-                  })
-                  .catch((e) => {
-                    setUploading(false);
-                    rej(e);
-                  });
-              })),
-            );
-            const imagesLength = images.length;
+      const textarea = event.currentTarget;
+      const text = event.clipboardData.getData("text/plain");
+      const html = event.clipboardData.getData("text/html");
+      const imageFiles: File[] = [];
+      const imageUrlsFromHtml: string[] = [];
+      const clipboardItems = Array.from(event.clipboardData.items);
+      const clipboardFiles = Array.from(event.clipboardData.files);
+      const isImageFile = (file: File) =>
+        file.type.startsWith("image/") ||
+        /\.(png|jpe?g|webp|gif|heic|heif|bmp|avif)$/i.test(file.name);
+      const appendImageFile = (file: File) => {
+        if (!isImageFile(file)) return;
+        const duplicated = imageFiles.some(
+          (item) =>
+            item.name === file.name &&
+            item.size === file.size &&
+            item.type === file.type &&
+            item.lastModified === file.lastModified,
+        );
+        if (!duplicated) imageFiles.push(file);
+      };
 
-            if (imagesLength > 3) {
-              images.splice(3, imagesLength - 3);
+      for (const file of clipboardFiles) {
+        appendImageFile(file);
+      }
+
+      for (const item of clipboardItems) {
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (file) appendImageFile(file);
+      }
+
+      if (html) {
+        try {
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          doc.querySelectorAll("img[src]").forEach((img) => {
+            const src = img.getAttribute("src")?.trim();
+            if (src && !imageUrlsFromHtml.includes(src)) {
+              imageUrlsFromHtml.push(src);
             }
-            setAttachImages(images);
-          }
+          });
+        } catch {
+          // 非标准 HTML 剪贴板内容，忽略图片恢复。
         }
       }
+
+      const hasFileLikeClipboardData =
+        clipboardFiles.length > 0 ||
+        clipboardItems.some((item) => item.kind === "file");
+
+      if (
+        imageFiles.length > 0 ||
+        imageUrlsFromHtml.length > 0 ||
+        hasFileLikeClipboardData ||
+        text
+      ) {
+        event.preventDefault();
+      }
+
+      if (imageFiles.length === 0 && navigator.clipboard?.read) {
+        try {
+          const clipboardItems = await navigator.clipboard.read();
+          for (const item of clipboardItems) {
+            for (const type of item.types) {
+              if (type.startsWith("image/")) {
+                const blob = await item.getType(type);
+                if (blob) {
+                  const ext = type.split("/")[1] || "png";
+                  imageFiles.push(
+                    new File([blob], `clipboard.${ext}`, { type }),
+                  );
+                }
+              }
+            }
+          }
+        } catch {
+          // navigator.clipboard.read() 需要用户授权或 HTTPS，静默失败
+        }
+      }
+
+      if (text && imageFiles.length === 0 && !hasFileLikeClipboardData) {
+        const start = textarea?.selectionStart ?? userInput.length;
+        const end = textarea?.selectionEnd ?? userInput.length;
+        const before = userInput.substring(0, start);
+        const after = userInput.substring(end);
+        setUserInput(before + text + after);
+        if (textarea) {
+          requestAnimationFrame(() => {
+            textarea.selectionStart = textarea.selectionEnd =
+              start + text.length;
+          });
+        }
+      }
+
+      if (imageFiles.length > 0) {
+        try {
+          setUploading(true);
+          const uploadedUrls = await Promise.all(
+            imageFiles.map((file) => uploadImageRemote(file)),
+          );
+          setAttachImages((prev) => {
+            const all = [...prev, ...uploadedUrls];
+            return all.length > 3 ? all.slice(0, 3) : all;
+          });
+        } finally {
+          setUploading(false);
+        }
+      }
+
+      if (imageUrlsFromHtml.length > 0) {
+        setAttachImages((prev) => {
+          const all = [...prev, ...imageUrlsFromHtml];
+          return [...new Set(all)].slice(0, 3);
+        });
+      }
     },
-    [
-      attachImages,
-      isCurrentImageGenerationModel,
-      sessionMask.modelConfig.model,
-    ],
+    [userInput],
   );
 
   async function uploadImage() {
@@ -5468,56 +5623,6 @@ function _Chat() {
                           <div className={styles["chat-message-container"]}>
                             <div className={styles["chat-message-header"]}>
                               <div className={styles["chat-message-avatar"]}>
-                                {isUser && (
-                                  <div className={styles["chat-message-edit"]}>
-                                    <IconButton
-                                      icon={<EditIcon />}
-                                      aria={Locale.Chat.Actions.Edit}
-                                      onClick={async () => {
-                                        const newMessage = await showPrompt(
-                                          Locale.Chat.Actions.Edit,
-                                          trimMessageBoundaryText(
-                                            getMessageTextContent(message),
-                                          ),
-                                          10,
-                                        );
-                                        let newContent:
-                                          | string
-                                          | MultimodalContent[] = newMessage;
-                                        const images =
-                                          getMessageImages(message);
-                                        if (images.length > 0) {
-                                          newContent = [
-                                            { type: "text", text: newMessage },
-                                          ];
-                                          for (
-                                            let i = 0;
-                                            i < images.length;
-                                            i++
-                                          ) {
-                                            newContent.push({
-                                              type: "image_url",
-                                              image_url: {
-                                                url: images[i],
-                                              },
-                                            });
-                                          }
-                                        }
-                                        chatStore.updateTargetSession(
-                                          session,
-                                          (session) => {
-                                            const m = session.mask.context
-                                              .concat(sessionMessages)
-                                              .find((m) => m.id === message.id);
-                                            if (m) {
-                                              m.content = newContent;
-                                            }
-                                          },
-                                        );
-                                      }}
-                                    ></IconButton>
-                                  </div>
-                                )}
                                 {isUser ? (
                                   <Avatar avatar={FIXED_USER_AVATAR} />
                                 ) : (
@@ -5563,13 +5668,11 @@ function _Chat() {
                                       />
                                     ) : (
                                       <>
-                                        {!isSyncBlocking && (
-                                          <ChatAction
-                                            text={Locale.Chat.Actions.Retry}
-                                            icon={<ResetIcon />}
-                                            onClick={() => onResend(message)}
-                                          />
-                                        )}
+                                        <ChatAction
+                                          text={Locale.Chat.Actions.Retry}
+                                          icon={<ResetIcon />}
+                                          onClick={() => onResend(message)}
+                                        />
 
                                         <ChatAction
                                           text={Locale.Chat.Actions.Delete}
@@ -5583,11 +5686,7 @@ function _Chat() {
                                           text={Locale.Chat.Actions.Copy}
                                           icon={<CopyIcon />}
                                           onClick={() =>
-                                            copyToClipboard(
-                                              trimMessageBoundaryText(
-                                                getMessageTextContent(message),
-                                              ),
-                                            )
+                                            copyMessageToClipboard(message)
                                           }
                                         />
                                         {config.ttsConfig.enable && (
@@ -5747,13 +5846,6 @@ function _Chat() {
                   shouldUseCompactInputHint,
               })}
             >
-              <ChatActions
-                uploadImage={uploadImage}
-                setAttachImages={setAttachImages}
-                setUploading={setUploading}
-                uploading={uploading}
-              />
-
               <PromptHints
                 prompts={promptHints}
                 onPromptSelect={onPromptSelect}
@@ -5790,7 +5882,9 @@ function _Chat() {
                       ref={inputPlaceholderRef}
                       className={clsx(styles["chat-input-placeholder"], {
                         [styles["chat-input-placeholder-hidden"]]:
-                          shouldUseCompactInputHint || !!userInput,
+                          shouldUseCompactInputHint ||
+                          !!userInput ||
+                          attachImages.length > 0,
                       })}
                       style={{
                         fontSize: inputFontSize,

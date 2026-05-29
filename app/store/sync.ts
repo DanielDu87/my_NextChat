@@ -48,6 +48,7 @@ import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import {
   buildSessionSummaries,
   buildSessionSummary,
+  CHAT_DELETE_UI_GUARD_UNTIL_KEY,
   ChatSessionSummary,
   createEmptySession,
   useChatStore,
@@ -120,6 +121,21 @@ function formatSyncLogTimestamp(date = new Date()) {
   )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
     date.getSeconds(),
   )}`;
+}
+
+function isChatDeleteUiGuardActive() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    const guardUntil = Number(
+      window.sessionStorage.getItem(CHAT_DELETE_UI_GUARD_UNTIL_KEY) || 0,
+    );
+    return Number.isFinite(guardUntil) && guardUntil > Date.now();
+  } catch {
+    return false;
+  }
 }
 
 function syncConsole(
@@ -1195,6 +1211,7 @@ function rebaseChatSyncResultOnLiveState(
 
   const mergedDeletedSessionTimestamps = mergeDeletedSessionTimestamps(
     getDeletedSessionTimestamps(mergedStoreState),
+    getDeletedSessionTimestamps(liveChatState),
     getDeletedSessionTimestamps(rebasedState),
   );
 
@@ -1206,9 +1223,13 @@ function rebaseChatSyncResultOnLiveState(
       : [],
     deletedSessionTimestamps: mergedDeletedSessionTimestamps,
   });
+  const normalizedAfterDeletes = applyDeletedSessionsToChatState(
+    normalizedRebasedState,
+    mergedDeletedSessionTimestamps,
+  );
   const liveSelectedSessionId = getSelectedChatSessionId(liveChatState);
-  const normalizedSessions = Array.isArray(normalizedRebasedState.sessions)
-    ? normalizedRebasedState.sessions
+  const normalizedSessions = Array.isArray(normalizedAfterDeletes.sessions)
+    ? normalizedAfterDeletes.sessions
     : [];
   const hasLiveSelectedSession = normalizedSessions.some(
     (session: any) => String(session?.id || "") === liveSelectedSessionId,
@@ -1222,24 +1243,24 @@ function rebaseChatSyncResultOnLiveState(
       : undefined;
 
     if (liveSelectedSession?.id) {
-      normalizedRebasedState.sessions = [
+      normalizedAfterDeletes.sessions = [
         liveSelectedSession,
         ...normalizedSessions,
       ];
-      normalizedRebasedState.currentSessionIndex = 0;
-      normalizedRebasedState.selectedSessionId = liveSelectedSession.id;
-      normalizedRebasedState.sessionSummaries = buildSessionSummaries(
-        normalizedRebasedState.sessions,
-        normalizedRebasedState.sessionSummaries,
+      normalizedAfterDeletes.currentSessionIndex = 0;
+      normalizedAfterDeletes.selectedSessionId = liveSelectedSession.id;
+      normalizedAfterDeletes.sessionSummaries = buildSessionSummaries(
+        normalizedAfterDeletes.sessions,
+        normalizedAfterDeletes.sessionSummaries,
       );
     }
   }
 
   logSyncDebug("[Sync] 🧭 同步写回前保留当前会话焦点", {
-    selectedSessionId: getSelectedChatSessionId(normalizedRebasedState),
+    selectedSessionId: getSelectedChatSessionId(normalizedAfterDeletes),
   });
 
-  return pruneEmptyChatSessionsForDisplay(normalizedRebasedState);
+  return pruneEmptyChatSessionsForDisplay(normalizedAfterDeletes);
 }
 
 function buildRemoteSessionPlaceholder(entry: ChatIndexSessionEntry) {
@@ -2702,6 +2723,7 @@ export const useSyncStore = createPersistStore(
           force?: boolean;
           broadcastChatHint?: boolean;
           downloadOnlyChat?: boolean;
+          skipChatWriteBack?: boolean;
           silentSummary?: boolean;
         },
       ): Promise<void> {
@@ -3288,6 +3310,22 @@ export const useSyncStore = createPersistStore(
                       syncConsole(
                         "warn",
                         "[Sync] ⚠️ 跳过会话写回: hasPendingChatRequest=true（用户正在对话中）",
+                      );
+                      continue;
+                    }
+
+                    if (isChatDeleteUiGuardActive()) {
+                      syncConsole(
+                        "log",
+                        "[Sync] ⏭️ 跳过会话写回: deleteUiGuardActive=true（删除后保持当前 UI）",
+                      );
+                      continue;
+                    }
+
+                    if (options?.skipChatWriteBack === true) {
+                      syncConsole(
+                        "log",
+                        "[Sync] ⏭️ 跳过会话写回: skipChatWriteBack=true（保留当前本地列表）",
                       );
                       continue;
                     }
