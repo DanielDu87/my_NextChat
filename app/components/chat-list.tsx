@@ -323,11 +323,14 @@ export function ChatList(props: { narrow?: boolean }) {
               .map((session) => ({
                 session,
               }))
-              .filter((item) => item.session.id !== pinnedSession.id),
+              .filter((item) => item.session.id !== pinnedSession.id)
+              .filter((item) => item.session.messageCount > 0),
           ]
-        : summaryList.map((session) => ({
-            session,
-          })),
+        : summaryList
+            .map((session) => ({
+              session,
+            }))
+            .filter((item) => item.session.messageCount > 0),
     [pinnedSession, summaryList],
   );
   const filteredSessions = useMemo<FilteredSession[]>(() => {

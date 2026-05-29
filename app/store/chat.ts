@@ -2323,7 +2323,7 @@ export const useChatStore = createPersistStore(
         get().selectSession(limit(i + delta));
       },
 
-      deleteSession(index: number) {
+      deleteSession(index: number, silent?: boolean) {
         const deletingLastSession = get().sessions.length === 1;
         const deletedSession = get().sessions.at(index);
 
@@ -2343,21 +2343,24 @@ export const useChatStore = createPersistStore(
           sessions.push(createEmptySession());
         }
 
-        // for undo delete action
-        const restoreState = {
-          currentSessionIndex: get().currentSessionIndex,
-          selectedSessionId: get().currentSessionId(),
-          sessions: get().sessions.slice(),
-          sessionSummaries: get().sessionSummaries.slice(),
-          deletedSessionTimestamps: {
-            ...get().deletedSessionTimestamps,
-          },
-        };
         const deletedAt = Date.now();
         const deletedSessionTimestamps = {
           ...get().deletedSessionTimestamps,
           [deletedSession.id]: deletedAt,
         };
+
+        // for undo delete action
+        const restoreState = silent
+          ? null
+          : {
+              currentSessionIndex: get().currentSessionIndex,
+              selectedSessionId: get().currentSessionId(),
+              sessions: get().sessions.slice(),
+              sessionSummaries: get().sessionSummaries.slice(),
+              deletedSessionTimestamps: {
+                ...get().deletedSessionTimestamps,
+              },
+            };
 
         set(() => ({
           currentSessionIndex: nextIndex,
@@ -2374,24 +2377,26 @@ export const useChatStore = createPersistStore(
           `[Chat] ➖ 删除对话：${formatChatSessionLogLabel(deletedSession)}`,
         );
 
-        showToast(
-          Locale.Home.DeleteToast,
-          {
-            text: Locale.Home.Revert,
-            onClick() {
-              set(() => restoreState);
-              import("./sync").then(({ useSyncStore }) => {
-                useSyncStore
-                  .getState()
-                  .sync([StoreKey.Chat], { force: true })
-                  .catch((error) => {
-                    logger.chat.error("❌ 撤销删除后立即同步失败:", error);
-                  });
-              });
+        if (!silent) {
+          showToast(
+            Locale.Home.DeleteToast,
+            {
+              text: Locale.Home.Revert,
+              onClick() {
+                set(() => restoreState!);
+                import("./sync").then(({ useSyncStore }) => {
+                  useSyncStore
+                    .getState()
+                    .sync([StoreKey.Chat], { force: true })
+                    .catch((error) => {
+                      logger.chat.error("❌ 撤销删除后立即同步失败:", error);
+                    });
+                });
+              },
             },
-          },
-          5000,
-        );
+            5000,
+          );
+        }
 
         // 删除会话后立即同步，避免远端旧会话被自动同步拉回
         import("./sync").then(({ useSyncStore }) => {
