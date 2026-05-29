@@ -278,7 +278,7 @@ function _MarkDownContent(props: { content: string }) {
       remarkPlugins={[RemarkMath, RemarkGfm, RemarkBreaks]}
       transformLinkUri={transformLinkUri}
       rehypePlugins={[
-        RehypeKatex,
+        [RehypeKatex, { strict: "ignore" }],
         [
           RehypeHighlight,
           {
