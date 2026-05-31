@@ -1206,12 +1206,20 @@ import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
 const localStorage = safeLocalStorage();
 const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
+const ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY = "unfinished-attach-images-active";
 const UNFINISHED_ATTACH_IMAGES = (id: string) =>
   "unfinished-attach-images-" + id;
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const recentBalanceAutoRefresh = new Map<string, number>();
+
+function trimBoundaryInvisibleChars(text: string) {
+  return String(text || "").replace(
+    /^[\s\u200B-\u200D\u2060\uFEFF]+|[\s\u200B-\u200D\u2060\uFEFF]+$/g,
+    "",
+  );
+}
 
 function formatModelSelectorReason(reason: string) {
   const labels: Record<string, string> = {
@@ -2509,6 +2517,8 @@ function _Chat() {
   const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
     useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isModelConfigSyncConfirmed, setIsModelConfigSyncConfirmed] =
+    useState(false);
   const criticalSyncReady = useSyncStore(
     (state: any) => state.criticalSyncReady,
   );
@@ -2519,6 +2529,8 @@ function _Chat() {
   const isSyncBlocking =
     syncProvider === ProviderType.Database &&
     (!criticalSyncReady || criticalSyncInProgress);
+  const isChatUnavailableForSync =
+    syncProvider === ProviderType.Database && !isModelConfigSyncConfirmed;
   const readOnly = useAuthStore((state) => state.readOnly);
   const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
   const { submitKey, shouldSubmit } = useSubmitHandler();
@@ -2546,6 +2558,16 @@ function _Chat() {
     () => (Array.isArray(safeSession.messages) ? safeSession.messages : []),
     [safeSession.messages],
   );
+
+  useEffect(() => {
+    if (syncProvider !== ProviderType.Database) {
+      setIsModelConfigSyncConfirmed(true);
+      return;
+    }
+
+    setIsModelConfigSyncConfirmed(criticalSyncReady && !criticalSyncInProgress);
+  }, [criticalSyncInProgress, criticalSyncReady, syncProvider]);
+
   const currentSessionSummaryMessageCount = useChatStore((state) => {
     const summary = state.sessionSummaries.find(
       (item) => item.id === safeSession.id,
@@ -3822,6 +3844,8 @@ function _Chat() {
       }
     });
     setAttachImages([]);
+    localStorage.removeItem(unfinishedAttachImagesKey);
+    localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     chatStore.setLastInput(userInput);
     setUserInput("");
     setPromptHints([]);
@@ -4175,6 +4199,17 @@ function _Chat() {
       return;
     }
 
+    setIsEditingMessage(false);
+    setUserInput("");
+    setPromptHints([]);
+    setAttachImages([]);
+    setIsMobileInputFocused(false);
+    localStorage.removeItem(unfinishedInputKey);
+    localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
+    localStorage.removeItem(unfinishedAttachImagesKey);
+    localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
+    inputRef.current?.blur();
+
     // 保留原用户消息，只移除旧的 AI 回复，避免重试时用户输入闪烁。
     deleteMessage(botMessage?.id);
 
@@ -4187,7 +4222,6 @@ function _Chat() {
         reuseUserMessageId: userMessage.id,
       })
       .then(() => setIsLoading(false));
-    inputRef.current?.focus();
   };
 
   const [speechStatus, setSpeechStatus] = useState(false);
@@ -4923,10 +4957,11 @@ function _Chat() {
   const useCompactInputHint = !isMobileScreen && windowWidth <= 1100;
   const chatInputHint = readOnly
     ? "管理员查看模式下不可发送消息"
-    : isSyncBlocking
-    ? "正在同步模型配置，请稍候…"
+    : isChatUnavailableForSync
+    ? "正在同步模型配置，输入框内容已保留，请稍候..."
     : Locale.Chat.Input(submitKey);
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
+  const shouldHideChatMessages = sessionLoading || isChatUnavailableForSync;
 
   useLayoutEffect(() => {
     if (isMobileScreen) {
@@ -5037,23 +5072,62 @@ function _Chat() {
     [safeSession.id],
   );
   const skipNextAttachImagesPersistKeyRef = useRef<string>("");
+  const pendingDraftRestoreRef = useRef<{
+    input: string;
+    images: string[];
+    sessionId: string;
+  } | null>(null);
 
   useEffect(() => {
-    const mayBeUnfinishedInput =
+    if (currentSessionHasMessages) {
+      localStorage.removeItem(unfinishedInputKey);
+      localStorage.removeItem(unfinishedAttachImagesKey);
+      setUserInput("");
+      setAttachImages([]);
+      return;
+    }
+
+    const mayBeUnfinishedInput = trimBoundaryInvisibleChars(
       localStorage.getItem(unfinishedInputKey) ||
-      localStorage.getItem(ACTIVE_UNFINISHED_INPUT_KEY);
+        localStorage.getItem(ACTIVE_UNFINISHED_INPUT_KEY) ||
+        "",
+    );
     if (mayBeUnfinishedInput && userInput.length === 0) {
+      if (isChatUnavailableForSync) {
+        pendingDraftRestoreRef.current = {
+          input: mayBeUnfinishedInput,
+          images: pendingDraftRestoreRef.current?.images ?? [],
+          sessionId: safeSession.id,
+        };
+        setUserInput("");
+        return;
+      }
       setUserInput(mayBeUnfinishedInput);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unfinishedInputKey]);
+  }, [
+    currentSessionHasMessages,
+    isChatUnavailableForSync,
+    safeSession.id,
+    unfinishedAttachImagesKey,
+    unfinishedInputKey,
+  ]);
 
   useEffect(() => {
     if (!unfinishedInputKey) {
       return;
     }
 
-    const draftValue = userInput ?? "";
+    if (currentSessionHasMessages) {
+      localStorage.removeItem(unfinishedInputKey);
+      return;
+    }
+
+    if (isChatUnavailableForSync) {
+      return;
+    }
+
+    const draftValue = trimBoundaryInvisibleChars(userInput ?? "");
     if (draftValue.length > 0) {
       localStorage.setItem(unfinishedInputKey, draftValue);
       localStorage.setItem(ACTIVE_UNFINISHED_INPUT_KEY, draftValue);
@@ -5062,11 +5136,24 @@ function _Chat() {
 
     localStorage.removeItem(unfinishedInputKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
-  }, [unfinishedInputKey, userInput]);
+  }, [
+    currentSessionHasMessages,
+    isChatUnavailableForSync,
+    unfinishedInputKey,
+    userInput,
+  ]);
 
   useEffect(() => {
     skipNextAttachImagesPersistKeyRef.current = unfinishedAttachImagesKey;
-    const rawImages = localStorage.getItem(unfinishedAttachImagesKey);
+    if (currentSessionHasMessages) {
+      localStorage.removeItem(unfinishedAttachImagesKey);
+      setAttachImages([]);
+      return;
+    }
+
+    const rawImages =
+      localStorage.getItem(unfinishedAttachImagesKey) ||
+      localStorage.getItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     if (!rawImages) {
       setAttachImages([]);
       return;
@@ -5074,17 +5161,28 @@ function _Chat() {
 
     try {
       const parsed = JSON.parse(rawImages);
-      setAttachImages(
-        Array.isArray(parsed)
-          ? parsed
-              .filter((item) => typeof item === "string" && item)
-              .slice(0, 3)
-          : [],
-      );
+      const nextImages = Array.isArray(parsed)
+        ? parsed.filter((item) => typeof item === "string" && item).slice(0, 3)
+        : [];
+      if (isChatUnavailableForSync) {
+        pendingDraftRestoreRef.current = {
+          input: pendingDraftRestoreRef.current?.input ?? "",
+          images: nextImages,
+          sessionId: safeSession.id,
+        };
+        setAttachImages([]);
+        return;
+      }
+      setAttachImages(nextImages);
     } catch {
       setAttachImages([]);
     }
-  }, [unfinishedAttachImagesKey]);
+  }, [
+    currentSessionHasMessages,
+    isChatUnavailableForSync,
+    safeSession.id,
+    unfinishedAttachImagesKey,
+  ]);
 
   useEffect(() => {
     if (
@@ -5094,16 +5192,51 @@ function _Chat() {
       return;
     }
 
+    if (currentSessionHasMessages) {
+      localStorage.removeItem(unfinishedAttachImagesKey);
+      return;
+    }
+
+    if (isChatUnavailableForSync) {
+      return;
+    }
+
     if (attachImages.length > 0) {
-      localStorage.setItem(
-        unfinishedAttachImagesKey,
-        JSON.stringify(attachImages.slice(0, 3)),
-      );
+      const draftImages = JSON.stringify(attachImages.slice(0, 3));
+      localStorage.setItem(unfinishedAttachImagesKey, draftImages);
+      localStorage.setItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY, draftImages);
       return;
     }
 
     localStorage.removeItem(unfinishedAttachImagesKey);
-  }, [attachImages, unfinishedAttachImagesKey]);
+    localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
+  }, [
+    attachImages,
+    currentSessionHasMessages,
+    isChatUnavailableForSync,
+    unfinishedAttachImagesKey,
+  ]);
+
+  useEffect(() => {
+    if (isChatUnavailableForSync) {
+      return;
+    }
+
+    const pendingDraft = pendingDraftRestoreRef.current;
+    if (!pendingDraft || pendingDraft.sessionId !== safeSession.id) {
+      return;
+    }
+
+    pendingDraftRestoreRef.current = null;
+    if (pendingDraft.input) {
+      setUserInput(pendingDraft.input);
+    }
+    setAttachImages(pendingDraft.images);
+
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+    });
+  }, [isChatUnavailableForSync, safeSession.id]);
 
   const handlePaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -5127,6 +5260,11 @@ function _Chat() {
             item.lastModified === file.lastModified,
         );
         if (!duplicated) imageFiles.push(file);
+      };
+      const appendImageBlob = (blob: Blob, type: string) => {
+        if (!type.startsWith("image/")) return;
+        const ext = type.split("/")[1] || "png";
+        appendImageFile(new File([blob], `clipboard.${ext}`, { type }));
       };
 
       for (const file of clipboardFiles) {
@@ -5174,10 +5312,7 @@ function _Chat() {
               if (type.startsWith("image/")) {
                 const blob = await item.getType(type);
                 if (blob) {
-                  const ext = type.split("/")[1] || "png";
-                  imageFiles.push(
-                    new File([blob], `clipboard.${ext}`, { type }),
-                  );
+                  appendImageBlob(blob, type);
                 }
               }
             }
@@ -5187,12 +5322,16 @@ function _Chat() {
         }
       }
 
-      if (text && imageFiles.length === 0 && !hasFileLikeClipboardData) {
+      const hasImages = imageFiles.length > 0 || imageUrlsFromHtml.length > 0;
+
+      if (text && !hasImages && !hasFileLikeClipboardData) {
         const start = textarea?.selectionStart ?? userInput.length;
         const end = textarea?.selectionEnd ?? userInput.length;
-        const before = userInput.substring(0, start);
-        const after = userInput.substring(end);
-        setUserInput(before + text + after);
+        setUserInput((input) => {
+          const before = input.substring(0, start);
+          const after = input.substring(end);
+          return before + text + after;
+        });
         if (textarea) {
           requestAnimationFrame(() => {
             textarea.selectionStart = textarea.selectionEnd =
@@ -5211,6 +5350,8 @@ function _Chat() {
             const all = [...prev, ...uploadedUrls];
             return all.length > 3 ? all.slice(0, 3) : all;
           });
+        } catch {
+          showToast("图片粘贴失败，请重试");
         } finally {
           setUploading(false);
         }
@@ -5357,7 +5498,7 @@ function _Chat() {
     if (
       isMobileScreen ||
       readOnly ||
-      isSyncBlocking ||
+      isChatUnavailableForSync ||
       !safeSession.id ||
       syncReadyFocusSessionRef.current === safeSession.id
     ) {
@@ -5370,7 +5511,7 @@ function _Chat() {
     }, 80);
 
     return () => window.clearTimeout(timer);
-  }, [isMobileScreen, isSyncBlocking, readOnly, safeSession.id]);
+  }, [isChatUnavailableForSync, isMobileScreen, readOnly, safeSession.id]);
 
   if (!session) {
     return null;
@@ -5445,7 +5586,7 @@ function _Chat() {
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
-                disabled={readOnly || isSyncBlocking}
+                disabled={readOnly || isChatUnavailableForSync}
               />
             </div>
             <div
@@ -5467,7 +5608,7 @@ function _Chat() {
                 title={Locale.Chat.InputActions.Prompt}
                 aria={Locale.Chat.InputActions.Prompt}
                 onClick={togglePromptHints}
-                disabled={readOnly || isSyncBlocking}
+                disabled={readOnly || isChatUnavailableForSync}
               />
             </div>
             <div
@@ -5587,7 +5728,7 @@ function _Chat() {
             )}
             <div
               className={clsx(styles["chat-body"], {
-                [styles["chat-body-loading"]]: sessionLoading,
+                [styles["chat-body-loading"]]: shouldHideChatMessages,
               })}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
@@ -5614,7 +5755,7 @@ function _Chat() {
                   </div>
                 </div>
               )}
-              {!sessionLoading &&
+              {!shouldHideChatMessages &&
                 messages
                   // TODO
                   // .filter((m) => !m.isMcpResponse)
@@ -5692,6 +5833,25 @@ function _Chat() {
                                       />
                                     ) : (
                                       <>
+                                        {isUser && (
+                                          <ChatAction
+                                            text={Locale.Chat.Actions.Edit}
+                                            icon={<RenameIcon />}
+                                            onClick={() => {
+                                              setIsEditingMessage(false);
+                                              setPromptHints([]);
+                                              setUserInput(messageTextContent);
+                                              setAttachImages(
+                                                messageImages.slice(0, 3),
+                                              );
+                                              inputRef.current?.focus();
+                                              if (isMobileScreen) {
+                                                setIsMobileInputFocused(true);
+                                              }
+                                            }}
+                                          />
+                                        )}
+
                                         <ChatAction
                                           text={Locale.Chat.Actions.Retry}
                                           icon={<ResetIcon />}
@@ -5777,7 +5937,7 @@ function _Chat() {
                                 }
                                 //   onContextMenu={(e) => onRightClick(e, message)} // hard to use
                                 onDoubleClickCapture={() => {
-                                  if (!isMobileScreen) return;
+                                  if (!isMobileScreen || !isUser) return;
                                   setUserInput(getMessageTextContent(message));
                                 }}
                                 fontSize={fontSize}
@@ -5888,7 +6048,7 @@ function _Chat() {
                     className={styles["chat-input-mobile-add"]}
                     title="添加照片"
                     aria="添加照片"
-                    disabled={readOnly || isSyncBlocking || uploading}
+                    disabled={readOnly || isChatUnavailableForSync || uploading}
                     onClick={uploadImage}
                   />
                 )}
@@ -5922,7 +6082,11 @@ function _Chat() {
                     id="chat-input"
                     ref={inputRef}
                     className={styles["chat-input"]}
-                    placeholder=""
+                    placeholder={
+                      isMobileScreen || isChatUnavailableForSync
+                        ? chatInputHint
+                        : ""
+                    }
                     onInput={(e) => onInput(e.currentTarget.value)}
                     value={userInput}
                     onKeyDown={onInputKeyDown}
@@ -5942,7 +6106,7 @@ function _Chat() {
                     onPaste={handlePaste}
                     rows={inputRows}
                     autoFocus={autoFocus}
-                    disabled={readOnly || isSyncBlocking}
+                    disabled={readOnly || isChatUnavailableForSync}
                     style={{
                       fontSize: inputFontSize,
                       fontFamily: config.fontFamily,
@@ -5975,7 +6139,7 @@ function _Chat() {
                     icon={<SendUpIcon />}
                     className={styles["chat-input-send"]}
                     type="primary"
-                    disabled={readOnly || isSyncBlocking}
+                    disabled={readOnly || isChatUnavailableForSync}
                     onClick={() => doSubmit(userInput)}
                   />
                 </label>

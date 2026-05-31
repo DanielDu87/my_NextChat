@@ -1,22 +1,27 @@
 @import "../styles/animation.scss";
 
 .attach-images {
-  position: absolute;
-  left: 18px;
-  bottom: 8px;
+  position: relative;
+  z-index: 2;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  width: 100%;
+  padding: 0 64px 12px 22px;
+  box-sizing: border-box;
 }
 
 .attach-image {
   cursor: default;
-  width: 88px;
-  height: 88px;
+  width: 78px;
+  height: 78px;
   border: rgba($color: #888, $alpha: 0.2) 1px solid;
   border-radius: 8px;
   background-size: cover;
   background-position: center;
   background-color: var(--white);
+  flex: 0 0 auto;
+  overflow: hidden;
 
   .attach-image-mask {
     width: 100%;
@@ -1997,21 +2002,41 @@
 }
 
 .chat-input-panel-inner {
+  --chat-input-panel-radius: 32px;
+  --chat-input-panel-bg: var(--white);
+
   cursor: text;
   display: flex;
   flex: 1;
-  border-radius: 32px;
+  border-radius: var(--chat-input-panel-radius);
   border: var(--border-in-light);
   position: relative;
   min-height: 56px;
-  background: var(--white);
+  box-sizing: border-box;
+  background: var(--chat-input-panel-bg);
+  overflow: hidden;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.06),
     0 14px 40px rgba(0, 0, 0, 0.04);
 }
 
 .chat-input-panel-inner-attach {
-  padding-bottom: 104px;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 148px;
+  padding-bottom: 0;
+  background: var(--chat-input-panel-bg);
+
+  .chat-input {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 56px;
+    max-height: 156px;
+    background: var(--chat-input-panel-bg) !important;
+    appearance: none;
+    -webkit-appearance: none;
+    overflow-y: auto;
+  }
 }
 
 .chat-input-panel-inner-multiline {
@@ -2029,9 +2054,30 @@
   }
 }
 
+.chat-input-panel-inner-attach.chat-input-panel-inner-multiline {
+  align-items: flex-start;
+
+  .chat-input {
+    padding-right: 64px;
+  }
+
+  .chat-input-send {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    bottom: auto;
+    flex: 0 0 auto;
+    margin-right: 0;
+    transform: translateY(-50%);
+  }
+}
+
 .chat-input-panel-inner:has(.chat-input:focus) {
   border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
+  box-shadow:
+    0 0 0 1.5px var(--primary),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 14px 40px rgba(0, 0, 0, 0.04);
 }
 
 .chat-input-placeholder {
@@ -2062,10 +2108,10 @@
 .chat-input {
   height: 100%;
   width: 100%;
-  border-radius: 32px;
+  border-radius: 0;
   border: none;
-  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.03);
-  background-color: var(--white);
+  box-shadow: none;
+  background: transparent !important;
   color: var(--black);
   font-family: inherit;
   font-size: 16px !important;
@@ -2090,9 +2136,9 @@
   -webkit-text-fill-color: var(--black);
 
   &::placeholder {
-    color: var(--chat-input-disabled-placeholder);
+    color: var(--chat-input-placeholder);
     opacity: 1;
-    -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
+    -webkit-text-fill-color: var(--chat-input-placeholder);
   }
 }
 
@@ -2231,18 +2277,21 @@
   }
 
   .chat-input-panel-inner-attach {
-    padding-bottom: 88px;
+    min-height: 0;
+
+    .chat-input {
+      min-height: 44px;
+    }
   }
 
   .attach-images {
-    left: 12px;
-    bottom: 6px;
     gap: 6px;
+    padding: 2px 48px 10px 12px;
   }
 
   .attach-image {
-    width: 76px;
-    height: 76px;
+    width: 68px;
+    height: 68px;
   }
 
   .chat-input {
@@ -2260,9 +2309,13 @@
     height: 36px !important;
     min-width: 36px !important;
     min-height: 36px !important;
+    max-width: 36px !important;
+    max-height: 36px !important;
+    aspect-ratio: 1 / 1;
     border-radius: 50% !important;
     padding: 0 !important;
     display: flex !important;
+    flex: 0 0 36px;
     align-items: center !important;
     justify-content: center !important;
     transform: translateY(-50%);
@@ -2320,7 +2373,35 @@
       right: 4px;
       top: 50%;
       bottom: auto;
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      min-height: 36px !important;
+      max-width: 36px !important;
+      max-height: 36px !important;
+      aspect-ratio: 1 / 1;
+      border-radius: 50% !important;
+      padding: 0 !important;
+      display: flex !important;
+      flex: 0 0 36px;
       transform: translateY(-50%);
+
+      &:hover,
+      &:focus,
+      &:focus-visible,
+      &:active,
+      &:disabled,
+      &[disabled] {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        max-width: 36px !important;
+        max-height: 36px !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        transform: translateY(-50%);
+      }
     }
   }
 }
