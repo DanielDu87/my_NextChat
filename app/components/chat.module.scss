@@ -1458,15 +1458,6 @@
 
 .chat-body-main-title {
   cursor: default;
-
-  .chat-body-title:hover & {
-    max-width: 100%;
-    overflow: visible;
-    overflow-wrap: anywhere;
-    text-overflow: clip;
-    white-space: normal;
-    word-break: break-word;
-  }
 }
 
 .chat-body-title {
@@ -1474,6 +1465,17 @@
   max-width: none;
   min-width: 0;
   margin-right: 16px;
+}
+
+@media only screen and (min-width: 651px) {
+  .chat-body-title:hover .chat-body-main-title {
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: break-word;
+  }
 }
 
 @media only screen and (max-width: 650px) {

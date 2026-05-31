@@ -72,6 +72,7 @@ import {
   getSupportedImageStyleOptions,
   normalizeModelSize,
   normalizeImageQuality,
+  isIOS,
   supportsCustomSize,
   supportsImageQualityControl,
   supportsImageStyleControl,
@@ -2583,6 +2584,10 @@ function _Chat() {
   );
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
+  const isIOSMobile = useMemo(
+    () => isMobileScreen && isIOS(),
+    [isMobileScreen],
+  );
   const { width: windowWidth } = useWindowSize();
   const [showBalanceUserPanel] = useState(() => !isMobileScreen);
 
@@ -4402,6 +4407,24 @@ function _Chat() {
     scrollDomToBottom();
   }, [renderMessages.length, scrollDomToBottom, setMsgRenderIndex]);
 
+  const scrollToTopOnIOS = useCallback(() => {
+    if (!isIOSMobile) return;
+
+    inputRef.current?.blur();
+    setAutoScroll(false);
+    setHitBottom(false);
+    setMsgRenderIndex(0);
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      });
+    });
+  }, [isIOSMobile, setAutoScroll, setMsgRenderIndex]);
+
   const syncMobileKeyboardViewport = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
 
@@ -5391,6 +5414,7 @@ function _Chat() {
           <div
             className={clsx("window-header-title", styles["chat-body-title"])}
             data-tauri-drag-region
+            onClick={scrollToTopOnIOS}
           >
             <div
               className={clsx(
