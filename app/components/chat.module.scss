@@ -2645,6 +2645,13 @@
   }
 }
 
+@media only screen and (min-width: 651px) {
+  .chat-balance-user-panel-dimmed {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 @media only screen and (max-width: 650px) {
   .chat-balance-user-panel {
     top: 14px;
