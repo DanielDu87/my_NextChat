@@ -365,9 +365,11 @@ export function Modal(props: ModalProps) {
         </div>
       </div>
 
-      <div className={styles["modal-content"]}>{props.children}</div>
+      <div className={clsx(styles["modal-content"], "modal-content")}>
+        {props.children}
+      </div>
 
-      <div className={styles["modal-footer"]}>
+      <div className={clsx(styles["modal-footer"], "modal-footer")}>
         {props.footer}
         {props.leftActions && props.leftActions.length > 0 && (
           <div
@@ -386,16 +388,20 @@ export function Modal(props: ModalProps) {
             ))}
           </div>
         )}
-        <div className={clsx(styles["modal-actions"], "modal-footer-actions")}>
-          {props.actions?.map((action, i) => (
-            <div
-              key={i}
-              className={clsx(styles["modal-action"], "modal-footer-action")}
-            >
-              {action}
-            </div>
-          ))}
-        </div>
+        {props.actions && props.actions.length > 0 && (
+          <div
+            className={clsx(styles["modal-actions"], "modal-footer-actions")}
+          >
+            {props.actions.map((action, i) => (
+              <div
+                key={i}
+                className={clsx(styles["modal-action"], "modal-footer-action")}
+              >
+                {action}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

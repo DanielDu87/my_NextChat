@@ -36,6 +36,27 @@ cp .env.docker.example .env.docker
 
 ## 生产部署
 
+- 用户说“部署”时，默认部署到 SSH alias 为 `sss` 的服务器
+- 默认部署路径为 `/www/dk_project/my_NextChat`
+- 部署前先在服务器目标路径拉取最新代码：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && git pull'
+```
+
+- 拉取完成后在服务器目标路径执行生产构建和启动：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
+```
+
+- 部署后检查容器状态和日志：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy ps'
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy logs --tail=80 nextchat-production'
+```
+
 - 生产部署统一使用 `--profile no-proxy`
 - 部署和启动流程默认不使用代理
 - 生产部署也默认使用 [scripts/docker-compose-safe.sh](./scripts/docker-compose-safe.sh)

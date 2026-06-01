@@ -4962,6 +4962,14 @@ function _Chat() {
     : Locale.Chat.Input(submitKey);
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
   const shouldHideChatMessages = sessionLoading || isChatUnavailableForSync;
+  const shouldShowChatRestoreNotice =
+    sessionLoading || (isChatUnavailableForSync && currentSessionHasMessages);
+  const chatRestoreNoticeTitle = sessionLoading
+    ? "正在载入这段对话"
+    : "正在恢复这段对话";
+  const chatRestoreNoticeDescription = sessionLoading
+    ? "正在恢复完整消息内容，完成后会自动显示。"
+    : "模型配置同步完成后，对话内容会自动显示。";
 
   useLayoutEffect(() => {
     if (isMobileScreen) {
@@ -5666,8 +5674,13 @@ function _Chat() {
                 }
                 title={Locale.Chat.Actions.Export}
                 onClick={() => {
+                  if (!currentSessionHasMessages || isChatUnavailableForSync)
+                    return;
                   setShowExport(true);
                 }}
+                disabled={
+                  !currentSessionHasMessages || isChatUnavailableForSync
+                }
               />
             </div>
             {showMaxIcon && (
@@ -5737,7 +5750,7 @@ function _Chat() {
                 inputRef.current?.blur();
               }}
             >
-              {sessionLoading && (
+              {shouldShowChatRestoreNotice && (
                 <div className={styles["chat-session-loading"]}>
                   <div className={styles["chat-session-loading-card"]}>
                     <div className={styles["chat-session-loading-icon"]}>
@@ -5748,13 +5761,33 @@ function _Chat() {
                         历史对话
                       </div>
                       <div className={styles["chat-session-loading-text"]}>
-                        <strong>正在载入这段对话</strong>
-                        <span>正在恢复完整消息内容，完成后会自动显示。</span>
+                        <strong>{chatRestoreNoticeTitle}</strong>
+                        <span>{chatRestoreNoticeDescription}</span>
                       </div>
                     </div>
                   </div>
                 </div>
               )}
+              {isMobileScreen &&
+                !currentSessionHasMessages &&
+                (() => {
+                  const hints = chatInputHint
+                    .replace(/，\//, "\n/")
+                    .replace(/, \//, "\n/")
+                    .split("\n");
+                  return (
+                    <div className={styles["chat-input-mobile-hint"]}>
+                      {hints.map((line, i) => (
+                        <div
+                          key={i}
+                          className={styles["chat-input-mobile-hint-line"]}
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               {!shouldHideChatMessages &&
                 messages
                   // TODO
@@ -6067,6 +6100,7 @@ function _Chat() {
                       className={clsx(styles["chat-input-placeholder"], {
                         [styles["chat-input-placeholder-hidden"]]:
                           shouldUseCompactInputHint ||
+                          isChatUnavailableForSync ||
                           !!userInput ||
                           attachImages.length > 0,
                       })}
@@ -6083,7 +6117,9 @@ function _Chat() {
                     ref={inputRef}
                     className={styles["chat-input"]}
                     placeholder={
-                      isMobileScreen || isChatUnavailableForSync
+                      isMobileScreen
+                        ? ""
+                        : isChatUnavailableForSync
                         ? chatInputHint
                         : ""
                     }

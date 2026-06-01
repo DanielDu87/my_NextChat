@@ -24,10 +24,19 @@
       }
 
       .actions {
-        margin-top: 20px;
+        gap: 8px;
+        margin-top: 14px;
 
         button {
+          width: auto !important;
+          min-width: 0 !important;
+          padding: 0 10px !important;
           flex-grow: 1;
+        }
+
+        :global([class*="icon-button-text"]) {
+          display: block !important;
+          min-width: 0;
         }
       }
     }
@@ -77,6 +86,14 @@
         justify-content: flex-end;
         flex: 1;
       }
+    }
+  }
+}
+
+@media screen and (max-width: 600px) {
+  .message-selector {
+    .messages {
+      margin-top: 14px;
     }
   }
 }

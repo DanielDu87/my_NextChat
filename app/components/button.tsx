@@ -24,7 +24,6 @@ export function IconButton(props: {
   return (
     <button
       className={clsx(
-        "clickable",
         styles["icon-button"],
         {
           [styles.border]: props.bordered,

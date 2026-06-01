@@ -56,9 +56,14 @@
     }
   }
 
-  &:not(.danger):not(.primary):hover,
-  &:not(.danger):not(.primary):focus-visible {
+  &:not(.danger):not(.primary):hover {
     border-color: var(--primary);
+  }
+
+  &:not(.danger):not(.primary):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+    filter: none;
   }
 }
 

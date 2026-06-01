@@ -57,8 +57,10 @@ export function ExportMessageModal(props: { onClose: () => void }) {
       <Modal
         title={Locale.Export.Title}
         onClose={props.onClose}
+        className={styles["export-message-modal"]}
         footer={
           <div
+            className={styles["export-message-footer"]}
             style={{
               width: "100%",
               textAlign: "center",
@@ -70,7 +72,7 @@ export function ExportMessageModal(props: { onClose: () => void }) {
           </div>
         }
       >
-        <div style={{ minHeight: "40vh" }}>
+        <div className={styles["export-message-content"]}>
           <MessageExporter />
         </div>
       </Modal>
@@ -115,7 +117,8 @@ function Steps<
         <div
           className={styles["steps-progress-inner"]}
           style={{
-            width: `${((props.index + 1) / stepCount) * 100}%`,
+            width: `${100 / stepCount}%`,
+            transform: `translateX(${props.index * 100}%)`,
           }}
         ></div>
       </div>
@@ -124,8 +127,8 @@ function Steps<
           return (
             <div
               key={i}
-              className={clsx("clickable", styles["step"], {
-                [styles["step-finished"]]: i <= props.index,
+              className={clsx(styles["step"], {
+                [styles["step-finished"]]: i < props.index,
                 [styles["step-current"]]: i === props.index,
               })}
               onClick={() => {
