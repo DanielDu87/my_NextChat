@@ -2509,10 +2509,7 @@
   }
 }
 
-.chat-balance-user-panel-dimmed {
-  opacity: 0.5;
-  transition: opacity 0.25s ease;
-}
+// moved after .chat-balance-user-panel for specificity
 
 @container (max-width: 1500px) {
   .chat-body {
@@ -2554,6 +2551,11 @@
   pointer-events: none;
   opacity: 0;
   box-shadow: none;
+}
+
+.chat-balance-user-panel-dimmed {
+  opacity: 0.5;
+  transition: opacity 0.25s ease;
 }
 
 :global(.light) .chat-balance-user-panel,
@@ -2645,7 +2647,7 @@
 
 @media only screen and (max-width: 650px) {
   .chat-balance-user-panel {
-    top: 6px;
+    top: 14px;
     left: 16px;
     max-width: calc(100% - 24px);
     padding: 5px 10px;

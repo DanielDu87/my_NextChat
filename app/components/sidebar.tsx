@@ -575,22 +575,22 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.setTheme(Theme.Light);
-                        setShowThemeSelector(false);
-                      }}
-                    >
-                      <LightIcon />
-                      <span>Light</span>
-                    </div>
-                    <div
-                      className={styles["theme-option"]}
-                      onClick={() => {
                         config.setTheme(Theme.Dark);
                         setShowThemeSelector(false);
                       }}
                     >
                       <DarkIcon />
                       <span>Dark</span>
+                    </div>
+                    <div
+                      className={styles["theme-option"]}
+                      onClick={() => {
+                        config.setTheme(Theme.Light);
+                        setShowThemeSelector(false);
+                      }}
+                    >
+                      <LightIcon />
+                      <span>Light</span>
                     </div>
                     <div
                       className={styles["theme-option"]}
