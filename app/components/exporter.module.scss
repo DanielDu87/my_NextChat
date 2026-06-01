@@ -13,7 +13,7 @@
   :global(.modal-content) {
     max-height: unset !important;
     flex-grow: 1;
-    overflow-x: auto;
+    overflow-x: hidden;
   }
 }
 
@@ -141,13 +141,17 @@
 }
 
 .image-previewer {
+  :global(.user-avatar) {
+    box-shadow: none;
+  }
+
   .preview-body {
     border-radius: 10px;
     padding: 20px;
     box-shadow: var(--card-shadow) inset;
     background-color: var(--gray);
-    width: 600px;
-    flex-shrink: 0;
+    width: 100%;
+    max-width: 600px;
 
     .chat-info {
       background-color: var(--second);
@@ -209,7 +213,6 @@
         border-radius: 10px;
         padding: 8px 10px;
         max-width: calc(100% - 104px);
-        box-shadow: var(--card-shadow);
         border: var(--border-in-light);
 
         code,
