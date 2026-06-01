@@ -199,7 +199,6 @@ import {
 } from "../utils/model";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import { useAuthStore } from "../store/auth";
-import { UserMenu } from "./user-menu";
 import { AddModelSelector } from "./add-model-modal";
 
 type RemoteModelRefreshArtifact = {
@@ -1019,188 +1018,6 @@ function ChatModelUpdateNotice() {
   return null;
 }
 
-function ChatProviderBalance(props: {
-  providerName: ServiceProvider;
-  providerDisplayName: string;
-  refreshSignal: string;
-  balanceCacheKey: string;
-  profile?: BalanceAwareProfile;
-  deferInitialRefresh?: boolean;
-  suppressAutoRefresh?: boolean;
-}) {
-  const authUser = useAuthStore((state) => state.user);
-  const authInitialized = useAuthStore((state) => state.initialized);
-  const syncProvider = useSyncStore((state) => state.provider);
-  const criticalSyncReady = useSyncStore(
-    (state: any) => state.criticalSyncReady,
-  );
-  const criticalSyncInProgress = useSyncStore(
-    (state: any) => state.criticalSyncInProgress,
-  );
-  function formatUsageCurrency(value: number) {
-    if (!Number.isFinite(value)) {
-      return "--";
-    }
-    if (value === 0) {
-      return "$0.00";
-    }
-    return `$${value.toFixed(4)}`;
-  }
-
-  const updateUsage = useUpdateStore((state) => state.updateUsage);
-  const balance = useUpdateStore(
-    (state) => state.balances[props.balanceCacheKey],
-  );
-  const [displayedBalance, setDisplayedBalance] = useState(balance);
-  const [loadingUsage, setLoadingUsage] = useState(false);
-  const lastAutoRefreshKeyRef = useRef("");
-  const showUsage = true;
-  const supportsBalance =
-    props.providerName === ServiceProvider.Custom ||
-    props.providerName === ServiceProvider.Local;
-
-  useEffect(() => {
-    if (balance) {
-      setDisplayedBalance(balance);
-    }
-  }, [balance]);
-
-  const refreshUsage = useCallback(
-    async (force = false) => {
-      if (
-        !authInitialized ||
-        !authUser ||
-        (syncProvider === ProviderType.Database &&
-          (!criticalSyncReady || criticalSyncInProgress)) ||
-        !supportsBalance ||
-        !showUsage
-      ) {
-        return;
-      }
-
-      setLoadingUsage(true);
-      try {
-        await updateUsage(force, props.providerName, props.profile);
-      } finally {
-        setLoadingUsage(false);
-      }
-    },
-    [
-      authInitialized,
-      authUser,
-      criticalSyncInProgress,
-      criticalSyncReady,
-      props.profile,
-      props.providerName,
-      showUsage,
-      syncProvider,
-      supportsBalance,
-      updateUsage,
-    ],
-  );
-
-  useEffect(() => {
-    if (!props.refreshSignal) {
-      return;
-    }
-    refreshUsage(true);
-  }, [props.refreshSignal, refreshUsage]);
-
-  useEffect(() => {
-    if (!supportsBalance || !props.balanceCacheKey) {
-      return;
-    }
-    if (props.deferInitialRefresh) {
-      return;
-    }
-    if (props.suppressAutoRefresh) {
-      return;
-    }
-    if (
-      syncProvider === ProviderType.Database &&
-      (!criticalSyncReady || criticalSyncInProgress)
-    ) {
-      return;
-    }
-
-    const refreshKey = `${props.balanceCacheKey}:${props.profile?.id || ""}`;
-    const lastRefreshAt = recentBalanceAutoRefresh.get(refreshKey) || 0;
-    if (
-      lastAutoRefreshKeyRef.current === refreshKey ||
-      Date.now() - lastRefreshAt < 5000
-    ) {
-      return;
-    }
-    lastAutoRefreshKeyRef.current = refreshKey;
-    recentBalanceAutoRefresh.set(refreshKey, Date.now());
-
-    void refreshUsage(false);
-  }, [
-    props.balanceCacheKey,
-    props.deferInitialRefresh,
-    props.profile?.id,
-    props.providerName,
-    props.suppressAutoRefresh,
-    criticalSyncInProgress,
-    criticalSyncReady,
-    refreshUsage,
-    syncProvider,
-    supportsBalance,
-  ]);
-
-  if (
-    !authInitialized ||
-    !authUser ||
-    props.deferInitialRefresh ||
-    !displayedBalance ||
-    !supportsBalance
-  ) {
-    return null;
-  }
-
-  const remaining =
-    typeof displayedBalance?.remaining === "number"
-      ? displayedBalance.remaining
-      : null;
-  const totalUsed =
-    typeof displayedBalance?.used === "number" ? displayedBalance.used : null;
-  const displayValue =
-    typeof displayedBalance?.displayValue === "number"
-      ? displayedBalance.displayValue
-      : totalUsed;
-  const balanceDisplay =
-    props.providerName === ServiceProvider.Local
-      ? displayedBalance?.metricType === "requests"
-        ? displayValue !== null
-          ? `${Math.round(displayValue).toLocaleString()} 次`
-          : "--"
-        : displayedBalance?.metricType === "tokens"
-        ? displayValue !== null
-          ? `${Math.round(displayValue).toLocaleString()} Tokens`
-          : "--"
-        : displayValue !== null
-        ? formatUsageCurrency(displayValue)
-        : "--"
-      : remaining !== null
-      ? `$${remaining.toFixed(2)}`
-      : "--";
-  const balanceLabel =
-    props.providerName === ServiceProvider.Local
-      ? displayedBalance?.displayLabel ||
-        `${props.providerDisplayName} 总使用量`
-      : `${props.providerDisplayName} 余额`;
-
-  return (
-    <div className={styles["chat-provider-balance"]}>
-      <div className={styles["chat-provider-balance-label"]}>
-        {balanceLabel}
-      </div>
-      <div className={styles["chat-provider-balance-value"]}>
-        {showUsage ? balanceDisplay : Locale.Settings.Usage.NoAccess}
-      </div>
-    </div>
-  );
-}
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
@@ -2611,7 +2428,7 @@ function _Chat() {
     [isMobileScreen],
   );
   const { width: windowWidth } = useWindowSize();
-  const [showBalanceUserPanel] = useState(() => !isMobileScreen);
+  const [showBalanceUserPanel] = useState(() => true);
 
   useLayoutEffect(() => {
     const panel = inputPanelRef.current;
@@ -4342,14 +4159,7 @@ function _Chat() {
 
       const panelRect = panel.getBoundingClientRect();
       const messageParts = chatBody.querySelectorAll(
-        [
-          `.${styles["chat-message-avatar"]}`,
-          `.${styles["chat-message-header"]}`,
-          `.${styles["chat-message-item"]}`,
-          `.${styles["chat-message-tools"]}`,
-          `.${styles["chat-message-action-date"]}`,
-          `.${styles["chat-message-usage"]}`,
-        ].join(", "),
+        `.${styles["chat-message-item"]}`,
       );
       const overlaps = Array.from(messageParts).some((messagePart) => {
         const messageRect = messagePart.getBoundingClientRect();
@@ -4360,7 +4170,7 @@ function _Chat() {
           Math.min(panelRect.bottom, messageRect.bottom) -
           Math.max(panelRect.top, messageRect.top);
 
-        return overlapWidth > 8 && overlapHeight > 8;
+        return overlapWidth > 8 && overlapHeight > 16;
       });
 
       setBalancePanelOverlapsMessages(overlaps);
@@ -5725,18 +5535,11 @@ function _Chat() {
                     balancePanelOverlapsMessages,
                 })}
               >
-                {balanceProviderName ? (
-                  <ChatProviderBalance
-                    providerName={balanceProviderName as ServiceProvider}
-                    providerDisplayName={balanceProviderDisplayName}
-                    refreshSignal=""
-                    balanceCacheKey={currentBalanceCacheKey}
-                    profile={balanceProfile as BalanceAwareProfile | undefined}
-                    deferInitialRefresh={sessionMessages.length === 0}
-                    suppressAutoRefresh={suppressBalanceAutoRefresh}
-                  />
-                ) : null}
-                <UserMenu variant="chat-floating" />
+                <div className={styles["chat-panel-model-info"]}>
+                  {currentModelName}
+                  <span className={styles["chat-panel-model-at"]}>@</span>
+                  {activeModelSelectorProviderDisplayName}
+                </div>
               </div>
             )}
             <div
