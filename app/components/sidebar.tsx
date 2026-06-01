@@ -471,7 +471,6 @@ export function SideBar(props: { className?: string }) {
         subTitle="Build your own AI assistant."
         logo={<NextChatBrandIcon />}
         shouldNarrow={shouldNarrow}
-        linkHref="https://gitee.com/hudongtop/NextChat"
       >
         <div className={styles["sidebar-header-bar"]}>
           <IconButton

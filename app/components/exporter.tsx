@@ -4,7 +4,6 @@ import {
   createEmptySession,
   useAppConfig,
   useCurrentSession,
-  useChatStore,
 } from "../store";
 import Locale from "../locales";
 import styles from "./exporter.module.scss";
@@ -40,7 +39,7 @@ import NextImage from "next/image";
 import { toBlob, toPng } from "html-to-image";
 
 import { prettyObject } from "../utils/format";
-import { EXPORT_MESSAGE_CLASS_NAME, getRepoUrl } from "../constant";
+import { EXPORT_MESSAGE_CLASS_NAME } from "../constant";
 import { getClientConfig } from "../config/client";
 import { type ClientApi, getClientApi } from "../client/api";
 import { getMessageTextContent } from "../utils";
@@ -159,7 +158,7 @@ export function MessageExporter() {
   ];
   const { currentStep, setCurrentStepIndex, currentStepIndex } =
     useSteps(steps);
-  const formats = ["text", "image", "json"] as const;
+  const formats = ["text", "image"] as const;
   type ExportFormat = (typeof formats)[number];
 
   const [exportConfig, setExportConfig] = useState({
@@ -194,13 +193,6 @@ export function MessageExporter() {
     if (exportConfig.format === "text") {
       return (
         <MarkdownPreviewer
-          messages={selectedMessages}
-          topic={currentSession.topic}
-        />
-      );
-    } else if (exportConfig.format === "json") {
-      return (
-        <JsonPreviewer
           messages={selectedMessages}
           topic={currentSession.topic}
         />
@@ -432,13 +424,8 @@ export function ImagePreviewer(props: {
   messages: ChatMessage[];
   topic: string;
 }) {
-  const repoUrl = getRepoUrl();
-  const currentSessionSnapshot = useChatStore(
-    (state) => state.sessions[state.currentSessionIndex],
-  );
   const { session: loadedSession } = useCurrentSession();
-  const session =
-    loadedSession ?? currentSessionSnapshot ?? createEmptySession();
+  const session = loadedSession ?? createEmptySession();
   const mask = session.mask;
   const config = useAppConfig();
 
@@ -521,12 +508,8 @@ export function ImagePreviewer(props: {
     }
   };
 
-  const refreshPreview = () => {
-    const dom = previewRef.current;
-    if (dom) {
-      dom.innerHTML = dom.innerHTML; // Refresh the content of the preview by resetting its HTML for fix a bug glitching
-    }
-  };
+  const [previewVersion, setPreviewVersion] = useState(0);
+  const refreshPreview = () => setPreviewVersion((v) => v + 1);
 
   return (
     <div className={styles["image-previewer"]}>
@@ -539,6 +522,7 @@ export function ImagePreviewer(props: {
       <div
         className={clsx(styles["preview-body"], styles["default-theme"])}
         ref={previewRef}
+        key={previewVersion}
       >
         <div className={styles["chat-info"]}>
           <div className={clsx(styles["logo"], "no-dark")}>
@@ -549,36 +533,21 @@ export function ImagePreviewer(props: {
               height={50}
             />
           </div>
-
           <div>
             <div className={styles["main-title"]}>NextChat</div>
-            <div className={styles["sub-title"]}>
-              {repoUrl.replace(/^https?:\/\//, "")}
-            </div>
-            <div className={styles["icons"]}>
-              <MaskAvatar avatar={FIXED_USER_AVATAR} />
-              <span className={styles["icon-space"]}>&</span>
-              <MaskAvatar
-                avatar={mask.avatar}
-                model={session.mask.modelConfig.model}
-              />
-            </div>
           </div>
-          <div>
+          <div className={styles["chat-info-right"]}>
             <div className={styles["chat-info-item"]}>
               {Locale.Exporter.Model}: {mask.modelConfig.model}
-            </div>
-            <div className={styles["chat-info-item"]}>
-              {Locale.Exporter.Messages}: {props.messages.length}
-            </div>
-            <div className={styles["chat-info-item"]}>
-              {Locale.Exporter.Topic}: {session.topic}
             </div>
             <div className={styles["chat-info-item"]}>
               {Locale.Exporter.Time}:{" "}
               {new Date(
                 props.messages.at(-1)?.date ?? Date.now(),
               ).toLocaleString()}
+            </div>
+            <div className={styles["chat-info-item"]}>
+              {Locale.Exporter.Topic}: {session.topic}
             </div>
           </div>
         </div>
@@ -674,47 +643,6 @@ export function MarkdownPreviewer(props: {
       />
       <div className="markdown-body">
         <pre className={styles["export-content"]}>{mdText}</pre>
-      </div>
-    </>
-  );
-}
-
-export function JsonPreviewer(props: {
-  messages: ChatMessage[];
-  topic: string;
-}) {
-  const msgs = {
-    messages: [
-      {
-        role: "system",
-        content: `${Locale.FineTuned.Sysmessage} ${props.topic}`,
-      },
-      ...props.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    ],
-  };
-  const mdText = "```json\n" + JSON.stringify(msgs, null, 2) + "\n```";
-  const minifiedJson = JSON.stringify(msgs);
-
-  const copy = () => {
-    copyToClipboard(minifiedJson);
-  };
-  const download = () => {
-    downloadAs(JSON.stringify(msgs), `${props.topic}.json`);
-  };
-
-  return (
-    <>
-      <PreviewActions
-        copy={copy}
-        download={download}
-        showCopy={false}
-        messages={props.messages}
-      />
-      <div className="markdown-body" onClick={copy}>
-        <Markdown content={mdText} />
       </div>
     </>
   );

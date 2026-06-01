@@ -6217,7 +6217,10 @@ function _Chat() {
         </div>
       </div>
       {showExport && (
-        <ExportMessageModal onClose={() => setShowExport(false)} />
+        <ExportMessageModal
+          key={`export-${safeSession.id}`}
+          onClose={() => setShowExport(false)}
+        />
       )}
 
       {isEditingMessage && (

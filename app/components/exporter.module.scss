@@ -4,6 +4,19 @@
   }
 }
 
+.export-message-modal {
+  max-width: 640px;
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+
+  :global(.modal-content) {
+    max-height: unset !important;
+    flex-grow: 1;
+    overflow-x: auto;
+  }
+}
+
 .export-message-content {
   min-height: 40vh;
 }
@@ -133,6 +146,8 @@
     padding: 20px;
     box-shadow: var(--card-shadow) inset;
     background-color: var(--gray);
+    width: 600px;
+    flex-shrink: 0;
 
     .chat-info {
       background-color: var(--second);
@@ -141,18 +156,9 @@
       margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
-      align-items: flex-end;
+      align-items: flex-start;
       position: relative;
       overflow: hidden;
-
-      @media screen and (max-width: 600px) {
-        flex-direction: column;
-        align-items: flex-start;
-
-        .icons {
-          margin-bottom: 20px;
-        }
-      }
 
       .logo {
         position: absolute;
@@ -160,34 +166,27 @@
         left: 0px;
         height: 50%;
         transform: scale(1.5);
+        pointer-events: none;
       }
 
       .main-title {
-        font-size: 20px;
+        font-size: 28px;
         font-weight: bolder;
+        white-space: nowrap;
       }
 
-      .sub-title {
-        font-size: 12px;
-      }
-
-      .icons {
-        margin-top: 10px;
+      .chat-info-right {
         display: flex;
-        align-items: center;
-
-        .icon-space {
-          font-size: 12px;
-          margin: 0 10px;
-          font-weight: bolder;
-          color: var(--primary);
-        }
+        flex-direction: column;
+        align-items: flex-end;
+        align-self: flex-end;
+        gap: 5px;
       }
 
       .chat-info-item {
         font-size: 12px;
         color: var(--primary);
-        padding: 2px 15px;
+        padding: 4px 15px;
         border-radius: 10px;
         background-color: var(--white);
         box-shadow: var(--card-shadow);
