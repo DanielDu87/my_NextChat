@@ -86,7 +86,7 @@ function hashPassword(password: string, salt?: string) {
   return `${resolvedSalt}:${derived}`;
 }
 
-function verifyPassword(password: string, storedHash: string) {
+export function verifyPassword(password: string, storedHash: string) {
   const [salt, expectedHash] = String(storedHash || "").split(":");
   if (!salt || !expectedHash) {
     return false;
@@ -488,13 +488,11 @@ export async function getAuthContextFromCookies(values: AuthCookieValues) {
   }
 
   let effective = actor;
-  if (actor.role === "admin") {
-    const targetUserId = String(values.effectiveUserId || "").trim();
-    if (targetUserId && targetUserId !== actor.id) {
-      const targetUser = await getUserById(targetUserId);
-      if (targetUser?.isActive) {
-        effective = targetUser;
-      }
+  const targetUserId = String(values.effectiveUserId || "").trim();
+  if (targetUserId && targetUserId !== actor.id) {
+    const targetUser = await getUserById(targetUserId);
+    if (targetUser?.isActive) {
+      effective = targetUser;
     }
   }
 
@@ -502,7 +500,7 @@ export async function getAuthContextFromCookies(values: AuthCookieValues) {
     actor,
     effective,
     isImpersonating: actor.id !== effective.id,
-    readOnly: actor.id !== effective.id,
+    readOnly: false,
   } satisfies AuthContext;
 }
 
@@ -543,27 +541,40 @@ export async function listManagedUsers() {
   const result = await pgQuery<
     AuthUserRow & {
       created_at: string | null;
+      conversation_count: string;
+      last_conversation_at: string | null;
     }
   >(
     `select
-       id::text as id,
-       external_id,
-       username,
-       display_name,
-       role,
-       is_active,
-       last_login_at::text as last_login_at,
-       created_at::text as created_at
-     from app_users
-     where username is not null
-     order by
-       case when role = 'admin' then 0 else 1 end asc,
-       lower(username) asc`,
+       u.id::text as id,
+       u.external_id,
+       u.username,
+       u.display_name,
+       u.role,
+       u.is_active,
+       u.last_login_at::text as last_login_at,
+       u.created_at::text as created_at,
+       coalesce(c.conversation_count, 0)::text as conversation_count,
+       c.last_conversation_at::text as last_conversation_at
+     from app_users u
+     left join (
+       select
+         user_id,
+         count(*) as conversation_count,
+         max(updated_at) as last_conversation_at
+       from conversations
+       where is_deleted = false
+       group by user_id
+     ) c on c.user_id = u.id
+     where u.username is not null
+     order by lower(u.username) asc`,
   );
 
   return result.rows.map((row) => ({
     ...buildAuthUser(row),
     createdAt: row.created_at,
+    conversationCount: parseInt(row.conversation_count, 10) || 0,
+    lastConversationAt: row.last_conversation_at,
   }));
 }
 
@@ -752,6 +763,9 @@ export async function deleteManagedUser(params: {
     throw new AuthError("cannot_delete_admin", 400);
   }
 
+  // 显式删除用户的所有聊天记录（conversations 级联删除 messages）
+  await pgQuery(`delete from conversations where user_id = $1::uuid`, [userId]);
+
   await pgQuery(
     `delete from app_users
      where id = $1::uuid`,
@@ -759,6 +773,90 @@ export async function deleteManagedUser(params: {
   );
 
   return buildAuthUser(targetRow);
+}
+
+export async function updateManagedUser(params: {
+  userId: string;
+  username?: string;
+  displayName?: string;
+  password?: string;
+}) {
+  await ensureAuthSchemaAndSeed();
+
+  const userId = String(params.userId || "").trim();
+  if (!userId) {
+    throw new AuthError("missing_user_id", 400);
+  }
+
+  const username = String(params.username || "")
+    .trim()
+    .toLowerCase();
+  const displayName = String(params.displayName || "").trim();
+  const password = String(params.password || "");
+
+  const sets: string[] = [];
+  const values: string[] = [];
+  let idx = 0;
+
+  if (username) {
+    const existing = await pgQuery<{ id: string }>(
+      `select id::text as id
+       from app_users
+       where lower(username) = $1 and id <> $2::uuid
+       limit 1`,
+      [username, userId],
+    );
+    if (existing.rows[0]?.id) {
+      throw new AuthError("username_already_exists", 409);
+    }
+
+    idx++;
+    sets.push(`username = $${idx}`);
+    values.push(username);
+    idx++;
+    sets.push(`external_id = $${idx}`);
+    values.push(normalizeExternalId(username));
+  }
+
+  if (displayName) {
+    idx++;
+    sets.push(`display_name = $${idx}`);
+    values.push(displayName);
+  }
+
+  if (password) {
+    idx++;
+    sets.push(`password_hash = $${idx}`);
+    values.push(hashPassword(password));
+  }
+
+  if (sets.length === 0) {
+    throw new AuthError("nothing_to_update", 400);
+  }
+
+  idx++;
+  values.push(userId);
+
+  const result = await pgQuery<AuthUserRow>(
+    `update app_users
+        set ${sets.join(", ")}
+      where id = $${idx}::uuid
+      returning
+        id::text as id,
+        external_id,
+        username,
+        display_name,
+        role,
+        is_active,
+        last_login_at::text as last_login_at`,
+    values,
+  );
+
+  if (!result.rows[0]) {
+    throw new AuthError("target_user_not_found", 404);
+  }
+
+  return buildAuthUser(result.rows[0]);
 }
 
 export async function resolveSyncUserContext(source?: AuthSource) {

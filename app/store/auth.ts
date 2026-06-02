@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
+import { indexedDbStateStorage } from "@/app/utils/indexeddb-state-storage";
+import { StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const IMPERSONATION_FLAG_KEY = "nextchat_impersonation_active";
@@ -161,8 +163,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error(String(payload?.error || "切换用户失败"));
     }
 
-    setImpersonationFlag();
-
     const effectiveUser = payload.effectiveUser
       ? {
           id: String(payload.effectiveUser.id || ""),
@@ -177,10 +177,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       effectiveUser,
       isImpersonating: true,
-      readOnly: true,
+      readOnly: false,
     });
 
-    await resetClientCache(String(effectiveUser?.id || ""));
+    // 只清除 Chat store，其他共享 store 保留缓存
+    await indexedDbStateStorage.removeItem(StoreKey.Chat);
+    setCacheMarker(String(effectiveUser?.id || ""));
 
     const { useChatStore } = await import("./chat");
     await useChatStore.getState().resetForUserSwitch();

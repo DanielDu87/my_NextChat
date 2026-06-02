@@ -4,7 +4,7 @@ import {
   getEffectiveUserCookieName,
   getAuthContext,
   listManagedUsers,
-  requireAdminContext,
+  requireAuthContext,
 } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
@@ -13,9 +13,9 @@ export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
   try {
-    const context = await requireAdminContext(req);
     const payload = (await req.json()) as {
       userId?: string;
+      password?: string;
     };
     const userId = String(payload?.userId || "").trim();
 
@@ -29,10 +29,13 @@ export async function POST(req: NextRequest) {
       throw new AuthError("target_user_not_found", 404);
     }
 
+    // 任意已登录用户均可切换到其他用户
+    await requireAuthContext(req);
+
     const response = NextResponse.json({
       ok: true,
       effectiveUser: target,
-      readOnly: true,
+      readOnly: false,
       isImpersonating: true,
     });
 
@@ -40,8 +43,6 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-forwarded-proto") === "https" ||
       req.nextUrl.protocol === "https:";
 
-    // 不设置 cookie，只在内存中切换
-    // 这样刷新页面后就会恢复到管理员账户
     response.cookies.set({
       name: getEffectiveUserCookieName(),
       value: target.id,
@@ -49,9 +50,6 @@ export async function POST(req: NextRequest) {
       sameSite: "lax",
       secure: isHttps,
       path: "/",
-      // 不设置 maxAge，使其成为会话 cookie
-      // 但即使是会话 cookie，刷新时也不会消失
-      // 所以我们需要在前端处理
     });
 
     return response;
@@ -69,7 +67,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const context = await requireAdminContext(req);
+    const context = await requireAuthContext(req);
     const response = NextResponse.json({
       ok: true,
       effectiveUser: context.actor,

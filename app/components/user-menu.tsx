@@ -23,6 +23,8 @@ type ManagedUser = {
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt?: string | null;
+  conversationCount?: number;
+  lastConversationAt?: string | null;
 };
 
 function getUserInitial(name: string) {
@@ -56,22 +58,16 @@ function formatLoginTime(value?: string | null) {
 function CreateUserModal(props: {
   open: boolean;
   onClose: () => void;
-  onConfirm: (payload: {
-    username: string;
-    password: string;
-    isAdmin: boolean;
-  }) => Promise<void>;
+  onConfirm: (payload: { username: string; password: string }) => Promise<void>;
 }) {
   const { open, onClose, onConfirm } = props;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setUsername("");
       setPassword("");
-      setIsAdmin(false);
     }
   }, [open]);
 
@@ -82,7 +78,6 @@ function CreateUserModal(props: {
   const handleClose = () => {
     setUsername("");
     setPassword("");
-    setIsAdmin(false);
     onClose();
   };
 
@@ -110,7 +105,6 @@ function CreateUserModal(props: {
               void onConfirm({
                 username,
                 password,
-                isAdmin,
               })
             }
           />,
@@ -131,14 +125,6 @@ function CreateUserModal(props: {
             placeholder="密码"
             type="text"
           />
-          <label className={styles.adminCheck}>
-            <input
-              type="checkbox"
-              checked={isAdmin}
-              onChange={(e) => setIsAdmin(e.currentTarget.checked)}
-            />
-            <span className={styles.adminCheckText}>设为管理员</span>
-          </label>
         </div>
       </Modal>
     </div>,
@@ -146,65 +132,142 @@ function CreateUserModal(props: {
   );
 }
 
-function SwitchUserPasswordModal(props: {
+function EditUsernameModal(props: {
   open: boolean;
-  username: string;
+  currentUsername: string;
   onClose: () => void;
-  onConfirm: (password: string) => Promise<void>;
+  onConfirm: (newUsername: string) => Promise<void>;
 }) {
-  const { open, username, onClose, onConfirm } = props;
-  const [password, setPassword] = useState("");
+  const { open, currentUsername, onClose, onConfirm } = props;
+  const [username, setUsername] = useState(currentUsername);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setPassword("");
+    if (open) setUsername(currentUsername);
+  }, [open, currentUsername]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const handleConfirm = async () => {
+    const trimmed = username.trim();
+    if (!trimmed) {
+      showToast("用户名不能为空");
+      return;
     }
-  }, [open]);
-
-  if (!open || typeof document === "undefined") {
-    return null;
-  }
-
-  const handleClose = () => {
-    setPassword("");
-    onClose();
+    setSubmitting(true);
+    try {
+      await onConfirm(trimmed);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return createPortal(
     <div className="modal-mask">
       <Modal
-        title="切换用户"
-        className={styles.createModal}
+        title="修改用户名"
+        className={styles.editModal}
         isSmall
         hideMaxToggle
-        onClose={handleClose}
+        onClose={onClose}
         actions={[
-          <IconButton
-            key="cancel"
-            text="取消"
-            bordered
-            onClick={handleClose}
-          />,
+          <IconButton key="cancel" text="取消" bordered onClick={onClose} />,
           <IconButton
             key="confirm"
-            text="确认切换"
+            text={submitting ? "保存中..." : "确认"}
             bordered
             type="primary"
-            onClick={() => void onConfirm(password)}
+            disabled={submitting}
+            onClick={handleConfirm}
           />,
         ]}
       >
         <div className={styles.createForm}>
-          <div className={styles.switchUserInfo}>
-            切换到用户：<strong>{username}</strong>
-          </div>
+          <input
+            className={styles.createInput}
+            value={username}
+            onChange={(e) => setUsername(e.currentTarget.value)}
+            placeholder="新用户名"
+            autoFocus
+          />
+        </div>
+      </Modal>
+    </div>,
+    document.body,
+  );
+}
+
+function EditPasswordModal(props: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (newPassword: string) => Promise<void>;
+}) {
+  const { open, onClose, onConfirm } = props;
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setPassword("");
+      setConfirmPassword("");
+    }
+  }, [open]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const handleConfirm = async () => {
+    if (!password.trim()) {
+      showToast("密码不能为空");
+      return;
+    }
+    if (password !== confirmPassword) {
+      showToast("两次密码不一致");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onConfirm(password);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="modal-mask">
+      <Modal
+        title="修改密码"
+        className={styles.editModal}
+        isSmall
+        hideMaxToggle
+        onClose={onClose}
+        actions={[
+          <IconButton key="cancel" text="取消" bordered onClick={onClose} />,
+          <IconButton
+            key="confirm"
+            text={submitting ? "保存中..." : "确认"}
+            bordered
+            type="primary"
+            disabled={submitting}
+            onClick={handleConfirm}
+          />,
+        ]}
+      >
+        <div className={styles.createForm}>
           <input
             className={styles.createInput}
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
-            placeholder="请输入该用户的密码"
-            type="password"
+            placeholder="新密码"
+            type="text"
             autoFocus
+          />
+          <input
+            className={styles.createInput}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.currentTarget.value)}
+            placeholder="确认密码"
+            type="text"
           />
         </div>
       </Modal>
@@ -216,11 +279,8 @@ function SwitchUserPasswordModal(props: {
 export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const user = useAuthStore((state) => state.user);
   const effectiveUser = useAuthStore((state) => state.effectiveUser);
-  const isImpersonating = useAuthStore((state) => state.isImpersonating);
-  const readOnly = useAuthStore((state) => state.readOnly);
   const logout = useAuthStore((state) => state.logout);
   const switchUser = useAuthStore((state) => state.switchUser);
-  const exitSwitch = useAuthStore((state) => state.exitSwitch);
 
   const [open, setOpen] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -229,16 +289,15 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [targetSwitchUser, setTargetSwitchUser] = useState<ManagedUser | null>(
+  const [showEditUsernameModal, setShowEditUsernameModal] = useState(false);
+  const [showEditPasswordModal, setShowEditPasswordModal] = useState(false);
+  const [editTargetUser, setEditTargetUser] = useState<ManagedUser | null>(
     null,
   );
+  const [showAllPasswords, setShowAllPasswords] = useState(false);
   const currentEffectiveUserId = effectiveUser?.id ?? "";
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
-  const currentUserRole = user?.role;
-  const canManageUsers =
-    currentUserRole === "admin" && effectiveUser?.role === "admin";
 
   const loadUsers = async () => {
     console.log("🔄 加载用户列表...");
@@ -262,7 +321,10 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       );
       console.log(
         "用户:",
-        (payload.users || []).map((u: any) => `${u.username} (${u.role})`),
+        (payload.users || []).map(
+          (u: any) =>
+            `${u.username} (${u.role}, ${u.conversationCount ?? 0}个对话)`,
+        ),
       );
 
       setUsers(Array.isArray(payload?.users) ? payload.users : []);
@@ -275,16 +337,11 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   };
 
   const isDeletableUser = (managedUser: ManagedUser) => {
-    return (
-      !!user &&
-      user.role === "admin" &&
-      managedUser.role !== "admin" &&
-      user.id !== managedUser.id
-    );
+    return !!user && user.id !== managedUser.id;
   };
 
   const handleDeleteUsers = async (targetUsers: ManagedUser[]) => {
-    if (!user || !effectiveUser || user.role !== "admin") {
+    if (!user || !effectiveUser) {
       return;
     }
 
@@ -336,9 +393,9 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
 
         console.log(`✅ 用户 ${managedUser.username} 删除成功`);
 
-        if (effectiveUser.id === managedUser.id && isImpersonating) {
-          console.log("🔄 退出用户切换...");
-          await exitSwitch();
+        if (effectiveUser.id === managedUser.id && user) {
+          console.log("🔄 切换回当前用户...");
+          await switchUser(user.id);
         }
       }
 
@@ -389,7 +446,6 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const handleCreateUser = async (form: {
     username: string;
     password: string;
-    isAdmin: boolean;
   }) => {
     const username = form.username.trim();
     const password = form.password.trim();
@@ -406,7 +462,6 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
 
     console.log("=== 开始新增用户 ===");
     console.log("用户名:", username);
-    console.log("角色:", form.isAdmin ? "admin" : "user");
 
     try {
       console.log("📤 发送请求: POST /api/admin/users");
@@ -414,7 +469,6 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         username,
         displayName: username,
         password,
-        role: form.isAdmin ? "admin" : "user",
       };
       console.log("请求体:", { ...requestBody, password: "***" });
 
@@ -456,71 +510,52 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   };
 
   const handleSwitchUser = async (managedUser: ManagedUser) => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
-    // 点击自己的原始账号时，退出切换
-    if (isImpersonating && user.id === managedUser.id) {
-      try {
-        await exitSwitch();
-        setShowManageModal(false);
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "退出查看失败");
-      }
-      return;
-    }
-
-    // 管理员直接切换，不需要密码
-    if (user.role === "admin") {
-      try {
-        await switchUser(managedUser.id);
-        setShowManageModal(false);
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "切换用户失败");
-      }
-      return;
-    }
-
-    // 普通用户需要输入密码
-    setTargetSwitchUser(managedUser);
-    setShowPasswordModal(true);
-  };
-
-  const handleSwitchUserWithPassword = async (password: string) => {
-    if (!targetSwitchUser) {
-      return;
-    }
-
-    if (!password.trim()) {
-      showToast("请输入密码");
-      return;
-    }
-
+    setShowManageModal(false);
     try {
-      const response = await fetch("/api/admin/switch-user", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-        },
-        body: JSON.stringify({
-          userId: targetSwitchUser.id,
-          password: password.trim(),
-        }),
-      });
-
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) {
-        throw new Error(String(payload?.error || "切换用户失败"));
-      }
-
-      setShowPasswordModal(false);
-      setTargetSwitchUser(null);
-
-      // 重新加载页面以应用新的登录会话
-      window.location.reload();
+      await switchUser(managedUser.id);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "切换用户失败");
+    }
+  };
+
+  const handleEditUsername = async (userId: string, newUsername: string) => {
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ userId, username: newUsername }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) {
+        throw new Error(String(payload?.error || "修改用户名失败"));
+      }
+      showToast("用户名已修改");
+      setShowEditUsernameModal(false);
+      setEditTargetUser(null);
+      await loadUsers();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "修改用户名失败");
+    }
+  };
+
+  const handleEditPassword = async (userId: string, newPassword: string) => {
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ userId, password: newPassword }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok !== true) {
+        throw new Error(String(payload?.error || "修改密码失败"));
+      }
+      showToast("密码已修改");
+      setShowEditPasswordModal(false);
+      setEditTargetUser(null);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "修改密码失败");
     }
   };
 
@@ -560,28 +595,13 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   };
 
   useEffect(() => {
-    if (!showManageModal || !currentUserRole || !currentEffectiveUserId) {
+    if (!showManageModal || !currentEffectiveUserId) {
       return;
     }
 
-    if (currentUserRole === "admin") {
-      void loadUsers();
-      return;
-    }
-
-    setUsers([
-      {
-        id: currentEffectiveUserId,
-        username: effectiveUserUsername,
-        displayName: effectiveUserDisplayName,
-        role: currentUserRole,
-        isActive: true,
-        lastLoginAt: null,
-      },
-    ]);
+    void loadUsers();
   }, [
     showManageModal,
-    currentUserRole,
     currentEffectiveUserId,
     effectiveUserUsername,
     effectiveUserDisplayName,
@@ -625,59 +645,73 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                 hideMaxToggle
                 onClose={() => setShowManageModal(false)}
                 leftActions={[
-                  <IconButton
-                    key="logout"
-                    text="注销登录"
-                    bordered
-                    type="danger"
-                    onClick={() => {
-                      setShowManageModal(false);
-                      void logout();
-                    }}
-                  />,
-                ]}
-                actions={[
-                  isImpersonating ? (
+                  currentEffectiveUserId ? (
                     <IconButton
-                      key="exit"
-                      text="退出查看"
+                      key="edit-username"
+                      text="修改用户名"
                       bordered
-                      onClick={async () => {
-                        try {
-                          await exitSwitch();
-                        } catch (error) {
-                          showToast(
-                            error instanceof Error
-                              ? error.message
-                              : "退出查看失败",
-                          );
+                      onClick={() => {
+                        if (effectiveUser) {
+                          setEditTargetUser({
+                            id: effectiveUser.id,
+                            username: effectiveUser.username,
+                            displayName: effectiveUser.displayName,
+                            role: effectiveUser.role,
+                            isActive: true,
+                            lastLoginAt: null,
+                          });
+                          setShowEditUsernameModal(true);
                         }
                       }}
                     />
                   ) : null,
-                  canManageUsers ? (
+                  currentEffectiveUserId ? (
                     <IconButton
-                      key="delete"
-                      text={
-                        deleteMode
-                          ? selectedUserIds.length > 0
-                            ? `确认删除 (${selectedUserIds.length})`
-                            : "取消删除"
-                          : "删除用户"
-                      }
+                      key="edit-password"
+                      text="修改密码"
                       bordered
-                      type={deleteMode ? "danger" : undefined}
-                      onClick={() => toggleDeleteMode()}
+                      onClick={() => {
+                        if (effectiveUser) {
+                          setEditTargetUser({
+                            id: effectiveUser.id,
+                            username: effectiveUser.username,
+                            displayName: effectiveUser.displayName,
+                            role: effectiveUser.role,
+                            isActive: true,
+                            lastLoginAt: null,
+                          });
+                          setShowEditPasswordModal(true);
+                        }
+                      }}
                     />
                   ) : null,
-                  canManageUsers ? (
-                    <IconButton
-                      key="create"
-                      text="新增用户"
-                      bordered
-                      onClick={() => setShowCreateModal(true)}
-                    />
-                  ) : null,
+                  <IconButton
+                    key="toggle-password"
+                    text={showAllPasswords ? "隐藏密码" : "显示密码"}
+                    bordered
+                    onClick={() => setShowAllPasswords(!showAllPasswords)}
+                  />,
+                ]}
+                actions={[
+                  <IconButton
+                    key="delete"
+                    text={
+                      deleteMode
+                        ? selectedUserIds.length > 0
+                          ? `确认删除 (${selectedUserIds.length})`
+                          : "取消删除"
+                        : "删除用户"
+                    }
+                    bordered
+                    type={deleteMode ? "danger" : undefined}
+                    onClick={() => toggleDeleteMode()}
+                  />,
+                  <IconButton
+                    key="create"
+                    text="新增用户"
+                    bordered
+                    onClick={() => setShowCreateModal(true)}
+                  />,
                   <IconButton
                     key="close"
                     text="关闭"
@@ -713,17 +747,29 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                                 </div>
                               </div>
                               <div className={styles.userInfoItem}>
-                                <div className={styles.userInfoLabel}>身份</div>
+                                <div className={styles.userInfoLabel}>密码</div>
                                 <div className={styles.userInfoValue}>
-                                  {formatRole(managedUser.role)}
+                                  {showAllPasswords
+                                    ? managedUser.username
+                                    : "******"}
                                 </div>
                               </div>
                               <div className={styles.userInfoItem}>
                                 <div className={styles.userInfoLabel}>
-                                  最后登录
+                                  对话数
                                 </div>
                                 <div className={styles.userInfoValue}>
-                                  {formatLoginTime(managedUser.lastLoginAt)}
+                                  {managedUser.conversationCount ?? "-"}
+                                </div>
+                              </div>
+                              <div className={styles.userInfoItem}>
+                                <div className={styles.userInfoLabel}>
+                                  最后对话
+                                </div>
+                                <div className={styles.userInfoValue}>
+                                  {formatLoginTime(
+                                    managedUser.lastConversationAt,
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -756,6 +802,33 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
           onClose={() => setShowCreateModal(false)}
           onConfirm={handleCreateUser}
         />
+        {editTargetUser && (
+          <EditUsernameModal
+            open={showEditUsernameModal}
+            currentUsername={
+              editTargetUser.displayName || editTargetUser.username
+            }
+            onClose={() => {
+              setShowEditUsernameModal(false);
+              setEditTargetUser(null);
+            }}
+            onConfirm={(newUsername) =>
+              handleEditUsername(editTargetUser.id, newUsername)
+            }
+          />
+        )}
+        {editTargetUser && (
+          <EditPasswordModal
+            open={showEditPasswordModal}
+            onClose={() => {
+              setShowEditPasswordModal(false);
+              setEditTargetUser(null);
+            }}
+            onConfirm={(newPassword) =>
+              handleEditPassword(editTargetUser.id, newPassword)
+            }
+          />
+        )}
       </>
     );
   }
@@ -772,38 +845,17 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
               <div>
                 当前查看：{effectiveUser.displayName || effectiveUser.username}
               </div>
-              {readOnly && (
-                <div className={styles.readonly}>
-                  当前为只读查看模式，不能修改该用户数据。
-                </div>
-              )}
             </div>
 
             <List>
-              {user.role === "admin" && (
-                <ListItem
-                  title="切换查看用户"
-                  subTitle="查看任意用户的聊天与配置"
-                  onClick={() => {
-                    setOpen(false);
-                    setShowManageModal(true);
-                  }}
-                />
-              )}
-              {isImpersonating && (
-                <ListItem
-                  title="退出查看"
-                  subTitle="回到管理员自己的数据视角"
-                  onClick={() => {
-                    setOpen(false);
-                    void exitSwitch().catch((error) => {
-                      showToast(
-                        error instanceof Error ? error.message : "退出查看失败",
-                      );
-                    });
-                  }}
-                />
-              )}
+              <ListItem
+                title="切换用户"
+                subTitle="切换到其他用户"
+                onClick={() => {
+                  setOpen(false);
+                  setShowManageModal(true);
+                }}
+              />
               <ListItem
                 title="退出登录"
                 subTitle="清除当前登录会话"
@@ -826,11 +878,6 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
             <div className={clsx(styles.name, "one-line")}>
               {effectiveUser.displayName || effectiveUser.username}
             </div>
-            <div className={clsx(styles.sub, "one-line")}>
-              {isImpersonating
-                ? `管理员查看 ${effectiveUser.username}`
-                : formatRole(user.role)}
-            </div>
           </div>
         </div>
       </Popover>
@@ -842,41 +889,73 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
             className={styles.manageModal}
             onClose={() => setShowManageModal(false)}
             leftActions={[
+              currentEffectiveUserId ? (
+                <IconButton
+                  key="edit-username"
+                  text="修改用户名"
+                  bordered
+                  onClick={() => {
+                    if (effectiveUser) {
+                      setEditTargetUser({
+                        id: effectiveUser.id,
+                        username: effectiveUser.username,
+                        displayName: effectiveUser.displayName,
+                        role: effectiveUser.role,
+                        isActive: true,
+                        lastLoginAt: null,
+                      });
+                      setShowEditUsernameModal(true);
+                    }
+                  }}
+                />
+              ) : null,
+              currentEffectiveUserId ? (
+                <IconButton
+                  key="edit-password"
+                  text="修改密码"
+                  bordered
+                  onClick={() => {
+                    if (effectiveUser) {
+                      setEditTargetUser({
+                        id: effectiveUser.id,
+                        username: effectiveUser.username,
+                        displayName: effectiveUser.displayName,
+                        role: effectiveUser.role,
+                        isActive: true,
+                        lastLoginAt: null,
+                      });
+                      setShowEditPasswordModal(true);
+                    }
+                  }}
+                />
+              ) : null,
               <IconButton
-                key="logout"
-                text="注销登录"
+                key="toggle-password"
+                text={showAllPasswords ? "隐藏密码" : "显示密码"}
                 bordered
-                type="danger"
-                onClick={() => {
-                  setShowManageModal(false);
-                  void logout();
-                }}
+                onClick={() => setShowAllPasswords(!showAllPasswords)}
               />,
             ]}
             actions={[
-              canManageUsers ? (
-                <IconButton
-                  key="delete"
-                  text={
-                    deleteMode
-                      ? selectedUserIds.length > 0
-                        ? `确认删除 (${selectedUserIds.length})`
-                        : "取消删除"
-                      : "删除用户"
-                  }
-                  bordered
-                  type={deleteMode ? "danger" : undefined}
-                  onClick={() => toggleDeleteMode()}
-                />
-              ) : null,
-              canManageUsers ? (
-                <IconButton
-                  key="create"
-                  text="新增用户"
-                  bordered
-                  onClick={() => setShowCreateModal(true)}
-                />
-              ) : null,
+              <IconButton
+                key="delete"
+                text={
+                  deleteMode
+                    ? selectedUserIds.length > 0
+                      ? `确认删除 (${selectedUserIds.length})`
+                      : "取消删除"
+                    : "删除用户"
+                }
+                bordered
+                type={deleteMode ? "danger" : undefined}
+                onClick={() => toggleDeleteMode()}
+              />,
+              <IconButton
+                key="create"
+                text="新增用户"
+                bordered
+                onClick={() => setShowCreateModal(true)}
+              />,
               <IconButton
                 key="close"
                 text="关闭"
@@ -903,15 +982,23 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                             </div>
                           </div>
                           <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>身份</div>
+                            <div className={styles.userInfoLabel}>密码</div>
                             <div className={styles.userInfoValue}>
-                              {formatRole(managedUser.role)}
+                              {showAllPasswords
+                                ? managedUser.username
+                                : "******"}
                             </div>
                           </div>
                           <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>最后登录</div>
+                            <div className={styles.userInfoLabel}>对话数</div>
                             <div className={styles.userInfoValue}>
-                              {formatLoginTime(managedUser.lastLoginAt)}
+                              {managedUser.conversationCount ?? "-"}
+                            </div>
+                          </div>
+                          <div className={styles.userInfoItem}>
+                            <div className={styles.userInfoLabel}>最后对话</div>
+                            <div className={styles.userInfoValue}>
+                              {formatLoginTime(managedUser.lastConversationAt)}
                             </div>
                           </div>
                         </div>
@@ -944,17 +1031,33 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         onClose={() => setShowCreateModal(false)}
         onConfirm={handleCreateUser}
       />
-      <SwitchUserPasswordModal
-        open={showPasswordModal}
-        username={
-          targetSwitchUser?.displayName || targetSwitchUser?.username || ""
-        }
-        onClose={() => {
-          setShowPasswordModal(false);
-          setTargetSwitchUser(null);
-        }}
-        onConfirm={handleSwitchUserWithPassword}
-      />
+      {editTargetUser && (
+        <EditUsernameModal
+          open={showEditUsernameModal}
+          currentUsername={
+            editTargetUser.displayName || editTargetUser.username
+          }
+          onClose={() => {
+            setShowEditUsernameModal(false);
+            setEditTargetUser(null);
+          }}
+          onConfirm={(newUsername) =>
+            handleEditUsername(editTargetUser.id, newUsername)
+          }
+        />
+      )}
+      {editTargetUser && (
+        <EditPasswordModal
+          open={showEditPasswordModal}
+          onClose={() => {
+            setShowEditPasswordModal(false);
+            setEditTargetUser(null);
+          }}
+          onConfirm={(newPassword) =>
+            handleEditPassword(editTargetUser.id, newPassword)
+          }
+        />
+      )}
     </>
   );
 }

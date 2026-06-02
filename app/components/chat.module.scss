@@ -132,12 +132,13 @@
   align-items: stretch;
 
   .chat-window-icon-button {
-    --chat-window-button-idle-border: rgba(148, 163, 184, 0.35);
+    --chat-window-button-idle-border: rgba(200, 200, 200, 1);
 
     height: 100%;
     min-height: 38px;
     box-sizing: border-box;
     align-self: center;
+    border-color: rgba(200, 200, 200, 1);
 
     &:hover {
       box-shadow: inset 0 0 0 1px var(--primary);
@@ -148,6 +149,20 @@
     &:active:not(:hover) {
       border-color: var(--chat-window-button-idle-border) !important;
       box-shadow: none !important;
+    }
+
+    &[disabled] {
+      &,
+      &:hover,
+      &:focus,
+      &:focus-visible,
+      &:active {
+        box-shadow: none !important;
+        border-color: var(--chat-window-button-idle-border) !important;
+        background-color: inherit !important;
+        filter: none !important;
+        transform: none !important;
+      }
     }
   }
 }
@@ -1996,8 +2011,8 @@
     padding: 6px 10px;
     animation: slide-in ease 0.3s;
     cursor: pointer;
-    transition: all ease 0.3s;
-    border: transparent 1px solid;
+    transition: background-color ease 0.3s, color ease 0.3s;
+    border: transparent 2px solid;
     margin: 4px;
     border-radius: 8px;
 
@@ -2153,7 +2168,7 @@
 }
 
 .chat-input:disabled {
-  background-color: var(--chat-input-disabled-bg);
+  background: var(--chat-input-disabled-bg) !important;
   color: var(--black);
   cursor: not-allowed;
   opacity: 1;
@@ -2218,6 +2233,7 @@
 
     &:hover,
     &:focus,
+    &:focus-visible,
     &:active {
       background-color: var(--primary);
       border-color: transparent;
@@ -2293,6 +2309,41 @@
       width: 30px !important;
       height: 30px !important;
     }
+
+    border: 1px solid transparent;
+
+    &:active,
+    &:focus,
+    &:focus-visible {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    &[disabled],
+    &:disabled {
+      opacity: 1;
+      background-color: var(--chat-input-disabled-bg);
+      border: var(--border-in-light);
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.06),
+        0 14px 40px rgba(0, 0, 0, 0.04);
+
+      :global(svg) {
+        color: var(--chat-input-disabled-placeholder);
+      }
+
+      &:hover,
+      &:active,
+      &:focus,
+      &:focus-visible {
+        background-color: var(--chat-input-disabled-bg);
+        border: var(--border-in-light);
+        box-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.06),
+          0 14px 40px rgba(0, 0, 0, 0.04);
+      }
+    }
   }
 
   .chat-input-panel-inner {
@@ -2363,6 +2414,30 @@
 
       > g {
         transform: none !important;
+      }
+    }
+
+    &:active,
+    &:focus,
+    &:focus-visible {
+      outline: none;
+      box-shadow: none;
+      border-color: transparent;
+    }
+
+    &[disabled],
+    &:disabled {
+      background-color: var(--primary);
+      border-color: transparent;
+      box-shadow: none;
+
+      &:hover,
+      &:active,
+      &:focus,
+      &:focus-visible {
+        background-color: var(--primary);
+        border-color: transparent;
+        box-shadow: none;
       }
     }
   }
@@ -2539,7 +2614,6 @@
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   opacity: 1;
-  pointer-events: none;
   transition: opacity 0.25s ease;
 }
 
@@ -2693,6 +2767,14 @@
       align-items: center;
       justify-content: center;
       padding: 8px;
+      -webkit-tap-highlight-color: transparent;
+
+      &:hover,
+      &:active,
+      &:focus,
+      &:focus-visible {
+        background-color: var(--white);
+      }
 
       .icon-button-icon {
         display: flex;

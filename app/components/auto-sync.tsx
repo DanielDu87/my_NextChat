@@ -297,6 +297,16 @@ export default function AutoSync() {
     let pendingBootstrapProfileName = "";
     let chatMetaPollTimer: ReturnType<typeof setInterval> | null = null;
     let deferredFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let autoSyncCancelledByManualSync = false;
+
+    const shouldCancelForManualSync = () => {
+      if (!isManualDatabaseSyncActive()) {
+        return false;
+      }
+      autoSyncCancelledByManualSync = true;
+      hasCompletedAutoSync = true;
+      return true;
+    };
 
     const writeLock = () => {
       if (!localStorage) {
@@ -387,6 +397,9 @@ export default function AutoSync() {
       if (!authInitialized || !authUser || autoSyncInProgress) {
         return;
       }
+      if (shouldCancelForManualSync()) {
+        return;
+      }
 
       const now = Date.now();
       if (now - lastExternalChatHintAt < 300) {
@@ -420,6 +433,9 @@ export default function AutoSync() {
 
     const scheduleRetry = (attemptAutoSync: () => void) => {
       if (retryTimer || hasCompletedAutoSync || autoSyncInProgress) {
+        return;
+      }
+      if (shouldCancelForManualSync()) {
         return;
       }
 
@@ -677,6 +693,9 @@ export default function AutoSync() {
         if (hasCompletedAutoSync || autoSyncInProgress) {
           return;
         }
+        if (shouldCancelForManualSync()) {
+          return;
+        }
 
         if (Date.now() - lastAutoSyncBootstrapAt < 5000) {
           console.debug("[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过");
@@ -719,6 +738,13 @@ export default function AutoSync() {
             );
           })
           .then(async () => {
+            if (shouldCancelForManualSync()) {
+              autoSyncConsole(
+                "log",
+                "[AutoSync] ⏹️ 保存并同步已接管，自动同步终止",
+              );
+              return;
+            }
             // 不再自动同步全量模型，模型由用户手动添加后按需获取
             // void bootstrapProviderModels();
             hasCompletedAutoSync = true;
@@ -739,10 +765,10 @@ export default function AutoSync() {
             let deferredSyncExecuted = false;
             const deferredSyncTask = () => {
               if (deferredSyncExecuted) return;
-              if (isManualDatabaseSyncActive()) {
+              if (shouldCancelForManualSync()) {
                 autoSyncConsole(
                   "log",
-                  "[AutoSync] ⏭️ 手动同步进行中，跳过本次后台同步",
+                  "[AutoSync] ⏹️ 保存并同步已接管，后台同步终止",
                 );
                 return;
               }
@@ -753,6 +779,9 @@ export default function AutoSync() {
               }
 
               void (async () => {
+                if (shouldCancelForManualSync()) {
+                  return;
+                }
                 publishStartupChatSyncStatus("syncing", channel);
                 try {
                   autoSyncConsole(
@@ -763,6 +792,9 @@ export default function AutoSync() {
                     isolateQueue: true,
                     force: true,
                   });
+                  if (shouldCancelForManualSync()) {
+                    return;
+                  }
                   publishStartupChatSyncStatus("done", channel);
                 } catch (uploadError) {
                   publishStartupChatSyncStatus("error", channel);
@@ -774,6 +806,9 @@ export default function AutoSync() {
                 }
 
                 try {
+                  if (shouldCancelForManualSync()) {
+                    return;
+                  }
                   const resumed = await syncStore.resumePendingDebounceSync?.({
                     excludeKeys: [StoreKey.Config],
                   });
@@ -791,6 +826,9 @@ export default function AutoSync() {
                   );
                 }
 
+                if (shouldCancelForManualSync()) {
+                  return;
+                }
                 autoSyncConsole(
                   "info",
                   `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`,
@@ -799,6 +837,9 @@ export default function AutoSync() {
                   await (syncStore.autoSyncDeferred?.({
                     includeChat: false,
                   }) ?? Promise.resolve());
+                  if (shouldCancelForManualSync()) {
+                    return;
+                  }
                   autoSyncConsole(
                     "log",
                     "[AutoSync] ✅ 后台同步完成（含对话记录）",
@@ -816,6 +857,9 @@ export default function AutoSync() {
                 }
               })();
 
+              if (shouldCancelForManualSync()) {
+                return;
+              }
               const ensureRemoteBootstrapStartedAt = nowMs();
               void ensureRemoteBootstrapState()
                 .then(() => {
@@ -851,6 +895,14 @@ export default function AutoSync() {
           })
           .finally(() => {
             autoSyncInProgress = false;
+            if (autoSyncCancelledByManualSync) {
+              hasCompletedAutoSync = true;
+              clearRetryTimer();
+              if (deferredFallbackTimer) {
+                clearTimeout(deferredFallbackTimer);
+                deferredFallbackTimer = null;
+              }
+            }
             releaseLock();
           });
       };
@@ -868,7 +920,8 @@ export default function AutoSync() {
         if (
           event.data?.type === "auto-sync-finished" &&
           !hasCompletedAutoSync &&
-          !autoSyncInProgress
+          !autoSyncInProgress &&
+          !autoSyncCancelledByManualSync
         ) {
           attemptAutoSync();
         }
@@ -911,7 +964,8 @@ export default function AutoSync() {
         !authUser ||
         document.hidden ||
         autoSyncInProgress ||
-        !hasCompletedAutoSync
+        !hasCompletedAutoSync ||
+        autoSyncCancelledByManualSync
       ) {
         return;
       }

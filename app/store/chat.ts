@@ -2106,8 +2106,6 @@ export const useChatStore = createPersistStore(
           hydratingSessionId: "",
         }));
 
-        await clearPersistedStateStorage();
-
         try {
           const { useSyncStore } = await import("./sync");
           await useSyncStore.getState().sync([StoreKey.Chat], {

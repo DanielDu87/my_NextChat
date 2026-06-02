@@ -5,6 +5,7 @@ import {
   deleteManagedUser,
   listManagedUsers,
   requireAdminContext,
+  updateManagedUser,
 } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
@@ -65,6 +66,34 @@ export async function DELETE(req: NextRequest) {
     const user = await deleteManagedUser({
       actorUserId: context.actor.id,
       userId: String(payload?.userId || ""),
+    });
+    return NextResponse.json({ ok: true, user });
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 500;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "unknown_error",
+      },
+      { status },
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    await requireAdminContext(req);
+    const payload = (await req.json()) as {
+      userId?: string;
+      username?: string;
+      password?: string;
+      displayName?: string;
+    };
+    const user = await updateManagedUser({
+      userId: String(payload?.userId || ""),
+      username: payload?.username,
+      password: payload?.password,
+      displayName: payload?.displayName,
     });
     return NextResponse.json({ ok: true, user });
   } catch (error) {

@@ -64,6 +64,11 @@ import {
   getOrCreateAutoSyncTabId,
 } from "../utils/sync-tab-coordination";
 import {
+  isManualDatabaseSyncActive,
+  getManualDatabaseSyncGeneration,
+} from "../utils/manual-sync-guard";
+
+import {
   buildCustomModelSyncDiffBetween,
   buildCustomModelSyncDiffFromLastSnapshot,
   consumeRecentModelSyncDiff,
@@ -104,6 +109,7 @@ export type SyncStore = GetStoreState<typeof useSyncStore>;
 const LOG_SEPARATOR = "=".repeat(5);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
+let syncInFlightManual = false;
 let lastKnownChatSessionSnapshot = new Map<string, string>();
 let lastKnownCustomModelsSnapshot = "";
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
@@ -159,6 +165,21 @@ function syncConsole(
     return;
   }
   console[level](prefixedMessage, payload);
+}
+
+function logSyncSectionTitle(title: string) {
+  syncConsole("log", `===== 💾 ${title} =====`);
+}
+
+function shouldStopAutoSyncForManualSync(
+  options: { manual?: boolean } | undefined,
+  startedManualGeneration: number,
+) {
+  return (
+    !options?.manual &&
+    isManualDatabaseSyncActive() &&
+    getManualDatabaseSyncGeneration() !== startedManualGeneration
+  );
 }
 
 function emitChatSyncHint() {
@@ -365,7 +386,7 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Chat]: "会话",
   [StoreKey.Plugin]: "插件",
   [StoreKey.Access]: "API配置",
-  [StoreKey.Config]: "用户已添加模型与应用设置",
+  [StoreKey.Config]: "模型与设置",
   [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Update]: "应用更新状态",
@@ -390,7 +411,7 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
         Array.isArray(state?.apiProfiles) ? state.apiProfiles.length : 0
       } 个API配置`;
     case StoreKey.Config:
-      return `${countCustomModelEntries(state?.customModels)} 个用户添加模型`;
+      return `${countCustomModelEntries(state?.customModels)} 个模型`;
     case StoreKey.Mask:
       return `${Object.keys(state?.masks ?? {}).length} 个面具`;
     case StoreKey.Prompt:
@@ -654,11 +675,6 @@ function logOverallSyncSummary(
     return;
   }
 
-  console.log(
-    preferredResults.length > 0
-      ? "[Sync] ✅ 同步总体情况"
-      : "[Sync] ✅ 后台同步结果",
-  );
   summaryResults.forEach((item) => {
     const local = parseSyncCount(item.key, item.summary);
     const remote = parseSyncCount(item.key, item.remoteSummary ?? item.summary);
@@ -685,7 +701,7 @@ function logOverallSyncSummary(
 
       if (lastKnownCustomModelsSnapshot === "") {
         lastKnownCustomModelsSnapshot = currentCustomModels;
-        console.log(`[Sync] ✅ 已同步用户已添加模型: ${afterCount} 个`);
+        console.log(`[Sync] ✅ 已同步模型: ${afterCount} 个`);
         if (afterCount > 0) {
           Array.from(providerCounts.entries())
             .sort((a, b) => a[0].localeCompare(b[0]))
@@ -725,12 +741,10 @@ function logOverallSyncSummary(
 
       if (added.length > 0 || deleted.length > 0) {
         console.log(
-          `[Sync] ✅ 已同步用户已添加模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
+          `[Sync] ✅ 已同步模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
         );
       } else {
-        console.log(
-          `[Sync] ✅ 已同步用户已添加模型: 无变化，当前共 ${afterCount} 个`,
-        );
+        console.log(`[Sync] ✅ 已同步模型: 无变化，当前共 ${afterCount} 个`);
       }
       // 分行显示各供应商
       if (afterCount > 0) {
@@ -793,6 +807,38 @@ function logOverallSyncSummary(
       `[Sync] ✅ 已同步${item.name}: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
     );
   });
+
+  // 在模型统计后显示每个用户的对话数量
+  fetch("/api/admin/users", { method: "GET", cache: "no-store" })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (payload?.ok && Array.isArray(payload.users)) {
+        const usersWithChats = payload.users.filter(
+          (u: any) => (u.conversationCount ?? 0) > 0,
+        );
+        if (usersWithChats.length > 0) {
+          const total = usersWithChats.reduce(
+            (sum: number, u: any) => sum + (u.conversationCount ?? 0),
+            0,
+          );
+          console.log(`[Sync] ✅ 已同步对话: ${total} 个`);
+          usersWithChats
+            .sort((a: any, b: any) =>
+              (a.displayName || a.username).localeCompare(
+                b.displayName || b.username,
+              ),
+            )
+            .forEach((u: any) => {
+              console.log(
+                `[Sync]   ${u.displayName || u.username}: ${
+                  u.conversationCount
+                }个`,
+              );
+            });
+        }
+      }
+    })
+    .catch(() => {});
 }
 
 function formatSyncedSessionLabel(sessionId: string, topic?: unknown) {
@@ -2646,6 +2692,17 @@ export const useSyncStore = createPersistStore(
         return true;
       },
 
+      cancelQueuedAutoSync() {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+        debounceTaskKeys = [];
+        queuedSyncKeys = new Set<SyncStoreKey>();
+        clearPendingDebounceTask();
+        logSyncDebug("[Sync] ⏹️ 已取消排队中的自动同步任务");
+      },
+
       async resumePendingDebounceSync(options?: {
         excludeKeys?: SyncStoreKey[];
       }) {
@@ -2725,6 +2782,7 @@ export const useSyncStore = createPersistStore(
           downloadOnlyChat?: boolean;
           skipChatWriteBack?: boolean;
           silentSummary?: boolean;
+          manual?: boolean;
         },
       ): Promise<void> {
         if (useAuthStore.getState().readOnly && !options?.downloadOnlyChat) {
@@ -2744,41 +2802,69 @@ export const useSyncStore = createPersistStore(
           });
           return;
         }
-        const targetQueue = options?.isolateQueue
-          ? new Set<SyncStoreKey>(normalizedStoreKeys)
-          : queuedSyncKeys;
+        if (options?.manual) {
+          queuedSyncKeys = new Set<SyncStoreKey>();
+          if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+          }
+          debounceTaskKeys = [];
+          clearPendingDebounceTask();
+        }
+
+        const targetQueue =
+          options?.isolateQueue || options?.manual
+            ? new Set<SyncStoreKey>(normalizedStoreKeys)
+            : queuedSyncKeys;
         normalizedStoreKeys.forEach((key) => targetQueue.add(key));
 
         if (syncInFlight) {
-          if (options?.isolateQueue) {
+          if (options?.manual && !syncInFlightManual) {
+            syncConsole(
+              "log",
+              "[Sync] ⏹️ 保存并同步已接管，正在跳过已有自动同步等待",
+            );
+            syncInFlight = null;
+          } else {
+            if (options?.isolateQueue) {
+              logSyncDebug(
+                "[Sync] ⏳ 已有同步进行中，本次隔离同步等待当前任务结束",
+                {
+                  keys: normalizedStoreKeys
+                    .map((k) => STORE_DISPLAY_NAMES[k])
+                    .join(", "),
+                },
+              );
+            }
             logSyncDebug(
-              "[Sync] ⏳ 已有同步进行中，本次隔离同步等待当前任务结束",
+              "[Sync] ⏳ 已有同步进行中，已合并到队列等待当前任务完成",
               {
                 keys: normalizedStoreKeys
                   .map((k) => STORE_DISPLAY_NAMES[k])
                   .join(", "),
               },
             );
+            await syncInFlight;
+            if (options?.isolateQueue) {
+              return this.sync(normalizedStoreKeys, options);
+            }
+            return;
           }
-          logSyncDebug(
-            "[Sync] ⏳ 已有同步进行中，已合并到队列等待当前任务完成",
-            {
-              keys: normalizedStoreKeys
-                .map((k) => STORE_DISPLAY_NAMES[k])
-                .join(", "),
-            },
-          );
-          await syncInFlight;
-          if (options?.isolateQueue) {
-            return this.sync(normalizedStoreKeys, options);
-          }
-          return;
         }
 
-        syncInFlight = (async () => {
-          const isolatedQueue = options?.isolateQueue ? targetQueue : null;
+        const currentSync = (async () => {
+          syncInFlightManual = options?.manual === true;
+          const isolatedQueue =
+            options?.isolateQueue || options?.manual ? targetQueue : null;
+          const startedManualGeneration = getManualDatabaseSyncGeneration();
 
           while ((isolatedQueue ?? queuedSyncKeys).size > 0) {
+            if (
+              shouldStopAutoSyncForManualSync(options, startedManualGeneration)
+            ) {
+              syncConsole("log", "[Sync] ⏹️ 检测到保存并同步，自动同步已终止");
+              break;
+            }
             const currentStoreKeys = [...(isolatedQueue ?? queuedSyncKeys)];
             if (isolatedQueue) {
               isolatedQueue.clear();
@@ -3184,6 +3270,19 @@ export const useSyncStore = createPersistStore(
               }> = [];
 
               for (const [index, key] of currentStoreKeys.entries()) {
+                if (
+                  shouldStopAutoSyncForManualSync(
+                    options,
+                    startedManualGeneration,
+                  )
+                ) {
+                  syncConsole(
+                    "log",
+                    "[Sync] ⏹️ 检测到保存并同步，自动同步剩余部分已终止",
+                  );
+                  break;
+                }
+
                 try {
                   const displayName = STORE_DISPLAY_NAMES[key];
                   const stepLabel = `${index + 1}/${currentStoreKeys.length}`;
@@ -3201,10 +3300,22 @@ export const useSyncStore = createPersistStore(
                     );
                     continue;
                   }
-                  syncConsole(
-                    "log",
-                    `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
-                  );
+                  logSyncSectionTitle(`${displayName}同步`);
+                  if (key === StoreKey.Config) {
+                    syncConsole(
+                      "log",
+                      `[Sync] 📋 [${stepLabel}] 正在同步模型...`,
+                    );
+                    syncConsole(
+                      "log",
+                      `[Sync] 📋 [${stepLabel}] 正在同步设置...`,
+                    );
+                  } else {
+                    syncConsole(
+                      "log",
+                      `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
+                    );
+                  }
                   const localStoreState = localAppStateCache[key];
 
                   if (
@@ -3254,6 +3365,7 @@ export const useSyncStore = createPersistStore(
                       "log",
                       `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${chatResult.remoteSummary}`,
                     );
+
                     const appliedChatState = rebaseChatSyncResultOnLiveState(
                       chatResult.mergedStoreState,
                       localStoreState,
@@ -3351,16 +3463,38 @@ export const useSyncStore = createPersistStore(
                     stepLabel,
                   );
                   if (regularResult.status === "merged") {
-                    syncConsole(
-                      "log",
-                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: 远端 ${regularResult.remoteSummary}`,
-                    );
+                    if (key === StoreKey.Config) {
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] 模型同步完成: 远端 ${regularResult.remoteSummary}`,
+                      );
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] 设置同步完成`,
+                      );
+                    } else {
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: 远端 ${regularResult.remoteSummary}`,
+                      );
+                    }
                     logSyncDebug(LOG_SEPARATOR);
                   } else {
-                    syncConsole(
-                      "log",
-                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${regularResult.summary}`,
-                    );
+                    if (key === StoreKey.Config) {
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] 模型同步完成: ${regularResult.summary}`,
+                      );
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] 设置同步完成`,
+                      );
+                    } else {
+                      syncConsole(
+                        "log",
+                        `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${regularResult.summary}`,
+                      );
+                    }
                   }
                   syncResults.push({
                     key,
@@ -3390,6 +3524,19 @@ export const useSyncStore = createPersistStore(
                     e,
                   );
                 }
+              }
+
+              if (
+                shouldStopAutoSyncForManualSync(
+                  options,
+                  startedManualGeneration,
+                )
+              ) {
+                syncConsole(
+                  "log",
+                  "[Sync] ⏹️ 保存并同步已接管，自动同步收尾已跳过",
+                );
+                continue;
               }
 
               logSyncDebug("[Sync] 📊 数据同步汇总");
@@ -3430,8 +3577,21 @@ export const useSyncStore = createPersistStore(
                 typeof client.getMeta === "function" &&
                 currentStoreKeys.length > 0
               ) {
-                const latestMetas = await client.getMeta(currentStoreKeys);
-                this.updateDatabaseMeta(latestMetas);
+                try {
+                  logSyncSectionTitle("刷新同步元数据");
+                  const latestMetas = await client.getMeta(currentStoreKeys, {
+                    timeoutMs: 8000,
+                    retries: 0,
+                  });
+                  this.updateDatabaseMeta(latestMetas);
+                  syncConsole("log", "[Sync] ✅ 同步元数据刷新完成");
+                } catch (metaError) {
+                  syncConsole(
+                    "warn",
+                    "[Sync] ⚠️ 同步主体已完成，刷新元数据超时或失败，已跳过本次元数据刷新:",
+                    metaError,
+                  );
+                }
               }
 
               if (
@@ -3451,17 +3611,25 @@ export const useSyncStore = createPersistStore(
             this.markSyncTime();
           }
         })();
+        syncInFlight = currentSync;
 
         try {
-          await syncInFlight;
+          await currentSync;
         } finally {
-          syncInFlight = null;
+          if (syncInFlight === currentSync) {
+            syncInFlight = null;
+            syncInFlightManual = false;
+          }
         }
       },
 
       async autoSync() {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过自动同步");
+          return;
+        }
+        if (isManualDatabaseSyncActive()) {
+          logSyncDebug("[Sync] ⏹️ 保存并同步进行中，跳过自动同步");
           return;
         }
 
@@ -3472,6 +3640,14 @@ export const useSyncStore = createPersistStore(
       async autoSyncCritical() {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
+          set({
+            criticalSyncReady: true,
+            criticalSyncInProgress: false,
+          });
+          return;
+        }
+        if (isManualDatabaseSyncActive()) {
+          logSyncDebug("[Sync] ⏹️ 保存并同步进行中，跳过关键自动同步");
           set({
             criticalSyncReady: true,
             criticalSyncInProgress: false,
@@ -3638,6 +3814,10 @@ export const useSyncStore = createPersistStore(
       async autoSyncDeferred(options?: { includeChat?: boolean }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
+          return;
+        }
+        if (isManualDatabaseSyncActive()) {
+          logSyncDebug("[Sync] ⏹️ 保存并同步进行中，跳过延后自动同步");
           return;
         }
 

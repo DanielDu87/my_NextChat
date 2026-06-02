@@ -4951,7 +4951,7 @@ function _Chat() {
   const chatInputHint = readOnly
     ? "管理员查看模式下不可发送消息"
     : isChatUnavailableForSync
-    ? "正在同步模型配置，输入框内容已保留，请稍候..."
+    ? "正在同步模型配置，输入内容已保留，请稍候..."
     : Locale.Chat.Input(submitKey);
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
   const shouldHideChatMessages = sessionLoading || isChatUnavailableForSync;
@@ -5719,11 +5719,14 @@ function _Chat() {
                 })}
               >
                 {isMobileScreen ? (
-                  <div className={styles["chat-panel-model-info"]}>
-                    {currentModelName}
-                    <span className={styles["chat-panel-model-at"]}>@</span>
-                    {activeModelSelectorProviderDisplayName}
-                  </div>
+                  <>
+                    <div className={styles["chat-panel-model-info"]}>
+                      {currentModelName}
+                      <span className={styles["chat-panel-model-at"]}>@</span>
+                      {activeModelSelectorProviderDisplayName}
+                    </div>
+                    <UserMenu variant="chat-floating" />
+                  </>
                 ) : (
                   <>
                     {balanceProviderName ? (
@@ -5775,6 +5778,7 @@ function _Chat() {
               )}
               {isMobileScreen &&
                 !currentSessionHasMessages &&
+                !isMobileInputFocused &&
                 (() => {
                   const hints = chatInputHint
                     .replace(/，\//, "\n/")

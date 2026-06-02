@@ -120,7 +120,7 @@
 }
 
 .manageModal {
-  width: min(520px, 72vw);
+  width: min(600px, 85vw);
   min-width: 0;
 }
 
@@ -145,8 +145,20 @@
   margin-right: 12px;
 }
 
+.manageModal :global(.modal-footer button[class*="icon-button"]:not([class*="danger"]):hover) {
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.manageModal :global(.modal-footer button[class*="danger"]:hover) {
+  box-shadow: 0 0 0 1px #ff4d4f;
+}
+
 .createModal {
   width: min(620px, 82vw);
+}
+
+.editModal {
+  width: min(380px, 82vw);
 }
 
 .createModal :global(.modal-content) {
@@ -169,12 +181,12 @@
   border: var(--border-in-light);
   background: var(--white);
   color: var(--black);
-  font-size: 13px;
+  font-size: 16px;
   outline: none;
 }
 
 .createInput:focus {
-  border-color: var(--primary);
+  border: 2px solid var(--primary);
 }
 
 .adminCheck {
@@ -276,9 +288,9 @@
 .userInfoGrid {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(180px, 1.2fr);
+  grid-template-columns: minmax(0, 0.3fr) minmax(0, 0.3fr) minmax(0, 0.3fr) minmax(0, 0.8fr);
   align-items: center;
-  gap: 32px;
+  gap: 20px;
   width: 100%;
   padding-left: 40px;
   padding-right: 20px;
@@ -288,7 +300,7 @@
 .rowAction {
   position: absolute;
   top: 50%;
-  right: 8px;
+  right: 2px;
   transform: translateY(-50%);
   width: 60px;
   display: flex;
@@ -314,6 +326,7 @@
 .userInfoItem {
   min-width: 0;
   flex: 1;
+  text-align: center;
 }
 
 .userInfoLabel {
@@ -331,6 +344,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.userInfoItem:last-child {
+  text-align: left;
 }
 
 .userInfoItem:last-child .userInfoValue {
@@ -354,8 +371,8 @@
 @media screen and (max-width: 600px) {
   .manageModal {
     width: min(100vw, 420px);
-    height: 50dvh;
-    max-height: 50dvh;
+    height: 55dvh;
+    max-height: 55dvh;
   }
 
   .manageModal :global(.modal-content) {
@@ -364,45 +381,105 @@
     padding: 12px;
   }
 
+  .manageModal :global(.modal-header) {
+    padding: 10px 12px;
+  }
+
+  .manageModal :global(.modal-title) {
+    font-size: 14px;
+  }
+
   .manageModal :global(.modal-footer) {
     position: sticky;
     bottom: 0;
     z-index: 2;
     background: var(--white);
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
     margin-top: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
   }
 
-  .manageModal :global(.modal-actions) {
+  .manageModal :global(.modal-footer) > div {
     width: 100%;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: flex-end;
+    gap: 6px;
+    justify-content: flex-start !important;
   }
 
-  .manageModal :global(.modal-action) {
+  .manageModal :global(.modal-footer) > div:first-child {
+    margin-right: 0;
+  }
+
+  .manageModal :global(.modal-footer-action) {
     margin-right: 0 !important;
-    flex: 1 1 calc(50% - 4px);
+    flex: 1 1 0;
     min-width: 0;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
-  .manageModal :global(.modal-action .icon-button) {
-    width: 100%;
-    justify-content: center;
+  .manageModal :global(.modal-footer-action button[class*="icon-button"]) {
+    width: 100% !important;
+    height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    padding: 0 8px !important;
+  }
+
+  .manageModal :global(.modal-footer-action button[class*="icon-button"] [class*="icon-button-text"]) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    flex: 1 !important;
+    margin-left: 0 !important;
+  }
+
+  .manageListItem {
+    margin-bottom: 8px;
+  }
+
+  .manageListItem :global(.list-header) {
+    padding: 10px 14px;
   }
 
   .userInfoGrid {
-    grid-template-columns: minmax(0, 1fr) minmax(64px, 0.7fr) minmax(96px, 1fr);
-    gap: 12px;
-    padding-left: 0;
-    padding-right: 52px;
+    grid-template-columns: minmax(0, 0.45fr) minmax(36px, 0.45fr) minmax(36px, 0.35fr) minmax(80px, 1fr);
+    gap: 8px;
+    padding-left: 30px;
+    padding-right: 56px;
     align-items: start;
   }
 
-  .rowAction,
+  .userInfoLabel {
+    font-size: 9px;
+  }
+
+  .userInfoValue {
+    font-size: 11px;
+  }
+
   .badge {
     right: 0;
+    font-size: 10px;
+    padding: 1px 6px;
+  }
+
+  .chatFloatingTrigger {
+    padding: 4px 0 2px;
+  }
+
+  .chatFloatingLabel {
+    font-size: 11px;
+  }
+
+  .chatFloatingValue {
+    font-size: 12px;
   }
 }
 

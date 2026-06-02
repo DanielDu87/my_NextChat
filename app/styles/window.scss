@@ -83,6 +83,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
+
+    button {
+      -webkit-tap-highlight-color: transparent;
+
+      &:hover,
+      &:active,
+      &:focus,
+      &:focus-visible {
+        background-color: var(--white) !important;
+      }
+    }
   }
 
   :global(.icon-button) {

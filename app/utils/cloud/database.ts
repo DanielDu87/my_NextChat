@@ -24,6 +24,7 @@ type ConflictResponsePayload = {
 
 const DB_SYNC_REQUEST_TIMEOUT_MS = 120000;
 const DB_CHAT_REQUEST_TIMEOUT_MS = 120000;
+const DB_META_REQUEST_TIMEOUT_MS = 8000;
 
 async function fetchWithTimeout(
   path: string,
@@ -225,7 +226,10 @@ export function createDatabaseSyncClient(_: SyncStore) {
       }
     },
 
-    async getMeta(keys?: string[]) {
+    async getMeta(
+      keys?: string[],
+      options?: { timeoutMs?: number; retries?: number },
+    ) {
       const query = new URLSearchParams();
       (keys || []).forEach((key) => query.append("key", key));
       const suffix = query.toString() ? `?${query.toString()}` : "";
@@ -236,7 +240,8 @@ export function createDatabaseSyncClient(_: SyncStore) {
           cache: "no-store",
         },
         {
-          retries: 2,
+          timeoutMs: options?.timeoutMs ?? DB_META_REQUEST_TIMEOUT_MS,
+          retries: options?.retries ?? 0,
           retryOnStatuses: [500, 502, 503, 504],
         },
       );

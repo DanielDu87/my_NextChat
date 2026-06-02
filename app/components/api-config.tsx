@@ -52,10 +52,7 @@ import {
   type SyncStoreKey,
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
-import {
-  runWithImmediateStoreSyncPaused,
-  waitForImmediateStoreSyncQueueIdle,
-} from "../utils/store";
+import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
@@ -175,6 +172,7 @@ type ProviderField = {
 
 const LOG_SEPARATOR = "=".repeat(5);
 const DATABASE_META_KEYS = [StoreKey.Config, StoreKey.Access] as const;
+const DATABASE_META_REFRESH_TIMEOUT_MS = 8000;
 const BUILTIN_PROVIDER_IDS = new Set([
   "openai",
   "azure",
@@ -405,6 +403,30 @@ function normalizeDownloadedStoreState(
   }
 
   return parsedState;
+}
+
+async function refreshDatabaseMetaSafely(
+  client: any,
+  keys: readonly SyncStoreKey[],
+  updateStoredMeta: (metas: StoreSnapshotMeta[]) => void,
+) {
+  if (typeof client.getMeta !== "function") {
+    return;
+  }
+
+  try {
+    updateStoredMeta(
+      await client.getMeta([...keys], {
+        timeoutMs: DATABASE_META_REFRESH_TIMEOUT_MS,
+        retries: 0,
+      }),
+    );
+  } catch (error) {
+    console.warn(
+      "[API Config] ⚠️ 同步主体已完成，刷新数据库元数据失败，已跳过:",
+      error,
+    );
+  }
 }
 
 function mergeCachedModels(existing: string | undefined, incoming: string) {
@@ -1002,6 +1024,10 @@ export function ApiConfigPage() {
   const { fetchFromProvider } = useModelFetcher();
 
   useEffect(() => {
+    console.clear();
+  }, []);
+
+  useEffect(() => {
     const hasMissingYutoGroups = accessStore.apiProfiles.some(
       (profile) => isYutoProfile(profile) && !profile.apiKeyGroups,
     );
@@ -1166,10 +1192,11 @@ export function ApiConfigPage() {
       }
 
       // 同步完成后输出最终的模型数量
-      if (typeof client.getMeta === "function") {
-        const latestMetas = await client.getMeta([...DATABASE_META_KEYS]);
-        updateStoredMeta(latestMetas);
-      }
+      await refreshDatabaseMetaSafely(
+        client,
+        DATABASE_META_KEYS,
+        updateStoredMeta,
+      );
       logModelCount();
       return beforeSnapshot !== buildApiConfigSyncSnapshot();
     });
@@ -1706,29 +1733,34 @@ export function ApiConfigPage() {
 
   const syncToDatabase = async () => {
     console.clear();
+    console.log("===== 💾 API配置保存并同步 =====");
     console.log("[API Config] 🚀 开始保存并同步到 PostgreSQL...");
     try {
       setSyncing(true);
       await runWithManualDatabaseSyncActive(() =>
         runWithBalanceRefreshPaused(async () => {
-          await waitForImmediateStoreSyncQueueIdle();
-          await waitForSyncIdle();
-          ensureDatabaseSyncProvider();
-          await ensureRemoteAccessProfilesLoaded();
-          const activeProfile = accessStore.apiProfiles.find(
-            (profile) => profile.enabled,
-          );
-          if (activeProfile) {
-            await runWithImmediateStoreSyncPaused(async () => {
+          syncStore.cancelQueuedAutoSync?.();
+          await runWithImmediateStoreSyncPaused(async () => {
+            ensureDatabaseSyncProvider();
+            await ensureRemoteAccessProfilesLoaded();
+            const activeProfile = accessStore.apiProfiles.find(
+              (profile) => profile.enabled,
+            );
+            if (activeProfile) {
               syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-            });
-          }
+            }
+          });
 
-          await syncStore.sync([...SYNC_STORE_KEYS]);
+          await syncStore.sync([...SYNC_STORE_KEYS], {
+            force: true,
+            manual: true,
+          });
           const client = syncStore.getClient() as any;
-          if (typeof client.getMeta === "function") {
-            updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
-          }
+          await refreshDatabaseMetaSafely(
+            client,
+            SYNC_STORE_KEYS,
+            updateStoredMeta,
+          );
 
           const syncedUserModelCount = countUserAddedModels(
             useAppConfig.getState().customModels,
@@ -1742,6 +1774,7 @@ export function ApiConfigPage() {
             "[API Config] ℹ️ 本次未刷新供应商完整模型缓存，仅同步用户数据与界面偏好",
           );
           console.log(LOG_SEPARATOR);
+          console.log("===== ✅ API配置保存并同步完成 =====");
 
           showToast("已同步全部配置、用户已添加模型和对话记录到 PostgreSQL");
         }),
@@ -1764,10 +1797,9 @@ export function ApiConfigPage() {
     console.log("[API Config] ⬆️ 开始上传到数据库...");
     try {
       setBackingUp(true);
-      await waitForImmediateStoreSyncQueueIdle();
-      await waitForSyncIdle();
-      await runWithBalanceRefreshPaused(() =>
-        runWithImmediateStoreSyncPaused(async () => {
+      await runWithImmediateStoreSyncPaused(async () => {
+        await waitForSyncIdle();
+        await runWithBalanceRefreshPaused(async () => {
           ensureDatabaseSyncProvider();
           const activeProfile = accessStore.apiProfiles.find(
             (profile) => profile.enabled,
@@ -1775,40 +1807,43 @@ export function ApiConfigPage() {
           if (activeProfile) {
             syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
           }
-        }),
-      );
-      const syncedUserModelCount = countUserAddedModels(
-        useAppConfig.getState().customModels,
-      );
-      console.log("[API Config] ⏳ 本地快照已准备，等待数据库写入完成...");
-      console.log(LOG_SEPARATOR);
-      const client = syncStore.getClient() as any;
-      const localState = getLocalAppState();
 
-      console.log(
-        `[API Config] 📦 准备上传 ${SYNC_STORE_KEYS.length} 个数据块`,
-      );
+          const syncedUserModelCount = countUserAddedModels(
+            useAppConfig.getState().customModels,
+          );
+          console.log("[API Config] ⏳ 本地快照已准备，等待数据库写入完成...");
+          console.log(LOG_SEPARATOR);
+          const client = syncStore.getClient() as any;
+          const localState = getLocalAppState();
 
-      for (const key of SYNC_STORE_KEYS) {
-        const storeData = localState[key as keyof AppState];
-        console.log(`[API Config] 📤 正在写入数据库: ${key}...`);
-        await client.set(key, stringifyPersistedStoreState(key, storeData));
-      }
+          console.log(
+            `[API Config] 📦 准备上传 ${SYNC_STORE_KEYS.length} 个数据块`,
+          );
 
-      syncStore.markSyncTime();
-      if (typeof client.getMeta === "function") {
-        updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
-      }
+          for (const key of SYNC_STORE_KEYS) {
+            const storeData = localState[key as keyof AppState];
+            console.log(`[API Config] 📤 正在写入数据库: ${key}...`);
+            await client.set(key, stringifyPersistedStoreState(key, storeData));
+          }
 
-      console.log("[API Config] ✅ 上传到数据库完成");
-      console.log(
-        `[API Config] ✅ 已上传用户添加模型: ${syncedUserModelCount} 个`,
-      );
-      console.log(
-        "[API Config] ℹ️ 本次未上传供应商完整模型缓存，仅上传用户数据与界面偏好",
-      );
-      console.log(LOG_SEPARATOR);
-      showToast("已上传全部配置、用户已添加模型和对话记录到 PostgreSQL");
+          syncStore.markSyncTime();
+          await refreshDatabaseMetaSafely(
+            client,
+            SYNC_STORE_KEYS,
+            updateStoredMeta,
+          );
+
+          console.log("[API Config] ✅ 上传到数据库完成");
+          console.log(
+            `[API Config] ✅ 已上传用户添加模型: ${syncedUserModelCount} 个`,
+          );
+          console.log(
+            "[API Config] ℹ️ 本次未上传供应商完整模型缓存，仅上传用户数据与界面偏好",
+          );
+          console.log(LOG_SEPARATOR);
+          showToast("已上传全部配置、用户已添加模型和对话记录到 PostgreSQL");
+        });
+      });
     } catch (error) {
       console.error("[API Config] ❌ 数据库写入失败:", error);
       showToast("上传全部配置到 PostgreSQL 失败");
@@ -1826,86 +1861,88 @@ export function ApiConfigPage() {
     console.log("[API Config] ⬇️ 开始从数据库下载并覆盖本地...");
     try {
       setDownloading(true);
-      await waitForImmediateStoreSyncQueueIdle();
-      await waitForSyncIdle();
-      ensureDatabaseSyncProvider();
-      const client = syncStore.getClient() as any;
-      const localState = getLocalAppState();
-      const nextState = { ...localState } as AppState;
-      const fallbackKeys: string[] = [];
-      const localAccessProfiles = Array.isArray(
-        (localState[StoreKey.Access] as any)?.apiProfiles,
-      )
-        ? ((localState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
-        : [];
-
-      console.log(
-        `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
-      );
-
-      for (const key of SYNC_STORE_KEYS) {
-        console.log(`[API Config] 📥 正在下载: ${key}...`);
-        const remoteStateText = await client.get(key);
-        if (!remoteStateText || remoteStateText === "") {
-          console.warn(
-            `[API Config] ⚠️ ${key}: 数据库无数据，保留本地当前数据`,
-          );
-          fallbackKeys.push(key);
-          continue;
-        }
-
-        try {
-          const parsedState = parseStoreStatePayload(remoteStateText);
-          (nextState as Record<string, unknown>)[key] =
-            normalizeDownloadedStoreState(
-              key,
-              parsedState,
-              (localState[StoreKey.Access] || {}) as Record<string, any>,
-            );
-        } catch (error) {
-          console.warn(
-            `[API Config] ⚠️ ${key}: 云端数据不可用，保留本地当前数据`,
-            error,
-          );
-          fallbackKeys.push(key);
-          continue;
-        }
-
-        if (key === StoreKey.Access) {
-          const debugAccessState = (nextState as Record<string, any>)[
-            key
-          ] as Record<string, any>;
-          console.log(
-            "[API Config] 🔐 access-control 下载结果",
-            (debugAccessState?.apiProfiles || [])
-              .slice(0, 3)
-              .map((profile: any) => ({
-                id: profile.id,
-                name: profile.name,
-                apiKey: profile.apiKey,
-                modelFetchApiKey: profile.modelFetchApiKey,
-                balanceQueryApiKey: profile.balanceQueryApiKey,
-              })),
-          );
-        }
-        console.log(`[API Config] ✅ ${key}: 下载成功`);
-      }
-
-      const nextAccessProfiles = Array.isArray(
-        (nextState[StoreKey.Access] as any)?.apiProfiles,
-      )
-        ? ((nextState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
-        : [];
-
-      if (localAccessProfiles.length === 0 && nextAccessProfiles.length === 0) {
-        console.warn(
-          "[API Config] ⚠️ 数据库中的 access-control 为空或不可用，将保留当前本地 API 配置状态",
-        );
-        fallbackKeys.push(StoreKey.Access);
-      }
-
-      console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
       await runWithImmediateStoreSyncPaused(async () => {
+        await waitForSyncIdle();
+        ensureDatabaseSyncProvider();
+        const client = syncStore.getClient() as any;
+        const localState = getLocalAppState();
+        const nextState = { ...localState } as AppState;
+        const fallbackKeys: string[] = [];
+        const localAccessProfiles = Array.isArray(
+          (localState[StoreKey.Access] as any)?.apiProfiles,
+        )
+          ? ((localState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
+          : [];
+
+        console.log(
+          `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
+        );
+
+        for (const key of SYNC_STORE_KEYS) {
+          console.log(`[API Config] 📥 正在下载: ${key}...`);
+          const remoteStateText = await client.get(key);
+          if (!remoteStateText || remoteStateText === "") {
+            console.warn(
+              `[API Config] ⚠️ ${key}: 数据库无数据，保留本地当前数据`,
+            );
+            fallbackKeys.push(key);
+            continue;
+          }
+
+          try {
+            const parsedState = parseStoreStatePayload(remoteStateText);
+            (nextState as Record<string, unknown>)[key] =
+              normalizeDownloadedStoreState(
+                key,
+                parsedState,
+                (localState[StoreKey.Access] || {}) as Record<string, any>,
+              );
+          } catch (error) {
+            console.warn(
+              `[API Config] ⚠️ ${key}: 云端数据不可用，保留本地当前数据`,
+              error,
+            );
+            fallbackKeys.push(key);
+            continue;
+          }
+
+          if (key === StoreKey.Access) {
+            const debugAccessState = (nextState as Record<string, any>)[
+              key
+            ] as Record<string, any>;
+            console.log(
+              "[API Config] 🔐 access-control 下载结果",
+              (debugAccessState?.apiProfiles || [])
+                .slice(0, 3)
+                .map((profile: any) => ({
+                  id: profile.id,
+                  name: profile.name,
+                  apiKey: profile.apiKey,
+                  modelFetchApiKey: profile.modelFetchApiKey,
+                  balanceQueryApiKey: profile.balanceQueryApiKey,
+                })),
+            );
+          }
+          console.log(`[API Config] ✅ ${key}: 下载成功`);
+        }
+
+        const nextAccessProfiles = Array.isArray(
+          (nextState[StoreKey.Access] as any)?.apiProfiles,
+        )
+          ? ((nextState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
+          : [];
+
+        if (
+          localAccessProfiles.length === 0 &&
+          nextAccessProfiles.length === 0
+        ) {
+          console.warn(
+            "[API Config] ⚠️ 数据库中的 access-control 为空或不可用，将保留当前本地 API 配置状态",
+          );
+          fallbackKeys.push(StoreKey.Access);
+        }
+
+        console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
         setLocalAppState(nextState);
         const latestAccessState = useAccessStore.getState();
         const latestActiveProfile = latestAccessState.apiProfiles.find(
@@ -1921,26 +1958,31 @@ export function ApiConfigPage() {
         }
 
         syncStore.markSyncTime();
-        if (typeof client.getMeta === "function") {
-          updateStoredMeta(await client.getMeta([...SYNC_STORE_KEYS]));
+        await refreshDatabaseMetaSafely(
+          client,
+          SYNC_STORE_KEYS,
+          updateStoredMeta,
+        );
+
+        console.log("[API Config] ✅ 从数据库下载并覆盖本地完成");
+        console.log(LOG_SEPARATOR);
+        if (fallbackKeys.length > 0) {
+          console.warn(
+            `[API Config] ⚠️ 以下数据块缺失或格式异常，已保留本地数据: ${fallbackKeys.join(
+              ", ",
+            )}`,
+          );
+          showToast(
+            `已完成下载，以下数据块因云端为空或格式异常而保留本地数据：${fallbackKeys.join(
+              ", ",
+            )}`,
+          );
+        } else {
+          showToast(
+            "已从 PostgreSQL 下载全部配置、对话和已添加模型，并覆盖本地",
+          );
         }
       });
-      console.log("[API Config] ✅ 从数据库下载并覆盖本地完成");
-      console.log(LOG_SEPARATOR);
-      if (fallbackKeys.length > 0) {
-        console.warn(
-          `[API Config] ⚠️ 以下数据块缺失或格式异常，已保留本地数据: ${fallbackKeys.join(
-            ", ",
-          )}`,
-        );
-        showToast(
-          `已完成下载，以下数据块因云端为空或格式异常而保留本地数据：${fallbackKeys.join(
-            ", ",
-          )}`,
-        );
-      } else {
-        showToast("已从 PostgreSQL 下载全部配置、对话和已添加模型，并覆盖本地");
-      }
     } catch (error) {
       console.error("[API Config] ❌ 数据库下载失败:", error);
       showToast(
@@ -2067,7 +2109,7 @@ export function ApiConfigPage() {
                     <div className={styles.profileColBaseUrl}>Base URL</div>
                     <div className={styles.profileColApiKey}>API Key</div>
                     <div className={styles.profileColCompatible}>
-                      兼容OPENAI
+                      OPENAI兼容
                     </div>
                     <div className={styles.profileColActions}>操作</div>
                   </div>
@@ -2493,6 +2535,7 @@ export function ApiConfigPage() {
                   icon={<DeleteIcon />}
                   text="清空所有对话"
                   bordered
+                  type="danger"
                   className={styles.dangerButton}
                   onClick={async () => {
                     const confirmed = await showConfirm(
@@ -2508,6 +2551,7 @@ export function ApiConfigPage() {
                   icon={<TrashIcon />}
                   text="清空已添加模型"
                   bordered
+                  type="danger"
                   className={styles.dangerButton}
                   onClick={() => {
                     void clearLocalAndCloudModels();
