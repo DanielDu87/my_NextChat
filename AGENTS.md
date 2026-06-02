@@ -38,16 +38,18 @@ cp .env.docker.example .env.docker
 
 - 用户说"部署"时，默认部署到 SSH alias 为 `sss` 的服务器
 - 默认部署路径为 `/www/dk_project/my_NextChat`
-- 部署前先在服务器目标路径拉取最新代码：
+- 默认使用无代理生产部署脚本：
 
 ```bash
-ssh sss 'cd /www/dk_project/my_NextChat && git pull'
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh'
 ```
 
-- 拉取完成后在服务器目标路径执行生产构建和启动：
+- 脚本会自动拉取最新代码、清空代理变量、构建镜像、启动容器、等待健康状态，并执行容器内 HTTP 自检。
+- 如果脚本还没有同步到服务器，先在本地提交/推送后 `git pull`，或临时同步脚本文件再执行。
+- 只有脚本不可用时，才使用手动备用命令：
 
 ```bash
-ssh sss 'cd /www/dk_project/my_NextChat && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
+ssh sss 'cd /www/dk_project/my_NextChat && git pull --ff-only && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= NPM_REGISTRY=https://registry.npmjs.org ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
 ```
 
 - 部署后检查容器状态和日志：
@@ -71,19 +73,19 @@ ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --en
 
 - `.env.docker` 中 `HTTP_PROXY=http://host.docker.internal:7890` 会被传入 Docker build args
   `host.docker.internal` 在构建阶段可能无法解析，导致 `yarn install` 网络失败
-  构建时务必通过 `HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= ` 覆盖为空
+  构建时务必通过部署脚本或 `HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= ` 覆盖为空
 - 如果 `NPM_REGISTRY=https://registry.npmmirror.com/` 导致 `yarn install` 反复报网络错误
   临时切换为 `NPM_REGISTRY=https://registry.npmjs.org` 可绕开，但速度较慢
   （npmmirror 可能在容器构建环境下存在连接限制）
+- 最快稳定路径是命中 Docker 依赖缓存；不要在普通部署中传入会打穿 `base/deps` 层缓存的 build args。
+- 实测无代码变化且全部缓存命中约 `8.78s`；代码变化但依赖缓存命中约 `3:40.54`；冷依赖安装在无代理下不稳定。
 - `yarn install --frozen-lockfile` 阶段耗时最长（约 5~10 分钟），SSH 容易超时断开
-  部署时先启动 `tmux` 或 `nohup` 保持构建在后台运行：
+  部署时优先把部署脚本放进 `tmux` 保持后台运行：
 
 ```bash
-ssh sss 'tmux new-session -d -s nextchat-build "cd /www/dk_project/my_NextChat && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NPM_REGISTRY=https://registry.npmjs.org ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build 2>&1"'
+ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
 # 查看进度
-ssh sss 'tmux capture-pane -t nextchat-build -p -S -20'
-# 构建完成后重启容器
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
+ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
 ```
 
 ### 验证步骤

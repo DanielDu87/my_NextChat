@@ -28,6 +28,7 @@
 - Docker 构建文件：[Dockerfile](../Dockerfile)
 - 环境变量模板：[.env.docker.example](../.env.docker.example)
 - 安全包装脚本：[scripts/docker-compose-safe.sh](../scripts/docker-compose-safe.sh)
+- 生产无代理部署脚本：[scripts/deploy-production-no-proxy.sh](../scripts/deploy-production-no-proxy.sh)
 
 不要直接执行 `docker compose build`。默认使用包装脚本，避免部分环境在 `~/.docker/buildx/activity` 上报权限错误。
 
@@ -96,9 +97,32 @@ SSH_TUNNEL_LOCAL_PORT=5432
 固定 PostgreSQL 直连：
 
 ```bash
-HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
-  ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
+./scripts/deploy-production-no-proxy.sh
+```
+
+脚本会自动执行：
+
+- `git pull --ff-only`
+- 清空 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 及小写代理变量
+- 使用 `NPM_REGISTRY=https://registry.npmjs.org`
+- 使用 `ALPINE_MIRROR=https://mirrors.aliyun.com/alpine`
+- 调用 `scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build`
+- 调用 `scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d`
+- 等待容器健康
+- 在容器内请求 `http://127.0.0.1:3000/api/config` 做 HTTP 自检
+
+如果只想测试脚本但不拉取代码：
+
+```bash
+SKIP_PULL=1 ./scripts/deploy-production-no-proxy.sh
+```
+
+如需临时覆盖 registry 或 Alpine 镜像：
+
+```bash
+NPM_REGISTRY=https://registry.npmjs.org \
+ALPINE_MIRROR=https://mirrors.aliyun.com/alpine \
+./scripts/deploy-production-no-proxy.sh
 ```
 
 通过 SSH 隧道访问数据库：
@@ -111,11 +135,18 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
 ### 3.4 当前生产构建约定
 
 - 生产环境默认直接在远程服务器执行 Docker 官方构建。
-- 构建源默认使用官方仓库：
-  - `APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine`
-  - `NPM_REGISTRY=https://registry.npmjs.org/`
-- 不再把第三方 Alpine / npm 镜像源作为默认文档路径。
+- 生产部署默认不使用代理，不依赖 `.env.docker` 中的代理变量。
+- 部署脚本会显式清空代理变量，避免 `host.docker.internal` 在 Docker build 阶段无法解析。
+- 当前实测最快稳定方式是保留 Docker 构建缓存，避免触发冷依赖安装。
+- 不要为了每次部署写入 commit metadata 而传入会影响 `base/deps` 层的 build args；这会打穿依赖缓存。
+- `package.json`、`yarn.lock`、`Dockerfile` 或构建源变更时，可能触发较慢的冷构建。
 - 如果服务器性能允许，优先使用远程服务器本地构建再 `up -d`，减少本地跨架构构建和镜像传输的不确定性。
+
+近期远程实测结果：
+
+- 无代码变化、全部缓存命中：约 `8.78s`
+- 有代码变化、依赖缓存命中：约 `3:40.54`，主要耗时是 `next build`
+- 冷依赖安装：无代理下不稳定，容易停在 `yarn install` 的 `[2/4] Fetching packages...`
 
 ## 4. 验证部署
 
@@ -135,6 +166,12 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
 
 ```bash
 curl http://127.0.0.1:3000/api/config
+```
+
+容器内自检：
+
+```bash
+docker exec nextchat wget -q -O /dev/null http://127.0.0.1:3000/api/config && echo ok
 ```
 
 检查数据库健康：
@@ -172,9 +209,7 @@ docker exec nextchat wget -S -O - http://127.0.0.1:3000
 
 ```bash
 git pull
-HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
-  ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
+./scripts/deploy-production-no-proxy.sh
 ```
 
 停止服务：
@@ -258,14 +293,21 @@ docker run -d -p 3000:3000 \
 
 ### SSH 构建超时
 
-**现象**：构建进行到 `yarn install` 时 SSH 连接断开，构建中断。
+**现象**：构建进行到 `yarn install` 或 `next build` 时 SSH 连接断开。
 
-**解决**：使用 `tmux` 在后台运行构建，避免 SSH 会话超时：
+**解决**：优先使用部署脚本；如果 SSH 环境会断开，放到 `tmux` 后台运行：
 
 ```bash
-ssh sss 'tmux new-session -d -s nextchat-build "cd /www/dk_project/my_NextChat && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NPM_REGISTRY=https://registry.npmjs.org ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build 2>&1"'
+ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
 # 随时查看进度
-ssh sss 'tmux capture-pane -t nextchat-build -p -S -20'
-# 构建完成后重启容器
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
+ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
+```
+
+如果只剩旧的手动部署方式可用，才使用：
+
+```bash
+HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
+  NPM_REGISTRY=https://registry.npmjs.org \
+  ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
