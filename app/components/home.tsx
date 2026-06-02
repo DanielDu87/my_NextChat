@@ -21,6 +21,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 import { SideBar } from "./sidebar";
 import { useAppConfig } from "../store/config";
@@ -169,6 +170,7 @@ export function WindowContent(props: { children: React.ReactNode }) {
 function Screen() {
   const config = useAppConfig();
   const location = useLocation();
+  const navigate = useNavigate();
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
   const isAuth = location.pathname === Path.Auth;
@@ -178,6 +180,13 @@ function Screen() {
   const isMobileScreen = useMobileScreen();
   const shouldTightBorder =
     getClientConfig()?.isApp || (config.tightBorder && !isMobileScreen);
+
+  // 移动端默认进入聊天界面而非对话列表
+  useEffect(() => {
+    if (isMobileScreen && isHome) {
+      navigate(Path.Chat, { replace: true });
+    }
+  }, []);
 
   useEffect(() => {
     loadAsyncGoogleFont();

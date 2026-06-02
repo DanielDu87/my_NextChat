@@ -3248,9 +3248,11 @@ function _Chat() {
       <span className={styles["provider-button-name"]}>
         {activeModelSelectorProviderDisplayName}
       </span>{" "}
-      <span className={styles["provider-button-model"]}>
-        {currentModelName}
-      </span>
+      {isModelConfigSyncConfirmed && (
+        <span className={styles["provider-button-model"]}>
+          {currentModelName}
+        </span>
+      )}
     </>
   );
   const modelSelectorButtonTitle = autoModeEnabled
@@ -5720,11 +5722,13 @@ function _Chat() {
               >
                 {isMobileScreen ? (
                   <>
-                    <div className={styles["chat-panel-model-info"]}>
-                      {currentModelName}
-                      <span className={styles["chat-panel-model-at"]}>@</span>
-                      {activeModelSelectorProviderDisplayName}
-                    </div>
+                    {isModelConfigSyncConfirmed && (
+                      <div className={styles["chat-panel-model-info"]}>
+                        {currentModelName}
+                        <span className={styles["chat-panel-model-at"]}>@</span>
+                        {activeModelSelectorProviderDisplayName}
+                      </div>
+                    )}
                     <UserMenu variant="chat-floating" />
                   </>
                 ) : (

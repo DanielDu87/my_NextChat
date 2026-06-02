@@ -4,6 +4,7 @@ import { indexedDbStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
+const AUTH_STATE_KEY = "nextchat_auth_state";
 const IMPERSONATION_FLAG_KEY = "nextchat_impersonation_active";
 
 type AuthUserInfo = {
@@ -41,6 +42,40 @@ function setCacheMarker(userId: string) {
   getLocalStorage()?.setItem(AUTH_CACHE_MARKER_KEY, userId);
 }
 
+// 持久化登录状态到 localStorage
+function saveAuthState(state: {
+  user: AuthUserInfo | null;
+  effectiveUser: AuthUserInfo | null;
+  isImpersonating: boolean;
+  readOnly: boolean;
+}) {
+  try {
+    getLocalStorage()?.setItem(AUTH_STATE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+// 从 localStorage 恢复登录状态
+function loadAuthState(): {
+  user: AuthUserInfo | null;
+  effectiveUser: AuthUserInfo | null;
+  isImpersonating: boolean;
+  readOnly: boolean;
+} | null {
+  try {
+    const raw = getLocalStorage()?.getItem(AUTH_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.user?.id) return parsed;
+  } catch {}
+  return null;
+}
+
+function clearAuthState() {
+  try {
+    getLocalStorage()?.removeItem(AUTH_STATE_KEY);
+  } catch {}
+}
+
 function setImpersonationFlag() {
   try {
     sessionStorage.setItem(IMPERSONATION_FLAG_KEY, Date.now().toString());
@@ -73,12 +108,15 @@ async function resetClientCache(nextUserId = "") {
   }
 }
 
+// 启动时从 localStorage 恢复登录状态
+const cachedAuthState = loadAuthState();
+
 export const useAuthStore = create<AuthState>((set, get) => ({
-  user: null,
-  effectiveUser: null,
-  isImpersonating: false,
-  readOnly: false,
-  initialized: false,
+  user: cachedAuthState?.user || null,
+  effectiveUser: cachedAuthState?.effectiveUser || null,
+  isImpersonating: cachedAuthState?.isImpersonating || false,
+  readOnly: cachedAuthState?.readOnly || false,
+  initialized: !!cachedAuthState?.user,
   async fetchMe() {
     const shouldExitImpersonation = checkAndClearImpersonationFlag();
     if (shouldExitImpersonation) {
@@ -88,12 +126,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }).catch(() => null);
     }
 
-    const response = await fetch("/api/auth/me", {
-      method: "GET",
-      cache: "no-store",
-    });
+    // 首次请求失败时重试一次，避免 DB 暂时不可用导致误判未登录
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await fetch("/api/auth/me", {
+          method: "GET",
+          cache: "no-store",
+        });
+        // 非 5xx 错误不重试
+        if (response.status < 500) break;
+      } catch {
+        // 网络错误，重试
+      }
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+
+    if (!response) {
+      // 网络完全不可用，保持当前状态
+      set((state) => ({ ...state, initialized: true }));
+      return get().user;
+    }
 
     if (response.status === 401) {
+      clearAuthState();
       await resetClientCache();
       set({
         user: null,
@@ -102,6 +160,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         readOnly: false,
         initialized: true,
       });
+      // session 已失效，刷新页面回到登录页
+      window.location.reload();
       return null;
     }
 
@@ -136,6 +196,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       initialized: true,
     });
 
+    // 持久化登录状态
+    saveAuthState({
+      user,
+      effectiveUser,
+      isImpersonating: payload?.isImpersonating === true,
+      readOnly: payload?.readOnly === true,
+    });
+
     if (shouldExitImpersonation) {
       window.location.reload();
       return null;
@@ -147,6 +215,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await fetch("/api/auth/logout", {
       method: "POST",
     }).catch(() => null);
+    clearAuthState();
     await resetClientCache();
     window.location.reload();
   },

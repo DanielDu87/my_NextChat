@@ -56,7 +56,6 @@ export default async function App({
 
   const { getAuthContextFromCookies } = await import("./utils/server/auth");
   let authContext = null;
-  let authError = "";
 
   try {
     authContext = await getAuthContextFromCookies({
@@ -65,17 +64,16 @@ export default async function App({
     });
   } catch (error) {
     console.error("[Auth] 页面鉴权失败:", error);
-    authError =
-      error instanceof Error && /timeout|connect|postgres/i.test(error.message)
-        ? "数据库连接超时，请稍后重试"
-        : "认证服务暂不可用";
   }
+
+  // 有 sessionToken 时一律放行进入应用，由客户端 fetchMe 做最终鉴权
+  // 避免因 DB 暂时不可用、连接超时等导致用户反复看到登录页
   return (
     <>
-      {authContext ? (
+      {authContext || sessionToken ? (
         <HomeEntry />
       ) : (
-        <SitePasswordGate initialError={loginError || authError} />
+        <SitePasswordGate initialError={loginError} />
       )}
       {serverConfig?.isVercel && (
         <>
