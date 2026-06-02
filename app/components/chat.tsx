@@ -5543,7 +5543,12 @@ function _Chat() {
         <div className="window-header">
           {isMobileScreen && location.pathname !== Path.Home && (
             <div className="window-actions">
-              <div className={"window-action-button"}>
+              <div
+                className={clsx(
+                  "window-action-button",
+                  styles["chat-window-action-button"],
+                )}
+              >
                 <IconButton
                   icon={<ReturnIcon />}
                   bordered

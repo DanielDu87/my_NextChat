@@ -9,6 +9,26 @@
   overflow: auto;
 }
 
+.page :global(.window-header .window-actions button[class*="icon-button"]) {
+  border: 2px solid rgba(148, 163, 184, 0.18) !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    border-color: var(--primary) !important;
+    box-shadow: var(--card-shadow) !important;
+  }
+}
+
 .hint {
   margin: 0 0 16px;
   padding: 12px 14px;
@@ -197,6 +217,39 @@
   .actions {
     margin-top: 5px;
     margin-bottom: 10px;
+  }
+
+  .actionPrimaryRow {
+    > :global(button[class*="icon-button"]):nth-child(1),
+    > :global(button[class*="icon-button"]):nth-child(3) {
+      border: 2px solid rgba(148, 163, 184, 0.18) !important;
+      background-color: var(--white) !important;
+      box-shadow: var(--card-shadow);
+      transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+
+      &:not(:disabled):hover {
+        background-color: color-mix(
+          in srgb,
+          var(--primary) 4%,
+          var(--white)
+        ) !important;
+        border-color: var(--primary) !important;
+        box-shadow: var(--card-shadow) !important;
+      }
+    }
+
+    > :global(button[class*="icon-button"]):nth-child(4),
+    > :global(button[class*="icon-button"]):nth-child(5) {
+      &:not(:disabled):hover,
+      &:not(:disabled):focus {
+        background-color: #ff4d4f !important;
+        border-color: #ff4d4f !important;
+        color: white !important;
+      }
+    }
   }
 }
 
@@ -616,9 +669,18 @@
   padding: 6px 8px;
 }
 
+.profileRowActions .dangerButton {
+  border-width: 1px !important;
+}
+
+.profileRowActions .dangerButton:not(:disabled):hover,
+.profileRowActions .dangerButton:not(:disabled):focus,
 .profileRow :global(.icon-button.danger:hover),
 .profileRow :global(.icon-button.danger:focus) {
-  border-color: red;
+  border-width: 1px !important;
+  background-color: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+  color: white !important;
 }
 
 .profileRow .textInput {
@@ -1015,6 +1077,25 @@
   .syncCardTitleSub {
     font-size: 12px;
     line-height: 1.6;
+  }
+
+  .syncCard .actionPrimaryRow :global(button[class*="icon-button"]) {
+    gap: 6px;
+  }
+
+  .syncCard
+    .actionPrimaryRow
+    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+    display: block !important;
+    margin-left: 0 !important;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .syncCard
+    .actionPrimaryRow
+    :global(button[class*="icon-button"] [class*="icon-button-icon"]) {
+    margin: 0 !important;
   }
 
   .modelUpdateInlineNotice {

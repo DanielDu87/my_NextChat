@@ -609,6 +609,20 @@
   }
 }
 
+.sidebar-tail .sidebar-icon-button {
+  border-color: rgba(100, 116, 139, 0.24) !important;
+
+  &:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    border-color: var(--primary) !important;
+    box-shadow: var(--card-shadow) !important;
+  }
+}
+
 .loading-content {
   display: flex;
   flex-direction: column;
