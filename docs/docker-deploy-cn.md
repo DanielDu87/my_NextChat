@@ -96,7 +96,8 @@ SSH_TUNNEL_LOCAL_PORT=5432
 固定 PostgreSQL 直连：
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
+  ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
@@ -171,7 +172,8 @@ docker exec nextchat wget -S -O - http://127.0.0.1:3000
 
 ```bash
 git pull
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
+  ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
 
@@ -225,4 +227,45 @@ docker run -d -p 3000:3000 \
   -e OPENAI_API_KEY=sk-xxxx \
   -e CODE=你的访问密码 \
   yidadaa/chatgpt-next-web
+```
+
+## 8. 构建故障排查
+
+### yarn install 反复报网络错误
+
+**现象**：`yarn install` 阶段一直卡在 `[2/4] Fetching packages...`，反复输出 `info There appears to be trouble with your network connection. Retrying...`。
+
+**可能原因和解决**：
+
+1. **构建代理无法解析** — `.env.docker` 中的 `HTTP_PROXY=http://host.docker.internal:7890`
+   会被传入 Docker build args，但 `host.docker.internal` 在构建阶段通常无法解析。
+   构建时覆盖代理变量即可：
+
+   ```bash
+   HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
+     ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+   ```
+
+2. **npmmirror 连接限制** — `NPM_REGISTRY=https://registry.npmmirror.com/` 在容器构建
+   环境下可能存在连接限制。临时切换为官方 registry：
+
+   ```bash
+   NPM_REGISTRY=https://registry.npmjs.org \
+     ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+   ```
+
+   官方源速度较慢（特别是国内服务器），但连接稳定。
+
+### SSH 构建超时
+
+**现象**：构建进行到 `yarn install` 时 SSH 连接断开，构建中断。
+
+**解决**：使用 `tmux` 在后台运行构建，避免 SSH 会话超时：
+
+```bash
+ssh sss 'tmux new-session -d -s nextchat-build "cd /www/dk_project/my_NextChat && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NPM_REGISTRY=https://registry.npmjs.org ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build 2>&1"'
+# 随时查看进度
+ssh sss 'tmux capture-pane -t nextchat-build -p -S -20'
+# 构建完成后重启容器
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
 ```

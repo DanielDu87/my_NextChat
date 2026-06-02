@@ -19,10 +19,21 @@
 
 ```bash
 cp .env.docker.example .env.docker
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
+HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy logs -f nextchat-production
 ```
+
+构建注意事项：
+
+- `.env.docker` 中的 `HTTP_PROXY=http://host.docker.internal:7890` 在 Docker 构建阶段
+  可能无法解析，导致 `yarn install` 失败。构建时必须覆盖为空。
+- 如果 npmmirror 在构建阶段连接异常，可临时切换 NPM_REGISTRY 为 npmjs.org。
+- `yarn install` 阶段耗时较长（5~10 分钟），建议使用 `tmux` 或 `nohup` 避免 SSH 超时。<｜end▁of▁thinking｜>
+
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="todowrite">
+<｜｜DSML｜｜parameter name="todos" string="false">[{"priority":"high","content":"读取现有部署相关文档和配置文件","status":"completed"},{"priority":"high","content":"更新 AGENTS.md 部署规则（代理问题、tmux 构建、npm registry）","status":"completed"},{"priority":"high","content":"更新 .env.docker.example 注释（代理构建问题、registry 备选）","status":"completed"},{"priority":"medium","content":"更新 DEPLOY.md 生产部署说明","status":"in_progress"},{"priority":"medium","content":"更新 docs/docker-deploy-cn.md 构建故障排查章节","status":"pending"}]
 
 宝塔专用更新命令：
 
