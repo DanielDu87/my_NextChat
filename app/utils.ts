@@ -32,9 +32,13 @@ export function trimTopic(topic: string) {
   // and also trim quotes from both the start and end if they exist.
   return (
     topic
+      // remove think/reasoning tags
+      .replace(/<think>[\s\S]*?<\/think>/g, "")
+      .replace(/<thinking>[\s\S]*?<\/thinking>/g, "")
       // fix for gemini
       .replace(/^["“”*]+|["“”*]+$/g, "")
       .replace(/[，。！？”“"、,.!?*]*$/, "")
+      .trim()
   );
 }
 

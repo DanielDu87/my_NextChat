@@ -330,11 +330,11 @@ export const DEFAULT_INPUT_TEMPLATE = `{{input}}`; // input / time / model / lan
 // `;
 export const DEFAULT_SYSTEM_TEMPLATE = `
 You are ChatGPT, a large language model trained by {{ServiceProvider}}.
-Knowledge cutoff: {{cutoff}}
-Current model: {{model}}
-Current time: {{time}}
-Latex inline: \\(x^2\\) 
-Latex block: $$e=mc^2$$
+Guidelines:
+- You should be helpful, polite, and safe.
+- Give highly detailed and informative answers for complex questions.
+- For shorter or simpler questions, give short, clear, and direct answers.
+- Always be accurate, but embrace being conversational when appropriate.
 `;
 
 export const ALWAYS_USE_CHINESE_SYSTEM_PROMPT =
@@ -497,6 +497,13 @@ export const KnowledgeCutOffDate: Record<string, string> = {
   o1: "2023-10",
   "o3-mini-2025-01-31": "2023-10",
   "o3-mini": "2023-10",
+  "gpt-5": "2025-05",
+  "gpt-5-2025-08-07": "2025-05",
+  "gpt-5.5": "2025-12",
+  "gpt-5.4": "2025-08",
+  "gpt-5.4-2025-08-07": "2025-08",
+  "gpt-5.4-mini": "2025-08",
+  "gpt-5.4-mini-2025-08-07": "2025-08",
   // After improvements,
   // it's now easier to add "KnowledgeCutOffDate" instead of stupid hardcoding it, as was done previously.
   "gemini-pro": "2023-12",

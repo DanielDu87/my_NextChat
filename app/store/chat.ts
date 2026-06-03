@@ -33,7 +33,12 @@ import {
 import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
-import { estimateTokenLength } from "../utils/token";
+import {
+  countCompletionTokens,
+  countPromptTokens,
+  countSystemTokens,
+  estimateTokenLength,
+} from "../utils/token";
 import { logPerfSummary, nowMs } from "../utils/perf";
 import { logger } from "../utils/logger";
 import { readManualSessionModelSelection } from "../utils/manual-model-selection";
@@ -177,6 +182,7 @@ export type ChatMessageUsage = {
   reasoningTokens?: number;
   actualCost?: number;
   actualCostStatus?: "pending" | "actual";
+  systemTokens?: number;
 };
 
 export type ChatMessage = RequestMessage & {
@@ -256,43 +262,6 @@ export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: getBotHelloContent(),
 });
-
-function extractMessageUsage(
-  responseRes?: Response,
-): ChatMessageUsage | undefined {
-  const usage = (responseRes as any)?.__usage;
-  if (!usage || typeof usage !== "object") {
-    return undefined;
-  }
-
-  const promptTokens = Number(usage.prompt_tokens);
-  const completionTokens = Number(usage.completion_tokens);
-  const totalTokens = Number(usage.total_tokens);
-  const cachedTokens = Number(usage.prompt_tokens_details?.cached_tokens);
-  const reasoningTokens = Number(
-    usage.completion_tokens_details?.reasoning_tokens,
-  );
-
-  const normalizedUsage: ChatMessageUsage = {};
-
-  if (Number.isFinite(promptTokens)) {
-    normalizedUsage.promptTokens = promptTokens;
-  }
-  if (Number.isFinite(completionTokens)) {
-    normalizedUsage.completionTokens = completionTokens;
-  }
-  if (Number.isFinite(totalTokens)) {
-    normalizedUsage.totalTokens = totalTokens;
-  }
-  if (Number.isFinite(cachedTokens)) {
-    normalizedUsage.cachedTokens = cachedTokens;
-  }
-  if (Number.isFinite(reasoningTokens)) {
-    normalizedUsage.reasoningTokens = reasoningTokens;
-  }
-
-  return Object.keys(normalizedUsage).length > 0 ? normalizedUsage : undefined;
-}
 
 function getEnabledCustomBalanceProfile() {
   const accessState = useAccessStore.getState();
@@ -2886,6 +2855,7 @@ export const useChatStore = createPersistStore(
           const savedUserMessage = {
             ...userMessage,
             content: mContent,
+            date: new Date().toISOString(),
           };
           session.mask.modelConfig = {
             ...session.mask.modelConfig,
@@ -2957,7 +2927,54 @@ export const useChatStore = createPersistStore(
                 botMessage.date = new Date().toISOString();
                 botMessage.reasoning_details = (responseRes as any)
                   ?.__reasoning_details;
-                botMessage.usage = extractMessageUsage(responseRes);
+                const apiUsage = (responseRes as any)?.__usage;
+                if (apiUsage && Number.isFinite(apiUsage.total_tokens)) {
+                  botMessage.usage = {
+                    promptTokens: Number(apiUsage.prompt_tokens),
+                    completionTokens: Number(apiUsage.completion_tokens),
+                    totalTokens: Number(apiUsage.total_tokens),
+                    systemTokens: countSystemTokens(
+                      sendMessages,
+                      initialModelConfig.model,
+                    ),
+                  };
+                  if (
+                    Number.isFinite(
+                      apiUsage.prompt_tokens_details?.cached_tokens,
+                    )
+                  ) {
+                    botMessage.usage.cachedTokens = Number(
+                      apiUsage.prompt_tokens_details.cached_tokens,
+                    );
+                  }
+                  if (
+                    Number.isFinite(
+                      apiUsage.completion_tokens_details?.reasoning_tokens,
+                    )
+                  ) {
+                    botMessage.usage.reasoningTokens = Number(
+                      apiUsage.completion_tokens_details.reasoning_tokens,
+                    );
+                  }
+                } else {
+                  const promptTokens = countPromptTokens(
+                    sendMessages,
+                    initialModelConfig.model,
+                  );
+                  const completionTokens = countCompletionTokens(
+                    finalMessage,
+                    initialModelConfig.model,
+                  );
+                  botMessage.usage = {
+                    promptTokens,
+                    completionTokens,
+                    totalTokens: promptTokens + completionTokens,
+                    systemTokens: countSystemTokens(
+                      sendMessages,
+                      initialModelConfig.model,
+                    ),
+                  };
+                }
                 if (!hasFailure && balanceCostTracker) {
                   balanceCostTracker.markPending(botMessage);
                 }
@@ -3238,7 +3255,23 @@ export const useChatStore = createPersistStore(
                   botMessage.date = new Date().toISOString();
                   botMessage.reasoning_details = (responseRes as any)
                     ?.__reasoning_details;
-                  botMessage.usage = extractMessageUsage(responseRes);
+                  const promptTokens = countPromptTokens(
+                    sendMessages,
+                    candidate.model,
+                  );
+                  const completionTokens = countCompletionTokens(
+                    finalMessage,
+                    candidate.model,
+                  );
+                  botMessage.usage = {
+                    promptTokens,
+                    completionTokens,
+                    totalTokens: promptTokens + completionTokens,
+                    systemTokens: countSystemTokens(
+                      sendMessages,
+                      candidate.model,
+                    ),
+                  };
                   if (balanceCostTracker) {
                     balanceCostTracker.markPending(botMessage);
                   }

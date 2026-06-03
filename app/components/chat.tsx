@@ -290,6 +290,7 @@ function formatMessageUsage(
     totalTokens: number;
     cachedTokens: number;
     reasoningTokens: number;
+    systemTokens: number;
   }>,
 ) {
   if (!usage) {
@@ -298,6 +299,9 @@ function formatMessageUsage(
 
   const parts: string[] = [];
 
+  if (Number.isFinite(usage.systemTokens) && usage.systemTokens > 0) {
+    parts.push(`系统 ${usage.systemTokens}`);
+  }
   if (Number.isFinite(usage.promptTokens)) {
     parts.push(`输入 ${usage.promptTokens}`);
   }
@@ -2503,6 +2507,7 @@ function _Chat() {
   }, []);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
   const inputPanelRectRef = useRef<DOMRect | null>(null);
@@ -2512,6 +2517,8 @@ function _Chat() {
   const mobileViewportRafRef = useRef<number | null>(null);
   const syncReadyFocusSessionRef = useRef("");
   const [userInput, setUserInput] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
   const [isInputHintOverflow, setIsInputHintOverflow] = useState(false);
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
   const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
@@ -2567,6 +2574,16 @@ function _Chat() {
 
     setIsModelConfigSyncConfirmed(criticalSyncReady && !criticalSyncInProgress);
   }, [criticalSyncInProgress, criticalSyncReady, syncProvider]);
+
+  useEffect(() => {
+    if (editingMessageId && editInputRef.current) {
+      const textarea = editInputRef.current;
+      textarea.focus();
+      const len = textarea.value.length;
+      textarea.setSelectionRange(len, len);
+      autoGrowTextArea(textarea);
+    }
+  }, [editingMessageId]);
 
   const currentSessionSummaryMessageCount = useChatStore((state) => {
     const summary = state.sessionSummaries.find(
@@ -4140,19 +4157,7 @@ function _Chat() {
     }
   };
 
-  const deleteMessage = (msgId?: string) => {
-    chatStore.updateTargetSession(
-      session,
-      (session) =>
-        (session.messages = session.messages.filter((m) => m.id !== msgId)),
-    );
-  };
-
-  const onDelete = (msgId: string) => {
-    deleteMessage(msgId);
-  };
-
-  const onResend = (message: ChatMessage) => {
+  const onResend = (message: ChatMessage, editedContent?: string) => {
     if (isSyncBlocking) {
       showToast("模型配置同步中，完成后再重试");
       return;
@@ -4213,17 +4218,39 @@ function _Chat() {
     inputRef.current?.blur();
 
     // 保留原用户消息，只移除旧的 AI 回复，避免重试时用户输入闪烁。
-    deleteMessage(botMessage?.id);
+    if (botMessage?.id) {
+      chatStore.updateTargetSession(
+        session,
+        (session) =>
+          (session.messages = session.messages.filter(
+            (m) => m.id !== botMessage!.id,
+          )),
+      );
+    }
 
     // resend the message
     setIsLoading(true);
-    const textContent = getMessageTextContent(userMessage);
+    const textContent = editedContent ?? getMessageTextContent(userMessage);
     const images = getMessageImages(userMessage);
     chatStore
       .onUserInput(textContent, images, undefined, {
         reuseUserMessageId: userMessage.id,
       })
       .then(() => setIsLoading(false));
+  };
+
+  const onEditSave = (message: ChatMessage) => {
+    const content = editContent.trim();
+    if (!content) return;
+    setEditingMessageId(null);
+    setEditContent("");
+    setPromptHints([]);
+    onResend(message, content);
+  };
+
+  const onEditCancel = () => {
+    setEditingMessageId(null);
+    setEditContent("");
   };
 
   const [speechStatus, setSpeechStatus] = useState(false);
@@ -5882,6 +5909,20 @@ function _Chat() {
                                           onUserStop(message.id ?? i)
                                         }
                                       />
+                                    ) : editingMessageId === message.id &&
+                                      isUser ? (
+                                      <>
+                                        <ChatAction
+                                          text={Locale.UI.Confirm}
+                                          icon={<ConfirmIcon />}
+                                          onClick={() => onEditSave(message)}
+                                        />
+                                        <ChatAction
+                                          text={Locale.UI.Cancel}
+                                          icon={<CancelIcon />}
+                                          onClick={onEditCancel}
+                                        />
+                                      </>
                                     ) : (
                                       <>
                                         {isUser && (
@@ -5889,16 +5930,13 @@ function _Chat() {
                                             text={Locale.Chat.Actions.Edit}
                                             icon={<RenameIcon />}
                                             onClick={() => {
-                                              setIsEditingMessage(false);
-                                              setPromptHints([]);
-                                              setUserInput(messageTextContent);
-                                              setAttachImages(
-                                                messageImages.slice(0, 3),
+                                              setEditingMessageId(
+                                                message.id ?? null,
                                               );
-                                              inputRef.current?.focus();
-                                              if (isMobileScreen) {
-                                                setIsMobileInputFocused(true);
-                                              }
+                                              setEditContent(
+                                                messageTextContent.trim(),
+                                              );
+                                              setPromptHints([]);
                                             }}
                                           />
                                         )}
@@ -5907,14 +5945,6 @@ function _Chat() {
                                           text={Locale.Chat.Actions.Retry}
                                           icon={<ResetIcon />}
                                           onClick={() => onResend(message)}
-                                        />
-
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Delete}
-                                          icon={<DeleteIcon />}
-                                          onClick={() =>
-                                            onDelete(message.id ?? i)
-                                          }
                                         />
 
                                         <ChatAction
@@ -5977,25 +6007,54 @@ function _Chat() {
                                 ))}
                               </div>
                             )}
-                            <div className={styles["chat-message-item"]}>
-                              <Markdown
-                                key={message.streaming ? "loading" : "done"}
-                                content={messageTextContent}
-                                loading={
-                                  (message.preview || message.streaming) &&
-                                  messageTextContent.length === 0 &&
-                                  !isUser
-                                }
-                                //   onContextMenu={(e) => onRightClick(e, message)} // hard to use
-                                onDoubleClickCapture={() => {
-                                  if (!isMobileScreen || !isUser) return;
-                                  setUserInput(getMessageTextContent(message));
-                                }}
-                                fontSize={fontSize}
-                                fontFamily={fontFamily}
-                                parentRef={scrollRef}
-                                defaultShow={i >= messages.length - 6}
-                              />
+                            <div
+                              className={styles["chat-message-item"]}
+                              style={
+                                editingMessageId === message.id
+                                  ? { width: "50%" }
+                                  : undefined
+                              }
+                            >
+                              {editingMessageId === message.id ? (
+                                <textarea
+                                  ref={editInputRef}
+                                  className={styles["chat-message-edit-input"]}
+                                  value={editContent}
+                                  onChange={(e) => {
+                                    setEditContent(e.target.value);
+                                    autoGrowTextArea(e.target);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                      e.preventDefault();
+                                      onEditSave(message);
+                                    }
+                                    if (e.key === "Escape") {
+                                      onEditCancel();
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <Markdown
+                                  key={message.streaming ? "loading" : "done"}
+                                  content={messageTextContent}
+                                  loading={
+                                    (message.preview || message.streaming) &&
+                                    messageTextContent.length === 0 &&
+                                    !isUser
+                                  }
+                                  onDoubleClickCapture={() => {
+                                    if (!isMobileScreen || !isUser) return;
+                                    setUserInput(
+                                      getMessageTextContent(message),
+                                    );
+                                  }}
+                                  fontSize={fontSize}
+                                  fontFamily={fontFamily}
+                                  parentRef={scrollRef}
+                                  defaultShow={i >= messages.length - 6}
+                                />
+                              )}
                               {messageImages.length == 1 &&
                                 renderGeneratedMedia(
                                   messageImages[0],

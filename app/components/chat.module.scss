@@ -1786,13 +1786,27 @@
 
 .chat-message-usage {
   font-size: 12px;
-  opacity: 0.2;
   color: var(--black);
   text-align: left;
   width: 100%;
   box-sizing: border-box;
   margin-top: 2px;
   word-break: break-word;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  animation: usageSlideIn 0.3s ease-out 1s forwards;
+}
+
+@keyframes usageSlideIn {
+  from {
+    max-width: 0;
+    opacity: 0;
+  }
+  to {
+    max-width: 100%;
+    opacity: 0.2;
+  }
 }
 
 .chat-message-user > .chat-message-container > .chat-message-item {
@@ -1804,10 +1818,27 @@
   &:hover {
     min-width: 0;
   }
+
+  &:focus-within {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px var(--primary);
+  }
 }
 
-:global(body.dark) .chat-message-user > .chat-message-container > .chat-message-item {
-  background-color: rgb(30 75 105);
+.chat-message-edit-input {
+  width: 100%;
+  padding: 0 10px;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--black);
+  background: transparent;
+  box-sizing: border-box;
+  overflow-y: hidden;
+  min-height: 56px;
 }
 
 .scroll-to-bottom {
