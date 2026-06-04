@@ -2571,6 +2571,21 @@
     scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
   }
 
+  .chat:not(.chat-mobile-keyboard-open)[data-mobile-input-preserved="true"]
+    .chat-input {
+    height: var(--chat-mobile-input-preserved-height, auto);
+    min-height: 44px;
+    max-height: var(--chat-mobile-input-preserved-height, 240px);
+    overflow-y: auto;
+    padding-right: 50px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    white-space: pre-wrap;
+    text-overflow: clip;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
   .chat-input:disabled,
   .chat-input[aria-disabled="true"] {
     background: var(--chat-input-local-disabled-bg) !important;

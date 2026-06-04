@@ -2514,6 +2514,10 @@ function _Chat() {
   const mobileInputRef = useRef<HTMLDivElement>(null);
   const mobileInputEndRef = useRef<HTMLSpanElement | null>(null);
   const mobileInputTouchYRef = useRef<number | null>(null);
+  const mobileInputOutsidePointerBlurRef = useRef(false);
+  const mobileInputPreservedHeightRef = useRef("44px");
+  const mobileInputMeasuredHeightRef = useRef(44);
+  const preserveMobileInputBlurHeightRef = useRef(false);
   const collapseTimersRef = useRef<number[]>([]);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
@@ -2540,6 +2544,8 @@ function _Chat() {
   const [editContent, setEditContent] = useState("");
   const [isInputHintOverflow, setIsInputHintOverflow] = useState(false);
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
+  const [preserveMobileInputBlurHeight, setPreserveMobileInputBlurHeight] =
+    useState(false);
   const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
     useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -4553,8 +4559,13 @@ function _Chat() {
     const mobileInput = mobileInputRef.current;
     if (mobileInput) {
       const range = document.createRange();
-      range.selectNodeContents(mobileInput);
-      range.collapse(false);
+      const endMarker = mobileInputEndRef.current;
+      if (endMarker?.isConnected) {
+        range.setStartAfter(endMarker);
+      } else {
+        range.selectNodeContents(mobileInput);
+      }
+      range.collapse(true);
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
@@ -4580,11 +4591,11 @@ function _Chat() {
     mobileInputEndRef.current?.scrollIntoView({
       block: "end",
       inline: "nearest",
-      behavior: "smooth",
+      behavior: "auto",
     });
     mobileInput.scrollTo({
       top: mobileInput.scrollHeight,
-      behavior: "smooth",
+      behavior: "auto",
     });
   }, [mobileInputHasText]);
 
@@ -4599,36 +4610,163 @@ function _Chat() {
     requestAnimationFrame(scrollMobileInputToBottom);
     setTimeout(scrollMobileInputToBottom, 60);
     setTimeout(scrollMobileInputToBottom, 180);
+    setTimeout(scrollMobileInputToBottom, 360);
+    setTimeout(scrollMobileInputToBottom, 520);
   }, [mobileInputHasText, scrollMobileInputToBottom]);
 
-  const collapseMobileInput = useCallback(() => {
+  const resetMobileInputViewportToStart = useCallback(() => {
     const mobileInput = mobileInputRef.current;
     if (!mobileInput) return;
-
-    // 键盘打开时让 CSS 控制高度（height: auto），避免覆盖 .chat-mobile-keyboard-open 的规则
-    const chatEl = mobileInput.closest(".chat-mobile-keyboard-open");
-    mobileInput.style.height = chatEl ? "auto" : "44px";
     mobileInput.scrollTop = 0;
+    mobileInput.scrollLeft = 0;
   }, []);
 
-  const scheduleCollapseMobileInput = useCallback(() => {
-    // 清除之前的定时器，避免残留
-    collapseTimersRef.current.forEach(clearTimeout);
-    collapseTimersRef.current = [];
+  const scheduleResetMobileInputViewportToStart = useCallback(() => {
+    requestAnimationFrame(resetMobileInputViewportToStart);
+    setTimeout(resetMobileInputViewportToStart, 60);
+    setTimeout(resetMobileInputViewportToStart, 180);
+  }, [resetMobileInputViewportToStart]);
 
-    // 键盘收起动画完成后折叠输入框（iOS 键盘动画约 300-350ms）
-    collapseTimersRef.current.push(
-      window.setTimeout(() => {
-        collapseMobileInput();
-        collapseTimersRef.current = [];
-      }, 360),
+  const updateMobileInputMeasuredHeight = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return 44;
+    const measuredHeight = Math.max(
+      44,
+      Math.ceil(
+        Math.max(
+          mobileInput.getBoundingClientRect().height,
+          mobileInput.clientHeight,
+        ),
+      ),
     );
-  }, [collapseMobileInput]);
+    mobileInputMeasuredHeightRef.current = measuredHeight;
+    return measuredHeight;
+  }, []);
+
+  const resetMobileInputBlurLayout = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    mobileInputPreservedHeightRef.current = "44px";
+    mobileInputMeasuredHeightRef.current = 44;
+    preserveMobileInputBlurHeightRef.current = false;
+    setPreserveMobileInputBlurHeight(false);
+    if (!mobileInput) return;
+    mobileInput.style.removeProperty("--chat-mobile-input-preserved-height");
+    mobileInput.style.height = "44px";
+    mobileInput.style.maxHeight = "44px";
+    scheduleResetMobileInputViewportToStart();
+  }, [scheduleResetMobileInputViewportToStart]);
+
+  const prepareMobileInputBlurLayout = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return false;
+
+    const measuredHeight = Math.max(
+      updateMobileInputMeasuredHeight(),
+      mobileInputMeasuredHeightRef.current,
+    );
+    const contentHeight = Math.max(
+      measuredHeight,
+      Math.ceil(mobileInput.scrollHeight),
+    );
+    const shouldPreserveExpandedHeight =
+      mobileInputHasText && contentHeight > 52;
+    if (!shouldPreserveExpandedHeight) {
+      resetMobileInputBlurLayout();
+      return false;
+    }
+
+    const preservedHeight = `${Math.max(
+      44,
+      Math.ceil(Math.min(contentHeight, 240)),
+    )}px`;
+    mobileInputPreservedHeightRef.current = preservedHeight;
+    preserveMobileInputBlurHeightRef.current = true;
+    setPreserveMobileInputBlurHeight(true);
+    mobileInput.style.setProperty(
+      "--chat-mobile-input-preserved-height",
+      preservedHeight,
+    );
+    mobileInput.style.height = preservedHeight;
+    mobileInput.style.maxHeight = preservedHeight;
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    scheduleResetMobileInputViewportToStart();
+    return true;
+  }, [
+    mobileInputHasText,
+    resetMobileInputBlurLayout,
+    scheduleResetMobileInputViewportToStart,
+    updateMobileInputMeasuredHeight,
+  ]);
+
+  const cancelMobileKeyboardViewportSync = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (mobileViewportRafRef.current !== null) {
+      window.cancelAnimationFrame(mobileViewportRafRef.current);
+      mobileViewportRafRef.current = null;
+    }
+  }, []);
+
+  const collapseMobileInput = useCallback(
+    (preserveExpandedHeight = false) => {
+      const mobileInput = mobileInputRef.current;
+      if (!mobileInput) return;
+      // 键盘打开时让 CSS 控制高度（height: auto），避免覆盖 .chat-mobile-keyboard-open 的规则
+      const chatEl = mobileInput.closest(".chat-mobile-keyboard-open");
+      if (chatEl) {
+        mobileInput.style.height = "auto";
+        mobileInput.style.maxHeight = "";
+        mobileInput.scrollLeft = 0;
+        return;
+      }
+
+      if (!preserveExpandedHeight) {
+        resetMobileInputBlurLayout();
+        return;
+      }
+
+      const preservedHeight = mobileInputPreservedHeightRef.current;
+      mobileInput.style.setProperty(
+        "--chat-mobile-input-preserved-height",
+        preservedHeight,
+      );
+      mobileInput.style.height = preservedHeight;
+      mobileInput.style.maxHeight = preservedHeight;
+      scheduleResetMobileInputViewportToStart();
+    },
+    [resetMobileInputBlurLayout, scheduleResetMobileInputViewportToStart],
+  );
+
+  const scheduleCollapseMobileInput = useCallback(
+    (preserveExpandedHeight = false) => {
+      // 清除之前的定时器，避免残留
+      collapseTimersRef.current.forEach(clearTimeout);
+      collapseTimersRef.current = [];
+
+      const collapseDelays = preserveExpandedHeight
+        ? [120, 260, 420, 620]
+        : [360];
+
+      collapseTimersRef.current.push(
+        ...collapseDelays.map((delay, index) =>
+          window.setTimeout(() => {
+            collapseMobileInput(preserveExpandedHeight);
+            if (index === collapseDelays.length - 1) {
+              collapseTimersRef.current = [];
+            }
+          }, delay),
+        ),
+      );
+    },
+    [collapseMobileInput],
+  );
 
   const scheduleMoveInputCursorToEnd = useCallback(() => {
     requestAnimationFrame(moveInputCursorToEnd);
     setTimeout(moveInputCursorToEnd, 60);
     setTimeout(moveInputCursorToEnd, 180);
+    setTimeout(moveInputCursorToEnd, 360);
+    setTimeout(moveInputCursorToEnd, 520);
   }, [moveInputCursorToEnd]);
 
   useEffect(() => {
@@ -4643,23 +4781,38 @@ function _Chat() {
     endMarker.setAttribute("data-chat-input-end", "true");
     mobileInput.appendChild(endMarker);
     mobileInputEndRef.current = endMarker;
-    if (mobileInputHasText) {
-      scheduleScrollMobileInputToBottom();
-    } else {
-      mobileInput.scrollTop = 0;
-    }
     if (document.activeElement === mobileInput) {
-      moveInputCursorToEnd();
+      updateMobileInputMeasuredHeight();
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       }
+    } else {
+      scheduleResetMobileInputViewportToStart();
+    }
+    if (document.activeElement === mobileInput) {
+      moveInputCursorToEnd();
+      scheduleScrollMobileInputToBottom();
     }
   }, [
     mobileInputHasText,
     isMobileScreen,
     moveInputCursorToEnd,
+    updateMobileInputMeasuredHeight,
+    scheduleResetMobileInputViewportToStart,
     scheduleScrollMobileInputToBottom,
     userInput,
+  ]);
+
+  useEffect(() => {
+    if (isMobileScreen && !isMobileInputFocused && !mobileInputHasText) {
+      resetMobileInputBlurLayout();
+    }
+  }, [
+    isMobileInputFocused,
+    isMobileScreen,
+    mobileInputHasText,
+    resetMobileInputViewportToStart,
+    resetMobileInputBlurLayout,
   ]);
 
   useEffect(() => {
@@ -4851,8 +5004,23 @@ function _Chat() {
       }
     }
 
+    if (isMobileInputFocused) {
+      scheduleMoveInputCursorToEnd();
+      if (mobileInputHasText) {
+        scheduleScrollMobileInputToBottom();
+      }
+    }
+
     scrollToBottom();
-  }, [isMobileScreen, isMobileInputFocused, isIOSMobile, scrollToBottom]);
+  }, [
+    isMobileScreen,
+    isMobileInputFocused,
+    isIOSMobile,
+    mobileInputHasText,
+    scheduleMoveInputCursorToEnd,
+    scheduleScrollMobileInputToBottom,
+    scrollToBottom,
+  ]);
 
   const scheduleMobileKeyboardViewportSync = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
@@ -4866,6 +5034,23 @@ function _Chat() {
       syncMobileKeyboardViewport();
     });
   }, [isMobileScreen, syncMobileKeyboardViewport]);
+
+  useEffect(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!isMobileScreen || !isMobileInputFocused || !mobileInput) return;
+
+    const onPointerDownCapture = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || mobileInput.contains(target)) return;
+      mobileInputOutsidePointerBlurRef.current = true;
+    };
+
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    return () => {
+      mobileInputOutsidePointerBlurRef.current = false;
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+    };
+  }, [isMobileInputFocused, isMobileScreen]);
 
   useEffect(() => {
     if (
@@ -4888,7 +5073,8 @@ function _Chat() {
         "--chat-keyboard-panel-lift",
       );
       document.documentElement.style.removeProperty("--chat-input-fill-height");
-      collapseMobileInput();
+      cancelMobileKeyboardViewportSync();
+      collapseMobileInput(preserveMobileInputBlurHeightRef.current);
       return;
     }
 
@@ -4951,10 +5137,7 @@ function _Chat() {
       viewport?.removeEventListener("resize", sync);
       viewport?.removeEventListener("scroll", sync);
       window.removeEventListener("resize", sync);
-      if (mobileViewportRafRef.current !== null) {
-        window.cancelAnimationFrame(mobileViewportRafRef.current);
-        mobileViewportRafRef.current = null;
-      }
+      cancelMobileKeyboardViewportSync();
       document.documentElement.style.removeProperty(
         "--chat-mobile-visual-height",
       );
@@ -4971,6 +5154,7 @@ function _Chat() {
       document.documentElement.style.removeProperty("--chat-input-fill-height");
     };
   }, [
+    cancelMobileKeyboardViewportSync,
     isMobileInputFocused,
     isMobileScreen,
     isIOSMobile,
@@ -6011,6 +6195,9 @@ function _Chat() {
         data-mobile-input-empty={
           isMobileScreen && userInput.trim().length === 0 ? "true" : undefined
         }
+        data-mobile-input-preserved={
+          isMobileScreen && preserveMobileInputBlurHeight ? "true" : undefined
+        }
         key={safeSession.id}
       >
         <div className="window-header">
@@ -6699,6 +6886,7 @@ function _Chat() {
                               "",
                             ),
                           );
+                          updateMobileInputMeasuredHeight();
                         }}
                         onKeyDown={onMobileInputKeyDown}
                         onPointerDown={() => {
@@ -6709,6 +6897,16 @@ function _Chat() {
                           // 清除 collapse 残留定时器，防止聚焦后被重置为 44px
                           collapseTimersRef.current.forEach(clearTimeout);
                           collapseTimersRef.current = [];
+                          preserveMobileInputBlurHeightRef.current = false;
+                          setPreserveMobileInputBlurHeight(false);
+                          if (mobileInputRef.current) {
+                            mobileInputRef.current.style.removeProperty(
+                              "--chat-mobile-input-preserved-height",
+                            );
+                            mobileInputRef.current.style.height = "auto";
+                            mobileInputRef.current.style.maxHeight = "";
+                          }
+                          updateMobileInputMeasuredHeight();
                           setIsMobileInputFocused(true);
                           scheduleMoveInputCursorToEnd();
                           if (mobileInputHasText) {
@@ -6717,9 +6915,35 @@ function _Chat() {
                           scheduleMobileKeyboardViewportSync();
                         }}
                         onBlur={() => {
+                          if (mobileInputOutsidePointerBlurRef.current) {
+                            mobileInputOutsidePointerBlurRef.current = false;
+                            requestAnimationFrame(() => {
+                              const mobileInput = mobileInputRef.current;
+                              if (!mobileInput) return;
+                              if (document.activeElement !== mobileInput) {
+                                mobileInput.focus();
+                              }
+                              setIsMobileInputFocused(true);
+                              scheduleMoveInputCursorToEnd();
+                              if (mobileInputHasText) {
+                                scheduleScrollMobileInputToBottom();
+                              }
+                              scheduleMobileKeyboardViewportSync();
+                            });
+                            return;
+                          }
+
+                          cancelMobileKeyboardViewportSync();
+                          collapseTimersRef.current.forEach(clearTimeout);
+                          collapseTimersRef.current = [];
+                          const shouldPreserveExpandedHeight =
+                            prepareMobileInputBlurLayout();
                           setTimeout(() => {
                             setIsMobileInputFocused(false);
-                            scheduleCollapseMobileInput();
+                            collapseMobileInput(shouldPreserveExpandedHeight);
+                            if (shouldPreserveExpandedHeight) {
+                              scheduleCollapseMobileInput(true);
+                            }
                           }, 50);
                         }}
                         onClick={() => {
