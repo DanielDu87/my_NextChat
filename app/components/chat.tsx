@@ -2528,6 +2528,12 @@ function _Chat() {
   const balancePanelRef = useRef<HTMLDivElement>(null);
   const balancePanelOverlapRafRef = useRef<number | null>(null);
   const mobileViewportRafRef = useRef<number | null>(null);
+  const mobileKeyboardStableMetricsRef = useRef<{
+    visualHeight: number;
+    accessoryInset: number;
+    overlapCorrection: number;
+    fillHeight: number;
+  } | null>(null);
   const syncReadyFocusSessionRef = useRef("");
   const [userInput, setUserInput] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -4734,24 +4740,115 @@ function _Chat() {
       `${visualTop}px`,
     );
 
+    const layoutViewportHeight = Math.max(
+      window.innerHeight,
+      document.documentElement.clientHeight,
+      visualHeight + visualTop,
+    );
+    const keyboardObscuredHeight = Math.max(
+      0,
+      Math.floor(layoutViewportHeight - visualHeight - visualTop),
+    );
+    const isViewportMeasurementUsable =
+      !isIOSMobile ||
+      visualHeight >= Math.max(180, Math.round(layoutViewportHeight * 0.28));
+    const stableMetrics = mobileKeyboardStableMetricsRef.current;
+    const shouldLockToStableMetrics =
+      isIOSMobile &&
+      !!stableMetrics &&
+      Math.abs(visualHeight - stableMetrics.visualHeight) <= 18;
+    const screenShortSide = Math.min(window.screen.width, window.screen.height);
+    let dynamicAccessoryInset =
+      isIOSMobile && isViewportMeasurementUsable && keyboardObscuredHeight > 140
+        ? Math.max(
+            40,
+            Math.min(
+              Math.round(keyboardObscuredHeight * 0.11),
+              Math.max(48, Math.round(screenShortSide * 0.14)),
+            ),
+          )
+        : 0;
+    if (shouldLockToStableMetrics) {
+      dynamicAccessoryInset = stableMetrics.accessoryInset;
+    }
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-accessory-inset",
+      `${dynamicAccessoryInset}px`,
+    );
+
     // 实测输入面板上端位置，计算从工具栏下方一直撑到底部辅助栏上方的填充高度。
     // 不依赖多层 flex-grow（DOM 嵌套较深易失效），直接给输入框一个确定的高度。
     const rootEl = chatRootRef.current;
     const innerEl = chatInputInnerRef.current;
-    if (isMobileInputFocused && rootEl && innerEl) {
-      const accessory = isIOSMobile ? 64 : 0;
-      // 用相对容器顶部的偏移，规避 getBoundingClientRect 在 iOS 上坐标系不一致的问题
-      const innerTopInViewport =
-        innerEl.getBoundingClientRect().top -
-        rootEl.getBoundingClientRect().top;
-      const fill = Math.max(
+    const panelEl = inputPanelRef.current;
+    if (
+      isMobileInputFocused &&
+      rootEl &&
+      innerEl &&
+      isViewportMeasurementUsable
+    ) {
+      const rootRect = rootEl.getBoundingClientRect();
+      const headerEl = rootEl.querySelector(
+        ".window-header",
+      ) as HTMLElement | null;
+      const headerBottomInRoot = headerEl
+        ? headerEl.getBoundingClientRect().bottom - rootRect.top
+        : 0;
+      const maxTopGapFromHeader = 24;
+      let fill = Math.max(
         180,
-        Math.floor(visualHeight - innerTopInViewport - accessory - 2),
+        Math.floor(visualHeight - headerBottomInRoot - maxTopGapFromHeader - 2),
       );
+      if (shouldLockToStableMetrics) {
+        fill = stableMetrics.fillHeight;
+      }
       document.documentElement.style.setProperty(
         "--chat-input-fill-height",
         `${fill}px`,
       );
+
+      if (isIOSMobile && panelEl) {
+        const panelRect = panelEl.getBoundingClientRect();
+        const panelBottomInRoot = panelRect.bottom - rootRect.top;
+        const visibleBottomInRoot = visualHeight;
+        const measuredBottomGap = visibleBottomInRoot - panelBottomInRoot;
+        const targetBottomGap = dynamicAccessoryInset > 0 ? 6 : 2;
+        let bottomGapCorrection = Math.max(
+          -dynamicAccessoryInset,
+          Math.min(120, Math.ceil(targetBottomGap - measuredBottomGap)),
+        );
+        if (shouldLockToStableMetrics) {
+          bottomGapCorrection = stableMetrics.overlapCorrection;
+        }
+        document.documentElement.style.setProperty(
+          "--chat-keyboard-overlap-correction",
+          `${bottomGapCorrection}px`,
+        );
+        mobileKeyboardStableMetricsRef.current = {
+          visualHeight,
+          accessoryInset: dynamicAccessoryInset,
+          overlapCorrection: bottomGapCorrection,
+          fillHeight: fill,
+        };
+        console.debug("[chat-mobile-keyboard]", {
+          device: `${window.screen.width}x${window.screen.height}`,
+          visualHeight,
+          visualTop,
+          layoutViewportHeight,
+          isViewportMeasurementUsable,
+          shouldLockToStableMetrics,
+          keyboardObscuredHeight,
+          dynamicAccessoryInset,
+          headerBottomInRoot,
+          maxTopGapFromHeader,
+          fill,
+          panelBottomInRoot,
+          visibleBottomInRoot,
+          measuredBottomGap,
+          targetBottomGap,
+          bottomGapCorrection,
+        });
+      }
     }
 
     scrollToBottom();
@@ -4776,12 +4873,16 @@ function _Chat() {
       !isMobileInputFocused ||
       typeof window === "undefined"
     ) {
+      mobileKeyboardStableMetricsRef.current = null;
       document.documentElement.style.removeProperty(
         "--chat-mobile-visual-height",
       );
       document.documentElement.style.removeProperty("--chat-mobile-visual-top");
       document.documentElement.style.removeProperty(
         "--chat-keyboard-accessory-inset",
+      );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-overlap-correction",
       );
       document.documentElement.style.removeProperty(
         "--chat-keyboard-panel-lift",
@@ -4791,11 +4892,15 @@ function _Chat() {
       return;
     }
 
-    // 仅 iOS 键盘上方有“上下箭头 + 完成”辅助栏，需要给输入框留出余量上移；
-    // 64px 包含辅助栏高度和额外间距，其他平台设为 0，避免出现多余空白
+    // iOS 键盘辅助栏高度改为在 sync 中按当前屏幕与视口动态计算；
+    // 这里先给默认值，避免首次聚焦前 CSS 变量缺失。
     document.documentElement.style.setProperty(
       "--chat-keyboard-accessory-inset",
-      isIOSMobile ? "64px" : "0px",
+      "0px",
+    );
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-overlap-correction",
+      "0px",
     );
     document.documentElement.style.setProperty(
       "--chat-keyboard-panel-lift",
@@ -4841,6 +4946,7 @@ function _Chat() {
     window.addEventListener("resize", sync);
 
     return () => {
+      mobileKeyboardStableMetricsRef.current = null;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       viewport?.removeEventListener("resize", sync);
       viewport?.removeEventListener("scroll", sync);
@@ -4855,6 +4961,9 @@ function _Chat() {
       document.documentElement.style.removeProperty("--chat-mobile-visual-top");
       document.documentElement.style.removeProperty(
         "--chat-keyboard-accessory-inset",
+      );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-overlap-correction",
       );
       document.documentElement.style.removeProperty(
         "--chat-keyboard-panel-lift",

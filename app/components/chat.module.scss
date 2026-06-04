@@ -2687,6 +2687,11 @@
       flex: 0 0 auto;
     }
 
+    // 聚焦时让输入面板始终贴住可视区底部，避免内容区被收起后面板停在过高位置
+    .chat-body-container {
+      justify-content: flex-end;
+    }
+
     // 消息区彻底收起（含内边距），让输入面板紧贴工具栏下方、向下撑满
     .chat-body {
       flex: 0 0 auto;
@@ -2702,7 +2707,12 @@
     }
 
     .chat-input-panel {
-      // 顶部尽量贴近工具栏；底部只保留 1px 间距，整体上移由 --chat-keyboard-panel-lift 控制
+      // 顶部尽量贴近工具栏；底部为 iOS 键盘辅助栏预留避让，避免输入框被系统工具栏遮住
+      margin-top: auto;
+      margin-bottom: calc(
+        var(--chat-keyboard-accessory-inset, 0px) +
+          var(--chat-keyboard-overlap-correction, 0px)
+      );
       padding: 2px 12px 1px;
       transform: translateY(calc(-1 * var(--chat-keyboard-panel-lift, 0px)));
     }
@@ -2744,7 +2754,7 @@
       min-width: 0;
       height: auto;
       min-height: 44px;
-      max-height: 180px;
+      max-height: min(360px, calc(var(--chat-input-fill-height, 200px) - 6px));
       overflow-y: scroll;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
