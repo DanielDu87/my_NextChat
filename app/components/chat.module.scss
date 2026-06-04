@@ -2530,7 +2530,7 @@
     flex-shrink: 0;
   }
 
-  // 未聚焦时允许多行草稿保留可读高度，但最小高度仍与左侧选图按钮一致。
+  // 聚焦时允许输入框按内容增长，未聚焦时会在下面的规则中折叠回单行。
   .chat-input {
     font-size: 16px;
     line-height: 22px;
@@ -2545,15 +2545,28 @@
   }
 
   .chat:not(.chat-mobile-keyboard-open) .chat-input {
-    height: auto;
+    height: 44px;
     min-height: 44px;
-    max-height: 180px;
-    overflow-y: auto;
+    max-height: 44px;
+    line-height: 22px;
+    overflow: hidden;
     padding-right: 50px;
-    padding-top: 10px;
+    padding-top: 12px;
     padding-bottom: 10px;
-    white-space: pre-wrap;
+    white-space: nowrap;
     text-overflow: clip;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 96px),
+      transparent calc(100% - 50px)
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 96px),
+      transparent calc(100% - 50px)
+    );
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
   }
