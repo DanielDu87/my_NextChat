@@ -7,7 +7,7 @@
   flex-wrap: wrap;
   gap: 8px;
   width: 100%;
-  padding: 0 64px 12px 22px;
+  padding: 12px 64px 8px 22px;
   box-sizing: border-box;
 }
 
@@ -1938,7 +1938,7 @@
 }
 
 .chat-input-footer-note {
-  margin-top: 10px;
+  margin-top: 8px;
   color: var(--black);
   font-size: 12px;
   line-height: 18px;
@@ -2164,7 +2164,8 @@
   }
 }
 
-.chat-input-panel-inner:has(.chat-input:focus) {
+.chat-input-panel-inner:has(.chat-input:focus),
+.chat-input-panel-inner:focus-within {
   border-color: var(--primary);
   box-shadow:
     0 0 0 1.5px var(--primary),
@@ -2197,6 +2198,12 @@
   transform: translateY(calc(-50% + 8px));
 }
 
+// 默认不产生盒子（display:contents），桌面端/非聚焦时 textarea 与发送按钮维持原布局，
+// 发送按钮仍相对 .chat-input-panel-inner 定位。仅在手机键盘打开时被重写为定位容器。
+.chat-input-text-wrap {
+  display: contents;
+}
+
 .chat-input {
   height: 100%;
   width: 100%;
@@ -2213,6 +2220,10 @@
   outline: none;
   box-sizing: border-box;
   min-height: 56px;
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 
   &::placeholder {
     color: var(--chat-input-placeholder);
@@ -2322,7 +2333,9 @@
     min-width: 0;
     width: 100%;
     align-self: stretch;
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    will-change: transform;
+    position: relative;
   }
 
   .chat-input-actions-main {
@@ -2330,7 +2343,7 @@
   }
 
   .chat-input-row {
-    align-items: center;
+    align-items: flex-end;
     gap: 10px;
   }
 
@@ -2434,60 +2447,164 @@
   }
 
   .chat-input-panel-inner {
+    --chat-input-panel-radius: 22px;
     flex: 1 1 auto;
     min-height: 44px;
+    max-height: 200px;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 50px;
+      background: var(--chat-input-panel-bg);
+      pointer-events: none;
+      z-index: 1;
+    }
+  }
+
+  .chat-mobile-keyboard-open[data-mobile-input-empty="true"] {
+    .chat-input-panel-inner::after {
+      width: 0;
+    }
+
+    .chat-input {
+      height: 44px !important;
+      min-height: 44px;
+      max-height: 44px;
+      overflow-y: hidden;
+    }
+
+    .chat-input-send {
+      position: absolute !important;
+      right: 6px;
+      bottom: 6px;
+      top: auto;
+      transform: none;
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px !important;
+      min-height: 32px !important;
+      max-width: 32px !important;
+      max-height: 32px !important;
+      aspect-ratio: 1 / 1;
+      border-radius: 50% !important;
+      padding: 0 !important;
+      display: flex !important;
+      z-index: 3;
+    }
+  }
+
+  .chat-input-panel-inner.chat-input-panel-inner-attach {
+    max-height: 60vh;
+
+    .chat-input {
+      flex: 0 0 auto;
+      min-height: 44px;
+      max-height: 200px;
+    }
   }
 
   .chat-input-panel-inner-attach {
     min-height: 0;
-
-    .chat-input {
-      min-height: 44px;
-    }
   }
 
   .attach-images {
     gap: 6px;
-    padding: 2px 48px 10px 12px;
+    padding: 10px 12px 6px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    min-height: 0;
+    height: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .attach-image {
     width: 68px;
     height: 68px;
+    flex-shrink: 0;
   }
 
+  // 未聚焦（含禁用/启用）时输入框高度与左侧选图按钮一致（44px）
   .chat-input {
     font-size: 16px;
     line-height: 22px;
+    height: auto;
     min-height: 44px;
-    padding: 11px 48px 11px 12px;
+    max-height: 160px;
+    overflow-y: scroll;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    resize: none;
+    padding: 11px 50px 11px 12px;
+  }
+
+  .chat:not(.chat-mobile-keyboard-open) .chat-input {
+    height: 44px !important;
+    min-height: 44px;
+    max-height: 44px;
+    overflow-y: hidden;
+    padding-right: 50px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    white-space: nowrap;
+    text-overflow: clip;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
+  }
+
+  .chat:not(.chat-mobile-keyboard-open) .chat-input-send {
+    right: 6px;
+    bottom: 6px;
+  }
+
+  .chat-input::-webkit-scrollbar {
+    width: 3px;
+  }
+
+  .chat-input::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-input::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.38);
   }
 
   .chat-input-send {
-    right: 4px;
-    top: 50%;
-    bottom: auto;
-    width: 36px !important;
-    height: 36px !important;
-    min-width: 36px !important;
-    min-height: 36px !important;
-    max-width: 36px !important;
-    max-height: 36px !important;
+    right: 0;
+    top: auto;
+    bottom: 6px;
+    transform: none;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
     aspect-ratio: 1 / 1;
     border-radius: 50% !important;
     padding: 0 !important;
     display: flex !important;
-    flex: 0 0 36px;
+    flex: 0 0 32px;
     align-items: center !important;
     justify-content: center !important;
-    transform: translateY(-50%);
+    z-index: 2;
 
     :global([class*="icon-button-icon"]) {
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      width: 20px !important;
-      height: 20px !important;
+      width: 18px !important;
+      height: 18px !important;
       margin: 0 !important;
       padding: 0 !important;
       flex-shrink: 0;
@@ -2495,8 +2612,8 @@
 
     :global(svg) {
       display: block;
-      width: 20px !important;
-      height: 20px !important;
+      width: 18px !important;
+      height: 18px !important;
       flex-shrink: 0;
 
       > g {
@@ -2530,16 +2647,40 @@
   }
 
   .chat-mobile-keyboard-open {
+    // --chat-keyboard-accessory-inset 由 JS 按平台设置（仅 iOS 有辅助栏），默认 0
     position: fixed;
-    inset: 0 auto auto 0;
+
+    // 键盘打开时隐藏输入面板右侧背景遮罩，避免遮挡发送按钮
+    .chat-input-panel-inner::after {
+      display: none;
+    }
+    // 顶部跟随可视视口偏移，避免 iOS 键盘弹出后面板底部够不到可视区底部而露白
+    inset: var(--chat-mobile-visual-top, 0) auto auto 0;
     width: 100%;
 
+    // 工具栏保持可见且不被压缩
+    :global(.window-header) {
+      flex: 0 0 auto;
+    }
+
+    // 消息区彻底收起（含内边距），让输入面板紧贴工具栏下方、向下撑满
     .chat-body {
-      padding-bottom: 16px;
+      flex: 0 0 auto;
+      height: 0;
+      min-height: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    // 隐藏左上角的余额/用户浮层，避免覆盖上移后的输入框
+    .chat-balance-user-panel {
+      display: none;
     }
 
     .chat-input-panel {
-      padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+      // 顶部尽量贴近工具栏；底部只保留 1px 间距，整体上移由 --chat-keyboard-panel-lift 控制
+      padding: 2px 12px 1px;
+      transform: translateY(calc(-1 * var(--chat-keyboard-panel-lift, 0px)));
     }
 
     .chat-input-footer-note {
@@ -2547,30 +2688,78 @@
     }
 
     .chat-input-panel-inner {
+      // 高度由 JS 实测计算（--chat-input-fill-height）：从工具栏下方撑到辅助栏上方
       min-height: 44px;
+      max-height: max(
+        120px,
+        calc(
+          var(--chat-input-fill-height, 200px) -
+            var(--chat-keyboard-panel-lift, 0px) - 5px
+        )
+      );
+      height: auto;
+      flex-direction: column;
+      // 文字与发送按钮靠底对齐，使最后一行紧贴框底（与上边距一致），空白留在上方
+      justify-content: flex-end;
+      overflow: hidden;
     }
 
+    // 文字 + 发送按钮容器，发送按钮相对它绝对定位
+    .chat-input-text-wrap {
+      display: flex;
+      position: relative;
+      flex: 0 0 auto;
+      width: 100%;
+      z-index: 0;
+    }
+
+    // 文字区按内容高度增长（不再铺满整框），最高到填充高度后内部滚动。
     .chat-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: auto;
       min-height: 44px;
-      padding: 11px 48px 11px 12px;
+      max-height: 160px;
+      overflow-y: scroll;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
+      resize: none;
+      white-space: pre-wrap;
+      padding: 11px 44px 11px 12px;
     }
 
+    .chat-input-panel-inner-attach {
+      height: auto;
+      min-height: 0;
+      justify-content: flex-start;
+
+      .chat-input {
+        flex: 0 0 auto;
+        min-height: 44px;
+      }
+    }
+
+    // 发送按钮始终绝对定位在输入框右下角，不受文字行数影响
     .chat-input-send {
-      right: 4px;
-      top: 50%;
-      bottom: auto;
-      width: 36px !important;
-      height: 36px !important;
-      min-width: 36px !important;
-      min-height: 36px !important;
-      max-width: 36px !important;
-      max-height: 36px !important;
+      position: absolute !important;
+      right: 6px;
+      bottom: 6px;
+      top: auto;
+      transform: none;
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px !important;
+      min-height: 32px !important;
+      max-width: 32px !important;
+      max-height: 32px !important;
       aspect-ratio: 1 / 1;
       border-radius: 50% !important;
       padding: 0 !important;
       display: flex !important;
-      flex: 0 0 36px;
-      transform: translateY(-50%);
+      z-index: 2;
 
       &:hover,
       &:focus,
@@ -2578,15 +2767,15 @@
       &:active,
       &:disabled,
       &[disabled] {
-        width: 36px !important;
-        height: 36px !important;
-        min-width: 36px !important;
-        min-height: 36px !important;
-        max-width: 36px !important;
-        max-height: 36px !important;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        max-width: 32px !important;
+        max-height: 32px !important;
         border-radius: 50% !important;
         padding: 0 !important;
-        transform: translateY(-50%);
+        transform: none;
       }
     }
   }

@@ -8,6 +8,8 @@ export type ButtonType = "primary" | "danger" | null;
 
 export function IconButton(props: {
   onClick?: () => void;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  onTouchStart?: (e: React.TouchEvent) => void;
   icon?: JSX.Element;
   type?: ButtonType;
   text?: React.ReactNode;
@@ -33,6 +35,8 @@ export function IconButton(props: {
         props.className,
       )}
       onClick={props.onClick}
+      onMouseDown={props.onMouseDown}
+      onTouchStart={props.onTouchStart}
       title={props.title}
       disabled={props.disabled}
       role="button"

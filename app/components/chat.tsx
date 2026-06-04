@@ -1537,7 +1537,7 @@ function useSubmitHandler() {
     };
   }, []);
 
-  const shouldSubmit = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const shouldSubmit = (e: React.KeyboardEvent<HTMLElement>) => {
     // Fix Chinese input method "Enter" on Safari
     if (e.keyCode == 229) return false;
     if (e.key !== "Enter") return false;
@@ -2507,11 +2507,19 @@ function _Chat() {
   }, []);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mobileInputRef = useRef<HTMLDivElement>(null);
+  const mobileInputEndRef = useRef<HTMLSpanElement>(null);
+  const mobileInputTouchYRef = useRef<number | null>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
   const inputPanelRectRef = useRef<DOMRect | null>(null);
   const inputPanelWasEmptyRef = useRef(true);
+  // 记录手指/鼠标按下时输入框是否已聚焦，用于决定点击后光标是否跳到末尾
+  const inputFocusedBeforePointerRef = useRef(false);
+  // 键盘打开时用于实测输入面板位置，计算填充高度
+  const chatRootRef = useRef<HTMLDivElement>(null);
+  const chatInputInnerRef = useRef<HTMLLabelElement>(null);
   const balancePanelRef = useRef<HTMLDivElement>(null);
   const balancePanelOverlapRafRef = useRef<number | null>(null);
   const mobileViewportRafRef = useRef<number | null>(null);
@@ -3753,11 +3761,47 @@ function _Chat() {
 
   // auto grow input
   const [inputRows, setInputRows] = useState(2);
+  const mobileInputHasText = userInput.trim().length > 0;
   const measure = useDebouncedCallback(
     () => {
-      const rows = inputRef.current ? autoGrowTextArea(inputRef.current) : 1;
-      const inputRows = Math.min(20, Math.max(1, rows));
-      setInputRows(inputRows);
+      const textarea = inputRef.current;
+      const mobileInput = mobileInputRef.current;
+      if (isMobileScreen) {
+        const inputEl = mobileInput ?? textarea;
+        if (isMobileInputFocused && inputEl) {
+          if (!mobileInputHasText) {
+            setInputRows(1);
+            inputEl.style.height = "44px";
+            inputEl.scrollTop = 0;
+            return;
+          }
+          // 聚焦时：从默认高度开始随内容增长，达到 CSS max-height 后内部滚动
+          const rows = textarea
+            ? autoGrowTextArea(textarea)
+            : Math.ceil(inputEl.scrollHeight / 22);
+          setInputRows(Math.min(8, Math.max(1, rows)));
+          inputEl.style.height = "auto";
+          const inputStyle = window.getComputedStyle(inputEl);
+          const verticalPadding =
+            parseFloat(inputStyle.paddingTop) +
+            parseFloat(inputStyle.paddingBottom);
+          const contentHeight =
+            inputEl.scrollHeight +
+            (Number.isFinite(verticalPadding) ? verticalPadding : 0);
+          const nextHeight = Math.max(44, Math.min(contentHeight, 160));
+          inputEl.style.height = `${nextHeight}px`;
+          scheduleScrollMobileInputToBottom();
+        } else {
+          // 未聚焦时：保持默认紧凑高度，并显示最后一行
+          setInputRows(1);
+          if (inputEl) {
+            collapseMobileInput();
+          }
+        }
+        return;
+      }
+      const rows = textarea ? autoGrowTextArea(textarea) : 1;
+      setInputRows(Math.min(20, Math.max(1, rows)));
     },
     100,
     {
@@ -3766,8 +3810,9 @@ function _Chat() {
     },
   );
 
+  // 内容或聚焦状态变化时重新测量（聚焦展开 / 失焦收回）
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(measure, [userInput]);
+  useEffect(measure, [userInput, isMobileInputFocused]);
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({
@@ -3786,23 +3831,26 @@ function _Chat() {
 
   // only search prompts when user input is short
   const SEARCH_TEXT_LIMIT = 30;
-  const onInput = (text: string) => {
-    setUserInput(text);
-    const n = text.trim().length;
+  const onInput = useCallback(
+    (text: string) => {
+      setUserInput(text);
+      const n = text.trim().length;
 
-    // clear search results
-    if (n === 0) {
-      setPromptHints([]);
-    } else if (text.match(ChatCommandPrefix)) {
-      setPromptHints(chatCommands.search(text));
-    } else if (!config.disablePromptHint && n < SEARCH_TEXT_LIMIT) {
-      // check if need to trigger auto completion
-      if (text.startsWith("/")) {
-        let searchText = text.slice(1);
-        onSearch(searchText);
+      // clear search results
+      if (n === 0) {
+        setPromptHints([]);
+      } else if (text.match(ChatCommandPrefix)) {
+        setPromptHints(chatCommands.search(text));
+      } else if (!config.disablePromptHint && n < SEARCH_TEXT_LIMIT) {
+        // check if need to trigger auto completion
+        if (text.startsWith("/")) {
+          let searchText = text.slice(1);
+          onSearch(searchText);
+        }
       }
-    }
-  };
+    },
+    [chatCommands, config.disablePromptHint, onSearch],
+  );
 
   // auto close prompt hints when clicking outside
   useEffect(() => {
@@ -3851,7 +3899,7 @@ function _Chat() {
       matchCommand.invoke();
       if (isMobileScreen) {
         setIsMobileInputFocused(false);
-        inputRef.current?.blur();
+        mobileInputRef.current?.blur();
       }
       return;
     }
@@ -3870,7 +3918,7 @@ function _Chat() {
     setPromptHints([]);
     if (isMobileScreen) {
       setIsMobileInputFocused(false);
-      inputRef.current?.blur();
+      mobileInputRef.current?.blur();
       setAutoScroll(true);
       setHitBottom(true);
       [50, 180, 420].forEach((delay) => {
@@ -3880,7 +3928,7 @@ function _Chat() {
         }, delay);
       });
     } else {
-      inputRef.current?.focus();
+      (isMobileScreen ? mobileInputRef.current : inputRef.current)?.focus();
     }
   };
 
@@ -3896,7 +3944,7 @@ function _Chat() {
         // or fill the prompt
         setUserInput(prompt.content);
       }
-      inputRef.current?.focus();
+      (isMobileScreen ? mobileInputRef.current : inputRef.current)?.focus();
     }, 30);
   };
 
@@ -3906,9 +3954,11 @@ function _Chat() {
       return;
     }
 
-    inputRef.current?.focus();
+    if (!isMobileScreen) {
+      inputRef.current?.focus();
+    }
     onSearch("");
-  }, [onSearch, promptHints.length]);
+  }, [onSearch, promptHints.length, isMobileScreen]);
 
   // stop response
   const onUserStop = (messageId: string) => {
@@ -4145,6 +4195,22 @@ function _Chat() {
       e.preventDefault();
     }
   };
+
+  const onMobileInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (
+      e.key === "ArrowUp" &&
+      userInput.length <= 0 &&
+      !(e.metaKey || e.altKey || e.ctrlKey)
+    ) {
+      onInput(chatStore.lastInput ?? "");
+      e.preventDefault();
+      return;
+    }
+    if (shouldSubmit(e) && promptHints.length === 0) {
+      doSubmit(userInput);
+      e.preventDefault();
+    }
+  };
   const onRightClick = (e: any, message: ChatMessage) => {
     // copy to clipboard
     const copyText = buildMessageCopyText(message);
@@ -4215,7 +4281,7 @@ function _Chat() {
     localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-    inputRef.current?.blur();
+    (isMobileScreen ? mobileInputRef.current : inputRef.current)?.blur();
 
     // 保留原用户消息，只移除旧的 AI 回复，避免重试时用户输入闪烁。
     if (botMessage?.id) {
@@ -4466,7 +4532,7 @@ function _Chat() {
   const scrollToTopOnIOS = useCallback(() => {
     if (!isIOSMobile) return;
 
-    inputRef.current?.blur();
+    mobileInputRef.current?.blur();
     setAutoScroll(false);
     setHitBottom(false);
     setMsgRenderIndex(0);
@@ -4481,21 +4547,210 @@ function _Chat() {
     });
   }, [isIOSMobile, setAutoScroll, setMsgRenderIndex]);
 
+  const moveInputCursorToEnd = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    if (mobileInput) {
+      const range = document.createRange();
+      range.selectNodeContents(mobileInput);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      mobileInput.scrollTop = mobileInputHasText ? mobileInput.scrollHeight : 0;
+      return;
+    }
+
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    const len = textarea.value.length;
+    textarea.setSelectionRange(len, len);
+    textarea.scrollTop = textarea.scrollHeight;
+  }, [mobileInputHasText]);
+
+  const scrollMobileInputToBottom = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return;
+    if (!mobileInputHasText) {
+      mobileInput.scrollTop = 0;
+      return;
+    }
+
+    mobileInputEndRef.current?.scrollIntoView({
+      block: "end",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+    mobileInput.scrollTo({
+      top: mobileInput.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [mobileInputHasText]);
+
+  const scheduleScrollMobileInputToBottom = useCallback(() => {
+    if (!mobileInputHasText) {
+      const mobileInput = mobileInputRef.current;
+      if (mobileInput) {
+        mobileInput.scrollTop = 0;
+      }
+      return;
+    }
+    requestAnimationFrame(scrollMobileInputToBottom);
+    setTimeout(scrollMobileInputToBottom, 60);
+    setTimeout(scrollMobileInputToBottom, 180);
+  }, [mobileInputHasText, scrollMobileInputToBottom]);
+
+  const collapseMobileInput = useCallback(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return;
+
+    mobileInput.style.height = "44px";
+    mobileInput.scrollTop = 0;
+  }, []);
+
+  const scheduleCollapseMobileInput = useCallback(() => {
+    requestAnimationFrame(collapseMobileInput);
+    setTimeout(collapseMobileInput, 80);
+    setTimeout(collapseMobileInput, 220);
+    setTimeout(collapseMobileInput, 420);
+  }, [collapseMobileInput]);
+
+  const scheduleMoveInputCursorToEnd = useCallback(() => {
+    requestAnimationFrame(moveInputCursorToEnd);
+    setTimeout(moveInputCursorToEnd, 60);
+    setTimeout(moveInputCursorToEnd, 180);
+  }, [moveInputCursorToEnd]);
+
+  useEffect(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!isMobileScreen || !mobileInput) return;
+    if ((mobileInput.textContent ?? "").replace(/\u200b/g, "") === userInput)
+      return;
+
+    mobileInput.textContent = userInput;
+    const endMarker = document.createElement("span");
+    endMarker.textContent = "\u200b";
+    endMarker.setAttribute("data-chat-input-end", "true");
+    mobileInput.appendChild(endMarker);
+    mobileInputEndRef.current = endMarker;
+    if (mobileInputHasText) {
+      scheduleScrollMobileInputToBottom();
+    } else {
+      mobileInput.scrollTop = 0;
+    }
+    if (document.activeElement === mobileInput) {
+      moveInputCursorToEnd();
+      if (mobileInputHasText) {
+        scheduleScrollMobileInputToBottom();
+      }
+    }
+  }, [
+    mobileInputHasText,
+    isMobileScreen,
+    moveInputCursorToEnd,
+    scheduleScrollMobileInputToBottom,
+    userInput,
+  ]);
+
+  useEffect(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!isMobileScreen || !isMobileInputFocused || !mobileInput) {
+      mobileInputTouchYRef.current = null;
+      return;
+    }
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (!mobileInput.contains(event.target as Node)) return;
+      mobileInputTouchYRef.current = event.touches[0]?.clientY ?? null;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!mobileInput.contains(event.target as Node)) return;
+      const currentY = event.touches[0]?.clientY;
+      const lastY = mobileInputTouchYRef.current;
+      if (currentY == null || lastY == null) return;
+
+      const deltaY = lastY - currentY;
+      mobileInputTouchYRef.current = currentY;
+      mobileInput.scrollTop += deltaY;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    const onTouchEnd = () => {
+      mobileInputTouchYRef.current = null;
+    };
+
+    document.addEventListener("touchstart", onTouchStart, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("touchmove", onTouchMove, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener("touchend", onTouchEnd, { capture: true });
+    document.addEventListener("touchcancel", onTouchEnd, { capture: true });
+
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart, {
+        capture: true,
+      });
+      document.removeEventListener("touchmove", onTouchMove, {
+        capture: true,
+      });
+      document.removeEventListener("touchend", onTouchEnd, { capture: true });
+      document.removeEventListener("touchcancel", onTouchEnd, {
+        capture: true,
+      });
+      mobileInputTouchYRef.current = null;
+    };
+  }, [isMobileInputFocused, isMobileScreen]);
+
   const syncMobileKeyboardViewport = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
 
+    // 先复位文档滚动，再读取视口偏移，保证变量反映复位后的真实可视视口，减少首次聚焦时的跳动
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+
     const viewport = window.visualViewport;
     const visualHeight = Math.floor(viewport?.height ?? window.innerHeight);
+    // iOS 键盘弹出时常把可视视口整体下移（offsetTop>0），而固定面板锚定在布局视口 top:0，
+    // 导致面板底部够不到可视区底部，下方露出 .container 的白色背景。用 offsetTop 让面板顶部
+    // 跟随可视视口，彻底消除空白；offsetTop 为 0 时等价于原行为。
+    const visualTop = Math.max(0, Math.floor(viewport?.offsetTop ?? 0));
     document.documentElement.style.setProperty(
       "--chat-mobile-visual-height",
       `${Math.max(320, visualHeight)}px`,
     );
+    document.documentElement.style.setProperty(
+      "--chat-mobile-visual-top",
+      `${visualTop}px`,
+    );
 
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    // 实测输入面板上端位置，计算从工具栏下方一直撑到底部辅助栏上方的填充高度。
+    // 不依赖多层 flex-grow（DOM 嵌套较深易失效），直接给输入框一个确定的高度。
+    const rootEl = chatRootRef.current;
+    const innerEl = chatInputInnerRef.current;
+    if (isMobileInputFocused && rootEl && innerEl) {
+      const accessory = isIOSMobile ? 64 : 0;
+      // 用相对容器顶部的偏移，规避 getBoundingClientRect 在 iOS 上坐标系不一致的问题
+      const innerTopInViewport =
+        innerEl.getBoundingClientRect().top -
+        rootEl.getBoundingClientRect().top;
+      const fill = Math.max(
+        180,
+        Math.floor(visualHeight - innerTopInViewport - accessory - 2),
+      );
+      document.documentElement.style.setProperty(
+        "--chat-input-fill-height",
+        `${fill}px`,
+      );
+    }
+
     scrollToBottom();
-  }, [isMobileScreen, scrollToBottom]);
+  }, [isMobileScreen, isMobileInputFocused, isIOSMobile, scrollToBottom]);
 
   const scheduleMobileKeyboardViewportSync = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
@@ -4519,22 +4774,69 @@ function _Chat() {
       document.documentElement.style.removeProperty(
         "--chat-mobile-visual-height",
       );
+      document.documentElement.style.removeProperty("--chat-mobile-visual-top");
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-accessory-inset",
+      );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-panel-lift",
+      );
+      document.documentElement.style.removeProperty("--chat-input-fill-height");
+      collapseMobileInput();
       return;
     }
 
-    const viewport = window.visualViewport;
-    const sync = () => scheduleMobileKeyboardViewportSync();
-    const timers = [40, 160, 360].map((delay) =>
-      window.setTimeout(sync, delay),
+    // 仅 iOS 键盘上方有“上下箭头 + 完成”辅助栏，需要给输入框留出余量上移；
+    // 64px 包含辅助栏高度和额外间距，其他平台设为 0，避免出现多余空白
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-accessory-inset",
+      isIOSMobile ? "64px" : "0px",
+    );
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-panel-lift",
+      isIOSMobile ? "2px" : "0px",
     );
 
+    const viewport = window.visualViewport;
+    const sync = () => scheduleMobileKeyboardViewportSync();
+
+    // 首次聚焦时键盘还在动画中，iOS 可能在视口稳定前就停止派发 resize，
+    // 导致 --chat-mobile-visual-height 停留在中间值，输入框下方残留空白，
+    // 需手动滚动才会触发 scroll 事件重新同步。这里用轮询直到视口高度稳定，
+    // 主动补齐键盘完全展开后的最终高度。
+    let pollTimer: number | null = null;
+    let lastHeight = -1;
+    let stableCount = 0;
+    let elapsed = 0;
+    const POLL_INTERVAL = 80;
+    const MAX_POLL_DURATION = 1600;
+    const poll = () => {
+      const h = Math.floor(window.visualViewport?.height ?? window.innerHeight);
+      if (h === lastHeight) {
+        stableCount += 1;
+      } else {
+        stableCount = 0;
+        lastHeight = h;
+        sync();
+      }
+      elapsed += POLL_INTERVAL;
+      // 连续多次高度不变视为稳定，或超过最长时长后停止轮询
+      if (stableCount >= 3 || elapsed >= MAX_POLL_DURATION) {
+        sync();
+        pollTimer = null;
+        return;
+      }
+      pollTimer = window.setTimeout(poll, POLL_INTERVAL);
+    };
+
     sync();
+    pollTimer = window.setTimeout(poll, POLL_INTERVAL);
     viewport?.addEventListener("resize", sync);
     viewport?.addEventListener("scroll", sync);
     window.addEventListener("resize", sync);
 
     return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
       viewport?.removeEventListener("resize", sync);
       viewport?.removeEventListener("scroll", sync);
       window.removeEventListener("resize", sync);
@@ -4545,10 +4847,20 @@ function _Chat() {
       document.documentElement.style.removeProperty(
         "--chat-mobile-visual-height",
       );
+      document.documentElement.style.removeProperty("--chat-mobile-visual-top");
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-accessory-inset",
+      );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-panel-lift",
+      );
+      document.documentElement.style.removeProperty("--chat-input-fill-height");
     };
   }, [
     isMobileInputFocused,
     isMobileScreen,
+    isIOSMobile,
+    collapseMobileInput,
     scheduleMobileKeyboardViewportSync,
   ]);
 
@@ -4565,9 +4877,8 @@ function _Chat() {
     historyAutoBottomSessionRef.current = safeSession.id;
     setAutoScroll(true);
     setHitBottom(true);
-    scrollToBottom();
-
-    const timers = [120, 360].map((delay) =>
+    // 延迟滚动，等待布局稳定
+    const timers = [80, 200, 400].map((delay) =>
       setTimeout(() => {
         scrollToBottom();
       }, delay),
@@ -4973,7 +5284,8 @@ function _Chat() {
 
   const clientConfig = useMemo(() => getClientConfig(), []);
 
-  const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
+  const hasUserInputContent = userInput.trim().length > 0;
+  const autoFocus = !isMobileScreen && !hasUserInputContent; // wont auto focus on mobile screen
   const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
   const useHeaderIconOnly = windowWidth < 1000;
   const useCompactInputHint = !isMobileScreen && windowWidth <= 1100;
@@ -5263,14 +5575,20 @@ function _Chat() {
     }
     setAttachImages(pendingDraft.images);
 
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus({ preventScroll: true });
-    });
+    if (!pendingDraft.input.trim()) {
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus({ preventScroll: true });
+      });
+    }
   }, [isChatUnavailableForSync, safeSession.id]);
 
   const handlePaste = useCallback(
-    async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const textarea = event.currentTarget;
+    async (
+      event: React.ClipboardEvent<HTMLTextAreaElement | HTMLDivElement>,
+    ) => {
+      const inputEl = event.currentTarget;
+      const textarea =
+        inputEl instanceof HTMLTextAreaElement ? inputEl : undefined;
       const text = event.clipboardData.getData("text/plain");
       const html = event.clipboardData.getData("text/html");
       const imageFiles: File[] = [];
@@ -5355,18 +5673,22 @@ function _Chat() {
       const hasImages = imageFiles.length > 0 || imageUrlsFromHtml.length > 0;
 
       if (text && !hasImages && !hasFileLikeClipboardData) {
-        const start = textarea?.selectionStart ?? userInput.length;
-        const end = textarea?.selectionEnd ?? userInput.length;
-        setUserInput((input) => {
-          const before = input.substring(0, start);
-          const after = input.substring(end);
-          return before + text + after;
-        });
         if (textarea) {
+          const start = textarea.selectionStart ?? userInput.length;
+          const end = textarea.selectionEnd ?? userInput.length;
+          setUserInput((input) => {
+            const before = input.substring(0, start);
+            const after = input.substring(end);
+            return before + text + after;
+          });
           requestAnimationFrame(() => {
             textarea.selectionStart = textarea.selectionEnd =
               start + text.length;
           });
+        } else {
+          document.execCommand("insertText", false, text);
+          const nextText = (inputEl.textContent ?? "").replace(/\u200b/g, "");
+          onInput(nextText);
         }
       }
 
@@ -5394,7 +5716,7 @@ function _Chat() {
         });
       }
     },
-    [userInput],
+    [onInput, userInput],
   );
 
   async function uploadImage() {
@@ -5530,18 +5852,28 @@ function _Chat() {
       readOnly ||
       isChatUnavailableForSync ||
       !safeSession.id ||
-      syncReadyFocusSessionRef.current === safeSession.id
+      syncReadyFocusSessionRef.current === safeSession.id ||
+      hasUserInputContent
     ) {
       return;
     }
 
     syncReadyFocusSessionRef.current = safeSession.id;
     const timer = window.setTimeout(() => {
+      if (inputRef.current?.value.trim()) {
+        return;
+      }
       inputRef.current?.focus({ preventScroll: true });
     }, 80);
 
     return () => window.clearTimeout(timer);
-  }, [isChatUnavailableForSync, isMobileScreen, readOnly, safeSession.id]);
+  }, [
+    hasUserInputContent,
+    isChatUnavailableForSync,
+    isMobileScreen,
+    readOnly,
+    safeSession.id,
+  ]);
 
   if (!session) {
     return null;
@@ -5559,12 +5891,16 @@ function _Chat() {
       )}
 
       <div
+        ref={chatRootRef}
         className={clsx(styles.chat, {
           [styles["chat-mobile-keyboard-open"]]:
             isMobileScreen && isMobileInputFocused,
           [styles["chat-tight-desktop"]]:
             clientConfig?.isApp || (config.tightBorder && !isMobileScreen),
         })}
+        data-mobile-input-empty={
+          isMobileScreen && userInput.trim().length === 0 ? "true" : undefined
+        }
         key={safeSession.id}
       >
         <div className="window-header">
@@ -5789,9 +6125,17 @@ function _Chat() {
               })}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
-              onMouseDown={() => inputRef.current?.blur()}
+              onMouseDown={() =>
+                (isMobileScreen
+                  ? mobileInputRef.current
+                  : inputRef.current
+                )?.blur()
+              }
               onTouchStart={() => {
-                inputRef.current?.blur();
+                (isMobileScreen
+                  ? mobileInputRef.current
+                  : inputRef.current
+                )?.blur();
               }}
             >
               {shouldShowChatRestoreNotice && (
@@ -5815,6 +6159,7 @@ function _Chat() {
               {isMobileScreen &&
                 !currentSessionHasMessages &&
                 !isMobileInputFocused &&
+                promptHints.length === 0 &&
                 (() => {
                   const hints = chatInputHint
                     .replace(/，\//, "\n/")
@@ -6159,10 +6504,16 @@ function _Chat() {
                     title="添加照片"
                     aria="添加照片"
                     disabled={readOnly || isChatUnavailableForSync || uploading}
-                    onClick={uploadImage}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      uploadImage();
+                      // 保持输入框焦点状态
+                      mobileInputRef.current?.focus();
+                    }}
                   />
                 )}
                 <label
+                  ref={chatInputInnerRef}
                   className={clsx(styles["chat-input-panel-inner"], {
                     [styles["chat-input-panel-inner-attach"]]:
                       attachImages.length !== 0,
@@ -6189,42 +6540,6 @@ function _Chat() {
                       {chatInputHint}
                     </span>
                   )}
-                  <textarea
-                    id="chat-input"
-                    ref={inputRef}
-                    className={styles["chat-input"]}
-                    placeholder={
-                      isMobileScreen
-                        ? ""
-                        : isChatUnavailableForSync
-                        ? chatInputHint
-                        : ""
-                    }
-                    onInput={(e) => onInput(e.currentTarget.value)}
-                    value={userInput}
-                    onKeyDown={onInputKeyDown}
-                    onFocus={() => {
-                      setIsMobileInputFocused(true);
-                      scrollToBottom();
-                      scheduleMobileKeyboardViewportSync();
-                    }}
-                    onBlur={() => setIsMobileInputFocused(false)}
-                    onClick={() => {
-                      setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-                      scrollRef.current?.scrollTo({
-                        top: scrollRef.current.scrollHeight,
-                        behavior: "smooth",
-                      });
-                    }}
-                    onPaste={handlePaste}
-                    rows={inputRows}
-                    autoFocus={autoFocus}
-                    disabled={readOnly || isChatUnavailableForSync}
-                    style={{
-                      fontSize: inputFontSize,
-                      fontFamily: config.fontFamily,
-                    }}
-                  />
                   {attachImages.length != 0 && (
                     <div className={styles["attach-images"]}>
                       {attachImages.map((image, index) => {
@@ -6248,13 +6563,125 @@ function _Chat() {
                       })}
                     </div>
                   )}
-                  <IconButton
-                    icon={<SendUpIcon />}
-                    className={styles["chat-input-send"]}
-                    type="primary"
-                    disabled={readOnly || isChatUnavailableForSync}
-                    onClick={() => doSubmit(userInput)}
-                  />
+                  <div className={styles["chat-input-text-wrap"]}>
+                    {isMobileScreen ? (
+                      <div
+                        id="chat-input"
+                        ref={mobileInputRef}
+                        className={styles["chat-input"]}
+                        contentEditable={!readOnly && !isChatUnavailableForSync}
+                        suppressContentEditableWarning
+                        role="textbox"
+                        aria-multiline="true"
+                        aria-disabled={readOnly || isChatUnavailableForSync}
+                        onInput={(e) => {
+                          if (!mobileInputEndRef.current?.isConnected) {
+                            const endMarker = document.createElement("span");
+                            endMarker.textContent = "\u200b";
+                            endMarker.setAttribute(
+                              "data-chat-input-end",
+                              "true",
+                            );
+                            e.currentTarget.appendChild(endMarker);
+                            mobileInputEndRef.current = endMarker;
+                          }
+                          onInput(
+                            (e.currentTarget.textContent ?? "").replace(
+                              /\u200b/g,
+                              "",
+                            ),
+                          );
+                        }}
+                        onKeyDown={onMobileInputKeyDown}
+                        onPointerDown={() => {
+                          inputFocusedBeforePointerRef.current =
+                            document.activeElement === mobileInputRef.current;
+                        }}
+                        onFocus={() => {
+                          setIsMobileInputFocused(true);
+                          scheduleMoveInputCursorToEnd();
+                          if (mobileInputHasText) {
+                            scheduleScrollMobileInputToBottom();
+                          }
+                          scheduleMobileKeyboardViewportSync();
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setIsMobileInputFocused(false);
+                            scheduleCollapseMobileInput();
+                          }, 50);
+                        }}
+                        onClick={() => {
+                          if (inputFocusedBeforePointerRef.current) return;
+                          inputFocusedBeforePointerRef.current = true;
+                          scheduleMoveInputCursorToEnd();
+                          if (mobileInputHasText) {
+                            scheduleScrollMobileInputToBottom();
+                          }
+                        }}
+                        onPaste={handlePaste}
+                        style={{
+                          fontSize: inputFontSize,
+                          fontFamily: config.fontFamily,
+                        }}
+                      >
+                        <span
+                          ref={mobileInputEndRef}
+                          data-chat-input-end="true"
+                        >
+                          {"\u200b"}
+                        </span>
+                      </div>
+                    ) : (
+                      <textarea
+                        id="chat-input"
+                        ref={inputRef}
+                        className={styles["chat-input"]}
+                        placeholder={
+                          isChatUnavailableForSync ? chatInputHint : ""
+                        }
+                        onInput={(e) => onInput(e.currentTarget.value)}
+                        value={userInput}
+                        onKeyDown={onInputKeyDown}
+                        onPointerDown={() => {
+                          // 在浏览器定位光标之前，记录输入框当前是否已聚焦
+                          inputFocusedBeforePointerRef.current =
+                            document.activeElement === inputRef.current;
+                        }}
+                        onFocus={() => {
+                          setIsMobileInputFocused(true);
+                          scheduleMoveInputCursorToEnd();
+                          // 键盘打开时不强制滚动，由 scheduleMobileKeyboardViewportSync 处理视口调整
+                          scheduleMobileKeyboardViewportSync();
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => setIsMobileInputFocused(false), 50);
+                        }}
+                        onClick={() => {
+                          // 仅在“之前未聚焦”的首次点击时，把光标移动到文本末尾；
+                          // 已聚焦时保留用户点击的位置
+                          if (inputFocusedBeforePointerRef.current) return;
+                          inputFocusedBeforePointerRef.current = true;
+                          scheduleMoveInputCursorToEnd();
+                        }}
+                        onPaste={handlePaste}
+                        rows={inputRows}
+                        autoFocus={autoFocus}
+                        disabled={readOnly || isChatUnavailableForSync}
+                        style={{
+                          fontSize: inputFontSize,
+                          fontFamily: config.fontFamily,
+                        }}
+                      />
+                    )}
+                    <IconButton
+                      icon={<SendUpIcon />}
+                      className={styles["chat-input-send"]}
+                      type="primary"
+                      disabled={readOnly || isChatUnavailableForSync}
+                      onClick={() => doSubmit(userInput)}
+                    />
+                  </div>
                 </label>
               </div>
               {!isMobileScreen && (
