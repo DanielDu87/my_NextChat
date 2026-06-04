@@ -299,7 +299,11 @@ function formatMessageUsage(
 
   const parts: string[] = [];
 
-  if (Number.isFinite(usage.systemTokens) && usage.systemTokens > 0) {
+  if (
+    usage.systemTokens !== undefined &&
+    Number.isFinite(usage.systemTokens) &&
+    usage.systemTokens > 0
+  ) {
     parts.push(`系统 ${usage.systemTokens}`);
   }
   if (Number.isFinite(usage.promptTokens)) {
@@ -2508,8 +2512,9 @@ function _Chat() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mobileInputRef = useRef<HTMLDivElement>(null);
-  const mobileInputEndRef = useRef<HTMLSpanElement>(null);
+  const mobileInputEndRef = useRef<HTMLSpanElement | null>(null);
   const mobileInputTouchYRef = useRef<number | null>(null);
+  const collapseTimersRef = useRef<number[]>([]);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
@@ -3771,25 +3776,16 @@ function _Chat() {
         if (isMobileInputFocused && inputEl) {
           if (!mobileInputHasText) {
             setInputRows(1);
-            inputEl.style.height = "44px";
+            inputEl.style.height = "auto";
             inputEl.scrollTop = 0;
             return;
           }
-          // 聚焦时：从默认高度开始随内容增长，达到 CSS max-height 后内部滚动
+          // 聚焦时：由 CSS height: auto + max-height 控制，随内容自适应
           const rows = textarea
             ? autoGrowTextArea(textarea)
             : Math.ceil(inputEl.scrollHeight / 22);
           setInputRows(Math.min(8, Math.max(1, rows)));
           inputEl.style.height = "auto";
-          const inputStyle = window.getComputedStyle(inputEl);
-          const verticalPadding =
-            parseFloat(inputStyle.paddingTop) +
-            parseFloat(inputStyle.paddingBottom);
-          const contentHeight =
-            inputEl.scrollHeight +
-            (Number.isFinite(verticalPadding) ? verticalPadding : 0);
-          const nextHeight = Math.max(44, Math.min(contentHeight, 160));
-          inputEl.style.height = `${nextHeight}px`;
           scheduleScrollMobileInputToBottom();
         } else {
           // 未聚焦时：保持默认紧凑高度，并显示最后一行
@@ -4603,15 +4599,24 @@ function _Chat() {
     const mobileInput = mobileInputRef.current;
     if (!mobileInput) return;
 
-    mobileInput.style.height = "44px";
+    // 键盘打开时让 CSS 控制高度（height: auto），避免覆盖 .chat-mobile-keyboard-open 的规则
+    const chatEl = mobileInput.closest(".chat-mobile-keyboard-open");
+    mobileInput.style.height = chatEl ? "auto" : "44px";
     mobileInput.scrollTop = 0;
   }, []);
 
   const scheduleCollapseMobileInput = useCallback(() => {
-    requestAnimationFrame(collapseMobileInput);
-    setTimeout(collapseMobileInput, 80);
-    setTimeout(collapseMobileInput, 220);
-    setTimeout(collapseMobileInput, 420);
+    // 清除之前的定时器，避免残留
+    collapseTimersRef.current.forEach(clearTimeout);
+    collapseTimersRef.current = [];
+
+    // 键盘收起动画完成后折叠输入框（iOS 键盘动画约 300-350ms）
+    collapseTimersRef.current.push(
+      window.setTimeout(() => {
+        collapseMobileInput();
+        collapseTimersRef.current = [];
+      }, 360),
+    );
   }, [collapseMobileInput]);
 
   const scheduleMoveInputCursorToEnd = useCallback(() => {
@@ -5720,48 +5725,44 @@ function _Chat() {
   );
 
   async function uploadImage() {
-    const images: string[] = [];
-    images.push(...attachImages);
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept =
+      "image/png, image/jpeg, image/webp, image/heic, image/heif";
+    fileInput.multiple = true;
+    fileInput.style.display = "none";
+    document.body.appendChild(fileInput);
+    const cleanupFileInput = () => {
+      if (fileInput.isConnected) {
+        document.body.removeChild(fileInput);
+      }
+    };
 
-    images.push(
-      ...(await new Promise<string[]>((res, rej) => {
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.accept =
-          "image/png, image/jpeg, image/webp, image/heic, image/heif";
-        fileInput.multiple = true;
-        fileInput.onchange = (event: any) => {
-          setUploading(true);
-          const files = event.target.files;
-          const imagesData: string[] = [];
-          for (let i = 0; i < files.length; i++) {
-            const file = event.target.files[i];
-            uploadImageRemote(file)
-              .then((dataUrl) => {
-                imagesData.push(dataUrl);
-                if (
-                  imagesData.length === 3 ||
-                  imagesData.length === files.length
-                ) {
-                  setUploading(false);
-                  res(imagesData);
-                }
-              })
-              .catch((e) => {
-                setUploading(false);
-                rej(e);
-              });
-          }
-        };
-        fileInput.click();
-      })),
-    );
+    fileInput.onchange = async (event: Event) => {
+      const target = event.target as HTMLInputElement;
+      const files = Array.from(target.files ?? []).slice(0, 3);
 
-    const imagesLength = images.length;
-    if (imagesLength > 3) {
-      images.splice(3, imagesLength - 3);
-    }
-    setAttachImages(images);
+      if (files.length === 0) {
+        cleanupFileInput();
+        return;
+      }
+
+      setUploading(true);
+      try {
+        const uploadedImages = await Promise.all(
+          files.map((file) => uploadImageRemote(file)),
+        );
+        setAttachImages((prev) => [...prev, ...uploadedImages].slice(0, 3));
+      } catch {
+        showToast("图片上传失败，请重试");
+      } finally {
+        setUploading(false);
+        cleanupFileInput();
+      }
+    };
+    fileInput.oncancel = cleanupFileInput;
+
+    fileInput.click();
   }
 
   // 快捷键 shortcut keys
@@ -6507,8 +6508,6 @@ function _Chat() {
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       uploadImage();
-                      // 保持输入框焦点状态
-                      mobileInputRef.current?.focus();
                     }}
                   />
                 )}
@@ -6598,6 +6597,9 @@ function _Chat() {
                             document.activeElement === mobileInputRef.current;
                         }}
                         onFocus={() => {
+                          // 清除 collapse 残留定时器，防止聚焦后被重置为 44px
+                          collapseTimersRef.current.forEach(clearTimeout);
+                          collapseTimersRef.current = [];
                           setIsMobileInputFocused(true);
                           scheduleMoveInputCursorToEnd();
                           if (mobileInputHasText) {

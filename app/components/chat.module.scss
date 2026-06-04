@@ -153,7 +153,9 @@
         var(--white)
       ) !important;
       border-color: var(--primary) !important;
-      box-shadow: 0 0 0 1px var(--primary), var(--card-shadow) !important;
+      box-shadow:
+        0 0 0 1px var(--primary),
+        var(--card-shadow) !important;
     }
 
     &:focus:not(:hover),
@@ -2064,7 +2066,9 @@
     padding: 6px 10px;
     animation: slide-in ease 0.3s;
     cursor: pointer;
-    transition: background-color ease 0.3s, color ease 0.3s;
+    transition:
+      background-color ease 0.3s,
+      color ease 0.3s;
     border: transparent 2px solid;
     margin: 4px;
     border-radius: 8px;
@@ -2233,19 +2237,16 @@
 
 .chat-input:disabled {
   background: var(--chat-input-disabled-bg) !important;
-  color: var(--black);
+  color: var(--chat-input-disabled-placeholder);
   cursor: not-allowed;
   opacity: 1;
-  -webkit-text-fill-color: var(--black);
+  -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
 
   &::placeholder {
-    color: var(--chat-input-placeholder);
+    color: var(--chat-input-disabled-placeholder);
     opacity: 1;
-    -webkit-text-fill-color: var(--chat-input-placeholder);
+    -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
   }
-}
-
-.chat-input:focus {
 }
 
 .chat-input-send {
@@ -2294,12 +2295,22 @@
     background-color: var(--primary);
     color: white;
     cursor: not-allowed;
+    opacity: 0.45;
+    box-shadow: none;
+
+    svg,
+    path,
+    circle {
+      fill: currentColor !important;
+      color: currentColor !important;
+    }
 
     &:hover,
     &:focus,
     &:focus-visible,
     &:active {
       background-color: var(--primary);
+      opacity: 0.45;
       border-color: transparent;
       box-shadow: none;
       color: white;
@@ -2330,6 +2341,12 @@
   }
 
   .chat-input-panel {
+    --chat-input-local-disabled-bg: color-mix(
+      in srgb,
+      var(--black) 10%,
+      var(--white)
+    );
+
     min-width: 0;
     width: 100%;
     align-self: stretch;
@@ -2364,7 +2381,7 @@
     padding: 0 !important;
     border-radius: 50% !important;
     line-height: 0;
-    background: color-mix(in srgb, var(--black) 8%, transparent);
+    background: color-mix(in srgb, var(--black) 5%, transparent);
     color: var(--black);
 
     :global([class*="icon-button-icon"]) {
@@ -2385,7 +2402,7 @@
       flex-shrink: 0;
     }
 
-    border: 1px solid transparent;
+    border: var(--border-in-light);
 
     &:hover,
     &:active,
@@ -2399,8 +2416,8 @@
     &[disabled],
     &:disabled {
       opacity: 1;
-      background: color-mix(in srgb, var(--white) 90%, white) !important;
-      border-color: transparent;
+      background: color-mix(in srgb, var(--black) 14%, var(--white)) !important;
+      border: var(--border-in-light);
       outline: none;
       filter: none;
       box-shadow:
@@ -2415,34 +2432,18 @@
       &:active,
       &:focus,
       &:focus-visible {
-        background: color-mix(in srgb, var(--white) 90%, white) !important;
-        border-color: transparent;
+        background: color-mix(
+          in srgb,
+          var(--black) 14%,
+          var(--white)
+        ) !important;
+        border: var(--border-in-light);
         outline: none;
         filter: none;
         box-shadow:
           0 1px 2px rgba(0, 0, 0, 0.06),
           0 14px 40px rgba(0, 0, 0, 0.04);
       }
-    }
-  }
-
-  .chat-input-mobile-add.chat-input-mobile-add {
-    flex: 0 0 44px;
-    width: 44px !important;
-    height: 44px !important;
-    min-width: 44px !important;
-    min-height: 44px !important;
-    max-width: 44px !important;
-    max-height: 44px !important;
-
-    :global([class*="icon-button-icon"]) {
-      width: 24px !important;
-      height: 24px !important;
-    }
-
-    :global(svg) {
-      width: 24px !important;
-      height: 24px !important;
     }
   }
 
@@ -2469,10 +2470,6 @@
   }
 
   .chat-mobile-keyboard-open[data-mobile-input-empty="true"] {
-    .chat-input-panel-inner::after {
-      width: 0;
-    }
-
     .chat-input {
       height: 44px !important;
       min-height: 44px;
@@ -2533,7 +2530,7 @@
     flex-shrink: 0;
   }
 
-  // 未聚焦（含禁用/启用）时输入框高度与左侧选图按钮一致（44px）
+  // 未聚焦时允许多行草稿保留可读高度，但最小高度仍与左侧选图按钮一致。
   .chat-input {
     font-size: 16px;
     line-height: 22px;
@@ -2548,17 +2545,31 @@
   }
 
   .chat:not(.chat-mobile-keyboard-open) .chat-input {
-    height: 44px !important;
+    height: auto;
     min-height: 44px;
-    max-height: 44px;
-    overflow-y: hidden;
+    max-height: 180px;
+    overflow-y: auto;
     padding-right: 50px;
-    padding-top: 11px;
-    padding-bottom: 11px;
-    white-space: nowrap;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    white-space: pre-wrap;
     text-overflow: clip;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
+  }
+
+  .chat-input:disabled,
+  .chat-input[aria-disabled="true"] {
+    background: var(--chat-input-local-disabled-bg) !important;
+  }
+
+  .chat-input-panel-inner:has(.chat-input:disabled),
+  .chat-input-panel-inner:has(.chat-input[aria-disabled="true"]) {
+    background: var(--chat-input-local-disabled-bg);
+
+    &::after {
+      background: var(--chat-input-local-disabled-bg);
+    }
   }
 
   .chat:not(.chat-mobile-keyboard-open) .chat-input-send {
@@ -2631,17 +2642,30 @@
 
     &[disabled],
     &:disabled {
-      background-color: var(--primary);
+      background-color: var(--primary) !important;
+      color: white !important;
       border-color: transparent;
       box-shadow: none;
+      cursor: not-allowed;
+      opacity: 0.45;
+
+      :global(svg),
+      :global(path),
+      :global(circle) {
+        fill: currentColor !important;
+        color: currentColor !important;
+      }
 
       &:hover,
       &:active,
       &:focus,
       &:focus-visible {
-        background-color: var(--primary);
+        background-color: var(--primary) !important;
+        color: white !important;
         border-color: transparent;
         box-shadow: none;
+        opacity: 0.45;
+        filter: none;
       }
     }
   }
@@ -2688,18 +2712,19 @@
     }
 
     .chat-input-panel-inner {
-      // 高度由 JS 实测计算（--chat-input-fill-height）：从工具栏下方撑到辅助栏上方
+      // 高度上限由 JS 实测计算，避免外壳被硬撑出大面积空白。
       min-height: 44px;
       max-height: max(
         120px,
         calc(
-          var(--chat-input-fill-height, 200px) -
-            var(--chat-keyboard-panel-lift, 0px) - 5px
+          var(--chat-input-fill-height, 200px) - var(
+              --chat-keyboard-panel-lift,
+              0px
+            ) - 5px
         )
       );
       height: auto;
       flex-direction: column;
-      // 文字与发送按钮靠底对齐，使最后一行紧贴框底（与上边距一致），空白留在上方
       justify-content: flex-end;
       overflow: hidden;
     }
@@ -2719,7 +2744,7 @@
       min-width: 0;
       height: auto;
       min-height: 44px;
-      max-height: 160px;
+      max-height: 180px;
       overflow-y: scroll;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
@@ -2728,7 +2753,7 @@
       scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
       resize: none;
       white-space: pre-wrap;
-      padding: 11px 44px 11px 12px;
+      padding: 10px 44px 10px 12px;
     }
 
     .chat-input-panel-inner-attach {
@@ -2778,6 +2803,13 @@
         transform: none;
       }
     }
+  }
+}
+
+@media only screen and (min-width: 651px) and (max-width: 900px) {
+  .chat-input-panel {
+    min-width: 0;
+    width: 100%;
   }
 }
 

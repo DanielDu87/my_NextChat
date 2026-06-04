@@ -22,10 +22,10 @@ export function countPromptTokens(
     content: extractTextFromContent(m.content),
   }));
   try {
-    return encodeChat(chatMessages, model || "gpt-4").length;
+    return encodeChat(chatMessages, (model || "gpt-4") as any).length;
   } catch {
     return chatMessages.reduce(
-      (sum, m) => sum + encode(m.content, model || "gpt-4").length,
+      (sum, m) => sum + encode(m.content, (model || "gpt-4") as any).length,
       0,
     );
   }
@@ -41,10 +41,10 @@ export function countSystemTokens(
     content: extractTextFromContent(m.content),
   }));
   try {
-    return encodeChat(chatMessages, model || "gpt-4").length;
+    return encodeChat(chatMessages, (model || "gpt-4") as any).length;
   } catch {
     return chatMessages.reduce(
-      (sum, m) => sum + encode(m.content, model || "gpt-4").length,
+      (sum, m) => sum + encode(m.content, (model || "gpt-4") as any).length,
       0,
     );
   }
