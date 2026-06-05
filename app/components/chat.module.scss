@@ -2100,6 +2100,17 @@
 .chat-input-panel-inner {
   --chat-input-panel-radius: 32px;
   --chat-input-panel-bg: var(--white);
+  --chat-input-scroll-indicator-opacity: 0;
+  --chat-input-scroll-indicator-size: 0px;
+  --chat-input-scroll-indicator-offset: 0px;
+  --chat-input-scroll-indicator-right: 8px;
+  --chat-input-scroll-indicator-bg: color-mix(
+    in srgb,
+    var(--black) 26%,
+    transparent
+  );
+  --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.42),
+    0 1px 4px rgba(0, 0, 0, 0.18);
 
   cursor: text;
   display: flex;
@@ -2114,6 +2125,39 @@
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.06),
     0 14px 40px rgba(0, 0, 0, 0.04);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: var(--chat-input-scroll-indicator-offset);
+    right: var(--chat-input-scroll-indicator-right);
+    width: 4px;
+    height: var(--chat-input-scroll-indicator-size);
+    border-radius: 999px;
+    background: var(--chat-input-scroll-indicator-bg);
+    opacity: var(--chat-input-scroll-indicator-opacity);
+    pointer-events: none;
+    z-index: 4;
+    box-shadow: var(--chat-input-scroll-indicator-shadow);
+    transition:
+      opacity 160ms ease,
+      background-color 160ms ease;
+  }
+}
+
+:global(.dark) .chat-input-panel-inner,
+:global(body.dark) .chat-input-panel-inner {
+  --chat-input-scroll-indicator-bg: rgba(255, 255, 255, 0.5);
+  --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 2px rgba(15, 23, 42, 0.24), 0 1px 5px rgba(0, 0, 0, 0.24);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .chat-input-panel-inner {
+    --chat-input-scroll-indicator-bg: rgba(255, 255, 255, 0.5);
+    --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18),
+      0 0 0 2px rgba(15, 23, 42, 0.24), 0 1px 5px rgba(0, 0, 0, 0.24);
+  }
 }
 
 .chat-input-panel-inner-attach {
@@ -2449,6 +2493,7 @@
 
   .chat-input-panel-inner {
     --chat-input-panel-radius: 22px;
+    --chat-input-scroll-indicator-right: 37px;
     flex: 1 1 auto;
     min-height: 44px;
     max-height: 200px;
@@ -2542,6 +2587,21 @@
     overscroll-behavior: contain;
     resize: none;
     padding: 11px 50px 11px 12px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
+  }
+
+  .chat-input::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .chat-input::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.38);
+    border-radius: 999px;
+  }
+
+  .chat-input::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .chat:not(.chat-mobile-keyboard-open) .chat-input {
@@ -2616,6 +2676,32 @@
   .chat-input::-webkit-scrollbar-thumb {
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.38);
+  }
+
+  :global(.dark) .chat-input,
+  :global(body.dark) .chat-input {
+    scrollbar-color: rgba(255, 255, 255, 0.44) transparent;
+  }
+
+  :global(.dark) .chat-input::-webkit-scrollbar-thumb,
+  :global(body.dark) .chat-input::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.44);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 0 0 2px rgba(15, 23, 42, 0.2);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(body:not(.light):not(.dark)) .chat-input {
+      scrollbar-color: rgba(255, 255, 255, 0.44) transparent;
+    }
+
+    :global(body:not(.light):not(.dark)) .chat-input::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.44);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.14),
+        0 0 0 2px rgba(15, 23, 42, 0.2);
+    }
   }
 
   .chat-input-send {
@@ -2750,6 +2836,7 @@
     }
 
     .chat-input-panel-inner {
+      --chat-input-scroll-indicator-right: 39px;
       // 高度上限由 JS 实测计算，避免外壳被硬撑出大面积空白。
       min-height: 44px;
       max-height: max(

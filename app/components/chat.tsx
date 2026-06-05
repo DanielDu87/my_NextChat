@@ -1229,6 +1229,10 @@ function trimBoundaryInvisibleChars(text: string) {
   );
 }
 
+function sanitizeDraftInputText(text: string) {
+  return trimBoundaryInvisibleChars(text);
+}
+
 function formatModelSelectorReason(reason: string) {
   const labels: Record<string, string> = {
     "page-refresh": "页面刷新",
@@ -2514,7 +2518,11 @@ function _Chat() {
   const mobileInputRef = useRef<HTMLDivElement>(null);
   const mobileInputEndRef = useRef<HTMLSpanElement | null>(null);
   const mobileInputTouchYRef = useRef<number | null>(null);
+  const mobileInputTouchTimeRef = useRef<number | null>(null);
+  const mobileInputTouchVelocityRef = useRef(0);
+  const mobileInputInertiaRafRef = useRef<number | null>(null);
   const mobileInputOutsidePointerBlurRef = useRef(false);
+  const inputScrollIndicatorHideTimerRef = useRef<number | null>(null);
   const mobileInputPreservedHeightRef = useRef("44px");
   const mobileInputMeasuredHeightRef = useRef(44);
   const preserveMobileInputBlurHeightRef = useRef(false);
@@ -3950,7 +3958,7 @@ function _Chat() {
         setUserInput("");
       } else {
         // or fill the prompt
-        setUserInput(prompt.content);
+        setUserInput(sanitizeDraftInputText(prompt.content));
       }
       (isMobileScreen ? mobileInputRef.current : inputRef.current)?.focus();
     }, 30);
@@ -4643,6 +4651,156 @@ function _Chat() {
     return measuredHeight;
   }, []);
 
+  const updateInputScrollIndicator = useCallback((visible: boolean) => {
+    const inputEl =
+      mobileInputRef.current ?? (inputRef.current as HTMLElement | null);
+    const innerEl = chatInputInnerRef.current;
+    if (!inputEl || !innerEl) return;
+
+    const clientHeight = Math.max(0, inputEl.clientHeight);
+    const scrollHeight = Math.max(0, inputEl.scrollHeight);
+    const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+    const isScrollable = clientHeight > 0 && maxScrollTop > 2;
+
+    innerEl.dataset.inputScrollable = isScrollable ? "true" : "false";
+    innerEl.style.setProperty(
+      "--chat-input-scroll-indicator-opacity",
+      visible && isScrollable ? "1" : "0",
+    );
+
+    if (!isScrollable) {
+      innerEl.style.setProperty("--chat-input-scroll-indicator-size", "0px");
+      innerEl.style.setProperty("--chat-input-scroll-indicator-offset", "0px");
+      return;
+    }
+
+    const trackInset = 6;
+    const trackHeight = Math.max(24, clientHeight - trackInset * 2);
+    const thumbHeight = Math.max(
+      24,
+      Math.min(
+        trackHeight,
+        Math.round((clientHeight / scrollHeight) * trackHeight),
+      ),
+    );
+    const maxThumbOffset = Math.max(0, trackHeight - thumbHeight);
+    const thumbOffset =
+      maxScrollTop > 0
+        ? Math.round((inputEl.scrollTop / maxScrollTop) * maxThumbOffset)
+        : 0;
+
+    innerEl.style.setProperty(
+      "--chat-input-scroll-indicator-size",
+      `${thumbHeight}px`,
+    );
+    innerEl.style.setProperty(
+      "--chat-input-scroll-indicator-offset",
+      `${trackInset + thumbOffset}px`,
+    );
+  }, []);
+
+  const showInputScrollIndicator = useCallback(() => {
+    if (typeof window === "undefined") return;
+    updateInputScrollIndicator(true);
+    if (inputScrollIndicatorHideTimerRef.current !== null) {
+      window.clearTimeout(inputScrollIndicatorHideTimerRef.current);
+    }
+    inputScrollIndicatorHideTimerRef.current = window.setTimeout(() => {
+      updateInputScrollIndicator(false);
+      inputScrollIndicatorHideTimerRef.current = null;
+    }, 900);
+  }, [updateInputScrollIndicator]);
+
+  const stopMobileInputInertiaScroll = useCallback((resetVelocity = true) => {
+    if (typeof window !== "undefined" && mobileInputInertiaRafRef.current) {
+      window.cancelAnimationFrame(mobileInputInertiaRafRef.current);
+    }
+    mobileInputInertiaRafRef.current = null;
+    if (resetVelocity) {
+      mobileInputTouchVelocityRef.current = 0;
+    }
+  }, []);
+
+  const startMobileInputInertiaScroll = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const initialVelocity = mobileInputTouchVelocityRef.current;
+    if (Math.abs(initialVelocity) < 0.08) {
+      mobileInputTouchVelocityRef.current = 0;
+      return;
+    }
+
+    stopMobileInputInertiaScroll(false);
+    let velocity = initialVelocity;
+    let lastFrameTime: number | null = null;
+
+    const step = (frameTime: number) => {
+      const mobileInput = mobileInputRef.current;
+      if (!mobileInput) {
+        stopMobileInputInertiaScroll();
+        return;
+      }
+
+      if (lastFrameTime == null) {
+        lastFrameTime = frameTime;
+        mobileInputInertiaRafRef.current = window.requestAnimationFrame(step);
+        return;
+      }
+
+      const deltaTime = Math.min(32, frameTime - lastFrameTime);
+      lastFrameTime = frameTime;
+      const maxScrollTop = Math.max(
+        0,
+        mobileInput.scrollHeight - mobileInput.clientHeight,
+      );
+      if (maxScrollTop <= 0) {
+        stopMobileInputInertiaScroll();
+        updateInputScrollIndicator(false);
+        return;
+      }
+
+      const nextScrollTop = Math.min(
+        maxScrollTop,
+        Math.max(0, mobileInput.scrollTop + velocity * deltaTime),
+      );
+      const hitEdge =
+        nextScrollTop <= 0.5 || nextScrollTop >= maxScrollTop - 0.5;
+
+      mobileInput.scrollTop = nextScrollTop;
+      updateInputScrollIndicator(true);
+      velocity *= Math.pow(0.92, deltaTime / 16);
+      mobileInputTouchVelocityRef.current = velocity;
+
+      if (Math.abs(velocity) < 0.02 || hitEdge) {
+        stopMobileInputInertiaScroll();
+        showInputScrollIndicator();
+        return;
+      }
+
+      mobileInputInertiaRafRef.current = window.requestAnimationFrame(step);
+    };
+
+    showInputScrollIndicator();
+    mobileInputInertiaRafRef.current = window.requestAnimationFrame(step);
+  }, [
+    showInputScrollIndicator,
+    stopMobileInputInertiaScroll,
+    updateInputScrollIndicator,
+  ]);
+
+  const handleInputScroll = useCallback(() => {
+    showInputScrollIndicator();
+  }, [showInputScrollIndicator]);
+
+  useEffect(() => {
+    return () => {
+      if (inputScrollIndicatorHideTimerRef.current !== null) {
+        window.clearTimeout(inputScrollIndicatorHideTimerRef.current);
+      }
+      stopMobileInputInertiaScroll();
+    };
+  }, [stopMobileInputInertiaScroll]);
+
   const resetMobileInputBlurLayout = useCallback(() => {
     const mobileInput = mobileInputRef.current;
     mobileInputPreservedHeightRef.current = "44px";
@@ -4816,32 +4974,85 @@ function _Chat() {
   ]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const rafId = window.requestAnimationFrame(() => {
+      updateInputScrollIndicator(false);
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [
+    attachImages.length,
+    isMobileInputFocused,
+    isMobileScreen,
+    updateInputScrollIndicator,
+    userInput,
+  ]);
+
+  useEffect(() => {
     const mobileInput = mobileInputRef.current;
     if (!isMobileScreen || !isMobileInputFocused || !mobileInput) {
       mobileInputTouchYRef.current = null;
+      mobileInputTouchTimeRef.current = null;
+      stopMobileInputInertiaScroll();
       return;
     }
 
     const onTouchStart = (event: TouchEvent) => {
       if (!mobileInput.contains(event.target as Node)) return;
+      stopMobileInputInertiaScroll();
       mobileInputTouchYRef.current = event.touches[0]?.clientY ?? null;
+      mobileInputTouchTimeRef.current = event.timeStamp;
+      mobileInputTouchVelocityRef.current = 0;
     };
 
     const onTouchMove = (event: TouchEvent) => {
       if (!mobileInput.contains(event.target as Node)) return;
       const currentY = event.touches[0]?.clientY;
       const lastY = mobileInputTouchYRef.current;
-      if (currentY == null || lastY == null) return;
+      const lastTime = mobileInputTouchTimeRef.current;
+      if (currentY == null || lastY == null || lastTime == null) return;
 
       const deltaY = lastY - currentY;
-      mobileInputTouchYRef.current = currentY;
-      mobileInput.scrollTop += deltaY;
+      const deltaTime = Math.max(1, event.timeStamp - lastTime);
+      const maxScrollTop = Math.max(
+        0,
+        mobileInput.scrollHeight - mobileInput.clientHeight,
+      );
+      if (maxScrollTop <= 0) {
+        mobileInputTouchYRef.current = currentY;
+        mobileInputTouchTimeRef.current = event.timeStamp;
+        mobileInputTouchVelocityRef.current = 0;
+        return;
+      }
+
+      const nextScrollTop = Math.min(
+        maxScrollTop,
+        Math.max(0, mobileInput.scrollTop + deltaY),
+      );
+      const appliedDelta = nextScrollTop - mobileInput.scrollTop;
+
+      // 到达边界后也继续拦截默认触摸行为，避免 contentEditable 在 iOS 上把手势误判成点击，
+      // 触发光标跳转并把视口滚回文本末尾。
       event.preventDefault();
       event.stopPropagation();
+
+      mobileInputTouchYRef.current = currentY;
+      mobileInputTouchTimeRef.current = event.timeStamp;
+      if (Math.abs(appliedDelta) < 0.1) {
+        mobileInputTouchVelocityRef.current = 0;
+        return;
+      }
+
+      mobileInput.scrollTop = nextScrollTop;
+      mobileInputTouchVelocityRef.current =
+        mobileInputTouchVelocityRef.current * 0.25 +
+        (appliedDelta / deltaTime) * 0.75;
+      showInputScrollIndicator();
     };
 
     const onTouchEnd = () => {
       mobileInputTouchYRef.current = null;
+      mobileInputTouchTimeRef.current = null;
+      startMobileInputInertiaScroll();
     };
 
     document.addEventListener("touchstart", onTouchStart, {
@@ -4867,8 +5078,16 @@ function _Chat() {
         capture: true,
       });
       mobileInputTouchYRef.current = null;
+      mobileInputTouchTimeRef.current = null;
+      stopMobileInputInertiaScroll();
     };
-  }, [isMobileInputFocused, isMobileScreen]);
+  }, [
+    isMobileInputFocused,
+    isMobileScreen,
+    showInputScrollIndicator,
+    startMobileInputInertiaScroll,
+    stopMobileInputInertiaScroll,
+  ]);
 
   const syncMobileKeyboardViewport = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
@@ -5603,6 +5822,14 @@ function _Chat() {
     ? "正在恢复完整消息内容，完成后会自动显示。"
     : "模型配置同步完成后，对话内容会自动显示。";
 
+  const sanitizeBoundaryInput = useCallback(() => {
+    const sanitizedInput = sanitizeDraftInputText(userInput ?? "");
+    if (sanitizedInput !== userInput) {
+      setUserInput(sanitizedInput);
+    }
+    return sanitizedInput;
+  }, [userInput]);
+
   useLayoutEffect(() => {
     if (isMobileScreen) {
       setIsInputHintOverflow(false);
@@ -5727,7 +5954,7 @@ function _Chat() {
       return;
     }
 
-    const mayBeUnfinishedInput = trimBoundaryInvisibleChars(
+    const mayBeUnfinishedInput = sanitizeDraftInputText(
       localStorage.getItem(unfinishedInputKey) ||
         localStorage.getItem(ACTIVE_UNFINISHED_INPUT_KEY) ||
         "",
@@ -5767,7 +5994,7 @@ function _Chat() {
       return;
     }
 
-    const draftValue = trimBoundaryInvisibleChars(userInput ?? "");
+    const draftValue = sanitizeDraftInputText(userInput ?? "");
     if (draftValue.length > 0) {
       localStorage.setItem(unfinishedInputKey, draftValue);
       localStorage.setItem(ACTIVE_UNFINISHED_INPUT_KEY, draftValue);
@@ -6933,6 +7160,7 @@ function _Chat() {
                             return;
                           }
 
+                          sanitizeBoundaryInput();
                           cancelMobileKeyboardViewportSync();
                           collapseTimersRef.current.forEach(clearTimeout);
                           collapseTimersRef.current = [];
@@ -6955,6 +7183,7 @@ function _Chat() {
                           }
                         }}
                         onPaste={handlePaste}
+                        onScroll={handleInputScroll}
                         style={{
                           fontSize: inputFontSize,
                           fontFamily: config.fontFamily,
@@ -6990,6 +7219,7 @@ function _Chat() {
                           scheduleMobileKeyboardViewportSync();
                         }}
                         onBlur={() => {
+                          sanitizeBoundaryInput();
                           setTimeout(() => setIsMobileInputFocused(false), 50);
                         }}
                         onClick={() => {
@@ -7000,6 +7230,7 @@ function _Chat() {
                           scheduleMoveInputCursorToEnd();
                         }}
                         onPaste={handlePaste}
+                        onScroll={handleInputScroll}
                         rows={inputRows}
                         autoFocus={autoFocus}
                         disabled={readOnly || isChatUnavailableForSync}
