@@ -4694,59 +4694,25 @@ function _Chat() {
       return;
     }
 
-    // #region debug-point B:scroll-before
-    fetch("http://192.168.110.92:7777/event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "mobile-input-scroll",
-        runId: "pre-fix",
-        hypothesisId: "B",
-        location: "chat.tsx:4684",
-        msg: "[DEBUG] mobile input scroll before bottom sync",
-        data: {
-          attachCount: attachImages.length,
-          focused: isMobileInputFocused,
-          scrollTop: mobileInput.scrollTop,
-          clientHeight: mobileInput.clientHeight,
-          scrollHeight: mobileInput.scrollHeight,
-        },
-        ts: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    mobileInputEndRef.current?.scrollIntoView({
-      block: "end",
-      inline: "nearest",
-      behavior: "auto",
-    });
+    // 计算目标滚动位置，确保底部内容可见
+    const targetScrollTop = Math.max(
+      0,
+      mobileInput.scrollHeight - mobileInput.clientHeight,
+    );
+
+    // 先尝试 scrollTo，兼容性更好
     mobileInput.scrollTo({
-      top: mobileInput.scrollHeight,
+      top: targetScrollTop,
       behavior: "auto",
     });
+
+    // 确保 scrollTop 正确设置
+    if (mobileInput.scrollTop < targetScrollTop) {
+      mobileInput.scrollTop = targetScrollTop;
+    }
+
     syncInputScrollIndicatorRef.current(false);
-    // #region debug-point B:scroll-after
-    fetch("http://192.168.110.92:7777/event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "mobile-input-scroll",
-        runId: "pre-fix",
-        hypothesisId: "B",
-        location: "chat.tsx:4697",
-        msg: "[DEBUG] mobile input scroll after bottom sync",
-        data: {
-          attachCount: attachImages.length,
-          focused: isMobileInputFocused,
-          scrollTop: mobileInput.scrollTop,
-          clientHeight: mobileInput.clientHeight,
-          scrollHeight: mobileInput.scrollHeight,
-        },
-        ts: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-  }, [attachImages.length, isMobileInputFocused, mobileInputHasText]);
+  }, [mobileInputHasText]);
 
   const scheduleScrollMobileInputToBottom = useCallback(() => {
     if (!mobileInputHasText) {
@@ -5078,10 +5044,10 @@ function _Chat() {
       fontStyle: computedStyle.fontStyle,
       lineHeight: computedStyle.lineHeight,
       letterSpacing: computedStyle.letterSpacing,
-      paddingTop: computedStyle.paddingTop,
-      paddingRight: computedStyle.paddingRight,
-      paddingBottom: computedStyle.paddingBottom,
-      paddingLeft: computedStyle.paddingLeft,
+      paddingTop: "11px",
+      paddingRight: "50px",
+      paddingBottom: "11px",
+      paddingLeft: "12px",
     });
 
     document.body.appendChild(probe);
@@ -5100,28 +5066,41 @@ function _Chat() {
     const innerEl = chatInputInnerRef.current;
     if (!mobileInput || !innerEl) return false;
 
+    // 保存当前 scrollTop，在高度调整后恢复
+    const currentScrollTop = mobileInput.scrollTop;
+
     const measuredHeight = Math.max(
       updateMobileInputMeasuredHeight(),
       mobileInputMeasuredHeightRef.current,
     );
-    const contentHeight = Math.max(
-      measuredHeight,
-      Math.ceil(mobileInput.scrollHeight),
-      measureMobileInputTextOnlyHeight(),
+    const mobileInputText = (mobileInput.textContent ?? "").replace(
+      /\u200b/g,
+      "",
     );
-    const shouldPreserveExpandedHeight =
-      mobileInputHasText && contentHeight > 52;
+    const textOnlyHeight = measureMobileInputTextOnlyHeight();
+    const contentHeight = Math.max(
+      textOnlyHeight,
+      Math.ceil(mobileInput.scrollHeight),
+    );
+    const hasMobileInputText =
+      mobileInputHasText || mobileInputText.trim().length > 0;
+    const hasAttachImages = attachImages.length > 0;
+    const shouldPreserveExpandedHeight = hasMobileInputText || hasAttachImages;
     if (!shouldPreserveExpandedHeight) {
       resetMobileInputBlurLayout();
       return false;
     }
 
-    // 带图片时文字区沿用“无图片 + 键盘收起”的高度，上层再额外叠加图片条高度。
+    // 输入框高度计算逻辑：
+    // - 有图片时：纯文本高度 + 固定图片条高度(68px)会在CSS中自动叠加
+    // - 无图片时：仅文本高度
     const maxBlurredInputHeight = 360;
-    const preservedHeight = `${Math.max(
+    // 计算纯文本高度（不含图片
+    let baseTextHeight = Math.max(
       44,
-      Math.ceil(Math.min(contentHeight, maxBlurredInputHeight)),
-    )}px`;
+      Math.ceil(Math.min(textOnlyHeight, maxBlurredInputHeight)),
+    );
+    const preservedHeight = `${baseTextHeight}px`;
     mobileInputPreservedHeightRef.current = preservedHeight;
     preserveMobileInputBlurHeightRef.current = true;
     setPreserveMobileInputBlurHeight(true);
@@ -5137,42 +5116,40 @@ function _Chat() {
     mobileInput.style.maxHeight = preservedHeight;
     const selection = window.getSelection();
     selection?.removeAllRanges();
-    // #region debug-point A:prepare-blur-layout
-    fetch("http://192.168.110.92:7777/event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "mobile-input-scroll",
-        runId: "pre-fix",
-        hypothesisId: "A",
-        location: "chat.tsx:4965",
-        msg: "[DEBUG] prepare mobile blur layout",
-        data: {
-          attachCount: attachImages.length,
-          preservedHeight,
-          scrollTop: mobileInput.scrollTop,
-          clientHeight: mobileInput.clientHeight,
-          scrollHeight: mobileInput.scrollHeight,
-          measuredHeight,
-          contentHeight,
-        },
-        ts: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    if (attachImages.length > 0 && mobileInputHasText) {
-      scheduleScrollMobileInputToBottom();
-    } else {
-      scheduleResetMobileInputViewportToStart();
-    }
+
+    // 在设置高度后，重新计算并恢复/设置正确的滚动位置
+    // 使用 requestAnimationFrame 确保高度已经应用
+    requestAnimationFrame(() => {
+      if (mobileInputRef.current) {
+        // 重新计算目标滚动位置
+        const targetScrollTop = Math.max(
+          0,
+          mobileInputRef.current.scrollHeight -
+            mobileInputRef.current.clientHeight,
+        );
+
+        // 如果有图片且有文字，始终滚动到底部
+        if (attachImages.length > 0 && mobileInputHasText) {
+          mobileInputRef.current.scrollTop = targetScrollTop;
+        } else if (mobileInputHasText && currentScrollTop > 0) {
+          // 有文字但没有图片时，恢复之前的滚动位置，不超过新的最大滚动值
+          mobileInputRef.current.scrollTop = Math.min(
+            currentScrollTop,
+            targetScrollTop,
+          );
+        } else {
+          // 没有文字或其他情况重置到顶部
+          mobileInputRef.current.scrollTop = 0;
+        }
+      }
+    });
+
     return true;
   }, [
     attachImages.length,
     mobileInputHasText,
     resetMobileInputBlurLayout,
     measureMobileInputTextOnlyHeight,
-    scheduleScrollMobileInputToBottom,
-    scheduleResetMobileInputViewportToStart,
     updateMobileInputMeasuredHeight,
   ]);
 
@@ -5247,6 +5224,9 @@ function _Chat() {
         return;
       }
 
+      // 保存当前滚动位置
+      const currentScrollTop = mobileInput.scrollTop;
+
       const preservedHeight = mobileInputPreservedHeightRef.current;
       const innerEl = chatInputInnerRef.current;
       innerEl?.style.setProperty(
@@ -5259,40 +5239,33 @@ function _Chat() {
       );
       mobileInput.style.height = preservedHeight;
       mobileInput.style.maxHeight = preservedHeight;
-      // #region debug-point E:collapse-preserved
-      fetch("http://192.168.110.92:7777/event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "mobile-input-scroll",
-          runId: "pre-fix",
-          hypothesisId: "E",
-          location: "chat.tsx:5021",
-          msg: "[DEBUG] collapse mobile input with preserved height",
-          data: {
-            attachCount: attachImages.length,
-            preservedHeight,
-            scrollTop: mobileInput.scrollTop,
-            clientHeight: mobileInput.clientHeight,
-            scrollHeight: mobileInput.scrollHeight,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      if (attachImages.length > 0 && mobileInputHasText) {
-        scheduleScrollMobileInputToBottom();
-      } else {
-        scheduleResetMobileInputViewportToStart();
-      }
+
+      // 在高度应用后重新设置滚动位置
+      requestAnimationFrame(() => {
+        if (mobileInputRef.current) {
+          const targetScrollTop = Math.max(
+            0,
+            mobileInputRef.current.scrollHeight -
+              mobileInputRef.current.clientHeight,
+          );
+
+          // 如果有图片且有文字，始终滚动到底部
+          if (attachImages.length > 0 && mobileInputHasText) {
+            mobileInputRef.current.scrollTop = targetScrollTop;
+          } else if (mobileInputHasText && currentScrollTop > 0) {
+            // 有文字但没有图片时，恢复之前的滚动位置
+            mobileInputRef.current.scrollTop = Math.min(
+              currentScrollTop,
+              targetScrollTop,
+            );
+          } else {
+            // 没有文字或其他情况重置到顶部
+            mobileInputRef.current.scrollTop = 0;
+          }
+        }
+      });
     },
-    [
-      attachImages.length,
-      mobileInputHasText,
-      resetMobileInputBlurLayout,
-      scheduleResetMobileInputViewportToStart,
-      scheduleScrollMobileInputToBottom,
-    ],
+    [attachImages.length, mobileInputHasText, resetMobileInputBlurLayout],
   );
 
   const scheduleCollapseMobileInput = useCallback(
@@ -5417,29 +5390,6 @@ function _Chat() {
     }
 
     const run = () => {
-      const mobileInput = mobileInputRef.current;
-      // #region debug-point D:attach-effect
-      mobileInput &&
-        fetch("http://192.168.110.92:7777/event", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: "mobile-input-scroll",
-            runId: "pre-fix",
-            hypothesisId: "D",
-            location: "chat.tsx:5141",
-            msg: "[DEBUG] attach change effect before resync",
-            data: {
-              attachCount: attachImages.length,
-              focused: isMobileInputFocused,
-              scrollTop: mobileInput.scrollTop,
-              clientHeight: mobileInput.clientHeight,
-              scrollHeight: mobileInput.scrollHeight,
-            },
-            ts: Date.now(),
-          }),
-        }).catch(() => {});
-      // #endregion
       updateMobileInputMeasuredHeight();
       scheduleMoveInputCursorToEnd();
       scheduleScrollMobileInputToBottom();
@@ -5732,6 +5682,28 @@ function _Chat() {
       syncMobileKeyboardViewport();
     });
   }, [isMobileScreen, syncMobileKeyboardViewport]);
+
+  useLayoutEffect(() => {
+    if (!isMobileScreen || !isMobileInputFocused) return;
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return;
+
+    chatInputInnerRef.current?.style.removeProperty(
+      "--chat-mobile-input-preserved-height",
+    );
+    mobileInput.style.removeProperty("--chat-mobile-input-preserved-height");
+    mobileInput.style.height = "auto";
+    mobileInput.style.maxHeight = "";
+    updateMobileInputMeasuredHeight();
+    scheduleMobileKeyboardViewportSync();
+  }, [
+    attachImages.length,
+    isMobileInputFocused,
+    isMobileScreen,
+    scheduleMobileKeyboardViewportSync,
+    updateMobileInputMeasuredHeight,
+    userInput,
+  ]);
 
   useEffect(() => {
     const mobileInput = mobileInputRef.current;
@@ -7730,6 +7702,9 @@ function _Chat() {
                           clearMobileKeyboardReleaseTimers();
                           preserveMobileInputBlurHeightRef.current = false;
                           setPreserveMobileInputBlurHeight(false);
+                          chatInputInnerRef.current?.style.removeProperty(
+                            "--chat-mobile-input-preserved-height",
+                          );
                           if (mobileInputRef.current) {
                             mobileInputRef.current.style.removeProperty(
                               "--chat-mobile-input-preserved-height",

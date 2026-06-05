@@ -2616,7 +2616,7 @@
 
   .attach-images {
     gap: 6px;
-    padding: 4px 8px;
+    padding: 6px 8px 4px 8px;
     overflow-x: auto;
     overflow-y: hidden;
     flex-wrap: nowrap;
@@ -2625,7 +2625,7 @@
     height: var(--chat-mobile-attach-strip-height);
     min-height: var(--chat-mobile-attach-strip-height);
     max-height: var(--chat-mobile-attach-strip-height);
-    align-items: center;
+    align-items: flex-start;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
   }
