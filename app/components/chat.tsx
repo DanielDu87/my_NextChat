@@ -83,6 +83,7 @@ import {
   selectOrCopy,
 } from "../utils";
 import { safeLocalStorage } from "../utils/safe-local-storage";
+import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 
 import { useAllModels } from "../utils/hooks";
@@ -1215,12 +1216,21 @@ import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 const localStorage = safeLocalStorage();
 const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
 const ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY = "unfinished-attach-images-active";
+const MAX_ATTACH_IMAGES = 9;
+const UNFINISHED_ATTACH_IMAGES_TTL_MS = 24 * 60 * 60 * 1000;
 const UNFINISHED_ATTACH_IMAGES = (id: string) =>
   "unfinished-attach-images-" + id;
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const recentBalanceAutoRefresh = new Map<string, number>();
+
+type AttachImagesDraftPayload = {
+  version: 1;
+  images: string[];
+  updatedAt: number;
+  expiresAt: number;
+};
 
 function trimBoundaryInvisibleChars(text: string) {
   return String(text || "").replace(
@@ -1231,6 +1241,73 @@ function trimBoundaryInvisibleChars(text: string) {
 
 function sanitizeDraftInputText(text: string) {
   return trimBoundaryInvisibleChars(text);
+}
+
+function sanitizeDraftAttachImages(images: unknown) {
+  return Array.isArray(images)
+    ? images
+        .filter((item): item is string => typeof item === "string" && !!item)
+        .slice(0, MAX_ATTACH_IMAGES)
+    : [];
+}
+
+function createAttachImagesDraftPayload(
+  images: string[],
+): AttachImagesDraftPayload {
+  const now = Date.now();
+  return {
+    version: 1,
+    images: sanitizeDraftAttachImages(images),
+    updatedAt: now,
+    expiresAt: now + UNFINISHED_ATTACH_IMAGES_TTL_MS,
+  };
+}
+
+async function readAttachImagesDraft(keys: string[]) {
+  const now = Date.now();
+  const indexedDbValues =
+    keys.length > 0 ? await indexedDbStateStorage.getRawItems(keys) : {};
+
+  for (const key of keys) {
+    const raw = indexedDbValues[key] ?? localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw);
+
+      // Backward compatible with the previous plain string-array format.
+      if (Array.isArray(parsed)) {
+        const images = sanitizeDraftAttachImages(parsed);
+        if (images.length === 0) {
+          void indexedDbStateStorage.removeRawItem(key);
+          localStorage.removeItem(key);
+          continue;
+        }
+        return { images, fromLegacy: true };
+      }
+
+      const images = sanitizeDraftAttachImages(parsed?.images);
+      const expiresAt = Number(parsed?.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+        void indexedDbStateStorage.removeRawItem(key);
+        localStorage.removeItem(key);
+        continue;
+      }
+
+      if (images.length === 0) {
+        void indexedDbStateStorage.removeRawItem(key);
+        localStorage.removeItem(key);
+        continue;
+      }
+
+      return { images, fromLegacy: false };
+    } catch {
+      void indexedDbStateStorage.removeRawItem(key);
+      localStorage.removeItem(key);
+    }
+  }
+
+  return null;
 }
 
 function formatModelSelectorReason(reason: string) {
@@ -2536,6 +2613,7 @@ function _Chat() {
   const mobileInputTouchVelocityRef = useRef(0);
   const mobileInputInertiaRafRef = useRef<number | null>(null);
   const mobileInputOutsidePointerBlurRef = useRef(false);
+  const attachLimitHintTimerRef = useRef<number | null>(null);
   const inputScrollIndicatorHideTimerRef = useRef<number | null>(null);
   const mobileInputPreservedHeightRef = useRef("44px");
   const mobileInputMeasuredHeightRef = useRef(44);
@@ -2723,6 +2801,7 @@ function _Chat() {
 
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
+  const [attachLimitHint, setAttachLimitHint] = useState("");
   const [uploading, setUploading] = useState(false);
   const lastAssistantSignatureRef = useRef("");
   const streamingScrollResumeTimerRef = useRef<ReturnType<
@@ -4649,6 +4728,35 @@ function _Chat() {
     setTimeout(resetMobileInputViewportToStart, 180);
   }, [resetMobileInputViewportToStart]);
 
+  const showAttachLimitHint = useCallback(
+    (message = `最多只能添加${MAX_ATTACH_IMAGES}张图片`) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      setAttachLimitHint(message);
+      if (attachLimitHintTimerRef.current !== null) {
+        window.clearTimeout(attachLimitHintTimerRef.current);
+      }
+      attachLimitHintTimerRef.current = window.setTimeout(() => {
+        setAttachLimitHint("");
+        attachLimitHintTimerRef.current = null;
+      }, 1800);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (
+        typeof window !== "undefined" &&
+        attachLimitHintTimerRef.current !== null
+      ) {
+        window.clearTimeout(attachLimitHintTimerRef.current);
+      }
+    };
+  }, []);
+
   const updateMobileInputMeasuredHeight = useCallback(() => {
     const mobileInput = mobileInputRef.current;
     if (!mobileInput) return 44;
@@ -6051,25 +6159,51 @@ function _Chat() {
 
   useEffect(() => {
     skipNextAttachImagesPersistKeyRef.current = unfinishedAttachImagesKey;
+    let cancelled = false;
     if (currentSessionHasMessages) {
+      void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
+      void indexedDbStateStorage.removeRawItem(
+        ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+      );
       localStorage.removeItem(unfinishedAttachImagesKey);
+      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
       setAttachImages([]);
       return;
     }
 
-    const rawImages =
-      localStorage.getItem(unfinishedAttachImagesKey) ||
-      localStorage.getItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-    if (!rawImages) {
-      setAttachImages([]);
-      return;
-    }
+    void (async () => {
+      const restoredDraft: Awaited<ReturnType<typeof readAttachImagesDraft>> =
+        await readAttachImagesDraft([
+          unfinishedAttachImagesKey,
+          ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+        ]);
+      if (cancelled) return;
 
-    try {
-      const parsed = JSON.parse(rawImages);
-      const nextImages = Array.isArray(parsed)
-        ? parsed.filter((item) => typeof item === "string" && item).slice(0, 3)
-        : [];
+      if (!restoredDraft) {
+        setAttachImages([]);
+        return;
+      }
+
+      const nextImages = restoredDraft.images;
+      if (restoredDraft.fromLegacy) {
+        const draftImages = JSON.stringify(
+          createAttachImagesDraftPayload(nextImages),
+        );
+        await Promise.all([
+          indexedDbStateStorage.setRawItem(
+            unfinishedAttachImagesKey,
+            draftImages,
+          ),
+          indexedDbStateStorage.setRawItem(
+            ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+            draftImages,
+          ),
+        ]);
+        localStorage.removeItem(unfinishedAttachImagesKey);
+        localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
+        if (cancelled) return;
+      }
+
       if (isChatUnavailableForSync) {
         pendingDraftRestoreRef.current = {
           input: pendingDraftRestoreRef.current?.input ?? "",
@@ -6079,10 +6213,13 @@ function _Chat() {
         setAttachImages([]);
         return;
       }
+
       setAttachImages(nextImages);
-    } catch {
-      setAttachImages([]);
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     currentSessionHasMessages,
     isChatUnavailableForSync,
@@ -6099,7 +6236,12 @@ function _Chat() {
     }
 
     if (currentSessionHasMessages) {
+      void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
+      void indexedDbStateStorage.removeRawItem(
+        ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+      );
       localStorage.removeItem(unfinishedAttachImagesKey);
+      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
       return;
     }
 
@@ -6108,12 +6250,26 @@ function _Chat() {
     }
 
     if (attachImages.length > 0) {
-      const draftImages = JSON.stringify(attachImages.slice(0, 3));
-      localStorage.setItem(unfinishedAttachImagesKey, draftImages);
-      localStorage.setItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY, draftImages);
+      const draftImages = JSON.stringify(
+        createAttachImagesDraftPayload(attachImages),
+      );
+      void indexedDbStateStorage.setRawItem(
+        unfinishedAttachImagesKey,
+        draftImages,
+      );
+      void indexedDbStateStorage.setRawItem(
+        ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+        draftImages,
+      );
+      localStorage.removeItem(unfinishedAttachImagesKey);
+      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
       return;
     }
 
+    void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
+    void indexedDbStateStorage.removeRawItem(
+      ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+    );
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
   }, [
@@ -6264,7 +6420,9 @@ function _Chat() {
           );
           setAttachImages((prev) => {
             const all = [...prev, ...uploadedUrls];
-            return all.length > 3 ? all.slice(0, 3) : all;
+            return all.length > MAX_ATTACH_IMAGES
+              ? all.slice(0, MAX_ATTACH_IMAGES)
+              : all;
           });
         } catch {
           showToast("图片粘贴失败，请重试");
@@ -6276,7 +6434,7 @@ function _Chat() {
       if (imageUrlsFromHtml.length > 0) {
         setAttachImages((prev) => {
           const all = [...prev, ...imageUrlsFromHtml];
-          return [...new Set(all)].slice(0, 3);
+          return [...new Set(all)].slice(0, MAX_ATTACH_IMAGES);
         });
       }
     },
@@ -6299,7 +6457,15 @@ function _Chat() {
 
     fileInput.onchange = async (event: Event) => {
       const target = event.target as HTMLInputElement;
-      const files = Array.from(target.files ?? []).slice(0, 3);
+      const selectedFiles = Array.from(target.files ?? []);
+      const remainingSlots = Math.max(
+        0,
+        MAX_ATTACH_IMAGES - attachImages.length,
+      );
+      if (selectedFiles.length > remainingSlots) {
+        showAttachLimitHint();
+      }
+      const files = selectedFiles.slice(0, remainingSlots);
 
       if (files.length === 0) {
         cleanupFileInput();
@@ -6311,7 +6477,9 @@ function _Chat() {
         const uploadedImages = await Promise.all(
           files.map((file) => uploadImageRemote(file)),
         );
-        setAttachImages((prev) => [...prev, ...uploadedImages].slice(0, 3));
+        setAttachImages((prev) =>
+          [...prev, ...uploadedImages].slice(0, MAX_ATTACH_IMAGES),
+        );
       } catch {
         showToast("图片上传失败，请重试");
       } finally {
@@ -7052,6 +7220,11 @@ function _Chat() {
                 prompts={promptHints}
                 onPromptSelect={onPromptSelect}
               />
+              {attachLimitHint && (
+                <div className={styles["chat-input-limit-hint"]}>
+                  {attachLimitHint}
+                </div>
+              )}
 
               {!isMobileScreen && !currentSessionHasMessages && (
                 <div className={styles["chat-input-empty-title"]}>
@@ -7100,6 +7273,10 @@ function _Chat() {
                       }
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
+                        if (attachImages.length >= MAX_ATTACH_IMAGES) {
+                          showAttachLimitHint();
+                          return;
+                        }
                         uploadImage();
                       }}
                     />
