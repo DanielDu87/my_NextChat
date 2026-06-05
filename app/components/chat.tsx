@@ -1735,6 +1735,20 @@ function MobileAddIcon() {
   );
 }
 
+function MobileClearIcon() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+      <path
+        d="M9 9L21 21M21 9L9 21"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function AutoModeStateIcon(props: { enabled: boolean }) {
   if (props.enabled) {
     return <ConfirmIcon />;
@@ -4927,22 +4941,40 @@ function _Chat() {
     setTimeout(moveInputCursorToEnd, 520);
   }, [moveInputCursorToEnd]);
 
-  useEffect(() => {
+  const resetMobileInputDom = useCallback((text: string) => {
     const mobileInput = mobileInputRef.current;
-    if (!isMobileScreen || !mobileInput) return;
-    if ((mobileInput.textContent ?? "").replace(/\u200b/g, "") === userInput)
-      return;
+    if (!mobileInput) return;
 
-    mobileInput.textContent = userInput;
+    mobileInput.textContent = text;
     const endMarker = document.createElement("span");
     endMarker.textContent = "\u200b";
     endMarker.setAttribute("data-chat-input-end", "true");
     mobileInput.appendChild(endMarker);
     mobileInputEndRef.current = endMarker;
+  }, []);
+
+  useEffect(() => {
+    const mobileInput = mobileInputRef.current;
+    if (!isMobileScreen || !mobileInput) return;
+    const mobileInputText = (mobileInput.textContent ?? "").replace(
+      /\u200b/g,
+      "",
+    );
+    const shouldResetEmptyMobileDom =
+      userInput.length === 0 &&
+      (mobileInputText.length > 0 ||
+        mobileInput.childNodes.length !== 1 ||
+        mobileInput.firstChild !== mobileInputEndRef.current ||
+        !mobileInputEndRef.current?.isConnected);
+    if (mobileInputText === userInput && !shouldResetEmptyMobileDom) return;
+
+    resetMobileInputDom(userInput);
     if (document.activeElement === mobileInput) {
       updateMobileInputMeasuredHeight();
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
+      } else {
+        scheduleResetMobileInputViewportToStart();
       }
     } else {
       scheduleResetMobileInputViewportToStart();
@@ -4955,6 +4987,7 @@ function _Chat() {
     mobileInputHasText,
     isMobileScreen,
     moveInputCursorToEnd,
+    resetMobileInputDom,
     updateMobileInputMeasuredHeight,
     scheduleResetMobileInputViewportToStart,
     scheduleScrollMobileInputToBottom,
@@ -5261,6 +5294,12 @@ function _Chat() {
     const onPointerDownCapture = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target || mobileInput.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest(`.${styles["chat-input-mobile-actions"]}`)
+      ) {
+        return;
+      }
       mobileInputOutsidePointerBlurRef.current = true;
     };
 
@@ -7022,17 +7061,49 @@ function _Chat() {
 
               <div className={styles["chat-input-row"]}>
                 {isMobileScreen && (
-                  <IconButton
-                    icon={<MobileAddIcon />}
-                    className={styles["chat-input-mobile-add"]}
-                    title="添加照片"
-                    aria="添加照片"
-                    disabled={readOnly || isChatUnavailableForSync || uploading}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      uploadImage();
-                    }}
-                  />
+                  <div className={styles["chat-input-mobile-actions"]}>
+                    {(userInput.length > 0 || attachImages.length > 0) && (
+                      <IconButton
+                        icon={<MobileClearIcon />}
+                        className={styles["chat-input-mobile-add"]}
+                        title="清空输入"
+                        aria="清空输入"
+                        disabled={readOnly || isChatUnavailableForSync}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onTouchStart={(e) => e.preventDefault()}
+                        onClick={() => {
+                          mobileInputOutsidePointerBlurRef.current = false;
+                          setPromptHints([]);
+                          setUserInput("");
+                          setAttachImages([]);
+                          localStorage.removeItem(unfinishedInputKey);
+                          localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
+                          localStorage.removeItem(unfinishedAttachImagesKey);
+                          localStorage.removeItem(
+                            ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+                          );
+                          if (isMobileScreen && !isMobileInputFocused) {
+                            setIsMobileInputFocused(false);
+                            cancelMobileKeyboardViewportSync();
+                            mobileInputRef.current?.blur();
+                          }
+                        }}
+                      />
+                    )}
+                    <IconButton
+                      icon={<MobileAddIcon />}
+                      className={styles["chat-input-mobile-add"]}
+                      title="添加照片"
+                      aria="添加照片"
+                      disabled={
+                        readOnly || isChatUnavailableForSync || uploading
+                      }
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        uploadImage();
+                      }}
+                    />
+                  </div>
                 )}
                 <label
                   ref={chatInputInnerRef}

@@ -2033,6 +2033,10 @@
   width: 100%;
 }
 
+.chat-input-mobile-actions {
+  display: none;
+}
+
 .chat-input-mobile-add {
   display: none;
 }
@@ -2406,6 +2410,14 @@
   .chat-input-row {
     align-items: flex-end;
     gap: 10px;
+  }
+
+  .chat-input-mobile-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .chat-input-mobile-add {
