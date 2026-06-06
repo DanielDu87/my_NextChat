@@ -363,10 +363,6 @@ export function Home() {
       window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
     } catch {}
 
-    if (!cancelled) {
-      setChatBootstrapped(true);
-    }
-
     void useChatIndexStore
       .getState()
       .initialize()
@@ -388,6 +384,9 @@ export function Home() {
               console.error("[Home] 远端变更同步失败:", error);
             });
         });
+        if (!cancelled) {
+          setChatBootstrapped(true);
+        }
         try {
           window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "1");
         } catch {}

@@ -31,6 +31,7 @@ import ConfigIcon from "../icons/config.svg";
 import DeleteIcon from "../icons/clear.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
+import LogOutDoorIcon from "../icons/log-out-door.svg";
 import ImageIcon from "../icons/image.svg";
 
 import StopIcon from "../icons/pause.svg";
@@ -1220,6 +1221,7 @@ const MAX_ATTACH_IMAGES = 9;
 const UNFINISHED_ATTACH_IMAGES_TTL_MS = 24 * 60 * 60 * 1000;
 const UNFINISHED_ATTACH_IMAGES = (id: string) =>
   "unfinished-attach-images-" + id;
+
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
@@ -2622,6 +2624,7 @@ function _Chat() {
   const mobileInputMeasuredHeightRef = useRef(44);
   const preserveMobileInputBlurHeightRef = useRef(false);
   const collapseTimersRef = useRef<number[]>([]);
+  const mobileBlurTimerRef = useRef<number | null>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
@@ -2646,6 +2649,10 @@ function _Chat() {
   const [userInput, setUserInput] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [editInputRows, setEditInputRows] = useState(1);
+  const [editMobileMessageId, setEditMobileMessageId] = useState<string | null>(
+    null,
+  );
   const [isInputHintOverflow, setIsInputHintOverflow] = useState(false);
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
   const [preserveMobileInputBlurHeight, setPreserveMobileInputBlurHeight] =
@@ -2662,16 +2669,13 @@ function _Chat() {
     (state: any) => state.criticalSyncInProgress,
   );
   const syncProvider = useSyncStore((state) => state.provider);
-  const isSyncBlocking =
-    syncProvider === ProviderType.Database &&
-    (!criticalSyncReady || criticalSyncInProgress);
-  const isChatUnavailableForSync =
-    syncProvider === ProviderType.Database && !isModelConfigSyncConfirmed;
+  const isChatUnavailableForSync = false;
   const readOnly = useAuthStore((state) => state.readOnly);
   const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyAutoBottomSessionRef = useRef("");
+  const pendingInitialBottomSessionRef = useRef<string | null>(null);
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
         scrollRef.current.scrollHeight -
@@ -2710,9 +2714,17 @@ function _Chat() {
       textarea.focus();
       const len = textarea.value.length;
       textarea.setSelectionRange(len, len);
-      autoGrowTextArea(textarea);
+      const rows = autoGrowTextArea(textarea);
+      setEditInputRows(rows);
     }
   }, [editingMessageId]);
+
+  useEffect(() => {
+    if (editingMessageId && editInputRef.current) {
+      const rows = autoGrowTextArea(editInputRef.current);
+      setEditInputRows(rows);
+    }
+  }, [editContent, editingMessageId]);
 
   const currentSessionSummaryMessageCount = useChatStore((state) => {
     const summary = state.sessionSummaries.find(
@@ -2815,25 +2827,35 @@ function _Chat() {
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
-  const staleStreamingStateRef = useRef<{
-    sessionId: string;
-    messageIds: Set<string>;
-  }>({
-    sessionId: "",
-    messageIds: new Set<string>(),
-  });
-
-  if (staleStreamingStateRef.current.sessionId !== session.id) {
-    staleStreamingStateRef.current = {
-      sessionId: session.id,
-      messageIds: new Set(
-        sessionMessages
-          .filter((message) => message.streaming)
-          .map((message) => message.id ?? "")
-          .filter(Boolean),
-      ),
-    };
-  }
+  const isStaleStreamingMessage = useCallback(
+    (message: ChatMessage) => {
+      if (!message.streaming) return false;
+      if (!message.id) return true;
+      return !ChatControllerPool.has(session.id, message.id);
+    },
+    [session.id],
+  );
+  const isStaleAssistantLoadingBubble = useCallback(
+    (message: ChatMessage) => {
+      if (message.role !== "assistant") return false;
+      const shouldShowLoadingBubble =
+        Boolean((message as any).preview) || Boolean(message.streaming);
+      if (!shouldShowLoadingBubble) return false;
+      if (getMessageTextContent(message).length > 0) return false;
+      const messageTime = new Date(message.date).getTime();
+      if (Number.isFinite(messageTime) && Date.now() - messageTime < 1500) {
+        return false;
+      }
+      if (!message.streaming) return true;
+      if (!message.id) return true;
+      return !ChatControllerPool.has(session.id, message.id);
+    },
+    [session.id],
+  );
+  const hasAssistantLoadingBubbles = useMemo(
+    () => sessionMessages.some(isStaleAssistantLoadingBubble),
+    [isStaleAssistantLoadingBubble, sessionMessages],
+  );
 
   // current model name
   const currentRawModel = sessionMask?.modelConfig?.model || "";
@@ -3998,16 +4020,38 @@ function _Chat() {
     return () => window.removeEventListener("mousedown", onMouseDown);
   }, [promptHints.length]);
 
+  const blurMobileKeyboard = useCallback(() => {
+    const runBlur = () => {
+      inputRef.current?.blur();
+      mobileInputRef.current?.blur();
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (activeEl && activeEl !== document.body) {
+        activeEl.blur?.();
+      }
+      window.getSelection?.()?.removeAllRanges();
+    };
+
+    runBlur();
+    window.requestAnimationFrame(runBlur);
+    [40, 120, 260].forEach((delay) => {
+      window.setTimeout(runBlur, delay);
+    });
+  }, []);
+
   const doSubmit = (userInput: string) => {
-    if (readOnly) {
-      showToast("管理员查看他人数据时为只读模式，不能发送消息");
-      return;
-    }
-    if (isSyncBlocking) {
-      showToast("模型配置同步中，请稍候…");
-      return;
-    }
     if (userInput.trim() === "" && isEmpty(attachImages)) return;
+
+    // Handle mobile edit mode: resend edited message
+    if (editMobileMessageId) {
+      const message = sessionMessages.find((m) => m.id === editMobileMessageId);
+      if (message) {
+        setEditMobileMessageId(null);
+        onResend(message, userInput, attachImages);
+        setAttachImages([]);
+        return;
+      }
+    }
+
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -4015,7 +4059,7 @@ function _Chat() {
       matchCommand.invoke();
       if (isMobileScreen) {
         setIsMobileInputFocused(false);
-        mobileInputRef.current?.blur();
+        blurMobileKeyboard();
       }
       return;
     }
@@ -4034,7 +4078,7 @@ function _Chat() {
     setPromptHints([]);
     if (isMobileScreen) {
       setIsMobileInputFocused(false);
-      mobileInputRef.current?.blur();
+      blurMobileKeyboard();
       setAutoScroll(true);
       setHitBottom(true);
       [50, 180, 420].forEach((delay) => {
@@ -4086,10 +4130,10 @@ function _Chat() {
     const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
     const shouldNormalizeMessages = sessionMessages.some((m) => {
       if (m.streaming) {
-        return (
-          staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
-          !ChatControllerPool.has(session.id, m.id ?? "")
-        );
+        return isStaleStreamingMessage(m);
+      }
+      if (isStaleAssistantLoadingBubble(m)) {
+        return true;
       }
 
       if (!(m.isError || new Date(m.date).getTime() < stopTiming)) {
@@ -4104,14 +4148,16 @@ function _Chat() {
     }
 
     chatStore.updateTargetSession(session, (session) => {
+      session.messages = session.messages.filter(
+        (m) => !isStaleAssistantLoadingBubble(m),
+      );
       session.messages.forEach((m) => {
         const hasActiveController =
           Boolean(m.streaming) &&
-          ChatControllerPool.has(session.id, m.id ?? "");
+          Boolean(m.id) &&
+          ChatControllerPool.has(session.id, m.id);
         const shouldInterruptStaleStreaming =
-          Boolean(m.streaming) &&
-          staleStreamingStateRef.current.messageIds.has(m.id ?? "") &&
-          !hasActiveController;
+          Boolean(m.streaming) && (!m.id || !hasActiveController);
         const shouldNormalizeEmptyResponse =
           (m.isError || new Date(m.date).getTime() < stopTiming) &&
           m.content.length === 0;
@@ -4125,7 +4171,6 @@ function _Chat() {
           const currentContent = getMessageTextContent(m).trimEnd();
           m.streaming = false;
           m.isError = true;
-          staleStreamingStateRef.current.messageIds.delete(m.id ?? "");
           m.content = currentContent
             ? currentContent.endsWith("响应因页面刷新而中断")
               ? currentContent
@@ -4144,7 +4189,13 @@ function _Chat() {
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatStore, session, sessionMessages]);
+  }, [
+    chatStore,
+    isStaleAssistantLoadingBubble,
+    isStaleStreamingMessage,
+    session,
+    sessionMessages,
+  ]);
 
   // Effect B：模型配置同步（全局配置下发到会话 mask）
   useEffect(() => {
@@ -4358,12 +4409,11 @@ function _Chat() {
     }
   };
 
-  const onResend = (message: ChatMessage, editedContent?: string) => {
-    if (isSyncBlocking) {
-      showToast("模型配置同步中，完成后再重试");
-      return;
-    }
-
+  const onResend = (
+    message: ChatMessage,
+    editedContent?: string,
+    editedImages?: string[],
+  ) => {
     // when it is resending a message
     // 1. for a user's message, find the next bot response
     // 2. for a bot's message, find the last user's input
@@ -4432,7 +4482,7 @@ function _Chat() {
     // resend the message
     setIsLoading(true);
     const textContent = editedContent ?? getMessageTextContent(userMessage);
-    const images = getMessageImages(userMessage);
+    const images = editedImages ?? getMessageImages(userMessage);
     chatStore
       .onUserInput(textContent, images, undefined, {
         reuseUserMessageId: userMessage.id,
@@ -4547,10 +4597,14 @@ function _Chat() {
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
   }, [msgRenderIndex, renderMessages]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     _setMsgRenderIndex(Math.max(0, renderMessages.length - CHAT_PAGE_SIZE));
     setHitBottom(true);
   }, [safeSession.id, renderMessages.length]);
+
+  useLayoutEffect(() => {
+    pendingInitialBottomSessionRef.current = safeSession.id || null;
+  }, [safeSession.id]);
 
   const updateBalancePanelOverlap = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -4572,10 +4626,19 @@ function _Chat() {
 
       const panelRect = panel.getBoundingClientRect();
       const messageParts = chatBody.querySelectorAll(
-        `.${styles["chat-message-item"]}`,
+        `.${styles["chat-message-content"]}, .${styles["chat-message-item"]}`,
       );
       const overlaps = Array.from(messageParts).some((messagePart) => {
         const messageRect = messagePart.getBoundingClientRect();
+        if (
+          messageRect.bottom < 0 ||
+          messageRect.top > window.innerHeight ||
+          messageRect.right < 0 ||
+          messageRect.left > window.innerWidth
+        ) {
+          return false;
+        }
+
         const overlapWidth =
           Math.min(panelRect.right, messageRect.right) -
           Math.max(panelRect.left, messageRect.left);
@@ -4583,12 +4646,14 @@ function _Chat() {
           Math.min(panelRect.bottom, messageRect.bottom) -
           Math.max(panelRect.top, messageRect.top);
 
-        return overlapWidth > 8 && overlapHeight > 16;
+        return isMobileScreen
+          ? overlapWidth > 2 && overlapHeight > 2
+          : overlapWidth > 8 && overlapHeight > 16;
       });
 
       setBalancePanelOverlapsMessages(overlaps);
     });
-  }, [showBalanceUserPanel]);
+  }, [isMobileScreen, showBalanceUserPanel]);
 
   useEffect(() => {
     updateBalancePanelOverlap();
@@ -4606,6 +4671,16 @@ function _Chat() {
     msgRenderIndex,
     safeSession.id,
     showBalanceUserPanel,
+    updateBalancePanelOverlap,
+  ]);
+
+  useEffect(() => {
+    updateBalancePanelOverlap();
+  }, [
+    isMobileInputFocused,
+    isMobileScreen,
+    userInput,
+    attachImages.length,
     updateBalancePanelOverlap,
   ]);
 
@@ -4663,6 +4738,73 @@ function _Chat() {
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
     scrollDomToBottom();
   }, [renderMessages.length, scrollDomToBottom, setMsgRenderIndex]);
+
+  const jumpToBottom = useCallback(() => {
+    setAutoScroll(true);
+    setHitBottom(true);
+    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+
+    const dom = scrollRef.current;
+    if (dom) {
+      dom.scrollTop = dom.scrollHeight;
+    }
+  }, [
+    renderMessages.length,
+    scrollRef,
+    setAutoScroll,
+    setHitBottom,
+    setMsgRenderIndex,
+  ]);
+
+  const forceScrollToBottom = useCallback(() => {
+    if (typeof window === "undefined") return;
+    setAutoScroll(true);
+    setHitBottom(true);
+    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+
+    const runScroll = () => {
+      setAutoScroll(true);
+      setHitBottom(true);
+      scrollDomToBottom();
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(runScroll);
+    });
+    [48, 120, 260, 420].forEach((delay) => {
+      window.setTimeout(runScroll, delay);
+    });
+  }, [
+    renderMessages.length,
+    scrollDomToBottom,
+    setAutoScroll,
+    setHitBottom,
+    setMsgRenderIndex,
+  ]);
+
+  const refreshTouchTriggeredRef = useRef(false);
+  const handleSessionRefresh = useCallback(() => {
+    forceScrollToBottom();
+    showToast(Locale.Chat.Actions.RefreshToast);
+    chatStore.summarizeSession(true, session);
+  }, [chatStore, forceScrollToBottom, session]);
+
+  const scrollToBottomTouchTriggeredRef = useRef(false);
+  const handleScrollToBottomButton = useCallback(
+    (immediate: boolean) => {
+      if (immediate) {
+        forceScrollToBottom();
+        return;
+      }
+
+      setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    },
+    [forceScrollToBottom, renderMessages.length, setMsgRenderIndex],
+  );
 
   const scrollToTopOnIOS = useCallback(() => {
     if (!isIOSMobile) return;
@@ -5366,6 +5508,35 @@ function _Chat() {
     mobileInputEndRef.current = endMarker;
   }, []);
 
+  const exitMobileEditMode = useCallback(() => {
+    setEditMobileMessageId(null);
+    setUserInput("");
+    setAttachImages([]);
+    setPromptHints([]);
+    setIsMobileInputFocused(false);
+    setPreserveMobileInputBlurHeight(false);
+    preserveMobileInputBlurHeightRef.current = false;
+    cancelMobileKeyboardViewportSync();
+    clearMobileKeyboardReleaseTimers();
+    resetMobileInputDom("");
+    syncMobileInputHeight("");
+    scheduleResetMobileInputViewportToStart();
+    resetMobileInputBlurLayout();
+    blurMobileKeyboard();
+    [50, 180, 420].forEach((delay) => {
+      setTimeout(() => scrollDomToBottom(), delay);
+    });
+  }, [
+    blurMobileKeyboard,
+    cancelMobileKeyboardViewportSync,
+    clearMobileKeyboardReleaseTimers,
+    resetMobileInputDom,
+    resetMobileInputBlurLayout,
+    scheduleResetMobileInputViewportToStart,
+    scrollDomToBottom,
+    syncMobileInputHeight,
+  ]);
+
   useEffect(() => {
     const mobileInput = mobileInputRef.current;
     if (!isMobileScreen || !mobileInput) return;
@@ -5741,6 +5912,18 @@ function _Chat() {
     });
   }, [isMobileScreen, syncMobileKeyboardViewport]);
 
+  const scheduleMobileLatestMessagesIntoView = useCallback(() => {
+    if (!isMobileScreen || typeof window === "undefined") return;
+
+    [0, 80, 180, 320].forEach((delay) => {
+      window.setTimeout(() => {
+        setAutoScroll(true);
+        setHitBottom(true);
+        scrollDomToBottom();
+      }, delay);
+    });
+  }, [isMobileScreen, scrollDomToBottom, setAutoScroll, setHitBottom]);
+
   useLayoutEffect(() => {
     if (!isMobileScreen || !isMobileInputFocused) return;
     const mobileInput = mobileInputRef.current;
@@ -5753,12 +5936,14 @@ function _Chat() {
     mobileInput.style.height = mobileInputHasText ? "auto" : "44px";
     mobileInput.style.maxHeight = "";
     syncMobileInputHeight(userInput);
+    scheduleMobileLatestMessagesIntoView();
     scheduleMobileKeyboardViewportSync();
   }, [
     attachImages.length,
     isMobileInputFocused,
     isMobileScreen,
     mobileInputHasText,
+    scheduleMobileLatestMessagesIntoView,
     scheduleMobileKeyboardViewportSync,
     syncMobileInputHeight,
     userInput,
@@ -5901,35 +6086,33 @@ function _Chat() {
     scheduleMobileKeyboardReleaseStabilize,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       sessionLoading ||
       !safeSession.id ||
       historyAutoBottomSessionRef.current === safeSession.id ||
-      !currentSessionHasMessages
+      !currentSessionHasMessages ||
+      sessionMessages.length === 0
     ) {
       return;
     }
 
     historyAutoBottomSessionRef.current = safeSession.id;
-    setAutoScroll(true);
-    setHitBottom(true);
-    // 延迟滚动，等待布局稳定
-    const timers = [80, 200, 400].map((delay) =>
-      setTimeout(() => {
-        scrollToBottom();
-      }, delay),
-    );
+    pendingInitialBottomSessionRef.current = safeSession.id;
+    jumpToBottom();
+    const rafId = window.requestAnimationFrame(jumpToBottom);
+    const timer = window.setTimeout(jumpToBottom, 80);
 
     return () => {
-      timers.forEach((timer) => clearTimeout(timer));
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timer);
     };
   }, [
     currentSessionHasMessages,
+    jumpToBottom,
     safeSession.id,
-    scrollToBottom,
     sessionLoading,
-    setAutoScroll,
+    sessionMessages.length,
   ]);
 
   useEffect(() => {
@@ -6326,26 +6509,124 @@ function _Chat() {
   const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
   const useHeaderIconOnly = windowWidth < 1000;
   const useCompactInputHint = !isMobileScreen && windowWidth <= 1100;
-  const chatInputHint = readOnly
-    ? "管理员查看模式下不可发送消息"
-    : isChatUnavailableForSync
+  const chatInputHint = isChatUnavailableForSync
     ? "正在同步模型配置，输入内容已保留，请稍候..."
     : Locale.Chat.Input(submitKey);
-  const mobileChatInputHint = readOnly
-    ? "管理员查看模式下不可发送消息"
-    : isChatUnavailableForSync
+  const mobileChatInputHint = isChatUnavailableForSync
     ? "正在同步模型配置，输入内容已保留，请稍候..."
     : "回车发送，长按回车换行，/ 选择预设提示词，：触发命令";
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
-  const shouldHideChatMessages = sessionLoading || isChatUnavailableForSync;
+
+  const isInitialLoading = useMemo(() => {
+    if (sessionLoading || isChatUnavailableForSync) return false;
+    return hasAssistantLoadingBubbles;
+  }, [hasAssistantLoadingBubbles, isChatUnavailableForSync, sessionLoading]);
+
+  const [enterLoadingMin, setEnterLoadingMin] = useState(false);
+  useEffect(() => {
+    if (!currentSessionHasMessages) {
+      setEnterLoadingMin(false);
+      return;
+    }
+
+    setEnterLoadingMin(true);
+    const timer = window.setTimeout(() => setEnterLoadingMin(false), 420);
+    return () => window.clearTimeout(timer);
+  }, [currentSessionHasMessages, safeSession.id]);
+
+  const enterLoading = enterLoadingMin || isInitialLoading;
+
+  const shouldHideChatMessages =
+    sessionLoading || isChatUnavailableForSync || enterLoading;
   const shouldShowChatRestoreNotice =
-    sessionLoading || (isChatUnavailableForSync && currentSessionHasMessages);
+    sessionLoading ||
+    enterLoading ||
+    (isChatUnavailableForSync && currentSessionHasMessages);
+  const shouldShowScrollToBottomButton =
+    !hitBottom && !shouldShowChatRestoreNotice;
+
+  useLayoutEffect(() => {
+    if (
+      sessionLoading ||
+      shouldHideChatMessages ||
+      !safeSession.id ||
+      !currentSessionHasMessages ||
+      sessionMessages.length === 0
+    ) {
+      return;
+    }
+    if (pendingInitialBottomSessionRef.current !== safeSession.id) {
+      return;
+    }
+
+    jumpToBottom();
+    const rafId = window.requestAnimationFrame(jumpToBottom);
+    const timer = window.setTimeout(() => {
+      jumpToBottom();
+      if (pendingInitialBottomSessionRef.current === safeSession.id) {
+        pendingInitialBottomSessionRef.current = null;
+      }
+    }, 160);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timer);
+    };
+  }, [
+    currentSessionHasMessages,
+    jumpToBottom,
+    msgRenderIndex,
+    safeSession.id,
+    sessionLoading,
+    sessionMessages.length,
+    shouldHideChatMessages,
+  ]);
+
   const chatRestoreNoticeTitle = sessionLoading
     ? "正在载入这段对话"
     : "正在恢复这段对话";
   const chatRestoreNoticeDescription = sessionLoading
     ? "正在恢复完整消息内容，完成后会自动显示。"
     : "模型配置同步完成后，对话内容会自动显示。";
+
+  const initialAutoScrollSessionIdRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    if (shouldHideChatMessages) return;
+    if (!currentSessionHasMessages) return;
+    if (initialAutoScrollSessionIdRef.current === safeSession.id) return;
+
+    initialAutoScrollSessionIdRef.current = safeSession.id;
+    jumpToBottom();
+  }, [
+    currentSessionHasMessages,
+    jumpToBottom,
+    safeSession.id,
+    shouldHideChatMessages,
+  ]);
+
+  const [inputPanelHeight, setInputPanelHeight] = useState<number>(100);
+  useLayoutEffect(() => {
+    const el = inputPanelRef.current;
+    if (!el || typeof window === "undefined") return;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      if (!Number.isFinite(rect.height) || rect.height <= 0) return;
+      setInputPanelHeight(rect.height);
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, [currentSessionHasMessages, isMobileScreen, promptHints.length]);
 
   const sanitizeBoundaryInput = useCallback(() => {
     const sanitizedInput = sanitizeDraftInputText(userInput ?? "");
@@ -6963,7 +7244,6 @@ function _Chat() {
   useEffect(() => {
     if (
       isMobileScreen ||
-      readOnly ||
       isChatUnavailableForSync ||
       !safeSession.id ||
       syncReadyFocusSessionRef.current === safeSession.id ||
@@ -6985,7 +7265,6 @@ function _Chat() {
     hasUserInputContent,
     isChatUnavailableForSync,
     isMobileScreen,
-    readOnly,
     safeSession.id,
   ]);
 
@@ -7074,7 +7353,7 @@ function _Chat() {
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
-                disabled={readOnly || isChatUnavailableForSync}
+                disabled={isChatUnavailableForSync}
               />
             </div>
             <div
@@ -7096,7 +7375,7 @@ function _Chat() {
                 title={Locale.Chat.InputActions.Prompt}
                 aria={Locale.Chat.InputActions.Prompt}
                 onClick={togglePromptHints}
-                disabled={readOnly || isChatUnavailableForSync}
+                disabled={isChatUnavailableForSync}
               />
             </div>
             <div
@@ -7132,11 +7411,22 @@ function _Chat() {
                     : Locale.Chat.Actions.RefreshTitle
                 }
                 title={Locale.Chat.Actions.RefreshTitle}
-                onClick={() => {
-                  showToast(Locale.Chat.Actions.RefreshToast);
-                  chatStore.summarizeSession(true, session);
+                onTouchStart={(e) => {
+                  if (!isMobileScreen) return;
+                  refreshTouchTriggeredRef.current = true;
+                  e.preventDefault();
+                  handleSessionRefresh();
+                  window.setTimeout(() => {
+                    refreshTouchTriggeredRef.current = false;
+                  }, 600);
                 }}
-                disabled={readOnly}
+                onClick={() => {
+                  if (isMobileScreen && refreshTouchTriggeredRef.current) {
+                    return;
+                  }
+                  handleSessionRefresh();
+                }}
+                disabled={false}
               />
             </div>
             <div
@@ -7312,6 +7602,110 @@ function _Chat() {
                       !message.preview && !isContext && !isEmptyUserMessage;
                     const showTyping = message.preview || message.streaming;
                     const messageUsageText = formatMessageUsage(message.usage);
+                    const shouldStackMessageActions =
+                      messageTextContent.trim().length > 12 ||
+                      messageImages.length > 0 ||
+                      editingMessageId === message.id;
+                    const messageActions = showActions ? (
+                      <div className={styles["chat-input-actions"]}>
+                        {message.streaming ? (
+                          <ChatAction
+                            text={Locale.Chat.Actions.Stop}
+                            icon={<StopIcon />}
+                            onClick={() => onUserStop(message.id ?? i)}
+                          />
+                        ) : editingMessageId === message.id && isUser ? (
+                          <>
+                            <ChatAction
+                              text={Locale.UI.Confirm}
+                              icon={<ConfirmIcon />}
+                              onClick={() => onEditSave(message)}
+                            />
+                            <ChatAction
+                              text={Locale.UI.Cancel}
+                              icon={<CancelIcon />}
+                              onClick={onEditCancel}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            {isUser && !editMobileMessageId && (
+                              <ChatAction
+                                text={Locale.Chat.Actions.Edit}
+                                icon={<RenameIcon />}
+                                onClick={() => {
+                                  if (isMobileScreen) {
+                                    const nextText = messageTextContent.trim();
+                                    const nextImages =
+                                      messageImages.filter(Boolean);
+                                    setEditMobileMessageId(message.id ?? null);
+                                    setUserInput(nextText);
+                                    setAttachImages(nextImages);
+                                    setPromptHints([]);
+                                    resetMobileInputDom(nextText);
+                                    syncMobileInputHeight(nextText);
+                                    scheduleResetMobileInputViewportToStart();
+                                    const focusMobileEditInput = () => {
+                                      const mobileInput =
+                                        mobileInputRef.current;
+                                      if (!mobileInput) return;
+                                      mobileInput.focus();
+                                      setIsMobileInputFocused(true);
+                                      syncMobileInputHeight(nextText);
+                                      scheduleMoveInputCursorToEnd();
+                                      if (nextText.length > 0) {
+                                        scheduleScrollMobileInputToBottom();
+                                      }
+                                      scheduleMobileKeyboardViewportSync();
+                                    };
+                                    focusMobileEditInput();
+                                    window.requestAnimationFrame(
+                                      focusMobileEditInput,
+                                    );
+                                    window.setTimeout(focusMobileEditInput, 80);
+                                  } else {
+                                    setEditingMessageId(message.id ?? null);
+                                    setEditContent(messageTextContent.trim());
+                                    setPromptHints([]);
+                                  }
+                                }}
+                              />
+                            )}
+
+                            <ChatAction
+                              text={Locale.Chat.Actions.Retry}
+                              icon={<ResetIcon />}
+                              onClick={() => onResend(message)}
+                            />
+
+                            <ChatAction
+                              text={Locale.Chat.Actions.Copy}
+                              icon={<CopyIcon />}
+                              onClick={() => copyMessageToClipboard(message)}
+                            />
+                            {config.ttsConfig.enable && (
+                              <ChatAction
+                                text={
+                                  speechStatus
+                                    ? Locale.Chat.Actions.StopSpeech
+                                    : Locale.Chat.Actions.Speech
+                                }
+                                icon={
+                                  speechStatus ? (
+                                    <SpeakStopIcon />
+                                  ) : (
+                                    <SpeakIcon />
+                                  )
+                                }
+                                onClick={() =>
+                                  openaiSpeech(getMessageTextContent(message))
+                                }
+                              />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ) : null;
 
                     const shouldShowClearContextDivider =
                       i === clearContextIndex - 1;
@@ -7359,87 +7753,14 @@ function _Chat() {
                                   )}
                                 </div>
                               )}
-
-                              {showActions && (
-                                <div className={styles["chat-message-actions"]}>
-                                  <div className={styles["chat-input-actions"]}>
-                                    {message.streaming ? (
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Stop}
-                                        icon={<StopIcon />}
-                                        onClick={() =>
-                                          onUserStop(message.id ?? i)
-                                        }
-                                      />
-                                    ) : editingMessageId === message.id &&
-                                      isUser ? (
-                                      <>
-                                        <ChatAction
-                                          text={Locale.UI.Confirm}
-                                          icon={<ConfirmIcon />}
-                                          onClick={() => onEditSave(message)}
-                                        />
-                                        <ChatAction
-                                          text={Locale.UI.Cancel}
-                                          icon={<CancelIcon />}
-                                          onClick={onEditCancel}
-                                        />
-                                      </>
-                                    ) : (
-                                      <>
-                                        {isUser && (
-                                          <ChatAction
-                                            text={Locale.Chat.Actions.Edit}
-                                            icon={<RenameIcon />}
-                                            onClick={() => {
-                                              setEditingMessageId(
-                                                message.id ?? null,
-                                              );
-                                              setEditContent(
-                                                messageTextContent.trim(),
-                                              );
-                                              setPromptHints([]);
-                                            }}
-                                          />
-                                        )}
-
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Retry}
-                                          icon={<ResetIcon />}
-                                          onClick={() => onResend(message)}
-                                        />
-
-                                        <ChatAction
-                                          text={Locale.Chat.Actions.Copy}
-                                          icon={<CopyIcon />}
-                                          onClick={() =>
-                                            copyMessageToClipboard(message)
-                                          }
-                                        />
-                                        {config.ttsConfig.enable && (
-                                          <ChatAction
-                                            text={
-                                              speechStatus
-                                                ? Locale.Chat.Actions.StopSpeech
-                                                : Locale.Chat.Actions.Speech
-                                            }
-                                            icon={
-                                              speechStatus ? (
-                                                <SpeakStopIcon />
-                                              ) : (
-                                                <SpeakIcon />
-                                              )
-                                            }
-                                            onClick={() =>
-                                              openaiSpeech(
-                                                getMessageTextContent(message),
-                                              )
-                                            }
-                                          />
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
+                              {showActions && !isMobileScreen && (
+                                <div
+                                  className={clsx(
+                                    styles["chat-message-actions"],
+                                    styles["chat-message-actions-header"],
+                                  )}
+                                >
+                                  {messageActions}
                                 </div>
                               )}
                             </div>
@@ -7470,74 +7791,87 @@ function _Chat() {
                               </div>
                             )}
                             <div
-                              className={styles["chat-message-item"]}
-                              style={
-                                editingMessageId === message.id
-                                  ? { width: "50%" }
-                                  : undefined
-                              }
+                              className={clsx(styles["chat-message-content"], {
+                                [styles["chat-message-content-stack-actions"]]:
+                                  shouldStackMessageActions,
+                                [styles["chat-message-content-editing"]]:
+                                  editingMessageId === message.id &&
+                                  !isMobileScreen,
+                              })}
                             >
-                              {editingMessageId === message.id ? (
-                                <textarea
-                                  ref={editInputRef}
-                                  className={styles["chat-message-edit-input"]}
-                                  value={editContent}
-                                  onChange={(e) => {
-                                    setEditContent(e.target.value);
-                                    autoGrowTextArea(e.target);
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && !e.shiftKey) {
-                                      e.preventDefault();
-                                      onEditSave(message);
+                              <div className={styles["chat-message-item"]}>
+                                {editingMessageId === message.id &&
+                                !isMobileScreen ? (
+                                  <textarea
+                                    ref={editInputRef}
+                                    className={
+                                      styles["chat-message-edit-input"]
                                     }
-                                    if (e.key === "Escape") {
-                                      onEditCancel();
+                                    value={editContent}
+                                    rows={editInputRows}
+                                    onChange={(e) => {
+                                      setEditContent(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        onEditSave(message);
+                                      }
+                                      if (e.key === "Escape") {
+                                        onEditCancel();
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <Markdown
+                                    key={message.streaming ? "loading" : "done"}
+                                    content={messageTextContent}
+                                    loading={
+                                      (message.preview || message.streaming) &&
+                                      messageTextContent.length === 0 &&
+                                      !isUser
                                     }
-                                  }}
-                                />
-                              ) : (
-                                <Markdown
-                                  key={message.streaming ? "loading" : "done"}
-                                  content={messageTextContent}
-                                  loading={
-                                    (message.preview || message.streaming) &&
-                                    messageTextContent.length === 0 &&
-                                    !isUser
-                                  }
-                                  onDoubleClickCapture={() => {
-                                    if (!isMobileScreen || !isUser) return;
-                                    setUserInput(
-                                      getMessageTextContent(message),
-                                    );
-                                  }}
-                                  fontSize={fontSize}
-                                  fontFamily={fontFamily}
-                                  parentRef={scrollRef}
-                                  defaultShow={i >= messages.length - 6}
-                                />
-                              )}
-                              {messageImages.length == 1 &&
-                                renderGeneratedMedia(
-                                  messageImages[0],
-                                  styles["chat-message-item-image"],
+                                    onDoubleClickCapture={() => {
+                                      if (!isMobileScreen || !isUser) return;
+                                      setUserInput(
+                                        getMessageTextContent(message),
+                                      );
+                                    }}
+                                    fontSize={fontSize}
+                                    fontFamily={fontFamily}
+                                    parentRef={scrollRef}
+                                    defaultShow={i >= messages.length - 6}
+                                  />
                                 )}
-                              {messageImages.length > 1 && (
-                                <div
-                                  className={styles["chat-message-item-images"]}
-                                  style={
-                                    {
-                                      "--image-count": messageImages.length,
-                                    } as React.CSSProperties
-                                  }
-                                >
-                                  {messageImages.map((image, index) => {
-                                    return renderGeneratedMedia(
-                                      image,
-                                      styles["chat-message-item-image-multi"],
-                                      index,
-                                    );
-                                  })}
+                                {messageImages.length == 1 &&
+                                  renderGeneratedMedia(
+                                    messageImages[0],
+                                    styles["chat-message-item-image"],
+                                  )}
+                                {messageImages.length > 1 && (
+                                  <div
+                                    className={
+                                      styles["chat-message-item-images"]
+                                    }
+                                    style={
+                                      {
+                                        "--image-count": messageImages.length,
+                                      } as React.CSSProperties
+                                    }
+                                  >
+                                    {messageImages.map((image, index) => {
+                                      return renderGeneratedMedia(
+                                        image,
+                                        styles["chat-message-item-image-multi"],
+                                        index,
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                              {showActions && isMobileScreen && (
+                                <div className={styles["chat-message-actions"]}>
+                                  {messageActions}
                                 </div>
                               )}
                             </div>
@@ -7568,14 +7902,29 @@ function _Chat() {
             </div>
             <div
               className={clsx(styles["scroll-to-bottom"], {
-                [styles["scroll-to-bottom-visible"]]: !hitBottom,
+                [styles["scroll-to-bottom-visible"]]:
+                  shouldShowScrollToBottomButton,
               })}
+              style={{
+                bottom: `calc(${Math.max(
+                  0,
+                  Math.round(inputPanelHeight + 10),
+                )}px + env(safe-area-inset-bottom) + var(--chat-keyboard-accessory-inset, 0px) + var(--chat-keyboard-overlap-correction, 0px))`,
+              }}
+              onTouchStart={(e) => {
+                if (!isMobileScreen) return;
+                scrollToBottomTouchTriggeredRef.current = true;
+                e.preventDefault();
+                handleScrollToBottomButton(true);
+                window.setTimeout(() => {
+                  scrollToBottomTouchTriggeredRef.current = false;
+                }, 600);
+              }}
               onClick={() => {
-                setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-                scrollRef.current?.scrollTo({
-                  top: scrollRef.current.scrollHeight,
-                  behavior: "smooth",
-                });
+                if (isMobileScreen && scrollToBottomTouchTriggeredRef.current) {
+                  return;
+                }
+                handleScrollToBottomButton(isMobileScreen);
               }}
             >
               <svg
@@ -7618,16 +7967,36 @@ function _Chat() {
                 </div>
               )}
 
+              {editMobileMessageId && isMobileScreen && (
+                <div className={styles["chat-edit-mode-header"]}>
+                  <span>编辑消息</span>
+                </div>
+              )}
               <div className={styles["chat-input-row"]}>
                 {isMobileScreen && (
                   <div className={styles["chat-input-mobile-actions"]}>
+                    {editMobileMessageId && (
+                      <IconButton
+                        icon={<LogOutDoorIcon />}
+                        className={clsx(
+                          styles["chat-input-mobile-add"],
+                          styles["chat-edit-mode-exit"],
+                        )}
+                        title="退出编辑"
+                        aria="退出编辑模式"
+                        disabled={isChatUnavailableForSync}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onTouchStart={(e) => e.preventDefault()}
+                        onClick={exitMobileEditMode}
+                      />
+                    )}
                     {(userInput.length > 0 || attachImages.length > 0) && (
                       <IconButton
                         icon={<MobileClearIcon />}
                         className={styles["chat-input-mobile-add"]}
                         title="清空输入"
                         aria="清空输入"
-                        disabled={readOnly || isChatUnavailableForSync}
+                        disabled={isChatUnavailableForSync}
                         onMouseDown={(e) => e.preventDefault()}
                         onTouchStart={(e) => e.preventDefault()}
                         onClick={() => {
@@ -7654,9 +8023,7 @@ function _Chat() {
                       className={styles["chat-input-mobile-add"]}
                       title="添加照片"
                       aria="添加照片"
-                      disabled={
-                        readOnly || isChatUnavailableForSync || uploading
-                      }
+                      disabled={isChatUnavailableForSync || uploading}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         const shouldPreserveBlurHeight =
@@ -7730,11 +8097,11 @@ function _Chat() {
                         id="chat-input"
                         ref={mobileInputRef}
                         className={styles["chat-input"]}
-                        contentEditable={!readOnly && !isChatUnavailableForSync}
+                        contentEditable={!isChatUnavailableForSync}
                         suppressContentEditableWarning
                         role="textbox"
                         aria-multiline="true"
-                        aria-disabled={readOnly || isChatUnavailableForSync}
+                        aria-disabled={isChatUnavailableForSync}
                         onInput={(e) => {
                           if (!mobileInputEndRef.current?.isConnected) {
                             const endMarker = document.createElement("span");
@@ -7772,6 +8139,10 @@ function _Chat() {
                           collapseTimersRef.current.forEach(clearTimeout);
                           collapseTimersRef.current = [];
                           clearMobileKeyboardReleaseTimers();
+                          if (mobileBlurTimerRef.current !== null) {
+                            clearTimeout(mobileBlurTimerRef.current);
+                            mobileBlurTimerRef.current = null;
+                          }
                           preserveMobileInputBlurHeightRef.current = false;
                           setPreserveMobileInputBlurHeight(false);
                           chatInputInnerRef.current?.style.removeProperty(
@@ -7818,7 +8189,7 @@ function _Chat() {
                           collapseTimersRef.current = [];
                           const shouldPreserveExpandedHeight =
                             prepareMobileInputBlurLayout();
-                          setTimeout(() => {
+                          mobileBlurTimerRef.current = window.setTimeout(() => {
                             setIsMobileInputFocused(false);
                             collapseMobileInput(shouldPreserveExpandedHeight);
                             if (shouldPreserveExpandedHeight) {
@@ -7886,7 +8257,7 @@ function _Chat() {
                         onScroll={handleInputScroll}
                         rows={inputRows}
                         autoFocus={autoFocus}
-                        disabled={readOnly || isChatUnavailableForSync}
+                        disabled={isChatUnavailableForSync}
                         style={{
                           fontSize: inputFontSize,
                           fontFamily: config.fontFamily,
@@ -7897,7 +8268,7 @@ function _Chat() {
                       icon={<SendUpIcon />}
                       className={styles["chat-input-send"]}
                       type="primary"
-                      disabled={readOnly || isChatUnavailableForSync}
+                      disabled={isChatUnavailableForSync}
                       onClick={() => doSubmit(userInput)}
                     />
                   </div>
