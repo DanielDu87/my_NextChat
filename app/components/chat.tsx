@@ -3893,16 +3893,19 @@ function _Chat() {
         if (isMobileInputFocused && inputEl) {
           if (!mobileInputHasText) {
             setInputRows(1);
-            inputEl.style.height = "auto";
+            if (inputEl === mobileInput) {
+              syncMobileInputHeight("");
+            } else {
+              inputEl.style.height = "auto";
+            }
             inputEl.scrollTop = 0;
             return;
           }
           // 聚焦时：由 CSS height: auto + max-height 控制，随内容自适应
           const rows = textarea
             ? autoGrowTextArea(textarea)
-            : Math.ceil(inputEl.scrollHeight / 22);
+            : Math.ceil(syncMobileInputHeight() / 22);
           setInputRows(Math.min(8, Math.max(1, rows)));
-          inputEl.style.height = "auto";
           scheduleScrollMobileInputToBottom();
         } else {
           // 未聚焦时：保持默认紧凑高度，并显示最后一行
@@ -4322,6 +4325,25 @@ function _Chat() {
     if (shouldSubmit(e) && promptHints.length === 0) {
       doSubmit(userInput);
       e.preventDefault();
+      return;
+    }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      const cleanupEmptyInput = () => {
+        const mobileInput = mobileInputRef.current;
+        if (!mobileInput) return;
+        const nextText = (mobileInput.textContent ?? "").replace(/\u200b/g, "");
+        if (nextText.trim().length > 0) {
+          syncMobileInputHeight(nextText);
+          return;
+        }
+        resetMobileInputDom("");
+        onInput("");
+        syncMobileInputHeight("");
+        scheduleResetMobileInputViewportToStart();
+      };
+
+      requestAnimationFrame(cleanupEmptyInput);
+      setTimeout(cleanupEmptyInput, 0);
     }
   };
   const onRightClick = (e: any, message: ChatMessage) => {
@@ -4788,6 +4810,35 @@ function _Chat() {
     return measuredHeight;
   }, []);
 
+  const syncMobileInputHeight = useCallback(
+    (text = userInput) => {
+      const mobileInput = mobileInputRef.current;
+      if (!mobileInput) return 44;
+
+      const hasText = text.trim().length > 0;
+      if (!hasText) {
+        mobileInput.style.height = "44px";
+        mobileInput.style.maxHeight = "";
+        mobileInput.scrollTop = 0;
+        mobileInputMeasuredHeightRef.current = 44;
+        syncInputScrollIndicatorRef.current(false);
+        return 44;
+      }
+
+      // contentEditable 在移动端容易继承上一次布局高度，先压回单行再读 scrollHeight。
+      mobileInput.style.height = "44px";
+      const nextHeight = Math.max(
+        44,
+        Math.min(360, Math.ceil(mobileInput.scrollHeight)),
+      );
+      mobileInput.style.height = `${nextHeight}px`;
+      mobileInput.style.maxHeight = "";
+      mobileInputMeasuredHeightRef.current = nextHeight;
+      return nextHeight;
+    },
+    [userInput],
+  );
+
   const updateInputScrollIndicator = useCallback(
     (visible: boolean) => {
       const inputEl =
@@ -4817,13 +4868,16 @@ function _Chat() {
 
       const inputRect = inputEl.getBoundingClientRect();
       const innerRect = innerEl.getBoundingClientRect();
-      const trackInset = 6;
+      const trackInset = isMobileScreen ? 6 : 12;
       const trackTop = Math.max(0, inputRect.top - innerRect.top);
       const visibleInputHeight = Math.max(
         0,
         Math.min(clientHeight, Math.round(inputRect.height)),
       );
-      const trackHeight = Math.max(24, visibleInputHeight - trackInset * 2);
+      const trackHeight = Math.max(
+        isMobileScreen ? 24 : 20,
+        visibleInputHeight - trackInset * 2,
+      );
       const rawThumbHeight = Math.round(
         (clientHeight / scrollHeight) * trackHeight,
       );
@@ -4831,7 +4885,7 @@ function _Chat() {
       const mobileThumbMax = Math.min(trackHeight, 36);
       const thumbHeight = isMobileScreen
         ? Math.max(mobileThumbMin, Math.min(mobileThumbMax, rawThumbHeight))
-        : Math.max(24, Math.min(trackHeight, rawThumbHeight));
+        : Math.max(16, Math.min(trackHeight, rawThumbHeight));
       const maxThumbOffset = Math.max(0, trackHeight - thumbHeight);
       const thumbOffset =
         maxScrollTop > 0
@@ -5329,7 +5383,7 @@ function _Chat() {
 
     resetMobileInputDom(userInput);
     if (document.activeElement === mobileInput) {
-      updateMobileInputMeasuredHeight();
+      syncMobileInputHeight(userInput);
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       } else {
@@ -5340,14 +5394,18 @@ function _Chat() {
     }
     if (document.activeElement === mobileInput) {
       moveInputCursorToEnd();
-      scheduleScrollMobileInputToBottom();
+      if (mobileInputHasText) {
+        scheduleScrollMobileInputToBottom();
+      } else {
+        scheduleResetMobileInputViewportToStart();
+      }
     }
   }, [
     mobileInputHasText,
     isMobileScreen,
     moveInputCursorToEnd,
     resetMobileInputDom,
-    updateMobileInputMeasuredHeight,
+    syncMobileInputHeight,
     scheduleResetMobileInputViewportToStart,
     scheduleScrollMobileInputToBottom,
     userInput,
@@ -5692,16 +5750,17 @@ function _Chat() {
       "--chat-mobile-input-preserved-height",
     );
     mobileInput.style.removeProperty("--chat-mobile-input-preserved-height");
-    mobileInput.style.height = "auto";
+    mobileInput.style.height = mobileInputHasText ? "auto" : "44px";
     mobileInput.style.maxHeight = "";
-    updateMobileInputMeasuredHeight();
+    syncMobileInputHeight(userInput);
     scheduleMobileKeyboardViewportSync();
   }, [
     attachImages.length,
     isMobileInputFocused,
     isMobileScreen,
+    mobileInputHasText,
     scheduleMobileKeyboardViewportSync,
-    updateMobileInputMeasuredHeight,
+    syncMobileInputHeight,
     userInput,
   ]);
 
@@ -6272,6 +6331,11 @@ function _Chat() {
     : isChatUnavailableForSync
     ? "正在同步模型配置，输入内容已保留，请稍候..."
     : Locale.Chat.Input(submitKey);
+  const mobileChatInputHint = readOnly
+    ? "管理员查看模式下不可发送消息"
+    : isChatUnavailableForSync
+    ? "正在同步模型配置，输入内容已保留，请稍候..."
+    : "回车发送，长按回车换行，/ 选择预设提示词，：触发命令";
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
   const shouldHideChatMessages = sessionLoading || isChatUnavailableForSync;
   const shouldShowChatRestoreNotice =
@@ -7214,7 +7278,7 @@ function _Chat() {
                 !isMobileInputFocused &&
                 promptHints.length === 0 &&
                 (() => {
-                  const hints = chatInputHint
+                  const hints = mobileChatInputHint
                     .replace(/，\//, "\n/")
                     .replace(/, \//, "\n/")
                     .split("\n");
@@ -7682,13 +7746,21 @@ function _Chat() {
                             e.currentTarget.appendChild(endMarker);
                             mobileInputEndRef.current = endMarker;
                           }
-                          onInput(
-                            (e.currentTarget.textContent ?? "").replace(
-                              /\u200b/g,
-                              "",
-                            ),
-                          );
-                          updateMobileInputMeasuredHeight();
+                          const nextText = (
+                            e.currentTarget.textContent ?? ""
+                          ).replace(/\u200b/g, "");
+                          if (nextText.length > 0 && nextText.trim() === "") {
+                            resetMobileInputDom("");
+                            onInput("");
+                            syncMobileInputHeight("");
+                            scheduleResetMobileInputViewportToStart();
+                            return;
+                          }
+                          onInput(nextText);
+                          syncMobileInputHeight(nextText);
+                          if (nextText.trim().length === 0) {
+                            scheduleResetMobileInputViewportToStart();
+                          }
                         }}
                         onKeyDown={onMobileInputKeyDown}
                         onPointerDown={() => {
@@ -7709,10 +7781,11 @@ function _Chat() {
                             mobileInputRef.current.style.removeProperty(
                               "--chat-mobile-input-preserved-height",
                             );
-                            mobileInputRef.current.style.height = "auto";
+                            mobileInputRef.current.style.height =
+                              mobileInputHasText ? "auto" : "44px";
                             mobileInputRef.current.style.maxHeight = "";
                           }
-                          updateMobileInputMeasuredHeight();
+                          syncMobileInputHeight(userInput);
                           setIsMobileInputFocused(true);
                           scheduleMoveInputCursorToEnd();
                           if (mobileInputHasText) {

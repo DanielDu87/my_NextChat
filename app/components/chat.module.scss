@@ -4,11 +4,21 @@
   position: relative;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   width: 100%;
   padding: 12px 64px 8px 22px;
   box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .attach-image {
@@ -2163,6 +2173,9 @@
   cursor: text;
   display: flex;
   flex: 1;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
   border-radius: var(--chat-input-panel-radius);
   border: var(--border-in-light);
   position: relative;
@@ -2193,6 +2206,12 @@
   }
 }
 
+@media only screen and (min-width: 651px) {
+  .chat-input-panel-inner {
+    --chat-input-scroll-indicator-right: 56px;
+  }
+}
+
 :global(.dark) .chat-input-panel-inner,
 :global(body.dark) .chat-input-panel-inner {
   --chat-input-scroll-indicator-bg: rgba(255, 255, 255, 0.5);
@@ -2210,54 +2229,16 @@
 
 .chat-input-panel-inner-attach {
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
+  justify-content: flex-start;
   min-height: 148px;
   padding-bottom: 0;
   background: var(--chat-input-panel-bg);
-
-  .chat-input {
-    flex: 0 0 auto;
-    height: auto;
-    min-height: 56px;
-    max-height: 156px;
-    background: var(--chat-input-panel-bg) !important;
-    appearance: none;
-    -webkit-appearance: none;
-    overflow-y: auto;
-  }
 }
 
 .chat-input-panel-inner-multiline {
-  align-items: center;
-
-  .chat-input {
-    padding-right: 24px;
-  }
-
-  .chat-input-send {
-    position: static;
-    flex: 0 0 42px;
-    margin-right: 8px;
-    transform: none;
-  }
-}
-
-.chat-input-panel-inner-attach.chat-input-panel-inner-multiline {
-  align-items: flex-start;
-
-  .chat-input {
-    padding-right: 64px;
-  }
-
-  .chat-input-send {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    bottom: auto;
-    flex: 0 0 auto;
-    margin-right: 0;
-    transform: translateY(-50%);
-  }
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .chat-input-panel-inner:has(.chat-input:focus),
@@ -2327,6 +2308,68 @@
   }
 }
 
+@media only screen and (min-width: 651px) {
+  .chat-input-text-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    position: relative;
+  }
+
+  .chat-input {
+    height: auto;
+    width: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent !important;
+    color: var(--black);
+    font-family: inherit;
+    font-size: 16px !important;
+    line-height: 24px;
+    padding: 16px 64px 16px 22px;
+    resize: none;
+    outline: none;
+    box-sizing: border-box;
+    min-height: 56px;
+    max-height: 280px;
+    overflow-y: auto;
+    display: block;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    &::placeholder {
+      color: var(--chat-input-placeholder);
+      opacity: 1;
+    }
+
+    &::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    & {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+  }
+
+  .chat-input-send {
+    top: auto;
+    bottom: 8px;
+    transform: none;
+  }
+}
+
+@media only screen and (min-width: 651px) {
+  .chat-input-panel-inner-multiline .chat-input,
+  .chat-input-panel-inner-attach .chat-input {
+    padding-top: 8px;
+  }
+}
+
 .chat-input:disabled {
   background: var(--chat-input-disabled-bg) !important;
   color: var(--chat-input-disabled-placeholder);
@@ -2338,6 +2381,10 @@
     color: var(--chat-input-disabled-placeholder);
     opacity: 1;
     -webkit-text-fill-color: var(--chat-input-disabled-placeholder);
+  }
+
+  @media only screen and (min-width: 651px) {
+    padding: 16px 64px 16px 22px;
   }
 }
 
@@ -2408,6 +2455,15 @@
       color: white;
       filter: none;
     }
+  }
+}
+
+@media only screen and (min-width: 651px) {
+  .chat-input-panel-inner-multiline .chat-input-send,
+  .chat-input-panel-inner-attach .chat-input-send {
+    top: auto;
+    bottom: 8px;
+    transform: none;
   }
 }
 
@@ -2640,6 +2696,7 @@
   .chat-input {
     font-size: 16px;
     line-height: 22px;
+    box-sizing: border-box;
     height: auto;
     min-height: 44px;
     max-height: 160px;
@@ -2926,7 +2983,7 @@
 
     .chat-input-panel-inner {
       --chat-input-scroll-indicator-right: 39px;
-      // 高度上限由 JS 实测计算，避免外壳被硬撑出大面积空白。
+      // 纯文字输入框保留顶部余量，避免键盘展开后顶到工具栏。
       min-height: 44px;
       max-height: max(
         120px,
@@ -2934,7 +2991,7 @@
           var(--chat-input-fill-height, 200px) - var(
               --chat-keyboard-panel-lift,
               0px
-            ) - 5px
+            ) - 30px
         )
       );
       height: auto;
@@ -2958,7 +3015,7 @@
       min-width: 0;
       height: auto;
       min-height: 44px;
-      max-height: min(360px, calc(var(--chat-input-fill-height, 200px) - 6px));
+      max-height: min(280px, calc(var(--chat-input-fill-height, 200px) - 30px));
       overflow-y: scroll;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
@@ -2967,13 +3024,16 @@
       scrollbar-color: rgba(255, 255, 255, 0.38) transparent;
       resize: none;
       white-space: pre-wrap;
-      padding: 10px 44px 10px 12px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      padding: 11px 44px 11px 12px;
     }
 
     .chat-input-panel-inner-attach {
       height: auto;
       min-height: 0;
       justify-content: flex-start;
+      // 有附件时仍优先保留图片预览和文字区空间。
       max-height: max(
         120px,
         calc(
