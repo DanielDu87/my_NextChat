@@ -258,11 +258,22 @@ export function autoGrowTextArea(dom: HTMLTextAreaElement) {
     dom.innerText = "TEXT_FOR_MEASURE";
   });
 
+  // 用 textarea 的真实计算样式来测量，避免内联 fontSize 与 CSS 的
+  // `font-size !important` / line-height 不一致，导致折行数被低估、最后一行被裁切。
+  const computed = window.getComputedStyle(dom);
+  const fontStyles = {
+    fontSize: computed.fontSize,
+    lineHeight: computed.lineHeight,
+    fontFamily: computed.fontFamily,
+    fontWeight: computed.fontWeight,
+    letterSpacing: computed.letterSpacing,
+  };
+  Object.assign(measureDom.style, fontStyles);
+  Object.assign(singleLineDom.style, fontStyles);
+
   const width = getDomContentWidth(dom);
   measureDom.style.width = width + "px";
   measureDom.innerText = dom.value !== "" ? dom.value : "1";
-  measureDom.style.fontSize = dom.style.fontSize;
-  measureDom.style.fontFamily = dom.style.fontFamily;
   const endWithEmptyLine = dom.value.endsWith("\n");
   const height = parseFloat(window.getComputedStyle(measureDom).height);
   const singleLineHeight = parseFloat(

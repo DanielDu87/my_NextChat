@@ -3940,6 +3940,14 @@ function _Chat() {
       }
       const rows = textarea ? autoGrowTextArea(textarea) : 1;
       setInputRows(Math.min(20, Math.max(1, rows)));
+      // 桌面端达到 max-height 后内部滚动，保持最后一行（光标处）可见
+      if (textarea) {
+        requestAnimationFrame(() => {
+          if (document.activeElement === textarea) {
+            textarea.scrollTop = textarea.scrollHeight;
+          }
+        });
+      }
     },
     100,
     {
@@ -3951,6 +3959,29 @@ function _Chat() {
   // 内容或聚焦状态变化时重新测量（聚焦展开 / 失焦收回）
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(measure, [userInput, isMobileInputFocused]);
+
+  // 挂载后二次测量：刷新页面恢复草稿时，首次测量可能早于布局宽度稳定 /
+  // 字体加载完成，导致行数被低估而没有展开到适配的最大高度。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let raf1 = 0;
+    let raf2 = 0;
+    const remeasure = () => {
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => measure());
+      });
+    };
+    remeasure();
+    // 字体加载完成后再量一次，宽度计算才准确
+    const fonts = (document as any).fonts;
+    if (fonts?.ready) {
+      fonts.ready.then(() => measure()).catch(() => {});
+    }
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, []);
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({

@@ -419,9 +419,9 @@
 
 .chat-item-delete {
   position: absolute;
-  top: 0;
-  right: 0;
-  transition: all ease 0.3s;
+  top: 6px;
+  right: 8px;
+  transition: opacity ease 0.3s;
   opacity: 0;
   cursor: pointer;
 }
@@ -495,7 +495,6 @@
 
 .chat-item:hover > .chat-item-delete {
   opacity: 0.5;
-  transform: translateX(-4px);
 }
 
 .chat-item:hover > .chat-item-delete:hover {
