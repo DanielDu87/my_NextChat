@@ -42,6 +42,9 @@ const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
   loading: () => null,
 });
 
+const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
+  "nextchat:open-chat-list-multi-delete";
+
 function NextChatBrandIcon() {
   return (
     <svg
@@ -426,6 +429,7 @@ export function SideBarTail(props: {
 export function SideBar(props: { className?: string }) {
   useHotKey();
   const { shouldNarrow } = useFixedSideBar();
+  const isMobileScreen = useMobileScreen();
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();
@@ -617,6 +621,12 @@ export function SideBar(props: { className?: string }) {
                 onClick={async () => {
                   if (readOnly) {
                     showToast("管理员查看他人数据时为只读模式，不能删除会话");
+                    return;
+                  }
+                  if (isMobileScreen) {
+                    window.dispatchEvent(
+                      new CustomEvent(OPEN_CHAT_LIST_MULTI_DELETE_EVENT),
+                    );
                     return;
                   }
                   if (await showConfirm(Locale.Home.DeleteChat)) {

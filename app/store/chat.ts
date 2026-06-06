@@ -2407,6 +2407,107 @@ export const useChatStore = createPersistStore(
         get().deleteSession(index);
       },
 
+      deleteSessionsByIds(sessionIds: string[]) {
+        const idsToDelete = new Set(sessionIds.filter(Boolean));
+        if (idsToDelete.size === 0) return;
+
+        const currentState = get();
+        const deletedSessions = currentState.sessions.filter((session) =>
+          idsToDelete.has(session.id),
+        );
+
+        if (deletedSessions.length === 0) return;
+
+        const restoreState = {
+          currentSessionIndex: currentState.currentSessionIndex,
+          selectedSessionId: currentState.currentSessionId(),
+          sessions: currentState.sessions.slice(),
+          sessionSummaries: currentState.sessionSummaries.slice(),
+          deletedSessionTimestamps: {
+            ...currentState.deletedSessionTimestamps,
+          },
+        };
+        const deletedAt = Date.now();
+        const deletedSessionTimestamps = {
+          ...currentState.deletedSessionTimestamps,
+          ...Object.fromEntries(
+            deletedSessions.map((session) => [session.id, deletedAt]),
+          ),
+        };
+        let sessions = currentState.sessions.filter(
+          (session) => !idsToDelete.has(session.id),
+        );
+
+        if (sessions.length === 0) {
+          sessions = [createEmptySession()];
+        }
+
+        const currentSessionId =
+          currentState.sessions[currentState.currentSessionIndex]?.id || "";
+        const nextIndex = idsToDelete.has(currentSessionId)
+          ? 0
+          : Math.max(
+              0,
+              sessions.findIndex((session) => session.id === currentSessionId),
+            );
+
+        set(() => ({
+          currentSessionIndex: nextIndex,
+          selectedSessionId: sessions[nextIndex]?.id || "",
+          sessionSummaries: buildSessionSummaries(
+            sessions,
+            currentState.sessionSummaries,
+          ),
+          sessions,
+          hydratedSessionIds: currentState.hydratedSessionIds.filter(
+            (sessionId) => !idsToDelete.has(sessionId),
+          ),
+          deletedSessionTimestamps,
+        }));
+        markChatDeleteUiGuard();
+
+        console.log(
+          `[Chat] ➖ 批量删除对话：${deletedSessions
+            .map(formatChatSessionLogLabel)
+            .join("、")}`,
+        );
+
+        showToast(
+          Locale.Home.DeleteToast,
+          {
+            text: Locale.Home.Revert,
+            onClick() {
+              set(() => restoreState);
+              import("./sync").then(({ useSyncStore }) => {
+                useSyncStore
+                  .getState()
+                  .sync([StoreKey.Chat], { force: true })
+                  .catch((error) => {
+                    logger.chat.error("❌ 撤销批量删除后立即同步失败:", error);
+                  });
+              });
+            },
+          },
+          5000,
+        );
+
+        import("./sync").then(({ useSyncStore }) => {
+          useSyncStore
+            .getState()
+            .sync([StoreKey.Chat], {
+              force: true,
+              isolateQueue: true,
+              skipChatWriteBack: true,
+            })
+            .catch((error) => {
+              logger.chat.error("❌ 批量删除会话后立即同步失败:", error);
+            });
+        });
+        deletedSessions.forEach((session) => {
+          void removePersistedChatSession(session.id);
+        });
+      },
+
       deleteCurrentSession() {
         get().deleteSession(get().currentSessionIndex);
       },

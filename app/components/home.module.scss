@@ -65,7 +65,6 @@
       }
     }
   }
-
 }
 
 .window-content {
@@ -120,6 +119,13 @@
     display: none !important;
   }
 
+  .chat-list-panel {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .chat-list-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .sidebar-header {
@@ -353,7 +359,10 @@
   border-radius: 10px;
   margin-bottom: 10px;
   box-shadow: var(--card-shadow);
-  transition: background-color 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    border-color 0.25s ease,
+    padding-left 0.25s ease;
   cursor: pointer;
   user-select: none;
   border: 2px solid transparent;
@@ -367,6 +376,15 @@
 
 .chat-item-selected {
   border-color: var(--primary);
+}
+
+.chat-item-multi-delete {
+  padding-left: 52px;
+}
+
+.chat-item-multi-delete-selected {
+  border-color: var(--primary);
+  background-color: color-mix(in srgb, var(--primary) 7%, var(--white));
 }
 
 .chat-item-title {
@@ -408,6 +426,73 @@
   cursor: pointer;
 }
 
+.chat-item-check {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  color: var(--primary);
+  background: var(--white);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+  animation: checkSlideIn 0.25s ease;
+
+  svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+    animation: checkIconPop 0.2s ease 0.08s both;
+  }
+}
+
+.chat-item-multi-delete-selected .chat-item-check {
+  border-color: var(--primary);
+  background: var(--white);
+  color: var(--primary);
+}
+
+@keyframes checkSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+@keyframes checkIconPop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media only screen and (max-width: 650px) {
+  .chat-item-delete {
+    display: none;
+  }
+}
+
+.chat-item-multi-delete > .chat-item-delete {
+  display: none;
+}
+
 .chat-item:hover > .chat-item-delete {
   opacity: 0.5;
   transform: translateX(-4px);
@@ -431,6 +516,76 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-list-delete-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: deleteBarSlideUp 0.3s ease;
+  flex-shrink: 0;
+
+  button {
+    flex: 1;
+    height: 38px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    background: var(--white);
+    color: var(--black);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.2s ease;
+    padding: 0 12px;
+
+    svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    &:not(:disabled):hover {
+      background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+      border-color: var(--primary);
+      box-shadow:
+        0 0 0 1px var(--primary),
+        var(--card-shadow);
+    }
+
+    &:not(:disabled):active {
+      transform: scale(0.97);
+    }
+  }
+}
+
+@keyframes deleteBarSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .narrow-sidebar {
@@ -603,9 +758,15 @@
     box-shadow 0.2s ease;
 
   &:hover {
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 1px var(--primary), var(--card-shadow) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
   }
 }
 
@@ -619,7 +780,9 @@
       var(--white)
     ) !important;
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 1px var(--primary), var(--card-shadow) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
   }
 }
 
@@ -699,4 +862,3 @@
     }
   }
 }
-

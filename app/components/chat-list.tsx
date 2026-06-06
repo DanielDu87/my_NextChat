@@ -1,4 +1,6 @@
 import DeleteIcon from "../icons/delete.svg";
+import ConfirmIcon from "../icons/confirm.svg";
+import CloseIcon from "../icons/close.svg";
 
 import styles from "./home.module.scss";
 
@@ -42,6 +44,8 @@ const NARROW_ITEM_HEIGHT = 50;
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
 const SNIPPET_CONTEXT_LENGTH = 18;
 const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
+export const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
+  "nextchat:open-chat-list-multi-delete";
 
 type FilterMatchMeta = {
   preview?: string;
@@ -77,6 +81,8 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   count: number;
   time: string;
   selected: boolean;
+  multiDeleteMode?: boolean;
+  multiDeleteSelected?: boolean;
   narrow?: boolean;
   avatar: string;
   model: string;
@@ -117,6 +123,9 @@ const ChatItemCard = memo(function ChatItemCard(props: {
           (currentPath === Path.Chat ||
             currentPath === Path.Home ||
             currentPath.startsWith(Path.Chat + "/")),
+        [styles["chat-item-multi-delete"]]: props.multiDeleteMode,
+        [styles["chat-item-multi-delete-selected"]]:
+          props.multiDeleteMode && props.multiDeleteSelected,
       })}
       onClick={props.onClick}
       title={`${props.title}\n${Locale.ChatItem.ChatItemCount(props.count)}`}
@@ -145,6 +154,12 @@ const ChatItemCard = memo(function ChatItemCard(props: {
             <div className={styles["chat-item-date"]}>{props.time}</div>
           </div>
         </>
+      )}
+
+      {props.multiDeleteMode && (
+        <div className={styles["chat-item-check"]}>
+          {props.multiDeleteSelected && <ConfirmIcon />}
+        </div>
       )}
 
       <div
@@ -182,6 +197,8 @@ export function ChatList(props: { narrow?: boolean }) {
   const [filterText, setFilterText] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
   const [initialEmptyListGuard, setInitialEmptyListGuard] = useState(true);
+  const [multiDeleteMode, setMultiDeleteMode] = useState(false);
+  const [selectedDeleteIds, setSelectedDeleteIds] = useState<string[]>([]);
   const [startupChatSyncStatus, setStartupChatSyncStatus] =
     useState<StartupChatSyncStatus | null>(null);
   const chatStoreHydrated = useChatStore((state) =>
@@ -191,6 +208,28 @@ export function ChatList(props: { narrow?: boolean }) {
   const loadingMoreTimerRef = useRef<number | null>(null);
   const hasMoreSessions =
     orderedSessionIds.length < allOrderedSessionIds.length;
+
+  const toggleDeleteSelection = useCallback((sessionId: string) => {
+    setSelectedDeleteIds((ids) =>
+      ids.includes(sessionId)
+        ? ids.filter((id) => id !== sessionId)
+        : [...ids, sessionId],
+    );
+  }, []);
+
+  const enterMultiDeleteMode = useCallback((sessionId?: string) => {
+    setMultiDeleteMode(true);
+    if (sessionId) {
+      setSelectedDeleteIds((ids) =>
+        ids.includes(sessionId) ? ids : [...ids, sessionId],
+      );
+    }
+  }, []);
+
+  const exitMultiDeleteMode = useCallback(() => {
+    setMultiDeleteMode(false);
+    setSelectedDeleteIds([]);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -242,6 +281,21 @@ export function ChatList(props: { narrow?: boolean }) {
       channel?.close();
     };
   }, []);
+
+  useEffect(() => {
+    const listener = () => enterMultiDeleteMode(currentSessionId);
+    window.addEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
+
+    return () => {
+      window.removeEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
+    };
+  }, [currentSessionId, enterMultiDeleteMode]);
+
+  useEffect(() => {
+    if (!isMobileScreen && multiDeleteMode) {
+      exitMultiDeleteMode();
+    }
+  }, [exitMultiDeleteMode, isMobileScreen, multiDeleteMode]);
 
   const triggerLoadMore = useCallback(() => {
     if (!hasMoreSessions) {
@@ -360,6 +414,14 @@ export function ChatList(props: { narrow?: boolean }) {
     }, []);
   }, [deferredFilterText, displayedSessions, buildMatchedPreview]);
 
+  useEffect(() => {
+    setSelectedDeleteIds((ids) =>
+      ids.filter((id) =>
+        filteredSessions.some((item) => item.session.id === id),
+      ),
+    );
+  }, [filteredSessions]);
+
   const itemHeight = props.narrow
     ? NARROW_ITEM_HEIGHT
     : deferredFilterText
@@ -392,11 +454,27 @@ export function ChatList(props: { narrow?: boolean }) {
   }, []);
 
   const onDeleteSession = async (sessionId: string) => {
+    if (isMobileScreen) {
+      enterMultiDeleteMode(sessionId);
+      return;
+    }
+
     if (
       (!props.narrow && !isMobileScreen) ||
       (await showConfirm(Locale.Home.DeleteChat))
     ) {
       useChatStore.getState().deleteSessionById(sessionId);
+    }
+  };
+
+  const onConfirmMultiDelete = async () => {
+    if (selectedDeleteIds.length === 0) {
+      return;
+    }
+
+    if (await showConfirm(Locale.Home.DeleteChat)) {
+      useChatStore.getState().deleteSessionsByIds(selectedDeleteIds);
+      exitMultiDeleteMode();
     }
   };
 
@@ -488,10 +566,16 @@ export function ChatList(props: { narrow?: boolean }) {
               count={item.messageCount}
               selected={item.id === currentSessionId}
               onClick={() => {
+                if (multiDeleteMode) {
+                  toggleDeleteSelection(item.id);
+                  return;
+                }
                 navigate(`/chat/${item.id}`);
                 selectChatSessionById(item.id);
               }}
               onDelete={() => void onDeleteSession(item.id)}
+              multiDeleteMode={multiDeleteMode}
+              multiDeleteSelected={selectedDeleteIds.includes(item.id)}
               narrow={props.narrow}
               avatar={item.avatar}
               model={item.model}
@@ -523,10 +607,16 @@ export function ChatList(props: { narrow?: boolean }) {
                   count={item.messageCount}
                   selected={item.id === currentSessionId}
                   onClick={() => {
+                    if (multiDeleteMode) {
+                      toggleDeleteSelection(item.id);
+                      return;
+                    }
                     navigate(`/chat/${item.id}`);
                     selectChatSessionById(item.id);
                   }}
                   onDelete={() => void onDeleteSession(item.id)}
+                  multiDeleteMode={multiDeleteMode}
+                  multiDeleteSelected={selectedDeleteIds.includes(item.id)}
                   narrow={props.narrow}
                   avatar={item.avatar}
                   model={item.model}
@@ -539,6 +629,22 @@ export function ChatList(props: { narrow?: boolean }) {
 
   return (
     <div className={styles["chat-list-panel"]}>
+      {multiDeleteMode && (
+        <div className={styles["chat-list-delete-bar"]}>
+          <button type="button" onClick={exitMultiDeleteMode}>
+            <CloseIcon />
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={selectedDeleteIds.length === 0}
+            onClick={() => void onConfirmMultiDelete()}
+          >
+            <DeleteIcon />
+            删除 {selectedDeleteIds.length}
+          </button>
+        </div>
+      )}
       {!props.narrow && (
         <div className={styles["chat-list-filter-card"]}>
           <input
