@@ -102,9 +102,7 @@ let uiPreferenceSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getUiPreferenceSummary() {
   const state = useAppConfig.getState();
-  return `主题=${state.theme}，页面=${
-    state.tightBorder ? "全屏/无边框" : "普通/窄边框"
-  }，侧边栏宽度=${state.sidebarWidth}px`;
+  return `主题=${state.theme}，侧边栏宽度=${state.sidebarWidth}px`;
 }
 
 function scheduleUiPreferenceSync(reason: string) {
@@ -602,12 +600,6 @@ export const useAppConfig = createPersistStore(
       localStorage.setItem(THEME_KEY, theme);
       set({ theme, lastUpdateTime: Date.now() });
       scheduleUiPreferenceSync("主题");
-    },
-
-    setTightBorder(tightBorder: boolean) {
-      localStorage.setItem(TIGHT_BORDER_KEY, String(tightBorder));
-      set({ tightBorder, lastUpdateTime: Date.now() });
-      scheduleUiPreferenceSync("全屏/无边框模式");
     },
   }),
   {

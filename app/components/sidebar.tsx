@@ -4,8 +4,6 @@ import styles from "./home.module.scss";
 
 import { IconButton } from "./button";
 import SettingsIcon from "../icons/settings.svg";
-import MaxIcon from "../icons/max.svg";
-import MinIcon from "../icons/min.svg";
 import LightIcon from "../icons/light.svg";
 import DarkIcon from "../icons/dark.svg";
 import AutoIcon from "../icons/auto.svg";
@@ -305,15 +303,10 @@ export function useFixedSideBar() {
       `${DEFAULT_SIDEBAR_WIDTH}px`,
     );
   }, []);
-
-  return {
-    shouldNarrow: false,
-  };
 }
 
 export function SideBarContainer(props: {
   children: React.ReactNode;
-  shouldNarrow: boolean;
   className?: string;
 }) {
   const isMobileScreen = useMobileScreen();
@@ -321,13 +314,11 @@ export function SideBarContainer(props: {
     () => isIOS() && isMobileScreen,
     [isMobileScreen],
   );
-  const { children, className, shouldNarrow } = props;
+  const { children, className } = props;
 
   return (
     <div
-      className={clsx(styles.sidebar, className, {
-        [styles["narrow-sidebar"]]: shouldNarrow,
-      })}
+      className={clsx(styles.sidebar, className)}
       style={{
         // #3016 disable transition on ios mobile screen
         transition: isMobileScreen && isIOSMobile ? "none" : undefined,
@@ -343,10 +334,9 @@ export function SideBarHeader(props: {
   subTitle?: string | React.ReactNode;
   logo?: React.ReactNode;
   children?: React.ReactNode;
-  shouldNarrow?: boolean;
   linkHref?: string;
 }) {
-  const { title, subTitle, logo, children, shouldNarrow, linkHref } = props;
+  const { title, subTitle, logo, children, linkHref } = props;
 
   const logoNode = linkHref ? (
     <a
@@ -386,14 +376,9 @@ export function SideBarHeader(props: {
 
   return (
     <Fragment>
-      <div
-        className={clsx(styles["sidebar-header"], {
-          [styles["sidebar-header-narrow"]]: shouldNarrow,
-        })}
-        data-tauri-drag-region
-      >
+      <div className={styles["sidebar-header"]} data-tauri-drag-region>
         {logoNode}
-        {!shouldNarrow && titleNode}
+        {titleNode}
       </div>
       {children}
     </Fragment>
@@ -428,7 +413,7 @@ export function SideBarTail(props: {
 
 export function SideBar(props: { className?: string }) {
   useHotKey();
-  const { shouldNarrow } = useFixedSideBar();
+  useFixedSideBar();
   const isMobileScreen = useMobileScreen();
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
@@ -469,17 +454,16 @@ export function SideBar(props: { className?: string }) {
   }, []);
 
   return (
-    <SideBarContainer shouldNarrow={shouldNarrow} {...props}>
+    <SideBarContainer {...props}>
       <SideBarHeader
         title="NextChat"
         subTitle="Build your own AI assistant."
         logo={<NextChatBrandIcon />}
-        shouldNarrow={shouldNarrow}
       >
         <div className={styles["sidebar-header-bar"]}>
           <IconButton
             icon={<MaskIcon />}
-            text={shouldNarrow ? undefined : Locale.Mask.Name}
+            text={Locale.Mask.Name}
             className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
             onClick={() => {
               if (config.dontShowMaskSplashScreen !== true) {
@@ -493,7 +477,7 @@ export function SideBar(props: { className?: string }) {
           {mcpEnabled && (
             <IconButton
               icon={<McpIcon />}
-              text={shouldNarrow ? undefined : Locale.Mcp.Name}
+              text={Locale.Mcp.Name}
               className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
               onClick={() => {
                 navigate(Path.McpMarket, { state: { fromHome: true } });
@@ -503,7 +487,7 @@ export function SideBar(props: { className?: string }) {
           )}
           <IconButton
             icon={<DiscoveryIcon />}
-            text={shouldNarrow ? undefined : Locale.Discovery.Name}
+            text={Locale.Discovery.Name}
             className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
             onClick={() => setshowDiscoverySelector(true)}
             shadow
@@ -533,7 +517,7 @@ export function SideBar(props: { className?: string }) {
           }
         }}
       >
-        <ChatList narrow={shouldNarrow} />
+        <ChatList />
       </SideBarBody>
       <SideBarTail
         primaryAction={
@@ -638,7 +622,7 @@ export function SideBar(props: { className?: string }) {
             <IconButton
               icon={<AddIcon />}
               className={styles["sidebar-icon-button"]}
-              text={shouldNarrow ? undefined : Locale.Home.NewChat}
+              text={Locale.Home.NewChat}
               onClick={() => {
                 if (readOnly) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");

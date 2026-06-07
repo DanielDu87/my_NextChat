@@ -168,7 +168,6 @@ export function WindowContent(props: { children: React.ReactNode }) {
 }
 
 function Screen() {
-  const config = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
   const isArtifact = location.pathname.includes(Path.Artifacts);
@@ -178,8 +177,6 @@ function Screen() {
   const isSdNew = location.pathname === Path.SdNew;
 
   const isMobileScreen = useMobileScreen();
-  const shouldTightBorder =
-    getClientConfig()?.isApp || (config.tightBorder && !isMobileScreen);
 
   // 移动端默认进入聊天界面而非对话列表
   useEffect(() => {
@@ -244,7 +241,6 @@ function Screen() {
   return (
     <div
       className={clsx(styles.container, {
-        [styles["tight-container"]]: shouldTightBorder,
         [styles["rtl-screen"]]: getLang() === "ar",
       })}
     >

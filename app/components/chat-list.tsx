@@ -13,7 +13,6 @@ import {
 import Locale from "../locales";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Path } from "../constant";
-import { MaskAvatar } from "./mask";
 import {
   useRef,
   useEffect,
@@ -40,7 +39,6 @@ const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
 const NORMAL_ITEM_HEIGHT = 84;
 const FILTERED_ITEM_HEIGHT = 108;
-const NARROW_ITEM_HEIGHT = 50;
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
 const SNIPPET_CONTEXT_LENGTH = 18;
 const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
@@ -83,7 +81,6 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   selected: boolean;
   multiDeleteMode?: boolean;
   multiDeleteSelected?: boolean;
-  narrow?: boolean;
   avatar: string;
   model: string;
 }) {
@@ -130,31 +127,20 @@ const ChatItemCard = memo(function ChatItemCard(props: {
       onClick={props.onClick}
       title={`${props.title}\n${Locale.ChatItem.ChatItemCount(props.count)}`}
     >
-      {props.narrow ? (
-        <div className={styles["chat-item-narrow"]}>
-          <div className={clsx(styles["chat-item-avatar"], "no-dark")}>
-            <MaskAvatar avatar={props.avatar} model={props.model} />
-          </div>
-          <div className={styles["chat-item-narrow-count"]}>{props.count}</div>
+      <div className={styles["chat-item-title"]}>
+        {renderHighlightedText(props.title)}
+      </div>
+      {props.preview && (
+        <div className={styles["chat-item-preview"]}>
+          {renderHighlightedText(props.preview)}
         </div>
-      ) : (
-        <>
-          <div className={styles["chat-item-title"]}>
-            {renderHighlightedText(props.title)}
-          </div>
-          {props.preview && (
-            <div className={styles["chat-item-preview"]}>
-              {renderHighlightedText(props.preview)}
-            </div>
-          )}
-          <div className={styles["chat-item-info"]}>
-            <div className={styles["chat-item-count"]}>
-              {Locale.ChatItem.ChatItemCount(props.count)}
-            </div>
-            <div className={styles["chat-item-date"]}>{props.time}</div>
-          </div>
-        </>
       )}
+      <div className={styles["chat-item-info"]}>
+        <div className={styles["chat-item-count"]}>
+          {Locale.ChatItem.ChatItemCount(props.count)}
+        </div>
+        <div className={styles["chat-item-date"]}>{props.time}</div>
+      </div>
 
       {props.multiDeleteMode && (
         <div className={styles["chat-item-check"]}>
@@ -180,7 +166,7 @@ function StaticChatItem(props: ComponentProps<typeof ChatItemCard>) {
   return <ChatItemCard {...props} />;
 }
 
-export function ChatList(props: { narrow?: boolean }) {
+export function ChatList() {
   const {
     orderedSessionIds,
     allOrderedSessionIds,
@@ -422,9 +408,7 @@ export function ChatList(props: { narrow?: boolean }) {
     );
   }, [filteredSessions]);
 
-  const itemHeight = props.narrow
-    ? NARROW_ITEM_HEIGHT
-    : deferredFilterText
+  const itemHeight = deferredFilterText
     ? FILTERED_ITEM_HEIGHT
     : NORMAL_ITEM_HEIGHT;
   const shouldVirtualize = filteredSessions.length > VIRTUAL_LIST_THRESHOLD;
@@ -459,10 +443,7 @@ export function ChatList(props: { narrow?: boolean }) {
       return;
     }
 
-    if (
-      (!props.narrow && !isMobileScreen) ||
-      (await showConfirm(Locale.Home.DeleteChat))
-    ) {
+    if (!isMobileScreen || (await showConfirm(Locale.Home.DeleteChat))) {
       useChatStore.getState().deleteSessionById(sessionId);
     }
   };
@@ -525,7 +506,6 @@ export function ChatList(props: { narrow?: boolean }) {
       availableSessions: allOrderedSessionIds.length,
       filteredSessions: filteredSessions.length,
       currentSessionId,
-      narrow: Boolean(props.narrow),
       virtualized: shouldVirtualize,
       renderedCount: shouldVirtualize
         ? visibleSessions.length
@@ -540,7 +520,6 @@ export function ChatList(props: { narrow?: boolean }) {
     allOrderedSessionIds.length,
     endIndex,
     filteredSessions.length,
-    props.narrow,
     scrollTop,
     shouldVirtualize,
     startIndex,
@@ -576,7 +555,6 @@ export function ChatList(props: { narrow?: boolean }) {
               onDelete={() => void onDeleteSession(item.id)}
               multiDeleteMode={multiDeleteMode}
               multiDeleteSelected={selectedDeleteIds.includes(item.id)}
-              narrow={props.narrow}
               avatar={item.avatar}
               model={item.model}
             />
@@ -617,7 +595,6 @@ export function ChatList(props: { narrow?: boolean }) {
                   onDelete={() => void onDeleteSession(item.id)}
                   multiDeleteMode={multiDeleteMode}
                   multiDeleteSelected={selectedDeleteIds.includes(item.id)}
-                  narrow={props.narrow}
                   avatar={item.avatar}
                   model={item.model}
                 />
@@ -645,17 +622,15 @@ export function ChatList(props: { narrow?: boolean }) {
           </button>
         </div>
       )}
-      {!props.narrow && (
-        <div className={styles["chat-list-filter-card"]}>
-          <input
-            type="text"
-            className={styles["chat-list-filter-input"]}
-            placeholder={Locale.SearchChat.Page.Search}
-            value={filterText}
-            onChange={(e) => setFilterText(e.currentTarget.value)}
-          />
-        </div>
-      )}
+      <div className={styles["chat-list-filter-card"]}>
+        <input
+          type="text"
+          className={styles["chat-list-filter-input"]}
+          placeholder={Locale.SearchChat.Page.Search}
+          value={filterText}
+          onChange={(e) => setFilterText(e.currentTarget.value)}
+        />
+      </div>
       {isChatListLoading ? (
         <div className={styles["chat-list-load-more-indicator"]}>
           <span className={styles["chat-list-load-more-dots"]}>

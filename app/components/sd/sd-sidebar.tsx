@@ -33,7 +33,7 @@ const SdPanel = dynamic(
 export function SideBar(props: { className?: string }) {
   useHotKey();
   const isMobileScreen = useMobileScreen();
-  const { shouldNarrow } = useFixedSideBar();
+  useFixedSideBar();
   const navigate = useNavigate();
   const sdStore = useSdStore();
   const currentModel = sdStore.currentModel;
@@ -68,7 +68,7 @@ export function SideBar(props: { className?: string }) {
   };
 
   return (
-    <SideBarContainer shouldNarrow={shouldNarrow} {...props}>
+    <SideBarContainer {...props}>
       {isMobileScreen ? (
         <div
           className="window-header"

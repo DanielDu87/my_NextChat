@@ -1392,7 +1392,6 @@
 
 .chat {
   --chat-composer-width: min(58%, 1040px);
-  --chat-tight-content-padding: 0px;
 
   display: flex;
   flex-direction: column;
@@ -1406,11 +1405,6 @@
   overflow: hidden;
 }
 
-.chat-tight-desktop {
-  --chat-composer-width: min(50%, 880px);
-  --chat-tight-content-padding: clamp(16px, 2vw, 40px);
-}
-
 .chat-body {
   --chat-scroll-button-clearance: 58px;
   flex: 1;
@@ -1419,10 +1413,7 @@
   padding: 24px
     max(
       40px,
-      calc(
-        (100% - var(--chat-composer-width)) / 2 + 20px +
-          var(--chat-tight-content-padding)
-      )
+      calc((100% - var(--chat-composer-width)) / 2 + 20px)
     );
   padding-bottom: var(--chat-scroll-button-clearance);
   position: relative;
@@ -1890,6 +1881,14 @@
   background: transparent;
 }
 
+@media only screen and (min-width: 651px) {
+  .chat-message,
+  .chat-message-user {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
 .chat-message-edit-input {
   display: block;
   width: 100%;
@@ -1970,10 +1969,7 @@
   position: relative;
   display: flex;
   min-width: 500px;
-  width: min(
-    var(--chat-composer-width),
-    calc(100% - var(--chat-tight-content-padding) * 2)
-  );
+  width: var(--chat-composer-width);
   padding: 20px;
   padding-top: 10px;
   box-sizing: border-box;
@@ -3425,14 +3421,17 @@
 
 // moved after .chat-balance-user-panel for specificity
 
-@container (max-width: 1500px) {
-  .chat-body {
-    padding: 20px calc(20px + var(--chat-tight-content-padding));
-    padding-bottom: var(--chat-scroll-button-clearance);
-  }
+@media only screen and (min-width: 651px) {
+  @container (max-width: 1500px) {
+    .chat-body {
+      padding: 20px
+        max(40px, calc((100% - var(--chat-composer-width)) / 2 + 20px));
+      padding-bottom: var(--chat-scroll-button-clearance);
+    }
 
-  .chat-balance-user-panel-dimmed {
-    opacity: 0.5;
+    .chat-balance-user-panel-dimmed {
+      opacity: 0.5;
+    }
   }
 }
 
@@ -3540,6 +3539,20 @@
 .chat-panel-model-at {
   opacity: 0.45;
   margin: 0 2px;
+}
+
+.chat-balance-user-panel-mobile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+
+  > * {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

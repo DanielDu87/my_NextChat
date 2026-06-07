@@ -21,13 +21,12 @@ import SpeakStopIcon from "../icons/speak-stop.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import LoadingButtonIcon from "../icons/loading.svg";
 import PromptIcon from "../icons/prompt.svg";
-import MaxIcon from "../icons/max.svg";
-import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ConfigIcon from "../icons/config.svg";
+import UserIcon from "../icons/user.svg";
 import DeleteIcon from "../icons/clear.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
@@ -177,7 +176,6 @@ import {
   saveManualSessionModelSelection,
 } from "../utils/manual-model-selection";
 import { ExportMessageModal } from "./exporter";
-import { getClientConfig } from "../config/client";
 import { getProviderIcon } from "../config/provider-icons";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
@@ -1219,6 +1217,7 @@ const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
 const ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY = "unfinished-attach-images-active";
 const MAX_ATTACH_IMAGES = 9;
 const UNFINISHED_ATTACH_IMAGES_TTL_MS = 24 * 60 * 60 * 1000;
+const STREAMING_CONTROLLER_STARTUP_GRACE_MS = 1500;
 const UNFINISHED_ATTACH_IMAGES = (id: string) =>
   "unfinished-attach-images-" + id;
 
@@ -2769,7 +2768,13 @@ function _Chat() {
     [isMobileScreen],
   );
   const { width: windowWidth } = useWindowSize();
-  const [showBalanceUserPanel] = useState(() => true);
+  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(
+    () => !isMobileScreen,
+  );
+
+  useEffect(() => {
+    setShowBalanceUserPanel(!isMobileScreen);
+  }, [isMobileScreen]);
 
   useLayoutEffect(() => {
     const panel = inputPanelRef.current;
@@ -2831,6 +2836,13 @@ function _Chat() {
     (message: ChatMessage) => {
       if (!message.streaming) return false;
       if (!message.id) return true;
+      const messageTime = new Date(message.date).getTime();
+      if (
+        Number.isFinite(messageTime) &&
+        Date.now() - messageTime < STREAMING_CONTROLLER_STARTUP_GRACE_MS
+      ) {
+        return false;
+      }
       return !ChatControllerPool.has(session.id, message.id);
     },
     [session.id],
@@ -2843,7 +2855,10 @@ function _Chat() {
       if (!shouldShowLoadingBubble) return false;
       if (getMessageTextContent(message).length > 0) return false;
       const messageTime = new Date(message.date).getTime();
-      if (Number.isFinite(messageTime) && Date.now() - messageTime < 1500) {
+      if (
+        Number.isFinite(messageTime) &&
+        Date.now() - messageTime < STREAMING_CONTROLLER_STARTUP_GRACE_MS
+      ) {
         return false;
       }
       if (!message.streaming) return true;
@@ -6533,11 +6548,8 @@ function _Chat() {
       ? safeSession.clearContextIndex! + context.length - msgRenderIndex
       : -1;
 
-  const clientConfig = useMemo(() => getClientConfig(), []);
-
   const hasUserInputContent = userInput.trim().length > 0;
   const autoFocus = !isMobileScreen && !hasUserInputContent; // wont auto focus on mobile screen
-  const showMaxIcon = !isMobileScreen && !clientConfig?.isApp;
   const useHeaderIconOnly = windowWidth < 1000;
   const useCompactInputHint = !isMobileScreen && windowWidth <= 1100;
   const chatInputHint = isChatUnavailableForSync
@@ -6554,12 +6566,20 @@ function _Chat() {
   }, [hasAssistantLoadingBubbles, isChatUnavailableForSync, sessionLoading]);
 
   const [enterLoadingMin, setEnterLoadingMin] = useState(false);
+  const enterLoadingSessionIdRef = useRef("");
   useEffect(() => {
     if (!currentSessionHasMessages) {
+      enterLoadingSessionIdRef.current = safeSession.id;
       setEnterLoadingMin(false);
       return;
     }
 
+    if (enterLoadingSessionIdRef.current === safeSession.id) {
+      setEnterLoadingMin(false);
+      return;
+    }
+
+    enterLoadingSessionIdRef.current = safeSession.id;
     setEnterLoadingMin(true);
     const timer = window.setTimeout(() => setEnterLoadingMin(false), 420);
     return () => window.clearTimeout(timer);
@@ -6618,7 +6638,9 @@ function _Chat() {
     : "正在恢复这段对话";
   const chatRestoreNoticeDescription = sessionLoading
     ? "正在恢复完整消息内容，完成后会自动显示。"
-    : "模型配置同步完成后，对话内容会自动显示。";
+    : isChatUnavailableForSync
+    ? "模型配置同步完成后，对话内容会自动显示。"
+    : "对话内容即将显示。";
 
   const initialAutoScrollSessionIdRef = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -7319,8 +7341,6 @@ function _Chat() {
         className={clsx(styles.chat, {
           [styles["chat-mobile-keyboard-open"]]:
             isMobileScreen && isMobileInputFocused,
-          [styles["chat-tight-desktop"]]:
-            clientConfig?.isApp || (config.tightBorder && !isMobileScreen),
         })}
         data-mobile-input-empty={
           isMobileScreen && userInput.trim().length === 0 ? "true" : undefined
@@ -7416,14 +7436,31 @@ function _Chat() {
               )}
             >
               <IconButton
-                icon={<ConfigIcon />}
+                icon={isMobileScreen ? <UserIcon /> : <ConfigIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
-                text={useHeaderIconOnly ? undefined : "API 配置"}
-                title="API 配置"
-                aria="API 配置"
-                onClick={() => navigate(Path.ApiConfig)}
-                disabled={readOnly || effectiveAuthUser?.role !== "admin"}
+                text={
+                  useHeaderIconOnly
+                    ? undefined
+                    : isMobileScreen
+                    ? showBalanceUserPanel
+                      ? "隐藏状态"
+                      : "显示状态"
+                    : "API 配置"
+                }
+                title={isMobileScreen ? "显示或隐藏用户和余额" : "API 配置"}
+                aria={isMobileScreen ? "显示或隐藏用户和余额" : "API 配置"}
+                onClick={() => {
+                  if (isMobileScreen) {
+                    setShowBalanceUserPanel((show) => !show);
+                    return;
+                  }
+                  navigate(Path.ApiConfig);
+                }}
+                disabled={
+                  !isMobileScreen &&
+                  (readOnly || effectiveAuthUser?.role !== "admin")
+                }
               />
             </div>
             <div
@@ -7484,30 +7521,6 @@ function _Chat() {
                 }
               />
             </div>
-            {showMaxIcon && (
-              <div
-                className={clsx(
-                  "window-action-button",
-                  styles["chat-window-action-button"],
-                )}
-              >
-                <IconButton
-                  icon={config.tightBorder ? <MinIcon /> : <MaxIcon />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
-                  text={
-                    useHeaderIconOnly
-                      ? undefined
-                      : Locale.Chat.Actions.FullScreen
-                  }
-                  title={Locale.Chat.Actions.FullScreen}
-                  aria={Locale.Chat.Actions.FullScreen}
-                  onClick={() => {
-                    config.setTightBorder(!config.tightBorder);
-                  }}
-                />
-              </div>
-            )}
           </div>
 
           <PromptToast
@@ -7523,11 +7536,24 @@ function _Chat() {
                 ref={balancePanelRef}
                 className={clsx(styles["chat-balance-user-panel"], {
                   [styles["chat-balance-user-panel-dimmed"]]:
-                    balancePanelOverlapsMessages,
+                    !isMobileScreen && balancePanelOverlapsMessages,
                 })}
               >
                 {isMobileScreen ? (
-                  <>
+                  <div className={styles["chat-balance-user-panel-mobile"]}>
+                    {balanceProviderName ? (
+                      <ChatProviderBalance
+                        providerName={balanceProviderName as ServiceProvider}
+                        providerDisplayName={balanceProviderDisplayName}
+                        refreshSignal=""
+                        balanceCacheKey={currentBalanceCacheKey}
+                        profile={
+                          balanceProfile as BalanceAwareProfile | undefined
+                        }
+                        deferInitialRefresh={sessionMessages.length === 0}
+                        suppressAutoRefresh={suppressBalanceAutoRefresh}
+                      />
+                    ) : null}
                     {isModelConfigSyncConfirmed && (
                       <div className={styles["chat-panel-model-info"]}>
                         {currentModelName}
@@ -7536,7 +7562,7 @@ function _Chat() {
                       </div>
                     )}
                     <UserMenu variant="chat-floating" />
-                  </>
+                  </div>
                 ) : (
                   <>
                     {balanceProviderName ? (
