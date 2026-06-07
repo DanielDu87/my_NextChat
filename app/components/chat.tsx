@@ -2591,6 +2591,7 @@ function _Chat() {
   const preserveMobileInputBlurHeightRef = useRef(false);
   const collapseTimersRef = useRef<number[]>([]);
   const mobileBlurTimerRef = useRef<number | null>(null);
+  const pendingMobileSubmitScrollRestoreRef = useRef(false);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
@@ -4058,14 +4059,15 @@ function _Chat() {
     setUserInput("");
     setPromptHints([]);
     if (isMobileScreen) {
+      pendingMobileSubmitScrollRestoreRef.current = true;
       setIsMobileInputFocused(false);
       blurMobileKeyboard();
       setAutoScroll(true);
       setHitBottom(true);
-      [50, 180, 420].forEach((delay) => {
+      [50, 180, 420, 760].forEach((delay) => {
         window.setTimeout(() => {
           window.scrollTo(0, 0);
-          scrollDomToBottom();
+          forceScrollToBottom();
         }, delay);
       });
     } else {
@@ -5360,6 +5362,9 @@ function _Chat() {
 
     const stabilize = () => {
       resetMobileDocumentScroll();
+      if (pendingMobileSubmitScrollRestoreRef.current) {
+        forceScrollToBottom();
+      }
     };
     const delays = [0, 80, 180, 360, 700];
 
@@ -5367,12 +5372,14 @@ function _Chat() {
       window.setTimeout(() => {
         stabilize();
         if (index === delays.length - 1) {
+          pendingMobileSubmitScrollRestoreRef.current = false;
           mobileViewportReleaseTimersRef.current = [];
         }
       }, delay),
     );
   }, [
     clearMobileKeyboardReleaseTimers,
+    forceScrollToBottom,
     isMobileScreen,
     resetMobileDocumentScroll,
   ]);

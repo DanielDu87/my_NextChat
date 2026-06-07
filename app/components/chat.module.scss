@@ -2467,17 +2467,30 @@
 
   .chat-message-actions,
   .chat-message-user .chat-message-actions {
-    position: relative;
+    position: absolute;
     top: auto;
     right: auto;
-    bottom: auto;
-    left: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
     max-width: calc(100vw - 28px);
-    transform: scale(0.94);
+    z-index: 3;
+    transform: translateY(4px) scale(0.94);
+  }
+
+  .chat-message-user .chat-message-actions {
+    right: 0;
+    left: auto;
   }
 
   .chat-message-container:hover .chat-message-actions {
-    transform: scale(1);
+    transform: translateY(0) scale(1);
+  }
+
+  .chat-message-container:active .chat-message-actions,
+  .chat-message-container:focus-within .chat-message-actions {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0) scale(1);
   }
 
   .chat-message-actions .chat-input-actions {
@@ -2507,6 +2520,10 @@
       display: none;
       margin-top: 0;
       min-height: 0;
+    }
+
+    &:last-child {
+      animation: mobile-chat-message-fade-in ease 0.2s;
     }
   }
 
@@ -3001,18 +3018,17 @@
       flex: 0 0 auto;
     }
 
-    // 聚焦时让输入面板始终贴住可视区底部，避免内容区被收起后面板停在过高位置
+    // 聚焦时让输入面板始终贴住可视区底部，同时保留消息区可见。
     .chat-body-container {
       justify-content: flex-end;
     }
 
-    // 消息区彻底收起（含内边距），让输入面板紧贴工具栏下方、向下撑满
+    // 键盘展开时仍保留消息区，让历史消息和新消息保持可见。
     .chat-body {
-      flex: 0 0 auto;
-      height: 0;
+      flex: 1 1 auto;
+      height: auto;
       min-height: 0;
-      padding: 0;
-      overflow: hidden;
+      overflow: auto;
     }
 
     // 隐藏左上角的余额/用户浮层，避免覆盖上移后的输入框
@@ -3162,6 +3178,16 @@
         transform: none;
       }
     }
+  }
+}
+
+@keyframes mobile-chat-message-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
   }
 }
 
