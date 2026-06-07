@@ -2606,6 +2606,8 @@ function _Chat() {
   const balancePanelOverlapRafRef = useRef<number | null>(null);
   const mobileViewportRafRef = useRef<number | null>(null);
   const mobileViewportReleaseTimersRef = useRef<number[]>([]);
+  const mobileKeyboardOpenedSinceFocusRef = useRef(false);
+  const mobileKeyboardDismissByViewportRef = useRef(false);
   const mobileKeyboardStableMetricsRef = useRef<{
     visualHeight: number;
     accessoryInset: number;
@@ -5490,6 +5492,37 @@ function _Chat() {
     [collapseMobileInput],
   );
 
+  const finalizeMobileInputBlur = useCallback(
+    (blurDom = false) => {
+      cancelMobileKeyboardViewportSync();
+      collapseTimersRef.current.forEach(clearTimeout);
+      collapseTimersRef.current = [];
+      if (mobileBlurTimerRef.current !== null) {
+        clearTimeout(mobileBlurTimerRef.current);
+        mobileBlurTimerRef.current = null;
+      }
+      const shouldPreserveExpandedHeight = prepareMobileInputBlurLayout();
+      mobileKeyboardOpenedSinceFocusRef.current = false;
+      setIsMobileInputFocused(false);
+      collapseMobileInput(shouldPreserveExpandedHeight);
+      if (shouldPreserveExpandedHeight) {
+        scheduleCollapseMobileInput(true);
+      }
+      scheduleMobileKeyboardReleaseStabilize();
+      if (blurDom) {
+        mobileKeyboardDismissByViewportRef.current = true;
+        mobileInputRef.current?.blur();
+      }
+    },
+    [
+      cancelMobileKeyboardViewportSync,
+      collapseMobileInput,
+      prepareMobileInputBlurLayout,
+      scheduleCollapseMobileInput,
+      scheduleMobileKeyboardReleaseStabilize,
+    ],
+  );
+
   const scheduleMoveInputCursorToEnd = useCallback(() => {
     requestAnimationFrame(moveInputCursorToEnd);
     setTimeout(moveInputCursorToEnd, 60);
@@ -5780,6 +5813,18 @@ function _Chat() {
       0,
       Math.floor(layoutViewportHeight - visualHeight - visualTop),
     );
+    if (isMobileInputFocused) {
+      if (keyboardObscuredHeight > 140) {
+        mobileKeyboardOpenedSinceFocusRef.current = true;
+      } else if (
+        mobileKeyboardOpenedSinceFocusRef.current &&
+        keyboardObscuredHeight < 80 &&
+        visualTop === 0
+      ) {
+        finalizeMobileInputBlur(true);
+        return;
+      }
+    }
     const isViewportMeasurementUsable =
       !isIOSMobile ||
       visualHeight >= Math.max(180, Math.round(layoutViewportHeight * 0.28));
@@ -5899,6 +5944,7 @@ function _Chat() {
     scheduleMoveInputCursorToEnd,
     scheduleScrollMobileInputToBottom,
     scrollToBottom,
+    finalizeMobileInputBlur,
   ]);
 
   const scheduleMobileKeyboardViewportSync = useCallback(() => {
@@ -8169,6 +8215,8 @@ function _Chat() {
                             mobileBlurTimerRef.current = null;
                           }
                           preserveMobileInputBlurHeightRef.current = false;
+                          mobileKeyboardOpenedSinceFocusRef.current = false;
+                          mobileKeyboardDismissByViewportRef.current = false;
                           setPreserveMobileInputBlurHeight(false);
                           chatInputInnerRef.current?.style.removeProperty(
                             "--chat-mobile-input-preserved-height",
@@ -8190,6 +8238,10 @@ function _Chat() {
                           scheduleMobileKeyboardViewportSync();
                         }}
                         onBlur={() => {
+                          if (mobileKeyboardDismissByViewportRef.current) {
+                            mobileKeyboardDismissByViewportRef.current = false;
+                            return;
+                          }
                           if (mobileInputOutsidePointerBlurRef.current) {
                             mobileInputOutsidePointerBlurRef.current = false;
                             requestAnimationFrame(() => {
@@ -8209,18 +8261,8 @@ function _Chat() {
                           }
 
                           sanitizeBoundaryInput();
-                          cancelMobileKeyboardViewportSync();
-                          collapseTimersRef.current.forEach(clearTimeout);
-                          collapseTimersRef.current = [];
-                          const shouldPreserveExpandedHeight =
-                            prepareMobileInputBlurLayout();
                           mobileBlurTimerRef.current = window.setTimeout(() => {
-                            setIsMobileInputFocused(false);
-                            collapseMobileInput(shouldPreserveExpandedHeight);
-                            if (shouldPreserveExpandedHeight) {
-                              scheduleCollapseMobileInput(true);
-                            }
-                            scheduleMobileKeyboardReleaseStabilize();
+                            finalizeMobileInputBlur();
                           }, 50);
                         }}
                         onClick={() => {
