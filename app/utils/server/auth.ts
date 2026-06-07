@@ -374,6 +374,10 @@ export function getAuthSessionMaxAgeSeconds() {
   return AUTH_SESSION_MAX_AGE_SECONDS;
 }
 
+export function getEffectiveUserCookieMaxAgeSeconds() {
+  return AUTH_SESSION_MAX_AGE_SECONDS;
+}
+
 export async function authenticateUser(username: string, password: string) {
   await ensureAuthSchemaAndSeed();
 

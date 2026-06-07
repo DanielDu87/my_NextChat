@@ -14,6 +14,8 @@ import {
 } from "./ui-lib";
 import { IconButton } from "./button";
 import { useAuthStore } from "../store/auth";
+import { Path } from "../constant";
+import { useNavigate } from "react-router-dom";
 
 type ManagedUser = {
   id: string;
@@ -281,6 +283,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const effectiveUser = useAuthStore((state) => state.effectiveUser);
   const logout = useAuthStore((state) => state.logout);
   const switchUser = useAuthStore((state) => state.switchUser);
+  const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -515,6 +518,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     setShowManageModal(false);
     try {
       await switchUser(managedUser.id);
+      navigate(Path.Chat, { replace: true });
     } catch (error) {
       showToast(error instanceof Error ? error.message : "切换用户失败");
     }

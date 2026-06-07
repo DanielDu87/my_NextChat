@@ -5,8 +5,6 @@ import { StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
-const IMPERSONATION_FLAG_KEY = "nextchat_impersonation_active";
-
 type AuthUserInfo = {
   id: string;
   username: string;
@@ -76,29 +74,6 @@ function clearAuthState() {
   } catch {}
 }
 
-function setImpersonationFlag() {
-  try {
-    sessionStorage.setItem(IMPERSONATION_FLAG_KEY, Date.now().toString());
-  } catch {}
-}
-
-function clearImpersonationFlag() {
-  try {
-    sessionStorage.removeItem(IMPERSONATION_FLAG_KEY);
-  } catch {}
-}
-
-function checkAndClearImpersonationFlag(): boolean {
-  try {
-    const flag = sessionStorage.getItem(IMPERSONATION_FLAG_KEY);
-    if (flag) {
-      clearImpersonationFlag();
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
 async function resetClientCache(nextUserId = "") {
   await clearPersistedStateStorage();
   if (nextUserId) {
@@ -118,14 +93,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   readOnly: cachedAuthState?.readOnly || false,
   initialized: !!cachedAuthState?.user,
   async fetchMe() {
-    const shouldExitImpersonation = checkAndClearImpersonationFlag();
-    if (shouldExitImpersonation) {
-      console.log("[Auth] 检测到页面刷新，退出切换模式");
-      await fetch("/api/admin/switch-user", {
-        method: "DELETE",
-      }).catch(() => null);
-    }
-
     // 首次请求失败时重试一次，避免 DB 暂时不可用导致误判未登录
     let response: Response | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -204,11 +171,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       readOnly: payload?.readOnly === true,
     });
 
-    if (shouldExitImpersonation) {
-      window.location.reload();
-      return null;
-    }
-
     return user;
   },
   async logout() {
@@ -264,8 +226,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!response.ok || payload?.ok !== true) {
       throw new Error(String(payload?.error || "退出查看失败"));
     }
-
-    clearImpersonationFlag();
 
     const currentUser = get().user;
     await resetClientCache(String(currentUser?.id || ""));

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AuthError,
   getEffectiveUserCookieName,
-  getAuthContext,
+  getEffectiveUserCookieMaxAgeSeconds,
   listManagedUsers,
   requireAuthContext,
 } from "@/app/utils/server/auth";
@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
       httpOnly: true,
       sameSite: "lax",
       secure: isHttps,
+      maxAge: getEffectiveUserCookieMaxAgeSeconds(),
       path: "/",
     });
 
