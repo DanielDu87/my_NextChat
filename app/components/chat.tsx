@@ -4580,6 +4580,20 @@ function _Chat() {
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
   }, [msgRenderIndex, renderMessages]);
 
+  const firstActionableMessageIndex = useMemo(() => {
+    return messages.findIndex((message, i) => {
+      const isContext = i < context.length;
+      const messageTextContent = getMessageTextContent(message);
+      const messageImages = getMessageImages(message);
+      const isEmptyUserMessage =
+        message.role === "user" &&
+        messageTextContent.length === 0 &&
+        messageImages.length === 0;
+
+      return !message.preview && !isContext && !isEmptyUserMessage;
+    });
+  }, [messages, context.length]);
+
   useLayoutEffect(() => {
     _setMsgRenderIndex(Math.max(0, renderMessages.length - CHAT_PAGE_SIZE));
     setHitBottom(true);
@@ -7600,6 +7614,17 @@ function _Chat() {
                       messageTextContent.trim().length > 12 ||
                       messageImages.length > 0 ||
                       editingMessageId === message.id;
+                    const shouldInlineMobileActions =
+                      isMobileScreen &&
+                      i === firstActionableMessageIndex &&
+                      messageImages.length === 0 &&
+                      messageTextContent.trim().length > 12;
+                    const shouldLeftMobileActions =
+                      isMobileScreen &&
+                      i === firstActionableMessageIndex &&
+                      messageImages.length === 0 &&
+                      messageTextContent.trim().length > 0 &&
+                      !shouldInlineMobileActions;
                     const messageActions = showActions ? (
                       <div className={styles["chat-input-actions"]}>
                         {message.streaming ? (
@@ -7786,6 +7811,12 @@ function _Chat() {
                             )}
                             <div
                               className={clsx(styles["chat-message-content"], {
+                                [styles[
+                                  "chat-message-content-mobile-actions-left"
+                                ]]: shouldLeftMobileActions,
+                                [styles[
+                                  "chat-message-content-mobile-actions-inline"
+                                ]]: shouldInlineMobileActions,
                                 [styles["chat-message-content-stack-actions"]]:
                                   shouldStackMessageActions,
                                 [styles["chat-message-content-editing"]]:
