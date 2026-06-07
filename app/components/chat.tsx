@@ -90,7 +90,6 @@ import { useAllModels } from "../utils/hooks";
 import {
   buildAutoModelCandidates,
   getAutoModelSeriesLabel,
-  normalizeAutoModelSeries,
 } from "../utils/auto-model";
 import {
   matchModelCategory,
@@ -394,24 +393,6 @@ async function copyMessageToClipboard(message: ChatMessage) {
   } catch {
     return copyToClipboard(buildMessageCopyText(message));
   }
-}
-
-function AutoModeCrossIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M7 7L17 17" />
-      <path d="M17 7L7 17" />
-    </svg>
-  );
 }
 
 function getProfileProviderId(profile: { provider: string; name: string }) {
@@ -1827,19 +1808,6 @@ function MobileClearIcon() {
   );
 }
 
-function AutoModeStateIcon(props: { enabled: boolean }) {
-  if (props.enabled) {
-    return <ConfirmIcon />;
-  }
-
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M4.2 3.2L12.8 11.8L11.8 12.8L3.2 4.2Z" fill="currentColor" />
-      <path d="M11.8 3.2L12.8 4.2L4.2 12.8L3.2 11.8Z" fill="currentColor" />
-    </svg>
-  );
-}
-
 function useScrollToBottom(
   scrollRef: RefObject<HTMLDivElement>,
   detach: boolean = false,
@@ -2580,7 +2548,6 @@ function _Chat() {
   const autoModelSeries = useAppConfig((state) => state.autoModelSeries);
 
   const [showExport, setShowExport] = useState(false);
-  const [showAutoModelSelector, setShowAutoModelSelector] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showAddModelModal, setShowAddModelModal] = useState(false);
   const [addModelProfile, setAddModelProfile] = useState<{
@@ -3129,7 +3096,6 @@ function _Chat() {
   const selectedAutoModelSeriesLabel = selectedAutoModelSeries
     ? getAutoModelSeriesLabel(selectedAutoModelSeries)
     : "";
-  const autoModelSelectionEmpty = showAutoModelSelector && !autoModeEnabled;
   const manualModelSelectionDisabled = autoModeEnabled;
   const autoModeDefaultCandidate = useMemo(() => {
     if (!autoModeEnabled) {
@@ -3445,15 +3411,6 @@ function _Chat() {
   const currentDisplaySelectorValue = `${currentRawModel}@${
     activeModelSelectorProviderId || String(currentProviderName).toLowerCase()
   }`;
-  const autoModelSeriesItems = useMemo(
-    () =>
-      (["gpt", "deepseek", "doubao"] as AutoModelSeriesKey[]).map((value) => ({
-        title: getAutoModelSeriesLabel(value),
-        value,
-      })),
-    [],
-  );
-
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
   const [modelSelectorResetKey, setModelSelectorResetKey] = useState(0);
@@ -3736,7 +3693,6 @@ function _Chat() {
       return;
     }
     setIsProviderSelectorOpen(false);
-    setShowAutoModelSelector(false);
     setModelSelectorNotice("");
   }, [showModelSelector]);
 
@@ -3837,27 +3793,6 @@ function _Chat() {
     }, 2200);
   }, []);
 
-  useEffect(() => {
-    if (!autoModelSelectionEmpty) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.closest('[data-auto-model-selector-toggle="true"]') ||
-        target?.closest('[data-auto-model-selector-menu="true"]') ||
-        target?.closest('[data-selector-group-filter-root="true"]') ||
-        target?.closest('[data-selector-group-filter-extra-root="true"]')
-      ) {
-        return;
-      }
-      setShowAutoModelSelector(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [autoModelSelectionEmpty]);
   const openAIModels = models.filter(
     (m) => m?.provider?.providerName === ServiceProvider.OpenAI,
   );
@@ -6276,7 +6211,6 @@ function _Chat() {
     });
 
     modelSelectorOpenStartedAtRef.current = nowMs();
-    setShowAutoModelSelector(false);
     setModelSelectorProviderId(latestProviderId);
     setModelSelectorDefaultValue(fallbackDefaultValue);
     setModelSelectorResetKey((key) => key + 1);
@@ -6398,7 +6332,6 @@ function _Chat() {
           }
 
           setIsProviderSelectorOpen(false);
-          setShowAutoModelSelector(false);
           lastProviderSwitchTimeRef.current = Date.now();
           setModelSelectorProviderId(selectedProviderId);
 
@@ -7457,10 +7390,7 @@ function _Chat() {
                   }
                   navigate(Path.ApiConfig);
                 }}
-                disabled={
-                  !isMobileScreen &&
-                  (readOnly || effectiveAuthUser?.role !== "admin")
-                }
+                disabled={false}
               />
             </div>
             <div
@@ -8430,7 +8360,6 @@ function _Chat() {
                       handleManualModelSelectionDisabled();
                       return;
                     }
-                    setShowAutoModelSelector(false);
                     setModelSelectorProviderId(currentProviderId);
                     setIsProviderSelectorOpen(!isProviderSelectorOpen);
                   }}
@@ -8448,22 +8377,6 @@ function _Chat() {
                 <span className={styles["model-selector-hint-count"]}>
                   共 {models.length} 个模型可用
                 </span>
-                <button
-                  type="button"
-                  data-auto-model-selector-toggle="true"
-                  className={clsx(styles["model-selector-auto-button"], {
-                    [styles["model-selector-auto-button-active"]]:
-                      autoModeEnabled,
-                  })}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    setIsProviderSelectorOpen(false);
-                    setShowAutoModelSelector((visible) => !visible);
-                  }}
-                >
-                  <AutoModeStateIcon enabled={autoModeEnabled} />
-                  <span>自动模式</span>
-                </button>
               </div>
               {isProviderSelectorOpen && (
                 <div
@@ -8552,75 +8465,6 @@ function _Chat() {
                   )}
                 </div>
               )}
-              {showAutoModelSelector && (
-                <div
-                  data-auto-model-selector-menu="true"
-                  className={styles["model-selector-provider-menu"]}
-                >
-                  {autoModelSeriesItems.map((item) => {
-                    const active = selectedAutoModelSeries === item.value;
-                    const iconSrc = getProviderIcon(item.value);
-                    return (
-                      <button
-                        type="button"
-                        key={item.value}
-                        className={clsx(
-                          styles["model-selector-provider-option"],
-                          {
-                            [styles["model-selector-provider-option-active"]]:
-                              active,
-                          },
-                        )}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          const normalized = active
-                            ? []
-                            : normalizeAutoModelSeries([item.value]);
-                          console.log(
-                            `[AutoMode] 🎯 切换自动模式: ${
-                              autoModelSeries.join(",") || "(无)"
-                            } → ${normalized.join(",") || "(无)"}`,
-                          );
-                          config.update((config) => {
-                            config.autoModelSeries = normalized;
-                            (config as any).autoModelSeriesUpdatedAt =
-                              Date.now();
-                          });
-                        }}
-                      >
-                        <span
-                          className={
-                            styles["model-selector-provider-option-leading"]
-                          }
-                        >
-                          <span
-                            className={clsx(
-                              styles["model-selector-option-icon-frame"],
-                              item.value === "doubao" &&
-                                styles["model-selector-option-icon-frame-dark"],
-                            )}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              alt={`${item.title} icon`}
-                              className={clsx(
-                                styles["model-selector-option-icon-image"],
-                                item.value === "doubao" &&
-                                  styles[
-                                    "model-selector-option-icon-image-inset"
-                                  ],
-                              )}
-                              src={iconSrc}
-                            />
-                          </span>
-                        </span>
-                        <span>{item.title}</span>
-                        {active ? <ConfirmIcon /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </>
           }
           footer={null}
@@ -8671,14 +8515,11 @@ function _Chat() {
             localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, group);
           }}
           onClose={() => {
-            setShowAutoModelSelector(false);
             setShowModelSelector(false);
           }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
 
-            // 选择模型后关闭自动模型选择器（但保持主模型选择器打开）
-            setShowAutoModelSelector(false);
             setModelSelectorDefaultValue(s[0]);
             const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
             const selectedProviderId = String(

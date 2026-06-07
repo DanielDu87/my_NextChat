@@ -1,5 +1,5 @@
 import DeleteIcon from "../icons/delete.svg";
-import ConfirmIcon from "../icons/confirm.svg";
+import CheckIcon from "../icons/check.svg";
 import CloseIcon from "../icons/close.svg";
 
 import styles from "./home.module.scss";
@@ -144,7 +144,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
 
       {props.multiDeleteMode && (
         <div className={styles["chat-item-check"]}>
-          {props.multiDeleteSelected && <ConfirmIcon />}
+          {props.multiDeleteSelected && <CheckIcon />}
         </div>
       )}
 
