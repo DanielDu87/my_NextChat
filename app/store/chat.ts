@@ -2062,7 +2062,7 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      async resetForUserSwitch() {
+      async resetForUserSwitch(options?: { sync?: boolean }) {
         const newSessions = [createEmptySession()];
         set(() => ({
           sessions: newSessions,
@@ -2074,6 +2074,10 @@ export const useChatStore = createPersistStore(
           hydratedSessionIds: [],
           hydratingSessionId: "",
         }));
+
+        if (options?.sync === false) {
+          return;
+        }
 
         try {
           const { useSyncStore } = await import("./sync");

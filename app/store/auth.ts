@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
-import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
 import { StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
@@ -74,8 +73,10 @@ function clearAuthState() {
   } catch {}
 }
 
-async function resetClientCache(nextUserId = "") {
-  await clearPersistedStateStorage();
+async function resetClientCache(nextUserId = "", clearPersistedState = true) {
+  if (clearPersistedState) {
+    await clearPersistedStateStorage();
+  }
   if (nextUserId) {
     setCacheMarker(nextUserId);
   } else {
@@ -148,7 +149,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const cacheMarker = getCacheMarker();
 
     if (effectiveUserId && cacheMarker !== effectiveUserId) {
-      await resetClientCache(effectiveUserId);
+      await resetClientCache(effectiveUserId, false);
+      try {
+        const { useChatStore } = await import("./chat");
+        await useChatStore.getState().resetForUserSwitch({ sync: false });
+        await (useChatStore as any).persist?.rehydrate?.();
+      } catch {}
     }
 
     if (effectiveUserId && !cacheMarker) {
@@ -178,7 +184,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       method: "POST",
     }).catch(() => null);
     clearAuthState();
-    await resetClientCache();
+    await resetClientCache("", true);
     window.location.reload();
   },
   async switchUser(userId: string) {
@@ -211,16 +217,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       readOnly: false,
     });
 
-    // 只清除 Chat store，其他共享 store 保留缓存
-    await chatPersistStorage.removeItem(StoreKey.Chat);
     setCacheMarker(String(effectiveUser?.id || ""));
 
-    const [{ useChatStore }, { useChatIndexStore }] = await Promise.all([
-      import("./chat"),
-      import("./chat-index"),
-    ]);
-    await useChatStore.getState().resetForUserSwitch();
+    const [{ useChatStore }, { useChatIndexStore }, { useSyncStore }] =
+      await Promise.all([
+        import("./chat"),
+        import("./chat-index"),
+        import("./sync"),
+      ]);
+    await useChatStore.getState().resetForUserSwitch({ sync: false });
+    await (useChatStore as any).persist?.rehydrate?.();
+    useChatStore.getState().initializeForNewPage?.();
     useChatIndexStore.getState().syncFromChatStore();
+    useSyncStore.getState().sync([StoreKey.Chat], {
+      isolateQueue: true,
+      downloadOnlyChat: true,
+    });
   },
   async exitSwitch() {
     const response = await fetch("/api/admin/switch-user", {
@@ -232,7 +244,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     const currentUser = get().user;
-    await resetClientCache(String(currentUser?.id || ""));
+    await resetClientCache(String(currentUser?.id || ""), false);
 
     window.location.reload();
   },

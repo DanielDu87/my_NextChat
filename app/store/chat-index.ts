@@ -3,6 +3,7 @@ import { StoreKey } from "../constant";
 import {
   ChatPersistSplitIndex,
   getChatIndexStorageKey,
+  getScopedChatStoreKey,
 } from "../utils/chat-persist-storage";
 import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
@@ -350,7 +351,7 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
       nextSnapshot = buildSnapshotFromChatStore();
     } else {
       const indexText = await indexedDbStateStorage.getRawItem(
-        getChatIndexStorageKey(StoreKey.Chat),
+        getChatIndexStorageKey(getScopedChatStoreKey(StoreKey.Chat)),
       );
       const snapshot = indexText
         ? buildSnapshotFromPersistedIndex(

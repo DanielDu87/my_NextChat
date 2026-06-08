@@ -18,6 +18,15 @@ type PersistedEnvelope = {
   version?: number;
 };
 
+const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
+const localStorage = (() => {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+})();
+
 export type ChatPersistSplitIndex = {
   version: 1;
   persistVersion: number;
@@ -29,6 +38,7 @@ export type ChatPersistSplitIndex = {
 const CHAT_INDEX_SUFFIX = "::index";
 const CHAT_SESSION_SUFFIX = "::session::";
 const CHAT_STORE_KEY = "chat-next-web-store";
+const CHAT_STORE_SCOPE_SUFFIX = "::user::";
 export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 3;
 export const INITIAL_RETAINED_SESSION_LIMIT = 20;
 
@@ -38,6 +48,17 @@ export function getChatIndexStorageKey(name: string) {
 
 export function getChatSessionStorageKey(name: string, sessionId: string) {
   return `${name}${CHAT_SESSION_SUFFIX}${sessionId}`;
+}
+
+function getActiveChatStoreScopeUserId() {
+  return String(localStorage?.getItem(AUTH_CACHE_MARKER_KEY) || "").trim();
+}
+
+export function getScopedChatStoreKey(name: string, userId?: string) {
+  const scopedUserId = String(
+    typeof userId === "string" ? userId : getActiveChatStoreScopeUserId(),
+  ).trim();
+  return `${name}${CHAT_STORE_SCOPE_SUFFIX}${scopedUserId || "anonymous"}`;
 }
 
 function parseJson<T>(text: string | null | undefined): T | null {
@@ -272,11 +293,15 @@ class ChatPersistStorage implements StateStorage {
     return typeof window !== "undefined";
   }
 
-  private async writeSplitValue(name: string, value: string) {
+  private async writeSplitValue(
+    name: string,
+    scopedName: string,
+    value: string,
+  ) {
     const startedAt = nowMs();
     const nextPayload = splitChatPersistedState(value);
     const summaryMap = createSessionSummaryMap(nextPayload.index);
-    const nextIndexKey = getChatIndexStorageKey(name);
+    const nextIndexKey = getChatIndexStorageKey(scopedName);
     const previousIndexText =
       await indexedDbStateStorage.getRawItem(nextIndexKey);
     const previousSessionIds = new Set(
@@ -289,13 +314,13 @@ class ChatPersistStorage implements StateStorage {
       nextPayload.sessionEntries,
     );
     const nextSessionStorageKeys = nextPayload.sessionEntries.map((entry) =>
-      getChatSessionStorageKey(name, entry.sessionId),
+      getChatSessionStorageKey(scopedName, entry.sessionId),
     );
     const previousSessionPayloads = await indexedDbStateStorage.getRawItems(
       nextSessionStorageKeys,
     );
     const changedSessionEntries = nextPayload.sessionEntries.filter((entry) => {
-      const storageKey = getChatSessionStorageKey(name, entry.sessionId);
+      const storageKey = getChatSessionStorageKey(scopedName, entry.sessionId);
       const isPrunedPayload = isPrunedSessionPayload(
         nextPayload.index,
         entry.sessionId,
@@ -324,14 +349,14 @@ class ChatPersistStorage implements StateStorage {
         [nextIndexKey]: JSON.stringify(nextPayload.index),
         ...Object.fromEntries(
           changedSessionEntries.map((entry) => [
-            getChatSessionStorageKey(name, entry.sessionId),
+            getChatSessionStorageKey(scopedName, entry.sessionId),
             nextSessionEntryMap.get(entry.sessionId) as string,
           ]),
         ),
       },
       remove: [
         ...staleSessionIds.map((sessionId) =>
-          getChatSessionStorageKey(name, sessionId),
+          getChatSessionStorageKey(scopedName, sessionId),
         ),
       ],
     });
@@ -359,41 +384,43 @@ class ChatPersistStorage implements StateStorage {
     }
   }
 
-  private async removeSplitValue(name: string) {
-    const indexKey = getChatIndexStorageKey(name);
+  private async removeSplitValue(name: string, scopedName: string) {
+    const indexKey = getChatIndexStorageKey(scopedName);
     const previousIndexText = await indexedDbStateStorage.getRawItem(indexKey);
     const previousSessionIds = getSessionIdsFromIndexText(previousIndexText);
 
     await indexedDbStateStorage.applyRawChanges({
       remove: [
         indexKey,
-        name,
+        scopedName,
         ...previousSessionIds.map((sessionId) =>
-          getChatSessionStorageKey(name, sessionId),
+          getChatSessionStorageKey(scopedName, sessionId),
         ),
       ],
     });
   }
 
-  private async flushPendingWrite(name: string) {
-    const pendingValue = this.pendingWrites.get(name);
+  private async flushPendingWrite(name: string, scopedName: string) {
+    const pendingValue = this.pendingWrites.get(scopedName);
     if (!pendingValue) {
       return;
     }
 
-    await this.writeSplitValue(name, pendingValue);
-    this.cache.set(name, pendingValue);
-    this.pendingWrites.delete(name);
+    await this.writeSplitValue(name, scopedName, pendingValue);
+    this.cache.set(scopedName, pendingValue);
+    this.pendingWrites.delete(scopedName);
   }
 
   public async getItem(name: string): Promise<string | null> {
     if (!this.isAvailable() || name !== CHAT_STORE_KEY) return null;
 
+    const scopedName = getScopedChatStoreKey(name);
+
     try {
-      this.hydrating.add(name);
-      const pendingValue = this.pendingWrites.get(name);
+      this.hydrating.add(scopedName);
+      const pendingValue = this.pendingWrites.get(scopedName);
       const indexText = await indexedDbStateStorage.getRawItem(
-        getChatIndexStorageKey(name),
+        getChatIndexStorageKey(scopedName),
       );
 
       if (indexText) {
@@ -407,7 +434,7 @@ class ChatPersistStorage implements StateStorage {
           const hydratedSessionIds = getInitialHydratedSessionIds(index);
           const sessionPayloadMap = await indexedDbStateStorage.getRawItems(
             hydratedSessionIds.map((sessionId) =>
-              getChatSessionStorageKey(name, sessionId),
+              getChatSessionStorageKey(scopedName, sessionId),
             ),
           );
           const placeholderStartedAt = nowMs();
@@ -426,8 +453,9 @@ class ChatPersistStorage implements StateStorage {
                 : JSON.stringify(placeholder);
             }
             return (
-              sessionPayloadMap[getChatSessionStorageKey(name, sessionId)] ??
-              null
+              sessionPayloadMap[
+                getChatSessionStorageKey(scopedName, sessionId)
+              ] ?? null
             );
           });
           const localValue = rebuildChatPersistedState(index, sessionPayloads);
@@ -439,10 +467,10 @@ class ChatPersistStorage implements StateStorage {
             return null;
           }
           if (pendingValue) {
-            await this.flushPendingWrite(name);
+            await this.flushPendingWrite(name, scopedName);
           }
-          this.cache.set(name, resolvedValue);
-          this.hydrated.add(name);
+          this.cache.set(scopedName, resolvedValue);
+          this.hydrated.add(scopedName);
           if (isPerfDebugEnabled()) {
             const sessionBytes = sessionPayloads.reduce(
               (total, payloadText) =>
@@ -474,58 +502,87 @@ class ChatPersistStorage implements StateStorage {
         }
       }
 
-      const legacyValue = await indexedDbStateStorage.getItem(name);
-      if (legacyValue) {
-        const resolvedValue = resolveHydratedStateValue(
-          pendingValue,
-          legacyValue,
+      const legacyIndexKey = getChatIndexStorageKey(name);
+      const legacyIndexText =
+        await indexedDbStateStorage.getRawItem(legacyIndexKey);
+      if (legacyIndexText) {
+        const legacySessionIds = getSessionIdsFromIndexText(legacyIndexText);
+        const legacySessionKeys = legacySessionIds.map((sessionId) =>
+          getChatSessionStorageKey(name, sessionId),
         );
-        if (resolvedValue === null) {
-          return null;
-        }
-        if (pendingValue) {
-          await this.flushPendingWrite(name);
-        }
-        this.cache.set(name, resolvedValue);
-        this.hydrated.add(name);
-        return resolvedValue;
+        const legacyPayloadMap =
+          await indexedDbStateStorage.getRawItems(legacySessionKeys);
+        const nextSessionEntries = Object.fromEntries(
+          legacySessionIds
+            .map((sessionId) => {
+              const legacyKey = getChatSessionStorageKey(name, sessionId);
+              const value = legacyPayloadMap[legacyKey];
+              if (!value) {
+                return null;
+              }
+              return [getChatSessionStorageKey(scopedName, sessionId), value];
+            })
+            .filter(Boolean) as Array<[string, string]>,
+        );
+        await indexedDbStateStorage.applyRawChanges({
+          set: {
+            [getChatIndexStorageKey(scopedName)]: legacyIndexText,
+            ...nextSessionEntries,
+          },
+          remove: [legacyIndexKey, name, ...legacySessionKeys],
+        });
+        return await this.getItem(name);
       }
 
-      this.hydrated.add(name);
-      if (pendingValue) {
-        await this.flushPendingWrite(name);
+      const legacyStoreText = await indexedDbStateStorage.getRawItem(name);
+      if (legacyStoreText) {
+        await this.writeSplitValue(name, scopedName, legacyStoreText);
+        await indexedDbStateStorage.removeRawItem(name);
+        return await this.getItem(name);
       }
-      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
+
+      this.hydrated.add(scopedName);
+      if (pendingValue) {
+        await this.flushPendingWrite(name, scopedName);
+      }
+      return (
+        this.pendingWrites.get(scopedName) ?? this.cache.get(scopedName) ?? null
+      );
     } catch (error) {
       logger.chatPersist.error(`读取 ${name} 失败`, error);
-      return this.pendingWrites.get(name) ?? this.cache.get(name) ?? null;
+      return (
+        this.pendingWrites.get(scopedName) ?? this.cache.get(scopedName) ?? null
+      );
     } finally {
-      this.hydrating.delete(name);
+      this.hydrating.delete(scopedName);
     }
   }
 
   public async setItem(name: string, value: string): Promise<void> {
     if (!this.isAvailable() || name !== CHAT_STORE_KEY) return;
 
-    if (!this.hydrated.has(name) || this.hydrating.has(name)) {
-      this.pendingWrites.set(name, value);
-      this.cache.set(name, value);
+    const scopedName = getScopedChatStoreKey(name);
+
+    if (!this.hydrated.has(scopedName) || this.hydrating.has(scopedName)) {
+      this.pendingWrites.set(scopedName, value);
+      this.cache.set(scopedName, value);
       return;
     }
 
-    await this.writeSplitValue(name, value);
-    this.cache.set(name, value);
-    this.pendingWrites.delete(name);
+    await this.writeSplitValue(name, scopedName, value);
+    this.cache.set(scopedName, value);
+    this.pendingWrites.delete(scopedName);
   }
 
   public async removeItem(name: string): Promise<void> {
     if (!this.isAvailable() || name !== CHAT_STORE_KEY) return;
 
-    await this.removeSplitValue(name);
-    this.cache.delete(name);
-    this.pendingWrites.delete(name);
-    this.hydrated.delete(name);
-    this.hydrating.delete(name);
+    const scopedName = getScopedChatStoreKey(name);
+    await this.removeSplitValue(name, scopedName);
+    this.cache.delete(scopedName);
+    this.pendingWrites.delete(scopedName);
+    this.hydrated.delete(scopedName);
+    this.hydrating.delete(scopedName);
   }
 }
 
@@ -538,12 +595,28 @@ export async function getPersistedChatSession<T = Record<string, unknown>>(
     return null;
   }
 
+  const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
   const sessionText = await indexedDbStateStorage.getRawItem(
-    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+    getChatSessionStorageKey(scopedName, sessionId),
   );
   const splitSession = parseJson<T>(sessionText);
   if (splitSession) {
     return splitSession;
+  }
+
+  const legacySplitText = await indexedDbStateStorage.getRawItem(
+    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+  );
+  const legacySplitSession = parseJson<T>(legacySplitText);
+  if (legacySplitText && legacySplitSession) {
+    await indexedDbStateStorage.setRawItem(
+      getChatSessionStorageKey(scopedName, sessionId),
+      legacySplitText,
+    );
+    await indexedDbStateStorage.removeRawItem(
+      getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+    );
+    return legacySplitSession;
   }
 
   const legacyStoreText =
@@ -563,8 +636,9 @@ export async function setPersistedChatSession(
     return;
   }
 
+  const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
   await indexedDbStateStorage.setRawItem(
-    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+    getChatSessionStorageKey(scopedName, sessionId),
     JSON.stringify(value),
   );
 }
@@ -574,7 +648,8 @@ export async function removePersistedChatSession(sessionId: string) {
     return;
   }
 
+  const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
   await indexedDbStateStorage.removeRawItem(
-    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
+    getChatSessionStorageKey(scopedName, sessionId),
   );
 }
