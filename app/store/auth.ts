@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
-import { indexedDbStateStorage } from "@/app/utils/indexeddb-state-storage";
+import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
 import { StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
@@ -212,11 +212,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
 
     // 只清除 Chat store，其他共享 store 保留缓存
-    await indexedDbStateStorage.removeItem(StoreKey.Chat);
+    await chatPersistStorage.removeItem(StoreKey.Chat);
     setCacheMarker(String(effectiveUser?.id || ""));
 
-    const { useChatStore } = await import("./chat");
+    const [{ useChatStore }, { useChatIndexStore }] = await Promise.all([
+      import("./chat"),
+      import("./chat-index"),
+    ]);
     await useChatStore.getState().resetForUserSwitch();
+    useChatIndexStore.getState().syncFromChatStore();
   },
   async exitSwitch() {
     const response = await fetch("/api/admin/switch-user", {

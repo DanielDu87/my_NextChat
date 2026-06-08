@@ -228,6 +228,34 @@ export async function waitForSyncIdle() {
   }
 }
 
+export async function waitForSyncIdleSafely(options?: { timeoutMs?: number }) {
+  const timeoutMs = Math.max(0, options?.timeoutMs ?? 8000);
+  const startedAt = Date.now();
+
+  while (syncInFlight || queuedSyncKeys.size > 0) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      return false;
+    }
+
+    const currentSync = syncInFlight;
+    if (currentSync) {
+      try {
+        await Promise.race([
+          currentSync,
+          new Promise<void>((resolve) => setTimeout(resolve, 120)),
+        ]);
+      } catch {
+        // 仅等待同步过程结束，不在这里向上抛错。
+      }
+      continue;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 120));
+  }
+
+  return true;
+}
+
 function isSyncDebugLoggingEnabled() {
   if (process.env.NODE_ENV === "test") {
     return false;
@@ -3580,7 +3608,7 @@ export const useSyncStore = createPersistStore(
                 try {
                   logSyncSectionTitle("刷新同步元数据");
                   const latestMetas = await client.getMeta(currentStoreKeys, {
-                    timeoutMs: 8000,
+                    timeoutMs: 20000,
                     retries: 0,
                   });
                   this.updateDatabaseMeta(latestMetas);

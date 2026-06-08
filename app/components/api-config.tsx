@@ -41,7 +41,7 @@ import {
   useChatStore,
   useModelCacheStore,
 } from "../store";
-import { useSyncStore, waitForSyncIdle } from "../store/sync";
+import { useSyncStore, waitForSyncIdleSafely } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
@@ -172,7 +172,7 @@ type ProviderField = {
 
 const LOG_SEPARATOR = "=".repeat(5);
 const DATABASE_META_KEYS = [StoreKey.Config, StoreKey.Access] as const;
-const DATABASE_META_REFRESH_TIMEOUT_MS = 8000;
+const DATABASE_META_REFRESH_TIMEOUT_MS = 20000;
 const BUILTIN_PROVIDER_IDS = new Set([
   "openai",
   "azure",
@@ -1798,7 +1798,13 @@ export function ApiConfigPage() {
     try {
       setBackingUp(true);
       await runWithImmediateStoreSyncPaused(async () => {
-        await waitForSyncIdle();
+        syncStore.cancelQueuedAutoSync?.();
+        const idle = await waitForSyncIdleSafely({ timeoutMs: 8000 });
+        if (!idle) {
+          console.warn(
+            "[API Config] ⚠️ 等待同步空闲超时，继续执行上传（可能存在后台同步任务）",
+          );
+        }
         await runWithBalanceRefreshPaused(async () => {
           ensureDatabaseSyncProvider();
           const activeProfile = accessStore.apiProfiles.find(
@@ -1862,7 +1868,13 @@ export function ApiConfigPage() {
     try {
       setDownloading(true);
       await runWithImmediateStoreSyncPaused(async () => {
-        await waitForSyncIdle();
+        syncStore.cancelQueuedAutoSync?.();
+        const idle = await waitForSyncIdleSafely({ timeoutMs: 8000 });
+        if (!idle) {
+          console.warn(
+            "[API Config] ⚠️ 等待同步空闲超时，继续执行下载（可能存在后台同步任务）",
+          );
+        }
         ensureDatabaseSyncProvider();
         const client = syncStore.getClient() as any;
         const localState = getLocalAppState();

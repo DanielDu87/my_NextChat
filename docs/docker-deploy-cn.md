@@ -32,6 +32,11 @@
 
 不要直接执行 `docker compose build`。默认使用包装脚本，避免部分环境在 `~/.docker/buildx/activity` 上报权限错误。
 
+构建环境约定：
+
+- `Dockerfile` 采用官方 `node:20.19.0-alpine3.20` 作为构建与运行阶段基础镜像，避免 Alpine 仓库的 `nodejs` 版本过旧导致依赖 `engines.node` 不匹配。
+- 依赖管理使用 `corepack + yarn@1.22.22`（构建阶段激活），以确保构建可复现。
+
 ## 3. 首次生产部署
 
 ### 3.1 准备环境文件

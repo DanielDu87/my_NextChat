@@ -24,7 +24,7 @@ type ConflictResponsePayload = {
 
 const DB_SYNC_REQUEST_TIMEOUT_MS = 120000;
 const DB_CHAT_REQUEST_TIMEOUT_MS = 120000;
-const DB_META_REQUEST_TIMEOUT_MS = 8000;
+const DB_META_REQUEST_TIMEOUT_MS = 20000;
 
 async function fetchWithTimeout(
   path: string,

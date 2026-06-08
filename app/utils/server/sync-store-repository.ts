@@ -272,29 +272,28 @@ export async function getStoreSnapshotMetas(
   }> = [];
 
   if (normalizedStoreKeys.includes(StoreKey.Chat)) {
-    const payload = await getStoreSnapshot(StoreKey.Chat, userId);
-    if (payload !== undefined) {
-      const updatedResult = await pgQuery<{ updated_at: string | null }>(
-        `select max(updated_at)::text as updated_at
-         from (
-           select updated_at
-           from app_settings
-           where user_id = (select id from app_users where external_id = $1 limit 1)
-             and chat_settings ? '__chat-index-state__'
-           union all
-           select updated_at
-           from conversations
-           where user_id = (select id from app_users where external_id = $1 limit 1)
-         ) chat_updates`,
-        [userId],
-      );
-      const payloadText = JSON.stringify(payload);
+    const updatedResult = await pgQuery<{ updated_at: string | null }>(
+      `select max(updated_at)::text as updated_at
+       from (
+         select updated_at
+         from app_settings
+         where user_id = (select id from app_users where external_id = $1 limit 1)
+           and chat_settings ? '__chat-index-state__'
+         union all
+         select updated_at
+         from conversations
+         where user_id = (select id from app_users where external_id = $1 limit 1)
+       ) chat_updates`,
+      [userId],
+    );
+
+    const updatedAt = updatedResult.rows[0]?.updated_at || "";
+    if (updatedAt) {
       metas.push({
         key: StoreKey.Chat,
-        updatedAt:
-          updatedResult.rows[0]?.updated_at || new Date(0).toISOString(),
-        checksum: createHash("md5").update(payloadText).digest("hex"),
-        sizeBytes: Buffer.byteLength(payloadText, "utf8"),
+        updatedAt,
+        checksum: createHash("md5").update(updatedAt).digest("hex"),
+        sizeBytes: 0,
       });
     }
   }

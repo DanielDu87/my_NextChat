@@ -9,6 +9,7 @@
 **正确理解：** 需要**先在界面上添加配置**，然后才能"保存并同步"到数据库
 
 **正确的流程：**
+
 ```
 1. 在"我的配置"中添加 API Key
 2. 配置保存到本地存储
@@ -23,6 +24,7 @@
 ### 方案 1：直接在服务器网页配置（最简单）
 
 #### 步骤 1：访问页面
+
 ```
 https://ngpt.chat/#/api-config
 ```
@@ -34,6 +36,7 @@ https://ngpt.chat/#/api-config
 1. **点击"添加新密钥"按钮**
 
 2. **填写信息**（示例）
+
    ```
    提供商：OpenAI
    API Key：sk-proj-xxxx...（您的密钥）
@@ -52,11 +55,12 @@ https://ngpt.chat/#/api-config
 如果您想在多台设备使用相同配置：
 
 1. **在第一台设备**
+
    - 添加配置后点击"保存并同步"
    - 配置保存到数据库
 
 2. **在其他设备**
-   - 访问 https://ngpt.chat
+   - 访问 <https://ngpt.chat>
    - 进入 API 配置
    - 点击"从数据库下载"
    - 配置自动同步
@@ -70,13 +74,17 @@ https://ngpt.chat/#/api-config
 在您的**本地 NextChat 项目**中：
 
 1. **导出配置**
+
    ```javascript
    // 在浏览器控制台执行
-   const config = JSON.parse(localStorage.getItem('chat-next-web-access-control'));
+   const config = JSON.parse(
+     localStorage.getItem("chat-next-web-access-control"),
+   );
    console.log(JSON.stringify(config, null, 2));
    ```
 
 2. **保存配置文件**
+
    ```bash
    # 保存输出的 JSON
    cat > my-config.json << 'EOF'
@@ -91,20 +99,22 @@ https://ngpt.chat/#/api-config
 #### 步骤 2：导入到服务器数据库
 
 **使用导入脚本：**
+
 ```bash
-cd /www/wwwroot/nextchat
+cd <DEPLOY_DIR>
 
 # 导入配置
 ./scripts/import-config.sh my-config.json
 ```
 
 **手动导入：**
+
 ```bash
 # 获取用户 ID
-USER_ID="b6e1e0c1-96fe-429c-8e51-0af1ff832c55"
+USER_ID="<USER_ID>"
 
 # 更新配置
-docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
+docker exec <postgres_container> psql -U <db_user> -d <db_name> -c "
 UPDATE provider_configs
 SET request_config = jsonb_build_object(
   'apiKey', 'sk-xxxx...',
@@ -118,6 +128,7 @@ WHERE user_id = '$USER_ID' AND provider_code = 'openai';
 #### 步骤 3：在服务器页面验证
 
 1. **访问页面**
+
    ```
    https://ngpt.chat/#/api-config
    ```
@@ -135,8 +146,9 @@ WHERE user_id = '$USER_ID' AND provider_code = 'openai';
 **功能：** 从 JSON 文件导入配置到数据库
 
 **使用方法：**
+
 ```bash
-cd /www/wwwroot/nextchat
+cd <DEPLOY_DIR>
 
 # 准备配置文件
 cat > config.json << 'EOF'
@@ -152,6 +164,7 @@ EOF
 ```
 
 **支持的配置格式：**
+
 ```json
 {
   "provider": "openai",
@@ -170,6 +183,7 @@ EOF
 NextChat 使用多种存储方式：
 
 1. **本地浏览器存储**
+
    - localStorage
    - 快速访问
    - 单设备使用
@@ -182,11 +196,13 @@ NextChat 使用多种存储方式：
 ### 同步功能说明
 
 **"保存并同步"按钮：**
+
 - 作用：将本地配置**上传**到数据库
 - 需要：先在本地有配置
 - 用于：备份配置、多设备同步
 
 **"从数据库下载"按钮：**
+
 - 作用：从数据库**下载**配置到本地
 - 需要：数据库中已保存配置
 - 用于：恢复配置、跨设备同步
@@ -196,6 +212,7 @@ NextChat 使用多种存储方式：
 **原因：** 前端检查到本地没有有效的配置条目
 
 **解决方案：**
+
 1. 先在"我的配置"中添加 API Key
 2. 保存后配置存在本地
 3. 然后才能"保存并同步"到数据库
@@ -269,6 +286,7 @@ NextChat 使用多种存储方式：
 **原因：** 本地浏览器没有配置
 
 **解决：**
+
 1. 不要点击"保存并同步"
 2. 先在"我的配置"中添加 API Key
 3. 点击"保存"
@@ -295,11 +313,13 @@ NextChat 使用多种存储方式：
 **推荐做法：**
 
 1. **直接在服务器网页配置**
+
    ```
    https://ngpt.chat/#/api-config
    ```
 
 2. **添加您的 API Key**
+
    - 点击"添加新密钥"
    - 填写 API Key
    - 点击"保存"
@@ -311,10 +331,12 @@ NextChat 使用多种存储方式：
 ### 高级用法
 
 **多设备同步：**
+
 1. 主设备：配置 → 保存并同步
 2. 其他设备：从数据库下载
 
 **从本地导入：**
+
 1. 本地导出配置
 2. 使用 import-config.sh 导入
 3. 网页刷新即可使用

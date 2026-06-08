@@ -92,8 +92,8 @@ export function verifyPassword(password: string, storedHash: string) {
     return false;
   }
 
-  const derived = scryptSync(password, salt, 64);
-  const expected = Buffer.from(expectedHash, "hex");
+  const derived = Uint8Array.from(scryptSync(password, salt, 64));
+  const expected = Uint8Array.from(Buffer.from(expectedHash, "hex"));
   if (derived.length !== expected.length) {
     return false;
   }

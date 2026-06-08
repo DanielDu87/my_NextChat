@@ -3915,7 +3915,6 @@ function _Chat() {
 
   // 挂载后二次测量：刷新页面恢复草稿时，首次测量可能早于布局宽度稳定 /
   // 字体加载完成，导致行数被低估而没有展开到适配的最大高度。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let raf1 = 0;
     let raf2 = 0;
@@ -3934,7 +3933,7 @@ function _Chat() {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, []);
+  }, [measure]);
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({

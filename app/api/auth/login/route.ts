@@ -4,6 +4,8 @@ import {
   createAuthSession,
   getAuthSessionCookieName,
   getAuthSessionMaxAgeSeconds,
+  getEffectiveUserCookieMaxAgeSeconds,
+  getEffectiveUserCookieName,
 } from "@/app/utils/server/auth";
 
 export const runtime = "nodejs";
@@ -44,6 +46,16 @@ export async function POST(req: NextRequest) {
       sameSite: "lax",
       secure: isHttps,
       maxAge: getAuthSessionMaxAgeSeconds(),
+      path: "/",
+    });
+
+    response.cookies.set({
+      name: getEffectiveUserCookieName(),
+      value: user.id,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isHttps,
+      maxAge: getEffectiveUserCookieMaxAgeSeconds(),
       path: "/",
     });
 

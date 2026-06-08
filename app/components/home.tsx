@@ -177,13 +177,14 @@ function Screen() {
   const isSdNew = location.pathname === Path.SdNew;
 
   const isMobileScreen = useMobileScreen();
+  const isInitialEntry = location.key === "default";
 
   // 移动端默认进入聊天界面而非对话列表
   useEffect(() => {
-    if (isMobileScreen && isHome) {
+    if (isInitialEntry && isMobileScreen && isHome) {
       navigate(Path.Chat, { replace: true });
     }
-  }, []);
+  }, [isHome, isInitialEntry, isMobileScreen, navigate]);
 
   useEffect(() => {
     loadAsyncGoogleFont();

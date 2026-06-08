@@ -13,6 +13,18 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 let hasWarnedSecretFallback = false;
 
+function concatUint8Arrays(arrays: readonly Uint8Array[]) {
+  const output = new Uint8Array(
+    arrays.reduce((total, chunk) => total + chunk.byteLength, 0),
+  );
+  let offset = 0;
+  for (const chunk of arrays) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
 function getFallbackSecretSource() {
   const fallback =
     process.env.DATABASE_URL ||
@@ -49,21 +61,25 @@ function getSecretMaterial() {
     process.env.NEXTCHAT_SYNC_SECRET ||
     getFallbackSecretSource();
 
-  return createHash("sha256").update(secret).digest();
+  return Uint8Array.from(createHash("sha256").update(secret).digest());
 }
 
 export function encryptSyncSecretPayload(payload: unknown) {
-  const iv = randomBytes(IV_LENGTH);
+  const iv = Uint8Array.from(randomBytes(IV_LENGTH));
   const cipher = createCipheriv(ENCRYPTION_ALGORITHM, getSecretMaterial(), iv);
-  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
-  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  const authTag = cipher.getAuthTag();
+  const encrypted = concatUint8Arrays([
+    Uint8Array.from(cipher.update(JSON.stringify(payload), "utf8")),
+    Uint8Array.from(cipher.final()),
+  ]);
+  const authTag = Uint8Array.from(cipher.getAuthTag());
 
-  return Buffer.concat([iv, authTag, encrypted]).toString("base64");
+  return Buffer.from(concatUint8Arrays([iv, authTag, encrypted])).toString(
+    "base64",
+  );
 }
 
 export function decryptSyncSecretPayload(ciphertext: string) {
-  const input = Buffer.from(ciphertext, "base64");
+  const input = Uint8Array.from(Buffer.from(ciphertext, "base64"));
   const iv = input.subarray(0, IV_LENGTH);
   const authTag = input.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
   const encrypted = input.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
@@ -73,10 +89,12 @@ export function decryptSyncSecretPayload(ciphertext: string) {
     iv,
   );
   decipher.setAuthTag(authTag);
-  const plaintext = Buffer.concat([
-    decipher.update(encrypted),
-    decipher.final(),
-  ]).toString("utf8");
+  const plaintext = Buffer.from(
+    concatUint8Arrays([
+      Uint8Array.from(decipher.update(encrypted)),
+      Uint8Array.from(decipher.final()),
+    ]),
+  ).toString("utf8");
   return JSON.parse(plaintext);
 }
 

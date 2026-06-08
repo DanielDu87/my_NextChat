@@ -4,8 +4,9 @@
 # 支持本地开发热加载和服务器生产部署
 # =============================================================================
 
-# 基础镜像使用官方 Alpine，并通过 apk 安装 Node 20 与 Yarn
-FROM alpine:3.20 AS base
+# 基础镜像改为官方 Node Alpine，避免依赖安装受 Alpine 仓库内置 Node 小版本限制
+ARG NODE_IMAGE=node:20.19.0-alpine3.20
+FROM ${NODE_IMAGE} AS base
 
 ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 ARG NPM_REGISTRY=https://registry.npmjs.org/
@@ -59,7 +60,9 @@ WORKDIR /app
 # 一次性配置所有源和安装基础包（减少层数）
 RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
-    apk add --no-cache libc6-compat git nodejs npm yarn && \
+    apk add --no-cache libc6-compat git && \
+    corepack enable && \
+    corepack prepare yarn@1.22.22 --activate && \
     npm config set registry "${NPM_REGISTRY}" && \
     yarn config set registry "${NPM_REGISTRY}" && \
     yarn config set network-timeout 600000 -g && \
@@ -130,7 +133,8 @@ RUN yarn build && \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-FROM alpine:3.20 AS runner
+ARG NODE_IMAGE=node:20.19.0-alpine3.20
+FROM ${NODE_IMAGE} AS runner
 
 ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 ARG BUILD_COMMIT_DATE=unknown
@@ -163,7 +167,7 @@ ENV NODE_ENV=production \
 # 安装运行时依赖
 RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
-    apk add --no-cache nodejs proxychains-ng dumb-init
+    apk add --no-cache proxychains-ng dumb-init
 
 WORKDIR /app
 

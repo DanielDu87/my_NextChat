@@ -75,7 +75,7 @@ export async function requestUpstream(
         statusCode: number;
         statusMessage: string;
         headers: http.IncomingHttpHeaders;
-        body: Buffer;
+        body: ArrayBuffer;
       }
     | undefined;
 
@@ -85,7 +85,7 @@ export async function requestUpstream(
         statusCode: number;
         statusMessage: string;
         headers: http.IncomingHttpHeaders;
-        body: Buffer;
+        body: ArrayBuffer;
       }>((resolve, reject) => {
         const req = client.request(
           {
@@ -98,18 +98,30 @@ export async function requestUpstream(
             servername: url.hostname,
           },
           (res) => {
-            const chunks: Buffer[] = [];
+            const chunks: Uint8Array[] = [];
             res.on("data", (chunk) =>
-              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+              chunks.push(
+                Uint8Array.from(
+                  Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                ),
+              ),
             );
-            res.on("end", () =>
+            res.on("end", () => {
+              const body = new Uint8Array(
+                chunks.reduce((total, chunk) => total + chunk.byteLength, 0),
+              );
+              let offset = 0;
+              for (const chunk of chunks) {
+                body.set(chunk, offset);
+                offset += chunk.byteLength;
+              }
               resolve({
                 statusCode: res.statusCode || 502,
                 statusMessage: res.statusMessage || "Bad Gateway",
                 headers: res.headers,
-                body: Buffer.concat(chunks),
-              }),
-            );
+                body: body.buffer,
+              });
+            });
           },
         );
 
