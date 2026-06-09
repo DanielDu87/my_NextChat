@@ -443,6 +443,58 @@ docker exec nextchat-postgres pg_dump -U nextchat_user nextchat > backup_$(date 
 docker exec -i nextchat-postgres psql -U nextchat_user nextchat < backup_20260330.sql
 ```
 
+### 在宝塔 “Docker 网站” 页面（`/docker/dockersite`）显示这个站点
+
+宝塔的 **Docker → 网站** 列表只显示 `dk_sites`/`docker_sites` 表里登记过的容器。
+NextChat 是直接用 `docker compose` 拉起的容器，默认不会自动出现在该页面。
+
+本仓库提供一次性注册脚本 [`scripts/baota-register-dockersite.py`](../scripts/baota-register-dockersite.py)，
+会调用宝塔内部的 `SitesManage.create_site` 把现有 `nextchat` 容器注册为一条
+`type=app` 的 Docker 站点（默认域名 `ngpt.chat`，反代 `http://127.0.0.1:3000`）。
+
+```bash
+# 在宝塔服务器上、容器已经跑起来之后执行一次
+/www/server/panel/pyenv/bin/python3 /www/dk_project/my_NextChat/scripts/baota-register-dockersite.py
+```
+
+脚本会：
+
+- 在 `docker_sites` / `docker_domain` 表里写入 `ngpt.chat` 这条记录，并关联到现有 `nextchat` 容器 ID；
+- 在 `/www/dk_project/sites/ngpt.chat/ngpt.chat.json` 写入站点元信息；
+- 在 `/www/server/panel/vhost/nginx/ngpt.chat.conf` 生成宝塔托管的反代配置；
+- 自动 `nginx -s reload`，使宝塔侧与宿主机 Nginx 同步生效。
+
+执行成功后，登录宝塔面板 → 左侧 **Docker → 网站** 即可看到名为 `ngpt.chat` 的网站条目。
+注意：脚本不会创建新容器、不会改 `0.0.0.0:3000->3000` 端口映射，也不会动 `.env.baota` /
+`.env.docker`；如果以后要换域名或反代地址，编辑脚本顶部的 `DOMAIN` / `PROXY_PASS`
+常量后重跑即可。重复执行同名站点会被宝塔的 `docker_sites` 唯一约束拒绝。
+
+### 关于宝塔的 SSL 证书管理
+
+宝塔的 “网站 → SSL” 页面在“已部署”状态下本身**不会**主动续签，也不会去探测 `dnspod.qcloud.com`，
+所以证书来源是 `acme.sh` 也不影响宝塔的展示：
+
+- `acme.sh` 用 webroot（`/www/dk_project/wwwroot/ngpt.chat`）+ Let's Encrypt 签发/续签，证书落到
+  `/www/server/panel/vhost/cert/ngpt.chat/{fullchain.pem,privkey.pem}`；
+- 宝塔读的就是这两个文件，所以“已部署证书”会随自动续签自动更新显示；
+- 站点 `/www/server/panel/vhost/ssl/ngpt.chat/info.json` 里的 `issuer=Let's Encrypt` 也会随之刷新；
+- 续签由 cron `36 6 * * * /root/.acme.sh/acme.sh --cron` 兜底，无需在面板里点任何按钮。
+
+**不要**在宝塔 UI 里手动点 `ngpt.chat` 的 “续签” 按钮：
+
+- 续签按钮会启动宝塔自带的 Let's Encrypt 流程，对反代到容器的站点会先做 `dnspod.qcloud.com` 探测，
+  探测返回 HTML 后宝塔误判为 “域名解析错误 / 验证 URL 无法被访问”，会**直接报错，不会改证书**；
+- 真要手动续签，SSH 登录服务器跑：
+
+  ```bash
+  /root/.acme.sh/acme.sh --renew -d ngpt.chat --force --ecc
+  ```
+
+  即可。续签后宝塔侧会立刻看到新证书。
+
+如要彻底绕开宝塔的 SSL 流程，也可以把 `ngpt.chat` 在宝塔的 “SSL” 里切到 “其他证书” → 留空 → 保存，
+宝塔就不会再尝试自动续签，**完全由 acme.sh 负责**。
+
 ---
 
 ## 故障排查
