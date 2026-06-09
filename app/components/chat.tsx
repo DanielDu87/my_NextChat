@@ -2778,6 +2778,7 @@ function _Chat() {
     typeof setTimeout
   > | null>(null);
   const streamingAutoScrollPausedRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -4697,14 +4698,10 @@ function _Chat() {
         return;
       }
 
-      streamingAutoScrollPausedRef.current = true;
-      setAutoScroll(false);
-      clearStreamingScrollResumeTimer();
-      streamingScrollResumeTimerRef.current = setTimeout(() => {
-        streamingAutoScrollPausedRef.current = false;
-        setAutoScroll(true);
-        scrollToBottom();
-      }, 2000);
+      if (userScrollIntentRef.current) {
+        streamingAutoScrollPausedRef.current = true;
+        setAutoScroll(false);
+      }
       return;
     }
 
@@ -4767,8 +4764,18 @@ function _Chat() {
   }, [chatStore, forceScrollToBottom, session]);
 
   const scrollToBottomTouchTriggeredRef = useRef(false);
+  const markUserScrollIntent = useCallback(() => {
+    if (isAssistantStreaming) {
+      userScrollIntentRef.current = true;
+    }
+  }, [isAssistantStreaming]);
   const handleScrollToBottomButton = useCallback(
     (immediate: boolean) => {
+      userScrollIntentRef.current = false;
+      streamingAutoScrollPausedRef.current = false;
+      setAutoScroll(true);
+      setHitBottom(true);
+
       if (immediate) {
         forceScrollToBottom();
         return;
@@ -4780,7 +4787,13 @@ function _Chat() {
         behavior: "smooth",
       });
     },
-    [forceScrollToBottom, renderMessages.length, setMsgRenderIndex],
+    [
+      forceScrollToBottom,
+      renderMessages.length,
+      setAutoScroll,
+      setHitBottom,
+      setMsgRenderIndex,
+    ],
   );
 
   const scrollToTopOnIOS = useCallback(() => {
@@ -6172,16 +6185,28 @@ function _Chat() {
   const streamingScrollIntervalRef = useRef<ReturnType<
     typeof setInterval
   > | null>(null);
+  const previousAssistantStreamingRef = useRef(false);
 
   useEffect(() => {
+    const wasAssistantStreaming = previousAssistantStreamingRef.current;
+    previousAssistantStreamingRef.current = isAssistantStreaming;
+
+    if (isAssistantStreaming === wasAssistantStreaming) {
+      return;
+    }
+
     if (isAssistantStreaming) {
-      // 开始流式回复：清除暂停，启用自动滚动，滚动到底部
+      // 开始流式回复：只要用户不滑动，就持续贴住底部。
       clearStreamingScrollResumeTimer();
+      userScrollIntentRef.current = false;
       streamingAutoScrollPausedRef.current = false;
       setAutoScroll(true);
       scrollToBottom();
 
       // 启动持续滚动定时器
+      if (streamingScrollIntervalRef.current) {
+        clearInterval(streamingScrollIntervalRef.current);
+      }
       streamingScrollIntervalRef.current = setInterval(() => {
         if (!streamingAutoScrollPausedRef.current) {
           const dom = scrollRef.current;
@@ -6198,6 +6223,7 @@ function _Chat() {
     } else {
       // 结束流式回复：清除所有定时器
       clearStreamingScrollResumeTimer();
+      userScrollIntentRef.current = false;
       streamingAutoScrollPausedRef.current = false;
       if (streamingScrollIntervalRef.current) {
         clearInterval(streamingScrollIntervalRef.current);
@@ -6206,14 +6232,6 @@ function _Chat() {
       // 根据当前是否在底部来决定是否保持自动滚动
       setAutoScroll(hitBottom);
     }
-
-    // 清理函数
-    return () => {
-      if (streamingScrollIntervalRef.current) {
-        clearInterval(streamingScrollIntervalRef.current);
-        streamingScrollIntervalRef.current = null;
-      }
-    };
   }, [
     isAssistantStreaming,
     clearStreamingScrollResumeTimer,
@@ -6225,6 +6243,10 @@ function _Chat() {
   useEffect(() => {
     return () => {
       clearStreamingScrollResumeTimer();
+      if (streamingScrollIntervalRef.current) {
+        clearInterval(streamingScrollIntervalRef.current);
+        streamingScrollIntervalRef.current = null;
+      }
     };
   }, [clearStreamingScrollResumeTimer]);
 
@@ -7564,6 +7586,8 @@ function _Chat() {
               })}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
+              onWheel={markUserScrollIntent}
+              onTouchMove={markUserScrollIntent}
               onMouseDown={() =>
                 (isMobileScreen
                   ? mobileInputRef.current
