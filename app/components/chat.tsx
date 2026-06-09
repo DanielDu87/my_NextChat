@@ -7538,19 +7538,6 @@ function _Chat() {
               >
                 {isMobileScreen ? (
                   <div className={styles["chat-balance-user-panel-mobile"]}>
-                    {balanceProviderName ? (
-                      <ChatProviderBalance
-                        providerName={balanceProviderName as ServiceProvider}
-                        providerDisplayName={balanceProviderDisplayName}
-                        refreshSignal=""
-                        balanceCacheKey={currentBalanceCacheKey}
-                        profile={
-                          balanceProfile as BalanceAwareProfile | undefined
-                        }
-                        deferInitialRefresh={sessionMessages.length === 0}
-                        suppressAutoRefresh={suppressBalanceAutoRefresh}
-                      />
-                    ) : null}
                     {isModelConfigSyncConfirmed && (
                       <div className={styles["chat-panel-model-info"]}>
                         {currentModelName}

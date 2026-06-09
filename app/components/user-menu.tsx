@@ -302,6 +302,23 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
 
+  const openManageModal = () => {
+    if (typeof document !== "undefined") {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    }
+    if (typeof window !== "undefined") {
+      const resetScroll = () => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      };
+      resetScroll();
+      window.requestAnimationFrame(resetScroll);
+      window.setTimeout(resetScroll, 120);
+    }
+    setShowManageModal(true);
+  };
+
   const loadUsers = async () => {
     console.log("🔄 加载用户列表...");
     setLoadingUsers(true);
@@ -627,7 +644,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       <>
         <div
           className={clsx(styles.trigger, styles.chatFloatingTrigger)}
-          onClick={() => setShowManageModal(true)}
+          onClick={openManageModal}
         >
           <div className={styles.chatFloatingText}>
             <div className={clsx(styles.chatFloatingLabel, "one-line")}>
@@ -857,7 +874,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                 subTitle="切换到其他用户"
                 onClick={() => {
                   setOpen(false);
-                  setShowManageModal(true);
+                  openManageModal();
                 }}
               />
               <ListItem

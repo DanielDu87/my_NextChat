@@ -3103,9 +3103,12 @@
       overflow: auto;
     }
 
-    // 隐藏左上角的余额/用户浮层，避免覆盖上移后的输入框
+    // 键盘展开时页面会被固定到可视视口，用户浮层需要跟随工具栏而不是跟随消息区滚动。
     .chat-balance-user-panel {
-      display: none;
+      position: fixed;
+      top: calc(var(--chat-mobile-visual-top, 0px) + 80px);
+      left: 16px;
+      z-index: 20;
     }
 
     .chat-input-panel {
