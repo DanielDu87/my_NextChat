@@ -24,6 +24,7 @@ import {
   sortSessionsByCreatedAt,
 } from "./chat-session-merge";
 import { runWithImmediateStoreSyncPausedSync } from "./store";
+import { dedupeAccessProfiles } from "./access-profiles";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 function isSyncDebugLoggingEnabled() {
@@ -113,7 +114,9 @@ const LocalStateGetters = {
     const access = getNonFunctionFileds(useAccessStore.getState()) as any;
     return {
       ...access,
-      apiProfiles: (access.apiProfiles || []).map(stripProfileModelCacheFields),
+      apiProfiles: dedupeAccessProfiles(access.apiProfiles || []).map(
+        stripProfileModelCacheFields,
+      ),
     };
   },
   [StoreKey.Config]: () => {
@@ -885,7 +888,7 @@ const MergeStates: StateMerger = {
       ...(remoteUpdateTime > localUpdateTime || shouldPreferRemoteState
         ? remoteState
         : localState),
-      apiProfiles: mergedProfiles,
+      apiProfiles: dedupeAccessProfiles(mergedProfiles as any),
       profileSelectionUpdatedAt: Math.max(localSelectionAt, remoteSelectionAt),
       lastUpdateTime: markMergedUpdateTime(
         localState.lastUpdateTime,

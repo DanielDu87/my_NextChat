@@ -4,7 +4,7 @@
 # 使用方法：
 # 1. 在宝塔面板 -> Docker -> Compose 项目 中导入此文件
 # 2. 环境变量通过 .env.baota 文件配置
-# 3. 通过 ngpt.chat 域名访问（Nginx 反代到 3000 端口，应用直连远程 PostgreSQL）
+# 3. 通过 chat.dyxcloud.com 域名访问（Nginx 反代到 3000 端口，应用直连远程 PostgreSQL）
 # =============================================================================
 
 services:
@@ -19,7 +19,7 @@ services:
       dockerfile: Dockerfile
       target: runner
       args:
-        - ALPINE_MIRROR=${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
+        - APK_MIRROR=${APK_MIRROR:-${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}}
         - NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}
         - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}
         - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://github.com}
@@ -81,6 +81,8 @@ services:
       - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-user:admin}
 
       # 数据库配置 - 直连远程 PostgreSQL
+      # 显式覆盖镜像内 .env.production 的 localhost DATABASE_URL，避免运行时误连容器本地数据库
+      - DATABASE_URL=${DATABASE_URL:-}
       # 这里不要再给出本地 postgres 容器默认值，避免漏配时误连到另一套数据库
       - PGHOST=${PGHOST:-}
       - PGPORT=${PGPORT:-5432}

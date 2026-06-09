@@ -9,6 +9,8 @@ import {
   encryptSyncSecretPayload,
 } from "./sync-secrets";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
+import { getDefaultSyncUserId } from "./sync-user";
+import { dedupeAccessProfiles } from "../access-profiles";
 
 type QueryClient = {
   query: (text: string, params?: unknown[]) => Promise<any>;
@@ -116,7 +118,7 @@ function normalizeProfilesWithFallbackSecrets(state: AccessState) {
     ? state.apiProfiles.filter((profile) => profile?.id)
     : [];
 
-  return profiles.map((profile) => {
+  return dedupeAccessProfiles(profiles).map((profile) => {
     const fallbackApiKey = getFallbackApiKeyFromState(state, profile);
     if (profile.apiKey || !fallbackApiKey) {
       return profile;
@@ -127,6 +129,10 @@ function normalizeProfilesWithFallbackSecrets(state: AccessState) {
       apiKey: fallbackApiKey,
     };
   });
+}
+
+async function getSharedProviderConfigUserId() {
+  return getOrCreateSyncAppUserId(getDefaultSyncUserId());
 }
 
 function maskSecret(secret: string) {
@@ -264,7 +270,7 @@ export async function syncProviderConfigsFromAccessState(
   existingClient?: QueryClient,
 ) {
   await ensureSyncStorageSchema();
-  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const userId = await getSharedProviderConfigUserId();
   const state = unwrapState(payload);
   const profiles = normalizeProfilesWithFallbackSecrets(state);
 
@@ -392,7 +398,7 @@ export async function getProviderProfilesForAccessState(
   externalUserId: string,
 ) {
   await ensureSyncStorageSchema();
-  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const userId = await getSharedProviderConfigUserId();
   const result = await pgQuery<{
     provider_code: string;
     provider_name: string;
@@ -478,5 +484,5 @@ export async function getProviderProfilesForAccessState(
     profileMap.set(row.provider_code, existing);
   });
 
-  return [...profileMap.values()];
+  return dedupeAccessProfiles([...profileMap.values()]);
 }

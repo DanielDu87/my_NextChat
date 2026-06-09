@@ -126,9 +126,10 @@ function pruneLegacyInjectedProfiles(state: Record<string, any>) {
     return state;
   }
 
-  const legacyProfiles = new Map(
-    LEGACY_DEFAULT_CUSTOM_PROFILES.map((profile) => [profile.id, profile]),
-  );
+  const legacyProfiles = new Map<
+    string,
+    (typeof LEGACY_DEFAULT_CUSTOM_PROFILES)[number]
+  >(LEGACY_DEFAULT_CUSTOM_PROFILES.map((profile) => [profile.id, profile]));
 
   state.apiProfiles = profiles.filter((profile: Record<string, any>) => {
     const legacyProfile = legacyProfiles.get(String(profile?.id || ""));

@@ -63,6 +63,7 @@ import {
   modelsToCustomModelsString,
 } from "../utils/models";
 import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
+import { dedupeAccessProfiles } from "../utils/access-profiles";
 
 const YUTO_API_KEY_GROUPS = {
   default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
@@ -254,8 +255,8 @@ function restoreEncryptedAccessSecrets(
         : [],
     );
 
-    nextAccessState.apiProfiles = nextAccessState.apiProfiles.map(
-      (profile: any) => {
+    nextAccessState.apiProfiles = dedupeAccessProfiles(
+      nextAccessState.apiProfiles.map((profile: any) => {
         if (!profile || typeof profile !== "object") {
           return profile;
         }
@@ -297,7 +298,7 @@ function restoreEncryptedAccessSecrets(
         }
 
         return nextProfile;
-      },
+      }),
     );
   }
 
@@ -320,8 +321,8 @@ function normalizeAccessStateForUi(
   });
 
   if (Array.isArray(nextAccessState.apiProfiles)) {
-    nextAccessState.apiProfiles = nextAccessState.apiProfiles.map(
-      (profile: any) => {
+    nextAccessState.apiProfiles = dedupeAccessProfiles(
+      nextAccessState.apiProfiles.map((profile: any) => {
         if (!profile || typeof profile !== "object") {
           return profile;
         }
@@ -352,7 +353,7 @@ function normalizeAccessStateForUi(
         }
 
         return nextProfile;
-      },
+      }),
     );
   }
 
@@ -1178,7 +1179,7 @@ export function ApiConfigPage() {
                 }
               });
 
-              state.apiProfiles = mergedProfiles;
+              state.apiProfiles = dedupeAccessProfiles(mergedProfiles as any);
             });
           }
         }

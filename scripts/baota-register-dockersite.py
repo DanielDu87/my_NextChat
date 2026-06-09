@@ -4,7 +4,7 @@ This script calls BaoTa's internal SitesManage.create_site via the btserver BTPa
 python module so the entry shows up under  /docker/dockersite  on the panel.
 
 It does not create a brand-new container or change ports.  It only:
-  * inserts a row into docker_sites (and docker_domain) under the project ngpt.chat
+  * inserts a row into docker_sites (and docker_domain) under the project chat.dyxcloud.com
   * writes the BaoTa-managed nginx vhost for the domain, reverse-proxying to
     http://127.0.0.1:3000  (where the existing nextchat container already listens)
   * reuses the existing container_id so the BaoTa "container" tab links back
@@ -30,7 +30,7 @@ import public  # noqa: E402
 get = public.dict_obj()
 
 # ----- user-tunable -----------------------------------------------------------
-DOMAIN = "ngpt.chat"
+DOMAIN = "chat.dyxcloud.com"
 EXTRA_DOMAIN = ""
 PROXY_PASS = "http://127.0.0.1:3000"
 PROXY_HOST = "$http_host"

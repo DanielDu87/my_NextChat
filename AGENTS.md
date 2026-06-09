@@ -36,75 +36,87 @@ cp .env.docker.example .env.docker
 
 ## 生产部署
 
-- 用户说"部署"时，默认部署到 SSH alias 为 `sss` 的服务器
+- 用户说“部署”时，默认部署到 SSH alias 为 `ss` 的服务器
 - 默认部署路径为 `/www/dk_project/my_NextChat`
-- 默认使用无代理生产部署脚本：
+- 当前线上是宝塔 DockerSite 部署，必须使用 `docker-compose.baota.yml` + `.env.baota`
+- 不要把线上宝塔部署切回 `.env.docker`、`--profile no-proxy` 或内置 PostgreSQL
+- 长时间构建必须放入 `tmux`
+
+### 标准部署命令
 
 ```bash
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
+ssh ss 'tail -120 /tmp/nextchat-baota-deploy.log'
 ```
 
-- 脚本会自动拉取最新代码、清空代理变量、构建镜像、启动容器、等待健康状态，并执行容器内 HTTP 自检。
-- 如果脚本还没有同步到服务器，先在本地提交/推送后 `git pull`，或临时同步脚本文件再执行。
-- 只有脚本不可用时，才使用手动备用命令：
+### 宝塔 Compose 面板显示要求
+
+- 宝塔面板读取 `/www/server/panel/data/compose/my_nextchat/docker-compose.yaml`
+- 宝塔面板读取 `/www/server/panel/data/compose/my_nextchat/.env`
+- 实际 Docker Compose project 必须使用 `03b890c97bdecc48c2294402d8768906`，即 `md5(my_nextchat)`，否则宝塔 Compose 页面可能显示 `exited`
+- 重启当前镜像但不重建时使用：
 
 ```bash
-ssh sss 'cd /www/dk_project/my_NextChat && git pull --ff-only && HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= NPM_REGISTRY=https://registry.npmjs.org ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d'
+ssh ss 'bash -s' <<'REMOTE'
+set -euo pipefail
+PROJECT=03b890c97bdecc48c2294402d8768906
+COMPOSE=/www/server/panel/data/compose/my_nextchat/docker-compose.yaml
+ENV=/www/server/panel/data/compose/my_nextchat/.env
+/usr/bin/docker-compose -p "$PROJECT" -f "$COMPOSE" --env-file "$ENV" up -d --no-build
+REMOTE
 ```
 
-- 部署后检查容器状态和日志：
+### 宝塔 DockerSite 关键路径
+
+- 宝塔 DockerSite 数据库：`/www/server/panel/data/db/docker.db`，不要修改旧路径 `/www/server/panel/data/docker.db`
+- 普通网站冲突记录：`/www/server/panel/data/db/site.db`，如果 `chat.dyxcloud.com` 在普通站点表残留，会阻止 DockerSite 创建
+- DockerSite JSON：`/www/dk_project/sites/chat.dyxcloud.com/chat.dyxcloud.com.json`
+- Nginx vhost：`/www/server/panel/vhost/nginx/chat.dyxcloud.com.conf`，反代必须是 `http://127.0.0.1:3000`
+- SSL 证书：`/www/server/panel/vhost/cert/chat.dyxcloud.com/fullchain.pem` 和 `privkey.pem`，不要在没有新证书时删除
+- DockerSite 注册脚本：`/www/dk_project/my_NextChat/scripts/baota-register-dockersite.py`，必须用 `/www/server/panel/pyenv/bin/python3` 执行
+
+### 清理和重注册规则
+
+- 清理前必须备份 `/www/server/panel/data/db/docker.db` 和 `/www/server/panel/data/db/site.db`
+- 只清理 `chat.dyxcloud.com` 相关记录，不要清空整个 Docker 或宝塔数据库
+- 旧容器/镜像只删除 `nextchat`、`nextchat-baota:latest`、`nextchat:latest` 相关对象，不要执行全局 Docker prune
+- DockerSite 重注册优先执行：
 
 ```bash
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy ps'
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy logs --tail=80 nextchat-production'
-```
-
-- 生产部署统一使用 `--profile no-proxy`
-- 部署和启动流程默认不使用代理
-- 生产部署也默认使用 [scripts/docker-compose-safe.sh](./scripts/docker-compose-safe.sh)
-- 默认使用固定 PostgreSQL 直连，不依赖 `postgres-ssh-tunnel`
-- 当前固定数据库配置保存在 `.env.docker`
-- 后续部署时优先保留并沿用 `.env.docker` 中已有的数据库连接参数
-- 只有用户明确要求通过跳板机访问数据库时，才启用 `--profile ssh-tunnel`
-- 生产容器必须保留 `HOSTNAME=0.0.0.0`
-  否则 Next.js standalone 进程在部分 Docker 环境中可能报 `getaddrinfo EAI_AGAIN`
-
-### 构建注意事项
-
-- `.env.docker` 中 `HTTP_PROXY=http://host.docker.internal:7890` 会被传入 Docker build args
-  `host.docker.internal` 在构建阶段可能无法解析，导致 `yarn install` 网络失败
-  构建时务必通过部署脚本或 `HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= ` 覆盖为空
-- 如果 `NPM_REGISTRY=https://registry.npmmirror.com/` 导致 `yarn install` 反复报网络错误
-  临时切换为 `NPM_REGISTRY=https://registry.npmjs.org` 可绕开，但速度较慢
-  （npmmirror 可能在容器构建环境下存在连接限制）
-- 最快稳定路径是命中 Docker 依赖缓存；不要在普通部署中传入会打穿 `base/deps` 层缓存的 build args。
-- 实测无代码变化且全部缓存命中约 `8.78s`；代码变化但依赖缓存命中约 `3:40.54`；冷依赖安装在无代理下不稳定。
-- `yarn install --frozen-lockfile` 阶段耗时最长（约 5~10 分钟），SSH 容易超时断开
-  部署时优先把部署脚本放进 `tmux` 保持后台运行：
-
-```bash
-ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
-# 查看进度
-ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
+ssh ss 'cd /www/dk_project/my_NextChat && /www/server/panel/pyenv/bin/python3 scripts/baota-register-dockersite.py'
 ```
 
 ### 验证步骤
 
 ```bash
-# 检查容器状态
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy ps'
-# 查看最近日志确认 Next.js 已就绪
-ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy logs --tail=20 nextchat-production'
-# 容器内自检
-ssh sss 'docker exec nextchat wget -S -O - http://127.0.0.1:3000 2>&1 | head -5'
+ssh ss 'docker ps --filter name=nextchat --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}"'
+ssh ss 'curl -sS -i http://127.0.0.1:3000/api/db/health | head -20'
+ssh ss 'nginx -t && curl -k -I https://chat.dyxcloud.com/ --max-time 20'
+ssh ss 'cd /www/server/panel && /www/server/panel/pyenv/bin/python3 - <<"PY"
+import sys, json
+sys.path[:0]=["/www/server/panel/class","/www/server/panel"]
+import public
+from mod.project.docker.sites.sitesManage import SitesManage
+get=public.to_dict_obj({"type":"all","p":1,"row":20,"classify":999,"query":"ngpt"})
+print(json.dumps(SitesManage().get_site_list(get), ensure_ascii=False, default=str)[:4000])
+PY'
 ```
+
+## 域名打不开的当前结论
+
+- 如果服务器内 `curl -k -I https://chat.dyxcloud.com/` 返回 `HTTP/2 200`，但外部无代理访问 `chat.dyxcloud.com` 被 reset 或跳转到 DNSPod webblock，则不是 Docker/Nginx/证书问题，而是腾讯云/DNSPod/安全策略的域名公网链路拦截
+- `https://42.193.15.117/` 能打开只代表 IP 默认站点可访问，不代表 `server_name chat.dyxcloud.com` 正常
+
+## 宝塔详细 Runbook
+
+- 详细部署、数据库和证书到期提醒修复步骤见 `docs/baota-chat-dyxcloud-runbook.md`。
+- 特别注意：`ssl_data.db.ssl_info.use_for_site` 必须指向 `site.db.sites.id=16`，不是 DockerSite 的 `docker_sites.id=13`。
 
 ## AI 部署注意事项
 
 - 构建时优先使用仓库内置的 `vendor/rt-client-0.5.0.tgz`
 - 默认关闭 Google Fonts、ShareGPT、MCP 市场、Edge TTS 等海外运行期依赖，除非用户明确要求开启
 - 如果 Docker 生产构建失败，先检查 `buildx`、`.dockerignore`、构建上下文和环境变量，不要先假设是外网问题
-- 版本号来自 `package.json`
-  如果页面里出现 `vundefined`，先检查 `package.json` 的 `version`
-- 如果宿主机访问 `127.0.0.1:3000` 异常，但容器日志显示 `Ready`
-  先在容器内执行 `wget http://127.0.0.1:3000`，再判断是不是宿主机代理或端口转发干扰
+- 版本号来自 `package.json`；如果页面里出现 `vundefined`，先检查 `package.json` 的 `version`
+- 如果宿主机访问 `127.0.0.1:3000` 异常，但容器日志显示 `Ready`，先在容器内执行 `wget http://127.0.0.1:3000`，再判断是不是宿主机代理或端口转发干扰
