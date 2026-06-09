@@ -766,7 +766,6 @@ async function reconcileRemoteModelStoresInternal() {
               profile,
             ]),
           );
-          const mergedProfiles = [...(state.apiProfiles || [])];
 
           remoteProfiles.forEach((remoteProfile: any) => {
             const remoteProfileId = String(remoteProfile?.id || "");
@@ -775,29 +774,11 @@ async function reconcileRemoteModelStoresInternal() {
             }
 
             if (!localProfileMap.has(remoteProfileId)) {
-              if (
-                remoteProfile.cachedModels ||
-                Number(remoteProfile.modelCount || 0) > 0
-              ) {
-                useModelCacheStore
-                  .getState()
-                  .upsertProfileCache(remoteProfileId, {
-                    cachedModels: String(remoteProfile.cachedModels || ""),
-                    modelCount: Number(remoteProfile.modelCount || 0),
-                  });
-              }
-              mergedProfiles.push(remoteProfile);
+              // 不在聊天页自动恢复远端独有 profile，避免用户已删除的配置被旧远端快照重新写回本地。
               return;
             }
 
-            const localIndex = mergedProfiles.findIndex(
-              (profile: any) => String(profile?.id || "") === remoteProfileId,
-            );
-            if (localIndex < 0) {
-              return;
-            }
-
-            const localProfile = mergedProfiles[localIndex] as any;
+            const localProfile = localProfileMap.get(remoteProfileId) as any;
             const localModels = new Set(
               String(localProfile?.cachedModels || "")
                 .split(",")
@@ -818,8 +799,6 @@ async function reconcileRemoteModelStoresInternal() {
               ),
             });
           });
-
-          state.apiProfiles = mergedProfiles;
         });
         useModelCacheStore.getState().migrateFromAccessProfiles?.();
       }
