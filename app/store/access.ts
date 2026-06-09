@@ -63,21 +63,28 @@ const DEFAULT_SILICONFLOW_URL = isApp
 const DEFAULT_AI302_URL = isApp ? AI302_BASE_URL : ApiPath["302.AI"];
 const DEFAULT_AIHUBMIX_URL = "https://aihubmix.com";
 const DEFAULT_AIHUBMIX_PROFILE_ID = "default_aihubmix_profile";
-const DEFAULT_YUTO_PROFILE_ID = "default_yuto_profile";
-const DEFAULT_OCOOL_PROFILE_ID = "default_ocool_profile";
-const DEFAULT_TOAPIS_PROFILE_ID = "default_toapis_profile";
-const DEFAULT_YUTO_URL = "https://cn.gptapi.asia";
-const DEFAULT_OCOOL_URL = "https://one.ooo.cool";
-const DEFAULT_TOAPIS_URL = "https://toapis.com";
-const DEFAULT_YUTO_API_KEY_GROUPS = {
-  default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
-  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
-  discount: "sk-JcPXIRfVD27TqRmBEFGsbtZ5zWpsppiMQCFjQRUpri5u7nLv",
-  anthropic: "sk-g8N4StogM4emnJvcLZ37TxTUcL71xPDWlQH0sZpQtMztkHEt",
-  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
-} as const;
+const LEGACY_DEFAULT_CUSTOM_PROFILES = [
+  {
+    id: "default_yuto_profile",
+    name: "YutoAPI",
+    provider: ServiceProvider.Custom,
+    baseUrl: "https://cn.gptapi.asia",
+  },
+  {
+    id: "default_ocool_profile",
+    name: "Ocoolai",
+    provider: ServiceProvider.Custom,
+    baseUrl: "https://one.ooo.cool",
+  },
+  {
+    id: "default_toapis_profile",
+    name: "ToAPIs",
+    provider: ServiceProvider.Custom,
+    baseUrl: "https://toapis.com",
+  },
+] as const;
 
-function createDefaultCustomProfiles() {
+function createBootstrapCustomProfiles() {
   return [
     {
       id: DEFAULT_AIHUBMIX_PROFILE_ID,
@@ -98,77 +105,51 @@ function createDefaultCustomProfiles() {
       cachedModels: "",
       modelCount: 0,
     },
-    {
-      id: DEFAULT_YUTO_PROFILE_ID,
-      name: "YutoAPI",
-      provider: ServiceProvider.Custom,
-      baseUrl: DEFAULT_YUTO_URL,
-      apiKey: DEFAULT_YUTO_API_KEY_GROUPS.user,
-      modelFetchApiKey: "",
-      balanceQueryApiKey: "",
-      balanceQueryUrl: "",
-      balanceQueryField: "",
-      apiKeyGroups: { ...DEFAULT_YUTO_API_KEY_GROUPS },
-      enabled: false,
-      openAICompatible: true,
-      cachedModels: "",
-      modelCount: 0,
-    },
-    {
-      id: DEFAULT_OCOOL_PROFILE_ID,
-      name: "Ocoolai",
-      provider: ServiceProvider.Custom,
-      baseUrl: DEFAULT_OCOOL_URL,
-      apiKey: "1e64d2329f18493784eba5b2390bcf0b",
-      modelFetchApiKey: "",
-      balanceQueryApiKey: "",
-      balanceQueryUrl: "",
-      balanceQueryField: "",
-      apiKeyGroups: {},
-      enabled: false,
-      openAICompatible: true,
-      cachedModels: "",
-      modelCount: 0,
-    },
-    {
-      id: DEFAULT_TOAPIS_PROFILE_ID,
-      name: "ToAPIs",
-      provider: ServiceProvider.Custom,
-      baseUrl: DEFAULT_TOAPIS_URL,
-      apiKey: "sk-Pn3Pqt9iCIRYBPMilukEJ6wKx3F6TKNAquIOP1ockZgZrSBx",
-      modelFetchApiKey: "",
-      balanceQueryApiKey: "",
-      balanceQueryUrl: "",
-      balanceQueryField: "",
-      apiKeyGroups: {},
-      enabled: false,
-      openAICompatible: true,
-      cachedModels: "",
-      modelCount: 0,
-    },
   ];
 }
 
-function ensureDefaultCustomProfiles(state: Record<string, any>) {
+function ensureBootstrapCustomProfiles(state: Record<string, any>) {
   const profiles = Array.isArray(state.apiProfiles) ? state.apiProfiles : [];
-  const nextProfiles = [...profiles];
-  const existingIds = new Set(
-    profiles.map((profile: Record<string, any>) => String(profile?.id || "")),
+  if (profiles.length > 0) {
+    state.apiProfiles = profiles;
+    return state;
+  }
+
+  state.apiProfiles = createBootstrapCustomProfiles();
+  return state;
+}
+
+function pruneLegacyInjectedProfiles(state: Record<string, any>) {
+  const profiles = Array.isArray(state.apiProfiles) ? state.apiProfiles : [];
+  if (profiles.length === 0) {
+    state.apiProfiles = profiles;
+    return state;
+  }
+
+  const legacyProfiles = new Map(
+    LEGACY_DEFAULT_CUSTOM_PROFILES.map((profile) => [profile.id, profile]),
   );
 
-  createDefaultCustomProfiles().forEach((profile) => {
-    if (existingIds.has(profile.id)) {
-      return;
+  state.apiProfiles = profiles.filter((profile: Record<string, any>) => {
+    const legacyProfile = legacyProfiles.get(String(profile?.id || ""));
+    if (!legacyProfile) {
+      return true;
     }
-    nextProfiles.push(profile);
+
+    return !(
+      !profile?.enabled &&
+      String(profile?.name || "") === legacyProfile.name &&
+      String(profile?.provider || "") === legacyProfile.provider &&
+      String(profile?.baseUrl || "") === legacyProfile.baseUrl
+    );
   });
 
-  state.apiProfiles = nextProfiles;
   return state;
 }
 
 function applyEnabledProfileDerivedFields(state: Record<string, any>) {
-  ensureDefaultCustomProfiles(state);
+  pruneLegacyInjectedProfiles(state);
+  ensureBootstrapCustomProfiles(state);
   const enabledProfile = Array.isArray(state.apiProfiles)
     ? state.apiProfiles.find((profile: any) => profile?.enabled)
     : undefined;
@@ -276,7 +257,7 @@ const DEFAULT_ACCESS_STATE = {
   profileSelectionUpdatedAt: 0,
 
   provider: ServiceProvider.Custom,
-  apiProfiles: createDefaultCustomProfiles() as Array<{
+  apiProfiles: createBootstrapCustomProfiles() as Array<{
     id: string;
     name: string;
     provider: ServiceProvider;
@@ -539,11 +520,9 @@ export const useAccessStore = createPersistStore(
     version: 5,
     onRehydrateStorage() {
       return () => {
-        const normalizedState = normalizeAccessStateDerivedFields(
-          ensureDefaultCustomProfiles({
-            ...(useAccessStore.getState() as any),
-          }),
-        );
+        const normalizedState = normalizeAccessStateDerivedFields({
+          ...(useAccessStore.getState() as any),
+        });
         useAccessStore.setState(normalizedState as any);
       };
     },
@@ -582,7 +561,7 @@ export const useAccessStore = createPersistStore(
         delete state.webdavPassword;
       }
 
-      ensureDefaultCustomProfiles(persistedState as Record<string, any>);
+      ensureBootstrapCustomProfiles(persistedState as Record<string, any>);
       normalizeAccessStateDerivedFields(persistedState as Record<string, any>);
 
       return persistedState as any;

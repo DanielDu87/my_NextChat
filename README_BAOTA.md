@@ -1,5 +1,7 @@
 # NextChat 宝塔部署说明
 
+> 详细版请优先查看 [docs/baota-docker-guide.md](docs/baota-docker-guide.md)。本文件只保留当前仍有效的宝塔入口、更新方式和高频故障结论。
+
 > **本地开发**：查看 [本地开发部署指南](docs/local-dev-guide.md) 了解如何在本地使用 Docker + PostgreSQL 进行开发。
 
 当前线上部署约定已经调整为：
@@ -123,13 +125,14 @@ location / {
 
 ```bash
 cd /www/dk_project/my_NextChat
-git pull
-export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
-mkdir -p "$BUILDX_CONFIG"
-docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat
-docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat
-docker inspect nextchat --format '{{.State.Health.Status}}'
-curl http://127.0.0.1:3000/api/db/health
+./scripts/deploy-production-no-proxy.sh
+```
+
+如果 SSH 容易断开，改用后台 tmux：
+
+```bash
+ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
+ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
 ```
 
 ## 常见问题
@@ -172,6 +175,44 @@ curl http://127.0.0.1:3000/api/db/health
 1. 是否使用了 `BUILDX_CONFIG=/tmp/nextchat-docker-buildx`
 2. Docker 构建上下文是否完整
 3. `.env.baota` 是否缺失必填变量
+
+### 域名打不开，但 IP 地址正常
+
+优先按下面顺序判断：
+
+1. 检查 NextChat 上游是否真的在跑：
+
+```bash
+curl -I http://127.0.0.1:3000/
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+```
+
+如果这里已经 `connection refused`，根因是应用/容器没起来，不是域名解析问题。
+
+2. 检查宝塔 nginx 在服务器本机是否能通过域名 Host 正常返回：
+
+```bash
+curl -k -I -H "Host: ngpt.chat" https://127.0.0.1/
+```
+
+如果这里返回 `200`，说明：
+
+- 宝塔 nginx 正常
+- `ngpt.chat` 证书正常
+- 反代到 `127.0.0.1:3000` 正常
+
+3. 再区分是不是外部链路/SNI 问题：
+
+```bash
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -brief
+
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -servername ngpt.chat -brief
+```
+
+如果无 `-servername` 正常、带 `-servername ngpt.chat` 被 reset，而服务器本机同样测试是正常的，
+说明 reset 发生在服务器外部链路，不在 NextChat 进程本身。
 
 ## 不再推荐的旧做法
 

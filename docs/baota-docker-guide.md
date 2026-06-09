@@ -469,31 +469,438 @@ NextChat 是直接用 `docker compose` 拉起的容器，默认不会自动出�
 `.env.docker`；如果以后要换域名或反代地址，编辑脚本顶部的 `DOMAIN` / `PROXY_PASS`
 常量后重跑即可。重复执行同名站点会被宝塔的 `docker_sites` 唯一约束拒绝。
 
+#### 按宝塔官方流程重建 Docker 网站
+
+如果 `ngpt.chat` 的 Docker 网站记录损坏、页面打不开，或想严格按宝塔官方
+`Docker -> 网站` 的流程重建，不要直接手改 `docker.db`。优先使用宝塔内部的
+`SitesManage.delete_site -> create_site -> set_ssl -> set_force_https`。
+
+重建前建议先备份：
+
+```bash
+TS=$(date +%Y%m%d-%H%M%S)
+BACK=/root/ngpt-dockersite-rebuild-$TS
+mkdir -p "$BACK"
+cp -a /www/dk_project/sites/ngpt.chat "$BACK/" 2>/dev/null || true
+cp -a /www/server/panel/vhost/nginx/ngpt.chat.conf "$BACK/" 2>/dev/null || true
+cp -a /www/server/panel/vhost/cert/ngpt.chat "$BACK/" 2>/dev/null || true
+```
+
+然后在服务器上使用宝塔自带 Python 执行：
+
+```bash
+/www/server/panel/pyenv/bin/python3 - <<'PY'
+import os
+import sys
+import subprocess
+
+PANEL = "/www/server/panel"
+sys.path[:0] = [PANEL, os.path.join(PANEL, "class"), os.path.join(PANEL, "mod")]
+
+import public
+from mod.project.docker.sites.sitesManage import SitesManage
+
+sm = SitesManage()
+
+# 1) 删除旧的 Docker 网站记录；remove_path=0 不删除站点目录
+g = public.dict_obj()
+g.id = 12  # 实际执行前先查 docker_sites 中 ngpt.chat 当前 id
+g.site_name = "ngpt.chat"
+g.remove_path = 0
+g.reload = 1
+print(sm.delete_site(g))
+
+# 2) 重新创建 Docker 网站
+cid = subprocess.check_output(
+    ["docker", "inspect", "nextchat", "--format", "{{.Id}}"],
+    text=True,
+).strip()
+
+g = public.dict_obj()
+g.domains = "ngpt.chat"
+g.remark = "NextChat (docker)"
+g.type = "app"
+g.name = "nextchat"
+g.port = "3000"
+g.proxy_pass = "http://127.0.0.1:3000"
+g.proxy_host = "$http_host"
+g.container_id = cid
+print(sm.create_site(g))
+
+# 3) 如果证书文件已存在，重新挂回 SSL
+with open("/www/server/panel/vhost/cert/ngpt.chat/privkey.pem") as f:
+    key = f.read()
+with open("/www/server/panel/vhost/cert/ngpt.chat/fullchain.pem") as f:
+    csr = f.read()
+
+g = public.dict_obj()
+g.siteName = "ngpt.chat"
+g.site_name = "ngpt.chat"
+g.key = key
+g.csr = csr
+print(sm.set_ssl(g))
+
+# 4) 恢复强制 HTTPS
+g = public.dict_obj()
+g.siteName = "ngpt.chat"
+g.site_name = "ngpt.chat"
+g["force_https/d"] = 1
+g.force_https = 1
+print(sm.set_force_https(g))
+PY
+```
+
+执行完后检查：
+
+```bash
+nginx -t
+/etc/init.d/nginx reload
+curl -I http://ngpt.chat
+curl -k -I https://ngpt.chat
+```
+
+实际验证结果：
+
+- `delete_site` 会删除 Docker 网站记录、JSON 配置和宝塔托管的 nginx vhost；
+- `delete_site` 默认不会删除 `/www/server/panel/vhost/cert/ngpt.chat/` 下的证书文件；
+- `create_site` 重建后，新的站点 ID 会变化，这是正常现象；
+- 如果只执行 `set_ssl`，`ngpt.chat.json` 的 `ssl_status` 会恢复为 `true`；
+- 若要让面板状态与 Nginx 跳转规则一致，还要再补一次 `set_force_https`。
+
 ### 关于宝塔的 SSL 证书管理
 
-宝塔的 “网站 → SSL” 页面在“已部署”状态下本身**不会**主动续签，也不会去探测 `dnspod.qcloud.com`，
-所以证书来源是 `acme.sh` 也不影响宝塔的展示：
+当前仓库与部署脚本**默认不处理 `ngpt.chat` 的证书申请、部署、续签**，证书由用户在宝塔面板中自行申请和维护。
 
-- `acme.sh` 用 webroot（`/www/dk_project/wwwroot/ngpt.chat`）+ Let's Encrypt 签发/续签，证书落到
-  `/www/server/panel/vhost/cert/ngpt.chat/{fullchain.pem,privkey.pem}`；
-- 宝塔读的就是这两个文件，所以“已部署证书”会随自动续签自动更新显示；
-- 站点 `/www/server/panel/vhost/ssl/ngpt.chat/info.json` 里的 `issuer=Let's Encrypt` 也会随之刷新；
-- 续签由 cron `36 6 * * * /root/.acme.sh/acme.sh --cron` 兜底，无需在面板里点任何按钮。
+- 仓库只保证 Docker 网站、反代、Nginx 配置与应用本身正常；
+- `ngpt.chat` 的 HTTPS 是否启用、用哪家 CA、何时续签，都由用户在宝塔 “网站 → SSL” 中自行操作；
+- 本仓库不再写入、覆盖、同步 `/www/server/panel/vhost/cert/ngpt.chat/` 下的证书文件；
+- 排障目标优先级是：先保证 `nginx -t` / `nginx reload` 正常，再处理证书。
 
-**不要**在宝塔 UI 里手动点 `ngpt.chat` 的 “续签” 按钮：
+#### 申请方式建议
 
-- 续签按钮会启动宝塔自带的 Let's Encrypt 流程，对反代到容器的站点会先做 `dnspod.qcloud.com` 探测，
-  探测返回 HTML 后宝塔误判为 “域名解析错误 / 验证 URL 无法被访问”，会**直接报错，不会改证书**；
-- 真要手动续签，SSH 登录服务器跑：
+`ngpt.chat` 在当前腾讯云大陆机环境下，**不建议优先使用文件验证**。
 
-  ```bash
-  /root/.acme.sh/acme.sh --renew -d ngpt.chat --force --ecc
-  ```
+- 文件验证时，CA 访问 `http://ngpt.chat/.well-known/acme-challenge/...` 可能被外部网络改写到
+  `https://dnspod.qcloud.com/static/webblock.html?d=ngpt.chat`；
+- 这会导致宝塔提示“验证失败，域名解析错误或验证 URL 无法被访问”；
+- 因此更稳的做法是：在宝塔中优先使用 **DNS 验证**（例如 DNSPod）。
 
-  即可。续签后宝塔侧会立刻看到新证书。
+#### 自动部署的配置锚点
 
-如要彻底绕开宝塔的 SSL 流程，也可以把 `ngpt.chat` 在宝塔的 “SSL” 里切到 “其他证书” → 留空 → 保存，
-宝塔就不会再尝试自动续签，**完全由 acme.sh 负责**。
+宝塔“证书申请成功后自动部署到站点”依赖站点配置文件中的固定锚点。如果这些锚点被删掉或改坏，
+就会出现：
+
+```text
+当前证书申请并验证成功，自动部署失败，请尝试手动部署证书！
+站点配置文件中未找到标识信息【#error_page 404/404.html;】
+```
+
+对 `ngpt.chat` 来说，至少要保留以下结构：
+
+- `listen 443 ssl http2 ;`
+- `ssl_certificate / ssl_certificate_key`
+- `#SSL-START ... #SSL-END`
+- `#error_page 404/404.html;`
+- `#HTTP_TO_HTTPS_START ... #HTTP_TO_HTTPS_END`
+
+如果之前为了临时恢复 nginx 去掉过 SSL 配置，那么在宝塔里“自动部署证书”之前，需要先恢复
+`/www/server/panel/vhost/nginx/ngpt.chat.conf` 的宝塔标准结构；最稳妥的方式是直接恢复之前备份的
+`ngpt.chat.conf.bak-*`，而不是只手工补单行注释。
+
+#### 空证书会拖死整个 nginx
+
+如果 `ngpt.chat` 保留了 443/SSL 引用，但 `/www/server/panel/vhost/cert/ngpt.chat/` 目录下没有有效证书文件，
+那么任意站点在宝塔里“保存证书”“重载 Nginx”“保存站点配置”时，都会被 `ngpt.chat` 的空证书一并拖死，
+表现为：
+
+```text
+nginx: [emerg] cannot load certificate "/www/server/panel/vhost/cert/ngpt.chat/fullchain.pem"
+```
+
+处理顺序建议：
+
+1. 先确认 `nginx -t` 可以通过；
+2. 如果是空证书导致失败，临时移除 `ngpt.chat` 的 SSL 引用，或恢复有效证书文件；
+3. 等 nginx 恢复正常后，再回宝塔给 `ngpt.chat` 申请/部署证书；
+4. 自动部署失败时，优先检查站点配置锚点是否还在，不要先怀疑容器或应用。
+
+---
+
+## 重要更新和修复记录（2026-06-09）
+
+### 1. 「未查询到站点【ngpt.chat】」的完整修复
+
+#### 问题原因
+在「证书到期提醒」「消息推送」等设置界面，宝塔只查询普通网站表 `site.db.sites`，而 `ngpt.chat` 是 Docker 网站，只存在于 `docker.db.docker_sites/docker_domain` 中，导致找不到站点报错。
+
+#### 修复涉及的所有数据库和目录
+
+| 类型 | 路径 | 说明 |
+|-----|------|------|
+| 普通站点数据库 | `/www/server/panel/data/db/site.db` | 普通网站列表（sites表和domain表） |
+| Docker站点数据库 | `/www/server/panel/data/db/docker.db` | Docker网站列表 |
+| SSL证书数据库 | `/www/server/panel/data/db/ssl_data.db` | SSL证书信息 |
+| 证书目录 | `/www/server/panel/vhost/cert/ngpt.chat/` | SSL证书文件 |
+| 访问日志 | `/www/wwwlogs/ngpt.chat.log` | 网站访问日志 |
+| Docker站点配置 | `/www/dk_project/sites/ngpt.chat/ngpt.chat.json` | Docker网站的配置文件 |
+| Nginx配置 | `/www/server/panel/vhost/nginx/ngpt.chat.conf` | Nginx反向代理配置 |
+
+#### 完整修复脚本（使用宝塔自带 Python）
+
+```bash
+# 1. 先备份数据库
+TS=$(date +%Y%m%d-%H%M%S)
+mkdir -p /root/baota-fix-backup-$TS
+cp -a /www/server/panel/data/db/site.db /root/baota-fix-backup-$TS/
+cp -a /www/server/panel/data/db/ssl_data.db /root/baota-fix-backup-$TS/
+echo "备份位置: /root/baota-fix-backup-$TS/"
+
+# 2. 执行修复
+/www/server/panel/pyenv/bin/python3 - <<'PY'
+import sqlite3
+import time
+import shutil
+import json
+
+# 备份 site.db
+TS = int(time.time())
+BACK_PATH = f"/root/site.db.backup.{TS}.db"
+shutil.copy2("/www/server/panel/data/db/site.db", BACK_PATH)
+print(f"✅ site.db 已备份到: {BACK_PATH}")
+
+site_db = sqlite3.connect("/www/server/panel/data/db/site.db")
+cur = site_db.cursor()
+add_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+# ---------- 步骤 1: 在 site.db 的 sites 表插入兼容记录 ----------
+print("正在插入 sites 表记录...")
+cur.execute(
+    "INSERT INTO sites (name, path, status, \"index\", ps, addtime, type_id, edate, project_type, project_config, rname, stop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    (
+        "ngpt.chat",
+        "/www/dk_project/wwwroot/ngpt.chat",
+        "1",
+        None,
+        "NextChat (docker) [compatible]",
+        add_time,
+        0,
+        "0000-00-00",
+        "Docker",
+        "{}",
+        "",
+        "",
+    ),
+)
+new_site_id = cur.lastrowid
+print(f"✅ 成功插入站点记录，站点ID: {new_site_id}")
+
+# ---------- 步骤 2: 在 site.db 的 domain 表插入域名记录 ----------
+print("正在插入 domain 表记录...")
+cur.execute(
+    "INSERT INTO domain (pid, name, port, addtime) VALUES (?, ?, ?, ?)",
+    (new_site_id, "ngpt.chat", 80, add_time),
+)
+print(f"✅ 成功插入域名记录，ID: {cur.lastrowid}")
+
+site_db.commit()
+
+# ---------- 步骤 3: 在 ssl_data.db 的 ssl_info 表更新 use_for_site ----------
+print("正在更新 ssl_info.use_for_site...")
+ssl_db = sqlite3.connect("/www/server/panel/data/db/ssl_data.db")
+cur = ssl_db.cursor()
+cur.execute(
+    "SELECT id, use_for_site FROM ssl_info WHERE subject=?", ("ngpt.chat",)
+)
+row = cur.fetchone()
+if row:
+    ssl_id, use_for_site_str = row
+    print(f"找到 SSL 记录，ID: {ssl_id}")
+    use_for_site = json.loads(use_for_site_str) if use_for_site_str else []
+    if str(new_site_id) not in use_for_site:
+        use_for_site.append(str(new_site_id))
+        cur.execute(
+            "UPDATE ssl_info SET use_for_site=? WHERE id=?",
+            (json.dumps(use_for_site), ssl_id),
+        )
+        print(f"✅ 成功更新 ssl_info.use_for_site 为: {use_for_site}")
+    else:
+        print(f"⚠️  ssl_info.use_for_site 已经包含 {new_site_id}，无需更新")
+ssl_db.commit()
+
+# 关闭数据库
+site_db.close()
+ssl_db.close()
+
+print("\n🎉 所有修复完成！")
+PY
+
+# 验证
+echo -e "\n正在验证修复结果..."
+/www/server/panel/pyenv/bin/python3 - <<'PY'
+import sqlite3
+
+site_db = sqlite3.connect("/www/server/panel/data/db/site.db")
+cur = site_db.cursor()
+print("\n--- site.db.sites 表内容 ---")
+cur.execute("SELECT id, name, ps, addtime FROM sites WHERE name='ngpt.chat';")
+print(cur.fetchall())
+
+print("\n--- site.db.domain 表内容 ---")
+cur.execute("SELECT id, pid, name FROM domain WHERE name='ngpt.chat';")
+print(cur.fetchall())
+
+ssl_db = sqlite3.connect("/www/server/panel/data/db/ssl_data.db")
+cur = ssl_db.cursor()
+print("\n--- ssl_data.db.ssl_info 表内容 ---")
+cur.execute("SELECT id, subject, use_for_site FROM ssl_info WHERE subject='ngpt.chat';")
+print(cur.fetchall())
+
+site_db.close()
+ssl_db.close()
+PY
+```
+
+#### 验证结果
+修复完成后，你应该可以：
+1. 在宝塔「证书到期提醒」设置中找到 `ngpt.chat`
+2. 在浏览器正常访问 `https://ngpt.chat`
+3. 查看宝塔 Nginx 状态和日志：
+```bash
+nginx -t
+tail -f /www/wwwlogs/ngpt.chat.log
+```
+
+---
+
+### 2. 访问日志分析说明
+
+#### 访问日志路径
+`/www/wwwlogs/ngpt.chat.log`
+
+#### 正常访问特征（从 117.136.73.115 的成功访问记录）
+```
+117.136.73.115 - - [09/Jun/2026:12:29:59 +0800] "GET / HTTP/2.0" 200 5073 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+```
+- **200状态码**：正常响应
+- **HTTP/2.0协议**：HTTPS协议版本正常
+- **静态资源也正常加载**：CSS、JS、图标等都能正常返回
+
+---
+
+### 3. 访问 ngpt.chat 时的本地代理设置说明
+
+#### 问题现象
+- `http://42.193.15.117:3000/` 直连可以
+- `https://ngpt.chat/` 出现 **Connection reset by peer**
+
+#### 原因
+请求被本地代理拦截或处理失败，导致连接在TLS握手阶段被重置。
+
+#### 解决方法
+
+##### 方案 A：在代理软件中添加直连规则（推荐）
+- **类型**：`IP-CIDR`（或 `DOMAIN-SUFFIX`，如果有）
+- **值 1**：`42.193.15.117/32`
+- **值 2**：`ngpt.chat`（如果是域名规则类型）
+- **策略**：`DIRECT`（直连）
+
+##### 方案 B：临时关闭所有代理
+直接关闭代理软件，只用本地网络访问 `https://ngpt.chat`
+
+##### 方案 C：使用浏览器无痕模式
+- Chrome/Edge：`Ctrl+Shift+N` 或 `Cmd+Shift+N`
+- Safari：`Cmd+Shift+N`
+
+---
+
+### 4. 「域名打不开，但 IP 地址正常」的最新结论
+
+#### 现象拆分
+
+这类问题至少要拆成两层：
+
+1. **应用上游是否在线**：`127.0.0.1:3000` 是否真的有 NextChat 在监听
+2. **域名链路是否正常**：公网到 `ngpt.chat:443` 的 TLS/SNI 是否被外部链路 reset
+
+不能只因为“IP 地址能打开”就判断应用完全正常。
+
+#### 本次实际排查结果
+
+先在服务器本机检查：
+
+```bash
+ss -ltnp | egrep ':80 |:443 |:3000 '
+curl -k -I -H "Host: ngpt.chat" https://127.0.0.1/
+curl -I http://127.0.0.1:3000/
+docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+```
+
+本次实际发现：
+
+- `nginx` 一直在监听 `80/443`
+- 故障时 `127.0.0.1:3000` 返回 `connection refused`
+- 同时 `docker ps -a` / `docker compose ... ps` 看不到 `nextchat` 生产容器
+- 这时域名请求不是“纯公网波动”，而是 nginx 反代的上游进程本身没在跑
+
+#### 修复动作
+
+按当前仓库约定，直接在服务器 `sss` 上执行标准生产脚本：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh'
+```
+
+如果担心 SSH 中断，放到 `tmux`：
+
+```bash
+ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
+ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
+```
+
+修复后验证：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy ps'
+ssh sss 'docker exec nextchat wget -S -O - http://127.0.0.1:3000 2>&1 | head -5'
+ssh sss 'curl -k -I -H "Host: ngpt.chat" https://127.0.0.1/'
+```
+
+期望结果：
+
+- `nextchat` 为 `healthy`
+- 容器内 `127.0.0.1:3000` 返回 `HTTP/1.1 200 OK`
+- 服务器本机带 `Host: ngpt.chat` 访问 `https://127.0.0.1/` 返回 `HTTP/2 200`
+
+#### 如何判断剩余问题是不是公网链路/SNI
+
+当服务器本机已经全部正常后，再从外部网络执行：
+
+```bash
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  curl -4 -k -I https://42.193.15.117/
+
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  curl -4 -k -I https://42.193.15.117/ -H 'Host: ngpt.chat'
+
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -brief
+
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -servername ngpt.chat -brief
+```
+
+本次排查得到的关键证据：
+
+- 直接访问 `https://42.193.15.117/` 可以正常握手并返回默认站点
+- 访问 `https://42.193.15.117/` 且带 `Host: ngpt.chat` 也能正常返回 `NextChat`
+- 但从当前外部网络使用 `openssl s_client -servername ngpt.chat` 时，TLS 握手会被 `write:errno=54` 重置
+- 服务器本机对 `127.0.0.1:443` + `-servername ngpt.chat` 的 `openssl s_client` 又是完全正常的
+
+这说明：
+
+- `ngpt.chat` 的 nginx vhost 和证书本身没有坏
+- reset 发生在服务器外部链路，而不是 NextChat 进程内部
+- 如果用户侧还在“域名不稳定、IP 正常”，优先继续排查公网路径、运营商网络、云侧 443/SNI 干扰，而不是继续改前端业务代码
 
 ---
 
@@ -518,7 +925,30 @@ nginx -t
 nginx -s reload
 ```
 
-5. 再回宝塔面板重新申请证书
+5. 如果只是想先恢复宝塔与 nginx 的正常操作，优先移除该站点的 443/SSL 引用，确认 `nginx -t` 通过后再处理证书
+
+### 宝塔提示“申请成功，但自动部署失败”
+
+常见报错：
+
+```text
+当前证书申请并验证成功，自动部署失败，请尝试手动部署证书！
+站点配置文件中未找到标识信息【#error_page 404/404.html;】
+```
+
+处理方法：
+
+1. 打开 `/www/server/panel/vhost/nginx/{域名}.conf`
+2. 检查是否还保留宝塔原始的 SSL 配置骨架
+3. 如果之前为了应急删过 SSL 段，优先恢复 `.bak` 备份配置
+4. 执行：
+
+```bash
+nginx -t
+/etc/init.d/nginx reload
+```
+
+5. 再回宝塔重新点击部署证书
 
 ### HTTPS 已启用但浏览器仍提示不安全
 
@@ -563,3 +993,78 @@ docker-compose 中的健康检查使用 `wget`，`localhost` 在 Alpine 容器�
 healthcheck:
   test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1"]
 ```
+
+### 宝塔提示「未查询到站点【ngpt.chat】」
+
+常见场景：在「证书到期提醒」「消息推送」等设置界面，只查普通网站表 `site.db.sites`，而 `ngpt.chat` 是 Docker 网站，只在 `docker.db` 中。
+
+**修复方案**：在 `site.db` 中加一条兼容记录，不破坏 Docker 网站功能。
+
+```python
+import sqlite3
+import time
+import shutil
+
+TS = int(time.time())
+BACK_PATH = f"/root/site.db.backup.{TS}.db"
+shutil.copy2("/www/server/panel/data/db/site.db", BACK_PATH)
+print(f"Backup site.db to {BACK_PATH}")
+
+site_db = sqlite3.connect("/www/server/panel/data/db/site.db")
+cur = site_db.cursor()
+add_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+# 插入兼容记录到 sites
+cur.execute(
+    "INSERT INTO sites (name, path, status, \"index\", ps, addtime, type_id, edate, project_type, project_config, rname, stop) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    (
+        "ngpt.chat",
+        "/www/dk_project/wwwroot/ngpt.chat",
+        "1",
+        None,
+        "NextChat (docker) [compatible]",
+        add_time,
+        0,
+        "0000-00-00",
+        "Docker",
+        "{}",
+        "",
+        "",
+    ),
+)
+new_site_id = cur.lastrowid
+print(f"Inserted into sites with id {new_site_id}")
+
+# 插入域名记录到 domain
+cur.execute(
+    "INSERT INTO domain (pid, name, port, addtime) VALUES (?, ?, ?, ?)",
+    (new_site_id, "ngpt.chat", 80, add_time),
+)
+print(f"Inserted into domain with id {cur.lastrowid}")
+
+site_db.commit()
+ssl_db = sqlite3.connect("/www/server/panel/data/db/ssl_data.db")
+ssl_db = sqlite3.connect("/www/server/panel/data/db/ssl_data.db")
+cur = ssl_db.cursor()
+import json
+cur.execute(
+    "SELECT id, use_for_site FROM ssl_info WHERE subject=?", ("ngpt.chat",)
+)
+row = cur.fetchone()
+if row:
+    ssl_id, use_for_site_str = row
+    use_for_site = json.loads(use_for_site_str)
+    if str(new_site_id) not in use_for_site:
+        use_for_site.append(str(new_site_id))
+        cur.execute(
+            "UPDATE ssl_info SET use_for_site=? WHERE id=?", (json.dumps(use_for_site), ssl_id)
+        )
+ssl_db.commit()
+ssl_db.close()
+print("Done.")
+```
+
+**验证点**：
+- `SELECT id, name FROM sites WHERE name='ngpt.chat'` 能找到
+- `SELECT id, subject, use_for_site FROM ssl_info WHERE subject='ngpt.chat'` 的 `use_for_site` 包含新 site id
+- 再试「证书到期提醒」界面，应该能正常选择 ngpt.chat

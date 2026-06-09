@@ -137,6 +137,19 @@ ALPINE_MIRROR=https://mirrors.aliyun.com/alpine \
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy --profile ssh-tunnel up -d
 ```
 
+服务器 `sss` 的推荐执行方式：
+
+```bash
+ssh sss 'cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh'
+```
+
+如果担心 SSH 在远程 `next build` 阶段断开，优先放到 `tmux`：
+
+```bash
+ssh sss 'tmux new-session -d -s nextchat-deploy "cd /www/dk_project/my_NextChat && ./scripts/deploy-production-no-proxy.sh 2>&1"'
+ssh sss 'tmux capture-pane -t nextchat-deploy -p -S -80'
+```
+
 ### 3.4 当前生产构建约定
 
 - 生产环境默认直接在远程服务器执行 Docker 官方构建。
@@ -316,3 +329,41 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
   ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy build
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile no-proxy up -d
 ```
+
+### 域名打不开，但 IP 地址正常
+
+先不要直接认定是 DNS 问题，按下面顺序排查：
+
+1. 检查应用上游是否在线：
+
+```bash
+curl -I http://127.0.0.1:3000/
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+```
+
+如果这里已经 `connection refused`，说明 NextChat 容器/进程没跑起来，优先重新部署。
+
+2. 检查服务器本机经 nginx + Host 访问是否正常：
+
+```bash
+curl -k -I -H "Host: ngpt.chat" https://127.0.0.1/
+```
+
+如果这里返回 `200`，说明：
+
+- nginx 正常
+- 证书正常
+- `ngpt.chat -> 127.0.0.1:3000` 反代正常
+
+3. 再区分是不是公网 443 的 SNI/TLS 链路问题：
+
+```bash
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -brief
+
+env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
+  openssl s_client -connect 42.193.15.117:443 -servername ngpt.chat -brief
+```
+
+如果无 SNI 正常、带 `-servername ngpt.chat` 被 reset，而服务器本机测试又正常，
+那么问题在服务器外部链路，不在 NextChat 应用进程内部。
