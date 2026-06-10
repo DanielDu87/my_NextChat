@@ -10,7 +10,6 @@ import AutoIcon from "../icons/auto.svg";
 import ChatGptIcon from "../icons/chatgpt.svg";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/trash.svg";
-import MaskIcon from "../icons/mask.svg";
 import McpIcon from "../icons/mcp.svg";
 import DiscoveryIcon from "../icons/brain.svg";
 
@@ -39,6 +38,7 @@ const DISCOVERY = [
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
   loading: () => null,
 });
+const CHAT_LIST_SCROLL_TO_TOP_EVENT = "nextchat:chat-list-scroll-top";
 
 const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
   "nextchat:open-chat-list-multi-delete";
@@ -335,8 +335,9 @@ export function SideBarHeader(props: {
   logo?: React.ReactNode;
   children?: React.ReactNode;
   linkHref?: string;
+  onHeaderClick?: () => void;
 }) {
-  const { title, subTitle, logo, children, linkHref } = props;
+  const { title, subTitle, logo, children, linkHref, onHeaderClick } = props;
 
   const logoNode = linkHref ? (
     <a
@@ -376,7 +377,11 @@ export function SideBarHeader(props: {
 
   return (
     <Fragment>
-      <div className={styles["sidebar-header"]} data-tauri-drag-region>
+      <div
+        className={styles["sidebar-header"]}
+        data-tauri-drag-region
+        onClick={onHeaderClick}
+      >
         {logoNode}
         {titleNode}
       </div>
@@ -459,21 +464,11 @@ export function SideBar(props: { className?: string }) {
         title="NextChat"
         subTitle="Build your own AI assistant."
         logo={<NextChatBrandIcon />}
+        onHeaderClick={() => {
+          window.dispatchEvent(new Event(CHAT_LIST_SCROLL_TO_TOP_EVENT));
+        }}
       >
         <div className={styles["sidebar-header-bar"]}>
-          <IconButton
-            icon={<MaskIcon />}
-            text={Locale.Mask.Name}
-            className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
-            onClick={() => {
-              if (config.dontShowMaskSplashScreen !== true) {
-                navigate(Path.NewChat, { state: { fromHome: true } });
-              } else {
-                navigate(Path.Masks, { state: { fromHome: true } });
-              }
-            }}
-            shadow
-          />
           {mcpEnabled && (
             <IconButton
               icon={<McpIcon />}
@@ -629,35 +624,31 @@ export function SideBar(props: { className?: string }) {
                   return;
                 }
                 const startNewChat = () => {
-                  if (config.dontShowMaskSplashScreen) {
-                    const createdNewSession = chatStore.newSession();
-                    navigate(Path.Chat);
-                    if (createdNewSession && syncStore.cloudSync?.()) {
-                      useSyncStore.setState({
-                        criticalSyncReady: false,
-                        criticalSyncInProgress: true,
-                      } as any);
-                      // 只同步模型选择，API 配置在后台异步处理
-                      void syncStore
-                        .sync([StoreKey.Config], {
-                          isolateQueue: true,
-                          broadcastChatHint: false,
-                        })
-                        .catch((error) => {
-                          console.error(
-                            "[Sync] 新建对话模型选择同步失败:",
-                            error,
-                          );
-                        })
-                        .finally(() => {
-                          useSyncStore.setState({
-                            criticalSyncReady: true,
-                            criticalSyncInProgress: false,
-                          } as any);
-                        });
-                    }
-                  } else {
-                    navigate(Path.NewChat);
+                  const createdNewSession = chatStore.newSession();
+                  navigate(Path.Chat);
+                  if (createdNewSession && syncStore.cloudSync?.()) {
+                    useSyncStore.setState({
+                      criticalSyncReady: false,
+                      criticalSyncInProgress: true,
+                    } as any);
+                    // 只同步模型选择，API 配置在后台异步处理
+                    void syncStore
+                      .sync([StoreKey.Config], {
+                        isolateQueue: true,
+                        broadcastChatHint: false,
+                      })
+                      .catch((error) => {
+                        console.error(
+                          "[Sync] 新建对话模型选择同步失败:",
+                          error,
+                        );
+                      })
+                      .finally(() => {
+                        useSyncStore.setState({
+                          criticalSyncReady: true,
+                          criticalSyncInProgress: false,
+                        } as any);
+                      });
                   }
                 };
                 startNewChat();

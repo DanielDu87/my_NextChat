@@ -32,6 +32,7 @@ import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
 import LogOutDoorIcon from "../icons/log-out-door.svg";
 import ImageIcon from "../icons/image.svg";
+import AddIcon from "../icons/add.svg";
 
 import StopIcon from "../icons/pause.svg";
 import PlayIcon from "../icons/play.svg";
@@ -106,6 +107,7 @@ import {
   getActiveModelSelectorProviderId,
   getModelSelectorDefaultValue,
 } from "../utils/model-selector-provider";
+import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 
 import dynamic from "next/dynamic";
 
@@ -125,7 +127,6 @@ import {
   ListItem,
   Modal,
   Selector,
-  compareSelectorItems,
   showConfirm,
   showPrompt,
   showToast,
@@ -162,7 +163,6 @@ function syncModelSelectionNow() {
 }
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
-import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
 import {
@@ -401,6 +401,13 @@ function getProfileProviderId(profile: { provider: string; name: string }) {
     : profile.provider === ServiceProvider.Local
     ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
+}
+
+function isProfileScopedProviderId(providerId: unknown) {
+  const value = String(providerId || "")
+    .trim()
+    .toLowerCase();
+  return value.startsWith("custom_") || value.startsWith("local_");
 }
 
 function normalizeProviderLookup(value: unknown) {
@@ -1331,7 +1338,12 @@ function extractProviderDisplayNameFromModelLabel(label: unknown) {
 
 function getMessageProviderDisplayName(
   message: ChatMessage,
-  profiles: Array<{ id?: string; name: string; provider: ServiceProvider }>,
+  profiles: Array<{
+    id?: string;
+    name: string;
+    provider: ServiceProvider;
+    enabled?: boolean;
+  }>,
 ) {
   const profileId = String(message.profileId || "").trim();
   const providerId = String(message.providerId || "")
@@ -1357,6 +1369,11 @@ function getMessageProviderDisplayName(
     return matchedProfile.name;
   }
 
+  const currentProfile = profiles.find((profile) => profile.enabled);
+  if ((profileId || providerId) && currentProfile?.name) {
+    return currentProfile.name;
+  }
+
   return (
     String(message.profileName || "").trim() ||
     extractProviderDisplayNameFromModelLabel(
@@ -1367,7 +1384,12 @@ function getMessageProviderDisplayName(
 
 function resolveMessageModelSelection(
   message: ChatMessage | undefined,
-  profiles: Array<{ id?: string; name: string; provider: ServiceProvider }>,
+  profiles: Array<{
+    id?: string;
+    name: string;
+    provider: ServiceProvider;
+    enabled?: boolean;
+  }>,
 ) {
   if (!message) {
     return null;
@@ -1388,7 +1410,6 @@ function resolveMessageModelSelection(
   const profileId = String(message.profileId || "").trim();
   const providerDisplayName =
     String(message.profileName || "").trim() ||
-    getMessageProviderDisplayName(message, profiles) ||
     String(parsedProviderLabel || "").trim();
   const normalizedProviderDisplayName =
     normalizeProviderLookup(providerDisplayName);
@@ -1402,17 +1423,25 @@ function resolveMessageModelSelection(
         normalizeProviderLookup(profile.name) === normalizedProviderDisplayName)
     );
   });
+  const currentProfile = profiles.find((profile) => profile.enabled);
+  const effectiveProfile =
+    matchedProfile || (profileId || providerId ? currentProfile : undefined);
 
   const resolvedProviderName =
-    message.providerName ||
-    matchedProfile?.provider ||
-    (providerId.startsWith("custom_")
-      ? ServiceProvider.Custom
-      : providerId.startsWith("local_")
-      ? ServiceProvider.Local
-      : (providerId as ServiceProvider));
+    effectiveProfile && !matchedProfile
+      ? effectiveProfile.provider
+      : message.providerName ||
+        effectiveProfile?.provider ||
+        (providerId.startsWith("custom_")
+          ? ServiceProvider.Custom
+          : providerId.startsWith("local_")
+          ? ServiceProvider.Local
+          : (providerId as ServiceProvider));
   const resolvedProviderId =
-    providerId || (matchedProfile ? getProfileProviderId(matchedProfile) : "");
+    effectiveProfile && !matchedProfile
+      ? getProfileProviderId(effectiveProfile)
+      : providerId ||
+        (matchedProfile ? getProfileProviderId(matchedProfile) : "");
 
   if (!resolvedProviderName || !resolvedProviderId) {
     return null;
@@ -1422,7 +1451,7 @@ function resolveMessageModelSelection(
     model: model as ModelType,
     providerName: resolvedProviderName as ServiceProvider,
     providerId: resolvedProviderId.toLowerCase(),
-    profileId: profileId || matchedProfile?.id || "",
+    profileId: effectiveProfile?.id || profileId || "",
   };
 }
 
@@ -1466,8 +1495,6 @@ export function SessionConfigModel(props: { onClose: () => void }) {
     state.currentSession(),
   );
   const session = currentSessionSnapshot;
-  const maskStore = useMaskStore();
-  const navigate = useNavigate();
 
   if (!session) {
     return null;
@@ -1491,18 +1518,6 @@ export function SessionConfigModel(props: { onClose: () => void }) {
                   (session) => (session.memoryPrompt = ""),
                 );
               }
-            }}
-          />,
-          <IconButton
-            key="copy"
-            icon={<CopyIcon />}
-            bordered
-            text={Locale.Chat.Config.SaveAs}
-            onClick={() => {
-              navigate(Path.Masks);
-              setTimeout(() => {
-                maskStore.create(session.mask);
-              }, 500);
             }}
           />,
         ]}
@@ -2025,29 +2040,6 @@ export function ChatActions(props: {
     const filteredModels = allModels.filter((m) => m.available);
     return filteredModels;
   }, [allModels]);
-  const latestOpenAIModel = useMemo(() => {
-    const openAIModels = config.models.filter(
-      (item) => item?.provider?.providerName === ServiceProvider.OpenAI,
-    );
-    const preferredPatterns = [
-      /^gpt-5/i,
-      /^gpt-4\.1/i,
-      /^o4-mini/i,
-      /^o3/i,
-      /^gpt-4o$/i,
-      /^gpt-4o-mini$/i,
-      /^o1/i,
-    ];
-
-    for (const pattern of preferredPatterns) {
-      const matched = openAIModels.find((item) => pattern.test(item.name));
-      if (matched) {
-        return matched;
-      }
-    }
-
-    return openAIModels[0];
-  }, [config.models]);
   const [showSizeSelector, setShowSizeSelector] = useState(false);
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [showStyleSelector, setShowStyleSelector] = useState(false);
@@ -2310,7 +2302,6 @@ export function ChatActions(props: {
 
 export function EditMessageModal(props: { onClose: () => void }) {
   const chatStore = useChatStore();
-  const maskStore = useMaskStore();
   const navigate = useNavigate();
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
@@ -2821,6 +2812,30 @@ function _Chat() {
     () => sessionMessages.some(isStaleAssistantLoadingBubble),
     [isStaleAssistantLoadingBubble, sessionMessages],
   );
+  const hasOnlyEmptyHistoryPlaceholders = useMemo(() => {
+    if (sessionLoading || !currentSessionHasMessages) {
+      return false;
+    }
+    if (sessionMessages.length === 0) {
+      return false;
+    }
+
+    return sessionMessages.every((message) => {
+      if ((message as any).preview || message.streaming) {
+        return false;
+      }
+      if (getMessageTextContent(message).trim().length > 0) {
+        return false;
+      }
+      if (getMessageImages(message).length > 0) {
+        return false;
+      }
+      if (message.tools?.length) {
+        return false;
+      }
+      return true;
+    });
+  }, [currentSessionHasMessages, sessionLoading, sessionMessages]);
 
   // current model name
   const currentRawModel = sessionMask?.modelConfig?.model || "";
@@ -2887,18 +2902,41 @@ function _Chat() {
       currentProviderName,
     ],
   );
+  const currentEnabledProfile = useMemo(
+    () => apiProfiles.find((profile) => profile.enabled),
+    [apiProfiles],
+  );
+  const shouldUseCurrentEnabledProfile =
+    !currentProfile &&
+    (isProfileScopedProviderId(currentProviderId) ||
+      isLegacyGeneratedCustomProviderId(currentProviderId) ||
+      isLegacyGeneratedCustomProviderId(currentProviderName));
   const currentProviderDisplayName =
-    currentProviderName === ServiceProvider.Custom ||
-    currentProviderName === ServiceProvider.Local
+    shouldUseCurrentEnabledProfile && currentEnabledProfile?.name
+      ? currentEnabledProfile.name
+      : currentProviderName === ServiceProvider.Custom ||
+        currentProviderName === ServiceProvider.Local
       ? currentProfile?.name ||
         currentActiveProviderProfile?.name ||
         currentProviderName
       : currentProfile?.name || currentProviderName;
-  const activeModelSelectorProviderId = getActiveModelSelectorProviderId({
+  const rawActiveModelSelectorProviderId = getActiveModelSelectorProviderId({
     showModelSelector,
     modelSelectorProviderId,
     currentProviderId,
   });
+  const rawActiveModelSelectorProfile = apiProfiles.find(
+    (profile) =>
+      getProfileProviderId(profile).toLowerCase() ===
+      rawActiveModelSelectorProviderId.toLowerCase(),
+  );
+  const activeModelSelectorProviderId =
+    (isProfileScopedProviderId(rawActiveModelSelectorProviderId) ||
+      isLegacyGeneratedCustomProviderId(rawActiveModelSelectorProviderId)) &&
+    !rawActiveModelSelectorProfile &&
+    currentEnabledProfile
+      ? getProfileProviderId(currentEnabledProfile).toLowerCase()
+      : rawActiveModelSelectorProviderId;
   const activeModelSelectorProfile = useMemo(
     () =>
       apiProfiles.find(
@@ -3331,7 +3369,7 @@ function _Chat() {
           vendorName: model.vendor?.name,
         },
       }))
-      .sort(compareSelectorItems);
+      .filter(Boolean);
   }, [
     globalCustomModelValueSet,
     getModelGroup,
@@ -3360,6 +3398,33 @@ function _Chat() {
     );
     return matchedModel?.displayName ?? currentModel;
   }, [activeModelSelectorProviderId, currentModel, models]);
+  const isPendingSessionModelSelection = useMemo(() => {
+    if (!currentSessionHasMessages || !latestAssistantModelSelection) {
+      return false;
+    }
+
+    const currentModelConfig = sessionMask.modelConfig;
+    const currentModelKey = [
+      currentModelConfig.model,
+      (currentModelConfig as any).providerId,
+      currentModelConfig.providerName,
+    ].join("|");
+    const nextModelKey = [
+      latestAssistantModelSelection.model,
+      latestAssistantModelSelection.providerId,
+      latestAssistantModelSelection.providerName,
+    ].join("|");
+
+    return currentModelKey !== nextModelKey;
+  }, [
+    currentSessionHasMessages,
+    latestAssistantModelSelection,
+    sessionMask.modelConfig,
+  ]);
+  const shouldShowModelConfigLabel =
+    isModelConfigSyncConfirmed &&
+    !sessionLoading &&
+    !isPendingSessionModelSelection;
   const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
   const handleManualModelSelectionDisabled = () => {
     setModelSelectorNotice(modelSelectionDisabledToast);
@@ -3374,14 +3439,17 @@ function _Chat() {
   const autoModeButtonText = autoModeEnabled
     ? `自动模式（${selectedAutoModelSeriesLabel}）`
     : "自动模式（未开启）";
+  const modelConfigSyncingText = "模型同步中";
   const modelSelectorButtonText = autoModeEnabled ? (
     <>{autoModeButtonText}</>
   ) : (
     <>
       <span className={styles["provider-button-name"]}>
-        {activeModelSelectorProviderDisplayName}
+        {shouldShowModelConfigLabel
+          ? activeModelSelectorProviderDisplayName
+          : modelConfigSyncingText}
       </span>{" "}
-      {isModelConfigSyncConfirmed && (
+      {shouldShowModelConfigLabel && (
         <span className={styles["provider-button-model"]}>
           {currentModelName}
         </span>
@@ -3390,7 +3458,9 @@ function _Chat() {
   );
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
-    : `${activeModelSelectorProviderDisplayName} ${currentModelName}`;
+    : shouldShowModelConfigLabel
+    ? `${activeModelSelectorProviderDisplayName} ${currentModelName}`
+    : modelConfigSyncingText;
   const currentDisplaySelectorValue = `${currentRawModel}@${
     activeModelSelectorProviderId || String(currentProviderName).toLowerCase()
   }`;
@@ -3776,23 +3846,6 @@ function _Chat() {
     }, 2200);
   }, []);
 
-  const openAIModels = models.filter(
-    (m) => m?.provider?.providerName === ServiceProvider.OpenAI,
-  );
-  const latestOpenAIModel = useMemo(() => {
-    if (openAIModels.length === 0) return undefined;
-
-    const preferredPatterns = [/^gpt-4o/, /^gpt-4/, /^gpt-3.5-turbo/, /^o1/];
-
-    for (const pattern of preferredPatterns) {
-      const matched = openAIModels.find((item) => pattern.test(item.name));
-      if (matched) {
-        return matched;
-      }
-    }
-
-    return openAIModels[0];
-  }, [openAIModels]);
   const modelSelectorQuickFilters = useMemo(
     () => [
       {
@@ -4740,17 +4793,28 @@ function _Chat() {
       setAutoScroll(true);
       setHitBottom(true);
       scrollDomToBottom();
+      const dom = scrollRef.current;
+      if (dom) {
+        const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+        dom.scrollTop = targetTop;
+        dom.scrollTo?.({ top: targetTop, behavior: "auto" });
+      }
     };
 
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(runScroll);
     });
-    [48, 120, 260, 420].forEach((delay) => {
+    const delays = isMobileScreen
+      ? [0, 48, 120, 260, 420, 700, 1000, 1400]
+      : [48, 120, 260, 420];
+    delays.forEach((delay) => {
       window.setTimeout(runScroll, delay);
     });
   }, [
+    isMobileScreen,
     renderMessages.length,
     scrollDomToBottom,
+    scrollRef,
     setAutoScroll,
     setHitBottom,
     setMsgRenderIndex,
@@ -4796,23 +4860,41 @@ function _Chat() {
     ],
   );
 
-  const scrollToTopOnIOS = useCallback(() => {
-    if (!isIOSMobile) return;
+  const scrollToTopOnMobile = useCallback(() => {
+    const isMobileBrowser =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(
+        navigator.userAgent || "",
+      );
+    const isTouchBrowser =
+      typeof navigator !== "undefined" && Number(navigator.maxTouchPoints) > 0;
+    if (!isMobileScreen && !isMobileBrowser && !isTouchBrowser) return;
 
     mobileInputRef.current?.blur();
     setAutoScroll(false);
     setHitBottom(false);
+    const dom = scrollRef.current;
+    const previousHeight = dom?.scrollHeight ?? 0;
+    const previousTop = dom?.scrollTop ?? 0;
     setMsgRenderIndex(0);
 
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({
+        const nextDom = scrollRef.current;
+        if (!nextDom) return;
+
+        if (msgRenderIndex > 0) {
+          const heightDelta = nextDom.scrollHeight - previousHeight;
+          nextDom.scrollTop = Math.max(0, previousTop + heightDelta);
+        }
+
+        nextDom.scrollTo({
           top: 0,
           behavior: "smooth",
         });
       });
     });
-  }, [isIOSMobile, setAutoScroll, setMsgRenderIndex]);
+  }, [isMobileScreen, msgRenderIndex, setAutoScroll, setMsgRenderIndex]);
 
   const moveInputCursorToEnd = useCallback(() => {
     const mobileInput = mobileInputRef.current;
@@ -6138,17 +6220,10 @@ function _Chat() {
 
     historyAutoBottomSessionRef.current = safeSession.id;
     pendingInitialBottomSessionRef.current = safeSession.id;
-    jumpToBottom();
-    const rafId = window.requestAnimationFrame(jumpToBottom);
-    const timer = window.setTimeout(jumpToBottom, 80);
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      window.clearTimeout(timer);
-    };
+    forceScrollToBottom();
   }, [
     currentSessionHasMessages,
-    jumpToBottom,
+    forceScrollToBottom,
     safeSession.id,
     sessionLoading,
     sessionMessages.length,
@@ -6585,7 +6660,8 @@ function _Chat() {
     return () => window.clearTimeout(timer);
   }, [currentSessionHasMessages, safeSession.id]);
 
-  const enterLoading = enterLoadingMin || isInitialLoading;
+  const enterLoading =
+    enterLoadingMin || isInitialLoading || hasOnlyEmptyHistoryPlaceholders;
 
   const shouldHideChatMessages =
     sessionLoading || isChatUnavailableForSync || enterLoading;
@@ -6610,22 +6686,23 @@ function _Chat() {
       return;
     }
 
-    jumpToBottom();
-    const rafId = window.requestAnimationFrame(jumpToBottom);
-    const timer = window.setTimeout(() => {
-      jumpToBottom();
-      if (pendingInitialBottomSessionRef.current === safeSession.id) {
-        pendingInitialBottomSessionRef.current = null;
-      }
-    }, 160);
+    forceScrollToBottom();
+    const timer = window.setTimeout(
+      () => {
+        if (pendingInitialBottomSessionRef.current === safeSession.id) {
+          pendingInitialBottomSessionRef.current = null;
+        }
+      },
+      isMobileScreen ? 1500 : 180,
+    );
 
     return () => {
-      window.cancelAnimationFrame(rafId);
       window.clearTimeout(timer);
     };
   }, [
     currentSessionHasMessages,
-    jumpToBottom,
+    forceScrollToBottom,
+    isMobileScreen,
     msgRenderIndex,
     safeSession.id,
     sessionLoading,
@@ -6640,6 +6717,8 @@ function _Chat() {
     ? "正在恢复完整消息内容，完成后会自动显示。"
     : isChatUnavailableForSync
     ? "模型配置同步完成后，对话内容会自动显示。"
+    : hasOnlyEmptyHistoryPlaceholders
+    ? "消息正文还在加载，完成后会自动显示。"
     : "对话内容即将显示。";
 
   const initialAutoScrollSessionIdRef = useRef<string | null>(null);
@@ -6650,10 +6729,10 @@ function _Chat() {
     if (initialAutoScrollSessionIdRef.current === safeSession.id) return;
 
     initialAutoScrollSessionIdRef.current = safeSession.id;
-    jumpToBottom();
+    forceScrollToBottom();
   }, [
     currentSessionHasMessages,
-    jumpToBottom,
+    forceScrollToBottom,
     safeSession.id,
     shouldHideChatMessages,
   ]);
@@ -7372,8 +7451,8 @@ function _Chat() {
 
           <div
             className={clsx("window-header-title", styles["chat-body-title"])}
-            data-tauri-drag-region
-            onClick={scrollToTopOnIOS}
+            data-tauri-drag-region={isMobileScreen ? undefined : true}
+            onClick={scrollToTopOnMobile}
           >
             <div
               className={clsx(
@@ -7467,17 +7546,23 @@ function _Chat() {
               )}
             >
               <IconButton
-                icon={<ReloadIcon />}
+                icon={isMobileScreen ? <AddIcon /> : <ReloadIcon />}
                 bordered
                 className={styles["chat-window-icon-button"]}
                 text={
                   useHeaderIconOnly
                     ? undefined
+                    : isMobileScreen
+                    ? Locale.Home.NewChat
                     : Locale.Chat.Actions.RefreshTitle
                 }
-                title={Locale.Chat.Actions.RefreshTitle}
+                title={
+                  isMobileScreen
+                    ? Locale.Home.NewChat
+                    : Locale.Chat.Actions.RefreshTitle
+                }
                 onTouchStart={(e) => {
-                  if (!isMobileScreen) return;
+                  if (isMobileScreen) return;
                   refreshTouchTriggeredRef.current = true;
                   e.preventDefault();
                   handleSessionRefresh();
@@ -7486,7 +7571,11 @@ function _Chat() {
                   }, 600);
                 }}
                 onClick={() => {
-                  if (isMobileScreen && refreshTouchTriggeredRef.current) {
+                  if (isMobileScreen) {
+                    navigate(Path.NewChat);
+                    return;
+                  }
+                  if (refreshTouchTriggeredRef.current) {
                     return;
                   }
                   handleSessionRefresh();
@@ -7538,13 +7627,19 @@ function _Chat() {
               >
                 {isMobileScreen ? (
                   <div className={styles["chat-balance-user-panel-mobile"]}>
-                    {isModelConfigSyncConfirmed && (
-                      <div className={styles["chat-panel-model-info"]}>
-                        {currentModelName}
-                        <span className={styles["chat-panel-model-at"]}>@</span>
-                        {activeModelSelectorProviderDisplayName}
-                      </div>
-                    )}
+                    <div className={styles["chat-panel-model-info"]}>
+                      {shouldShowModelConfigLabel ? (
+                        <>
+                          {currentModelName}
+                          <span className={styles["chat-panel-model-at"]}>
+                            @
+                          </span>
+                          {activeModelSelectorProviderDisplayName}
+                        </>
+                      ) : (
+                        modelConfigSyncingText
+                      )}
+                    </div>
                     <UserMenu variant="chat-floating" />
                   </div>
                 ) : (
@@ -7887,9 +7982,9 @@ function _Chat() {
                                     key={message.streaming ? "loading" : "done"}
                                     content={messageTextContent}
                                     loading={
-                                      (message.preview || message.streaming) &&
-                                      messageTextContent.length === 0 &&
-                                      !isUser
+                                      ((message as any).preview ||
+                                        message.streaming) &&
+                                      !messageTextContent
                                     }
                                     onDoubleClickCapture={() => {
                                       if (!isMobileScreen || !isUser) return;

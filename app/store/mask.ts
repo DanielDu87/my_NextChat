@@ -1,4 +1,3 @@
-import { BUILTIN_MASKS } from "../masks";
 import { getLang, Lang } from "../locales";
 import type { ChatMessage } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
@@ -371,7 +370,7 @@ export const useMaskStore = createPersistStore(
     },
     getAll() {
       const config = useAppConfig.getState();
-      const userMasks = Object.values(get().masks)
+      return Object.values(get().masks)
         .map(
           (mask) =>
             ({
@@ -381,16 +380,6 @@ export const useMaskStore = createPersistStore(
             }) as Mask,
         )
         .sort((a, b) => b.createdAt - a.createdAt);
-      if (config.hideBuiltinMasks) return userMasks;
-      const buildinMasks = BUILTIN_MASKS.map(
-        (m) =>
-          ({
-            ...m,
-            syncGlobalConfig: true,
-            modelConfig: { ...config.modelConfig },
-          }) as Mask,
-      );
-      return userMasks.concat(buildinMasks);
     },
     search(_text: string) {
       return Object.values(get().masks);

@@ -35,6 +35,9 @@ const CANONICAL_CUSTOM_PROFILE_BY_BASE_URL: Record<
     name: "ToAPIs",
   },
 };
+const LEGACY_GENERATED_CUSTOM_NAME_RE =
+  /^custom\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?$/i;
+const PLACEHOLDER_BASE_URL_RE = /^xxx(?:-\d+)?$/i;
 
 function normalizeBaseUrl(baseUrl: unknown) {
   return String(baseUrl || "")
@@ -45,6 +48,56 @@ function normalizeBaseUrl(baseUrl: unknown) {
 
 function isGeneratedProfileId(profile: GenericAccessProfile) {
   return String(profile?.id || "").startsWith(GENERATED_PROFILE_ID_PREFIX);
+}
+
+function isLegacyGeneratedCustomName(name: unknown) {
+  return LEGACY_GENERATED_CUSTOM_NAME_RE.test(String(name || "").trim());
+}
+
+function isPlaceholderBaseUrl(baseUrl: unknown) {
+  const value = String(baseUrl || "").trim();
+  return !value || PLACEHOLDER_BASE_URL_RE.test(value);
+}
+
+function isGeneratedCustomDraftProfile(profile: GenericAccessProfile) {
+  const provider = String(profile?.provider || "")
+    .trim()
+    .toLowerCase();
+
+  if (provider !== "custom" || !isGeneratedProfileId(profile)) {
+    return false;
+  }
+
+  const name = String(profile?.name || "").trim();
+  const isDraftName =
+    name === "默认新增配置" || isLegacyGeneratedCustomName(name);
+
+  return isDraftName && isPlaceholderBaseUrl(profile?.baseUrl);
+}
+
+export function isLegacyGeneratedCustomProviderId(providerId: unknown) {
+  const value = String(providerId || "")
+    .trim()
+    .toLowerCase();
+  return /^custom_custom\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?$/.test(value);
+}
+
+export function pruneLegacyGeneratedCustomModels(customModels: unknown) {
+  return String(customModels || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const modelWithProvider = item.replace(/^[+-]/, "");
+      const atIdx = modelWithProvider.lastIndexOf("@");
+      if (atIdx <= 0) {
+        return true;
+      }
+      return !isLegacyGeneratedCustomProviderId(
+        modelWithProvider.substring(atIdx + 1),
+      );
+    })
+    .join(",");
 }
 
 function profileRank(profile: GenericAccessProfile) {
@@ -134,6 +187,7 @@ export function dedupeAccessProfiles<T extends GenericAccessProfile>(
 
   for (const profile of profiles) {
     if (!profile || typeof profile !== "object") continue;
+    if (isGeneratedCustomDraftProfile(profile)) continue;
 
     const normalizedProfile = normalizeAccessProfileIdentity(profile);
     const key = getAccessProfileDedupeKey(normalizedProfile);

@@ -132,6 +132,12 @@
   gap: 14px;
   justify-content: flex-start;
   align-items: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active {
+    opacity: 0.72;
+  }
 }
 
 .sidebar-header-link {

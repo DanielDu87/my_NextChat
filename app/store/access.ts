@@ -25,6 +25,7 @@ import { ensure } from "../utils/clone";
 import { DEFAULT_CONFIG } from "./config";
 import { getModelProvider } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
+import { dedupeAccessProfiles } from "../utils/access-profiles";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
@@ -112,7 +113,7 @@ function createBootstrapCustomProfiles() {
 function ensureBootstrapCustomProfiles(state: Record<string, any>) {
   const profiles = Array.isArray(state.apiProfiles) ? state.apiProfiles : [];
   if (profiles.length > 0) {
-    state.apiProfiles = profiles;
+    state.apiProfiles = dedupeAccessProfiles(profiles);
     return state;
   }
 
@@ -121,7 +122,9 @@ function ensureBootstrapCustomProfiles(state: Record<string, any>) {
 }
 
 function pruneLegacyInjectedProfiles(state: Record<string, any>) {
-  const profiles = Array.isArray(state.apiProfiles) ? state.apiProfiles : [];
+  const profiles = dedupeAccessProfiles(
+    Array.isArray(state.apiProfiles) ? state.apiProfiles : [],
+  );
   if (profiles.length === 0) {
     state.apiProfiles = profiles;
     return state;

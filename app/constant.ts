@@ -76,7 +76,6 @@ export enum Path {
   Settings = "/settings",
   ApiConfig = "/api-config",
   NewChat = "/new-chat",
-  Masks = "/masks",
   Plugins = "/plugins",
   Auth = "/auth",
   Sd = "/sd",
@@ -114,7 +113,6 @@ export enum SlotID {
 }
 
 export enum FileName {
-  Masks = "masks.json",
   Prompts = "prompts.json",
 }
 

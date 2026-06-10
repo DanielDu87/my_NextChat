@@ -66,48 +66,7 @@ type RuntimeCollectedModel = {
   capabilities?: LLMModel["capabilities"];
   categories?: LLMModel["categories"];
   isDefault?: boolean;
-  __normalizedSortName?: string;
-  __primaryVersion?: number[];
-  __catalogRank?: number;
 };
-
-function normalizeModelSortAlias(text: string) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/\bgpt-40\b/g, "gpt-4o")
-    .replace(/\bgpt-40(?=[-_.])/g, "gpt-4o")
-    .replace(/\bchatgpt-40\b/g, "chatgpt-4o")
-    .replace(/\bchatgpt-40(?=[-_.])/g, "chatgpt-4o");
-}
-
-function getModelVersionParts(text: string) {
-  const versionMatches = Array.from(
-    normalizeModelSortAlias(text).matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
-  ).map((match) => match[0]);
-  const versions = versionMatches.map((value) =>
-    value.split(".").map((part) => Number(part)),
-  );
-  if (versions.length === 0) {
-    return [];
-  }
-
-  const semanticVersions = versions.filter((parts) => parts.length > 1);
-  const candidates = semanticVersions.length > 0 ? semanticVersions : versions;
-
-  return candidates.reduce((best, current) => {
-    const maxParts = Math.max(best.length, current.length);
-    for (let index = 0; index < maxParts; index += 1) {
-      const diff = (current[index] ?? -1) - (best[index] ?? -1);
-      if (diff > 0) {
-        return current;
-      }
-      if (diff < 0) {
-        return best;
-      }
-    }
-    return best;
-  }, candidates[0]);
-}
 
 function compareVersionPartsDesc(left: number[] = [], right: number[] = []) {
   const maxLength = Math.max(left.length, right.length);
@@ -119,60 +78,6 @@ function compareVersionPartsDesc(left: number[] = [], right: number[] = []) {
   }
   return 0;
 }
-
-function applyRuntimeModelSortFields<T extends RuntimeCollectedModel>(
-  model: T,
-) {
-  model.__normalizedSortName = normalizeModelSortAlias(model.name || "");
-  model.__primaryVersion = getModelVersionParts(model.name || "");
-  model.__catalogRank = Number(model.catalogRank ?? Number.MAX_SAFE_INTEGER);
-  return model;
-}
-
-/**
- * Sorts an array of models based on specified rules.
- *
- * First, sorted by provider; if the same, sorted by model
- */
-const sortModelTable = <T extends RuntimeCollectedModel>(models: T[]) =>
-  models.sort((a, b) => {
-    const leftCatalogRank = a.__catalogRank ?? Number.MAX_SAFE_INTEGER;
-    const rightCatalogRank = b.__catalogRank ?? Number.MAX_SAFE_INTEGER;
-    const leftHasCatalogRank = leftCatalogRank !== Number.MAX_SAFE_INTEGER;
-    const rightHasCatalogRank = rightCatalogRank !== Number.MAX_SAFE_INTEGER;
-    const catalogRankDiff = leftCatalogRank - rightCatalogRank;
-    if (catalogRankDiff !== 0) {
-      return catalogRankDiff;
-    }
-
-    const orderDiff =
-      Number(a.sorted ?? Number.MAX_SAFE_INTEGER) -
-      Number(b.sorted ?? Number.MAX_SAFE_INTEGER);
-    if (!leftHasCatalogRank && !rightHasCatalogRank && orderDiff !== 0) {
-      return orderDiff;
-    }
-
-    const versionDiff = compareVersionPartsDesc(
-      a.__primaryVersion,
-      b.__primaryVersion,
-    );
-    if (versionDiff !== 0) {
-      return versionDiff;
-    }
-
-    if (orderDiff !== 0) {
-      return orderDiff;
-    }
-
-    return String(a.__normalizedSortName || a.name || "").localeCompare(
-      String(b.__normalizedSortName || b.name || ""),
-      undefined,
-      {
-        numeric: true,
-        sensitivity: "base",
-      },
-    );
-  });
 
 /**
  * get model name and provider from a formatted string,
@@ -212,10 +117,10 @@ export function collectModelTable(
   models.forEach((m) => {
     // using <modelName>@<providerId> as fullName
     const fullName = `${m.name}@${m?.provider?.id}`;
-    modelTable[fullName] = applyRuntimeModelSortFields({
+    modelTable[fullName] = {
       ...m,
       displayName: m.name, // 'provider' is copied over if it exists
-    });
+    };
     registerModelTableEntry(fullName);
   });
 
@@ -263,7 +168,6 @@ export function collectModelTable(
           if (providerName === "bytedance" && displayName) {
             [name, displayName] = [displayName, modelName];
             targetModel.name = name;
-            applyRuntimeModelSortFields(targetModel);
           }
           if (displayName) {
             targetModel.displayName = displayName;
@@ -289,7 +193,7 @@ export function collectModelTable(
             [customModelName, displayName] = [displayName, customModelName];
           }
           const fullName = `${customModelName}@${provider?.id}`;
-          modelTable[fullName] = applyRuntimeModelSortFields({
+          modelTable[fullName] = {
             ...templateModel,
             name: customModelName,
             displayName:
@@ -300,7 +204,7 @@ export function collectModelTable(
               templateModel?.sorted ??
               CustomSeq.next(`${customModelName}@${provider?.id}`),
             isDefault: undefined,
-          });
+          };
           registerModelTableEntry(fullName);
         }
       }
@@ -343,11 +247,7 @@ export function collectModels(
   customModels: string,
 ) {
   const modelTable = collectModelTable(models, customModels);
-  let allModels = Object.values(modelTable);
-
-  allModels = sortModelTable(allModels);
-
-  return allModels;
+  return Object.values(modelTable);
 }
 
 export function collectModelsWithDefaultModel(
@@ -360,11 +260,7 @@ export function collectModelsWithDefaultModel(
     customModels,
     defaultModel,
   );
-  let allModels = Object.values(modelTable);
-
-  allModels = sortModelTable(allModels);
-
-  return allModels;
+  return Object.values(modelTable);
 }
 
 type ProviderScopedModelConfig = {

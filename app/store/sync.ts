@@ -467,15 +467,12 @@ function countNonEmptyGroupKeys(groups: unknown) {
   ).length;
 }
 
-function logAccessProfileSyncDetails(state: any, stepLabel: string) {
+function logAccessProfileSyncSummary(state: any) {
   const profiles = Array.isArray(state?.apiProfiles) ? state.apiProfiles : [];
 
-  syncConsole(
-    "log",
-    `[Sync] 📋 [${stepLabel}] API配置明细：共 ${profiles.length} 个配置`,
-  );
+  console.log(`[Sync] ✅ 已同步API配置: ${profiles.length} 个`);
 
-  profiles.forEach((profile: any, index: number) => {
+  profiles.forEach((profile: any) => {
     const multiKeyEnabled = Boolean(profile?.multiKeyEnabled);
     const normalKeyCount = countNonEmptyString(profile?.apiKey);
     const groupKeyCount = multiKeyEnabled
@@ -484,16 +481,11 @@ function logAccessProfileSyncDetails(state: any, stepLabel: string) {
     const requestKeyCount = multiKeyEnabled
       ? groupKeyCount + normalKeyCount
       : normalKeyCount;
-    const profileName = String(
-      profile?.name || profile?.id || `配置${index + 1}`,
-    );
+    const profileName = String(profile?.name || profile?.id || "未命名配置");
 
-    syncConsole(
-      "log",
-      `[Sync]   ${
-        index + 1
-      }. ${profileName} | key数量：${requestKeyCount} | 是否多key：${
-        multiKeyEnabled ? "是" : "否"
+    console.log(
+      `[Sync]   ${profileName}: ${requestKeyCount}个key${
+        multiKeyEnabled ? "（多key）" : ""
       }`,
     );
   });
@@ -3391,9 +3383,6 @@ export const useSyncStore = createPersistStore(
                     );
                   }
                   const localStoreState = localAppStateCache[key];
-                  if (key === StoreKey.Access) {
-                    logAccessProfileSyncDetails(localStoreState, stepLabel);
-                  }
 
                   if (
                     !options?.force &&
@@ -3549,6 +3538,8 @@ export const useSyncStore = createPersistStore(
                         "log",
                         `[Sync] ✅ [${stepLabel}] 设置同步完成`,
                       );
+                    } else if (key === StoreKey.Access) {
+                      logAccessProfileSyncSummary(localAppStateCache[key]);
                     } else {
                       syncConsole(
                         "log",
@@ -3566,6 +3557,8 @@ export const useSyncStore = createPersistStore(
                         "log",
                         `[Sync] ✅ [${stepLabel}] 设置同步完成`,
                       );
+                    } else if (key === StoreKey.Access) {
+                      logAccessProfileSyncSummary(localAppStateCache[key]);
                     } else {
                       syncConsole(
                         "log",

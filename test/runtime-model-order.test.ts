@@ -1,7 +1,7 @@
 import { collectModels } from "../app/utils/model";
 
 describe("runtime model order", () => {
-  test("未命中 AihubMix 的模型不应因日期更大而排到已命中模型前面", () => {
+  test("运行期模型保持添加顺序，不再按日期或排名自动重排", () => {
     const models = [
       {
         name: "gpt-4o-realtime-preview-2025-06-03",
@@ -39,11 +39,11 @@ describe("runtime model order", () => {
       },
     ] as any;
 
-    const sorted = collectModels(models, "");
+    const collected = collectModels(models, "");
 
-    expect(sorted.map((item) => item.name)).toEqual([
-      "gpt-5.4",
+    expect(collected.map((item) => item.name)).toEqual([
       "gpt-4o-realtime-preview-2025-06-03",
+      "gpt-5.4",
       "gpt-audio-mini-2025-12-15",
     ]);
   });

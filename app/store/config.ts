@@ -19,6 +19,10 @@ import { safeLocalStorage } from "../utils/safe-local-storage";
 import { normalizePublishedAt } from "../utils/model-published-at";
 import { hydrateModelsWithAiHubMixMetadata } from "../utils/aihubmix-model-metadata";
 import { recordModelSyncDiff } from "../utils/model-sync-diff";
+import {
+  isLegacyGeneratedCustomProviderId,
+  pruneLegacyGeneratedCustomModels,
+} from "../utils/access-profiles";
 import type { Voice } from "rt-client";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
@@ -235,9 +239,6 @@ export const DEFAULT_CONFIG = {
 
   disablePromptHint: false,
 
-  dontShowMaskSplashScreen: true, // dont show splash screen when create chat
-  hideBuiltinMasks: true, // dont add builtin masks
-
   customModels: "",
   models: [] as LLMModel[],
   autoModelSeries: [] as AutoModelSeriesKey[],
@@ -339,6 +340,21 @@ export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
     structuredOutput: true,
     jsonSchema: "",
   };
+}
+
+function sanitizeLegacyGeneratedCustomModelConfig<
+  T extends Partial<ModelConfig>,
+>(modelConfig: T): T {
+  if (!isLegacyGeneratedCustomProviderId((modelConfig as any)?.providerId)) {
+    return modelConfig;
+  }
+
+  return {
+    ...modelConfig,
+    model: AIHUBMIX_MANDATORY_MODEL,
+    providerName: ServiceProvider.Custom,
+    providerId: "custom_aihubmix",
+  } as T;
 }
 
 export function limitNumber(
@@ -630,10 +646,13 @@ export const useAppConfig = createPersistStore(
       return {
         ...currentState,
         ...state,
-        modelConfig: applyOpenAIStandardModelConfig({
-          ...currentState.modelConfig,
-          ...state.modelConfig,
-        }),
+        customModels: pruneLegacyGeneratedCustomModels(state.customModels),
+        modelConfig: sanitizeLegacyGeneratedCustomModelConfig(
+          applyOpenAIStandardModelConfig({
+            ...currentState.modelConfig,
+            ...state.modelConfig,
+          }),
+        ),
         models: hydrateModelsForStore(models),
         theme: state.theme ?? readThemeFromLocalStorage(),
         tightBorder: hasStoredTightBorderPreference()
@@ -653,8 +672,6 @@ export const useAppConfig = createPersistStore(
         state.modelConfig.frequency_penalty = 0;
         state.modelConfig.top_p = 1;
         state.modelConfig.template = DEFAULT_INPUT_TEMPLATE;
-        state.dontShowMaskSplashScreen = false;
-        state.hideBuiltinMasks = false;
       }
 
       if (version < 3.5) {
@@ -720,6 +737,11 @@ export const useAppConfig = createPersistStore(
       if (version < 4.6) {
         state.modelConfig = applyOpenAIStandardModelConfig(state.modelConfig);
       }
+
+      state.modelConfig = sanitizeLegacyGeneratedCustomModelConfig(
+        state.modelConfig,
+      );
+      state.customModels = pruneLegacyGeneratedCustomModels(state.customModels);
 
       return state as any;
     },

@@ -24,7 +24,11 @@ import {
   sortSessionsByCreatedAt,
 } from "./chat-session-merge";
 import { runWithImmediateStoreSyncPausedSync } from "./store";
-import { dedupeAccessProfiles } from "./access-profiles";
+import {
+  dedupeAccessProfiles,
+  isLegacyGeneratedCustomProviderId,
+  pruneLegacyGeneratedCustomModels,
+} from "./access-profiles";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 function isSyncDebugLoggingEnabled() {
@@ -648,8 +652,12 @@ const MergeStates: StateMerger = {
     // 字段级时间戳：各字段独立判定谁更新
     const localCustomModelsAt = Number(local.customModelsUpdatedAt) || 0;
     const remoteCustomModelsAt = Number(remote.customModelsUpdatedAt) || 0;
-    const localCustomModelsStr = String(local.customModels ?? "");
-    const remoteCustomModelsStr = String(remote.customModels ?? "");
+    const localCustomModelsStr = pruneLegacyGeneratedCustomModels(
+      local.customModels,
+    );
+    const remoteCustomModelsStr = pruneLegacyGeneratedCustomModels(
+      remote.customModels,
+    );
 
     const localAutoSeriesAt = Number(local.autoModelSeriesUpdatedAt) || 0;
     const remoteAutoSeriesAt = Number(remote.autoModelSeriesUpdatedAt) || 0;
@@ -755,6 +763,19 @@ const MergeStates: StateMerger = {
       modelSelectionUpdatedAt: Math.max(localModelSelAt, remoteModelSelAt),
       lastUpdateTime: markMergedUpdateTime(localUpdate, remoteUpdate),
     };
+
+    if (
+      isLegacyGeneratedCustomProviderId(
+        (mergedState.modelConfig as any)?.providerId,
+      )
+    ) {
+      mergedState.modelConfig = {
+        ...mergedState.modelConfig,
+        model: "gpt-chat-latest",
+        providerName: ServiceProvider.Custom,
+        providerId: "custom_aihubmix",
+      };
+    }
 
     Object.assign(localState, mergedState);
     return localState;

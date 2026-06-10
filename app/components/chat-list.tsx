@@ -44,6 +44,7 @@ const SNIPPET_CONTEXT_LENGTH = 18;
 const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
 export const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
   "nextchat:open-chat-list-multi-delete";
+export const CHAT_LIST_SCROLL_TO_TOP_EVENT = "nextchat:chat-list-scroll-top";
 
 type FilterMatchMeta = {
   preview?: string;
@@ -223,6 +224,16 @@ export function ChatList() {
     }, 2500);
 
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const scrollToTop = () => {
+      listRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    window.addEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
+    return () =>
+      window.removeEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
   }, []);
 
   useEffect(() => {

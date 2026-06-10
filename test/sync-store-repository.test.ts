@@ -228,7 +228,15 @@ describe("sync store repository helpers", () => {
       index: {
         version: 1,
         state: { currentSessionId: "s1", sessionIds: ["s1"] },
-        sessions: [{ id: "s1", topic: "Keep" }],
+        sessions: [
+          {
+            id: "s1",
+            topic: "Keep",
+            createdAt: 1,
+            lastUpdate: 1,
+            messageCount: 1,
+          },
+        ],
       },
       upsertSessions: [],
       deleteSessionIds: [],
