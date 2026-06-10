@@ -121,7 +121,7 @@ export function normalizeAccessProfileIdentity<T extends GenericAccessProfile>(
   const canonical =
     CANONICAL_CUSTOM_PROFILE_BY_BASE_URL[normalizeBaseUrl(profile?.baseUrl)];
 
-  if (provider !== "custom" || !canonical) {
+  if (provider !== "custom" || !canonical || isGeneratedProfileId(profile)) {
     return profile;
   }
 
@@ -187,8 +187,6 @@ export function dedupeAccessProfiles<T extends GenericAccessProfile>(
 
   for (const profile of profiles) {
     if (!profile || typeof profile !== "object") continue;
-    if (isGeneratedCustomDraftProfile(profile)) continue;
-
     const normalizedProfile = normalizeAccessProfileIdentity(profile);
     const key = getAccessProfileDedupeKey(normalizedProfile);
     const existing = byKey.get(key);

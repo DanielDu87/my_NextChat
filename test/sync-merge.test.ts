@@ -4,6 +4,7 @@ import {
   getSyncableChatSessions,
 } from "../app/utils/chat-sync";
 import { mergeSessionMessages } from "../app/utils/chat-session-merge";
+import { StoreKey } from "../app/constant";
 
 function createStore(state: Record<string, unknown> = {}) {
   return {
@@ -129,5 +130,159 @@ describe("sync merge safety", () => {
     );
 
     expect(mergedMessages).toBe(sharedMessages);
+  });
+
+  test("mergeStoreState should keep newer local multi api key edits", async () => {
+    const { TextDecoder, TextEncoder } = await import("node:util");
+    (globalThis as any).TextDecoder ??= TextDecoder;
+    (globalThis as any).TextEncoder ??= TextEncoder;
+    jest.unstable_mockModule("../app/store", () => ({
+      useAccessStore: createStore(),
+      useAppConfig: createStore(),
+      useChatStore: createStore(),
+      useModelCacheStore: createStore(),
+      usePluginStore: createStore(),
+      useUpdateStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/mask", () => ({
+      useMaskStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/prompt", () => ({
+      usePromptStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/sd", () => ({
+      useSdStore: createStore(),
+    }));
+    const { mergeStoreState } = await import("../app/utils/sync");
+    const localState = {
+      lastUpdateTime: 200,
+      apiProfiles: [
+        {
+          id: "p1",
+          name: "YutoAPI",
+          provider: "Custom",
+          baseUrl: "https://example.com/v1",
+          multiKeyEnabled: true,
+          apiKeyGroups: {
+            group1: "sk-new",
+            group2: "",
+          },
+        },
+      ],
+    };
+    const remoteState = {
+      lastUpdateTime: 100,
+      apiProfiles: [
+        {
+          id: "p1",
+          name: "YutoAPI",
+          provider: "Custom",
+          baseUrl: "https://example.com/v1",
+          multiKeyEnabled: true,
+          apiKeyGroups: {
+            group1: "sk-old",
+            group2: "sk-removed",
+            group3: "sk-remote-only",
+          },
+        },
+      ],
+    };
+
+    const merged = mergeStoreState(
+      StoreKey.Access,
+      localState as any,
+      remoteState as any,
+    ) as any;
+
+    const mergedProfile = merged.apiProfiles.find(
+      (profile: any) => profile.id === "p1",
+    );
+
+    expect(mergedProfile.apiKeyGroups).toEqual({
+      group1: "sk-new",
+      group2: "",
+      group3: "sk-remote-only",
+    });
+  });
+
+  test("mergeStoreState should keep newly added local api profile before remote sync finishes", async () => {
+    const { TextDecoder, TextEncoder } = await import("node:util");
+    (globalThis as any).TextDecoder ??= TextDecoder;
+    (globalThis as any).TextEncoder ??= TextEncoder;
+    const { mergeStoreState } = await import("../app/utils/sync");
+    const localState = {
+      lastUpdateTime: 300,
+      apiProfiles: [
+        {
+          id: "profile_new",
+          name: "新配置",
+          provider: "Custom",
+          baseUrl: "https://new.example.com/v1",
+          apiKey: "sk-new",
+          enabled: false,
+        },
+      ],
+    };
+    const remoteState = {
+      lastUpdateTime: 100,
+      apiProfiles: [],
+    };
+
+    const merged = mergeStoreState(
+      StoreKey.Access,
+      localState as any,
+      remoteState as any,
+    ) as any;
+
+    expect(
+      merged.apiProfiles.some((profile: any) => profile.id === "profile_new"),
+    ).toBe(true);
+  });
+
+  test("mergeStoreState should keep newer local single api key edits", async () => {
+    const { TextDecoder, TextEncoder } = await import("node:util");
+    (globalThis as any).TextDecoder ??= TextDecoder;
+    (globalThis as any).TextEncoder ??= TextEncoder;
+    const { mergeStoreState } = await import("../app/utils/sync");
+    const localState = {
+      lastUpdateTime: 300,
+      customApiKey: "sk-local-new",
+      apiProfiles: [
+        {
+          id: "p1",
+          name: "普通配置",
+          provider: "Custom",
+          baseUrl: "https://single.example.com/v1",
+          apiKey: "sk-local-new",
+          enabled: true,
+        },
+      ],
+    };
+    const remoteState = {
+      lastUpdateTime: 100,
+      customApiKey: "sk-remote-old",
+      apiProfiles: [
+        {
+          id: "p1",
+          name: "普通配置",
+          provider: "Custom",
+          baseUrl: "https://single.example.com/v1",
+          apiKey: "sk-remote-old",
+          enabled: true,
+        },
+      ],
+    };
+
+    const merged = mergeStoreState(
+      StoreKey.Access,
+      localState as any,
+      remoteState as any,
+    ) as any;
+    const mergedProfile = merged.apiProfiles.find(
+      (profile: any) => profile.id === "p1",
+    );
+
+    expect(merged.customApiKey).toBe("sk-local-new");
+    expect(mergedProfile.apiKey).toBe("sk-local-new");
   });
 });

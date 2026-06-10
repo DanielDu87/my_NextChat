@@ -1,8 +1,9 @@
 import { StateStorage } from "zustand/middleware";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
-import { resolveHydratedStateValue } from "./state-storage-helpers";
+import { resolveNewestHydratedStateValue } from "./state-storage-helpers";
 import { withSyncUserHeaders } from "./sync-user-client";
 import { logger } from "./logger";
+import { StoreKey } from "../constant";
 
 const DB_NAME = "nextchat-local-cache";
 const STORE_NAME = "state-cache";
@@ -22,6 +23,14 @@ function getLocalStorageValue(key: string) {
 
 function removeLocalStorageValue(key: string) {
   localStorage?.removeItem(key);
+}
+
+function setLocalStorageValue(key: string, value: string) {
+  try {
+    localStorage?.setItem(key, value);
+  } catch (error) {
+    logger.indexedDB.warn(`写入 ${key} 本地镜像失败`, error);
+  }
 }
 
 function isBrowser() {
@@ -113,6 +122,7 @@ class IndexedDbStateStorage implements StateStorage {
   private hydrated = new Set<string>();
   private hydrating = new Set<string>();
   private pendingWrites = new Map<string, string>();
+  private writeChains = new Map<string, Promise<void>>();
 
   private isAvailable() {
     return isBrowser();
@@ -240,11 +250,13 @@ class IndexedDbStateStorage implements StateStorage {
     try {
       this.hydrating.add(name);
       const pendingValue = this.pendingWrites.get(name);
+      const localStorageValue = getLocalStorageValue(name);
 
       const localValue = await this.getFromIndexedDb(name);
       if (localValue) {
-        const resolvedValue = resolveHydratedStateValue(
+        const resolvedValue = resolveNewestHydratedStateValue(
           pendingValue,
+          localStorageValue,
           localValue,
         );
         if (resolvedValue === null) {
@@ -252,6 +264,8 @@ class IndexedDbStateStorage implements StateStorage {
         }
         if (pendingValue) {
           await this.flushPendingWrite(name);
+        } else if (resolvedValue === localStorageValue && localStorageValue) {
+          await this.setToIndexedDb(name, localStorageValue);
         }
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
@@ -260,8 +274,9 @@ class IndexedDbStateStorage implements StateStorage {
 
       const migratedValue = await this.migrateLegacyValue(name);
       if (migratedValue) {
-        const resolvedValue = resolveHydratedStateValue(
+        const resolvedValue = resolveNewestHydratedStateValue(
           pendingValue,
+          localStorageValue,
           migratedValue,
         );
         if (resolvedValue === null) {
@@ -289,17 +304,36 @@ class IndexedDbStateStorage implements StateStorage {
   public async setItem(name: string, value: string): Promise<void> {
     if (!this.isAvailable() || !isPersistStoreKey(name)) return;
 
+    this.pendingWrites.set(name, value);
+    this.cache.set(name, value);
+    if (name === StoreKey.Access) {
+      setLocalStorageValue(name, value);
+    }
+
     if (!this.hydrated.has(name) || this.hydrating.has(name)) {
-      this.pendingWrites.set(name, value);
-      this.cache.set(name, value);
-      removeLocalStorageValue(name);
       return;
     }
 
-    await this.setToIndexedDb(name, value);
-    this.cache.set(name, value);
-    this.pendingWrites.delete(name);
-    removeLocalStorageValue(name);
+    const previousWrite = this.writeChains.get(name) ?? Promise.resolve();
+    const writeChain = previousWrite
+      .catch(() => undefined)
+      .then(async () => {
+        const latestValue = this.pendingWrites.get(name);
+        if (latestValue === undefined) return;
+
+        await this.setToIndexedDb(name, latestValue);
+        if (this.pendingWrites.get(name) === latestValue) {
+          this.pendingWrites.delete(name);
+        }
+      })
+      .finally(() => {
+        if (this.writeChains.get(name) === writeChain) {
+          this.writeChains.delete(name);
+        }
+      });
+
+    this.writeChains.set(name, writeChain);
+    await writeChain;
   }
 
   public async removeItem(name: string): Promise<void> {

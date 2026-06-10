@@ -85,13 +85,17 @@ function isAihubMixProfile(profile: { name: string; baseUrl: string }) {
 
 function isVisibleApiConfigProfile(profile: {
   id?: string;
+  provider?: ServiceProvider;
   name: string;
   baseUrl: string;
 }) {
   return (
     String(profile.id || "").startsWith("profile_") ||
+    String(profile.id || "").startsWith("default_") ||
     profile.name === "默认新增配置" ||
     isYutoProfile(profile) ||
+    isOcoolProfile(profile) ||
+    profile.provider === ServiceProvider.Custom ||
     isAihubMixProfile(profile)
   );
 }

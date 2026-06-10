@@ -11,7 +11,7 @@ import {
 import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
-import { merge } from "lodash-es";
+import merge from "lodash-es/merge";
 import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
@@ -234,10 +234,39 @@ function preserveLocalSecret<T extends Record<string, any>>(
   localState: T | undefined,
   remoteState: T | undefined,
   key: (typeof ACCESS_SECRET_FIELD_KEYS)[number],
+  preferRemote: boolean,
 ) {
   const localValue = String(localState?.[key] || "").trim();
   const remoteValue = String(remoteState?.[key] || "").trim();
-  return remoteValue || localValue || "";
+  if (preferRemote) {
+    return remoteValue || localValue || "";
+  }
+
+  return Object.prototype.hasOwnProperty.call(localState || {}, key)
+    ? localValue
+    : remoteValue || "";
+}
+
+function mergeApiKeyGroups(
+  localGroups: Record<string, string>,
+  remoteGroups: Record<string, string>,
+  preferRemote: boolean,
+) {
+  const primaryGroups = preferRemote ? remoteGroups : localGroups;
+  const fallbackGroups = preferRemote ? localGroups : remoteGroups;
+  const mergedGroupKeys = new Set([
+    ...Object.keys(primaryGroups),
+    ...Object.keys(fallbackGroups),
+  ]);
+
+  return Object.fromEntries(
+    [...mergedGroupKeys].map((groupKey) => [
+      groupKey,
+      Object.prototype.hasOwnProperty.call(primaryGroups, groupKey)
+        ? String(primaryGroups[groupKey] || "").trim()
+        : String(fallbackGroups[groupKey] || "").trim(),
+    ]),
+  );
 }
 
 function isDefaultBootstrapProfile(profile: Record<string, any>) {
@@ -842,6 +871,7 @@ const MergeStates: StateMerger = {
               localProfile as Record<string, any>,
               remoteProfile as Record<string, any>,
               key,
+              remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
             );
           },
         );
@@ -856,17 +886,10 @@ const MergeStates: StateMerger = {
           typeof remoteProfile.apiKeyGroups === "object"
             ? (remoteProfile.apiKeyGroups as Record<string, string>)
             : {};
-        const mergedGroupKeys = new Set([
-          ...Object.keys(localGroups),
-          ...Object.keys(remoteGroups),
-        ]);
-        mergedProfile.apiKeyGroups = Object.fromEntries(
-          [...mergedGroupKeys].map((groupKey) => [
-            groupKey,
-            String(
-              remoteGroups[groupKey] || localGroups[groupKey] || "",
-            ).trim(),
-          ]),
+        mergedProfile.apiKeyGroups = mergeApiKeyGroups(
+          localGroups,
+          remoteGroups,
+          remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
         );
 
         mergedProfiles.push(stripProfileModelCacheFields(mergedProfile) as any);
@@ -925,6 +948,7 @@ const MergeStates: StateMerger = {
         localState as Record<string, any>,
         remoteState as Record<string, any>,
         key,
+        remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
       );
     });
 
