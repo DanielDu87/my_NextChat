@@ -114,7 +114,7 @@ function rememberApiKeyGroupIfNeeded(
   options: any,
   finalText: string,
 ) {
-  if (!supportsApiKeyGrouping(chatPath) || !finalText.trim()) {
+  if (fallbackApiKeyGroups.length === 0 || !finalText.trim()) {
     return;
   }
 
@@ -138,7 +138,7 @@ function logApiKeyGroupStart(
   headers: any,
   options: any,
 ) {
-  if (!supportsApiKeyGrouping(chatPath) || fallbackApiKeyGroups.length === 0) {
+  if (fallbackApiKeyGroups.length === 0) {
     return;
   }
 
@@ -151,7 +151,7 @@ function logApiKeyGroupStart(
     rememberedGroup === currentGroup;
 
   if (isRememberedGroup) {
-    logChatDebug(`[Chat] ${providerName} 命中已记忆分组`, {
+    console.log(`[MultiKey] ${providerName} 命中已记忆分组`, {
       currentGroup,
       attempt: currentKeyIndex + 1,
       totalGroups: fallbackApiKeyGroups.length,
@@ -159,7 +159,7 @@ function logApiKeyGroupStart(
     return;
   }
 
-  logChatDebug(`[Chat] ${providerName} 开始使用分组`, {
+  console.log(`[MultiKey] ${providerName} 开始使用分组`, {
     currentGroup,
     attempt: currentKeyIndex + 1,
     totalGroups: fallbackApiKeyGroups.length,
@@ -418,13 +418,12 @@ export function stream(
 
     // 检查是否支持 API Key 分组重试
     if (
-      !supportsApiKeyGrouping(chatPath) ||
       fallbackApiKeys.length === 0 ||
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       // 所有分组都失败，或者不支持重试
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat Retry] ${providerName} ❌ 所有分组重试失败`, {
+      console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
         currentGroup,
         reason: reason.substring(0, 100),
         totalGroups: fallbackApiKeys.length,
@@ -438,7 +437,7 @@ export function stream(
     );
 
     console.log(
-      `[Chat Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
+      `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
       }): ${currentGroup} → ${nextGroup}`,
     );
@@ -620,7 +619,7 @@ export function stream(
             return; // 不调用 finish，继续重试
           }
 
-          if (supportsApiKeyGrouping(chatPath)) {
+          if (fallbackApiKeyGroups.length > 0) {
             const currentGroup = getYutoGroupName(
               fallbackApiKeyGroups,
               currentKeyIndex,
@@ -802,13 +801,12 @@ export function streamWithThink(
 
     // 检查是否支持 API Key 分组重试
     if (
-      !supportsApiKeyGrouping(chatPath) ||
       fallbackApiKeys.length === 0 ||
       currentKeyIndex >= fallbackApiKeys.length - 1
     ) {
       // 所有分组都失败，或者不支持重试
       lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[Chat Retry] ${providerName} ❌ 所有分组重试失败`, {
+      console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
         currentGroup,
         reason: reason.substring(0, 100),
         totalGroups: fallbackApiKeys.length,
@@ -822,7 +820,7 @@ export function streamWithThink(
     );
 
     console.log(
-      `[Chat Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
+      `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
         fallbackApiKeys.length
       }): ${currentGroup} → ${nextGroup}`,
     );
@@ -1036,7 +1034,7 @@ export function streamWithThink(
             return; // 不调用 finish，继续重试
           }
 
-          if (supportsApiKeyGrouping(chatPath)) {
+          if (fallbackApiKeyGroups.length > 0) {
             const currentGroup = getYutoGroupName(
               fallbackApiKeyGroups,
               currentKeyIndex,

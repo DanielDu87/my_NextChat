@@ -4,10 +4,29 @@ import {
   pgQuery,
 } from "../app/utils/server/postgres";
 
+async function getModelCatalogCount() {
+  try {
+    const modelCount = await pgQuery<{ count: string }>(
+      "select count(*)::text as count from model_catalog",
+    );
+    return Number(modelCount.rows[0]?.count ?? 0);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "42P01"
+    ) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 async function main() {
-  const [health, modelCount] = await Promise.all([
+  const [health, modelCatalogCount] = await Promise.all([
     pgHealthcheck(),
-    pgQuery<{ count: string }>("select count(*)::text as count from model_catalog"),
+    getModelCatalogCount(),
   ]);
 
   console.log(
@@ -15,7 +34,7 @@ async function main() {
       {
         ok: true,
         postgres: health,
-        modelCatalogCount: Number(modelCount.rows[0]?.count ?? 0),
+        modelCatalogCount,
       },
       null,
       2,

@@ -5,19 +5,36 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+async function getModelCatalogCount() {
+  try {
+    const modelCount = await pgQuery<{ count: string }>(
+      "select count(*)::text as count from model_catalog",
+    );
+    return Number(modelCount.rows[0]?.count ?? 0);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "42P01"
+    ) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 export async function GET() {
   try {
-    const [health, modelCount] = await Promise.all([
+    const [health, modelCatalogCount] = await Promise.all([
       pgHealthcheck(),
-      pgQuery<{ count: string }>(
-        "select count(*)::text as count from model_catalog",
-      ),
+      getModelCatalogCount(),
     ]);
 
     return NextResponse.json({
       ok: true,
       postgres: health,
-      modelCatalogCount: Number(modelCount.rows[0]?.count ?? 0),
+      modelCatalogCount,
     });
   } catch (error) {
     return NextResponse.json(

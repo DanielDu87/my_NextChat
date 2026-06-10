@@ -477,14 +477,11 @@ export async function applyChatDelta(params: {
       ],
     );
 
-    // 清理孤儿会话：不在当前索引里、且消息数为 0 的会话
+    // 清理孤儿会话：不在当前索引里、且消息数为 0 的会话，直接物理删除，避免数据库长期堆积空壳。
     if (activeSessionIds.length > 0) {
       await client.query(
-        `update conversations
-         set is_deleted = true,
-             updated_at = now()
+        `delete from conversations
          where user_id = (select id from app_users where external_id = $1 limit 1)
-           and is_deleted = false
            and external_session_id != all($2::text[])
            and not exists (
              select 1 from messages m where m.conversation_id = conversations.id

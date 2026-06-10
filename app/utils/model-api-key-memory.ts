@@ -1,8 +1,12 @@
 import type { LLMModel } from "@/app/client/api";
 import { ServiceProvider } from "@/app/constant";
-import { useAppConfig } from "@/app/store/config";
 import { useAccessStore } from "@/app/store/access";
-import { runWithImmediateStoreSyncPaused } from "@/app/utils/store";
+import {
+  MULTI_KEY_GROUP_IDS,
+  normalizeMultiKeyGroupOrder,
+  normalizeMultiKeyGroups,
+  shouldAutoEnableMultiKey,
+} from "@/app/utils/multi-key";
 
 const API_KEY_GROUP_MEMORY_STORAGE_KEY = "nextchat:api-key-group-memory";
 
@@ -13,36 +17,10 @@ type CustomProfile = {
   baseUrl: string;
   apiKey: string;
   apiKeyGroups?: Record<string, string>;
+  multiKeyGroupOrder?: string[];
+  multiKeyEnabled?: boolean;
   enabled: boolean;
 };
-
-export function getYutoFallbackGroupOrder(modelName: string) {
-  const lowerModelName = modelName.toLowerCase();
-  if (lowerModelName.startsWith("claude")) {
-    return ["anthropic", "enterprise", "discount", "user", "default"];
-  }
-  return ["enterprise", "discount", "user", "anthropic", "default"];
-}
-
-export function getOcoolFallbackGroupOrder(modelName: string) {
-  const lowerModelName = modelName.toLowerCase();
-
-  if (lowerModelName.startsWith("claude")) {
-    return ["default", "official", "cc", "cn", "open_source_cn"];
-  }
-
-  return ["default", "official", "open_source_cn", "cn", "cc"];
-}
-
-function shouldPreferOcoolDefaultGroup(
-  modelName: string,
-  profile: CustomProfile,
-) {
-  return (
-    isOcoolaiBaseUrl(profile.baseUrl) &&
-    modelName.toLowerCase().startsWith("gpt-image")
-  );
-}
 
 export function isYutoApiBaseUrl(baseUrl?: string) {
   if (!baseUrl) return false;
@@ -71,11 +49,9 @@ export function isOcoolaiBaseUrl(baseUrl?: string) {
 }
 
 export function supportsApiKeyGroupingForProfile(
-  profile?: Pick<CustomProfile, "baseUrl">,
+  profile?: Partial<CustomProfile>,
 ) {
-  return (
-    isYutoApiBaseUrl(profile?.baseUrl) || isOcoolaiBaseUrl(profile?.baseUrl)
-  );
+  return Boolean(profile && shouldAutoEnableMultiKey(profile));
 }
 
 // 保留旧的函数名作为兼容
@@ -137,7 +113,7 @@ function setRememberedApiKeyGroup(params: {
 export function getCustomModelApiKeySelection(
   modelName: string,
   profile: CustomProfile | undefined,
-  models: LLMModel[],
+  _models: LLMModel[],
 ) {
   if (!profile) {
     const accessStore = useAccessStore.getState();
@@ -145,30 +121,21 @@ export function getCustomModelApiKeySelection(
       current: accessStore.customApiKey,
       fallback: [] as string[],
       fallbackGroups: [] as string[],
+      rememberedGroup: "",
     };
   }
 
-  const groupedKeys = profile.apiKeyGroups || {};
-  const matchedModel = models.find(
-    (model) =>
-      model.name === modelName &&
-      model.provider?.id === getProviderIdForProfile(profile),
-  );
+  const multiKeyEnabled = shouldAutoEnableMultiKey(profile);
+  if (!multiKeyEnabled) {
+    return {
+      current: profile.apiKey || "",
+      fallback: [] as string[],
+      fallbackGroups: [] as string[],
+      rememberedGroup: "",
+    };
+  }
 
-  console.log("[API Key Memory] 查找模型记忆", {
-    modelName,
-    providerId: getProviderIdForProfile(profile),
-    matchedModel: matchedModel
-      ? {
-          name: matchedModel.name,
-          apiKeyGroup: matchedModel.apiKeyGroup,
-        }
-      : null,
-  });
-
-  const groupOrder = isOcoolaiBaseUrl(profile.baseUrl)
-    ? getOcoolFallbackGroupOrder(modelName)
-    : getYutoFallbackGroupOrder(modelName);
+  const groupedKeys = normalizeMultiKeyGroups(profile.apiKeyGroups, profile);
 
   const fallbackApiKeys: string[] = [];
   const fallbackApiKeyGroups: string[] = [];
@@ -183,53 +150,39 @@ export function getCustomModelApiKeySelection(
   };
 
   const rememberedGroup = getRememberedApiKeyGroup(profile, modelName);
-  const matchedGroup = rememberedGroup || matchedModel?.apiKeyGroup;
-  const hasMatchedGroup =
-    Boolean(matchedGroup) && Boolean(groupedKeys[matchedGroup as string]);
-  const preferOcoolDefaultGroup = shouldPreferOcoolDefaultGroup(
-    modelName,
-    profile,
-  );
+  const hasRememberedGroup =
+    Boolean(rememberedGroup) &&
+    MULTI_KEY_GROUP_IDS.includes(rememberedGroup as any) &&
+    Boolean(groupedKeys[rememberedGroup as keyof typeof groupedKeys]);
+  const groupOrder = [
+    ...(hasRememberedGroup ? [rememberedGroup as string] : []),
+    ...normalizeMultiKeyGroupOrder(
+      profile.multiKeyGroupOrder,
+      groupedKeys,
+    ).filter((group) => group !== rememberedGroup),
+  ];
 
-  console.log("[API Key Memory] 记忆分组检查", {
-    rememberedGroup,
-    matchedGroup,
-    hasMatchedGroup,
-    hasKeyInGroup: Boolean(matchedGroup && groupedKeys[matchedGroup as string]),
-    preferOcoolDefaultGroup,
+  console.log("[MultiKey] 生成请求分组顺序", {
+    profileId: profile.id,
+    profileName: profile.name,
+    modelName,
+    rememberedGroup: hasRememberedGroup ? rememberedGroup : "",
+    groupOrder,
+    hasFallbackApiKey: Boolean(profile.apiKey),
   });
 
-  if (hasMatchedGroup && !preferOcoolDefaultGroup) {
-    console.log("[API Key Memory] 使用记忆分组", {
-      groupName: matchedGroup,
-    });
-    pushFallbackKey(
-      matchedGroup as string,
-      groupedKeys[matchedGroup as string],
-    );
-  }
-
-  for (const group of groupOrder) {
-    pushFallbackKey(group, groupedKeys[group]);
-  }
-
-  if (hasMatchedGroup && preferOcoolDefaultGroup) {
-    console.log("[API Key Memory] Ocoolai 图片模型优先使用全模型分组", {
-      rememberedGroup,
-      firstGroup: fallbackApiKeyGroups[0],
-    });
-    pushFallbackKey(
-      matchedGroup as string,
-      groupedKeys[matchedGroup as string],
-    );
-  }
+  groupOrder.forEach((group) =>
+    pushFallbackKey(group, groupedKeys[group as keyof typeof groupedKeys]),
+  );
 
   const primaryApiKey = profile.apiKey || "";
+  pushFallbackKey("apiKey", primaryApiKey);
 
   return {
     current: fallbackApiKeys[0] || primaryApiKey,
     fallback: fallbackApiKeys,
     fallbackGroups: fallbackApiKeyGroups,
+    rememberedGroup: hasRememberedGroup ? rememberedGroup : "",
   };
 }
 
@@ -276,12 +229,31 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     !enabledCustomProfile ||
     !isRememberedApiKeyProfile(enabledCustomProfile)
   ) {
-    console.log("[API Key Memory] 记忆失败：未找到支持 API Key 分组的配置", {
+    console.log("[MultiKey] 记忆失败：未找到启用多 key 的配置", {
       hasProfile: Boolean(enabledCustomProfile),
       supportsGrouping: Boolean(
         enabledCustomProfile && isRememberedApiKeyProfile(enabledCustomProfile),
       ),
     });
+    return;
+  }
+
+  console.log("[MultiKey] 分组请求成功", {
+    profileId: enabledCustomProfile.id,
+    profileName: enabledCustomProfile.name,
+    modelName,
+    groupName,
+  });
+
+  if (!MULTI_KEY_GROUP_IDS.includes(groupName as any)) {
+    console.log(
+      "[MultiKey] 记忆跳过：普通 API Key 或未知分组不写 localStorage",
+      {
+        modelName,
+        groupName,
+        savedToLocalStorage: false,
+      },
+    );
     return;
   }
 
@@ -291,55 +263,10 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     groupName,
   });
 
-  const configStore = useAppConfig.getState() as any;
-  const providerId = getProviderIdForProfile(enabledCustomProfile);
-  const targetIndex = (configStore.models || []).findIndex(
-    (model: LLMModel) =>
-      model.name === modelName && model.provider?.id === providerId,
-  );
-
-  if (targetIndex < 0) {
-    console.log(
-      "[API Key Memory] localStorage 分组记忆已保存，跳过模型配置更新",
-      {
-        modelName,
-        providerId,
-        totalModels: (configStore.models || []).length,
-      },
-    );
-    return;
-  }
-
-  const targetModel = configStore.models[targetIndex] as LLMModel;
-  if (targetModel.apiKeyGroup === groupName) {
-    console.log("[API Key Memory] 已经是当前分组，无需更新", {
-      modelName,
-      groupName,
-    });
-    return;
-  }
-
-  console.log("[API Key Memory] 更新模型 API Key 分组", {
-    modelName,
-    oldGroup: targetModel.apiKeyGroup,
-    newGroup: groupName,
-  });
-
-  void runWithImmediateStoreSyncPaused(async () => {
-    configStore.update((state: { models: LLMModel[] }) => {
-      const currentModel = state.models[targetIndex];
-      if (!currentModel) {
-        return;
-      }
-      state.models[targetIndex] = {
-        ...currentModel,
-        apiKeyGroup: groupName,
-      };
-    });
-  });
-
-  console.log("[API Key Memory] 模型 API Key 分组已更新（跳过立即同步）", {
+  console.log("[MultiKey] 成功分组已写入 localStorage", {
     modelName,
     groupName,
+    profileId: enabledCustomProfile.id,
+    savedToLocalStorage: true,
   });
 }

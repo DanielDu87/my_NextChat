@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 import styles from "./api-config.module.scss";
 
@@ -7,12 +7,12 @@ import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import UploadIcon from "../icons/upload.svg";
 import DownloadIcon from "../icons/download.svg";
+import AddIcon from "../icons/add.svg";
 import TrashIcon from "../icons/trash.svg";
 import DeleteIcon from "../icons/delete.svg";
 
 import { IconButton } from "./button";
 import { List, ListItem, Select, showToast, showConfirm } from "./ui-lib";
-import AddIcon from "../icons/add.svg";
 import {
   AI302,
   Alibaba,
@@ -64,90 +64,63 @@ import {
 } from "../utils/models";
 import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 import { dedupeAccessProfiles } from "../utils/access-profiles";
-
-const YUTO_API_KEY_GROUPS = {
-  default: "sk-TaAp0fCatSnpaXMBako9gLEgrx6azGVu1lANjshAf9J6JApt",
-  user: "sk-korED7kHNSVz1KYY3c3b9aE599Bc41A29674C419B71d217a",
-  discount: "sk-JcPXIRfVD27TqRmBEFGsbtZ5zWpsppiMQCFjQRUpri5u7nLv",
-  anthropic: "sk-g8N4StogM4emnJvcLZ37TxTUcL71xPDWlQH0sZpQtMztkHEt",
-  enterprise: "sk-5DR44nSsHF2ni3ARUqaOoZ7HJTEMczxLRuvOjyCvJxu2xNTj",
-} as const;
-
-const YUTO_API_KEY_GROUP_LABELS: Record<
-  keyof typeof YUTO_API_KEY_GROUPS,
-  { title: string; description: string }
-> = {
-  default: {
-    title: "Default 组",
-    description: "默认分组，未命中其他分组时使用",
-  },
-  enterprise: {
-    title: "Enterprise 组",
-    description: "企业分组模型使用",
-  },
-  discount: {
-    title: "Discount 组",
-    description: "折扣分组模型使用",
-  },
-  anthropic: {
-    title: "Anthropic 组",
-    description: "Claude / Anthropic 系模型优先使用",
-  },
-  user: {
-    title: "User 组",
-    description: "普通用户分组模型使用",
-  },
-};
-
-// Ocoolai API Key 分组配置
-const OCOOL_API_KEY_GROUPS = {
-  default: "",
-  open_source_cn: "",
-  cn: "",
-  cc: "",
-  official: "",
-} as const;
-
-const OCOOL_API_KEY_GROUP_LABELS: Record<
-  keyof typeof OCOOL_API_KEY_GROUPS,
-  { title: string; description: string }
-> = {
-  default: {
-    title: "全模型",
-    description: "默认分组，包含所有模型（group_ratio: 1.5）",
-  },
-  open_source_cn: {
-    title: "国产开源",
-    description: "国产开源模型，最优惠（group_ratio: 0.5）",
-  },
-  cn: {
-    title: "国产模型",
-    description: "国产模型分组（group_ratio: 0.95）",
-  },
-  cc: {
-    title: "Claude Code",
-    description: "Claude Code 分组（group_ratio: 1.5）",
-  },
-  official: {
-    title: "官方渠道",
-    description: "官方渠道分组（group_ratio: 6.3）",
-  },
-};
+import {
+  MULTI_KEY_GROUP_IDS,
+  createEmptyMultiKeyGroups,
+  isOcoolProfileLike,
+  isYutoProfileLike,
+  normalizeMultiKeyGroupOrder,
+  normalizeMultiKeyGroups,
+} from "../utils/multi-key";
 
 function isYutoProfile(profile: { name: string; baseUrl: string }) {
+  return isYutoProfileLike(profile);
+}
+
+function isAihubMixProfile(profile: { name: string; baseUrl: string }) {
+  const name = profile.name.toLowerCase();
+  const baseUrl = profile.baseUrl.toLowerCase();
+  return name.includes("aihubmix") || baseUrl.includes("aihubmix.com");
+}
+
+function isVisibleApiConfigProfile(profile: {
+  id?: string;
+  name: string;
+  baseUrl: string;
+}) {
   return (
-    profile.name.toLowerCase().includes("yuto") ||
-    profile.baseUrl.includes("gptapi.asia")
+    String(profile.id || "").startsWith("profile_") ||
+    profile.name === "默认新增配置" ||
+    isYutoProfile(profile) ||
+    isAihubMixProfile(profile)
   );
 }
 
+function createVisibleApiConfigProfile(): AccessState["apiProfiles"][number] {
+  const timestamp = Date.now();
+
+  return {
+    id: `profile_${timestamp}`,
+    name: "默认新增配置",
+    provider: ServiceProvider.Custom,
+    baseUrl: `xxx-${timestamp}`,
+    apiKey: "xxx",
+    modelFetchApiKey: "",
+    balanceQueryApiKey: "",
+    balanceQueryUrl: "",
+    balanceQueryField: "",
+    apiKeyGroups: createEmptyMultiKeyGroups(),
+    multiKeyGroupOrder: [...MULTI_KEY_GROUP_IDS],
+    multiKeyEnabled: false,
+    enabled: false,
+    openAICompatible: true,
+    cachedModels: "",
+    modelCount: 0,
+  };
+}
+
 function isOcoolProfile(profile: { name: string; baseUrl: string }) {
-  return (
-    profile.name.toLowerCase().includes("ocool") ||
-    profile.baseUrl.includes("ooo.cool") ||
-    profile.baseUrl.includes("ocoolai") ||
-    profile.baseUrl.includes("ocoolai.com")
-  );
+  return isOcoolProfileLike(profile);
 }
 
 type AccessState = ReturnType<typeof useAccessStore.getState>;
@@ -966,34 +939,6 @@ function getProfileApiKey(provider: ServiceProvider, accessStore: AccessState) {
   }
 }
 
-function createProfile(provider: ServiceProvider, accessStore: AccessState) {
-  const name = `${provider} ${new Date().toLocaleTimeString()}`;
-
-  // 检查是否需要添加 API Key 分组
-  let apiKeyGroups: Record<string, string> | undefined;
-  const lowerName = name.toLowerCase();
-
-  if (lowerName.includes("yuto")) {
-    apiKeyGroups = { ...YUTO_API_KEY_GROUPS };
-  } else if (lowerName.includes("ocool")) {
-    apiKeyGroups = { ...OCOOL_API_KEY_GROUPS };
-  }
-
-  return {
-    id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name,
-    provider,
-    baseUrl: getProfileBaseUrl(provider, accessStore),
-    apiKey: getProfileApiKey(provider, accessStore),
-    apiKeyGroups,
-    enabled: false,
-    openAICompatible:
-      provider === ServiceProvider.Custom
-        ? accessStore.customOpenAICompatible
-        : undefined,
-  };
-}
-
 function getDefaultModelForProvider(
   provider: ServiceProvider,
   models: LLMModel[],
@@ -1022,6 +967,9 @@ export function ApiConfigPage() {
     Partial<Record<string, ModelFetchStatus>>
   >({});
   const [editingYutoProfileId, setEditingYutoProfileId] = useState("");
+  const multiKeyDraftGroupsRef = useRef<Record<string, Record<string, string>>>(
+    {},
+  );
   const { fetchFromProvider } = useModelFetcher();
 
   useEffect(() => {
@@ -1029,28 +977,37 @@ export function ApiConfigPage() {
   }, []);
 
   useEffect(() => {
-    const hasMissingYutoGroups = accessStore.apiProfiles.some(
-      (profile) => isYutoProfile(profile) && !profile.apiKeyGroups,
-    );
-    const hasMissingOcoolGroups = accessStore.apiProfiles.some(
-      (profile) => isOcoolProfile(profile) && !profile.apiKeyGroups,
+    const hasLegacyMultiKeyProfiles = accessStore.apiProfiles.some(
+      (profile) =>
+        (isYutoProfile(profile) || isOcoolProfile(profile)) &&
+        (typeof profile.multiKeyEnabled !== "boolean" ||
+          !Array.isArray(profile.multiKeyGroupOrder) ||
+          !MULTI_KEY_GROUP_IDS.every((group) =>
+            Object.prototype.hasOwnProperty.call(
+              profile.apiKeyGroups || {},
+              group,
+            ),
+          )),
     );
 
-    if (!hasMissingYutoGroups && !hasMissingOcoolGroups) return;
+    if (!hasLegacyMultiKeyProfiles) return;
 
     accessStore.update((access) => {
+      access.lastUpdateTime = Date.now();
       access.apiProfiles = access.apiProfiles.map((profile) => {
-        if (isYutoProfile(profile) && !profile.apiKeyGroups) {
+        if (isYutoProfile(profile) || isOcoolProfile(profile)) {
+          const normalizedGroups = normalizeMultiKeyGroups(
+            profile.apiKeyGroups,
+            profile,
+          );
           return {
             ...profile,
-            apiKeyGroups: { ...YUTO_API_KEY_GROUPS },
-            apiKey: YUTO_API_KEY_GROUPS.default,
-          };
-        }
-        if (isOcoolProfile(profile) && !profile.apiKeyGroups) {
-          return {
-            ...profile,
-            apiKeyGroups: { ...OCOOL_API_KEY_GROUPS },
+            multiKeyEnabled: true,
+            apiKeyGroups: normalizedGroups,
+            multiKeyGroupOrder: normalizeMultiKeyGroupOrder(
+              profile.multiKeyGroupOrder,
+              normalizedGroups,
+            ),
           };
         }
         return profile;
@@ -1090,7 +1047,13 @@ export function ApiConfigPage() {
 
   const providerFields = PROVIDER_FIELDS[accessStore.provider] ?? [];
   const extraFields = providerFields.filter((f) => !f.profileManaged);
-  const providerProfiles = accessStore.apiProfiles;
+  const providerProfiles = useMemo(
+    () => (accessStore.apiProfiles || []).filter(isVisibleApiConfigProfile),
+    [accessStore.apiProfiles],
+  );
+  const activeVisibleProfile = providerProfiles.find(
+    (profile) => profile.enabled,
+  );
   const dbSyncTargetLabel = "PostgreSQL / nextchat";
 
   const allProfiles = accessStore.apiProfiles;
@@ -1498,6 +1461,71 @@ export function ApiConfigPage() {
         );
       }
     }
+  };
+
+  const writeLatestAccessSnapshot = () => {
+    const latestAccessState = useAccessStore.getState();
+    writeAccessSnapshot({
+      useCustomConfig: latestAccessState.useCustomConfig,
+      provider: latestAccessState.provider,
+      apiProfiles: latestAccessState.apiProfiles,
+      customModels: latestAccessState.customModels,
+      customUrl: latestAccessState.customUrl,
+      customApiKey: latestAccessState.customApiKey,
+      customOpenAICompatible: latestAccessState.customOpenAICompatible,
+    });
+  };
+
+  const updateMultiKeyGroups = (
+    profileId: string,
+    nextGroups: Record<string, string>,
+    nextOrder?: string[],
+  ) => {
+    accessStore.update((access) => {
+      access.lastUpdateTime = Date.now();
+      access.apiProfiles = access.apiProfiles.map((item) => {
+        if (item.id !== profileId) return item;
+        const normalizedGroups = normalizeMultiKeyGroups(nextGroups, item);
+        const normalizedOrder = normalizeMultiKeyGroupOrder(
+          nextOrder || item.multiKeyGroupOrder,
+          normalizedGroups,
+        );
+        multiKeyDraftGroupsRef.current[item.id] = normalizedGroups;
+        return {
+          ...item,
+          multiKeyEnabled: true,
+          apiKeyGroups: normalizedGroups,
+          multiKeyGroupOrder: normalizedOrder,
+        };
+      });
+    });
+    writeLatestAccessSnapshot();
+    if (
+      useAccessStore
+        .getState()
+        .apiProfiles.find((item) => item.id === profileId)?.enabled
+    ) {
+      syncProfileToAccess(profileId, { skipFetchModels: true });
+    }
+  };
+
+  const moveMultiKeyGroup = (
+    profileId: string,
+    fromGroup: string,
+    toGroup: string,
+    currentGroups: Record<string, string>,
+    currentOrder: string[],
+  ) => {
+    if (!fromGroup || !toGroup || fromGroup === toGroup) return;
+
+    const nextOrder = normalizeMultiKeyGroupOrder(currentOrder, currentGroups);
+    const fromIndex = nextOrder.indexOf(fromGroup as any);
+    const toIndex = nextOrder.indexOf(toGroup as any);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const [moved] = nextOrder.splice(fromIndex, 1);
+    nextOrder.splice(toIndex, 0, moved);
+    updateMultiKeyGroups(profileId, currentGroups, nextOrder);
   };
 
   const applyProviderToChat = (provider: ServiceProvider) => {
@@ -2078,8 +2106,7 @@ export function ApiConfigPage() {
                     <>
                       已启用自定义配置，当前配置：
                       <span className={styles.profileNameHighlight}>
-                        {accessStore.apiProfiles.find((p) => p.enabled)?.name ||
-                          accessStore.provider}
+                        {activeVisibleProfile?.name || accessStore.provider}
                       </span>
                     </>
                   ) : (
@@ -2090,7 +2117,7 @@ export function ApiConfigPage() {
             }
           />
 
-          {(providerProfiles.length > 0 || PROVIDER_OPTIONS.length > 0) && (
+          {providerProfiles.length > 0 && (
             <ListItem
               title={
                 <div className={styles.profileSectionTitle}>
@@ -2102,16 +2129,28 @@ export function ApiConfigPage() {
                     className={styles.addProfileButton}
                     onClick={() => {
                       accessStore.update((access) => {
+                        access.lastUpdateTime = Date.now();
                         access.apiProfiles = [
                           ...access.apiProfiles,
-                          createProfile(access.provider, access as any),
+                          createVisibleApiConfigProfile(),
                         ];
+                      });
+                      const latestAccessState = useAccessStore.getState();
+                      writeAccessSnapshot({
+                        useCustomConfig: latestAccessState.useCustomConfig,
+                        provider: latestAccessState.provider,
+                        apiProfiles: latestAccessState.apiProfiles,
+                        customModels: latestAccessState.customModels,
+                        customUrl: latestAccessState.customUrl,
+                        customApiKey: latestAccessState.customApiKey,
+                        customOpenAICompatible:
+                          latestAccessState.customOpenAICompatible,
                       });
                     }}
                   />
                 </div>
               }
-              subTitle="可以新增多组 Base URL 与 API Key"
+              subTitle="仅显示 YutoAPI 与 AihubMix 的 Base URL 与 API Key"
               vertical
             >
               <div className={styles.profileList}>
@@ -2124,6 +2163,7 @@ export function ApiConfigPage() {
                     <div className={styles.profileColCompatible}>
                       OPENAI兼容
                     </div>
+                    <div className={styles.profileColMultiKey}>是否多key</div>
                     <div className={styles.profileColActions}>操作</div>
                   </div>
 
@@ -2232,7 +2272,7 @@ export function ApiConfigPage() {
                         className={`${styles.profileCell} ${styles.profileColApiKey}`}
                       >
                         <div className={styles.profileCellLabel}>API Key</div>
-                        {isYutoProfile(profile) || isOcoolProfile(profile) ? (
+                        {profile.multiKeyEnabled ? (
                           <div className={styles.profileApiKeyEditor}>
                             <button
                               type="button"
@@ -2261,7 +2301,9 @@ export function ApiConfigPage() {
                                 );
                               });
                               if (profile.enabled) {
-                                syncProfileToAccess(profile.id);
+                                syncProfileToAccess(profile.id, {
+                                  skipFetchModels: true,
+                                });
                               }
                             }}
                           />
@@ -2297,6 +2339,63 @@ export function ApiConfigPage() {
                           <span>
                             {profile.openAICompatible ?? true ? "是" : "否"}
                           </span>
+                        </label>
+                      </div>
+
+                      <div
+                        className={`${styles.profileCell} ${styles.profileColMultiKey}`}
+                      >
+                        <div className={styles.profileCellLabel}>是否多key</div>
+                        <label className={styles.profileCheck}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(profile.multiKeyEnabled)}
+                            onChange={(e) => {
+                              const checked = e.currentTarget.checked;
+                              accessStore.update((access) => {
+                                access.lastUpdateTime = Date.now();
+                                access.apiProfiles = access.apiProfiles.map(
+                                  (item) => {
+                                    if (item.id !== profile.id) return item;
+
+                                    const currentGroups =
+                                      normalizeMultiKeyGroups(
+                                        item.apiKeyGroups,
+                                        item,
+                                      );
+                                    if (!checked) {
+                                      multiKeyDraftGroupsRef.current[item.id] =
+                                        currentGroups;
+                                      return {
+                                        ...item,
+                                        multiKeyEnabled: false,
+                                        apiKeyGroups: item.apiKeyGroups,
+                                      };
+                                    }
+
+                                    const draftGroups =
+                                      multiKeyDraftGroupsRef.current[item.id];
+                                    const nextGroups =
+                                      draftGroups || currentGroups;
+                                    return {
+                                      ...item,
+                                      multiKeyEnabled: true,
+                                      apiKeyGroups: nextGroups,
+                                      multiKeyGroupOrder:
+                                        normalizeMultiKeyGroupOrder(
+                                          item.multiKeyGroupOrder,
+                                          nextGroups,
+                                        ),
+                                    };
+                                  },
+                                );
+                              });
+                              if (profile.enabled) {
+                                syncProfileToAccess(profile.id);
+                              }
+                            }}
+                          />
+                          <span>{profile.multiKeyEnabled ? "是" : "否"}</span>
                         </label>
                       </div>
 
@@ -2349,7 +2448,9 @@ export function ApiConfigPage() {
                           <button
                             type="button"
                             className={styles.profileYutoModalClose}
-                            onClick={() => setEditingYutoProfileId("")}
+                            onClick={() => {
+                              setEditingYutoProfileId("");
+                            }}
                           >
                             <CloseIcon />
                           </button>
@@ -2357,79 +2458,127 @@ export function ApiConfigPage() {
                         <div className={styles.profileYutoModalBody}>
                           <div className={styles.profileYutoKeyGrid}>
                             {(function () {
-                              // 根据当前编辑的 profile 类型选择分组配置
-                              const isOcool = isOcoolProfile(editingProfile);
-                              const apiKeyGroups = isOcool
-                                ? OCOOL_API_KEY_GROUPS
-                                : YUTO_API_KEY_GROUPS;
-                              const groupLabels = isOcool
-                                ? OCOOL_API_KEY_GROUP_LABELS
-                                : YUTO_API_KEY_GROUP_LABELS;
+                              const apiKeyGroups = normalizeMultiKeyGroups(
+                                editingProfile.apiKeyGroups,
+                                editingProfile,
+                              );
+                              const groupOrder = normalizeMultiKeyGroupOrder(
+                                editingProfile.multiKeyGroupOrder,
+                                apiKeyGroups,
+                              );
 
-                              return Object.keys(apiKeyGroups).map((group) => (
-                                <div
-                                  key={group}
-                                  className={styles.profileYutoKeyItem}
-                                >
-                                  <div className={styles.profileYutoKeyInner}>
-                                    <div className={styles.profileCellLabel}>
-                                      {
-                                        groupLabels[
-                                          group as keyof typeof groupLabels
-                                        ].title
-                                      }
-                                    </div>
-                                    <div
-                                      className={
-                                        styles.profileYutoKeyDescription
-                                      }
-                                    >
-                                      {
-                                        groupLabels[
-                                          group as keyof typeof groupLabels
-                                        ].description
-                                      }
-                                    </div>
-                                    <input
-                                      className={styles.textInput}
-                                      type="text"
-                                      placeholder={`${group} API Key`}
-                                      value={
-                                        editingProfile.apiKeyGroups?.[group] ??
-                                        ""
-                                      }
-                                      onChange={(e) => {
-                                        const nextValue = e.currentTarget.value;
-                                        accessStore.update((access) => {
-                                          access.apiProfiles =
-                                            access.apiProfiles.map((item) =>
-                                              item.id === editingProfile.id
-                                                ? {
-                                                    ...item,
-                                                    apiKeyGroups: {
-                                                      ...(item.apiKeyGroups ||
-                                                        {}),
-                                                      [group]: nextValue,
-                                                    },
-                                                    apiKey:
-                                                      group === "default" &&
-                                                      !isOcool
-                                                        ? nextValue
-                                                        : item.apiKey,
-                                                  }
-                                                : item,
-                                            );
-                                        });
-                                        if (editingProfile.enabled) {
-                                          syncProfileToAccess(
-                                            editingProfile.id,
-                                          );
+                              return groupOrder.map((group, index) => {
+                                const hasGroupKey = Boolean(
+                                  String(apiKeyGroups[group] || "").trim(),
+                                );
+                                const previousGroup = groupOrder[index - 1];
+                                const nextGroup = groupOrder[index + 1];
+                                const canMoveUp =
+                                  Boolean(previousGroup) &&
+                                  hasGroupKey &&
+                                  Boolean(
+                                    String(
+                                      apiKeyGroups[previousGroup] || "",
+                                    ).trim(),
+                                  );
+                                const canMoveDown =
+                                  Boolean(nextGroup) &&
+                                  hasGroupKey &&
+                                  Boolean(
+                                    String(
+                                      apiKeyGroups[nextGroup] || "",
+                                    ).trim(),
+                                  );
+
+                                return (
+                                  <div
+                                    key={group}
+                                    className={styles.profileYutoKeyItem}
+                                  >
+                                    <div className={styles.profileYutoKeyInner}>
+                                      <div
+                                        className={styles.profileYutoKeyHeader}
+                                      >
+                                        <div
+                                          className={styles.profileCellLabel}
+                                        >
+                                          {`分组${index + 1}`}
+                                        </div>
+                                      </div>
+                                      <div
+                                        className={
+                                          styles.profileYutoKeyDescription
                                         }
-                                      }}
-                                    />
+                                      >
+                                        {`分组${index + 1}`}
+                                      </div>
+                                      <div
+                                        className={styles.profileYutoInputRow}
+                                      >
+                                        <input
+                                          className={styles.textInput}
+                                          type="text"
+                                          placeholder="留空则不尝试请求"
+                                          value={apiKeyGroups[group] ?? ""}
+                                          onChange={(e) => {
+                                            const nextValue =
+                                              e.currentTarget.value;
+                                            updateMultiKeyGroups(
+                                              editingProfile.id,
+                                              {
+                                                ...apiKeyGroups,
+                                                [group]: nextValue,
+                                              },
+                                            );
+                                          }}
+                                        />
+                                        <div
+                                          className={
+                                            styles.profileYutoOrderActions
+                                          }
+                                        >
+                                          <button
+                                            type="button"
+                                            className={`${styles.profileYutoOrderButton} ${styles.profileYutoOrderButtonUp}`}
+                                            disabled={!canMoveUp}
+                                            title="上移"
+                                            aria-label="上移"
+                                            onClick={() => {
+                                              if (!previousGroup) return;
+                                              moveMultiKeyGroup(
+                                                editingProfile.id,
+                                                group,
+                                                previousGroup,
+                                                apiKeyGroups,
+                                                groupOrder,
+                                              );
+                                            }}
+                                          ></button>
+                                          <button
+                                            type="button"
+                                            className={
+                                              styles.profileYutoOrderButton
+                                            }
+                                            disabled={!canMoveDown}
+                                            title="下移"
+                                            aria-label="下移"
+                                            onClick={() => {
+                                              if (!nextGroup) return;
+                                              moveMultiKeyGroup(
+                                                editingProfile.id,
+                                                group,
+                                                nextGroup,
+                                                apiKeyGroups,
+                                                groupOrder,
+                                              );
+                                            }}
+                                          ></button>
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                              ));
+                                );
+                              });
                             })()}
                           </div>
                         </div>
@@ -2438,7 +2587,9 @@ export function ApiConfigPage() {
                             type="primary"
                             text="关闭"
                             icon={<ConfirmIcon />}
-                            onClick={() => setEditingYutoProfileId("")}
+                            onClick={() => {
+                              setEditingYutoProfileId("");
+                            }}
                           />
                         </div>
                       </div>

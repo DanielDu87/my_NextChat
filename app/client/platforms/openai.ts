@@ -1931,13 +1931,13 @@ export class ChatGPTApi implements LLMApi {
         let res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
 
-        // YutoAPI 降级重试：检测到任何失败都尝试下一个 API key
+        // 通用多 key 降级重试：检测到失败后按分组顺序尝试下一个 API key
         const fallbackApiKeys: string[] =
           (requestHeaders as any)["x-fallback-api-keys"] || [];
         const fallbackApiKeyGroups: string[] =
           (requestHeaders as any)["x-fallback-api-key-groups"] || [];
         const supportsGrouping =
-          supportsApiKeyGrouping(chatPath) || fallbackApiKeys.length > 1;
+          supportsApiKeyGrouping(chatPath) || fallbackApiKeyGroups.length > 0;
         let retryCount = 0;
         let resText = "";
         let resJson: any = null;
@@ -1979,10 +1979,14 @@ export class ChatGPTApi implements LLMApi {
           }
 
           console.log(
-            `[Chat] API key 分组非流式请求失败，尝试降级重试 (${
-              retryCount + 1
-            }/${fallbackApiKeys.length})`,
-            retryableError ? { retryableError } : undefined,
+            `[MultiKey Retry] 非流式请求失败，尝试降级重试 (${retryCount + 1}/${
+              fallbackApiKeys.length
+            })`,
+            {
+              currentGroup: fallbackApiKeyGroups[retryCount] || "",
+              nextGroup: fallbackApiKeyGroups[retryCount + 1] || "",
+              retryableError,
+            },
           );
 
           // 使用下一个 API key 重试

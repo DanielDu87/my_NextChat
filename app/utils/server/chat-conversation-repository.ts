@@ -286,26 +286,12 @@ export async function syncNormalizedChatSessions(
     new Set((params.deleteSessionIds || []).filter(Boolean)),
   );
   if (deleteSessionIds.length > 0) {
-    const deletedConversations = await client.query<{ id: string }>(
-      `update conversations
-       set is_deleted = true,
-           updated_at = now()
+    await client.query(
+      `delete from conversations
        where user_id = $1::uuid
-         and external_session_id = any($2::text[])
-       returning id::text as id`,
+         and external_session_id = any($2::text[])`,
       [appUserId, deleteSessionIds],
     );
-    const deletedConversationIds = deletedConversations.rows.map(
-      (row) => row.id,
-    );
-
-    if (deletedConversationIds.length > 0) {
-      await client.query(
-        `delete from messages
-         where conversation_id = any($1::uuid[])`,
-        [deletedConversationIds],
-      );
-    }
   }
 }
 

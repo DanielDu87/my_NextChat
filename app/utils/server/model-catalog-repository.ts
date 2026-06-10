@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { withPgTransaction } from "./postgres";
+import { ensureSyncStorageSchema, withPgTransaction } from "./postgres";
 
 export type ModelCatalogUpsertRow = {
   providerId: string;
@@ -28,6 +28,50 @@ export type ModelCatalogUpsertRow = {
 
 function toJson(value: unknown, fallback: unknown) {
   return value === undefined ? JSON.stringify(fallback) : JSON.stringify(value);
+}
+
+async function ensureModelCatalogSchema(client: PoolClient) {
+  await client.query(`
+    create table if not exists model_catalog (
+      id uuid primary key default generate_uuid_v4(),
+      provider_id text not null,
+      provider_name text,
+      source_file text,
+      model_name text not null,
+      display_name text,
+      vendor_name text,
+      vendor_icon text,
+      model_type text,
+      category text,
+      category_source smallint,
+      types jsonb not null default '[]'::jsonb,
+      categories jsonb not null default '[]'::jsonb,
+      features jsonb not null default '[]'::jsonb,
+      capabilities jsonb not null default '[]'::jsonb,
+      published_at_int integer,
+      published_at_source text,
+      published_at_url text,
+      published_at_note text,
+      is_available boolean not null default true,
+      sort_order integer,
+      api_key_group text,
+      raw_payload jsonb not null default '{}'::jsonb,
+      first_seen_at timestamptz not null default now(),
+      last_seen_at timestamptz not null default now(),
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (provider_id, model_name)
+    )
+  `);
+  await client.query(`
+    create index if not exists idx_model_catalog_provider_updated
+    on model_catalog(provider_id, updated_at desc)
+  `);
+  await client.query(`
+    create or replace trigger trg_model_catalog_updated_at
+    before update on model_catalog
+    for each row execute function set_updated_at()
+  `);
 }
 
 async function upsertOne(client: PoolClient, row: ModelCatalogUpsertRow) {
@@ -113,7 +157,9 @@ async function upsertOne(client: PoolClient, row: ModelCatalogUpsertRow) {
 }
 
 export async function upsertModelCatalogRows(rows: ModelCatalogUpsertRow[]) {
+  await ensureSyncStorageSchema();
   await withPgTransaction(async (client) => {
+    await ensureModelCatalogSchema(client);
     for (const row of rows) {
       await upsertOne(client, row);
     }

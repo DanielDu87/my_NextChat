@@ -355,101 +355,6 @@ export async function ensureSyncStorageSchema() {
         on messages(conversation_id, seq asc)
       `);
         await client.query(`
-        create table if not exists message_attachments (
-          id uuid primary key default generate_uuid_v4(),
-          message_id uuid not null references messages(id) on delete cascade,
-          attachment_type text not null,
-          file_name text,
-          mime_type text,
-          storage_kind text not null default 'object_storage',
-          storage_url text,
-          file_size_bytes bigint,
-          sha256 text,
-          metadata_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create table if not exists tags (
-          id uuid primary key default generate_uuid_v4(),
-          user_id uuid not null references app_users(id) on delete cascade,
-          name text not null,
-          color text,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (user_id, name)
-        )
-      `);
-        await client.query(`
-        create table if not exists share_links (
-          id uuid primary key default generate_uuid_v4(),
-          conversation_id uuid not null references conversations(id) on delete cascade,
-          created_by uuid references app_users(id) on delete set null,
-          share_token text not null unique,
-          permission text not null default 'read_only',
-          expires_at timestamptz,
-          metadata_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create table if not exists model_catalog (
-          id uuid primary key default generate_uuid_v4(),
-          provider_id text not null,
-          provider_name text,
-          source_file text,
-          model_name text not null,
-          display_name text,
-          vendor_name text,
-          vendor_icon text,
-          model_type text,
-          category text,
-          category_source smallint,
-          types jsonb not null default '[]'::jsonb,
-          categories jsonb not null default '[]'::jsonb,
-          features jsonb not null default '[]'::jsonb,
-          capabilities jsonb not null default '[]'::jsonb,
-          published_at_int integer,
-          published_at_source text,
-          published_at_url text,
-          published_at_note text,
-          is_available boolean not null default true,
-          sort_order integer,
-          api_key_group text,
-          raw_payload jsonb not null default '{}'::jsonb,
-          first_seen_at timestamptz not null default now(),
-          last_seen_at timestamptz not null default now(),
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (provider_id, model_name)
-        )
-      `);
-        await client.query(`
-        create table if not exists model_aliases (
-          id uuid primary key default generate_uuid_v4(),
-          model_id uuid not null references model_catalog(id) on delete cascade,
-          alias_name text not null,
-          alias_kind text not null default 'display',
-          source text,
-          created_at timestamptz not null default now(),
-          unique (model_id, alias_name)
-        )
-      `);
-        await client.query(`
-        create table if not exists model_sync_runs (
-          id uuid primary key default generate_uuid_v4(),
-          trigger_source text not null default 'manual',
-          provider_id text,
-          status text not null default 'running',
-          summary_json jsonb not null default '{}'::jsonb,
-          error_message text,
-          started_at timestamptz not null default now(),
-          finished_at timestamptz,
-          created_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
         create index if not exists idx_provider_configs_user_id
         on provider_configs(user_id)
       `);
@@ -518,28 +423,8 @@ export async function ensureSyncStorageSchema() {
         alter column payload_json set not null
       `);
         await client.query(`
-        create table if not exists model_source_index_snapshots (
-          source_key text primary key,
-          payload_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
         create index if not exists idx_conversations_user_updated
         on conversations(user_id, updated_at desc)
-      `);
-        await client.query(`
-        create index if not exists idx_tags_user_updated
-        on tags(user_id, updated_at desc)
-      `);
-        await client.query(`
-        create index if not exists idx_model_catalog_provider_updated
-        on model_catalog(provider_id, updated_at desc)
-      `);
-        await client.query(`
-        create index if not exists idx_model_sync_runs_started_at
-        on model_sync_runs(started_at desc)
       `);
         await client.query(`
         create index if not exists idx_user_model_refresh_states_user_updated
@@ -580,21 +465,6 @@ export async function ensureSyncStorageSchema() {
         for each row execute function set_updated_at()
       `);
         await client.query(`
-        create or replace trigger trg_tags_updated_at
-        before update on tags
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_share_links_updated_at
-        before update on share_links
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_model_catalog_updated_at
-        before update on model_catalog
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
         create or replace trigger trg_user_model_refresh_states_updated_at
         before update on user_model_refresh_states
         for each row execute function set_updated_at()
@@ -602,11 +472,6 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create or replace trigger trg_user_provider_balance_snapshots_updated_at
         before update on user_provider_balance_snapshots
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_model_source_index_snapshots_updated_at
-        before update on model_source_index_snapshots
         for each row execute function set_updated_at()
       `);
         await client.query(`

@@ -223,6 +223,25 @@ describe("sync store repository helpers", () => {
     expect(syncAppSettingsStoreMock).not.toHaveBeenCalled();
   });
 
+  test("applyChatDelta should physically delete empty orphan conversations", async () => {
+    await applyChatDelta({
+      index: {
+        version: 1,
+        state: { currentSessionId: "s1", sessionIds: ["s1"] },
+        sessions: [{ id: "s1", topic: "Keep" }],
+      },
+      upsertSessions: [],
+      deleteSessionIds: [],
+    });
+
+    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(queryMock.mock.calls[1]?.[0]).toContain(
+      "delete from conversations",
+    );
+    expect(queryMock.mock.calls[1]?.[0]).not.toContain("set is_deleted");
+    expect(queryMock.mock.calls[1]?.[1]).toEqual(["single-user", ["s1"]]);
+  });
+
   test("setStoreSnapshot should also sync app settings for config stores", async () => {
     const { setStoreSnapshot } = await import(
       "../app/utils/server/sync-store-repository"

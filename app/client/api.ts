@@ -522,6 +522,7 @@ export function getHeaders(
       apiKey: apiKeyInfo.current,
       fallbackApiKeys: apiKeyInfo.fallback,
       fallbackApiKeyGroups: (apiKeyInfo as any).fallbackGroups || [],
+      rememberedApiKeyGroup: (apiKeyInfo as any).rememberedGroup || "",
       isEnabledAccessControl,
       currentCustomProfile,
       currentLocalProfile,
@@ -558,6 +559,7 @@ export function getHeaders(
     apiKey,
     fallbackApiKeys,
     fallbackApiKeyGroups,
+    rememberedApiKeyGroup,
     isEnabledAccessControl,
     currentCustomProfile,
     currentLocalProfile,
@@ -598,9 +600,9 @@ export function getHeaders(
       currentCustomProfile && isRememberedApiKeyProfile(currentCustomProfile),
     ) &&
     fallbackApiKeys &&
-    fallbackApiKeys.length > 1;
+    fallbackApiKeys.length > 0;
 
-  // Local 不启用 fallback keys，仅 YutoAPI / Ocoolai 这类支持分组的平台在多 key 时生效。
+  // Local 不启用 fallback keys；Custom 配置勾选“是否多key”后才启用。
   if (shouldEnableFallbackApiKeys) {
     (headers as any)["x-fallback-api-keys"] = fallbackApiKeys;
     (headers as any)["x-fallback-api-key-groups"] = fallbackApiKeyGroups;
@@ -608,26 +610,17 @@ export function getHeaders(
     (headers as any)["x-api-key-provider-id"] = currentCustomProfile?.name
       ? `custom_${currentCustomProfile.name}`.toLowerCase()
       : "";
-    console.log("[API Headers] 已添加 fallback keys:", {
+    console.log("[MultiKey] 已添加多 key fallback headers", {
+      profileId: currentCustomProfile?.id || "",
+      profileName: currentCustomProfile?.name || "",
+      modelName: modelConfig.model,
       keysCount: fallbackApiKeys.length,
-      groupsCount: fallbackApiKeyGroups.length,
-      firstGroup: fallbackApiKeyGroups[0],
+      groupOrder: fallbackApiKeyGroups,
+      rememberedGroup: rememberedApiKeyGroup,
     });
 
-    const rememberedGroup =
-      fallbackApiKeyGroups.length > 0 &&
-      fallbackApiKeys[0] === apiKey &&
-      (useAppConfig
-        .getState()
-        .models.find(
-          (model) =>
-            model.name ===
-              (modelConfig.model ?? DEFAULT_CONFIG.modelConfig.model) &&
-            model.provider?.id === `custom_${currentCustomProfile?.name || ""}`,
-        )?.apiKeyGroup ||
-        "");
-    if (rememberedGroup) {
-      (headers as any)["x-remembered-api-key-group"] = rememberedGroup;
+    if (rememberedApiKeyGroup) {
+      (headers as any)["x-remembered-api-key-group"] = rememberedApiKeyGroup;
     }
   } else if (!isLocal) {
     console.log("[API Headers] 没有 fallback keys，无法重试");

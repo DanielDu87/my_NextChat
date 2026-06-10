@@ -29,6 +29,8 @@ type AccessProfile = {
   apiKey: string;
   balanceQueryApiKey?: string;
   apiKeyGroups?: Record<string, string>;
+  multiKeyGroupOrder?: string[];
+  multiKeyEnabled?: boolean;
   enabled: boolean;
   openAICompatible?: boolean;
   cachedModels?: string;
@@ -219,7 +221,29 @@ function shouldSyncProfile(profile: AccessProfile) {
   );
 }
 
+async function ensureModelSyncRunsSchema() {
+  await ensureSyncStorageSchema();
+  await pgQuery(`
+    create table if not exists model_sync_runs (
+      id uuid primary key default generate_uuid_v4(),
+      trigger_source text not null default 'manual',
+      provider_id text,
+      status text not null default 'running',
+      summary_json jsonb not null default '{}'::jsonb,
+      error_message text,
+      started_at timestamptz not null default now(),
+      finished_at timestamptz,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await pgQuery(`
+    create index if not exists idx_model_sync_runs_started_at
+    on model_sync_runs(started_at desc)
+  `);
+}
+
 async function createRun(triggerSource: string) {
+  await ensureModelSyncRunsSchema();
   const result = await pgQuery<{ id: string }>(
     `insert into model_sync_runs (trigger_source, provider_id, status, summary_json, started_at)
      values ($1, $2, $3, $4::jsonb, now())

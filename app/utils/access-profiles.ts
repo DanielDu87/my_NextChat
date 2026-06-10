@@ -5,6 +5,8 @@ export type GenericAccessProfile = Record<string, any> & {
   baseUrl?: string;
   enabled?: boolean;
   apiKey?: string;
+  multiKeyEnabled?: boolean;
+  multiKeyGroupOrder?: string[];
   modelFetchApiKey?: string;
   balanceQueryApiKey?: string;
   apiKeyGroups?: Record<string, string>;
@@ -53,6 +55,7 @@ function profileRank(profile: GenericAccessProfile) {
   if (profile?.apiKeyGroups && Object.keys(profile.apiKeyGroups).length > 0) {
     rank += 1;
   }
+  if (profile?.multiKeyEnabled) rank += 1;
   return rank;
 }
 

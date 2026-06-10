@@ -11,6 +11,11 @@ import {
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 import { getDefaultSyncUserId } from "./sync-user";
 import { dedupeAccessProfiles } from "../access-profiles";
+import {
+  normalizeMultiKeyGroupOrder,
+  normalizeMultiKeyGroups,
+  shouldAutoEnableMultiKey,
+} from "../multi-key";
 
 type QueryClient = {
   query: (text: string, params?: unknown[]) => Promise<any>;
@@ -26,6 +31,8 @@ type AccessProfile = {
   balanceQueryUrl?: string;
   balanceQueryField?: string;
   apiKeyGroups?: Record<string, string>;
+  multiKeyGroupOrder?: string[];
+  multiKeyEnabled?: boolean;
   enabled: boolean;
   openAICompatible?: boolean;
   cachedModels?: string;
@@ -146,6 +153,13 @@ function maskSecret(secret: string) {
 function buildProfileRequestConfig(profile: AccessProfile) {
   return {
     openAICompatible: Boolean(profile.openAICompatible),
+    multiKeyEnabled: Boolean(profile.multiKeyEnabled),
+    multiKeyGroupOrder: Array.isArray(profile.multiKeyGroupOrder)
+      ? normalizeMultiKeyGroupOrder(
+          profile.multiKeyGroupOrder,
+          profile.apiKeyGroups,
+        )
+      : undefined,
     modelCount:
       typeof profile.modelCount === "number" ? profile.modelCount : undefined,
     cachedModels:
@@ -445,6 +459,16 @@ export async function getProviderProfilesForAccessState(
     if (typeof requestConfig.openAICompatible === "boolean") {
       existing.openAICompatible = requestConfig.openAICompatible;
     }
+    if (typeof requestConfig.multiKeyEnabled === "boolean") {
+      existing.multiKeyEnabled = requestConfig.multiKeyEnabled;
+    }
+    if (Array.isArray(requestConfig.multiKeyGroupOrder)) {
+      existing.multiKeyGroupOrder = normalizeMultiKeyGroupOrder(
+        requestConfig.multiKeyGroupOrder.filter(
+          (item): item is string => typeof item === "string",
+        ),
+      );
+    }
     if (typeof requestConfig.cachedModels === "string") {
       existing.cachedModels = requestConfig.cachedModels;
     }
@@ -484,5 +508,22 @@ export async function getProviderProfilesForAccessState(
     profileMap.set(row.provider_code, existing);
   });
 
-  return dedupeAccessProfiles([...profileMap.values()]);
+  return dedupeAccessProfiles(
+    [...profileMap.values()].map((profile) => {
+      const multiKeyEnabled = shouldAutoEnableMultiKey(profile);
+      return {
+        ...profile,
+        multiKeyEnabled,
+        multiKeyGroupOrder: multiKeyEnabled
+          ? normalizeMultiKeyGroupOrder(
+              profile.multiKeyGroupOrder,
+              profile.apiKeyGroups,
+            )
+          : profile.multiKeyGroupOrder,
+        apiKeyGroups: multiKeyEnabled
+          ? normalizeMultiKeyGroups(profile.apiKeyGroups, profile)
+          : profile.apiKeyGroups,
+      };
+    }),
+  );
 }

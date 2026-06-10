@@ -27,11 +27,8 @@ describe("chat conversation repository", () => {
     getOrCreateSyncAppUserIdMock.mockResolvedValue("app-user-id");
   });
 
-  test("syncNormalizedChatSessions should soft-delete removed sessions and clear messages", async () => {
-    const queryMock = jest
-      .fn<QueryFn>()
-      .mockResolvedValueOnce({ rows: [{ id: "conversation-id" }] })
-      .mockResolvedValueOnce({ rows: [] });
+  test("syncNormalizedChatSessions should physically delete removed sessions", async () => {
+    const queryMock = jest.fn<QueryFn>().mockResolvedValueOnce({ rows: [] });
 
     await syncNormalizedChatSessions({ query: queryMock } as any, {
       externalUserId: "single-user",
@@ -39,11 +36,10 @@ describe("chat conversation repository", () => {
       deleteSessionIds: ["s1", "s1", ""],
     });
 
-    expect(queryMock).toHaveBeenCalledTimes(2);
-    expect(queryMock.mock.calls[0]?.[0]).toContain("set is_deleted = true");
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(queryMock.mock.calls[0]?.[0]).toContain("delete from conversations");
+    expect(queryMock.mock.calls[0]?.[0]).not.toContain("set is_deleted");
     expect(queryMock.mock.calls[0]?.[1]).toEqual(["app-user-id", ["s1"]]);
-    expect(queryMock.mock.calls[1]?.[0]).toContain("delete from messages");
-    expect(queryMock.mock.calls[1]?.[1]).toEqual([["conversation-id"]]);
   });
 
   test("buildNormalizedChatIndexSnapshot should exclude soft-deleted conversations", async () => {

@@ -100,6 +100,7 @@ function createBootstrapCustomProfiles() {
         default: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
         user: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
       },
+      multiKeyEnabled: false,
       enabled: true,
       openAICompatible: true,
       cachedModels: "",
@@ -256,6 +257,7 @@ const DEFAULT_ACCESS_STATE = {
   accessCode: "",
   useCustomConfig: true,
   profileSelectionUpdatedAt: 0,
+  lastUpdateTime: 0,
 
   provider: ServiceProvider.Custom,
   apiProfiles: createBootstrapCustomProfiles() as Array<{
@@ -269,6 +271,8 @@ const DEFAULT_ACCESS_STATE = {
     balanceQueryUrl?: string;
     balanceQueryField?: string;
     apiKeyGroups?: Record<string, string>;
+    multiKeyGroupOrder?: string[];
+    multiKeyEnabled?: boolean;
     enabled: boolean;
     openAICompatible?: boolean;
     cachedModels?: string;

@@ -249,6 +249,7 @@ function isDefaultBootstrapProfile(profile: Record<string, any>) {
     !hasNonEmptyString(profile?.balanceQueryField) &&
     !hasNonEmptyString(profile?.cachedModels) &&
     !Number(profile?.modelCount || 0) &&
+    !Boolean(profile?.multiKeyEnabled) &&
     !hasNonEmptyRecord(profile?.apiKeyGroups)
   );
 }
@@ -278,6 +279,7 @@ function hasMeaningfulAccessProfiles(profiles: unknown) {
       hasNonEmptyString(profile.balanceQueryField) ||
       hasNonEmptyString(profile.cachedModels) ||
       Number(profile.modelCount || 0) > 0 ||
+      Boolean(profile.multiKeyEnabled) ||
       hasNonEmptyRecord(profile.apiKeyGroups)
     );
   });

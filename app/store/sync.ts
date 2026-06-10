@@ -453,6 +453,52 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
   }
 }
 
+function countNonEmptyString(value: unknown) {
+  return String(value || "").trim() ? 1 : 0;
+}
+
+function countNonEmptyGroupKeys(groups: unknown) {
+  if (!groups || typeof groups !== "object" || Array.isArray(groups)) {
+    return 0;
+  }
+
+  return Object.values(groups as Record<string, unknown>).filter((value) =>
+    String(value || "").trim(),
+  ).length;
+}
+
+function logAccessProfileSyncDetails(state: any, stepLabel: string) {
+  const profiles = Array.isArray(state?.apiProfiles) ? state.apiProfiles : [];
+
+  syncConsole(
+    "log",
+    `[Sync] 📋 [${stepLabel}] API配置明细：共 ${profiles.length} 个配置`,
+  );
+
+  profiles.forEach((profile: any, index: number) => {
+    const multiKeyEnabled = Boolean(profile?.multiKeyEnabled);
+    const normalKeyCount = countNonEmptyString(profile?.apiKey);
+    const groupKeyCount = multiKeyEnabled
+      ? countNonEmptyGroupKeys(profile?.apiKeyGroups)
+      : 0;
+    const requestKeyCount = multiKeyEnabled
+      ? groupKeyCount + normalKeyCount
+      : normalKeyCount;
+    const profileName = String(
+      profile?.name || profile?.id || `配置${index + 1}`,
+    );
+
+    syncConsole(
+      "log",
+      `[Sync]   ${
+        index + 1
+      }. ${profileName} | key数量：${requestKeyCount} | 是否多key：${
+        multiKeyEnabled ? "是" : "否"
+      }`,
+    );
+  });
+}
+
 function getChatStoreSummary(state: any) {
   const totalCount = Array.isArray(state?.sessions) ? state.sessions.length : 0;
   const syncableCount = buildChatIndexPayload(state || {}).sessions.length;
@@ -3345,6 +3391,9 @@ export const useSyncStore = createPersistStore(
                     );
                   }
                   const localStoreState = localAppStateCache[key];
+                  if (key === StoreKey.Access) {
+                    logAccessProfileSyncDetails(localStoreState, stepLabel);
+                  }
 
                   if (
                     !options?.force &&

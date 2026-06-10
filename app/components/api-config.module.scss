@@ -358,8 +358,8 @@
 .profileTableHeader,
 .profileRow {
   display: grid;
-  /* 使用 fr 实现自适应，平台:名称:BaseUrl:ApiKey:兼容:操作 */
-  grid-template-columns: 1fr 1.5fr 1.5fr 3fr 1fr 1fr;
+  /* 使用 fr 实现自适应，平台:名称:BaseUrl:ApiKey:兼容:多Key:操作 */
+  grid-template-columns: 1fr 1.4fr 1.5fr 2.6fr 0.9fr 0.9fr 1fr;
   column-gap: 12px;
   align-items: center;
   padding: 12px;
@@ -384,8 +384,11 @@
 .profileColCompatible {
   grid-column: 5;
 }
-.profileColActions {
+.profileColMultiKey {
   grid-column: 6;
+}
+.profileColActions {
+  grid-column: 7;
 }
 
 .profileTableHeader {
@@ -432,6 +435,7 @@
 }
 
 .profileColCompatible,
+.profileColMultiKey,
 .profileColActions {
   justify-content: center !important;
   text-align: center !important;
@@ -569,7 +573,7 @@
   box-shadow: var(--card-shadow);
   background-color: var(--white);
   border-radius: 12px;
-  width: min(640px, calc(100vw - 32px));
+  width: min(760px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   min-width: 0 !important;
   overflow: hidden;
@@ -605,6 +609,77 @@
   gap: 4px;
   width: 100%;
   justify-items: stretch;
+}
+
+.profileYutoKeyHeader {
+  display: flex;
+  align-items: center;
+  width: 100%;
+
+  .profileCellLabel {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+.profileYutoInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+
+  .textInput {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.profileYutoOrderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.profileYutoOrderButton {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, var(--white));
+  color: var(--black);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  position: relative;
+  padding: 0;
+  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--primary);
+    color: var(--white);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+
+  &::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-1px) rotate(45deg);
+  }
+}
+
+.profileYutoOrderButtonUp::before {
+  transform: translateY(1px) rotate(225deg);
 }
 
 .profileYutoKeyInner {
@@ -846,6 +921,7 @@
   .profileColBaseUrl,
   .profileColApiKey,
   .profileColCompatible,
+  .profileColMultiKey,
   .profileColActions {
     grid-column: auto;
     min-width: 0;
@@ -861,18 +937,21 @@
   }
 
   .profileColCompatible,
+  .profileColMultiKey,
   .profileColActions {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .profileRow {
     .profileColCompatible,
+    .profileColMultiKey,
     .profileColActions {
       width: 100%;
     }
   }
 
-  .profileColCompatible {
+  .profileColCompatible,
+  .profileColMultiKey {
     display: inline-grid;
   }
 
@@ -880,8 +959,12 @@
     grid-column: 1 / 2;
   }
 
+  .profileColMultiKey {
+    grid-column: 2 / 3;
+  }
+
   .profileColActions {
-    grid-column: 2 / 4;
+    grid-column: 3 / 4;
     align-self: end;
   }
 
@@ -890,12 +973,14 @@
   }
 
   .profileColCompatible .profileCellLabel,
+  .profileColMultiKey .profileCellLabel,
   .profileColActions .profileCellLabel {
     margin-bottom: 4px;
     text-align: center;
   }
 
-  .profileColCompatible .profileCellLabel {
+  .profileColCompatible .profileCellLabel,
+  .profileColMultiKey .profileCellLabel {
     width: max-content;
     max-width: none;
     justify-self: center;
