@@ -167,6 +167,50 @@ ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_Next
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ```
 
+### 5.1 低内存构建注意事项
+
+当前服务器内存约 3.6GiB，默认 swap 为 `/www/swap` 1GiB。Next.js 生产构建在 `Creating an optimized production build ...` 和 `Checking validity of types ...` 阶段可能占用较高内存；如果同时有其他项目构建，可能触发 OOM killer，杀掉 `mysqld`、`BT-Panel` 或构建相关进程。
+
+2026-06-11 部署时曾出现以下现象：
+
+- `yarn build` 编译阶段内存和 swap 接近耗尽；
+- `dmesg -T` 出现 `Out of memory: Killed process ... mysqld`；
+- 第一次部署未启动容器，后续加临时 swap 后构建继续完成；
+- 最终实际失败点是 TypeScript 类型错误，不是 OOM，但 OOM 会掩盖真实构建错误。
+
+排查命令：
+
+```bash
+ssh ss 'free -h && swapon --show && (dmesg -T 2>/dev/null || true) | grep -Ei "out of memory|killed process" | tail -20'
+ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -160'
+ssh ss 'tail -160 /tmp/nextchat-baota-deploy.log'
+```
+
+如果构建阶段 swap 即将耗尽，可以临时增加 swap 后继续观察：
+
+```bash
+ssh ss 'bash -s' <<'REMOTE'
+set -euo pipefail
+SWAP=/www/nextchat-build.swap
+if ! swapon --show=NAME --noheadings | grep -qx "$SWAP"; then
+  fallocate -l 4G "$SWAP" || dd if=/dev/zero of="$SWAP" bs=1M count=4096 status=progress
+  chmod 600 "$SWAP"
+  mkswap "$SWAP"
+  swapon "$SWAP"
+fi
+swapon --show
+free -h
+REMOTE
+```
+
+部署完成并确认容器健康后，先停用临时 swap：
+
+```bash
+ssh ss 'swapoff /www/nextchat-build.swap 2>/dev/null || true; swapon --show; free -h'
+```
+
+注意：不要自动删除 `/www/nextchat-build.swap`。如需释放磁盘空间，先确认当前没有构建任务且服务稳定，再手动删除该文件。
+
 如果只更新环境变量或宝塔 Compose 配置，不重建镜像：
 
 ```bash

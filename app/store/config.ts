@@ -304,6 +304,23 @@ export const DEFAULT_CONFIG = {
 
 export type ChatConfig = typeof DEFAULT_CONFIG;
 
+type AppConfigMethods = {
+  reset: () => void;
+  mergeModels: (
+    newModels: LLMModel[],
+    options?: {
+      silent?: boolean;
+      allowedProviderIds?: string[];
+      skipMarkUpdate?: boolean;
+      diffBaseModels?: LLMModel[];
+    },
+  ) => void;
+  allModels: () => void;
+  getSidebarWidth: () => number;
+  setSidebarWidth: () => void;
+  setTheme: (theme: Theme) => void;
+};
+
 export type ModelConfig = ChatConfig["modelConfig"];
 export type TTSConfig = ChatConfig["ttsConfig"];
 export type RealtimeConfig = ChatConfig["realtimeConfig"];
@@ -406,7 +423,7 @@ export const ModalConfigValidator = {
   },
 };
 
-export const useAppConfig = createPersistStore(
+export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
   { ...DEFAULT_CONFIG },
   (set, get) => ({
     reset() {
@@ -624,7 +641,7 @@ export const useAppConfig = createPersistStore(
     partialize(state) {
       const { models, ...persistedState } = state as ChatConfig;
       void models;
-      return persistedState as ChatConfig;
+      return persistedState as any;
     },
 
     merge(persistedState, currentState) {

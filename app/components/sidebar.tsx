@@ -558,7 +558,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.setTheme(Theme.Dark);
+                        config.update((config) => (config.theme = Theme.Dark));
                         setShowThemeSelector(false);
                       }}
                     >
@@ -568,7 +568,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.setTheme(Theme.Light);
+                        config.update((config) => (config.theme = Theme.Light));
                         setShowThemeSelector(false);
                       }}
                     >
@@ -578,7 +578,7 @@ export function SideBar(props: { className?: string }) {
                     <div
                       className={styles["theme-option"]}
                       onClick={() => {
-                        config.setTheme(Theme.Auto);
+                        config.update((config) => (config.theme = Theme.Auto));
                         setShowThemeSelector(false);
                       }}
                     >
