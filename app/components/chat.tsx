@@ -4004,7 +4004,6 @@ function _Chat() {
   }, [
     isMobileScreen,
     renderMessages.length,
-    scrollDomToBottom,
     scrollRef,
     setAutoScroll,
     setHitBottom,
