@@ -134,8 +134,8 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
       modelName === "zhipu"
     ) {
       LlmIcon = BotIconChatglm;
-    } else if (modelName === "other") {
-      LlmIcon = BotIconOpenAI;
+    } else if (modelName === "other" || modelName === "已添加") {
+      LlmIcon = BotIconDefault;
     } else if (
       modelName === "microsoft" ||
       modelName === "nvidia" ||

@@ -224,7 +224,6 @@ export async function syncProfileModels(
           item.id === profileId
             ? {
                 ...item,
-                cachedModels: fetchedModels,
                 modelCount: result.total,
               }
             : item,

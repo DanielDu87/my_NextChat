@@ -66,6 +66,17 @@ function normalizeChatStorePayload(payload: unknown) {
   return unwrapped;
 }
 
+function stripPersistedConfigModelFields(payload: unknown) {
+  const unwrapped = unwrapPersistedStoreState(payload);
+  if (!unwrapped || typeof unwrapped !== "object" || Array.isArray(unwrapped)) {
+    return payload;
+  }
+
+  const { models, ...state } = unwrapped as Record<string, unknown>;
+  void models;
+  return buildPersistedStoreState(StoreKey.Config, state);
+}
+
 function mergeAccessProfilesIntoPayload(payload: unknown, profiles: unknown[]) {
   if (
     !payload ||
@@ -221,7 +232,9 @@ export async function getStoreSnapshot(
   const settingsPayload = await getAppSettingsStore(userId, storeKey);
   if (settingsPayload !== undefined) {
     if (storeKey !== StoreKey.Access) {
-      return settingsPayload;
+      return storeKey === StoreKey.Config
+        ? stripPersistedConfigModelFields(settingsPayload)
+        : settingsPayload;
     }
 
     const secretPayload = await getEncryptedSyncSecret({
@@ -237,7 +250,9 @@ export async function getStoreSnapshot(
   }
 
   if (storeKey !== StoreKey.Access) {
-    return payload;
+    return storeKey === StoreKey.Config
+      ? stripPersistedConfigModelFields(payload)
+      : payload;
   }
 
   const secretPayload = await getEncryptedSyncSecret({
@@ -538,6 +553,10 @@ export async function setStoreSnapshot(
       await syncAppSettingsStore(userId, storeKey, nextPayload, runQuery);
     });
     return;
+  }
+
+  if (storeKey === StoreKey.Config) {
+    nextPayload = stripPersistedConfigModelFields(payload);
   }
 
   await syncAppSettingsStore(userId, storeKey, nextPayload);

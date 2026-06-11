@@ -3,8 +3,6 @@ import {
   setFullChatStateSnapshot,
   setStoreSnapshot,
 } from "../app/utils/server/sync-store-repository";
-import { setLatestModelRefreshState } from "../app/utils/server/model-refresh-state-repository";
-import { setModelSourceIndexSnapshot } from "../app/utils/server/model-source-index-repository";
 
 type LegacyRow = {
   user_id?: string | null;
@@ -101,14 +99,14 @@ async function main() {
       row.artifact_type === "provider_model_refresh" &&
       row.artifact_path === "latest"
     ) {
-      await setLatestModelRefreshState(userId, row.payload_json);
-      migrated.model_refresh = (migrated.model_refresh || 0) + 1;
+      migrated.skipped_model_refresh =
+        (migrated.skipped_model_refresh || 0) + 1;
       continue;
     }
 
     if (row.artifact_type === "models_index") {
-      await setModelSourceIndexSnapshot(row.artifact_path, row.payload_json);
-      migrated.models_index = (migrated.models_index || 0) + 1;
+      migrated.skipped_models_index =
+        (migrated.skipped_models_index || 0) + 1;
       continue;
     }
 

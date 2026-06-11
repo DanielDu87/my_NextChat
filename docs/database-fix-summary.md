@@ -161,9 +161,9 @@ crontab -e
 
 ## 相关文档
 
-- [数据库故障排查指南](./baota-database-troubleshooting.md)
-- [部署注意事项](./baota-deploy-checklist-updated.md)
-- [快速参考指南](./baota-quick-reference.md)
+- [宝塔当前线上说明](../README_BAOTA.md)
+- [宝塔详细 Runbook](./baota-chat-dyxcloud-runbook.md)
+- [宝塔 Docker 指南](./baota-docker-guide.md)
 
 ## 技术细节
 

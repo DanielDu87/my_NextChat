@@ -621,6 +621,11 @@ export const useAppConfig = createPersistStore(
   {
     name: StoreKey.Config,
     version: 4.6,
+    partialize(state) {
+      const { models, ...persistedState } = state as ChatConfig;
+      void models;
+      return persistedState as ChatConfig;
+    },
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -632,17 +637,6 @@ export const useAppConfig = createPersistStore(
           sidebarWidth: readSidebarWidthFromLocalStorage(),
         } as typeof currentState;
       }
-      const models = currentState.models.slice();
-      hydrateModelsForStore(state.models || []).forEach((pModel) => {
-        const idx = models.findIndex(
-          (v) =>
-            v.name === pModel.name &&
-            normalizeModelProviderId(v.provider.id) ===
-              normalizeModelProviderId(pModel.provider.id),
-        );
-        if (idx !== -1) models[idx] = pModel;
-        else models.push(pModel);
-      });
       return {
         ...currentState,
         ...state,
@@ -653,7 +647,7 @@ export const useAppConfig = createPersistStore(
             ...state.modelConfig,
           }),
         ),
-        models: hydrateModelsForStore(models),
+        models: currentState.models,
         theme: state.theme ?? readThemeFromLocalStorage(),
         tightBorder: hasStoredTightBorderPreference()
           ? readTightBorderFromLocalStorage()

@@ -462,7 +462,7 @@ export function SideBar(props: { className?: string }) {
     <SideBarContainer {...props}>
       <SideBarHeader
         title="NextChat"
-        subTitle="Build your own AI assistant."
+        subTitle="让AI陪你解答，让我陪你生活。"
         logo={<NextChatBrandIcon />}
         onHeaderClick={() => {
           window.dispatchEvent(new Event(CHAT_LIST_SCROLL_TO_TOP_EVENT));

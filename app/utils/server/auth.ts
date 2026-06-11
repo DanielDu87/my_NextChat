@@ -20,7 +20,10 @@ const AUTH_BYPASS_ENABLED =
 
 declare global {
   var __nextchatAuthSchemaReady: Promise<void> | undefined;
+  var __nextchatAuthSchemaVersion: string | undefined;
 }
+
+const AUTH_SCHEMA_VERSION = "2026-06-11-auth-last-chat";
 
 export type AuthRole = "admin" | "user";
 
@@ -31,7 +34,7 @@ export type AuthUser = {
   displayName: string;
   role: AuthRole;
   isActive: boolean;
-  lastLoginAt: string | null;
+  lastChatAt: string | null;
 };
 
 export type AuthContext = {
@@ -63,7 +66,7 @@ type AuthUserRow = {
   display_name: string | null;
   role: string | null;
   is_active: boolean | null;
-  last_login_at: string | null;
+  last_chat_at: string | null;
 };
 
 type SessionRow = AuthUserRow & {
@@ -117,7 +120,7 @@ function buildAuthUser(row: AuthUserRow): AuthUser {
     displayName: String(row.display_name || row.username || ""),
     role: row.role === "admin" ? "admin" : "user",
     isActive: row.is_active !== false,
-    lastLoginAt: row.last_login_at ?? null,
+    lastChatAt: row.last_chat_at ?? null,
   };
 }
 
@@ -181,7 +184,7 @@ async function getUserById(userId: string) {
        display_name,
        role,
        is_active,
-       last_login_at::text as last_login_at
+       last_chat_at::text as last_chat_at
      from app_users
      where id = $1::uuid
        and username is not null
@@ -204,10 +207,10 @@ async function getDefaultAdminUser() {
        display_name,
        role,
        is_active,
-       last_login_at::text as last_login_at
-     from app_users
-     where lower(username) = $1
-       and is_active = true
+        last_chat_at::text as last_chat_at
+      from app_users
+      where lower(username) = $1
+        and is_active = true
      limit 1`,
     [DEFAULT_ADMIN_USERNAME.toLowerCase()],
   );
@@ -228,9 +231,9 @@ async function getSessionUser(sessionToken: string) {
        u.username,
        u.display_name,
        u.role,
-       u.is_active,
-       u.last_login_at::text as last_login_at,
-       s.expires_at::text as expires_at
+        u.is_active,
+        u.last_chat_at::text as last_chat_at,
+        s.expires_at::text as expires_at
      from auth_sessions s
      join app_users u on u.id = s.user_id
      where s.session_token_hash = $1
@@ -299,6 +302,10 @@ async function ensureDefaultAdminSeeded() {
 }
 
 export async function ensureAuthSchemaAndSeed() {
+  if (globalThis.__nextchatAuthSchemaVersion !== AUTH_SCHEMA_VERSION) {
+    globalThis.__nextchatAuthSchemaReady = undefined;
+  }
+
   if (!globalThis.__nextchatAuthSchemaReady) {
     globalThis.__nextchatAuthSchemaReady = (async () => {
       await ensureSyncStorageSchema();
@@ -317,7 +324,7 @@ export async function ensureAuthSchemaAndSeed() {
       `);
       await pgQuery(`
         alter table app_users
-        add column if not exists last_login_at timestamptz
+        add column if not exists last_chat_at timestamptz
       `);
       await pgQuery(`
         create unique index if not exists idx_app_users_username_unique
@@ -352,8 +359,10 @@ export async function ensureAuthSchemaAndSeed() {
         delete from auth_sessions
         where expires_at <= now()
       `);
+      globalThis.__nextchatAuthSchemaVersion = AUTH_SCHEMA_VERSION;
     })().catch((error) => {
       globalThis.__nextchatAuthSchemaReady = undefined;
+      globalThis.__nextchatAuthSchemaVersion = undefined;
       throw error;
     });
   }
@@ -397,12 +406,12 @@ export async function authenticateUser(username: string, password: string) {
        id::text as id,
        external_id,
        username,
-       password_hash,
-       display_name,
-       role,
-       is_active,
-       last_login_at::text as last_login_at
-     from app_users
+        password_hash,
+        display_name,
+        role,
+        is_active,
+        last_chat_at::text as last_chat_at
+      from app_users
      where lower(username) = $1
      limit 1`,
     [normalizedUsername],
@@ -417,18 +426,7 @@ export async function authenticateUser(username: string, password: string) {
     return null;
   }
 
-  await pgQuery(
-    `update app_users
-     set last_login_at = now(),
-         updated_at = now()
-     where id = $1::uuid`,
-    [row.id],
-  );
-
-  return buildAuthUser({
-    ...row,
-    last_login_at: new Date().toISOString(),
-  });
+  return buildAuthUser(row);
 }
 
 export async function createAuthSession(userId: string) {
@@ -556,8 +554,8 @@ export async function listManagedUsers() {
        u.display_name,
        u.role,
        u.is_active,
-       u.last_login_at::text as last_login_at,
-       u.created_at::text as created_at,
+        u.last_chat_at::text as last_chat_at,
+        u.created_at::text as created_at,
        coalesce(c.conversation_count, 0)::text as conversation_count,
        c.last_conversation_at::text as last_conversation_at
      from app_users u
@@ -701,14 +699,14 @@ export async function createManagedUser(params: {
        $5,
        true
      )
-     returning
-       id::text as id,
-       external_id,
-       username,
-       display_name,
-       role,
-       is_active,
-       last_login_at::text as last_login_at`,
+      returning
+        id::text as id,
+        external_id,
+        username,
+        display_name,
+        role,
+        is_active,
+        last_chat_at::text as last_chat_at`,
     [
       normalizeExternalId(username),
       username,
@@ -748,13 +746,13 @@ export async function deleteManagedUser(params: {
        external_id,
        username,
        display_name,
-       role,
-       is_active,
-       last_login_at::text as last_login_at
-     from app_users
-     where id = $1::uuid
-       and username is not null
-     limit 1`,
+        role,
+        is_active,
+        last_chat_at::text as last_chat_at
+      from app_users
+      where id = $1::uuid
+        and username is not null
+      limit 1`,
     [userId],
   );
 
@@ -845,14 +843,14 @@ export async function updateManagedUser(params: {
     `update app_users
         set ${sets.join(", ")}
       where id = $${idx}::uuid
-      returning
-        id::text as id,
-        external_id,
-        username,
-        display_name,
-        role,
-        is_active,
-        last_login_at::text as last_login_at`,
+       returning
+         id::text as id,
+         external_id,
+         username,
+         display_name,
+         role,
+         is_active,
+         last_chat_at::text as last_chat_at`,
     values,
   );
 

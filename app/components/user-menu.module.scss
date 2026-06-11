@@ -5,7 +5,7 @@
   min-width: 0;
   padding: 6px 10px;
   border-radius: 12px;
-  border: 1px solid var(--border-in-light);
+  border: var(--border-in-light);
   background: var(--white);
   cursor: pointer;
   box-shadow: var(--card-shadow);
@@ -224,7 +224,7 @@
 .manageListItem {
   margin-bottom: 6px;
   display: block;
-  border: 1px solid var(--border-in-light);
+  border: var(--border-in-light);
   border-radius: 12px;
   background: var(--hover-color);
   box-shadow: none;
@@ -480,6 +480,14 @@
 
   .chatFloatingValue {
     font-size: 12px;
+  }
+
+  :global(body.light) .chatFloatingTrigger,
+  :global(.light) .chatFloatingTrigger,
+  :global(body:not(.dark)) .chatFloatingTrigger {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
   }
 }
 

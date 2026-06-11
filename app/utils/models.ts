@@ -116,7 +116,7 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
 /**
  * 通过模型名称前缀推断供应商
  */
-function inferVendorFromModelName(
+export function inferVendorFromModelName(
   modelName: string,
 ): { name: string; icon?: string } | null {
   const lowerName = modelName.toLowerCase();
@@ -129,8 +129,13 @@ function inferVendorFromModelName(
   if (
     lowerName.startsWith("gpt-") ||
     lowerName.startsWith("chatgpt-") ||
+    lowerName.startsWith("dall-e-") ||
+    lowerName.startsWith("dalle-") ||
+    lowerName.startsWith("tts-") ||
+    lowerName.startsWith("whisper-") ||
     lowerName.startsWith("o1-") ||
-    lowerName.startsWith("o3-")
+    lowerName.startsWith("o3-") ||
+    lowerName.startsWith("o4-")
   ) {
     return { name: "OpenAI", icon: "OpenAI" };
   }
@@ -139,7 +144,12 @@ function inferVendorFromModelName(
     return { name: "Anthropic", icon: "Claude.Color" };
   }
   // Google Gemini
-  if (lowerName.startsWith("gemini-") || lowerName.startsWith("pregenie-")) {
+  if (
+    lowerName.startsWith("gemini-") ||
+    lowerName.startsWith("pregenie-") ||
+    lowerName.startsWith("veo-") ||
+    lowerName.startsWith("imagen-")
+  ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
   // DeepSeek
@@ -175,7 +185,11 @@ function inferVendorFromModelName(
     return { name: "Zhipu", icon: "Zhipu.Color" };
   }
   // Meta Llama
-  if (lowerName.startsWith("llama-") || lowerName.startsWith("llama3")) {
+  if (
+    lowerName.startsWith("llama-") ||
+    lowerName.startsWith("llama3") ||
+    lowerName.startsWith("nemotron-")
+  ) {
     return { name: "Meta", icon: "Ollama" };
   }
   // Mistral
@@ -188,6 +202,13 @@ function inferVendorFromModelName(
   }
 
   return null;
+}
+
+function isGenericVendorName(vendorName?: string) {
+  const normalized = String(vendorName || "")
+    .trim()
+    .toLowerCase();
+  return !normalized || ["custom", "other", "unknown"].includes(normalized);
 }
 
 function inferVendorFromOcoolaiModel(
@@ -411,8 +432,8 @@ function extractOcoolaiAvailableModels(data: any): any[] {
         Array.isArray(group?.models)
           ? group.models
           : Array.isArray(group?.items)
-          ? group.items
-          : [],
+            ? group.items
+            : [],
       ),
     );
   }
@@ -423,8 +444,8 @@ function extractOcoolaiAvailableModels(data: any): any[] {
         Array.isArray(group?.models)
           ? group.models
           : Array.isArray(group?.items)
-          ? group.items
-          : [],
+            ? group.items
+            : [],
       ),
     );
   }
@@ -572,6 +593,15 @@ function mapModels(
 
     if (catalogMetadata?.vendor) {
       vendor = catalogMetadata.vendor;
+    }
+
+    const inferredVendor = inferVendorFromModelName(String(modelName || ""));
+    if (inferredVendor && isGenericVendorName(vendor?.name)) {
+      vendor = {
+        id: -1,
+        name: inferredVendor.name,
+        icon: inferredVendor.icon,
+      };
     }
 
     if (isAiHubMixBrandedModel) {
@@ -868,8 +898,8 @@ async function fetchJsonWithCandidates(
     options.authorizationCandidates.length > 0
       ? options.authorizationCandidates
       : headers.Authorization
-      ? [headers.Authorization]
-      : [undefined];
+        ? [headers.Authorization]
+        : [undefined];
   const preferredAuthorization = options?.authCacheKey
     ? preferredAuthorizationCache.get(options.authCacheKey)
     : undefined;
@@ -888,14 +918,14 @@ async function fetchJsonWithCandidates(
     const displayBaseUrl =
       typeof candidate === "string"
         ? baseUrl
-        : candidate.displayBaseUrl ?? baseUrl;
+        : (candidate.displayBaseUrl ?? baseUrl);
     const display = fullUrl(url, displayBaseUrl);
     const interfaceLabel =
       typeof candidate === "string"
         ? display
         : candidate.note && candidate.upstreamPath
-        ? `${candidate.note} (${candidate.upstreamPath})`
-        : candidate.upstreamPath || candidate.note || display;
+          ? `${candidate.note} (${candidate.upstreamPath})`
+          : candidate.upstreamPath || candidate.note || display;
 
     for (
       let authIndex = 0;
@@ -1247,6 +1277,7 @@ export async function fetchModelsFromProvider(
           ? `model-fetch:${normalizedBaseUrl}`
           : undefined,
         suppressStatusCodes: [404],
+        logSuccess: !isYutoApiUrl(baseUrl),
         getModelCount: (payload) =>
           extractModelListFromResponse(payload, baseUrl).length,
         validateJson: (payload) =>
@@ -1259,8 +1290,8 @@ export async function fetchModelsFromProvider(
       const candidateUrls = isLocalModelProxyBaseUrl(normalizedProviderBaseUrl)
         ? [apiPath]
         : normalizedProviderBaseUrl
-        ? buildProxyModelFetchCandidates(normalizedProviderBaseUrl)
-        : [apiPath];
+          ? buildProxyModelFetchCandidates(normalizedProviderBaseUrl)
+          : [apiPath];
 
       const nextHeaders = { ...headers };
       if (
@@ -1371,8 +1402,8 @@ export async function fetchModelsFromProvider(
       const candidateUrls = isServerSide()
         ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
         : baseWithoutV1.includes("toapis.com")
-        ? ["/api/toapis/pricing"]
-        : ["/api/yuto/pricing"];
+          ? ["/api/toapis/pricing"]
+          : ["/api/yuto/pricing"];
 
       const fetchKey = apiKey || "";
 
@@ -1385,12 +1416,18 @@ export async function fetchModelsFromProvider(
         fetchHeaders,
         baseUrl,
         {
-          logSuccess: false,
+          logSuccess: true,
           logAttempt: false,
-          logLabel: "定价接口",
+          logLabel: "Yuto 定价接口",
           authCacheKey: `yuto:${normalizedBaseUrl}`,
           suppressCandidateErrors: true,
           suppressStatusCodes: [404],
+          getModelCount: (payload) =>
+            payload?.vendors &&
+            Array.isArray(payload.vendors) &&
+            Array.isArray(payload?.data)
+              ? payload.data.length
+              : 0,
         },
       );
 
@@ -1641,7 +1678,6 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
   // 动态导入store（避免循环依赖）
   const { useAccessStore } = await import("../store/access");
   const { useAppConfig } = await import("../store/config");
-  const { useModelCacheStore } = await import("../store/model-cache");
   const accessStore = useAccessStore.getState();
   const configStore = useAppConfig.getState() as any;
 
@@ -1650,26 +1686,15 @@ export async function updateModelsInStore(models: LLMModel[]): Promise<string> {
 
   // 当前启用平台的可用模型只跟随本次真实获取结果，不再叠加历史缓存。
   accessStore.update((state) => {
-    state.customModels = modelsString;
     state.apiProfiles = (state.apiProfiles || []).map((profile) =>
       profile.enabled
         ? {
             ...profile,
-            cachedModels: modelsString,
             modelCount: models.length,
           }
         : profile,
     );
   });
-  const enabledProfile = useAccessStore
-    .getState()
-    .apiProfiles.find((profile) => profile.enabled);
-  if (enabledProfile) {
-    useModelCacheStore.getState().upsertProfileCache(enabledProfile.id, {
-      cachedModels: modelsString,
-      modelCount: models.length,
-    });
-  }
   const latestAccessState = useAccessStore.getState();
   writeAccessSnapshot({
     useCustomConfig: latestAccessState.useCustomConfig,

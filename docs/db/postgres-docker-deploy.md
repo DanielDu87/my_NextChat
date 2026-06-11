@@ -65,15 +65,24 @@ SSH_TUNNEL_LOCAL_PORT=5432
 
 这里的 `postgres-ssh-tunnel` 是 compose 服务名，不是外部主机名。
 
-## 3. 模型目录同步
+## 3. 模型目录同步（v4 优化后）
 
-模型目录同步直接写入 PostgreSQL：
+模型目录同步在 v4 优化（2026-06-11）后**不再写 `model_catalog`**，全部收敛到 `app_settings` JSONB：
+
+- `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
+- `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
+- `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+
+历史脚本 `yarn db:sync-models` 已改为 no-op（仅输出 `skipped: true`），因为 `provider-model-sync.ts` 在拉取时已经把模型数据合并到 `access-control` JSONB，无需额外落盘。
+
+如果需要重新触发一次模型刷新：
 
 ```bash
-yarn db:sync-models
+yarn db:refresh-provider-models
+# 或
+curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
+  -H "Authorization: Bearer $MODEL_SYNC_TOKEN"
 ```
-
-脚本会把模型目录同步进 `model_catalog`。
 
 ## 4. 健康检查
 
@@ -92,15 +101,17 @@ curl http://127.0.0.1:3000/api/db/health
 - `postgres.user`
 - `postgres.configuredHost`
 - `postgres.configuredPort`
-- `modelCatalogCount`
+- `schemaVersion`（v4 优化后输出，例：`2026-06-11-sync-storage-v4`）
+- ~~`modelCatalogCount`~~（v4 优化后已移除；模型计数请改读 `app_settings.security_settings -> 'access-control' -> apiProfiles[*].cachedModels.length`）
 
 ## 5. 迁移顺序建议
 
 不要一次性把前端本地存储全部硬切到数据库，建议按这个顺序：
 
-1. `model_catalog / model_sync_* / app_settings(model_settings)`
-2. `provider_configs / provider_api_keys`
-3. `conversations / messages / message_attachments`
-4. `app_settings(extra/plugin/sync/security) / auth_* / usage_logs / audit_logs`
+1. `app_settings(chat/plugin/security/extra) / provider_configs / provider_api_keys`（结构化云端）
+2. `conversations / messages`
+3. `sync_secrets / auth_sessions / site_access_settings`
+4. ~~`model_catalog / model_sync_runs`~~（v4 已下线）
+5. ~~`message_attachments / tags / share_links / model_aliases`~~（历史表已下线）
 
 这样可以先迁移服务端只读和后台数据，再迁移聊天主链路。

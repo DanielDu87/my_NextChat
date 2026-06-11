@@ -37,20 +37,23 @@ curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
   - `provider_api_keys`
   - `sync_secrets`
 - 仅处理已配置 `baseUrl + apiKey` 的 profile
-- 自动更新实现采用“注册表 + 默认兼容策略”
+- 自动更新实现采用"注册表 + 默认兼容策略"
   - 已知供应商走固定 preset
   - 新增供应商如果提供 OpenAI 兼容 `/models` 或 `/pricing` 接口，不需要改同步主流程
   - 只要出现在 `apiProfiles` 里，就会被自动纳入刷新任务
 - 只有当新供应商的模型列表接口完全不兼容现有候选路径时，才需要补一个新的 fetch adapter
-- 拉取后会更新：
-  - PostgreSQL `model_catalog`
-  - PostgreSQL `model_sync_runs`
-  - PostgreSQL `app_settings.model_settings` 中的 `app-config`
-  - PostgreSQL `app_settings.model_settings` 中的 `model-cache-store`
+- 拉取后会更新（**v4 优化后**）：
+  - PostgreSQL `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
+  - PostgreSQL `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
+  - PostgreSQL `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+  - ~~`model_catalog`~~（v4 已下线）
+  - ~~`model_sync_runs`~~（v4 已下线）
 
 ## 结果
 
 - 页面不会在加载时直接请求供应商接口
 - 本地只做版本检查
-- 供应商模型变化会先进入 PostgreSQL
+- 供应商模型变化会先进入 PostgreSQL 的 `app_settings` JSONB 列
 - 页面下次检查到版本变化时，再按需同步到本地
+
+> **历史变更**：v4 优化（2026-06-11）之前，模型数据还会写入 `model_catalog` / `model_sync_runs` 两张表，并产生 `user_model_refresh_states` 状态表。v4 优化已将这些表全部下线（DDL 已从 `nextchat-postgres-schema.sql` 移除，repository/API 路由全部删除），全部数据收敛到 `app_settings` JSONB 中。

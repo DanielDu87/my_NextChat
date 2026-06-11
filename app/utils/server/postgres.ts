@@ -21,7 +21,10 @@ type PostgresEnv = {
 declare global {
   var __nextchatPostgresPool: Pool | undefined;
   var __nextchatSyncStorageSchemaReady: Promise<void> | undefined;
+  var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
+
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-11-sync-storage-v4";
 
 function isRetryablePostgresError(error: unknown) {
   const message =
@@ -202,6 +205,13 @@ export async function closePostgresPool() {
 }
 
 export async function ensureSyncStorageSchema() {
+  if (
+    globalThis.__nextchatSyncStorageSchemaVersion !==
+    SYNC_STORAGE_SCHEMA_VERSION
+  ) {
+    globalThis.__nextchatSyncStorageSchemaReady = undefined;
+  }
+
   if (!globalThis.__nextchatSyncStorageSchemaReady) {
     globalThis.__nextchatSyncStorageSchemaReady = withPgClient(
       async (client) => {
@@ -242,6 +252,14 @@ export async function ensureSyncStorageSchema() {
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         )
+      `);
+        await client.query(`
+        alter table app_users
+        add column if not exists last_chat_at timestamptz
+      `);
+        await client.query(`
+        alter table app_users
+        drop column if exists last_login_at
       `);
         await client.query(`
         create table if not exists provider_configs (
@@ -351,57 +369,51 @@ export async function ensureSyncStorageSchema() {
         add column if not exists external_message_id text
       `);
         await client.query(`
-        create index if not exists idx_messages_conversation_seq
-        on messages(conversation_id, seq asc)
+        alter table messages
+        add column if not exists reasoning_text text
       `);
         await client.query(`
-        create index if not exists idx_provider_configs_user_id
-        on provider_configs(user_id)
+        alter table messages
+        add column if not exists tool_calls jsonb not null default '[]'::jsonb
       `);
         await client.query(`
-        create index if not exists idx_provider_api_keys_provider_config_id
-        on provider_api_keys(provider_config_id)
+        alter table messages
+        add column if not exists metadata_json jsonb not null default '{}'::jsonb
+      `);
+        // 删除与 messages.unique (conversation_id, seq) 完全重复的旧索引
+        // 该 unique 约束自带等价 B-tree 索引，升序/降序差异在 PG 11+ 双向扫描都支持
+        await client.query(`
+        drop index if exists idx_messages_conversation_seq
+      `);
+        // 删除与 provider_configs.unique (user_id, provider_code) 前缀冗余的旧索引
+        // 复合 unique 已可被 where user_id = $1 命中
+        await client.query(`
+        drop index if exists idx_provider_configs_user_id
+      `);
+        // 删除与 provider_api_keys.unique (provider_config_id, key_name) 前缀冗余的旧索引
+        await client.query(`
+        drop index if exists idx_provider_api_keys_provider_config_id
+      `);
+        // provider_configs 补齐历史预留列 api_path / api_format（unify-user-id 脚本依赖）
+        await client.query(`
+        alter table provider_configs
+        add column if not exists api_path text
       `);
         await client.query(`
-        create table if not exists user_model_refresh_states (
-          user_id text not null,
-          refresh_key text not null,
-          payload_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          primary key (user_id, refresh_key)
-        )
+        alter table provider_configs
+        add column if not exists api_format text
+      `);
+        // provider_api_keys 补齐历史预留列 last_verified_at（unify-user-id 脚本依赖）
+        await client.query(`
+        alter table provider_api_keys
+        add column if not exists last_verified_at timestamptz
       `);
         await client.query(`
         drop table if exists user_provider_balance_snapshots
       `);
         await client.query(`
-        alter table user_model_refresh_states
-        alter column user_id type text using user_id::text
-      `);
-        await client.query(`
-        alter table user_model_refresh_states
-        alter column refresh_key type text using refresh_key::text
-      `);
-        await client.query(`
-        alter table user_model_refresh_states
-        alter column payload_json type jsonb using payload_json::jsonb
-      `);
-        await client.query(`
-        alter table user_model_refresh_states
-        alter column payload_json set default '{}'::jsonb
-      `);
-        await client.query(`
-        alter table user_model_refresh_states
-        alter column payload_json set not null
-      `);
-        await client.query(`
         create index if not exists idx_conversations_user_updated
         on conversations(user_id, updated_at desc)
-      `);
-        await client.query(`
-        create index if not exists idx_user_model_refresh_states_user_updated
-        on user_model_refresh_states(user_id, updated_at desc)
       `);
         await client.query(`
         create or replace trigger trg_app_settings_updated_at
@@ -434,11 +446,6 @@ export async function ensureSyncStorageSchema() {
         for each row execute function set_updated_at()
       `);
         await client.query(`
-        create or replace trigger trg_user_model_refresh_states_updated_at
-        before update on user_model_refresh_states
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
         create table if not exists sync_secrets (
           id uuid primary key default generate_uuid_v4(),
           user_id text not null,
@@ -458,9 +465,12 @@ export async function ensureSyncStorageSchema() {
         before update on sync_secrets
         for each row execute function set_updated_at()
       `);
+        globalThis.__nextchatSyncStorageSchemaVersion =
+          SYNC_STORAGE_SCHEMA_VERSION;
       },
     ).catch((error) => {
       globalThis.__nextchatSyncStorageSchemaReady = undefined;
+      globalThis.__nextchatSyncStorageSchemaVersion = undefined;
       if (isRetryablePostgresError(error)) {
         void closePostgresPool().catch(() => {});
       }

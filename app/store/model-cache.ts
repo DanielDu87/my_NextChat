@@ -153,5 +153,11 @@ export const useModelCacheStore = createPersistStore(
   {
     name: StoreKey.ModelCache,
     version: 1,
+    partialize(state) {
+      return {
+        ...state,
+        profiles: {},
+      };
+    },
   },
 );

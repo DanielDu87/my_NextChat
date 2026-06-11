@@ -1584,22 +1584,22 @@
       right: 75px;
       top: 50%;
       transform: translateY(-50%) translateY(2px);
-      width: 28px;
-      height: 28px;
+      width: 24px;
+      height: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #2563eb;
-      flex: 0 0 28px;
+      flex: 0 0 24px;
       filter: none;
 
       svg {
-        width: 34px;
-        height: 34px;
+        width: 24px;
+        height: 24px;
         display: block;
         overflow: visible;
         stroke: currentColor;
-        transform: translate(4px, 10px) scale(1.35);
+        transform: translate(0, 0) scale(1);
         transform-origin: center;
       }
 
@@ -2861,9 +2861,9 @@
   }
 
   .selector .list .selector-item-selected {
-    width: 24px !important;
-    height: 24px !important;
-    flex: 0 0 24px !important;
+    width: 20px !important;
+    height: 20px !important;
+    flex: 0 0 20px !important;
     right: 42px !important;
 
     svg {

@@ -6,6 +6,7 @@ import EyeIcon from "../icons/eye.svg";
 import EyeOffIcon from "../icons/eye-off.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
+import SelectorCheckIcon from "../icons/selector-check.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
@@ -666,6 +667,7 @@ export function Selector<T>(props: {
     match: (item: SelectorItemBase<T>) => boolean;
   }>;
   extraGroups?: string[];
+  hiddenGroupFilterOptions?: string[];
   defaultGroup?: string;
   title?: React.ReactNode;
   className?: string;
@@ -898,7 +900,19 @@ export function Selector<T>(props: {
       ),
     ];
   }, [props.extraGroups, props.items]);
-  const groupFilterOptions = ["All", ...availableGroups];
+  const hiddenGroupFilterOptions = useMemo(
+    () =>
+      new Set(
+        (props.hiddenGroupFilterOptions ?? [])
+          .map((group) => group.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    [props.hiddenGroupFilterOptions],
+  );
+  const groupFilterOptions = ["All", ...availableGroups].filter((group) => {
+    if (group === "All") return true;
+    return !hiddenGroupFilterOptions.has(group.trim().toLowerCase());
+  });
   const getGroupFilterLabel = (group: string) => {
     if (group === "All") return "全部模型商";
     if (group === "AihubMix") return "AihubMix";
@@ -928,7 +942,12 @@ export function Selector<T>(props: {
   };
   const renderGroupFilterIcon = (group: string) => {
     if (group === "All") return null;
-    if (group === "自定义模型" || group === "Custom") {
+    if (
+      group === "自定义模型" ||
+      group === "Custom" ||
+      group === "已添加" ||
+      group === "Other"
+    ) {
       return (
         <span className={styles["selector-group-filter-icon-custom-wrap"]}>
           <BotIconDefault
@@ -936,17 +955,6 @@ export function Selector<T>(props: {
               styles["selector-group-filter-icon-image"],
               styles["selector-group-filter-icon-image-custom"],
             )}
-          />
-        </span>
-      );
-    }
-    if (group === "Other") {
-      return (
-        <span className={styles["selector-group-filter-icon-frame"]}>
-          <img
-            className={styles["selector-group-filter-icon-image"]}
-            src="/provider-icons/openai.png"
-            alt="Other icon"
           />
         </span>
       );
@@ -1426,7 +1434,7 @@ export function Selector<T>(props: {
                             !selected && !item.disable,
                         })}
                       >
-                        <ConfirmIcon />
+                        <SelectorCheckIcon />
                       </div>
                       {item.rightAction ? (
                         <button
@@ -1503,7 +1511,7 @@ export function Selector<T>(props: {
                         <div className={styles["selector-item-actions"]}>
                           {selected || item.disable ? (
                             <div className={styles["selector-item-selected"]}>
-                              <ConfirmIcon />
+                              <SelectorCheckIcon />
                             </div>
                           ) : null}
                           {item.rightAction ? (

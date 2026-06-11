@@ -194,13 +194,13 @@ PGPASSWORD='YourStrongPassword123!' psql -h 127.0.0.1 -U nextchat_user -d nextch
 
 原因：
 
-- [docker-compose.baota.yml](/Users/dyx/Code/NextChat/docker-compose.baota.yml) 默认把应用固定连接到内部 `postgres` 服务。
+- [docker-compose.baota.yml](../docker-compose.baota.yml) 默认把应用固定连接到内部 `postgres` 服务。
 - 这样部署后，页面会连到一套新的空库，表现为“数据库明明有数据，但页面看不到”。
 
 复用已有外部 PostgreSQL 时，请改用：
 
-- [docker-compose.yml](/Users/dyx/Code/NextChat/docker-compose.yml)
-- [`.env.docker`](/Users/dyx/Code/NextChat/.env.docker)
+- [docker-compose.yml](../docker-compose.yml)
+- [`.env.docker`](../.env.docker)
 - `--profile no-proxy`
 
 示例：

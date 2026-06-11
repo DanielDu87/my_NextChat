@@ -2,9 +2,9 @@
 
 旧的部署说明已经废弃，当前仓库统一使用下面两份文档：
 
-- 中文部署文档：[docs/docker-deploy-cn.md](/Users/dyx/Code/NextChat/docs/docker-deploy-cn.md)
-- 宝塔专项文档：[docs/baota-docker-guide.md](/Users/dyx/Code/NextChat/docs/baota-docker-guide.md)
-- 仓库文档入口：[README.md](/Users/dyx/Code/NextChat/README.md)
+- 中文部署文档：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)
+- 宝塔专项文档：[docs/baota-docker-guide.md](docs/baota-docker-guide.md)
+- 仓库文档入口：[README.md](README.md)
 
 统一规则：
 
@@ -13,7 +13,7 @@
 - 生产直连数据库使用 `--profile no-proxy`
 - 通过跳板机访问数据库时叠加 `--profile ssh-tunnel`
 - 本地开发使用 `--profile dev`
-- 宝塔专用部署文档见 [README_BAOTA.md](/Users/dyx/Code/NextChat/README_BAOTA.md)
+- 宝塔专用部署文档见 [README_BAOTA.md](README_BAOTA.md)
 - `docker-compose.baota.yml` 只用于宝塔专用部署，不参与 `--profile no-proxy`
 
 最常用命令：

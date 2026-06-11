@@ -16,14 +16,14 @@
     - `messages`
     - `app_settings.chat_settings`
   - 其余 store 主要写入：
-    - `app_settings`
+    - `app_settings`（4 个 JSONB 列：`chat_settings / plugin_settings / security_settings / extra_settings`）
     - `provider_configs`
     - `provider_api_keys`
     - `sync_secrets`
-  - 模型目录与运行状态写入：
-    - `model_catalog`
-    - `model_sync_runs`
-    - `user_model_refresh_states`
+  - 模型数据写入（v4 优化后）：
+    - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
+    - `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
+    - `app_settings.extra_settings -> 'model-cache-store'` 的缓存
 - 模型供应商 API
   - 只作为模型数据更新来源
   - 不作为页面运行时直接主数据源
@@ -76,11 +76,11 @@
 
 - 页面加载不直接请求供应商 API
 - 后台脚本或受控接口负责从供应商拉模型
-- 拉取后更新三份云端数据：
-  - `model_catalog`
-  - `app-config` 的模型集合快照
-  - `model-cache-store` 的模型缓存快照
-- `access-control` 只保留 profile 主配置，旧的 `cachedModels` / `modelCount` 字段仅用于兼容历史数据
+- 拉取后更新三份云端数据（**v4 优化后不再写 `model_catalog` / `model_sync_runs`**）：
+  - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
+  - `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
+  - `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+- `access-control` 只保留 profile 主配置，`cachedModels` 是当前模型数据的**唯一**持久化入口
 - 应用启动或直接进入 API 配置页时，会自动把历史 `cachedModels` / `modelCount` 迁移到 `model-cache-store`
 - 前端在页面启动时会自动同步模型缓存到本地，并据此重建模型列表
 
@@ -95,6 +95,4 @@
 - 手动模型刷新接口：`POST /api/db/models/refresh`
 - 若配置了 `MODEL_SYNC_TOKEN`，接口必须带：
   - `Authorization: Bearer <MODEL_SYNC_TOKEN>`
-- 若环境只跑了最小初始化逻辑，而没有执行完整 schema SQL：
-  - 当前运行时初始化已经会自动补齐 `model_catalog`、`model_sync_runs` 等关键表
-  - 但完整 schema SQL 和运行时初始化仍需要保持同步维护
+- 运行时初始化保证：应用启动时 `ensureSyncStorageSchema()` 会自动建表 + 补齐 v4 优化所需的列（`provider_configs.api_path / api_format`、`provider_api_keys.last_verified_at`、`messages.reasoning_text / tool_calls / metadata_json` 等），并清理已下线的 4 张模型表 + 3 个冗余索引。完整 schema SQL 和运行时初始化保持同步维护。

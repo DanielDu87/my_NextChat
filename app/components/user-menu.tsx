@@ -23,7 +23,7 @@ type ManagedUser = {
   displayName: string;
   role: "admin" | "user";
   isActive: boolean;
-  lastLoginAt: string | null;
+  lastChatAt: string | null;
   createdAt?: string | null;
   conversationCount?: number;
   lastConversationAt?: string | null;
@@ -679,7 +679,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                             displayName: effectiveUser.displayName,
                             role: effectiveUser.role,
                             isActive: true,
-                            lastLoginAt: null,
+                            lastChatAt: null,
                           });
                           setShowEditUsernameModal(true);
                         }
@@ -699,7 +699,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                             displayName: effectiveUser.displayName,
                             role: effectiveUser.role,
                             isActive: true,
-                            lastLoginAt: null,
+                            lastChatAt: null,
                           });
                           setShowEditPasswordModal(true);
                         }
@@ -923,7 +923,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                         displayName: effectiveUser.displayName,
                         role: effectiveUser.role,
                         isActive: true,
-                        lastLoginAt: null,
+                        lastChatAt: null,
                       });
                       setShowEditUsernameModal(true);
                     }
@@ -943,7 +943,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                         displayName: effectiveUser.displayName,
                         role: effectiveUser.role,
                         isActive: true,
-                        lastLoginAt: null,
+                        lastChatAt: null,
                       });
                       setShowEditPasswordModal(true);
                     }

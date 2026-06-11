@@ -324,15 +324,25 @@ function inferVendorFromModelName(
   if (
     lowerName.startsWith("gpt-") ||
     lowerName.startsWith("chatgpt-") ||
+    lowerName.startsWith("dall-e-") ||
+    lowerName.startsWith("dalle-") ||
+    lowerName.startsWith("tts-") ||
+    lowerName.startsWith("whisper-") ||
     lowerName.startsWith("o1-") ||
-    lowerName.startsWith("o3-")
+    lowerName.startsWith("o3-") ||
+    lowerName.startsWith("o4-")
   ) {
     return { name: "OpenAI", icon: "OpenAI" };
   }
   if (lowerName.startsWith("claude-")) {
     return { name: "Anthropic", icon: "Claude.Color" };
   }
-  if (lowerName.startsWith("gemini-") || lowerName.startsWith("pregenie-")) {
+  if (
+    lowerName.startsWith("gemini-") ||
+    lowerName.startsWith("pregenie-") ||
+    lowerName.startsWith("veo-") ||
+    lowerName.startsWith("imagen-")
+  ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
   if (lowerName.startsWith("deepseek-")) {
@@ -359,7 +369,11 @@ function inferVendorFromModelName(
   if (lowerName.startsWith("glm-")) {
     return { name: "Zhipu", icon: "Zhipu.Color" };
   }
-  if (lowerName.startsWith("llama-") || lowerName.startsWith("llama3")) {
+  if (
+    lowerName.startsWith("llama-") ||
+    lowerName.startsWith("llama3") ||
+    lowerName.startsWith("nemotron-")
+  ) {
     return { name: "Meta", icon: "Ollama" };
   }
   if (lowerName.startsWith("mistral-") || lowerName.startsWith("mixtral-")) {
@@ -370,6 +384,13 @@ function inferVendorFromModelName(
   }
 
   return null;
+}
+
+function isGenericVendorName(vendorName?: string) {
+  const normalized = String(vendorName || "")
+    .trim()
+    .toLowerCase();
+  return !normalized || ["custom", "other", "unknown"].includes(normalized);
 }
 
 function inferVendorFromOcoolaiModel(
@@ -551,6 +572,15 @@ function mapModels(
 
     if (catalogMetadata?.vendor) {
       vendor = catalogMetadata.vendor;
+    }
+
+    const inferredVendor = inferVendorFromModelName(String(modelName || ""));
+    if (inferredVendor && isGenericVendorName(vendor?.name)) {
+      vendor = {
+        id: -1,
+        name: inferredVendor.name,
+        icon: inferredVendor.icon,
+      };
     }
 
     if (isAiHubMixBrandedModel) {

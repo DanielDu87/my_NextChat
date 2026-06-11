@@ -1,5 +1,20 @@
 # NextChat 当前数据库审计报告
 
+> 历史快照文档，审计基准时间为 2026-06-08。
+> **重要说明（2026-06-11 v4 优化后补记）**：
+>
+> - 本文记录的是 2026-06-08 当时的真实库状态，不代表当前运行时代码的最新 schema。
+> - 2026-06-11 v4 优化已下线以下 4 张表，并从运行时代码和完整 schema SQL 中移除：
+>   - `user_model_refresh_states`
+>   - `model_catalog`
+>   - `model_sync_runs`
+>   - `model_source_index_snapshots`
+> - 同期还删除了 3 个冗余索引：
+>   - `idx_messages_conversation_seq`
+>   - `idx_provider_configs_user_id`
+>   - `idx_provider_api_keys_provider_config_id`
+> - 当前最新 schema 请以 [nextchat-postgres-schema.sql](nextchat-postgres-schema.sql) 和 [postgres.ts](../../app/utils/server/postgres.ts) 为准。
+
 审计时间：2026-06-08 23:46:47 Asia/Shanghai
 
 连接来源：当前运行中的 `nextchat-dev` 容器环境变量。
@@ -25,14 +40,14 @@
 | `provider_api_keys` | 39 | provider API key 的密文、掩码、分组 | `app/utils/server/provider-config-repository.ts:333`、`app/utils/server/provider-config-repository.ts:347` | 核心表；审计时旧同步用户下重复 key 较多 |
 | `site_access_settings` | 1 | 站点访问密码哈希 | `app/utils/server/site-password.ts:58`、`app/utils/server/site-password.ts:102` | 正在使用，不多余 |
 | `sync_secrets` | 2 | 同步用敏感 payload 密文，当前是 `access-control` 类 secret | `app/utils/server/sync-secrets.ts:111`、`app/utils/server/sync-secrets.ts:124` | 正在使用；审计时有一条旧同步用户历史遗留 |
-| `user_model_refresh_states` | 2 | 模型刷新状态快照 | `app/utils/server/model-refresh-state-repository.ts:6`、`app/utils/server/model-refresh-state-repository.ts:22` | 正在使用；审计时有一条旧同步用户历史状态 |
+| `user_model_refresh_states` | 2 | 模型刷新状态快照 | 2026-06-08 审计时存在，2026-06-11 已移除运行时代码 | 历史表，当前已下线 |
 | `message_attachments` | 0 | 设计中的消息附件表 | `app/utils/server/postgres.ts:358` 仅建表 | 空表；当前无写入路径，可视为功能预留 |
 | `tags` | 0 | 设计中的会话标签表 | `app/utils/server/postgres.ts:373` 仅建表；`scripts/unify-user-id.ts` 只迁移 | 空表；当前主流程未使用 |
 | `share_links` | 0 | 设计中的分享链接表 | `app/utils/server/postgres.ts:384` 仅建表；`scripts/unify-user-id.ts` 只迁移 | 空表；当前主流程未使用 |
-| `model_catalog` | 0 | 模型目录规范化缓存 | `app/utils/server/model-catalog-repository.ts:35`、`app/api/db/health/route.ts:13` | 空表但有刷新/健康检查代码；如果不用模型刷新可清理，否则保留 |
+| `model_catalog` | 0 | 模型目录规范化缓存 | 2026-06-08 审计时存在，2026-06-11 已移除运行时代码 | 历史空表，当前已下线 |
 | `model_aliases` | 0 | 模型别名 | `app/utils/server/postgres.ts:429` 仅建表 | 空表；当前无写入代码 |
 | `model_sync_runs` | 0 | 模型刷新任务运行记录 | `app/utils/server/provider-model-sync.ts:224`、`scripts/sync-models-to-postgres.ts:118` | 空表但有刷新代码；不用模型刷新可清理 |
-| `model_source_index_snapshots` | 0 | 模型来源索引快照 | `app/utils/server/model-source-index-repository.ts:9` | 空表但有写入代码；不用模型刷新可清理 |
+| `model_source_index_snapshots` | 0 | 模型来源索引快照 | 2026-06-08 审计时存在，2026-06-11 已移除运行时代码 | 历史空表，当前已下线 |
 | `user_custom_models` | 0 | v2 迁移计划拆出的用户自定义模型表 | `scripts/db-migrate-v2.sql:26` | 空表；当前运行时代码未读写 |
 | `user_model_cache` | 0 | v2 迁移计划拆出的模型缓存表 | `scripts/db-migrate-v2.sql:40` | 空表；当前运行时代码未读写 |
 | `user_plugins` | 0 | v2 迁移计划拆出的插件表 | `scripts/db-migrate-v2.sql:53` | 空表；当前运行时代码未读写 |
@@ -48,7 +63,7 @@
 | 表 | 字段 |
 | --- | --- |
 | `app_settings` | `user_id uuid PK/FK`, `chat_settings jsonb`, `plugin_settings jsonb`, `security_settings jsonb`, `extra_settings jsonb`, `created_at timestamptz`, `updated_at timestamptz` |
-| `app_users` | `id uuid PK`, `external_id text UNIQUE`, `display_name text`, `locale text`, `timezone text`, `is_active boolean`, `created_at timestamptz`, `updated_at timestamptz`, `username text`, `password_hash text`, `role text`, `last_login_at timestamptz` |
+| `app_users` | `id uuid PK`, `external_id text UNIQUE`, `display_name text`, `locale text`, `timezone text`, `is_active boolean`, `created_at timestamptz`, `updated_at timestamptz`, `username text`, `password_hash text`, `role text`, `last_chat_at timestamptz` |
 | `auth_sessions` | `id uuid PK`, `user_id uuid FK`, `session_token_hash text UNIQUE`, `expires_at timestamptz`, `last_seen_at timestamptz`, `created_at timestamptz`, `updated_at timestamptz` |
 | `conversations` | `id uuid PK`, `user_id uuid FK`, `external_session_id text`, `provider_config_id uuid FK`, `title text`, `model_name text`, `provider_name text`, `conversation_type text`, `is_archived boolean`, `is_pinned boolean`, `is_deleted boolean`, `metadata_json jsonb`, `created_at timestamptz`, `updated_at timestamptz`, `sort_order integer`, `last_summarize_index integer` |
 | `messages` | `id uuid PK`, `conversation_id uuid FK`, `external_message_id text`, `seq integer`, `role text`, `status text`, `content_text text`, `content_json jsonb`, `created_at timestamptz`, `updated_at timestamptz`, `reasoning_text text`, `tool_calls jsonb`, `metadata_json jsonb` |
@@ -77,7 +92,7 @@
 `docs/db/nextchat-postgres-schema.sql` 是更完整的目标 schema，但当前真实库不是完全一致：
 
 - `app_settings` 当前只有 `user_id/chat_settings/plugin_settings/security_settings/extra_settings/created_at/updated_at`，没有文档中的 `ui_settings/model_settings/sync_settings`。
-- `app_users` 当前多了认证字段：`username/password_hash/role/last_login_at`，来自 `app/utils/server/auth.ts:306` 到 `app/utils/server/auth.ts:320`。
+- `app_users` 当前多了认证字段：`username/password_hash/role/last_chat_at`，来自 `app/utils/server/auth.ts:306` 到 `app/utils/server/auth.ts:320`。
 - `provider_configs` 当前没有文档里的 `api_path/api_format`。
 - `auth_sessions` 当前使用 `session_token_hash`，没有文档里的明文 `session_token/refresh_token/ip/user_agent`。
 - `conversations` 当前有 `sort_order/last_summarize_index`，但没有文档里的 `summary/system_prompt/deleted_at`；`scripts/db-migrate-v2.sql` 里曾计划添加 `memory_prompt/stat_json`，当前库里也不存在。
@@ -229,7 +244,8 @@
 3. 清理旧同步用户下两个 `profile_178038...` provider 配置。
    这两条 disabled，且 key 组大量复制，疑似临时测试数据。
 
-   `user:admin` 下 `profile_177...` 和 `local:*` 的 4 月快照，以及旧同步用户的 5 月快照，如果 UI 不再展示这些 profile，可删除。
+4. 清理 `user:admin` 下 `profile_177...` 和 `local:*` 的 4 月快照，以及旧同步用户的 5 月快照。
+   如果 UI 不再展示这些 profile，可删除。
 
 5. 空表分批处理。
    如果目标是保持 schema 简洁，可以删除 v2 拆表空表；如果短期还会继续做拆表迁移，则保留。

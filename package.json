@@ -27,9 +27,7 @@
     "db:unify-user-id": "npx tsx ./scripts/unify-user-id.ts",
     "db:migrate-sync-artifacts": "npx tsx ./scripts/migrate-sync-artifacts-to-dedicated-tables.ts",
     "prepare": "sh -c 'if [ -d .git ] && [ -w .git ] && [ -w .git/config ]; then husky install; else echo \"husky skipped\"; fi'",
-    "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev",
-    "test": "node --no-warnings --experimental-vm-modules ./node_modules/.bin/jest --watch",
-    "test:ci": "node --no-warnings --experimental-vm-modules ./node_modules/.bin/jest --ci"
+    "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf npm run dev"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.67",

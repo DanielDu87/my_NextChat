@@ -308,9 +308,9 @@ echo -e "\n=== 诊断完成 ==="
    ```
 
 2. **查看详细文档**
-   - [完整故障排查指南](./baota-database-troubleshooting.md)
+   - [宝塔详细 Runbook](./baota-chat-dyxcloud-runbook.md)
    - [数据库修复说明](./database-fix-summary.md)
-   - [快速参考指南](./baota-quick-reference.md)
+   - [宝塔当前线上说明](../README_BAOTA.md)
 
 3. **提交问题**
    - GitHub Issues: https://github.com/ChatGPTNextWeb/NextChat/issues

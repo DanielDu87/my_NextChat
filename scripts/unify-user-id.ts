@@ -11,13 +11,13 @@ type UserRow = {
   external_id: string | null;
 };
 
+// 注意：以下列已下线，仅保留现有 4 列聚合：
+//   - chat_settings / plugin_settings / security_settings / extra_settings
+// 历史曾有 ui_settings / model_settings / sync_settings，已在 2026-06-09 清理中并入 extra_settings。
 type AppSettingsRow = {
   user_id: string;
-  ui_settings: Record<string, unknown> | null;
   chat_settings: Record<string, unknown> | null;
-  model_settings: Record<string, unknown> | null;
   plugin_settings: Record<string, unknown> | null;
-  sync_settings: Record<string, unknown> | null;
   security_settings: Record<string, unknown> | null;
   extra_settings: Record<string, unknown> | null;
   updated_at: string;
@@ -95,11 +95,8 @@ async function mergeAppSettings(
   const result = await client.query<AppSettingsRow>(
     `select
        user_id::text as user_id,
-       ui_settings,
        chat_settings,
-       model_settings,
        plugin_settings,
-       sync_settings,
        security_settings,
        extra_settings,
        updated_at::text as updated_at
@@ -114,35 +111,20 @@ async function mergeAppSettings(
   }
 
   const merged = {
-    ui_settings: {} as Record<string, unknown>,
     chat_settings: {} as Record<string, unknown>,
-    model_settings: {} as Record<string, unknown>,
     plugin_settings: {} as Record<string, unknown>,
-    sync_settings: {} as Record<string, unknown>,
     security_settings: {} as Record<string, unknown>,
     extra_settings: {} as Record<string, unknown>,
   };
 
   for (const row of result.rows) {
-    merged.ui_settings = {
-      ...merged.ui_settings,
-      ...asObject(row.ui_settings),
-    };
     merged.chat_settings = {
       ...merged.chat_settings,
       ...asObject(row.chat_settings),
     };
-    merged.model_settings = {
-      ...merged.model_settings,
-      ...asObject(row.model_settings),
-    };
     merged.plugin_settings = {
       ...merged.plugin_settings,
       ...asObject(row.plugin_settings),
-    };
-    merged.sync_settings = {
-      ...merged.sync_settings,
-      ...asObject(row.sync_settings),
     };
     merged.security_settings = {
       ...merged.security_settings,
@@ -157,11 +139,8 @@ async function mergeAppSettings(
   await client.query(
     `insert into app_settings (
        user_id,
-       ui_settings,
        chat_settings,
-       model_settings,
        plugin_settings,
-       sync_settings,
        security_settings,
        extra_settings
      ) values (
@@ -169,27 +148,18 @@ async function mergeAppSettings(
        $2::jsonb,
        $3::jsonb,
        $4::jsonb,
-       $5::jsonb,
-       $6::jsonb,
-       $7::jsonb,
-       $8::jsonb
+       $5::jsonb
      )
      on conflict (user_id) do update set
-       ui_settings = excluded.ui_settings,
        chat_settings = excluded.chat_settings,
-       model_settings = excluded.model_settings,
        plugin_settings = excluded.plugin_settings,
-       sync_settings = excluded.sync_settings,
        security_settings = excluded.security_settings,
        extra_settings = excluded.extra_settings,
        updated_at = now()`,
     [
       targetUserId,
-      JSON.stringify(merged.ui_settings),
       JSON.stringify(merged.chat_settings),
-      JSON.stringify(merged.model_settings),
       JSON.stringify(merged.plugin_settings),
-      JSON.stringify(merged.sync_settings),
       JSON.stringify(merged.security_settings),
       JSON.stringify(merged.extra_settings),
     ],
@@ -356,6 +326,18 @@ async function mergeProviderConfigs(
     return { mergedConfigs: 0, mergedKeys: 0 };
   }
 
+  // 仅在 DDL 实际存在 api_path / api_format 时才 select，避免 6 月 11 日 schema 调整后报错
+  const hasApiPath = await columnExists(client, "provider_configs", "api_path");
+  const hasApiFormat = await columnExists(
+    client,
+    "provider_configs",
+    "api_format",
+  );
+  const apiPathSelect = hasApiPath ? "api_path," : "null::text as api_path,";
+  const apiFormatSelect = hasApiFormat
+    ? "api_format,"
+    : "null::text as api_format,";
+
   const configRows = await client.query<{
     id: string;
     user_id: string;
@@ -379,8 +361,8 @@ async function mergeProviderConfigs(
        provider_name,
        provider_type,
        base_url,
-       api_path,
-       api_format,
+       ${apiPathSelect}
+       ${apiFormatSelect}
        is_enabled,
        is_default,
        request_config,
@@ -417,6 +399,15 @@ async function mergeProviderConfigs(
   let mergedKeys = 0;
 
   if (allConfigIds.length > 0 && (await tableExists(client, "provider_api_keys"))) {
+    const hasLastVerifiedAt = await columnExists(
+      client,
+      "provider_api_keys",
+      "last_verified_at",
+    );
+    const lastVerifiedAtSelect = hasLastVerifiedAt
+      ? "last_verified_at::text as last_verified_at,"
+      : "null::text as last_verified_at,";
+
     const keyRows = await client.query<{
       id: string;
       provider_config_id: string;
@@ -442,7 +433,7 @@ async function mergeProviderConfigs(
          masked_secret,
          metadata_json,
          is_enabled,
-         last_verified_at::text as last_verified_at,
+         ${lastVerifiedAtSelect}
          expires_at::text as expires_at,
          created_at::text as created_at,
          updated_at::text as updated_at
@@ -672,10 +663,7 @@ async function collectResidualTextUserIds(
   targetExternalUserId: string,
 ) {
   const values = new Set<string>();
-  const tableNames = [
-    "user_model_refresh_states",
-    "sync_secrets",
-  ] as const;
+  const tableNames = ["sync_secrets"] as const;
 
   for (const tableName of tableNames) {
     if (!(await tableExists(client, tableName))) {
@@ -882,13 +870,6 @@ async function main() {
       sourceUserIds,
     );
 
-    const refreshStatesMerged = await mergeTextKeyTable(
-      client,
-      "user_model_refresh_states",
-      "refresh_key",
-      targetExternalUserId,
-      sourceTextUserIds,
-    );
     const syncSecretsMerged = await mergeSyncSecrets(
       client,
       targetExternalUserId,
@@ -919,7 +900,7 @@ async function main() {
       usageLogsUpdated,
       auditLogsUpdated,
       tagsUpdated,
-      refreshStatesMerged,
+      refreshStatesMerged: 0,
       syncSecretsMerged,
       deletedUsers: sourceUserIds.length,
     };

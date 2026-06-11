@@ -7,7 +7,7 @@
 - `dev`
   本地开发热加载。
 - `local-db`
-  可选，本地 PostgreSQL，仅在开发时需要本地库才启用。
+  历史兼容项。当前默认不启用本地 PostgreSQL；除非用户明确要求本地库，否则不要使用。
 - `no-proxy`
   生产部署默认 profile，表示应用容器直连外部服务，不额外启用 SSH 隧道。
 - `ssh-tunnel`
@@ -18,7 +18,7 @@
 推荐规则：
 
 - 本地开发：`--profile dev`
-- 本地开发且需要本地 PostgreSQL：`--profile dev --profile local-db`
+- 本地开发默认不启用本地 PostgreSQL；如确需本地库，需用户明确确认后再叠加 `--profile local-db`。
 - 生产部署默认：`--profile no-proxy`
 - 生产部署走跳板机：`--profile no-proxy --profile ssh-tunnel`
 
@@ -246,11 +246,7 @@ cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
 ```
 
-如果需要本地 PostgreSQL：
-
-```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile local-db up -d
-```
+本地 PostgreSQL 是历史兼容选项，当前默认不要启用；如确需本地库，先确认数据来源与 `.env.docker` 后再叠加 `--profile local-db`。
 
 查看开发日志：
 

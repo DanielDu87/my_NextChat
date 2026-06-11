@@ -99,11 +99,13 @@ git push
 
 **⚠️ 重要：本地开发必须使用 Docker 热加载模式，禁止直接使用 `yarn dev`。**
 
-脚本会自动处理 SSH 隧道（绑定 0.0.0.0 供容器访问）、构建镜像、启动容器，代码修改自动热更新。
+默认使用 `dev` profile 和 `scripts/docker-compose-safe.sh`。普通业务代码修改后依赖热加载，不要重启容器、不要重新构建镜像。
 
 ```bash
-# 启动 Docker 热加载开发环境（标准方式）
-bash scripts/dev-docker-start.sh
+cp .env.docker.example .env.docker
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
 
 # Tauri 桌面应用开发（例外，不走 Docker）
 yarn app:dev
@@ -112,7 +114,7 @@ yarn app:dev
 停止开发环境：
 
 ```bash
-docker-compose --profile dev down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
 ```
 
 ### 构建
@@ -134,15 +136,17 @@ yarn mask
 ### 测试与质量
 
 ```bash
-# 运行测试
-yarn test
-
-# 运行测试（CI 模式）
-yarn test:ci
-
 # 代码检查
 yarn lint
+
+# 类型检查（当前会受 tsconfig 的 moduleResolution=node10 废弃提示影响）
+npx tsc --noEmit --pretty false
+
+# 生产构建
+yarn build
 ```
+
+说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本；不要再把它们作为默认验证命令。
 
 ### 其他
 
@@ -161,7 +165,7 @@ yarn prompts
 - **`app/store/config.ts`** - 应用配置（模型、主题、TTS 等）
 - **`app/store/access.ts`** - API 访问控制（API Key、访问码）
 - **`app/store/mask.ts`** - Prompt 模板（Masks）管理
-- **`app/store/sync.ts`** - 聊天记录同步（WebDAV）
+- **`app/store/sync.ts`** - 聊天记录与配置同步（Database/WebDAV 等）
 
 ### 存储架构
 
@@ -219,6 +223,20 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 
 桌面相关代码在 `src-tauri/` 目录，使用 Tauri 1.x API。
 
+## 当前聊天 UI 注意事项
+
+- 移动端流式输出时，用户轻微上滑应立即暂停自动贴底，不需要大幅滑动。
+- 点击页面空白只负责收起输入焦点，不应触发自动回到底部。
+- “回到底部”按钮采用类似点击标题滚到顶部的两帧滚动方式，避免虚拟消息窗口切换时出现大块空白。
+- 点击标题滚到顶部时，即使正在流式输出，也必须暂停自动贴底。
+- Token 用量行允许自动换行，窄屏或文本过长时不能撑破消息宽度。
+
+## 清理规则
+
+- 不提交临时调试文件、历史 `.bak` 文件、截图/浏览器误生成的空 `div*` 文件。
+- 不提交一次性测试文件；如需验证，优先使用针对性脚本并在完成后清理。
+- 当前仓库不维护 Jest 测试目录，相关文档不要再引用 `test/`、`jest.config.ts`、`jest.setup.ts`。
+
 ## 环境变量
 
 关键环境变量（见 `.env.template`）：
@@ -242,7 +260,7 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 - **`app/utils/store.ts`** - Zustand 持久化存储创建器
 - **`app/utils/chat.ts`** - 聊天相关工具
 - **`app/utils/token.ts`** - Token 估算
-- **`app/utils/sync.ts`** - WebDAV 同步
+- **`app/utils/chat-sync.ts` / `app/store/sync.ts`** - 聊天记录与状态同步
 - **`app/utils/model.ts`** - 模型相关工具
 
 ## 构建模式

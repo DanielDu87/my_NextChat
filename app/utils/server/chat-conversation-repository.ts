@@ -282,6 +282,14 @@ export async function syncNormalizedChatSessions(
     }
   }
 
+  // 更新用户最后对话时间
+  if (params.upsertSessions.length > 0) {
+    await client.query(
+      `update app_users set last_chat_at = now() where id = $1::uuid`,
+      [appUserId],
+    );
+  }
+
   const deleteSessionIds = Array.from(
     new Set((params.deleteSessionIds || []).filter(Boolean)),
   );

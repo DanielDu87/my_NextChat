@@ -1642,19 +1642,10 @@ export function ApiConfigPage() {
               item.id === profile.id
                 ? {
                     ...item,
-                    cachedModels: fetchedModels,
                     modelCount: result.total,
                   }
                 : item,
             );
-            if (state.apiProfiles.find((p) => p.id === profile.id)?.enabled) {
-              state.customModels = fetchedModels;
-              (state as any).customModelsUpdatedAt = Date.now();
-            }
-          });
-          useModelCacheStore.getState().upsertProfileCache(profile.id, {
-            cachedModels: fetchedModels,
-            modelCount: result.total,
           });
           const mergedCount = getProfileActualCount(
             profile,

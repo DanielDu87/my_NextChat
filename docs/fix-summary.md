@@ -43,13 +43,12 @@ cd /www/wwwroot/nextchat
 
 ## 📚 新增文档
 
-### 1. 数据库故障排查指南
-**文件：** `docs/baota-database-troubleshooting.md`
+### 1. 宝塔详细 Runbook
+**文件：** `docs/baota-chat-dyxcloud-runbook.md`
 **内容：**
-- 常见数据库问题及解决方案
-- 数据备份和恢复方法
-- 性能优化建议
-- 监控和调试技巧
+- 当前线上宝塔 DockerSite 部署流程
+- 数据库、证书、Nginx 和 DockerSite 排查步骤
+- 清理、重注册和验证命令
 
 ### 2. 数据库问题快速排除指南
 **文件：** `docs/database-quick-fix.md`
@@ -234,7 +233,7 @@ NextChat 的 `app_settings` 表在用户首次使用插件时会自动生成大�
 
 4. **查看详细文档**
    - [数据库问题快速排除](./database-quick-fix.md)
-   - [数据库故障排查指南](./baota-database-troubleshooting.md)
+   - [宝塔详细 Runbook](./baota-chat-dyxcloud-runbook.md)
 
 5. **提交问题**
    - GitHub Issues: https://github.com/ChatGPTNextWeb/NextChat/issues

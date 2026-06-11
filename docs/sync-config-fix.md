@@ -327,7 +327,7 @@ docker logs nextchat | tail -50
 
 1. **查看详细文档**
    - [数据库问题快速排除](./database-quick-fix.md)
-   - [数据库故障排查指南](./baota-database-troubleshooting.md)
+   - [宝塔详细 Runbook](./baota-chat-dyxcloud-runbook.md)
 
 2. **收集诊断信息**
    ```bash

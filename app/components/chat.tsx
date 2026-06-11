@@ -139,7 +139,7 @@ import {
   UNFINISHED_INPUT,
 } from "../constant";
 
-import { useSyncStore, waitForSyncIdle } from "../store/sync";
+import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 
@@ -161,11 +161,7 @@ function syncModelSelectionNow() {
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
-import { parseStoreStatePayload } from "../utils/sync-store-keys";
-import {
-  runWithImmediateStoreSyncPaused,
-  runWithImmediateStoreSyncPausedSync,
-} from "../utils/store";
+import { runWithImmediateStoreSyncPausedSync } from "../utils/store";
 import { prettyObject } from "../utils/format";
 import {
   readManualSessionModelSelection,
@@ -192,36 +188,6 @@ import { RealtimeChat } from "@/app/components/realtime-chat";
 import { useAuthStore } from "../store/auth";
 import { UserMenu } from "./user-menu";
 import { AddModelSelector } from "./add-model-modal";
-
-type RemoteModelRefreshArtifact = {
-  updatedAt?: string;
-  modelCount?: number;
-  providers?: Array<{
-    profileId?: string;
-    providerId?: string;
-    profileName?: string;
-    fetchedCount?: number;
-    updatedAt?: string;
-  }>;
-};
-
-async function loadRemoteModelRefreshArtifact() {
-  if (useSyncStore.getState().provider !== ProviderType.Database) {
-    return null;
-  }
-
-  const latestRes = await fetch("/api/db/models/latest", {
-    cache: "no-store",
-    headers: withSyncUserHeaders(),
-  });
-
-  if (!latestRes.ok) {
-    return null;
-  }
-
-  const latestData = await latestRes.json();
-  return latestData?.ok ? latestData.latest ?? null : null;
-}
 
 function areSelectorItemsEqual(
   left: Array<{
@@ -635,28 +601,6 @@ function applyProfileToAccessStore(
   }
 }
 
-function countManagedCloudModels(
-  models: Array<{ provider?: { id?: string } }> = [],
-  profiles: Array<{ provider: string; name: string }> = [],
-) {
-  const managedProviderIds = new Set(
-    profiles.map((profile) => getProfileProviderId(profile).toLowerCase()),
-  );
-
-  return models.filter((model) => {
-    const providerId = String(model.provider?.id || "").toLowerCase();
-    return providerId && managedProviderIds.has(providerId);
-  }).length;
-}
-
-function getManagedProviderIds(
-  profiles: Array<{ provider: string; name: string }> = [],
-) {
-  return new Set(
-    profiles.map((profile) => getProfileProviderId(profile).toLowerCase()),
-  );
-}
-
 function areModelConfigValuesEqual(
   left: Record<string, unknown> | undefined,
   right: Record<string, unknown> | undefined,
@@ -676,266 +620,6 @@ function areModelConfigValuesEqual(
   }
 
   return true;
-}
-
-async function reconcileRemoteModelStoresInternal() {
-  const syncStoreState = useSyncStore.getState();
-  const client = syncStoreState.getClient() as any;
-
-  await runWithImmediateStoreSyncPaused(async () => {
-    const currentProfiles = useAccessStore.getState().apiProfiles || [];
-    const managedProviderIds = getManagedProviderIds(currentProfiles);
-    const allowedProviderIds = [...managedProviderIds];
-
-    const remoteConfigJson = await client.get(StoreKey.Config);
-    if (remoteConfigJson) {
-      const remoteConfig = parseStoreStatePayload<any>(remoteConfigJson);
-      const remoteModels = (remoteConfig?.models || []).filter((model: any) => {
-        const providerId = String(model?.provider?.id || "").toLowerCase();
-        return providerId && managedProviderIds.has(providerId);
-      });
-      if (remoteModels.length > 0) {
-        useAppConfig.getState().mergeModels(remoteModels, {
-          silent: true,
-          allowedProviderIds,
-        });
-      }
-    }
-
-    const remoteAccessJson = await client.get(StoreKey.Access);
-    if (remoteAccessJson) {
-      const remoteAccess = parseStoreStatePayload<any>(remoteAccessJson);
-      const remoteProfiles = Array.isArray(remoteAccess?.apiProfiles)
-        ? remoteAccess.apiProfiles
-        : [];
-
-      if (remoteProfiles.length > 0) {
-        useAccessStore.getState().update((state) => {
-          const localProfileMap = new Map(
-            (state.apiProfiles || []).map((profile: any) => [
-              String(profile?.id || ""),
-              profile,
-            ]),
-          );
-
-          remoteProfiles.forEach((remoteProfile: any) => {
-            const remoteProfileId = String(remoteProfile?.id || "");
-            if (!remoteProfileId) {
-              return;
-            }
-
-            if (!localProfileMap.has(remoteProfileId)) {
-              // 不在聊天页自动恢复远端独有 profile，避免用户已删除的配置被旧远端快照重新写回本地。
-              return;
-            }
-
-            const localProfile = localProfileMap.get(remoteProfileId) as any;
-            const localModels = new Set(
-              String(localProfile?.cachedModels || "")
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean),
-            );
-            String(remoteProfile.cachedModels || "")
-              .split(",")
-              .map((item: string) => item.trim())
-              .filter(Boolean)
-              .forEach((modelName: string) => localModels.add(modelName));
-
-            useModelCacheStore.getState().upsertProfileCache(remoteProfileId, {
-              cachedModels: [...localModels].join(","),
-              modelCount: Math.max(
-                Number(localProfile?.modelCount || 0),
-                Number(remoteProfile?.modelCount || 0),
-              ),
-            });
-          });
-        });
-        useModelCacheStore.getState().migrateFromAccessProfiles?.();
-      }
-    }
-  });
-}
-
-function ChatModelUpdateNotice() {
-  const authUser = useAuthStore((state) => state.user);
-  const authInitialized = useAuthStore((state) => state.initialized);
-  const navigate = useNavigate();
-  const accessStore = useAccessStore();
-  const modelCacheStore = useModelCacheStore();
-  const syncStore = useSyncStore();
-  const config = useAppConfig();
-  const [remoteModelRefresh, setRemoteModelRefresh] =
-    useState<RemoteModelRefreshArtifact | null>(null);
-  const [remoteSignalsLoaded, setRemoteSignalsLoaded] = useState(false);
-  const [autoReconciling, setAutoReconciling] = useState(false);
-  const lastAutoSyncedRevisionRef = useRef("");
-  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const enableAutomaticModelReconcile = false;
-
-  const reconcileRemoteModelStores = useCallback(
-    async () => reconcileRemoteModelStoresInternal(),
-    [],
-  );
-
-  const refreshRemoteSignals = useCallback(async () => {
-    if (!authInitialized || !authUser) {
-      setRemoteModelRefresh(null);
-      setRemoteSignalsLoaded(true);
-      return;
-    }
-
-    if (useSyncStore.getState().provider !== ProviderType.Database) {
-      setRemoteModelRefresh(null);
-      setRemoteSignalsLoaded(true);
-      return;
-    }
-
-    try {
-      setRemoteModelRefresh(await loadRemoteModelRefreshArtifact());
-    } catch {
-      setRemoteModelRefresh(null);
-    } finally {
-      setRemoteSignalsLoaded(true);
-    }
-  }, [authInitialized, authUser]);
-
-  useEffect(() => {
-    void refreshRemoteSignals();
-    const timer = window.setInterval(() => {
-      void refreshRemoteSignals();
-    }, 120000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [refreshRemoteSignals, syncStore.provider]);
-
-  const localTotalCount = countManagedCloudModels(
-    useAppConfig.getState().models || [],
-    accessStore.apiProfiles || [],
-  );
-  const hasExactModelCountMatch = useMemo(
-    () =>
-      remoteModelRefresh?.modelCount !== undefined &&
-      remoteModelRefresh.modelCount === localTotalCount,
-    [remoteModelRefresh?.modelCount, localTotalCount],
-  );
-
-  const hasStaleModels = useMemo(
-    () =>
-      (accessStore.apiProfiles || []).some((profile) => {
-        const providerId = getProfileProviderId(profile).toLowerCase();
-        const remote = remoteModelRefresh?.providers?.find(
-          (item) =>
-            item.profileId === profile.id ||
-            String(item.providerId || "").toLowerCase() === providerId ||
-            item.profileName === profile.name,
-        );
-
-        // 只比较模型数量，数量一致则不显示提醒
-        const localModelCount =
-          modelCacheStore.profiles?.[profile.id]?.modelCount;
-        if (localModelCount === undefined) {
-          return false;
-        }
-
-        // 云端统计已清空，或存在但缺少当前平台记录时，视为需要手动刷新
-        if (!remote) {
-          return true;
-        }
-
-        return remote.fetchedCount !== localModelCount;
-      }),
-    [
-      accessStore.apiProfiles,
-      remoteModelRefresh?.providers,
-      modelCacheStore.profiles,
-    ],
-  );
-
-  const remoteRevision = useMemo(() => {
-    if (!remoteModelRefresh) {
-      return "";
-    }
-
-    return JSON.stringify({
-      updatedAt: remoteModelRefresh.updatedAt || "",
-      modelCount: remoteModelRefresh.modelCount ?? 0,
-      providers: (remoteModelRefresh.providers || []).map((provider) => ({
-        profileId: provider.profileId || "",
-        providerId: provider.providerId || "",
-        profileName: provider.profileName || "",
-        fetchedCount: provider.fetchedCount ?? 0,
-        updatedAt: provider.updatedAt || "",
-      })),
-    });
-  }, [remoteModelRefresh]);
-
-  useEffect(() => {
-    if (!enableAutomaticModelReconcile) {
-      return;
-    }
-
-    if (
-      !remoteSignalsLoaded ||
-      useSyncStore.getState().provider !== ProviderType.Database ||
-      !remoteRevision ||
-      hasExactModelCountMatch ||
-      !hasStaleModels ||
-      autoReconciling ||
-      lastAutoSyncedRevisionRef.current === remoteRevision
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    lastAutoSyncedRevisionRef.current = remoteRevision;
-
-    // 30 秒防抖：避免短时间内多次触发 reconcile
-    if (reconcileTimerRef.current) {
-      clearTimeout(reconcileTimerRef.current);
-    }
-    reconcileTimerRef.current = setTimeout(async () => {
-      reconcileTimerRef.current = null;
-      if (cancelled) return;
-      setAutoReconciling(true);
-
-      try {
-        await waitForSyncIdle();
-        await reconcileRemoteModelStores();
-        if (!cancelled) {
-          await refreshRemoteSignals();
-        }
-      } catch (error) {
-        console.error("[Chat] 自动对齐模型缓存失败:", error);
-        lastAutoSyncedRevisionRef.current = "";
-      } finally {
-        if (!cancelled) {
-          setAutoReconciling(false);
-        }
-      }
-    }, 30000);
-
-    return () => {
-      cancelled = true;
-      if (reconcileTimerRef.current) {
-        clearTimeout(reconcileTimerRef.current);
-        reconcileTimerRef.current = null;
-      }
-    };
-  }, [
-    autoReconciling,
-    enableAutomaticModelReconcile,
-    hasExactModelCountMatch,
-    hasStaleModels,
-    reconcileRemoteModelStores,
-    refreshRemoteSignals,
-    remoteRevision,
-    remoteSignalsLoaded,
-  ]);
-
-  return null;
 }
 
 import clsx from "clsx";
@@ -1567,7 +1251,8 @@ function useScrollToBottom(
     if (dom) {
       const runScroll = () => {
         setAutoScroll(true);
-        dom.scrollTop = dom.scrollHeight;
+        const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+        dom.scrollTop = targetTop;
       };
 
       requestAnimationFrame(runScroll);
@@ -2301,6 +1986,8 @@ function _Chat() {
   const mobileInputTouchVelocityRef = useRef(0);
   const mobileInputInertiaRafRef = useRef<number | null>(null);
   const mobileInputOutsidePointerBlurRef = useRef(false);
+  const mobileInputSubmitBlurRef = useRef(false);
+  const mobileSubmitTouchHandledRef = useRef(false);
   const attachLimitHintTimerRef = useRef<number | null>(null);
   const inputScrollIndicatorHideTimerRef = useRef<number | null>(null);
   const syncInputScrollIndicatorRef = useRef<(visible?: boolean) => void>(
@@ -2520,6 +2207,8 @@ function _Chat() {
   > | null>(null);
   const streamingAutoScrollPausedRef = useRef(false);
   const userScrollIntentRef = useRef(false);
+  const userScrollIntentUntilRef = useRef(0);
+  const lastChatBodyScrollTopRef = useRef(0);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -2929,57 +2618,66 @@ function _Chat() {
   const models = useMemo(() => {
     // 只显示用户手动添加的模型（customModels 中 + 前缀的条目）
     const customModels = String(config.customModels || "");
-    const userAddedKeys = new Set(
-      customModels
-        .split(",")
-        .map((m) => m.trim())
-        .filter((m) => m.startsWith("+"))
-        .map((m) => {
-          const cleaned = m.substring(1);
-          return cleaned.toLowerCase();
-        }),
-    );
-    if (userAddedKeys.size === 0) return [];
+    const providerId = activeModelSelectorProviderId.toLowerCase();
+    const providerName =
+      activeModelSelectorProfile?.provider ||
+      (currentProviderName as ServiceProvider);
+    const seen = new Set<string>();
 
-    const result = allModels.filter((model) => {
-      const modelKey = `${model.name}@${String(
-        model?.provider?.id || "",
-      ).toLowerCase()}`;
-      return (
-        model.available &&
-        userAddedKeys.has(modelKey) &&
-        String(model?.provider?.id || "").toLowerCase() ===
-          activeModelSelectorProviderId
-      );
-    });
+    return customModels
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.startsWith("+"))
+      .map((entry) => entry.slice(1).split("=")[0])
+      .map((entry) => {
+        const [modelName, entryProviderId] = getModelProvider(entry);
+        return {
+          modelName: modelName.trim(),
+          providerId: String(entryProviderId || "")
+            .trim()
+            .toLowerCase(),
+        };
+      })
+      .filter(({ modelName, providerId: entryProviderId }) => {
+        if (!modelName || entryProviderId !== providerId) {
+          return false;
+        }
+        const key = `${modelName.toLowerCase()}@${entryProviderId}`;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .map(({ modelName }, index) => {
+        const runtimeModel = allModels.find(
+          (model) =>
+            model.name === modelName &&
+            String(model?.provider?.id || "").toLowerCase() === providerId,
+        );
 
-    // 调试：检查为什么某些供应商模型不显示
-    const matchedKeys = [...userAddedKeys].filter((k) =>
-      k.includes(activeModelSelectorProviderId),
-    );
-    if (matchedKeys.length > 0 && result.length === 0) {
-      console.log(
-        "[模型选择器调试] 当前供应商：",
-        activeModelSelectorProviderId,
-      );
-      console.log(
-        "[模型选择器调试] 用户已添加模型中匹配该供应商的条目：",
-        matchedKeys,
-      );
-      console.log(
-        "[模型选择器调试] 全部模型中该供应商的模型：",
-        allModels
-          .filter(
-            (m) =>
-              String(m?.provider?.id || "").toLowerCase() ===
-              activeModelSelectorProviderId,
-          )
-          .map((m) => `${m.name}@${m?.provider?.id} available=${m.available}`),
-      );
-    }
-
-    return result;
-  }, [activeModelSelectorProviderId, allModels, config.customModels]);
+        return {
+          ...runtimeModel,
+          name: modelName,
+          displayName: runtimeModel?.displayName || modelName,
+          available: true,
+          sorted: runtimeModel?.sorted ?? index,
+          provider: runtimeModel?.provider || {
+            id: providerId,
+            providerName,
+            providerType:
+              providerName === ServiceProvider.Local ? "openai" : "custom",
+            sorted: 0,
+          },
+        };
+      });
+  }, [
+    activeModelSelectorProfile?.provider,
+    activeModelSelectorProviderId,
+    allModels,
+    config.customModels,
+    currentProviderName,
+  ]);
   const providerModelSelectorItems = useMemo(() => {
     return models
       .map((model) => ({
@@ -3497,7 +3195,13 @@ function _Chat() {
   const blurMobileKeyboard = useCallback(() => {
     const runBlur = () => {
       inputRef.current?.blur();
-      mobileInputRef.current?.blur();
+      const mobileInput = mobileInputRef.current;
+      if (mobileInput) {
+        if (isIOSMobile) {
+          mobileInput.setAttribute("contenteditable", "false");
+        }
+        mobileInput.blur();
+      }
       const activeEl = document.activeElement as HTMLElement | null;
       if (activeEl && activeEl !== document.body) {
         activeEl.blur?.();
@@ -3510,7 +3214,20 @@ function _Chat() {
     [40, 120, 260].forEach((delay) => {
       window.setTimeout(runBlur, delay);
     });
-  }, []);
+    if (isIOSMobile) {
+      window.setTimeout(() => {
+        mobileInputRef.current?.setAttribute("contenteditable", "true");
+      }, 320);
+    }
+  }, [isIOSMobile]);
+
+  const prepareMobileSubmitKeyboardDismiss = useCallback(() => {
+    if (!isMobileScreen) return;
+    mobileInputSubmitBlurRef.current = true;
+    mobileInputOutsidePointerBlurRef.current = false;
+    setIsMobileInputFocused(false);
+    blurMobileKeyboard();
+  }, [blurMobileKeyboard, isMobileScreen]);
 
   const doSubmit = (userInput: string) => {
     if (userInput.trim() === "" && isEmpty(attachImages)) return;
@@ -3552,8 +3269,9 @@ function _Chat() {
     setPromptHints([]);
     if (isMobileScreen) {
       pendingMobileSubmitScrollRestoreRef.current = true;
-      setIsMobileInputFocused(false);
-      blurMobileKeyboard();
+      if (!mobileInputSubmitBlurRef.current) {
+        prepareMobileSubmitKeyboardDismiss();
+      }
       setAutoScroll(true);
       setHitBottom(true);
       [50, 180, 420, 760].forEach((delay) => {
@@ -4183,6 +3901,10 @@ function _Chat() {
   const onChatBodyScroll = (e: HTMLElement) => {
     updateStatusPanelOverlap();
 
+    const previousScrollTop = lastChatBodyScrollTopRef.current;
+    const isScrollingUp = e.scrollTop < previousScrollTop - 1;
+    lastChatBodyScrollTopRef.current = e.scrollTop;
+
     const bottomHeight = e.scrollTop + e.clientHeight;
     const edgeThreshold = e.clientHeight;
 
@@ -4202,6 +3924,17 @@ function _Chat() {
 
     setHitBottom(isHitBottom);
     if (isAssistantStreaming) {
+      const hasRecentUserScrollIntent =
+        userScrollIntentRef.current ||
+        Date.now() < userScrollIntentUntilRef.current;
+
+      if (hasRecentUserScrollIntent && isScrollingUp) {
+        streamingAutoScrollPausedRef.current = true;
+        setAutoScroll(false);
+        setHitBottom(false);
+        return;
+      }
+
       if (isHitBottom) {
         clearStreamingScrollResumeTimer();
         streamingAutoScrollPausedRef.current = false;
@@ -4209,7 +3942,7 @@ function _Chat() {
         return;
       }
 
-      if (userScrollIntentRef.current) {
+      if (hasRecentUserScrollIntent) {
         streamingAutoScrollPausedRef.current = true;
         setAutoScroll(false);
       }
@@ -4231,7 +3964,8 @@ function _Chat() {
 
     const dom = scrollRef.current;
     if (dom) {
-      dom.scrollTop = dom.scrollHeight;
+      const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+      dom.scrollTop = targetTop;
     }
   }, [
     renderMessages.length,
@@ -4250,7 +3984,6 @@ function _Chat() {
     const runScroll = () => {
       setAutoScroll(true);
       setHitBottom(true);
-      scrollDomToBottom();
       const dom = scrollRef.current;
       if (dom) {
         const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
@@ -4289,29 +4022,80 @@ function _Chat() {
   const markUserScrollIntent = useCallback(() => {
     if (isAssistantStreaming) {
       userScrollIntentRef.current = true;
+      userScrollIntentUntilRef.current = Date.now() + 1200;
     }
   }, [isAssistantStreaming]);
+
+  const scrollToBottomLikeMobileTitle = useCallback(() => {
+    const isMobileBrowser =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(
+        navigator.userAgent || "",
+      );
+    const isTouchBrowser =
+      typeof navigator !== "undefined" && Number(navigator.maxTouchPoints) > 0;
+
+    if (!isMobileScreen && !isMobileBrowser && !isTouchBrowser) {
+      scrollToBottom();
+      return;
+    }
+
+    mobileInputRef.current?.blur();
+    userScrollIntentRef.current = false;
+    userScrollIntentUntilRef.current = 0;
+    streamingAutoScrollPausedRef.current = false;
+    setAutoScroll(true);
+    setHitBottom(true);
+    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const nextDom = scrollRef.current;
+        if (!nextDom) return;
+
+        const targetTop = Math.max(
+          0,
+          nextDom.scrollHeight - nextDom.clientHeight,
+        );
+        nextDom.scrollTo({
+          top: targetTop,
+          behavior: "smooth",
+        });
+        lastChatBodyScrollTopRef.current = targetTop;
+      });
+    });
+  }, [
+    isMobileScreen,
+    renderMessages.length,
+    scrollToBottom,
+    setAutoScroll,
+    setHitBottom,
+    setMsgRenderIndex,
+  ]);
+
   const handleScrollToBottomButton = useCallback(
     (immediate: boolean) => {
       userScrollIntentRef.current = false;
+      userScrollIntentUntilRef.current = 0;
       streamingAutoScrollPausedRef.current = false;
       setAutoScroll(true);
       setHitBottom(true);
 
       if (immediate) {
-        forceScrollToBottom();
+        scrollToBottomLikeMobileTitle();
         return;
       }
 
       setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
+      const dom = scrollRef.current;
+      dom?.scrollTo({
+        top: Math.max(0, dom.scrollHeight - dom.clientHeight),
         behavior: "smooth",
       });
     },
     [
-      forceScrollToBottom,
       renderMessages.length,
+      scrollToBottomLikeMobileTitle,
       setAutoScroll,
       setHitBottom,
       setMsgRenderIndex,
@@ -4329,6 +4113,10 @@ function _Chat() {
     if (!isMobileScreen && !isMobileBrowser && !isTouchBrowser) return;
 
     mobileInputRef.current?.blur();
+    clearStreamingScrollResumeTimer();
+    userScrollIntentRef.current = true;
+    userScrollIntentUntilRef.current = Date.now() + 1200;
+    streamingAutoScrollPausedRef.current = true;
     setAutoScroll(false);
     setHitBottom(false);
     const dom = scrollRef.current;
@@ -4341,6 +4129,12 @@ function _Chat() {
         const nextDom = scrollRef.current;
         if (!nextDom) return;
 
+        userScrollIntentRef.current = true;
+        userScrollIntentUntilRef.current = Date.now() + 1200;
+        streamingAutoScrollPausedRef.current = true;
+        setAutoScroll(false);
+        setHitBottom(false);
+
         if (msgRenderIndex > 0) {
           const heightDelta = nextDom.scrollHeight - previousHeight;
           nextDom.scrollTop = Math.max(0, previousTop + heightDelta);
@@ -4352,7 +4146,13 @@ function _Chat() {
         });
       });
     });
-  }, [isMobileScreen, msgRenderIndex, setAutoScroll, setMsgRenderIndex]);
+  }, [
+    clearStreamingScrollResumeTimer,
+    isMobileScreen,
+    msgRenderIndex,
+    setAutoScroll,
+    setMsgRenderIndex,
+  ]);
 
   const moveInputCursorToEnd = useCallback(() => {
     const mobileInput = mobileInputRef.current;
@@ -5382,6 +5182,12 @@ function _Chat() {
       "--chat-keyboard-accessory-inset",
       `${dynamicAccessoryInset}px`,
     );
+    const keyboardBottomGap =
+      !isIOSMobile && keyboardObscuredHeight > 140 ? 24 : 0;
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-bottom-gap",
+      `${keyboardBottomGap}px`,
+    );
 
     // 实测输入面板上端位置，计算从工具栏下方一直撑到底部辅助栏上方的填充高度。
     // 不依赖多层 flex-grow（DOM 嵌套较深易失效），直接给输入框一个确定的高度。
@@ -5463,9 +5269,10 @@ function _Chat() {
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       }
+      scrollToBottom();
+    } else if (pendingMobileSubmitScrollRestoreRef.current) {
+      scrollToBottom();
     }
-
-    scrollToBottom();
   }, [
     isMobileScreen,
     isMobileInputFocused,
@@ -5537,7 +5344,8 @@ function _Chat() {
       if (!target || mobileInput.contains(target)) return;
       if (
         target instanceof Element &&
-        target.closest(`.${styles["chat-input-mobile-actions"]}`)
+        (target.closest(`.${styles["chat-input-mobile-actions"]}`) ||
+          target.closest(`.${styles["chat-input-send"]}`))
       ) {
         return;
       }
@@ -5571,6 +5379,9 @@ function _Chat() {
       document.documentElement.style.removeProperty(
         "--chat-keyboard-panel-lift",
       );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-bottom-gap",
+      );
       document.documentElement.style.removeProperty("--chat-input-fill-height");
       cancelMobileKeyboardViewportSync();
       collapseMobileInput(preserveMobileInputBlurHeightRef.current);
@@ -5592,7 +5403,11 @@ function _Chat() {
     );
     document.documentElement.style.setProperty(
       "--chat-keyboard-panel-lift",
-      isIOSMobile ? "2px" : "0px",
+      isIOSMobile ? "2px" : "24px",
+    );
+    document.documentElement.style.setProperty(
+      "--chat-keyboard-bottom-gap",
+      !isIOSMobile ? "24px" : "0px",
     );
 
     const viewport = window.visualViewport;
@@ -5652,6 +5467,9 @@ function _Chat() {
       );
       document.documentElement.style.removeProperty(
         "--chat-keyboard-panel-lift",
+      );
+      document.documentElement.style.removeProperty(
+        "--chat-keyboard-bottom-gap",
       );
       document.documentElement.style.removeProperty("--chat-input-fill-height");
     };
@@ -5732,6 +5550,7 @@ function _Chat() {
       // 开始流式回复：只要用户不滑动，就持续贴住底部。
       clearStreamingScrollResumeTimer();
       userScrollIntentRef.current = false;
+      userScrollIntentUntilRef.current = 0;
       streamingAutoScrollPausedRef.current = false;
       setAutoScroll(true);
       scrollToBottom();
@@ -5748,7 +5567,7 @@ function _Chat() {
             const maxScroll = dom.scrollHeight - dom.clientHeight;
             // 只有当不在最底部时才滚动
             if (currentScroll < maxScroll) {
-              dom.scrollTop = dom.scrollHeight;
+              dom.scrollTop = Math.max(0, maxScroll);
             }
           }
         }
@@ -5757,6 +5576,7 @@ function _Chat() {
       // 结束流式回复：清除所有定时器
       clearStreamingScrollResumeTimer();
       userScrollIntentRef.current = false;
+      userScrollIntentUntilRef.current = 0;
       streamingAutoScrollPausedRef.current = false;
       if (streamingScrollIntervalRef.current) {
         clearInterval(streamingScrollIntervalRef.current);
@@ -7052,7 +6872,6 @@ function _Chat() {
         </div>
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
-            <ChatModelUpdateNotice />
             {showStatusUserPanel && (
               <div
                 ref={statusPanelRef}
@@ -7100,6 +6919,7 @@ function _Chat() {
                 )?.blur()
               }
               onTouchStart={() => {
+                markUserScrollIntent();
                 (isMobileScreen
                   ? mobileInputRef.current
                   : inputRef.current
@@ -7745,6 +7565,18 @@ function _Chat() {
                           scheduleMobileKeyboardViewportSync();
                         }}
                         onBlur={() => {
+                          if (mobileInputSubmitBlurRef.current) {
+                            mobileInputSubmitBlurRef.current = false;
+                            mobileInputOutsidePointerBlurRef.current = false;
+                            sanitizeBoundaryInput();
+                            mobileBlurTimerRef.current = window.setTimeout(
+                              () => {
+                                finalizeMobileInputBlur();
+                              },
+                              50,
+                            );
+                            return;
+                          }
                           if (mobileKeyboardDismissByViewportRef.current) {
                             mobileKeyboardDismissByViewportRef.current = false;
                             return;
@@ -7843,7 +7675,27 @@ function _Chat() {
                       className={styles["chat-input-send"]}
                       type="primary"
                       disabled={isChatUnavailableForSync}
-                      onClick={() => doSubmit(userInput)}
+                      onMouseDown={() => {
+                        if (userInput.trim() || attachImages.length > 0) {
+                          prepareMobileSubmitKeyboardDismiss();
+                        }
+                      }}
+                      onTouchStart={(e) => {
+                        if (userInput.trim() || attachImages.length > 0) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          mobileSubmitTouchHandledRef.current = true;
+                          prepareMobileSubmitKeyboardDismiss();
+                          doSubmit(userInput);
+                        }
+                      }}
+                      onClick={() => {
+                        if (mobileSubmitTouchHandledRef.current) {
+                          mobileSubmitTouchHandledRef.current = false;
+                          return;
+                        }
+                        doSubmit(userInput);
+                      }}
                     />
                   </div>
                 </label>

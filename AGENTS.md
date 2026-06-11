@@ -34,6 +34,20 @@ cp .env.docker.example .env.docker
 - `WATCHPACK_POLLING` 和 `CHOKIDAR_USEPOLLING` 默认保持 `false`
 - 只有在 Docker Desktop 等环境下文件监听不稳定时，才开启 polling
 
+## 当前聊天 UI 交互约定
+
+- 移动端流式输出时，用户轻微上滑应立即暂停自动贴底，不需要大幅滑动。
+- 点击页面空白只收起输入焦点，不应触发自动回到底部。
+- “回到底部”按钮采用类似点击标题滚到顶部的两帧滚动方式，避免虚拟消息窗口切换时出现大块空白。
+- 点击标题滚到顶部时，即使正在流式输出，也必须暂停自动贴底。
+- Token 用量行允许自动换行，窄屏或文本过长时不能撑破消息宽度。
+
+## 临时文件和测试文件规则
+
+- 不提交临时调试文件、历史 `.bak` 文件、截图/浏览器误生成的空 `div*` 文件。
+- 当前仓库不维护 Jest 测试目录，`test/`、`jest.config.ts`、`jest.setup.ts`、`setup-test-data.js` 属于已清理内容。
+- 不再使用 `yarn test` / `yarn test:ci` 作为默认验证命令；优先使用 `yarn lint`、`yarn build`、针对性脚本或手工验证。
+
 ## 生产部署
 
 - 用户说“部署”时，默认部署到 SSH alias 为 `ss` 的服务器
