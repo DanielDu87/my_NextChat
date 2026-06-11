@@ -39,7 +39,7 @@ import PlayIcon from "../icons/play.svg";
 import RobotIcon from "../icons/robot.svg";
 import SizeIcon from "../icons/size.svg";
 import QualityIcon from "../icons/hd.svg";
-import BotIconOpenAI from "../icons/llm-icons/openai.svg";
+import BotIconDefault from "../icons/llm-icons/default.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
   BOT_HELLO,
@@ -113,10 +113,6 @@ import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
-import {
-  buildBalanceCacheKey,
-  type BalanceAwareProfile,
-} from "../store/update";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
@@ -145,6 +141,7 @@ import {
 
 import { useSyncStore, waitForSyncIdle } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
+import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 
 function syncModelSelectionNow() {
   const syncStore = useSyncStore.getState();
@@ -187,11 +184,6 @@ import {
 
 import { isEmpty } from "lodash-es";
 import {
-  AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
-  LATEST_OPENAI_CHAT_MODEL_NAME,
-  getLatestOpenAIModelName,
-  getLatestOpenAIModelForCurrentSupplier,
-  getLatestOpenAIModelForProviderId,
   getModelProvider,
   getPreferredRuntimeModelConfig,
   normalizeReservedDisplayModelName,
@@ -239,6 +231,7 @@ function areSelectorItemsEqual(
     order?: number;
     publishedAt?: number;
     catalogRank?: number;
+    remoteRank?: number;
     group?: string;
   }>,
   right: Array<{
@@ -248,6 +241,7 @@ function areSelectorItemsEqual(
     order?: number;
     publishedAt?: number;
     catalogRank?: number;
+    remoteRank?: number;
     group?: string;
   }>,
 ) {
@@ -269,6 +263,7 @@ function areSelectorItemsEqual(
       current.order !== next.order ||
       current.publishedAt !== next.publishedAt ||
       current.catalogRank !== next.catalogRank ||
+      current.remoteRank !== next.remoteRank ||
       current.group !== next.group
     ) {
       return false;
@@ -276,10 +271,6 @@ function areSelectorItemsEqual(
   }
 
   return true;
-}
-
-function isAiHubMixProviderId(providerId: string | undefined) {
-  return String(providerId || "").toLowerCase() === "custom_aihubmix";
 }
 
 function formatMessageUsage(
@@ -492,61 +483,6 @@ function buildProviderModelsFromAddedCustomModels(
     }));
 }
 
-function hasProviderModel(
-  models: Array<{ name: string; provider?: { id?: string } }>,
-  modelName: string,
-  providerId: string,
-) {
-  const normalizedModelName = String(modelName || "").toLowerCase();
-  const normalizedProviderId = String(providerId || "").toLowerCase();
-
-  return models.some(
-    (model) =>
-      String(model.name || "").toLowerCase() === normalizedModelName &&
-      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
-  );
-}
-
-function addCustomModelEntry(
-  customModels: string,
-  modelName: string,
-  providerId: string,
-) {
-  const entry = `+${modelName}@${providerId}`;
-  const existingEntries = customModels
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const targetKey = `${modelName}@${providerId}`.toLowerCase();
-  let changed = false;
-  const normalizedEntries = existingEntries.map((item) => {
-    const key = item.replace(/^[+-]/, "").toLowerCase();
-    if (key !== targetKey) {
-      return item;
-    }
-    if (item !== entry) {
-      changed = true;
-      return entry;
-    }
-    return item;
-  });
-  const existingKeys = new Set(
-    normalizedEntries.map((item) => item.replace(/^[+-]/, "").toLowerCase()),
-  );
-
-  if (existingKeys.has(targetKey)) {
-    return {
-      customModels: changed ? normalizedEntries.join(",") : customModels,
-      added: changed,
-    };
-  }
-
-  return {
-    customModels: [...normalizedEntries, entry].join(","),
-    added: true,
-  };
-}
-
 function getActiveAccessProfile(
   profiles: Array<{
     name: string;
@@ -616,74 +552,82 @@ function applyProfileToAccessStore(
     enabled: item.id === profile.id,
   }));
 
+  const effectiveBaseUrl = getEffectiveProviderBaseUrl(
+    profile.provider,
+    profile.baseUrl,
+  );
+
   switch (profile.provider) {
     case ServiceProvider.Custom:
-      access.customUrl = profile.baseUrl || "";
+      access.customUrl = effectiveBaseUrl;
       access.customApiKey = profile.apiKey || "";
       access.customOpenAICompatible = profile.openAICompatible ?? true;
       break;
     case ServiceProvider.OpenAI:
-      access.openaiUrl = profile.baseUrl || access.openaiUrl;
+      access.openaiUrl = effectiveBaseUrl || access.openaiUrl;
       access.openaiApiKey = profile.apiKey || access.openaiApiKey;
       break;
     case ServiceProvider.Azure:
-      access.azureUrl = profile.baseUrl || access.azureUrl;
+      access.azureUrl = effectiveBaseUrl || access.azureUrl;
       access.azureApiKey = profile.apiKey || access.azureApiKey;
       break;
     case ServiceProvider.Google:
-      access.googleUrl = profile.baseUrl || access.googleUrl;
+      access.googleUrl = effectiveBaseUrl || access.googleUrl;
       access.googleApiKey = profile.apiKey || access.googleApiKey;
       break;
     case ServiceProvider.Anthropic:
-      access.anthropicUrl = profile.baseUrl || access.anthropicUrl;
+      access.anthropicUrl = effectiveBaseUrl || access.anthropicUrl;
       access.anthropicApiKey = profile.apiKey || access.anthropicApiKey;
       break;
     case ServiceProvider.Baidu:
-      access.baiduUrl = profile.baseUrl || access.baiduUrl;
+      access.baiduUrl = effectiveBaseUrl || access.baiduUrl;
       access.baiduApiKey = profile.apiKey || access.baiduApiKey;
       break;
     case ServiceProvider.ByteDance:
-      access.bytedanceUrl = profile.baseUrl || access.bytedanceUrl;
+      access.bytedanceUrl = effectiveBaseUrl || access.bytedanceUrl;
       access.bytedanceApiKey = profile.apiKey || access.bytedanceApiKey;
       break;
     case ServiceProvider.Alibaba:
-      access.alibabaUrl = profile.baseUrl || access.alibabaUrl;
+      access.alibabaUrl = effectiveBaseUrl || access.alibabaUrl;
       access.alibabaApiKey = profile.apiKey || access.alibabaApiKey;
       break;
+    case ServiceProvider.Tencent:
+      access.tencentUrl = effectiveBaseUrl || access.tencentUrl;
+      break;
     case ServiceProvider.Moonshot:
-      access.moonshotUrl = profile.baseUrl || access.moonshotUrl;
+      access.moonshotUrl = effectiveBaseUrl || access.moonshotUrl;
       access.moonshotApiKey = profile.apiKey || access.moonshotApiKey;
       break;
     case ServiceProvider.Stability:
-      access.stabilityUrl = profile.baseUrl || access.stabilityUrl;
+      access.stabilityUrl = effectiveBaseUrl || access.stabilityUrl;
       access.stabilityApiKey = profile.apiKey || access.stabilityApiKey;
       break;
     case ServiceProvider.Iflytek:
-      access.iflytekUrl = profile.baseUrl || access.iflytekUrl;
+      access.iflytekUrl = effectiveBaseUrl || access.iflytekUrl;
       access.iflytekApiKey = profile.apiKey || access.iflytekApiKey;
       break;
     case ServiceProvider.XAI:
-      access.xaiUrl = profile.baseUrl || access.xaiUrl;
+      access.xaiUrl = effectiveBaseUrl || access.xaiUrl;
       access.xaiApiKey = profile.apiKey || access.xaiApiKey;
       break;
     case ServiceProvider.ChatGLM:
-      access.chatglmUrl = profile.baseUrl || access.chatglmUrl;
+      access.chatglmUrl = effectiveBaseUrl || access.chatglmUrl;
       access.chatglmApiKey = profile.apiKey || access.chatglmApiKey;
       break;
     case ServiceProvider.DeepSeek:
-      access.deepseekUrl = profile.baseUrl || access.deepseekUrl;
+      access.deepseekUrl = effectiveBaseUrl || access.deepseekUrl;
       access.deepseekApiKey = profile.apiKey || access.deepseekApiKey;
       break;
     case ServiceProvider.SiliconFlow:
-      access.siliconflowUrl = profile.baseUrl || access.siliconflowUrl;
+      access.siliconflowUrl = effectiveBaseUrl || access.siliconflowUrl;
       access.siliconflowApiKey = profile.apiKey || access.siliconflowApiKey;
       break;
     case ServiceProvider["302.AI"]:
-      access.ai302Url = profile.baseUrl || access.ai302Url;
+      access.ai302Url = effectiveBaseUrl || access.ai302Url;
       access.ai302ApiKey = profile.apiKey || access.ai302ApiKey;
       break;
     case ServiceProvider.Local:
-      access.localUrl = profile.baseUrl || access.localUrl;
+      access.localUrl = effectiveBaseUrl || access.localUrl;
       access.localApiKey = profile.apiKey || access.localApiKey;
       break;
     default:
@@ -994,188 +938,6 @@ function ChatModelUpdateNotice() {
   return null;
 }
 
-function ChatProviderBalance(props: {
-  providerName: ServiceProvider;
-  providerDisplayName: string;
-  refreshSignal: string;
-  balanceCacheKey: string;
-  profile?: BalanceAwareProfile;
-  deferInitialRefresh?: boolean;
-  suppressAutoRefresh?: boolean;
-}) {
-  const authUser = useAuthStore((state) => state.user);
-  const authInitialized = useAuthStore((state) => state.initialized);
-  const syncProvider = useSyncStore((state) => state.provider);
-  const criticalSyncReady = useSyncStore(
-    (state: any) => state.criticalSyncReady,
-  );
-  const criticalSyncInProgress = useSyncStore(
-    (state: any) => state.criticalSyncInProgress,
-  );
-  function formatUsageCurrency(value: number) {
-    if (!Number.isFinite(value)) {
-      return "--";
-    }
-    if (value === 0) {
-      return "$0.00";
-    }
-    return `$${value.toFixed(4)}`;
-  }
-
-  const updateUsage = useUpdateStore((state) => state.updateUsage);
-  const balance = useUpdateStore(
-    (state) => state.balances[props.balanceCacheKey],
-  );
-  const [displayedBalance, setDisplayedBalance] = useState(balance);
-  const [loadingUsage, setLoadingUsage] = useState(false);
-  const lastAutoRefreshKeyRef = useRef("");
-  const showUsage = true;
-  const supportsBalance =
-    props.providerName === ServiceProvider.Custom ||
-    props.providerName === ServiceProvider.Local;
-
-  useEffect(() => {
-    if (balance) {
-      setDisplayedBalance(balance);
-    }
-  }, [balance]);
-
-  const refreshUsage = useCallback(
-    async (force = false) => {
-      if (
-        !authInitialized ||
-        !authUser ||
-        (syncProvider === ProviderType.Database &&
-          (!criticalSyncReady || criticalSyncInProgress)) ||
-        !supportsBalance ||
-        !showUsage
-      ) {
-        return;
-      }
-
-      setLoadingUsage(true);
-      try {
-        await updateUsage(force, props.providerName, props.profile);
-      } finally {
-        setLoadingUsage(false);
-      }
-    },
-    [
-      authInitialized,
-      authUser,
-      criticalSyncInProgress,
-      criticalSyncReady,
-      props.profile,
-      props.providerName,
-      showUsage,
-      syncProvider,
-      supportsBalance,
-      updateUsage,
-    ],
-  );
-
-  useEffect(() => {
-    if (!props.refreshSignal) {
-      return;
-    }
-    refreshUsage(true);
-  }, [props.refreshSignal, refreshUsage]);
-
-  useEffect(() => {
-    if (!supportsBalance || !props.balanceCacheKey) {
-      return;
-    }
-    if (props.deferInitialRefresh) {
-      return;
-    }
-    if (props.suppressAutoRefresh) {
-      return;
-    }
-    if (
-      syncProvider === ProviderType.Database &&
-      (!criticalSyncReady || criticalSyncInProgress)
-    ) {
-      return;
-    }
-
-    const refreshKey = `${props.balanceCacheKey}:${props.profile?.id || ""}`;
-    const lastRefreshAt = recentBalanceAutoRefresh.get(refreshKey) || 0;
-    if (
-      lastAutoRefreshKeyRef.current === refreshKey ||
-      Date.now() - lastRefreshAt < 5000
-    ) {
-      return;
-    }
-    lastAutoRefreshKeyRef.current = refreshKey;
-    recentBalanceAutoRefresh.set(refreshKey, Date.now());
-
-    void refreshUsage(false);
-  }, [
-    props.balanceCacheKey,
-    props.deferInitialRefresh,
-    props.profile?.id,
-    props.providerName,
-    props.suppressAutoRefresh,
-    criticalSyncInProgress,
-    criticalSyncReady,
-    refreshUsage,
-    syncProvider,
-    supportsBalance,
-  ]);
-
-  if (
-    !authInitialized ||
-    !authUser ||
-    props.deferInitialRefresh ||
-    !displayedBalance ||
-    !supportsBalance
-  ) {
-    return null;
-  }
-
-  const remaining =
-    typeof displayedBalance?.remaining === "number"
-      ? displayedBalance.remaining
-      : null;
-  const totalUsed =
-    typeof displayedBalance?.used === "number" ? displayedBalance.used : null;
-  const displayValue =
-    typeof displayedBalance?.displayValue === "number"
-      ? displayedBalance.displayValue
-      : totalUsed;
-  const balanceDisplay =
-    props.providerName === ServiceProvider.Local
-      ? displayedBalance?.metricType === "requests"
-        ? displayValue !== null
-          ? `${Math.round(displayValue).toLocaleString()} 次`
-          : "--"
-        : displayedBalance?.metricType === "tokens"
-        ? displayValue !== null
-          ? `${Math.round(displayValue).toLocaleString()} Tokens`
-          : "--"
-        : displayValue !== null
-        ? formatUsageCurrency(displayValue)
-        : "--"
-      : remaining !== null
-      ? `$${remaining.toFixed(2)}`
-      : "--";
-  const balanceLabel =
-    props.providerName === ServiceProvider.Local
-      ? displayedBalance?.displayLabel ||
-        `${props.providerDisplayName} 总使用量`
-      : `${props.providerDisplayName} 余额`;
-
-  return (
-    <div className={styles["chat-provider-balance"]}>
-      <div className={styles["chat-provider-balance-label"]}>
-        {balanceLabel}
-      </div>
-      <div className={styles["chat-provider-balance-value"]}>
-        {showUsage ? balanceDisplay : Locale.Settings.Usage.NoAccess}
-      </div>
-    </div>
-  );
-}
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 
@@ -1191,7 +953,6 @@ const UNFINISHED_ATTACH_IMAGES = (id: string) =>
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
-const recentBalanceAutoRefresh = new Map<string, number>();
 
 type AttachImagesDraftPayload = {
   version: 1;
@@ -1276,17 +1037,6 @@ async function readAttachImagesDraft(keys: string[]) {
   }
 
   return null;
-}
-
-function formatModelSelectorReason(reason: string) {
-  const labels: Record<string, string> = {
-    "page-refresh": "页面刷新",
-    "model-selector-open": "打开模型选择器",
-    "model-manager-open": "打开模型管理器",
-    "model-manager-close": "关闭模型管理器",
-    "provider-switch": "切换供应商",
-  };
-  return labels[reason] || reason || "未知原因";
 }
 
 function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
@@ -2572,8 +2322,8 @@ function _Chat() {
   // 键盘打开时用于实测输入面板位置，计算填充高度
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatInputInnerRef = useRef<HTMLLabelElement>(null);
-  const balancePanelRef = useRef<HTMLDivElement>(null);
-  const balancePanelOverlapRafRef = useRef<number | null>(null);
+  const statusPanelRef = useRef<HTMLDivElement>(null);
+  const statusPanelOverlapRafRef = useRef<number | null>(null);
   const mobileViewportRafRef = useRef<number | null>(null);
   const mobileViewportReleaseTimersRef = useRef<number[]>([]);
   const mobileKeyboardOpenedSinceFocusRef = useRef(false);
@@ -2596,7 +2346,7 @@ function _Chat() {
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
   const [preserveMobileInputBlurHeight, setPreserveMobileInputBlurHeight] =
     useState(false);
-  const [balancePanelOverlapsMessages, setBalancePanelOverlapsMessages] =
+  const [statusPanelOverlapsMessages, setStatusPanelOverlapsMessages] =
     useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isModelConfigSyncConfirmed, setIsModelConfigSyncConfirmed] =
@@ -2708,12 +2458,12 @@ function _Chat() {
     [isMobileScreen],
   );
   const { width: windowWidth } = useWindowSize();
-  const [showBalanceUserPanel, setShowBalanceUserPanel] = useState(
+  const [showStatusUserPanel, setShowStatusUserPanel] = useState(
     () => !isMobileScreen,
   );
 
   useEffect(() => {
-    setShowBalanceUserPanel(!isMobileScreen);
+    setShowStatusUserPanel(!isMobileScreen);
   }, [isMobileScreen]);
 
   useLayoutEffect(() => {
@@ -2979,98 +2729,6 @@ function _Chat() {
       apiProfiles,
     );
   }, [apiProfiles, latestAutoModeProviderMessage]);
-  const autoModeBalanceProfile = useMemo(() => {
-    if (!autoModeEnabled || !latestAutoModeProviderMessage) {
-      return undefined;
-    }
-
-    const latestProfileId = String(
-      latestAutoModeProviderMessage.profileId || "",
-    );
-    const latestProviderKeys = [
-      latestAutoModeProviderMessage.providerId,
-      latestAutoModeProviderMessage.providerName,
-      latestAutoModeProviderDisplayName,
-    ]
-      .map(normalizeProviderLookup)
-      .filter(Boolean);
-    const matchProfileByProviderIdentity = (profile: {
-      provider: string;
-      name: string;
-    }) => {
-      const profileProviderId = getProfileProviderId(profile);
-      const profileKeys = [
-        profile.name,
-        profile.provider,
-        profileProviderId,
-        profileProviderId.replace(/^(custom|local)_/i, ""),
-      ]
-        .map(normalizeProviderLookup)
-        .filter(Boolean);
-
-      return latestProviderKeys.some((key) => profileKeys.includes(key));
-    };
-
-    return apiProfiles.find((profile) => {
-      if (!profile.enabled) {
-        return false;
-      }
-
-      return (
-        (!!latestProfileId && profile.id === latestProfileId) ||
-        matchProfileByProviderIdentity(profile)
-      );
-    });
-  }, [
-    apiProfiles,
-    autoModeEnabled,
-    latestAutoModeProviderMessage,
-    latestAutoModeProviderDisplayName,
-  ]);
-  const latestAutoModeProviderId = String(
-    latestAutoModeProviderMessage?.providerId || "",
-  )
-    .toLowerCase()
-    .trim();
-  const fallbackBalanceProfile = useMemo(
-    () =>
-      apiProfiles.find((profile) => {
-        if (!profile.enabled) {
-          return false;
-        }
-
-        if (profile.provider === ServiceProvider.Custom) {
-          return !!profile.baseUrl && !!profile.apiKey;
-        }
-
-        return profile.provider === ServiceProvider.Local;
-      }),
-    [apiProfiles],
-  );
-  const balanceProviderName = autoModeEnabled
-    ? autoModeBalanceProfile?.provider ||
-      (latestAutoModeProviderId.startsWith("custom_")
-        ? ServiceProvider.Custom
-        : undefined)
-    : currentProviderName === ServiceProvider.Custom ||
-      currentProviderName === ServiceProvider.Local
-    ? currentProviderName
-    : fallbackBalanceProfile?.provider;
-  const balanceProfile = autoModeEnabled
-    ? autoModeBalanceProfile
-    : balanceProviderName === currentProviderName
-    ? currentProfile || currentActiveProviderProfile
-    : fallbackBalanceProfile;
-  const balanceProviderDisplayName = autoModeEnabled
-    ? balanceProfile?.name || latestAutoModeProviderDisplayName
-    : balanceProfile?.name || balanceProviderName || currentProviderDisplayName;
-  const currentBalanceCacheKey = useMemo(
-    () =>
-      balanceProviderName
-        ? buildBalanceCacheKey(balanceProviderName, balanceProfile)
-        : "",
-    [balanceProfile, balanceProviderName],
-  );
 
   useEffect(() => {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
@@ -3348,6 +3006,8 @@ function _Chat() {
         publishedAt: model.publishedAt,
         publishedAtSource: model.publishedAtSource,
         catalogRank: model.catalogRank,
+        remoteRank: model.remoteRank,
+        remoteRankSource: model.remoteRankSource,
         group: globalCustomModelValueSet.has(
           `${model.name}@${model?.provider?.providerName}`,
         )
@@ -3440,6 +3100,8 @@ function _Chat() {
     ? `自动模式（${selectedAutoModelSeriesLabel}）`
     : "自动模式（未开启）";
   const modelConfigSyncingText = "模型同步中";
+  const isModelSelectorSyncing =
+    !autoModeEnabled && !shouldShowModelConfigLabel;
   const modelSelectorButtonText = autoModeEnabled ? (
     <>{autoModeButtonText}</>
   ) : (
@@ -3471,14 +3133,10 @@ function _Chat() {
     show: boolean;
     message: string;
   }>({ show: false, message: "" });
-  const [suppressBalanceAutoRefresh, setSuppressBalanceAutoRefresh] =
-    useState(false);
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
-  const latestOpenAIAutoCheckKeyRef = useRef("");
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const balanceAutoRefreshResumeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const suppressGlobalModelApplySessionRef = useRef("");
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
@@ -3498,7 +3156,7 @@ function _Chat() {
     return providers.length > 0 ? providers : [];
   }, [apiProfiles]);
 
-  const ensureLatestOpenAIModelForProfile = useCallback(
+  const collectProviderModelsForProfile = useCallback(
     (
       profile: {
         id?: string;
@@ -3506,7 +3164,7 @@ function _Chat() {
         provider: ServiceProvider;
         cachedModels?: string;
       },
-      reason: string,
+      _reason?: string,
     ) => {
       const selectedProviderId = getProfileProviderId(profile).toLowerCase();
       const cachedProfileModels =
@@ -3519,9 +3177,8 @@ function _Chat() {
           model.available &&
           String(model.provider?.id || "").toLowerCase() === selectedProviderId,
       );
-      const appConfigState = useAppConfig.getState();
-      let latestCustomModels = appConfigState.customModels || "";
-      let addedProviderModels = buildProviderModelsFromAddedCustomModels(
+      const latestCustomModels = useAppConfig.getState().customModels || "";
+      const addedProviderModels = buildProviderModelsFromAddedCustomModels(
         latestCustomModels,
         selectedProviderId,
         profile.provider,
@@ -3531,55 +3188,6 @@ function _Chat() {
         selectedProviderId,
         profile.provider,
       );
-      const providerModelCandidates = [
-        ...initialProviderModels,
-        ...addedProviderModels,
-        ...cachedProviderModels,
-      ];
-      const latestOpenAIModelName = isAiHubMixProviderId(selectedProviderId)
-        ? AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME
-        : getLatestOpenAIModelForProviderId(
-            providerModelCandidates,
-            selectedProviderId,
-          )?.model ||
-          getLatestOpenAIModelName([
-            ...allModels,
-            ...providerModelCandidates,
-          ]) ||
-          LATEST_OPENAI_CHAT_MODEL_NAME;
-
-      if (
-        latestOpenAIModelName &&
-        !hasProviderModel(
-          addedProviderModels,
-          latestOpenAIModelName,
-          selectedProviderId,
-        )
-      ) {
-        const nextCustomModels = addCustomModelEntry(
-          latestCustomModels,
-          latestOpenAIModelName,
-          selectedProviderId,
-        );
-        if (nextCustomModels.added) {
-          latestCustomModels = nextCustomModels.customModels;
-          useAppConfig.getState().update((state) => {
-            state.customModels = nextCustomModels.customModels;
-            (state as any).customModelsUpdatedAt = Date.now();
-          });
-          console.info("[模型选择器] 已自动补充最新 OpenAI 模型", {
-            原因: formatModelSelectorReason(reason),
-            配置名称: profile.name,
-            供应商ID: selectedProviderId,
-            模型: latestOpenAIModelName,
-          });
-        }
-        addedProviderModels = buildProviderModelsFromAddedCustomModels(
-          latestCustomModels,
-          selectedProviderId,
-          profile.provider,
-        );
-      }
 
       return {
         addedProviderModels,
@@ -3591,153 +3199,6 @@ function _Chat() {
     },
     [allModels],
   );
-
-  const ensureLatestOpenAIModelsForAllProfiles = useCallback(
-    (reason: string) => {
-      apiProfiles.forEach((profile) => {
-        ensureLatestOpenAIModelForProfile(profile as any, reason);
-      });
-    },
-    [apiProfiles, ensureLatestOpenAIModelForProfile],
-  );
-
-  const applyLatestOpenAIModelForProfile = useCallback(
-    (
-      profile: {
-        id?: string;
-        name: string;
-        provider: ServiceProvider;
-        cachedModels?: string;
-      },
-      reason: string,
-    ) => {
-      const {
-        addedProviderModels,
-        cachedProviderModels,
-        initialProviderModels,
-        selectedProviderId,
-      } = ensureLatestOpenAIModelForProfile(profile, reason);
-      const providerModels = [
-        ...initialProviderModels,
-        ...addedProviderModels,
-        ...cachedProviderModels,
-      ];
-      const latestOpenAIModel = isAiHubMixProviderId(selectedProviderId)
-        ? ({
-            model: AIHUBMIX_PREFERRED_OPENAI_CHAT_MODEL_NAME,
-            providerName: profile.provider,
-          } as const)
-        : getLatestOpenAIModelForProviderId(
-            providerModels,
-            selectedProviderId,
-          ) ||
-          ({
-            model: LATEST_OPENAI_CHAT_MODEL_NAME,
-            providerName: profile.provider,
-          } as const);
-      const latestSession = chatStore.currentSession();
-      if (!latestSession) {
-        return;
-      }
-      const latestSessionSummary = useChatStore
-        .getState()
-        .sessionSummaries.find((summary) => summary.id === latestSession.id);
-      const latestSessionHasMessages =
-        latestSession.messages.length > 0 ||
-        Number(latestSessionSummary?.messageCount || 0) > 0;
-      if (reason === "page-refresh" && latestSessionHasMessages) {
-        return;
-      }
-      const shouldDeferAutoApplyUntilSyncReady =
-        syncProvider === ProviderType.Database &&
-        (!criticalSyncReady || criticalSyncInProgress) &&
-        [
-          "page-refresh",
-          "model-selector-open",
-          "model-manager-open",
-          "model-manager-close",
-        ].includes(reason);
-      if (shouldDeferAutoApplyUntilSyncReady) {
-        console.info("[模型选择器] 最新 OpenAI 模型应用已延后", {
-          原因: formatModelSelectorReason(reason),
-          配置名称: profile.name,
-          供应商类型: profile.provider,
-          供应商ID: selectedProviderId,
-          模型: latestOpenAIModel.model,
-        });
-        return;
-      }
-
-      const nextModelConfig = sanitizeModelConfigForCapability({
-        ...latestSession.mask.modelConfig,
-        model: latestOpenAIModel.model as ModelType,
-        providerName: latestOpenAIModel.providerName as ServiceProvider,
-      });
-      (nextModelConfig as any).providerId = selectedProviderId;
-      (nextModelConfig as any).profileId = profile.id || "";
-
-      if (
-        !areModelConfigValuesEqual(
-          latestSession.mask.modelConfig as Record<string, unknown>,
-          nextModelConfig as Record<string, unknown>,
-        )
-      ) {
-        chatStore.updateTargetSession(latestSession, (session) => {
-          session.mask.modelConfig = nextModelConfig;
-          session.mask.syncGlobalConfig = true;
-        });
-      }
-
-      localStorage.setItem(MODEL_SELECTOR_PROVIDER_STORAGE_KEY, profile.name);
-      localStorage.setItem(
-        LAST_MODEL_SELECTION_STORAGE_KEY,
-        `${latestOpenAIModel.model}@${selectedProviderId}`,
-      );
-      console.info("[模型选择器] 已应用最新 OpenAI 模型", {
-        原因: formatModelSelectorReason(reason),
-        对话ID: latestSession.id,
-        配置名称: profile.name,
-        供应商类型: profile.provider,
-        供应商ID: selectedProviderId,
-        模型: latestOpenAIModel.model,
-      });
-    },
-    [
-      chatStore,
-      criticalSyncInProgress,
-      criticalSyncReady,
-      ensureLatestOpenAIModelForProfile,
-      syncProvider,
-    ],
-  );
-
-  useEffect(() => {
-    if (!currentProfile || !currentProviderId || allModels.length === 0) {
-      return;
-    }
-
-    const latestOpenAIModelName = getLatestOpenAIModelName(allModels);
-    const checkKey = [
-      currentProfile.id || currentProfile.name,
-      currentProviderId,
-      latestOpenAIModelName || "",
-      useAppConfig.getState().customModels || "",
-    ].join("|");
-
-    if (latestOpenAIAutoCheckKeyRef.current === checkKey) {
-      return;
-    }
-    latestOpenAIAutoCheckKeyRef.current = checkKey;
-
-    ensureLatestOpenAIModelsForAllProfiles("page-refresh");
-    applyLatestOpenAIModelForProfile(currentProfile as any, "page-refresh");
-  }, [
-    allModels,
-    applyLatestOpenAIModelForProfile,
-    currentProfile,
-    currentProviderId,
-    ensureLatestOpenAIModelsForAllProfiles,
-  ]);
 
   useEffect(() => {
     if (!showModelSelector) {
@@ -3796,9 +3257,6 @@ function _Chat() {
     return () => {
       if (modelSelectorNoticeTimerRef.current) {
         clearTimeout(modelSelectorNoticeTimerRef.current);
-      }
-      if (balanceAutoRefreshResumeTimerRef.current) {
-        clearTimeout(balanceAutoRefreshResumeTimerRef.current);
       }
     };
   }, []);
@@ -4637,21 +4095,21 @@ function _Chat() {
     pendingInitialBottomSessionRef.current = safeSession.id || null;
   }, [safeSession.id]);
 
-  const updateBalancePanelOverlap = useCallback(() => {
+  const updateStatusPanelOverlap = useCallback(() => {
     if (typeof window === "undefined") return;
 
-    if (balancePanelOverlapRafRef.current !== null) {
-      window.cancelAnimationFrame(balancePanelOverlapRafRef.current);
+    if (statusPanelOverlapRafRef.current !== null) {
+      window.cancelAnimationFrame(statusPanelOverlapRafRef.current);
     }
 
-    balancePanelOverlapRafRef.current = window.requestAnimationFrame(() => {
-      balancePanelOverlapRafRef.current = null;
+    statusPanelOverlapRafRef.current = window.requestAnimationFrame(() => {
+      statusPanelOverlapRafRef.current = null;
 
-      const panel = balancePanelRef.current;
+      const panel = statusPanelRef.current;
       const chatBody = scrollRef.current;
 
-      if (!panel || !chatBody || !showBalanceUserPanel) {
-        setBalancePanelOverlapsMessages(false);
+      if (!panel || !chatBody || !showStatusUserPanel) {
+        setStatusPanelOverlapsMessages(false);
         return;
       }
 
@@ -4682,37 +4140,37 @@ function _Chat() {
           : overlapWidth > 8 && overlapHeight > 16;
       });
 
-      setBalancePanelOverlapsMessages(overlaps);
+      setStatusPanelOverlapsMessages(overlaps);
     });
-  }, [isMobileScreen, showBalanceUserPanel]);
+  }, [isMobileScreen, showStatusUserPanel]);
 
   useEffect(() => {
-    updateBalancePanelOverlap();
-    window.addEventListener("resize", updateBalancePanelOverlap);
+    updateStatusPanelOverlap();
+    window.addEventListener("resize", updateStatusPanelOverlap);
 
     return () => {
-      window.removeEventListener("resize", updateBalancePanelOverlap);
-      if (balancePanelOverlapRafRef.current !== null) {
-        window.cancelAnimationFrame(balancePanelOverlapRafRef.current);
-        balancePanelOverlapRafRef.current = null;
+      window.removeEventListener("resize", updateStatusPanelOverlap);
+      if (statusPanelOverlapRafRef.current !== null) {
+        window.cancelAnimationFrame(statusPanelOverlapRafRef.current);
+        statusPanelOverlapRafRef.current = null;
       }
     };
   }, [
     messages.length,
     msgRenderIndex,
     safeSession.id,
-    showBalanceUserPanel,
-    updateBalancePanelOverlap,
+    showStatusUserPanel,
+    updateStatusPanelOverlap,
   ]);
 
   useEffect(() => {
-    updateBalancePanelOverlap();
+    updateStatusPanelOverlap();
   }, [
     isMobileInputFocused,
     isMobileScreen,
     userInput,
     attachImages.length,
-    updateBalancePanelOverlap,
+    updateStatusPanelOverlap,
   ]);
 
   const clearStreamingScrollResumeTimer = useCallback(() => {
@@ -4723,7 +4181,7 @@ function _Chat() {
   }, []);
 
   const onChatBodyScroll = (e: HTMLElement) => {
-    updateBalancePanelOverlap();
+    updateStatusPanelOverlap();
 
     const bottomHeight = e.scrollTop + e.clientHeight;
     const edgeThreshold = e.clientHeight;
@@ -6327,7 +5785,10 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
-    ensureLatestOpenAIModelsForAllProfiles("model-selector-open");
+    if (isModelSelectorSyncing) {
+      handleModelSelectorBlockedDuringSync();
+      return;
+    }
 
     // 优先使用已切换的 providerId，其次从 session 获取
     const latestProviderId =
@@ -6341,15 +5802,10 @@ function _Chat() {
         sessionMask?.modelConfig?.providerName || currentProviderName || "",
       ).toLowerCase();
 
-    // 打开选择器时默认选中按钮当前展示的模型，避免按钮与勾选项不一致。
-    const latestOpenAIModel = getLatestOpenAIModelForProviderId(
-      allModels,
-      latestProviderId,
-    );
+    // 打开选择器时只默认选中当前模型；不再自动选择或补充 OpenAI 最新模型。
     const fallbackDefaultValue = getModelSelectorDefaultValue({
       providerId: latestProviderId,
       currentModel: sessionMask?.modelConfig?.model || currentRawModel,
-      latestModel: latestOpenAIModel?.model,
     });
 
     modelSelectorOpenStartedAtRef.current = nowMs();
@@ -6362,7 +5818,8 @@ function _Chat() {
     apiProfiles,
     currentRawModel,
     currentProviderName,
-    ensureLatestOpenAIModelsForAllProfiles,
+    handleModelSelectorBlockedDuringSync,
+    isModelSelectorSyncing,
     modelSelectorProviderId,
     sessionMask,
   ]);
@@ -6414,10 +5871,7 @@ function _Chat() {
           cachedProfileModels,
           cachedProviderModels,
           initialProviderModels,
-        } = ensureLatestOpenAIModelForProfile(
-          profile as any,
-          "provider-switch",
-        );
+        } = collectProviderModelsForProfile(profile as any, "provider-switch");
         const hasLoadedProviderModels = initialProviderModels.length > 0;
 
         const commitProviderSwitch = (
@@ -6429,29 +5883,17 @@ function _Chat() {
             console.error("[模型选择器] 切换供应商失败：当前对话不存在");
             return;
           }
-          const preferredProviderModelConfig =
-            getLatestOpenAIModelForCurrentSupplier(
-              providerModels,
-              {
-                ...latestSession.mask.modelConfig,
-                providerName: profile.provider as ServiceProvider,
-                ...(latestSession.mask.modelConfig as any),
-                providerId: selectedProviderId,
-                profileId: profile.id,
-              } as any,
-              apiProfiles,
-            ) ||
-            getPreferredDefaultChatModel(
-              providerModels,
-              {
-                ...latestSession.mask.modelConfig,
-                providerName: profile.provider as ServiceProvider,
-                ...(latestSession.mask.modelConfig as any),
-                providerId: selectedProviderId,
-                profileId: profile.id,
-              } as any,
-              apiProfiles,
-            );
+          const preferredProviderModelConfig = getPreferredDefaultChatModel(
+            providerModels,
+            {
+              ...latestSession.mask.modelConfig,
+              providerName: profile.provider as ServiceProvider,
+              ...(latestSession.mask.modelConfig as any),
+              providerId: selectedProviderId,
+              profileId: profile.id,
+            } as any,
+            apiProfiles,
+          );
           const nextModel =
             providerModels.find(
               (model) => model.name === preferredProviderModelConfig?.model,
@@ -6487,15 +5929,6 @@ function _Chat() {
           useSyncStore
             .getState()
             .triggerDebounceSync([StoreKey.Access], { delayMs: 0 });
-          setSuppressBalanceAutoRefresh(true);
-          if (balanceAutoRefreshResumeTimerRef.current) {
-            clearTimeout(balanceAutoRefreshResumeTimerRef.current);
-          }
-          balanceAutoRefreshResumeTimerRef.current = setTimeout(() => {
-            setSuppressBalanceAutoRefresh(false);
-            balanceAutoRefreshResumeTimerRef.current = null;
-          }, 3000);
-
           chatStore.updateTargetSession(latestSession, (session) => {
             session.mask.modelConfig.providerName =
               profile.provider as ServiceProvider;
@@ -6611,7 +6044,7 @@ function _Chat() {
     [
       apiProfiles,
       chatStore,
-      ensureLatestOpenAIModelForProfile,
+      collectProviderModelsForProfile,
       resetModelSelectorGroupToAll,
       isAiHubMixOrderingReady,
     ],
@@ -7478,12 +6911,15 @@ function _Chat() {
               <IconButton
                 icon={<RobotIcon />}
                 bordered
-                className={styles["chat-window-icon-button"]}
+                className={clsx(styles["chat-window-icon-button"], {
+                  [styles["chat-window-icon-button-model-syncing"]]:
+                    isModelSelectorSyncing,
+                })}
                 text={useHeaderIconOnly ? undefined : modelSelectorButtonText}
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
-                disabled={isChatUnavailableForSync}
+                disabled={isChatUnavailableForSync || isModelSelectorSyncing}
               />
             </div>
             <div
@@ -7522,16 +6958,16 @@ function _Chat() {
                   useHeaderIconOnly
                     ? undefined
                     : isMobileScreen
-                    ? showBalanceUserPanel
+                    ? showStatusUserPanel
                       ? "隐藏状态"
                       : "显示状态"
                     : "API 配置"
                 }
-                title={isMobileScreen ? "显示或隐藏用户和余额" : "API 配置"}
-                aria={isMobileScreen ? "显示或隐藏用户和余额" : "API 配置"}
+                title={isMobileScreen ? "显示或隐藏用户状态" : "API 配置"}
+                aria={isMobileScreen ? "显示或隐藏用户状态" : "API 配置"}
                 onClick={() => {
                   if (isMobileScreen) {
-                    setShowBalanceUserPanel((show) => !show);
+                    setShowStatusUserPanel((show) => !show);
                     return;
                   }
                   navigate(Path.ApiConfig);
@@ -7617,16 +7053,16 @@ function _Chat() {
         <div className={styles["chat-main"]}>
           <div className={styles["chat-body-container"]}>
             <ChatModelUpdateNotice />
-            {showBalanceUserPanel && (
+            {showStatusUserPanel && (
               <div
-                ref={balancePanelRef}
-                className={clsx(styles["chat-balance-user-panel"], {
-                  [styles["chat-balance-user-panel-dimmed"]]:
-                    !isMobileScreen && balancePanelOverlapsMessages,
+                ref={statusPanelRef}
+                className={clsx(styles["chat-status-user-panel"], {
+                  [styles["chat-status-user-panel-dimmed"]]:
+                    !isMobileScreen && statusPanelOverlapsMessages,
                 })}
               >
                 {isMobileScreen ? (
-                  <div className={styles["chat-balance-user-panel-mobile"]}>
+                  <div className={styles["chat-status-user-panel-mobile"]}>
                     <div className={styles["chat-panel-model-info"]}>
                       {shouldShowModelConfigLabel ? (
                         <>
@@ -7644,19 +7080,6 @@ function _Chat() {
                   </div>
                 ) : (
                   <>
-                    {balanceProviderName ? (
-                      <ChatProviderBalance
-                        providerName={balanceProviderName as ServiceProvider}
-                        providerDisplayName={balanceProviderDisplayName}
-                        refreshSignal=""
-                        balanceCacheKey={currentBalanceCacheKey}
-                        profile={
-                          balanceProfile as BalanceAwareProfile | undefined
-                        }
-                        deferInitialRefresh={sessionMessages.length === 0}
-                        suppressAutoRefresh={suppressBalanceAutoRefresh}
-                      />
-                    ) : null}
                     <UserMenu variant="chat-floating" />
                   </>
                 )}
@@ -8613,7 +8036,7 @@ function _Chat() {
                               </span>
                             ) : (
                               <div className="no-dark">
-                                <BotIconOpenAI
+                                <BotIconDefault
                                   className="user-avatar"
                                   width={16}
                                   height={16}
@@ -8661,7 +8084,6 @@ function _Chat() {
               onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
-                ensureLatestOpenAIModelsForAllProfiles("model-manager-open");
                 setAddModelProfile({
                   profiles: apiProfiles,
                   currentProviderId: activeModelSelectorProviderId,
@@ -8712,35 +8134,6 @@ function _Chat() {
                 String(item.provider?.id || "").toLowerCase() ===
                   selectedProviderId,
             );
-            const latestOpenAIModelForSyncedSelection = selectedProfile
-              ? (() => {
-                  const {
-                    addedProviderModels,
-                    cachedProviderModels,
-                    initialProviderModels,
-                  } = ensureLatestOpenAIModelForProfile(
-                    selectedProfile as any,
-                    "manual-model-selection",
-                  );
-                  const latestOpenAIModel =
-                    getLatestOpenAIModelForProviderId(
-                      [
-                        ...initialProviderModels,
-                        ...addedProviderModels,
-                        ...cachedProviderModels,
-                        ...selectedProviderModels,
-                      ],
-                      selectedProviderId,
-                    ) ||
-                    ({
-                      model: LATEST_OPENAI_CHAT_MODEL_NAME,
-                      providerName: selectedProfile.provider,
-                    } as const);
-
-                  return latestOpenAIModel;
-                })()
-              : undefined;
-
             if (selectedProfile) {
               useAccessStore.getState().update((access) => {
                 access.useCustomConfig = true;
@@ -8755,17 +8148,6 @@ function _Chat() {
             });
             (nextModelConfig as any).providerId = selectedProviderId;
             (nextModelConfig as any).profileId = selectedProfile?.id || "";
-            const syncedSelectionDiffersFromCurrent =
-              !!latestOpenAIModelForSyncedSelection &&
-              (String(latestOpenAIModelForSyncedSelection.model || "") !==
-                String(nextModelConfig.model || "") ||
-                String(
-                  latestOpenAIModelForSyncedSelection.providerName || "",
-                ) !== String(nextModelConfig.providerName || ""));
-            if (syncedSelectionDiffersFromCurrent) {
-              suppressGlobalModelApplySessionRef.current = session.id;
-            }
-
             // 手动切换模型必须立即写回当前会话。
             // Effect B 仅会在空白会话时把全局配置同步到会话，
             // 已有消息的会话如果不在这里更新，会继续沿用旧模型发起请求。
@@ -8838,12 +8220,11 @@ function _Chat() {
                 addModelProfile.currentProviderId,
             );
             if (managedProfile) {
-              ensureLatestOpenAIModelForProfile(
+              collectProviderModelsForProfile(
                 managedProfile as any,
                 "model-manager-close",
               );
             }
-            ensureLatestOpenAIModelsForAllProfiles("model-manager-close");
             setShowAddModelModal(false);
             setAddModelProfile(null);
             setShowModelSelector(true);

@@ -8,7 +8,6 @@ import { createPersistStore } from "../utils/store";
 import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
-  getLatestOpenAIModelForProviderId,
   getPreferredDefaultChatModel,
 } from "../utils/model";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
@@ -257,37 +256,27 @@ export const createEmptyMask = () => {
           String(model.provider?.id || "").toLowerCase() === startupProviderId,
       )
     : [];
-  const latestOpenAIModelForStartupProvider = getLatestOpenAIModelForProviderId(
-    allModels,
-    startupProviderId,
-  );
-  const fallbackProviderModel =
-    (latestOpenAIModelForStartupProvider
-      ? providerScopedModels.find(
-          (model) => model.name === latestOpenAIModelForStartupProvider.model,
-        )
-      : undefined) || providerScopedModels[0];
-  const preferredModelConfig = latestOpenAIModelForStartupProvider
-    ? latestOpenAIModelForStartupProvider
-    : storedModel && storedModel.provider?.providerName
-    ? {
-        model: storedModel.name as ModelType,
-        providerName: storedModel.provider.providerName as ServiceProvider,
-      }
-    : fallbackProviderModel?.provider?.providerName
-    ? {
-        model: fallbackProviderModel.name as ModelType,
-        providerName: fallbackProviderModel.provider
-          .providerName as ServiceProvider,
-      }
-    : getPreferredDefaultChatModel(
-        allModels,
-        {
-          ...startupBaseModelConfig,
-          model: DEFAULT_CONFIG.modelConfig.model,
-        },
-        accessStore.apiProfiles,
-      );
+  const fallbackProviderModel = providerScopedModels[0];
+  const preferredModelConfig =
+    storedModel && storedModel.provider?.providerName
+      ? {
+          model: storedModel.name as ModelType,
+          providerName: storedModel.provider.providerName as ServiceProvider,
+        }
+      : fallbackProviderModel?.provider?.providerName
+      ? {
+          model: fallbackProviderModel.name as ModelType,
+          providerName: fallbackProviderModel.provider
+            .providerName as ServiceProvider,
+        }
+      : getPreferredDefaultChatModel(
+          allModels,
+          {
+            ...startupBaseModelConfig,
+            model: DEFAULT_CONFIG.modelConfig.model,
+          },
+          accessStore.apiProfiles,
+        );
   const initialModelConfig = sanitizeModelConfigForCapability({
     ...startupBaseModelConfig,
     ...(preferredModelConfig || {}),
@@ -300,9 +289,7 @@ export const createEmptyMask = () => {
     (initialModelConfig as any).profileId = startupProfile.id;
   }
 
-  const modelSource = latestOpenAIModelForStartupProvider
-    ? "latestOpenAI"
-    : storedModel
+  const modelSource = storedModel
     ? "storedModel"
     : fallbackProviderModel
     ? "fallbackProvider"

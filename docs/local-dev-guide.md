@@ -58,10 +58,10 @@ PGPASSWORD=postgres
 PGSSL=false
 PGSSLMODE=disable
 
-# 用户标识配置（三个变量必须保持一致）
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+# 同步数据归属 ID（不是登录用户名，三个变量必须保持一致）
+NEXTCHAT_DEFAULT_USER_ID=user:admin
+DEFAULT_SYNC_USER_ID=user:admin
+NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 
 # 应用密钥（请修改为随机字符串）
 APP_SECRET=your-random-app-secret-key-here
@@ -214,14 +214,14 @@ NextChat/
 | `PGUSER` | 数据库用户 | postgres |
 | `PGPASSWORD` | 数据库密码 | postgres |
 
-### 用户标识变量
+### 同步数据归属 ID
 
-以下三个变量必须保持一致：
+以下三个变量必须保持一致。它们不是登录用户名，只决定共享同步数据归属于哪个 `app_users.external_id`：
 
 ```env
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+NEXTCHAT_DEFAULT_USER_ID=user:admin
+DEFAULT_SYNC_USER_ID=user:admin
+NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 ```
 
 ### 可选变量

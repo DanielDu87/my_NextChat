@@ -22,6 +22,7 @@ import {
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { preProcessImageContent } from "@/app/utils/chat";
+import { joinUrlPath } from "@/app/utils/url";
 import {
   applyModelSamplingRules,
   inferModelCapability,
@@ -145,7 +146,7 @@ export class ChatGLMApi implements LLMApi {
     }
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   extractMessage(res: any) {

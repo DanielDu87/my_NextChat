@@ -31,7 +31,7 @@ describe("chat conversation repository", () => {
     const queryMock = jest.fn<QueryFn>().mockResolvedValueOnce({ rows: [] });
 
     await syncNormalizedChatSessions({ query: queryMock } as any, {
-      externalUserId: "single-user",
+      externalUserId: "user:admin",
       upsertSessions: [],
       deleteSessionIds: ["s1", "s1", ""],
     });
@@ -45,7 +45,7 @@ describe("chat conversation repository", () => {
   test("buildNormalizedChatIndexSnapshot should exclude soft-deleted conversations", async () => {
     pgQueryMock.mockResolvedValueOnce({ rows: [] });
 
-    await buildNormalizedChatIndexSnapshot("single-user");
+    await buildNormalizedChatIndexSnapshot("user:admin");
 
     expect(pgQueryMock).toHaveBeenCalledTimes(1);
     expect(pgQueryMock.mock.calls[0]?.[0]).toContain("c.is_deleted = false");

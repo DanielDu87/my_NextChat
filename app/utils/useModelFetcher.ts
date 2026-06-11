@@ -23,6 +23,7 @@ export function useModelFetcher() {
         silent?: boolean;
         profileName?: string;
         apiKeyGroups?: Record<string, string>;
+        multiKeyGroupOrder?: string[];
         throwOnError?: boolean;
       },
     ): Promise<FetchModelsResult> => {
@@ -43,6 +44,7 @@ export function useModelFetcher() {
           apiKey,
           options?.profileName,
           options?.apiKeyGroups,
+          options?.multiKeyGroupOrder,
         );
 
         await updateModelsInStore(result.models);
@@ -60,8 +62,8 @@ export function useModelFetcher() {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "获取模型失败";
         setError(errorMsg);
-        console.error(
-          `[Model Fetcher] ❌ 从 ${displayName} 获取模型失败:`,
+        console.warn(
+          `[Model Fetcher] ⚠️ 从 ${displayName} 获取模型失败:`,
           errorMsg,
         );
         if (options?.throwOnError) {

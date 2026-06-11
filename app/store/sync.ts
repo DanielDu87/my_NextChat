@@ -67,6 +67,10 @@ import {
   isManualDatabaseSyncActive,
   getManualDatabaseSyncGeneration,
 } from "../utils/manual-sync-guard";
+import {
+  normalizeMultiKeyGroups,
+  shouldAutoEnableMultiKey,
+} from "../utils/multi-key";
 
 import {
   buildCustomModelSyncDiffBetween,
@@ -473,10 +477,19 @@ function logAccessProfileSyncSummary(state: any) {
   console.log(`[Sync] ✅ 已同步API配置: ${profiles.length} 个`);
 
   profiles.forEach((profile: any) => {
-    const multiKeyEnabled = Boolean(profile?.multiKeyEnabled);
+    const normalizedGroups = normalizeMultiKeyGroups(
+      profile?.apiKeyGroups,
+      profile,
+    );
+    const hasGroupKeys = countNonEmptyGroupKeys(normalizedGroups) > 0;
+    const multiKeyEnabled = shouldAutoEnableMultiKey({
+      ...profile,
+      apiKeyGroups: normalizedGroups,
+      multiKeyEnabled: hasGroupKeys ? true : profile?.multiKeyEnabled,
+    });
     const normalKeyCount = countNonEmptyString(profile?.apiKey);
     const groupKeyCount = multiKeyEnabled
-      ? countNonEmptyGroupKeys(profile?.apiKeyGroups)
+      ? countNonEmptyGroupKeys(normalizedGroups)
       : 0;
     const requestKeyCount = multiKeyEnabled
       ? groupKeyCount + normalKeyCount

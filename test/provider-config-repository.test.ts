@@ -8,6 +8,9 @@ jest.unstable_mockModule("../app/constant", () => ({
     Custom: "Custom",
     OpenAI: "OpenAI",
   },
+  StoreKey: {
+    Access: "access-control",
+  },
 }));
 
 jest.unstable_mockModule("../app/utils/server/postgres", () => ({
@@ -49,7 +52,7 @@ describe("provider config repository", () => {
     }));
     queryMock.mockImplementation(async () => undefined);
 
-    await syncProviderConfigsFromAccessState("single-user", {
+    await syncProviderConfigsFromAccessState("user:admin", {
       state: {
         apiProfiles: [
           {
@@ -58,7 +61,6 @@ describe("provider config repository", () => {
             provider: "OpenAI",
             baseUrl: "https://api.example.com",
             apiKey: "sk-main",
-            balanceQueryApiKey: "sk-balance",
             apiKeyGroups: {
               premium: "sk-premium",
             },
@@ -82,15 +84,6 @@ describe("provider config repository", () => {
     ]);
     expect(queryMock.mock.calls[4][1]).toEqual([
       "provider-config-1",
-      "balance-query",
-      "balance_query",
-      null,
-      "enc:sk-balance",
-      "sk-b***ance",
-      JSON.stringify({ syncedFrom: "access-control" }),
-    ]);
-    expect(queryMock.mock.calls[5][1]).toEqual([
-      "provider-config-1",
       "group:premium",
       "group",
       "premium",
@@ -113,8 +106,6 @@ describe("provider config repository", () => {
             openAICompatible: true,
             cachedModels: "gpt-4o-mini",
             modelCount: 1,
-            balanceQueryUrl: "https://balance.example.com",
-            balanceQueryField: "balance",
           },
           encrypted_secret: "enc:sk-main",
           key_name: "default",
@@ -142,19 +133,6 @@ describe("provider config repository", () => {
           request_config: {
             openAICompatible: true,
           },
-          encrypted_secret: "enc:sk-balance",
-          key_name: "balance-query",
-          api_key_group: null,
-        },
-        {
-          provider_code: "profile-1",
-          provider_name: "Main",
-          provider_type: "OpenAI",
-          base_url: "https://api.example.com",
-          is_enabled: true,
-          request_config: {
-            openAICompatible: true,
-          },
           encrypted_secret: "enc:sk-premium",
           key_name: "group:premium",
           api_key_group: "premium",
@@ -162,7 +140,7 @@ describe("provider config repository", () => {
       ],
     }));
 
-    await expect(getProviderProfilesForAccessState("single-user")).resolves.toEqual([
+    await expect(getProviderProfilesForAccessState("user:admin")).resolves.toEqual([
       {
         id: "profile-1",
         name: "Main",
@@ -172,11 +150,10 @@ describe("provider config repository", () => {
         openAICompatible: true,
         cachedModels: "gpt-4o-mini",
         modelCount: 1,
-        balanceQueryUrl: "https://balance.example.com",
-        balanceQueryField: "balance",
+        multiKeyEnabled: false,
+        multiKeyGroupOrder: undefined,
         apiKey: "sk-main",
         modelFetchApiKey: "sk-fetch",
-        balanceQueryApiKey: "sk-balance",
         apiKeyGroups: {
           premium: "sk-premium",
         },

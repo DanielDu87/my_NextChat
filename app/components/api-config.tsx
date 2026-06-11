@@ -57,13 +57,17 @@ import { LLMModel } from "../client/api";
 import { useNavigate } from "react-router-dom";
 import { useModelFetcher } from "../utils/useModelFetcher";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
-import { runWithBalanceRefreshPaused } from "../store/update";
 import {
   getProviderDisplayName,
   modelsToCustomModelsString,
 } from "../utils/models";
 import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 import { dedupeAccessProfiles } from "../utils/access-profiles";
+import {
+  getEffectiveProviderBaseUrl,
+  getOfficialProviderBaseUrl,
+  isOfficialProviderBaseUrlLocked,
+} from "../utils/provider-url";
 import {
   MULTI_KEY_GROUP_IDS,
   createEmptyMultiKeyGroups,
@@ -100,6 +104,13 @@ function isVisibleApiConfigProfile(profile: {
   );
 }
 
+function normalizeProfileBaseUrl(profile: {
+  provider: ServiceProvider;
+  baseUrl?: string;
+}) {
+  return getEffectiveProviderBaseUrl(profile.provider, profile.baseUrl);
+}
+
 function createVisibleApiConfigProfile(): AccessState["apiProfiles"][number] {
   const timestamp = Date.now();
 
@@ -110,9 +121,6 @@ function createVisibleApiConfigProfile(): AccessState["apiProfiles"][number] {
     baseUrl: `xxx-${timestamp}`,
     apiKey: "xxx",
     modelFetchApiKey: "",
-    balanceQueryApiKey: "",
-    balanceQueryUrl: "",
-    balanceQueryField: "",
     apiKeyGroups: createEmptyMultiKeyGroups(),
     multiKeyGroupOrder: [...MULTI_KEY_GROUP_IDS],
     multiKeyEnabled: false,
@@ -195,7 +203,6 @@ const ACCESS_SECRET_FIELD_KEYS = [
   "chatglmApiKey",
   "siliconflowApiKey",
   "ai302ApiKey",
-  "balanceQueryApiKey",
 ] as const;
 
 function restoreEncryptedAccessSecrets(
@@ -241,7 +248,7 @@ function restoreEncryptedAccessSecrets(
         const localProfile = localProfileMap.get(String(profile.id || ""));
         const nextProfile = { ...profile };
 
-        ["apiKey", "modelFetchApiKey", "balanceQueryApiKey"].forEach((key) => {
+        ["apiKey", "modelFetchApiKey"].forEach((key) => {
           if (
             nextProfile[key] === ENCRYPTED_SECRET_PLACEHOLDER ||
             (String(nextProfile[key] || "").trim().length === 0 &&
@@ -309,13 +316,6 @@ function normalizeAccessStateForUi(
         nextProfile.apiKey = String(nextProfile.apiKey || "");
         nextProfile.modelFetchApiKey = String(
           nextProfile.modelFetchApiKey || "",
-        );
-        nextProfile.balanceQueryApiKey = String(
-          nextProfile.balanceQueryApiKey || "",
-        );
-        nextProfile.balanceQueryUrl = String(nextProfile.balanceQueryUrl || "");
-        nextProfile.balanceQueryField = String(
-          nextProfile.balanceQueryField || "",
         );
 
         if (
@@ -862,6 +862,11 @@ function getProfileBaseUrl(
   provider: ServiceProvider,
   accessStore: AccessState,
 ) {
+  const officialBaseUrl = getOfficialProviderBaseUrl(provider);
+  if (officialBaseUrl) {
+    return officialBaseUrl;
+  }
+
   switch (provider) {
     case ServiceProvider.Custom:
       return accessStore.customUrl;
@@ -879,6 +884,8 @@ function getProfileBaseUrl(
       return accessStore.bytedanceUrl;
     case ServiceProvider.Alibaba:
       return accessStore.alibabaUrl;
+    case ServiceProvider.Tencent:
+      return accessStore.tencentUrl;
     case ServiceProvider.Moonshot:
       return accessStore.moonshotUrl;
     case ServiceProvider.Stability:
@@ -1290,6 +1297,10 @@ export function ApiConfigPage() {
         ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
             ?.apiKeyGroups
         : undefined,
+      multiKeyGroupOrder: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.multiKeyGroupOrder
+        : undefined,
     })
       .then((result) => {
         const currentProfile = profileId
@@ -1330,8 +1341,8 @@ export function ApiConfigPage() {
           },
         }));
         const displayName = getProviderDisplayName(provider, baseUrl);
-        console.error(
-          `[API Config] ❌ 从 ${displayName} 自动获取模型失败:`,
+        console.warn(
+          `[API Config] ⚠️ 从 ${displayName} 自动获取模型失败:`,
           error,
         );
       });
@@ -1360,74 +1371,79 @@ export function ApiConfigPage() {
         const enabled = profile.id === profileId;
         if (!enabled) return { ...profile, enabled: false };
 
+        const effectiveBaseUrl = normalizeProfileBaseUrl(profile);
+
         switch (profile.provider) {
           case ServiceProvider.Custom:
-            access.customUrl = profile.baseUrl;
+            access.customUrl = effectiveBaseUrl;
             access.customApiKey = profile.apiKey;
             access.customOpenAICompatible = profile.openAICompatible ?? true;
             break;
           case ServiceProvider.OpenAI:
-            access.openaiUrl = profile.baseUrl;
+            access.openaiUrl = effectiveBaseUrl;
             access.openaiApiKey = profile.apiKey;
             break;
           case ServiceProvider.Azure:
-            access.azureUrl = profile.baseUrl;
+            access.azureUrl = effectiveBaseUrl;
             access.azureApiKey = profile.apiKey;
             break;
           case ServiceProvider.Google:
-            access.googleUrl = profile.baseUrl;
+            access.googleUrl = effectiveBaseUrl;
             access.googleApiKey = profile.apiKey;
             break;
           case ServiceProvider.Anthropic:
-            access.anthropicUrl = profile.baseUrl;
+            access.anthropicUrl = effectiveBaseUrl;
             access.anthropicApiKey = profile.apiKey;
             break;
           case ServiceProvider.Baidu:
-            access.baiduUrl = profile.baseUrl;
+            access.baiduUrl = effectiveBaseUrl;
             access.baiduApiKey = profile.apiKey;
             break;
           case ServiceProvider.ByteDance:
-            access.bytedanceUrl = profile.baseUrl;
+            access.bytedanceUrl = effectiveBaseUrl;
             access.bytedanceApiKey = profile.apiKey;
             break;
           case ServiceProvider.Alibaba:
-            access.alibabaUrl = profile.baseUrl;
+            access.alibabaUrl = effectiveBaseUrl;
             access.alibabaApiKey = profile.apiKey;
             break;
+          case ServiceProvider.Tencent:
+            access.tencentUrl = effectiveBaseUrl;
+            break;
           case ServiceProvider.Moonshot:
-            access.moonshotUrl = profile.baseUrl;
+            access.moonshotUrl = effectiveBaseUrl;
             access.moonshotApiKey = profile.apiKey;
             break;
           case ServiceProvider.Stability:
-            access.stabilityUrl = profile.baseUrl;
+            access.stabilityUrl = effectiveBaseUrl;
             access.stabilityApiKey = profile.apiKey;
             break;
           case ServiceProvider.Iflytek:
-            access.iflytekUrl = profile.baseUrl;
+            access.iflytekUrl = effectiveBaseUrl;
             access.iflytekApiKey = profile.apiKey;
             break;
           case ServiceProvider.XAI:
-            access.xaiUrl = profile.baseUrl;
+            access.xaiUrl = effectiveBaseUrl;
             access.xaiApiKey = profile.apiKey;
             break;
           case ServiceProvider.ChatGLM:
-            access.chatglmUrl = profile.baseUrl;
+            access.chatglmUrl = effectiveBaseUrl;
             access.chatglmApiKey = profile.apiKey;
             break;
           case ServiceProvider.DeepSeek:
-            access.deepseekUrl = profile.baseUrl;
+            access.deepseekUrl = effectiveBaseUrl;
             access.deepseekApiKey = profile.apiKey;
             break;
           case ServiceProvider.SiliconFlow:
-            access.siliconflowUrl = profile.baseUrl;
+            access.siliconflowUrl = effectiveBaseUrl;
             access.siliconflowApiKey = profile.apiKey;
             break;
           case ServiceProvider["302.AI"]:
-            access.ai302Url = profile.baseUrl;
+            access.ai302Url = effectiveBaseUrl;
             access.ai302ApiKey = profile.apiKey;
             break;
           case ServiceProvider.Local:
-            access.localUrl = profile.baseUrl;
+            access.localUrl = effectiveBaseUrl;
             access.localApiKey = profile.apiKey;
             break;
           default:
@@ -1438,7 +1454,7 @@ export function ApiConfigPage() {
           access.customOpenAICompatible = profile.openAICompatible ?? true;
         }
         access.provider = profile.provider;
-        return { ...profile, enabled: true };
+        return { ...profile, baseUrl: effectiveBaseUrl, enabled: true };
       });
     });
 
@@ -1460,7 +1476,7 @@ export function ApiConfigPage() {
       if (!options?.skipFetchModels) {
         refreshModelsForProvider(
           selectedProfile.provider,
-          selectedProfile.baseUrl,
+          normalizeProfileBaseUrl(selectedProfile),
           selectedProfile.apiKey,
         );
       }
@@ -1596,13 +1612,14 @@ export function ApiConfigPage() {
         try {
           const result = await fetchFromProvider(
             profile.provider,
-            profile.baseUrl,
+            normalizeProfileBaseUrl(profile),
             profile.apiKey,
             {
               silent: true,
               throwOnError: true,
               profileName: profile.name,
               apiKeyGroups: profile.apiKeyGroups,
+              multiKeyGroupOrder: profile.multiKeyGroupOrder,
             },
           );
           totalFetched += result.total;
@@ -1770,48 +1787,46 @@ export function ApiConfigPage() {
     console.log("[API Config] 🚀 开始保存并同步到 PostgreSQL...");
     try {
       setSyncing(true);
-      await runWithManualDatabaseSyncActive(() =>
-        runWithBalanceRefreshPaused(async () => {
-          syncStore.cancelQueuedAutoSync?.();
-          await runWithImmediateStoreSyncPaused(async () => {
-            ensureDatabaseSyncProvider();
-            await ensureRemoteAccessProfilesLoaded();
-            const activeProfile = accessStore.apiProfiles.find(
-              (profile) => profile.enabled,
-            );
-            if (activeProfile) {
-              syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-            }
-          });
+      await runWithManualDatabaseSyncActive(async () => {
+        syncStore.cancelQueuedAutoSync?.();
+        await runWithImmediateStoreSyncPaused(async () => {
+          ensureDatabaseSyncProvider();
+          await ensureRemoteAccessProfilesLoaded();
+          const activeProfile = accessStore.apiProfiles.find(
+            (profile) => profile.enabled,
+          );
+          if (activeProfile) {
+            syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
+          }
+        });
 
-          await syncStore.sync([...SYNC_STORE_KEYS], {
-            force: true,
-            manual: true,
-          });
-          const client = syncStore.getClient() as any;
-          await refreshDatabaseMetaSafely(
-            client,
-            SYNC_STORE_KEYS,
-            updateStoredMeta,
-          );
+        await syncStore.sync([...SYNC_STORE_KEYS], {
+          force: true,
+          manual: true,
+        });
+        const client = syncStore.getClient() as any;
+        await refreshDatabaseMetaSafely(
+          client,
+          SYNC_STORE_KEYS,
+          updateStoredMeta,
+        );
 
-          const syncedUserModelCount = countUserAddedModels(
-            useAppConfig.getState().customModels,
-          );
-          console.log("[API Config] ✅ 保存并同步完成");
-          console.log(LOG_SEPARATOR);
-          console.log(
-            `[API Config] ✅ 已同步用户添加模型: ${syncedUserModelCount} 个`,
-          );
-          console.log(
-            "[API Config] ℹ️ 本次未刷新供应商完整模型缓存，仅同步用户数据与界面偏好",
-          );
-          console.log(LOG_SEPARATOR);
-          console.log("===== ✅ API配置保存并同步完成 =====");
+        const syncedUserModelCount = countUserAddedModels(
+          useAppConfig.getState().customModels,
+        );
+        console.log("[API Config] ✅ 保存并同步完成");
+        console.log(LOG_SEPARATOR);
+        console.log(
+          `[API Config] ✅ 已同步用户添加模型: ${syncedUserModelCount} 个`,
+        );
+        console.log(
+          "[API Config] ℹ️ 本次未刷新供应商完整模型缓存，仅同步用户数据与界面偏好",
+        );
+        console.log(LOG_SEPARATOR);
+        console.log("===== ✅ API配置保存并同步完成 =====");
 
-          showToast("已同步全部配置、用户已添加模型和对话记录到 PostgreSQL");
-        }),
-      );
+        showToast("已同步全部配置、用户已添加模型和对话记录到 PostgreSQL");
+      });
     } catch (error) {
       console.error("[API Config] ❌ 数据库同步失败:", error);
       showToast("同步到 PostgreSQL 失败，请检查数据库连接");
@@ -1838,7 +1853,7 @@ export function ApiConfigPage() {
             "[API Config] ⚠️ 等待同步空闲超时，继续执行上传（可能存在后台同步任务）",
           );
         }
-        await runWithBalanceRefreshPaused(async () => {
+        {
           ensureDatabaseSyncProvider();
           const activeProfile = accessStore.apiProfiles.find(
             (profile) => profile.enabled,
@@ -1881,7 +1896,7 @@ export function ApiConfigPage() {
           );
           console.log(LOG_SEPARATOR);
           showToast("已上传全部配置、用户已添加模型和对话记录到 PostgreSQL");
-        });
+        }
       });
     } catch (error) {
       console.error("[API Config] ❌ 数据库写入失败:", error);
@@ -1964,7 +1979,6 @@ export function ApiConfigPage() {
                   name: profile.name,
                   apiKey: profile.apiKey,
                   modelFetchApiKey: profile.modelFetchApiKey,
-                  balanceQueryApiKey: profile.balanceQueryApiKey,
                 })),
             );
           }
@@ -2254,8 +2268,21 @@ export function ApiConfigPage() {
                                 String(f.key).toLowerCase().includes("url"),
                             )?.placeholder
                           }
-                          value={profile.baseUrl}
+                          value={normalizeProfileBaseUrl(profile)}
+                          disabled={isOfficialProviderBaseUrlLocked(
+                            profile.provider,
+                          )}
+                          title={
+                            isOfficialProviderBaseUrlLocked(profile.provider)
+                              ? "官方配置使用固定 Base URL，不可修改"
+                              : undefined
+                          }
                           onChange={(e) => {
+                            if (
+                              isOfficialProviderBaseUrlLocked(profile.provider)
+                            ) {
+                              return;
+                            }
                             const nextValue = e.currentTarget.value;
                             accessStore.update((access) => {
                               access.apiProfiles = access.apiProfiles.map(

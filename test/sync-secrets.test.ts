@@ -25,7 +25,7 @@ describe("sync secrets", () => {
 
     await expect(
       getEncryptedSyncSecret({
-        userId: "single-user",
+        userId: "user:admin",
         secretKey: "access-control",
       }),
     ).resolves.toBeNull();

@@ -29,6 +29,11 @@ import {
   isLegacyGeneratedCustomProviderId,
   pruneLegacyGeneratedCustomModels,
 } from "./access-profiles";
+import {
+  MULTI_KEY_GROUP_IDS,
+  normalizeMultiKeyGroups,
+  shouldAutoEnableMultiKey,
+} from "./multi-key";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
 function isSyncDebugLoggingEnabled() {
@@ -227,7 +232,6 @@ const ACCESS_SECRET_FIELD_KEYS = [
   "localApiKey",
   "apiKey",
   "modelFetchApiKey",
-  "balanceQueryApiKey",
 ] as const;
 
 function preserveLocalSecret<T extends Record<string, any>>(
@@ -269,6 +273,38 @@ function mergeApiKeyGroups(
   );
 }
 
+function hasNonEmptyGroupKey(groups: Record<string, string> | undefined) {
+  return Object.values(groups || {}).some((value) =>
+    String(value || "").trim(),
+  );
+}
+
+function normalizeMergedAccessProfile<T extends Record<string, any>>(
+  profile: T,
+) {
+  const normalizedGroups = normalizeMultiKeyGroups(
+    profile.apiKeyGroups,
+    profile,
+  );
+  const hasGroupKeys = hasNonEmptyGroupKey(normalizedGroups);
+  const multiKeyEnabled = shouldAutoEnableMultiKey({
+    ...profile,
+    apiKeyGroups: normalizedGroups,
+    multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
+  });
+
+  if (!multiKeyEnabled) {
+    return profile;
+  }
+
+  return {
+    ...profile,
+    multiKeyEnabled: true,
+    apiKeyGroups: normalizedGroups,
+    multiKeyGroupOrder: [...MULTI_KEY_GROUP_IDS],
+  };
+}
+
 function isDefaultBootstrapProfile(profile: Record<string, any>) {
   return (
     String(profile?.id || "") === "default_aihubmix_profile" &&
@@ -277,9 +313,6 @@ function isDefaultBootstrapProfile(profile: Record<string, any>) {
     String(profile?.baseUrl || "") === "https://aihubmix.com" &&
     !hasNonEmptyString(profile?.apiKey) &&
     !hasNonEmptyString(profile?.modelFetchApiKey) &&
-    !hasNonEmptyString(profile?.balanceQueryApiKey) &&
-    !hasNonEmptyString(profile?.balanceQueryUrl) &&
-    !hasNonEmptyString(profile?.balanceQueryField) &&
     !hasNonEmptyString(profile?.cachedModels) &&
     !Number(profile?.modelCount || 0) &&
     !Boolean(profile?.multiKeyEnabled) &&
@@ -307,9 +340,6 @@ function hasMeaningfulAccessProfiles(profiles: unknown) {
       hasNonEmptyString(profile.baseUrl) ||
       hasNonEmptyString(profile.apiKey) ||
       hasNonEmptyString(profile.modelFetchApiKey) ||
-      hasNonEmptyString(profile.balanceQueryApiKey) ||
-      hasNonEmptyString(profile.balanceQueryUrl) ||
-      hasNonEmptyString(profile.balanceQueryField) ||
       hasNonEmptyString(profile.cachedModels) ||
       Number(profile.modelCount || 0) > 0 ||
       Boolean(profile.multiKeyEnabled) ||
@@ -865,16 +895,14 @@ const MergeStates: StateMerger = {
           mergedProfile.enabled = String(id) === selectedProfileId;
         }
 
-        (["apiKey", "modelFetchApiKey", "balanceQueryApiKey"] as const).forEach(
-          (key) => {
-            mergedProfile[key] = preserveLocalSecret(
-              localProfile as Record<string, any>,
-              remoteProfile as Record<string, any>,
-              key,
-              remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
-            );
-          },
-        );
+        (["apiKey", "modelFetchApiKey"] as const).forEach((key) => {
+          mergedProfile[key] = preserveLocalSecret(
+            localProfile as Record<string, any>,
+            remoteProfile as Record<string, any>,
+            key,
+            remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
+          );
+        });
 
         const localGroups =
           localProfile?.apiKeyGroups &&
@@ -892,14 +920,20 @@ const MergeStates: StateMerger = {
           remoteUpdateTime > localUpdateTime || shouldPreferRemoteState,
         );
 
-        mergedProfiles.push(stripProfileModelCacheFields(mergedProfile) as any);
+        mergedProfiles.push(
+          normalizeMergedAccessProfile(
+            stripProfileModelCacheFields(mergedProfile),
+          ) as any,
+        );
       } else {
         const nextProfile = { ...(localProfile as any) };
         if (selectedProfileId) {
           nextProfile.enabled = String(id) === selectedProfileId;
         }
         mergedProfiles.push(
-          stripProfileModelCacheFields(nextProfile as any) as any,
+          normalizeMergedAccessProfile(
+            stripProfileModelCacheFields(nextProfile as any),
+          ) as any,
         );
       }
     });
@@ -912,17 +946,23 @@ const MergeStates: StateMerger = {
           if (selectedProfileId) {
             nextProfile.enabled = String(id) === selectedProfileId;
           }
-          mergedProfiles.push(stripProfileModelCacheFields(nextProfile) as any);
+          mergedProfiles.push(
+            normalizeMergedAccessProfile(
+              stripProfileModelCacheFields(nextProfile),
+            ) as any,
+          );
         }
       });
     } else if (selectedProfileId && !localProfileMap.has(selectedProfileId)) {
       const selectedRemoteProfile = remoteProfileMap.get(selectedProfileId);
       if (selectedRemoteProfile) {
         mergedProfiles.push(
-          stripProfileModelCacheFields({
-            ...selectedRemoteProfile,
-            enabled: true,
-          } as any) as any,
+          normalizeMergedAccessProfile(
+            stripProfileModelCacheFields({
+              ...selectedRemoteProfile,
+              enabled: true,
+            } as any),
+          ) as any,
         );
       }
     }

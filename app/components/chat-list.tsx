@@ -411,13 +411,20 @@ export function ChatList() {
     }, []);
   }, [deferredFilterText, displayedSessions, buildMatchedPreview]);
 
+  const filteredSessionIdSet = useMemo(
+    () => new Set(filteredSessions.map((item) => item.session.id)),
+    [filteredSessions],
+  );
+
   useEffect(() => {
-    setSelectedDeleteIds((ids) =>
-      ids.filter((id) =>
-        filteredSessions.some((item) => item.session.id === id),
-      ),
-    );
-  }, [filteredSessions]);
+    setSelectedDeleteIds((ids) => {
+      const nextIds = ids.filter((id) => filteredSessionIdSet.has(id));
+      if (nextIds.length === ids.length) {
+        return ids;
+      }
+      return nextIds;
+    });
+  }, [filteredSessionIdSet]);
 
   const itemHeight = deferredFilterText
     ? FILTERED_ITEM_HEIGHT

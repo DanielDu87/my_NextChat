@@ -25,6 +25,7 @@ import { RequestPayload } from "./openai";
 
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
+import { joinUrlPath } from "@/app/utils/url";
 export interface Ai302ListModelResponse {
   object: string;
   data: Array<{
@@ -61,7 +62,7 @@ export class Ai302Api implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   extractMessage(res: any) {

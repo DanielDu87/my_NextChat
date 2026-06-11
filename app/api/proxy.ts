@@ -72,6 +72,7 @@ function shouldUseNativeRequest(fetchUrl: string, method: string) {
       "www.toapis.com",
       "cn.gptapi.asia",
       "gptapi.asia",
+      "api.ocoolai.com",
       "one.ocoolai.com",
       "ocoolai.com",
       "one.ooo.cool",
@@ -168,18 +169,19 @@ export async function handle(
 
   const subpath = params.path.join("/");
   const baseUrl = req.headers.get("x-base-url");
+  const normalizedBaseUrl = baseUrl?.replace(/\/+$/, "");
 
   // YutoAPI 和 Ocoolai pricing 接口特殊处理
   const isPricingApi =
-    subpath === "v1/pricing" &&
+    ["pricing", "api/pricing", "v1/pricing"].includes(subpath) &&
     (baseUrl?.includes("gptapi.asia") ||
       baseUrl?.includes("toapis.com") ||
       baseUrl?.includes("ocoolai.com") ||
       baseUrl?.includes("ooo.cool"));
 
   const fetchUrl = isPricingApi
-    ? `${baseUrl}/api/pricing`
-    : `${baseUrl}/${subpath}${
+    ? `${normalizedBaseUrl}/api/pricing`
+    : `${normalizedBaseUrl}/${subpath}${
         req.nextUrl.searchParams.toString()
           ? "?" + req.nextUrl.searchParams.toString()
           : ""
@@ -286,7 +288,7 @@ export async function handle(
       headers: newHeaders,
     });
   } catch (error) {
-    console.error("[Proxy Route] ❌ 代理请求失败:", {
+    console.warn("[Proxy Route] ⚠️ 代理请求失败:", {
       fetchUrl,
       normalizedFetchUrl,
       method: req.method,

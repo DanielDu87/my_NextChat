@@ -157,6 +157,8 @@ export function ModelConfigList(props: {
                       publishedAt: a.publishedAt,
                       publishedAtSource: a.publishedAtSource,
                       catalogRank: a.catalogRank,
+                      remoteRank: a.remoteRank,
+                      remoteRankSource: a.remoteRankSource,
                     },
                     {
                       title: b.displayName || b.name,
@@ -166,6 +168,8 @@ export function ModelConfigList(props: {
                       publishedAt: b.publishedAt,
                       publishedAtSource: b.publishedAtSource,
                       catalogRank: b.catalogRank,
+                      remoteRank: b.remoteRank,
+                      remoteRankSource: b.remoteRankSource,
                     },
                   ),
                 )

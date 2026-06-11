@@ -24,6 +24,7 @@ import { getMessageTextContent } from "@/app/utils";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
+import { joinUrlPath } from "@/app/utils/url";
 
 export class MoonshotApi implements LLMApi {
   private disableListModels = true;
@@ -52,7 +53,7 @@ export class MoonshotApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   extractMessage(res: any) {

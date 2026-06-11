@@ -28,7 +28,7 @@ select
   pg_column_size(security_settings -> 'access-control') as access_size
 from app_settings
 where user_id = (
-  select id from app_users where external_id = 'single-user' limit 1
+  select id from app_users where external_id = 'user:admin' limit 1
 );
 ```
 

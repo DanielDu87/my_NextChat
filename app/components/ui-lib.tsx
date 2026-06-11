@@ -9,7 +9,7 @@ import ConfirmIcon from "../icons/confirm.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
-import BotIconOpenAI from "../icons/llm-icons/openai.svg";
+import BotIconDefault from "../icons/llm-icons/default.svg";
 
 import Locale from "../locales";
 import { PROVIDER_ICONS } from "../config/provider-icons";
@@ -31,7 +31,7 @@ import React, {
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
 import clsx from "clsx";
-import { comparePublishedAt } from "../utils/model-published-at";
+import { compareModelsForDisplay } from "../utils/model-published-at";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 
 type SelectorItemMeta = {
@@ -56,6 +56,8 @@ type SelectorItemBase<T> = {
   publishedAt?: number;
   publishedAtSource?: string;
   catalogRank?: number;
+  remoteRank?: number;
+  remoteRankSource?: string;
   sortKey?: string;
   rightAction?: {
     text: string;
@@ -102,107 +104,22 @@ export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
   right: SelectorItemBase<T>,
 ) {
-  const gptVersionDiff = compareGptVersionSelectorItems(left, right);
-  if (gptVersionDiff !== 0) {
-    return gptVersionDiff;
-  }
-
-  return comparePublishedAt(
+  return compareModelsForDisplay(
     {
       name: left.sortKey || left.title,
-      publishedAt: left.publishedAt,
-      publishedAtSource: left.publishedAtSource as any,
       catalogRank: left.catalogRank,
+      remoteRank: left.remoteRank,
+      remoteRankSource: left.remoteRankSource,
       order: left.order,
     },
     {
       name: right.sortKey || right.title,
-      publishedAt: right.publishedAt,
-      publishedAtSource: right.publishedAtSource as any,
       catalogRank: right.catalogRank,
+      remoteRank: right.remoteRank,
+      remoteRankSource: right.remoteRankSource,
       order: right.order,
     },
   );
-}
-
-function getGptVersionParts(text?: string) {
-  const match = String(text || "")
-    .toLowerCase()
-    .match(/^gpt-(\d+(?:\.\d+)?)(?:$|[-_.])/);
-  if (!match?.[1]) {
-    return null;
-  }
-
-  return match[1].split(".").map((part) => Number(part));
-}
-
-function getGptVariantPriority(text?: string) {
-  const normalized = String(text || "").toLowerCase();
-  if (/^gpt-\d+(?:\.\d+)?$/.test(normalized)) {
-    return 0;
-  }
-  if (/(?:^|[-_.])pro(?:$|[-_.])/.test(normalized)) {
-    return 1;
-  }
-  if (/(?:^|[-_.])(?:high|low|free)(?:$|[-_.])/.test(normalized)) {
-    return 2;
-  }
-  if (/(?:^|[-_.])mini(?:$|[-_.])/.test(normalized)) {
-    return 3;
-  }
-  if (/(?:^|[-_.])nano(?:$|[-_.])/.test(normalized)) {
-    return 4;
-  }
-  return 5;
-}
-
-function shouldYieldToGptVersion(text?: string) {
-  const normalized = String(text || "").toLowerCase();
-  return /^gpt-(?:image|chat-latest)(?:$|[-_.])/.test(normalized);
-}
-
-function compareVersionPartsDesc(left: number[], right: number[]) {
-  const maxLength = Math.max(left.length, right.length);
-  for (let index = 0; index < maxLength; index += 1) {
-    const diff = (right[index] ?? -1) - (left[index] ?? -1);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-  return 0;
-}
-
-function compareGptVersionSelectorItems<T>(
-  left: SelectorItemBase<T>,
-  right: SelectorItemBase<T>,
-) {
-  const leftName = left.sortKey || left.title;
-  const rightName = right.sortKey || right.title;
-  const leftVersion = getGptVersionParts(leftName);
-  const rightVersion = getGptVersionParts(rightName);
-
-  if (leftVersion && !rightVersion && shouldYieldToGptVersion(rightName)) {
-    return -1;
-  }
-  if (!leftVersion && rightVersion && shouldYieldToGptVersion(leftName)) {
-    return 1;
-  }
-  if (!leftVersion || !rightVersion) {
-    return 0;
-  }
-
-  const versionDiff = compareVersionPartsDesc(leftVersion, rightVersion);
-  if (versionDiff !== 0) {
-    return versionDiff;
-  }
-
-  const variantDiff =
-    getGptVariantPriority(leftName) - getGptVariantPriority(rightName);
-  if (variantDiff !== 0) {
-    return variantDiff;
-  }
-
-  return 0;
 }
 
 export function Popover(props: {
@@ -1011,10 +928,10 @@ export function Selector<T>(props: {
   };
   const renderGroupFilterIcon = (group: string) => {
     if (group === "All") return null;
-    if (group === "自定义模型") {
+    if (group === "自定义模型" || group === "Custom") {
       return (
         <span className={styles["selector-group-filter-icon-custom-wrap"]}>
-          <BotIconOpenAI
+          <BotIconDefault
             className={clsx(
               styles["selector-group-filter-icon-image"],
               styles["selector-group-filter-icon-image-custom"],

@@ -12,7 +12,7 @@ import { getOrCreateSyncAppUserId } from "./sync-app-user";
 import { getDefaultSyncUserId } from "./sync-user";
 import { dedupeAccessProfiles } from "../access-profiles";
 import {
-  normalizeMultiKeyGroupOrder,
+  MULTI_KEY_GROUP_IDS,
   normalizeMultiKeyGroups,
   shouldAutoEnableMultiKey,
 } from "../multi-key";
@@ -27,9 +27,6 @@ type AccessProfile = {
   provider: ServiceProvider | string;
   baseUrl: string;
   apiKey?: string;
-  balanceQueryApiKey?: string;
-  balanceQueryUrl?: string;
-  balanceQueryField?: string;
   apiKeyGroups?: Record<string, string>;
   multiKeyGroupOrder?: string[];
   multiKeyEnabled?: boolean;
@@ -127,17 +124,40 @@ function normalizeProfilesWithFallbackSecrets(state: AccessState) {
 
   return dedupeAccessProfiles(profiles).map((profile) => {
     const fallbackApiKey = getFallbackApiKeyFromState(state, profile);
-    if (profile.apiKey || !fallbackApiKey) {
-      return profile;
+    const profileWithFallback =
+      profile.apiKey || !fallbackApiKey
+        ? profile
+        : {
+            ...profile,
+            apiKey: fallbackApiKey,
+          };
+    const normalizedGroups = normalizeMultiKeyGroups(
+      profileWithFallback.apiKeyGroups,
+      profileWithFallback,
+    );
+    const hasGroupKeys = Object.values(normalizedGroups).some((value) =>
+      String(value || "").trim(),
+    );
+    const multiKeyEnabled = shouldAutoEnableMultiKey({
+      ...profileWithFallback,
+      apiKeyGroups: normalizedGroups,
+      multiKeyEnabled: hasGroupKeys
+        ? true
+        : profileWithFallback.multiKeyEnabled,
+    });
+
+    if (!multiKeyEnabled) {
+      return profileWithFallback;
     }
 
     return {
-      ...profile,
-      apiKey: fallbackApiKey,
+      ...profileWithFallback,
+      multiKeyEnabled: true,
+      apiKeyGroups: normalizedGroups,
+      multiKeyGroupOrder: [...MULTI_KEY_GROUP_IDS],
     };
   });
 }
-
 async function getSharedProviderConfigUserId() {
   return getOrCreateSyncAppUserId(getDefaultSyncUserId());
 }
@@ -154,11 +174,8 @@ function buildProfileRequestConfig(profile: AccessProfile) {
   return {
     openAICompatible: Boolean(profile.openAICompatible),
     multiKeyEnabled: Boolean(profile.multiKeyEnabled),
-    multiKeyGroupOrder: Array.isArray(profile.multiKeyGroupOrder)
-      ? normalizeMultiKeyGroupOrder(
-          profile.multiKeyGroupOrder,
-          profile.apiKeyGroups,
-        )
+    multiKeyGroupOrder: profile.multiKeyEnabled
+      ? [...MULTI_KEY_GROUP_IDS]
       : undefined,
     modelCount:
       typeof profile.modelCount === "number" ? profile.modelCount : undefined,
@@ -170,19 +187,6 @@ function buildProfileRequestConfig(profile: AccessProfile) {
       typeof profile.modelFetchApiKey === "string" && profile.modelFetchApiKey
         ? "__encrypted__"
         : undefined,
-    balanceQueryApiKey:
-      typeof profile.balanceQueryApiKey === "string" &&
-      profile.balanceQueryApiKey
-        ? "__encrypted__"
-        : undefined,
-    balanceQueryUrl:
-      typeof profile.balanceQueryUrl === "string"
-        ? profile.balanceQueryUrl
-        : undefined,
-    balanceQueryField:
-      typeof profile.balanceQueryField === "string"
-        ? profile.balanceQueryField
-        : undefined,
   };
 }
 
@@ -191,7 +195,6 @@ function sanitizeProviderProfile(profile: AccessProfile) {
   delete nextProfile.apiKey;
   delete nextProfile.apiKeyGroups;
   delete nextProfile.modelFetchApiKey;
-  delete nextProfile.balanceQueryApiKey;
   return nextProfile;
 }
 
@@ -247,17 +250,6 @@ function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
         keyScope: "model_fetch",
         apiKeyGroup: null,
         secret: profile.modelFetchApiKey,
-      });
-    }
-  }
-
-  if (profile.balanceQueryApiKey) {
-    if (profile.balanceQueryApiKey !== ENCRYPTED_SECRET_PLACEHOLDER) {
-      rows.push({
-        keyName: "balance-query",
-        keyScope: "balance_query",
-        apiKeyGroup: null,
-        secret: profile.balanceQueryApiKey,
       });
     }
   }
@@ -463,11 +455,7 @@ export async function getProviderProfilesForAccessState(
       existing.multiKeyEnabled = requestConfig.multiKeyEnabled;
     }
     if (Array.isArray(requestConfig.multiKeyGroupOrder)) {
-      existing.multiKeyGroupOrder = normalizeMultiKeyGroupOrder(
-        requestConfig.multiKeyGroupOrder.filter(
-          (item): item is string => typeof item === "string",
-        ),
-      );
+      existing.multiKeyGroupOrder = [...MULTI_KEY_GROUP_IDS];
     }
     if (typeof requestConfig.cachedModels === "string") {
       existing.cachedModels = requestConfig.cachedModels;
@@ -475,13 +463,6 @@ export async function getProviderProfilesForAccessState(
     if (typeof requestConfig.modelCount === "number") {
       existing.modelCount = requestConfig.modelCount;
     }
-    if (typeof requestConfig.balanceQueryUrl === "string") {
-      existing.balanceQueryUrl = requestConfig.balanceQueryUrl;
-    }
-    if (typeof requestConfig.balanceQueryField === "string") {
-      existing.balanceQueryField = requestConfig.balanceQueryField;
-    }
-
     const secretValue = safeDecryptProviderSecret(row.encrypted_secret, {
       externalUserId,
       providerCode: row.provider_code,
@@ -492,8 +473,6 @@ export async function getProviderProfilesForAccessState(
       existing.apiKey = secretValue;
     } else if (row.key_name === "model-fetch" && secretValue) {
       existing.modelFetchApiKey = secretValue;
-    } else if (row.key_name === "balance-query" && secretValue) {
-      existing.balanceQueryApiKey = secretValue;
     } else if (
       row.key_name?.startsWith("group:") &&
       row.api_key_group &&
@@ -515,10 +494,7 @@ export async function getProviderProfilesForAccessState(
         ...profile,
         multiKeyEnabled,
         multiKeyGroupOrder: multiKeyEnabled
-          ? normalizeMultiKeyGroupOrder(
-              profile.multiKeyGroupOrder,
-              profile.apiKeyGroups,
-            )
+          ? [...MULTI_KEY_GROUP_IDS]
           : profile.multiKeyGroupOrder,
         apiKeyGroups: multiKeyEnabled
           ? normalizeMultiKeyGroups(profile.apiKeyGroups, profile)

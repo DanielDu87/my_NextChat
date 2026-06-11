@@ -8,6 +8,8 @@
 
 本次只执行只读查询；没有删除、更新或迁移任何数据。
 
+> 后续清理说明：旧的单用户同步 ID 已废弃并从数据库清理。本文保留为 2026-06-08 的历史审计记录，旧同步用户不再写出具体 ID，避免新的配置或脚本继续引用它。
+
 ## 1. 总览
 
 当前 `public` schema 共 25 张表。
@@ -19,11 +21,11 @@
 | `auth_sessions` | 84 | 登录 session token 哈希、过期时间、最后访问时间 | `app/utils/server/auth.ts:224`、`app/utils/server/auth.ts:328`、`app/utils/server/auth.ts:439` | 当前认证正在使用，不多余；但 84 条均为 admin 活跃 session，数量偏多 |
 | `conversations` | 171 | 归一化聊天会话元数据 | `app/utils/server/chat-conversation-repository.ts:134`、`app/utils/server/sync-store-repository.ts:483` | 核心表；其中 160 条为空且 `is_deleted=true`，是强清理候选 |
 | `messages` | 73 | 归一化聊天消息内容 JSON 和文本索引 | `app/utils/server/chat-conversation-repository.ts:190`、`app/utils/server/chat-conversation-repository.ts:350` | 核心表，不多余 |
-| `provider_configs` | 10 | 模型供应商配置、base URL、启用状态、请求配置 | `app/utils/server/provider-config-repository.ts:290`、`app/utils/server/provider-config-repository.ts:407` | 核心表；`single-user` 下有历史/重复配置 |
-| `provider_api_keys` | 39 | provider API key 的密文、掩码、分组 | `app/utils/server/provider-config-repository.ts:333`、`app/utils/server/provider-config-repository.ts:347` | 核心表；`single-user` 下重复 key 较多 |
+| `provider_configs` | 10 | 模型供应商配置、base URL、启用状态、请求配置 | `app/utils/server/provider-config-repository.ts:290`、`app/utils/server/provider-config-repository.ts:407` | 核心表；审计时旧同步用户下有历史/重复配置 |
+| `provider_api_keys` | 39 | provider API key 的密文、掩码、分组 | `app/utils/server/provider-config-repository.ts:333`、`app/utils/server/provider-config-repository.ts:347` | 核心表；审计时旧同步用户下重复 key 较多 |
 | `site_access_settings` | 1 | 站点访问密码哈希 | `app/utils/server/site-password.ts:58`、`app/utils/server/site-password.ts:102` | 正在使用，不多余 |
-| `sync_secrets` | 2 | 同步用敏感 payload 密文，当前是 `access-control` 类 secret | `app/utils/server/sync-secrets.ts:111`、`app/utils/server/sync-secrets.ts:124` | 正在使用；`single-user` 一条疑似历史遗留 |
-| `user_model_refresh_states` | 2 | 模型刷新状态快照 | `app/utils/server/model-refresh-state-repository.ts:6`、`app/utils/server/model-refresh-state-repository.ts:22` | 正在使用；`single-user` 一条历史状态可评估清理 |
+| `sync_secrets` | 2 | 同步用敏感 payload 密文，当前是 `access-control` 类 secret | `app/utils/server/sync-secrets.ts:111`、`app/utils/server/sync-secrets.ts:124` | 正在使用；审计时有一条旧同步用户历史遗留 |
+| `user_model_refresh_states` | 2 | 模型刷新状态快照 | `app/utils/server/model-refresh-state-repository.ts:6`、`app/utils/server/model-refresh-state-repository.ts:22` | 正在使用；审计时有一条旧同步用户历史状态 |
 | `user_provider_balance_snapshots` | 12 | provider 余额查询结果缓存 | `app/utils/server/provider-balance-repository.ts:6`、`app/utils/server/provider-balance-repository.ts:23` | 正在使用；部分 4 月旧 profile 快照疑似过期 |
 | `message_attachments` | 0 | 设计中的消息附件表 | `app/utils/server/postgres.ts:358` 仅建表 | 空表；当前无写入路径，可视为功能预留 |
 | `tags` | 0 | 设计中的会话标签表 | `app/utils/server/postgres.ts:373` 仅建表；`scripts/unify-user-id.ts` 只迁移 | 空表；当前主流程未使用 |
@@ -91,11 +93,11 @@
 | 用户 external_id | 角色 | 登录账号 | settings | session | active session | conversations | messages | provider configs | provider keys | 说明 |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `user:admin` | admin | `admin` | 1 | 84 | 84 | 144 | 68 | 4 | 11 | 当前 `.env.docker` 默认同步用户，主数据集中在这里 |
-| `single-user` | user | 无 | 1 | 0 | 0 | 0 | 0 | 6 | 28 | 历史同步 ID，保留 provider、密文、余额和刷新状态 |
+| 旧同步用户（已清理） | user | 无 | 1 | 0 | 0 | 0 | 0 | 6 | 28 | 历史同步 ID，当时保留 provider、密文、余额和刷新状态 |
 | `user:dyx` | user | `dyx` | 1 | 0 | 0 | 1 | 3 | 0 | 0 | 有少量聊天数据 |
 | `user:ccc` | user | `ccc` | 1 | 0 | 0 | 26 | 2 | 0 | 0 | 有大量空删除对话 |
 
-`.env.docker` 和当前容器的 `DEFAULT_SYNC_USER_ID/NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 都是 `user:admin`。因此 `single-user` 很可能是旧部署或本地 `.env.local` 时代遗留，但删除前要确认没有其他运行环境仍用 `single-user`。
+`.env.docker` 和当前容器的 `DEFAULT_SYNC_USER_ID/NEXT_PUBLIC_DEFAULT_SYNC_USER_ID` 都是 `user:admin`。旧同步用户很可能来自旧部署或本地 `.env.local` 时代遗留；后续已统一为 `user:admin`。
 
 ## 5. app_settings 数据
 
@@ -106,7 +108,7 @@
 | `user:admin` | `__chat-index-state__`，约 40KB | `chat-next-web-plugin`，约 6.8KB | `access-control`，约 1.9KB | `sd-list/app-config/mask-store/chat-update/prompt-store`，约 3.6KB |
 | `user:ccc` | `__chat-index-state__`，约 6.3KB | 同上 | 同上 | 同上 |
 | `user:dyx` | `__chat-index-state__`，约 0.9KB | 同上 | 同上 | 同上 |
-| `single-user` | 空 `{}` | 同上 | `access-control`，约 1.1KB | 同上 |
+| 旧同步用户（已清理） | 空 `{}` | 同上 | `access-control`，约 1.1KB | 同上 |
 
 当前代码仍主要把插件、访问配置、面具、提示词、绘图等放在 `app_settings` JSONB 里。`scripts/db-migrate-v2.sql` 计划把这些拆到 `user_*` 表，但真实库里的 `user_*` 表全空，说明拆表迁移没有成为当前运行主路径。
 
@@ -120,14 +122,14 @@
 | `user:admin` | `default_ocool_profile` | Ocoolai | false | 1 | 默认配置 |
 | `user:admin` | `default_toapis_profile` | ToAPIs | false | 1 | 默认配置 |
 | `user:admin` | `default_yuto_profile` | YutoAPI | true | 6 | 当前启用 |
-| `single-user` | `default_aihubmix_profile` | AihubMix | false | 3 | 历史配置 |
-| `single-user` | `default_ocool_profile` | Ocoolai | false | 6 | 历史配置 |
-| `single-user` | `default_toapis_profile` | ToAPIs | false | 1 | 历史配置 |
-| `single-user` | `default_yuto_profile` | YutoAPI | true | 6 | 历史配置 |
-| `single-user` | `profile_1780380100468_tr221d` | Custom 14:01:40 | false | 6 | 疑似临时/复制配置 |
-| `single-user` | `profile_1780380107592_gu4hl6` | Custom 14:01:47 | false | 6 | 疑似临时/复制配置 |
+| 旧同步用户（已清理） | `default_aihubmix_profile` | AihubMix | false | 3 | 历史配置 |
+| 旧同步用户（已清理） | `default_ocool_profile` | Ocoolai | false | 6 | 历史配置 |
+| 旧同步用户（已清理） | `default_toapis_profile` | ToAPIs | false | 1 | 历史配置 |
+| 旧同步用户（已清理） | `default_yuto_profile` | YutoAPI | true | 6 | 历史配置 |
+| 旧同步用户（已清理） | `profile_1780380100468_tr221d` | Custom 14:01:40 | false | 6 | 疑似临时/复制配置 |
+| 旧同步用户（已清理） | `profile_1780380107592_gu4hl6` | Custom 14:01:47 | false | 6 | 疑似临时/复制配置 |
 
-`provider_api_keys` 共有 39 行。所有密钥都有 `encrypted_secret`，报告中只保留 `masked_secret`。`single-user` 下 28 行，`user:admin` 下 11 行。`single-user` 的两个 `profile_178038...` 各复制了 `default/group:*` 6 组 key，是最明显的重复数据候选。
+`provider_api_keys` 共有 39 行。所有密钥都有 `encrypted_secret`，报告中只保留 `masked_secret`。审计时旧同步用户下 28 行，`user:admin` 下 11 行。旧同步用户的两个 `profile_178038...` 各复制了 `default/group:*` 6 组 key，是当时最明显的重复数据候选。
 
 ## 7. 会话与消息数据
 
@@ -180,13 +182,13 @@
 | user_id | refresh_key | model_count | finishedAt | 判断 |
 | --- | --- | ---: | --- | --- |
 | `user:admin` | latest | 2644 | 2026-05-12 | 当前用户状态，可保留 |
-| `single-user` | latest | 2576 | 2026-04-08 | 历史同步 ID，若不用可清 |
+| 旧同步用户（已清理） | latest | 2576 | 2026-04-08 | 历史同步 ID，后续已清理 |
 
 `user_provider_balance_snapshots` 12 行：
 
 - `user:admin` 10 行，包含 4 个默认 provider 当前/近期快照，以及 4 月份的 `profile_177...` 历史 profile/local 快照。
-- `single-user` 2 行，更新时间为 2026-05-29。
-- 旧 `profile_177...` 和 `single-user` 快照属于可清理候选；默认 provider 的近期快照可保留。
+- 旧同步用户 2 行，更新时间为 2026-05-29，后续已清理。
+- 旧 `profile_177...` 和旧同步用户快照属于可清理候选；默认 provider 的近期快照可保留。
 
 `model_catalog/model_sync_runs/model_source_index_snapshots/model_aliases` 当前均为空。模型刷新相关代码仍存在，所以如果你后续会跑 `/api/db/models/refresh` 或 `db:sync-models`，应保留 `model_catalog/model_sync_runs/model_source_index_snapshots`；如果确认不用模型目录持久化，这些空表可以删除。
 
@@ -226,14 +228,14 @@
 1. 优先清理 `conversations` 中 160 条 `is_deleted=true` 且无消息的空壳会话。
    这些行不会出现在当前聊天索引中，且没有消息；属于最明确的冗余数据。
 
-2. 确认是否彻底废弃 `single-user`。
-   如果生产和本地都统一使用 `user:admin`，可考虑清理 `single-user` 对应的 `app_settings/provider_configs/provider_api_keys/sync_secrets/user_model_refresh_states/user_provider_balance_snapshots`。但 `.env.local` 仍写着 `single-user`，删除前要确认没有进程使用这套配置。
+2. 确认是否彻底废弃旧同步用户。
+   如果生产和本地都统一使用 `user:admin`，可考虑清理旧同步用户对应的 `app_settings/provider_configs/provider_api_keys/sync_secrets/user_model_refresh_states/user_provider_balance_snapshots`。后续已统一配置并清理旧数据。
 
-3. 清理 `single-user` 下两个 `profile_178038...` provider 配置。
+3. 清理旧同步用户下两个 `profile_178038...` provider 配置。
    这两条 disabled，且 key 组大量复制，疑似临时测试数据。
 
 4. 清理旧余额快照。
-   `user:admin` 下 `profile_177...` 和 `local:*` 的 4 月快照，以及 `single-user` 的 5 月快照，如果 UI 不再展示这些 profile，可删除。
+   `user:admin` 下 `profile_177...` 和 `local:*` 的 4 月快照，以及旧同步用户的 5 月快照，如果 UI 不再展示这些 profile，可删除。
 
 5. 空表分批处理。
    如果目标是保持 schema 简洁，可以删除 v2 拆表空表；如果短期还会继续做拆表迁移，则保留。

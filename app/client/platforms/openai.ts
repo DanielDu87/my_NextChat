@@ -16,7 +16,6 @@ import {
   base64Image2Blob,
   streamWithThink,
   stripInternalChatHeaders,
-  supportsApiKeyGrouping,
 } from "@/app/utils/chat";
 import { rememberSuccessfulCustomModelApiKeyGroup } from "@/app/utils/model-api-key-memory";
 import {
@@ -56,6 +55,7 @@ import {
   normalizeImageQuality,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
+import { joinUrlPath } from "@/app/utils/url";
 
 const {
   ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
@@ -868,7 +868,7 @@ function formatAiHubMixVideoFailure(payload: any) {
   }${errorMessage}${requestUrl ? `\n接口：${requestUrl}` : ""}${veoPromptHint}`;
 }
 
-function getYutoRetryableErrorMessage(payload: any) {
+function getGroupedApiKeyRetryableErrorMessage(payload: any) {
   const errorCode = String(payload?.error?.code || payload?.code || "").trim();
   const errorMessage = String(
     payload?.error?.message || payload?.message || "",
@@ -1052,10 +1052,10 @@ function buildProxyPathForBaseUrl(baseUrl: string, path: string) {
   if (proxyBaseUrl.endsWith("/")) {
     proxyBaseUrl = proxyBaseUrl.slice(0, -1);
   }
-  const hasV1Path =
-    proxyBaseUrl.endsWith("/v1") || proxyBaseUrl.includes("/v1/");
-  const proxyPath =
-    hasV1Path && path.startsWith("v1/") ? path.substring(3) : path;
+  const proxyPath = joinUrlPath(
+    "",
+    joinUrlPath(proxyBaseUrl, path).replace(proxyBaseUrl, ""),
+  );
   return {
     chatPath: `/api/proxy/${proxyPath}`,
     proxyBaseUrl,
@@ -1139,7 +1139,7 @@ export class ChatGPTApi implements LLMApi {
     }
 
     // try rebuild url, when using cloudflare ai gateway in client
-    return cloudflareAIGatewayUrl([baseUrl, finalPath].join("/"));
+    return cloudflareAIGatewayUrl(joinUrlPath(baseUrl, finalPath));
   }
 
   async extractMessage(res: any) {
@@ -1936,8 +1936,7 @@ export class ChatGPTApi implements LLMApi {
           (requestHeaders as any)["x-fallback-api-keys"] || [];
         const fallbackApiKeyGroups: string[] =
           (requestHeaders as any)["x-fallback-api-key-groups"] || [];
-        const supportsGrouping =
-          supportsApiKeyGrouping(chatPath) || fallbackApiKeyGroups.length > 0;
+        const supportsGrouping = fallbackApiKeyGroups.length > 0;
         let retryCount = 0;
         let resText = "";
         let resJson: any = null;
@@ -1967,7 +1966,7 @@ export class ChatGPTApi implements LLMApi {
           }
 
           const retryableError = supportsGrouping
-            ? getYutoRetryableErrorMessage(resJson)
+            ? getGroupedApiKeyRetryableErrorMessage(resJson)
             : "";
           const shouldRetry =
             supportsGrouping &&

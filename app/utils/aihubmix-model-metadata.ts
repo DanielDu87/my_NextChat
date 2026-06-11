@@ -240,13 +240,16 @@ export function seedAiHubMixMetadataCacheFromModels(models: LLMModel[]) {
       continue;
     }
 
-    if (Number.isFinite(Number((model as any).catalogRank))) {
+    const cachedRank = Number(
+      (model as any).remoteRank ?? (model as any).catalogRank,
+    );
+    if (Number.isFinite(cachedRank)) {
       for (const key of lookupKeys) {
         if (catalogMetadataMap.has(key)) {
           continue;
         }
         catalogMetadataMap.set(key, {
-          rank: Number((model as any).catalogRank),
+          rank: cachedRank,
           vendor: model.vendor,
         });
         catalogChanged = true;
@@ -335,6 +338,13 @@ export function hydrateModelsWithAiHubMixMetadata(models: LLMModel[]) {
     return {
       ...model,
       catalogRank: catalogMetadata?.rank ?? (model as any).catalogRank,
+      remoteRank:
+        catalogMetadata?.rank ??
+        (model as any).remoteRank ??
+        (model as any).catalogRank,
+      remoteRankSource: catalogMetadata
+        ? "aihubmix_catalog"
+        : (model as any).remoteRankSource,
       vendor: catalogMetadata?.vendor ?? model.vendor,
       category: normalizedClassification?.category ?? model.category,
       categorySource:

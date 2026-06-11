@@ -27,6 +27,7 @@ import {
 } from "@/app/utils";
 import { applyModelSamplingRules } from "../model-parameter-rules";
 import { fetch } from "@/app/utils/stream";
+import { joinUrlPath } from "@/app/utils/url";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -81,7 +82,7 @@ export class QwenApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   extractMessage(res: any) {

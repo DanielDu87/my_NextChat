@@ -69,19 +69,16 @@ export class LocalApi implements LLMApi {
       "x-base-url": this.resolveBaseUrl(),
     };
 
-    const balanceQueryApiKey = String(profile?.balanceQueryApiKey || "").trim();
     const defaultGroupApiKey = String(
       profile?.apiKeyGroups?.default || "",
     ).trim();
-    const apiKey = String(
-      balanceQueryApiKey || defaultGroupApiKey || profile?.apiKey || "",
-    ).trim();
+    const apiKey = String(defaultGroupApiKey || profile?.apiKey || "").trim();
 
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    return { headers, profile, balanceQueryApiKey };
+    return { headers, profile };
   }
 
   path(path: string): string {
@@ -272,7 +269,7 @@ export class LocalApi implements LLMApi {
 
   async usage(): Promise<LLMUsage> {
     try {
-      const { headers, profile, balanceQueryApiKey } = this.buildHeaders();
+      const { headers, profile } = this.buildHeaders();
 
       if (!profile?.baseUrl) {
         return {
@@ -292,7 +289,6 @@ export class LocalApi implements LLMApi {
           status: res.status,
           statusText: res.statusText,
           baseUrl: profile.baseUrl,
-          hasBalanceQueryApiKey: !!balanceQueryApiKey,
         });
         return {
           used: 0,
@@ -413,7 +409,7 @@ export class LocalApi implements LLMApi {
           displayLabel:
             Number.isFinite(totalRequests) && totalRequests > 0
               ? `${profile.name || "Sub2API"} 累计请求数`
-              : `${profile.name || "Sub2API"} 剩余额度`,
+              : `${profile.name || "Sub2API"} 使用量`,
         };
       }
 

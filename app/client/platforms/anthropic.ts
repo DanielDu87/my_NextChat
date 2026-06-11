@@ -14,6 +14,7 @@ import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
 import { getDefaultReasoningSettings } from "../model-parameter-rules";
+import { joinUrlPath } from "@/app/utils/url";
 
 export type MultiBlockContent = {
   type: "image" | "text";
@@ -495,7 +496,7 @@ export class ClaudeApi implements LLMApi {
     baseUrl = trimEnd(baseUrl, "/");
 
     // try rebuild url, when using cloudflare ai gateway in client
-    return cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
+    return cloudflareAIGatewayUrl(joinUrlPath(baseUrl, path));
   }
 }
 

@@ -56,6 +56,8 @@ type RuntimeCollectedModel = {
   publishedAtUrl?: LLMModel["publishedAtUrl"];
   publishedAtNote?: LLMModel["publishedAtNote"];
   catalogRank?: number;
+  remoteRank?: number;
+  remoteRankSource?: string;
   provider?: LLMModel["provider"];
   vendor?: LLMModel["vendor"];
   category?: LLMModel["category"];

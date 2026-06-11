@@ -122,13 +122,13 @@ async function clearExistingChatArtifacts() {
        where external_session_id is not null
          and user_id = (select id from app_users where external_id = $1 limit 1)
      )`,
-    ["single-user"],
+    ["user:admin"],
   );
   await pgQuery(
     `delete from conversations
      where external_session_id is not null
        and user_id = (select id from app_users where external_id = $1 limit 1)`,
-    ["single-user"],
+    ["user:admin"],
   );
 }
 
@@ -175,7 +175,7 @@ async function main() {
      from conversations
      where external_session_id is not null
        and user_id = (select id from app_users where external_id = $1 limit 1)`,
-    ["single-user"],
+    ["user:admin"],
   );
 
   console.log(

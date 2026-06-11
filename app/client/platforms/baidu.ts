@@ -23,6 +23,7 @@ import { getClientConfig } from "@/app/config/client";
 import { getMessageTextContent, getTimeoutMSByModel } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
+import { joinUrlPath } from "@/app/utils/url";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -72,7 +73,7 @@ export class ErnieApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   speech(options: SpeechOptions): Promise<ArrayBuffer> {

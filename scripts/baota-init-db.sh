@@ -110,10 +110,10 @@ PORT=3000
 CODE=your-access-password-here
 OPENAI_API_KEY=
 
-# 用户标识配置
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+# 同步数据归属 ID（不是登录用户名）
+NEXTCHAT_DEFAULT_USER_ID=user:admin
+DEFAULT_SYNC_USER_ID=user:admin
+NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 
 # 数据库配置
 PGHOST=${DB_HOST}

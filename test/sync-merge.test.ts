@@ -202,7 +202,90 @@ describe("sync merge safety", () => {
       group1: "sk-new",
       group2: "",
       group3: "sk-remote-only",
+      group4: "",
+      group5: "",
+      group6: "",
     });
+  });
+
+  test("mergeStoreState should preserve multi key mode when synced profile has group keys", async () => {
+    const { TextDecoder, TextEncoder } = await import("node:util");
+    (globalThis as any).TextDecoder ??= TextDecoder;
+    (globalThis as any).TextEncoder ??= TextEncoder;
+    jest.resetModules();
+    const { StoreKey } = await import("../app/constant");
+
+    const createStore = () => ({
+      getState: () => ({}),
+      setState: jest.fn(),
+      persist: { rehydrate: jest.fn() },
+    });
+    jest.unstable_mockModule("../app/store", () => ({
+      useAccessStore: createStore(),
+      useAppConfig: createStore(),
+      useChatStore: createStore(),
+      useModelCacheStore: createStore(),
+      usePluginStore: createStore(),
+      useUpdateStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/mask", () => ({
+      useMaskStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/prompt", () => ({
+      usePromptStore: createStore(),
+    }));
+    jest.unstable_mockModule("../app/store/sd", () => ({
+      useSdStore: createStore(),
+    }));
+    const { mergeStoreState } = await import("../app/utils/sync");
+    const localState = {
+      lastUpdateTime: 200,
+      apiProfiles: [
+        {
+          id: "p1",
+          name: "Ocoolai",
+          provider: "Custom",
+          baseUrl: "https://api.ocoolai.com",
+          multiKeyEnabled: false,
+          apiKeyGroups: {
+            group1: "sk-group-1",
+            group2: "sk-group-2",
+          },
+        },
+      ],
+    };
+    const remoteState = {
+      lastUpdateTime: 100,
+      apiProfiles: [],
+    };
+
+    const merged = mergeStoreState(
+      StoreKey.Access,
+      localState as any,
+      remoteState as any,
+    ) as any;
+
+    const mergedProfile = merged.apiProfiles.find(
+      (profile: any) => profile.id === "p1",
+    );
+
+    expect(mergedProfile.multiKeyEnabled).toBe(true);
+    expect(mergedProfile.apiKeyGroups).toEqual({
+      group1: "sk-group-1",
+      group2: "sk-group-2",
+      group3: "",
+      group4: "",
+      group5: "",
+      group6: "",
+    });
+    expect(mergedProfile.multiKeyGroupOrder).toEqual([
+      "group1",
+      "group2",
+      "group3",
+      "group4",
+      "group5",
+      "group6",
+    ]);
   });
 
   test("mergeStoreState should keep newly added local api profile before remote sync finishes", async () => {

@@ -28,6 +28,7 @@ import { fetch } from "@/app/utils/stream";
 
 import { RequestPayload } from "./openai";
 import { applyModelSamplingRules } from "../model-parameter-rules";
+import { joinUrlPath } from "@/app/utils/url";
 
 export class SparkApi implements LLMApi {
   private disableListModels = true;
@@ -56,7 +57,7 @@ export class SparkApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return [baseUrl, path].join("/");
+    return joinUrlPath(baseUrl, path);
   }
 
   extractMessage(res: any) {

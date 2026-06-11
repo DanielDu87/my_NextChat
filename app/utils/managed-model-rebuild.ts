@@ -8,7 +8,7 @@ import {
   seedAiHubMixMetadataCacheFromModels,
 } from "./aihubmix-model-metadata";
 import modelPublishedAtUtils from "./model-published-at";
-import { comparePublishedAt } from "./model-published-at";
+import { compareModelsForDisplay } from "./model-published-at";
 
 const { applyModelPublishedAt } = modelPublishedAtUtils;
 
@@ -150,7 +150,7 @@ export function rebuildManagedModelsFromCache(options?: {
   const hydratedRebuiltModels =
     hydrateModelsWithAiHubMixMetadata(rebuiltModels);
   const sortedHydratedModels = [...hydratedRebuiltModels]
-    .sort((left, right) => comparePublishedAt(left, right))
+    .sort((left, right) => compareModelsForDisplay(left, right))
     .map((model, index) => ({
       ...model,
       sorted: index,

@@ -19,7 +19,7 @@ describe("model publishedAt", () => {
 
   test("should extract complete dates from model names", async () => {
     expect(extractPublishedAtFromName("gemini-2.5-pro-preview-05-06")).toBe(
-      20250506,
+      20260506,
     );
     expect(extractPublishedAtFromName("deepseek-r1-2025_01_20")).toBe(
       20250120,
@@ -300,24 +300,51 @@ describe("model publishedAt", () => {
     });
   });
 
-  test("should sort by publishedAt then version then order then name", () => {
+  test("should sort by remote rank and keep provider order without hardcoded dates", () => {
     const models = [
       { name: "alpha-1.0", publishedAt: 20250301, order: 3 },
-      { name: "alpha-2.0", publishedAt: 20250301, order: 2 },
-      { name: "alpha-2.0", publishedAt: 20250101, order: 1 },
-      { name: "beta-2.0", order: 0 },
+      { name: "alpha-2.0", publishedAt: 20250101, order: 2 },
+      { name: "beta-2.0", order: 1 },
+      { name: "gamma-1.0", remoteRank: 0, order: 9 },
     ];
 
     const sorted = models.slice().sort(comparePublishedAt);
 
     expect(sorted.map((item) => item.name)).toEqual([
+      "gamma-1.0",
+      "beta-2.0",
       "alpha-2.0",
       "alpha-1.0",
-      "alpha-2.0",
-      "beta-2.0",
     ]);
-    expect(sorted[0].publishedAt).toBe(20250301);
-    expect(sorted[1].publishedAt).toBe(20250301);
-    expect(sorted[2].publishedAt).toBe(20250101);
+  });
+
+  test("should sort OpenAI models by version and variant without fixed model data", () => {
+    const models = [
+      { name: "gpt-5.5-codex", order: 0 },
+      { name: "gpt-5.4", order: 1 },
+      { name: "gpt-5.5-free", order: 2 },
+      { name: "gpt-5.5", order: 3 },
+      { name: "gpt-5.5-mini", order: 4 },
+      { name: "gpt-5.5-nano", order: 5 },
+      { name: "gpt-5.5-pro", order: 6 },
+      { name: "gpt-5", order: 7 },
+      { name: "gpt-4.1", order: 8 },
+      { name: "gpt-5.5-preview", order: 9 },
+    ];
+
+    const sorted = models.slice().sort(comparePublishedAt);
+
+    expect(sorted.map((item) => item.name)).toEqual([
+      "gpt-5.5",
+      "gpt-5.5-mini",
+      "gpt-5.5-nano",
+      "gpt-5.5-free",
+      "gpt-5.5-pro",
+      "gpt-5.5-codex",
+      "gpt-5.5-preview",
+      "gpt-5.4",
+      "gpt-5",
+      "gpt-4.1",
+    ]);
   });
 });

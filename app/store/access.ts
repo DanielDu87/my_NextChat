@@ -94,9 +94,6 @@ function createBootstrapCustomProfiles() {
       baseUrl: DEFAULT_AIHUBMIX_URL,
       apiKey: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
       modelFetchApiKey: "",
-      balanceQueryApiKey: "",
-      balanceQueryUrl: "",
-      balanceQueryField: "",
       apiKeyGroups: {
         default: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
         user: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
@@ -270,9 +267,6 @@ const DEFAULT_ACCESS_STATE = {
     baseUrl: string;
     apiKey: string;
     modelFetchApiKey?: string;
-    balanceQueryApiKey?: string;
-    balanceQueryUrl?: string;
-    balanceQueryField?: string;
     apiKeyGroups?: Record<string, string>;
     multiKeyGroupOrder?: string[];
     multiKeyEnabled?: boolean;

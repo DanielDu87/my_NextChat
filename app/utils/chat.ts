@@ -52,15 +52,6 @@ function logChatTrace(message: string) {
   console.debug(message);
 }
 
-function supportsApiKeyGrouping(chatPath: string) {
-  return (
-    chatPath.includes("cn.gptapi.asia") ||
-    chatPath.includes("gptapi.asia") ||
-    chatPath.includes("one.ooo.cool") ||
-    chatPath.includes("ocoolai.com")
-  );
-}
-
 function getAuthHeaderName(headers: Record<string, string>) {
   return Object.keys(headers).find(
     (key) =>
@@ -90,14 +81,14 @@ export function stripInternalChatHeaders<T extends Record<string, any>>(
   return networkHeaders as T;
 }
 
-function getYutoGroupName(
+function getApiKeyGroupName(
   fallbackApiKeyGroups: string[],
   currentKeyIndex: number,
 ) {
   return fallbackApiKeyGroups[currentKeyIndex] || `index-${currentKeyIndex}`;
 }
 
-function formatYutoFailureMessage(currentGroup: string, reason: string) {
+function formatApiKeyGroupFailureMessage(currentGroup: string, reason: string) {
   const normalizedReason = String(reason || "").trim();
   return [
     "[分组重试] 全部分组重试后仍失败",
@@ -118,10 +109,22 @@ function rememberApiKeyGroupIfNeeded(
     return;
   }
 
-  const currentGroup = getYutoGroupName(fallbackApiKeyGroups, currentKeyIndex);
+  const currentGroup = getApiKeyGroupName(
+    fallbackApiKeyGroups,
+    currentKeyIndex,
+  );
   if (!currentGroup || currentGroup.startsWith("index-")) {
     return;
   }
+  const providerName = options?.config?.providerName || "API";
+
+  console.log(`[MultiKey] ${providerName} ✅ 分组请求成功`, {
+    currentGroup,
+    attempt: currentKeyIndex + 1,
+    totalGroups: fallbackApiKeyGroups.length,
+    modelName: options?.config?.model,
+    willSaveToLocalStorage: true,
+  });
 
   rememberSuccessfulCustomModelApiKeyGroup({
     modelName: options?.config?.model,
@@ -142,7 +145,10 @@ function logApiKeyGroupStart(
     return;
   }
 
-  const currentGroup = getYutoGroupName(fallbackApiKeyGroups, currentKeyIndex);
+  const currentGroup = getApiKeyGroupName(
+    fallbackApiKeyGroups,
+    currentKeyIndex,
+  );
   const providerName = options.config?.providerName || "API";
   const rememberedGroup = headers["x-remembered-api-key-group"];
   const isRememberedGroup =
@@ -151,22 +157,173 @@ function logApiKeyGroupStart(
     rememberedGroup === currentGroup;
 
   if (isRememberedGroup) {
-    console.log(`[MultiKey] ${providerName} 命中已记忆分组`, {
+    console.log(`[MultiKey] ${providerName} 命中已记忆分组，正在尝试`, {
       currentGroup,
       attempt: currentKeyIndex + 1,
       totalGroups: fallbackApiKeyGroups.length,
+      loadedFromLocalStorage: true,
     });
     return;
   }
 
-  console.log(`[MultiKey] ${providerName} 开始使用分组`, {
+  console.log(`[MultiKey] ${providerName} 正在尝试分组`, {
     currentGroup,
     attempt: currentKeyIndex + 1,
     totalGroups: fallbackApiKeyGroups.length,
   });
 }
 
-export { supportsApiKeyGrouping };
+function getSafeRetryReason(reason: string, maxLength = 200) {
+  return String(reason || "")
+    .replace(/当前分组\s+[^"\s]+?\s+下/g, "当前分组 [provider-internal] 下")
+    .substring(0, maxLength);
+}
+
+function createApiKeyGroupRetryContext(params: {
+  chatPath: string;
+  headers: any;
+  options: any;
+  onRetry: () => void;
+}) {
+  const { chatPath, headers, options, onRetry } = params;
+  const fallbackApiKeys: string[] = headers["x-fallback-api-keys"] || [];
+  const fallbackApiKeyGroups: string[] =
+    headers["x-fallback-api-key-groups"] || [];
+  let currentKeyIndex = 0;
+  let lastErrorText = "";
+  const providerName = options.config?.providerName || "API";
+  const isMultiKeyRequest =
+    fallbackApiKeys.length > 0 && fallbackApiKeyGroups.length > 0;
+
+  if (isMultiKeyRequest) {
+    console.log(`[MultiKey] ${providerName} 当前请求启用多 key`, {
+      fallbackKeysCount: fallbackApiKeys.length,
+      groupOrder: fallbackApiKeyGroups,
+      rememberedGroup: headers["x-remembered-api-key-group"] || "",
+      chatPath: chatPath.substring(0, 80),
+    });
+  } else {
+    console.log(`[MultiKey] ${providerName} 当前请求未启用多 key`, {
+      fallbackKeysCount: fallbackApiKeys.length,
+      fallbackGroupsCount: fallbackApiKeyGroups.length,
+      chatPath: chatPath.substring(0, 80),
+    });
+  }
+
+  const getCurrentGroup = () =>
+    getApiKeyGroupName(fallbackApiKeyGroups, currentKeyIndex);
+
+  return {
+    getCurrentIndex() {
+      return currentKeyIndex;
+    },
+    getLastErrorText() {
+      return lastErrorText;
+    },
+    setLastErrorText(reason: string) {
+      lastErrorText = reason;
+    },
+    hasRemainingRetries() {
+      if (!isMultiKeyRequest) {
+        return false;
+      }
+      return currentKeyIndex < fallbackApiKeys.length - 1;
+    },
+    logAttemptStart() {
+      if (!isMultiKeyRequest) {
+        return;
+      }
+      logApiKeyGroupStart(
+        chatPath,
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+        headers,
+        options,
+      );
+      console.log(`[MultiKey] ${providerName} 分组请求开始`, {
+        currentGroup: getCurrentGroup(),
+        attempt: currentKeyIndex + 1,
+        totalGroups: fallbackApiKeys.length,
+        requestPath: chatPath.substring(0, 80),
+      });
+    },
+    resetLastError() {
+      lastErrorText = "";
+    },
+    rememberSuccess(finalText: string) {
+      rememberApiKeyGroupIfNeeded(
+        chatPath,
+        fallbackApiKeyGroups,
+        currentKeyIndex,
+        headers,
+        options,
+        finalText,
+      );
+    },
+    tryFallbackRetry(reason: string) {
+      if (!isMultiKeyRequest) {
+        return false;
+      }
+
+      const currentGroup = getCurrentGroup();
+      const reasonSummary = getSafeRetryReason(reason);
+
+      if (
+        fallbackApiKeys.length === 0 ||
+        currentKeyIndex >= fallbackApiKeys.length - 1
+      ) {
+        lastErrorText = formatApiKeyGroupFailureMessage(currentGroup, reason);
+        console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
+          currentGroup,
+          reason: getSafeRetryReason(reason, 100),
+          totalGroups: fallbackApiKeys.length,
+        });
+        return false;
+      }
+
+      const nextGroup = getApiKeyGroupName(
+        fallbackApiKeyGroups,
+        currentKeyIndex + 1,
+      );
+
+      console.log(`[MultiKey Retry] ${providerName} ❌ 分组尝试失败`, {
+        currentGroup,
+        attempt: currentKeyIndex + 1,
+        totalGroups: fallbackApiKeys.length,
+        reason: reasonSummary,
+        nextGroup,
+      });
+
+      if (headers["x-remembered-api-key-group"] === currentGroup) {
+        console.log(
+          `[MultiKey Retry] ${providerName} 已记忆分组失败，将继续尝试全部剩余分组`,
+          {
+            rememberedGroup: currentGroup,
+            remainingGroups: fallbackApiKeyGroups.slice(currentKeyIndex + 1),
+          },
+        );
+      }
+
+      console.log(
+        `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
+          fallbackApiKeys.length
+        }): ${currentGroup} → ${nextGroup}`,
+      );
+
+      currentKeyIndex++;
+      lastErrorText = reason;
+
+      const nextApiKey = fallbackApiKeys[currentKeyIndex];
+      const authHeader = getAuthHeaderName(headers);
+      if (authHeader) {
+        headers[authHeader] = `Bearer ${nextApiKey}`;
+      }
+
+      onRetry();
+      return true;
+    },
+  };
+}
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -351,10 +508,21 @@ export function stream(
   let finished = false;
   let running = false;
   let pendingRetry = false;
-  let lastErrorText = "";
   let activeRequestSeq = 0;
+  let currentRequestAccepted = false;
   let runTools: any[] = [];
   let responseRes: Response;
+  const apiKeyRetry = createApiKeyGroupRetryContext({
+    chatPath,
+    headers,
+    options,
+    onRetry: () => {
+      pendingRetry = true;
+      setTimeout(() => {
+        chatApi(chatPath, headers, requestPayload, tools);
+      }, 0);
+    },
+  });
 
   // animate response to make it looks smooth
   function animateResponseText() {
@@ -362,10 +530,7 @@ export function stream(
       requestAnimationFrame(animateResponseText);
       return;
     }
-    if (
-      controller.signal.aborted &&
-      currentKeyIndex < fallbackApiKeys.length - 1
-    ) {
+    if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
       requestAnimationFrame(animateResponseText);
       return;
     }
@@ -373,8 +538,9 @@ export function stream(
       responseText += remainText;
       // console.log("[Response Animation] finished");
       if (responseText?.length === 0) {
-        const errorText = lastErrorText || "empty response from server";
-        if (tryYutoFallbackRetry(errorText)) {
+        const errorText =
+          apiKeyRetry.getLastErrorText() || "empty response from server";
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           requestAnimationFrame(animateResponseText);
           return;
         }
@@ -396,68 +562,6 @@ export function stream(
 
   // start animaion
   animateResponseText();
-
-  // 获取 fallback API keys（用于降级重试）
-  const fallbackApiKeys: string[] = headers["x-fallback-api-keys"] || [];
-  const fallbackApiKeyGroups: string[] =
-    headers["x-fallback-api-key-groups"] || [];
-  let currentKeyIndex = 0;
-
-  console.log("[stream] 初始化重试逻辑", {
-    fallbackKeysCount: fallbackApiKeys.length,
-    fallbackGroups: fallbackApiKeyGroups,
-    chatPath: chatPath.substring(0, 50) + "...",
-  });
-
-  const tryYutoFallbackRetry = (reason: string) => {
-    const currentGroup = getYutoGroupName(
-      fallbackApiKeyGroups,
-      currentKeyIndex,
-    );
-    const providerName = options.config?.providerName || "API";
-
-    // 检查是否支持 API Key 分组重试
-    if (
-      fallbackApiKeys.length === 0 ||
-      currentKeyIndex >= fallbackApiKeys.length - 1
-    ) {
-      // 所有分组都失败，或者不支持重试
-      lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
-        currentGroup,
-        reason: reason.substring(0, 100),
-        totalGroups: fallbackApiKeys.length,
-      });
-      return false;
-    }
-
-    const nextGroup = getYutoGroupName(
-      fallbackApiKeyGroups,
-      currentKeyIndex + 1,
-    );
-
-    console.log(
-      `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
-        fallbackApiKeys.length
-      }): ${currentGroup} → ${nextGroup}`,
-    );
-
-    currentKeyIndex++;
-    pendingRetry = true;
-    lastErrorText = reason;
-
-    const nextApiKey = fallbackApiKeys[currentKeyIndex];
-    const authHeader = getAuthHeaderName(headers);
-    if (authHeader) {
-      headers[authHeader] = `Bearer ${nextApiKey}`;
-    }
-
-    setTimeout(() => {
-      chatApi(chatPath, headers, requestPayload, tools);
-    }, 0);
-
-    return true;
-  };
 
   const finish = () => {
     if (pendingRetry) {
@@ -533,22 +637,19 @@ export function stream(
         return;
       }
       if (responseText.length + remainText.length === 0) {
-        if (
-          tryYutoFallbackRetry(lastErrorText || "empty response from server")
-        ) {
+        const errorText =
+          apiKeyRetry.getLastErrorText() || "empty response from server";
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
+        responseText = errorText;
+        apiKeyRetry.setLastErrorText(errorText);
       }
       logChatTrace("[ChatAPI] end");
       finished = true;
-      rememberApiKeyGroupIfNeeded(
-        chatPath,
-        fallbackApiKeyGroups,
-        currentKeyIndex,
-        headers,
-        options,
-        responseText + remainText,
-      );
+      if (currentRequestAccepted) {
+        apiKeyRetry.rememberSuccess(responseText + remainText);
+      }
       options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
     }
   };
@@ -563,14 +664,9 @@ export function stream(
   ) {
     // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
     pendingRetry = false;
+    currentRequestAccepted = false;
     const requestSeq = ++activeRequestSeq;
-    logApiKeyGroupStart(
-      chatPath,
-      fallbackApiKeyGroups,
-      currentKeyIndex,
-      headers,
-      options,
-    );
+    apiKeyRetry.logAttemptStart();
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -599,7 +695,8 @@ export function stream(
         if (contentType?.startsWith("text/plain")) {
           pendingRetry = false;
           responseText = await res.clone().text();
-          lastErrorText = responseText;
+          apiKeyRetry.setLastErrorText(responseText);
+          currentRequestAccepted = true;
           return finish();
         }
 
@@ -612,21 +709,17 @@ export function stream(
         ) {
           const responseTexts = [responseText];
           let extraInfo = await res.clone().text();
-          lastErrorText =
+          const requestErrorText =
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
+          apiKeyRetry.setLastErrorText(requestErrorText);
 
-          if (tryYutoFallbackRetry(lastErrorText)) {
+          if (apiKeyRetry.tryFallbackRetry(requestErrorText)) {
             return; // 不调用 finish，继续重试
           }
 
-          if (fallbackApiKeyGroups.length > 0) {
-            const currentGroup = getYutoGroupName(
-              fallbackApiKeyGroups,
-              currentKeyIndex,
-            );
-            responseTexts.push(
-              formatYutoFailureMessage(currentGroup, lastErrorText),
-            );
+          const retryErrorText = apiKeyRetry.getLastErrorText();
+          if (retryErrorText) {
+            responseTexts.push(retryErrorText);
           }
 
           try {
@@ -643,12 +736,14 @@ export function stream(
           }
 
           responseText = responseTexts.join("\n\n");
-          lastErrorText = responseText;
+          apiKeyRetry.setLastErrorText(responseText);
 
           return finish();
         }
 
         pendingRetry = false;
+        apiKeyRetry.resetLastError();
+        currentRequestAccepted = true;
       },
       onmessage(msg) {
         if (requestSeq !== activeRequestSeq) {
@@ -685,7 +780,7 @@ export function stream(
           return;
         }
         if (
-          tryYutoFallbackRetry(
+          apiKeyRetry.tryFallbackRetry(
             e?.message || e?.toString?.() || "stream connection failed",
           )
         ) {
@@ -694,7 +789,9 @@ export function stream(
         if (pendingRetry) {
           return;
         }
-        lastErrorText = e?.message || e?.toString?.() || lastErrorText;
+        apiKeyRetry.setLastErrorText(
+          e?.message || e?.toString?.() || apiKeyRetry.getLastErrorText(),
+        );
         options?.onError?.(e);
         throw e;
       },
@@ -731,13 +828,24 @@ export function streamWithThink(
   let finished = false;
   let running = false;
   let pendingRetry = false;
-  let lastErrorText = "";
   let activeRequestSeq = 0;
+  let currentRequestAccepted = false;
   let runTools: any[] = [];
   let responseRes: Response;
   let isInThinkingMode = false;
   let lastIsThinking = false;
   let lastIsThinkingTagged = false; //between <think> and </think> tags
+  const apiKeyRetry = createApiKeyGroupRetryContext({
+    chatPath,
+    headers,
+    options,
+    onRetry: () => {
+      pendingRetry = true;
+      setTimeout(() => {
+        chatApi(chatPath, headers, requestPayload, tools);
+      }, 0);
+    },
+  });
 
   // animate response to make it looks smooth
   function animateResponseText() {
@@ -745,10 +853,7 @@ export function streamWithThink(
       requestAnimationFrame(animateResponseText);
       return;
     }
-    if (
-      controller.signal.aborted &&
-      currentKeyIndex < fallbackApiKeys.length - 1
-    ) {
+    if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
       requestAnimationFrame(animateResponseText);
       return;
     }
@@ -756,8 +861,9 @@ export function streamWithThink(
       responseText += remainText;
       // console.log("[Response Animation] finished");
       if (responseText?.length === 0) {
-        const errorText = lastErrorText || "empty response from server";
-        if (tryYutoFallbackRetry(errorText)) {
+        const errorText =
+          apiKeyRetry.getLastErrorText() || "empty response from server";
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           requestAnimationFrame(animateResponseText);
           return;
         }
@@ -780,68 +886,6 @@ export function streamWithThink(
   // start animaion
   animateResponseText();
 
-  // 获取 fallback API keys（用于降级重试）
-  const fallbackApiKeys: string[] = headers["x-fallback-api-keys"] || [];
-  const fallbackApiKeyGroups: string[] =
-    headers["x-fallback-api-key-groups"] || [];
-  let currentKeyIndex = 0;
-
-  console.log("[stream] 初始化重试逻辑", {
-    fallbackKeysCount: fallbackApiKeys.length,
-    fallbackGroups: fallbackApiKeyGroups,
-    chatPath: chatPath.substring(0, 50) + "...",
-  });
-
-  const tryYutoFallbackRetry = (reason: string) => {
-    const currentGroup = getYutoGroupName(
-      fallbackApiKeyGroups,
-      currentKeyIndex,
-    );
-    const providerName = options.config?.providerName || "API";
-
-    // 检查是否支持 API Key 分组重试
-    if (
-      fallbackApiKeys.length === 0 ||
-      currentKeyIndex >= fallbackApiKeys.length - 1
-    ) {
-      // 所有分组都失败，或者不支持重试
-      lastErrorText = formatYutoFailureMessage(currentGroup, reason);
-      console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
-        currentGroup,
-        reason: reason.substring(0, 100),
-        totalGroups: fallbackApiKeys.length,
-      });
-      return false;
-    }
-
-    const nextGroup = getYutoGroupName(
-      fallbackApiKeyGroups,
-      currentKeyIndex + 1,
-    );
-
-    console.log(
-      `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
-        fallbackApiKeys.length
-      }): ${currentGroup} → ${nextGroup}`,
-    );
-
-    currentKeyIndex++;
-    pendingRetry = true;
-    lastErrorText = reason;
-
-    const nextApiKey = fallbackApiKeys[currentKeyIndex];
-    const authHeader = getAuthHeaderName(headers);
-    if (authHeader) {
-      headers[authHeader] = `Bearer ${nextApiKey}`;
-    }
-
-    setTimeout(() => {
-      chatApi(chatPath, headers, requestPayload, tools);
-    }, 0);
-
-    return true;
-  };
-
   const tryCompatibilityRetry = (reason: string) => {
     const nextPayload = options?.onCompatibilityRetry?.(reason, requestPayload);
     if (!nextPayload) {
@@ -850,7 +894,7 @@ export function streamWithThink(
 
     console.warn("[Chat Compatibility] 检测到不兼容参数，已关闭后重试");
     pendingRetry = true;
-    lastErrorText = reason;
+    apiKeyRetry.setLastErrorText(reason);
     responseText = "";
     remainText = "";
     runTools = [];
@@ -940,22 +984,19 @@ export function streamWithThink(
         return;
       }
       if (responseText.length + remainText.length === 0) {
-        if (
-          tryYutoFallbackRetry(lastErrorText || "empty response from server")
-        ) {
+        const errorText =
+          apiKeyRetry.getLastErrorText() || "empty response from server";
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
+        responseText = errorText;
+        apiKeyRetry.setLastErrorText(errorText);
       }
       logChatTrace("[ChatAPI] end");
       finished = true;
-      rememberApiKeyGroupIfNeeded(
-        chatPath,
-        fallbackApiKeyGroups,
-        currentKeyIndex,
-        headers,
-        options,
-        responseText + remainText,
-      );
+      if (currentRequestAccepted) {
+        apiKeyRetry.rememberSuccess(responseText + remainText);
+      }
       options?.onCompatibilitySuccess?.(
         responseText + remainText,
         requestPayload,
@@ -974,14 +1015,9 @@ export function streamWithThink(
   ) {
     // 每次发起新请求前重置重试状态，避免上一次重试标记阻塞 finish
     pendingRetry = false;
+    currentRequestAccepted = false;
     const requestSeq = ++activeRequestSeq;
-    logApiKeyGroupStart(
-      chatPath,
-      fallbackApiKeyGroups,
-      currentKeyIndex,
-      headers,
-      options,
-    );
+    apiKeyRetry.logAttemptStart();
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
@@ -1010,7 +1046,8 @@ export function streamWithThink(
         if (contentType?.startsWith("text/plain")) {
           pendingRetry = false;
           responseText = await res.clone().text();
-          lastErrorText = responseText;
+          apiKeyRetry.setLastErrorText(responseText);
+          currentRequestAccepted = true;
           return finish();
         }
 
@@ -1023,25 +1060,21 @@ export function streamWithThink(
         ) {
           const responseTexts = [responseText];
           let extraInfo = await res.clone().text();
-          lastErrorText =
+          const requestErrorText =
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
+          apiKeyRetry.setLastErrorText(requestErrorText);
 
-          if (tryCompatibilityRetry(lastErrorText)) {
+          if (tryCompatibilityRetry(requestErrorText)) {
             return;
           }
 
-          if (tryYutoFallbackRetry(lastErrorText)) {
+          if (apiKeyRetry.tryFallbackRetry(requestErrorText)) {
             return; // 不调用 finish，继续重试
           }
 
-          if (fallbackApiKeyGroups.length > 0) {
-            const currentGroup = getYutoGroupName(
-              fallbackApiKeyGroups,
-              currentKeyIndex,
-            );
-            responseTexts.push(
-              formatYutoFailureMessage(currentGroup, lastErrorText),
-            );
+          const retryErrorText = apiKeyRetry.getLastErrorText();
+          if (retryErrorText) {
+            responseTexts.push(retryErrorText);
           }
 
           try {
@@ -1058,12 +1091,14 @@ export function streamWithThink(
           }
 
           responseText = responseTexts.join("\n\n");
-          lastErrorText = responseText;
+          apiKeyRetry.setLastErrorText(responseText);
 
           return finish();
         }
 
         pendingRetry = false;
+        apiKeyRetry.resetLastError();
+        currentRequestAccepted = true;
       },
       onmessage(msg) {
         if (requestSeq !== activeRequestSeq) {
@@ -1151,7 +1186,7 @@ export function streamWithThink(
           return;
         }
         if (
-          tryYutoFallbackRetry(
+          apiKeyRetry.tryFallbackRetry(
             e?.message || e?.toString?.() || "stream connection failed",
           )
         ) {
@@ -1160,7 +1195,9 @@ export function streamWithThink(
         if (pendingRetry) {
           return;
         }
-        lastErrorText = e?.message || e?.toString?.() || lastErrorText;
+        apiKeyRetry.setLastErrorText(
+          e?.message || e?.toString?.() || apiKeyRetry.getLastErrorText(),
+        );
         options?.onError?.(e);
         throw e;
       },

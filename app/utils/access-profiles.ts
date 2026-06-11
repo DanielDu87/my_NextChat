@@ -8,12 +8,11 @@ export type GenericAccessProfile = Record<string, any> & {
   multiKeyEnabled?: boolean;
   multiKeyGroupOrder?: string[];
   modelFetchApiKey?: string;
-  balanceQueryApiKey?: string;
   apiKeyGroups?: Record<string, string>;
 };
 
 const GENERATED_PROFILE_ID_PREFIX = "profile_";
-const SECRET_KEYS = ["apiKey", "modelFetchApiKey", "balanceQueryApiKey"];
+const SECRET_KEYS = ["apiKey", "modelFetchApiKey"];
 const CANONICAL_CUSTOM_PROFILE_BY_BASE_URL: Record<
   string,
   { id: string; name: string }

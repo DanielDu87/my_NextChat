@@ -27,7 +27,6 @@ type AccessProfile = {
   provider: ServiceProvider;
   baseUrl: string;
   apiKey: string;
-  balanceQueryApiKey?: string;
   apiKeyGroups?: Record<string, string>;
   multiKeyGroupOrder?: string[];
   multiKeyEnabled?: boolean;
@@ -302,7 +301,6 @@ export async function refreshConfiguredProviderModels(
         profile.apiKey,
         profile.name,
         profile.apiKeyGroups,
-        profile.balanceQueryApiKey,
       );
 
       fetchedModels.push(...result.models);

@@ -15,6 +15,12 @@ import {
   resolveAiHubMixMetadataByName,
 } from "./aihubmix-model-metadata";
 import modelPublishedAtUtils from "./model-published-at";
+import {
+  buildProxyModelFetchCandidates,
+  getModelFetchApiKeyCandidates,
+  isLocalModelProxyBaseUrl,
+} from "./model-fetch-common";
+import { getEffectiveProviderBaseUrl } from "./provider-url";
 
 export {
   getAiHubMixLookupKeys,
@@ -28,7 +34,6 @@ const { ServiceProvider } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 const { applyModelPublishedAt } = modelPublishedAtUtils;
-const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "15bf40c0df864872a64cb7f4d37d3709";
 let aihubmixCatalogMetadataMapPromise: Promise<
   Map<
     string,
@@ -65,38 +70,6 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
     cc: 20,
   };
   return priorityMap[normalizedGroup] ?? 0;
-}
-
-function getModelFetchApiKeyCandidates(params: {
-  profile?: {
-    baseUrl?: string;
-    modelFetchApiKey?: string;
-    balanceQueryApiKey?: string;
-    apiKey?: string;
-    apiKeyGroups?: Record<string, string>;
-  };
-  apiKey?: string;
-  apiKeyGroups?: Record<string, string>;
-  baseUrl?: string;
-}) {
-  const profile = params.profile;
-  const groupedKeys = params.apiKeyGroups || profile?.apiKeyGroups || {};
-  const effectiveBaseUrl = params.baseUrl || profile?.baseUrl;
-  if (effectiveBaseUrl && isOcoolaiUrl(effectiveBaseUrl)) {
-    return [OCOOLAI_FIXED_MODEL_FETCH_API_KEY];
-  }
-  const candidates = [
-    profile?.modelFetchApiKey,
-    groupedKeys.default,
-    profile?.apiKey,
-    params.apiKey,
-    ...Object.values(groupedKeys),
-    profile?.balanceQueryApiKey,
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  return [...new Set(candidates)];
 }
 
 /**
@@ -266,7 +239,12 @@ function logFetchModels(message: string, payload?: unknown) {
   }`;
   const now = Date.now();
   const lastAt = fetchModelsLogDedupMap.get(dedupKey) || 0;
-  if (now - lastAt < 1500) {
+  const dedupWindowMs =
+    message.includes("✅ 使用模型接口") ||
+    message.includes("✅ 模型接口获取成功")
+      ? 30_000
+      : 1500;
+  if (now - lastAt < dedupWindowMs) {
     return;
   }
   fetchModelsLogDedupMap.set(dedupKey, now);
@@ -362,6 +340,7 @@ function isOcoolaiUrl(baseUrl?: string) {
   try {
     const hostname = new URL(baseUrl).hostname;
     return (
+      hostname === "api.ocoolai.com" ||
       hostname === "one.ocoolai.com" ||
       hostname === "ocoolai.com" ||
       hostname === "one.ooo.cool"
@@ -382,76 +361,132 @@ function isToApisUrl(baseUrl?: string) {
   }
 }
 
+function getRawModelName(model: any) {
+  if (typeof model === "string") return model;
+  return model?.id || model?.name || model?.model_id || model?.model_name;
+}
+
+function normalizeModelItems(items: any[]) {
+  return items
+    .map((item) => (typeof item === "string" ? { id: item } : item))
+    .filter((item) => Boolean(getRawModelName(item)));
+}
+
 function extractOcoolaiAvailableModels(data: any): any[] {
   if (data?.success === true && Array.isArray(data?.data)) {
-    return data.data.map((item: any) =>
-      typeof item === "string" ? { id: item } : item,
-    );
+    return normalizeModelItems(data.data);
   }
 
   if (Array.isArray(data)) {
-    return data.map((item) => (typeof item === "string" ? { id: item } : item));
+    return normalizeModelItems(data);
   }
 
   if (Array.isArray(data?.items)) {
-    return data.items.map((item: any) =>
-      typeof item === "string" ? { id: item } : item,
-    );
+    return normalizeModelItems(data.items);
   }
 
   if (Array.isArray(data?.data)) {
-    return data.data.map((item: any) =>
-      typeof item === "string" ? { id: item } : item,
-    );
+    return normalizeModelItems(data.data);
   }
 
   if (data?.data && typeof data.data === "object") {
-    const keys = Object.keys(data.data);
-    if (keys.length > 0) {
-      return keys.map((name) => ({ id: name }));
-    }
+    return normalizeModelItems(Object.values(data.data));
   }
 
   if (Array.isArray(data?.models)) {
-    return data.models.map((item: any) =>
-      typeof item === "string" ? { id: item } : item,
-    );
+    return normalizeModelItems(data.models);
   }
 
   if (Array.isArray(data?.data?.models)) {
-    return data.data.models.map((item: any) =>
-      typeof item === "string" ? { id: item } : item,
-    );
+    return normalizeModelItems(data.data.models);
   }
 
   if (Array.isArray(data?.data?.Models)) {
-    return data.data.Models.map((name: string) => ({ id: name }));
+    return normalizeModelItems(data.data.Models);
   }
 
   if (Array.isArray(data?.data?.groups)) {
-    return data.data.groups.flatMap((group: any) => {
-      const models = Array.isArray(group?.models)
-        ? group.models
-        : Array.isArray(group?.items)
-        ? group.items
-        : [];
-      return models.map((item: any) =>
-        typeof item === "string" ? { id: item } : item,
-      );
-    });
+    return normalizeModelItems(
+      data.data.groups.flatMap((group: any) =>
+        Array.isArray(group?.models)
+          ? group.models
+          : Array.isArray(group?.items)
+          ? group.items
+          : [],
+      ),
+    );
   }
 
   if (Array.isArray(data?.groups)) {
-    return data.groups.flatMap((group: any) => {
-      const models = Array.isArray(group?.models)
-        ? group.models
-        : Array.isArray(group?.items)
-        ? group.items
-        : [];
-      return models.map((item: any) =>
-        typeof item === "string" ? { id: item } : item,
-      );
-    });
+    return normalizeModelItems(
+      data.groups.flatMap((group: any) =>
+        Array.isArray(group?.models)
+          ? group.models
+          : Array.isArray(group?.items)
+          ? group.items
+          : [],
+      ),
+    );
+  }
+
+  return [];
+}
+
+function extractModelListFromResponse(data: any, baseUrl?: string): any[] {
+  if (
+    data?.vendors &&
+    Array.isArray(data.vendors) &&
+    Array.isArray(data?.data)
+  ) {
+    return normalizeModelItems(data.data);
+  }
+
+  if (isOcoolaiUrl(baseUrl)) {
+    return extractOcoolaiAvailableModels(data);
+  }
+
+  const candidates = [
+    data?.data,
+    data?.models,
+    data?.items,
+    data?.data?.models,
+    data?.data?.Models,
+    data?.data?.items,
+    data?.result,
+    data?.result?.models,
+    data?.result?.data,
+    data?.payload?.models,
+    data?.payload?.data,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      const normalized = normalizeModelItems(candidate);
+      if (normalized.length > 0) return normalized;
+    }
+  }
+
+  const objectCandidates = [
+    data?.data,
+    data?.models,
+    data?.result,
+    data?.payload,
+  ];
+  for (const candidate of objectCandidates) {
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate)
+    ) {
+      const values = Object.values(candidate);
+      if (values.length === 0) continue;
+      const normalizedValues = normalizeModelItems(values);
+      if (normalizedValues.length > 0) return normalizedValues;
+    }
+  }
+
+  if (Array.isArray(data?.data?.groups) || Array.isArray(data?.groups)) {
+    return extractOcoolaiAvailableModels(data);
   }
 
   return [];
@@ -473,6 +508,7 @@ function mapModels(
 ) {
   let seq = 1000;
   return models.map((m: any) => {
+    const currentSeq = seq++;
     const modelName = m.id || m.name || m.model_id || m.model_name;
     const catalogMetadata = resolveAiHubMixMetadataByName(
       String(modelName || ""),
@@ -549,7 +585,10 @@ function mapModels(
     return applyModelPublishedAt({
       name: modelName,
       available: true,
-      sorted: seq++,
+      sorted: currentSeq,
+      remoteRank: catalogRank ?? currentSeq,
+      remoteRankSource:
+        catalogRank !== undefined ? "aihubmix_catalog" : "provider_models",
       catalogRank,
       category: normalizedCapabilities.category,
       categorySource: normalizedCapabilities.categorySource,
@@ -719,15 +758,13 @@ async function getAiHubMixClassificationMap() {
 function fullUrl(url: string, baseUrl?: string): string {
   if (url.startsWith("/")) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
+    if (url.startsWith("/api/ocoolai/available-models-by-groups")) {
+      return `${origin}${url} (固定 → https://one.ocoolai.com/api/user/available_models_by_groups)`;
+    }
     if (baseUrl) {
-      if (url.includes("/yuto/pricing") || url.includes("/proxy/v1/pricing")) {
-        return `${origin}${url} (代理 → ${baseUrl}/api/pricing)`;
-      }
-      if (url.includes("/ocoolai/available-model")) {
-        return `${origin}${url} (代理 → https://one.ocoolai.com/api/user/available_model)`;
-      }
-      if (url.includes("/ocoolai/available-models-by-groups")) {
-        return `${origin}${url} (代理 → https://one.ocoolai.com/api/user/available_models_by_groups)`;
+      if (url.startsWith("/api/proxy/")) {
+        const upstreamPath = url.replace("/api/proxy", "") || "/";
+        return `${origin}${url} (代理 → ${baseUrl}${upstreamPath})`;
       }
     }
     return baseUrl ? `${origin}${url} (代理 → ${baseUrl})` : `${origin}${url}`;
@@ -739,24 +776,81 @@ function isServerSide() {
   return typeof window === "undefined";
 }
 
+function normalizeProbeStatus(status: unknown) {
+  const numericStatus = Number(status);
+  if (!Number.isFinite(numericStatus)) return 502;
+  return Math.min(599, Math.max(200, numericStatus));
+}
+
+async function fetchModelCandidate(
+  url: string,
+  requestHeaders: Record<string, string>,
+  signal: AbortSignal,
+) {
+  if (isServerSide() || !url.startsWith("/api/")) {
+    return fetch(url, {
+      method: "GET",
+      headers: requestHeaders,
+      signal,
+    });
+  }
+
+  const probeHeaders = {
+    ...requestHeaders,
+    "x-model-probe-url": url,
+  };
+  const probeResponse = await fetch("/api/model-probe", {
+    method: "GET",
+    headers: probeHeaders,
+    signal,
+  });
+  const probe = await probeResponse.json().catch(() => null);
+  const responseHeaders = new Headers();
+  if (probe?.contentType) {
+    responseHeaders.set("content-type", probe.contentType);
+  }
+
+  return new Response(probe?.bodyText ?? "", {
+    status: normalizeProbeStatus(probe?.status),
+    statusText: probe?.statusText || "Bad Gateway",
+    headers: responseHeaders,
+  });
+}
+
 type FetchCandidate =
   | string
   | {
       url: string;
       displayBaseUrl?: string;
       headerBaseUrl?: string;
+      upstreamPath?: string;
+      note?: string;
     };
 
 type FetchJsonOptions = {
   logSuccess?: boolean;
+  logAttempt?: boolean;
+  logLabel?: string;
+  getModelCount?: (data: any) => number;
   suppressCandidateErrors?: boolean;
   suppressStatusCodes?: number[];
+  suppressNonJsonResponse?: boolean;
   validateJson?: (data: any) => boolean;
   authorizationCandidates?: string[];
   authCacheKey?: string;
 };
 
 const preferredAuthorizationCache = new Map<string, string>();
+
+type FetchAttemptLog = {
+  index: number;
+  total: number;
+  interface: string;
+  result: string;
+  keyIndex: number;
+  keyTotal: number;
+  url: string;
+};
 
 async function fetchJsonWithCandidates(
   urls: FetchCandidate[],
@@ -765,6 +859,9 @@ async function fetchJsonWithCandidates(
   options?: FetchJsonOptions,
 ) {
   let lastError: Error | null = null;
+  const attempts: FetchAttemptLog[] = [];
+  const logAttempt = options?.logAttempt !== false;
+  const logLabel = options?.logLabel || "模型接口";
   const suppressStatusCodes = new Set(options?.suppressStatusCodes || []);
   const authCandidates =
     options?.authorizationCandidates &&
@@ -785,18 +882,26 @@ async function fetchJsonWithCandidates(
       ]
     : authCandidates;
 
-  for (
-    let authIndex = 0;
-    authIndex < orderedAuthCandidates.length;
-    authIndex++
-  ) {
-    for (let i = 0; i < urls.length; i++) {
-      const candidate = urls[i];
-      const url = typeof candidate === "string" ? candidate : candidate.url;
-      const displayBaseUrl =
-        typeof candidate === "string"
-          ? baseUrl
-          : candidate.displayBaseUrl ?? baseUrl;
+  for (let i = 0; i < urls.length; i++) {
+    const candidate = urls[i];
+    const url = typeof candidate === "string" ? candidate : candidate.url;
+    const displayBaseUrl =
+      typeof candidate === "string"
+        ? baseUrl
+        : candidate.displayBaseUrl ?? baseUrl;
+    const display = fullUrl(url, displayBaseUrl);
+    const interfaceLabel =
+      typeof candidate === "string"
+        ? display
+        : candidate.note && candidate.upstreamPath
+        ? `${candidate.note} (${candidate.upstreamPath})`
+        : candidate.upstreamPath || candidate.note || display;
+
+    for (
+      let authIndex = 0;
+      authIndex < orderedAuthCandidates.length;
+      authIndex++
+    ) {
       const requestHeaders = {
         ...headers,
         ...(typeof candidate === "string" || !candidate.headerBaseUrl
@@ -809,43 +914,119 @@ async function fetchJsonWithCandidates(
       } else {
         delete requestHeaders.Authorization;
       }
-      const display = fullUrl(url, displayBaseUrl);
+      const logPayload = {
+        url: display,
+        keyIndex: authIndex + 1,
+        keyTotal: orderedAuthCandidates.length,
+      };
+      const progressPrefix = `第 ${i + 1}/${urls.length} 个接口，第 ${
+        authIndex + 1
+      }/${orderedAuthCandidates.length} 个 key`;
+      const recordAttempt = (result: string) => {
+        attempts.push({
+          index: i + 1,
+          total: urls.length,
+          interface: interfaceLabel,
+          result,
+          keyIndex: authIndex + 1,
+          keyTotal: orderedAuthCandidates.length,
+          url: display,
+        });
+      };
       try {
+        if (logAttempt) {
+          logFetchModels(
+            `[Fetch Models] 🔁 正在尝试${logLabel}：${progressPrefix} ${interfaceLabel}`,
+            logPayload,
+          );
+        }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15_000);
-        const response = await fetch(url, {
-          method: "GET",
-          headers: requestHeaders,
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeoutId));
+        const response = await fetchModelCandidate(
+          url,
+          requestHeaders,
+          controller.signal,
+        ).finally(() => clearTimeout(timeoutId));
 
         if (!response.ok) {
           lastError = new Error(`${response.status} ${response.statusText}`);
-          if (suppressStatusCodes.has(response.status)) {
-            continue;
-          }
-          if (response.status === 404) {
+          recordAttempt(`${response.status} ${response.statusText}`.trim());
+          if (logAttempt && response.status === 404) {
             logFetchModels(
-              `[Fetch Models] 💡 第 ${
-                i + 1
-              } 个 URL 不存在 (404)，尝试下一个...`,
+              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：404 不存在`,
+              logPayload,
             );
-          } else {
+          } else if (logAttempt && suppressStatusCodes.has(response.status)) {
             logFetchModels(
-              `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 返回 ${response.status}`,
+              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${response.status} ${response.statusText}`.trim(),
+              logPayload,
+            );
+          } else if (logAttempt) {
+            logFetchModels(
+              `[Fetch Models] ⚠️ ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${response.status} ${response.statusText}`.trim(),
+              logPayload,
             );
           }
           continue;
         }
 
-        const data = await response.json();
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType && !contentType.toLowerCase().includes("json")) {
+          lastError = new Error(`响应不是 JSON (${contentType})`);
+          recordAttempt(`非 JSON (${contentType})`);
+          if (logAttempt) {
+            logFetchModels(
+              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：返回非 JSON (${contentType})`,
+              logPayload,
+            );
+          }
+          continue;
+        }
+
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (error) {
+          lastError =
+            error instanceof Error ? error : new Error("响应 JSON 解析失败");
+          recordAttempt("JSON 解析失败");
+          if (logAttempt && options?.suppressNonJsonResponse !== false) {
+            logFetchModels(
+              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：JSON 解析失败`,
+              logPayload,
+            );
+          } else if (logAttempt && !options?.suppressCandidateErrors) {
+            logFetchModels(
+              `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 响应 JSON 解析失败`,
+              error,
+            );
+          }
+          continue;
+        }
         if (options?.validateJson && !options.validateJson(data)) {
-          logFetchModels(`[Fetch Models] ❌ 验证失败，响应内容:`, data);
+          recordAttempt("内容无有效模型列表");
+          if (logAttempt) {
+            logFetchModels(
+              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：内容无有效模型列表`,
+              logPayload,
+            );
+          }
           lastError = new Error("响应内容无效");
           continue;
         }
+        recordAttempt("成功");
+        const modelCount = options?.getModelCount?.(data);
+        const modelCountText =
+          typeof modelCount === "number" ? `，获取到 ${modelCount} 个模型` : "";
         if (options?.logSuccess !== false) {
-          logFetchModels(`[Fetch Models] ✅ 使用模型接口: ${display}`);
+          logFetchModels(
+            `[Fetch Models] ✅ ${logLabel}获取成功：${progressPrefix} ${interfaceLabel}${modelCountText}`,
+            {
+              success: attempts[attempts.length - 1],
+              totalModels: modelCount,
+              tried: attempts,
+            },
+          );
         }
         if (options?.authCacheKey && authorization) {
           preferredAuthorizationCache.set(options.authCacheKey, authorization);
@@ -857,9 +1038,10 @@ async function fetchJsonWithCandidates(
         } else {
           lastError = error instanceof Error ? error : new Error("请求失败");
         }
-        if (!options?.suppressCandidateErrors) {
+        recordAttempt(lastError.message || "请求失败");
+        if (logAttempt && !options?.suppressCandidateErrors) {
           logFetchModels(
-            `[Fetch Models] ❌ 第 ${i + 1} 个 URL 请求异常:`,
+            `[Fetch Models] ⚠️ ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${lastError.message}`,
             error,
           );
         }
@@ -867,6 +1049,10 @@ async function fetchJsonWithCandidates(
     }
   }
 
+  logFetchModels(`[Fetch Models] ⚠️ ${logLabel}全部候选均未成功`, {
+    tried: attempts,
+    lastError: lastError?.message,
+  });
   throw lastError ?? new Error("未找到可用的模型接口");
 }
 
@@ -879,7 +1065,10 @@ export async function fetchModelsFromProvider(
   apiKey?: string,
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
+  multiKeyGroupOrder?: string[],
 ): Promise<FetchModelsResult> {
+  baseUrl = getEffectiveProviderBaseUrl(provider, baseUrl) || baseUrl;
+
   // 构建API路径
   let apiPath = "";
   let providerId = "";
@@ -973,16 +1162,40 @@ export async function fetchModelsFromProvider(
 
     let data: any;
     const normalizedBaseUrl = baseUrl ? normalizeBaseUrl(baseUrl) : undefined;
+    const accessProfiles = useAccessStore.getState().apiProfiles || [];
+    const matchedProviderProfile =
+      accessProfiles.find(
+        (profile) =>
+          profile.provider === provider &&
+          profileName &&
+          String(profile.name || "").toLowerCase() ===
+            String(profileName || "").toLowerCase(),
+      ) ||
+      accessProfiles.find(
+        (profile) =>
+          profile.provider === provider &&
+          normalizedBaseUrl &&
+          normalizeBaseUrl(
+            getEffectiveProviderBaseUrl(profile.provider, profile.baseUrl) ||
+              profile.baseUrl ||
+              "",
+          ) === normalizedBaseUrl,
+      ) ||
+      accessProfiles.find(
+        (profile) => profile.provider === provider && profile.enabled,
+      );
     const matchedCustomProfile =
-      provider === ServiceProvider.Custom && normalizedBaseUrl
-        ? useAccessStore
-            .getState()
-            .apiProfiles.find(
-              (profile) =>
-                profile.provider === ServiceProvider.Custom &&
-                normalizeBaseUrl(profile.baseUrl || "") === normalizedBaseUrl,
-            )
-        : undefined;
+      provider === ServiceProvider.Custom ? matchedProviderProfile : undefined;
+    const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
+      modelFetchApiKey: matchedProviderProfile?.modelFetchApiKey,
+      apiKey: matchedProviderProfile?.apiKey || apiKey,
+      apiKeyGroups,
+      multiKeyGroupOrder:
+        matchedProviderProfile?.multiKeyGroupOrder || multiKeyGroupOrder,
+    });
+    if (modelFetchApiKeyCandidates[0]) {
+      headers["Authorization"] = `Bearer ${modelFetchApiKeyCandidates[0]}`;
+    }
 
     if (
       baseUrl &&
@@ -1002,6 +1215,7 @@ export async function fetchModelsFromProvider(
 
       // 为代理型供应商设置 x-base-url header
       if (
+        provider === ServiceProvider.OpenAI ||
         provider === ServiceProvider.Custom ||
         provider === ServiceProvider.Local
       ) {
@@ -1009,94 +1223,92 @@ export async function fetchModelsFromProvider(
           provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
       }
 
-      // 某些聚合平台需要特殊接口获取模型列表
-      const isOcoolai = isOcoolaiUrl(baseUrl);
-
-      // Ocoolai 使用专用 API Key 获取模型列表（不影响聊天）
-      const modelFetchApiKeyCandidates = isOcoolai
-        ? getModelFetchApiKeyCandidates({
-            profile: matchedCustomProfile,
-            apiKey,
-            apiKeyGroups,
-            baseUrl,
-          })
-        : apiKey
-        ? [apiKey]
-        : [];
-
-      if (modelFetchApiKeyCandidates[0]) {
-        headers["Authorization"] = `Bearer ${modelFetchApiKeyCandidates[0]}`;
-      }
-
       logFetchModels(`[Fetch Models] 🔍 检测 baseUrl:`, {
         baseUrl,
         normalizedBaseUrl: effectiveNormalizedBaseUrl,
-        isOcoolai,
         isServerSide: isServerSide(),
         hasApiKey: !!apiKey,
         apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + "..." : "none",
       });
 
-      // 简化候选 URL，只使用成功的单个 URL
-      const candidateUrls: FetchCandidate[] = isToApisUrl(baseUrl)
-        ? ["/api/toapis/pricing"]
-        : isOcoolaiUrl(baseUrl)
-        ? [
-            {
-              url: "/api/ocoolai/available-model",
-              displayBaseUrl: "https://one.ocoolai.com",
-              headerBaseUrl: "https://one.ocoolai.com",
-            },
-          ]
-        : isYutoApiUrl(baseUrl)
-        ? ["/api/yuto/pricing"]
-        : isAiHubMixUrl(baseUrl)
-        ? ["/api/aihubmix/models"]
-        : [
-            "/api/proxy/v1/models",
-            "/api/proxy/api/v1/models",
-            "/api/proxy/models",
-          ];
+      // 按兼容性顺序依次尝试所有候选模型接口
+      const candidateUrls: FetchCandidate[] =
+        buildProxyModelFetchCandidates(baseUrl);
 
-      // console.log(`[Fetch Models] 📋 候选 URLs:`, candidateUrls);
+      logFetchModels(
+        `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个模型接口`,
+      );
 
       data = await fetchJsonWithCandidates(candidateUrls, headers, baseUrl, {
         authorizationCandidates: modelFetchApiKeyCandidates.map(
           (key) => `Bearer ${key}`,
         ),
-        authCacheKey: isOcoolai
+        authCacheKey: normalizedBaseUrl
           ? `model-fetch:${normalizedBaseUrl}`
           : undefined,
-        suppressCandidateErrors: isOcoolai,
-        suppressStatusCodes: isOcoolai ? [401, 404] : [404],
-        validateJson: isOcoolai
-          ? (payload) =>
-              payload?.success !== false &&
-              extractOcoolaiAvailableModels(payload).length > 0
-          : undefined,
+        suppressStatusCodes: [404],
+        getModelCount: (payload) =>
+          extractModelListFromResponse(payload, baseUrl).length,
+        validateJson: (payload) =>
+          extractModelListFromResponse(payload, baseUrl).length > 0,
       });
     } else {
-      const url = baseUrl ? `${normalizeBaseUrl(baseUrl)}${apiPath}` : apiPath;
+      const normalizedProviderBaseUrl = baseUrl
+        ? normalizeBaseUrl(baseUrl)
+        : "";
+      const candidateUrls = isLocalModelProxyBaseUrl(normalizedProviderBaseUrl)
+        ? [apiPath]
+        : normalizedProviderBaseUrl
+        ? buildProxyModelFetchCandidates(normalizedProviderBaseUrl)
+        : [apiPath];
 
-      const response = await fetch(url, {
-        method: "GET",
-        headers,
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log(
-            `[Fetch Models] 💡 ${provider} 不支持模型列表接口 (${url})`,
-          );
-        } else {
-          console.error(
-            `[Fetch Models] ❌ 从 ${provider} 获取模型失败: ${response.status}`,
-          );
-        }
-        return { models: [], total: 0 };
+      const nextHeaders = { ...headers };
+      if (
+        normalizedProviderBaseUrl &&
+        !isLocalModelProxyBaseUrl(normalizedProviderBaseUrl)
+      ) {
+        nextHeaders["x-base-url"] = normalizedProviderBaseUrl.replace(
+          /\/v1$/i,
+          "",
+        );
       }
 
-      data = await response.json();
+      logFetchModels(
+        `[Fetch Models] 📋 ${provider} 将依次尝试 ${candidateUrls.length} 个模型接口`,
+      );
+
+      try {
+        data = await fetchJsonWithCandidates(
+          candidateUrls,
+          nextHeaders,
+          nextHeaders["x-base-url"] || normalizedProviderBaseUrl,
+          {
+            authorizationCandidates: modelFetchApiKeyCandidates.map(
+              (key) => `Bearer ${key}`,
+            ),
+            authCacheKey: normalizedProviderBaseUrl
+              ? `model-fetch:${provider}:${normalizedProviderBaseUrl}`
+              : undefined,
+            suppressStatusCodes: [404],
+            getModelCount: (payload) =>
+              extractModelListFromResponse(
+                payload,
+                nextHeaders["x-base-url"] || normalizedProviderBaseUrl,
+              ).length,
+            validateJson: (payload) =>
+              extractModelListFromResponse(
+                payload,
+                nextHeaders["x-base-url"] || normalizedProviderBaseUrl,
+              ).length > 0,
+          },
+        );
+      } catch (error) {
+        console.warn(
+          `[Fetch Models] ⚠️ 从 ${provider} 获取模型失败:`,
+          error instanceof Error ? error.message : String(error),
+        );
+        return { models: [], total: 0 };
+      }
     }
 
     // 标准化模型列表响应
@@ -1150,64 +1362,19 @@ export async function fetchModelsFromProvider(
       // 不需要特殊处理，mapModels 会推断
     }
 
-    // 检测数据格式
-    // ToAPIs pricing 格式: {data: [{model_name: "...", supported_endpoint_types: [...]}]}
-    if (
-      isToApisUrl(baseUrl) &&
-      Array.isArray(data.data) &&
-      data.data.length > 0 &&
-      data.data[0].model_name
-    ) {
-      models = data.data;
-    }
-    // YutoAPI 格式: {vendors: [...], data: [{model_name: "...", vendor_id: ..., ...}]}
-    // 必须同时有 vendors 数组才能确认是 YutoAPI
-    else if (
-      data.vendors &&
-      Array.isArray(data.vendors) &&
-      data.data &&
-      Array.isArray(data.data) &&
-      data.data.length > 0 &&
-      data.data[0].model_name
-    ) {
-      models = data.data;
-    }
-    // Ocoolai available_model / pricing 兼容格式
-    else if (isOcoolaiUrl(baseUrl)) {
-      models = extractOcoolaiAvailableModels(data);
-    }
-    // AiHubMix 格式: {data: [{model_id: "...", model_name: "...", developer_id: ...}]}
-    else if (
-      data.data &&
-      Array.isArray(data.data) &&
-      data.data.length > 0 &&
-      data.data[0].model_id !== undefined &&
-      data.data[0].developer_id !== undefined
-    ) {
-      models = data.data;
-    }
-    // 标准 OpenAI 格式
-    else if (data.data && Array.isArray(data.data)) {
-      models = data.data;
-    } else if (data.object === "list" && data.data) {
-      models = data.data;
-    } else if (data.models && Array.isArray(data.models)) {
-      models = data.models;
-    }
+    // 统一兼容 OpenAI、聚合商、Ollama、网关面板等常见模型列表格式
+    models = extractModelListFromResponse(data, baseUrl);
 
     if (isYutoApiUrl(baseUrl)) {
       const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
       const candidateUrls = isServerSide()
         ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
+        : baseWithoutV1.includes("toapis.com")
+        ? ["/api/toapis/pricing"]
         : ["/api/yuto/pricing"];
 
-      // 从 custom-balance 规则获取专用模型获取 key
-      const { findCustomBalanceQueryRule } = await import(
-        "../config/custom-balance"
-      );
-      const yutoRule = findCustomBalanceQueryRule({ name: profileName || "" });
-      const fetchKey = yutoRule?.modelFetchApiKey || apiKey || "";
+      const fetchKey = apiKey || "";
 
       const fetchHeaders: Record<string, string> = {
         Authorization: `Bearer ${fetchKey}`,
@@ -1219,6 +1386,8 @@ export async function fetchModelsFromProvider(
         baseUrl,
         {
           logSuccess: false,
+          logAttempt: false,
+          logLabel: "定价接口",
           authCacheKey: `yuto:${normalizedBaseUrl}`,
           suppressCandidateErrors: true,
           suppressStatusCodes: [404],
@@ -1296,10 +1465,11 @@ export async function fetchModelsFromProvider(
       Object.keys(apiKeyGroups).length > 0
     ) {
       const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
-        profile: matchedCustomProfile,
-        apiKey,
+        modelFetchApiKey: matchedProviderProfile?.modelFetchApiKey,
+        apiKey: matchedProviderProfile?.apiKey || apiKey,
         apiKeyGroups,
-        baseUrl,
+        multiKeyGroupOrder:
+          matchedProviderProfile?.multiKeyGroupOrder || multiKeyGroupOrder,
       });
       const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
@@ -1317,6 +1487,8 @@ export async function fetchModelsFromProvider(
         },
         baseUrl,
         {
+          logLabel: "分组接口",
+          logAttempt: false,
           authorizationCandidates: modelFetchApiKeyCandidates.map(
             (key) => `Bearer ${key}`,
           ),

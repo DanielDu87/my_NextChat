@@ -3,12 +3,13 @@ import { useAppConfig } from "../store";
 import { Selector } from "./ui-lib";
 import { fetchModelsFromProvider } from "../utils/models";
 import { getProfileProviderId, ApiProfile } from "../utils/provider-sync";
-import { comparePublishedAt } from "../utils/model-published-at";
+import { compareModelsForDisplay } from "../utils/model-published-at";
 import { LLMModel } from "../client/api";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
-import BotIconOpenAI from "../icons/llm-icons/openai.svg";
+import BotIconDefault from "../icons/llm-icons/default.svg";
 import { getProviderIcon } from "../config/provider-icons";
+import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 import styles from "./chat.module.scss";
 import clsx from "clsx";
 
@@ -88,17 +89,18 @@ export function AddModelSelector(props: {
 
     const p = activeProfile as any;
     const modelFetchKey =
-      p.balanceQueryApiKey ||
-      p.modelFetchApiKey ||
-      p.apiKeyGroups?.default ||
-      p.apiKey;
+      p.modelFetchApiKey || p.apiKeyGroups?.default || p.apiKey;
 
     fetchModelsFromProvider(
       activeProfile.provider,
-      activeProfile.baseUrl,
+      getEffectiveProviderBaseUrl(
+        activeProfile.provider,
+        activeProfile.baseUrl,
+      ),
       modelFetchKey,
       activeProfile.name,
       activeProfile.apiKeyGroups,
+      (activeProfile as any).multiKeyGroupOrder,
     )
       .then((result) => {
         if (fetchCancelRef.current) return;
@@ -106,7 +108,7 @@ export function AddModelSelector(props: {
           setFetchError("未获取到模型，请检查网络或 API Key 配置");
         } else {
           const sorted = [...result.models]
-            .sort((a, b) => comparePublishedAt(a, b))
+            .sort((a, b) => compareModelsForDisplay(a, b))
             .map((model, index) => ({ ...model, sorted: index }));
           modelCache.set(selectedProviderId, sorted);
           setFetchedModels(sorted);
@@ -215,6 +217,8 @@ export function AddModelSelector(props: {
         publishedAt: model.publishedAt,
         publishedAtSource: model.publishedAtSource,
         catalogRank: model.catalogRank,
+        remoteRank: model.remoteRank,
+        remoteRankSource: model.remoteRankSource,
         sortKey: model.name,
         meta: {
           category: model.category,
@@ -408,7 +412,7 @@ export function AddModelSelector(props: {
                         </span>
                       ) : (
                         <div className="no-dark">
-                          <BotIconOpenAI
+                          <BotIconDefault
                             className="user-avatar"
                             width={16}
                             height={16}

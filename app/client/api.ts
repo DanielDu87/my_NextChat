@@ -168,6 +168,8 @@ export interface LLMModel {
   categories?: string[];
   apiKeyGroup?: string;
   catalogRank?: number;
+  remoteRank?: number;
+  remoteRankSource?: string;
 }
 
 export interface LLMModelProvider {

@@ -43,7 +43,7 @@ describe("sync meta loader", () => {
 
     const metas = await loadStoreSnapshotMetasSafely(
       ["access-control", "model-cache-store"],
-      "single-user",
+      "user:admin",
     );
 
     expect(metas).toEqual([

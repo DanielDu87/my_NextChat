@@ -30,6 +30,9 @@ type SortableModelLike = {
   publishedAt?: number;
   publishedAtSource?: ModelPublishedAtSource;
   catalogRank?: number;
+  remoteRank?: number;
+  remoteRankSource?: string;
+  provider?: { id?: string; providerName?: string; providerType?: string };
   sorted?: number;
   order?: number;
 };
@@ -1189,83 +1192,64 @@ function getSortableName(model?: SortableModelLike) {
   return normalizeSortableModelAlias(model?.name || model?.title || "");
 }
 
-function getSortTokens(text: string) {
+function normalizeRank(value: unknown) {
+  const rank = Number(value);
+  return Number.isFinite(rank) ? rank : Number.MAX_SAFE_INTEGER;
+}
+
+function getRemoteRank(model?: SortableModelLike) {
+  return normalizeRank(model?.remoteRank ?? model?.catalogRank);
+}
+
+function getStableOrder(model?: SortableModelLike) {
+  return normalizeRank(model?.order ?? model?.sorted);
+}
+
+export function parseOpenAIModelSortKey(model?: SortableModelLike | string) {
+  const name =
+    typeof model === "string"
+      ? model
+      : getSortableName(model as SortableModelLike);
+  const normalized = normalizeSortableModelAlias(name);
+  const gptMatch = normalized.match(/^gpt[-_.](\d+(?:\.\d+)?)(?:$|[-_.])/);
+  const oSeriesMatch = normalized.match(/^o(\d+)(?:$|[-_.])/);
+  const versionText = gptMatch?.[1] || oSeriesMatch?.[1];
+  if (!versionText) return undefined;
+
+  const version = versionText.split(".").map((part) => Number(part));
+  const rest = normalized.slice(
+    (gptMatch?.[0] || oSeriesMatch?.[0] || "").length,
+  );
+  const variantPriority = getOpenAIVariantPriority(rest);
+  return { version, variantPriority };
+}
+
+function getOpenAIVariantPriority(text: string) {
   const normalized = normalizeSortableModelAlias(text);
-  const versionMatches = Array.from(
-    normalized.matchAll(/\d+(?:\.\d+)+|\d{2,4}/g),
-  ).map((match) => match[0]);
-
-  return {
-    normalized,
-    versions: versionMatches.map((value) =>
-      value.split(".").map((part) => Number(part)),
-    ),
-  };
+  if (!normalized) {
+    return 0;
+  }
+  if (!/(?:^|[-_.])(mini|nano|free|pro|codex)(?:$|[-_.])/.test(normalized)) {
+    return 6;
+  }
+  if (/(?:^|[-_.])mini(?:$|[-_.])/.test(normalized)) return 1;
+  if (/(?:^|[-_.])nano(?:$|[-_.])/.test(normalized)) return 2;
+  if (/(?:^|[-_.])free(?:$|[-_.])/.test(normalized)) return 3;
+  if (/(?:^|[-_.])pro(?:$|[-_.])/.test(normalized)) return 4;
+  if (/(?:^|[-_.])codex(?:$|[-_.])/.test(normalized)) return 5;
+  return 6;
 }
 
-function getPrimaryVersion(versions: number[][]) {
-  if (versions.length === 0) return [];
-
-  const semanticVersions = versions.filter((parts) => parts.length > 1);
-  const candidates = semanticVersions.length > 0 ? semanticVersions : versions;
-
-  return candidates.reduce((best, current) => {
-    const maxParts = Math.max(best.length, current.length);
-    for (let i = 0; i < maxParts; i += 1) {
-      const diff = (current[i] ?? -1) - (best[i] ?? -1);
-      if (diff > 0) return current;
-      if (diff < 0) return best;
-    }
-    return best;
-  }, candidates[0]);
-}
-
-function comparePrimaryVersion(left: number[], right: number[]) {
+function compareVersionPartsDesc(left: number[], right: number[]) {
   const maxLength = Math.max(left.length, right.length);
-  for (let i = 0; i < maxLength; i += 1) {
-    const diff = (right[i] ?? -1) - (left[i] ?? -1);
+  for (let index = 0; index < maxLength; index += 1) {
+    const diff = (right[index] ?? -1) - (left[index] ?? -1);
     if (diff !== 0) return diff;
   }
   return 0;
 }
 
-export function comparePublishedAt(
-  left?: SortableModelLike,
-  right?: SortableModelLike,
-) {
-  const leftCatalogRank = left?.catalogRank ?? Number.MAX_SAFE_INTEGER;
-  const rightCatalogRank = right?.catalogRank ?? Number.MAX_SAFE_INTEGER;
-  const leftHasCatalogRank = leftCatalogRank !== Number.MAX_SAFE_INTEGER;
-  const rightHasCatalogRank = rightCatalogRank !== Number.MAX_SAFE_INTEGER;
-  if (leftCatalogRank !== rightCatalogRank) {
-    return leftCatalogRank - rightCatalogRank;
-  }
-
-  const leftSorted = left?.order ?? left?.sorted ?? Number.MAX_SAFE_INTEGER;
-  const rightSorted = right?.order ?? right?.sorted ?? Number.MAX_SAFE_INTEGER;
-  if (
-    !leftHasCatalogRank &&
-    !rightHasCatalogRank &&
-    leftSorted !== rightSorted
-  ) {
-    return leftSorted - rightSorted;
-  }
-
-  const leftVersion = getPrimaryVersion(
-    getSortTokens(getSortableName(left)).versions,
-  );
-  const rightVersion = getPrimaryVersion(
-    getSortTokens(getSortableName(right)).versions,
-  );
-  const versionDiff = comparePrimaryVersion(leftVersion, rightVersion);
-  if (versionDiff !== 0) {
-    return versionDiff;
-  }
-
-  if (leftSorted !== rightSorted) {
-    return leftSorted - rightSorted;
-  }
-
+function compareNames(left?: SortableModelLike, right?: SortableModelLike) {
   return getSortableName(left).localeCompare(
     getSortableName(right),
     undefined,
@@ -1276,11 +1260,59 @@ export function comparePublishedAt(
   );
 }
 
+function isGptAlias(model?: SortableModelLike) {
+  return /^gpt[-_.]/.test(getSortableName(model));
+}
+
+export function compareModelsForDisplay(
+  left?: SortableModelLike,
+  right?: SortableModelLike,
+) {
+  const leftOpenAI = parseOpenAIModelSortKey(left);
+  const rightOpenAI = parseOpenAIModelSortKey(right);
+
+  if (leftOpenAI && rightOpenAI) {
+    const versionDiff = compareVersionPartsDesc(
+      leftOpenAI.version,
+      rightOpenAI.version,
+    );
+    if (versionDiff !== 0) return versionDiff;
+
+    const variantDiff =
+      leftOpenAI.variantPriority - rightOpenAI.variantPriority;
+    if (variantDiff !== 0) return variantDiff;
+  }
+
+  if (leftOpenAI && !rightOpenAI && isGptAlias(right)) return -1;
+  if (!leftOpenAI && rightOpenAI && isGptAlias(left)) return 1;
+
+  const leftRemoteRank = getRemoteRank(left);
+  const rightRemoteRank = getRemoteRank(right);
+  if (leftRemoteRank !== rightRemoteRank) {
+    return leftRemoteRank - rightRemoteRank;
+  }
+
+  const leftOrder = getStableOrder(left);
+  const rightOrder = getStableOrder(right);
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  if (leftOpenAI && !rightOpenAI) return -1;
+  if (!leftOpenAI && rightOpenAI) return 1;
+
+  return compareNames(left, right);
+}
+
+export const comparePublishedAt = compareModelsForDisplay;
+
 export type { ModelPublishedAtSource, PublishedAtInfo };
 
 const modelPublishedAtUtils = {
   applyModelPublishedAt,
   comparePublishedAt,
+  compareModelsForDisplay,
+  parseOpenAIModelSortKey,
   extractPublishedAtFromName,
   getTodayPublishedAt,
   resolveModelPublishedAt,

@@ -74,7 +74,7 @@ services:
       # 自定义 API 地址
       - BASE_URL=${BASE_URL:-}
 
-      # 用户标识（三个必须一致）
+      # 同步数据归属 ID（不是登录用户名，三个必须一致）
       - NEXTCHAT_DISABLE_AUTH=${NEXTCHAT_DISABLE_AUTH:-false}
       - NEXTCHAT_DEFAULT_USER_ID=${NEXTCHAT_DEFAULT_USER_ID:-user:admin}
       - DEFAULT_SYNC_USER_ID=${DEFAULT_SYNC_USER_ID:-user:admin}

@@ -275,11 +275,11 @@ CODE=YourAccessPassword123
 PGPASSWORD=YourStrongPassword123!
 
 # ============================================================================
-# 用户标识配置（三个必须保持一致）
+# 同步数据归属 ID（不是登录用户名，三个必须保持一致）
 # ============================================================================
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
-NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user
+NEXTCHAT_DEFAULT_USER_ID=user:admin
+DEFAULT_SYNC_USER_ID=user:admin
+NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 ```
 
 **其他配置保持默认即可**
@@ -613,7 +613,7 @@ git pull
 ```bash
 # 删除配置数据
 PGPASSWORD=YourPassword psql -h 127.0.0.1 -U nextchat_user -d nextchat << 'EOF'
-DELETE FROM app_settings WHERE user_id = (SELECT id FROM app_users WHERE external_id = 'single-user');
+DELETE FROM app_settings WHERE user_id = (SELECT id FROM app_users WHERE external_id = 'user:admin');
 INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
 SELECT
   id,
@@ -624,7 +624,7 @@ SELECT
   '{}'::jsonb as sync_settings,
   '{}'::jsonb as security_settings,
   '{}'::jsonb as extra_settings
-FROM app_users WHERE external_id = 'single-user';
+FROM app_users WHERE external_id = 'user:admin';
 EOF
 ```
 
@@ -689,7 +689,7 @@ EOF
 
 **检查步骤：**
 
-1. **检查用户 ID 配置是否一致：**
+1. **检查同步数据归属 ID 配置是否一致：**
    ```bash
    # 检查环境变量
    docker exec nextchat env | grep NEXTCHAT
@@ -699,9 +699,9 @@ EOF
    ```
 
 2. **确保三者一致：**
-   - `NEXTCHAT_DEFAULT_USER_ID=single-user`
-   - `DEFAULT_SYNC_USER_ID=single-user`
-   - `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=single-user`
+   - `NEXTCHAT_DEFAULT_USER_ID=user:admin`
+   - `DEFAULT_SYNC_USER_ID=user:admin`
+   - `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin`
 
 3. **如果不一致，修改 `.env.baota.local` 并重启容器**
 
@@ -795,11 +795,11 @@ PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "
 DO $$
 DECLARE user_id uuid;
 BEGIN
-  SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+  SELECT id INTO user_id FROM app_users WHERE external_id = 'user:admin';
   IF user_id IS NULL THEN
     INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active, profile_json)
-    VALUES (generate_uuid_v4(), 'single-user', 'single-user', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
-    SELECT id INTO user_id FROM app_users WHERE external_id = 'single-user';
+    VALUES (generate_uuid_v4(), 'user:admin', 'user:admin', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
+    SELECT id INTO user_id FROM app_users WHERE external_id = 'user:admin';
   END IF;
   DELETE FROM app_settings WHERE user_id = user_id;
   INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)

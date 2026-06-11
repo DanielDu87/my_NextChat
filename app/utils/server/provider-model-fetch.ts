@@ -2,6 +2,10 @@ import { ServiceProvider } from "@/app/constant";
 import { requestUpstream } from "@/app/api/upstream";
 import { applyModelPublishedAt } from "@/app/utils/model-published-at";
 import { normalizeModelClassification } from "@/app/utils/model-classification";
+import {
+  buildModelFetchCandidateUrls,
+  getModelFetchApiKeyCandidates,
+} from "@/app/utils/model-fetch-common";
 
 export type SyncedLLMModel = {
   name: string;
@@ -19,6 +23,8 @@ export type SyncedLLMModel = {
   publishedAtUrl?: string;
   publishedAtNote?: string;
   catalogRank?: number;
+  remoteRank?: number;
+  remoteRankSource?: string;
   vendor?: {
     id: number;
     name: string;
@@ -38,8 +44,6 @@ export type ServerFetchModelsResult = {
   models: SyncedLLMModel[];
   total: number;
 };
-
-const OCOOLAI_FIXED_MODEL_FETCH_API_KEY = "4216a3b60ebf4850bf822e97c02e0e55";
 
 type ProviderFetchPreset = {
   providerId: string;
@@ -298,6 +302,7 @@ function isOcoolaiUrl(baseUrl?: string) {
   try {
     const hostname = new URL(baseUrl).hostname;
     return (
+      hostname === "api.ocoolai.com" ||
       hostname === "one.ocoolai.com" ||
       hostname === "ocoolai.com" ||
       hostname === "one.ooo.cool"
@@ -395,6 +400,84 @@ function inferVendorFromOcoolaiModel(
   return inferVendorFromModelName(modelName);
 }
 
+function getRawModelName(model: any) {
+  if (typeof model === "string") return model;
+  return model?.id || model?.name || model?.model_id || model?.model_name;
+}
+
+function normalizeModelItems(items: any[]) {
+  return items
+    .map((item) => (typeof item === "string" ? { id: item } : item))
+    .filter((item) => Boolean(getRawModelName(item)));
+}
+
+function extractModelListFromResponse(data: any): any[] {
+  if (
+    data?.vendors &&
+    Array.isArray(data.vendors) &&
+    Array.isArray(data?.data)
+  ) {
+    return normalizeModelItems(data.data);
+  }
+
+  const candidates = [
+    data?.data,
+    data?.models,
+    data?.items,
+    data?.data?.models,
+    data?.data?.Models,
+    data?.data?.items,
+    data?.result,
+    data?.result?.models,
+    data?.result?.data,
+    data?.payload?.models,
+    data?.payload?.data,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      const normalized = normalizeModelItems(candidate);
+      if (normalized.length > 0) return normalized;
+    }
+  }
+
+  const groupContainers = [data?.data?.groups, data?.groups];
+  for (const groups of groupContainers) {
+    if (!Array.isArray(groups)) continue;
+    const normalized = normalizeModelItems(
+      groups.flatMap((group: any) =>
+        Array.isArray(group?.models)
+          ? group.models
+          : Array.isArray(group?.items)
+          ? group.items
+          : [],
+      ),
+    );
+    if (normalized.length > 0) return normalized;
+  }
+
+  const objectCandidates = [
+    data?.data,
+    data?.models,
+    data?.result,
+    data?.payload,
+  ];
+  for (const candidate of objectCandidates) {
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate)
+    ) {
+      const values = Object.values(candidate);
+      if (values.length === 0) continue;
+      const normalizedValues = normalizeModelItems(values);
+      if (normalizedValues.length > 0) return normalizedValues;
+    }
+  }
+
+  return [];
+}
+
 function mapModels(
   models: any[],
   providerId: string,
@@ -411,6 +494,7 @@ function mapModels(
 ) {
   let seq = 1000;
   return models.map((model: any) => {
+    const currentSeq = seq++;
     const modelName =
       model.id || model.name || model.model_id || model.model_name;
     const lookupKeys = getAiHubMixLookupKeys(String(modelName || ""));
@@ -480,8 +564,11 @@ function mapModels(
     return applyModelPublishedAt({
       name: modelName,
       available: true,
-      sorted: seq++,
+      sorted: currentSeq,
       catalogRank,
+      remoteRank: catalogRank ?? currentSeq,
+      remoteRankSource:
+        catalogRank !== undefined ? "aihubmix_catalog" : "provider_models",
       category: normalized.category,
       categorySource: normalized.categorySource,
       type: normalized.type,
@@ -638,8 +725,18 @@ async function fetchJsonWithCandidates(
   urls: string[],
   headers: Record<string, string>,
   authorizationCandidates?: string[],
+  validateJson?: (data: any) => boolean,
+  getModelCount?: (data: any) => number,
 ) {
   let lastError: Error | null = null;
+  const attempts: Array<{
+    index: number;
+    total: number;
+    interface: string;
+    result: string;
+    keyIndex: number;
+    keyTotal: number;
+  }> = [];
   const authCandidates =
     authorizationCandidates && authorizationCandidates.length > 0
       ? authorizationCandidates
@@ -647,9 +744,27 @@ async function fetchJsonWithCandidates(
       ? [headers.Authorization]
       : [undefined];
 
-  for (const authorization of authCandidates) {
-    for (const url of urls) {
+  for (let index = 0; index < urls.length; index++) {
+    const url = urls[index];
+    for (let authIndex = 0; authIndex < authCandidates.length; authIndex++) {
+      const authorization = authCandidates[authIndex];
+      const progressPrefix = `第 ${index + 1}/${urls.length} 个接口，第 ${
+        authIndex + 1
+      }/${authCandidates.length} 个 key`;
+      const recordAttempt = (result: string) => {
+        attempts.push({
+          index: index + 1,
+          total: urls.length,
+          interface: url,
+          result,
+          keyIndex: authIndex + 1,
+          keyTotal: authCandidates.length,
+        });
+      };
       try {
+        console.log(
+          `[Fetch Models] 🔁 正在尝试服务端模型接口：${progressPrefix} ${url}`,
+        );
         const requestHeaders = { ...headers };
         if (authorization) {
           requestHeaders.Authorization = authorization;
@@ -674,16 +789,68 @@ async function fetchJsonWithCandidates(
         });
         if (!response.ok) {
           lastError = new Error(`${response.status} ${response.statusText}`);
+          recordAttempt(`${response.status} ${response.statusText}`.trim());
+          console.log(
+            `[Fetch Models] 💡 服务端模型接口尝试失败：${progressPrefix} ${url}，原因：${response.status} ${response.statusText}`.trim(),
+          );
           continue;
         }
-        console.log(`[Fetch Models] ✅ 使用模型接口: ${url}`);
-        return await response.json();
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType && !contentType.toLowerCase().includes("json")) {
+          lastError = new Error(`响应不是 JSON (${contentType})`);
+          recordAttempt(`非 JSON (${contentType})`);
+          console.log(
+            `[Fetch Models] 💡 服务端模型接口尝试失败：${progressPrefix} ${url}，原因：返回非 JSON (${contentType})`,
+          );
+          continue;
+        }
+        let data: any;
+        try {
+          data = await response.json();
+        } catch (error) {
+          lastError =
+            error instanceof Error ? error : new Error("响应 JSON 解析失败");
+          recordAttempt("JSON 解析失败");
+          console.log(
+            `[Fetch Models] 💡 服务端模型接口尝试失败：${progressPrefix} ${url}，原因：JSON 解析失败`,
+          );
+          continue;
+        }
+        if (validateJson && !validateJson(data)) {
+          lastError = new Error("响应内容无有效模型列表");
+          recordAttempt("内容无有效模型列表");
+          console.log(
+            `[Fetch Models] 💡 服务端模型接口尝试失败：${progressPrefix} ${url}，原因：内容无有效模型列表`,
+          );
+          continue;
+        }
+        recordAttempt("成功");
+        const modelCount = getModelCount?.(data);
+        const modelCountText =
+          typeof modelCount === "number" ? `，获取到 ${modelCount} 个模型` : "";
+        console.log(
+          `[Fetch Models] ✅ 服务端模型接口获取成功：${progressPrefix} ${url}${modelCountText}`,
+          {
+            success: attempts[attempts.length - 1],
+            totalModels: modelCount,
+            tried: attempts,
+          },
+        );
+        return data;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("请求失败");
+        recordAttempt(lastError.message || "请求失败");
+        console.log(
+          `[Fetch Models] ⚠️ 服务端模型接口尝试失败：${progressPrefix} ${url}，原因：${lastError.message}`,
+        );
       }
     }
   }
 
+  console.warn("[Fetch Models] ⚠️ 服务端模型接口全部候选均未成功", {
+    tried: attempts,
+    lastError: lastError?.message,
+  });
   throw lastError ?? new Error("未找到可用的模型接口");
 }
 
@@ -746,29 +913,6 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
   return priorityMap[normalizedGroup] ?? 0;
 }
 
-function getModelFetchApiKeyCandidates(params: {
-  balanceQueryApiKey?: string;
-  apiKey?: string;
-  apiKeyGroups?: Record<string, string>;
-  baseUrl?: string;
-}) {
-  if (isOcoolaiUrl(params.baseUrl)) {
-    return [OCOOLAI_FIXED_MODEL_FETCH_API_KEY];
-  }
-
-  const groupedKeys = params.apiKeyGroups || {};
-  const candidates = [
-    groupedKeys.default,
-    params.apiKey,
-    ...Object.values(groupedKeys),
-    params.balanceQueryApiKey,
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  return [...new Set(candidates)];
-}
-
 export function modelsToCustomModelsString(models: SyncedLLMModel[]): string {
   return models
     .map((model) => {
@@ -786,7 +930,6 @@ export async function fetchModelsFromProviderForServer(
   apiKey?: string,
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
-  balanceQueryApiKey?: string,
 ): Promise<ServerFetchModelsResult> {
   const preset = resolveProviderFetchPreset(provider, baseUrl, profileName);
   if (!preset || !baseUrl || preset.strategy === "unsupported") {
@@ -796,10 +939,8 @@ export async function fetchModelsFromProviderForServer(
   const { providerId, providerName, providerType, sorted } = preset;
 
   const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
-    balanceQueryApiKey,
     apiKey,
     apiKeyGroups,
-    baseUrl,
   });
 
   const headers: Record<string, string> = {};
@@ -810,25 +951,17 @@ export async function fetchModelsFromProviderForServer(
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
 
-  const candidateUrls =
-    isYutoApiUrl(baseUrl) || isOcoolaiUrl(baseUrl)
-      ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
-      : isAiHubMixUrl(baseUrl)
-      ? [
-          `${new URL(baseUrl).origin}/api/v1/models`,
-          `${baseWithoutV1}/v1/models`,
-        ]
-      : [
-          `${baseWithoutV1}/api/v1/models`,
-          `${baseWithoutV1}/v1/models`,
-          `${baseWithoutV1}/models`,
-          `${baseWithoutV1}/api/pricing`,
-        ];
+  const candidateUrls = buildModelFetchCandidateUrls(baseUrl);
+  console.log(
+    `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个服务端模型接口`,
+  );
 
   const data = await fetchJsonWithCandidates(
     candidateUrls,
     headers,
     modelFetchApiKeyCandidates.map((key) => `Bearer ${key}`),
+    (payload) => extractModelListFromResponse(payload).length > 0,
+    (payload) => extractModelListFromResponse(payload).length,
   );
 
   let models: any[] = [];
@@ -872,33 +1005,7 @@ export async function fetchModelsFromProviderForServer(
     vendorsMap = AIHUBMIX_VENDOR_MAP;
   }
 
-  if (
-    data.vendors &&
-    Array.isArray(data.vendors) &&
-    data.data &&
-    Array.isArray(data.data) &&
-    data.data.length > 0 &&
-    data.data[0].model_name
-  ) {
-    models = data.data;
-    console.log("[Fetch Models] 🎯 检测到 YutoAPI 格式");
-  } else if (data.data?.Models && Array.isArray(data.data.Models)) {
-    models = data.data.Models.map((name: string) => ({ id: name }));
-  } else if (
-    data.data &&
-    Array.isArray(data.data) &&
-    data.data.length > 0 &&
-    data.data[0].model_id !== undefined &&
-    data.data[0].developer_id !== undefined
-  ) {
-    models = data.data;
-  } else if (data.data && Array.isArray(data.data)) {
-    models = data.data;
-  } else if (data.object === "list" && data.data) {
-    models = data.data;
-  } else if (data.models && Array.isArray(data.models)) {
-    models = data.models;
-  }
+  models = extractModelListFromResponse(data);
 
   if (isYutoApiUrl(baseUrl)) {
     const groupedEntries = Object.entries(apiKeyGroups || {}).filter(

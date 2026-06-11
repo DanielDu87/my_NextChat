@@ -15,11 +15,10 @@ import {
   modelsToCustomModelsString,
 } from "./models";
 import { parseStoreStatePayload } from "./sync-store-keys";
-import { runWithBalanceRefreshPaused } from "../store/update";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { rebuildManagedModelsFromCache } from "./managed-model-rebuild";
 import { logger } from "./logger";
-import { comparePublishedAt } from "./model-published-at";
+import { compareModelsForDisplay } from "./model-published-at";
 
 export type ApiProfile = {
   id: string;
@@ -44,6 +43,7 @@ type FetchFromProvider = (
     silent?: boolean;
     profileName?: string;
     apiKeyGroups?: Record<string, string>;
+    multiKeyGroupOrder?: string[];
     throwOnError?: boolean;
   },
 ) => Promise<FetchModelsResult>;
@@ -191,10 +191,11 @@ export async function syncProfileModels(
       profile.apiKey,
       profile.name,
       profile.apiKeyGroups,
+      profile.multiKeyGroupOrder,
     );
 
     const sortedModels = [...result.models]
-      .sort((left, right) => comparePublishedAt(left, right))
+      .sort((left, right) => compareModelsForDisplay(left, right))
       .map((model, index) => ({
         ...model,
         sorted: index,
@@ -435,112 +436,110 @@ export async function syncAllProfilesToDatabase(params: {
 }) {
   void params;
 
-  return runWithBalanceRefreshPaused(() =>
-    runWithImmediateStoreSyncPaused(async () => {
-      const accessStore = useAccessStore.getState() as any;
-      const syncStore = useSyncStore.getState() as any;
-      let allProfiles = (useAccessStore.getState().apiProfiles ||
-        []) as ApiProfile[];
+  return runWithImmediateStoreSyncPaused(async () => {
+    const accessStore = useAccessStore.getState() as any;
+    const syncStore = useSyncStore.getState() as any;
+    let allProfiles = (useAccessStore.getState().apiProfiles ||
+      []) as ApiProfile[];
 
-      if (allProfiles.length === 0) {
-        allProfiles = await ensureProfilesLoadedFromDatabase();
-      }
+    if (allProfiles.length === 0) {
+      allProfiles = await ensureProfilesLoadedFromDatabase();
+    }
 
-      if (allProfiles.length === 0) {
-        throw new Error(
-          "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
-        );
-      }
-
-      accessStore.update((access: any) => {
-        access.useCustomConfig = true;
-      });
-
-      syncStore.update((state: any) => {
-        state.provider = ProviderType.Database;
-      });
-
-      // 只同步用户已添加的模型涉及的 profiles
-      const customModels = String(useAppConfig.getState().customModels || "");
-      const addedProviderIds = new Set(
-        customModels
-          .split(",")
-          .map((m) => m.trim())
-          .filter((m) => m.startsWith("+"))
-          .map((m) => {
-            const cleaned = m.substring(1);
-            const atIdx = cleaned.lastIndexOf("@");
-            return atIdx > 0 ? cleaned.substring(atIdx + 1).toLowerCase() : "";
-          })
-          .filter(Boolean),
+    if (allProfiles.length === 0) {
+      throw new Error(
+        "没有可同步的配置条目，请先从数据库下载配置或在本地添加 API 配置",
       );
+    }
 
-      const profiles =
-        addedProviderIds.size > 0
-          ? allProfiles.filter((p) =>
-              addedProviderIds.has(getProfileProviderId(p).toLowerCase()),
-            )
-          : [];
+    accessStore.update((access: any) => {
+      access.useCustomConfig = true;
+    });
 
-      let totalFetched = 0;
-      const results: SyncAllProfilesResult["results"] = [];
+    syncStore.update((state: any) => {
+      state.provider = ProviderType.Database;
+    });
 
-      if (profiles.length === 0) {
-        logger.providerSync.log("没有用户手动添加模型，跳过供应商全量模型拉取");
+    // 只同步用户已添加的模型涉及的 profiles
+    const customModels = String(useAppConfig.getState().customModels || "");
+    const addedProviderIds = new Set(
+      customModels
+        .split(",")
+        .map((m) => m.trim())
+        .filter((m) => m.startsWith("+"))
+        .map((m) => {
+          const cleaned = m.substring(1);
+          const atIdx = cleaned.lastIndexOf("@");
+          return atIdx > 0 ? cleaned.substring(atIdx + 1).toLowerCase() : "";
+        })
+        .filter(Boolean),
+    );
+
+    const profiles =
+      addedProviderIds.size > 0
+        ? allProfiles.filter((p) =>
+            addedProviderIds.has(getProfileProviderId(p).toLowerCase()),
+          )
+        : [];
+
+    let totalFetched = 0;
+    const results: SyncAllProfilesResult["results"] = [];
+
+    if (profiles.length === 0) {
+      logger.providerSync.log("没有用户手动添加模型，跳过供应商全量模型拉取");
+    }
+
+    for (const profile of profiles) {
+      logger.providerSync.banner("Provider 同步开始", profile.name);
+
+      try {
+        const beforeModels = useAppConfig.getState().models || [];
+        await syncProfileModels(profile.id, {
+          silent: true,
+          reason: "manual",
+        });
+
+        const afterModels = useAppConfig.getState().models || [];
+        const syncStats = getProfileModelSyncStats(
+          profile,
+          beforeModels,
+          afterModels,
+        );
+        const mergedCount = syncStats.finalCount;
+        totalFetched += mergedCount;
+        results.push({
+          name: profile.name,
+          count: mergedCount,
+          added: syncStats.added,
+          deleted: syncStats.deleted,
+          finalCount: syncStats.finalCount,
+          success: true,
+        });
+
+        logger.providerSync.banner(
+          "Provider 同步完成",
+          `${profile.name} 本次新增 ${syncStats.added} 个，删除 ${syncStats.deleted} 个，本地可用 ${syncStats.finalCount} 个模型`,
+        );
+      } catch (error) {
+        results.push({
+          name: profile.name,
+          count: 0,
+          added: 0,
+          deleted: 0,
+          finalCount: 0,
+          success: false,
+        });
+        logger.providerSync.error(`${profile.name} 获取失败`, error);
       }
+    }
 
-      for (const profile of profiles) {
-        logger.providerSync.banner("Provider 同步开始", profile.name);
+    logger.providerSync.log("本地远程模型检查完成，正在同步数据库配置...");
+    await waitForImmediateStoreSyncQueueIdle();
+    await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
 
-        try {
-          const beforeModels = useAppConfig.getState().models || [];
-          await syncProfileModels(profile.id, {
-            silent: true,
-            reason: "manual",
-          });
-
-          const afterModels = useAppConfig.getState().models || [];
-          const syncStats = getProfileModelSyncStats(
-            profile,
-            beforeModels,
-            afterModels,
-          );
-          const mergedCount = syncStats.finalCount;
-          totalFetched += mergedCount;
-          results.push({
-            name: profile.name,
-            count: mergedCount,
-            added: syncStats.added,
-            deleted: syncStats.deleted,
-            finalCount: syncStats.finalCount,
-            success: true,
-          });
-
-          logger.providerSync.banner(
-            "Provider 同步完成",
-            `${profile.name} 本次新增 ${syncStats.added} 个，删除 ${syncStats.deleted} 个，本地可用 ${syncStats.finalCount} 个模型`,
-          );
-        } catch (error) {
-          results.push({
-            name: profile.name,
-            count: 0,
-            added: 0,
-            deleted: 0,
-            finalCount: 0,
-            success: false,
-          });
-          logger.providerSync.error(`${profile.name} 获取失败`, error);
-        }
-      }
-
-      logger.providerSync.log("本地远程模型检查完成，正在同步数据库配置...");
-      await waitForImmediateStoreSyncQueueIdle();
-      await syncStore.sync([...MODEL_SYNC_STORE_KEYS]);
-
-      return {
-        totalFetched,
-        results,
-      } satisfies SyncAllProfilesResult;
-    }),
-  );
+    return {
+      totalFetched,
+      results,
+    } satisfies SyncAllProfilesResult;
+  });
 }

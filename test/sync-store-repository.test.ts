@@ -66,7 +66,7 @@ jest.unstable_mockModule("../app/utils/server/sync-secrets", () => ({
 }));
 
 jest.unstable_mockModule("../app/utils/server/sync-user", () => ({
-  getDefaultSyncUserId: jest.fn(() => "single-user"),
+  getDefaultSyncUserId: jest.fn(() => "user:admin"),
 }));
 
 jest.unstable_mockModule("../app/utils/server/access-store-security", () => ({
@@ -197,7 +197,7 @@ describe("sync store repository helpers", () => {
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queryMock.mock.calls[0]?.[0]).toContain("insert into app_settings");
     expect(queryMock.mock.calls[0]?.[1]).toEqual([
-      "single-user",
+      "user:admin",
       "__chat-index-state__",
       JSON.stringify({ currentSessionId: "s1" }),
     ]);
@@ -207,7 +207,7 @@ describe("sync store repository helpers", () => {
     expect(syncNormalizedChatSessionsMock).toHaveBeenCalledWith(
       { query: queryMock },
       {
-        externalUserId: "single-user",
+        externalUserId: "user:admin",
         index: {
           version: 1,
           state: { currentSessionId: "s1" },
@@ -247,7 +247,7 @@ describe("sync store repository helpers", () => {
       "delete from conversations",
     );
     expect(queryMock.mock.calls[1]?.[0]).not.toContain("set is_deleted");
-    expect(queryMock.mock.calls[1]?.[1]).toEqual(["single-user", ["s1"]]);
+    expect(queryMock.mock.calls[1]?.[1]).toEqual(["user:admin", ["s1"]]);
   });
 
   test("setStoreSnapshot should also sync app settings for config stores", async () => {
@@ -265,7 +265,7 @@ describe("sync store repository helpers", () => {
     });
 
     expect(syncAppSettingsStoreMock).toHaveBeenCalledWith(
-      "single-user",
+      "user:admin",
       "prompt-store",
       {
         state: {
@@ -292,7 +292,7 @@ describe("sync store repository helpers", () => {
     });
 
     expect(syncProviderConfigsFromAccessStateMock).toHaveBeenCalledWith(
-      "single-user",
+      "user:admin",
       {
         state: {
           customModels: "abc",
@@ -304,7 +304,7 @@ describe("sync store repository helpers", () => {
     );
 
     expect(syncAppSettingsStoreMock).toHaveBeenCalledWith(
-      "single-user",
+      "user:admin",
       "access-control",
       {
         state: {
@@ -381,12 +381,12 @@ describe("sync store repository helpers", () => {
       currentSessionId: "s1",
     } as any);
 
-    const snapshot = await getChatIndexSnapshot("single-user");
+    const snapshot = await getChatIndexSnapshot("user:admin");
 
     expect(snapshot).toBeUndefined();
     expect(queryMock).not.toHaveBeenCalled();
     expect(buildNormalizedChatIndexSnapshotMock).toHaveBeenCalledWith(
-      "single-user",
+      "user:admin",
       { currentSessionId: "s1" },
     );
   });
@@ -396,14 +396,14 @@ describe("sync store repository helpers", () => {
       "../app/utils/server/sync-store-repository"
     );
 
-    await removeFullChatStateSnapshot("single-user");
+    await removeFullChatStateSnapshot("user:admin");
 
-    expect(removeChatIndexStateMock).toHaveBeenCalledWith("single-user");
+    expect(removeChatIndexStateMock).toHaveBeenCalledWith("user:admin");
     expect(pgQueryMock).toHaveBeenCalledTimes(1);
     expect(pgQueryMock.mock.calls[0][0]).toContain("delete from conversations");
     expect(pgQueryMock.mock.calls[0][0]).not.toContain(
       "external_session_id is not null",
     );
-    expect(pgQueryMock.mock.calls[0][1]).toEqual(["single-user"]);
+    expect(pgQueryMock.mock.calls[0][1]).toEqual(["user:admin"]);
   });
 });

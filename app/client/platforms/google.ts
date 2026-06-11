@@ -27,6 +27,7 @@ import { nanoid } from "nanoid";
 import { applyModelSamplingRules } from "../model-parameter-rules";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
+import { joinUrlPath } from "@/app/utils/url";
 
 export class GeminiProApi implements LLMApi {
   private isAiHubMixGeminiBaseUrl(baseUrl: string) {
@@ -66,7 +67,7 @@ export class GeminiProApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    let chatPath = [baseUrl, path].join("/");
+    let chatPath = joinUrlPath(baseUrl, path);
     if (this.isAiHubMixGeminiBaseUrl(baseUrl) && accessStore.googleApiKey) {
       chatPath += chatPath.includes("?") ? "&" : "?";
       chatPath += `key=${encodeURIComponent(accessStore.googleApiKey)}`;

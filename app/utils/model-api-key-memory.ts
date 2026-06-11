@@ -3,7 +3,6 @@ import { ServiceProvider } from "@/app/constant";
 import { useAccessStore } from "@/app/store/access";
 import {
   MULTI_KEY_GROUP_IDS,
-  normalizeMultiKeyGroupOrder,
   normalizeMultiKeyGroups,
   shouldAutoEnableMultiKey,
 } from "@/app/utils/multi-key";
@@ -51,7 +50,25 @@ export function isOcoolaiBaseUrl(baseUrl?: string) {
 export function supportsApiKeyGroupingForProfile(
   profile?: Partial<CustomProfile>,
 ) {
-  return Boolean(profile && shouldAutoEnableMultiKey(profile));
+  if (!profile) {
+    return false;
+  }
+
+  const normalizedGroups = normalizeMultiKeyGroups(
+    profile.apiKeyGroups,
+    profile,
+  );
+  const hasGroupKeys = Object.values(normalizedGroups).some((value) =>
+    String(value || "").trim(),
+  );
+
+  return Boolean(
+    shouldAutoEnableMultiKey({
+      ...profile,
+      apiKeyGroups: normalizedGroups,
+      multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
+    }),
+  );
 }
 
 // 保留旧的函数名作为兼容
@@ -125,7 +142,18 @@ export function getCustomModelApiKeySelection(
     };
   }
 
-  const multiKeyEnabled = shouldAutoEnableMultiKey(profile);
+  const normalizedProfileGroups = normalizeMultiKeyGroups(
+    profile.apiKeyGroups,
+    profile,
+  );
+  const hasGroupKeys = Object.values(normalizedProfileGroups).some((value) =>
+    String(value || "").trim(),
+  );
+  const multiKeyEnabled = shouldAutoEnableMultiKey({
+    ...profile,
+    apiKeyGroups: normalizedProfileGroups,
+    multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
+  });
   if (!multiKeyEnabled) {
     return {
       current: profile.apiKey || "",
@@ -135,7 +163,7 @@ export function getCustomModelApiKeySelection(
     };
   }
 
-  const groupedKeys = normalizeMultiKeyGroups(profile.apiKeyGroups, profile);
+  const groupedKeys = normalizedProfileGroups;
 
   const fallbackApiKeys: string[] = [];
   const fallbackApiKeyGroups: string[] = [];
@@ -154,12 +182,20 @@ export function getCustomModelApiKeySelection(
     Boolean(rememberedGroup) &&
     MULTI_KEY_GROUP_IDS.includes(rememberedGroup as any) &&
     Boolean(groupedKeys[rememberedGroup as keyof typeof groupedKeys]);
+
+  if (hasRememberedGroup) {
+    console.log("[MultiKey] 从 localStorage 读取到上次成功分组，将优先尝试", {
+      profileId: profile.id,
+      profileName: profile.name,
+      modelName,
+      rememberedGroup,
+      loadedFromLocalStorage: true,
+    });
+  }
+
   const groupOrder = [
     ...(hasRememberedGroup ? [rememberedGroup as string] : []),
-    ...normalizeMultiKeyGroupOrder(
-      profile.multiKeyGroupOrder,
-      groupedKeys,
-    ).filter((group) => group !== rememberedGroup),
+    ...MULTI_KEY_GROUP_IDS.filter((group) => group !== rememberedGroup),
   ];
 
   console.log("[MultiKey] 生成请求分组顺序", {
@@ -168,7 +204,8 @@ export function getCustomModelApiKeySelection(
     modelName,
     rememberedGroup: hasRememberedGroup ? rememberedGroup : "",
     groupOrder,
-    hasFallbackApiKey: Boolean(profile.apiKey),
+    normalizedGroupsOnly: true,
+    hasPrimaryApiKey: Boolean(profile.apiKey),
   });
 
   groupOrder.forEach((group) =>
@@ -176,7 +213,6 @@ export function getCustomModelApiKeySelection(
   );
 
   const primaryApiKey = profile.apiKey || "";
-  pushFallbackKey("apiKey", primaryApiKey);
 
   return {
     current: fallbackApiKeys[0] || primaryApiKey,
@@ -263,7 +299,7 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     groupName,
   });
 
-  console.log("[MultiKey] 成功分组已写入 localStorage", {
+  console.log("[MultiKey] 成功分组已写入 localStorage，下次将优先使用", {
     modelName,
     groupName,
     profileId: enabledCustomProfile.id,

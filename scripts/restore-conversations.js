@@ -40,7 +40,7 @@ async function restoreConversations() {
     // 恢复对话
     console.log(`\n开始恢复对话...`);
     for (const conv of conversationsBackup.data) {
-      // 跳过single-user的对话
+      // 跳过user:admin的对话
       if (!USER_ID_MAP[conv.user_id]) {
         conversationsSkipped++;
         continue;

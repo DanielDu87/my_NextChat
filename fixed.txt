@@ -26,9 +26,9 @@ ENABLE_BALANCE_QUERY=false
 DISABLE_FAST_LINK=false
 ENABLE_MCP=false
 
-# 用户标识 - 重要！必须设置为 single-user 以获取数据
-NEXTCHAT_DEFAULT_USER_ID=single-user
-DEFAULT_SYNC_USER_ID=single-user
+# 同步数据归属 ID - 不是登录用户名，必须设置为 user:admin 以获取数据
+NEXTCHAT_DEFAULT_USER_ID=user:admin
+DEFAULT_SYNC_USER_ID=user:admin
 
 # 数据库配置 - 直接连接远程数据库
 PGHOST=42.193.15.117

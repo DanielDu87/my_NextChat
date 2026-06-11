@@ -1,7 +1,7 @@
 import { compareSelectorItems } from "../app/components/ui-lib";
 
 describe("selector model order", () => {
-  test("未命中 AihubMix 时，应优先保留原始顺序而不是按展示名排序", () => {
+  test("OpenAI 数字版本未命中网络 rank 时，也应按版本/变体排序", () => {
     const items = [
       {
         title: "OpenAI 最新旗舰",
@@ -30,8 +30,8 @@ describe("selector model order", () => {
 
     expect(sorted.map((item) => item.sortKey)).toEqual([
       "gpt-4.1",
-      "gpt-4o",
       "gpt-4.1-mini",
+      "gpt-4o",
     ]);
   });
 
@@ -76,7 +76,7 @@ describe("selector model order", () => {
     ]);
   });
 
-  test("命中 AihubMix catalogRank 时应严格按 URL 顺序排序", () => {
+  test("OpenAI 数字版本优先于 AihubMix remote rank，非数字别名再按 rank", () => {
     const items = [
       {
         title: "gpt-4o-realtime-preview-2025-06-03",
@@ -110,9 +110,9 @@ describe("selector model order", () => {
     const sorted = items.slice().sort(compareSelectorItems);
 
     expect(sorted.map((item) => item.sortKey)).toEqual([
-      "gpt-4o-realtime-preview-2025-06-03",
       "gpt-5.4",
       "gpt-5.4-mini",
+      "gpt-4o-realtime-preview-2025-06-03",
     ]);
   });
 

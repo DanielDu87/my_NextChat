@@ -225,5 +225,6 @@ describe("YutoAPI stream fallback retry", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(String(onFinish.mock.calls[0]?.[0] || "")).toContain("mock fail");
+    expect(rememberSuccessfulCustomModelApiKeyGroupMock).not.toHaveBeenCalled();
   });
 });

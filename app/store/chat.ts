@@ -56,9 +56,7 @@ import {
 import { useAccessStore } from "./access";
 import { useModelCacheStore } from "./model-cache";
 import {
-  LATEST_OPENAI_CHAT_MODEL_NAME,
   collectModelsWithDefaultModel,
-  getLatestOpenAIModelForProviderId,
   getPreferredDisplayModelConfig,
   getPreferredRuntimeModelConfig,
   resolveModelProviderId,
@@ -80,12 +78,6 @@ export {
   getDefaultTopic,
 } from "./chat-defaults";
 import { createSyncClient, ProviderType } from "../utils/cloud";
-import {
-  BalanceAwareProfile,
-  getCustomProfileBalanceRefreshDelay,
-  queryBalanceSnapshot,
-  useUpdateStore,
-} from "./update";
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
@@ -180,8 +172,6 @@ export type ChatMessageUsage = {
   totalTokens?: number;
   cachedTokens?: number;
   reasoningTokens?: number;
-  actualCost?: number;
-  actualCostStatus?: "pending" | "actual";
   systemTokens?: number;
 };
 
@@ -262,124 +252,6 @@ export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: getBotHelloContent(),
 });
-
-function getEnabledCustomBalanceProfile() {
-  const accessState = useAccessStore.getState();
-  const activeProfile = getActiveAccessProfile(
-    accessState,
-    ServiceProvider.Custom,
-  );
-  if (activeProfile?.baseUrl && activeProfile?.apiKey) {
-    return activeProfile as BalanceAwareProfile | undefined;
-  }
-
-  return accessState.apiProfiles.find(
-    (profile) =>
-      profile.enabled &&
-      profile.provider === ServiceProvider.Custom &&
-      !!profile.baseUrl &&
-      !!profile.apiKey,
-  ) as BalanceAwareProfile | undefined;
-}
-
-function normalizeUsageCost(value: number) {
-  return Math.max(0, value);
-}
-
-function refreshBalanceAfterChat(
-  providerName: ServiceProvider,
-  profile?: BalanceAwareProfile,
-) {
-  if (
-    providerName !== ServiceProvider.Custom &&
-    providerName !== ServiceProvider.Local
-  ) {
-    return;
-  }
-
-  void useUpdateStore
-    .getState()
-    .updateUsage(false, providerName, profile)
-    .catch((error) => {
-      logger.chat.warn(
-        "[BalanceRefresh] update after chat failed",
-        error instanceof Error ? error.message : String(error),
-      );
-    });
-}
-
-async function createBalanceCostTracker(
-  providerName: ServiceProvider,
-  profile?: BalanceAwareProfile,
-) {
-  if (providerName !== ServiceProvider.Custom || !profile) {
-    return undefined;
-  }
-
-  const refreshDelay = getCustomProfileBalanceRefreshDelay(profile);
-  if (refreshDelay === null) {
-    return undefined;
-  }
-
-  try {
-    const beforeSnapshot = await queryBalanceSnapshot(providerName, profile);
-    if (!beforeSnapshot) {
-      return undefined;
-    }
-
-    return {
-      markPending(message: ChatMessage) {
-        message.usage = {
-          ...(message.usage || {}),
-          actualCostStatus: "pending",
-        };
-      },
-      async resolve() {
-        const applySnapshot = async () => {
-          const afterSnapshot = await queryBalanceSnapshot(
-            providerName,
-            profile,
-          );
-          if (!afterSnapshot) {
-            return undefined;
-          }
-
-          return {
-            actualCost: normalizeUsageCost(
-              (beforeSnapshot.exactRemaining ?? beforeSnapshot.remaining) -
-                (afterSnapshot.exactRemaining ?? afterSnapshot.remaining),
-            ),
-            actualCostStatus: "actual" as const,
-          };
-        };
-
-        if (refreshDelay > 0) {
-          return new Promise<
-            | {
-                actualCost: number;
-                actualCostStatus: "actual";
-              }
-            | undefined
-          >((resolve) => {
-            window.setTimeout(() => {
-              void applySnapshot()
-                .then(resolve)
-                .catch(() => resolve(undefined));
-            }, refreshDelay);
-          });
-        }
-
-        return applySnapshot();
-      },
-    };
-  } catch (error) {
-    logger.chat.warn(
-      "[BalanceCost] create tracker failed",
-      error instanceof Error ? error.message : String(error),
-    );
-    return undefined;
-  }
-}
 
 function isDefaultTopic(topic: string | undefined) {
   const normalizedTopic = String(topic || "").trim();
@@ -811,60 +683,6 @@ function getAccessProviderId(profile: {
     : profile.provider === ServiceProvider.Local
     ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
     : String(profile.provider).toLowerCase();
-}
-
-function addCustomModelEntryForProvider(
-  customModels: string,
-  modelName: string,
-  providerId: string,
-) {
-  const entry = `+${modelName}@${providerId}`;
-  const existingEntries = String(customModels || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const targetKey = `${modelName}@${providerId}`.toLowerCase();
-  let changed = false;
-  const normalizedEntries = existingEntries.map((item) => {
-    const key = item.replace(/^[+-]/, "").toLowerCase();
-    if (key !== targetKey) {
-      return item;
-    }
-    if (item !== entry) {
-      changed = true;
-      return entry;
-    }
-    return item;
-  });
-  const existingKeys = new Set(
-    normalizedEntries.map((item) => item.replace(/^[+-]/, "").toLowerCase()),
-  );
-
-  if (existingKeys.has(targetKey)) {
-    return {
-      customModels: changed ? normalizedEntries.join(",") : customModels,
-      changed,
-    };
-  }
-
-  return {
-    customModels: [...normalizedEntries, entry].join(","),
-    changed: true,
-  };
-}
-
-function hasProviderModel(
-  models: Array<{ name?: string; provider?: { id?: string } }>,
-  modelName: string,
-  providerId: string,
-) {
-  const normalizedModelName = String(modelName || "").toLowerCase();
-  const normalizedProviderId = String(providerId || "").toLowerCase();
-  return models.some(
-    (model) =>
-      String(model.name || "").toLowerCase() === normalizedModelName &&
-      String(model.provider?.id || "").toLowerCase() === normalizedProviderId,
-  );
 }
 
 function normalizeProviderLookup(value: unknown) {
@@ -2210,43 +2028,8 @@ export const useChatStore = createPersistStore(
               configStore.customModels,
               accessStore.defaultModel,
             );
-            const latestOpenAIModelForProvider = activeProviderId
-              ? getLatestOpenAIModelForProviderId(
-                  allModels,
-                  activeProviderId,
-                ) ||
-                ({
-                  model: LATEST_OPENAI_CHAT_MODEL_NAME,
-                  providerName:
-                    enabledProfile?.provider || globalModelConfig.providerName,
-                } as const)
-              : undefined;
-
-            if (
-              activeProviderId &&
-              latestOpenAIModelForProvider &&
-              !hasProviderModel(
-                allModels,
-                latestOpenAIModelForProvider.model,
-                activeProviderId,
-              )
-            ) {
-              const nextCustomModels = addCustomModelEntryForProvider(
-                configStore.customModels,
-                latestOpenAIModelForProvider.model,
-                activeProviderId,
-              );
-              if (nextCustomModels.changed) {
-                useAppConfig.getState().update((config) => {
-                  config.customModels = nextCustomModels.customModels;
-                  (config as any).customModelsUpdatedAt = Date.now();
-                });
-              }
-            }
-
             const nextModelConfig = sanitizeModelConfigForCapability({
               ...globalModelConfig,
-              ...(latestOpenAIModelForProvider || {}),
             });
             if (activeProviderId) {
               (nextModelConfig as any).providerId = activeProviderId;
@@ -2994,10 +2777,6 @@ export const useChatStore = createPersistStore(
 
         if (!autoModeEnabled) {
           const api: ClientApi = getClientApi(initialModelConfig.providerName);
-          const balanceCostTracker = await createBalanceCostTracker(
-            initialModelConfig.providerName as ServiceProvider,
-            getEnabledCustomBalanceProfile(),
-          );
           api.llm.chat({
             messages: sendMessages,
             config: {
@@ -3080,9 +2859,6 @@ export const useChatStore = createPersistStore(
                     ),
                   };
                 }
-                if (!hasFailure && balanceCostTracker) {
-                  balanceCostTracker.markPending(botMessage);
-                }
                 botMessage.isError = hasFailure;
                 userMessage.isError = hasFailure;
 
@@ -3098,31 +2874,6 @@ export const useChatStore = createPersistStore(
                   );
                 }
                 get().onNewMessage(botMessage, session);
-                if (!hasFailure) {
-                  refreshBalanceAfterChat(
-                    initialModelConfig.providerName as ServiceProvider,
-                    getEnabledCustomBalanceProfile(),
-                  );
-                }
-                if (!hasFailure && balanceCostTracker) {
-                  void balanceCostTracker.resolve().then((costUsage) => {
-                    if (!costUsage) {
-                      return;
-                    }
-                    get().updateTargetSession(session, (targetSession) => {
-                      const targetMessage = targetSession.messages.find(
-                        (item) => item.id === botMessage.id,
-                      );
-                      if (!targetMessage) {
-                        return;
-                      }
-                      targetMessage.usage = {
-                        ...(targetMessage.usage || {}),
-                        ...costUsage,
-                      };
-                    });
-                  });
-                }
               } else {
                 get().flushTargetSessionRefresh(session);
               }
@@ -3248,10 +2999,6 @@ export const useChatStore = createPersistStore(
           });
 
           const api: ClientApi = getClientApi(candidate.providerName);
-          const balanceCostTracker = await createBalanceCostTracker(
-            candidate.providerName as ServiceProvider,
-            candidateProfile as BalanceAwareProfile | undefined,
-          );
           const attemptLabel = `${attemptIndex + 1}/${autoCandidates.length}`;
           let requestUrl = "";
 
@@ -3377,35 +3124,9 @@ export const useChatStore = createPersistStore(
                       candidate.model,
                     ),
                   };
-                  if (balanceCostTracker) {
-                    balanceCostTracker.markPending(botMessage);
-                  }
                   botMessage.isError = false;
                   userMessage.isError = false;
                   get().onNewMessage(botMessage, session);
-                  refreshBalanceAfterChat(
-                    candidate.providerName as ServiceProvider,
-                    candidateProfile as BalanceAwareProfile | undefined,
-                  );
-                  if (balanceCostTracker) {
-                    void balanceCostTracker.resolve().then((costUsage) => {
-                      if (!costUsage) {
-                        return;
-                      }
-                      get().updateTargetSession(session, (targetSession) => {
-                        const targetMessage = targetSession.messages.find(
-                          (item) => item.id === botMessage.id,
-                        );
-                        if (!targetMessage) {
-                          return;
-                        }
-                        targetMessage.usage = {
-                          ...(targetMessage.usage || {}),
-                          ...costUsage,
-                        };
-                      });
-                    });
-                  }
                   logger.chat.log("✅ 自动模式尝试成功:", {
                     attempt: attemptLabel,
                     provider: candidate.providerDisplayName,

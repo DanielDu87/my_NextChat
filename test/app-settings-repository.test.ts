@@ -40,7 +40,7 @@ describe("app settings repository", () => {
   });
 
   test("syncAppSettingsStore should write prompt store into extra_settings", async () => {
-    await syncAppSettingsStore("single-user", "prompt-store", {
+    await syncAppSettingsStore("user:admin", "prompt-store", {
       state: { prompts: { p1: { id: "p1" } } },
       version: 3,
     });
@@ -62,14 +62,14 @@ describe("app settings repository", () => {
       rows: [{ payload_json: { state: { prompts: {} }, version: 3 } }],
     }));
 
-    const payload = await getAppSettingsStore("single-user", "prompt-store");
+    const payload = await getAppSettingsStore("user:admin", "prompt-store");
 
     expect(payload).toEqual({ state: { prompts: {} }, version: 3 });
     expect(pgQueryMock.mock.calls[0][0]).toContain("extra_settings");
   });
 
   test("setChatIndexState should store object payload instead of stringified json", async () => {
-    await setChatIndexState("single-user", {
+    await setChatIndexState("user:admin", {
       currentSessionId: "s1",
     });
 
@@ -89,7 +89,7 @@ describe("app settings repository", () => {
       rows: [{ payload_json: JSON.stringify({ currentSessionId: "s1" }) }],
     }));
 
-    const payload = await getChatIndexState("single-user");
+    const payload = await getChatIndexState("user:admin");
 
     expect(payload).toEqual({ currentSessionId: "s1" });
   });
