@@ -279,16 +279,6 @@ const sk: PartialLocaleType = {
       SubTitle:
         "Bude komprimované, ak dĺžka nekomprimovaných správ presiahne túto hodnotu",
     },
-
-    Usage: {
-      Title: "Stav účtu",
-      SubTitle(used: any, total: any) {
-        return `Tento mesiac použité ${used}, predplatné ${total}`;
-      },
-      IsChecking: "Kontroluje sa...",
-      Check: "Skontrolovať",
-      NoAccess: "Zadajte API kľúč na skontrolovanie zostatku",
-    },
     Access: {
       SaasStart: {
         Title: "Použite NextChat AI",

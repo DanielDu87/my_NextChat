@@ -280,16 +280,6 @@ const jp: PartialLocaleType = {
       SubTitle: "未圧縮の履歴メッセージがこの値を超えた場合、圧縮が行われます",
     },
 
-    Usage: {
-      Title: "残高確認",
-      SubTitle(used: any, total: any) {
-        return `今月の使用量 $${used}、サブスクリプション合計 $${total}`;
-      },
-      IsChecking: "確認中…",
-      Check: "再確認",
-      NoAccess: "APIキーまたはアクセスパスワードを入力して残高を確認",
-    },
-
     Access: {
       SaasStart: {
         Title: "NextChat AIを使用する",

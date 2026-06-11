@@ -287,16 +287,6 @@ const no: PartialLocaleType = {
         "Når ukomprimerte historiske meldinger overskrider denne verdien, vil de bli komprimert",
     },
 
-    Usage: {
-      Title: "Saldoforespørsel",
-      SubTitle(used: any, total: any) {
-        return `Brukt denne måneden $${used}, total abonnementsbeløp $${total}`;
-      },
-      IsChecking: "Sjekker...",
-      Check: "Sjekk på nytt",
-      NoAccess: "Skriv inn API-nøkkel eller tilgangspassord for å se saldo",
-    },
-
     Access: {
       SaasStart: {
         Title: "Bruk NextChat AI",

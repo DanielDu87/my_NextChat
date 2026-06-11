@@ -293,15 +293,6 @@ const da: PartialLocaleType = {
       SubTitle:
         "Hvis chatten bliver for lang, vil den komprimeres efter dette antal tegn",
     },
-    Usage: {
-      Title: "Brug og saldo",
-      SubTitle(used: any, total: any) {
-        return `Du har brugt $${used} i denne måned, og din grænse er $${total}.`;
-      },
-      IsChecking: "Tjekker...",
-      Check: "Tjek igen",
-      NoAccess: "Indtast API-nøgle for at se forbrug",
-    },
     Access: {
       AccessCode: {
         Title: "Adgangskode",

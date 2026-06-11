@@ -289,17 +289,6 @@ const de: PartialLocaleType = {
         "Wenn die unkomprimierten historischen Nachrichten diesen Wert überschreiten, wird komprimiert",
     },
 
-    Usage: {
-      Title: "Guthabenabfrage",
-      SubTitle(used: any, total: any) {
-        return `In diesem Monat verwendet $${used}, Abonnement insgesamt $${total}`;
-      },
-      IsChecking: "Wird überprüft…",
-      Check: "Erneut überprüfen",
-      NoAccess:
-        "Geben Sie API-Schlüssel oder Zugangspasswort ein, um das Guthaben einzusehen",
-    },
-
     Access: {
       SaasStart: {
         Title: "NextChat AI verwenden",
@@ -436,7 +425,8 @@ const de: PartialLocaleType = {
       AI302: {
         ApiKey: {
           Title: "Schnittstellenschlüssel",
-          SubTitle: "Verwenden Sie einen benutzerdefinierten 302.AI API-Schlüssel",
+          SubTitle:
+            "Verwenden Sie einen benutzerdefinierten 302.AI API-Schlüssel",
           Placeholder: "302.AI API-Schlüssel",
         },
         Endpoint: {

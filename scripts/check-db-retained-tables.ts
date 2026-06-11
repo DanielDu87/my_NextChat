@@ -37,7 +37,6 @@ async function main() {
       'model_unmatched', ${countIfExists("model_unmatched")},
       'prompt_templates', ${countIfExists("prompt_templates")},
       'user_model_refresh_states', ${countIfExists("user_model_refresh_states")},
-      'user_provider_balance_snapshots', ${countIfExists("user_provider_balance_snapshots")},
       'model_source_index_snapshots', ${countIfExists("model_source_index_snapshots")},
       'usage_logs', ${countIfExists("usage_logs")}
     ) as data

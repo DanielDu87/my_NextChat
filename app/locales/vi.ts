@@ -281,16 +281,6 @@ const vi: PartialLocaleType = {
         "Khi tin nhắn lịch sử chưa nén vượt quá giá trị này, sẽ thực hiện nén",
     },
 
-    Usage: {
-      Title: "Tra cứu số dư",
-      SubTitle(used: any, total: any) {
-        return `Đã sử dụng trong tháng: $${used}, Tổng số đăng ký: $${total}`;
-      },
-      IsChecking: "Đang kiểm tra…",
-      Check: "Kiểm tra lại",
-      NoAccess: "Nhập khóa API hoặc mật khẩu truy cập để xem số dư",
-    },
-
     Access: {
       SaasStart: {
         Title: "Sử dụng NextChat AI",

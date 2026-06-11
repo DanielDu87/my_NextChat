@@ -292,17 +292,6 @@ const es: PartialLocaleType = {
         "Cuando los mensajes históricos no comprimidos superan este valor, se realizará la compresión",
     },
 
-    Usage: {
-      Title: "Consulta de saldo",
-      SubTitle(used: any, total: any) {
-        return `Saldo usado este mes: $${used}, total suscrito: $${total}`;
-      },
-      IsChecking: "Verificando…",
-      Check: "Revisar de nuevo",
-      NoAccess:
-        "Introduce la clave API o la contraseña de acceso para ver el saldo",
-    },
-
     Access: {
       SaasStart: {
         Title: "Use NextChat AI",

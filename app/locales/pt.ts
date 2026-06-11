@@ -279,16 +279,6 @@ const pt: PartialLocaleType = {
       SubTitle:
         "Irá comprimir se o comprimento das mensagens não comprimidas exceder o valor",
     },
-
-    Usage: {
-      Title: "Saldo da Conta",
-      SubTitle(used: any, total: any) {
-        return `Usado este mês ${used}, assinatura ${total}`;
-      },
-      IsChecking: "Verificando...",
-      Check: "Verificar",
-      NoAccess: "Insira a Chave API para verificar o saldo",
-    },
     Access: {
       SaasStart: {
         Title: "Usar NextChat AI",

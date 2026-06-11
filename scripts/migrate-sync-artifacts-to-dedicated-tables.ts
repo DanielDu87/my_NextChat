@@ -4,7 +4,6 @@ import {
   setStoreSnapshot,
 } from "../app/utils/server/sync-store-repository";
 import { setLatestModelRefreshState } from "../app/utils/server/model-refresh-state-repository";
-import { setProviderBalanceSnapshot } from "../app/utils/server/provider-balance-repository";
 import { setModelSourceIndexSnapshot } from "../app/utils/server/model-source-index-repository";
 
 type LegacyRow = {
@@ -104,12 +103,6 @@ async function main() {
     ) {
       await setLatestModelRefreshState(userId, row.payload_json);
       migrated.model_refresh = (migrated.model_refresh || 0) + 1;
-      continue;
-    }
-
-    if (row.artifact_type === "provider_balance") {
-      await setProviderBalanceSnapshot(userId, row.artifact_path, row.payload_json);
-      migrated.provider_balance = (migrated.provider_balance || 0) + 1;
       continue;
     }
 

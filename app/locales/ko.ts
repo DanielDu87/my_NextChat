@@ -300,16 +300,6 @@ const ko: PartialLocaleType = {
       SubTitle: "압축되지 않은 히스토리 메시지가 이 값을 초과하면 압축 수행",
     },
 
-    Usage: {
-      Title: "잔액 조회",
-      SubTitle(used: any, total: any) {
-        return `이번 달 사용된 금액: $${used}，총 구독 금액: $${total}`;
-      },
-      IsChecking: "확인 중...",
-      Check: "다시 확인",
-      NoAccess: "잔액을 보려면 API 키 또는 접근 비밀번호를 입력하십시오.",
-    },
-
     Access: {
       SaasStart: {
         Title: "NextChat AI 사용하기",

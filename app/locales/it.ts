@@ -293,17 +293,6 @@ const it: PartialLocaleType = {
         "Quando i messaggi storici non compressi superano questo valore, verranno compressi",
     },
 
-    Usage: {
-      Title: "Verifica saldo",
-      SubTitle(used: any, total: any) {
-        return `Utilizzato questo mese $${used}, totale abbonamento $${total}`;
-      },
-      IsChecking: "Verifica in corso…",
-      Check: "Verifica di nuovo",
-      NoAccess:
-        "Inserisci API Key o password di accesso per visualizzare il saldo",
-    },
-
     Access: {
       SaasStart: {
         Title: "Usa NextChat AI",

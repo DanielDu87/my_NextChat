@@ -24,7 +24,6 @@
     - `model_catalog`
     - `model_sync_runs`
     - `user_model_refresh_states`
-    - `user_provider_balance_snapshots`
 - 模型供应商 API
   - 只作为模型数据更新来源
   - 不作为页面运行时直接主数据源

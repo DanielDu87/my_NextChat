@@ -45,7 +45,6 @@ services:
       - CODE=${CODE}
       - HIDE_USER_API_KEY=${HIDE_USER_API_KEY:-false}
       - DISABLE_GPT4=${DISABLE_GPT4:-false}
-      - ENABLE_BALANCE_QUERY=${ENABLE_BALANCE_QUERY:-false}
       - DISABLE_FAST_LINK=${DISABLE_FAST_LINK:-false}
       - ENABLE_MCP=${ENABLE_MCP:-false}
       - ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS:-false}

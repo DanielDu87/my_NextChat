@@ -20,8 +20,7 @@ const RESTORE_ORDER = [
   'auth_sessions',
   'site_access_settings',
   'sync_secrets',
-  'user_model_refresh_states',
-  'user_provider_balance_snapshots'
+  'user_model_refresh_states'
 ];
 
 async function restoreTable(tableName, backupData) {

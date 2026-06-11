@@ -136,7 +136,6 @@ NPM_REGISTRY=https://registry.npmmirror.com/
 # 其他配置
 HIDE_USER_API_KEY=true
 DISABLE_GPT4=false
-ENABLE_BALANCE_QUERY=false
 DISABLE_FAST_LINK=false
 ENABLE_MCP=false
 ENABLE_GOOGLE_FONTS=false

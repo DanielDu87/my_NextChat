@@ -283,17 +283,6 @@ const tr: PartialLocaleType = {
         "Sıkıştırılmamış geçmiş mesaj bu değeri aştığında sıkıştırma yapılır",
     },
 
-    Usage: {
-      Title: "Bakiye Sorgulama",
-      SubTitle(used: any, total: any) {
-        return `Bu ay kullanılan $${used}, toplam abonelik ücreti $${total}`;
-      },
-      IsChecking: "Kontrol ediliyor…",
-      Check: "Yeniden kontrol et",
-      NoAccess:
-        "Bakiye görüntülemek için API Anahtarı veya erişim şifresi girin",
-    },
-
     Access: {
       SaasStart: {
         Title: "NextChat AI kullanın",

@@ -282,16 +282,6 @@ const cs: PartialLocaleType = {
         "Když nekomprimované historické zprávy překročí tuto hodnotu, dojde ke kompresi",
     },
 
-    Usage: {
-      Title: "Kontrola zůstatku",
-      SubTitle(used: any, total: any) {
-        return `Tento měsíc použito $${used}, celkový předplatný objem $${total}`;
-      },
-      IsChecking: "Probíhá kontrola…",
-      Check: "Znovu zkontrolovat",
-      NoAccess: "Zadejte API Key nebo přístupové heslo pro zobrazení zůstatku",
-    },
-
     Access: {
       SaasStart: {
         Title: "Použití NextChat AI",

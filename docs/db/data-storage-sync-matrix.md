@@ -33,7 +33,6 @@
 | Access store 密钥 | `provider_api_keys` | 每类 key 一行 | `provider-config-repository.ts` |
 | 额外敏感配置加密存储 | `sync_secrets` | `encrypted_payload` | `sync-secrets.ts` |
 | 模型刷新最新状态 | `user_model_refresh_states` | `refresh_key = 'latest'` | `model-refresh-state-repository.ts` |
-| 平台余额快照 | `user_provider_balance_snapshots` | `balance_key` + `payload_json` | `provider-balance-repository.ts` |
 | 模型来源索引快照 | `model_source_index_snapshots` | `source_key` + `payload_json` | `model-source-index-repository.ts` |
 | 模型目录主表 | `model_catalog` | 每个 `provider_id + model_name` 一行 | `model-catalog-repository.ts` |
 | 模型同步运行记录 | `model_sync_runs` | 每次刷新任务一行 | `provider-model-sync.ts` |

@@ -373,14 +373,7 @@ export async function ensureSyncStorageSchema() {
         )
       `);
         await client.query(`
-        create table if not exists user_provider_balance_snapshots (
-          user_id text not null,
-          balance_key text not null,
-          payload_json jsonb not null default '{}'::jsonb,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          primary key (user_id, balance_key)
-        )
+        drop table if exists user_provider_balance_snapshots
       `);
         await client.query(`
         alter table user_model_refresh_states
@@ -403,36 +396,12 @@ export async function ensureSyncStorageSchema() {
         alter column payload_json set not null
       `);
         await client.query(`
-        alter table user_provider_balance_snapshots
-        alter column user_id type text using user_id::text
-      `);
-        await client.query(`
-        alter table user_provider_balance_snapshots
-        alter column balance_key type text using balance_key::text
-      `);
-        await client.query(`
-        alter table user_provider_balance_snapshots
-        alter column payload_json type jsonb using payload_json::jsonb
-      `);
-        await client.query(`
-        alter table user_provider_balance_snapshots
-        alter column payload_json set default '{}'::jsonb
-      `);
-        await client.query(`
-        alter table user_provider_balance_snapshots
-        alter column payload_json set not null
-      `);
-        await client.query(`
         create index if not exists idx_conversations_user_updated
         on conversations(user_id, updated_at desc)
       `);
         await client.query(`
         create index if not exists idx_user_model_refresh_states_user_updated
         on user_model_refresh_states(user_id, updated_at desc)
-      `);
-        await client.query(`
-        create index if not exists idx_user_provider_balance_snapshots_user_updated
-        on user_provider_balance_snapshots(user_id, updated_at desc)
       `);
         await client.query(`
         create or replace trigger trg_app_settings_updated_at
@@ -467,11 +436,6 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create or replace trigger trg_user_model_refresh_states_updated_at
         before update on user_model_refresh_states
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_user_provider_balance_snapshots_updated_at
-        before update on user_provider_balance_snapshots
         for each row execute function set_updated_at()
       `);
         await client.query(`

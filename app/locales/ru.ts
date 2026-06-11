@@ -284,16 +284,6 @@ const ru: PartialLocaleType = {
         "Когда не сжатая история сообщений превышает это значение, происходит сжатие",
     },
 
-    Usage: {
-      Title: "Проверка баланса",
-      SubTitle(used: any, total: any) {
-        return `Использовано в этом месяце $${used}, всего по подписке $${total}`;
-      },
-      IsChecking: "Проверка…",
-      Check: "Проверить снова",
-      NoAccess: "Введите API-ключ или пароль доступа для просмотра баланса",
-    },
-
     Access: {
       SaasStart: {
         Title: "Используйте NextChat AI",

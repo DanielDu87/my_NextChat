@@ -282,16 +282,6 @@ const bn: PartialLocaleType = {
         "যখন সংকুচিত ইতিহাস বার্তা এই মান ছাড়িয়ে যায়, তখন সংকুচিত করা হবে",
     },
 
-    Usage: {
-      Title: "ব্যালেন্স চেক",
-      SubTitle(used: any, total: any) {
-        return `এই মাসে ব্যবহৃত $${used}, সাবস্ক্রিপশন মোট $${total}`;
-      },
-      IsChecking: "পরীক্ষা করা হচ্ছে…",
-      Check: "পুনরায় পরীক্ষা করুন",
-      NoAccess: "ব্যালেন্স দেখতে API কী অথবা অ্যাক্সেস পাসওয়ার্ড প্রবেশ করুন",
-    },
-
     Access: {
       SaasStart: {
         Title: "NextChat AI ব্যবহার করুন",

@@ -26,7 +26,6 @@
 | `site_access_settings` | 1 | 站点访问密码哈希 | `app/utils/server/site-password.ts:58`、`app/utils/server/site-password.ts:102` | 正在使用，不多余 |
 | `sync_secrets` | 2 | 同步用敏感 payload 密文，当前是 `access-control` 类 secret | `app/utils/server/sync-secrets.ts:111`、`app/utils/server/sync-secrets.ts:124` | 正在使用；审计时有一条旧同步用户历史遗留 |
 | `user_model_refresh_states` | 2 | 模型刷新状态快照 | `app/utils/server/model-refresh-state-repository.ts:6`、`app/utils/server/model-refresh-state-repository.ts:22` | 正在使用；审计时有一条旧同步用户历史状态 |
-| `user_provider_balance_snapshots` | 12 | provider 余额查询结果缓存 | `app/utils/server/provider-balance-repository.ts:6`、`app/utils/server/provider-balance-repository.ts:23` | 正在使用；部分 4 月旧 profile 快照疑似过期 |
 | `message_attachments` | 0 | 设计中的消息附件表 | `app/utils/server/postgres.ts:358` 仅建表 | 空表；当前无写入路径，可视为功能预留 |
 | `tags` | 0 | 设计中的会话标签表 | `app/utils/server/postgres.ts:373` 仅建表；`scripts/unify-user-id.ts` 只迁移 | 空表；当前主流程未使用 |
 | `share_links` | 0 | 设计中的分享链接表 | `app/utils/server/postgres.ts:384` 仅建表；`scripts/unify-user-id.ts` 只迁移 | 空表；当前主流程未使用 |
@@ -59,7 +58,6 @@
 | `site_access_settings` | `setting_key text PK`, `password_hash text`, `created_at timestamptz`, `updated_at timestamptz` |
 | `sync_secrets` | `id uuid PK`, `user_id text`, `secret_key text`, `encrypted_payload text`, `created_at timestamptz`, `updated_at timestamptz` |
 | `user_model_refresh_states` | `user_id text PK`, `refresh_key text PK`, `payload_json jsonb`, `created_at timestamptz`, `updated_at timestamptz` |
-| `user_provider_balance_snapshots` | `user_id text PK`, `balance_key text PK`, `payload_json jsonb`, `created_at timestamptz`, `updated_at timestamptz` |
 | `tags` | `id uuid PK`, `user_id uuid FK`, `name text`, `color text`, `created_at timestamptz`, `updated_at timestamptz` |
 | `share_links` | `id uuid PK`, `conversation_id uuid FK`, `created_by uuid FK`, `share_token text UNIQUE`, `permission text`, `expires_at timestamptz`, `metadata_json jsonb`, `created_at timestamptz`, `updated_at timestamptz` |
 | `model_catalog` | `id uuid PK`, `provider_id text`, `provider_name text`, `source_file text`, `model_name text`, `display_name text`, `vendor_name text`, `vendor_icon text`, `model_type text`, `category text`, `category_source smallint`, `types jsonb`, `categories jsonb`, `features jsonb`, `capabilities jsonb`, `published_at_int integer`, `published_at_source text`, `published_at_url text`, `published_at_note text`, `is_available boolean`, `sort_order integer`, `api_key_group text`, `raw_payload jsonb`, `first_seen_at timestamptz`, `last_seen_at timestamptz`, `created_at timestamptz`, `updated_at timestamptz` |
@@ -175,7 +173,6 @@
 
 `site_access_settings` 1 行：`setting_key='site-password'`，保存站点访问密码哈希。该表由 `app/utils/server/site-password.ts:58` 创建并在 `app/utils/server/site-password.ts:102` 读取，正在使用，不能视为多余。
 
-## 9. 模型与余额快照
 
 `user_model_refresh_states` 2 行：
 
@@ -184,7 +181,6 @@
 | `user:admin` | latest | 2644 | 2026-05-12 | 当前用户状态，可保留 |
 | 旧同步用户（已清理） | latest | 2576 | 2026-04-08 | 历史同步 ID，后续已清理 |
 
-`user_provider_balance_snapshots` 12 行：
 
 - `user:admin` 10 行，包含 4 个默认 provider 当前/近期快照，以及 4 月份的 `profile_177...` 历史 profile/local 快照。
 - 旧同步用户 2 行，更新时间为 2026-05-29，后续已清理。
@@ -229,12 +225,10 @@
    这些行不会出现在当前聊天索引中，且没有消息；属于最明确的冗余数据。
 
 2. 确认是否彻底废弃旧同步用户。
-   如果生产和本地都统一使用 `user:admin`，可考虑清理旧同步用户对应的 `app_settings/provider_configs/provider_api_keys/sync_secrets/user_model_refresh_states/user_provider_balance_snapshots`。后续已统一配置并清理旧数据。
 
 3. 清理旧同步用户下两个 `profile_178038...` provider 配置。
    这两条 disabled，且 key 组大量复制，疑似临时测试数据。
 
-4. 清理旧余额快照。
    `user:admin` 下 `profile_177...` 和 `local:*` 的 4 月快照，以及旧同步用户的 5 月快照，如果 UI 不再展示这些 profile，可删除。
 
 5. 空表分批处理。
@@ -252,6 +246,5 @@
 - `site_access_settings`
 - `sync_secrets`
 - `user_model_refresh_states`
-- `user_provider_balance_snapshots`
 
 这些表都有当前代码读写路径或当前有效数据。即使其中有局部历史数据，也不应按整表删除。

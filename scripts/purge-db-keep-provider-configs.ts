@@ -15,7 +15,6 @@ const TABLES_TO_PURGE = [
   "model_catalog",
   "model_sync_runs",
   "user_model_refresh_states",
-  "user_provider_balance_snapshots",
   "model_source_index_snapshots",
 ] as const;
 

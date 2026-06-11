@@ -283,16 +283,6 @@ const id: PartialLocaleType = {
         "Ketika pesan sejarah yang tidak terkompresi melebihi nilai ini, akan dikompresi",
     },
 
-    Usage: {
-      Title: "Cek Saldo",
-      SubTitle(used: any, total: any) {
-        return `Digunakan bulan ini $${used}, total langganan $${total}`;
-      },
-      IsChecking: "Sedang memeriksa…",
-      Check: "Periksa Lagi",
-      NoAccess: "Masukkan API Key atau kata sandi akses untuk melihat saldo",
-    },
-
     Access: {
       SaasStart: {
         Title: "Gunakan NextChat AI",

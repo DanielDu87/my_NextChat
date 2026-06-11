@@ -173,7 +173,6 @@ Vercel 是一个全球化的云平台，旨在帮助开发人员更快地构建�
 ## 怎么开通 OpenAI API? 怎么查询 API 余额？
 
 官网地址（需梯子）：https://platform.openai.com/account/usage
-有网友搭建了无需梯子的余额查询代理，请询问网友获取。请鉴别来源是否可靠，以免 API Key 泄露。
 
 ## 我新注册的 OpenAI 账号怎么没有 API 余额？
 

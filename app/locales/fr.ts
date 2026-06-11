@@ -292,17 +292,6 @@ const fr: PartialLocaleType = {
         "Compresser les messages historiques lorsque leur longueur dépasse cette valeur",
     },
 
-    Usage: {
-      Title: "Vérification du solde",
-      SubTitle(used: any, total: any) {
-        return `Utilisé ce mois-ci : $${used}, Total d'abonnement : $${total}`;
-      },
-      IsChecking: "Vérification en cours…",
-      Check: "Re-vérifier",
-      NoAccess:
-        "Entrez la clé API ou le mot de passe d'accès pour vérifier le solde",
-    },
-
     Access: {
       SaasStart: {
         Title: "Utiliser NextChat AI",

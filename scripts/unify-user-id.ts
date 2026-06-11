@@ -674,7 +674,6 @@ async function collectResidualTextUserIds(
   const values = new Set<string>();
   const tableNames = [
     "user_model_refresh_states",
-    "user_provider_balance_snapshots",
     "sync_secrets",
   ] as const;
 
@@ -821,7 +820,6 @@ async function main() {
         auditLogsUpdated: 0,
         tagsUpdated: 0,
         refreshStatesMerged: 0,
-        balanceSnapshotsMerged: 0,
         syncSecretsMerged: 0,
         deletedUsers: 0,
       };
@@ -891,13 +889,6 @@ async function main() {
       targetExternalUserId,
       sourceTextUserIds,
     );
-    const balanceSnapshotsMerged = await mergeTextKeyTable(
-      client,
-      "user_provider_balance_snapshots",
-      "balance_key",
-      targetExternalUserId,
-      sourceTextUserIds,
-    );
     const syncSecretsMerged = await mergeSyncSecrets(
       client,
       targetExternalUserId,
@@ -929,7 +920,6 @@ async function main() {
       auditLogsUpdated,
       tagsUpdated,
       refreshStatesMerged,
-      balanceSnapshotsMerged,
       syncSecretsMerged,
       deletedUsers: sourceUserIds.length,
     };
