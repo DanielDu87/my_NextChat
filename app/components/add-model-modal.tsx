@@ -91,9 +91,10 @@ export function AddModelSelector(props: {
   onClose: () => void;
   profiles: ApiProfile[];
   initialProviderId: string;
+  onRemoveModel?: (keys: string[]) => void;
 }) {
   const config = useAppConfig();
-  const { profiles, initialProviderId, onClose } = props;
+  const { profiles, initialProviderId, onClose, onRemoveModel } = props;
   const [selectedProviderId, setSelectedProviderId] =
     useState(initialProviderId);
   const [fetchedModels, setFetchedModels] = useState<LLMModel[]>([]);
@@ -286,8 +287,9 @@ export function AddModelSelector(props: {
         state.customModels = updated.join(",");
         (state as any).customModelsUpdatedAt = Date.now();
       });
+      onRemoveModel?.([key]);
     },
-    [config],
+    [config, onRemoveModel],
   );
 
   const removeAll = useCallback(() => {
@@ -317,7 +319,8 @@ export function AddModelSelector(props: {
       state.customModels = updated.join(",");
       (state as any).customModelsUpdatedAt = Date.now();
     });
-  }, [config, selectedProviderId]);
+    onRemoveModel?.(removed.map((model) => model.replace(/^[+-]/, "")));
+  }, [config, onRemoveModel, selectedProviderId]);
 
   const selectorItems = useMemo(() => {
     // 已添加模式：只显示已添加的模型，右边显示删除按钮

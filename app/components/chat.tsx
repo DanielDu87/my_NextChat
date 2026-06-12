@@ -2846,6 +2846,7 @@ function _Chat() {
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const modelSelectorRequiresSelectionRef = useRef(false);
+  const mobileInitialModelToastKeyRef = useRef("");
   const suppressGlobalModelApplySessionRef = useRef("");
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
@@ -2974,6 +2975,41 @@ function _Chat() {
   const providerSwitchDisabled = useMemo(() => {
     return false;
   }, []);
+
+  useEffect(() => {
+    if (!isMobileScreen || !shouldShowModelConfigLabel) {
+      return;
+    }
+
+    const modelLabel = String(currentModelName || "").trim();
+    const providerLabel = String(
+      activeModelSelectorProviderDisplayName || "",
+    ).trim();
+    if (!modelLabel || !providerLabel) {
+      return;
+    }
+
+    const toastKey = `${safeSession.id}|${providerLabel}|${modelLabel}`;
+    if (mobileInitialModelToastKeyRef.current === toastKey) {
+      return;
+    }
+
+    mobileInitialModelToastKeyRef.current = toastKey;
+    setProviderSwitchToast({
+      show: true,
+      message: `当前模型：${providerLabel} ${modelLabel}`,
+    });
+    window.setTimeout(() => {
+      setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+    }, providerSwitchToastDurationMs);
+  }, [
+    activeModelSelectorProviderDisplayName,
+    currentModelName,
+    isMobileScreen,
+    providerSwitchToastDurationMs,
+    safeSession.id,
+    shouldShowModelConfigLabel,
+  ]);
 
   const isAiHubMixOrderingReady = useMemo(() => {
     const aiHubMixProfile = apiProfiles.find(
@@ -8055,6 +8091,26 @@ function _Chat() {
           }}
           profiles={addModelProfile.profiles}
           initialProviderId={addModelProfile.currentProviderId}
+          onRemoveModel={(keys) => {
+            const currentValue = `${currentRawModel}@${currentProviderId}`;
+            const removedCurrentModel = keys.some(
+              (key) => key.toLowerCase() === currentValue.toLowerCase(),
+            );
+
+            if (!removedCurrentModel) {
+              return;
+            }
+
+            setModelSelectorProviderId(currentProviderId);
+            setModelSelectorDefaultValue("");
+            setModelSelectorResetKey((key) => key + 1);
+            modelSelectorRequiresSelectionRef.current = true;
+            setModelSelectorNotice("当前使用的模型已删除，请重新选择一个模型");
+            if (modelSelectorNoticeTimerRef.current) {
+              clearTimeout(modelSelectorNoticeTimerRef.current);
+              modelSelectorNoticeTimerRef.current = null;
+            }
+          }}
         />
       )}
     </>

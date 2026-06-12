@@ -859,6 +859,48 @@ export function Selector<T>(props: {
     }
   };
 
+  const installPointerGuard = () => {
+    if (typeof document === "undefined") return;
+
+    const guard = document.createElement("div");
+    guard.setAttribute("data-selector-pointer-guard", "true");
+    Object.assign(guard.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "2147483647",
+      background: "transparent",
+      pointerEvents: "auto",
+      touchAction: "none",
+      WebkitTapHighlightColor: "transparent",
+    });
+
+    const stopEvent = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    [
+      "pointerdown",
+      "pointerup",
+      "touchstart",
+      "touchend",
+      "mousedown",
+      "mouseup",
+      "click",
+    ].forEach((eventName) =>
+      guard.addEventListener(eventName, stopEvent, true),
+    );
+
+    document.body.appendChild(guard);
+    window.setTimeout(() => {
+      guard.remove();
+    }, 650);
+  };
+
+  const closeSelectorFromMask = () => {
+    installPointerGuard();
+    props.onClose?.();
+  };
+
   const availableGroups = useMemo(() => {
     const groups = Array.from(
       new Set(props.items.map((item) => item.group?.trim()).filter(Boolean)),
@@ -1171,7 +1213,27 @@ export function Selector<T>(props: {
       className={clsx(styles["selector"], props.className)}
       data-selector-container="true"
       data-auto-model-enabled={props.dataAutoModelEnabled ? "true" : undefined}
-      onClick={() => props.onClose?.()}
+      onPointerDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onTouchStart={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeSelectorFromMask();
+      }}
     >
       <div
         className={clsx(styles["selector-content"], {

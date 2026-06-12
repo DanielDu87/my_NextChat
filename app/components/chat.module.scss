@@ -2813,26 +2813,39 @@
   .chat-message-item {
     margin-top: 4px;
     font-size: 15px;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .chat-message {
+    box-sizing: border-box;
+    width: 100%;
     padding-left: 10px;
     padding-right: 10px;
   }
 
   .chat-message-user {
+    box-sizing: border-box;
+    width: 100%;
     padding-right: 10px;
     padding-left: 10px;
   }
 
   .chat-message-content {
     display: flex;
+    width: 100%;
     max-width: calc(100vw - 28px);
+    min-width: 0;
     align-items: center;
     gap: 6px;
   }
 
+  .chat-message .chat-message-content {
+    align-self: stretch;
+  }
+
   .chat-message-user .chat-message-content {
+    width: auto;
     flex-direction: row-reverse;
   }
 
@@ -2942,6 +2955,31 @@
 
   .chat-message .chat-message-item {
     padding: 0;
+    width: 100%;
+  }
+
+  .chat-message-item :global(.markdown-body) {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-message-item :global(.markdown-body pre) {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: auto;
+    margin-right: auto;
+    overflow-x: auto;
+  }
+
+  .chat-message-item :global(.markdown-body pre code) {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
   }
 
   .chat-message,
