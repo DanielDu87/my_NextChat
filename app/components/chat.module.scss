@@ -7,6 +7,8 @@
   flex-wrap: nowrap;
   gap: 8px;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 12px 64px 8px 22px;
   box-sizing: border-box;
   overflow-x: auto;
@@ -25,12 +27,14 @@
   cursor: default;
   width: 78px;
   height: 78px;
+  box-sizing: border-box;
   border: rgba($color: #888, $alpha: 0.2) 1px solid;
   border-radius: 8px;
   background-size: cover;
   background-position: center;
   background-color: var(--white);
-  flex: 0 0 auto;
+  flex: 0 0 78px;
+  min-width: 0;
   overflow: hidden;
 
   .attach-image-mask {
@@ -1911,20 +1915,26 @@
 }
 
 .chat-message-item-image {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  height: auto;
   margin-top: 10px;
 }
 
 .chat-message-item-images {
   width: 100%;
+  max-width: 100%;
   display: grid;
-  justify-content: left;
+  justify-content: stretch;
   grid-gap: 10px;
-  grid-template-columns: repeat(var(--image-count), auto);
+  grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
   margin-top: 10px;
 }
 
 .chat-message-item-image-multi {
+  display: block;
+  max-width: 100%;
   object-fit: cover;
   background-size: cover;
   background-position: center;
@@ -1939,15 +1949,18 @@
 }
 
 @media only screen and (max-width: 650px) {
-  $calc-image-width: calc(100vw / 3 * 2 / var(--image-count));
+  .chat-message-item-images {
+    grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
+  }
 
   .chat-message-item-image-multi {
-    width: $calc-image-width;
-    height: $calc-image-width;
+    width: 100%;
+    min-width: 0;
+    aspect-ratio: 1 / 1;
   }
 
   .chat-message-item-image {
-    max-width: calc(100vw / 3 * 2);
+    max-width: min(100%, calc(100vw / 3 * 2));
   }
 }
 
@@ -1955,20 +1968,20 @@
   $max-image-width: calc(
     calc(1200px - var(--sidebar-width)) / 3 * 2 / var(--image-count)
   );
-  $image-width: calc(
-    calc(var(--window-width) - var(--sidebar-width)) / 3 * 2 /
-      var(--image-count)
-  );
+  .chat-message-item-images {
+    grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
+  }
 
   .chat-message-item-image-multi {
-    width: $image-width;
-    height: $image-width;
+    width: 100%;
+    min-width: 0;
+    aspect-ratio: 1 / 1;
     max-width: $max-image-width;
     max-height: $max-image-width;
   }
 
   .chat-message-item-image {
-    max-width: calc(calc(1200px - var(--sidebar-width)) / 3 * 2);
+    max-width: min(100%, calc(calc(1200px - var(--sidebar-width)) / 3 * 2));
   }
 }
 
@@ -2368,6 +2381,7 @@
   align-items: stretch;
   gap: 10px;
   width: 100%;
+  min-width: 0;
 }
 
 .chat-input-mobile-actions {
@@ -2460,6 +2474,8 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
+  width: 100%;
+  max-width: 100%;
   border-radius: var(--chat-input-panel-radius);
   border: var(--border-in-light);
   position: relative;
@@ -2878,6 +2894,8 @@
   }
 
   .chat-message-content-mobile-actions-inline {
+    box-sizing: border-box;
+    max-width: calc(100vw - 28px);
     transition: padding-top 0.2s ease;
 
     .chat-message-actions {
@@ -2885,12 +2903,42 @@
       right: auto;
       bottom: auto;
       left: 8px;
+      max-width: calc(100% - 16px);
+      z-index: 4;
       transform: translateY(-4px) scale(0.94);
     }
 
-    .chat-message-item {
-      padding-top: 42px;
+    .chat-message-actions-inline {
+      top: 7px;
+      left: 8px;
+      max-width: calc(100% - 16px);
     }
+
+    .chat-input-actions {
+      max-width: 100%;
+      flex-wrap: wrap;
+      row-gap: 4px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    .chat-input-action {
+      flex: 0 0 auto;
+    }
+
+    .chat-input-actions::-webkit-scrollbar {
+      display: none;
+    }
+
+    .chat-message-item {
+      box-sizing: border-box;
+    }
+  }
+
+  .chat-message-user .chat-message-content-mobile-actions-inline
+    .chat-message-actions {
+    right: auto;
+    left: 8px;
   }
 
   .chat-message-user .chat-message-content-mobile-actions-left {
@@ -2913,11 +2961,47 @@
     transform: translateY(0) scale(1);
   }
 
+  .chat-message-container:hover
+    .chat-message-content-mobile-actions-left
+    .chat-message-actions {
+    transform: translateY(calc(-50% + 4px)) scale(1);
+  }
+
   .chat-message-container:active .chat-message-actions,
   .chat-message-container:focus-within .chat-message-actions {
     opacity: 1;
     pointer-events: all;
     transform: translateY(0) scale(1);
+  }
+
+  .chat-message-container:active
+    .chat-message-content-mobile-actions-inline
+    .chat-message-actions,
+  .chat-message-container:focus-within
+    .chat-message-content-mobile-actions-inline
+    .chat-message-actions {
+    transform: translateY(-4px) scale(1);
+  }
+
+  .chat-message-container:hover
+    .chat-message-content-mobile-actions-inline
+    .chat-message-actions-inline,
+  .chat-message-container:active
+    .chat-message-content-mobile-actions-inline
+    .chat-message-actions-inline,
+  .chat-message-container:focus-within
+    .chat-message-content-mobile-actions-inline
+    .chat-message-actions-inline {
+    transform: translateY(0) scale(1);
+  }
+
+  .chat-message-container:active
+    .chat-message-content-mobile-actions-left
+    .chat-message-actions,
+  .chat-message-container:focus-within
+    .chat-message-content-mobile-actions-left
+    .chat-message-actions {
+    transform: translateY(calc(-50% + 4px)) scale(1);
   }
 
   .chat-message-actions-streaming {
@@ -2951,6 +3035,11 @@
 
   .chat-message-user .chat-message-item {
     padding: 7px 9px;
+  }
+
+  .chat-message-user .chat-message-item-with-images {
+    box-sizing: border-box;
+    width: min(100%, calc(100vw - 28px));
   }
 
   .chat-message .chat-message-item {
@@ -3201,6 +3290,7 @@
   .chat-input-panel-inner.chat-input-panel-inner-attach {
     min-height: calc(44px + var(--chat-mobile-attach-strip-height));
     max-height: calc(60vh + var(--chat-mobile-attach-strip-height));
+    min-width: 0;
 
     .chat-input {
       flex: 0 0 auto;
@@ -3215,6 +3305,7 @@
 
   .attach-images {
     gap: 6px;
+    max-width: 100%;
     padding: 6px 8px 4px 8px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -3232,7 +3323,7 @@
   .attach-image {
     width: 60px;
     height: 60px;
-    flex-shrink: 0;
+    flex: 0 0 60px;
   }
 
   // 聚焦时允许输入框按内容增长，未聚焦时会在下面的规则中折叠回单行。

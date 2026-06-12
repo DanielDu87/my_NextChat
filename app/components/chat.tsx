@@ -159,6 +159,7 @@ function syncModelSelectionNow() {
       console.error("[模型选择器] 模型选择立即同步失败", error);
     });
 }
+
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
@@ -189,6 +190,8 @@ import { RealtimeChat } from "@/app/components/realtime-chat";
 import { useAuthStore } from "../store/auth";
 import { UserMenu } from "./user-menu";
 import { AddModelSelector } from "./add-model-modal";
+
+let hasMountedChatInCurrentPage = false;
 
 function areSelectorItemsEqual(
   left: Array<{
@@ -1925,6 +1928,7 @@ function _Chat() {
   const location = useLocation();
   const chatStore = useChatStore();
   const emptySessionRef = useRef(createEmptySession());
+  const isFirstChatMountRef = useRef(!hasMountedChatInCurrentPage);
   const currentSessionSnapshot = useChatStore(
     (state) => state.sessions[state.currentSessionIndex],
   );
@@ -1933,6 +1937,10 @@ function _Chat() {
   const session = loadedSession ?? currentSessionSnapshot;
   const liveSession = currentSessionSnapshot ?? session;
   const safeSession = session ?? emptySessionRef.current;
+
+  useEffect(() => {
+    hasMountedChatInCurrentPage = true;
+  }, []);
 
   useEffect(() => {
     if (!safeSession?.id || typeof window === "undefined") {
@@ -2981,6 +2989,15 @@ function _Chat() {
       return;
     }
 
+    const sessionCreatedAt = Number(safeSession.createdAt || 0);
+    const isRecentlyCreatedEmptySession =
+      !currentSessionHasMessages &&
+      sessionCreatedAt > 0 &&
+      Date.now() - sessionCreatedAt < 10 * 1000;
+    if (!isFirstChatMountRef.current && !isRecentlyCreatedEmptySession) {
+      return;
+    }
+
     const modelLabel = String(currentModelName || "").trim();
     const providerLabel = String(
       activeModelSelectorProviderDisplayName || "",
@@ -3005,8 +3022,10 @@ function _Chat() {
   }, [
     activeModelSelectorProviderDisplayName,
     currentModelName,
+    currentSessionHasMessages,
     isMobileScreen,
     providerSwitchToastDurationMs,
+    safeSession.createdAt,
     safeSession.id,
     shouldShowModelConfigLabel,
   ]);
@@ -6963,9 +6982,10 @@ function _Chat() {
                       editingMessageId === message.id;
                     const shouldInlineMobileActions =
                       isMobileScreen &&
-                      i === firstActionableMessageIndex &&
-                      messageImages.length === 0 &&
-                      messageTextContent.trim().length > 12;
+                      (messageImages.length > 0 ||
+                        (i === firstActionableMessageIndex &&
+                          messageImages.length === 0 &&
+                          messageTextContent.trim().length > 12));
                     const shouldLeftMobileActions =
                       isMobileScreen &&
                       i === firstActionableMessageIndex &&
@@ -7171,7 +7191,29 @@ function _Chat() {
                                   !isMobileScreen,
                               })}
                             >
-                              <div className={styles["chat-message-item"]}>
+                              <div
+                                className={clsx(styles["chat-message-item"], {
+                                  [styles["chat-message-item-with-images"]]:
+                                    messageImages.length > 0,
+                                })}
+                              >
+                                {showActions &&
+                                  isMobileScreen &&
+                                  shouldInlineMobileActions && (
+                                    <div
+                                      className={clsx(
+                                        styles["chat-message-actions"],
+                                        styles["chat-message-actions-inline"],
+                                        {
+                                          [styles[
+                                            "chat-message-actions-streaming"
+                                          ]]: message.streaming,
+                                        },
+                                      )}
+                                    >
+                                      {messageActions}
+                                    </div>
+                                  )}
                                 {editingMessageId === message.id &&
                                 !isMobileScreen ? (
                                   <textarea
@@ -7246,20 +7288,22 @@ function _Chat() {
                                   </div>
                                 )}
                               </div>
-                              {showActions && isMobileScreen && (
-                                <div
-                                  className={clsx(
-                                    styles["chat-message-actions"],
-                                    {
-                                      [styles[
-                                        "chat-message-actions-streaming"
-                                      ]]: message.streaming,
-                                    },
-                                  )}
-                                >
-                                  {messageActions}
-                                </div>
-                              )}
+                              {showActions &&
+                                isMobileScreen &&
+                                !shouldInlineMobileActions && (
+                                  <div
+                                    className={clsx(
+                                      styles["chat-message-actions"],
+                                      {
+                                        [styles[
+                                          "chat-message-actions-streaming"
+                                        ]]: message.streaming,
+                                      },
+                                    )}
+                                  >
+                                    {messageActions}
+                                  </div>
+                                )}
                             </div>
                             {message?.audio_url && (
                               <div className={styles["chat-message-audio"]}>
