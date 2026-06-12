@@ -192,6 +192,7 @@ export type ChatMessage = RequestMessage & {
   audio_url?: string;
   isMcpResponse?: boolean;
   usage?: ChatMessageUsage;
+  manualStopped?: boolean;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {

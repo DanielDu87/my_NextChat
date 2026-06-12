@@ -2209,6 +2209,7 @@ function _Chat() {
   const userScrollIntentRef = useRef(false);
   const userScrollIntentUntilRef = useRef(0);
   const lastChatBodyScrollTopRef = useRef(0);
+  const chatBodyTouchStartYRef = useRef<number | null>(null);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -2423,6 +2424,9 @@ function _Chat() {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
       return;
     }
+    if (readManualSessionModelSelection(session.id)) {
+      return;
+    }
 
     const currentModelConfig = sessionMask.modelConfig;
     const currentModelKey = [
@@ -2457,6 +2461,7 @@ function _Chat() {
     currentSessionHasMessages,
     latestAssistantModelSelection,
     session,
+    session.id,
     sessionMask.modelConfig,
   ]);
 
@@ -2760,6 +2765,9 @@ function _Chat() {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
       return false;
     }
+    if (readManualSessionModelSelection(session.id)) {
+      return false;
+    }
 
     const currentModelConfig = sessionMask.modelConfig;
     const currentModelKey = [
@@ -2777,6 +2785,7 @@ function _Chat() {
   }, [
     currentSessionHasMessages,
     latestAssistantModelSelection,
+    session.id,
     sessionMask.modelConfig,
   ]);
   const shouldShowModelConfigLabel =
@@ -2831,6 +2840,7 @@ function _Chat() {
     show: boolean;
     message: string;
   }>({ show: false, message: "" });
+  const providerSwitchToastDurationMs = isMobileScreen ? 3500 : 2200;
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorOpenStartedAtRef = useRef(0);
@@ -2999,8 +3009,8 @@ function _Chat() {
     });
     window.setTimeout(() => {
       setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-    }, 2200);
-  }, []);
+    }, providerSwitchToastDurationMs);
+  }, [providerSwitchToastDurationMs]);
 
   const modelSelectorQuickFilters = useMemo(
     () => [
@@ -3315,7 +3325,18 @@ function _Chat() {
 
   // stop response
   const onUserStop = (messageId: string) => {
-    ChatControllerPool.stop(session.id, messageId);
+    chatStore.updateTargetSession(session, (session) => {
+      const targetMessage = session.messages.find(
+        (message, index) => String(message.id ?? index) === messageId,
+      );
+      if (targetMessage && targetMessage.role === "assistant") {
+        targetMessage.manualStopped = true;
+      }
+    });
+    const stopped = ChatControllerPool.stop(session.id, messageId);
+    if (!stopped) {
+      ChatControllerPool.stopSession(session.id);
+    }
   };
 
   // Effect A：消息标准化（修复残留 streaming 和空响应）
@@ -4018,6 +4039,19 @@ function _Chat() {
   }, [chatStore, forceScrollToBottom, session]);
 
   const scrollToBottomTouchTriggeredRef = useRef(false);
+  const pauseStreamingAutoScrollForUser = useCallback(
+    (durationMs = 1800) => {
+      if (!isAssistantStreaming) return;
+      clearStreamingScrollResumeTimer();
+      userScrollIntentRef.current = true;
+      userScrollIntentUntilRef.current = Date.now() + durationMs;
+      streamingAutoScrollPausedRef.current = true;
+      setAutoScroll(false);
+      setHitBottom(false);
+    },
+    [clearStreamingScrollResumeTimer, isAssistantStreaming, setAutoScroll],
+  );
+
   const markUserScrollIntent = useCallback(() => {
     if (isAssistantStreaming) {
       userScrollIntentRef.current = true;
@@ -4102,56 +4136,61 @@ function _Chat() {
   );
 
   const scrollToTopOnMobile = useCallback(() => {
-    const isMobileBrowser =
-      typeof navigator !== "undefined" &&
-      /Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(
-        navigator.userAgent || "",
-      );
-    const isTouchBrowser =
-      typeof navigator !== "undefined" && Number(navigator.maxTouchPoints) > 0;
-    if (!isMobileScreen && !isMobileBrowser && !isTouchBrowser) return;
-
     mobileInputRef.current?.blur();
     clearStreamingScrollResumeTimer();
     userScrollIntentRef.current = true;
-    userScrollIntentUntilRef.current = Date.now() + 1200;
+    userScrollIntentUntilRef.current = Date.now() + 1800;
     streamingAutoScrollPausedRef.current = true;
     setAutoScroll(false);
     setHitBottom(false);
     const dom = scrollRef.current;
-    const previousHeight = dom?.scrollHeight ?? 0;
-    const previousTop = dom?.scrollTop ?? 0;
-    setMsgRenderIndex(0);
 
-    window.requestAnimationFrame(() => {
+    const keepTopScrollPaused = () => {
+      userScrollIntentRef.current = true;
+      userScrollIntentUntilRef.current = Date.now() + 1800;
+      streamingAutoScrollPausedRef.current = true;
+      setAutoScroll(false);
+      setHitBottom(false);
+    };
+
+    const settleTopWindow = () => {
+      keepTopScrollPaused();
+      setMsgRenderIndex(0);
       window.requestAnimationFrame(() => {
-        const nextDom = scrollRef.current;
-        if (!nextDom) return;
-
-        userScrollIntentRef.current = true;
-        userScrollIntentUntilRef.current = Date.now() + 1200;
-        streamingAutoScrollPausedRef.current = true;
-        setAutoScroll(false);
-        setHitBottom(false);
-
-        if (msgRenderIndex > 0) {
-          const heightDelta = nextDom.scrollHeight - previousHeight;
-          nextDom.scrollTop = Math.max(0, previousTop + heightDelta);
-        }
-
-        nextDom.scrollTo({
-          top: 0,
-          behavior: "smooth",
+        window.requestAnimationFrame(() => {
+          keepTopScrollPaused();
+          const nextDom = scrollRef.current;
+          if (!nextDom) return;
+          nextDom.scrollTop = 0;
+          nextDom.scrollTo?.({
+            top: 0,
+            behavior: "smooth",
+          });
+          lastChatBodyScrollTopRef.current = 0;
         });
       });
+    };
+
+    if (!dom) {
+      settleTopWindow();
+      return;
+    }
+
+    dom.scrollTo?.({
+      top: 0,
+      behavior: "smooth",
     });
-  }, [
-    clearStreamingScrollResumeTimer,
-    isMobileScreen,
-    msgRenderIndex,
-    setAutoScroll,
-    setMsgRenderIndex,
-  ]);
+    lastChatBodyScrollTopRef.current = 0;
+
+    window.setTimeout(settleTopWindow, 260);
+    window.setTimeout(() => {
+      keepTopScrollPaused();
+      const nextDom = scrollRef.current;
+      if (!nextDom) return;
+      nextDom.scrollTop = 0;
+      lastChatBodyScrollTopRef.current = 0;
+    }, 520);
+  }, [clearStreamingScrollResumeTimer, setAutoScroll, setMsgRenderIndex]);
 
   const moveInputCursorToEnd = useCallback(() => {
     const mobileInput = mobileInputRef.current;
@@ -6658,15 +6697,6 @@ function _Chat() {
 
   return (
     <>
-      {/* 自定义供应商切换提示 */}
-      {providerSwitchToast.show && (
-        <div className={styles["provider-switch-toast"]}>
-          <div className={styles["provider-switch-toast-content"]}>
-            {providerSwitchToast.message}
-          </div>
-        </div>
-      )}
-
       <div
         ref={chatRootRef}
         className={clsx(styles.chat, {
@@ -6681,6 +6711,15 @@ function _Chat() {
         }
         key={safeSession.id}
       >
+        {/* 自定义供应商切换提示 */}
+        {providerSwitchToast.show && (
+          <div className={styles["provider-switch-toast"]}>
+            <div className={styles["provider-switch-toast-content"]}>
+              {providerSwitchToast.message}
+            </div>
+          </div>
+        )}
+
         <div className="window-header">
           {isMobileScreen && location.pathname !== Path.Home && (
             <div className="window-actions">
@@ -6909,20 +6948,43 @@ function _Chat() {
               })}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
-              onWheel={markUserScrollIntent}
-              onTouchMove={markUserScrollIntent}
+              onWheel={(e) => {
+                markUserScrollIntent();
+                if (e.deltaY < -1) {
+                  pauseStreamingAutoScrollForUser();
+                }
+              }}
               onMouseDown={() =>
                 (isMobileScreen
                   ? mobileInputRef.current
                   : inputRef.current
                 )?.blur()
               }
-              onTouchStart={() => {
+              onTouchStart={(e) => {
+                chatBodyTouchStartYRef.current = e.touches[0]?.clientY ?? null;
                 markUserScrollIntent();
                 (isMobileScreen
                   ? mobileInputRef.current
                   : inputRef.current
                 )?.blur();
+              }}
+              onTouchMove={(e) => {
+                markUserScrollIntent();
+                const startY = chatBodyTouchStartYRef.current;
+                const currentY = e.touches[0]?.clientY;
+                if (
+                  startY != null &&
+                  currentY != null &&
+                  Math.abs(currentY - startY) > 3
+                ) {
+                  pauseStreamingAutoScrollForUser();
+                }
+              }}
+              onTouchEnd={() => {
+                chatBodyTouchStartYRef.current = null;
+              }}
+              onTouchCancel={() => {
+                chatBodyTouchStartYRef.current = null;
               }}
             >
               {shouldShowChatRestoreNotice && (
@@ -7003,7 +7065,7 @@ function _Chat() {
                           <ChatAction
                             text={Locale.Chat.Actions.Stop}
                             icon={<StopIcon />}
-                            onClick={() => onUserStop(message.id ?? i)}
+                            onClick={() => onUserStop(String(message.id ?? i))}
                           />
                         ) : editingMessageId === message.id && isUser ? (
                           <>
@@ -7265,9 +7327,23 @@ function _Chat() {
                                     })}
                                   </div>
                                 )}
+                                {message.manualStopped && (
+                                  <div className={styles["manual-stop-marker"]}>
+                                    【手动停止】
+                                  </div>
+                                )}
                               </div>
                               {showActions && isMobileScreen && (
-                                <div className={styles["chat-message-actions"]}>
+                                <div
+                                  className={clsx(
+                                    styles["chat-message-actions"],
+                                    {
+                                      [styles[
+                                        "chat-message-actions-streaming"
+                                      ]]: message.streaming,
+                                    },
+                                  )}
+                                >
                                   {messageActions}
                                 </div>
                               )}
@@ -8056,7 +8132,13 @@ function _Chat() {
             const timeSinceProviderSwitch =
               Date.now() - lastProviderSwitchTimeRef.current;
             if (timeSinceProviderSwitch > 1000) {
-              showToast(`已选择 ${model}`);
+              setProviderSwitchToast({
+                show: true,
+                message: `已选择 ${model}`,
+              });
+              window.setTimeout(() => {
+                setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+              }, providerSwitchToastDurationMs);
             }
           }}
         />

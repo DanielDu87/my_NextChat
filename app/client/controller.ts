@@ -15,7 +15,20 @@ export const ChatControllerPool = {
   stop(sessionId: string, messageId: string) {
     const key = this.key(sessionId, messageId);
     const controller = this.controllers[key];
-    controller?.abort();
+    if (!controller) return false;
+    controller.abort();
+    return true;
+  },
+
+  stopSession(sessionId: string) {
+    const prefix = `${sessionId},`;
+    let stopped = false;
+    Object.entries(this.controllers).forEach(([key, controller]) => {
+      if (!key.startsWith(prefix)) return;
+      controller.abort();
+      stopped = true;
+    });
+    return stopped;
   },
 
   stopAll() {

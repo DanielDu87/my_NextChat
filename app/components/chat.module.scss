@@ -1568,7 +1568,7 @@
 }
 
 .chat-body-main-title {
-  cursor: default;
+  cursor: pointer;
 }
 
 .chat-body-title {
@@ -1576,6 +1576,7 @@
   max-width: none;
   min-width: 0;
   margin-right: 16px;
+  cursor: pointer;
 }
 
 @media only screen and (min-width: 651px) {
@@ -1677,6 +1678,21 @@
 .chat-message-content-editing {
   max-width: min(90vw, 800px) !important;
   width: 100%;
+}
+
+.manual-stop-marker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
 }
 
 .chat-message-actions {
@@ -2800,6 +2816,11 @@
     opacity: 1;
     pointer-events: all;
     transform: translateY(0) scale(1);
+  }
+
+  .chat-message-actions-streaming {
+    opacity: 1;
+    pointer-events: all;
   }
 
   .chat-message-user
@@ -4091,14 +4112,15 @@
 }
 
 .provider-switch-toast {
-  position: fixed;
-  top: 0;
+  position: absolute;
+  top: 100px;
   left: 0;
-  width: 100vw;
+  width: 100%;
   display: flex;
   justify-content: center;
   z-index: 10000;
-  padding-top: 16px;
+  padding-top: 0;
+  pointer-events: none;
   animation: slideDown 0.3s ease-out;
 }
 
@@ -4238,7 +4260,8 @@
   }
 
   .provider-switch-toast-content {
-    width: min(100%, calc(100vw - 32px));
+    width: auto;
+    max-width: min(320px, calc(100% - 64px));
     white-space: normal;
     word-break: break-word;
   }
