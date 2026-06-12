@@ -60,6 +60,7 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link
           rel="manifest"
           href="/site.webmanifest"
