@@ -16,10 +16,9 @@ import DiscoveryIcon from "../icons/brain.svg";
 import Locale from "../locales";
 
 import { useAppConfig, useChatStore } from "../store";
-import { useSyncStore } from "../store/sync";
 import { Theme } from "../store/config";
 
-import { DEFAULT_SIDEBAR_WIDTH, Path, StoreKey } from "../constant";
+import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
 import { useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
@@ -28,6 +27,7 @@ import { Selector, showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
+import { createNewChatWithSyncedModel } from "../utils/new-chat";
 
 const DISCOVERY = [
   { name: Locale.Plugin.Name, path: Path.Plugins },
@@ -425,7 +425,6 @@ export function SideBar(props: { className?: string }) {
   const navigate = useNavigate();
   const config = useAppConfig();
   const chatStore = useChatStore();
-  const syncStore = useSyncStore();
   const readOnly = useAuthStore((state) => state.readOnly);
   const [mcpEnabled, setMcpEnabled] = useState(false);
 
@@ -623,35 +622,11 @@ export function SideBar(props: { className?: string }) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;
                 }
-                const startNewChat = () => {
-                  const createdNewSession = chatStore.newSession();
+                const startNewChat = async () => {
+                  await createNewChatWithSyncedModel();
                   navigate(Path.Chat);
-                  if (createdNewSession && syncStore.cloudSync?.()) {
-                    useSyncStore.setState({
-                      criticalSyncReady: false,
-                      criticalSyncInProgress: true,
-                    } as any);
-                    // 只同步模型选择，API 配置在后台异步处理
-                    void syncStore
-                      .sync([StoreKey.Config], {
-                        isolateQueue: true,
-                        broadcastChatHint: false,
-                      })
-                      .catch((error) => {
-                        console.error(
-                          "[Sync] 新建对话模型选择同步失败:",
-                          error,
-                        );
-                      })
-                      .finally(() => {
-                        useSyncStore.setState({
-                          criticalSyncReady: true,
-                          criticalSyncInProgress: false,
-                        } as any);
-                      });
-                  }
                 };
-                startNewChat();
+                void startNewChat();
               }}
               shadow
             />

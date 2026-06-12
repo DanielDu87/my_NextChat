@@ -102,6 +102,7 @@ import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
+import { createNewChatWithSyncedModel } from "../utils/new-chat";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import {
   getActiveModelSelectorProviderId,
@@ -2085,6 +2086,14 @@ function _Chat() {
   }, [criticalSyncInProgress, criticalSyncReady, syncProvider]);
 
   useEffect(() => {
+    if (syncProvider === ProviderType.Database && !criticalSyncReady) {
+      return;
+    }
+
+    useChatStore.getState().refreshFreshDefaultSessionModel?.();
+  }, [criticalSyncReady, syncProvider]);
+
+  useEffect(() => {
     if (editingMessageId && editInputRef.current) {
       const textarea = editInputRef.current;
       textarea.focus();
@@ -2806,30 +2815,21 @@ function _Chat() {
   const autoModeButtonText = autoModeEnabled
     ? `自动模式（${selectedAutoModelSeriesLabel}）`
     : "自动模式（未开启）";
-  const modelConfigSyncingText = "模型同步中";
-  const isModelSelectorSyncing =
-    !autoModeEnabled && !shouldShowModelConfigLabel;
   const modelSelectorButtonText = autoModeEnabled ? (
     <>{autoModeButtonText}</>
   ) : (
     <>
       <span className={styles["provider-button-name"]}>
-        {shouldShowModelConfigLabel
-          ? activeModelSelectorProviderDisplayName
-          : modelConfigSyncingText}
+        {activeModelSelectorProviderDisplayName}
       </span>{" "}
-      {shouldShowModelConfigLabel && (
-        <span className={styles["provider-button-model"]}>
-          {currentModelName}
-        </span>
-      )}
+      <span className={styles["provider-button-model"]}>
+        {currentModelName}
+      </span>
     </>
   );
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
-    : shouldShowModelConfigLabel
-    ? `${activeModelSelectorProviderDisplayName} ${currentModelName}`
-    : modelConfigSyncingText;
+    : `${activeModelSelectorProviderDisplayName} ${currentModelName}`;
   const currentDisplaySelectorValue = `${currentRawModel}@${
     activeModelSelectorProviderId || String(currentProviderName).toLowerCase()
   }`;
@@ -2845,6 +2845,7 @@ function _Chat() {
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorOpenStartedAtRef = useRef(0);
   const modelSelectorNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const modelSelectorRequiresSelectionRef = useRef(false);
   const suppressGlobalModelApplySessionRef = useRef("");
   const availableProviders = useMemo(() => {
     const providers = apiProfiles.reduce<
@@ -2911,6 +2912,7 @@ function _Chat() {
   useEffect(() => {
     if (!showModelSelector) {
       setModelSelectorProviderId("");
+      modelSelectorRequiresSelectionRef.current = false;
       modelSelectorItemsCacheRef.current = {};
       return;
     }
@@ -3001,16 +3003,6 @@ function _Chat() {
 
     return true;
   }, [allModels, apiProfiles, modelCacheProfiles]);
-
-  const handleModelSelectorBlockedDuringSync = useCallback(() => {
-    setProviderSwitchToast({
-      show: true,
-      message: "模型同步中，完成后再打开模型选择器",
-    });
-    window.setTimeout(() => {
-      setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-    }, providerSwitchToastDurationMs);
-  }, [providerSwitchToastDurationMs]);
 
   const modelSelectorQuickFilters = useMemo(
     () => [
@@ -3136,7 +3128,7 @@ function _Chat() {
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({
-    new: () => chatStore.newSession(),
+    new: () => void createNewChatWithSyncedModel(),
     newm: () => navigate(Path.NewChat),
     prev: () => chatStore.nextSession(-1),
     next: () => chatStore.nextSession(1),
@@ -5643,11 +5635,6 @@ function _Chat() {
 
   // 统一的打开模型选择器函数
   const openModelSelector = useCallback(() => {
-    if (isModelSelectorSyncing) {
-      handleModelSelectorBlockedDuringSync();
-      return;
-    }
-
     // 优先使用已切换的 providerId，其次从 session 获取
     const latestProviderId =
       modelSelectorProviderId ||
@@ -5668,6 +5655,7 @@ function _Chat() {
 
     modelSelectorOpenStartedAtRef.current = nowMs();
     setModelSelectorProviderId(latestProviderId);
+    modelSelectorRequiresSelectionRef.current = false;
     setModelSelectorDefaultValue(fallbackDefaultValue);
     setModelSelectorResetKey((key) => key + 1);
     setShowModelSelector(true);
@@ -5676,8 +5664,6 @@ function _Chat() {
     apiProfiles,
     currentRawModel,
     currentProviderName,
-    handleModelSelectorBlockedDuringSync,
-    isModelSelectorSyncing,
     modelSelectorProviderId,
     sessionMask,
   ]);
@@ -5726,136 +5712,38 @@ function _Chat() {
 
         const {
           addedProviderModels,
-          cachedProfileModels,
           cachedProviderModels,
           initialProviderModels,
         } = collectProviderModelsForProfile(profile as any, "provider-switch");
-        const hasLoadedProviderModels = initialProviderModels.length > 0;
 
         const commitProviderSwitch = (
           providerModels: typeof initialProviderModels,
         ) => {
           const switchStartedAt = nowMs();
-          const latestSession = chatStore.currentSession();
-          if (!latestSession) {
-            console.error("[模型选择器] 切换供应商失败：当前对话不存在");
-            return;
-          }
-          const preferredProviderModelConfig = getPreferredDefaultChatModel(
-            providerModels,
-            {
-              ...latestSession.mask.modelConfig,
-              providerName: profile.provider as ServiceProvider,
-              ...(latestSession.mask.modelConfig as any),
-              providerId: selectedProviderId,
-              profileId: profile.id,
-            } as any,
-            apiProfiles,
-          );
-          const nextModel =
-            providerModels.find(
-              (model) => model.name === preferredProviderModelConfig?.model,
-            ) ??
-            providerModels.find((model) => model.isDefault) ??
-            providerModels[0];
-
-          if (!nextModel) {
-            setModelSelectorNotice(
-              `${profileName} 没有已添加模型，无法自动切换`,
-            );
-            if (modelSelectorNoticeTimerRef.current) {
-              clearTimeout(modelSelectorNoticeTimerRef.current);
-            }
-            modelSelectorNoticeTimerRef.current = setTimeout(() => {
-              setModelSelectorNotice("");
-              modelSelectorNoticeTimerRef.current = null;
-            }, 2200);
-            return;
-          }
-
           setIsProviderSelectorOpen(false);
-          lastProviderSwitchTimeRef.current = Date.now();
           setModelSelectorProviderId(selectedProviderId);
+          modelSelectorRequiresSelectionRef.current = true;
+          resetModelSelectorGroupToAll();
+          setModelSelectorResetKey((key) => key + 1);
+          setModelSelectorDefaultValue("");
 
-          const accessStoreState = useAccessStore.getState();
-          runWithImmediateStoreSyncPausedSync(() => {
-            accessStoreState.update((access) => {
-              access.useCustomConfig = true;
-              applyProfileToAccessStore(access, profile as any);
-            });
-          });
-          useSyncStore
-            .getState()
-            .triggerDebounceSync([StoreKey.Access], { delayMs: 0 });
-          chatStore.updateTargetSession(latestSession, (session) => {
-            session.mask.modelConfig.providerName =
-              profile.provider as ServiceProvider;
-            session.mask.modelConfig.model = nextModel.name as ModelType;
-            (session.mask.modelConfig as any).providerId = selectedProviderId;
-            (session.mask.modelConfig as any).profileId = profile.id;
-            session.mask.modelConfig = sanitizeModelConfigForCapability(
-              session.mask.modelConfig,
-            );
-            session.mask.syncGlobalConfig = true;
-          });
-          saveManualSessionModelSelection(latestSession.id, {
-            ...latestSession.mask.modelConfig,
-            model: nextModel.name,
-            providerName: profile.provider,
-            providerId: selectedProviderId,
-            profileId: profile.id || "",
-          });
-
-          // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次切换的供应商/模型，
-          // 并通过 Config store 跨浏览器同步当前模型/供应商。
-          runWithImmediateStoreSyncPausedSync(() => {
-            useAppConfig.getState().update((config) => {
-              config.modelConfig = sanitizeModelConfigForCapability({
-                ...config.modelConfig,
-                model: nextModel.name as ModelType,
-                providerName: profile.provider as ServiceProvider,
-              });
-              (config.modelConfig as any).providerId = selectedProviderId;
-              (config.modelConfig as any).profileId = profile.id || "";
-              (config as any).modelSelectionUpdatedAt = Date.now();
-            });
-          });
-          syncModelSelectionNow();
-
-          console.info("[模型选择器] 供应商已切换", {
-            对话ID: latestSession.id,
-            配置名称: profileName,
-            供应商类型: profile.provider,
-            模型: nextModel.name,
-            供应商ID: selectedProviderId,
-          });
-          console.log(
-            `[Sync] 📤 模型选择已变更，等待上传：${
-              nextModel.name
-            }@${selectedProviderId.replace(/^custom_/, "")}`,
-          );
+          // 切换供应商只切换选择器列表，不自动选择/写入模型。
+          // 只有用户手动点选模型后，才会更新当前会话和全局默认模型。
           localStorage.setItem(
             MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
             profileName,
           );
-          localStorage.setItem(
-            LAST_MODEL_SELECTION_STORAGE_KEY,
-            `${nextModel.name}@${selectedProviderId}`,
-          );
 
-          setModelSelectorNotice(`已切换到 ${profileName}`);
+          setModelSelectorNotice(`请选择 ${profileName} 的模型`);
           if (modelSelectorNoticeTimerRef.current) {
             clearTimeout(modelSelectorNoticeTimerRef.current);
           }
-          modelSelectorNoticeTimerRef.current = setTimeout(() => {
-            setModelSelectorNotice("");
-            modelSelectorNoticeTimerRef.current = null;
-          }, 1600);
-          resetModelSelectorGroupToAll();
-          setModelSelectorResetKey((key) => key + 1);
-          setModelSelectorDefaultValue(
-            `${nextModel.name}@${selectedProviderId}`,
-          );
+
+          console.info("[模型选择器] 供应商列表已切换，等待手动选择模型", {
+            配置名称: profileName,
+            供应商类型: profile.provider,
+            供应商ID: selectedProviderId,
+          });
 
           logPerfSummary("ModelSelector", {
             providerSwitchDurationMs: Number(
@@ -5901,7 +5789,6 @@ function _Chat() {
     },
     [
       apiProfiles,
-      chatStore,
       collectProviderModelsForProfile,
       resetModelSelectorGroupToAll,
       isAiHubMixOrderingReady,
@@ -6595,8 +6482,9 @@ function _Chat() {
       ) {
         event.preventDefault();
         setTimeout(() => {
-          chatStore.newSession();
-          navigate(Path.Chat);
+          void createNewChatWithSyncedModel().finally(() => {
+            navigate(Path.Chat);
+          });
         }, 10);
       }
       // 聚焦聊天输入 shift + esc
@@ -6769,15 +6657,12 @@ function _Chat() {
               <IconButton
                 icon={<RobotIcon />}
                 bordered
-                className={clsx(styles["chat-window-icon-button"], {
-                  [styles["chat-window-icon-button-model-syncing"]]:
-                    isModelSelectorSyncing,
-                })}
+                className={styles["chat-window-icon-button"]}
                 text={useHeaderIconOnly ? undefined : modelSelectorButtonText}
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
                 onClick={openModelSelector}
-                disabled={isChatUnavailableForSync || isModelSelectorSyncing}
+                disabled={isChatUnavailableForSync}
               />
             </div>
             <div
@@ -6921,17 +6806,9 @@ function _Chat() {
                 {isMobileScreen ? (
                   <div className={styles["chat-status-user-panel-mobile"]}>
                     <div className={styles["chat-panel-model-info"]}>
-                      {shouldShowModelConfigLabel ? (
-                        <>
-                          {currentModelName}
-                          <span className={styles["chat-panel-model-at"]}>
-                            @
-                          </span>
-                          {activeModelSelectorProviderDisplayName}
-                        </>
-                      ) : (
-                        modelConfigSyncingText
-                      )}
+                      {currentModelName}
+                      <span className={styles["chat-panel-model-at"]}>@</span>
+                      {activeModelSelectorProviderDisplayName}
                     </div>
                     <UserMenu variant="chat-floating" />
                   </div>
@@ -8028,11 +7905,22 @@ function _Chat() {
             localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, group);
           }}
           onClose={() => {
+            if (modelSelectorRequiresSelectionRef.current) {
+              setModelSelectorNotice(
+                "请先选择一个模型，切换供应商后不能直接关闭",
+              );
+              if (modelSelectorNoticeTimerRef.current) {
+                clearTimeout(modelSelectorNoticeTimerRef.current);
+                modelSelectorNoticeTimerRef.current = null;
+              }
+              return;
+            }
             setShowModelSelector(false);
           }}
           onSelection={async (s) => {
             if (manualModelSelectionDisabled || s.length === 0) return;
 
+            modelSelectorRequiresSelectionRef.current = false;
             setModelSelectorDefaultValue(s[0]);
             const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
             const selectedProviderId = String(

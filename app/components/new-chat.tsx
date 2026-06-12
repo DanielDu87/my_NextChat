@@ -1,16 +1,24 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Path } from "../constant";
-import { useChatStore } from "../store";
+import { createNewChatWithSyncedModel } from "../utils/new-chat";
 
 export function NewChat() {
-  const newSession = useChatStore((state) => state.newSession);
   const navigate = useNavigate();
 
   useEffect(() => {
-    newSession();
-    navigate(Path.Chat, { replace: true });
-  }, [navigate, newSession]);
+    let disposed = false;
+
+    void createNewChatWithSyncedModel().finally(() => {
+      if (!disposed) {
+        navigate(Path.Chat, { replace: true });
+      }
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [navigate]);
 
   return null;
 }

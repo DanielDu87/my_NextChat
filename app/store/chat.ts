@@ -1807,6 +1807,44 @@ export const useChatStore = createPersistStore(
         // 避免首次进入就因为空会话变更打远端接口。
       },
 
+      refreshFreshDefaultSessionModel() {
+        const configStore = useAppConfig.getState();
+        const nextModelConfig = sanitizeModelConfigForCapability({
+          ...configStore.modelConfig,
+        });
+
+        set((state) => {
+          let changed = false;
+          const sessions = state.sessions.map((session) => {
+            if (!isFreshDefaultSession(session)) {
+              return session;
+            }
+
+            changed = true;
+            return {
+              ...session,
+              mask: {
+                ...session.mask,
+                syncGlobalConfig: true,
+                modelConfig: nextModelConfig,
+              },
+            };
+          });
+
+          if (!changed) {
+            return {};
+          }
+
+          return {
+            sessions,
+            sessionSummaries: buildSessionSummaries(
+              sessions,
+              state.sessionSummaries,
+            ),
+          };
+        });
+      },
+
       forkSession() {
         // 获取当前会话
         const currentSession = get().currentSession();
@@ -1976,6 +2014,32 @@ export const useChatStore = createPersistStore(
           );
 
           if (existingEmptyIndex >= 0) {
+            const configStore = useAppConfig.getState();
+            const nextModelConfig = sanitizeModelConfigForCapability({
+              ...configStore.modelConfig,
+            });
+            set((state) => {
+              const sessions = state.sessions.slice();
+              const existingSession = sessions[existingEmptyIndex];
+              if (existingSession?.mask) {
+                sessions[existingEmptyIndex] = {
+                  ...existingSession,
+                  mask: {
+                    ...existingSession.mask,
+                    syncGlobalConfig: true,
+                    modelConfig: nextModelConfig,
+                  },
+                };
+              }
+
+              return {
+                sessions,
+                sessionSummaries: buildSessionSummaries(
+                  sessions,
+                  state.sessionSummaries,
+                ),
+              };
+            });
             get().selectSession(existingEmptyIndex);
             return false;
           }
@@ -2000,7 +2064,18 @@ export const useChatStore = createPersistStore(
             const globalModelConfig = configStore.modelConfig;
             const accessStore = useAccessStore.getState();
             const modelCacheStore = useModelCacheStore.getState();
+            const globalProviderId = String(
+              (globalModelConfig as any)?.providerId || "",
+            )
+              .trim()
+              .toLowerCase();
             const enabledProfile =
+              (accessStore.apiProfiles || []).find(
+                (profile) =>
+                  globalProviderId &&
+                  getAccessProviderId(profile).toLowerCase() ===
+                    globalProviderId,
+              ) ||
               (accessStore.apiProfiles || []).find(
                 (profile) => profile.enabled,
               ) ||
@@ -2018,7 +2093,7 @@ export const useChatStore = createPersistStore(
                     ),
                     globalModelConfig,
                     accessStore.apiProfiles,
-                  ) || String((globalModelConfig as any)?.providerId || "")
+                  ) || globalProviderId
                 ).toLowerCase();
             const cachedExtras = buildCachedExtraModels(
               accessStore.apiProfiles || [],
