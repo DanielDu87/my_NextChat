@@ -163,9 +163,11 @@ REMOTE
 长时间构建必须放入 `tmux`：
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ```
+
+每次部署默认允许替换旧 `nextchat` 容器和旧 `nextchat` 相关镜像，无需再次确认。替换范围仅限 `nextchat`、`nextchat-baota:latest`、`nextchat:latest`，不要执行全局 Docker prune。
 
 ### 5.1 低内存构建注意事项
 

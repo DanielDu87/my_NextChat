@@ -55,11 +55,12 @@ cp .env.docker.example .env.docker
 - 当前线上是宝塔 DockerSite 部署，必须使用 `docker-compose.baota.yml` + `.env.baota`
 - 不要把线上宝塔部署切回 `.env.docker`、`--profile no-proxy` 或内置 PostgreSQL
 - 长时间构建必须放入 `tmux`
+- 每次部署默认允许替换旧 `nextchat` 容器和旧 `nextchat` 相关镜像，无需再次确认；范围仅限 `nextchat`、`nextchat-baota:latest`、`nextchat:latest`，不要执行全局 Docker prune
 
 ### 标准部署命令
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ssh ss 'tail -120 /tmp/nextchat-baota-deploy.log'
 ```
@@ -94,7 +95,7 @@ REMOTE
 
 - 清理前必须备份 `/www/server/panel/data/db/docker.db` 和 `/www/server/panel/data/db/site.db`
 - 只清理 `chat.dyxcloud.com` 相关记录，不要清空整个 Docker 或宝塔数据库
-- 旧容器/镜像只删除 `nextchat`、`nextchat-baota:latest`、`nextchat:latest` 相关对象，不要执行全局 Docker prune
+- 部署时默认允许替换旧容器/镜像；只删除 `nextchat`、`nextchat-baota:latest`、`nextchat:latest` 相关对象，不要执行全局 Docker prune
 - DockerSite 重注册优先执行：
 
 ```bash
