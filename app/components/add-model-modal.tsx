@@ -527,8 +527,8 @@ export function AddModelSelector(props: {
                 {loading
                   ? "获取中"
                   : fetchError
-                    ? "获取失败"
-                    : `${displayTotal} 个模型`}
+                  ? "获取失败"
+                  : `${displayTotal} 个模型`}
                 ）
               </span>
             </span>
@@ -538,28 +538,11 @@ export function AddModelSelector(props: {
             {loading
               ? "正在获取模型..."
               : fetchError
-                ? "获取失败，请检查网络或配置"
-                : `共 ${displayTotal} 个模型可用`}
+              ? "获取失败，请检查网络或配置"
+              : `共 ${displayTotal} 个模型可用`}
           </span>
           {providerDropdownOpen && (
-            <div
-              className={styles["model-selector-provider-menu"]}
-              style={{
-                flexBasis: "100%",
-                width: "100%",
-                position: "relative",
-                zIndex: 99999999999999,
-                pointerEvents: "auto",
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: 10,
-                padding: 12,
-                borderRadius: 20,
-                background: "#ffffff",
-                border: "1px solid rgba(191, 219, 254, 0.95)",
-                boxShadow: "0 18px 36px rgba(15, 23, 42, 0.12)",
-              }}
-            >
+            <div className={styles["model-selector-provider-menu"]}>
               {profiles.map((p) => {
                 const pid = getProfileProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
@@ -575,26 +558,6 @@ export function AddModelSelector(props: {
                       isActive &&
                         styles["model-selector-provider-option-active"],
                     )}
-                    style={{
-                      position: "relative",
-                      zIndex: 99999999999999,
-                      pointerEvents: "auto",
-                      minHeight: 52,
-                      padding: "0 16px",
-                      borderRadius: 12,
-                      border: "1px solid rgba(226, 232, 240, 0.95)",
-                      background: isActive ? "#eff6ff" : "#ffffff",
-                      color: isActive ? "#1d4ed8" : "#0f172a",
-                      fontSize: 14,
-                      fontWeight: isActive ? 700 : 600,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
-                      transition:
-                        "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedProviderId(pid);
@@ -631,16 +594,7 @@ export function AddModelSelector(props: {
                         </div>
                       )}
                     </span>
-                    <span
-                      style={{
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        minWidth: 0,
-                      }}
-                    >
-                      {pName}
-                    </span>
+                    <span>{pName}</span>
                     {isActive ? <ConfirmIcon /> : null}
                   </button>
                 );
@@ -702,7 +656,7 @@ export function AddModelSelector(props: {
           <div className={styles["add-modal-footer"]}>
             {showAdded ? (
               <>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className={styles["add-modal-footer-group"]}>
                   <button
                     type="button"
                     onClick={() => setShowAdded(false)}
@@ -719,17 +673,19 @@ export function AddModelSelector(props: {
                     全部删除
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className={styles["add-modal-btn"]}
-                >
-                  关闭
-                </button>
+                <div className={styles["add-modal-footer-group"]}>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className={styles["add-modal-btn"]}
+                  >
+                    关闭
+                  </button>
+                </div>
               </>
             ) : (
               <>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className={styles["add-modal-footer-group"]}>
                   <button
                     type="button"
                     onClick={() => setShowAdded(true)}
@@ -753,7 +709,7 @@ export function AddModelSelector(props: {
                     </span>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className={styles["add-modal-footer-group"]}>
                   <button
                     type="button"
                     disabled={confirmDisabled}

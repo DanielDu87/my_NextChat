@@ -2708,20 +2708,21 @@
   .selector-group-filter-menu {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
-    padding: 10px !important;
-    border-radius: 16px !important;
+    margin-top: 0 !important;
+    padding: 8px !important;
+    border-radius: 14px !important;
   }
 
   .selector-group-filter-option {
     position: relative !important;
     justify-content: center !important;
-    height: 34px !important;
-    min-height: 34px !important;
-    max-height: 34px !important;
-    padding: 0 32px !important;
-    border-radius: 14px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    max-height: 44px !important;
+    padding: 0 28px 0 12px !important;
+    border-radius: 12px !important;
     font-size: 14px !important;
-    gap: 8px !important;
+    gap: 6px !important;
 
     span {
       min-width: 0;
@@ -2730,7 +2731,7 @@
 
     > :global(svg) {
       position: absolute;
-      right: 18px;
+      right: 10px;
       top: 50%;
       width: 14px !important;
       height: 14px !important;
@@ -2746,7 +2747,7 @@
     }
 
     > :global(svg) {
-      right: 18px !important;
+      right: 10px !important;
       top: 50% !important;
       width: 14px !important;
       height: 14px !important;
@@ -2910,6 +2911,6 @@
   }
 
   .selector-group-filter-menu {
-    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
