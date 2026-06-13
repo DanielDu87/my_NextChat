@@ -26,6 +26,7 @@ import {
   showConfirm,
   showToast,
 } from "./ui-lib";
+import { NextChatBrandIcon, SideBarHeader } from "./sidebar";
 import Locale from "../locales";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
@@ -144,7 +145,26 @@ export function PluginPage() {
 
   return (
     <ErrorBoundary>
-      <div className={styles["mask-page"]}>
+      <div className={clsx(styles["mask-page"], pluginStyles["plugin-page"])}>
+        <div className={pluginStyles["plugin-mobile-header"]}>
+          <SideBarHeader
+            title={Locale.Plugin.Page.Title}
+            subTitle={Locale.Plugin.Page.SubTitle(plugins.length)}
+            logo={<NextChatBrandIcon />}
+          />
+
+          <div className={pluginStyles["plugin-mobile-header-actions"]}>
+            <a href={pluginsRepoUrl} target="_blank" rel="noopener noreferrer">
+              <IconButton icon={<GithubIcon />} bordered />
+            </a>
+            <IconButton
+              icon={<CloseIcon />}
+              bordered
+              onClick={() => navigate(-1)}
+            />
+          </div>
+        </div>
+
         <div className="window-header">
           <div className="window-header-title">
             <div className="window-header-main-title">
@@ -175,11 +195,24 @@ export function PluginPage() {
           </div>
         </div>
 
-        <div className={styles["mask-page-body"]}>
-          <div className={styles["mask-filter"]}>
+        <div
+          className={clsx(
+            styles["mask-page-body"],
+            pluginStyles["plugin-page-body"],
+          )}
+        >
+          <div
+            className={clsx(
+              styles["mask-filter"],
+              pluginStyles["plugin-filter"],
+            )}
+          >
             <input
               type="text"
-              className={styles["search-bar"]}
+              className={clsx(
+                styles["search-bar"],
+                pluginStyles["plugin-search-bar"],
+              )}
               placeholder={Locale.Plugin.Page.Search}
               name="plugin-search"
               autoComplete="new-password"
@@ -189,7 +222,10 @@ export function PluginPage() {
             />
 
             <IconButton
-              className={styles["mask-create"]}
+              className={clsx(
+                styles["mask-create"],
+                pluginStyles["plugin-create"],
+              )}
               icon={<AddIcon />}
               text={Locale.Plugin.Page.Create}
               bordered
@@ -200,34 +236,47 @@ export function PluginPage() {
             />
           </div>
 
-          <div>
+          <div className={pluginStyles["plugin-list"]}>
             {plugins.length == 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  margin: "60px auto",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
+              <div className={pluginStyles["plugin-empty"]}>
                 {Locale.Plugin.Page.Find}
                 <a
                   href={pluginsRepoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ marginLeft: 16 }}
                 >
                   <IconButton icon={<GithubIcon />} bordered />
                 </a>
               </div>
             )}
             {plugins.map((m) => (
-              <div className={styles["mask-item"]} key={m.id}>
-                <div className={styles["mask-header"]}>
+              <div
+                className={clsx(
+                  styles["mask-item"],
+                  pluginStyles["plugin-item"],
+                )}
+                key={m.id}
+              >
+                <div
+                  className={clsx(
+                    styles["mask-header"],
+                    pluginStyles["plugin-item-header"],
+                  )}
+                >
                   <div className={styles["mask-icon"]}></div>
-                  <div className={styles["mask-title"]}>
-                    <div className={styles["mask-name"]}>
-                      {m.title}@<small>{m.version}</small>
+                  <div
+                    className={clsx(
+                      styles["mask-title"],
+                      pluginStyles["plugin-item-title"],
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        styles["mask-name"],
+                        pluginStyles["plugin-item-name"],
+                      )}
+                    >
+                      {m.title}
                     </div>
                     <div className={clsx(styles["mask-info"], "one-line")}>
                       {Locale.Plugin.Item.Info(
@@ -236,8 +285,14 @@ export function PluginPage() {
                     </div>
                   </div>
                 </div>
-                <div className={styles["mask-actions"]}>
+                <div
+                  className={clsx(
+                    styles["mask-actions"],
+                    pluginStyles["plugin-item-actions"],
+                  )}
+                >
                   <IconButton
+                    className={pluginStyles["plugin-action"]}
                     bordered
                     icon={<PowerIcon />}
                     text={
@@ -254,6 +309,7 @@ export function PluginPage() {
                     }}
                   />
                   <IconButton
+                    className={pluginStyles["plugin-action"]}
                     bordered
                     icon={<EditIcon />}
                     text={Locale.Plugin.Item.Edit}
@@ -261,6 +317,7 @@ export function PluginPage() {
                   />
                   {!m.builtin && (
                     <IconButton
+                      className={pluginStyles["plugin-action"]}
                       bordered
                       icon={<DeleteIcon />}
                       text={Locale.Plugin.Item.Delete}
@@ -297,7 +354,7 @@ export function PluginPage() {
               />,
             ]}
           >
-            <List>
+            <List className={pluginStyles["plugin-edit-list"]}>
               <ListItem title={Locale.Plugin.EditModal.Auth}>
                 <select
                   value={editingPlugin?.authType ?? ""}
@@ -371,7 +428,7 @@ export function PluginPage() {
                 </ListItem>
               )}
             </List>
-            <List>
+            <List className={pluginStyles["plugin-edit-list"]}>
               <ListItem title={Locale.Plugin.EditModal.Content}>
                 <div className={pluginStyles["plugin-schema"]}>
                   <input
@@ -380,10 +437,11 @@ export function PluginPage() {
                     autoComplete="new-password"
                     aria-autocomplete="none"
                     value={loadUrl}
-                    style={{ minWidth: 200 }}
+                    className={pluginStyles["plugin-schema-input"]}
                     onInput={(e) => setLoadUrl(e.currentTarget.value)}
                   ></input>
                   <IconButton
+                    className={pluginStyles["plugin-schema-load"]}
                     icon={<ReloadIcon />}
                     text={Locale.Plugin.EditModal.Load}
                     bordered

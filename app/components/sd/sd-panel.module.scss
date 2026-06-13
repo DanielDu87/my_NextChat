@@ -1,83 +1,180 @@
+.draw-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.draw-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.draw-panel-section-title {
+  color: var(--black);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
 .ctrl-param-item {
   display: flex;
-  justify-content: space-between;
-  min-height: 40px;
-  padding: 10px 0;
-  animation: slide-in ease 0.6s;
   flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  animation: slide-in ease 0.35s;
 
   .ctrl-param-item-header {
     display: flex;
     align-items: center;
+    min-height: 20px;
+  }
 
-    .ctrl-param-item-title {
-      font-size: 14px;
-      font-weight: bolder;
-      margin-bottom: 5px;
-    }
+  .ctrl-param-item-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--black);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+  }
+
+  .ctrl-param-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: var(--border-in-light);
+    border-radius: 50%;
+    color: var(--black);
+    cursor: help;
+    flex: 0 0 16px;
+    font-size: 11px;
+    line-height: 16px;
+    opacity: 0.68;
   }
 
   .ctrl-param-item-sub-title {
+    color: var(--black);
     font-size: 12px;
     font-weight: normal;
-    margin-top: 3px;
+    line-height: 18px;
+    opacity: 0.66;
   }
-  textarea {
-    appearance: none;
-    border-radius: 10px;
-    border: var(--border-in-light);
-    min-height: 36px;
+
+  textarea,
+  input {
+    width: 100%;
+    max-width: 100%;
+    min-height: 40px;
     box-sizing: border-box;
+    border: var(--border-in-light);
+    border-radius: 8px;
     background: var(--white);
     color: var(--black);
-    padding: 0 10px;
-    max-width: 50%;
     font-family: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    outline: none;
+  }
+
+  textarea {
+    resize: vertical;
+    padding: 10px 12px;
+  }
+
+  input {
+    padding: 0 12px;
+  }
+}
+
+.draw-select {
+  width: 100%;
+
+  select {
+    min-height: 40px;
+    font-size: 13px;
   }
 }
 
 .ai-models {
-  button {
-    margin-bottom: 10px;
-    padding: 10px;
-    width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.ai-model-option {
+  display: flex;
+  min-height: 56px;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--black);
+  cursor: pointer;
+  font-family: inherit;
+  padding: 9px 12px;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease;
+
+  &:hover {
+    border-color: var(--primary);
   }
 }
 
+.ai-model-option-active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--white));
+}
+
+.ai-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.ai-model-desc {
+  color: var(--black);
+  font-size: 12px;
+  line-height: 16px;
+  opacity: 0.64;
+}
+
 @media only screen and (max-width: 600px) {
+  .draw-panel {
+    gap: 14px;
+  }
+
   .ai-models {
-    display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+  }
 
-    :global([class*="button_icon-button"]) {
-      width: 100% !important;
-      height: 30px !important;
-      min-height: 30px !important;
-      min-width: 0 !important;
-      padding: 0 4px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      box-sizing: border-box;
-    }
+  .ai-model-option {
+    min-height: 58px;
+    padding: 8px 6px;
+    text-align: center;
+  }
 
-    :global([class*="button_icon-button-text"]) {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      margin-left: 0 !important;
-      font-size: 11px;
-      line-height: 1;
-      text-align: center;
-      white-space: normal;
-      width: 100%;
-      height: 100%;
-      min-height: 0;
-    }
+  .ai-model-name {
+    white-space: normal;
+    font-size: 12px;
+    line-height: 16px;
+  }
 
-    :global([class*="button_icon-button-icon"]) {
-      display: none !important;
-    }
+  .ai-model-desc {
+    display: none;
   }
 }

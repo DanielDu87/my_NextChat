@@ -848,8 +848,9 @@ const en: LocaleType = {
     Actions: {
       Params: "See Params",
       Copy: "Copy Prompt",
+      Download: "Download",
       Delete: "Delete",
-      Retry: "Retry",
+      Retry: "Regenerate",
       ReturnHome: "Return Home",
       History: "History",
     },

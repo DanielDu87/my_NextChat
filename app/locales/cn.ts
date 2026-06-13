@@ -799,7 +799,7 @@ const cn = {
     OutFormat: "输出格式",
     AIModel: "AI模型",
     ModelVersion: "模型版本",
-    Submit: "提交生成",
+    Submit: "生成图片",
     ParamIsRequired: (name: string) => `${name}不能为空`,
     Styles: {
       D3Model: "3D模型",
@@ -826,8 +826,9 @@ const cn = {
     Actions: {
       Params: "查看参数",
       Copy: "复制提示词",
+      Download: "下载图片",
       Delete: "删除",
-      Retry: "重试",
+      Retry: "重新生成",
       ReturnHome: "返回首页",
       History: "查看历史",
     },

@@ -103,16 +103,27 @@ export function SideBar(props: { className?: string }) {
         </div>
       ) : (
         <SideBarHeader
-          title={
+          title="AI 绘画"
+          subTitle="Stability"
+          logo={<SDIcon width={38} height={"100%"} />}
+        >
+          <div className={styles["draw-sidebar-actions"]}>
             <IconButton
               icon={<ReturnIcon />}
               bordered
               title={Locale.Sd.Actions.ReturnHome}
+              text={Locale.Sd.Actions.ReturnHome}
               onClick={() => navigate(Path.Home)}
             />
-          }
-          logo={<SDIcon width={38} height={"100%"} />}
-        ></SideBarHeader>
+            <IconButton
+              icon={<HistoryIcon />}
+              bordered
+              title={Locale.Sd.Actions.History}
+              text={Locale.Sd.Actions.History}
+              onClick={() => navigate(Path.SdNew)}
+            />
+          </div>
+        </SideBarHeader>
       )}
       <SideBarBody>
         <div className={styles["sd-panel-scroll"]}>

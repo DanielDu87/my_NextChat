@@ -171,6 +171,8 @@ function Screen() {
   const isAuth = location.pathname === Path.Auth;
   const isSd = location.pathname === Path.Sd;
   const isSdNew = location.pathname === Path.SdNew;
+  const isLegacySd = location.pathname === "/sd";
+  const isLegacySdNew = location.pathname === "/sd-new";
 
   const isMobileScreen = useMobileScreen();
   const isInitialEntry = location.key === "default";
@@ -185,6 +187,14 @@ function Screen() {
   useEffect(() => {
     loadAsyncGoogleFont();
   }, []);
+
+  useEffect(() => {
+    if (isLegacySd) {
+      navigate(Path.Sd, { replace: true });
+    } else if (isLegacySdNew) {
+      navigate(Path.SdNew, { replace: true });
+    }
+  }, [isLegacySd, isLegacySdNew, navigate]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -209,8 +219,8 @@ function Screen() {
   }
   const renderContent = () => {
     if (isAuth) return <AuthPage />;
-    if (isSd) return <Sd />;
-    if (isSdNew) return <Sd />;
+    if (isSd || isLegacySd) return <Sd />;
+    if (isSdNew || isLegacySdNew) return <Sd />;
     return (
       <>
         <SideBar

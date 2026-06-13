@@ -18,15 +18,17 @@ import DeleteIcon from "@/app/icons/clear.svg";
 import CopyIcon from "@/app/icons/copy.svg";
 import PromptIcon from "@/app/icons/prompt.svg";
 import ResetIcon from "@/app/icons/reload.svg";
+import DownloadIcon from "@/app/icons/download.svg";
+import ImageIcon from "@/app/icons/image.svg";
 import { useSdStore } from "@/app/store/sd";
 import LoadingIcon from "@/app/icons/three-dots.svg";
 import ErrorIcon from "@/app/icons/delete.svg";
 import SDIcon from "@/app/icons/sd.svg";
-import { Property } from "csstype";
 import {
   showConfirm,
   showImageModal,
   showModal,
+  showToast,
 } from "@/app/components/ui-lib";
 import { removeImage } from "@/app/utils/chat";
 import { SideBar } from "./sd-sidebar";
@@ -35,52 +37,131 @@ import { params } from "./sd-panel";
 import clsx from "clsx";
 
 function getSdTaskStatus(item: any) {
-  let s: string;
-  let color: Property.Color | undefined = undefined;
+  let s = "";
   switch (item.status) {
     case "success":
       s = Locale.Sd.Status.Success;
-      color = "green";
       break;
     case "error":
       s = Locale.Sd.Status.Error;
-      color = "red";
       break;
     case "wait":
       s = Locale.Sd.Status.Wait;
-      color = "yellow";
       break;
     case "running":
       s = Locale.Sd.Status.Running;
-      color = "blue";
       break;
     default:
-      s = item.status.toUpperCase();
+      s = item.status?.toUpperCase?.() || "-";
   }
   return (
-    <p className={styles["line-1"]} title={item.error} style={{ color: color }}>
-      <span>
-        {Locale.Sd.Status.Name}: {s}
+    <div className={styles["draw-status-row"]} title={item.error}>
+      <span
+        className={clsx(
+          styles["draw-status-badge"],
+          styles[`draw-status-${item.status}`],
+        )}
+      >
+        {s}
       </span>
       {item.status === "error" && (
-        <span
-          className="clickable"
+        <button
+          type="button"
+          className={styles["draw-error-detail"]}
           onClick={() => {
             showModal({
               title: Locale.Sd.Detail,
-              children: (
-                <div style={{ color: color, userSelect: "text" }}>
-                  {item.error}
-                </div>
-              ),
+              children: <div style={{ userSelect: "text" }}>{item.error}</div>,
             });
           }}
         >
-          - {item.error}
-        </span>
+          {item.error}
+        </button>
       )}
-    </p>
+    </div>
   );
+}
+
+function getParamLabel(label: string) {
+  switch (label) {
+    case "prompt":
+      return Locale.SdPanel.Prompt;
+    case "negative_prompt":
+      return Locale.SdPanel.NegativePrompt;
+    case "aspect_ratio":
+      return Locale.SdPanel.AspectRatio;
+    case "seed":
+      return "Seed";
+    case "output_format":
+      return Locale.SdPanel.OutFormat;
+    case "style":
+      return Locale.SdPanel.ImageStyle;
+    case "model":
+      return Locale.SdPanel.ModelVersion;
+    default:
+      return label;
+  }
+}
+
+function getParamValue(label: string, value: any) {
+  switch (label) {
+    case "seed":
+      return value || 0;
+    case "output_format":
+      return value?.toUpperCase?.() || value;
+    case "style":
+      return (
+        params
+          .find((item) => item.value === "style")
+          ?.options?.find((item) => item.value === value)?.name || value
+      );
+    default:
+      return value;
+  }
+}
+
+function showTaskParams(item: any) {
+  showModal({
+    title: Locale.Sd.GenerateParams,
+    children: (
+      <div className={styles["draw-param-modal"]}>
+        {Object.keys(item.params || {}).map((key) => {
+          const value = getParamValue(key, item.params[key]);
+          if (value === undefined || value === null || value === "") {
+            return null;
+          }
+
+          return (
+            <div className={styles["draw-param-row"]} key={key}>
+              <strong>{getParamLabel(key)}</strong>
+              <span>{String(value)}</span>
+            </div>
+          );
+        })}
+      </div>
+    ),
+  });
+}
+
+async function downloadImage(url: string, id: string) {
+  if (!url) return;
+
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const ext = blob.type.split("/")[1] || "png";
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `nextchat-draw-${id}.${ext}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch (error) {
+    console.error("download image failed", error);
+    showToast("图片下载失败");
+  }
 }
 
 export function Sd() {
@@ -90,7 +171,7 @@ export function Sd() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sdStore = useSdStore();
   const [sdImages, setSdImages] = useState(sdStore.draw);
-  const isSd = location.pathname === Path.Sd;
+  const isSd = location.pathname === Path.Sd || location.pathname === "/sd";
 
   useEffect(() => {
     setSdImages(sdStore.draw);
@@ -101,7 +182,7 @@ export function Sd() {
       <SideBar className={clsx({ [homeStyles["sidebar-show"]]: isSd })} />
       <WindowContent>
         <div className={clsx(chatStyles.chat, styles["sd-page"])} key={"1"}>
-          <div className="window-header">
+          <div className={clsx("window-header", styles["draw-header"])}>
             {isMobileScreen && (
               <div className="window-actions">
                 <div className={"window-action-button"}>
@@ -121,7 +202,9 @@ export function Sd() {
               )}
               data-tauri-drag-region
             >
-              <div className={`window-header-main-title`}>Stability AI</div>
+              <div className={`window-header-main-title`}>
+                {isSd ? "AI 绘画" : "作品历史"}
+              </div>
               <div className="window-header-sub-title">
                 {Locale.Sd.SubTitle(sdImages.length || 0)}
               </div>
@@ -131,186 +214,154 @@ export function Sd() {
               {isMobileScreen && <SDIcon width={50} height={50} />}
             </div>
           </div>
-          <div className={chatStyles["chat-body"]} ref={scrollRef}>
+          <div
+            className={clsx(chatStyles["chat-body"], styles["draw-body"])}
+            ref={scrollRef}
+          >
+            <div className={styles["draw-gallery-toolbar"]}>
+              <div className={styles["draw-gallery-title"]}>
+                <span>作品</span>
+                <strong>最近生成</strong>
+              </div>
+              <div className={styles["draw-gallery-count"]}>
+                {Locale.Sd.SubTitle(sdImages.length || 0)}
+              </div>
+            </div>
             <div className={styles["sd-img-list"]}>
               {sdImages.length > 0 ? (
                 sdImages.map((item: any) => {
                   return (
-                    <div
-                      key={item.id}
-                      style={{ display: "flex" }}
-                      className={styles["sd-img-item"]}
-                    >
-                      {item.status === "success" ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          className={styles["img"]}
-                          src={item.img_data}
-                          alt={item.id}
-                          onClick={(e) =>
-                            showImageModal(
-                              item.img_data,
-                              true,
-                              isMobileScreen
-                                ? { width: "100%", height: "fit-content" }
-                                : { maxWidth: "100%", maxHeight: "100%" },
-                              isMobileScreen
-                                ? { width: "100%", height: "fit-content" }
-                                : { width: "100%", height: "100%" },
-                            )
-                          }
-                        />
-                      ) : item.status === "error" ? (
-                        <div className={styles["pre-img"]}>
-                          <ErrorIcon />
+                    <div key={item.id} className={styles["sd-img-item"]}>
+                      <div className={styles["draw-preview"]}>
+                        {item.status === "success" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            className={styles["img"]}
+                            src={item.img_data}
+                            alt={item.params?.prompt || item.id}
+                            onClick={() =>
+                              showImageModal(
+                                item.img_data,
+                                true,
+                                isMobileScreen
+                                  ? { width: "100%", height: "fit-content" }
+                                  : { maxWidth: "100%", maxHeight: "100%" },
+                                isMobileScreen
+                                  ? { width: "100%", height: "fit-content" }
+                                  : { width: "100%", height: "100%" },
+                              )
+                            }
+                          />
+                        ) : item.status === "error" ? (
+                          <div className={styles["pre-img"]}>
+                            <ErrorIcon />
+                          </div>
+                        ) : (
+                          <div className={styles["pre-img"]}>
+                            <LoadingIcon />
+                          </div>
+                        )}
+                      </div>
+                      <div className={styles["sd-img-item-info"]}>
+                        <div className={styles["draw-card-topline"]}>
+                          {getSdTaskStatus(item)}
+                          <span>{item.created_at}</span>
                         </div>
-                      ) : (
-                        <div className={styles["pre-img"]}>
-                          <LoadingIcon />
+                        <button
+                          type="button"
+                          className={styles["draw-prompt"]}
+                          title={item.params?.prompt}
+                          onClick={() => {
+                            showModal({
+                              title: Locale.Sd.Detail,
+                              children: (
+                                <div style={{ userSelect: "text" }}>
+                                  {item.params?.prompt}
+                                </div>
+                              ),
+                            });
+                          }}
+                        >
+                          {item.params?.prompt || "-"}
+                        </button>
+                        <div className={styles["draw-meta-grid"]}>
+                          <span>{item.model_name}</span>
+                          {item.params?.aspect_ratio && (
+                            <span>{item.params.aspect_ratio}</span>
+                          )}
+                          {item.params?.style && (
+                            <span>
+                              {getParamValue("style", item.params.style)}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      <div
-                        style={{ marginLeft: "10px" }}
-                        className={styles["sd-img-item-info"]}
-                      >
-                        <p className={styles["line-1"]}>
-                          {Locale.SdPanel.Prompt}:{" "}
-                          <span
-                            className="clickable"
-                            title={item.params.prompt}
-                            onClick={() => {
-                              showModal({
-                                title: Locale.Sd.Detail,
-                                children: (
-                                  <div style={{ userSelect: "text" }}>
-                                    {item.params.prompt}
-                                  </div>
-                                ),
-                              });
-                            }}
-                          >
-                            {item.params.prompt}
-                          </span>
-                        </p>
-                        <p>
-                          {Locale.SdPanel.AIModel}: {item.model_name}
-                        </p>
-                        {getSdTaskStatus(item)}
-                        <p>{item.created_at}</p>
-                        <div className={chatStyles["chat-message-actions"]}>
-                          <div className={chatStyles["chat-input-actions"]}>
+                        <div className={styles["draw-card-actions"]}>
+                          <ChatAction
+                            text={Locale.Sd.Actions.Params}
+                            icon={<PromptIcon />}
+                            onClick={() => showTaskParams(item)}
+                          />
+                          <ChatAction
+                            text={Locale.Sd.Actions.Copy}
+                            icon={<CopyIcon />}
+                            onClick={() =>
+                              copyToClipboard(
+                                getMessageTextContent({
+                                  role: "user",
+                                  content: item.params?.prompt || "",
+                                }),
+                              )
+                            }
+                          />
+                          {item.status === "success" && (
                             <ChatAction
-                              text={Locale.Sd.Actions.Params}
-                              icon={<PromptIcon />}
-                              onClick={() => {
-                                showModal({
-                                  title: Locale.Sd.GenerateParams,
-                                  children: (
-                                    <div style={{ userSelect: "text" }}>
-                                      {Object.keys(item.params).map((key) => {
-                                        let label = key;
-                                        let value = item.params[key];
-                                        switch (label) {
-                                          case "prompt":
-                                            label = Locale.SdPanel.Prompt;
-                                            break;
-                                          case "negative_prompt":
-                                            label =
-                                              Locale.SdPanel.NegativePrompt;
-                                            break;
-                                          case "aspect_ratio":
-                                            label = Locale.SdPanel.AspectRatio;
-                                            break;
-                                          case "seed":
-                                            label = "Seed";
-                                            value = value || 0;
-                                            break;
-                                          case "output_format":
-                                            label = Locale.SdPanel.OutFormat;
-                                            value = value?.toUpperCase();
-                                            break;
-                                          case "style":
-                                            label = Locale.SdPanel.ImageStyle;
-                                            value = params
-                                              .find(
-                                                (item) =>
-                                                  item.value === "style",
-                                              )
-                                              ?.options?.find(
-                                                (item) => item.value === value,
-                                              )?.name;
-                                            break;
-                                          default:
-                                            break;
-                                        }
-
-                                        return (
-                                          <div
-                                            key={key}
-                                            style={{ margin: "10px" }}
-                                          >
-                                            <strong>{label}: </strong>
-                                            {value}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ),
-                                });
-                              }}
-                            />
-                            <ChatAction
-                              text={Locale.Sd.Actions.Copy}
-                              icon={<CopyIcon />}
+                              text={Locale.Sd.Actions.Download}
+                              icon={<DownloadIcon />}
                               onClick={() =>
-                                copyToClipboard(
-                                  getMessageTextContent({
-                                    role: "user",
-                                    content: item.params.prompt,
-                                  }),
-                                )
+                                downloadImage(item.img_data, item.id)
                               }
                             />
-                            <ChatAction
-                              text={Locale.Sd.Actions.Retry}
-                              icon={<ResetIcon />}
-                              onClick={() => {
-                                const reqData = {
-                                  model: item.model,
-                                  model_name: item.model_name,
-                                  status: "wait",
-                                  params: { ...item.params },
-                                  created_at: new Date().toLocaleString(),
-                                  img_data: "",
-                                };
-                                sdStore.sendTask(reqData);
-                              }}
-                            />
-                            <ChatAction
-                              text={Locale.Sd.Actions.Delete}
-                              icon={<DeleteIcon />}
-                              onClick={async () => {
-                                if (
-                                  await showConfirm(Locale.Sd.Danger.Delete)
-                                ) {
-                                  // remove img_data + remove item in list
-                                  removeImage(item.img_data).finally(() => {
-                                    sdStore.draw = sdImages.filter(
-                                      (i: any) => i.id !== item.id,
-                                    );
-                                    sdStore.getNextId();
-                                  });
-                                }
-                              }}
-                            />
-                          </div>
+                          )}
+                          <ChatAction
+                            text={Locale.Sd.Actions.Retry}
+                            icon={<ResetIcon />}
+                            onClick={() => {
+                              const reqData = {
+                                model: item.model,
+                                model_name: item.model_name,
+                                status: "wait",
+                                params: { ...item.params },
+                                created_at: new Date().toLocaleString(),
+                                img_data: "",
+                              };
+                              sdStore.sendTask(reqData);
+                            }}
+                          />
+                          <ChatAction
+                            text={Locale.Sd.Actions.Delete}
+                            icon={<DeleteIcon />}
+                            onClick={async () => {
+                              if (await showConfirm(Locale.Sd.Danger.Delete)) {
+                                removeImage(item.img_data).finally(() => {
+                                  sdStore.draw = sdImages.filter(
+                                    (i: any) => i.id !== item.id,
+                                  );
+                                  sdStore.getNextId();
+                                });
+                              }
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
                   );
                 })
               ) : (
-                <div>{Locale.Sd.EmptyRecord}</div>
+                <div className={styles["draw-empty"]}>
+                  <ImageIcon />
+                  <strong>{Locale.Sd.EmptyRecord}</strong>
+                  <span>生成的图片会出现在这里</span>
+                </div>
               )}
             </div>
           </div>

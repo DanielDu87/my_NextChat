@@ -1,7 +1,6 @@
 import styles from "./sd-panel.module.scss";
 import React from "react";
 import { Select } from "@/app/components/ui-lib";
-import { IconButton } from "@/app/components/button";
 import Locale from "@/app/locales";
 import { useSdStore } from "@/app/store/sd";
 import clsx from "clsx";
@@ -13,6 +12,8 @@ export const params = [
     type: "textarea",
     placeholder: Locale.SdPanel.PleaseInput(Locale.SdPanel.Prompt),
     required: true,
+    rows: 6,
+    help: "描述主体、画面细节、风格、镜头和光线。",
   },
   {
     name: Locale.SdPanel.ModelVersion,
@@ -31,12 +32,15 @@ export const params = [
     value: "negative_prompt",
     type: "textarea",
     placeholder: Locale.SdPanel.PleaseInput(Locale.SdPanel.NegativePrompt),
+    rows: 3,
+    help: "写入不希望出现在画面中的元素。",
   },
   {
     name: Locale.SdPanel.AspectRatio,
     value: "aspect_ratio",
     type: "select",
     default: "1:1",
+    help: "控制生成图片的画面比例。",
     options: [
       { name: "1:1", value: "1:1" },
       { name: "16:9", value: "16:9" },
@@ -55,6 +59,7 @@ export const params = [
     type: "select",
     default: "3d-model",
     support: ["core"],
+    help: "为 Stable Image Core 添加预设视觉风格。",
     options: [
       { name: Locale.SdPanel.Styles.D3Model, value: "3d-model" },
       { name: Locale.SdPanel.Styles.AnalogFilm, value: "analog-film" },
@@ -85,12 +90,14 @@ export const params = [
     default: 0,
     min: 0,
     max: 4294967294,
+    help: "相同 Seed 更容易复现接近的构图；0 表示自动。",
   },
   {
     name: Locale.SdPanel.OutFormat,
     value: "output_format",
     type: "select",
     default: "png",
+    help: "选择生成图片的保存格式。",
     options: [
       { name: "PNG", value: "png" },
       { name: "JPEG", value: "jpeg" },
@@ -109,16 +116,19 @@ export const models = [
   {
     name: "Stable Image Ultra",
     value: "ultra",
+    description: "高质量成片",
     params: (data: any) => sdCommonParams("ultra", data),
   },
   {
     name: "Stable Image Core",
     value: "core",
+    description: "速度与质量均衡",
     params: (data: any) => sdCommonParams("core", data),
   },
   {
     name: "Stable Diffusion 3",
     value: "sd3",
+    description: "可选 SD3 版本",
     params: (data: any) => {
       return sdCommonParams("sd3", data).filter((item) => {
         return !(
@@ -132,8 +142,9 @@ export const models = [
 export function ControlParamItem(props: {
   title: string;
   subTitle?: string;
+  help?: string;
   required?: boolean;
-  children?: JSX.Element | JSX.Element[];
+  children?: React.ReactNode;
   className?: string;
 }) {
   return (
@@ -144,6 +155,11 @@ export function ControlParamItem(props: {
             {props.title}
             {props.required && <span style={{ color: "red" }}>*</span>}
           </div>
+          {props.help && (
+            <span className={styles["ctrl-param-help"]} title={props.help}>
+              ?
+            </span>
+          )}
         </div>
       </div>
       {props.children}
@@ -171,16 +187,16 @@ export function ControlParam(props: {
               <ControlParamItem
                 title={item.name}
                 subTitle={item.sub}
+                help={item.help}
                 required={item.required}
               >
                 <textarea
                   rows={item.rows || 3}
-                  style={{ maxWidth: "100%", width: "100%", padding: "10px" }}
                   placeholder={item.placeholder}
                   onChange={(e) => {
                     props.onChange(item.value, e.currentTarget.value);
                   }}
-                  value={props.data[item.value]}
+                  value={props.data[item.value] ?? ""}
                 ></textarea>
               </ControlParamItem>
             );
@@ -190,11 +206,13 @@ export function ControlParam(props: {
               <ControlParamItem
                 title={item.name}
                 subTitle={item.sub}
+                help={item.help}
                 required={item.required}
               >
                 <Select
+                  className={styles["draw-select"]}
                   aria-label={item.name}
-                  value={props.data[item.value]}
+                  value={props.data[item.value] ?? item.default ?? ""}
                   onChange={(e) => {
                     props.onChange(item.value, e.currentTarget.value);
                   }}
@@ -215,6 +233,7 @@ export function ControlParam(props: {
               <ControlParamItem
                 title={item.name}
                 subTitle={item.sub}
+                help={item.help}
                 required={item.required}
               >
                 <input
@@ -222,9 +241,13 @@ export function ControlParam(props: {
                   type="number"
                   min={item.min}
                   max={item.max}
-                  value={props.data[item.value] || 0}
+                  value={props.data[item.value] ?? item.default ?? 0}
                   onChange={(e) => {
-                    props.onChange(item.value, parseInt(e.currentTarget.value));
+                    const value = e.currentTarget.value;
+                    props.onChange(
+                      item.value,
+                      value === "" ? "" : parseInt(value, 10),
+                    );
                   }}
                 />
               </ControlParamItem>
@@ -235,13 +258,13 @@ export function ControlParam(props: {
               <ControlParamItem
                 title={item.name}
                 subTitle={item.sub}
+                help={item.help}
                 required={item.required}
               >
                 <input
                   aria-label={item.name}
                   type="text"
-                  value={props.data[item.value]}
-                  style={{ maxWidth: "100%", width: "100%" }}
+                  value={props.data[item.value] ?? ""}
                   onChange={(e) => {
                     props.onChange(item.value, e.currentTarget.value);
                   }}
@@ -276,6 +299,21 @@ export const getParams = (model: any, params: any) => {
   return models.find((m) => m.value === model.value)?.params(params) || [];
 };
 
+const paramGroups = [
+  {
+    title: "提示词",
+    fields: ["prompt", "negative_prompt"],
+  },
+  {
+    title: "图像设置",
+    fields: ["aspect_ratio", "style", "model"],
+  },
+  {
+    title: "高级设置",
+    fields: ["seed", "output_format"],
+  },
+];
+
 export function SdPanel() {
   const sdStore = useSdStore();
   const currentModel = sdStore.currentModel;
@@ -295,27 +333,53 @@ export function SdPanel() {
   };
 
   return (
-    <>
-      <ControlParamItem title={Locale.SdPanel.AIModel}>
+    <div className={styles["draw-panel"]}>
+      <section className={styles["draw-panel-section"]}>
+        <div className={styles["draw-panel-section-title"]}>
+          {Locale.SdPanel.AIModel}
+        </div>
         <div className={styles["ai-models"]}>
           {models.map((item) => {
             return (
-              <IconButton
-                text={item.name}
+              <button
+                type="button"
                 key={item.value}
-                type={currentModel.value == item.value ? "primary" : null}
-                shadow
+                className={clsx(styles["ai-model-option"], {
+                  [styles["ai-model-option-active"]]:
+                    currentModel.value === item.value,
+                })}
                 onClick={() => handleModelChange(item)}
-              />
+              >
+                <span className={styles["ai-model-name"]}>{item.name}</span>
+                <span className={styles["ai-model-desc"]}>
+                  {item.description}
+                </span>
+              </button>
             );
           })}
         </div>
-      </ControlParamItem>
-      <ControlParam
-        columns={getParams?.(currentModel, params) as any[]}
-        data={params}
-        onChange={handleValueChange}
-      ></ControlParam>
-    </>
+      </section>
+
+      {paramGroups.map((group) => {
+        const columns = (getParams?.(currentModel, params) as any[]).filter(
+          (item) => group.fields.includes(item.value),
+        );
+
+        if (columns.length === 0) return null;
+
+        return (
+          <section className={styles["draw-panel-section"]} key={group.title}>
+            <div className={styles["draw-panel-section-title"]}>
+              {group.title}
+            </div>
+            <ControlParam
+              columns={columns}
+              data={params}
+              onChange={handleValueChange}
+            />
+          </section>
+        );
+      })}
+    </div>
   );
 }

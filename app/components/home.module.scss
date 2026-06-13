@@ -132,6 +132,10 @@
           flex: 0 0 18px;
         }
 
+        :global([class*="icon-button-icon"] > svg > g) {
+          transform: none !important;
+        }
+
         :global([class*="icon-button-text"]) {
           display: flex !important;
           margin-left: 0 !important;

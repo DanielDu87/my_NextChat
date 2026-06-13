@@ -49,7 +49,7 @@ const CHAT_LIST_SCROLL_TO_TOP_EVENT = "nextchat:chat-list-scroll-top";
 const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
   "nextchat:open-chat-list-multi-delete";
 
-function NextChatBrandIcon() {
+export function NextChatBrandIcon() {
   return (
     <svg
       width="44"
