@@ -6,13 +6,15 @@ import {
   useChatStore,
   useModelCacheStore,
   usePluginStore,
+  prunePlugins,
+  FunctionToolService,
+  applyBuiltinPluginDefaults,
   useUpdateStore,
 } from "../store";
 import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import merge from "lodash-es/merge";
-import { useMaskStore } from "../store/mask";
 import { usePromptStore } from "../store/prompt";
 import { useSdStore } from "../store/sd";
 import { DEFAULT_SIDEBAR_WIDTH, ServiceProvider, StoreKey } from "../constant";
@@ -110,7 +112,6 @@ const LocalStateSetters = {
   [StoreKey.Access]: useAccessStore.setState,
   [StoreKey.Config]: useAppConfig.setState,
   [StoreKey.ModelCache]: useModelCacheStore.setState,
-  [StoreKey.Mask]: useMaskStore.setState,
   [StoreKey.Prompt]: usePromptStore.setState,
   [StoreKey.Update]: useUpdateStore.setState,
   [StoreKey.SdList]: useSdStore.setState,
@@ -118,7 +119,13 @@ const LocalStateSetters = {
 
 const LocalStateGetters = {
   [StoreKey.Chat]: () => getNonFunctionFileds(useChatStore.getState()),
-  [StoreKey.Plugin]: () => getNonFunctionFileds(usePluginStore.getState()),
+  [StoreKey.Plugin]: () => {
+    const pluginState = getNonFunctionFileds(usePluginStore.getState()) as any;
+    return {
+      ...pluginState,
+      plugins: prunePlugins(pluginState.plugins, pluginState.deletedPluginIds),
+    };
+  },
   [StoreKey.Access]: () => {
     const access = getNonFunctionFileds(useAccessStore.getState()) as any;
     return {
@@ -134,7 +141,6 @@ const LocalStateGetters = {
   },
   [StoreKey.ModelCache]: () =>
     getNonFunctionFileds(useModelCacheStore.getState()),
-  [StoreKey.Mask]: () => getNonFunctionFileds(useMaskStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
   [StoreKey.Update]: () => getNonFunctionFileds(useUpdateStore.getState()),
   [StoreKey.SdList]: () => getNonFunctionFileds(useSdStore.getState()),
@@ -158,6 +164,43 @@ function normalizeImportedConfigState<T>(state: T): T {
       webSearch: true,
     },
   } as T;
+}
+
+function resetPluginToolCache() {
+  FunctionToolService.tools = {};
+  console.log("[Sync] 🔌 插件工具缓存已刷新");
+}
+
+function getPluginConfigUpdatedAt(plugin: any) {
+  return (
+    Number(plugin?.configUpdatedAt) ||
+    Number(plugin?.enabledUpdatedAt) ||
+    Number(plugin?.createdAt) ||
+    0
+  );
+}
+
+function mergePluginSecretFields(
+  basePlugin: any,
+  localPlugin: any,
+  remotePlugin: any,
+) {
+  const localAuthToken = String(localPlugin?.authToken || "").trim();
+  const remoteAuthToken = String(remotePlugin?.authToken || "").trim();
+
+  if (localAuthToken || remoteAuthToken) {
+    basePlugin.authToken = localAuthToken || remoteAuthToken;
+  } else {
+    delete basePlugin.authToken;
+  }
+
+  const localAuthHeader = String(localPlugin?.authHeader || "").trim();
+  const remoteAuthHeader = String(remotePlugin?.authHeader || "").trim();
+  if (localAuthHeader || remoteAuthHeader) {
+    basePlugin.authHeader = localAuthHeader || remoteAuthHeader;
+  }
+
+  return basePlugin;
 }
 
 export type AppState = {
@@ -426,7 +469,6 @@ const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.Access]: "按 profile 合并，派生字段以云端为准",
   [StoreKey.Config]: "用户添加模型双向合并，其他配置本地覆盖云端",
   [StoreKey.ModelCache]: "按 profile 合并，较新的缓存优先",
-  [StoreKey.Mask]: "双向合并",
   [StoreKey.Prompt]: "双向合并",
   [StoreKey.Update]: "云端覆盖本地",
   [StoreKey.SdList]: "双向合并",
@@ -680,17 +722,89 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.Plugin]: (localState, remoteState) => {
-    localState.plugins = {
-      ...remoteState.plugins,
-      ...localState.plugins,
-    };
-    return localState;
-  },
-  [StoreKey.Mask]: (localState, remoteState) => {
-    localState.masks = {
-      ...remoteState.masks,
-      ...localState.masks,
-    };
+    const deletedPluginIds = [
+      ...new Set([
+        ...((remoteState as any).deletedPluginIds || []),
+        ...((localState as any).deletedPluginIds || []),
+      ]),
+    ];
+    const mergedPlugins = {} as Record<string, any>;
+    const pluginIds = new Set([
+      ...Object.keys(remoteState.plugins || {}),
+      ...Object.keys(localState.plugins || {}),
+    ]);
+
+    pluginIds.forEach((id) => {
+      const localPlugin = (localState.plugins || {})[id] as any;
+      const remotePlugin = (remoteState.plugins || {})[id] as any;
+      if (!localPlugin || !remotePlugin) {
+        const onlyPlugin = localPlugin || remotePlugin;
+        if (onlyPlugin) {
+          mergedPlugins[id] = onlyPlugin;
+        }
+        return;
+      }
+
+      const localConfigAt = getPluginConfigUpdatedAt(localPlugin);
+      const remoteConfigAt = getPluginConfigUpdatedAt(remotePlugin);
+      const basePlugin =
+        remoteConfigAt > localConfigAt
+          ? { ...remotePlugin }
+          : { ...localPlugin };
+      mergedPlugins[id] = mergePluginSecretFields(
+        basePlugin,
+        localPlugin,
+        remotePlugin,
+      );
+
+      const localEnabledAt = Number(localPlugin.enabledUpdatedAt) || 0;
+      const remoteEnabledAt = Number(remotePlugin.enabledUpdatedAt) || 0;
+      if (remoteEnabledAt > localEnabledAt) {
+        mergedPlugins[id].enabled = remotePlugin.enabled;
+        mergedPlugins[id].enabledUpdatedAt = remotePlugin.enabledUpdatedAt;
+      } else {
+        mergedPlugins[id].enabled = localPlugin.enabled;
+        mergedPlugins[id].enabledUpdatedAt = localPlugin.enabledUpdatedAt;
+      }
+    });
+
+    (localState as any).deletedPluginIds = deletedPluginIds;
+    localState.plugins = prunePlugins(mergedPlugins, deletedPluginIds);
+    Object.values(localState.plugins || {}).forEach((plugin: any) => {
+      applyBuiltinPluginDefaults(plugin);
+    });
+    console.log("[Sync] 🔌 插件配置与启用状态合并", {
+      local: Object.fromEntries(
+        Object.entries(localState.plugins || {}).map(([id, plugin]: any) => [
+          id,
+          {
+            enabled: plugin?.enabled !== false,
+            configUpdatedAt: plugin?.configUpdatedAt,
+            hasAuthToken: Boolean(plugin?.authToken),
+          },
+        ]),
+      ),
+      remote: Object.fromEntries(
+        Object.entries(remoteState.plugins || {}).map(([id, plugin]: any) => [
+          id,
+          {
+            enabled: plugin?.enabled !== false,
+            configUpdatedAt: plugin?.configUpdatedAt,
+            hasAuthToken: Boolean(plugin?.authToken),
+          },
+        ]),
+      ),
+      merged: Object.fromEntries(
+        Object.entries(localState.plugins || {}).map(([id, plugin]: any) => [
+          id,
+          {
+            enabled: plugin?.enabled !== false,
+            configUpdatedAt: plugin?.configUpdatedAt,
+            hasAuthToken: Boolean(plugin?.authToken),
+          },
+        ]),
+      ),
+    });
     return localState;
   },
   [StoreKey.Config]: (localState, remoteState) => {
@@ -1112,6 +1226,11 @@ export function setLocalAppState(appState: AppState) {
         );
         return;
       }
+      if (storeKey === StoreKey.Plugin) {
+        setter(appState[storeKey]);
+        resetPluginToolCache();
+        return;
+      }
       setter(appState[storeKey]);
     });
   });
@@ -1137,6 +1256,12 @@ export function setLocalStoreState<T extends keyof AppState>(
           state as AppState[typeof StoreKey.Config],
         ) as AppState[T],
       );
+      return;
+    }
+
+    if (key === StoreKey.Plugin) {
+      LocalStateSetters[key](state);
+      resetPluginToolCache();
       return;
     }
 

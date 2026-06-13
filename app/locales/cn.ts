@@ -673,6 +673,8 @@ const cn = {
       Edit: "编辑",
       Delete: "删除",
       DeleteConfirm: "确认删除？",
+      Enable: "已启用",
+      Disable: "已禁用",
     },
     Auth: {
       None: "不需要授权",
@@ -696,6 +698,11 @@ const cn = {
       Load: "从网页加载",
       Method: "方法",
       Error: "格式错误",
+    },
+    Session: {
+      Title: "会话插件",
+      SubTitle: "启用后，AI 可在对话中调用插件",
+      Empty: "暂无可用插件",
     },
   },
   Mask: {

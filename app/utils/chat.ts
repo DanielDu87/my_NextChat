@@ -569,23 +569,54 @@ export function stream(
     }
     if (!finished) {
       if (!running && runTools.length > 0) {
+        const executableTools = runTools.filter(
+          (tool) => tool?.id && tool?.function?.name,
+        );
+        if (executableTools.length !== runTools.length) {
+          console.warn("[Plugin] 跳过无效工具调用", {
+            skipped: runTools.length - executableTools.length,
+            toolCalls: runTools,
+          });
+        }
+        if (executableTools.length === 0) {
+          runTools.splice(0, runTools.length);
+          return finish();
+        }
         const toolCallMessage = {
           role: "assistant",
-          tool_calls: [...runTools],
+          tool_calls: executableTools,
         };
         running = true;
         runTools.splice(0, runTools.length); // empty runTools
         return Promise.all(
           toolCallMessage.tool_calls.map((tool) => {
             options?.onBeforeTool?.(tool);
+            let toolArguments = {};
+            try {
+              toolArguments = tool?.function?.arguments
+                ? JSON.parse(tool.function.arguments)
+                : {};
+            } catch (e) {
+              return Promise.reject(e)
+                .catch((e) => {
+                  const errorMsg = `工具参数 JSON 解析失败: ${e.toString()}`;
+                  options?.onAfterTool?.({
+                    ...tool,
+                    isError: true,
+                    errorMsg,
+                  });
+                  return errorMsg;
+                })
+                .then((content) => ({
+                  name: tool.function.name,
+                  role: "tool",
+                  content,
+                  tool_call_id: tool.id,
+                }));
+            }
             return Promise.resolve(
               // @ts-ignore
-              funcs[tool.function.name](
-                // @ts-ignore
-                tool?.function?.arguments
-                  ? JSON.parse(tool?.function?.arguments)
-                  : {},
-              ),
+              funcs[tool.function.name](toolArguments),
             )
               .then((res) => {
                 let content = res.data || res?.statusText;
@@ -916,23 +947,54 @@ export function streamWithThink(
     }
     if (!finished) {
       if (!running && runTools.length > 0) {
+        const executableTools = runTools.filter(
+          (tool) => tool?.id && tool?.function?.name,
+        );
+        if (executableTools.length !== runTools.length) {
+          console.warn("[Plugin] 跳过无效工具调用", {
+            skipped: runTools.length - executableTools.length,
+            toolCalls: runTools,
+          });
+        }
+        if (executableTools.length === 0) {
+          runTools.splice(0, runTools.length);
+          return finish();
+        }
         const toolCallMessage = {
           role: "assistant",
-          tool_calls: [...runTools],
+          tool_calls: executableTools,
         };
         running = true;
         runTools.splice(0, runTools.length); // empty runTools
         return Promise.all(
           toolCallMessage.tool_calls.map((tool) => {
             options?.onBeforeTool?.(tool);
+            let toolArguments = {};
+            try {
+              toolArguments = tool?.function?.arguments
+                ? JSON.parse(tool.function.arguments)
+                : {};
+            } catch (e) {
+              return Promise.reject(e)
+                .catch((e) => {
+                  const errorMsg = `工具参数 JSON 解析失败: ${e.toString()}`;
+                  options?.onAfterTool?.({
+                    ...tool,
+                    isError: true,
+                    errorMsg,
+                  });
+                  return errorMsg;
+                })
+                .then((content) => ({
+                  name: tool.function.name,
+                  role: "tool",
+                  content,
+                  tool_call_id: tool.id,
+                }));
+            }
             return Promise.resolve(
               // @ts-ignore
-              funcs[tool.function.name](
-                // @ts-ignore
-                tool?.function?.arguments
-                  ? JSON.parse(tool?.function?.arguments)
-                  : {},
-              ),
+              funcs[tool.function.name](toolArguments),
             )
               .then((res) => {
                 let content = res.data || res?.statusText;

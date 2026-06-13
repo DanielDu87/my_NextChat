@@ -6,11 +6,112 @@
 .plugin-content {
   font-size: 14px;
   font-family: inherit;
-  pre code {
+
+  pre {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  pre > code {
+    display: block !important;
+    width: 100% !important;
     max-height: 240px;
+    min-height: 72px;
     overflow-y: auto;
     white-space: pre-wrap;
-    min-width: 280px;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+}
+
+.plugin-edit-modal {
+  :global(select) {
+    min-width: 128px;
+    height: 44px;
+    padding: 0 36px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    text-align: center;
+    text-align-last: center;
+    background-color: var(--white);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease,
+      background-color 0.3s ease;
+  }
+
+  :global(select option) {
+    text-align: center;
+  }
+
+  :global(select:hover) {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+  }
+
+  :global(select:focus) {
+    border-width: 2px;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--primary) 18%, transparent);
+    outline: none;
+  }
+
+  :global(.password-input-container) {
+    width: min(360px, 100%);
+    height: 44px;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  :global(.password-input-container .password-input) {
+    min-width: 0;
+    width: 100%;
+    height: 44px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    text-align: left;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease,
+      background-color 0.3s ease;
+  }
+
+  :global(.password-input-container .password-input:hover) {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+  }
+
+  :global(.password-input-container .password-input:focus) {
+    border-width: 2px;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--primary) 18%, transparent);
+    outline: none;
+  }
+
+  :global(.password-input-container .password-eye) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-right: 0;
+    flex: 0 0 44px;
+    border-radius: 12px;
+    border: var(--border-in-light);
+    background-color: var(--white);
+    color: var(--black);
+    transition: border-color 0.3s ease, background-color 0.3s ease,
+      color 0.3s ease;
+  }
+
+  :global(.password-input-container .password-eye:hover),
+  :global(.password-input-container .password-eye:focus) {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 8%, var(--white));
+    color: var(--primary);
   }
 }
 
@@ -21,10 +122,27 @@
 
   input {
     margin-right: 20px;
+    box-sizing: border-box;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease,
+      background-color 0.3s ease;
+
+    &:hover {
+      border-width: 2px;
+      border-color: var(--primary);
+      background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+    }
+
+    &:focus {
+      border-width: 2px;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px
+        color-mix(in srgb, var(--primary) 18%, transparent);
+      outline: none;
+    }
 
     @media screen and (max-width: 600px) {
-        margin-right: 0px;
-      }
+      margin-right: 0px;
+    }
   }
 
   @media screen and (max-width: 600px) {

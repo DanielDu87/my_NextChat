@@ -33,7 +33,6 @@ type SetStoreState<T> = (
 const IMMEDIATE_SYNC_STORE_KEYS = new Set<SyncStoreKey>([
   StoreKey.Access,
   StoreKey.Config,
-  StoreKey.Mask,
   StoreKey.Prompt,
   StoreKey.Plugin,
 ]);
@@ -43,7 +42,6 @@ const IMMEDIATE_SYNC_STORE_DISPLAY_NAMES: Partial<
 > = {
   [StoreKey.Access]: "API配置",
   [StoreKey.Config]: "模型与设置",
-  [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Plugin]: "插件",
 };
@@ -138,7 +136,8 @@ function triggerImmediateStoreSync(storeName?: string) {
 
   const displayName =
     IMMEDIATE_SYNC_STORE_DISPLAY_NAMES[syncStoreKey] || syncStoreKey;
-  const shouldLogSync = syncStoreKey === StoreKey.Access;
+  const shouldLogSync =
+    syncStoreKey === StoreKey.Access || syncStoreKey === StoreKey.Plugin;
   if (shouldLogSync) {
     console.log(`[Immediate Sync] 🕒 ${displayName}已加入数据库同步队列`, {
       storeKey: syncStoreKey,

@@ -7,7 +7,6 @@ const SHARED_STORE_KEYS = new Set<string>([
   StoreKey.Config,
   StoreKey.ModelCache,
   StoreKey.Plugin,
-  StoreKey.Mask,
   StoreKey.Prompt,
   StoreKey.Update,
   StoreKey.SdList,

@@ -346,15 +346,6 @@ export async function getStoreSnapshotMetas(
          and security_settings ? 'access-control'
        union all
        select
-         'mask-store'::text,
-         updated_at::text,
-         md5((extra_settings -> 'mask-store')::text),
-         pg_column_size(extra_settings -> 'mask-store')
-       from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
-         and extra_settings ? 'mask-store'
-       union all
-       select
          'prompt-store'::text,
          updated_at::text,
          md5((extra_settings -> 'prompt-store')::text),

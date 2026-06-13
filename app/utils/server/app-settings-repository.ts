@@ -14,7 +14,6 @@ const STORE_COLUMN_MAP: Partial<Record<string, SettingsColumn>> = {
   [StoreKey.Plugin]: "plugin_settings",
   [StoreKey.Access]: "security_settings",
   [StoreKey.Config]: "extra_settings",
-  [StoreKey.Mask]: "extra_settings",
   [StoreKey.Prompt]: "extra_settings",
   [StoreKey.Update]: "extra_settings",
   [StoreKey.SdList]: "extra_settings",

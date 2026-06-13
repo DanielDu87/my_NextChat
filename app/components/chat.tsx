@@ -7165,7 +7165,7 @@ function _Chat() {
                                     className={styles["chat-message-tool"]}
                                   >
                                     {tool.isError === false ? (
-                                      <ConfirmIcon />
+                                      <span>&lt;插件&gt;</span>
                                     ) : tool.isError === true ? (
                                       <CloseIcon />
                                     ) : (
@@ -8177,8 +8177,21 @@ export function Chat() {
   useEffect(() => {
     if (urlSessionId) {
       const store = useChatStore.getState();
-      const currentId = store.sessions[store.currentSessionIndex]?.id;
+      const currentSession = store.sessions[store.currentSessionIndex];
+      const currentId = currentSession?.id;
       if (currentId !== urlSessionId) {
+        const tabCurrentSessionId =
+          typeof window !== "undefined"
+            ? window.sessionStorage?.getItem("nextchat_tab_current_session_id")
+            : "";
+        if (
+          currentId &&
+          currentId === tabCurrentSessionId &&
+          currentSession.messages.length === 0
+        ) {
+          navigate(Path.Chat, { replace: true });
+          return;
+        }
         const isNewTab =
           typeof window !== "undefined" &&
           window.sessionStorage?.getItem("nextchat_tab_initialized") !== "1";

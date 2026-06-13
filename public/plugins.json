@@ -1,17 +1,17 @@
 [
   {
-    "id": "dalle3",
-    "name": "Dalle3",
-    "schema": "/plugins-schemas/dalle.json"
+    "id": "tavilysearch",
+    "name": "Tavily Search",
+    "schema": "/plugins-schemas/tavilysearch.json"
   },
   {
-    "id": "arxivsearch",
-    "name": "ArxivSearch",
-    "schema": "/plugins-schemas/arxivsearch.json"
+    "id": "webpilot",
+    "name": "WebPilot",
+    "schema": "/plugins-schemas/webpilot.json"
   },
   {
-    "id": "duckduckgolite",
-    "name": "DuckDuckGoLiteSearch",
-    "schema": "/plugins-schemas/duckduckgolite.json"
+    "id": "codeinterpreterapi",
+    "name": "CodeInterpreter",
+    "schema": "/plugins-schemas/codeinterpreterapi.json"
   }
 ]

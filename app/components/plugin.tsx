@@ -15,6 +15,7 @@ import DeleteIcon from "../icons/delete.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ReloadIcon from "../icons/reload.svg";
 import GithubIcon from "../icons/github.svg";
+import PowerIcon from "../icons/power.svg";
 
 import { Plugin, usePluginStore, FunctionToolService } from "../store/plugin";
 import {
@@ -180,7 +181,10 @@ export function PluginPage() {
               type="text"
               className={styles["search-bar"]}
               placeholder={Locale.Plugin.Page.Search}
-              autoFocus
+              name="plugin-search"
+              autoComplete="new-password"
+              aria-autocomplete="none"
+              value={searchText}
               onInput={(e) => onSearch(e.currentTarget.value)}
             />
 
@@ -234,14 +238,33 @@ export function PluginPage() {
                 </div>
                 <div className={styles["mask-actions"]}>
                   <IconButton
+                    bordered
+                    icon={<PowerIcon />}
+                    text={
+                      m.enabled !== false
+                        ? Locale.Plugin.Item.Enable
+                        : Locale.Plugin.Item.Disable
+                    }
+                    style={{ marginRight: 8 }}
+                    onClick={() => {
+                      pluginStore.updatePlugin(m.id, (plugin) => {
+                        plugin.enabled =
+                          plugin.enabled === false ? true : false;
+                      });
+                    }}
+                  />
+                  <IconButton
+                    bordered
                     icon={<EditIcon />}
                     text={Locale.Plugin.Item.Edit}
                     onClick={() => setEditingPluginId(m.id)}
                   />
                   {!m.builtin && (
                     <IconButton
+                      bordered
                       icon={<DeleteIcon />}
                       text={Locale.Plugin.Item.Delete}
+                      style={{ marginLeft: 8 }}
                       onClick={async () => {
                         if (
                           await showConfirm(Locale.Plugin.Item.DeleteConfirm)
@@ -262,6 +285,7 @@ export function PluginPage() {
         <div className="modal-mask">
           <Modal
             title={Locale.Plugin.EditModal.Title(editingPlugin?.builtin)}
+            className={pluginStyles["plugin-edit-modal"]}
             onClose={closePluginModal}
             actions={[
               <IconButton
@@ -276,7 +300,7 @@ export function PluginPage() {
             <List>
               <ListItem title={Locale.Plugin.EditModal.Auth}>
                 <select
-                  value={editingPlugin?.authType}
+                  value={editingPlugin?.authType ?? ""}
                   onChange={(e) => {
                     pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                       plugin.authType = e.target.value;
@@ -294,7 +318,7 @@ export function PluginPage() {
               ) && (
                 <ListItem title={Locale.Plugin.Auth.Location}>
                   <select
-                    value={editingPlugin?.authLocation}
+                    value={editingPlugin?.authLocation ?? "header"}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authLocation = e.target.value;
@@ -317,7 +341,10 @@ export function PluginPage() {
                 <ListItem title={Locale.Plugin.Auth.CustomHeader}>
                   <input
                     type="text"
-                    value={editingPlugin?.authHeader}
+                    name="plugin-auth-header"
+                    autoComplete="new-password"
+                    aria-autocomplete="none"
+                    value={editingPlugin?.authHeader ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authHeader = e.target.value;
@@ -331,8 +358,10 @@ export function PluginPage() {
               ) && (
                 <ListItem title={Locale.Plugin.Auth.Token}>
                   <PasswordInput
-                    type="text"
-                    value={editingPlugin?.authToken}
+                    name="plugin-auth-token"
+                    autoComplete="new-password"
+                    aria-autocomplete="none"
+                    value={editingPlugin?.authToken ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authToken = e.currentTarget.value;
@@ -347,6 +376,10 @@ export function PluginPage() {
                 <div className={pluginStyles["plugin-schema"]}>
                   <input
                     type="text"
+                    name="plugin-schema-url"
+                    autoComplete="new-password"
+                    aria-autocomplete="none"
+                    value={loadUrl}
                     style={{ minWidth: 200 }}
                     onInput={(e) => setLoadUrl(e.currentTarget.value)}
                   ></input>
@@ -359,6 +392,7 @@ export function PluginPage() {
                 </div>
               </ListItem>
               <ListItem
+                vertical
                 subTitle={
                   <div
                     className={clsx(

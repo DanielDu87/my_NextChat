@@ -419,7 +419,6 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Plugin]: "插件",
   [StoreKey.Access]: "API配置",
   [StoreKey.Config]: "模型与设置",
-  [StoreKey.Mask]: "面具",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Update]: "应用更新状态",
   [StoreKey.SdList]: "绘图",
@@ -444,8 +443,6 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
       } 个API配置`;
     case StoreKey.Config:
       return `${countCustomModelEntries(state?.customModels)} 个模型`;
-    case StoreKey.Mask:
-      return `${Object.keys(state?.masks ?? {}).length} 个面具`;
     case StoreKey.Prompt:
       return `${Object.keys(state?.prompts ?? {}).length} 个提示词`;
     case StoreKey.Update:

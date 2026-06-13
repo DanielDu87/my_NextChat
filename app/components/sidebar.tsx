@@ -11,7 +11,9 @@ import ChatGptIcon from "../icons/chatgpt.svg";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/trash.svg";
 import McpIcon from "../icons/mcp.svg";
-import DiscoveryIcon from "../icons/brain.svg";
+import PluginIcon from "../icons/plugin.svg";
+import PaletteIcon from "../icons/palette.svg";
+import HistoryIcon from "../icons/history.svg";
 
 import Locale from "../locales";
 
@@ -23,16 +25,20 @@ import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 import { useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
 import dynamic from "next/dynamic";
-import { Selector, showConfirm, showToast } from "./ui-lib";
+import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
 import { createNewChatWithSyncedModel } from "../utils/new-chat";
 
 const DISCOVERY = [
-  { name: Locale.Plugin.Name, path: Path.Plugins },
-  { name: "Stable Diffusion", path: Path.Sd },
-  { name: Locale.SearchChat.Page.Title, path: Path.SearchChat },
+  { name: "插件", path: Path.Plugins, icon: <PluginIcon /> },
+  { name: "画图", path: Path.Sd, icon: <PaletteIcon /> },
+  {
+    name: "搜索",
+    path: Path.SearchChat,
+    icon: <HistoryIcon />,
+  },
 ];
 
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
@@ -420,7 +426,6 @@ export function SideBar(props: { className?: string }) {
   useHotKey();
   useFixedSideBar();
   const isMobileScreen = useMobileScreen();
-  const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();
   const config = useAppConfig();
@@ -479,30 +484,17 @@ export function SideBar(props: { className?: string }) {
               shadow
             />
           )}
-          <IconButton
-            icon={<DiscoveryIcon />}
-            text={Locale.Discovery.Name}
-            className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
-            onClick={() => setshowDiscoverySelector(true)}
-            shadow
-          />
+          {DISCOVERY.map((item) => (
+            <IconButton
+              key={item.path}
+              icon={item.icon}
+              text={item.name}
+              className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
+              onClick={() => navigate(item.path, { state: { fromHome: true } })}
+              shadow
+            />
+          ))}
         </div>
-        {showDiscoverySelector && (
-          <Selector
-            items={[
-              ...DISCOVERY.map((item) => {
-                return {
-                  title: item.name,
-                  value: item.path,
-                };
-              }),
-            ]}
-            onClose={() => setshowDiscoverySelector(false)}
-            onSelection={(s) => {
-              navigate(s[0], { state: { fromHome: true } });
-            }}
-          />
-        )}
       </SideBarHeader>
       <SideBarBody
         onClick={(e) => {

@@ -1752,14 +1752,22 @@ export class ChatGPTApi implements LLMApi {
 
       if (shouldStream) {
         let index = -1;
+        const toolCallIndexById = new Map<string, number>();
+        const toolCallIndexByServerIndex = new Map<number, number>();
         let latestReasoningDetails: Record<string, unknown> | undefined;
         let latestUsage: Record<string, unknown> | undefined;
+        const effectivePluginIds = usePluginStore
+          .getState()
+          .getAll()
+          .filter((plugin) => plugin.enabled !== false)
+          .map((plugin) => plugin.id);
         const [tools, funcs] = usePluginStore
           .getState()
-          .getAsTools(
-            useChatStore.getState().currentSession().mask?.plugin || [],
-          );
-        // console.log("getAsTools", tools, funcs);
+          .getAsTools(effectivePluginIds);
+        console.log("[Plugin] 当前会话工具", {
+          enabledPluginIds: effectivePluginIds,
+          toolNames: tools.map((tool: any) => tool?.function?.name),
+        });
         const streamOptions = {
           ...options,
           onCompatibilityRetry(reason: string) {
@@ -1824,21 +1832,71 @@ export class ChatGPTApi implements LLMApi {
               };
             }
             if (tool_calls?.length > 0) {
-              const id = tool_calls[0]?.id;
-              const args = tool_calls[0]?.function?.arguments;
-              if (id) {
-                index += 1;
-                runTools.push({
-                  id,
-                  type: tool_calls[0]?.type,
-                  function: {
-                    name: tool_calls[0]?.function?.name as string,
-                    arguments: args,
-                  },
-                });
-              } else {
-                // @ts-ignore
-                runTools[index]["function"]["arguments"] += args;
+              for (const toolCall of tool_calls) {
+                const id = toolCall?.id;
+                const toolIndex =
+                  typeof toolCall?.index === "number"
+                    ? toolCall.index
+                    : undefined;
+                const name = toolCall?.function?.name;
+                const args = toolCall?.function?.arguments ?? "";
+                let targetIndex =
+                  id && toolCallIndexById.has(id)
+                    ? toolCallIndexById.get(id)
+                    : undefined;
+
+                if (
+                  targetIndex === undefined &&
+                  toolIndex !== undefined &&
+                  toolCallIndexByServerIndex.has(toolIndex)
+                ) {
+                  targetIndex = toolCallIndexByServerIndex.get(toolIndex);
+                }
+
+                const targetTool =
+                  targetIndex !== undefined ? runTools[targetIndex] : undefined;
+
+                if (targetTool) {
+                  if (id && !targetTool.id) {
+                    targetTool.id = id;
+                  }
+                  if (id) {
+                    toolCallIndexById.set(id, targetIndex as number);
+                  }
+                  if (toolCall?.type) {
+                    targetTool.type = toolCall.type;
+                  }
+                  if (!targetTool.function) {
+                    targetTool.function = {
+                      name: name as string,
+                      arguments: "",
+                    };
+                  } else if (name) {
+                    targetTool.function.name = name;
+                  }
+                  targetTool.function.arguments =
+                    (targetTool.function.arguments || "") + args;
+                } else if (id || name) {
+                  index += 1;
+                  const nextIndex = runTools.length;
+                  runTools.push({
+                    id: id as string,
+                    type: toolCall?.type,
+                    function: {
+                      name: name as string,
+                      arguments: args,
+                    },
+                  });
+                  if (id) {
+                    toolCallIndexById.set(id, nextIndex);
+                  }
+                  if (toolIndex !== undefined) {
+                    toolCallIndexByServerIndex.set(toolIndex, nextIndex);
+                  }
+                } else if (index >= 0 && runTools[index]?.function) {
+                  runTools[index].function.arguments =
+                    (runTools[index].function.arguments || "") + args;
+                }
               }
             }
 
@@ -1900,6 +1958,8 @@ export class ChatGPTApi implements LLMApi {
           ) => {
             // reset index value
             index = -1;
+            toolCallIndexById.clear();
+            toolCallIndexByServerIndex.clear();
             // @ts-ignore
             requestPayload?.messages?.splice(
               // @ts-ignore

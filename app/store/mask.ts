@@ -2,9 +2,8 @@ import { getLang, Lang } from "../locales";
 import type { ChatMessage } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
 import { DEFAULT_CONFIG, ModelConfig, ModelType, useAppConfig } from "./config";
-import { ServiceProvider, StoreKey } from "../constant";
+import { ServiceProvider } from "../constant";
 import { nanoid } from "nanoid";
-import { createPersistStore } from "../utils/store";
 import { useAccessStore } from "./access";
 import {
   collectModelsWithDefaultModel,
@@ -17,6 +16,7 @@ import {
   type AutoModelCandidate,
 } from "../utils/auto-model";
 import type { AutoModelSeriesKey } from "./config";
+import { BUILTIN_PLUGIN_IDS } from "./plugin";
 
 export type Mask = {
   id: string;
@@ -48,6 +48,7 @@ const localStorage = safeLocalStorage();
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const LAST_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 let lastAutoModeBranchLogKey = "";
+const DEFAULT_MASK_PLUGINS = [...BUILTIN_PLUGIN_IDS];
 
 function parseStoredModelSelection(value: string) {
   const trimmed = String(value || "").trim();
@@ -148,7 +149,7 @@ export const createEmptyMask = () => {
       lang: getLang(),
       builtin: false,
       createdAt: Date.now(),
-      plugin: [],
+      plugin: DEFAULT_MASK_PLUGINS,
     } as Mask;
   }
   if (autoSeries.length > 0) {
@@ -201,7 +202,7 @@ export const createEmptyMask = () => {
         lang: getLang(),
         builtin: false,
         createdAt: Date.now(),
-        plugin: [],
+        plugin: DEFAULT_MASK_PLUGINS,
       } as Mask;
     }
   }
@@ -306,98 +307,9 @@ export const createEmptyMask = () => {
     lang: getLang(),
     builtin: false,
     createdAt: Date.now(),
-    plugin: [],
+    plugin: DEFAULT_MASK_PLUGINS,
   } as Mask;
 };
 
-export const useMaskStore = createPersistStore(
-  { ...DEFAULT_MASK_STATE },
-
-  (set, get) => ({
-    create(mask?: Partial<Mask>) {
-      const masks = get().masks;
-      const id = nanoid();
-      masks[id] = {
-        ...createEmptyMask(),
-        ...mask,
-        id,
-        builtin: false,
-      };
-
-      set(() => ({ masks }));
-      get().markUpdate();
-
-      return masks[id];
-    },
-    updateMask(id: string, updater: (mask: Mask) => void) {
-      const masks = get().masks;
-      const mask = masks[id];
-      if (!mask) return;
-      const updateMask = { ...mask };
-      updater(updateMask);
-      masks[id] = updateMask;
-      set(() => ({ masks }));
-      get().markUpdate();
-    },
-    delete(id: string) {
-      const masks = get().masks;
-      delete masks[id];
-      set(() => ({ masks }));
-      get().markUpdate();
-    },
-
-    get(id?: string) {
-      const mask = get().masks[id ?? 1145141919810];
-      if (!mask) return mask;
-      return {
-        ...mask,
-        syncGlobalConfig: true,
-        modelConfig: { ...useAppConfig.getState().modelConfig },
-      };
-    },
-    getAll() {
-      const config = useAppConfig.getState();
-      return Object.values(get().masks)
-        .map(
-          (mask) =>
-            ({
-              ...mask,
-              syncGlobalConfig: true,
-              modelConfig: { ...config.modelConfig },
-            }) as Mask,
-        )
-        .sort((a, b) => b.createdAt - a.createdAt);
-    },
-    search(_text: string) {
-      return Object.values(get().masks);
-    },
-    setLanguage(language: Lang | undefined) {
-      set({
-        language,
-      });
-    },
-  }),
-  {
-    name: StoreKey.Mask,
-    version: 3.1,
-
-    migrate(state, version) {
-      const newState = JSON.parse(JSON.stringify(state)) as MaskState;
-
-      // migrate mask id to nanoid
-      if (version < 3) {
-        Object.values(newState.masks).forEach((m) => (m.id = nanoid()));
-      }
-
-      if (version < 3.1) {
-        const updatedMasks: Record<string, Mask> = {};
-        Object.values(newState.masks).forEach((m) => {
-          updatedMasks[m.id] = m;
-        });
-        newState.masks = updatedMasks;
-      }
-
-      return newState as any;
-    },
-  },
-);
+// Mask 模板管理功能已移除，useMaskStore 已删除
+// Mask 类型和 createEmptyMask 仍保留，供 chat session 使用

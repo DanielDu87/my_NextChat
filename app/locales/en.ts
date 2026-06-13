@@ -694,6 +694,8 @@ const en: LocaleType = {
       Edit: "Edit",
       Delete: "Delete",
       DeleteConfirm: "Confirm to delete?",
+      Enable: "Enable",
+      Disable: "Disable",
     },
     Auth: {
       None: "None",
@@ -718,6 +720,11 @@ const en: LocaleType = {
       Load: "Load From URL",
       Method: "Method",
       Error: "OpenAPI Schema Error",
+    },
+    Session: {
+      Title: "Session Plugins",
+      SubTitle: "Enable plugins for AI to use in this chat",
+      Empty: "No plugins available",
     },
   },
   Mask: {

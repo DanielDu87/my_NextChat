@@ -50,15 +50,14 @@
   transition: width ease 0.05s;
 
   .sidebar-header-bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     margin-bottom: 20px;
 
     .sidebar-bar-button {
-      flex-grow: 1;
-
-      &:not(:last-child) {
-        margin-right: 10px;
-      }
+      width: 100%;
+      min-width: 0;
     }
   }
 }
@@ -97,6 +96,53 @@
     transition: transform ease 0.22s;
     box-shadow: none;
     will-change: transform;
+
+    .sidebar-header-bar {
+      grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+
+      .sidebar-bar-button {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        padding: 5px 4px !important;
+        flex-direction: row;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 4px;
+        border-radius: 12px;
+        box-sizing: border-box;
+
+        :global([class*="icon-button-icon"]) {
+          width: 18px !important;
+          height: 18px !important;
+          margin: 0 !important;
+          flex: 0 0 18px;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+
+        :global([class*="icon-button-icon"] > svg) {
+          width: 18px !important;
+          height: 18px !important;
+          display: block !important;
+          flex: 0 0 18px;
+        }
+
+        :global([class*="icon-button-text"]) {
+          display: flex !important;
+          margin-left: 0 !important;
+          max-width: 100%;
+          font-size: 13px;
+          line-height: 18px;
+          text-align: left;
+          align-items: center;
+        }
+      }
+    }
   }
 
   .sidebar-show {
@@ -622,6 +668,21 @@
     box-shadow:
       0 0 0 1px var(--primary),
       var(--card-shadow) !important;
+  }
+
+  &:active {
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+.sidebar-header-action-button {
+  padding: 10px 8px !important;
+
+  &:active {
+    transform: none !important;
+    filter: none !important;
+    opacity: 1 !important;
   }
 }
 

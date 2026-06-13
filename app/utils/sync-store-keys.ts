@@ -6,7 +6,6 @@ export const PERSIST_STORE_KEYS = [
   StoreKey.Access,
   StoreKey.Config,
   StoreKey.ModelCache,
-  StoreKey.Mask,
   StoreKey.Prompt,
   StoreKey.Update,
   StoreKey.SdList,
@@ -54,11 +53,10 @@ export const STORE_PERSIST_VERSION: Record<
   number
 > = {
   [StoreKey.Chat]: 3.7,
-  [StoreKey.Plugin]: 1,
+  [StoreKey.Plugin]: 6,
   [StoreKey.Access]: 4,
   [StoreKey.Config]: 4.5,
   [StoreKey.ModelCache]: 1,
-  [StoreKey.Mask]: 3.1,
   [StoreKey.Prompt]: 3,
   [StoreKey.Update]: 1,
   [StoreKey.SdList]: 1,

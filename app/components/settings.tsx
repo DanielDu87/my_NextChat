@@ -82,7 +82,7 @@ import { useNavigate } from "react-router-dom";
 import { getClientConfig } from "../config/client";
 import { useSyncStore } from "../store/sync";
 import { nanoid } from "nanoid";
-import { useMaskStore } from "../store/mask";
+
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
 
@@ -378,7 +378,7 @@ function SyncConfigModal(props: { onClose?: () => void }) {
         <List>
           <ListItem
             title="数据库同步"
-            subTitle="当前使用服务端 PostgreSQL 保存聊天、插件、设置、API 配置、Prompt、Mask、更新状态、绘图记录和模型缓存，无需额外配置。"
+            subTitle="当前使用服务端 PostgreSQL 保存聊天、插件、设置、API 配置、Prompt、更新状态、绘图记录和模型缓存，无需额外配置。"
           />
         </List>
       </Modal>
@@ -390,7 +390,6 @@ function SyncItems() {
   const syncStore = useSyncStore();
   const chatStore = useChatStore();
   const promptStore = usePromptStore();
-  const maskStore = useMaskStore();
   const couldSync = useMemo(() => {
     return syncStore.cloudSync();
   }, [syncStore]);
@@ -405,9 +404,8 @@ function SyncItems() {
       chat: sessions.length,
       message: messageCount,
       prompt: Object.keys(promptStore.prompts).length,
-      mask: Object.keys(maskStore.masks).length,
     };
-  }, [chatStore.sessions, maskStore.masks, promptStore.prompts]);
+  }, [chatStore.sessions, promptStore.prompts]);
 
   return (
     <>

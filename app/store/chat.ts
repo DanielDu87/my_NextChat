@@ -63,6 +63,7 @@ import {
 } from "../utils/model";
 import { buildCachedExtraModels } from "../utils/model-pool";
 import { createEmptyMask, Mask } from "./mask";
+import { BUILTIN_PLUGIN_IDS } from "./plugin";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
@@ -443,9 +444,11 @@ export function normalizeSession(
           ? currentMask.context
           : [],
       plugin:
-        currentMask && Array.isArray(currentMask.plugin)
+        currentMask &&
+        Array.isArray(currentMask.plugin) &&
+        currentMask.plugin.length > 0
           ? currentMask.plugin
-          : [],
+          : [...BUILTIN_PLUGIN_IDS],
       modelConfig: {
         ...fallbackMask.modelConfig,
         ...(currentMask?.modelConfig || {}),
@@ -1950,6 +1953,10 @@ export const useChatStore = createPersistStore(
 
       selectSession(index: number) {
         const sessionId = get().sessions[index]?.id || "";
+        if (sessionId) {
+          writeSessionStorageItem(TAB_INITIALIZED_KEY, "1");
+          writeSessionStorageItem(TAB_CURRENT_SESSION_ID_KEY, sessionId);
+        }
         set({
           currentSessionIndex: index,
           selectedSessionId: sessionId,
