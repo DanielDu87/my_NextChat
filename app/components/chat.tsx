@@ -2849,6 +2849,15 @@ function _Chat() {
     message: string;
   }>({ show: false, message: "" });
   const providerSwitchToastDurationMs = isMobileScreen ? 3500 : 2200;
+  const showTopNotice = useCallback(
+    (message: string) => {
+      setProviderSwitchToast({ show: true, message });
+      window.setTimeout(() => {
+        setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+      }, providerSwitchToastDurationMs);
+    },
+    [providerSwitchToastDurationMs],
+  );
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorOpenStartedAtRef = useRef(0);
@@ -3012,22 +3021,16 @@ function _Chat() {
     }
 
     mobileInitialModelToastKeyRef.current = toastKey;
-    setProviderSwitchToast({
-      show: true,
-      message: `当前模型：${providerLabel} ${modelLabel}`,
-    });
-    window.setTimeout(() => {
-      setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-    }, providerSwitchToastDurationMs);
+    showTopNotice(`当前模型：${providerLabel} ${modelLabel}`);
   }, [
     activeModelSelectorProviderDisplayName,
     currentModelName,
     currentSessionHasMessages,
     isMobileScreen,
-    providerSwitchToastDurationMs,
     safeSession.createdAt,
     safeSession.id,
     shouldShowModelConfigLabel,
+    showTopNotice,
   ]);
 
   const isAiHubMixOrderingReady = useMemo(() => {
@@ -3729,8 +3732,16 @@ function _Chat() {
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     (isMobileScreen ? mobileInputRef.current : inputRef.current)?.blur();
 
-    // 保留原用户消息，只移除旧的 AI 回复，避免重试时用户输入闪烁。
-    if (botMessage?.id) {
+    const botMessageIndex = botMessage?.id
+      ? sessionMessages.findIndex((m) => m.id === botMessage!.id)
+      : -1;
+    const isLatestMessage =
+      botMessageIndex >= 0
+        ? botMessageIndex === sessionMessages.length - 1
+        : resendingIndex === sessionMessages.length - 1;
+
+    // 只有最后一组消息才原地重试；历史消息重试时保留原消息，并在底部追加新的请求和回复。
+    if (isLatestMessage && botMessage?.id) {
       chatStore.updateTargetSession(
         session,
         (session) =>
@@ -3745,9 +3756,12 @@ function _Chat() {
     const textContent = editedContent ?? getMessageTextContent(userMessage);
     const images = editedImages ?? getMessageImages(userMessage);
     chatStore
-      .onUserInput(textContent, images, undefined, {
-        reuseUserMessageId: userMessage.id,
-      })
+      .onUserInput(
+        textContent,
+        images,
+        undefined,
+        isLatestMessage ? { reuseUserMessageId: userMessage.id } : undefined,
+      )
       .then(() => setIsLoading(false));
   };
 
@@ -4081,9 +4095,9 @@ function _Chat() {
   const refreshTouchTriggeredRef = useRef(false);
   const handleSessionRefresh = useCallback(() => {
     forceScrollToBottom();
-    showToast(Locale.Chat.Actions.RefreshToast);
+    showTopNotice(Locale.Chat.Actions.RefreshToast);
     chatStore.summarizeSession(true, session);
-  }, [chatStore, forceScrollToBottom, session]);
+  }, [chatStore, forceScrollToBottom, session, showTopNotice]);
 
   const scrollToBottomTouchTriggeredRef = useRef(false);
   const pauseStreamingAutoScrollForUser = useCallback(
@@ -6895,10 +6909,14 @@ function _Chat() {
               onTouchStart={(e) => {
                 chatBodyTouchStartYRef.current = e.touches[0]?.clientY ?? null;
                 markUserScrollIntent();
-                (isMobileScreen
-                  ? mobileInputRef.current
-                  : inputRef.current
-                )?.blur();
+                if (isMobileScreen) {
+                  pauseStreamingAutoScrollForUser();
+                  mobileInputOutsidePointerBlurRef.current = false;
+                  finalizeMobileInputBlur(true);
+                  blurMobileKeyboard();
+                } else {
+                  inputRef.current?.blur();
+                }
               }}
               onTouchMove={(e) => {
                 markUserScrollIntent();
@@ -7164,11 +7182,11 @@ function _Chat() {
                                     title={tool?.errorMsg}
                                     className={styles["chat-message-tool"]}
                                   >
-                                    {tool.isError === false ? (
-                                      <span>&lt;插件&gt;</span>
-                                    ) : tool.isError === true ? (
+                                    {tool.isError === true ? (
                                       <CloseIcon />
-                                    ) : null}
+                                    ) : (
+                                      <span>&lt;插件&gt;</span>
+                                    )}
                                     <span>{tool?.function?.name}</span>
                                   </div>
                                 ))}
@@ -7613,19 +7631,13 @@ function _Chat() {
                           }
                           if (mobileInputOutsidePointerBlurRef.current) {
                             mobileInputOutsidePointerBlurRef.current = false;
-                            requestAnimationFrame(() => {
-                              const mobileInput = mobileInputRef.current;
-                              if (!mobileInput) return;
-                              if (document.activeElement !== mobileInput) {
-                                mobileInput.focus();
-                              }
-                              setIsMobileInputFocused(true);
-                              scheduleMoveInputCursorToEnd();
-                              if (mobileInputHasText) {
-                                scheduleScrollMobileInputToBottom();
-                              }
-                              scheduleMobileKeyboardViewportSync();
-                            });
+                            sanitizeBoundaryInput();
+                            mobileBlurTimerRef.current = window.setTimeout(
+                              () => {
+                                finalizeMobileInputBlur();
+                              },
+                              50,
+                            );
                             return;
                           }
 

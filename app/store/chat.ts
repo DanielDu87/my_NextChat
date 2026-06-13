@@ -989,41 +989,39 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     score: number;
   }> = [];
 
-  if (currentProfile && currentRefreshModel) {
+  if (currentProfile && currentProviderId && modelConfig.model) {
+    candidates.push({
+      model: modelConfig.model,
+      providerName: currentProviderName,
+      profile: currentProfile,
+      providerId: currentProviderId,
+      score: 1000,
+    });
+  }
+
+  if (
+    currentProfile &&
+    currentRefreshModel &&
+    normalizeModelKeyword(currentRefreshModel.name) !==
+      normalizeModelKeyword(modelConfig.model || "")
+  ) {
     candidates.push({
       model: currentRefreshModel.name,
       providerName: (currentRefreshModel.provider?.providerName ||
         currentProviderName) as ServiceProvider,
       profile: currentProfile,
       providerId: currentProviderId,
-      score: 1000,
+      score: 900,
     });
   }
 
-  if (currentProfile && !currentRefreshModel && currentProviderId) {
+  if (!currentRefreshModel && currentProfile && currentProviderId) {
     candidates.push({
       model: SUMMARIZE_MODEL,
       providerName: currentProviderName,
       profile: currentProfile,
       providerId: currentProviderId,
-      score: 1000,
-    });
-  }
-
-  const shouldTryCurrentDialogModel =
-    currentProfile &&
-    currentProviderId &&
-    modelConfig.model &&
-    normalizeModelKeyword(modelConfig.model) !==
-      normalizeModelKeyword(currentRefreshModel?.name || SUMMARIZE_MODEL);
-
-  if (shouldTryCurrentDialogModel) {
-    candidates.push({
-      model: modelConfig.model,
-      providerName: currentProviderName,
-      profile: currentProfile,
-      providerId: currentProviderId,
-      score: 900,
+      score: 800,
     });
   }
 
@@ -1447,7 +1445,7 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: accessStore.customOpenAICompatible,
   };
 
-  logger.chat.log("[刷新标题配置] 正在切换供应商配置:", {
+  logger.chat.log("[标题生成] 使用当前对话 API 配置:", {
     基础地址: profile.baseUrl,
     APIKey状态: profile.apiKey ? "已配置" : "缺失",
     OpenAI兼容: profile.openAICompatible,
@@ -1460,24 +1458,19 @@ function withSummarizeProfile<T>(
     customOpenAICompatible: profile.openAICompatible ?? true,
   } as any);
 
-  logger.chat.log(
-    "[刷新标题配置] 切换后自定义地址:",
-    useAccessStore.getState().customUrl,
-  );
-
   try {
     const result = fn();
     // 如果 fn() 返回 Promise，在 Promise 完成后再恢复状态
     if (result instanceof Promise) {
       return (result as Promise<T>).finally(() => {
         useAccessStore.setState(prevState as any);
-        logger.chat.log("[刷新标题配置] 请求完成后已恢复原供应商配置");
+        logger.chat.log("[标题生成] 请求结束，已清理标题生成请求上下文");
       }) as T;
     }
     return result;
   } catch (error) {
     useAccessStore.setState(prevState as any);
-    logger.chat.log("[刷新标题配置] 出错后已恢复原供应商配置");
+    logger.chat.log("[标题生成] 请求出错，已清理标题生成请求上下文");
     throw error;
   }
 }
