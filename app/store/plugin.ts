@@ -428,16 +428,20 @@ export const usePluginStore = createPersistStore(
       get().markUpdate();
     },
 
-    getAsTools(_ids?: string[]) {
+    getAsTools(
+      _ids?: string[],
+    ): [FunctionToolItem[], Record<string, Function>] {
       const selected = Object.values(
         prunePlugins(get().plugins, get().deletedPluginIds),
       )
         .filter((i) => isPluginRunnable(i))
         .map((p) => FunctionToolService.add(p));
       return [
-        // @ts-ignore
-        selected.reduce((s, i) => s.concat(i.tools), []),
-        selected.reduce((s, i) => Object.assign(s, i.funcs), {}),
+        selected.reduce<FunctionToolItem[]>((s, i) => s.concat(i.tools), []),
+        selected.reduce<Record<string, Function>>(
+          (s, i) => Object.assign(s, i.funcs),
+          {},
+        ),
       ];
     },
     get(id?: string) {

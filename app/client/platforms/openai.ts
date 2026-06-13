@@ -1893,9 +1893,12 @@ export class ChatGPTApi implements LLMApi {
                   if (toolIndex !== undefined) {
                     toolCallIndexByServerIndex.set(toolIndex, nextIndex);
                   }
-                } else if (index >= 0 && runTools[index]?.function) {
-                  runTools[index].function.arguments =
-                    (runTools[index].function.arguments || "") + args;
+                } else {
+                  const currentTool = index >= 0 ? runTools[index] : undefined;
+                  if (currentTool?.function) {
+                    currentTool.function.arguments =
+                      (currentTool.function.arguments || "") + args;
+                  }
                 }
               }
             }
