@@ -7168,9 +7168,7 @@ function _Chat() {
                                       <span>&lt;插件&gt;</span>
                                     ) : tool.isError === true ? (
                                       <CloseIcon />
-                                    ) : (
-                                      <LoadingButtonIcon />
-                                    )}
+                                    ) : null}
                                     <span>{tool?.function?.name}</span>
                                   </div>
                                 ))}

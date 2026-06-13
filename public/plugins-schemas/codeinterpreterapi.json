@@ -2,6 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CodeInterpreter",
+    "description": "Run Python code through Code Interpreter API. The public hosted endpoint does not require authentication; self-hosted deployments may optionally enable Bearer Token authentication.",
     "version": "1.0.0"
   },
   "servers": [
@@ -15,13 +16,14 @@
         "operationId": "CodeInterpreter",
         "x-openai-isConsequential": false,
         "summary": "Run a given Python program and return the output.",
+        "description": "Execute Python code in the remote Code Interpreter API sandbox and return stdout plus generated image URLs when present.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["code", "languageType", "variables"],
+                "required": ["code", "languageType"],
                 "properties": {
                   "code": {
                     "type": "string",
@@ -33,11 +35,49 @@
                   },
                   "variables": {
                     "type": "object",
-                    "description": "value is empty dict: `{}`"
+                    "description": "Optional variables passed to the code. Use an empty object when not needed.",
+                    "default": {}
                   }
                 }
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Code execution result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "description": "Standard output from the executed code."
+                    },
+                    "images": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Generated image filenames mapped to accessible image URLs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request. Invalid JSON or parameters."
+          },
+          "401": {
+            "description": "Unauthorized. Missing or invalid token when authentication is enabled by the API server."
+          },
+          "405": {
+            "description": "Method not allowed."
+          },
+          "504": {
+            "description": "Code execution timed out."
           }
         }
       }

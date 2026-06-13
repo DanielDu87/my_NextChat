@@ -5,11 +5,6 @@
     "schema": "/plugins-schemas/tavilysearch.json"
   },
   {
-    "id": "webpilot",
-    "name": "WebPilot",
-    "schema": "/plugins-schemas/webpilot.json"
-  },
-  {
     "id": "codeinterpreterapi",
     "name": "CodeInterpreter",
     "schema": "/plugins-schemas/codeinterpreterapi.json"

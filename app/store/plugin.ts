@@ -10,7 +10,6 @@ import { runWithImmediateStoreSyncPaused } from "../utils/store";
 const isApp = getClientConfig()?.isApp !== false;
 export const BUILTIN_PLUGIN_IDS = [
   "tavilysearch",
-  "webpilot",
   "codeinterpreterapi",
 ] as const;
 export const BUILTIN_PLUGIN_ID_SET = new Set<string>(BUILTIN_PLUGIN_IDS);
@@ -547,9 +546,7 @@ export const usePluginStore = createPersistStore(
             const builtinPlugins = await Promise.all(
               res.map((item: any) =>
                 // skip get schema
-                state.get(item.id)
-                  ? item
-                  : !shouldPrefetchBuiltinPluginSchema(item.schema)
+                !shouldPrefetchBuiltinPluginSchema(item.schema)
                   ? item
                   : fetchPluginSchema(item.schema)
                       .then((res) => res.text())
@@ -564,22 +561,27 @@ export const usePluginStore = createPersistStore(
             builtinPlugins
               .filter((item: any) => item?.content)
               .forEach((item: any) => {
-                const plugin = state.create(item);
-                state.updatePlugin(plugin.id, (plugin) => {
-                  const tool = FunctionToolService.add(plugin, true);
-                  const info = tool?.api?.definition?.info;
-                  plugin.title =
-                    info?.title ||
-                    plugin.title ||
-                    item.title ||
-                    item.name ||
-                    item.id;
-                  plugin.version = info?.version || plugin.version || "";
-                  plugin.builtin = true;
-                  applyBuiltinPluginDefaults(plugin);
-                  plugin.enabled = true;
-                  plugin.enabledUpdatedAt = Date.now();
-                });
+                const plugin = state.get(item.id) || state.create(item);
+                state.updatePlugin(
+                  plugin.id,
+                  (plugin) => {
+                    plugin.content = item.content;
+                    const tool = FunctionToolService.add(plugin, true);
+                    const info = tool?.api?.definition?.info;
+                    plugin.title =
+                      info?.title ||
+                      plugin.title ||
+                      item.title ||
+                      item.name ||
+                      item.id;
+                    plugin.version = info?.version || plugin.version || "";
+                    plugin.builtin = true;
+                    applyBuiltinPluginDefaults(plugin);
+                    plugin.enabled = true;
+                    plugin.enabledUpdatedAt = Date.now();
+                  },
+                  { preserveConfigUpdatedAt: true },
+                );
               });
           })
             .catch((error) => {
