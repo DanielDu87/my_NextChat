@@ -812,7 +812,7 @@ const en: LocaleType = {
     Code: "Detected access code from url, confirm to apply? ",
     Settings: "Detected settings from url, confirm to apply?",
   },
-  SdPanel: {
+  DrawPanel: {
     Prompt: "Prompt",
     NegativePrompt: "Negative Prompt",
     PleaseInput: (name: string) => `Please input ${name}`,
@@ -843,7 +843,7 @@ const en: LocaleType = {
       TileTexture: "tile-texture",
     },
   },
-  Sd: {
+  Draw: {
     SubTitle: (count: number) => `${count} images`,
     Actions: {
       Params: "See Params",

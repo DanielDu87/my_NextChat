@@ -790,7 +790,7 @@ const cn = {
     Topic: "主题",
     Time: "时间",
   },
-  SdPanel: {
+  DrawPanel: {
     Prompt: "画面提示",
     NegativePrompt: "否定提示",
     PleaseInput: (name: string) => `请输入${name}`,
@@ -821,7 +821,7 @@ const cn = {
       TileTexture: "贴图",
     },
   },
-  Sd: {
+  Draw: {
     SubTitle: (count: number) => `共 ${count} 条绘画`,
     Actions: {
       Params: "查看参数",

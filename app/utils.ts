@@ -384,7 +384,11 @@ export function isImageGenerationModel(model: string) {
     lowerModel.includes("cogview") ||
     lowerModel.includes("flux") ||
     lowerModel.includes("ideogram") ||
-    lowerModel.includes("recraft")
+    lowerModel.includes("recraft") ||
+    lowerModel.includes("wan2.") ||
+    lowerModel.includes("wanx") ||
+    lowerModel.startsWith("irag-") ||
+    lowerModel.startsWith("ernie-irag-")
   );
 }
 
@@ -443,6 +447,58 @@ export function getModelSizes(model: string): ModelSize[] {
     return ["1024x1024", "1024x1536", "1536x1024"];
   }
   if (
+    lowerModel.includes("gpt-image-2") ||
+    lowerModel.includes("gpt-image-1")
+  ) {
+    return ["1024x1024", "1024x1536", "1536x1024", "1792x1024", "1024x1792"];
+  }
+  if (lowerModel.includes("imagen-4.0")) {
+    return ["1024x1024", "768x1024", "1024x768", "1024x1536", "1536x1024"];
+  }
+  if (lowerModel.includes("glm-image")) {
+    return [
+      "1280x1280",
+      "1568x1056",
+      "1056x1568",
+      "1472x1088",
+      "1088x1472",
+      "1728x960",
+      "960x1728",
+    ];
+  }
+  if (lowerModel.includes("wan2.7-image-pro")) {
+    return ["1K", "2K", "4K"];
+  }
+  if (lowerModel.includes("wan2.7-image")) {
+    return ["1K", "2K"];
+  }
+  if (lowerModel.includes("wan2.6")) {
+    return ["1280x1280", "1280x1440", "1440x1280"];
+  }
+  if (lowerModel.includes("qwen-image-2.0")) {
+    return [
+      "1024x1024",
+      "512x1024",
+      "768x512",
+      "768x1024",
+      "1024x576",
+      "576x1024",
+      "2048x2048",
+    ];
+  }
+  if (
+    lowerModel.includes("qwen-image-max") ||
+    lowerModel.includes("qwen-image-plus")
+  ) {
+    return ["1664x928", "1472x1104", "1328x1328", "1104x1472", "928x1664"];
+  }
+  if (
+    lowerModel.includes("qwen-image-edit-plus") ||
+    lowerModel.includes("qwen-image-edit-max")
+  ) {
+    return ["1024x1024", "512x512", "768x768", "1536x1536", "2048x2048"];
+  }
+  if (
     lowerModel.startsWith("dall-e-") ||
     lowerModel.startsWith("dalle-") ||
     lowerModel.startsWith("gpt-image-") ||
@@ -451,6 +507,16 @@ export function getModelSizes(model: string): ModelSize[] {
     lowerModel.startsWith("ernie-irag-")
   ) {
     return ["1024x1024", "1792x1024", "1024x1792"];
+  }
+  if (lowerModel.includes("flux")) {
+    return [
+      "1024x1024",
+      "768x1024",
+      "1024x768",
+      "1536x1024",
+      "1024x1536",
+      "512x512",
+    ];
   }
   return [];
 }
@@ -463,11 +529,21 @@ export function getSupportedImageQualityOptions(model: string): DalleQuality[] {
   if (lowerModel.includes("dall-e-3")) {
     return ["standard", "hd"];
   }
+  if (lowerModel.includes("glm-image")) {
+    return ["hd", "standard"];
+  }
+  if (lowerModel.includes("imagen-4.0")) {
+    return ["low", "medium", "high"];
+  }
   return [];
 }
 
 export function getSupportedImageStyleOptions(model: string): DalleStyle[] {
-  return model.toLowerCase().includes("dall-e-3") ? ["vivid", "natural"] : [];
+  const lowerModel = model.toLowerCase();
+  if (lowerModel.includes("dall-e-3")) {
+    return ["vivid", "natural"];
+  }
+  return [];
 }
 
 export function getSupportedVideoDurations(model: string): string[] {

@@ -13,7 +13,7 @@ import DeleteIcon from "../icons/trash.svg";
 import McpIcon from "../icons/mcp.svg";
 import PluginIcon from "../icons/plugin.svg";
 import PaletteIcon from "../icons/palette.svg";
-import HistoryIcon from "../icons/history.svg";
+import VideoIcon from "../icons/video.svg";
 
 import Locale from "../locales";
 
@@ -33,12 +33,8 @@ import { createNewChatWithSyncedModel } from "../utils/new-chat";
 
 const DISCOVERY = [
   { name: "插件", path: Path.Plugins, icon: <PluginIcon /> },
-  { name: "画图", path: Path.Sd, icon: <PaletteIcon /> },
-  {
-    name: "搜索",
-    path: Path.SearchChat,
-    icon: <HistoryIcon />,
-  },
+  { name: "画图", path: Path.Draw, icon: <PaletteIcon /> },
+  { name: "视频", icon: <VideoIcon /> },
 ];
 
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
@@ -416,8 +412,12 @@ export function SideBarTail(props: {
 
   return (
     <div className={styles["sidebar-tail"]}>
-      <div className={styles["sidebar-actions"]}>{primaryAction}</div>
-      <div className={styles["sidebar-actions"]}>{secondaryAction}</div>
+      {primaryAction ? (
+        <div className={styles["sidebar-actions"]}>{primaryAction}</div>
+      ) : null}
+      {secondaryAction ? (
+        <div className={styles["sidebar-actions"]}>{secondaryAction}</div>
+      ) : null}
     </div>
   );
 }
@@ -486,11 +486,17 @@ export function SideBar(props: { className?: string }) {
           )}
           {DISCOVERY.map((item) => (
             <IconButton
-              key={item.path}
+              key={item.path ?? item.name}
               icon={item.icon}
               text={item.name}
               className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
-              onClick={() => navigate(item.path, { state: { fromHome: true } })}
+              onClick={() => {
+                if (item.path) {
+                  navigate(item.path, { state: { fromHome: true } });
+                  return;
+                }
+                showToast(Locale.WIP);
+              }}
               shadow
             />
           ))}

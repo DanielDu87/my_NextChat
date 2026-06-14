@@ -9,7 +9,8 @@ const SHARED_STORE_KEYS = new Set<string>([
   StoreKey.Plugin,
   StoreKey.Prompt,
   StoreKey.Update,
-  StoreKey.SdList,
+  StoreKey.DrawList,
+  "sd-list",
 ]);
 
 export function getDefaultSyncUserId() {

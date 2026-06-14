@@ -2,6 +2,7 @@ import { StateStorage } from "zustand/middleware";
 import { safeLocalStorage } from "./safe-local-storage";
 import { isPersistStoreKey, PERSIST_STORE_KEYS } from "./sync-store-keys";
 import { withSyncUserHeaders } from "./sync-user-client";
+import { StoreKey } from "../constant";
 
 type RequestMethod = "GET" | "PUT" | "DELETE";
 const localStorage = safeLocalStorage();
@@ -47,11 +48,16 @@ class DatabaseStateStorage implements StateStorage {
   }
 
   private async migrateLegacyValue(name: string) {
-    const legacyValue = localStorage.getItem(name);
+    const legacyKey = name === StoreKey.DrawList ? "sd-list" : name;
+    const legacyValue =
+      localStorage.getItem(name) || localStorage.getItem(legacyKey);
     if (!legacyValue) return null;
 
     await request(this.path(name), "PUT", legacyValue);
     localStorage.removeItem(name);
+    if (legacyKey !== name) {
+      localStorage.removeItem(legacyKey);
+    }
     this.cache.set(name, legacyValue);
     return legacyValue;
   }

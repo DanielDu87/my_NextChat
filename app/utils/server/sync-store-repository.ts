@@ -364,13 +364,13 @@ export async function getStoreSnapshotMetas(
          and extra_settings ? 'chat-update'
        union all
        select
-         'sd-list'::text,
+         'draw-list'::text,
          updated_at::text,
-         md5((extra_settings -> 'sd-list')::text),
-         pg_column_size(extra_settings -> 'sd-list')
+         md5(coalesce((extra_settings -> 'draw-list')::text, (extra_settings -> 'sd-list')::text)),
+         pg_column_size(coalesce(extra_settings -> 'draw-list', extra_settings -> 'sd-list'))
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
-         and extra_settings ? 'sd-list'
+         and (extra_settings ? 'draw-list' or extra_settings ? 'sd-list')
        union all
        select
          'app-config'::text,

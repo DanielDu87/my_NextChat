@@ -78,6 +78,17 @@
   @include dark;
 }
 
+// Draw 页面独立主题（auto/light/dark），仅在 Draw 路由时通过 body 的
+// data-draw-theme 属性生效，离开 Draw 自动移除，不影响对话界面主题。
+// 置于 .light/.dark 之后，相同优先级下后定义胜出，从而覆盖全局主题。
+body[data-draw-theme="light"] {
+  @include light;
+}
+
+body[data-draw-theme="dark"] {
+  @include dark;
+}
+
 .mask {
   filter: invert(0.8);
 }

@@ -586,7 +586,7 @@
   height: 100%;
   width: 100%;
   border-radius: 10px;
-  border: var(--border-in-light);
+  border: 2px solid rgba(203, 213, 225, 0.9);
   box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.03);
   background-color: var(--white);
   color: var(--black);
@@ -595,9 +595,22 @@
   resize: none;
   outline: none;
   box-sizing: border-box;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+    box-shadow:
+      0 -2px 5px rgba(0, 0, 0, 0.03),
+      0 0 0 1px color-mix(in srgb, var(--primary) 20%, transparent);
+  }
 
   &:focus {
-    border: 1px solid var(--primary);
+    border-color: var(--primary);
+    box-shadow:
+      0 -2px 5px rgba(0, 0, 0, 0.03),
+      0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent);
   }
 }
 

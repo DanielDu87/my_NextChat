@@ -793,7 +793,7 @@ const ko: PartialLocaleType = {
     Topic: "주제",
     Time: "시간",
   },
-  SdPanel: {
+  DrawPanel: {
     Prompt: "프롬프트",
     NegativePrompt: "부정적 프롬프트",
     PleaseInput: (name: string) => `${name}을 입력하세요`,
@@ -824,7 +824,7 @@ const ko: PartialLocaleType = {
       TileTexture: "tile-texture",
     },
   },
-  Sd: {
+  Draw: {
     SubTitle: (count: number) => `${count} 개의 이미지`,
     Actions: {
       Params: "파라미터 보기",

@@ -17,6 +17,10 @@ const localStorage = (() => {
   }
 })();
 
+const LEGACY_PERSIST_KEY_MAP: Partial<Record<string, string>> = {
+  [StoreKey.DrawList]: "sd-list",
+};
+
 function getLocalStorageValue(key: string) {
   return localStorage?.getItem(key) ?? null;
 }
@@ -217,11 +221,18 @@ class IndexedDbStateStorage implements StateStorage {
   }
 
   private async migrateLegacyValue(name: string) {
-    const legacyValue = getLocalStorageValue(name);
+    const legacyKey = LEGACY_PERSIST_KEY_MAP[name];
+    const legacyValue =
+      getLocalStorageValue(name) ??
+      (legacyKey ? getLocalStorageValue(legacyKey) : null);
     if (!legacyValue) return null;
 
     await this.setToIndexedDb(name, legacyValue);
     removeLocalStorageValue(name);
+    if (legacyKey) {
+      removeLocalStorageValue(legacyKey);
+      await this.removeRawItem(legacyKey);
+    }
     this.cache.set(name, legacyValue);
     return legacyValue;
   }
@@ -270,6 +281,21 @@ class IndexedDbStateStorage implements StateStorage {
         this.cache.set(name, resolvedValue);
         this.hydrated.add(name);
         return resolvedValue;
+      }
+
+      const legacyKey = LEGACY_PERSIST_KEY_MAP[name];
+      if (legacyKey) {
+        const legacyIndexedDbValue = await this.getFromIndexedDb(legacyKey);
+        if (legacyIndexedDbValue) {
+          await this.applyRawChanges({
+            set: { [name]: legacyIndexedDbValue },
+            remove: [legacyKey],
+          });
+          this.cache.delete(legacyKey);
+          this.cache.set(name, legacyIndexedDbValue);
+          this.hydrated.add(name);
+          return legacyIndexedDbValue;
+        }
       }
 
       const migratedValue = await this.migrateLegacyValue(name);

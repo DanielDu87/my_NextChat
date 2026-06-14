@@ -421,7 +421,7 @@ const STORE_DISPLAY_NAMES: Record<SyncStoreKey, string> = {
   [StoreKey.Config]: "模型与设置",
   [StoreKey.Prompt]: "提示词",
   [StoreKey.Update]: "应用更新状态",
-  [StoreKey.SdList]: "绘图",
+  [StoreKey.DrawList]: "绘图记录",
 };
 
 function countCustomModelEntries(customModels?: string) {
@@ -447,7 +447,7 @@ function getStoreSummary(key: SyncStoreKey, state: any) {
       return `${Object.keys(state?.prompts ?? {}).length} 个提示词`;
     case StoreKey.Update:
       return `${state?.lastUpdateTime ? 1 : 0} 条应用更新状态`;
-    case StoreKey.SdList:
+    case StoreKey.DrawList:
       return `${Array.isArray(state?.draw) ? state.draw.length : 0} 条绘图记录`;
     default:
       return "0 项";
@@ -885,8 +885,16 @@ function logOverallSyncSummary(
   });
 
   // 在模型统计后显示每个用户的对话数量
-  fetch("/api/admin/users", { method: "GET", cache: "no-store" })
-    .then((res) => res.json())
+  const authState = useAuthStore.getState();
+  if (authState.user?.role !== "admin") {
+    return;
+  }
+  fetch("/api/admin/users", {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+  })
+    .then((res) => (res.ok ? res.json() : null))
     .then((payload) => {
       if (payload?.ok && Array.isArray(payload.users)) {
         const usersWithChats = payload.users.filter(

@@ -72,7 +72,7 @@ const SearchChat = dynamic(
   },
 );
 
-const Sd = dynamic(async () => (await import("./sd")).Sd, {
+const Draw = dynamic(async () => (await import("./draw")).Draw, {
   loading: () => <Loading noLogo />,
 });
 
@@ -169,9 +169,10 @@ function Screen() {
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
   const isAuth = location.pathname === Path.Auth;
-  const isSd = location.pathname === Path.Sd;
-  const isSdNew = location.pathname === Path.SdNew;
+  const isDraw = location.pathname === Path.Draw;
+  const isDrawHistory = location.pathname === Path.DrawHistory;
   const isLegacySd = location.pathname === "/sd";
+  const isLegacySdHistory = location.pathname === "/sd/history";
   const isLegacySdNew = location.pathname === "/sd-new";
 
   const isMobileScreen = useMobileScreen();
@@ -190,11 +191,11 @@ function Screen() {
 
   useEffect(() => {
     if (isLegacySd) {
-      navigate(Path.Sd, { replace: true });
-    } else if (isLegacySdNew) {
-      navigate(Path.SdNew, { replace: true });
+      navigate(Path.Draw, { replace: true });
+    } else if (isLegacySdHistory || isLegacySdNew) {
+      navigate(Path.DrawHistory, { replace: true });
     }
-  }, [isLegacySd, isLegacySdNew, navigate]);
+  }, [isLegacySd, isLegacySdHistory, isLegacySdNew, navigate]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -219,8 +220,8 @@ function Screen() {
   }
   const renderContent = () => {
     if (isAuth) return <AuthPage />;
-    if (isSd || isLegacySd) return <Sd />;
-    if (isSdNew || isLegacySdNew) return <Sd />;
+    if (isDraw || isLegacySd) return <Draw />;
+    if (isDrawHistory || isLegacySdHistory || isLegacySdNew) return <Draw />;
     return (
       <>
         <SideBar

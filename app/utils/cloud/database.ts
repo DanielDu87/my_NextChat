@@ -128,7 +128,16 @@ export function createDatabaseSyncClient(_: SyncStore) {
     }
 
     if (!response?.ok) {
-      throw new Error(`[DB Sync] ${response?.status} ${response?.statusText}`);
+      let detail = "";
+      try {
+        const text = await response?.text();
+        detail = text ? `: ${text.slice(0, 500)}` : "";
+      } catch {
+        detail = "";
+      }
+      throw new Error(
+        `[DB Sync] ${response?.status} ${response?.statusText}${detail}`,
+      );
     }
 
     return response;

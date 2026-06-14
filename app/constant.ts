@@ -78,8 +78,8 @@ export enum Path {
   NewChat = "/new-chat",
   Plugins = "/plugins",
   Auth = "/auth",
-  Sd = "/draw",
-  SdNew = "/draw/history",
+  Draw = "/draw",
+  DrawHistory = "/draw/history",
   Artifacts = "/artifacts",
   SearchChat = "/search-chat",
   McpMarket = "/mcp-market",
@@ -125,7 +125,7 @@ export enum StoreKey {
   Prompt = "prompt-store",
   Update = "chat-update",
   Sync = "sync",
-  SdList = "sd-list",
+  DrawList = "draw-list",
   Mcp = "mcp-store",
 }
 

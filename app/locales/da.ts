@@ -773,7 +773,7 @@ const da: PartialLocaleType = {
     Code: "Så ud til, at der var en kode i linket. Vil du bruge den?",
     Settings: "Så ud til, at der var indstillinger i linket. Vil du bruge dem?",
   },
-  SdPanel: {
+  DrawPanel: {
     Prompt: "Prompt",
     NegativePrompt: "Negativ prompt",
     PleaseInput: (name: string) => `Indtast: ${name}`,
@@ -804,7 +804,7 @@ const da: PartialLocaleType = {
       TileTexture: "tile-texture",
     },
   },
-  Sd: {
+  Draw: {
     SubTitle: (count: number) => `${count} billeder`,
     Actions: {
       Params: "Se indstillinger",

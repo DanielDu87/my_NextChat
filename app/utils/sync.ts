@@ -10,13 +10,13 @@ import {
   FunctionToolService,
   applyBuiltinPluginDefaults,
   useUpdateStore,
+  useDrawStore,
 } from "../store";
 import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import merge from "lodash-es/merge";
 import { usePromptStore } from "../store/prompt";
-import { useSdStore } from "../store/sd";
 import { DEFAULT_SIDEBAR_WIDTH, ServiceProvider, StoreKey } from "../constant";
 import {
   getMessageTime,
@@ -114,7 +114,7 @@ const LocalStateSetters = {
   [StoreKey.ModelCache]: useModelCacheStore.setState,
   [StoreKey.Prompt]: usePromptStore.setState,
   [StoreKey.Update]: useUpdateStore.setState,
-  [StoreKey.SdList]: useSdStore.setState,
+  [StoreKey.DrawList]: useDrawStore.setState,
 } as const;
 
 const LocalStateGetters = {
@@ -143,7 +143,8 @@ const LocalStateGetters = {
     getNonFunctionFileds(useModelCacheStore.getState()),
   [StoreKey.Prompt]: () => getNonFunctionFileds(usePromptStore.getState()),
   [StoreKey.Update]: () => getNonFunctionFileds(useUpdateStore.getState()),
-  [StoreKey.SdList]: () => getNonFunctionFileds(useSdStore.getState()),
+  [StoreKey.DrawList]: () =>
+    normalizeDrawSyncState(getNonFunctionFileds(useDrawStore.getState())),
 } as const;
 
 function normalizeImportedConfigState<T>(state: T): T {
@@ -455,12 +456,29 @@ export function hasMeaningfulModelCacheState(state: Record<string, any>) {
   });
 }
 
-function hasMeaningfulSdState(state: Record<string, any>) {
+function hasMeaningfulDrawState(state: Record<string, any>) {
   return (
-    Number(state?.lastUpdateTime || 0) > 0 ||
-    Number(state?.currentId || 0) > 0 ||
-    (Array.isArray(state?.draw) && state.draw.length > 0)
+    Array.isArray(state?.draw) &&
+    state.draw.some((item) => isObjectLike(item) && item.status !== "running")
   );
+}
+
+// Draw 的参数配置为设备本地偏好，不参与云同步，仅同步 draw 绘画记录。
+const DRAW_LOCAL_ONLY_FIELDS = [
+  "models",
+  "currentModel",
+  "currentParams",
+  "selectedProvider",
+  "lastRequestLog",
+  "lastResponseLog",
+] as const;
+
+function normalizeDrawSyncState<T extends Record<string, any>>(state: T): T {
+  const syncState = { ...state };
+  for (const field of DRAW_LOCAL_ONLY_FIELDS) {
+    delete (syncState as Record<string, unknown>)[field];
+  }
+  return syncState as T;
 }
 
 const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
@@ -471,7 +489,7 @@ const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.ModelCache]: "按 profile 合并，较新的缓存优先",
   [StoreKey.Prompt]: "双向合并",
   [StoreKey.Update]: "云端覆盖本地",
-  [StoreKey.SdList]: "双向合并",
+  [StoreKey.DrawList]: "较新的绘图记录覆盖",
 };
 
 function markMergedUpdateTime(
@@ -1145,53 +1163,33 @@ const MergeStates: StateMerger = {
     Object.assign(localState, mergedState);
     return localState;
   },
-  [StoreKey.SdList]: (localState, remoteState) => {
-    const preferRemoteOnBootstrap =
-      !hasMeaningfulSdState(localState as Record<string, any>) &&
-      hasMeaningfulSdState(remoteState as Record<string, any>);
-
-    const localDrawMap = new Map(
-      (localState.draw || []).map((item: any) => [item.id, item]),
-    );
-    const remoteDrawMap = new Map(
-      (remoteState.draw || []).map((item: any) => [item.id, item]),
-    );
-
-    const mergedDraw = [...remoteDrawMap.values()];
-    localDrawMap.forEach((item, id) => {
-      if (!remoteDrawMap.has(id)) {
-        mergedDraw.push(item);
-        return;
+  [StoreKey.DrawList]: (localState, remoteState) => {
+    const localUpdateTime = Number(localState.lastUpdateTime || 0);
+    const remoteUpdateTime = Number(remoteState.lastUpdateTime || 0);
+    const hasLocalDraw = hasMeaningfulDrawState(localState);
+    const hasRemoteDraw = hasMeaningfulDrawState(remoteState);
+    const sourceState =
+      !hasLocalDraw && hasRemoteDraw
+        ? remoteState
+        : hasLocalDraw && !hasRemoteDraw
+        ? localState
+        : remoteUpdateTime > localUpdateTime
+        ? remoteState
+        : localState;
+    // 参数配置为设备本地偏好，合并云端绘图记录后用本地参数覆盖回来。
+    const localPrefs: Record<string, unknown> = {};
+    const localStateRecord = localState as Record<string, unknown>;
+    for (const field of DRAW_LOCAL_ONLY_FIELDS) {
+      if (field in localStateRecord) {
+        localPrefs[field] = localStateRecord[field];
       }
-
-      const remoteItem = remoteDrawMap.get(id);
-      const localStatus = String(item?.status ?? "");
-      const remoteStatus = String(remoteItem?.status ?? "");
-      const shouldPreferLocal =
-        remoteStatus === "running" && localStatus !== "running";
-      if (shouldPreferLocal) {
-        const index = mergedDraw.findIndex((draw: any) => draw.id === id);
-        if (index >= 0) mergedDraw[index] = item;
-      }
-    });
-
-    localState.draw = mergedDraw;
-    localState.currentId = preferRemoteOnBootstrap
-      ? Number(remoteState.currentId || 0)
-      : Math.max(
-          Number(localState.currentId || 0),
-          Number(remoteState.currentId || 0),
-        );
-    if (preferRemoteOnBootstrap && remoteState.currentModel) {
-      localState.currentModel = remoteState.currentModel;
-    } else if (!localState.currentModel && remoteState.currentModel) {
-      localState.currentModel = remoteState.currentModel;
     }
-    if (preferRemoteOnBootstrap && remoteState.currentParams) {
-      localState.currentParams = remoteState.currentParams;
-    } else if (!localState.currentParams && remoteState.currentParams) {
-      localState.currentParams = remoteState.currentParams;
-    }
+    const mergedState = {
+      ...sourceState,
+      lastUpdateTime: markMergedUpdateTime(localUpdateTime, remoteUpdateTime),
+    };
+
+    Object.assign(localState, mergedState, localPrefs);
     return localState;
   },
 };
@@ -1227,11 +1225,11 @@ export function setLocalAppState(appState: AppState) {
         return;
       }
       if (storeKey === StoreKey.Plugin) {
-        setter(appState[storeKey]);
+        (setter as any)(appState[storeKey]);
         resetPluginToolCache();
         return;
       }
-      setter(appState[storeKey]);
+      (setter as any)(appState[storeKey]);
     });
   });
 }

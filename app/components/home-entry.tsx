@@ -16,7 +16,10 @@ function normalizeLegacyDrawHash() {
     return true;
   }
 
-  if (window.location.hash === "#/sd-new") {
+  if (
+    window.location.hash === "#/sd/history" ||
+    window.location.hash === "#/sd-new"
+  ) {
     window.history.replaceState(null, "", "#/draw/history");
     return true;
   }

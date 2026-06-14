@@ -8,7 +8,7 @@ export const PERSIST_STORE_KEYS = [
   StoreKey.ModelCache,
   StoreKey.Prompt,
   StoreKey.Update,
-  StoreKey.SdList,
+  StoreKey.DrawList,
   StoreKey.Sync,
 ] as const satisfies readonly StoreKey[];
 
@@ -59,7 +59,7 @@ export const STORE_PERSIST_VERSION: Record<
   [StoreKey.ModelCache]: 1,
   [StoreKey.Prompt]: 3,
   [StoreKey.Update]: 1,
-  [StoreKey.SdList]: 1,
+  [StoreKey.DrawList]: 2,
   [StoreKey.Sync]: 1.5,
 };
 
