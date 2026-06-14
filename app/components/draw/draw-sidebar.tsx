@@ -5,6 +5,7 @@ import ReturnIcon from "@/app/icons/return.svg";
 import AutoThemeIcon from "@/app/icons/auto.svg";
 import LightThemeIcon from "@/app/icons/light.svg";
 import DarkThemeIcon from "@/app/icons/dark.svg";
+import HistoryIcon from "@/app/icons/history.svg";
 import LogoIcon from "@/app/icons/logo.svg";
 import Locale from "@/app/locales";
 import styles from "./draw.module.scss";
@@ -177,6 +178,15 @@ export function SideBar(props: {
               </div>
             )}
           </div>
+          {isMobileScreen && (
+            <IconButton
+              icon={<HistoryIcon />}
+              text="查看记录"
+              bordered
+              shadow
+              onClick={() => navigate(Path.DrawHistory)}
+            />
+          )}
         </div>
       </SideBarHeader>
       <SideBarBody>

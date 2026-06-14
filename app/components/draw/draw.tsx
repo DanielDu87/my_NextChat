@@ -36,6 +36,8 @@ import clsx from "clsx";
 
 const DRAW_INITIAL_RENDER_COUNT = 6;
 const DRAW_RENDER_BATCH_SIZE = 6;
+const IMAGE_DIMENSION_CACHE_LIMIT = 120;
+const imageDimensionCache = new Map<string, string>();
 
 const PARAM_LABEL_FALLBACKS: Record<string, string> = {
   prompt: "提示词",
@@ -169,6 +171,37 @@ function getParamValue(label: string, value: any) {
     default:
       return value;
   }
+}
+
+function getCachedImageDimension(src: string) {
+  const value = imageDimensionCache.get(src);
+  if (value) {
+    imageDimensionCache.delete(src);
+    imageDimensionCache.set(src, value);
+  }
+  return value || "";
+}
+
+function setCachedImageDimension(src: string, dimension: string) {
+  if (!src || !dimension) return;
+  imageDimensionCache.delete(src);
+  imageDimensionCache.set(src, dimension);
+  if (imageDimensionCache.size > IMAGE_DIMENSION_CACHE_LIMIT) {
+    const oldestKey = imageDimensionCache.keys().next().value;
+    if (oldestKey) imageDimensionCache.delete(oldestKey);
+  }
+}
+
+function getDisplayImageSize(item: any) {
+  const params = item?.params || {};
+  const src = normalizeDrawImageSrc(item?.img_data || "");
+  return (
+    getCachedImageDimension(src) ||
+    params.image_size ||
+    params.resolution ||
+    params.aspect_ratio ||
+    ""
+  );
 }
 
 function showTaskParams(item: any) {
@@ -311,7 +344,11 @@ function DrawImagePlaceholder(props: { error?: boolean }) {
   );
 }
 
-function DrawImagePreview(props: { item: any; isMobileScreen: boolean }) {
+function DrawImagePreview(props: {
+  item: any;
+  isMobileScreen: boolean;
+  onImageLoaded?: () => void;
+}) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -363,7 +400,17 @@ function DrawImagePreview(props: { item: any; isMobileScreen: boolean }) {
         loading="lazy"
         decoding="async"
         onError={() => setLoadFailed(true)}
-        onLoad={() => setLoaded(true)}
+        onLoad={(event) => {
+          setLoaded(true);
+          const image = event.currentTarget;
+          if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+            setCachedImageDimension(
+              imageSrc,
+              `${image.naturalWidth}x${image.naturalHeight}`,
+            );
+            props.onImageLoaded?.();
+          }
+        }}
         onClick={() =>
           showImageModal(
             imageSrc,
@@ -394,6 +441,7 @@ export function Draw() {
   const [visibleImageCount, setVisibleImageCount] = useState(
     DRAW_INITIAL_RENDER_COUNT,
   );
+  const [, refreshImageDimensions] = useState(0);
   const isDraw = location.pathname === Path.Draw || location.pathname === "/sd";
   const {
     theme: drawTheme,
@@ -459,6 +507,10 @@ export function Draw() {
     [drawImages, visibleImageCount],
   );
 
+  const handleImageLoaded = useCallback(() => {
+    refreshImageDimensions((count) => count + 1);
+  }, []);
+
   useEffect(() => {
     clearRequestLogs();
   }, [clearRequestLogs]);
@@ -510,7 +562,6 @@ export function Draw() {
           >
             <div className={styles["draw-gallery-toolbar"]}>
               <div className={styles["draw-gallery-title"]}>
-                <span>作品</span>
                 <strong>最近生成</strong>
               </div>
               <div className={styles["draw-gallery-actions"]}>
@@ -542,6 +593,7 @@ export function Draw() {
                         <DrawImagePreview
                           item={item}
                           isMobileScreen={isMobileScreen}
+                          onImageLoaded={handleImageLoaded}
                         />
                       </div>
                       <div className={styles["draw-img-item-info"]}>
@@ -555,14 +607,11 @@ export function Draw() {
                         </button>
                         <div className={styles["draw-meta-grid"]}>
                           <span>{item.model_name}</span>
-                          {item.params?.aspect_ratio && (
-                            <span>{item.params.aspect_ratio}</span>
-                          )}
-                          {item.params?.image_size && (
+                          {getDisplayImageSize(item) && (
                             <span>
                               {getParamValue(
                                 "image_size",
-                                item.params.image_size,
+                                getDisplayImageSize(item),
                               )}
                             </span>
                           )}

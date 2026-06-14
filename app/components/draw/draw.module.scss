@@ -611,6 +611,26 @@
 
   .draw-header {
     min-height: 52px;
+
+    :global(.window-header-title) {
+      position: absolute;
+      left: 64px;
+      right: 64px;
+      max-width: none;
+      margin: 0;
+      text-align: center;
+    }
+
+    :global(.window-header-main-title) {
+      max-width: 100%;
+      margin: 0 auto;
+    }
+
+    :global(.window-header-sub-title) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .draw-panel-scroll {
@@ -629,15 +649,45 @@
   }
 
   .draw-gallery-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 10px;
     margin-bottom: 14px;
+  }
+
+  .draw-gallery-title {
+    flex: 1 1 auto;
   }
 
   .draw-gallery-title strong {
     font-size: 20px;
     line-height: 28px;
+    white-space: nowrap;
+  }
+
+  .draw-gallery-actions {
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .draw-gallery-count {
+    white-space: nowrap;
+  }
+
+  .draw-clear-all-btn {
+    flex: 0 0 auto;
+  }
+
+  .draw-prompt {
+    display: -webkit-box !important;
+    max-height: 60px;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
 
   .draw-img-list {
@@ -690,7 +740,22 @@
   }
 
   .draw-card-actions :global([class*="chat-input-action"]) {
+    display: inline-flex;
+    gap: 4px;
+    width: auto !important;
+    height: 24px;
+    min-width: 0;
+    padding: 4px 9px;
     margin-bottom: 0 !important;
+    transition: background-color 0.2s ease;
+  }
+
+  .draw-card-actions :global([class*="chat-input-action"] > div:nth-child(2)) {
+    display: inline-block !important;
+    flex-shrink: 0;
+    white-space: nowrap;
+    opacity: 1 !important;
+    visibility: visible !important;
   }
 
   .draw-param-row {
@@ -699,7 +764,7 @@
   }
 
   .draw-sidebar-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     margin-bottom: 12px;
 

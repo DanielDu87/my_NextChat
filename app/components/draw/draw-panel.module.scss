@@ -89,16 +89,55 @@
   }
 }
 
+.draw-prompt-textarea {
+  height: 142px;
+}
+
+.draw-prompt-textarea::placeholder {
+  text-align: center;
+}
+
+.draw-prompt-textarea:placeholder-shown {
+  padding-top: 60px;
+  text-align: center;
+  line-height: 20px;
+}
+
+.draw-prompt-textarea:not(:placeholder-shown),
+.draw-prompt-textarea:focus {
+  padding-top: 10px;
+  text-align: left;
+  line-height: 20px;
+}
+
 .draw-log-item {
   min-width: 0;
 }
 
 .draw-log-textarea {
+  width: 100%;
+  max-width: 100%;
   min-height: 110px;
+  max-height: 220px;
+  box-sizing: border-box;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--white) 82%, #94a3b8);
+  color: color-mix(in srgb, var(--black) 72%, transparent);
+  cursor: default;
   font-family:
     ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas,
     Liberation Mono, Courier New, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  outline: none;
+  user-select: text;
   white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
 }
 
 .draw-param-grid {
@@ -332,13 +371,14 @@
 }
 
 .draw-select-option {
-  display: grid;
+  display: flex;
+  width: 100%;
   min-height: 34px;
-  grid-template-columns: 18px minmax(0, auto);
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 12px;
+  box-sizing: border-box;
+  padding: 0 14px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -351,8 +391,10 @@
   text-align: left;
 
   span:last-child {
+    order: 1;
+    display: block;
     min-width: 0;
-    max-width: 100%;
+    max-width: calc(100% - 28px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -366,9 +408,12 @@
 }
 
 .draw-select-check {
+  order: 2;
   display: flex;
+  width: 18px;
   align-items: center;
   justify-content: center;
+  flex: 0 0 18px;
 }
 
 .draw-select-option-active .draw-select-check::after {
@@ -405,6 +450,15 @@
     border-color: rgba(96, 165, 250, 0.92);
     box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
   }
+}
+
+
+:global(.dark) .draw-log-textarea,
+:global(body.dark) .draw-log-textarea,
+:global(body[data-draw-theme="dark"]) .draw-log-textarea {
+  background: rgba(30, 41, 59, 0.8);
+  color: rgba(229, 237, 247, 0.72);
+  border-color: rgba(71, 85, 105, 0.6);
 }
 
 @mixin draw-select-dark-control {
@@ -577,6 +631,26 @@
   }
 }
 
+
+// Draw 独立暗色主题下强制覆盖选择框边框，避免浅色 border shorthand 残留。
+:global(body[data-draw-theme="dark"]) .draw-select select,
+:global(body[data-draw-theme="dark"]) .draw-select :global(.select-with-icon-select),
+:global(body[data-draw-theme="dark"]) .draw-select-button {
+  border: 1px solid rgba(71, 85, 105, 0.6) !important;
+}
+
+:global(body[data-draw-theme="dark"]) .draw-select:hover select,
+:global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-select),
+:global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-button {
+  border: 1px solid rgba(96, 165, 250, 0.82) !important;
+}
+
+:global(body[data-draw-theme="dark"]) .draw-select:focus-within select,
+:global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-select),
+:global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-button {
+  border: 1px solid rgba(96, 165, 250, 0.92) !important;
+}
+
 @media only screen and (max-width: 600px) {
   .draw-panel {
     gap: 16px;
@@ -645,6 +719,25 @@
       width: calc(100% - 4px);
       margin-inline: 2px;
       font-size: 12px;
+    }
+
+    .draw-prompt-textarea {
+      height: 142px;
+    }
+
+    .draw-prompt-textarea:placeholder-shown {
+      padding-top: 60px;
+      text-align: center;
+      line-height: 20px;
+    }
+
+    .draw-prompt-textarea:focus {
+      padding-top: 10px;
+      text-align: left;
+    }
+
+    .draw-prompt-textarea:focus::placeholder {
+      color: transparent;
     }
 
     textarea {

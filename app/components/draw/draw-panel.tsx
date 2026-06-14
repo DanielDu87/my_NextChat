@@ -631,6 +631,9 @@ export function ControlParam(props: {
                 disabled={disabled}
               >
                 <textarea
+                  className={clsx({
+                    [styles["draw-prompt-textarea"]]: item.value === "prompt",
+                  })}
                   disabled={disabled}
                   rows={item.rows || 3}
                   placeholder={disabled ? "" : item.placeholder}
@@ -968,6 +971,8 @@ export function DrawPanel() {
   const setParams = drawStore.setCurrentParams;
   const selectedProvider = drawStore.selectedProvider;
   const setSelectedProvider = drawStore.setSelectedProvider;
+  const hasHydrated = Boolean((drawStore as any)._hasHydrated);
+  const didClearPromptOnOpenRef = React.useRef(false);
 
   const providerOptions = React.useMemo(() => {
     return (accessStore.apiProfiles || [])
@@ -1056,6 +1061,19 @@ export function DrawPanel() {
       });
     }
   };
+
+  React.useEffect(() => {
+    if (!hasHydrated || didClearPromptOnOpenRef.current) return;
+    didClearPromptOnOpenRef.current = true;
+
+    const latestParams = useDrawStore.getState().currentParams || {};
+    if (latestParams.prompt) {
+      setParams({
+        ...latestParams,
+        prompt: "",
+      });
+    }
+  }, [hasHydrated, setParams]);
 
   React.useEffect(() => {
     if (
@@ -1171,26 +1189,18 @@ export function DrawPanel() {
           subTitle="显示最近一次发送的 URL 和参数。"
           className={styles["draw-log-item"]}
         >
-          <textarea
-            className={styles["draw-log-textarea"]}
-            rows={6}
-            readOnly
-            value={drawStore.lastRequestLog || ""}
-            placeholder="发送请求后会显示在这里"
-          />
+          <pre className={styles["draw-log-textarea"]} aria-label="发送请求">
+            {drawStore.lastRequestLog || "发送请求后会显示在这里"}
+          </pre>
         </ControlParamItem>
         <ControlParamItem
           title="返回内容"
           subTitle="显示最近一次接口返回的原始文本内容。"
           className={styles["draw-log-item"]}
         >
-          <textarea
-            className={styles["draw-log-textarea"]}
-            rows={8}
-            readOnly
-            value={drawStore.lastResponseLog || ""}
-            placeholder="收到返回后会显示在这里"
-          />
+          <pre className={styles["draw-log-textarea"]} aria-label="返回内容">
+            {drawStore.lastResponseLog || "收到返回后会显示在这里"}
+          </pre>
         </ControlParamItem>
       </section>
     </div>
