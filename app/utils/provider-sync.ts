@@ -1,6 +1,8 @@
 import { ServiceProvider, StoreKey } from "../constant";
 import type { LLMModel } from "../client/api";
-import { useAccessStore, useAppConfig, useModelCacheStore } from "../store";
+import { useAccessStore } from "../store/access";
+import { useAppConfig } from "../store/config";
+import { useModelCacheStore } from "../store/model-cache";
 import { useSyncStore } from "../store/sync";
 import { MODEL_SYNC_STORE_KEYS } from "./sync-store-keys";
 import {

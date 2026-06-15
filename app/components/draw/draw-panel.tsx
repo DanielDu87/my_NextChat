@@ -3,6 +3,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { IconButton } from "@/app/components/button";
 import { Modal, showToast } from "@/app/components/ui-lib";
+import { AddModelSelector } from "@/app/components/add-model-modal";
 import Locale from "@/app/locales";
 import { useDrawStore } from "@/app/store/draw";
 import { useAccessStore } from "@/app/store";
@@ -10,6 +11,7 @@ import EditIcon from "@/app/icons/edit.svg";
 import DownIcon from "@/app/icons/down.svg";
 import clsx from "clsx";
 import { ServiceProvider } from "@/app/constant";
+import { matchModelCategory } from "@/app/utils/model-category-rules";
 import {
   DRAW_ASPECT_RATIO_OPTIONS,
   DRAW_DALLE_STYLE_OPTIONS,
@@ -1002,6 +1004,7 @@ const paramGroups = [
 export function DrawPanel() {
   const drawStore = useDrawStore();
   const accessStore = useAccessStore();
+  const [showModelManager, setShowModelManager] = React.useState(false);
   const currentModel = drawStore.currentModel;
   const setCurrentModel = drawStore.setCurrentModel;
   const drawModels = drawStore.models?.length
@@ -1014,16 +1017,48 @@ export function DrawPanel() {
   const setSelectedProvider = drawStore.setSelectedProvider;
   const hasHydrated = Boolean((drawStore as any)._hasHydrated);
   const didClearPromptOnOpenRef = React.useRef(false);
+  const providerModelsMap: Record<string, string[]> = ((drawStore as any)
+    .providerModels || {}) as Record<string, string[]>;
+  const isDrawCandidateModel = React.useCallback((model: any) => {
+    return matchModelCategory("image", {
+      title: String(model?.displayName || model?.name || ""),
+      searchText: [
+        model?.name,
+        model?.displayName,
+        model?.provider?.providerName,
+        model?.vendor?.name,
+        ...(model?.capabilities || []),
+        ...(model?.features || []),
+        ...(model?.types || []),
+        ...(model?.categories || []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+      meta: {
+        category: model?.category,
+        categorySource: model?.categorySource,
+        type: model?.type,
+        types: model?.types,
+        features: model?.features,
+        capabilities: model?.capabilities,
+        categories: model?.categories,
+      },
+    });
+  }, []);
+
+  const drawProfiles = React.useMemo(() => {
+    return (accessStore.apiProfiles || []).filter(isDrawProviderProfile);
+  }, [accessStore.apiProfiles]);
 
   const providerOptions = React.useMemo(() => {
-    return (accessStore.apiProfiles || [])
-      .filter(isDrawProviderProfile)
+    return drawProfiles
       .map((profile) => ({
         name: String(profile.name || "").trim(),
         value: String(profile.id || "").trim(),
       }))
       .filter((profile) => profile.name && profile.value);
-  }, [accessStore.apiProfiles]);
+  }, [drawProfiles]);
 
   const selectedProviderType = React.useMemo(() => {
     const profile = (accessStore.apiProfiles || []).find(
@@ -1075,32 +1110,110 @@ export function DrawPanel() {
 
   const handleProviderChange = (provider: string) => {
     setSelectedProvider(provider);
+    const latestDrawState = useDrawStore.getState() as any;
+    const nextModelValue = String(
+      latestDrawState.currentModel?.value || currentModel.value || "",
+    );
     const profile = (accessStore.apiProfiles || []).find(
       (item) => String(item?.id || "").trim() === provider,
     );
     setParams(
       sanitizeDrawParams(
-        currentModel.value,
-        currentParams,
+        nextModelValue,
+        {
+          ...currentParams,
+          model: nextModelValue,
+        },
         String(profile?.provider || ""),
       ),
     );
   };
 
-  const handleEditModels = async () => {
-    const result = await showDrawModelEditor({
-      models: drawModels,
-    });
-    if (!result) return;
+  const drawManagedModelKeys = React.useMemo(() => {
+    return Object.entries(providerModelsMap).flatMap(([providerId, models]) =>
+      (models || [])
+        .filter(Boolean)
+        .map((model) => `${String(model).trim()}@${String(providerId).trim()}`),
+    );
+  }, [providerModelsMap]);
 
-    setModels(result.models);
-    // 当前模型被删时回退到列表首项，否则保持用户选择
-    if (currentModel.value && !result.models.includes(currentModel.value)) {
-      applyModel(result.models[0], {
-        ...currentParams,
-        model: result.models[0],
+  const handleAddDrawModels = React.useCallback(
+    (keys: string[]) => {
+      const modelsByProvider = new Map<string, string[]>();
+      keys.forEach((key) => {
+        const normalizedKey = String(key || "")
+          .trim()
+          .replace(/^[+-]/, "");
+        const atIdx = normalizedKey.lastIndexOf("@");
+        if (atIdx <= 0) return;
+        const modelName = normalizedKey.substring(0, atIdx).trim();
+        const providerId = normalizedKey.substring(atIdx + 1).trim();
+        if (!modelName || !providerId) return;
+        const existing = modelsByProvider.get(providerId) || [];
+        existing.push(modelName);
+        modelsByProvider.set(providerId, existing);
       });
-    }
+
+      modelsByProvider.forEach((modelNames, providerId) => {
+        const existingModels = providerModelsMap[providerId] || [];
+        const nextModels = Array.from(
+          new Set([...existingModels, ...modelNames]),
+        );
+        setModels(nextModels, providerId);
+      });
+    },
+    [providerModelsMap, setModels],
+  );
+
+  const handleRemoveDrawModels = React.useCallback(
+    (keys: string[]) => {
+      const removedByProvider = new Map<string, Set<string>>();
+      keys.forEach((key) => {
+        const normalizedKey = String(key || "")
+          .trim()
+          .replace(/^[+-]/, "");
+        const atIdx = normalizedKey.lastIndexOf("@");
+        if (atIdx <= 0) return;
+        const modelName = normalizedKey.substring(0, atIdx).trim();
+        const providerId = normalizedKey.substring(atIdx + 1).trim();
+        if (!modelName || !providerId) return;
+        if (!removedByProvider.has(providerId)) {
+          removedByProvider.set(providerId, new Set<string>());
+        }
+        removedByProvider.get(providerId)!.add(modelName);
+      });
+
+      removedByProvider.forEach((removedModels, providerId) => {
+        const existingModels = providerModelsMap[providerId] || [];
+        const nextModels = existingModels.filter(
+          (model) => !removedModels.has(String(model).trim()),
+        );
+        setModels(nextModels, providerId);
+
+        if (
+          providerId === selectedProvider &&
+          removedModels.has(currentModel.value)
+        ) {
+          const fallbackModel = nextModels[0] || DEFAULT_DRAW_MODELS[0];
+          applyModel(fallbackModel, {
+            ...currentParams,
+            model: fallbackModel,
+          });
+        }
+      });
+    },
+    [
+      applyModel,
+      currentModel.value,
+      currentParams,
+      providerModelsMap,
+      selectedProvider,
+      setModels,
+    ],
+  );
+
+  const handleEditModels = () => {
+    setShowModelManager(true);
   };
 
   React.useEffect(() => {
@@ -1121,14 +1234,19 @@ export function DrawPanel() {
       providerOptions.length > 0 &&
       !providerOptions.some((item) => item.value === selectedProvider)
     ) {
-      setSelectedProvider(providerOptions[0].value);
+      handleProviderChange(providerOptions[0].value);
       return;
     }
 
     if (providerOptions.length === 0 && selectedProvider !== "") {
       setSelectedProvider("");
     }
-  }, [providerOptions, selectedProvider, setSelectedProvider]);
+  }, [
+    handleProviderChange,
+    providerOptions,
+    selectedProvider,
+    setSelectedProvider,
+  ]);
 
   return (
     <div className={styles["draw-panel"]}>
@@ -1175,6 +1293,18 @@ export function DrawPanel() {
           </ControlParamItem>
         </div>
       </section>
+      {showModelManager && selectedProvider && (
+        <AddModelSelector
+          onClose={() => setShowModelManager(false)}
+          profiles={drawProfiles as any}
+          initialProviderId={selectedProvider}
+          providerIdResolver={(profile) => String(profile.id || "")}
+          managedModelKeys={drawManagedModelKeys}
+          filterModel={isDrawCandidateModel}
+          onAddModels={handleAddDrawModels}
+          onRemoveModel={handleRemoveDrawModels}
+        />
+      )}
 
       {(() => {
         const allParams = getParams();

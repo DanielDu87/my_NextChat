@@ -6,6 +6,7 @@ import { getClientConfig } from "../config/client";
 import yaml from "js-yaml";
 import { adapter, getOperationId } from "../utils";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
+import { getCurrentAutoSyncScope } from "../utils/startup-sync-scope";
 
 const isApp = getClientConfig()?.isApp !== false;
 export const BUILTIN_PLUGIN_IDS = [
@@ -592,6 +593,12 @@ export const usePluginStore = createPersistStore(
               console.error("[Plugin] ❌ 初始化内置插件失败:", error);
             })
             .finally(() => {
+              if (getCurrentAutoSyncScope() === "draw") {
+                console.log(
+                  "[Plugin] ⏭️ 当前为 draw 页面，跳过页面初始化插件同步",
+                );
+                return;
+              }
               console.log("[Plugin] 🔄 页面初始化后同步插件状态到数据库", {
                 pluginStates: Object.fromEntries(
                   Object.entries(state.plugins || {}).map(([id, plugin]) => [

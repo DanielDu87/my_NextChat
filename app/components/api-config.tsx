@@ -76,6 +76,10 @@ import {
   normalizeMultiKeyGroupOrder,
   normalizeMultiKeyGroups,
 } from "../utils/multi-key";
+import {
+  markRouteSyncStart,
+  prepareRouteEntryForSync,
+} from "../utils/route-sync-entry";
 
 function isYutoProfile(profile: { name: string; baseUrl: string }) {
   return isYutoProfileLike(profile);
@@ -981,10 +985,13 @@ export function ApiConfigPage() {
   const multiKeyDraftGroupsRef = useRef<Record<string, Record<string, string>>>(
     {},
   );
+  const pageLoadSyncNoticeLoggedRef = useRef(false);
   const { fetchFromProvider } = useModelFetcher();
 
   useEffect(() => {
-    console.clear();
+    prepareRouteEntryForSync(Path.ApiConfig, {
+      source: "api-config-page",
+    });
   }, []);
 
   useEffect(() => {
@@ -1111,6 +1118,7 @@ export function ApiConfigPage() {
 
   // 云端同步逻辑（提取为函数以复用）
   const performCloudSync = async () => {
+    markRouteSyncStart(Path.ApiConfig, "api-config-cloud-sync");
     return runWithImmediateStoreSyncPaused(async () => {
       const beforeSnapshot = buildApiConfigSyncSnapshot();
       const client = syncStore.getClient() as any;
@@ -1222,21 +1230,18 @@ export function ApiConfigPage() {
 
         if (hasHydrated) {
           clearInterval(checkInterval);
+          if (pageLoadSyncNoticeLoggedRef.current) {
+            return;
+          }
+          pageLoadSyncNoticeLoggedRef.current = true;
 
           if (useSyncStore.getState().provider === ProviderType.Database) {
             useModelCacheStore.getState().migrateFromAccessProfiles?.();
-            console.log(LOG_SEPARATOR);
-            console.log(`[API Config] 🗂️ 页面加载，仅使用本地缓存数据`);
-            console.log(LOG_SEPARATOR);
-
             console.log(
-              "[API Config] ℹ️ 进入页面不会自动同步；请使用上传、保存并同步或从数据库下载按钮手动同步",
+              "[API Config] ℹ️ 进入 API 配置页不会自动同步；请使用上传、保存并同步或从数据库下载按钮手动同步",
             );
-            console.log(LOG_SEPARATOR);
           } else {
-            console.log(LOG_SEPARATOR);
             console.log("[API Config] ℹ️ 当前未启用数据库同步");
-            console.log(LOG_SEPARATOR);
           }
         }
       }, 200);

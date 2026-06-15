@@ -6728,7 +6728,10 @@ function _Chat() {
                   bordered
                   className={styles["chat-window-icon-button"]}
                   title={Locale.Chat.Actions.ChatList}
-                  onClick={() => navigate(Path.Home)}
+                  onClick={() => {
+                    console.clear();
+                    navigate(Path.Home);
+                  }}
                 />
               </div>
             </div>

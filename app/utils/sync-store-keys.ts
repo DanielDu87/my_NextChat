@@ -42,6 +42,64 @@ export const AUTO_SYNC_STORE_KEYS = [...SYNC_STORE_KEYS] as SyncStoreKey[];
 
 export const MODEL_SYNC_STORE_KEYS = [StoreKey.Config] as const;
 
+export type AutoSyncScope = "app" | "home" | "chat" | "draw";
+
+export const CHAT_AUTO_SYNC_CRITICAL_STORE_KEYS = [
+  StoreKey.Config,
+] as const satisfies readonly SyncStoreKey[];
+
+export const DRAW_AUTO_SYNC_CRITICAL_STORE_KEYS = [
+  StoreKey.DrawList,
+] as const satisfies readonly SyncStoreKey[];
+
+export const DRAW_AUTO_SYNC_DEFERRED_STORE_KEYS =
+  [] as const satisfies readonly SyncStoreKey[];
+
+export const HOME_AUTO_SYNC_DEFERRED_STORE_KEYS = [
+  StoreKey.Access,
+  StoreKey.Plugin,
+  StoreKey.Prompt,
+  StoreKey.Update,
+] as const satisfies readonly SyncStoreKey[];
+
+export function getAutoSyncCriticalStoreKeys(scope: AutoSyncScope) {
+  switch (scope) {
+    case "home":
+    case "chat":
+      return [...CHAT_AUTO_SYNC_CRITICAL_STORE_KEYS] as SyncStoreKey[];
+    case "draw":
+      return [...DRAW_AUTO_SYNC_CRITICAL_STORE_KEYS] as SyncStoreKey[];
+    case "app":
+    default:
+      return [StoreKey.Config] as SyncStoreKey[];
+  }
+}
+
+export function getAutoSyncDeferredStoreKeys(
+  scope: AutoSyncScope,
+  options?: { includeChat?: boolean },
+) {
+  switch (scope) {
+    case "home":
+      return [...HOME_AUTO_SYNC_DEFERRED_STORE_KEYS] as SyncStoreKey[];
+    case "chat":
+      return AUTO_SYNC_STORE_KEYS.filter(
+        (key) =>
+          key !== StoreKey.Config &&
+          (options?.includeChat !== false || key !== StoreKey.Chat),
+      ) as SyncStoreKey[];
+    case "draw":
+      return [...DRAW_AUTO_SYNC_DEFERRED_STORE_KEYS] as SyncStoreKey[];
+    case "app":
+    default:
+      return AUTO_SYNC_STORE_KEYS.filter(
+        (key) =>
+          key !== StoreKey.Config &&
+          (options?.includeChat !== false || key !== StoreKey.Chat),
+      ) as SyncStoreKey[];
+  }
+}
+
 export function isPersistStoreKey(
   key: string,
 ): key is (typeof PERSIST_STORE_KEYS)[number] {

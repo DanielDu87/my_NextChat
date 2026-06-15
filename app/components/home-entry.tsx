@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { getCurrentHashPath } from "../utils/startup-sync-scope";
+import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
 
 const Home = dynamic(() => import("./home"), {
   ssr: false,
@@ -32,6 +34,9 @@ export default function HomeEntry() {
 
   useEffect(() => {
     normalizeLegacyDrawHash();
+    prepareRouteEntryForSync(getCurrentHashPath(), {
+      source: "route-guard",
+    });
     setReady(true);
   }, []);
 

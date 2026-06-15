@@ -32,6 +32,14 @@ import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
 import { isPerfDebugEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import {
+  getCurrentAutoSyncScope,
+  getCurrentHashPath,
+} from "../utils/startup-sync-scope";
+import {
+  markRouteSyncStart,
+  prepareRouteEntryForSync,
+} from "../utils/route-sync-entry";
 
 export function Loading(props: { noLogo?: boolean }) {
   return (
@@ -188,6 +196,12 @@ function Screen() {
   useEffect(() => {
     loadAsyncGoogleFont();
   }, []);
+
+  useEffect(() => {
+    prepareRouteEntryForSync(location.pathname, {
+      source: "page-lifecycle",
+    });
+  }, [location.pathname]);
 
   useEffect(() => {
     if (isLegacySd) {
@@ -362,6 +376,10 @@ export function Home() {
     }
 
     let cancelled = false;
+    const entryPath = getCurrentHashPath();
+    prepareRouteEntryForSync(entryPath, {
+      source: "home-bootstrap",
+    });
     try {
       window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
     } catch {}
@@ -376,17 +394,21 @@ export function Home() {
         useChatStore.getState().initializeForNewPage();
         useChatIndexStore.getState().syncFromChatStore();
         // 启动时检查远端变更（删除、新增等），确保多端数据一致
-        import("../store/sync").then(({ useSyncStore }) => {
-          useSyncStore
-            .getState()
-            .syncChatIfRemoteChanged?.({
-              source: "page-init",
-              minIntervalMs: 0,
-            })
-            .catch((error: unknown) => {
-              console.error("[Home] 远端变更同步失败:", error);
-            });
-        });
+        const scope = getCurrentAutoSyncScope();
+        if (scope === "chat" || scope === "home") {
+          import("../store/sync").then(({ useSyncStore }) => {
+            markRouteSyncStart(entryPath, "home-bootstrap");
+            useSyncStore
+              .getState()
+              .syncChatIfRemoteChanged?.({
+                source: "page-init",
+                minIntervalMs: 0,
+              })
+              .catch((error: unknown) => {
+                console.error("[Home] 远端变更同步失败:", error);
+              });
+          });
+        }
         if (!cancelled) {
           setChatBootstrapped(true);
         }

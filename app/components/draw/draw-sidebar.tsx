@@ -54,6 +54,9 @@ export function SideBar(props: {
   onSelectDrawTheme: (theme: DrawTheme) => void;
 }) {
   const isMobileScreen = useMobileScreen();
+  const submitGuardRef = useRef<{ fingerprint: string; at: number } | null>(
+    null,
+  );
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
   const themeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,6 +141,22 @@ export function SideBar(props: {
         }
       }
     }
+    const fingerprint = JSON.stringify({
+      model: currentModel.value,
+      provider: drawStore.selectedProvider,
+      params: reqParams,
+    });
+    const now = Date.now();
+    const lastSubmit = submitGuardRef.current;
+    if (
+      lastSubmit &&
+      lastSubmit.fingerprint === fingerprint &&
+      now - lastSubmit.at < 1000
+    ) {
+      showToast("请求已提交，避免重复生成");
+      return;
+    }
+    submitGuardRef.current = { fingerprint, at: now };
     let data: any = {
       model: currentModel.value,
       model_name: currentModel.name,
@@ -158,6 +177,16 @@ export function SideBar(props: {
     });
   };
 
+  const handleReturnHome = () => {
+    console.clear();
+
+    navigate(Path.Home, {
+      state: {
+        suppressModelToast: true,
+      },
+    });
+  };
+
   return (
     <SideBarContainer className={props.className}>
       <SideBarHeader
@@ -173,9 +202,7 @@ export function SideBar(props: {
             text={Locale.Draw.Actions.ReturnHome}
             bordered
             shadow
-            onClick={() =>
-              navigate(Path.Home, { state: { suppressModelToast: true } })
-            }
+            onClick={() => void handleReturnHome()}
           />
           <div
             className={styles["draw-theme-picker"]}

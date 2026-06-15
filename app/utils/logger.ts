@@ -74,6 +74,7 @@ export const logger = {
   autoSync: createLogger("AutoSync"),
   sync: createLogger("Sync"),
   chat: createLogger("Chat"),
+  draw: createLogger("Draw"),
   chatIndex: createLogger("ChatIndex"),
   chatPersist: createLogger("ChatPersist"),
   providerSync: createLogger("ProviderSync"),

@@ -29,6 +29,7 @@ import {
   showToast,
 } from "@/app/components/ui-lib";
 import { removeImage } from "@/app/utils/chat";
+import { prepareRouteEntryForSync } from "@/app/utils/route-sync-entry";
 import { SideBar } from "./draw-sidebar";
 import { WindowContent } from "@/app/components/home";
 import { params } from "./draw-panel";
@@ -328,7 +329,7 @@ function isRemovableCachedImage(src: string) {
   return String(src || "").startsWith(CACHE_URL_PREFIX);
 }
 
-function DrawImagePlaceholder(props: { error?: boolean }) {
+function DrawImagePlaceholder(props: { error?: boolean; text?: string }) {
   return (
     <div
       className={clsx(styles["pre-img"], {
@@ -338,25 +339,25 @@ function DrawImagePlaceholder(props: { error?: boolean }) {
       {props.error ? (
         <span className={styles["draw-error-mark"]} aria-hidden="true" />
       ) : (
-        <LoadingIcon className={styles["draw-loading-mark"]} />
+        <>
+          <LoadingIcon className={styles["draw-loading-mark"]} />
+          {props.text && (
+            <span className={styles["draw-loading-text"]}>{props.text}</span>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function DrawImagePreview(props: {
-  item: any;
-  isMobileScreen: boolean;
-  onImageLoaded?: () => void;
-}) {
+function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
   const [loadFailed, setLoadFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(props.item.status === "success");
   const imageRef = useRef<HTMLImageElement>(null);
   const imageSrc = normalizeDrawImageSrc(props.item.img_data);
 
   useEffect(() => {
     setLoadFailed(false);
-    setLoaded(false);
   }, [imageSrc]);
 
   useEffect(() => {
@@ -383,7 +384,7 @@ function DrawImagePreview(props: {
   }
 
   if (props.item.status !== "success") {
-    return <DrawImagePlaceholder />;
+    return <DrawImagePlaceholder text="生成中" />;
   }
 
   if (loadFailed || !imageSrc) {
@@ -419,25 +420,21 @@ function DrawImagePreview(props: {
           showImageModal(
             imageSrc,
             true,
-            props.isMobileScreen
-              ? {
-                  width: "100%",
-                  height: "100%",
-                  maxWidth: "100%",
-                  maxHeight: "100%",
-                  objectFit: "contain",
-                }
-              : { maxWidth: "100%", maxHeight: "100%" },
-            props.isMobileScreen
-              ? {
-                  width: "100%",
-                  height: "100%",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  overflow: "hidden",
-                  WebkitOverflowScrolling: "touch",
-                }
-              : { width: "100%", height: "100%" },
+            {
+              width: "100%",
+              height: "100%",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+            },
+            {
+              width: "100%",
+              height: "100%",
+              justifyContent: "center",
+              alignItems: "center",
+              overflow: "hidden",
+              WebkitOverflowScrolling: "touch",
+            },
           )
         }
       />
@@ -451,10 +448,15 @@ export function Draw() {
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const drawImages = useDrawStore((state) => state.draw);
-  const clearRequestLogs = useDrawStore((state) => state.clearRequestLogs);
   const clearAllDraw = useDrawStore((state) => state.clearAllDraw);
-  const sendTask = useDrawStore((state) => state.sendTask);
+  const clearRequestLogs = useDrawStore((state) => state.clearRequestLogs);
+  const resumePendingTasks = useDrawStore((state) => state.resumePendingTasks);
   const removeDraw = useDrawStore((state) => state.removeDraw);
+  const setCurrentModel = useDrawStore((state) => state.setCurrentModel);
+  const setCurrentParams = useDrawStore((state) => state.setCurrentParams);
+  const setSelectedProvider = useDrawStore(
+    (state) => state.setSelectedProvider,
+  );
   const [visibleImageCount, setVisibleImageCount] = useState(
     DRAW_INITIAL_RENDER_COUNT,
   );
@@ -480,6 +482,12 @@ export function Draw() {
       else target.setAttribute("data-draw-theme", previous);
     };
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    prepareRouteEntryForSync(location.pathname, {
+      source: "draw-page",
+    });
+  }, [location.pathname]);
 
   useEffect(() => {
     setVisibleImageCount(
@@ -550,6 +558,34 @@ export function Draw() {
     },
     [showCopyNotice],
   );
+
+  const handleRetryFill = useCallback(
+    (item: any) => {
+      const model = String(item?.model || "").trim();
+      if (model) {
+        setCurrentModel(model);
+      }
+      if (item?.selectedProvider) {
+        setSelectedProvider(item.selectedProvider);
+      }
+      setCurrentParams({ ...(item?.params || {}) });
+      showToast("已填入参数，可修改后生成");
+      if (isMobileScreen) {
+        navigate(Path.Draw);
+      }
+    },
+    [
+      isMobileScreen,
+      navigate,
+      setCurrentModel,
+      setCurrentParams,
+      setSelectedProvider,
+    ],
+  );
+
+  useEffect(() => {
+    resumePendingTasks();
+  }, [resumePendingTasks]);
 
   useEffect(() => {
     clearRequestLogs();
@@ -714,7 +750,6 @@ export function Draw() {
                       <div className={styles["draw-preview"]}>
                         <DrawImagePreview
                           item={item}
-                          isMobileScreen={isMobileScreen}
                           onImageLoaded={handleImageLoaded}
                         />
                       </div>
@@ -783,17 +818,7 @@ export function Draw() {
                           <ChatAction
                             text="重试"
                             icon={<ResetIcon />}
-                            onClick={() => {
-                              const reqData = {
-                                model: item.model,
-                                model_name: item.model_name,
-                                status: "wait",
-                                params: { ...item.params },
-                                created_at: new Date().toLocaleString(),
-                                img_data: "",
-                              };
-                              sendTask(reqData);
-                            }}
+                            onClick={() => handleRetryFill(item)}
                           />
                           <ChatAction
                             text="删除"

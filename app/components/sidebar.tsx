@@ -492,6 +492,9 @@ export function SideBar(props: { className?: string }) {
               className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
               onClick={() => {
                 if (item.path) {
+                  if (item.path === Path.Draw) {
+                    console.clear();
+                  }
                   navigate(item.path, { state: { fromHome: true } });
                   return;
                 }

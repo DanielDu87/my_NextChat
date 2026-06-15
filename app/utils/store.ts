@@ -139,7 +139,9 @@ function triggerImmediateStoreSync(storeName?: string) {
   const displayName =
     IMMEDIATE_SYNC_STORE_DISPLAY_NAMES[syncStoreKey] || syncStoreKey;
   const shouldLogSync =
-    syncStoreKey === StoreKey.Access || syncStoreKey === StoreKey.Plugin;
+    syncStoreKey === StoreKey.Access ||
+    syncStoreKey === StoreKey.Plugin ||
+    syncStoreKey === StoreKey.DrawList;
   if (shouldLogSync) {
     console.log(`[Immediate Sync] 🕒 ${displayName}已加入数据库同步队列`, {
       storeKey: syncStoreKey,

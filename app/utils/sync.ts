@@ -1,17 +1,16 @@
+import type { ChatMessage, ChatSession } from "../store/chat";
+import { useChatStore } from "../store/chat";
+import { useAccessStore } from "../store/access";
+import { useAppConfig } from "../store/config";
+import { useModelCacheStore } from "../store/model-cache";
 import {
-  ChatMessage,
-  ChatSession,
-  useAccessStore,
-  useAppConfig,
-  useChatStore,
-  useModelCacheStore,
-  usePluginStore,
-  prunePlugins,
-  FunctionToolService,
   applyBuiltinPluginDefaults,
-  useUpdateStore,
-  useDrawStore,
-} from "../store";
+  FunctionToolService,
+  prunePlugins,
+  usePluginStore,
+} from "../store/plugin";
+import { useUpdateStore } from "../store/update";
+import { useDrawStore } from "../store/draw";
 import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
@@ -64,6 +63,23 @@ function logSyncDebug(message: string, payload?: unknown) {
   console.log(message, payload);
 }
 
+function formatSyncLogTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+}
+
+function formatSyncUpdatedAt(updatedAt: number) {
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) {
+    return "无";
+  }
+
+  return new Date(updatedAt).toISOString();
+}
+
 type NonFunctionKeys<T> = {
   [K in keyof T]: T[K] extends (...args: any[]) => any ? never : K;
 }[keyof T];
@@ -107,14 +123,16 @@ export type GetStoreState<T> = T extends { getState: () => infer U }
   : never;
 
 const LocalStateSetters = {
-  [StoreKey.Chat]: useChatStore.setState,
+  [StoreKey.Chat]: ((state: any) =>
+    useChatStore.setState(state)) as typeof useChatStore.setState,
   [StoreKey.Plugin]: usePluginStore.setState,
   [StoreKey.Access]: useAccessStore.setState,
   [StoreKey.Config]: useAppConfig.setState,
   [StoreKey.ModelCache]: useModelCacheStore.setState,
   [StoreKey.Prompt]: usePromptStore.setState,
   [StoreKey.Update]: useUpdateStore.setState,
-  [StoreKey.DrawList]: useDrawStore.setState,
+  [StoreKey.DrawList]: ((state: any) =>
+    useDrawStore.setState(state)) as typeof useDrawStore.setState,
 } as const;
 
 const LocalStateGetters = {
@@ -456,19 +474,28 @@ export function hasMeaningfulModelCacheState(state: Record<string, any>) {
   });
 }
 
-function hasMeaningfulDrawState(state: Record<string, any>) {
+export function hasMeaningfulDrawState(state: Record<string, any>) {
   return (
-    Array.isArray(state?.draw) &&
-    state.draw.some((item) => isObjectLike(item) && item.status !== "running")
+    (Array.isArray(state?.draw) &&
+      state.draw.some(
+        (item) => isObjectLike(item) && item.status !== "running",
+      )) ||
+    Object.values(state?.providerModels || {}).some(
+      (models) => Array.isArray(models) && models.length > 0,
+    ) ||
+    Object.values(state?.providerCurrentModelMap || {}).some((value) =>
+      hasNonEmptyString(value),
+    ) ||
+    hasNonEmptyString(state?.selectedProvider) ||
+    hasNonEmptyString(state?.currentModel?.value)
   );
 }
 
-// Draw 的参数配置为设备本地偏好，不参与云同步，仅同步 draw 绘画记录。
+// Draw 中仅调试日志/临时删除墓碑/当前参数保持本地；
+// 模型列表、当前模型、供应商选择需要参与云同步，保证多端一致。
 const DRAW_LOCAL_ONLY_FIELDS = [
-  "models",
-  "currentModel",
+  "deletedTaskIds",
   "currentParams",
-  "selectedProvider",
   "lastRequestLog",
   "lastResponseLog",
 ] as const;
@@ -1166,17 +1193,34 @@ const MergeStates: StateMerger = {
   [StoreKey.DrawList]: (localState, remoteState) => {
     const localUpdateTime = Number(localState.lastUpdateTime || 0);
     const remoteUpdateTime = Number(remoteState.lastUpdateTime || 0);
-    const hasLocalDraw = hasMeaningfulDrawState(localState);
+    const isLocalFresh = localUpdateTime === 0;
     const hasRemoteDraw = hasMeaningfulDrawState(remoteState);
-    const sourceState =
-      !hasLocalDraw && hasRemoteDraw
-        ? remoteState
-        : hasLocalDraw && !hasRemoteDraw
-        ? localState
-        : remoteUpdateTime > localUpdateTime
-        ? remoteState
-        : localState;
-    // 参数配置为设备本地偏好，合并云端绘图记录后用本地参数覆盖回来。
+    const localCount = Array.isArray(localState?.draw)
+      ? localState.draw.length
+      : 0;
+    const remoteCount = Array.isArray(remoteState?.draw)
+      ? remoteState.draw.length
+      : 0;
+
+    // 新设备首次同步：本地从未写过（lastUpdateTime === 0）且远端有数据 → 拉取远端
+    // 注意：不能用 hasMeaningfulDrawState(localState) 判断本地是否为空，
+    // 因为清空全部或只剩 running 任务时该函数也返回 false，导致已删除项被恢复。
+    const useRemote = isLocalFresh && hasRemoteDraw;
+    const useRemoteByTime = !useRemote && remoteUpdateTime > localUpdateTime;
+    const sourceState = useRemote || useRemoteByTime ? remoteState : localState;
+
+    const sourceLabel = sourceState === remoteState ? "远端" : "本地";
+    console.log(
+      `${formatSyncLogTimestamp()} [Sync] 🔀 合并绘图记录\n` +
+        `  - 本地: ${localCount} 条，更新于 ${formatSyncUpdatedAt(
+          localUpdateTime,
+        )}\n` +
+        `  - 远端: ${remoteCount} 条，更新于 ${formatSyncUpdatedAt(
+          remoteUpdateTime,
+        )}\n` +
+        `  - 使用: ${sourceLabel}`,
+    );
+
     const localPrefs: Record<string, unknown> = {};
     const localStateRecord = localState as Record<string, unknown>;
     for (const field of DRAW_LOCAL_ONLY_FIELDS) {
@@ -1184,6 +1228,7 @@ const MergeStates: StateMerger = {
         localPrefs[field] = localStateRecord[field];
       }
     }
+
     const mergedState = {
       ...sourceState,
       lastUpdateTime: markMergedUpdateTime(localUpdateTime, remoteUpdateTime),

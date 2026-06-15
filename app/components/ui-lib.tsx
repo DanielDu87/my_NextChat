@@ -234,6 +234,8 @@ interface ModalProps {
   className?: string;
 }
 export function Modal(props: ModalProps) {
+  const closeTouchHandledRef = useRef(false);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -265,7 +267,25 @@ export function Modal(props: ModalProps) {
         <div className={styles["modal-header-actions"]}>
           <div
             className={styles["modal-header-action"]}
-            onClick={props.onClose}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (closeTouchHandledRef.current) {
+                closeTouchHandledRef.current = false;
+                return;
+              }
+              props.onClose?.();
+            }}
+            onTouchStart={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onTouchEnd={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              closeTouchHandledRef.current = true;
+              props.onClose?.();
+            }}
           >
             <CloseIcon />
           </div>
@@ -323,7 +343,8 @@ export function showModal(props: ModalProps) {
   const closeModal = () => {
     props.onClose?.();
     root.unmount();
-    div.remove();
+    div.classList.add("modal-mask-closing");
+    window.setTimeout(() => div.remove(), 280);
   };
 
   div.onclick = (e) => {
@@ -628,7 +649,10 @@ export function showImageModal(
     defaultMax: defaultMax,
     className: "image-preview-modal",
     children: (
-      <div style={{ display: "flex", justifyContent: "center", ...boxStyle }}>
+      <div
+        className="image-preview-box"
+        style={{ display: "flex", justifyContent: "center", ...boxStyle }}
+      >
         <img
           src={img}
           alt="preview"

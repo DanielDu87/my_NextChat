@@ -346,6 +346,11 @@ div.math {
   }
 }
 
+.modal-mask-closing {
+  background-color: transparent;
+  pointer-events: auto;
+}
+
 @media screen and (max-width: 650px) {
   .modal-mask-small {
     align-items: center;

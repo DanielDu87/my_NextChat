@@ -14,12 +14,14 @@
     height: 44px;
     border-radius: 50%;
     background: color-mix(in srgb, var(--primary) 28%, var(--white));
-    box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 22%, transparent);
+    box-shadow: none;
+    filter: none;
   }
 
   :global([class*="sidebar-logo"] svg) {
     width: 35.05px;
     height: 38px;
+    filter: none;
   }
 }
 
@@ -68,6 +70,9 @@
 }
 
 .draw-body {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 22px;
   background: transparent;
   -ms-overflow-style: none;
@@ -335,8 +340,12 @@
 
 .draw-img-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 18vw, 300px), 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .draw-img-item {
@@ -345,9 +354,10 @@
   flex-direction: column;
   overflow: hidden;
   border: var(--border-in-light);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--white);
   box-shadow: var(--card-shadow);
+  padding: 6px;
 }
 
 .draw-preview {
@@ -358,7 +368,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: inherit;
+  border-radius: 10px;
   background: var(--second);
 }
 
@@ -368,6 +378,8 @@
   height: 100%;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 14px;
   color: var(--black);
   opacity: 0.72;
 
@@ -375,9 +387,16 @@
     display: block;
     width: 92px;
     height: 92px;
-    margin: auto;
     flex: 0 0 auto;
   }
+}
+
+.draw-loading-text {
+  color: var(--black);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 22px;
+  opacity: 0.78;
 }
 
 .draw-loading-mark {
@@ -533,26 +552,42 @@
 .draw-error-detail {
   min-width: 0;
   overflow: hidden;
-  border: 0;
-  background: transparent;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.07);
   color: #b91c1c;
   cursor: pointer;
-  font: inherit;
-  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  padding: 6px 8px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba(220, 38, 38, 0.32);
+    background: rgba(220, 38, 38, 0.1);
+    outline: none;
+  }
 }
 
 .draw-error-modal {
   max-height: min(56vh, 520px);
   overflow: auto;
   margin: 0;
-  color: var(--black);
+  padding: 12px 14px;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.06);
+  color: #991b1b;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono,
     Courier New, monospace;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.7;
   user-select: text;
   white-space: pre-wrap;
   word-break: break-word;
@@ -581,12 +616,17 @@
 .draw-meta-grid {
   display: flex;
   flex-wrap: wrap;
+  min-height: 28px;
+  max-height: 60px;
+  overflow: hidden;
+  align-content: flex-start;
   gap: 6px;
 
   span {
     display: inline-flex;
     max-width: 100%;
-    min-height: 24px;
+    height: 26px;
+    min-height: 26px;
     align-items: center;
     overflow: hidden;
     border: var(--border-in-light);
@@ -598,26 +638,31 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  span:first-child {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
 }
 
 .draw-card-actions {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 2px;
   padding-top: 2px;
 
   :global([class*="chat-input-action"]) {
     display: inline-flex;
-    width: calc((100% - 12px) / 4) !important;
+    width: 100% !important;
     min-width: 0;
     height: auto;
-    min-height: 24px;
+    min-height: 28px;
     align-items: center;
     justify-content: center;
     gap: 3px;
     margin: 0;
-    padding: 4px 6px;
+    padding: 4px 8px;
     box-sizing: border-box;
     font-size: 12px;
     -webkit-tap-highlight-color: transparent;
@@ -683,10 +728,9 @@
 
 .draw-param-modal {
   display: flex;
-  max-height: min(66vh, 520px);
   flex-direction: column;
   gap: 10px;
-  overflow: auto;
+  overflow: visible;
   user-select: text;
 }
 
@@ -846,7 +890,7 @@
 
   .draw-prompt {
     display: -webkit-box !important;
-    max-height: 60px;
+    max-height: 54px;
     overflow: hidden;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
@@ -854,14 +898,35 @@
     line-clamp: 3;
   }
 
+  .draw-meta-grid {
+    display: none;
+    min-height: 0;
+    max-height: 0;
+    gap: 4px;
+  }
+
+  .draw-meta-grid span:not(:first-child) {
+    display: none;
+  }
+
+  .draw-meta-grid span {
+    height: 22px;
+    min-height: 22px;
+    border-radius: 11px;
+    padding: 1px 7px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .draw-meta-grid span:first-child {
+    flex: 0 1 auto;
+    max-width: 100%;
+    padding-right: 8px;
+  }
+
   .draw-img-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-  }
-
-  .draw-img-item {
-    border-radius: 14px;
-    padding: 6px;
   }
 
   .draw-preview,
@@ -964,8 +1029,8 @@
   }
 
   .draw-param-row {
-    grid-template-columns: 1fr;
-    gap: 2px;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
   }
 
   .draw-sidebar-actions {

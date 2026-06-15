@@ -22,8 +22,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px;
-  margin: -2px;
+  padding: 4px 2px 2px;
+  margin: 0;
+  overflow: visible;
 }
 
 .draw-model-picker-stack {
@@ -53,6 +54,8 @@
 }
 
 .draw-model-edit-button {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -356,7 +359,6 @@
     :global(.select-with-icon-select) {
       border-color: var(--primary) !important;
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 60%, transparent) !important;
-      background: var(--white) !important;
     }
   }
 }
@@ -395,7 +397,6 @@
   select,
   :global(.select-with-icon-select),
   .draw-select-button {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
     border-color: var(--primary) !important;
     box-shadow: 0 0 0 1px var(--primary) !important;
     transition: none;
@@ -598,17 +599,14 @@
 }
 
 @mixin draw-select-dark-control-hover {
-  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 1px var(--primary);
   transition: none;
 }
 
 @mixin draw-select-dark-control-focus {
-  background: #464646 !important;
-  color: #f5f5f5 !important;
-  border-color: rgba(96, 165, 250, 0.92) !important;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 1px var(--primary);
 }
 
 :global(.dark) .draw-select select,
@@ -656,7 +654,7 @@
 :global(body.dark) .draw-select:hover :global(.select-with-icon-icon),
 :global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-icon),
 :global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-icon {
-  color: #e0e0e0;
+  color: #b8b8b8;
 }
 
 :global(.dark) .draw-select:focus-within select,
@@ -676,7 +674,7 @@
 :global(body.dark) .draw-select:focus-within :global(.select-with-icon-icon),
 :global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-icon),
 :global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-icon {
-  color: #f0f0f0;
+  color: #b8b8b8;
 }
 
 :global(.dark) .draw-select-menu,
@@ -767,7 +765,7 @@
   :global(body:not(.light)) .draw-select:hover .draw-select-icon,
   :global(body:not(.light)) .draw-select:focus-within .draw-select-icon,
   :global(body:not(.light)) .draw-select:focus-within :global(.select-with-icon-icon) {
-    color: #f0f0f0;
+    color: #b8b8b8;
   }
 
   :global(body:not(.light)) .draw-select:focus-within select,
@@ -834,8 +832,8 @@
   textarea:focus,
   input:focus {
     background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: rgba(96, 165, 250, 0.92);
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
   }
 
   textarea:disabled,
@@ -851,7 +849,6 @@
 :global(body[data-draw-theme="dark"]) .draw-select:hover select,
 :global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-select),
 :global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-button {
-  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 1px var(--primary) !important;
   transition: none;
@@ -860,7 +857,8 @@
 :global(body[data-draw-theme="dark"]) .draw-select:focus-within select,
 :global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-select),
 :global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-button {
-  border: 1px solid rgba(96, 165, 250, 0.92) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 1px var(--primary) !important;
 }
 
 :global(.dark) .draw-select-disabled .draw-select-button,
@@ -929,7 +927,6 @@
   select,
   :global(.select-with-icon-select),
   .draw-select-button {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
     border-color: var(--primary) !important;
     box-shadow: 0 0 0 1px var(--primary) !important;
     transition: none;

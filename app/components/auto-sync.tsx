@@ -6,10 +6,14 @@ import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useChatStore } from "../store/chat";
+import { useDrawStore } from "../store/draw";
 import { useSyncStore } from "../store/sync";
 import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
-import { hasMeaningfulAccessState } from "../utils/sync";
+import {
+  hasMeaningfulAccessState,
+  hasMeaningfulDrawState,
+} from "../utils/sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { readAccessSnapshot } from "../utils/access-snapshot";
 import {
@@ -33,6 +37,22 @@ import {
 } from "../utils/sync-tab-coordination";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import { isManualDatabaseSyncActive } from "../utils/manual-sync-guard";
+import {
+  getAutoSyncCriticalStoreKeys,
+  getAutoSyncDeferredStoreKeys,
+  type AutoSyncScope,
+  type SyncStoreKey,
+} from "../utils/sync-store-keys";
+import {
+  getCurrentAutoSyncScope,
+  getCurrentHashPath,
+} from "../utils/startup-sync-scope";
+import {
+  markRouteSyncStart,
+  prepareRouteEntryForSync,
+  ROUTE_SYNC_ENTRY_EVENT,
+  shouldAutoStartRouteSync,
+} from "../utils/route-sync-entry";
 
 let autoSyncEffectActive = false;
 let lastAutoSyncBootstrapAt = 0;
@@ -44,6 +64,75 @@ const autoSyncLogQueue: Array<{
 }> = [];
 let autoSyncLogFlushScheduled = false;
 const autoSyncLogDedupMap = new Map<string, number>();
+
+function getScopeCriticalBannerDetail(scope: AutoSyncScope) {
+  switch (scope) {
+    case "draw":
+      return "绘画数据优先";
+    case "home":
+    case "chat":
+      return "模型选择优先";
+    case "app":
+    default:
+      return "模型选择优先";
+  }
+}
+
+function getScopeReadyMessage(scope: AutoSyncScope) {
+  switch (scope) {
+    case "draw":
+      return "[AutoSync] ✅ 绘画关键同步完成，页面已可直接绘画";
+    case "home":
+    case "chat":
+      return "[AutoSync] ✅ 关键同步完成，页面已可直接对话";
+    case "app":
+    default:
+      return "[AutoSync] ✅ 关键同步完成，页面已可直接对话";
+  }
+}
+
+function getScopeDeferredBanner(scope: AutoSyncScope) {
+  switch (scope) {
+    case "draw":
+      return `${LOG_SEPARATOR} 💾 绘画后台同步 ${LOG_SEPARATOR}`;
+    case "home":
+    case "chat":
+      return `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`;
+    case "app":
+    default:
+      return `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`;
+  }
+}
+
+function getScopeDeferredDoneBanner(scope: AutoSyncScope) {
+  switch (scope) {
+    case "draw":
+      return `${LOG_SEPARATOR} 💾 绘画后台同步完成 ${LOG_SEPARATOR}`;
+    case "home":
+    case "chat":
+      return `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`;
+    case "app":
+    default:
+      return `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`;
+  }
+}
+
+function getScopeDeferredDoneMessage(scope: AutoSyncScope) {
+  switch (scope) {
+    case "draw":
+      return "[AutoSync] ✅ 绘画后台同步完成";
+    case "home":
+    case "chat":
+      return "[AutoSync] ✅ 后台同步完成（含对话记录）";
+    case "app":
+    default:
+      return "[AutoSync] ✅ 后台同步完成（含对话记录）";
+  }
+}
+
+function isChatLikeScope(scope: AutoSyncScope) {
+  return scope === "home" || scope === "chat";
+}
 
 function flushAutoSyncLogs() {
   autoSyncLogFlushScheduled = false;
@@ -198,61 +287,98 @@ function scheduleDeferredSyncTask(
     ? options.hiddenDelayMs
     : options.visibleDelayMs;
 
-  // 前台页面严格按延时执行，避免 requestIdleCallback 抢跑影响首屏交互。
-  if (!document.hidden) {
-    return setTimeout(task, delayMs);
-  }
-
-  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-    return (
-      window as typeof window & {
-        requestIdleCallback: (
-          callback: () => void,
-          options?: { timeout?: number },
-        ) => number;
-      }
-    ).requestIdleCallback(task, { timeout: delayMs });
-  }
-
-  return setTimeout(task, delayMs);
+  // 使用可取消的 timeout，路由切换时能立即关闭旧页面后台同步。
+  const timer = setTimeout(task, delayMs);
+  return () => clearTimeout(timer);
 }
 
 export default function AutoSync() {
   const authUser = useAuthStore((state) => state.user);
   const authInitialized = useAuthStore((state) => state.initialized);
-  const ensureRemoteBootstrapState = async () => {
+
+  useEffect(() => {
+    const prepareCurrentRouteEntry = () => {
+      prepareRouteEntryForSync(getCurrentHashPath(), {
+        source: "global-route-event",
+      });
+    };
+
+    prepareCurrentRouteEntry();
+    window.addEventListener("hashchange", prepareCurrentRouteEntry);
+    window.addEventListener("pageshow", prepareCurrentRouteEntry);
+
+    return () => {
+      window.removeEventListener("hashchange", prepareCurrentRouteEntry);
+      window.removeEventListener("pageshow", prepareCurrentRouteEntry);
+    };
+  }, []);
+
+  const ensureRemoteBootstrapState = async (scope: AutoSyncScope) => {
     const syncStore = useSyncStore.getState();
     const client = syncStore.getClient() as any;
     if (typeof client.getMeta !== "function") {
       return false;
     }
 
-    const metas = await client.getMeta([StoreKey.Access, StoreKey.Chat]);
+    const bootstrapKeys: SyncStoreKey[] =
+      scope === "draw" ? [StoreKey.DrawList] : [StoreKey.Access, StoreKey.Chat];
+    const metas = await client.getMeta(bootstrapKeys);
     const remoteMetaKeys = new Set(
       (metas || []).map((meta: { key: string }) => meta.key),
     );
-    const missingStoreKeys = [StoreKey.Access].filter(
-      (key) => !remoteMetaKeys.has(key),
+    const missingStoreKeys: SyncStoreKey[] =
+      scope === "draw"
+        ? bootstrapKeys.filter((key) => !remoteMetaKeys.has(key))
+        : ([StoreKey.Access] as SyncStoreKey[]).filter(
+            (key) => !remoteMetaKeys.has(key),
+          );
+
+    const localStateByKey: Partial<Record<StoreKey, Record<string, any>>> = {
+      [StoreKey.DrawList]: useDrawStore.getState() as Record<string, any>,
+      [StoreKey.Access]: useAccessStore.getState() as Record<string, any>,
+      [StoreKey.Chat]: useChatStore.getState() as Record<string, any>,
+    };
+
+    const hasLocalBootstrapData = (key: StoreKey) => {
+      const localState = localStateByKey[key] || {};
+      switch (key) {
+        case StoreKey.Access:
+          return hasMeaningfulAccessState(localState);
+        case StoreKey.DrawList:
+          return hasMeaningfulDrawState(localState);
+        case StoreKey.Chat:
+          return Array.isArray((localState as any)?.sessions)
+            ? (localState as any).sessions.length > 0
+            : false;
+        default:
+          return false;
+      }
+    };
+    const uploadableMissingStoreKeys: SyncStoreKey[] = missingStoreKeys.filter(
+      (key) => hasLocalBootstrapData(key),
     );
 
-    const localAccess = useAccessStore.getState() as Record<string, any>;
-    const hasStoreBootstrapData = hasMeaningfulAccessState(localAccess);
-
-    if (missingStoreKeys.length > 0 && !hasStoreBootstrapData) {
+    if (
+      missingStoreKeys.length > 0 &&
+      uploadableMissingStoreKeys.length === 0
+    ) {
       autoSyncConsole(
         "log",
         `[AutoSync] ℹ️ 云端缺少初始化配置(${missingStoreKeys.join(
           ", ",
         )})，但本地也暂无可上传数据，跳过初始化上传`,
       );
-    } else if (missingStoreKeys.length > 0) {
+    } else if (uploadableMissingStoreKeys.length > 0) {
       autoSyncConsole(
         "log",
         `[AutoSync] ☁️ 检测到云端缺少初始化配置(${missingStoreKeys.join(
           ", ",
         )})，开始上传本地配置`,
       );
-      await syncStore.sync([StoreKey.Access]);
+      await syncStore.sync(uploadableMissingStoreKeys, {
+        isolateQueue: true,
+        force: true,
+      });
       showToast(
         `检测到云端缺少初始化配置，已自动上传本地数据：${missingStoreKeys.join(
           ", ",
@@ -260,7 +386,7 @@ export default function AutoSync() {
       );
     }
 
-    return missingStoreKeys.length > 0;
+    return uploadableMissingStoreKeys.length > 0;
   };
 
   useEffect(() => {
@@ -297,7 +423,12 @@ export default function AutoSync() {
     let pendingBootstrapProfileName = "";
     let chatMetaPollTimer: ReturnType<typeof setInterval> | null = null;
     let deferredFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelDeferredSyncTask: (() => void) | null = null;
     let autoSyncCancelledByManualSync = false;
+    let autoSyncCancelledByRouteChange = false;
+    let routeChangeCancelLogged = false;
+    let activeRoutePath = getCurrentHashPath();
+    let startAutoSync = () => {};
 
     const shouldCancelForManualSync = () => {
       if (!isManualDatabaseSyncActive()) {
@@ -307,6 +438,25 @@ export default function AutoSync() {
       hasCompletedAutoSync = true;
       return true;
     };
+
+    const shouldCancelForRouteChange = (expectedPath: string) => {
+      if (getCurrentHashPath() === expectedPath) {
+        return false;
+      }
+      autoSyncCancelledByRouteChange = true;
+      hasCompletedAutoSync = true;
+      if (!routeChangeCancelLogged) {
+        routeChangeCancelLogged = true;
+        autoSyncConsole(
+          "log",
+          "[AutoSync] ⏹️ 检测到页面切换，当前页面同步终止",
+        );
+      }
+      return true;
+    };
+
+    const shouldCancelAutoSync = (expectedPath: string) =>
+      shouldCancelForManualSync() || shouldCancelForRouteChange(expectedPath);
 
     const writeLock = () => {
       if (!localStorage) {
@@ -394,10 +544,14 @@ export default function AutoSync() {
     };
 
     const triggerExternalChatSync = (source: string) => {
+      if (!isChatLikeScope(getCurrentAutoSyncScope())) {
+        return;
+      }
       if (!authInitialized || !authUser || autoSyncInProgress) {
         return;
       }
-      if (shouldCancelForManualSync()) {
+      const expectedPath = activeRoutePath;
+      if (shouldCancelAutoSync(expectedPath)) {
         return;
       }
 
@@ -415,6 +569,11 @@ export default function AutoSync() {
               excludeKeys: [StoreKey.Config],
             }),
         )
+        .then(() => {
+          if (shouldCancelAutoSync(expectedPath)) {
+            return undefined;
+          }
+        })
         .then(
           () =>
             syncStore.syncChatIfRemoteChanged?.({
@@ -435,7 +594,7 @@ export default function AutoSync() {
       if (retryTimer || hasCompletedAutoSync || autoSyncInProgress) {
         return;
       }
-      if (shouldCancelForManualSync()) {
+      if (shouldCancelAutoSync(activeRoutePath)) {
         return;
       }
 
@@ -663,7 +822,14 @@ export default function AutoSync() {
       });
     };
 
-    const startAutoSync = () => {
+    startAutoSync = () => {
+      if (!shouldAutoStartRouteSync(activeRoutePath)) {
+        return;
+      }
+
+      prepareRouteEntryForSync(activeRoutePath, {
+        source: "auto-sync-start",
+      });
       autoSyncDebug("[AutoSync] ⏰ 延迟时间到，检查同步配置");
 
       const syncStore = useSyncStore.getState();
@@ -693,7 +859,8 @@ export default function AutoSync() {
         if (hasCompletedAutoSync || autoSyncInProgress) {
           return;
         }
-        if (shouldCancelForManualSync()) {
+        const syncPath = activeRoutePath;
+        if (shouldCancelAutoSync(syncPath)) {
           return;
         }
 
@@ -717,19 +884,28 @@ export default function AutoSync() {
 
         clearRetryTimer();
         autoSyncInProgress = true;
+        const scope = getCurrentAutoSyncScope();
         const criticalSyncStartedAt = nowMs();
         heartbeatTimer = setInterval(
           refreshLock,
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
         );
+        markRouteSyncStart(syncPath, "auto-sync");
         autoSyncConsole(
           "info",
           `${LOG_SEPARATOR} 🚀 AutoSync 启动流程开始 ${LOG_SEPARATOR}`,
         );
-        logCriticalStartupSyncBanner("start", "模型选择优先");
+        logCriticalStartupSyncBanner(
+          "start",
+          getScopeCriticalBannerDetail(scope),
+        );
 
         Promise.resolve()
-          .then(() => syncStore.autoSyncCritical?.() || syncStore.autoSync())
+          .then(
+            () =>
+              syncStore.autoSyncCritical?.({ scope }) ||
+              syncStore.autoSync?.({ scope }),
+          )
           .catch((error: unknown) => {
             autoSyncConsole(
               "error",
@@ -738,10 +914,12 @@ export default function AutoSync() {
             );
           })
           .then(async () => {
-            if (shouldCancelForManualSync()) {
+            if (shouldCancelAutoSync(syncPath)) {
               autoSyncConsole(
                 "log",
-                "[AutoSync] ⏹️ 保存并同步已接管，自动同步终止",
+                autoSyncCancelledByManualSync
+                  ? "[AutoSync] ⏹️ 保存并同步已接管，自动同步终止"
+                  : "[AutoSync] ⏹️ 检测到页面切换，当前页面同步终止",
               );
               return;
             }
@@ -757,18 +935,21 @@ export default function AutoSync() {
               "complete",
               `用时 ${elapsedSeconds} 秒`,
             );
-            autoSyncConsole(
-              "log",
-              "[AutoSync] ✅ 关键同步完成，页面已可直接对话",
-            );
+            autoSyncConsole("log", getScopeReadyMessage(scope));
 
             let deferredSyncExecuted = false;
             const deferredSyncTask = () => {
+              const deferredScope = getCurrentAutoSyncScope();
+              const deferredKeys = getAutoSyncDeferredStoreKeys(deferredScope, {
+                includeChat: true,
+              });
               if (deferredSyncExecuted) return;
-              if (shouldCancelForManualSync()) {
+              if (shouldCancelAutoSync(syncPath)) {
                 autoSyncConsole(
                   "log",
-                  "[AutoSync] ⏹️ 保存并同步已接管，后台同步终止",
+                  autoSyncCancelledByManualSync
+                    ? "[AutoSync] ⏹️ 保存并同步已接管，后台同步终止"
+                    : "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
                 );
                 return;
               }
@@ -779,38 +960,50 @@ export default function AutoSync() {
               }
 
               void (async () => {
-                if (shouldCancelForManualSync()) {
+                if (shouldCancelAutoSync(syncPath)) {
                   return;
                 }
-                publishStartupChatSyncStatus("syncing", channel);
-                try {
-                  autoSyncConsole(
-                    "log",
-                    "[AutoSync] 📤 后台上传本地会话到远端...",
-                  );
-                  await syncStore.sync([StoreKey.Chat], {
-                    isolateQueue: true,
-                    force: true,
-                  });
-                  if (shouldCancelForManualSync()) {
-                    return;
+                if (isChatLikeScope(deferredScope) || deferredScope === "app") {
+                  publishStartupChatSyncStatus("syncing", channel);
+                  try {
+                    autoSyncConsole(
+                      "log",
+                      "[AutoSync] 📤 后台上传本地会话到远端...",
+                    );
+                    await syncStore.sync([StoreKey.Chat], {
+                      isolateQueue: true,
+                      force: true,
+                    });
+                    if (shouldCancelAutoSync(syncPath)) {
+                      return;
+                    }
+                    publishStartupChatSyncStatus("done", channel);
+                  } catch (uploadError) {
+                    publishStartupChatSyncStatus("error", channel);
+                    autoSyncConsole(
+                      "error",
+                      "[AutoSync] ⚠️ 本地会话上传失败:",
+                      uploadError,
+                    );
                   }
-                  publishStartupChatSyncStatus("done", channel);
-                } catch (uploadError) {
-                  publishStartupChatSyncStatus("error", channel);
-                  autoSyncConsole(
-                    "error",
-                    "[AutoSync] ⚠️ 本地会话上传失败:",
-                    uploadError,
-                  );
                 }
 
                 try {
-                  if (shouldCancelForManualSync()) {
+                  if (shouldCancelAutoSync(syncPath)) {
                     return;
                   }
+                  const allowedPendingKeys = Array.from(
+                    new Set([
+                      ...getAutoSyncCriticalStoreKeys(deferredScope),
+                      ...getAutoSyncDeferredStoreKeys(deferredScope, {
+                        includeChat: true,
+                      }),
+                    ]),
+                  );
                   const resumed = await syncStore.resumePendingDebounceSync?.({
-                    excludeKeys: [StoreKey.Config],
+                    ...(deferredScope === "draw"
+                      ? { includeKeys: allowedPendingKeys }
+                      : { excludeKeys: [StoreKey.Config] }),
                   });
                   if (resumed) {
                     autoSyncConsole(
@@ -826,27 +1019,38 @@ export default function AutoSync() {
                   );
                 }
 
-                if (shouldCancelForManualSync()) {
+                if (shouldCancelAutoSync(syncPath)) {
                   return;
                 }
-                autoSyncConsole(
-                  "info",
-                  `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`,
-                );
+                if (deferredKeys.length === 0) {
+                  if (deferredScope === "draw") {
+                    autoSyncConsole(
+                      "log",
+                      "[AutoSync] ✅ 当前页面(draw)已完成绘图关键同步，后台无额外同步任务",
+                    );
+                  }
+                  autoSyncConsole(
+                    "log",
+                    `[AutoSync] ℹ️ 当前页面(${deferredScope})无额外后台同步任务`,
+                  );
+                  return;
+                }
+                autoSyncConsole("info", getScopeDeferredBanner(deferredScope));
                 try {
                   await (syncStore.autoSyncDeferred?.({
                     includeChat: false,
+                    scope: deferredScope,
                   }) ?? Promise.resolve());
-                  if (shouldCancelForManualSync()) {
+                  if (shouldCancelAutoSync(syncPath)) {
                     return;
                   }
                   autoSyncConsole(
                     "log",
-                    "[AutoSync] ✅ 后台同步完成（含对话记录）",
+                    getScopeDeferredDoneMessage(deferredScope),
                   );
                   autoSyncConsole(
                     "info",
-                    `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`,
+                    getScopeDeferredDoneBanner(deferredScope),
                   );
                 } catch (error) {
                   autoSyncConsole(
@@ -857,11 +1061,11 @@ export default function AutoSync() {
                 }
               })();
 
-              if (shouldCancelForManualSync()) {
+              if (shouldCancelAutoSync(syncPath)) {
                 return;
               }
               const ensureRemoteBootstrapStartedAt = nowMs();
-              void ensureRemoteBootstrapState()
+              void ensureRemoteBootstrapState(deferredScope)
                 .then(() => {
                   logPerfSummary("StartupSync", {
                     ensureRemoteBootstrapStateDurationMs: Number(
@@ -881,10 +1085,13 @@ export default function AutoSync() {
             const deferredVisibleDelayMs = 15000;
             const deferredHiddenDelayMs = 2500;
             const deferredFallbackDelayMs = document.hidden ? 5000 : 20000;
-            scheduleDeferredSyncTask(deferredSyncTask, {
-              visibleDelayMs: deferredVisibleDelayMs,
-              hiddenDelayMs: deferredHiddenDelayMs,
-            });
+            cancelDeferredSyncTask = scheduleDeferredSyncTask(
+              deferredSyncTask,
+              {
+                visibleDelayMs: deferredVisibleDelayMs,
+                hiddenDelayMs: deferredHiddenDelayMs,
+              },
+            );
             deferredFallbackTimer = setTimeout(
               deferredSyncTask,
               deferredFallbackDelayMs,
@@ -895,7 +1102,10 @@ export default function AutoSync() {
           })
           .finally(() => {
             autoSyncInProgress = false;
-            if (autoSyncCancelledByManualSync) {
+            if (
+              autoSyncCancelledByManualSync ||
+              autoSyncCancelledByRouteChange
+            ) {
               hasCompletedAutoSync = true;
               clearRetryTimer();
               if (deferredFallbackTimer) {
@@ -921,7 +1131,8 @@ export default function AutoSync() {
           event.data?.type === "auto-sync-finished" &&
           !hasCompletedAutoSync &&
           !autoSyncInProgress &&
-          !autoSyncCancelledByManualSync
+          !autoSyncCancelledByManualSync &&
+          !autoSyncCancelledByRouteChange
         ) {
           attemptAutoSync();
         }
@@ -958,14 +1169,79 @@ export default function AutoSync() {
       );
     });
 
+    const handleRouteChangeRestart = (event?: Event) => {
+      const shouldStartNextSync =
+        event instanceof CustomEvent &&
+        typeof event.detail?.autoStart === "boolean"
+          ? event.detail.autoStart
+          : shouldAutoStartRouteSync(getCurrentHashPath());
+      const nextPath =
+        event instanceof CustomEvent && typeof event.detail?.path === "string"
+          ? event.detail.path
+          : getCurrentHashPath();
+      if (nextPath === activeRoutePath) {
+        return;
+      }
+
+      const previousPath = activeRoutePath;
+      autoSyncCancelledByRouteChange = true;
+      hasCompletedAutoSync = true;
+      routeChangeCancelLogged = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (deferredFallbackTimer) {
+        clearTimeout(deferredFallbackTimer);
+        deferredFallbackTimer = null;
+      }
+      if (cancelDeferredSyncTask) {
+        cancelDeferredSyncTask();
+        cancelDeferredSyncTask = null;
+      }
+      clearRetryTimer();
+      releaseLock();
+
+      activeRoutePath = nextPath;
+      prepareRouteEntryForSync(activeRoutePath, {
+        source: "hashchange-restart",
+      });
+      autoSyncConsole("log", "[AutoSync] ⏹️ 页面切换，已关闭旧页面自动同步", {
+        from: previousPath,
+        to: nextPath,
+      });
+      autoSyncCancelledByManualSync = false;
+      autoSyncCancelledByRouteChange = false;
+      routeChangeCancelLogged = false;
+      hasCompletedAutoSync = false;
+      autoSyncInProgress = false;
+      lastForegroundSyncAt = 0;
+      lastExternalChatHintAt = 0;
+      lastAutoSyncBootstrapAt = 0;
+
+      if (!shouldStartNextSync) {
+        hasCompletedAutoSync = true;
+        return;
+      }
+
+      timer = setTimeout(
+        startAutoSync,
+        isPerfFeatureEnabled("PERF_ENABLE_LIGHT_STARTUP_SYNC") ? 0 : 80,
+      );
+    };
+
     const triggerForegroundChatSync = () => {
+      if (!isChatLikeScope(getCurrentAutoSyncScope())) {
+        return;
+      }
       if (
         !authInitialized ||
         !authUser ||
         document.hidden ||
         autoSyncInProgress ||
         !hasCompletedAutoSync ||
-        autoSyncCancelledByManualSync
+        autoSyncCancelledByManualSync ||
+        autoSyncCancelledByRouteChange
       ) {
         return;
       }
@@ -1013,6 +1289,9 @@ export default function AutoSync() {
     };
 
     const handlePageHide = () => {
+      if (!isChatLikeScope(getCurrentAutoSyncScope())) {
+        return;
+      }
       const syncStore = useSyncStore.getState() as any;
       syncStore.flushPendingDebounceSync?.([StoreKey.Chat]);
     };
@@ -1032,10 +1311,15 @@ export default function AutoSync() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("hashchange", handleRouteChangeRestart);
+    window.addEventListener(ROUTE_SYNC_ENTRY_EVENT, handleRouteChangeRestart);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("storage", handleStorage);
 
     chatMetaPollTimer = setInterval(() => {
+      if (!isChatLikeScope(getCurrentAutoSyncScope())) {
+        return;
+      }
       if (autoSyncInProgress || !hasCompletedAutoSync) {
         return;
       }
@@ -1056,6 +1340,10 @@ export default function AutoSync() {
       if (deferredFallbackTimer) {
         clearTimeout(deferredFallbackTimer);
       }
+      if (cancelDeferredSyncTask) {
+        cancelDeferredSyncTask();
+        cancelDeferredSyncTask = null;
+      }
       if (chatMetaPollTimer) {
         clearInterval(chatMetaPollTimer);
       }
@@ -1064,6 +1352,11 @@ export default function AutoSync() {
       clearRetryTimer();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("hashchange", handleRouteChangeRestart);
+      window.removeEventListener(
+        ROUTE_SYNC_ENTRY_EVENT,
+        handleRouteChangeRestart,
+      );
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("storage", handleStorage);
       releaseLock();

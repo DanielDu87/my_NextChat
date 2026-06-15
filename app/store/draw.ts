@@ -21,6 +21,7 @@ import {
 } from "@/app/components/draw/draw-panel";
 import { logger } from "@/app/utils/logger";
 import { useAccessStore } from "./access";
+import { useAppConfig } from "./config";
 import {
   getDrawModelFamily,
   normalizeOpenAICompatibleImageQuality,
@@ -29,6 +30,11 @@ import {
   toBooleanParam,
   toDashScopeSize,
 } from "@/app/utils/draw-model-params";
+import {
+  getCustomModelApiKeySelection,
+  isRememberedApiKeyProfile,
+  rememberSuccessfulCustomModelApiKeyGroup,
+} from "@/app/utils/model-api-key-memory";
 
 const OPENAI_COMPATIBLE_DRAW_PROVIDERS = new Set<string>([
   ServiceProvider.Custom,
@@ -45,7 +51,10 @@ const OPENAI_COMPATIBLE_DRAW_PROVIDERS = new Set<string>([
 ]);
 
 function normalizeBaseUrl(baseUrl: string) {
-  const trimmed = String(baseUrl || "").trim();
+  const trimmed = String(baseUrl || "")
+    .trim()
+    .replace(/^['"`\s]+/, "")
+    .replace(/['"`\s,]+$/, "");
   if (!trimmed) return "";
   if (trimmed.startsWith("/api/")) {
     return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
@@ -557,6 +566,13 @@ function redactLongString(value: unknown, maxLength = 240): unknown {
   return value;
 }
 
+function normalizeLogUrl(url: string) {
+  return String(url || "")
+    .trim()
+    .replace(/^['"`\s]+/, "")
+    .replace(/['"`\s,]+$/, "");
+}
+
 function logDrawRequest(payload: {
   provider: string;
   profileId?: string;
@@ -564,10 +580,10 @@ function logDrawRequest(payload: {
   model: string;
   params: Record<string, unknown>;
 }) {
-  logger.chat.log("===== 🎨🎨🎨 绘图请求开始 | draw 请求 =====", {
+  logger.draw.log("===== 🎨🎨🎨 绘图请求开始 | draw 请求 =====", {
     供应商: payload.provider,
     配置ID: payload.profileId || "",
-    请求地址: payload.url,
+    请求地址: normalizeLogUrl(payload.url),
     模型: payload.model,
     请求参数: redactLongString(payload.params),
   });
@@ -578,9 +594,9 @@ function logDrawResponse(payload: {
   url: string;
   response: unknown;
 }) {
-  logger.chat.log("===== 🎨🎨🎨 绘图请求返回 | draw 响应 =====", {
+  logger.draw.log("===== 🎨🎨🎨 绘图请求返回 | draw 响应 =====", {
     HTTP状态: payload.status,
-    请求地址: payload.url,
+    请求地址: normalizeLogUrl(payload.url),
     返回内容: redactLongString(payload.response),
   });
 }
@@ -648,6 +664,10 @@ function extractDrawImageResult(resData: any): {
     return { imageUrl: outputUrl };
   }
 
+  if (typeof output === "string" && output) {
+    return { imageUrl: output };
+  }
+
   if (Array.isArray(output)) {
     const first = output[0];
     if (typeof first === "string") {
@@ -664,6 +684,14 @@ function extractDrawImageResult(resData: any): {
     };
   }
 
+  logger.draw.warn("extractDrawImageResult 无法解析图片数据", {
+    hasData: !!resData?.data,
+    hasCandidates: !!resData?.candidates,
+    hasPredictions: !!resData?.predictions,
+    outputType: typeof resData?.output,
+    outputKeys: resData?.output ? Object.keys(resData.output) : [],
+    hasOutput: !!resData?.output,
+  });
   return {};
 }
 
@@ -685,6 +713,29 @@ function getDrawErrorMessage(resData: any) {
   return JSON.stringify(resData);
 }
 
+function getDrawMultiKeyRetryableErrorMessage(resData: any) {
+  const errorCode = String(resData?.error?.code || resData?.code || "").trim();
+  const errorMessage = String(
+    resData?.error?.message || resData?.message || "",
+  ).trim();
+
+  if (!errorCode && !errorMessage) {
+    return "";
+  }
+
+  if (
+    errorCode === "model_not_found" ||
+    errorMessage.includes("无可用渠道") ||
+    errorMessage.includes("no available distributor") ||
+    errorMessage.includes("无效的令牌") ||
+    errorMessage.toLowerCase().includes("invalid token")
+  ) {
+    return errorMessage || errorCode;
+  }
+
+  return "";
+}
+
 function normalizeBase64ImageDataUrl(
   base64Image: string,
   mimeType = "image/png",
@@ -696,8 +747,10 @@ function normalizeBase64ImageDataUrl(
   return `data:${mimeType || "image/png"};base64,${trimmed}`;
 }
 
-// 当前画图模型为设备本地偏好，仅存 localStorage，不进 IndexedDB、不参与云同步。
+// 本地 localStorage 仍保留最近一次画图模型，作为冷启动回退值；
+// 实际供应商维度模型列表与当前模型会持久化到 draw store，并参与数据库同步。
 const DRAW_CURRENT_MODEL_STORAGE_KEY = "nextchat-draw-current-model";
+const DRAW_LEGACY_PROVIDER_BUCKET = "__legacy__";
 
 function readInitialDrawModelValue() {
   if (typeof window === "undefined") return DEFAULT_DRAW_MODELS[0];
@@ -710,6 +763,66 @@ function readInitialDrawModelValue() {
     // localStorage 不可用时回退到列表首项
   }
   return DEFAULT_DRAW_MODELS[0];
+}
+
+function normalizeDrawProviderKey(provider: unknown) {
+  return String(provider || "").trim();
+}
+
+function getDrawModelsForProvider(
+  state: {
+    providerModels?: Record<string, string[]>;
+    models?: string[];
+  },
+  provider: unknown,
+) {
+  const providerKey = normalizeDrawProviderKey(provider);
+  const providerModels = state.providerModels || {};
+  const hasProviderModels = Object.prototype.hasOwnProperty.call(
+    providerModels,
+    providerKey,
+  );
+  const hasLegacyProviderModels = Object.prototype.hasOwnProperty.call(
+    providerModels,
+    DRAW_LEGACY_PROVIDER_BUCKET,
+  );
+  const nextModels = hasProviderModels
+    ? providerModels[providerKey]
+    : hasLegacyProviderModels
+    ? providerModels[DRAW_LEGACY_PROVIDER_BUCKET]
+    : state.models || DEFAULT_DRAW_MODELS;
+
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(nextModels) ? nextModels : DEFAULT_DRAW_MODELS).filter(
+        Boolean,
+      ),
+    ),
+  );
+
+  return normalized;
+}
+
+function getDrawCurrentModelForProvider(
+  state: {
+    providerCurrentModelMap?: Record<string, string>;
+    currentModel?: { value?: string };
+    providerModels?: Record<string, string[]>;
+    models?: string[];
+  },
+  provider: unknown,
+) {
+  const providerKey = normalizeDrawProviderKey(provider);
+  const models = getDrawModelsForProvider(state, providerKey);
+  const providerCurrentModel =
+    state.providerCurrentModelMap?.[providerKey] ||
+    state.providerCurrentModelMap?.[DRAW_LEGACY_PROVIDER_BUCKET] ||
+    state.currentModel?.value ||
+    readInitialDrawModelValue();
+
+  return models.includes(providerCurrentModel)
+    ? providerCurrentModel
+    : models[0] || DEFAULT_DRAW_MODELS[0];
 }
 
 export function persistDrawCurrentModel(value: string) {
@@ -727,6 +840,9 @@ const defaultDrawParams = getModelParamBasicData(defaultDrawModel.params(), {});
 const DEFAULT_DRAW_STATE = {
   currentId: 0,
   draw: [],
+  deletedTaskIds: {} as Record<string, number>,
+  providerModels: {} as Record<string, string[]>,
+  providerCurrentModelMap: {} as Record<string, string>,
   models: DEFAULT_DRAW_MODELS,
   currentModel: defaultDrawModel,
   currentParams: defaultDrawParams,
@@ -735,10 +851,15 @@ const DEFAULT_DRAW_STATE = {
   lastResponseLog: "",
 };
 
+const activeDrawRequestIds = new Set<string>();
+
 export const useDrawStore = createPersistStore<
   {
     currentId: number;
     draw: any[];
+    deletedTaskIds: Record<string, number>;
+    providerModels: Record<string, string[]>;
+    providerCurrentModelMap: Record<string, string>;
     models: string[];
     currentModel: typeof defaultDrawModel;
     currentParams: any;
@@ -749,12 +870,13 @@ export const useDrawStore = createPersistStore<
   {
     getNextId: () => number;
     sendTask: (data: any, okCall?: Function) => void;
+    resumePendingTasks: () => void;
     updateDraw: (draw: any) => void;
     removeDraw: (id: string) => void;
     clearAllDraw: () => void;
     clearRequestLogs: () => void;
-    setModels: (models: string[]) => void;
-    setCurrentModel: (model: any) => void;
+    setModels: (models: string[], provider?: string) => void;
+    setCurrentModel: (model: any, provider?: string) => void;
     setCurrentParams: (data: any) => void;
     setSelectedProvider: (provider: string) => void;
   }
@@ -768,6 +890,31 @@ export const useDrawStore = createPersistStore<
       };
     }
 
+    function markTaskDeleted(taskIds: string[]) {
+      if (taskIds.length === 0) return;
+
+      set((prev) => {
+        const prevState = prev as any;
+        const nextDeletedTaskIds = {
+          ...(prevState.deletedTaskIds || {}),
+        } as Record<string, number>;
+        const deletedAt = Date.now();
+        taskIds.forEach((taskId) => {
+          if (taskId) {
+            nextDeletedTaskIds[taskId] = deletedAt;
+          }
+        });
+
+        const recentEntries = Object.entries(nextDeletedTaskIds)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 300);
+
+        return {
+          deletedTaskIds: Object.fromEntries(recentEntries),
+        };
+      });
+    }
+
     const methods = {
       getNextId() {
         const id = ++_get().currentId;
@@ -776,17 +923,76 @@ export const useDrawStore = createPersistStore<
         return id;
       },
       sendTask(data: any, okCall?: Function) {
-        this.clearRequestLogs();
-        data = { ...data, id: nanoid(), status: "running" };
+        get().clearRequestLogs();
+        data = {
+          ...data,
+          id: nanoid(),
+          status: "running",
+          selectedProvider: _get().selectedProvider,
+          requestedAt: Date.now(),
+        };
+        logger.draw.log(
+          `🚀 创建任务 id=${data.id}, 模型=${data.model}, 供应商=${data.selectedProvider}`,
+        );
         set({ draw: [data, ..._get().draw] });
         get().markUpdate();
-        this.getNextId();
-        this.drawRequestCall(data);
+        get().getNextId();
+        get().drawRequestCall(data);
         okCall?.();
       },
+      resumePendingTasks() {
+        const pendingTaskIds = (_get().draw || [])
+          .filter(
+            (item: any) =>
+              item?.status === "running" &&
+              item?.id &&
+              !activeDrawRequestIds.has(String(item.id)),
+          )
+          .map((item: any) => String(item.id));
+
+        if (pendingTaskIds.length === 0) {
+          return;
+        }
+
+        logger.draw.warn(
+          `检测到 ${pendingTaskIds.length} 个中断的绘图任务，已改为失败状态等待手动重试`,
+          { ids: pendingTaskIds },
+        );
+
+        set((prev) => {
+          const prevState = prev as any;
+          const nextDraw = (prevState.draw || []).map((item: any) => {
+            if (
+              item?.status === "running" &&
+              pendingTaskIds.includes(String(item?.id || ""))
+            ) {
+              return {
+                ...item,
+                status: "error",
+                error:
+                  item?.error ||
+                  "页面刷新后原绘图请求已中断，请点击重试重新生成",
+                interruptedAt: Date.now(),
+              };
+            }
+            return item;
+          });
+
+          return { draw: nextDraw };
+        });
+        get().markUpdate();
+      },
       drawRequestCall(data: any) {
+        const requestId = String(data?.id || "");
+        if (requestId) {
+          if (activeDrawRequestIds.has(requestId)) {
+            return;
+          }
+          activeDrawRequestIds.add(requestId);
+        }
         const accessStore = useAccessStore.getState() as any;
-        const selectedProvider = _get().selectedProvider;
+        const selectedProvider =
+          data.selectedProvider || _get().selectedProvider;
         const selectedProfile = getDrawProfile(accessStore, selectedProvider);
         const provider = String(
           selectedProfile?.provider ||
@@ -802,7 +1008,33 @@ export const useDrawStore = createPersistStore<
             provider,
           ),
         };
-        const apiKey = getProfileApiKey(accessStore, selectedProfile);
+        const appConfigStore = useAppConfig.getState();
+        let apiKey = getProfileApiKey(accessStore, selectedProfile);
+        const shouldEnableMultiKeyFallback =
+          provider === ServiceProvider.Custom &&
+          Boolean(
+            selectedProfile && isRememberedApiKeyProfile(selectedProfile),
+          );
+        const apiKeySelection = shouldEnableMultiKeyFallback
+          ? getCustomModelApiKeySelection(
+              data.model,
+              selectedProfile as any,
+              appConfigStore.models || [],
+            )
+          : {
+              current: apiKey,
+              fallback: [] as string[],
+              fallbackGroups: [] as string[],
+              rememberedGroup: "",
+            };
+
+        if (
+          shouldEnableMultiKeyFallback &&
+          apiKeySelection.fallback.length > 0
+        ) {
+          apiKey = apiKeySelection.current;
+        }
+
         let bearerToken = getBearerToken(apiKey);
         if (!bearerToken && accessStore.enabledAccessControl()) {
           bearerToken = getBearerToken(
@@ -916,24 +1148,32 @@ export const useDrawStore = createPersistStore<
           const unsupportedMessage = `当前模型供应商 ${provider} 暂未接入绘图请求路由，请先切换到 OpenAI 兼容或 Stability 供应商。`;
           set({ lastRequestLog: "", lastResponseLog: unsupportedMessage });
           get().markUpdate();
-          this.updateDraw({
+          get().updateDraw({
             ...data,
             status: "error",
             error: unsupportedMessage,
           });
-          this.getNextId();
+          get().getNextId();
           return;
         }
 
         const requestLogPayload = {
+          method: "POST",
           provider,
           profileId: selectedProfile?.id || "",
           url: path,
           model: data.model,
-          params: requestBodyLog,
+          body: requestBodyLog,
         };
 
-        logDrawRequest(requestLogPayload);
+        logDrawRequest({ ...requestLogPayload, params: requestBodyLog });
+        logger.draw.log(
+          `📤 发送请求 id=${data.id}, 模型=${data.model}, ` +
+            `供应商=${provider}, 配置ID=${selectedProfile?.id || ""}, ` +
+            `请求地址=${normalizeLogUrl(path)}, 参数=${JSON.stringify(
+              requestBodyLog,
+            ).slice(0, 300)}`,
+        );
 
         set({
           lastRequestLog: JSON.stringify(requestLogPayload, null, 2),
@@ -941,12 +1181,119 @@ export const useDrawStore = createPersistStore<
         });
         get().markUpdate();
 
-        fetch(path, {
-          method: "POST",
-          headers,
-          body,
-        })
-          .then(async (response) => {
+        void (async () => {
+          const fallbackApiKeys = apiKeySelection.fallback || [];
+          const fallbackApiKeyGroups = apiKeySelection.fallbackGroups || [];
+          const supportsMultiKeyRetry =
+            shouldEnableMultiKeyFallback && fallbackApiKeys.length > 1;
+          let retryCount = 0;
+
+          const getAuthHeaderKey = () => {
+            return Object.keys(headers).find(
+              (key) =>
+                key.toLowerCase() === "authorization" ||
+                key.toLowerCase() === "x-api-key",
+            );
+          };
+
+          const applyApiKeyToHeaders = (nextApiKey: string) => {
+            const authHeader = getAuthHeaderKey();
+            if (!authHeader) {
+              return;
+            }
+            headers[authHeader] = `Bearer ${nextApiKey}`;
+          };
+
+          const applyDrawResult = (resData: any) => {
+            if (resData.errors && resData.errors.length > 0) {
+              const errMsg = getDrawErrorMessage(resData);
+              logger.draw.warn(`❌ 失败 id=${data.id}, 错误=${errMsg}`);
+              get().updateDraw({
+                ...data,
+                status: "error",
+                error: errMsg,
+              });
+              return;
+            }
+            if (
+              responseMode === "stability" &&
+              resData.finish_reason === "SUCCESS"
+            ) {
+              const img = normalizeBase64ImageDataUrl(resData.image);
+              logger.draw.log(
+                `✅ 成功 id=${data.id}, 图片=${img.slice(0, 80)}...`,
+              );
+              get().updateDraw({
+                ...data,
+                status: "success",
+                img_data: img,
+              });
+              return;
+            }
+            if (
+              responseMode === "openai-compatible" ||
+              responseMode === "aihubmix-prediction"
+            ) {
+              const { base64Image, imageUrl, mimeType } =
+                extractDrawImageResult(resData);
+              if (base64Image) {
+                const img = normalizeBase64ImageDataUrl(base64Image, mimeType);
+                logger.draw.log(
+                  `✅ 成功 id=${data.id}, 图片(base64长度=${base64Image.length}, mime=${mimeType})`,
+                );
+                get().updateDraw({
+                  ...data,
+                  status: "success",
+                  img_data: img,
+                });
+                return;
+              }
+              if (imageUrl) {
+                logger.draw.log(
+                  `✅ 成功 id=${data.id}, 图片URL=${normalizeLogUrl(imageUrl)}`,
+                );
+                get().updateDraw({
+                  ...data,
+                  status: "success",
+                  img_data: imageUrl,
+                });
+                return;
+              }
+              const errMsg = getDrawErrorMessage(resData);
+              logger.draw.warn(`❌ 失败 id=${data.id}, 错误=${errMsg}`);
+              get().updateDraw({
+                ...data,
+                status: "error",
+                error: errMsg,
+              });
+              return;
+            }
+
+            const errMsg = getDrawErrorMessage(resData);
+            logger.draw.warn(
+              `❌ 失败 id=${data.id}, 未知响应模式=${responseMode}, 错误=${errMsg}`,
+            );
+            get().updateDraw({
+              ...data,
+              status: "error",
+              error: errMsg,
+            });
+          };
+
+          while (true) {
+            if (supportsMultiKeyRetry) {
+              const currentApiKey = fallbackApiKeys[retryCount];
+              if (currentApiKey) {
+                applyApiKeyToHeaders(currentApiKey);
+              }
+            }
+
+            const response = await fetch(path, {
+              method: "POST",
+              headers,
+              body,
+            });
+
             const rawText = await response.text();
             set({
               lastResponseLog: `HTTP ${response.status}\n${
@@ -955,136 +1302,221 @@ export const useDrawStore = createPersistStore<
             });
             get().markUpdate();
 
+            let resData: any = {};
             if (!rawText) {
               logDrawResponse({
                 status: response.status,
                 url: path,
                 response: "(empty)",
               });
-              return {};
-            }
-
-            try {
-              const json = JSON.parse(rawText);
-              logDrawResponse({
-                status: response.status,
-                url: path,
-                response: json,
-              });
-              return json;
-            } catch {
-              logDrawResponse({
-                status: response.status,
-                url: path,
-                response: rawText,
-              });
-              throw new Error(rawText);
-            }
-          })
-          .then((resData) => {
-            if (resData.errors && resData.errors.length > 0) {
-              this.updateDraw({
-                ...data,
-                status: "error",
-                error: getDrawErrorMessage(resData),
-              });
-              this.getNextId();
-              return;
-            }
-            const self = this;
-            if (
-              responseMode === "stability" &&
-              resData.finish_reason === "SUCCESS"
-            ) {
-              self.updateDraw({
-                ...data,
-                status: "success",
-                img_data: normalizeBase64ImageDataUrl(resData.image),
-              });
-            } else if (
-              responseMode === "openai-compatible" ||
-              responseMode === "aihubmix-prediction"
-            ) {
-              const { base64Image, imageUrl, mimeType } =
-                extractDrawImageResult(resData);
-              if (base64Image) {
-                self.updateDraw({
-                  ...data,
-                  status: "success",
-                  img_data: normalizeBase64ImageDataUrl(base64Image, mimeType),
+            } else {
+              try {
+                resData = JSON.parse(rawText);
+                logDrawResponse({
+                  status: response.status,
+                  url: path,
+                  response: resData,
                 });
-              } else if (imageUrl) {
-                self.updateDraw({
-                  ...data,
-                  status: "success",
-                  img_data: imageUrl,
-                });
-              } else if (resData?.error?.message || resData?.error) {
-                self.updateDraw({
-                  ...data,
-                  status: "error",
-                  error: getDrawErrorMessage(resData),
-                });
-              } else {
-                self.updateDraw({
-                  ...data,
-                  status: "error",
-                  error: getDrawErrorMessage(resData),
+              } catch {
+                resData = { error: { message: rawText } };
+                logDrawResponse({
+                  status: response.status,
+                  url: path,
+                  response: rawText,
                 });
               }
-            } else {
-              self.updateDraw({
-                ...data,
-                status: "error",
-                error: getDrawErrorMessage(resData),
-              });
             }
-            this.getNextId();
-          })
+
+            const shouldRetry =
+              supportsMultiKeyRetry &&
+              retryCount < fallbackApiKeys.length - 1 &&
+              (!response.ok ||
+                Boolean(getDrawMultiKeyRetryableErrorMessage(resData)));
+
+            if (shouldRetry) {
+              const retryableError =
+                getDrawMultiKeyRetryableErrorMessage(resData);
+              logger.draw.warn(
+                `[MultiKey Retry] 绘图请求失败，尝试降级重试 (${
+                  retryCount + 1
+                }/${fallbackApiKeys.length - 1})`,
+                {
+                  httpStatus: response.status,
+                  currentGroup: fallbackApiKeyGroups[retryCount] || "",
+                  nextGroup: fallbackApiKeyGroups[retryCount + 1] || "",
+                  retryableError,
+                  errorMessage: String(
+                    resData?.error?.message || resData?.message || "",
+                  ),
+                },
+              );
+              retryCount += 1;
+              continue;
+            }
+
+            if (supportsMultiKeyRetry && response.ok) {
+              const groupName = fallbackApiKeyGroups[retryCount] || "";
+              if (groupName) {
+                rememberSuccessfulCustomModelApiKeyGroup({
+                  modelName: data.model,
+                  groupName,
+                  profileId: selectedProfile?.id || "",
+                  providerId: selectedProfile?.name
+                    ? `custom_${selectedProfile.name}`.toLowerCase()
+                    : "",
+                });
+              }
+            }
+
+            applyDrawResult(resData);
+            get().getNextId();
+            break;
+          }
+        })()
           .catch((error) => {
+            const errMsg = String(error?.message || error);
+            logger.draw.error(
+              `❌ 网络错误 id=${data.id}, 错误=${errMsg}`,
+              error,
+            );
             set({
-              lastResponseLog: String(
-                _get().lastResponseLog || error.message || error,
-              ),
+              lastResponseLog: String(_get().lastResponseLog || errMsg),
             });
             get().markUpdate();
-            this.updateDraw({ ...data, status: "error", error: error.message });
-            console.error("Error:", error);
-            this.getNextId();
+            get().updateDraw({
+              ...data,
+              status: "error",
+              error: errMsg,
+            });
+            get().getNextId();
+          })
+          .finally(() => {
+            if (requestId) {
+              activeDrawRequestIds.delete(requestId);
+            }
           });
       },
       updateDraw(_draw: any) {
-        const draw = [...(_get().draw || [])];
-        draw.some((item, index) => {
-          if (item.id === _draw.id) {
-            draw[index] = _draw;
-            set(() => ({ draw }));
-            get().markUpdate();
-            return true;
+        if (!_draw?.id) {
+          return;
+        }
+
+        if (_get().deletedTaskIds?.[_draw.id]) {
+          logger.draw.log(
+            `updateDraw 已跳过已删除任务 id=${_draw.id}, status=${_draw.status}`,
+          );
+          return;
+        }
+
+        set((prev) => {
+          const prevState = prev as any;
+          const draw = [...(prevState.draw || [])];
+          let found = false;
+          draw.some((item, index) => {
+            if (item.id === _draw.id) {
+              draw[index] = _draw;
+              found = true;
+              return true;
+            }
+          });
+          if (!found) {
+            logger.draw.warn("updateDraw 未找到匹配条目，已自动补回", {
+              status: _draw.status,
+              id: _draw.id,
+              currentCount: draw.length,
+            });
+            draw.unshift(_draw);
+            return { draw };
           }
+          return { draw };
         });
+        get().markUpdate();
       },
       removeDraw(id: string) {
+        markTaskDeleted([id]);
         const draw = (_get().draw || []).filter((item) => item.id !== id);
         set({ draw });
         get().markUpdate();
       },
       clearAllDraw() {
+        const taskIds = (_get().draw || [])
+          .map((item: any) => String(item?.id || ""))
+          .filter(Boolean);
+        markTaskDeleted(taskIds);
         set({ draw: [], currentId: 0 });
         get().markUpdate();
       },
-      // 以下为设备本地偏好/调试日志，仅本地持久化、不触发云同步（绘画记录仍正常同步）。
+      // 以下为本地参数编辑态/调试日志；模型列表与供应商选择会参与云同步。
       clearRequestLogs() {
         set({ lastRequestLog: "", lastResponseLog: "" });
       },
-      setModels(models: string[]) {
-        set({ models });
+      setModels(models: string[], provider?: string) {
+        const providerKey = normalizeDrawProviderKey(
+          provider ?? _get().selectedProvider,
+        );
+        const normalizedModels = Array.from(
+          new Set((models || []).filter(Boolean)),
+        );
+        const nextModels = normalizedModels;
+
+        set((prev) => {
+          const prevState = prev as any;
+          const providerModels = {
+            ...(prevState.providerModels || {}),
+            [providerKey]: nextModels,
+          };
+          const currentValue = getDrawCurrentModelForProvider(
+            {
+              ...prevState,
+              providerModels,
+            },
+            providerKey,
+          );
+          return {
+            providerModels,
+            models:
+              providerKey ===
+              normalizeDrawProviderKey(prevState.selectedProvider)
+                ? nextModels.length > 0
+                  ? nextModels
+                  : []
+                : prevState.models,
+            currentModel:
+              providerKey ===
+              normalizeDrawProviderKey(prevState.selectedProvider)
+                ? makeDrawModel(currentValue)
+                : prevState.currentModel,
+            providerCurrentModelMap: {
+              ...(prevState.providerCurrentModelMap || {}),
+              [providerKey]: currentValue,
+            },
+          };
+        });
+        get().markUpdate();
       },
-      setCurrentModel(model: any) {
+      setCurrentModel(model: any, provider?: string) {
         const value =
           typeof model === "string" ? model : String(model?.value || "");
         if (value) persistDrawCurrentModel(value);
-        set({ currentModel: makeDrawModel(value) });
+        const providerKey = normalizeDrawProviderKey(
+          provider ?? _get().selectedProvider,
+        );
+        set((prev) => {
+          const prevState = prev as any;
+          const nextCurrentMap = {
+            ...(prevState.providerCurrentModelMap || {}),
+            [providerKey]: value,
+          };
+          return {
+            providerCurrentModelMap: nextCurrentMap,
+            currentModel:
+              providerKey ===
+              normalizeDrawProviderKey(prevState.selectedProvider)
+                ? makeDrawModel(value)
+                : prevState.currentModel,
+          };
+        });
+        get().markUpdate();
       },
       setCurrentParams(data: any) {
         set({
@@ -1092,7 +1524,19 @@ export const useDrawStore = createPersistStore<
         });
       },
       setSelectedProvider(provider: string) {
-        set({ selectedProvider: provider });
+        const providerKey = normalizeDrawProviderKey(provider);
+        const nextModels = getDrawModelsForProvider(_get(), providerKey);
+        const nextCurrentModel = getDrawCurrentModelForProvider(
+          _get(),
+          providerKey,
+        );
+        if (nextCurrentModel) persistDrawCurrentModel(nextCurrentModel);
+        set({
+          selectedProvider: provider,
+          models: nextModels,
+          currentModel: makeDrawModel(nextCurrentModel),
+        });
+        get().markUpdate();
       },
     };
 
@@ -1100,6 +1544,41 @@ export const useDrawStore = createPersistStore<
   },
   {
     name: StoreKey.DrawList,
-    version: 2,
+    version: 3,
+    migrate: (persistedState: any, version) => {
+      if (!persistedState || typeof persistedState !== "object") {
+        return persistedState;
+      }
+      if ((version || 0) >= 3) {
+        return persistedState;
+      }
+
+      const legacyProviderKey =
+        normalizeDrawProviderKey(persistedState.selectedProvider) ||
+        DRAW_LEGACY_PROVIDER_BUCKET;
+      const legacyModels = Array.isArray(persistedState.models)
+        ? persistedState.models.filter(Boolean)
+        : [];
+      const legacyCurrentModel = String(
+        persistedState.currentModel?.value || persistedState.currentModel || "",
+      ).trim();
+
+      return {
+        ...persistedState,
+        providerModels:
+          legacyModels.length > 0
+            ? {
+                ...(persistedState.providerModels || {}),
+                [legacyProviderKey]: legacyModels,
+              }
+            : persistedState.providerModels || {},
+        providerCurrentModelMap: legacyCurrentModel
+          ? {
+              ...(persistedState.providerCurrentModelMap || {}),
+              [legacyProviderKey]: legacyCurrentModel,
+            }
+          : persistedState.providerCurrentModelMap || {},
+      };
+    },
   },
 );

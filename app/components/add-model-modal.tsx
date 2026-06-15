@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useAppConfig, useModelCacheStore } from "../store";
+import { useAppConfig } from "../store/config";
+import { useModelCacheStore } from "../store/model-cache";
 import { Selector } from "./ui-lib";
 import {
   fetchModelsFromProvider,
@@ -91,10 +92,32 @@ export function AddModelSelector(props: {
   onClose: () => void;
   profiles: ApiProfile[];
   initialProviderId: string;
+  providerIdResolver?: (profile: ApiProfile) => string;
+  managedModelKeys?: string[];
+  runtimeModels?: LLMModel[];
+  filterModel?: (model: LLMModel) => boolean;
+  onAddModels?: (keys: string[]) => void;
   onRemoveModel?: (keys: string[]) => void;
 }) {
   const config = useAppConfig();
-  const { profiles, initialProviderId, onClose, onRemoveModel } = props;
+  const {
+    profiles,
+    initialProviderId,
+    onClose,
+    providerIdResolver,
+    managedModelKeys,
+    runtimeModels,
+    filterModel,
+    onAddModels,
+    onRemoveModel,
+  } = props;
+  const resolveProviderId = useCallback(
+    (profile: ApiProfile) =>
+      String(
+        (providerIdResolver || getProfileProviderId)(profile) || "",
+      ).trim(),
+    [providerIdResolver],
+  );
   const [selectedProviderId, setSelectedProviderId] =
     useState(initialProviderId);
   const [fetchedModels, setFetchedModels] = useState<LLMModel[]>([]);
@@ -118,12 +141,20 @@ export function AddModelSelector(props: {
   const activeProfile = useMemo(
     () =>
       profiles.find(
-        (p) => getProfileProviderId(p).toLowerCase() === selectedProviderId,
+        (p) => resolveProviderId(p).toLowerCase() === selectedProviderId,
       ),
-    [profiles, selectedProviderId],
+    [profiles, resolveProviderId, selectedProviderId],
   );
 
   const addedModelKeys = useMemo(() => {
+    if (managedModelKeys) {
+      return new Set(
+        managedModelKeys
+          .map((m) => String(m || "").trim())
+          .filter(Boolean)
+          .map((m) => m.replace(/^[+-]/, "")),
+      );
+    }
     const customModels = config.customModels || "";
     return new Set(
       customModels
@@ -132,7 +163,7 @@ export function AddModelSelector(props: {
         .filter(Boolean)
         .map((m) => m.replace(/^[+-]/, "")),
     );
-  }, [config.customModels]);
+  }, [config.customModels, managedModelKeys]);
 
   const addedModelsList = useMemo(() => {
     return Array.from(addedModelKeys)
@@ -163,7 +194,8 @@ export function AddModelSelector(props: {
     }
 
     const profileCache = modelCacheProfiles?.[activeProfile.id];
-    const providerModels = (config.models || []).filter(
+    const sourceRuntimeModels = runtimeModels || config.models || [];
+    const providerModels = sourceRuntimeModels.filter(
       (model) =>
         String(model.provider?.id || "").toLowerCase() === selectedProviderId,
     );
@@ -267,10 +299,23 @@ export function AddModelSelector(props: {
     return () => {
       fetchCancelRef.current = true;
     };
-  }, [activeProfile, config.models, modelCacheProfiles, selectedProviderId]);
+  }, [
+    activeProfile,
+    config.models,
+    modelCacheProfiles,
+    runtimeModels,
+    selectedProviderId,
+  ]);
 
   const removeModel = useCallback(
     (key: string) => {
+      if (managedModelKeys) {
+        const atIdx = key.lastIndexOf("@");
+        const modelName = atIdx > 0 ? key.substring(0, atIdx) : key;
+        console.log(`[ModelManager] ➖ 删除模型: ${modelName}`);
+        onRemoveModel?.([key]);
+        return;
+      }
       const customModels = config.customModels || "";
       const models = customModels
         .split(",")
@@ -289,10 +334,26 @@ export function AddModelSelector(props: {
       });
       onRemoveModel?.([key]);
     },
-    [config, onRemoveModel],
+    [config, managedModelKeys, onRemoveModel],
   );
 
   const removeAll = useCallback(() => {
+    if (managedModelKeys) {
+      const removed = managedModelKeys
+        .map((m) => String(m || "").replace(/^[+-]/, ""))
+        .filter((cleaned) => {
+          const atIdx = cleaned.lastIndexOf("@");
+          const provider = atIdx > 0 ? cleaned.substring(atIdx + 1) : "";
+          return provider === selectedProviderId;
+        });
+      console.log(
+        `[ModelManager] 🗑️ 全部删除 ${removed.length} 个模型: ${removed.join(
+          "、",
+        )}`,
+      );
+      onRemoveModel?.(removed);
+      return;
+    }
     const customModels = config.customModels || "";
     const models = customModels
       .split(",")
@@ -320,14 +381,25 @@ export function AddModelSelector(props: {
       (state as any).customModelsUpdatedAt = Date.now();
     });
     onRemoveModel?.(removed.map((model) => model.replace(/^[+-]/, "")));
-  }, [config, onRemoveModel, selectedProviderId]);
+  }, [config, managedModelKeys, onRemoveModel, selectedProviderId]);
+
+  const candidateFetchedModels = useMemo(() => {
+    if (!filterModel) {
+      return fetchedModels;
+    }
+
+    const filteredModels = fetchedModels.filter((model) => filterModel(model));
+    return filteredModels.length > 0 ? filteredModels : fetchedModels;
+  }, [fetchedModels, filterModel]);
 
   const selectorItems = useMemo(() => {
     // 已添加模式：只显示已添加的模型，右边显示删除按钮
     if (showAdded) {
       return addedModelsList.map((model) => {
         const modelName = model.key.split("@")[0];
-        const fetchedModel = fetchedModels.find((m) => m.name === modelName);
+        const fetchedModel = candidateFetchedModels.find(
+          (m) => m.name === modelName,
+        );
         return {
           title: model.name,
           value: model.key,
@@ -346,7 +418,7 @@ export function AddModelSelector(props: {
     }
 
     // 添加模式：显示所有可获取的模型
-    return fetchedModels.map((model) => {
+    return candidateFetchedModels.map((model) => {
       const modelKey = `${model.name}@${selectedProviderId}`;
       const isAdded = addedModelKeys.has(modelKey);
       return {
@@ -377,7 +449,8 @@ export function AddModelSelector(props: {
   }, [
     showAdded,
     addedModelsList,
-    fetchedModels,
+    candidateFetchedModels,
+    filterModel,
     addedModelKeys,
     selectedProviderId,
     removeModel,
@@ -392,6 +465,12 @@ export function AddModelSelector(props: {
 
   const handleConfirm = useCallback(() => {
     if (pendingSelection.length === 0) return;
+    if (managedModelKeys) {
+      onAddModels?.(pendingSelection);
+      setPendingSelection([]);
+      onClose();
+      return;
+    }
     const currentCustomModels = config.customModels || "";
     const currentModels = currentCustomModels
       .split(",")
@@ -408,7 +487,7 @@ export function AddModelSelector(props: {
 
     setPendingSelection([]);
     onClose();
-  }, [config, onClose, pendingSelection]);
+  }, [config, managedModelKeys, onAddModels, onClose, pendingSelection]);
 
   const displayName =
     activeProfile?.name || String(activeProfile?.provider || "");
@@ -430,6 +509,36 @@ export function AddModelSelector(props: {
     const modelKey = `${modelName}@${selectedProviderId}`;
     if (addedModelKeys.has(modelKey)) {
       setCustomModelError("这个模型已经添加过了");
+      return;
+    }
+
+    if (managedModelKeys) {
+      onAddModels?.([modelKey]);
+
+      const syntheticModel = createModelFromCachedName(
+        modelName,
+        activeProfile,
+        selectedProviderId,
+        fetchedModels.length,
+      );
+      const nextModels = sortModelsForSelector([
+        ...fetchedModels,
+        syntheticModel,
+      ]);
+      const nextTotal = Math.max(fetchedTotal, nextModels.length);
+
+      modelCache.set(selectedProviderId, {
+        models: nextModels,
+        total: nextTotal,
+      });
+      setFetchedModels(nextModels);
+      setFetchedTotal(nextTotal);
+      setPendingSelection((selected) =>
+        selected.filter((item) => item !== modelKey),
+      );
+      setCustomModelName("");
+      setCustomModelError("");
+      setShowCustomInput(false);
       return;
     }
 
@@ -477,10 +586,14 @@ export function AddModelSelector(props: {
     customModelName,
     fetchedModels,
     fetchedTotal,
+    managedModelKeys,
+    onAddModels,
     selectedProviderId,
   ]);
 
-  const displayTotal = fetchedTotal || fetchedModels.length;
+  const displayTotal = showAdded
+    ? addedModelsList.length
+    : selectorItems.length || fetchedTotal || candidateFetchedModels.length;
   const confirmDisabled =
     loading || !!fetchError || pendingSelection.length === 0;
 
@@ -547,7 +660,7 @@ export function AddModelSelector(props: {
           {providerDropdownOpen && (
             <div className={styles["model-selector-provider-menu"]}>
               {profiles.map((p) => {
-                const pid = getProfileProviderId(p).toLowerCase();
+                const pid = resolveProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
                 const isActive = pid === selectedProviderId;
                 const providerIcon =

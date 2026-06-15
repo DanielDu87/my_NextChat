@@ -15,12 +15,16 @@ import {
 import { downloadAs, readFromFile } from "../utils";
 import {
   AUTO_SYNC_STORE_KEYS,
+  getAutoSyncCriticalStoreKeys,
+  getAutoSyncDeferredStoreKeys,
   MODEL_SYNC_STORE_KEYS,
   parseStoreStatePayload,
+  type AutoSyncScope,
   type SyncStoreKey,
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
 } from "../utils/sync-store-keys";
+import { getCurrentAutoSyncScope } from "../utils/startup-sync-scope";
 import {
   buildChatIndexPayload,
   buildChatStateFromIndex,
@@ -116,6 +120,7 @@ let queuedSyncKeys = new Set<SyncStoreKey>();
 let syncInFlightManual = false;
 let lastKnownChatSessionSnapshot = new Map<string, string>();
 let lastKnownCustomModelsSnapshot = "";
+let lastAdminConversationSummaryAt = 0;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
 const RETRYABLE_NETWORK_ERROR =
@@ -751,6 +756,10 @@ function logOverallSyncSummary(
     return;
   }
 
+  const hasChatResult = summaryResults.some(
+    (item) => item.key === StoreKey.Chat,
+  );
+
   summaryResults.forEach((item) => {
     const local = parseSyncCount(item.key, item.summary);
     const remote = parseSyncCount(item.key, item.remoteSummary ?? item.summary);
@@ -886,9 +895,17 @@ function logOverallSyncSummary(
 
   // 在模型统计后显示每个用户的对话数量
   const authState = useAuthStore.getState();
-  if (authState.user?.role !== "admin") {
+  const shouldLogAdminConversationSummary =
+    authState.user?.role === "admin" &&
+    (hasChatResult || getCurrentAutoSyncScope() === "chat");
+  if (!shouldLogAdminConversationSummary) {
     return;
   }
+  const now = Date.now();
+  if (!hasChatResult && now - lastAdminConversationSummaryAt < 10000) {
+    return;
+  }
+  lastAdminConversationSummaryAt = now;
   fetch("/api/admin/users", {
     method: "GET",
     cache: "no-store",
@@ -1391,6 +1408,29 @@ function rebaseChatSyncResultOnLiveState(
   });
 
   return pruneEmptyChatSessionsForDisplay(normalizedAfterDeletes);
+}
+
+function getStoreLastUpdateTime(state: unknown) {
+  if (!state || typeof state !== "object") {
+    return 0;
+  }
+  return Number((state as { lastUpdateTime?: number }).lastUpdateTime || 0);
+}
+
+function rebaseRegularSyncResultOnLiveState<T extends SyncStoreKey>(
+  key: T,
+  mergedStoreState: AppState[T],
+  syncBaseState: AppState[T],
+) {
+  const liveLocalState = getLocalAppState()[key];
+  if (
+    getStoreLastUpdateTime(liveLocalState) <=
+    getStoreLastUpdateTime(syncBaseState)
+  ) {
+    return mergedStoreState;
+  }
+
+  return mergeStoreState(key, liveLocalState, mergedStoreState);
 }
 
 function buildRemoteSessionPlaceholder(entry: ChatIndexSessionEntry) {
@@ -2789,6 +2829,7 @@ export const useSyncStore = createPersistStore(
 
       async resumePendingDebounceSync(options?: {
         excludeKeys?: SyncStoreKey[];
+        includeKeys?: SyncStoreKey[];
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过恢复未完成同步");
@@ -2802,8 +2843,13 @@ export const useSyncStore = createPersistStore(
         }
 
         const excludedKeys = new Set(options?.excludeKeys || []);
+        const includedKeys =
+          options?.includeKeys && options.includeKeys.length > 0
+            ? new Set(normalizeSyncKeys(options.includeKeys))
+            : null;
         const resumedKeys = pendingTask.keys.filter(
-          (key) => !excludedKeys.has(key),
+          (key) =>
+            !excludedKeys.has(key) && (!includedKeys || includedKeys.has(key)),
         );
 
         if (resumedKeys.length === 0) {
@@ -3016,10 +3062,15 @@ export const useSyncStore = createPersistStore(
                 const latestRemoteState = latestRemoteDataText
                   ? parseStoreStatePayload(latestRemoteDataText)
                   : localAppStateCache[key];
-                const resolvedStoreState = mergeStoreState(
+                const mergedStoreState = mergeStoreState(
                   key,
                   localAppStateCache[key],
                   latestRemoteState,
+                );
+                const resolvedStoreState = rebaseRegularSyncResultOnLiveState(
+                  key,
+                  mergedStoreState,
+                  localAppStateCache[key],
                 );
 
                 setLocalStoreState(key, resolvedStoreState);
@@ -3156,15 +3207,20 @@ export const useSyncStore = createPersistStore(
                   localAppStateCache[key],
                   parsedRemoteState,
                 );
+                const resolvedStoreState = rebaseRegularSyncResultOnLiveState(
+                  key,
+                  mergedStoreState,
+                  localAppStateCache[key],
+                );
                 const mergeDurationMs = nowMs() - mergeStartedAt;
 
-                setLocalStoreState(key, mergedStoreState);
-                localAppStateCache[key] = mergedStoreState;
+                setLocalStoreState(key, resolvedStoreState);
+                localAppStateCache[key] = resolvedStoreState;
 
                 const mergedStoreStateToPersist =
                   key === StoreKey.Config
-                    ? stripConfigLocalModelFields(mergedStoreState as any)
-                    : mergedStoreState;
+                    ? stripConfigLocalModelFields(resolvedStoreState as any)
+                    : resolvedStoreState;
                 const stringifyStartedAt = nowMs();
                 const payloadText = stringifyPersistedStoreState(
                   key,
@@ -3175,7 +3231,7 @@ export const useSyncStore = createPersistStore(
                   const modelDiffs =
                     key === StoreKey.Config
                       ? captureCustomModelSyncDiff(
-                          mergedStoreState,
+                          resolvedStoreState,
                           parsedRemoteState,
                         )
                       : undefined;
@@ -3199,12 +3255,12 @@ export const useSyncStore = createPersistStore(
                     payloadBytes: remoteDataText.length,
                   });
                   if (key === StoreKey.Config) {
-                    saveCustomModelSnapshotAfterSync(mergedStoreState);
-                    applySyncedModelSelectionToAccess(mergedStoreState);
-                    syncModelSelectionToLocalStorage(mergedStoreState);
+                    saveCustomModelSnapshotAfterSync(resolvedStoreState);
+                    applySyncedModelSelectionToAccess(resolvedStoreState);
+                    syncModelSelectionToLocalStorage(resolvedStoreState);
                   }
                   return {
-                    summary: getStoreSummary(key, mergedStoreState),
+                    summary: getStoreSummary(key, resolvedStoreState),
                     status: "merged" as const,
                     remoteSummary: getStoreSummary(key, parsedRemoteState),
                     modelDiffs,
@@ -3631,11 +3687,7 @@ export const useSyncStore = createPersistStore(
               syncResults.forEach((item) => {
                 logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
               });
-              const shouldLogOverallSummary = !(
-                options?.silentSummary ||
-                (currentStoreKeys.length === 1 &&
-                  currentStoreKeys[0] === StoreKey.Chat)
-              );
+              const shouldLogOverallSummary = !options?.silentSummary;
               if (shouldLogOverallSummary) {
                 logOverallSyncSummary(syncResults);
               }
@@ -3711,7 +3763,10 @@ export const useSyncStore = createPersistStore(
         }
       },
 
-      async autoSync() {
+      async autoSync(options?: {
+        scope?: AutoSyncScope;
+        includeChat?: boolean;
+      }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过自动同步");
           return;
@@ -3721,11 +3776,14 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        await this.autoSyncCritical();
-        await this.autoSyncDeferred();
+        await this.autoSyncCritical({ scope: options?.scope });
+        await this.autoSyncDeferred({
+          scope: options?.scope,
+          includeChat: options?.includeChat,
+        });
       },
 
-      async autoSyncCritical() {
+      async autoSyncCritical(options?: { scope?: AutoSyncScope }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
           set({
@@ -3749,13 +3807,16 @@ export const useSyncStore = createPersistStore(
         });
 
         try {
-          // 首屏只等待模型选择和用户已添加模型，完成后立即允许对话。
-          // API 配置在后台同步（autoSyncDeferred），不阻塞对话。
-          await this.sync([StoreKey.Config], {
-            isolateQueue: true,
-            force: true,
-            broadcastChatHint: false,
-          });
+          const criticalKeys = getAutoSyncCriticalStoreKeys(
+            options?.scope || "app",
+          );
+          if (criticalKeys.length > 0) {
+            await this.sync(criticalKeys, {
+              isolateQueue: true,
+              force: true,
+              broadcastChatHint: false,
+            });
+          }
           warnMissingRecoveredApiKey();
         } catch (error) {
           syncConsole("error", "[Sync] ❌ 关键数据同步失败:", error);
@@ -3899,7 +3960,10 @@ export const useSyncStore = createPersistStore(
         }
       },
 
-      async autoSyncDeferred(options?: { includeChat?: boolean }) {
+      async autoSyncDeferred(options?: {
+        includeChat?: boolean;
+        scope?: AutoSyncScope;
+      }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
           return;
@@ -3909,10 +3973,11 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        const includeChat = options?.includeChat ?? true;
-        const remainingKeys = AUTO_SYNC_STORE_KEYS.filter(
-          (key) =>
-            key !== StoreKey.Config && (includeChat || key !== StoreKey.Chat),
+        const remainingKeys = getAutoSyncDeferredStoreKeys(
+          options?.scope || "app",
+          {
+            includeChat: options?.includeChat,
+          },
         );
         if (remainingKeys.length > 0) {
           await this.sync(remainingKeys, { isolateQueue: true });
