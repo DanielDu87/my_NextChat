@@ -4581,6 +4581,7 @@
   background: rgba(240, 249, 255, 0.96);
   color: #0369a1 !important;
   border: 1px solid rgba(186, 230, 253, 0.8);
+  box-shadow: none;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -4628,26 +4629,26 @@
   }
 
   .provider-switch-toast-content {
-    background: rgba(15, 23, 42, 0.9);
+    background: rgba(51, 65, 85, 0.82);
     color: #7dd3fc;
     padding: 8px 20px;
     line-height: 20px;
     box-shadow:
-      0 4px 20px rgba(0, 0, 0, 0.4),
-      0 0 10px rgba(14, 165, 233, 0.1);
-    border: 1px solid rgba(14, 165, 233, 0.3);
+      0 4px 18px rgba(0, 0, 0, 0.32),
+      0 0 10px rgba(125, 211, 252, 0.12);
+    border: 1px solid rgba(125, 211, 252, 0.22);
   }
 }
 
 :global(body.dark) .provider-switch-toast-content {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(51, 65, 85, 0.82);
   color: #7dd3fc;
   padding: 8px 20px;
   line-height: 20px;
   box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.4),
-    0 0 10px rgba(14, 165, 233, 0.1);
-  border: 1px solid rgba(14, 165, 233, 0.3);
+    0 4px 18px rgba(0, 0, 0, 0.32),
+    0 0 10px rgba(125, 211, 252, 0.12);
+  border: 1px solid rgba(125, 211, 252, 0.22);
 }
 
 @media (prefers-color-scheme: dark) {

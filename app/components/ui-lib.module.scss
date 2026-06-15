@@ -316,6 +316,34 @@
         margin-right: 6px !important;
       }
     }
+
+    &.modal-container-small {
+      width: min(360px, calc(100vw - 32px));
+
+      .modal-footer {
+        justify-content: center;
+        padding: 10px 14px 14px;
+      }
+
+      .modal-actions {
+        width: 100%;
+        gap: 8px;
+      }
+    }
+
+    &:global(.image-preview-modal) {
+      width: calc(100vw - 24px);
+      height: calc(var(--full-height) - 24px);
+
+      .modal-content {
+        display: flex;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        padding: 12px;
+      }
+    }
   }
 }
 

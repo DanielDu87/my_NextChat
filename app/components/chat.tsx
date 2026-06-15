@@ -1926,6 +1926,10 @@ function _Chat() {
   type RenderMessage = ChatMessage & { preview?: boolean };
 
   const location = useLocation();
+  const suppressInitialModelToast = Boolean(
+    (location.state as { suppressModelToast?: boolean } | null)
+      ?.suppressModelToast,
+  );
   const chatStore = useChatStore();
   const emptySessionRef = useRef(createEmptySession());
   const isFirstChatMountRef = useRef(!hasMountedChatInCurrentPage);
@@ -2848,12 +2852,24 @@ function _Chat() {
     show: boolean;
     message: string;
   }>({ show: false, message: "" });
+  const providerSwitchToastTimerRef = useRef<number | null>(null);
   const providerSwitchToastDurationMs = isMobileScreen ? 3500 : 2200;
+  const hideTopNotice = useCallback(() => {
+    if (providerSwitchToastTimerRef.current !== null) {
+      window.clearTimeout(providerSwitchToastTimerRef.current);
+      providerSwitchToastTimerRef.current = null;
+    }
+    setProviderSwitchToast({ show: false, message: "" });
+  }, []);
   const showTopNotice = useCallback(
     (message: string) => {
+      if (providerSwitchToastTimerRef.current !== null) {
+        window.clearTimeout(providerSwitchToastTimerRef.current);
+      }
       setProviderSwitchToast({ show: true, message });
-      window.setTimeout(() => {
+      providerSwitchToastTimerRef.current = window.setTimeout(() => {
         setProviderSwitchToast((prev) => ({ ...prev, show: false }));
+        providerSwitchToastTimerRef.current = null;
       }, providerSwitchToastDurationMs);
     },
     [providerSwitchToastDurationMs],
@@ -2983,18 +2999,38 @@ function _Chat() {
 
   useEffect(() => {
     return () => {
+      if (providerSwitchToastTimerRef.current !== null) {
+        clearTimeout(providerSwitchToastTimerRef.current);
+      }
       if (modelSelectorNoticeTimerRef.current) {
         clearTimeout(modelSelectorNoticeTimerRef.current);
       }
     };
   }, []);
 
+  useEffect(() => {
+    const isChatRoute =
+      location.pathname === Path.Chat ||
+      location.pathname.startsWith(Path.Chat + "/");
+    if (isChatRoute) return;
+    hideTopNotice();
+    setModelSelectorNotice("");
+    if (modelSelectorNoticeTimerRef.current) {
+      clearTimeout(modelSelectorNoticeTimerRef.current);
+      modelSelectorNoticeTimerRef.current = null;
+    }
+  }, [hideTopNotice, location.pathname]);
+
   const providerSwitchDisabled = useMemo(() => {
     return false;
   }, []);
 
   useEffect(() => {
-    if (!isMobileScreen || !shouldShowModelConfigLabel) {
+    if (
+      suppressInitialModelToast ||
+      !isMobileScreen ||
+      !shouldShowModelConfigLabel
+    ) {
       return;
     }
 
@@ -3031,6 +3067,7 @@ function _Chat() {
     safeSession.id,
     shouldShowModelConfigLabel,
     showTopNotice,
+    suppressInitialModelToast,
   ]);
 
   const isAiHubMixOrderingReady = useMemo(() => {
@@ -8110,13 +8147,7 @@ function _Chat() {
             const timeSinceProviderSwitch =
               Date.now() - lastProviderSwitchTimeRef.current;
             if (timeSinceProviderSwitch > 1000) {
-              setProviderSwitchToast({
-                show: true,
-                message: `已选择 ${model}`,
-              });
-              window.setTimeout(() => {
-                setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-              }, providerSwitchToastDurationMs);
+              showTopNotice(`已选择 ${model}`);
             }
           }}
         />

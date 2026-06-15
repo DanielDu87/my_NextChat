@@ -249,14 +249,11 @@ export function Modal(props: ModalProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [isMax, setMax] = useState(!!props.defaultMax);
-
   return (
     <div
       className={clsx(
         styles["modal-container"],
         {
-          [styles["modal-container-max"]]: isMax,
           [styles["modal-container-small"]]: props.isSmall,
         },
         props.className,
@@ -266,14 +263,6 @@ export function Modal(props: ModalProps) {
         <div className={styles["modal-title"]}>{props.title}</div>
 
         <div className={styles["modal-header-actions"]}>
-          {!props.hideMaxToggle && (
-            <div
-              className={styles["modal-header-action"]}
-              onClick={() => setMax(!isMax)}
-            >
-              {isMax ? <MinIcon /> : <MaxIcon />}
-            </div>
-          )}
           <div
             className={styles["modal-header-action"]}
             onClick={props.onClose}
@@ -637,6 +626,7 @@ export function showImageModal(
   showModal({
     title: Locale.Export.Image.Modal,
     defaultMax: defaultMax,
+    className: "image-preview-modal",
     children: (
       <div style={{ display: "flex", justifyContent: "center", ...boxStyle }}>
         <img

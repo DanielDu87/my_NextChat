@@ -43,9 +43,9 @@ const DrawPanel = dynamic(
 );
 
 const DRAW_THEME_OPTIONS: { value: DrawTheme; Icon: React.FC<any> }[] = [
-  { value: "auto", Icon: AutoThemeIcon },
-  { value: "light", Icon: LightThemeIcon },
   { value: "dark", Icon: DarkThemeIcon },
+  { value: "light", Icon: LightThemeIcon },
+  { value: "auto", Icon: AutoThemeIcon },
 ];
 
 export function SideBar(props: {
@@ -56,9 +56,35 @@ export function SideBar(props: {
   const isMobileScreen = useMobileScreen();
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const themeMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentThemeOption =
     DRAW_THEME_OPTIONS.find((item) => item.value === props.drawTheme) ||
     DRAW_THEME_OPTIONS[0];
+  const showThemeMenuOnDesktopHover = () => {
+    if (!isMobileScreen) {
+      if (themeMenuTimerRef.current) {
+        clearTimeout(themeMenuTimerRef.current);
+        themeMenuTimerRef.current = null;
+      }
+      setThemeMenuOpen(true);
+    }
+  };
+  const hideThemeMenuOnDesktopHover = () => {
+    if (!isMobileScreen) {
+      themeMenuTimerRef.current = setTimeout(() => {
+        setThemeMenuOpen(false);
+        themeMenuTimerRef.current = null;
+      }, 300);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (themeMenuTimerRef.current) {
+        clearTimeout(themeMenuTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!themeMenuOpen) return;
@@ -139,7 +165,7 @@ export function SideBar(props: {
         subTitle={
           isMobileScreen ? "让AI画出想象" : "让AI画出想象，让我陪你看见浪漫。"
         }
-        logo={<LogoIcon width={38} height={"100%"} />}
+        logo={<LogoIcon width={35.05} height={38} />}
       >
         <div className={styles["draw-sidebar-actions"]}>
           <IconButton
@@ -147,18 +173,32 @@ export function SideBar(props: {
             text={Locale.Draw.Actions.ReturnHome}
             bordered
             shadow
-            onClick={() => navigate(Path.Home)}
+            onClick={() =>
+              navigate(Path.Home, { state: { suppressModelToast: true } })
+            }
           />
-          <div className={styles["draw-theme-picker"]} ref={themeMenuRef}>
+          <div
+            className={styles["draw-theme-picker"]}
+            ref={themeMenuRef}
+            onMouseEnter={showThemeMenuOnDesktopHover}
+            onMouseLeave={hideThemeMenuOnDesktopHover}
+          >
             <IconButton
               icon={<currentThemeOption.Icon />}
               text="主题切换"
               bordered
               shadow
-              onClick={() => setThemeMenuOpen((value) => !value)}
+              onClick={() => {
+                setThemeMenuOpen((value) => (isMobileScreen ? !value : true));
+              }}
             />
             {themeMenuOpen && (
-              <div className={styles["draw-theme-menu"]} role="menu">
+              <div
+                className={styles["draw-theme-menu"]}
+                role="menu"
+                onMouseEnter={showThemeMenuOnDesktopHover}
+                onMouseLeave={hideThemeMenuOnDesktopHover}
+              >
                 {DRAW_THEME_OPTIONS.map((option) => (
                   <button
                     key={option.value}
@@ -181,7 +221,7 @@ export function SideBar(props: {
           {isMobileScreen && (
             <IconButton
               icon={<HistoryIcon />}
-              text="查看记录"
+              text="生成记录"
               bordered
               shadow
               onClick={() => navigate(Path.DrawHistory)}

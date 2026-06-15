@@ -346,6 +346,14 @@ div.math {
   }
 }
 
+@media screen and (max-width: 650px) {
+  .modal-mask-small {
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+  }
+}
+
 .link {
   font-size: 12px;
   color: var(--primary);

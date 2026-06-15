@@ -84,11 +84,11 @@ function readDrawTheme(): DrawTheme {
   return "auto";
 }
 
-const DRAW_THEME_ORDER: DrawTheme[] = ["auto", "light", "dark"];
+const DRAW_THEME_ORDER: DrawTheme[] = ["dark", "light", "auto"];
 export const DRAW_THEME_LABELS: Record<DrawTheme, string> = {
-  auto: "自动",
-  light: "浅色",
-  dark: "深色",
+  auto: "Auto",
+  light: "Light",
+  dark: "Dark",
 };
 
 export function useDrawTheme() {
@@ -338,7 +338,7 @@ function DrawImagePlaceholder(props: { error?: boolean }) {
       {props.error ? (
         <span className={styles["draw-error-mark"]} aria-hidden="true" />
       ) : (
-        <LoadingIcon />
+        <LoadingIcon className={styles["draw-loading-mark"]} />
       )}
     </div>
   );
@@ -378,12 +378,16 @@ function DrawImagePreview(props: {
     }
   }, [imageSrc, props.item.status]);
 
-  if (props.item.status === "error" || loadFailed || !imageSrc) {
+  if (props.item.status === "error") {
     return <DrawImagePlaceholder error />;
   }
 
   if (props.item.status !== "success") {
     return <DrawImagePlaceholder />;
+  }
+
+  if (loadFailed || !imageSrc) {
+    return <DrawImagePlaceholder error />;
   }
 
   return (
@@ -416,10 +420,23 @@ function DrawImagePreview(props: {
             imageSrc,
             true,
             props.isMobileScreen
-              ? { width: "100%", height: "fit-content" }
+              ? {
+                  width: "100%",
+                  height: "100%",
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  objectFit: "contain",
+                }
               : { maxWidth: "100%", maxHeight: "100%" },
             props.isMobileScreen
-              ? { width: "100%", height: "fit-content" }
+              ? {
+                  width: "100%",
+                  height: "100%",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  overflow: "hidden",
+                  WebkitOverflowScrolling: "touch",
+                }
               : { width: "100%", height: "100%" },
           )
         }
@@ -442,6 +459,8 @@ export function Draw() {
     DRAW_INITIAL_RENDER_COUNT,
   );
   const [, refreshImageDimensions] = useState(0);
+  const [copyNotice, setCopyNotice] = useState("");
+  const copyNoticeTimerRef = useRef<number | null>(null);
   const isDraw = location.pathname === Path.Draw || location.pathname === "/sd";
   const {
     theme: drawTheme,
@@ -511,50 +530,122 @@ export function Draw() {
     refreshImageDimensions((count) => count + 1);
   }, []);
 
+  const showCopyNotice = useCallback((message: string) => {
+    setCopyNotice(message);
+    if (copyNoticeTimerRef.current !== null) {
+      window.clearTimeout(copyNoticeTimerRef.current);
+    }
+    copyNoticeTimerRef.current = window.setTimeout(() => {
+      setCopyNotice("");
+      copyNoticeTimerRef.current = null;
+    }, 1800);
+  }, []);
+
+  const handleCopyPrompt = useCallback(
+    async (prompt: string) => {
+      const ok = await copyToClipboard(prompt, { silent: true });
+      if (ok) {
+        showCopyNotice(Locale.Copy.Success);
+      }
+    },
+    [showCopyNotice],
+  );
+
   useEffect(() => {
     clearRequestLogs();
   }, [clearRequestLogs]);
 
+  useEffect(() => {
+    return () => {
+      if (copyNoticeTimerRef.current !== null) {
+        window.clearTimeout(copyNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
     <>
       <SideBar
-        className={clsx({ [homeStyles["sidebar-show"]]: isDraw })}
+        className={clsx(styles["draw-sidebar"], {
+          [homeStyles["sidebar-show"]]: isDraw,
+        })}
         drawTheme={drawTheme}
         onSelectDrawTheme={setDrawTheme}
       />
       <WindowContent>
         <div className={clsx(chatStyles.chat, styles["draw-page"])} key={"1"}>
-          <div className={clsx("window-header", styles["draw-header"])}>
-            {isMobileScreen && (
-              <div className="window-actions">
-                <div className={"window-action-button"}>
-                  <IconButton
-                    icon={<ReturnIcon />}
-                    bordered
-                    title={Locale.Chat.Actions.ChatList}
-                    onClick={() => navigate(Path.Draw)}
-                  />
+          {copyNotice && (
+            <div className={chatStyles["provider-switch-toast"]}>
+              <div className={chatStyles["provider-switch-toast-content"]}>
+                {copyNotice}
+              </div>
+            </div>
+          )}
+          <div
+            className={clsx("window-header", styles["draw-header"], {
+              [styles["draw-history-header"]]: isMobileScreen && !isDraw,
+            })}
+          >
+            {isMobileScreen && !isDraw ? (
+              <>
+                <div className={styles["draw-history-brand"]}>
+                  <div className={clsx(styles["draw-history-logo"], "no-dark")}>
+                    <LogoIcon width={38} height={"100%"} />
+                  </div>
+                  <div className={styles["draw-history-title"]}>
+                    <div className={styles["draw-history-main-title"]}>
+                      生成历史
+                    </div>
+                    <div className={styles["draw-history-sub-title"]}>
+                      {Locale.Draw.SubTitle(drawImages.length || 0)}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
-            <div
-              className={clsx(
-                "window-header-title",
-                chatStyles["chat-body-title"],
-              )}
-              data-tauri-drag-region
-            >
-              <div className={`window-header-main-title`}>
-                {isDraw ? "AI 绘画" : "作品历史"}
-              </div>
-              <div className="window-header-sub-title">
-                {Locale.Draw.SubTitle(drawImages.length || 0)}
-              </div>
-            </div>
+                <div className="window-actions">
+                  <div className={"window-action-button"}>
+                    <IconButton
+                      icon={<ReturnIcon />}
+                      bordered
+                      title={Locale.Chat.Actions.ChatList}
+                      onClick={() => navigate(Path.Draw)}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {isMobileScreen && (
+                  <div className="window-actions">
+                    <div className={"window-action-button"}>
+                      <IconButton
+                        icon={<ReturnIcon />}
+                        bordered
+                        title={Locale.Chat.Actions.ChatList}
+                        onClick={() => navigate(Path.Draw)}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div
+                  className={clsx(
+                    "window-header-title",
+                    chatStyles["chat-body-title"],
+                  )}
+                  data-tauri-drag-region
+                >
+                  <div className={`window-header-main-title`}>
+                    {isDraw ? "AI 绘画" : "作品历史"}
+                  </div>
+                  <div className="window-header-sub-title">
+                    {Locale.Draw.SubTitle(drawImages.length || 0)}
+                  </div>
+                </div>
 
-            <div className="window-actions">
-              {isMobileScreen && <LogoIcon width={50} height={50} />}
-            </div>
+                <div className="window-actions">
+                  {isMobileScreen && <LogoIcon width={50} height={50} />}
+                </div>
+              </>
+            )}
           </div>
           <div
             className={clsx(chatStyles["chat-body"], styles["draw-body"])}
@@ -637,21 +728,9 @@ export function Draw() {
                           </button>
                         )}
                         <div className={styles["draw-card-actions"]}>
-                          <ChatAction
-                            text={Locale.Draw.Actions.Copy}
-                            icon={<CopyIcon />}
-                            onClick={() =>
-                              copyToClipboard(
-                                getMessageTextContent({
-                                  role: "user",
-                                  content: item.params?.prompt || "",
-                                }),
-                              )
-                            }
-                          />
                           {item.status === "success" && (
                             <ChatAction
-                              text={Locale.Draw.Actions.Download}
+                              text="下载"
                               icon={<DownloadIcon />}
                               onClick={() =>
                                 downloadImage(item.img_data, item.id)
@@ -659,7 +738,19 @@ export function Draw() {
                             />
                           )}
                           <ChatAction
-                            text={Locale.Draw.Actions.Retry}
+                            text="复制"
+                            icon={<CopyIcon />}
+                            onClick={() =>
+                              handleCopyPrompt(
+                                getMessageTextContent({
+                                  role: "user",
+                                  content: item.params?.prompt || "",
+                                }),
+                              )
+                            }
+                          />
+                          <ChatAction
+                            text="重试"
                             icon={<ResetIcon />}
                             onClick={() => {
                               const reqData = {
@@ -674,7 +765,7 @@ export function Draw() {
                             }}
                           />
                           <ChatAction
-                            text={Locale.Draw.Actions.Delete}
+                            text="删除"
                             icon={<DeleteIcon />}
                             onClick={async () => {
                               if (

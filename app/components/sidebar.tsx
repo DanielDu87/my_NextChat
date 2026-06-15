@@ -553,7 +553,10 @@ export function SideBar(props: { className?: string }) {
                     onMouseLeave={handleMouseLeave}
                   >
                     <div
-                      className={styles["theme-option"]}
+                      className={clsx(styles["theme-option"], {
+                        [styles["theme-option-active"]]:
+                          config.theme === Theme.Dark,
+                      })}
                       onClick={() => {
                         config.update((config) => (config.theme = Theme.Dark));
                         setShowThemeSelector(false);
@@ -563,7 +566,10 @@ export function SideBar(props: { className?: string }) {
                       <span>Dark</span>
                     </div>
                     <div
-                      className={styles["theme-option"]}
+                      className={clsx(styles["theme-option"], {
+                        [styles["theme-option-active"]]:
+                          config.theme === Theme.Light,
+                      })}
                       onClick={() => {
                         config.update((config) => (config.theme = Theme.Light));
                         setShowThemeSelector(false);
@@ -573,7 +579,10 @@ export function SideBar(props: { className?: string }) {
                       <span>Light</span>
                     </div>
                     <div
-                      className={styles["theme-option"]}
+                      className={clsx(styles["theme-option"], {
+                        [styles["theme-option-active"]]:
+                          config.theme === Theme.Auto,
+                      })}
                       onClick={() => {
                         config.update((config) => (config.theme = Theme.Auto));
                         setShowThemeSelector(false);

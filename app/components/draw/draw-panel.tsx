@@ -81,8 +81,22 @@ export const DEFAULT_DRAW_MODELS = [
   "irag-1.0",
 ];
 
+const DRAW_MODEL_DISPLAY_NAMES: Record<string, string> = {
+  "gemini-2.5-flash-image": "gemini-2.5-flash-image（NanoBanana）",
+  "gemini-3.1-flash-image": "gemini-3.1-flash-image（NanoBanana2）",
+  "gemini-3-pro-image": "gemini-3-pro-image（NanoBananaPro）",
+};
+
+function getDrawModelDisplayName(model: string) {
+  return DRAW_MODEL_DISPLAY_NAMES[model] || model;
+}
+
+function shouldShrinkDrawSelectText(name: string, value?: string) {
+  return name.length > 32 || (value ? name !== value : false);
+}
+
 const modelOptions = DEFAULT_DRAW_MODELS.map((model) => ({
-  name: model,
+  name: getDrawModelDisplayName(model),
   value: model,
 }));
 
@@ -396,6 +410,7 @@ function DrawSelect(props: {
   value: string;
   options: DrawSelectOption[];
   disabled?: boolean;
+  shrinkLongText?: boolean;
   onChange: (value: string) => void;
 }) {
   const selectId = React.useId();
@@ -407,6 +422,9 @@ function DrawSelect(props: {
   const displayName = props.disabled
     ? ""
     : selectedOption?.name || props.value || "";
+  const shouldShrinkDisplayName =
+    props.shrinkLongText &&
+    shouldShrinkDrawSelectText(displayName, selectedOption?.value);
 
   React.useEffect(() => {
     if (!open) return;
@@ -459,7 +477,13 @@ function DrawSelect(props: {
         }}
         type="button"
       >
-        <span>{displayName}</span>
+        <span
+          className={clsx(styles["draw-select-text"], {
+            [styles["draw-select-text-shrink"]]: shouldShrinkDisplayName,
+          })}
+        >
+          {displayName}
+        </span>
         <DownIcon className={styles["draw-select-icon"]} />
       </button>
       {open && !props.disabled && (
@@ -470,6 +494,9 @@ function DrawSelect(props: {
         >
           {props.options.map((option) => {
             const selected = option.value === props.value;
+            const shouldShrinkOptionName =
+              props.shrinkLongText &&
+              shouldShrinkDrawSelectText(option.name, option.value);
             return (
               <button
                 aria-selected={selected}
@@ -482,7 +509,13 @@ function DrawSelect(props: {
                 type="button"
               >
                 <span className={styles["draw-select-check"]} />
-                <span>{option.name}</span>
+                <span
+                  className={clsx(styles["draw-select-option-text"], {
+                    [styles["draw-select-text-shrink"]]: shouldShrinkOptionName,
+                  })}
+                >
+                  {option.name}
+                </span>
               </button>
             );
           })}
@@ -531,6 +564,11 @@ export function ControlParam(props: {
   provider?: string;
   showGroupTitles?: boolean;
 }) {
+  const getParamTypeOrder = (type: string) => {
+    if (type === "select") return 0;
+    if (["text", "textarea", "number"].includes(type)) return 1;
+    return 0;
+  };
   const compactFields = new Set([
     "n",
     "seed",
@@ -563,6 +601,9 @@ export function ControlParam(props: {
         const aDisabled = isItemDisabled(a.item.value);
         const bDisabled = isItemDisabled(b.item.value);
         if (aDisabled !== bDisabled) return aDisabled ? 1 : -1;
+        const aTypeOrder = getParamTypeOrder(a.item.type);
+        const bTypeOrder = getParamTypeOrder(b.item.type);
+        if (aTypeOrder !== bTypeOrder) return aTypeOrder - bTypeOrder;
         return a.index - b.index;
       })
       .map((entry) => entry.item);
@@ -1096,13 +1137,17 @@ export function DrawPanel() {
           <div className={styles["draw-panel-section-title"]}>
             {Locale.DrawPanel.ModelVersion}
           </div>
-          <IconButton
-            icon={<EditIcon />}
-            text="编辑"
-            bordered
+          <button
+            type="button"
             className={styles["draw-model-edit-button"]}
             onClick={handleEditModels}
-          />
+            aria-label="编辑模型"
+          >
+            <span className={styles["draw-model-edit-icon"]}>
+              <EditIcon />
+            </span>
+            <span className={styles["draw-model-edit-text"]}>编辑</span>
+          </button>
         </div>
         <div className={styles["draw-model-picker-stack"]}>
           <ControlParamItem
@@ -1120,8 +1165,9 @@ export function DrawPanel() {
             <DrawSelect
               ariaLabel="模型"
               value={currentModel.value}
+              shrinkLongText
               options={filteredDrawModels.map((model) => ({
-                name: model,
+                name: getDrawModelDisplayName(model),
                 value: model,
               }))}
               onChange={(value) => handleValueChange("model", value)}
