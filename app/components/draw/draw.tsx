@@ -587,17 +587,48 @@ export function Draw() {
             })}
           >
             {isMobileScreen && !isDraw ? (
-              <>
-                <div className={styles["draw-history-brand"]}>
-                  <div className={clsx(styles["draw-history-logo"], "no-dark")}>
-                    <LogoIcon width={38} height={"100%"} />
+              <div
+                className={clsx(
+                  homeStyles["sidebar-header"],
+                  styles["draw-history-header-inner"],
+                )}
+              >
+                <div
+                  className={clsx(
+                    homeStyles["sidebar-header-link"],
+                    styles["draw-history-brand"],
+                  )}
+                >
+                  <div
+                    className={clsx(
+                      homeStyles["sidebar-logo"],
+                      styles["draw-history-logo"],
+                      "no-dark",
+                    )}
+                  >
+                    <LogoIcon width={35.05} height={38} />
                   </div>
-                  <div className={styles["draw-history-title"]}>
-                    <div className={styles["draw-history-main-title"]}>
-                      生成历史
+                  <div
+                    className={clsx(
+                      homeStyles["sidebar-title-container"],
+                      styles["draw-history-title"],
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        homeStyles["sidebar-title"],
+                        styles["draw-history-main-title"],
+                      )}
+                    >
+                      AI 绘画
                     </div>
-                    <div className={styles["draw-history-sub-title"]}>
-                      {Locale.Draw.SubTitle(drawImages.length || 0)}
+                    <div
+                      className={clsx(
+                        homeStyles["sidebar-sub-title"],
+                        styles["draw-history-sub-title"],
+                      )}
+                    >
+                      让AI画出想象
                     </div>
                   </div>
                 </div>
@@ -611,7 +642,7 @@ export function Draw() {
                     />
                   </div>
                 </div>
-              </>
+              </div>
             ) : (
               <>
                 {isMobileScreen && (
