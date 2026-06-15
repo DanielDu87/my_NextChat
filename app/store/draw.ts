@@ -11,7 +11,11 @@ import {
   buildAiHubMixPredictionPayload,
   getAiHubMixPredictionModelPath,
 } from "@/app/client/platforms/openai";
-import { createPersistStore } from "@/app/utils/store";
+import {
+  createPersistStore,
+  runWithImmediateStoreSyncPaused,
+  runWithImmediateStoreSyncPausedSync,
+} from "@/app/utils/store";
 import { appendAihubmixHeaders, isAiHubMixUrl } from "@/app/utils/aihubmix";
 import { nanoid } from "nanoid";
 import {
@@ -119,6 +123,14 @@ function buildOpenAICompatibleDrawPayload(
   switch (family) {
     case "google-gemini-31-image":
     case "google-gemini-3-pro-image": {
+      if (provider !== ServiceProvider.Google) {
+        payload.text_prompt = payload.prompt;
+        delete payload.prompt;
+        payload.response_format = params.response_format || "url";
+        assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
+        assignDrawParam(payload, "resolution", params.resolution || "1K");
+        return payload;
+      }
       payload.response_format = {
         image: {
           aspect_ratio: params.aspect_ratio || "1:1",
@@ -129,6 +141,13 @@ function buildOpenAICompatibleDrawPayload(
     }
     case "google-gemini-25-image":
     case "google-gemini-image": {
+      if (provider !== ServiceProvider.Google) {
+        payload.text_prompt = payload.prompt;
+        delete payload.prompt;
+        payload.response_format = params.response_format || "url";
+        assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
+        return payload;
+      }
       payload.response_format = {
         image: {
           aspect_ratio: params.aspect_ratio || "1:1",
@@ -138,6 +157,14 @@ function buildOpenAICompatibleDrawPayload(
     }
     case "google-imagen": {
       assignDrawParam(payload, "n", params.n ? Number(params.n) : undefined);
+      if (provider !== ServiceProvider.Google) {
+        payload.text_prompt = payload.prompt;
+        delete payload.prompt;
+        payload.response_format = params.response_format || "url";
+        assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
+        assignDrawParam(payload, "resolution", params.resolution || "1K");
+        return payload;
+      }
       payload.response_format = {
         image: {
           aspect_ratio: params.aspect_ratio || "1:1",
@@ -573,6 +600,18 @@ function normalizeLogUrl(url: string) {
     .replace(/['"`\s,]+$/, "");
 }
 
+function isDebugDrawLogsEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return globalThis.localStorage?.getItem("debug-draw-logs") === "1";
+  } catch {
+    return false;
+  }
+}
+
 function logDrawRequest(payload: {
   provider: string;
   profileId?: string;
@@ -593,12 +632,27 @@ function logDrawResponse(payload: {
   status: number;
   url: string;
   response: unknown;
+  force?: boolean;
 }) {
+  if (!payload.force && !isDebugDrawLogsEnabled()) {
+    return;
+  }
+
   logger.draw.log("===== 🎨🎨🎨 绘图请求返回 | draw 响应 =====", {
     HTTP状态: payload.status,
     请求地址: normalizeLogUrl(payload.url),
     返回内容: redactLongString(payload.response),
   });
+}
+
+function getDrawMultiKeyGroupName(groups: string[], index: number) {
+  return groups[index] || `index-${index}`;
+}
+
+function getSafeDrawRetryReason(reason: string, maxLength = 200) {
+  return String(reason || "")
+    .replace(/当前分组\s+[^"\s]+?\s+下/g, "当前分组 [provider-internal] 下")
+    .substring(0, maxLength);
 }
 
 function extractDrawImageResult(resData: any): {
@@ -934,9 +988,11 @@ export const useDrawStore = createPersistStore<
         logger.draw.log(
           `🚀 创建任务 id=${data.id}, 模型=${data.model}, 供应商=${data.selectedProvider}`,
         );
-        set({ draw: [data, ..._get().draw] });
-        get().markUpdate();
-        get().getNextId();
+        runWithImmediateStoreSyncPausedSync(() => {
+          set({ draw: [data, ..._get().draw] });
+          get().markUpdate();
+        });
+        runWithImmediateStoreSyncPausedSync(() => get().getNextId());
         get().drawRequestCall(data);
         okCall?.();
       },
@@ -1167,26 +1223,19 @@ export const useDrawStore = createPersistStore<
         };
 
         logDrawRequest({ ...requestLogPayload, params: requestBodyLog });
-        logger.draw.log(
-          `📤 发送请求 id=${data.id}, 模型=${data.model}, ` +
-            `供应商=${provider}, 配置ID=${selectedProfile?.id || ""}, ` +
-            `请求地址=${normalizeLogUrl(path)}, 参数=${JSON.stringify(
-              requestBodyLog,
-            ).slice(0, 300)}`,
-        );
 
         set({
           lastRequestLog: JSON.stringify(requestLogPayload, null, 2),
           lastResponseLog: "",
         });
-        get().markUpdate();
 
-        void (async () => {
+        void runWithImmediateStoreSyncPaused(async () => {
           const fallbackApiKeys = apiKeySelection.fallback || [];
           const fallbackApiKeyGroups = apiKeySelection.fallbackGroups || [];
           const supportsMultiKeyRetry =
             shouldEnableMultiKeyFallback && fallbackApiKeys.length > 1;
           let retryCount = 0;
+          let lastRetryReason = "";
 
           const getAuthHeaderKey = () => {
             return Object.keys(headers).find(
@@ -1213,7 +1262,7 @@ export const useDrawStore = createPersistStore<
                 status: "error",
                 error: errMsg,
               });
-              return;
+              return false;
             }
             if (
               responseMode === "stability" &&
@@ -1228,7 +1277,7 @@ export const useDrawStore = createPersistStore<
                 status: "success",
                 img_data: img,
               });
-              return;
+              return true;
             }
             if (
               responseMode === "openai-compatible" ||
@@ -1246,7 +1295,7 @@ export const useDrawStore = createPersistStore<
                   status: "success",
                   img_data: img,
                 });
-                return;
+                return true;
               }
               if (imageUrl) {
                 logger.draw.log(
@@ -1257,7 +1306,7 @@ export const useDrawStore = createPersistStore<
                   status: "success",
                   img_data: imageUrl,
                 });
-                return;
+                return true;
               }
               const errMsg = getDrawErrorMessage(resData);
               logger.draw.warn(`❌ 失败 id=${data.id}, 错误=${errMsg}`);
@@ -1266,7 +1315,7 @@ export const useDrawStore = createPersistStore<
                 status: "error",
                 error: errMsg,
               });
-              return;
+              return false;
             }
 
             const errMsg = getDrawErrorMessage(resData);
@@ -1278,6 +1327,7 @@ export const useDrawStore = createPersistStore<
               status: "error",
               error: errMsg,
             });
+            return false;
           };
 
           while (true) {
@@ -1285,6 +1335,25 @@ export const useDrawStore = createPersistStore<
               const currentApiKey = fallbackApiKeys[retryCount];
               if (currentApiKey) {
                 applyApiKeyToHeaders(currentApiKey);
+              }
+              const currentGroup = getDrawMultiKeyGroupName(
+                fallbackApiKeyGroups,
+                retryCount,
+              );
+              const rememberedGroup = apiKeySelection.rememberedGroup || "";
+              if (retryCount === 0 && rememberedGroup === currentGroup) {
+                logger.draw.log("[MultiKey] 绘图命中已记忆分组，正在尝试", {
+                  currentGroup,
+                  attempt: retryCount + 1,
+                  totalGroups: fallbackApiKeys.length,
+                  loadedFromLocalStorage: true,
+                });
+              } else {
+                logger.draw.log("[MultiKey] 绘图正在尝试分组", {
+                  currentGroup,
+                  attempt: retryCount + 1,
+                  totalGroups: fallbackApiKeys.length,
+                });
               }
             }
 
@@ -1300,7 +1369,6 @@ export const useDrawStore = createPersistStore<
                 rawText || "(empty)"
               }`,
             });
-            get().markUpdate();
 
             let resData: any = {};
             if (!rawText) {
@@ -1308,6 +1376,7 @@ export const useDrawStore = createPersistStore<
                 status: response.status,
                 url: path,
                 response: "(empty)",
+                force: !supportsMultiKeyRetry,
               });
             } else {
               try {
@@ -1316,6 +1385,7 @@ export const useDrawStore = createPersistStore<
                   status: response.status,
                   url: path,
                   response: resData,
+                  force: !supportsMultiKeyRetry,
                 });
               } catch {
                 resData = { error: { message: rawText } };
@@ -1323,40 +1393,105 @@ export const useDrawStore = createPersistStore<
                   status: response.status,
                   url: path,
                   response: rawText,
+                  force: !supportsMultiKeyRetry,
                 });
               }
             }
 
+            const retryableError =
+              getDrawMultiKeyRetryableErrorMessage(resData);
+            const errorMessage = String(
+              resData?.error?.message || resData?.message || "",
+            );
+            const failureReason =
+              retryableError ||
+              errorMessage ||
+              (response.ok ? "" : `HTTP ${response.status}`);
             const shouldRetry =
               supportsMultiKeyRetry &&
               retryCount < fallbackApiKeys.length - 1 &&
-              (!response.ok ||
-                Boolean(getDrawMultiKeyRetryableErrorMessage(resData)));
+              (!response.ok || Boolean(retryableError));
 
             if (shouldRetry) {
-              const retryableError =
-                getDrawMultiKeyRetryableErrorMessage(resData);
+              const currentGroup = getDrawMultiKeyGroupName(
+                fallbackApiKeyGroups,
+                retryCount,
+              );
+              const nextGroup = getDrawMultiKeyGroupName(
+                fallbackApiKeyGroups,
+                retryCount + 1,
+              );
+              lastRetryReason = failureReason;
               logger.draw.warn(
-                `[MultiKey Retry] 绘图请求失败，尝试降级重试 (${
+                `[MultiKey Retry] 绘图分组尝试失败，切换分组 (${
                   retryCount + 1
-                }/${fallbackApiKeys.length - 1})`,
+                }/${fallbackApiKeys.length})`,
                 {
                   httpStatus: response.status,
-                  currentGroup: fallbackApiKeyGroups[retryCount] || "",
-                  nextGroup: fallbackApiKeyGroups[retryCount + 1] || "",
-                  retryableError,
-                  errorMessage: String(
-                    resData?.error?.message || resData?.message || "",
-                  ),
+                  currentGroup,
+                  nextGroup,
+                  reason: getSafeDrawRetryReason(failureReason),
                 },
               );
+              if (apiKeySelection.rememberedGroup === currentGroup) {
+                logger.draw.warn(
+                  "[MultiKey Retry] 绘图已记忆分组失败，将继续尝试全部剩余分组",
+                  {
+                    rememberedGroup: currentGroup,
+                    remainingGroups: fallbackApiKeyGroups.slice(retryCount + 1),
+                  },
+                );
+              }
               retryCount += 1;
               continue;
             }
 
-            if (supportsMultiKeyRetry && response.ok) {
+            if (supportsMultiKeyRetry) {
+              logDrawResponse({
+                status: response.status,
+                url: path,
+                response: resData,
+                force: true,
+              });
+            }
+
+            if (supportsMultiKeyRetry && !response.ok) {
+              logger.draw.warn("[MultiKey Retry] 绘图所有分组重试失败", {
+                currentGroup: getDrawMultiKeyGroupName(
+                  fallbackApiKeyGroups,
+                  retryCount,
+                ),
+                attempt: retryCount + 1,
+                totalGroups: fallbackApiKeys.length,
+                reason: getSafeDrawRetryReason(
+                  failureReason || lastRetryReason,
+                ),
+              });
+            }
+
+            if (!response.ok || resData.errors?.length > 0) {
+              const errMsg = getDrawErrorMessage(resData);
+              logger.draw.warn(`❌ 失败 id=${data.id}, 错误=${errMsg}`);
+              get().updateDraw({
+                ...data,
+                status: "error",
+                error: errMsg,
+              });
+              get().getNextId();
+              break;
+            }
+
+            const drawSucceeded = applyDrawResult(resData);
+
+            if (supportsMultiKeyRetry && drawSucceeded) {
               const groupName = fallbackApiKeyGroups[retryCount] || "";
               if (groupName) {
+                logger.draw.log("[MultiKey] 绘图分组请求成功，写入记忆", {
+                  currentGroup: groupName,
+                  attempt: retryCount + 1,
+                  totalGroups: fallbackApiKeys.length,
+                  willSaveToLocalStorage: true,
+                });
                 rememberSuccessfulCustomModelApiKeyGroup({
                   modelName: data.model,
                   groupName,
@@ -1368,11 +1503,10 @@ export const useDrawStore = createPersistStore<
               }
             }
 
-            applyDrawResult(resData);
             get().getNextId();
             break;
           }
-        })()
+        })
           .catch((error) => {
             const errMsg = String(error?.message || error);
             logger.draw.error(
@@ -1382,7 +1516,6 @@ export const useDrawStore = createPersistStore<
             set({
               lastResponseLog: String(_get().lastResponseLog || errMsg),
             });
-            get().markUpdate();
             get().updateDraw({
               ...data,
               status: "error",
@@ -1394,6 +1527,7 @@ export const useDrawStore = createPersistStore<
             if (requestId) {
               activeDrawRequestIds.delete(requestId);
             }
+            get().markUpdate();
           });
       },
       updateDraw(_draw: any) {

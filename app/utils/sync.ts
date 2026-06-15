@@ -1208,6 +1208,25 @@ const MergeStates: StateMerger = {
     const useRemote = isLocalFresh && hasRemoteDraw;
     const useRemoteByTime = !useRemote && remoteUpdateTime > localUpdateTime;
     const sourceState = useRemote || useRemoteByTime ? remoteState : localState;
+    const localDraw = Array.isArray(localState?.draw) ? localState.draw : [];
+    const currentDrawState = useDrawStore.getState() as any;
+    const currentDraw = Array.isArray(currentDrawState?.draw)
+      ? currentDrawState.draw
+      : [];
+    const sourceDraw = Array.isArray(sourceState?.draw) ? sourceState.draw : [];
+    const sourceDrawIds = new Set(
+      sourceDraw.map((item: any) => String(item?.id || "")).filter(Boolean),
+    );
+    const activeLocalDraw = [...currentDraw, ...localDraw].filter(
+      (item: any) => {
+        const id = String(item?.id || "");
+        if (!id || item?.status !== "running" || sourceDrawIds.has(id)) {
+          return false;
+        }
+        sourceDrawIds.add(id);
+        return true;
+      },
+    );
 
     const sourceLabel = sourceState === remoteState ? "远端" : "本地";
     console.log(
@@ -1231,6 +1250,10 @@ const MergeStates: StateMerger = {
 
     const mergedState = {
       ...sourceState,
+      draw:
+        activeLocalDraw.length > 0
+          ? [...activeLocalDraw, ...sourceDraw]
+          : sourceDraw,
       lastUpdateTime: markMergedUpdateTime(localUpdateTime, remoteUpdateTime),
     };
 

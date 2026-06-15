@@ -127,6 +127,29 @@ function setRememberedApiKeyGroup(params: {
   writeApiKeyGroupMemory(memory);
 }
 
+function isDebugMultiKeyLogsEnabled() {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+
+  try {
+    return globalThis.localStorage?.getItem("debug-multikey-logs") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logMultiKeyDebug(message: string, payload?: unknown) {
+  if (!isDebugMultiKeyLogsEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
+
 export function getCustomModelApiKeySelection(
   modelName: string,
   profile: CustomProfile | undefined,
@@ -184,13 +207,16 @@ export function getCustomModelApiKeySelection(
     Boolean(groupedKeys[rememberedGroup as keyof typeof groupedKeys]);
 
   if (hasRememberedGroup) {
-    console.log("[MultiKey] 从 localStorage 读取到上次成功分组，将优先尝试", {
-      profileId: profile.id,
-      profileName: profile.name,
-      modelName,
-      rememberedGroup,
-      loadedFromLocalStorage: true,
-    });
+    logMultiKeyDebug(
+      "[MultiKey] 从 localStorage 读取到上次成功分组，将优先尝试",
+      {
+        profileId: profile.id,
+        profileName: profile.name,
+        modelName,
+        rememberedGroup,
+        loadedFromLocalStorage: true,
+      },
+    );
   }
 
   const groupOrder = [
@@ -198,7 +224,7 @@ export function getCustomModelApiKeySelection(
     ...MULTI_KEY_GROUP_IDS.filter((group) => group !== rememberedGroup),
   ];
 
-  console.log("[MultiKey] 生成请求分组顺序", {
+  logMultiKeyDebug("[MultiKey] 生成请求分组顺序", {
     profileId: profile.id,
     profileName: profile.name,
     modelName,
@@ -235,14 +261,14 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     providerId: targetProviderId,
   } = params;
   if (!modelName || !groupName) {
-    console.log("[API Key Memory] 记忆失败：缺少参数", {
+    logMultiKeyDebug("[API Key Memory] 记忆失败：缺少参数", {
       modelName,
       groupName,
     });
     return;
   }
 
-  console.log("[API Key Memory] 开始记忆成功的 API Key 分组", {
+  logMultiKeyDebug("[API Key Memory] 开始记忆成功的 API Key 分组", {
     modelName,
     groupName,
   });
@@ -265,7 +291,7 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     !enabledCustomProfile ||
     !isRememberedApiKeyProfile(enabledCustomProfile)
   ) {
-    console.log("[MultiKey] 记忆失败：未找到启用多 key 的配置", {
+    logMultiKeyDebug("[MultiKey] 记忆失败：未找到启用多 key 的配置", {
       hasProfile: Boolean(enabledCustomProfile),
       supportsGrouping: Boolean(
         enabledCustomProfile && isRememberedApiKeyProfile(enabledCustomProfile),
@@ -274,7 +300,7 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     return;
   }
 
-  console.log("[MultiKey] 分组请求成功", {
+  logMultiKeyDebug("[MultiKey] 分组请求成功", {
     profileId: enabledCustomProfile.id,
     profileName: enabledCustomProfile.name,
     modelName,
@@ -282,7 +308,7 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
   });
 
   if (!MULTI_KEY_GROUP_IDS.includes(groupName as any)) {
-    console.log(
+    logMultiKeyDebug(
       "[MultiKey] 记忆跳过：普通 API Key 或未知分组不写 localStorage",
       {
         modelName,

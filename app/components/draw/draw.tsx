@@ -746,7 +746,13 @@ export function Draw() {
               {drawImages.length > 0 ? (
                 visibleDrawImages.map((item: any) => {
                   return (
-                    <div key={item.id} className={styles["draw-img-item"]}>
+                    <div
+                      key={item.id}
+                      className={clsx(styles["draw-img-item"], {
+                        [styles["draw-img-item-error"]]:
+                          item.status === "error",
+                      })}
+                    >
                       <div className={styles["draw-preview"]}>
                         <DrawImagePreview
                           item={item}
@@ -762,27 +768,6 @@ export function Draw() {
                         >
                           {item.params?.prompt || "-"}
                         </button>
-                        <div className={styles["draw-meta-grid"]}>
-                          <span>{item.model_name}</span>
-                          {getDisplayImageSize(item) && (
-                            <span>
-                              {getParamValue(
-                                "image_size",
-                                getDisplayImageSize(item),
-                              )}
-                            </span>
-                          )}
-                          {item.params?.quality && (
-                            <span>
-                              {getParamValue("quality", item.params.quality)}
-                            </span>
-                          )}
-                          {item.params?.style && (
-                            <span>
-                              {getParamValue("style", item.params.style)}
-                            </span>
-                          )}
-                        </div>
                         {item.status === "error" && item.error && (
                           <button
                             type="button"
@@ -792,6 +777,29 @@ export function Draw() {
                           >
                             {String(item.error)}
                           </button>
+                        )}
+                        {item.status !== "error" && (
+                          <div className={styles["draw-meta-grid"]}>
+                            <span>{item.model_name}</span>
+                            {getDisplayImageSize(item) && (
+                              <span>
+                                {getParamValue(
+                                  "image_size",
+                                  getDisplayImageSize(item),
+                                )}
+                              </span>
+                            )}
+                            {item.params?.quality && (
+                              <span>
+                                {getParamValue("quality", item.params.quality)}
+                              </span>
+                            )}
+                            {item.params?.style && (
+                              <span>
+                                {getParamValue("style", item.params.style)}
+                              </span>
+                            )}
+                          </div>
                         )}
                         <div className={styles["draw-card-actions"]}>
                           {item.status === "success" && (

@@ -343,7 +343,8 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 18vw, 300px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 320px));
+  justify-content: center;
   gap: 16px;
   align-items: start;
 }
@@ -550,18 +551,23 @@
 }
 
 .draw-error-detail {
+  display: block;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
   min-width: 0;
+  box-sizing: border-box;
   overflow: hidden;
   border: 1px solid rgba(220, 38, 38, 0.18);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(220, 38, 38, 0.07);
   color: #b91c1c;
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
-  line-height: 18px;
-  padding: 6px 8px;
+  line-height: 20px;
+  padding: 4px 10px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -626,8 +632,10 @@
     display: inline-flex;
     max-width: 100%;
     height: 26px;
+    min-width: 44px;
     min-height: 26px;
     align-items: center;
+    justify-content: center;
     overflow: hidden;
     border: var(--border-in-light);
     border-radius: 999px;
@@ -911,6 +919,7 @@
 
   .draw-meta-grid span {
     height: 22px;
+    min-width: 38px;
     min-height: 22px;
     border-radius: 11px;
     padding: 1px 7px;
@@ -922,6 +931,30 @@
     flex: 0 1 auto;
     max-width: 100%;
     padding-right: 8px;
+  }
+
+  .draw-error-detail {
+    height: 28px;
+    min-height: 28px;
+    line-height: 18px;
+    padding: 4px 10px;
+    margin-top: 0;
+    margin-bottom: 0;
+    font-size: 12px;
+  }
+
+  .draw-img-item-error {
+    .draw-img-item-info {
+      gap: 8px;
+    }
+
+    .draw-card-actions {
+      :global([class*="chat-input-action"]) {
+        &:first-child {
+          display: none;
+        }
+      }
+    }
   }
 
   .draw-img-list {
