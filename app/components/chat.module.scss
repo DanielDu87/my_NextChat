@@ -3088,6 +3088,35 @@
     overflow-wrap: anywhere;
   }
 
+  .chat-message-item :global(.markdown-body h1),
+  .chat-message-item :global(.markdown-body h2),
+  .chat-message-item :global(.markdown-body h3),
+  .chat-message-item :global(.markdown-body h4),
+  .chat-message-item :global(.markdown-body h5),
+  .chat-message-item :global(.markdown-body h6) {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .chat-message-item :global(.markdown-body table) {
+    box-sizing: border-box;
+    display: table;
+    width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
+    overflow: visible;
+  }
+
+  .chat-message-item :global(.markdown-body th),
+  .chat-message-item :global(.markdown-body td) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .chat-message-item :global(.markdown-body pre) {
     box-sizing: border-box;
     width: 100%;

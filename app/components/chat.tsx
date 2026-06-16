@@ -111,6 +111,7 @@ import {
 import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 
 import dynamic from "next/dynamic";
+import { flushSync } from "react-dom";
 
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
@@ -2032,6 +2033,7 @@ function _Chat() {
   const collapseTimersRef = useRef<number[]>([]);
   const mobileBlurTimerRef = useRef<number | null>(null);
   const pendingMobileSubmitScrollRestoreRef = useRef(false);
+  const pendingMobileInputResetAfterSubmitRef = useRef(false);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
   const inputPlaceholderRef = useRef<HTMLSpanElement>(null);
@@ -2087,6 +2089,8 @@ function _Chat() {
   const pendingInitialBottomSessionRef = useRef<string | null>(null);
   const forceScrollTimeoutsRef = useRef<number[]>([]);
   const forceScrollRafsRef = useRef<number[]>([]);
+  const programmaticScrollToBottomUntilRef = useRef(0);
+  const animatedScrollToBottomRafRef = useRef<number | null>(null);
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
         scrollRef.current.scrollHeight -
@@ -2177,6 +2181,9 @@ function _Chat() {
   // if user is typing, should auto scroll to bottom
   // if user is not typing, should auto scroll to bottom only if already at bottom
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
+  const autoScrollEnabledRef = useRef(false);
+  autoScrollEnabledRef.current = autoScrollEnabled;
+  const followStreamingAfterScrollButtonRef = useRef(false);
   const { setAutoScroll, scrollDomToBottom } = useScrollToBottom(
     scrollRef,
     false,
@@ -3357,6 +3364,25 @@ function _Chat() {
   const doSubmit = (userInput: string) => {
     if (userInput.trim() === "" && isEmpty(attachImages)) return;
 
+    const resetMobileComposerAfterSubmit = () => {
+      if (!isMobileScreen) return;
+      pendingMobileInputResetAfterSubmitRef.current = true;
+      preserveMobileInputBlurHeightRef.current = false;
+      setPreserveMobileInputBlurHeight(false);
+      setInputRows(1);
+      collapseTimersRef.current.forEach(clearTimeout);
+      collapseTimersRef.current = [];
+      resetMobileInputDom("");
+      syncMobileInputHeight("");
+      resetMobileInputBlurLayout();
+      scheduleResetMobileInputViewportToStart();
+      window.requestAnimationFrame(() => {
+        resetMobileInputDom("");
+        syncMobileInputHeight("");
+        resetMobileInputBlurLayout();
+      });
+    };
+
     // Handle mobile edit mode: resend edited message
     if (editMobileMessageId) {
       const message = sessionMessages.find((m) => m.id === editMobileMessageId);
@@ -3364,6 +3390,7 @@ function _Chat() {
         setEditMobileMessageId(null);
         onResend(message, userInput, attachImages);
         setAttachImages([]);
+        resetMobileComposerAfterSubmit();
         return;
       }
     }
@@ -3372,6 +3399,7 @@ function _Chat() {
     if (matchCommand.matched) {
       setUserInput("");
       setPromptHints([]);
+      resetMobileComposerAfterSubmit();
       matchCommand.invoke();
       if (isMobileScreen) {
         setIsMobileInputFocused(false);
@@ -3392,6 +3420,7 @@ function _Chat() {
     chatStore.setLastInput(userInput);
     setUserInput("");
     setPromptHints([]);
+    resetMobileComposerAfterSubmit();
     if (isMobileScreen) {
       pendingMobileSubmitScrollRestoreRef.current = true;
       if (!mobileInputSubmitBlurRef.current) {
@@ -4055,6 +4084,11 @@ function _Chat() {
       window.cancelAnimationFrame(raf);
     });
     forceScrollRafsRef.current = [];
+
+    if (animatedScrollToBottomRafRef.current !== null) {
+      window.cancelAnimationFrame(animatedScrollToBottomRafRef.current);
+      animatedScrollToBottomRafRef.current = null;
+    }
   }, []);
 
   const isScrollDomHitBottom = useCallback(
@@ -4083,7 +4117,10 @@ function _Chat() {
     updateStatusPanelOverlap();
 
     const previousScrollTop = lastChatBodyScrollTopRef.current;
-    const isScrollingUp = e.scrollTop < previousScrollTop - 1;
+    const isProgrammaticScrollToBottom =
+      Date.now() < programmaticScrollToBottomUntilRef.current;
+    const isScrollingUp =
+      !isProgrammaticScrollToBottom && e.scrollTop < previousScrollTop - 1;
     lastChatBodyScrollTopRef.current = e.scrollTop;
 
     const bottomHeight = e.scrollTop + e.clientHeight;
@@ -4096,16 +4133,19 @@ function _Chat() {
     const prevPageMsgIndex = msgRenderIndex - CHAT_PAGE_SIZE;
     const nextPageMsgIndex = msgRenderIndex + CHAT_PAGE_SIZE;
 
-    if (isTouchTopEdge && !isTouchBottomEdge) {
-      setMsgRenderIndex(prevPageMsgIndex);
-    } else if (isTouchBottomEdge) {
-      setMsgRenderIndex(nextPageMsgIndex);
+    if (!isProgrammaticScrollToBottom) {
+      if (isTouchTopEdge && !isTouchBottomEdge) {
+        setMsgRenderIndex(prevPageMsgIndex);
+      } else if (isTouchBottomEdge) {
+        setMsgRenderIndex(nextPageMsgIndex);
+      }
     }
 
     setChatBodyOverflowing(isScrollDomOverflowing(e));
     setHitBottom(isHitBottom);
 
     if (isScrollingUp) {
+      followStreamingAfterScrollButtonRef.current = false;
       clearForceScrollToBottom();
       if (pendingInitialBottomSessionRef.current === safeSession.id) {
         pendingInitialBottomSessionRef.current = null;
@@ -4113,11 +4153,19 @@ function _Chat() {
     }
 
     if (isAssistantStreaming) {
+      if (isProgrammaticScrollToBottom) {
+        if (isHitBottom) {
+          streamingAutoScrollPausedRef.current = false;
+        }
+        return;
+      }
+
       const hasRecentUserScrollIntent =
         userScrollIntentRef.current ||
         Date.now() < userScrollIntentUntilRef.current;
 
       if (hasRecentUserScrollIntent && isScrollingUp) {
+        followStreamingAfterScrollButtonRef.current = false;
         streamingAutoScrollPausedRef.current = true;
         setAutoScrollEnabled(false);
         setAutoScroll(false);
@@ -4174,11 +4222,13 @@ function _Chat() {
   const forceScrollToBottom = useCallback(() => {
     if (typeof window === "undefined") return;
     clearForceScrollToBottom();
+    programmaticScrollToBottomUntilRef.current = Date.now() + 1600;
     setAutoScroll(true);
     setHitBottom(true);
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
     const runScroll = () => {
+      programmaticScrollToBottomUntilRef.current = Date.now() + 240;
       setAutoScroll(true);
       setHitBottom(true);
       const dom = scrollRef.current;
@@ -4272,35 +4322,107 @@ function _Chat() {
       return;
     }
 
-    mobileInputRef.current?.blur();
     userScrollIntentRef.current = false;
     userScrollIntentUntilRef.current = 0;
+    programmaticScrollToBottomUntilRef.current = Date.now() + 700;
     streamingAutoScrollPausedRef.current = false;
-    setAutoScrollEnabled(true);
-    setAutoScroll(true);
-    setHitBottom(true);
-    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+    followStreamingAfterScrollButtonRef.current = true;
+    flushSync(() => {
+      setAutoScrollEnabled(true);
+      setAutoScroll(true);
+      setHitBottom(true);
+      setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+    });
 
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const nextDom = scrollRef.current;
-        if (!nextDom) return;
+    const settleToBottom = (behavior: ScrollBehavior = "auto") => {
+      const nextDom = scrollRef.current;
+      if (!nextDom) return;
+      programmaticScrollToBottomUntilRef.current =
+        Date.now() + (behavior === "smooth" ? 720 : 240);
 
-        const targetTop = Math.max(
-          0,
-          nextDom.scrollHeight - nextDom.clientHeight,
-        );
-        nextDom.scrollTo({
+      const targetTop = Math.max(
+        0,
+        nextDom.scrollHeight - nextDom.clientHeight,
+      );
+      nextDom.scrollTo?.({
+        top: targetTop,
+        behavior,
+      });
+      if (behavior === "auto") {
+        nextDom.scrollTop = targetTop;
+      }
+      lastChatBodyScrollTopRef.current = targetTop;
+    };
+
+    const trackAnimatedBottom = (startedAt = performance.now()) => {
+      const nextDom = scrollRef.current;
+      if (!nextDom || !followStreamingAfterScrollButtonRef.current) {
+        animatedScrollToBottomRafRef.current = null;
+        return;
+      }
+
+      const elapsed = performance.now() - startedAt;
+      if (elapsed > 920 || !isAssistantStreaming) {
+        animatedScrollToBottomRafRef.current = null;
+        return;
+      }
+
+      const targetTop = Math.max(
+        0,
+        nextDom.scrollHeight - nextDom.clientHeight,
+      );
+      const distanceToBottom = targetTop - nextDom.scrollTop;
+      if (distanceToBottom > 12) {
+        programmaticScrollToBottomUntilRef.current = Date.now() + 180;
+        nextDom.scrollTo?.({
           top: targetTop,
           behavior: "smooth",
         });
         lastChatBodyScrollTopRef.current = targetTop;
-      });
+      }
+
+      animatedScrollToBottomRafRef.current = window.requestAnimationFrame(() =>
+        trackAnimatedBottom(startedAt),
+      );
+    };
+
+    window.requestAnimationFrame(() => {
+      settleToBottom("smooth");
+      if (animatedScrollToBottomRafRef.current !== null) {
+        window.cancelAnimationFrame(animatedScrollToBottomRafRef.current);
+      }
+      animatedScrollToBottomRafRef.current =
+        window.requestAnimationFrame(trackAnimatedBottom);
     });
+    window.setTimeout(() => {
+      const nextDom = scrollRef.current;
+      if (!nextDom || isScrollDomHitBottom(nextDom)) return;
+      settleToBottom("smooth");
+    });
+    window.setTimeout(() => {
+      const nextDom = scrollRef.current;
+      if (!nextDom || isScrollDomHitBottom(nextDom)) return;
+      settleToBottom("auto");
+    }, 520);
+    window.setTimeout(() => {
+      if (!followStreamingAfterScrollButtonRef.current) return;
+      programmaticScrollToBottomUntilRef.current = 0;
+      streamingAutoScrollPausedRef.current = false;
+      setAutoScrollEnabled(true);
+      setAutoScroll(true);
+      setHitBottom(true);
+      if (isAssistantStreaming) {
+        scrollDomToBottom();
+      }
+    }, 760);
   }, [
     isMobileScreen,
+    isAssistantStreaming,
+    isScrollDomHitBottom,
     renderMessages.length,
     scrollToBottom,
+    scrollDomToBottom,
+    scrollRef,
     setAutoScroll,
     setAutoScrollEnabled,
     setHitBottom,
@@ -4311,6 +4433,7 @@ function _Chat() {
     (immediate: boolean) => {
       userScrollIntentRef.current = false;
       userScrollIntentUntilRef.current = 0;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 700;
       streamingAutoScrollPausedRef.current = false;
       setAutoScrollEnabled(true);
       setAutoScroll(true);
@@ -5069,6 +5192,18 @@ function _Chat() {
     [collapseMobileInput],
   );
 
+  const resetMobileInputDom = useCallback((text: string) => {
+    const mobileInput = mobileInputRef.current;
+    if (!mobileInput) return;
+
+    mobileInput.textContent = text;
+    const endMarker = document.createElement("span");
+    endMarker.textContent = "\u200b";
+    endMarker.setAttribute("data-chat-input-end", "true");
+    mobileInput.appendChild(endMarker);
+    mobileInputEndRef.current = endMarker;
+  }, []);
+
   const finalizeMobileInputBlur = useCallback(
     (blurDom = false) => {
       cancelMobileKeyboardViewportSync();
@@ -5078,7 +5213,23 @@ function _Chat() {
         clearTimeout(mobileBlurTimerRef.current);
         mobileBlurTimerRef.current = null;
       }
-      const shouldPreserveExpandedHeight = prepareMobileInputBlurLayout();
+      const shouldResetAfterSubmit =
+        pendingMobileInputResetAfterSubmitRef.current ||
+        (pendingMobileSubmitScrollRestoreRef.current &&
+          userInput.trim().length === 0 &&
+          attachImages.length === 0);
+      if (shouldResetAfterSubmit) {
+        pendingMobileInputResetAfterSubmitRef.current = false;
+        setInputRows(1);
+        setPreserveMobileInputBlurHeight(false);
+        preserveMobileInputBlurHeightRef.current = false;
+        resetMobileInputDom("");
+        syncMobileInputHeight("");
+        resetMobileInputBlurLayout();
+      }
+      const shouldPreserveExpandedHeight = shouldResetAfterSubmit
+        ? false
+        : prepareMobileInputBlurLayout();
       mobileKeyboardOpenedSinceFocusRef.current = false;
       setIsMobileInputFocused(false);
       collapseMobileInput(shouldPreserveExpandedHeight);
@@ -5093,10 +5244,15 @@ function _Chat() {
     },
     [
       cancelMobileKeyboardViewportSync,
+      attachImages.length,
       collapseMobileInput,
       prepareMobileInputBlurLayout,
+      resetMobileInputBlurLayout,
+      resetMobileInputDom,
       scheduleCollapseMobileInput,
       scheduleMobileKeyboardReleaseStabilize,
+      syncMobileInputHeight,
+      userInput,
     ],
   );
 
@@ -5107,18 +5263,6 @@ function _Chat() {
     setTimeout(moveInputCursorToEnd, 360);
     setTimeout(moveInputCursorToEnd, 520);
   }, [moveInputCursorToEnd]);
-
-  const resetMobileInputDom = useCallback((text: string) => {
-    const mobileInput = mobileInputRef.current;
-    if (!mobileInput) return;
-
-    mobileInput.textContent = text;
-    const endMarker = document.createElement("span");
-    endMarker.textContent = "\u200b";
-    endMarker.setAttribute("data-chat-input-end", "true");
-    mobileInput.appendChild(endMarker);
-    mobileInputEndRef.current = endMarker;
-  }, []);
 
   const exitMobileEditMode = useCallback(() => {
     setEditMobileMessageId(null);
@@ -5763,8 +5907,16 @@ function _Chat() {
 
     if (nextSignature && nextSignature !== lastAssistantSignatureRef.current) {
       if (isAssistantStreaming) {
-        if (autoScrollEnabled && !streamingAutoScrollPausedRef.current) {
+        const isProgrammaticScrollToBottom =
+          Date.now() < programmaticScrollToBottomUntilRef.current;
+        if (
+          autoScrollEnabledRef.current &&
+          !streamingAutoScrollPausedRef.current &&
+          !isProgrammaticScrollToBottom
+        ) {
           scrollToBottom();
+        } else if (isProgrammaticScrollToBottom) {
+          setHitBottom(true);
         } else {
           syncHitBottomFromDom();
         }
@@ -5819,7 +5971,13 @@ function _Chat() {
         clearInterval(streamingScrollIntervalRef.current);
       }
       streamingScrollIntervalRef.current = setInterval(() => {
-        if (autoScrollEnabled && !streamingAutoScrollPausedRef.current) {
+        const isProgrammaticScrollToBottom =
+          Date.now() < programmaticScrollToBottomUntilRef.current;
+        if (
+          autoScrollEnabled &&
+          !streamingAutoScrollPausedRef.current &&
+          !isProgrammaticScrollToBottom
+        ) {
           const dom = scrollRef.current;
           if (dom) {
             const currentScroll = dom.scrollTop;
@@ -5833,6 +5991,7 @@ function _Chat() {
       }, 100); // 每 100ms 检查一次
     } else {
       // 结束流式回复：清除所有定时器
+      followStreamingAfterScrollButtonRef.current = false;
       clearStreamingScrollResumeTimer();
       userScrollIntentRef.current = false;
       userScrollIntentUntilRef.current = 0;
