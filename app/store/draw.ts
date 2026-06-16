@@ -906,6 +906,7 @@ const DEFAULT_DRAW_STATE = {
 };
 
 const activeDrawRequestIds = new Set<string>();
+const MAX_DRAW_RESUME_ATTEMPTS = 3;
 
 export const useDrawStore = createPersistStore<
   {
@@ -997,46 +998,76 @@ export const useDrawStore = createPersistStore<
         okCall?.();
       },
       resumePendingTasks() {
-        const pendingTaskIds = (_get().draw || [])
-          .filter(
-            (item: any) =>
-              item?.status === "running" &&
-              item?.id &&
-              !activeDrawRequestIds.has(String(item.id)),
-          )
-          .map((item: any) => String(item.id));
+        const pendingTasks = (_get().draw || []).filter(
+          (item: any) =>
+            item?.status === "running" &&
+            item?.id &&
+            !activeDrawRequestIds.has(String(item.id)),
+        );
 
-        if (pendingTaskIds.length === 0) {
+        if (pendingTasks.length === 0) {
           return;
         }
 
-        logger.draw.warn(
-          `检测到 ${pendingTaskIds.length} 个中断的绘图任务，已改为失败状态等待手动重试`,
-          { ids: pendingTaskIds },
-        );
+        const resumableTasks: any[] = [];
+        const failedTaskIds: string[] = [];
 
         set((prev) => {
           const prevState = prev as any;
           const nextDraw = (prevState.draw || []).map((item: any) => {
+            const taskId = String(item?.id || "");
             if (
-              item?.status === "running" &&
-              pendingTaskIds.includes(String(item?.id || ""))
+              !pendingTasks.some((task: any) => String(task?.id) === taskId)
             ) {
+              return item;
+            }
+
+            const resumeAttempts = Number(item?.resumeAttempts || 0);
+            if (resumeAttempts >= MAX_DRAW_RESUME_ATTEMPTS) {
+              failedTaskIds.push(taskId);
               return {
                 ...item,
                 status: "error",
                 error:
                   item?.error ||
-                  "页面刷新后原绘图请求已中断，请点击重试重新生成",
+                  "页面刷新后多次恢复绘图任务仍未完成，请点击重试重新生成",
                 interruptedAt: Date.now(),
               };
             }
-            return item;
+
+            const nextTask = {
+              ...item,
+              status: "running",
+              error: "",
+              resumeAttempts: resumeAttempts + 1,
+              resumedAt: Date.now(),
+            };
+            resumableTasks.push(nextTask);
+            return nextTask;
           });
 
           return { draw: nextDraw };
         });
+
+        if (resumableTasks.length > 0) {
+          logger.draw.warn(
+            `检测到 ${resumableTasks.length} 个中断的绘图任务，正在自动恢复生成`,
+            { ids: resumableTasks.map((item) => item.id) },
+          );
+        }
+
+        if (failedTaskIds.length > 0) {
+          logger.draw.warn(
+            `检测到 ${failedTaskIds.length} 个绘图任务超过恢复次数，已改为失败状态`,
+            { ids: failedTaskIds },
+          );
+        }
+
         get().markUpdate();
+
+        resumableTasks.forEach((task) => {
+          get().drawRequestCall(task);
+        });
       },
       drawRequestCall(data: any) {
         const requestId = String(data?.id || "");

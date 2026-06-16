@@ -137,6 +137,67 @@ function isChatDebugLoggingEnabled() {
   }
 }
 
+function isStandaloneDisplayMode() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return (
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+        true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isMobileUserAgent() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+function getNavigationType() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    const [navigationEntry] = performance.getEntriesByType(
+      "navigation",
+    ) as PerformanceNavigationTiming[];
+    return navigationEntry?.type || "";
+  } catch {
+    return "";
+  }
+}
+
+function isDesktopPwaStartEntry(urlId: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    if (!isStandaloneDisplayMode() || !isMobileUserAgent()) {
+      return false;
+    }
+
+    const navigationType = getNavigationType();
+    if (navigationType === "reload") {
+      return false;
+    }
+
+    const hashPath = String(window.location.hash || "").replace(/^#/, "");
+    return !urlId || hashPath === "/chat" || /^\/chat\/[^/]+$/.test(hashPath);
+  } catch {
+    return false;
+  }
+}
+
 function logChatDebug(...args: unknown[]) {
   if (!isChatDebugLoggingEnabled()) {
     return;
@@ -1720,9 +1781,13 @@ export const useChatStore = createPersistStore(
         const resolveSessionById = (sessionId: string) =>
           sessions.find((session) => session.id === sessionId);
 
-        const isNewTab = !hasTabInitialized;
+        const isPwaStartEntry = isDesktopPwaStartEntry(urlId);
+        const isNewTab = !hasTabInitialized || isPwaStartEntry;
         const isRefreshWithChatUrl =
-          hasTabInitialized && !!urlId && !!resolveSessionById(urlId);
+          !isPwaStartEntry &&
+          hasTabInitialized &&
+          !!urlId &&
+          !!resolveSessionById(urlId);
 
         if (isNewTab) {
           const startupSession = createEmptySession();

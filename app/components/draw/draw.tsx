@@ -448,6 +448,9 @@ export function Draw() {
   const location = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const drawImages = useDrawStore((state) => state.draw);
+  const drawHasHydrated = useDrawStore((state) =>
+    Boolean((state as any)._hasHydrated),
+  );
   const clearAllDraw = useDrawStore((state) => state.clearAllDraw);
   const clearRequestLogs = useDrawStore((state) => state.clearRequestLogs);
   const resumePendingTasks = useDrawStore((state) => state.resumePendingTasks);
@@ -570,8 +573,9 @@ export function Draw() {
   );
 
   useEffect(() => {
+    if (!drawHasHydrated) return;
     resumePendingTasks();
-  }, [resumePendingTasks]);
+  }, [drawHasHydrated, resumePendingTasks]);
 
   useEffect(() => {
     clearRequestLogs();
