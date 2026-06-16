@@ -178,18 +178,12 @@ export function createDatabaseSyncClient(_: SyncStore) {
     init?: RequestInit,
     options?: { timeoutMs?: number; retries?: number; signal?: AbortSignal },
   ): Promise<{ conflict: true; current?: StoreSnapshotMeta | null } | null> => {
-    const response = await fetchWithRetry(
-      path,
-      {
-        ...init,
-        headers: withSyncUserHeaders({
-          "Content-Type": "application/json; charset=utf-8",
-          ...(init?.headers || {}),
-        }),
-        signal: options?.signal,
-      },
-      options,
-    );
+    const response = await request(path, init, {
+      timeoutMs: options?.timeoutMs,
+      retries: options?.retries,
+      retryOnStatuses: [502, 503, 504],
+      signal: options?.signal,
+    });
 
     const contentType = response.headers.get("content-type") || "";
     const payload = contentType.includes("application/json")
@@ -233,7 +227,11 @@ export function createDatabaseSyncClient(_: SyncStore) {
           method: "GET",
           cache: "no-store",
         },
-        { signal: options?.signal },
+        {
+          retries: 2,
+          retryOnStatuses: [502, 503, 504],
+          signal: options?.signal,
+        },
       );
       return await response.text();
     },
@@ -261,7 +259,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
           },
           body: value,
         },
-        { signal: options?.signal },
+        { retries: 2, signal: options?.signal },
       );
 
       if (conflict) {
