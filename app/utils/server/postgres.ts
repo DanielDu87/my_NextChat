@@ -24,38 +24,67 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-16-draw-store-table-v1";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-16-draw-store-table-v2";
+
+function getPostgresErrorCode(error: unknown) {
+  if (!error || typeof error !== "object") return "";
+  const code = (error as any).code;
+  return typeof code === "string" ? code : "";
+}
 
 function isRetryablePostgresError(error: unknown) {
   const message =
     error instanceof Error ? error.message : String(error ?? "unknown_error");
+  const code = getPostgresErrorCode(error);
 
   return [
     "Connection terminated unexpectedly",
     "Connection ended unexpectedly",
     "terminating connection due to administrator command",
     "Client has encountered a connection error and is not queryable",
+    "database system is not accepting connections",
+    "the database system is starting up",
+    "too many clients already",
   ].some((pattern) => message.includes(pattern));
+}
+
+export function isPostgresTemporarilyUnavailableError(error: unknown) {
+  const code = getPostgresErrorCode(error);
+  if (["57P03", "53300"].includes(code)) return true;
+  if (code.startsWith("08")) return true;
+  return isRetryablePostgresError(error);
 }
 
 export async function withRetryablePostgresOperation<T>(
   operation: () => Promise<T>,
 ) {
-  try {
-    return await operation();
-  } catch (error) {
-    if (!isRetryablePostgresError(error)) {
-      throw error;
+  const maxRetries = Math.max(0, Number(process.env.PG_RETRY_COUNT ?? "3"));
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isPostgresTemporarilyUnavailableError(error)) {
+        throw error;
+      }
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+
+      console.warn(
+        "[Postgres] retry operation after reconnect",
+        error instanceof Error ? error.message : String(error),
+      );
+
+      await closePostgresPool().catch(() => {});
+      const delay = Math.min(1000, 150 * (attempt + 1) * (attempt + 1));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-
-    console.warn(
-      "[Postgres] retry operation after reconnect",
-      error instanceof Error ? error.message : String(error),
-    );
-
-    await closePostgresPool().catch(() => {});
-    return operation();
   }
+
+  throw lastError instanceof Error ? lastError : new Error("unknown_error");
 }
 
 function toBoolean(value?: string) {
@@ -346,6 +375,20 @@ export async function ensureSyncStorageSchema() {
         where (extra_settings ? 'draw-list' or extra_settings ? 'sd-list')
           and coalesce(extra_settings -> 'draw-list', extra_settings -> 'sd-list') is not null
         on conflict (user_id) do nothing
+      `);
+        await client.query(`
+        create table if not exists user_draw_images (
+          id uuid primary key default generate_uuid_v4(),
+          user_id uuid not null references app_users(id) on delete cascade,
+          content_type text not null,
+          size_bytes integer not null,
+          data bytea not null,
+          created_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_user_draw_images_user_created_at
+        on user_draw_images(user_id, created_at desc)
       `);
         await client.query(`
         create table if not exists conversations (

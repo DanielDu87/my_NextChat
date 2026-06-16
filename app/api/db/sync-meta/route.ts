@@ -7,6 +7,7 @@ import {
 } from "@/app/utils/server/sync-user";
 import { AuthError } from "@/app/utils/server/auth";
 import { loadStoreSnapshotMetasSafely } from "@/app/utils/server/sync-meta-loader";
+import { isPostgresTemporarilyUnavailableError } from "@/app/utils/server/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +39,12 @@ export async function GET(req: NextRequest) {
       metas,
     });
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 500;
+    const status =
+      error instanceof AuthError
+        ? error.status
+        : isPostgresTemporarilyUnavailableError(error)
+        ? 503
+        : 500;
     return NextResponse.json(
       {
         ok: false,

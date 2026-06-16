@@ -39,6 +39,16 @@ const DRAW_INITIAL_RENDER_COUNT = 6;
 const DRAW_RENDER_BATCH_SIZE = 6;
 const IMAGE_DIMENSION_CACHE_LIMIT = 120;
 const imageDimensionCache = new Map<string, string>();
+const loadedFullDrawImages = new Set<string>();
+
+function preloadDrawImage(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("load_failed"));
+    image.src = src;
+  });
+}
 
 const PARAM_LABEL_FALLBACKS: Record<string, string> = {
   prompt: "提示词",
@@ -326,7 +336,10 @@ function normalizeDrawImageSrc(src: string) {
 }
 
 function isRemovableCachedImage(src: string) {
-  return String(src || "").startsWith(CACHE_URL_PREFIX);
+  return (
+    String(src || "").startsWith(CACHE_URL_PREFIX) ||
+    String(src || "").startsWith("/api/db/draw-image/")
+  );
 }
 
 function DrawImagePlaceholder(props: { error?: boolean; text?: string }) {
@@ -350,18 +363,25 @@ function DrawImagePlaceholder(props: { error?: boolean; text?: string }) {
   );
 }
 
-function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
+function DrawImagePreview(props: {
+  item: any;
+  onImageLoaded?: () => void;
+  onOpenImage?: (fullSrc: string, previewSrc: string) => void;
+}) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loaded, setLoaded] = useState(props.item.status === "success");
   const imageRef = useRef<HTMLImageElement>(null);
-  const imageSrc = normalizeDrawImageSrc(props.item.img_data);
+  const previewSrc = normalizeDrawImageSrc(
+    props.item.thumb_data || props.item.img_data,
+  );
+  const fullSrc = normalizeDrawImageSrc(props.item.img_data);
 
   useEffect(() => {
     setLoadFailed(false);
-  }, [imageSrc]);
+  }, [previewSrc]);
 
   useEffect(() => {
-    if (props.item.status !== "success" || !imageSrc) {
+    if (props.item.status !== "success" || !previewSrc) {
       return;
     }
 
@@ -377,7 +397,7 @@ function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
         setLoadFailed(true);
       }
     }
-  }, [imageSrc, props.item.status]);
+  }, [previewSrc, props.item.status]);
 
   if (props.item.status === "error") {
     return <DrawImagePlaceholder error />;
@@ -387,7 +407,7 @@ function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
     return <DrawImagePlaceholder text="生成中" />;
   }
 
-  if (loadFailed || !imageSrc) {
+  if (loadFailed || !previewSrc) {
     return <DrawImagePlaceholder error />;
   }
 
@@ -400,7 +420,7 @@ function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
         className={clsx(styles["img"], {
           [styles["img-loaded"]]: loaded,
         })}
-        src={imageSrc}
+        src={previewSrc}
         alt={props.item.params?.prompt || props.item.id}
         loading="lazy"
         decoding="async"
@@ -410,33 +430,13 @@ function DrawImagePreview(props: { item: any; onImageLoaded?: () => void }) {
           const image = event.currentTarget;
           if (image.naturalWidth > 0 && image.naturalHeight > 0) {
             setCachedImageDimension(
-              imageSrc,
+              fullSrc || previewSrc,
               `${image.naturalWidth}x${image.naturalHeight}`,
             );
             props.onImageLoaded?.();
           }
         }}
-        onClick={() =>
-          showImageModal(
-            imageSrc,
-            true,
-            {
-              width: "100%",
-              height: "100%",
-              maxWidth: "100%",
-              maxHeight: "100%",
-              objectFit: "contain",
-            },
-            {
-              width: "100%",
-              height: "100%",
-              justifyContent: "center",
-              alignItems: "center",
-              overflow: "hidden",
-              WebkitOverflowScrolling: "touch",
-            },
-          )
-        }
+        onClick={() => props.onOpenImage?.(fullSrc, previewSrc)}
       />
     </>
   );
@@ -464,6 +464,7 @@ export function Draw() {
     DRAW_INITIAL_RENDER_COUNT,
   );
   const [, refreshImageDimensions] = useState(0);
+  const [fullImageLoading, setFullImageLoading] = useState(false);
   const isDraw = location.pathname === Path.Draw || location.pathname === "/sd";
   const {
     theme: drawTheme,
@@ -539,6 +540,49 @@ export function Draw() {
     refreshImageDimensions((count) => count + 1);
   }, []);
 
+  const handleOpenImage = useCallback(
+    async (fullSrc: string, previewSrc: string) => {
+      const targetSrc = fullSrc || previewSrc;
+      if (!targetSrc) return;
+
+      if (
+        fullSrc &&
+        fullSrc !== previewSrc &&
+        !loadedFullDrawImages.has(fullSrc)
+      ) {
+        setFullImageLoading(true);
+        try {
+          await preloadDrawImage(fullSrc);
+          loadedFullDrawImages.add(fullSrc);
+        } catch {
+        } finally {
+          setFullImageLoading(false);
+        }
+      }
+
+      showImageModal(
+        targetSrc,
+        true,
+        {
+          width: "100%",
+          height: "100%",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          objectFit: "contain",
+        },
+        {
+          width: "100%",
+          height: "100%",
+          justifyContent: "center",
+          alignItems: "center",
+          overflow: "hidden",
+          WebkitOverflowScrolling: "touch",
+        },
+      );
+    },
+    [],
+  );
+
   const handleCopyPrompt = useCallback(async (prompt: string) => {
     const ok = await copyToClipboard(prompt, { silent: true });
     if (ok) {
@@ -576,11 +620,21 @@ export function Draw() {
   }, [drawHasHydrated, resumePendingTasks]);
 
   useEffect(() => {
+    if (!drawHasHydrated) return;
+    (useDrawStore.getState() as any).externalizeLargeImages?.();
+  }, [drawHasHydrated]);
+
+  useEffect(() => {
     clearRequestLogs();
   }, [clearRequestLogs]);
 
   return (
     <>
+      {fullImageLoading && (
+        <div className={styles["full-image-loading"]}>
+          <div className={styles["full-image-loading-card"]}>正在加载原图…</div>
+        </div>
+      )}
       <SideBar
         className={clsx(styles["draw-sidebar"], {
           [homeStyles["sidebar-show"]]: isDraw,
@@ -734,6 +788,7 @@ export function Draw() {
                         <DrawImagePreview
                           item={item}
                           onImageLoaded={handleImageLoaded}
+                          onOpenImage={handleOpenImage}
                         />
                       </div>
                       <div className={styles["draw-img-item-info"]}>

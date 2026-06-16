@@ -39,6 +39,7 @@ import {
   isRememberedApiKeyProfile,
   rememberSuccessfulCustomModelApiKeyGroup,
 } from "@/app/utils/model-api-key-memory";
+import { compressImage } from "@/app/utils/chat";
 
 const OPENAI_COMPATIBLE_DRAW_PROVIDERS = new Set<string>([
   ServiceProvider.Custom,
@@ -74,6 +75,46 @@ function joinUrl(baseUrl: string, path: string) {
   const normalizedPath = String(path || "").replace(/^\/+/, "");
   return `${normalizedBase}/${normalizedPath}`;
 }
+
+const DRAW_THUMB_MAX_SIZE = 80 * 1024;
+const DRAW_IMAGE_EXTERNALIZE_MIN_SIZE = 512 * 1024;
+const DRAW_IMAGE_API_BASE = "/api/db/draw-image";
+
+function isDataUrl(value: string) {
+  return String(value || "").startsWith("data:");
+}
+
+function isExternalizedDrawImageUrl(value: string) {
+  return String(value || "").startsWith(`${DRAW_IMAGE_API_BASE}/`);
+}
+
+async function buildDrawThumbDataUrl(imageSrc: string) {
+  if (!isDataUrl(imageSrc)) {
+    return "";
+  }
+  const blob = await fetch(imageSrc).then((res) => res.blob());
+  return await compressImage(blob, DRAW_THUMB_MAX_SIZE);
+}
+
+async function uploadDrawImageToDb(imageSrc: string) {
+  if (!isDataUrl(imageSrc)) {
+    return "";
+  }
+  const response = await fetch(DRAW_IMAGE_API_BASE, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ dataUrl: imageSrc }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok || !payload?.url) {
+    throw new Error(payload?.error || `upload_failed_${response.status}`);
+  }
+  return String(payload.url);
+}
+
+let externalizeLargeDrawImagesTask: Promise<void> | null = null;
 
 function hasDrawParam(value: unknown) {
   return value !== undefined && value !== null && value !== "";
@@ -1138,6 +1179,60 @@ export const useDrawStore = createPersistStore<
           get().drawRequestCall(task);
         });
       },
+      externalizeLargeImages() {
+        if (externalizeLargeDrawImagesTask) {
+          return externalizeLargeDrawImagesTask;
+        }
+
+        externalizeLargeDrawImagesTask = runWithImmediateStoreSyncPaused(
+          async () => {
+            const candidates = (_get().draw || []).filter((item: any) => {
+              if (!item?.id) return false;
+              if (item?.status !== "success") return false;
+              const src = String(item?.img_data || "");
+              if (!isDataUrl(src)) return false;
+              if (isExternalizedDrawImageUrl(src)) return false;
+              return src.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE;
+            });
+
+            for (const item of candidates) {
+              const src = String(item?.img_data || "");
+              if (!src || !isDataUrl(src)) continue;
+              if (isExternalizedDrawImageUrl(src)) continue;
+
+              let thumbData = String(item?.thumb_data || "");
+              if (!thumbData) {
+                thumbData = await buildDrawThumbDataUrl(src).catch(() => "");
+              }
+
+              try {
+                const uploadedUrl = await uploadDrawImageToDb(src);
+                if (!uploadedUrl) continue;
+                get().updateDraw({
+                  ...item,
+                  img_data: uploadedUrl,
+                  ...(thumbData ? { thumb_data: thumbData } : {}),
+                });
+              } catch (error) {
+                if (thumbData && thumbData !== item?.thumb_data) {
+                  get().updateDraw({
+                    ...item,
+                    thumb_data: thumbData,
+                  });
+                }
+                logger.draw.warn(
+                  `externalizeLargeImages 上传失败 id=${item?.id}`,
+                  error,
+                );
+              }
+            }
+          },
+        ).finally(() => {
+          externalizeLargeDrawImagesTask = null;
+        });
+
+        return externalizeLargeDrawImagesTask;
+      },
       drawRequestCall(data: any) {
         const requestId = String(data?.id || "");
         if (requestId) {
@@ -1367,7 +1462,7 @@ export const useDrawStore = createPersistStore<
             headers[authHeader] = `Bearer ${nextApiKey}`;
           };
 
-          const applyDrawResult = (resData: any) => {
+          const applyDrawResult = async (resData: any) => {
             if (resData.errors && resData.errors.length > 0) {
               const errMsg = getDrawErrorMessage(resData);
               logger.draw.warn(`❌ 失败 id=${data.id}, 错误=${errMsg}`);
@@ -1386,10 +1481,18 @@ export const useDrawStore = createPersistStore<
               logger.draw.log(
                 `✅ 成功 id=${data.id}, 图片=${img.slice(0, 80)}...`,
               );
+              const thumbData = await buildDrawThumbDataUrl(img).catch(
+                () => "",
+              );
+              let finalSrc = img;
+              if (img.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE) {
+                finalSrc = await uploadDrawImageToDb(img).catch(() => img);
+              }
               get().updateDraw({
                 ...data,
                 status: "success",
-                img_data: img,
+                img_data: finalSrc,
+                ...(thumbData ? { thumb_data: thumbData } : {}),
               });
               return true;
             }
@@ -1404,10 +1507,18 @@ export const useDrawStore = createPersistStore<
                 logger.draw.log(
                   `✅ 成功 id=${data.id}, 图片(base64长度=${base64Image.length}, mime=${mimeType})`,
                 );
+                const thumbData = await buildDrawThumbDataUrl(img).catch(
+                  () => "",
+                );
+                let finalSrc = img;
+                if (img.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE) {
+                  finalSrc = await uploadDrawImageToDb(img).catch(() => img);
+                }
                 get().updateDraw({
                   ...data,
                   status: "success",
-                  img_data: img,
+                  img_data: finalSrc,
+                  ...(thumbData ? { thumb_data: thumbData } : {}),
                 });
                 return true;
               }
@@ -1595,7 +1706,7 @@ export const useDrawStore = createPersistStore<
               break;
             }
 
-            const drawSucceeded = applyDrawResult(resData);
+            const drawSucceeded = await applyDrawResult(resData);
 
             if (supportsMultiKeyRetry && drawSucceeded) {
               const groupName = fallbackApiKeyGroups[retryCount] || "";

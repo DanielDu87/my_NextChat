@@ -3657,10 +3657,10 @@ export const useSyncStore = createPersistStore(
 
                     if (options?.downloadOnlyChat !== true) {
                       try {
-                        const latestRemoteIndex = await callClientWithSignal(
+                        const latestRemoteIndex = (await callClientWithSignal(
                           client.getChatIndex,
                           [],
-                        );
+                        )) as any;
                         const localSyncableCount = buildChatIndexPayload(
                           chatResult.mergedStoreState as any,
                         ).sessions.length;

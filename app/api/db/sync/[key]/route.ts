@@ -6,7 +6,10 @@ import {
   removeStoreSnapshot,
   setStoreSnapshot,
 } from "@/app/utils/server/sync-store-repository";
-import { withRetryablePostgresOperation } from "@/app/utils/server/postgres";
+import {
+  isPostgresTemporarilyUnavailableError,
+  withRetryablePostgresOperation,
+} from "@/app/utils/server/postgres";
 import {
   requireWritableStoreSyncUserId,
   resolveStoreSyncUserId,
@@ -53,7 +56,12 @@ export async function GET(_: NextRequest, { params }: Params) {
       },
     });
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 500;
+    const status =
+      error instanceof AuthError
+        ? error.status
+        : isPostgresTemporarilyUnavailableError(error)
+        ? 503
+        : 500;
     return NextResponse.json(
       {
         ok: false,
@@ -127,7 +135,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
       error:
         error instanceof Error ? error.stack || error.message : String(error),
     });
-    const status = error instanceof AuthError ? error.status : 500;
+    const status =
+      error instanceof AuthError
+        ? error.status
+        : isPostgresTemporarilyUnavailableError(error)
+        ? 503
+        : 500;
     return NextResponse.json(
       {
         ok: false,
@@ -153,7 +166,12 @@ export async function DELETE(_: NextRequest, { params }: Params) {
     );
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 500;
+    const status =
+      error instanceof AuthError
+        ? error.status
+        : isPostgresTemporarilyUnavailableError(error)
+        ? 503
+        : 500;
     return NextResponse.json(
       {
         ok: false,

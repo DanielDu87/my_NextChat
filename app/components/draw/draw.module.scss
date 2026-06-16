@@ -1098,3 +1098,29 @@
     max-width: 100%;
   }
 }
+
+.full-image-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.full-image-loading-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 180px;
+  max-width: min(86vw, 420px);
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: var(--white);
+  color: var(--black);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
