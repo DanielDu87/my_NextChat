@@ -8,15 +8,16 @@
 
 统一规则：
 
-- 默认使用 `.env.docker`
-- 默认使用 `./scripts/docker-compose-safe.sh`
-- 生产直连数据库使用 `--profile no-proxy`
-- 通过跳板机访问数据库时叠加 `--profile ssh-tunnel`
+- 本地 Docker 开发默认使用 `.env.docker`
+- 本地 Docker 开发默认使用 `./scripts/docker-compose-safe.sh`
 - 本地开发使用 `--profile dev`
+- 当前线上生产默认使用宝塔 DockerSite：`docker-compose.baota.yml` + `.env.baota`
+- 非宝塔生产直连数据库可使用 `--profile no-proxy`
+- 通过跳板机访问数据库时叠加 `--profile ssh-tunnel`
 - 宝塔专用部署文档见 [README_BAOTA.md](README_BAOTA.md)
-- `docker-compose.baota.yml` 只用于宝塔专用部署，不参与 `--profile no-proxy`
+- 页面 URL 统一使用普通路径，例如 `/draw`、`/api-config`；旧 `/#/...` 链接会自动迁移。
 
-最常用命令：
+非宝塔 Docker 常用命令：
 
 ```bash
 cp .env.docker.example .env.docker
@@ -28,7 +29,9 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= ./scripts/docker-compose-safe.sh --env-file 
 服务器 `ss` 的标准宝塔 DockerSite 部署：
 
 ```bash
-ssh ss 'cd /www/dk_project/my_NextChat && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
+ssh ss 'tail -120 /tmp/nextchat-baota-deploy.log'
 ```
 
 如果担心 SSH 在 `yarn build` 期间断开，优先放进 `tmux`：
@@ -48,7 +51,7 @@ ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 宝塔专用更新命令：
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ```
 
@@ -72,7 +75,7 @@ ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
   但外部无代理访问 `chat.dyxcloud.com` 被 reset 或跳转到 DNSPod webblock，
   说明宝塔 nginx、证书和 NextChat 上游都正常，剩余问题在腾讯云/DNSPod/安全策略的域名公网链路拦截。
 - 如果服务器本机 `curl -I http://127.0.0.1:3000/` 返回 `connection refused`，说明不是域名问题，而是 NextChat
-  上游进程/容器没在跑。优先重新执行 `./scripts/deploy-production-no-proxy.sh`。
+  上游进程/容器没在跑。宝塔环境优先重新执行上面的宝塔专用更新命令。
 - 如果访问 IP 正常、访问域名失败，必须额外检查带 SNI 的 TLS：
 
 ```bash

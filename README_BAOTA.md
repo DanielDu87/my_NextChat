@@ -334,6 +334,16 @@ REMOTE
 
 当前主域名已经切换为 `chat.dyxcloud.com`。截至本次验证，外部无代理访问 `https://chat.dyxcloud.com/` 返回 `HTTP/2 200`，证书 SAN 包含 `DNS:chat.dyxcloud.com`。
 
+当前页面路由统一使用普通路径：
+
+- 首页：`https://chat.dyxcloud.com/`
+- 聊天页：`https://chat.dyxcloud.com/chat`
+- 绘图页：`https://chat.dyxcloud.com/draw`
+- 绘图历史：`https://chat.dyxcloud.com/draw/history`
+- API 配置：`https://chat.dyxcloud.com/api-config`
+
+旧 `/#/...` 地址会在客户端启动时自动迁移到普通路径。宝塔 Nginx 反代仍只需要指向 `http://127.0.0.1:3000`，无需为这些前端路径单独配置反代规则。
+
 如果以后出现“IP 能打开、域名打不开”，按下面顺序判断：
 
 ```bash

@@ -13,6 +13,15 @@ cp .env.docker.example .env.docker
 
 访问：<http://localhost:3000>
 
+常用页面地址：
+
+- 聊天页：<http://localhost:3000/chat>
+- 绘图页：<http://localhost:3000/draw>
+- 绘图历史：<http://localhost:3000/draw/history>
+- API 配置：<http://localhost:3000/api-config>
+
+项目当前统一使用普通路径 URL。旧的 `/#/draw`、`/#/settings`、`/#/auth` 等 hash 地址会自动跳转到对应普通路径。
+
 停止：
 
 ```bash

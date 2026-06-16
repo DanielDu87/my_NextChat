@@ -191,8 +191,10 @@ function isDesktopPwaStartEntry(urlId: string) {
       return false;
     }
 
-    const hashPath = String(window.location.hash || "").replace(/^#/, "");
-    return !urlId || hashPath === "/chat" || /^\/chat\/[^/]+$/.test(hashPath);
+    const routePath =
+      String(window.location.hash || "").replace(/^#/, "") ||
+      window.location.pathname;
+    return !urlId || routePath === "/chat" || /^\/chat\/[^/]+$/.test(routePath);
   } catch {
     return false;
   }
@@ -1770,8 +1772,12 @@ export const useChatStore = createPersistStore(
         });
 
         let newIndex = 0;
-        const hash = typeof window !== "undefined" ? window.location.hash : "";
-        const chatMatch = hash.match(/#\/chat\/([^/]+)/);
+        const routePath =
+          typeof window !== "undefined"
+            ? String(window.location.hash || "").replace(/^#/, "") ||
+              window.location.pathname
+            : "";
+        const chatMatch = routePath.match(/^\/chat\/([^/]+)/);
         const urlId = chatMatch ? chatMatch[1] : "";
         const hasTabInitialized =
           readSessionStorageItem(TAB_INITIALIZED_KEY) === "1";

@@ -75,7 +75,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - `TypeScript`：类型约束。
 - `SCSS Modules`：组件级样式隔离。
 - `Zustand`：全局状态管理。
-- `React Router`：客户端页面路由。
+- `React Router BrowserRouter`：客户端页面路由，当前统一使用普通路径 URL。
 
 核心目录：
 
@@ -108,6 +108,19 @@ app/
 - 移动端通过 `visualViewport`、输入框测量和多阶段布局同步处理软键盘遮挡。
 - 回到底部和滚到顶部逻辑区分处理，避免滚动状态与虚拟消息窗口错位。
 - Token 用量通过消息 `usage` 字段格式化展示。
+
+### 页面路由与访问地址
+
+当前项目已从 hash 路由切换为普通路径路由：
+
+- 首页：`http://localhost:3000/`
+- 聊天页：`http://localhost:3000/chat`
+- 绘图页：`http://localhost:3000/draw`
+- 绘图历史：`http://localhost:3000/draw/history`
+- API 配置：`http://localhost:3000/api-config`
+- 线上 API 配置：`https://chat.dyxcloud.com/api-config`
+
+旧地址如 `http://localhost:3000/#/draw`、`/#/settings`、`/#/auth` 会在客户端启动时自动迁移到对应普通路径。直接刷新 `/draw`、`/api-config` 等路径由 Next.js catch-all 页面兜底进入同一个应用入口。
 
 ### 数据库存储实现
 
@@ -204,6 +217,7 @@ cp .env.docker.example .env.docker
 - 本地 Docker 开发统一使用 `dev` profile 和 `./scripts/docker-compose-safe.sh`。
 - 普通业务代码修改后依赖热加载，不重启容器、不重建镜像。
 - 生产部署默认使用宝塔 DockerSite：`docker-compose.baota.yml` + `.env.baota`。
+- 页面 URL 统一使用普通路径，不再新增 `/#/...` hash 链接。
 - 不再维护 Jest 测试脚本和 `test/` 目录；质量检查优先使用 `yarn lint`、`yarn build`、针对性脚本或手工验证。
 - 临时调试文件、历史 `.bak` 文件、截图生成的空 `div*` 文件不要提交。
 

@@ -296,23 +296,6 @@ export default function AutoSync() {
   const authUser = useAuthStore((state) => state.user);
   const authInitialized = useAuthStore((state) => state.initialized);
 
-  useEffect(() => {
-    const prepareCurrentRouteEntry = () => {
-      prepareRouteEntryForSync(getCurrentHashPath(), {
-        source: "global-route-event",
-      });
-    };
-
-    prepareCurrentRouteEntry();
-    window.addEventListener("hashchange", prepareCurrentRouteEntry);
-    window.addEventListener("pageshow", prepareCurrentRouteEntry);
-
-    return () => {
-      window.removeEventListener("hashchange", prepareCurrentRouteEntry);
-      window.removeEventListener("pageshow", prepareCurrentRouteEntry);
-    };
-  }, []);
-
   const ensureRemoteBootstrapState = async (
     scope: AutoSyncScope,
     abortSignal?: AbortSignal,
@@ -1050,6 +1033,13 @@ export default function AutoSync() {
                     );
                   }
                 } catch (error) {
+                  if (isAbortError(error)) {
+                    autoSyncConsole(
+                      "log",
+                      "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
+                    );
+                    return;
+                  }
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ❌ 补跑未完成同步失败:",
@@ -1092,6 +1082,13 @@ export default function AutoSync() {
                     getScopeDeferredDoneBanner(deferredScope),
                   );
                 } catch (error) {
+                  if (isAbortError(error)) {
+                    autoSyncConsole(
+                      "log",
+                      "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
+                    );
+                    return;
+                  }
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ❌ 后台同步失败（含对话记录）:",
@@ -1247,9 +1244,6 @@ export default function AutoSync() {
       releaseLock();
 
       activeRoutePath = nextPath;
-      prepareRouteEntryForSync(activeRoutePath, {
-        source: "hashchange-restart",
-      });
       autoSyncConsole("log", "[AutoSync] ⏹️ 页面切换，已关闭旧页面自动同步", {
         from: previousPath,
         to: nextPath,
@@ -1355,7 +1349,7 @@ export default function AutoSync() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleWindowFocus);
-    window.addEventListener("hashchange", handleRouteChangeRestart);
+    window.addEventListener("popstate", handleRouteChangeRestart);
     window.addEventListener(ROUTE_SYNC_ENTRY_EVENT, handleRouteChangeRestart);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("storage", handleStorage);
@@ -1398,7 +1392,7 @@ export default function AutoSync() {
       clearRetryTimer();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleWindowFocus);
-      window.removeEventListener("hashchange", handleRouteChangeRestart);
+      window.removeEventListener("popstate", handleRouteChangeRestart);
       window.removeEventListener(
         ROUTE_SYNC_ENTRY_EVENT,
         handleRouteChangeRestart,

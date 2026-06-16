@@ -1017,8 +1017,11 @@ export function DrawPanel() {
   const setSelectedProvider = drawStore.setSelectedProvider;
   const hasHydrated = Boolean((drawStore as any)._hasHydrated);
   const didClearPromptOnOpenRef = React.useRef(false);
-  const providerModelsMap: Record<string, string[]> = ((drawStore as any)
-    .providerModels || {}) as Record<string, string[]>;
+  const rawProviderModels = (drawStore as any).providerModels;
+  const providerModelsMap = React.useMemo(
+    () => (rawProviderModels || {}) as Record<string, string[]>,
+    [rawProviderModels],
+  );
   const isDrawCandidateModel = React.useCallback((model: any) => {
     return matchModelCategory("image", {
       title: String(model?.displayName || model?.name || ""),
@@ -1108,26 +1111,35 @@ export function DrawPanel() {
     setParams(nextParams);
   };
 
-  const handleProviderChange = (provider: string) => {
-    setSelectedProvider(provider);
-    const latestDrawState = useDrawStore.getState() as any;
-    const nextModelValue = String(
-      latestDrawState.currentModel?.value || currentModel.value || "",
-    );
-    const profile = (accessStore.apiProfiles || []).find(
-      (item) => String(item?.id || "").trim() === provider,
-    );
-    setParams(
-      sanitizeDrawParams(
-        nextModelValue,
-        {
-          ...currentParams,
-          model: nextModelValue,
-        },
-        String(profile?.provider || ""),
-      ),
-    );
-  };
+  const handleProviderChange = React.useCallback(
+    (provider: string) => {
+      setSelectedProvider(provider);
+      const latestDrawState = useDrawStore.getState() as any;
+      const nextModelValue = String(
+        latestDrawState.currentModel?.value || currentModel.value || "",
+      );
+      const profile = (accessStore.apiProfiles || []).find(
+        (item) => String(item?.id || "").trim() === provider,
+      );
+      setParams(
+        sanitizeDrawParams(
+          nextModelValue,
+          {
+            ...currentParams,
+            model: nextModelValue,
+          },
+          String(profile?.provider || ""),
+        ),
+      );
+    },
+    [
+      accessStore.apiProfiles,
+      currentModel.value,
+      currentParams,
+      setParams,
+      setSelectedProvider,
+    ],
+  );
 
   const drawManagedModelKeys = React.useMemo(() => {
     return Object.entries(providerModelsMap).flatMap(([providerId, models]) =>

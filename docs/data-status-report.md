@@ -39,7 +39,7 @@
 #### 步骤 1：访问 API 配置页面
 
 ```
-https://ngpt.chat/#/api-config
+https://chat.dyxcloud.com/api-config
 ```
 
 #### 步骤 2：添加您的 API Key
@@ -119,7 +119,7 @@ cd /www/wwwroot/nextchat
 #### 步骤 4：在服务器页面验证
 
 ```
-1. 访问: https://ngpt.chat
+1. 访问: https://chat.dyxcloud.com
 2. 刷新页面 (Ctrl+F5)
 3. 进入 API 配置
 4. 点击"从数据库下载"
@@ -143,7 +143,7 @@ cd /www/wwwroot/nextchat
 
 ```
 【添加配置】
-1. 访问 https://ngpt.chat/#/api-config
+1. 访问 https://chat.dyxcloud.com/api-config
 2. 在"我的配置"中添加 API Key
 3. 点击"保存"
 → 配置已保存，立即可用
@@ -268,7 +268,7 @@ messages (0 消息)
 
 1. **访问 API 配置页面**
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 2. **添加您的 API Key**
@@ -330,7 +330,7 @@ messages (0 消息)
 
 **下一步：**
 - 刷新浏览器 (Ctrl+F5)
-- 访问 https://ngpt.chat/#/api-config
+- 访问 https://chat.dyxcloud.com/api-config
 - 添加您的 API Key
 - 开始使用！
 

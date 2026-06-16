@@ -1,6 +1,6 @@
 # Docker 部署指南
 
-本文档只保留当前仓库实际可用的一套 Docker 部署规则，避免文档与配置分叉。
+本文档说明非宝塔 Docker 部署和本地 Docker 开发流程。当前线上 `ss` 服务器默认使用宝塔 DockerSite，详见 [README_BAOTA.md](../README_BAOTA.md)。
 
 ## 1. 当前支持的 Profile
 
@@ -19,8 +19,10 @@
 
 - 本地开发：`--profile dev`
 - 本地开发默认不启用本地 PostgreSQL；如确需本地库，需用户明确确认后再叠加 `--profile local-db`。
-- 生产部署默认：`--profile no-proxy`
-- 生产部署走跳板机：`--profile no-proxy --profile ssh-tunnel`
+- 非宝塔生产部署：`--profile no-proxy`
+- 非宝塔生产部署走跳板机：`--profile no-proxy --profile ssh-tunnel`
+
+页面 URL 统一使用普通路径，例如 `/draw`、`/draw/history`、`/api-config`。旧 `/#/...` 地址会自动迁移到普通路径。
 
 ## 2. 关键文件
 
@@ -342,14 +344,14 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 2. 检查服务器本机经 nginx + Host 访问是否正常：
 
 ```bash
-curl -k -I -H "Host: ngpt.chat" https://127.0.0.1/
+curl -k -I -H "Host: chat.dyxcloud.com" https://127.0.0.1/
 ```
 
 如果这里返回 `200`，说明：
 
 - nginx 正常
 - 证书正常
-- `ngpt.chat -> 127.0.0.1:3000` 反代正常
+- `chat.dyxcloud.com -> 127.0.0.1:3000` 反代正常
 
 3. 再区分是不是公网 443 的 SNI/TLS 链路问题：
 
@@ -358,8 +360,8 @@ env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u AL
   openssl s_client -connect 42.193.15.117:443 -brief
 
 env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u ALL_PROXY \
-  openssl s_client -connect 42.193.15.117:443 -servername ngpt.chat -brief
+  openssl s_client -connect 42.193.15.117:443 -servername chat.dyxcloud.com -brief
 ```
 
-如果无 SNI 正常、带 `-servername ngpt.chat` 被 reset，而服务器本机测试又正常，
+如果无 SNI 正常、带 `-servername chat.dyxcloud.com` 被 reset，而服务器本机测试又正常，
 那么问题在服务器外部链路，不在 NextChat 应用进程内部。

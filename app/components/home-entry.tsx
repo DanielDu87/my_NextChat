@@ -10,19 +10,41 @@ const Home = dynamic(() => import("./home"), {
   loading: () => <div suppressHydrationWarning />,
 });
 
-function normalizeLegacyDrawHash() {
+function normalizeLegacyHashRoute() {
   if (typeof window === "undefined") return false;
 
-  if (window.location.hash === "#/sd") {
-    window.history.replaceState(null, "", "#/draw");
+  const hash = window.location.hash;
+  if (!hash.startsWith("#/")) {
+    return false;
+  }
+
+  const hashPathWithQuery = hash.slice(1);
+  const [hashPath, hashQuery = ""] = hashPathWithQuery.split("?");
+  const nextPath =
+    hashPath === "/sd"
+      ? "/draw"
+      : hashPath === "/sd/history" || hashPath === "/sd-new"
+      ? "/draw/history"
+      : hashPath;
+  const nextSearch = hashQuery ? `?${hashQuery}` : window.location.search;
+
+  window.history.replaceState(null, "", `${nextPath}${nextSearch}`);
+  return true;
+}
+
+function normalizeLegacyDrawPath() {
+  if (typeof window === "undefined") return false;
+
+  if (window.location.pathname === "/sd") {
+    window.history.replaceState(null, "", "/draw");
     return true;
   }
 
   if (
-    window.location.hash === "#/sd/history" ||
-    window.location.hash === "#/sd-new"
+    window.location.pathname === "/sd/history" ||
+    window.location.pathname === "/sd-new"
   ) {
-    window.history.replaceState(null, "", "#/draw/history");
+    window.history.replaceState(null, "", "/draw/history");
     return true;
   }
 
@@ -33,7 +55,7 @@ export default function HomeEntry() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    normalizeLegacyDrawHash();
+    normalizeLegacyHashRoute() || normalizeLegacyDrawPath();
     prepareRouteEntryForSync(getCurrentHashPath(), {
       source: "route-guard",
     });
@@ -41,7 +63,7 @@ export default function HomeEntry() {
   }, []);
 
   if (!ready) {
-    normalizeLegacyDrawHash();
+    normalizeLegacyHashRoute() || normalizeLegacyDrawPath();
     return <div suppressHydrationWarning />;
   }
 

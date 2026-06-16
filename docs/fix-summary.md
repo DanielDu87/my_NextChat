@@ -77,7 +77,7 @@ cd /www/wwwroot/nextchat
    ```
 
 2. **测试应用功能**
-   - 访问 https://ngpt.chat
+   - 访问 https://chat.dyxcloud.com
    - 输入访问密码登录
    - 测试创建新会话
    - 测试发送消息

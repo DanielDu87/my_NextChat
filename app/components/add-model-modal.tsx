@@ -450,7 +450,6 @@ export function AddModelSelector(props: {
     showAdded,
     addedModelsList,
     candidateFetchedModels,
-    filterModel,
     addedModelKeys,
     selectedProviderId,
     removeModel,

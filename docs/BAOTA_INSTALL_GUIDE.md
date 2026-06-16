@@ -6,12 +6,12 @@
 
 - 项目目录：`/www/dk_project/my_NextChat`
 - Compose 项目名：`my_nextchat`
-- 宝塔 Docker 网站名称：`ngpt.chat`
-- 访问域名：`https://ngpt.chat`
+- 宝塔 Docker 网站名称：`chat.dyxcloud.com`
+- 访问域名：`https://chat.dyxcloud.com`
 - 宝塔 Docker 网站路径：`/www/dk_project/my_NextChat`
 - Sub2API 项目目录：`/www/dk_project/my_sub2api`
-- Sub2API 宝塔 Docker 网站名称：`sub2api.ngpt.chat`
-- Sub2API 域名：`sub2api.ngpt.chat`
+- Sub2API 宝塔 Docker 网站名称：`sub2api.chat.dyxcloud.com`
+- Sub2API 域名：`sub2api.chat.dyxcloud.com`
 
 ---
 
@@ -317,15 +317,15 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 
 1. 进入 `Docker -> Docker 网站`
 2. 点击 `添加网站`
-3. 网站名称填写：`ngpt.chat`
-4. 域名填写：`ngpt.chat`
+3. 网站名称填写：`chat.dyxcloud.com`
+4. 域名填写：`chat.dyxcloud.com`
 5. 代理目标填写：`http://127.0.0.1:3000`
 6. 开启 WebSocket 支持并保存
 
 补充说明：
 
-- 当前实际约定里，宝塔 Docker 网站名称必须直接使用域名 `ngpt.chat`
-- 域名、站点 JSON、Nginx 配置文件名、证书目录继续使用同一个域名 `ngpt.chat`
+- 当前实际约定里，宝塔 Docker 网站名称必须直接使用域名 `chat.dyxcloud.com`
+- 域名、站点 JSON、Nginx 配置文件名、证书目录继续使用同一个域名 `chat.dyxcloud.com`
 - 不要把 `docker_sites.name` / `dk_sites.name` 改成 `nextchat` 这种项目名
 - 否则宝塔 Docker 面板会按网站名称去读取 `/www/server/panel/vhost/cert/{name}` 和 `/www/server/panel/vhost/nginx/{name}.conf`，SSL 状态会显示异常
 - 项目名应写在备注字段，例如 `docker_sites.remark = nextchat`、`dk_sites.ps = nextchat`
@@ -333,7 +333,7 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 - 不要再把站点目录放到 `/www/dk_project/wwwroot/...`
 - Sub2API 的站点路径固定使用 `/www/dk_project/my_sub2api`
 - 不再使用旧目录 `/www/dk_project/sub2api_runtime`
-- 如果残留旧路径，例如 `/www/dk_project/wwwroot/43.163.5.9` 或 `/www/dk_project/wwwroot/ngpt.chat`，需要清理后再维护
+- 如果残留旧路径，例如 `/www/dk_project/wwwroot/43.163.5.9` 或 `/www/dk_project/wwwroot/chat.dyxcloud.com`，需要清理后再维护
 
 代码同步规则：
 
@@ -348,18 +348,18 @@ NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=user:admin
 ```bash
 sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from dk_sites;"
 sqlite3 /www/server/panel/data/db/docker.db "select id,name,path from docker_sites;"
-cat /www/dk_project/sites/ngpt.chat/ngpt.chat.json
-cat /www/server/panel/vhost/nginx/ngpt.chat.conf
+cat /www/dk_project/sites/chat.dyxcloud.com/chat.dyxcloud.com.json
+cat /www/server/panel/vhost/nginx/chat.dyxcloud.com.conf
 ```
 
 必须满足：
 
-- `dk_sites.name = ngpt.chat`
-- `docker_sites.name = ngpt.chat`
+- `dk_sites.name = chat.dyxcloud.com`
+- `docker_sites.name = chat.dyxcloud.com`
 - `docker_sites.path = /www/dk_project/my_NextChat`
-- `ngpt.chat.json` 的 `site_path = /www/dk_project/my_NextChat`
-- `ngpt.chat.conf` 的 `root = /www/dk_project/my_NextChat`
-- SSL 证书目录必须存在：`/www/server/panel/vhost/cert/ngpt.chat/`
+- `chat.dyxcloud.com.json` 的 `site_path = /www/dk_project/my_NextChat`
+- `chat.dyxcloud.com.conf` 的 `root = /www/dk_project/my_NextChat`
+- SSL 证书目录必须存在：`/www/server/panel/vhost/cert/chat.dyxcloud.com/`
 
 ---
 
@@ -375,7 +375,7 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 
 ### 首次验证步骤
 
-1. 浏览器打开 `https://ngpt.chat` 并完成登录。
+1. 浏览器打开 `https://chat.dyxcloud.com` 并完成登录。
 2. 等待 1 到 3 秒，让页面自动同步完成。
 3. 打开设置页，确认服务器里已有的 API 配置、模型和聊天记录已经出现在本地页面。
 
@@ -385,9 +385,9 @@ cat /www/server/panel/vhost/nginx/ngpt.chat.conf
 - 如果你把应用部署成了内置 `postgres`，而历史数据在另一台外部 PostgreSQL，上面的自动同步不会帮你跨库恢复数据。
 - 这种情况需要先把部署连接切回原来的数据库，再谈首次同步恢复。
 - 如果刚部署完仍然看到旧的前端报错，先强制刷新浏览器或使用无痕窗口，确认页面已经加载新 bundle。
-- 如果浏览器已经提示证书正常，后续访问统一使用 `https://ngpt.chat`，不要再使用 IP 地址访问。
+- 如果浏览器已经提示证书正常，后续访问统一使用 `https://chat.dyxcloud.com`，不要再使用 IP 地址访问。
 - 如果输入密码后页面没有进入系统，先确认当前访问地址不是 `http://服务器IP`
-- 这种情况优先用无痕窗口重新打开 `https://ngpt.chat`
+- 这种情况优先用无痕窗口重新打开 `https://chat.dyxcloud.com`
 
 ### 什么时候才需要手动处理数据库
 

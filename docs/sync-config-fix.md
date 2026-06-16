@@ -3,7 +3,7 @@
 ## 🚨 问题描述
 
 ### 症状
-在 API 配置页面（https://ngpt.chat/#/api-config）中：
+在 API 配置页面（https://chat.dyxcloud.com/api-config）中：
 - 点击"保存并同步"按钮提示：`没有可同步的配置条目`
 - 点击"从数据库下载"后没有显示任何数据
 
@@ -160,7 +160,7 @@ SELECT jsonb_object_keys(sync_settings) FROM app_settings;
 ```
 
 ### 2. 进入 API 配置页面
-访问：https://ngpt.chat/#/api-config
+访问：https://chat.dyxcloud.com/api-config
 
 ### 3. 配置 API Key
 

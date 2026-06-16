@@ -26,7 +26,7 @@
 #### 步骤 1：访问页面
 
 ```
-https://ngpt.chat/#/api-config
+https://chat.dyxcloud.com/api-config
 ```
 
 #### 步骤 2：添加 API Key
@@ -60,7 +60,7 @@ https://ngpt.chat/#/api-config
    - 配置保存到数据库
 
 2. **在其他设备**
-   - 访问 <https://ngpt.chat>
+   - 访问 <https://chat.dyxcloud.com>
    - 进入 API 配置
    - 点击"从数据库下载"
    - 配置自动同步
@@ -130,7 +130,7 @@ WHERE user_id = '$USER_ID' AND provider_code = 'openai';
 1. **访问页面**
 
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 2. **刷新页面** (Ctrl+F5)
@@ -242,7 +242,7 @@ NextChat 使用多种存储方式：
 ### 流程 1：单设备使用
 
 ```
-访问 ngpt.chat
+访问 chat.dyxcloud.com
     ↓
 添加 API Key
     ↓
@@ -258,7 +258,7 @@ NextChat 使用多种存储方式：
     ↓
 数据库存储
     ↓
-设备B：访问 ngpt.chat → 从数据库下载
+设备B：访问 chat.dyxcloud.com → 从数据库下载
     ↓
 配置同步
 ```
@@ -272,7 +272,7 @@ NextChat 使用多种存储方式：
     ↓
 使用 import-config.sh 导入
     ↓
-服务器：访问 ngpt.chat → 从数据库下载
+服务器：访问 chat.dyxcloud.com → 从数据库下载
 ```
 
 ---
@@ -315,7 +315,7 @@ NextChat 使用多种存储方式：
 1. **直接在服务器网页配置**
 
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 2. **添加您的 API Key**

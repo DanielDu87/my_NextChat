@@ -18,6 +18,19 @@ cp .env.docker.example .env.docker
 
 访问：<http://localhost:3000>
 
+常用页面：
+
+- 聊天页：<http://localhost:3000/chat>
+- 绘图页：<http://localhost:3000/draw>
+- 绘图历史：<http://localhost:3000/draw/history>
+- API 配置：<http://localhost:3000/api-config>
+
+路由约定：
+
+- 当前使用普通路径 URL，不再新增 `/#/...` hash 链接。
+- 旧 hash 地址会在客户端启动时自动迁移到普通路径。
+- 直接刷新 `/draw`、`/api-config` 等页面应正常进入应用。
+
 停止：
 
 ```bash
@@ -36,13 +49,15 @@ cp .env.docker.example .env.docker
 
 ## 生产部署
 
-生产部署默认使用 `--profile no-proxy`，并通过仓库脚本在服务器侧构建与启动：
+当前线上默认使用宝塔 DockerSite：
 
-- [scripts/deploy-production-no-proxy.sh](../scripts/deploy-production-no-proxy.sh)
+- 部署路径：`/www/dk_project/my_NextChat`
+- Compose：`docker-compose.baota.yml`
+- 环境变量：`.env.baota`
+- 域名：`https://chat.dyxcloud.com`
+- 上游：`http://127.0.0.1:3000`
 
-具体步骤与常见故障排查见：
-
-- [docs/docker-deploy-cn.md](docker-deploy-cn.md)
+非宝塔 Docker 部署仍可参考 [docs/docker-deploy-cn.md](docker-deploy-cn.md)，但线上 `ss` 服务器以 [README_BAOTA.md](../README_BAOTA.md) 和 [docs/baota-chat-dyxcloud-runbook.md](baota-chat-dyxcloud-runbook.md) 为准。
 
 ## 质量检查
 

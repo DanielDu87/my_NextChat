@@ -9,11 +9,11 @@ const es: PartialLocaleType = {
     Unauthorized: isApp
       ? `😆 La conversación encontró algunos problemas, no te preocupes:
     \\ 1️⃣ Si deseas comenzar sin configuración, [haz clic aquí para empezar a chatear inmediatamente 🚀](${SAAS_CHAT_UTM_URL})
-    \\ 2️⃣ Si deseas usar tus propios recursos de OpenAI, haz clic [aquí](/#/settings) para modificar la configuración ⚙️`
+    \\ 2️⃣ Si deseas usar tus propios recursos de OpenAI, haz clic [aquí](/settings) para modificar la configuración ⚙️`
       : `😆 La conversación encontró algunos problemas, no te preocupes:
     \ 1️⃣ Si deseas comenzar sin configuración, [haz clic aquí para empezar a chatear inmediatamente 🚀](${SAAS_CHAT_UTM_URL})
-    \ 2️⃣ Si estás utilizando una versión de implementación privada, haz clic [aquí](/#/auth) para ingresar la clave de acceso 🔑
-    \ 3️⃣ Si deseas usar tus propios recursos de OpenAI, haz clic [aquí](/#/settings) para modificar la configuración ⚙️
+    \ 2️⃣ Si estás utilizando una versión de implementación privada, haz clic [aquí](/auth) para ingresar la clave de acceso 🔑
+    \ 3️⃣ Si deseas usar tus propios recursos de OpenAI, haz clic [aquí](/settings) para modificar la configuración ⚙️
  `,
   },
   Auth: {

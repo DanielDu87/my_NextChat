@@ -506,8 +506,16 @@ export const usePluginStore = createPersistStore(
         return;
       }
 
-      fetch("./plugins.json")
-        .then((res) => res.json())
+      fetch("/plugins.json")
+        .then((res) => {
+          const contentType = res.headers.get("content-type") || "";
+          if (!res.ok || !contentType.includes("application/json")) {
+            throw new Error(
+              `[Plugin] plugins.json load failed: ${res.status} ${contentType}`,
+            );
+          }
+          return res.json();
+        })
         .then((res) => {
           runWithImmediateStoreSyncPaused(async () => {
             const deletedPluginIds = state.deletedPluginIds.filter(
@@ -621,6 +629,9 @@ export const usePluginStore = createPersistStore(
                   );
                 });
             });
+        })
+        .catch((error) => {
+          console.warn("[Plugin] 内置插件配置加载失败:", error);
         });
     },
   },

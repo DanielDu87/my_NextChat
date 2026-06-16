@@ -152,12 +152,20 @@ export const usePromptStore = createPersistStore(
         return;
       }
 
-      const PROMPT_URL = "./prompts.json";
+      const PROMPT_URL = "/prompts.json";
 
       type PromptList = Array<[string, string]>;
 
       fetch(PROMPT_URL)
-        .then((res) => res.json())
+        .then((res) => {
+          const contentType = res.headers.get("content-type") || "";
+          if (!res.ok || !contentType.includes("application/json")) {
+            throw new Error(
+              `[Prompt] prompts.json load failed: ${res.status} ${contentType}`,
+            );
+          }
+          return res.json();
+        })
         .then((res) => {
           const promptList: PromptList = res.cn || [];
           const builtinPrompts = promptList.map(
@@ -177,6 +185,9 @@ export const usePromptStore = createPersistStore(
           );
           SearchService.count.builtin = promptList.length;
           SearchService.init(allPromptsForSearch, userPrompts);
+        })
+        .catch((error) => {
+          console.warn("[Prompt] 内置提示词加载失败:", error);
         });
     },
   },

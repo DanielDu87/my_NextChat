@@ -67,12 +67,12 @@
 
 1. **访问服务器页面**
    ```
-   https://ngpt.chat
+   https://chat.dyxcloud.com
    ```
 
 2. **登录并进入 API 配置**
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 3. **点击"从数据库下载"**
@@ -110,7 +110,7 @@
 
 1. **在服务器页面进入 API 配置**
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 2. **点击"添加新密钥"**
@@ -158,7 +158,7 @@
 
 1. **访问 API 配置页面**
    ```
-   https://ngpt.chat/#/api-config
+   https://chat.dyxcloud.com/api-config
    ```
 
 2. **在"我的配置"部分添加密钥**
@@ -190,7 +190,7 @@
    - 复制整个值
 
 3. **在服务器页面导入**
-   - 打开 https://ngpt.chat/#/api-config
+   - 打开 https://chat.dyxcloud.com/api-config
    - 打开开发者工具 (F12)
    - 在 Console 中执行：
      ```javascript
@@ -382,7 +382,7 @@ echo -e "${GREEN}=== 导入完成 ===${NC}"
 echo ""
 echo -e "${YELLOW}下一步操作：${NC}"
 echo "1. 刷新浏览器页面 (Ctrl+F5)"
-echo "2. 访问: https://ngpt.chat/#/api-config"
+echo "2. 访问: https://chat.dyxcloud.com/api-config"
 echo "3. 点击\"从数据库下载\""
 echo "4. 验证配置是否正确显示"
 echo ""

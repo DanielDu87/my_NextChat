@@ -3968,23 +3968,26 @@ export const useSyncStore = createPersistStore(
         );
 
         if (options?.scope === "draw") {
-          void this.sync(criticalKeys, {
-            isolateQueue: true,
-            force: true,
-            broadcastChatHint: false,
-            abortSignal: options?.abortSignal,
-          }).catch((error) => {
+          try {
+            await this.sync(criticalKeys, {
+              isolateQueue: true,
+              force: true,
+              broadcastChatHint: false,
+              abortSignal: options?.abortSignal,
+            });
+            warnMissingRecoveredApiKey();
+          } catch (error) {
             if (isSyncAbortError(error)) {
               logSyncDebug("[Sync] ⏹️ 绘画关键同步已取消");
               return;
             }
-            syncConsole("warn", "[Sync] ⚠️ 绘画关键同步后台失败:", error);
-          });
-          warnMissingRecoveredApiKey();
-          set({
-            criticalSyncReady: true,
-            criticalSyncInProgress: false,
-          });
+            syncConsole("warn", "[Sync] ⚠️ 绘画关键同步失败:", error);
+          } finally {
+            set({
+              criticalSyncReady: true,
+              criticalSyncInProgress: false,
+            });
+          }
           return;
         }
 
