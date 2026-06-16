@@ -1213,14 +1213,44 @@ const MergeStates: StateMerger = {
     const currentDraw = Array.isArray(currentDrawState?.draw)
       ? currentDrawState.draw
       : [];
-    const sourceDraw = Array.isArray(sourceState?.draw) ? sourceState.draw : [];
+    const currentFinalizedDrawIds = new Set(
+      currentDraw
+        .map((item: any) => {
+          const id = String(item?.id || "");
+          if (!id) return "";
+          return item?.status === "running" ? "" : id;
+        })
+        .filter(Boolean),
+    );
+    const deletedTaskIds = ((): Record<string, unknown> => {
+      if (isObjectLike(currentDrawState?.deletedTaskIds)) {
+        return currentDrawState.deletedTaskIds as Record<string, unknown>;
+      }
+      if (isObjectLike((localState as any)?.deletedTaskIds)) {
+        return (localState as any).deletedTaskIds as Record<string, unknown>;
+      }
+      return {};
+    })();
+    const sourceDraw = (
+      Array.isArray(sourceState?.draw) ? sourceState.draw : []
+    ).filter((item: any) => {
+      const id = String(item?.id || "");
+      if (!id) return true;
+      return !deletedTaskIds[id];
+    });
     const sourceDrawIds = new Set(
       sourceDraw.map((item: any) => String(item?.id || "")).filter(Boolean),
     );
     const activeLocalDraw = [...currentDraw, ...localDraw].filter(
       (item: any) => {
         const id = String(item?.id || "");
-        if (!id || item?.status !== "running" || sourceDrawIds.has(id)) {
+        if (
+          !id ||
+          deletedTaskIds[id] ||
+          currentFinalizedDrawIds.has(id) ||
+          item?.status !== "running" ||
+          sourceDrawIds.has(id)
+        ) {
           return false;
         }
         sourceDrawIds.add(id);
@@ -1242,7 +1272,12 @@ const MergeStates: StateMerger = {
 
     const localPrefs: Record<string, unknown> = {};
     const localStateRecord = localState as Record<string, unknown>;
+    const currentDrawRecord = currentDrawState as Record<string, unknown>;
     for (const field of DRAW_LOCAL_ONLY_FIELDS) {
+      if (field in currentDrawRecord) {
+        localPrefs[field] = currentDrawRecord[field];
+        continue;
+      }
       if (field in localStateRecord) {
         localPrefs[field] = localStateRecord[field];
       }

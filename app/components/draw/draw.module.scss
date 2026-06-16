@@ -42,11 +42,13 @@
   height: 44px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--primary) 28%, var(--white));
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 22%, transparent);
+  box-shadow: none;
+  filter: none;
 
   svg {
     width: 35.05px;
     height: 38px;
+    filter: none;
   }
 }
 

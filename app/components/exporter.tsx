@@ -487,7 +487,7 @@ export function ImagePreviewer(props: {
             const buffer = await response.arrayBuffer();
             const uint8Array = new Uint8Array(buffer);
             await window.__TAURI__.fs.writeBinaryFile(result, uint8Array);
-            showToast(Locale.Download.Success);
+            showTopNotice(Locale.Download.Success);
           } else {
             showToast(Locale.Download.Failed);
           }

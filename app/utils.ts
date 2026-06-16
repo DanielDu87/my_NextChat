@@ -45,40 +45,65 @@ export async function copyToClipboard(
   text: string,
   options?: { silent?: boolean },
 ) {
-  try {
-    if (window.__TAURI__) {
-      window.__TAURI__.writeText(text);
-    } else {
-      await navigator.clipboard.writeText(text);
-    }
+  const notifySuccess = async () => {
+    if (options?.silent) return;
+    const { showTopNotice, Locale } = await getToastHelpers();
+    showTopNotice(Locale.Copy.Success);
+  };
 
-    if (!options?.silent) {
-      const { showTopNotice, Locale } = await getToastHelpers();
-      showTopNotice(Locale.Copy.Success);
-    }
-    return true;
-  } catch (error) {
+  const notifyFailed = async () => {
+    if (options?.silent) return;
+    const { showTopNotice, Locale } = await getToastHelpers();
+    showTopNotice(Locale.Copy.Failed);
+  };
+
+  const copyWithExecCommand = () => {
     const textArea = document.createElement("textarea");
     textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "0";
+    textArea.style.top = "0";
+    textArea.style.opacity = "0";
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
     try {
-      document.execCommand("copy");
-      if (!options?.silent) {
-        const { showTopNotice, Locale } = await getToastHelpers();
-        showTopNotice(Locale.Copy.Success);
-      }
-      return true;
-    } catch (error) {
-      if (!options?.silent) {
-        const { showTopNotice, Locale } = await getToastHelpers();
-        showTopNotice(Locale.Copy.Failed);
-      }
-      return false;
+      return document.execCommand("copy");
     } finally {
       document.body.removeChild(textArea);
     }
+  };
+
+  try {
+    if (window.__TAURI__) {
+      await window.__TAURI__.writeText(text);
+    } else {
+      if (
+        isIOS() ||
+        !window.isSecureContext ||
+        !navigator.clipboard?.writeText
+      ) {
+        const ok = copyWithExecCommand();
+        if (ok) {
+          await notifySuccess();
+          return true;
+        }
+        await notifyFailed();
+        return false;
+      }
+      await navigator.clipboard.writeText(text);
+    }
+
+    await notifySuccess();
+    return true;
+  } catch (error) {
+    const ok = copyWithExecCommand();
+    if (ok) {
+      await notifySuccess();
+      return true;
+    }
+    await notifyFailed();
+    return false;
   }
 }
 
@@ -101,8 +126,8 @@ export async function downloadAs(text: string, filename: string) {
     if (result !== null) {
       try {
         await window.__TAURI__.fs.writeTextFile(result, text);
-        const { showToast, Locale } = await getToastHelpers();
-        showToast(Locale.Download.Success);
+        const { showTopNotice, Locale } = await getToastHelpers();
+        showTopNotice(Locale.Download.Success);
       } catch (error) {
         const { showToast, Locale } = await getToastHelpers();
         showToast(Locale.Download.Failed);
@@ -777,7 +802,7 @@ export function getOperationId(operation: {
 export function clientUpdate() {
   // this a wild for updating client app
   return getToastHelpers().then(
-    ({ showToast, Locale }) =>
+    ({ showToast, showTopNotice, Locale }) =>
       window.__TAURI__?.updater
         .checkUpdate()
         .then((updateResult) => {
@@ -785,7 +810,7 @@ export function clientUpdate() {
             window.__TAURI__?.updater
               .installUpdate()
               .then(() => {
-                showToast(Locale.Settings.Update.Success);
+                showTopNotice(Locale.Settings.Update.Success);
               })
               .catch((e) => {
                 console.error("[Install Update Error]", e);

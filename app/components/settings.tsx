@@ -28,6 +28,7 @@ import {
   PasswordInput,
   Select,
   showConfirm,
+  showTopNotice,
   showToast,
 } from "./ui-lib";
 import { ModelConfigList } from "./model-config";
@@ -436,7 +437,7 @@ function SyncItems() {
                 onClick={async () => {
                   try {
                     await syncStore.sync();
-                    showToast(Locale.Settings.Sync.Success);
+                    showTopNotice(Locale.Settings.Sync.Success);
                   } catch (e) {
                     showToast(Locale.Settings.Sync.Fail);
                     console.error("[Sync]", e);

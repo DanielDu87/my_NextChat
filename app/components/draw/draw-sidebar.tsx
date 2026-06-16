@@ -27,7 +27,7 @@ import {
 import { getParams, getModelParamBasicData } from "./draw-panel";
 import { useDrawStore } from "@/app/store/draw";
 import { useAccessStore } from "@/app/store";
-import { showToast } from "@/app/components/ui-lib";
+import { showToast, showTopNotice } from "@/app/components/ui-lib";
 import {
   isDrawParamSupported,
   pickSupportedDrawParams,
@@ -153,7 +153,7 @@ export function SideBar(props: {
       lastSubmit.fingerprint === fingerprint &&
       now - lastSubmit.at < 1000
     ) {
-      showToast("请求已提交，避免重复生成");
+      showTopNotice("请求已提交，避免重复生成");
       return;
     }
     submitGuardRef.current = { fingerprint, at: now };

@@ -1656,6 +1656,7 @@ export const useDrawStore = createPersistStore<
         set({
           currentParams: data,
         });
+        get().markUpdate();
       },
       setSelectedProvider(provider: string) {
         const providerKey = normalizeDrawProviderKey(provider);

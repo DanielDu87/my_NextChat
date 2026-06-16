@@ -1548,7 +1548,9 @@ export function ChatActions(props: {
         autoAdjustedSizeRef.current !== adjustKey
       ) {
         autoAdjustedSizeRef.current = adjustKey;
-        showToast(`当前模型仅支持 ${currentSize}，已自动切换到兼容尺寸`);
+        showTopNoticeCard(
+          `当前模型仅支持 ${currentSize}，已自动切换到兼容尺寸`,
+        );
       }
     }
     const normalizedQuality = normalizeImageQuality(
@@ -1646,7 +1648,7 @@ export function ChatActions(props: {
                 chatStore.updateTargetSession(session, (session) => {
                   session.mask.modelConfig.size = nextSize as any;
                 });
-                showToast(
+                showTopNoticeCard(
                   nextSize === "720x1280" ? "已切换竖版" : "已切换横版",
                 );
               }}
@@ -1686,7 +1688,7 @@ export function ChatActions(props: {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.size = size;
             });
-            showToast(size);
+            showTopNoticeCard(size);
           }}
         />
       )}
@@ -1707,7 +1709,7 @@ export function ChatActions(props: {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.quality = quality;
             });
-            showToast(quality);
+            showTopNoticeCard(quality);
           }}
         />
       )}
@@ -1728,7 +1730,7 @@ export function ChatActions(props: {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.style = style;
             });
-            showToast(style);
+            showTopNoticeCard(style);
           }}
         />
       )}
@@ -1749,7 +1751,7 @@ export function ChatActions(props: {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.seconds = seconds;
             });
-            showToast(`${seconds} 秒`);
+            showTopNoticeCard(`${seconds} 秒`);
           }}
         />
       )}

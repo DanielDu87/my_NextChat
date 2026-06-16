@@ -27,7 +27,6 @@ import {
   showImageModal,
   showModal,
   showTopNotice,
-  showToast,
 } from "@/app/components/ui-lib";
 import { removeImage } from "@/app/utils/chat";
 import { prepareRouteEntryForSync } from "@/app/utils/route-sync-entry";
@@ -302,7 +301,7 @@ async function downloadImage(url: string, id: string) {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   } catch (error) {
     console.error("download image failed", error);
-    showToast("图片下载失败");
+    showTopNotice("图片下载失败");
   }
 }
 
@@ -541,6 +540,8 @@ export function Draw() {
     const ok = await copyToClipboard(prompt, { silent: true });
     if (ok) {
       showTopNotice(Locale.Copy.Success);
+    } else {
+      showTopNotice(Locale.Copy.Failed);
     }
   }, []);
 
@@ -554,7 +555,7 @@ export function Draw() {
         setSelectedProvider(item.selectedProvider);
       }
       setCurrentParams({ ...(item?.params || {}) });
-      showToast("已填入参数，可修改后生成");
+      showTopNotice("已填入参数，可修改后生成");
       if (isMobileScreen) {
         navigate(Path.Draw);
       }
