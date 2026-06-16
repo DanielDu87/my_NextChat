@@ -365,6 +365,73 @@ export type ToastProps = {
   onClose?: () => void;
 };
 
+type TopNoticeProps = {
+  content: string;
+  style?: CSSProperties;
+};
+
+let globalTopNoticeDiv: HTMLDivElement | null = null;
+let globalTopNoticeRoot: ReturnType<typeof createRoot> | null = null;
+let globalTopNoticeCloseTimer: number | null = null;
+let globalTopNoticeCleanupTimer: number | null = null;
+
+export function TopNotice(props: TopNoticeProps) {
+  return (
+    <div className={styles["top-notice-host"]} style={props.style}>
+      <div className={styles["top-notice-content"]}>{props.content}</div>
+    </div>
+  );
+}
+
+export function showTopNotice(content: string, delay = 2200) {
+  if (typeof document === "undefined") return;
+
+  let hostStyle: CSSProperties | undefined;
+  const anchor = document.querySelector(
+    '[data-top-notice-anchor="true"]',
+  ) as HTMLElement | null;
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    hostStyle = {
+      left: `${Math.round(rect.left)}px`,
+      width: `${Math.round(rect.width)}px`,
+    };
+  }
+
+  if (!globalTopNoticeDiv) {
+    globalTopNoticeDiv = document.createElement("div");
+    document.body.appendChild(globalTopNoticeDiv);
+    globalTopNoticeRoot = createRoot(globalTopNoticeDiv);
+  }
+
+  if (!globalTopNoticeRoot || !globalTopNoticeDiv) return;
+
+  if (globalTopNoticeCloseTimer !== null) {
+    window.clearTimeout(globalTopNoticeCloseTimer);
+    globalTopNoticeCloseTimer = null;
+  }
+  if (globalTopNoticeCleanupTimer !== null) {
+    window.clearTimeout(globalTopNoticeCleanupTimer);
+    globalTopNoticeCleanupTimer = null;
+  }
+
+  globalTopNoticeDiv.className = `${styles["top-notice-show"]}`;
+  globalTopNoticeRoot.render(<TopNotice content={content} style={hostStyle} />);
+
+  globalTopNoticeCloseTimer = window.setTimeout(() => {
+    if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
+    globalTopNoticeDiv.className = `${styles["top-notice-hide"]}`;
+    globalTopNoticeCleanupTimer = window.setTimeout(() => {
+      globalTopNoticeRoot?.render(<></>);
+      if (globalTopNoticeDiv) {
+        globalTopNoticeDiv.className = "";
+      }
+      globalTopNoticeCleanupTimer = null;
+    }, 220);
+    globalTopNoticeCloseTimer = null;
+  }, delay);
+}
+
 export function Toast(props: ToastProps) {
   return (
     <div className={styles["toast-container"]}>

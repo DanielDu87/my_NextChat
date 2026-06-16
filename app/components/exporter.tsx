@@ -14,6 +14,7 @@ import {
   Select,
   showImageModal,
   showModal,
+  showTopNotice,
   showToast,
 } from "./ui-lib";
 import { IconButton } from "./button";
@@ -435,22 +436,19 @@ export function ImagePreviewer(props: {
     showToast(Locale.Export.Image.Toast);
     const dom = previewRef.current;
     if (!dom) return;
-    toBlob(dom).then((blob) => {
+    toBlob(dom).then(async (blob) => {
       if (!blob) return;
       try {
-        navigator.clipboard
-          .write([
-            new ClipboardItem({
-              "image/png": blob,
-            }),
-          ])
-          .then(() => {
-            showToast(Locale.Copy.Success);
-            refreshPreview();
-          });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "image/png": blob,
+          }),
+        ]);
+        showTopNotice(Locale.Copy.Success);
+        refreshPreview();
       } catch (e) {
         console.error("[Copy Image] ", e);
-        showToast(Locale.Copy.Failed);
+        showTopNotice(Locale.Copy.Failed);
       }
     });
   };

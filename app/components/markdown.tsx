@@ -13,7 +13,7 @@ import LoadingIcon from "../icons/three-dots.svg";
 import ReloadButtonIcon from "../icons/reload.svg";
 import React from "react";
 import { useDebouncedCallback } from "use-debounce";
-import { showImageModal, FullScreen } from "./ui-lib";
+import { showImageModal, FullScreen, showTopNotice } from "./ui-lib";
 import {
   ArtifactsShareButton,
   HTMLPreview,
@@ -75,10 +75,8 @@ export function Mermaid(props: { code: string }) {
 export function PreCode(props: { children: any }) {
   const ref = useRef<HTMLPreElement>(null);
   const previewRef = useRef<HTMLPreviewHandler>(null);
-  const copiedTimerRef = useRef<number | null>(null);
   const [mermaidCode, setMermaidCode] = useState("");
   const [htmlCode, setHtmlCode] = useState("");
-  const [copied, setCopied] = useState(false);
   const [codeLang, setCodeLang] = useState("");
   const { height } = useWindowSize();
   const { session } = useCurrentSession();
@@ -111,18 +109,12 @@ export function PreCode(props: { children: any }) {
 
     const ok = await copyToClipboard(
       ref.current.querySelector("code")?.innerText ?? "",
-      { silent: true },
+      {
+        silent: true,
+      },
     );
     if (!ok) return;
-
-    setCopied(true);
-    if (copiedTimerRef.current) {
-      window.clearTimeout(copiedTimerRef.current);
-    }
-    copiedTimerRef.current = window.setTimeout(() => {
-      setCopied(false);
-      copiedTimerRef.current = null;
-    }, 1800);
+    showTopNotice(Locale.Copy.Success);
   };
 
   //Wrap the paragraph for plain-text
@@ -157,23 +149,12 @@ export function PreCode(props: { children: any }) {
     }
   }, [renderArtifacts]);
 
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current) {
-        window.clearTimeout(copiedTimerRef.current);
-      }
-    };
-  }, []);
-
   return (
     <>
       <pre ref={ref}>
         <div className="copy-code-toolbar">
           <span className="copy-code-lang">{codeLang}</span>
           <div className="copy-code-actions">
-            <span className="copy-code-tip">
-              {copied ? Locale.Copy.Success : ""}
-            </span>
             <button
               className="copy-code-button"
               type="button"

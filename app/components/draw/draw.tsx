@@ -26,6 +26,7 @@ import {
   showConfirm,
   showImageModal,
   showModal,
+  showTopNotice,
   showToast,
 } from "@/app/components/ui-lib";
 import { removeImage } from "@/app/utils/chat";
@@ -461,8 +462,6 @@ export function Draw() {
     DRAW_INITIAL_RENDER_COUNT,
   );
   const [, refreshImageDimensions] = useState(0);
-  const [copyNotice, setCopyNotice] = useState("");
-  const copyNoticeTimerRef = useRef<number | null>(null);
   const isDraw = location.pathname === Path.Draw || location.pathname === "/sd";
   const {
     theme: drawTheme,
@@ -538,26 +537,12 @@ export function Draw() {
     refreshImageDimensions((count) => count + 1);
   }, []);
 
-  const showCopyNotice = useCallback((message: string) => {
-    setCopyNotice(message);
-    if (copyNoticeTimerRef.current !== null) {
-      window.clearTimeout(copyNoticeTimerRef.current);
+  const handleCopyPrompt = useCallback(async (prompt: string) => {
+    const ok = await copyToClipboard(prompt, { silent: true });
+    if (ok) {
+      showTopNotice(Locale.Copy.Success);
     }
-    copyNoticeTimerRef.current = window.setTimeout(() => {
-      setCopyNotice("");
-      copyNoticeTimerRef.current = null;
-    }, 1800);
   }, []);
-
-  const handleCopyPrompt = useCallback(
-    async (prompt: string) => {
-      const ok = await copyToClipboard(prompt, { silent: true });
-      if (ok) {
-        showCopyNotice(Locale.Copy.Success);
-      }
-    },
-    [showCopyNotice],
-  );
 
   const handleRetryFill = useCallback(
     (item: any) => {
@@ -591,14 +576,6 @@ export function Draw() {
     clearRequestLogs();
   }, [clearRequestLogs]);
 
-  useEffect(() => {
-    return () => {
-      if (copyNoticeTimerRef.current !== null) {
-        window.clearTimeout(copyNoticeTimerRef.current);
-      }
-    };
-  }, []);
-
   return (
     <>
       <SideBar
@@ -609,14 +586,11 @@ export function Draw() {
         onSelectDrawTheme={setDrawTheme}
       />
       <WindowContent>
-        <div className={clsx(chatStyles.chat, styles["draw-page"])} key={"1"}>
-          {copyNotice && (
-            <div className={chatStyles["provider-switch-toast"]}>
-              <div className={chatStyles["provider-switch-toast-content"]}>
-                {copyNotice}
-              </div>
-            </div>
-          )}
+        <div
+          className={clsx(chatStyles.chat, styles["draw-page"])}
+          data-top-notice-anchor="true"
+          key={"1"}
+        >
           <div
             className={clsx("window-header", styles["draw-header"], {
               [styles["draw-history-header"]]: isMobileScreen && !isDraw,

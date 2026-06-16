@@ -76,7 +76,12 @@
   align-items: center;
   height: 16px;
   overflow: hidden;
-  transition: width 0.3s ease;
+  transition:
+    width 0.3s ease,
+    transform 0.14s ease,
+    background-color 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease;
   animation: slide-in ease 0.3s;
   margin-right: 5px;
   margin-bottom: 10px;
@@ -84,13 +89,15 @@
   // 使用CSS变量控制宽度（由ChatAction组件动态设置）
   width: var(--icon-width, 16px);
 
-  &:hover {
-    width: var(--full-width, auto) !important;
-    background-color: var(--hover-color, #f3f3f3);
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      width: var(--full-width, auto) !important;
+      background-color: var(--hover-color, #f3f3f3);
 
-    .text {
-      opacity: 1 !important;
-      visibility: visible !important;
+      .text {
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
     }
   }
 
@@ -109,6 +116,31 @@
     flex-shrink: 0;
     font-size: 12px;
     color: var(--black);
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    -webkit-tap-highlight-color: transparent;
+
+    &:hover {
+      width: var(--icon-width, 16px) !important;
+      background-color: var(--white) !important;
+      filter: none !important;
+
+      .text {
+        opacity: 0 !important;
+        visibility: hidden !important;
+      }
+    }
+
+    &:active {
+      background-color: color-mix(in srgb, var(--hover-color, #f3f3f3) 88%, var(--white));
+      border-color: rgba(15, 23, 42, 0.08);
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.04),
+        0 4px 12px rgba(15, 23, 42, 0.06);
+      transform: scale(0.94);
+      filter: none !important;
+    }
   }
 }
 

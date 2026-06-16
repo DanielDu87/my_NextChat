@@ -18,12 +18,11 @@ type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 
 async function getToastHelpers() {
-  const [{ showToast }, { default: Locale }] = await Promise.all([
-    import("./components/ui-lib"),
-    import("./locales"),
-  ]);
+  const [{ showToast, showTopNotice }, { default: Locale }] = await Promise.all(
+    [import("./components/ui-lib"), import("./locales")],
+  );
 
-  return { showToast, Locale };
+  return { showToast, showTopNotice, Locale };
 }
 
 export function trimTopic(topic: string) {
@@ -54,8 +53,8 @@ export async function copyToClipboard(
     }
 
     if (!options?.silent) {
-      const { showToast, Locale } = await getToastHelpers();
-      showToast(Locale.Copy.Success);
+      const { showTopNotice, Locale } = await getToastHelpers();
+      showTopNotice(Locale.Copy.Success);
     }
     return true;
   } catch (error) {
@@ -67,13 +66,15 @@ export async function copyToClipboard(
     try {
       document.execCommand("copy");
       if (!options?.silent) {
-        const { showToast, Locale } = await getToastHelpers();
-        showToast(Locale.Copy.Success);
+        const { showTopNotice, Locale } = await getToastHelpers();
+        showTopNotice(Locale.Copy.Success);
       }
       return true;
     } catch (error) {
-      const { showToast, Locale } = await getToastHelpers();
-      showToast(Locale.Copy.Failed);
+      if (!options?.silent) {
+        const { showTopNotice, Locale } = await getToastHelpers();
+        showTopNotice(Locale.Copy.Failed);
+      }
       return false;
     } finally {
       document.body.removeChild(textArea);
