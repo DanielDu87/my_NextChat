@@ -122,7 +122,6 @@ export function prepareRouteEntryForSync(
   }
 
   lastPreparedRoute = normalizedPath;
-  console.clear();
   appendRouteSyncTrace(
     "prepared",
     normalizedPath,

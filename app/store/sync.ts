@@ -125,9 +125,19 @@ const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
 const RETRYABLE_NETWORK_ERROR =
   /Failed to fetch|NetworkError|ERR_CONNECTION|net::ERR_|Load failed|abort|timeout/i;
+const ABORTED_DB_SYNC_ERROR = /^\[DB Sync\] aborted\b/;
+const ABORTED_SYNC_ERROR = /^\[Sync\] aborted\b/;
 let lastMissingApiKeyWarningKey = "";
 let lastRemoteChatMetaCheckAt = 0;
 const syncConsoleDedupMap = new Map<string, number>();
+
+function isSyncAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (ABORTED_DB_SYNC_ERROR.test(error.message) ||
+      ABORTED_SYNC_ERROR.test(error.message))
+  );
+}
 
 function formatSyncLogTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -1995,8 +2005,11 @@ export const useSyncStore = createPersistStore(
   (set, get) => {
     async function syncChatStore(
       client: {
-        getChatIndex?: () => Promise<any>;
-        getChatSessions?: (ids: string[]) => Promise<Record<string, unknown>>;
+        getChatIndex?: (options?: { signal?: AbortSignal }) => Promise<any>;
+        getChatSessions?: (
+          ids: string[],
+          options?: { signal?: AbortSignal },
+        ) => Promise<Record<string, unknown>>;
         setChatDelta?: (
           params: {
             index: ReturnType<typeof buildChatIndexPayload>;
@@ -2008,16 +2021,40 @@ export const useSyncStore = createPersistStore(
             expectedChecksum?: string;
             expectedMissing?: boolean;
           },
+          options?: { signal?: AbortSignal },
         ) => Promise<void>;
-        set: (key: string, value: string) => Promise<void>;
+        set: (...args: any[]) => Promise<void>;
       },
       localChatState: any,
       chatMeta?: StoreSnapshotMeta,
       options?: {
         downloadOnly?: boolean;
         remoteIndex?: any;
+        metaReliable?: boolean;
+        abortSignal?: AbortSignal;
       },
     ) {
+      const abortSignal = options?.abortSignal;
+      const ensureNotAborted = () => {
+        if (abortSignal?.aborted) {
+          throw new Error("[Sync] aborted");
+        }
+      };
+      const callClientWithSignal = <T>(
+        fn: any,
+        args: any[],
+        extraOptions?: Record<string, unknown>,
+      ): Promise<T> => {
+        if (!abortSignal) {
+          return fn(...args) as Promise<T>;
+        }
+        const mergedOptions = { ...extraOptions, signal: abortSignal };
+        if (typeof fn === "function" && fn.length > args.length) {
+          return fn(...args, mergedOptions) as Promise<T>;
+        }
+        return fn(...args) as Promise<T>;
+      };
+
       const lightMode = get().criticalSyncInProgress;
       const hasPendingChatRequest = ChatControllerPool.hasPending();
       const downloadOnly = options?.downloadOnly === true;
@@ -2055,7 +2092,8 @@ export const useSyncStore = createPersistStore(
         String(materializedLocalChatState?.selectedSessionId || "") ===
           String(localLeadingEmptySession?.id || "");
       const remoteIndex =
-        options?.remoteIndex ?? (await client.getChatIndex?.());
+        options?.remoteIndex ??
+        (await callClientWithSignal(client.getChatIndex, []));
       const localDeletedSessionTimestamps = getDeletedSessionTimestamps(
         materializedLocalChatState,
       );
@@ -2087,6 +2125,7 @@ export const useSyncStore = createPersistStore(
           };
         }
         if (!downloadOnly) {
+          ensureNotAborted();
           await client.setChatDelta?.(
             {
               index: localIndex,
@@ -2094,10 +2133,11 @@ export const useSyncStore = createPersistStore(
               deleteSessionIds: [],
             },
             {
-              expectedMissing: !chatMeta,
+              expectedMissing: options?.metaReliable ? !chatMeta : undefined,
               expectedUpdatedAt: chatMeta?.updatedAt,
               expectedChecksum: chatMeta?.checksum,
             },
+            { signal: abortSignal },
           );
         }
 
@@ -2144,6 +2184,7 @@ export const useSyncStore = createPersistStore(
           measureJsonBytes(syncableLocalSessions);
 
         if (!downloadOnly) {
+          ensureNotAborted();
           await client.setChatDelta?.(
             {
               index: localIndex,
@@ -2151,10 +2192,11 @@ export const useSyncStore = createPersistStore(
               deleteSessionIds: [],
             },
             {
-              expectedMissing: !chatMeta,
+              expectedMissing: options?.metaReliable ? !chatMeta : undefined,
               expectedUpdatedAt: chatMeta?.updatedAt,
               expectedChecksum: chatMeta?.checksum,
             },
+            { signal: abortSignal },
           );
         }
 
@@ -2202,6 +2244,7 @@ export const useSyncStore = createPersistStore(
         .map((entry: ChatIndexSessionEntry) => entry.id);
       const remoteSessions = await client.getChatSessions?.(
         remoteSessionIdsToFetch,
+        { signal: abortSignal },
       );
       const downloadedBytes =
         measureJsonBytes(
@@ -2277,6 +2320,7 @@ export const useSyncStore = createPersistStore(
           !hasPendingChatRequest &&
           upsertSessions.length > 0
         ) {
+          ensureNotAborted();
           await client.setChatDelta?.(
             {
               index: mergedIndex,
@@ -2284,10 +2328,11 @@ export const useSyncStore = createPersistStore(
               deleteSessionIds: [],
             },
             {
-              expectedMissing: !chatMeta,
+              expectedMissing: options?.metaReliable ? !chatMeta : undefined,
               expectedUpdatedAt: chatMeta?.updatedAt,
               expectedChecksum: chatMeta?.checksum,
             },
+            { signal: abortSignal },
           );
         }
 
@@ -2398,6 +2443,7 @@ export const useSyncStore = createPersistStore(
         ).filter((entry) => !deleteSessionIds.includes(entry.id));
 
         if (!downloadOnly && !hasPendingChatRequest) {
+          ensureNotAborted();
           await client.setChatDelta?.(
             {
               index: mergedIndex,
@@ -2405,10 +2451,11 @@ export const useSyncStore = createPersistStore(
               deleteSessionIds,
             },
             {
-              expectedMissing: !chatMeta,
+              expectedMissing: options?.metaReliable ? !chatMeta : undefined,
               expectedUpdatedAt: chatMeta?.updatedAt,
               expectedChecksum: chatMeta?.checksum,
             },
+            { signal: abortSignal },
           );
         }
 
@@ -2605,6 +2652,7 @@ export const useSyncStore = createPersistStore(
         logSyncDebug(
           `[Sync] 🔬 执行 setChatDelta: 上传 ${upsertSessions.length} 个会话`,
         );
+        ensureNotAborted();
         await client.setChatDelta?.(
           {
             index: mergedIndex,
@@ -2612,10 +2660,11 @@ export const useSyncStore = createPersistStore(
             deleteSessionIds,
           },
           {
-            expectedMissing: !chatMeta,
+            expectedMissing: options?.metaReliable ? !chatMeta : undefined,
             expectedUpdatedAt: chatMeta?.updatedAt,
             expectedChecksum: chatMeta?.checksum,
           },
+          { signal: abortSignal },
         );
       }
 
@@ -2913,6 +2962,7 @@ export const useSyncStore = createPersistStore(
           skipChatWriteBack?: boolean;
           silentSummary?: boolean;
           manual?: boolean;
+          abortSignal?: AbortSignal;
         },
       ): Promise<void> {
         if (useAuthStore.getState().readOnly && !options?.downloadOnlyChat) {
@@ -2982,6 +3032,27 @@ export const useSyncStore = createPersistStore(
           }
         }
 
+        const abortSignal = options?.abortSignal;
+        const ensureNotAborted = () => {
+          if (abortSignal?.aborted) {
+            throw new Error("[Sync] aborted");
+          }
+        };
+        const callClientWithSignal = <T>(
+          fn: any,
+          args: any[],
+          extraOptions?: Record<string, unknown>,
+        ): Promise<T> => {
+          if (!abortSignal) {
+            return fn(...args) as Promise<T>;
+          }
+          const mergedOptions = { ...extraOptions, signal: abortSignal };
+          if (typeof fn === "function" && fn.length > args.length) {
+            return fn(...args, mergedOptions) as Promise<T>;
+          }
+          return fn(...args) as Promise<T>;
+        };
+
         const currentSync = (async () => {
           syncInFlightManual = options?.manual === true;
           const isolatedQueue =
@@ -2989,6 +3060,7 @@ export const useSyncStore = createPersistStore(
           const startedManualGeneration = getManualDatabaseSyncGeneration();
 
           while ((isolatedQueue ?? queuedSyncKeys).size > 0) {
+            ensureNotAborted();
             if (
               shouldStopAutoSyncForManualSync(options, startedManualGeneration)
             ) {
@@ -3015,15 +3087,52 @@ export const useSyncStore = createPersistStore(
               currentStoreKeys.includes(StoreKey.Chat) &&
               typeof client.getChatIndex === "function";
 
-            const [initialMetas, preFetchedChatIndex] = await Promise.all([
-              typeof client.getMeta === "function" &&
-              currentStoreKeys.length > 0
-                ? client.getMeta(currentStoreKeys)
-                : Promise.resolve([]),
-              shouldPreFetchChatIndex
-                ? client.getChatIndex()
-                : Promise.resolve(undefined),
-            ]);
+            let remoteMetaReliable = false;
+            let initialMetas: StoreSnapshotMeta[] = [];
+            try {
+              ensureNotAborted();
+              if (
+                typeof client.getMeta === "function" &&
+                currentStoreKeys.length > 0
+              ) {
+                initialMetas = await client.getMeta(currentStoreKeys, {
+                  timeoutMs: 60000,
+                  retries: 1,
+                  signal: abortSignal,
+                });
+                remoteMetaReliable = true;
+              }
+            } catch (error) {
+              if (isSyncAbortError(error)) {
+                throw error;
+              }
+              warnSyncDebug(
+                "[Sync] ⚠️ 获取远端元数据失败，继续执行同步:",
+                error,
+              );
+              remoteMetaReliable = false;
+              initialMetas = [];
+            }
+
+            let preFetchedChatIndex: any = undefined;
+            try {
+              ensureNotAborted();
+              if (shouldPreFetchChatIndex) {
+                preFetchedChatIndex = await callClientWithSignal(
+                  client.getChatIndex,
+                  [],
+                );
+              }
+            } catch (error) {
+              if (isSyncAbortError(error)) {
+                throw error;
+              }
+              warnSyncDebug(
+                "[Sync] ⚠️ 预拉取聊天索引失败，继续执行同步:",
+                error,
+              );
+              preFetchedChatIndex = undefined;
+            }
 
             let remoteMetaMap = buildMetaMap(initialMetas);
             logPerfSummary("Sync", {
@@ -3096,7 +3205,7 @@ export const useSyncStore = createPersistStore(
               for (let attempt = 0; attempt < 2; attempt += 1) {
                 const getPayloadStartedAt = nowMs();
                 const remoteDataText = await withRetry<string>(
-                  () => client.get(key),
+                  () => callClientWithSignal(client.get, [key]),
                   {
                     retries: 1,
                     retryable: isRetryableError,
@@ -3140,11 +3249,17 @@ export const useSyncStore = createPersistStore(
                         ? captureCustomModelSyncDiff(localStoreState)
                         : undefined;
                     const writeBackStartedAt = nowMs();
-                    await client.set(key, payloadText, {
-                      expectedMissing: !currentMeta,
-                      expectedUpdatedAt: currentMeta?.updatedAt,
-                      expectedChecksum: currentMeta?.checksum,
-                    });
+                    await callClientWithSignal(client.set, [
+                      key,
+                      payloadText,
+                      {
+                        expectedMissing: remoteMetaReliable
+                          ? !currentMeta
+                          : undefined,
+                        expectedUpdatedAt: currentMeta?.updatedAt,
+                        expectedChecksum: currentMeta?.checksum,
+                      },
+                    ]);
                     logPerfSummary("Sync", {
                       key,
                       getPayloadDurationMs: Number(
@@ -3173,7 +3288,11 @@ export const useSyncStore = createPersistStore(
                       /\[DB Sync\] 409\b/.test(error.message) &&
                       typeof client.getMeta === "function"
                     ) {
-                      const latestMetas = await client.getMeta([key]);
+                      const latestMetas = await client.getMeta([key], {
+                        timeoutMs: 60000,
+                        retries: 1,
+                        signal: abortSignal,
+                      });
                       remoteMetaMap = buildMetaMap([
                         ...Array.from(remoteMetaMap.values()).filter(
                           (meta) => meta.key !== key,
@@ -3236,11 +3355,17 @@ export const useSyncStore = createPersistStore(
                         )
                       : undefined;
                   const writeBackStartedAt = nowMs();
-                  await client.set(key, payloadText, {
-                    expectedMissing: !currentMeta,
-                    expectedUpdatedAt: currentMeta?.updatedAt,
-                    expectedChecksum: currentMeta?.checksum,
-                  });
+                  await callClientWithSignal(client.set, [
+                    key,
+                    payloadText,
+                    {
+                      expectedMissing: remoteMetaReliable
+                        ? !currentMeta
+                        : undefined,
+                      expectedUpdatedAt: currentMeta?.updatedAt,
+                      expectedChecksum: currentMeta?.checksum,
+                    },
+                  ]);
                   logPerfSummary("Sync", {
                     key,
                     getPayloadDurationMs: Number(
@@ -3272,7 +3397,11 @@ export const useSyncStore = createPersistStore(
                     /\[DB Sync\] 409\b/.test(error.message) &&
                     typeof client.getMeta === "function"
                   ) {
-                    const latestMetas = await client.getMeta([key]);
+                    const latestMetas = await client.getMeta([key], {
+                      timeoutMs: 60000,
+                      retries: 1,
+                      signal: abortSignal,
+                    });
                     remoteMetaMap = buildMetaMap([
                       ...Array.from(remoteMetaMap.values()).filter(
                         (meta) => meta.key !== key,
@@ -3309,7 +3438,11 @@ export const useSyncStore = createPersistStore(
             ) => {
               for (let attempt = 0; attempt < 3; attempt += 1) {
                 try {
-                  const retryOptions = { ...options };
+                  const retryOptions = {
+                    ...options,
+                    metaReliable: remoteMetaReliable,
+                    abortSignal,
+                  };
                   if (attempt > 0) {
                     retryOptions.remoteIndex = undefined;
                   }
@@ -3334,7 +3467,11 @@ export const useSyncStore = createPersistStore(
                         "[Sync] ⚠️ 检测到 409 冲突，正在获取最新元数据重试...",
                       );
                     }
-                    const latestMetas = await client.getMeta([StoreKey.Chat]);
+                    const latestMetas = await client.getMeta([StoreKey.Chat], {
+                      timeoutMs: 60000,
+                      retries: 1,
+                      signal: abortSignal,
+                    });
                     remoteMetaMap = buildMetaMap([
                       ...Array.from(remoteMetaMap.values()).filter(
                         (meta) => meta.key !== StoreKey.Chat,
@@ -3520,7 +3657,10 @@ export const useSyncStore = createPersistStore(
 
                     if (options?.downloadOnlyChat !== true) {
                       try {
-                        const latestRemoteIndex = await client.getChatIndex();
+                        const latestRemoteIndex = await callClientWithSignal(
+                          client.getChatIndex,
+                          [],
+                        );
                         const localSyncableCount = buildChatIndexPayload(
                           chatResult.mergedStoreState as any,
                         ).sessions.length;
@@ -3720,12 +3860,17 @@ export const useSyncStore = createPersistStore(
                 try {
                   logSyncSectionTitle("刷新同步元数据");
                   const latestMetas = await client.getMeta(currentStoreKeys, {
-                    timeoutMs: 20000,
-                    retries: 0,
+                    timeoutMs: 60000,
+                    retries: 1,
+                    signal: abortSignal,
                   });
                   this.updateDatabaseMeta(latestMetas);
                   syncConsole("log", "[Sync] ✅ 同步元数据刷新完成");
                 } catch (metaError) {
+                  if (isSyncAbortError(metaError)) {
+                    logSyncDebug("[Sync] ⏹️ 同步元数据刷新已取消");
+                    return;
+                  }
                   syncConsole(
                     "warn",
                     "[Sync] ⚠️ 同步主体已完成，刷新元数据超时或失败，已跳过本次元数据刷新:",
@@ -3744,6 +3889,10 @@ export const useSyncStore = createPersistStore(
                 }
               }
             } catch (e) {
+              if (isSyncAbortError(e)) {
+                logSyncDebug("[Sync] ⏹️ 同步已取消");
+                return;
+              }
               syncConsole("error", "[Sync] ❌ 同步失败:", e);
               throw e;
             }
@@ -3766,6 +3915,7 @@ export const useSyncStore = createPersistStore(
       async autoSync(options?: {
         scope?: AutoSyncScope;
         includeChat?: boolean;
+        abortSignal?: AbortSignal;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过自动同步");
@@ -3776,14 +3926,21 @@ export const useSyncStore = createPersistStore(
           return;
         }
 
-        await this.autoSyncCritical({ scope: options?.scope });
+        await this.autoSyncCritical({
+          scope: options?.scope,
+          abortSignal: options?.abortSignal,
+        });
         await this.autoSyncDeferred({
           scope: options?.scope,
           includeChat: options?.includeChat,
+          abortSignal: options?.abortSignal,
         });
       },
 
-      async autoSyncCritical(options?: { scope?: AutoSyncScope }) {
+      async autoSyncCritical(options?: {
+        scope?: AutoSyncScope;
+        abortSignal?: AbortSignal;
+      }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
           set({
@@ -3806,20 +3963,47 @@ export const useSyncStore = createPersistStore(
           criticalSyncInProgress: true,
         });
 
+        const criticalKeys = getAutoSyncCriticalStoreKeys(
+          options?.scope || "app",
+        );
+
+        if (options?.scope === "draw") {
+          void this.sync(criticalKeys, {
+            isolateQueue: true,
+            force: true,
+            broadcastChatHint: false,
+            abortSignal: options?.abortSignal,
+          }).catch((error) => {
+            if (isSyncAbortError(error)) {
+              logSyncDebug("[Sync] ⏹️ 绘画关键同步已取消");
+              return;
+            }
+            syncConsole("warn", "[Sync] ⚠️ 绘画关键同步后台失败:", error);
+          });
+          warnMissingRecoveredApiKey();
+          set({
+            criticalSyncReady: true,
+            criticalSyncInProgress: false,
+          });
+          return;
+        }
+
         try {
-          const criticalKeys = getAutoSyncCriticalStoreKeys(
-            options?.scope || "app",
-          );
           if (criticalKeys.length > 0) {
             await this.sync(criticalKeys, {
               isolateQueue: true,
               force: true,
               broadcastChatHint: false,
+              abortSignal: options?.abortSignal,
             });
           }
           warnMissingRecoveredApiKey();
         } catch (error) {
-          syncConsole("error", "[Sync] ❌ 关键数据同步失败:", error);
+          if (isSyncAbortError(error)) {
+            logSyncDebug("[Sync] ⏹️ 关键数据同步已取消");
+          } else {
+            syncConsole("error", "[Sync] ❌ 关键数据同步失败:", error);
+          }
         } finally {
           // 同步完成后立即解除阻塞，无论成功与否
           set({
@@ -3963,6 +4147,7 @@ export const useSyncStore = createPersistStore(
       async autoSyncDeferred(options?: {
         includeChat?: boolean;
         scope?: AutoSyncScope;
+        abortSignal?: AbortSignal;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
@@ -3980,7 +4165,10 @@ export const useSyncStore = createPersistStore(
           },
         );
         if (remainingKeys.length > 0) {
-          await this.sync(remainingKeys, { isolateQueue: true });
+          await this.sync(remainingKeys, {
+            isolateQueue: true,
+            abortSignal: options?.abortSignal,
+          });
         }
       },
 

@@ -16,7 +16,6 @@ const STORE_COLUMN_MAP: Partial<Record<string, SettingsColumn>> = {
   [StoreKey.Config]: "extra_settings",
   [StoreKey.Prompt]: "extra_settings",
   [StoreKey.Update]: "extra_settings",
-  [StoreKey.DrawList]: "extra_settings",
 };
 
 function getSettingsColumn(storeKey: string) {
@@ -126,6 +125,20 @@ export async function getAppSettingsStore(
          limit 1`,
         [userId, normalizedStoreKey],
       );
+
+  return result.rows[0]?.payload_json;
+}
+
+export async function getLegacyDrawAppSettingsStore(externalUserId: string) {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const result = await pgQuery<{ payload_json: unknown }>(
+    `select coalesce(extra_settings -> $2, extra_settings -> $3) as payload_json
+     from app_settings
+     where user_id = $1::uuid
+     limit 1`,
+    [userId, StoreKey.DrawList, "sd-list"],
+  );
 
   return result.rows[0]?.payload_json;
 }

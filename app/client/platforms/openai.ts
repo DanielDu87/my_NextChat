@@ -347,9 +347,9 @@ export function buildAiHubMixPredictionPayload(
 ): Record<string, unknown> {
   const normalizedModel = normalizeAiHubMixModelId(model);
   const lowerModel = normalizedModel.toLowerCase();
-  const prompt = getMessageTextContent(
-    options.messages.slice(-1)?.pop() as any,
-  );
+  const prompt =
+    getMessageTextContent(options.messages.slice(-1)?.pop() as any) ||
+    String(extraParams?.prompt || "");
   const normalizedSize = normalizeModelSize(model, options.config?.size);
   const config = options.config || {};
 

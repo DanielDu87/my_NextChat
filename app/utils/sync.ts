@@ -516,7 +516,7 @@ const STORE_SYNC_STRATEGIES: Record<keyof AppState, string> = {
   [StoreKey.ModelCache]: "按 profile 合并，较新的缓存优先",
   [StoreKey.Prompt]: "双向合并",
   [StoreKey.Update]: "云端覆盖本地",
-  [StoreKey.DrawList]: "较新的绘图记录覆盖",
+  [StoreKey.DrawList]: "按记录 id 合并绘图记录",
 };
 
 function markMergedUpdateTime(
@@ -1213,15 +1213,6 @@ const MergeStates: StateMerger = {
     const currentDraw = Array.isArray(currentDrawState?.draw)
       ? currentDrawState.draw
       : [];
-    const currentFinalizedDrawIds = new Set(
-      currentDraw
-        .map((item: any) => {
-          const id = String(item?.id || "");
-          if (!id) return "";
-          return item?.status === "running" ? "" : id;
-        })
-        .filter(Boolean),
-    );
     const deletedTaskIds = ((): Record<string, unknown> => {
       if (isObjectLike(currentDrawState?.deletedTaskIds)) {
         return currentDrawState.deletedTaskIds as Record<string, unknown>;
@@ -1241,22 +1232,20 @@ const MergeStates: StateMerger = {
     const sourceDrawIds = new Set(
       sourceDraw.map((item: any) => String(item?.id || "")).filter(Boolean),
     );
-    const activeLocalDraw = [...currentDraw, ...localDraw].filter(
+    const extraLocalDraw = [...currentDraw, ...localDraw].filter(
       (item: any) => {
         const id = String(item?.id || "");
-        if (
-          !id ||
-          deletedTaskIds[id] ||
-          currentFinalizedDrawIds.has(id) ||
-          item?.status !== "running" ||
-          sourceDrawIds.has(id)
-        ) {
+        if (!id || deletedTaskIds[id] || sourceDrawIds.has(id)) {
           return false;
         }
         sourceDrawIds.add(id);
         return true;
       },
     );
+    const mergedDraw =
+      extraLocalDraw.length > 0
+        ? [...extraLocalDraw, ...sourceDraw]
+        : sourceDraw;
 
     const sourceLabel = sourceState === remoteState ? "远端" : "本地";
     console.log(
@@ -1267,6 +1256,8 @@ const MergeStates: StateMerger = {
         `  - 远端: ${remoteCount} 条，更新于 ${formatSyncUpdatedAt(
           remoteUpdateTime,
         )}\n` +
+        `  - 当前: ${currentDraw.length} 条\n` +
+        `  - 合并后: ${mergedDraw.length} 条\n` +
         `  - 使用: ${sourceLabel}`,
     );
 
@@ -1285,10 +1276,7 @@ const MergeStates: StateMerger = {
 
     const mergedState = {
       ...sourceState,
-      draw:
-        activeLocalDraw.length > 0
-          ? [...activeLocalDraw, ...sourceDraw]
-          : sourceDraw,
+      draw: mergedDraw,
       lastUpdateTime: markMergedUpdateTime(localUpdateTime, remoteUpdateTime),
     };
 

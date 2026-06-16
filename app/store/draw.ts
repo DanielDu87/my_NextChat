@@ -124,8 +124,6 @@ function buildOpenAICompatibleDrawPayload(
     case "google-gemini-31-image":
     case "google-gemini-3-pro-image": {
       if (provider !== ServiceProvider.Google) {
-        payload.text_prompt = payload.prompt;
-        delete payload.prompt;
         payload.response_format = params.response_format || "url";
         assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
         assignDrawParam(payload, "resolution", params.resolution || "1K");
@@ -142,8 +140,6 @@ function buildOpenAICompatibleDrawPayload(
     case "google-gemini-25-image":
     case "google-gemini-image": {
       if (provider !== ServiceProvider.Google) {
-        payload.text_prompt = payload.prompt;
-        delete payload.prompt;
         payload.response_format = params.response_format || "url";
         assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
         return payload;
@@ -158,8 +154,6 @@ function buildOpenAICompatibleDrawPayload(
     case "google-imagen": {
       assignDrawParam(payload, "n", params.n ? Number(params.n) : undefined);
       if (provider !== ServiceProvider.Google) {
-        payload.text_prompt = payload.prompt;
-        delete payload.prompt;
         payload.response_format = params.response_format || "url";
         assignDrawParam(payload, "aspect_ratio", params.aspect_ratio || "1:1");
         assignDrawParam(payload, "resolution", params.resolution || "1K");
@@ -435,7 +429,7 @@ function buildGoogleNativeDrawPayload(
 
   // Gemini 3.1 Flash Image（Nano Banana 2）支持思考级别，REST 枚举为首字母大写。
   const generationConfig: Record<string, unknown> = {
-    responseModalities: ["IMAGE"],
+    responseModalities: ["TEXT", "IMAGE"],
   };
   if (Object.keys(imageConfig).length > 0) {
     generationConfig.imageConfig = imageConfig;
@@ -570,6 +564,35 @@ function buildGoogleNativeImageUrl(baseUrl: string, model: string) {
       ? `v1beta/models/${normalizedModel}:predict`
       : `v1beta/models/${normalizedModel}:generateContent`,
   );
+}
+
+function buildAiHubMixGeminiBaseUrl(baseUrl: string) {
+  const normalizedBase = normalizeBaseUrl(baseUrl);
+  try {
+    const url = new URL(normalizedBase);
+    return `${url.origin}/gemini`;
+  } catch {
+    return "https://aihubmix.com/gemini";
+  }
+}
+
+function isGoogleNativeImageFamily(family: string) {
+  return [
+    "google-gemini-31-image",
+    "google-gemini-3-pro-image",
+    "google-gemini-25-image",
+    "google-gemini-image",
+    "google-imagen",
+  ].includes(family);
+}
+
+function isGeminiNativeImageFamily(family: string) {
+  return [
+    "google-gemini-31-image",
+    "google-gemini-3-pro-image",
+    "google-gemini-25-image",
+    "google-gemini-image",
+  ].includes(family);
 }
 
 function redactLongString(value: unknown, maxLength = 240): unknown {
@@ -908,6 +931,30 @@ const DEFAULT_DRAW_STATE = {
 const activeDrawRequestIds = new Set<string>();
 const MAX_DRAW_RESUME_ATTEMPTS = 3;
 
+function getDrawTaskPrompt(task: any) {
+  return String(
+    task?.params?.prompt ||
+      task?.prompt ||
+      task?.request?.prompt ||
+      task?.requestBody?.prompt ||
+      task?.requestBody?.input?.prompt ||
+      "",
+  ).trim();
+}
+
+function normalizeDrawTaskPrompt(task: any) {
+  const prompt = getDrawTaskPrompt(task);
+  if (!prompt) return task;
+  return {
+    ...task,
+    prompt,
+    params: {
+      ...(task?.params || {}),
+      prompt,
+    },
+  };
+}
+
 export const useDrawStore = createPersistStore<
   {
     currentId: number;
@@ -979,11 +1026,12 @@ export const useDrawStore = createPersistStore<
       },
       sendTask(data: any, okCall?: Function) {
         get().clearRequestLogs();
+        data = normalizeDrawTaskPrompt(data);
         data = {
           ...data,
           id: nanoid(),
           status: "running",
-          selectedProvider: _get().selectedProvider,
+          selectedProvider: data.selectedProvider || _get().selectedProvider,
           requestedAt: Date.now(),
         };
         logger.draw.log(
@@ -1011,6 +1059,7 @@ export const useDrawStore = createPersistStore<
 
         const resumableTasks: any[] = [];
         const failedTaskIds: string[] = [];
+        const invalidTaskIds: string[] = [];
 
         set((prev) => {
           const prevState = prev as any;
@@ -1020,6 +1069,19 @@ export const useDrawStore = createPersistStore<
               !pendingTasks.some((task: any) => String(task?.id) === taskId)
             ) {
               return item;
+            }
+
+            const prompt = getDrawTaskPrompt(item);
+            if (!prompt) {
+              invalidTaskIds.push(taskId);
+              return {
+                ...item,
+                status: "error",
+                error:
+                  item?.error ||
+                  "页面刷新后无法恢复：原绘图任务缺少提示词，请点击重试填回参数后重新生成",
+                interruptedAt: Date.now(),
+              };
             }
 
             const resumeAttempts = Number(item?.resumeAttempts || 0);
@@ -1036,7 +1098,7 @@ export const useDrawStore = createPersistStore<
             }
 
             const nextTask = {
-              ...item,
+              ...normalizeDrawTaskPrompt(item),
               status: "running",
               error: "",
               resumeAttempts: resumeAttempts + 1,
@@ -1060,6 +1122,13 @@ export const useDrawStore = createPersistStore<
           logger.draw.warn(
             `检测到 ${failedTaskIds.length} 个绘图任务超过恢复次数，已改为失败状态`,
             { ids: failedTaskIds },
+          );
+        }
+
+        if (invalidTaskIds.length > 0) {
+          logger.draw.warn(
+            `检测到 ${invalidTaskIds.length} 个缺少提示词的绘图任务，已停止自动恢复`,
+            { ids: invalidTaskIds },
           );
         }
 
@@ -1156,20 +1225,34 @@ export const useDrawStore = createPersistStore<
         } else if (OPENAI_COMPATIBLE_DRAW_PROVIDERS.has(provider)) {
           const baseUrl = getProfileBaseUrl(accessStore, selectedProfile);
           const normalizedBaseUrl = normalizeBaseUrl(baseUrl || ApiPath.OpenAI);
+          const drawFamily = getDrawModelFamily(data.model, provider);
           const aiHubMixPredictionPath = isAiHubMixUrl(normalizedBaseUrl)
             ? getAiHubMixPredictionModelPath(data.model)
             : null;
 
           if (
+            isAiHubMixUrl(normalizedBaseUrl) &&
+            isGeminiNativeImageFamily(drawFamily)
+          ) {
+            path = buildGoogleNativeImageUrl(
+              buildAiHubMixGeminiBaseUrl(normalizedBaseUrl),
+              data.model,
+            );
+            responseMode = "openai-compatible";
+            headers.Authorization = bearerToken;
+            headers["x-goog-api-key"] = apiKey;
+            headers["Content-Type"] = "application/json";
+            appendAihubmixHeaders(headers, normalizedBaseUrl);
+            const payload = buildGoogleNativeDrawPayload(
+              data.model,
+              data.params || {},
+            );
+            body = JSON.stringify(payload);
+            requestBodyLog = payload;
+          } else if (
             provider === ServiceProvider.Google &&
             !aiHubMixPredictionPath &&
-            [
-              "google-gemini-31-image",
-              "google-gemini-3-pro-image",
-              "google-gemini-25-image",
-              "google-gemini-image",
-              "google-imagen",
-            ].includes(getDrawModelFamily(data.model, provider))
+            isGoogleNativeImageFamily(drawFamily)
           ) {
             path = buildGoogleNativeImageUrl(normalizedBaseUrl, data.model);
             responseMode = "openai-compatible";
@@ -1558,7 +1641,7 @@ export const useDrawStore = createPersistStore<
             if (requestId) {
               activeDrawRequestIds.delete(requestId);
             }
-            get().markUpdate();
+            globalThis.setTimeout(() => get().markUpdate(), 0);
           });
       },
       updateDraw(_draw: any) {
@@ -1711,6 +1794,20 @@ export const useDrawStore = createPersistStore<
   {
     name: StoreKey.DrawList,
     version: 3,
+    partialize: ((state: any) => ({
+      currentId: state.currentId,
+      draw: state.draw,
+      deletedTaskIds: state.deletedTaskIds,
+      providerModels: state.providerModels,
+      providerCurrentModelMap: state.providerCurrentModelMap,
+      models: state.models,
+      currentModel: state.currentModel,
+      currentParams: state.currentParams,
+      selectedProvider: state.selectedProvider,
+      lastRequestLog: state.lastRequestLog,
+      lastResponseLog: state.lastResponseLog,
+      lastUpdateTime: state.lastUpdateTime,
+    })) as any,
     migrate: (persistedState: any, version) => {
       if (!persistedState || typeof persistedState !== "object") {
         return persistedState;

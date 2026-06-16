@@ -28,7 +28,7 @@
 | Mask store | `app_settings` | `extra_settings -> 'mask-store'` | `app-settings-repository.ts` |
 | Prompt store | `app_settings` | `extra_settings -> 'prompt-store'` | `app-settings-repository.ts` |
 | 更新状态 | `app_settings` | `extra_settings -> 'chat-update'` | `app-settings-repository.ts` |
-| 绘图记录 | `app_settings` | `extra_settings -> 'sd-list'` | `app-settings-repository.ts` |
+| 绘图记录 | `user_draw_stores` | `payload_json` | `draw-store-repository.ts` |
 | Access store 结构化 provider 配置 | `provider_configs` | 每个 profile 一行 | `provider-config-repository.ts` |
 | Access store 密钥 | `provider_api_keys` | 每类 key 一行 | `provider-config-repository.ts` |
 | 额外敏感配置加密存储 | `sync_secrets` | `encrypted_payload` | `sync-secrets.ts` |
@@ -48,7 +48,7 @@
 | `mask-store` | `app_settings` | `extra_settings` | `mask-store` |
 | `prompt-store` | `app_settings` | `extra_settings` | `prompt-store` |
 | `chat-update` | `app_settings` | `extra_settings` | `chat-update` |
-| `sd-list` | `app_settings` | `extra_settings` | `sd-list` |
+| `draw-list` | `user_draw_stores` | `payload_json` | `draw-list` |
 
 > **变更说明**：v4 优化后，`app-config` / `model-cache-store` / `sync` 三个 store 不再独占 `model_settings` / `sync_settings` 列（已并入 `extra_settings`）；`app_settings` 现在只有 4 个固定列：`chat_settings / plugin_settings / security_settings / extra_settings`。
 
@@ -74,7 +74,7 @@
 | Mask | `mask-store` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 同上 | 同上 | 无外部来源 |
 | Prompt | `prompt-store` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
 | 更新状态 | `chat-update` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
-| 绘图记录 | `sd-list` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
+| 绘图记录 | `draw-list` | `IndexedDB` | PostgreSQL `user_draw_stores.payload_json` | 先读本地，再检查云端版本 | 同上 | 无外部来源 |
 | 同步元信息 | `sync` | `IndexedDB` | PostgreSQL `app_settings.extra_settings` | 本地直接读取 | 随同步动作更新 | `/api/db/sync-meta` |
 | 页面宽度 | `sidebarWidth` | `localStorage` | 无 | 只读本地 | 不参与云端同步 | 无 |
 | 语言 | `lang` | `localStorage` | 无 | 只读本地 | 不参与云端同步 | 无 |

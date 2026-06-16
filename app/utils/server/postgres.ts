@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-11-sync-storage-v4";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-16-draw-store-table-v1";
 
 function isRetryablePostgresError(error: unknown) {
   const message =
@@ -323,6 +323,31 @@ export async function ensureSyncStorageSchema() {
         add column if not exists extra_settings jsonb not null default '{}'::jsonb
       `);
         await client.query(`
+        create table if not exists user_draw_stores (
+          user_id uuid primary key references app_users(id) on delete cascade,
+          payload_json jsonb not null default '{}'::jsonb,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        insert into user_draw_stores (
+          user_id,
+          payload_json,
+          created_at,
+          updated_at
+        )
+        select
+          user_id,
+          coalesce(extra_settings -> 'draw-list', extra_settings -> 'sd-list'),
+          created_at,
+          updated_at
+        from app_settings
+        where (extra_settings ? 'draw-list' or extra_settings ? 'sd-list')
+          and coalesce(extra_settings -> 'draw-list', extra_settings -> 'sd-list') is not null
+        on conflict (user_id) do nothing
+      `);
+        await client.query(`
         create table if not exists conversations (
           id uuid primary key default generate_uuid_v4(),
           user_id uuid not null references app_users(id) on delete cascade,
@@ -418,6 +443,11 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create or replace trigger trg_app_settings_updated_at
         before update on app_settings
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_user_draw_stores_updated_at
+        before update on user_draw_stores
         for each row execute function set_updated_at()
       `);
         await client.query(`

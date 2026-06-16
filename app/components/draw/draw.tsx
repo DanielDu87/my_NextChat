@@ -551,25 +551,23 @@ export function Draw() {
   const handleRetryFill = useCallback(
     (item: any) => {
       const model = String(item?.model || "").trim();
+      const retryParams = { ...(item?.params || {}) };
+      const prompt = String(retryParams.prompt || "").trim();
+      if (!model || !prompt) {
+        showTopNotice("原任务缺少模型或提示词，无法重试");
+        return;
+      }
       if (model) {
         setCurrentModel(model);
       }
       if (item?.selectedProvider) {
         setSelectedProvider(item.selectedProvider);
       }
-      setCurrentParams({ ...(item?.params || {}) });
+      setCurrentParams(retryParams);
       showTopNotice("已填入参数，可修改后生成");
-      if (isMobileScreen) {
-        navigate(Path.Draw);
-      }
+      navigate(Path.Draw);
     },
-    [
-      isMobileScreen,
-      navigate,
-      setCurrentModel,
-      setCurrentParams,
-      setSelectedProvider,
-    ],
+    [navigate, setCurrentModel, setCurrentParams, setSelectedProvider],
   );
 
   useEffect(() => {

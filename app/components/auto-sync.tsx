@@ -313,7 +313,10 @@ export default function AutoSync() {
     };
   }, []);
 
-  const ensureRemoteBootstrapState = async (scope: AutoSyncScope) => {
+  const ensureRemoteBootstrapState = async (
+    scope: AutoSyncScope,
+    abortSignal?: AbortSignal,
+  ) => {
     const syncStore = useSyncStore.getState();
     const client = syncStore.getClient() as any;
     if (typeof client.getMeta !== "function") {
@@ -322,7 +325,27 @@ export default function AutoSync() {
 
     const bootstrapKeys: SyncStoreKey[] =
       scope === "draw" ? [StoreKey.DrawList] : [StoreKey.Access, StoreKey.Chat];
-    const metas = await client.getMeta(bootstrapKeys);
+    let metas: any[] = [];
+    try {
+      metas = await client.getMeta(bootstrapKeys, {
+        timeoutMs: 60000,
+        retries: 1,
+        signal: abortSignal,
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /^\[(DB Sync|Sync)\] aborted\b/.test(error.message)
+      ) {
+        return false;
+      }
+      autoSyncConsole(
+        "warn",
+        "[AutoSync] ⚠️ 远端初始化元数据检查失败，稍后可通过后台同步再次补齐:",
+        error,
+      );
+      return false;
+    }
     const remoteMetaKeys = new Set(
       (metas || []).map((meta: { key: string }) => meta.key),
     );
@@ -378,6 +401,7 @@ export default function AutoSync() {
       await syncStore.sync(uploadableMissingStoreKeys, {
         isolateQueue: true,
         force: true,
+        abortSignal,
       });
       showToast(
         `检测到云端缺少初始化配置，已自动上传本地数据：${missingStoreKeys.join(
@@ -428,7 +452,11 @@ export default function AutoSync() {
     let autoSyncCancelledByRouteChange = false;
     let routeChangeCancelLogged = false;
     let activeRoutePath = getCurrentHashPath();
+    let syncAbortController: AbortController | null = null;
     let startAutoSync = () => {};
+    const isAbortError = (error: unknown) =>
+      error instanceof Error &&
+      /^\[(DB Sync|Sync)\] aborted\b/.test(error.message);
 
     const shouldCancelForManualSync = () => {
       if (!isManualDatabaseSyncActive()) {
@@ -436,6 +464,8 @@ export default function AutoSync() {
       }
       autoSyncCancelledByManualSync = true;
       hasCompletedAutoSync = true;
+      syncAbortController?.abort();
+      syncAbortController = null;
       return true;
     };
 
@@ -445,6 +475,8 @@ export default function AutoSync() {
       }
       autoSyncCancelledByRouteChange = true;
       hasCompletedAutoSync = true;
+      syncAbortController?.abort();
+      syncAbortController = null;
       if (!routeChangeCancelLogged) {
         routeChangeCancelLogged = true;
         autoSyncConsole(
@@ -885,6 +917,9 @@ export default function AutoSync() {
         clearRetryTimer();
         autoSyncInProgress = true;
         const scope = getCurrentAutoSyncScope();
+        syncAbortController?.abort();
+        syncAbortController = new AbortController();
+        const abortSignal = syncAbortController.signal;
         const criticalSyncStartedAt = nowMs();
         heartbeatTimer = setInterval(
           refreshLock,
@@ -903,10 +938,13 @@ export default function AutoSync() {
         Promise.resolve()
           .then(
             () =>
-              syncStore.autoSyncCritical?.({ scope }) ||
-              syncStore.autoSync?.({ scope }),
+              syncStore.autoSyncCritical?.({ scope, abortSignal }) ||
+              syncStore.autoSync?.({ scope, abortSignal }),
           )
           .catch((error: unknown) => {
+            if (isAbortError(error)) {
+              return;
+            }
             autoSyncConsole(
               "error",
               "[AutoSync] ⚠️ 关键同步失败（不阻止后台同步）:",
@@ -1040,6 +1078,7 @@ export default function AutoSync() {
                   await (syncStore.autoSyncDeferred?.({
                     includeChat: false,
                     scope: deferredScope,
+                    abortSignal,
                   }) ?? Promise.resolve());
                   if (shouldCancelAutoSync(syncPath)) {
                     return;
@@ -1065,7 +1104,7 @@ export default function AutoSync() {
                 return;
               }
               const ensureRemoteBootstrapStartedAt = nowMs();
-              void ensureRemoteBootstrapState(deferredScope)
+              void ensureRemoteBootstrapState(deferredScope, abortSignal)
                 .then(() => {
                   logPerfSummary("StartupSync", {
                     ensureRemoteBootstrapStateDurationMs: Number(
@@ -1074,6 +1113,9 @@ export default function AutoSync() {
                   });
                 })
                 .catch((error: unknown) => {
+                  if (isAbortError(error)) {
+                    return;
+                  }
                   autoSyncConsole(
                     "error",
                     "[AutoSync] ❌ 远端初始化补齐失败:",
@@ -1199,6 +1241,8 @@ export default function AutoSync() {
         cancelDeferredSyncTask();
         cancelDeferredSyncTask = null;
       }
+      syncAbortController?.abort();
+      syncAbortController = null;
       clearRetryTimer();
       releaseLock();
 
@@ -1347,6 +1391,8 @@ export default function AutoSync() {
       if (chatMetaPollTimer) {
         clearInterval(chatMetaPollTimer);
       }
+      syncAbortController?.abort();
+      syncAbortController = null;
       clearHydrationBarrier?.();
       clearHydrationBarrier = null;
       clearRetryTimer();

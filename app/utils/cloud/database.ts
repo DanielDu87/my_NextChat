@@ -33,6 +33,20 @@ async function fetchWithTimeout(
 ) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const externalSignal = init?.signal;
+  let abortedExternally = false;
+  const handleExternalAbort = () => {
+    abortedExternally = true;
+    controller.abort();
+  };
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      throw new Error("[DB Sync] aborted");
+    }
+    externalSignal.addEventListener("abort", handleExternalAbort, {
+      once: true,
+    });
+  }
 
   try {
     return await fetch(path, {
@@ -41,18 +55,22 @@ async function fetchWithTimeout(
     });
   } catch (error) {
     if ((error as Error)?.name === "AbortError") {
+      if (abortedExternally) {
+        throw new Error("[DB Sync] aborted");
+      }
       throw new Error(`[DB Sync] timeout after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", handleExternalAbort);
   }
 }
 
 async function fetchWithRetry(
   path: string,
   init?: RequestInit,
-  options?: { timeoutMs?: number; retries?: number },
+  options?: { timeoutMs?: number; retries?: number; signal?: AbortSignal },
 ) {
   const timeoutMs = options?.timeoutMs ?? DB_SYNC_REQUEST_TIMEOUT_MS;
   const retries = options?.retries ?? 0;
@@ -60,8 +78,18 @@ async function fetchWithRetry(
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      return await fetchWithTimeout(path, init, timeoutMs);
+      return await fetchWithTimeout(
+        path,
+        { ...init, signal: options?.signal },
+        timeoutMs,
+      );
     } catch (error) {
+      if (
+        error instanceof Error &&
+        /^\[DB Sync\] aborted\b/.test(error.message)
+      ) {
+        throw error;
+      }
       lastError = error;
       if (attempt >= retries) {
         throw error;
@@ -97,6 +125,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
       timeoutMs?: number;
       retries?: number;
       retryOnStatuses?: number[];
+      signal?: AbortSignal;
     },
   ) => {
     const retries = options?.retries ?? 0;
@@ -112,6 +141,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
             "Content-Type": "application/json; charset=utf-8",
             ...(init?.headers || {}),
           }),
+          signal: options?.signal,
         },
         { ...options, retries: 0 },
       );
@@ -146,7 +176,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
   const requestWithConflict = async (
     path: string,
     init?: RequestInit,
-    options?: { timeoutMs?: number; retries?: number },
+    options?: { timeoutMs?: number; retries?: number; signal?: AbortSignal },
   ): Promise<{ conflict: true; current?: StoreSnapshotMeta | null } | null> => {
     const response = await fetchWithRetry(
       path,
@@ -156,6 +186,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
           "Content-Type": "application/json; charset=utf-8",
           ...(init?.headers || {}),
         }),
+        signal: options?.signal,
       },
       options,
     );
@@ -195,13 +226,14 @@ export function createDatabaseSyncClient(_: SyncStore) {
       }
     },
 
-    async get(key: string) {
+    async get(key: string, options?: { signal?: AbortSignal }) {
       const response = await request(
         `/api/db/sync/${encodeURIComponent(key)}`,
         {
           method: "GET",
           cache: "no-store",
         },
+        { signal: options?.signal },
       );
       return await response.text();
     },
@@ -210,6 +242,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
       key: string,
       value: string,
       expectation?: StoreSnapshotWriteExpectation,
+      options?: { signal?: AbortSignal },
     ) {
       const conflict = await requestWithConflict(
         `/api/db/sync/${encodeURIComponent(key)}`,
@@ -228,6 +261,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
           },
           body: value,
         },
+        { signal: options?.signal },
       );
 
       if (conflict) {
@@ -237,7 +271,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
 
     async getMeta(
       keys?: string[],
-      options?: { timeoutMs?: number; retries?: number },
+      options?: { timeoutMs?: number; retries?: number; signal?: AbortSignal },
     ) {
       const query = new URLSearchParams();
       (keys || []).forEach((key) => query.append("key", key));
@@ -252,6 +286,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
           timeoutMs: options?.timeoutMs ?? DB_META_REQUEST_TIMEOUT_MS,
           retries: options?.retries ?? 0,
           retryOnStatuses: [500, 502, 503, 504],
+          signal: options?.signal,
         },
       );
       const payload = await response.json();
@@ -260,7 +295,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
         : [];
     },
 
-    async getChatIndex() {
+    async getChatIndex(options?: { signal?: AbortSignal }) {
       const response = await request(
         "/api/db/chat-sync",
         {
@@ -270,13 +305,14 @@ export function createDatabaseSyncClient(_: SyncStore) {
         {
           timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
           retries: 1,
+          signal: options?.signal,
         },
       );
       const payload = await response.json();
       return payload?.index ? (payload.index as ChatIndexPayload) : null;
     },
 
-    async getChatSessions(ids: string[]) {
+    async getChatSessions(ids: string[], options?: { signal?: AbortSignal }) {
       if (!Array.isArray(ids) || ids.length === 0) {
         return {} as Record<string, unknown>;
       }
@@ -290,6 +326,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
         {
           timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
           retries: 1,
+          signal: options?.signal,
         },
       );
       const payload = await response.json();
@@ -305,6 +342,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
         deleteSessionIds?: string[];
       },
       expectation?: StoreSnapshotWriteExpectation,
+      options?: { signal?: AbortSignal },
     ) {
       const conflict = await requestWithConflict(
         "/api/db/chat-sync",
@@ -326,6 +364,7 @@ export function createDatabaseSyncClient(_: SyncStore) {
         {
           timeoutMs: DB_CHAT_REQUEST_TIMEOUT_MS,
           retries: 1,
+          signal: options?.signal,
         },
       );
 

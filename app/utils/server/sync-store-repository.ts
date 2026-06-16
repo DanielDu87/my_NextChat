@@ -19,9 +19,16 @@ import {
 import {
   getChatIndexState,
   getAppSettingsStore,
+  getLegacyDrawAppSettingsStore,
   removeChatIndexState,
   syncAppSettingsStore,
 } from "./app-settings-repository";
+import {
+  getDrawStoreSnapshot,
+  getDrawStoreSnapshotMeta,
+  removeDrawStoreSnapshot,
+  setDrawStoreSnapshot,
+} from "./draw-store-repository";
 import {
   mergeAccessStorePayload,
   stripAccessStoreProfiles,
@@ -223,6 +230,21 @@ export async function getStoreSnapshot(
     return getFullChatStateSnapshot(userId);
   }
 
+  if (storeKey === StoreKey.DrawList) {
+    const drawPayload = await getDrawStoreSnapshot(userId);
+    if (drawPayload !== undefined) {
+      return drawPayload;
+    }
+
+    const legacyPayload = await getLegacyDrawAppSettingsStore(userId);
+    if (legacyPayload !== undefined) {
+      await setDrawStoreSnapshot(userId, legacyPayload);
+      return legacyPayload;
+    }
+
+    return undefined;
+  }
+
   const result = await pgQuery<{ payload_json: unknown }>(
     `select null::jsonb as payload_json where false`,
     [],
@@ -320,13 +342,25 @@ export async function getStoreSnapshotMetas(
     return metas;
   }
 
-  const result = await pgQuery<{
-    store_key: string;
-    updated_at: string;
-    checksum: string;
-    size_bytes: number;
-  }>(
-    `select * from (
+  if (nonChatKeys.includes(StoreKey.DrawList)) {
+    const drawMeta = await getDrawStoreSnapshotMeta(userId);
+    if (drawMeta) {
+      metas.push(drawMeta);
+    }
+  }
+
+  const settingsStoreKeys = nonChatKeys.filter(
+    (key) => key !== StoreKey.DrawList,
+  );
+  const result =
+    settingsStoreKeys.length > 0
+      ? await pgQuery<{
+          store_key: string;
+          updated_at: string;
+          checksum: string;
+          size_bytes: number;
+        }>(
+          `select * from (
        select
          'chat-next-web-plugin'::text as store_key,
          updated_at::text as updated_at,
@@ -364,15 +398,6 @@ export async function getStoreSnapshotMetas(
          and extra_settings ? 'chat-update'
        union all
        select
-         'draw-list'::text,
-         updated_at::text,
-         md5(coalesce((extra_settings -> 'draw-list')::text, (extra_settings -> 'sd-list')::text)),
-         pg_column_size(coalesce(extra_settings -> 'draw-list', extra_settings -> 'sd-list'))
-       from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
-         and (extra_settings ? 'draw-list' or extra_settings ? 'sd-list')
-       union all
-       select
          'app-config'::text,
          updated_at::text,
          md5((extra_settings -> 'app-config')::text),
@@ -383,8 +408,9 @@ export async function getStoreSnapshotMetas(
      ) snapshots
      where store_key = any($1::text[])
      order by store_key`,
-    [nonChatKeys, userId],
-  );
+          [settingsStoreKeys, userId],
+        )
+      : { rows: [] };
   const nextMetas = metas.concat(
     result.rows
       .filter((row) => row.store_key !== StoreKey.Access)
@@ -526,6 +552,11 @@ export async function setStoreSnapshot(
     return;
   }
 
+  if (storeKey === StoreKey.DrawList) {
+    await setDrawStoreSnapshot(userId, payload);
+    return;
+  }
+
   let nextPayload = payload;
   if (storeKey === StoreKey.Access) {
     const { publicPayload, secretPayload } = splitAccessStorePayload(payload);
@@ -574,6 +605,11 @@ export async function removeStoreSnapshot(
 
   if (storeKey === StoreKey.Chat) {
     await removeFullChatStateSnapshot(userId);
+    return;
+  }
+
+  if (storeKey === StoreKey.DrawList) {
+    await removeDrawStoreSnapshot(userId);
     return;
   }
 

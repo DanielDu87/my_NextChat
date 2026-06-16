@@ -20,6 +20,7 @@
     "db:refresh-provider-models": "npx tsx ./scripts/refresh-provider-models.ts",
     "db:seed-chat-performance": "npx tsx ./scripts/seed-chat-performance.ts",
     "db:migrate-chat-store": "npx tsx ./scripts/migrate-chat-store-to-conversations.ts",
+    "db:migrate-draw-store": "npx tsx ./scripts/migrate-draw-store.ts",
     "db:cleanup-legacy-chat-store": "npx tsx ./scripts/cleanup-legacy-chat-state-sessions.ts",
     "db:cleanup-legacy-sync-storage": "npx tsx ./scripts/cleanup-legacy-sync-storage.ts",
     "db:drop-unused-tables": "npx tsx ./scripts/drop-unused-db-tables.ts",
