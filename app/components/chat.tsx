@@ -126,6 +126,7 @@ import {
   Modal,
   Selector,
   showConfirm,
+  showImageModal,
   showPrompt,
   showTopNotice as showTopNoticeCard,
   showToast,
@@ -1872,8 +1873,25 @@ function renderGeneratedMedia(
     );
   }
 
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className={className} key={key} src={url} alt="" />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      className={className}
+      key={key}
+      src={url}
+      alt=""
+      role="button"
+      tabIndex={0}
+      title="点击查看原图"
+      onClick={() => showImageModal(url, true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          showImageModal(url, true);
+        }
+      }}
+    />
+  );
 }
 
 export function ShortcutKeyModal(props: { onClose: () => void }) {
