@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { StoreKey } from "@/app/constant";
 import {
-  getDrawImage,
+  getDrawImageWithThumb,
   removeDrawImage,
+  updateDrawImageThumb,
 } from "@/app/utils/server/draw-image-repository";
 import {
   isPostgresTemporarilyUnavailableError,
@@ -18,6 +19,40 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const DRAW_THUMB_MAX_SIZE = 80 * 1024;
+
+async function generateThumbnail(buffer: Buffer): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+
+  let result = await sharp(buffer)
+    .resize(400, undefined, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+
+  if (result.length <= DRAW_THUMB_MAX_SIZE) {
+    return result;
+  }
+
+  let quality = 80;
+  let width = 400;
+  let thumb = result;
+
+  while (thumb.length > DRAW_THUMB_MAX_SIZE && quality > 10) {
+    quality -= 10;
+    thumb = await sharp(buffer)
+      .resize(width, undefined, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality })
+      .toBuffer();
+
+    if (thumb.length > DRAW_THUMB_MAX_SIZE && width > 100) {
+      width = Math.round(width * 0.7);
+      quality = 80;
+    }
+  }
+
+  return thumb;
+}
+
 type Params = {
   params: {
     id: string;
@@ -26,9 +61,12 @@ type Params = {
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
+    // 检查是否是缩略图请求
+    const isThumb = req.nextUrl.searchParams.get("thumb") === "1";
+
     const externalUserId = await resolveStoreSyncUserId(StoreKey.DrawList, req);
     const record = await withRetryablePostgresOperation(() =>
-      getDrawImage(externalUserId, params.id),
+      getDrawImageWithThumb(externalUserId, params.id),
     );
     if (!record) {
       return NextResponse.json(
@@ -37,6 +75,36 @@ export async function GET(req: NextRequest, { params }: Params) {
       );
     }
 
+    if (isThumb) {
+      // 缩略图请求：如果有缓存缩略图直接返回，否则生成
+      if (record.thumbData) {
+        return new Response(record.thumbData, {
+          status: 200,
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Cache-Control": "private, max-age=31536000, immutable",
+          },
+        });
+      }
+
+      // 没有缩略图，从原图生成
+      const thumbBuffer = await generateThumbnail(record.data);
+
+      // 异步保存缩略图到数据库
+      withRetryablePostgresOperation(() =>
+        updateDrawImageThumb(externalUserId, params.id, thumbBuffer),
+      ).catch(() => {});
+
+      return new Response(thumbBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Cache-Control": "private, max-age=31536000, immutable",
+        },
+      });
+    }
+
+    // 原始图片请求
     return new Response(record.data, {
       status: 200,
       headers: {

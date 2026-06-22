@@ -375,7 +375,7 @@ function DrawImagePreview(props: {
     props.item.thumb_data && props.item.thumb_data.startsWith("data:")
       ? props.item.thumb_data
       : String(props.item.img_data || "").startsWith("/api/db/draw-image/")
-      ? props.item.img_data + "/thumb"
+      ? props.item.img_data + "?thumb=1"
       : props.item.img_data,
   );
   const fullSrc = normalizeDrawImageSrc(props.item.img_data);
