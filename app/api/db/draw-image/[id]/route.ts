@@ -87,19 +87,22 @@ export async function GET(req: NextRequest, { params }: Params) {
         });
       }
 
-      // 没有缩略图，从原图生成
-      const thumbBuffer = await generateThumbnail(record.data);
+      // 没有缓存缩略图：直接返回原图（浏览器缩放，无需等待生成），
+      // 同时在后台异步生成缩略图存入数据库，下次请求直接命中缓存
+      const thumbBufferPromise = generateThumbnail(record.data).then(
+        (thumbBuffer) =>
+          withRetryablePostgresOperation(() =>
+            updateDrawImageThumb(externalUserId, params.id, thumbBuffer),
+          ),
+      );
+      // 不 await，让缩略图生成在后台异步完成
+      thumbBufferPromise.catch(() => {});
 
-      // 异步保存缩略图到数据库
-      withRetryablePostgresOperation(() =>
-        updateDrawImageThumb(externalUserId, params.id, thumbBuffer),
-      ).catch(() => {});
-
-      return new Response(thumbBuffer, {
+      return new Response(record.data, {
         status: 200,
         headers: {
-          "Content-Type": "image/jpeg",
-          "Cache-Control": "private, max-age=31536000, immutable",
+          "Content-Type": record.contentType,
+          "Cache-Control": "private, max-age=3600",
         },
       });
     }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { StoreKey } from "@/app/constant";
-import { createDrawImageWithThumb } from "@/app/utils/server/draw-image-repository";
+import {
+  createDrawImageWithThumb,
+  updateDrawImageThumb,
+} from "@/app/utils/server/draw-image-repository";
 import {
   isPostgresTemporarilyUnavailableError,
   withRetryablePostgresOperation,
@@ -112,6 +115,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // 缩略图生成失败不阻塞主流程
       }
+
       const id = await withRetryablePostgresOperation(() =>
         createDrawImageWithThumb(externalUserId, {
           contentType: parsed.contentType,
@@ -124,6 +128,18 @@ export async function POST(req: NextRequest) {
           { ok: false, error: "upload_failed" },
           { status: 500 },
         );
+      }
+      // 上传时缩略图生成失败，后台异步重试补全
+      if (!thumbRaw) {
+        compressImageToThumbWithBuffer(parsed.data)
+          .then(async (thumbResult) => {
+            await withRetryablePostgresOperation(() =>
+              updateDrawImageThumb(externalUserId, id, thumbResult.raw),
+            );
+          })
+          .catch(() => {
+            // 后台重试也失败，等 ?thumb=1 请求时兜底
+          });
       }
       return NextResponse.json({
         ok: true,
@@ -171,6 +187,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // 缩略图生成失败不阻塞主流程
       }
+
       const id = await withRetryablePostgresOperation(() =>
         createDrawImageWithThumb(externalUserId, {
           contentType,
@@ -183,6 +200,18 @@ export async function POST(req: NextRequest) {
           { ok: false, error: "upload_failed" },
           { status: 500 },
         );
+      }
+      // 上传时缩略图生成失败，后台异步重试补全
+      if (!thumbRaw) {
+        compressImageToThumbWithBuffer(data)
+          .then(async (thumbResult) => {
+            await withRetryablePostgresOperation(() =>
+              updateDrawImageThumb(externalUserId, id, thumbResult.raw),
+            );
+          })
+          .catch(() => {
+            // 后台重试也失败，等 ?thumb=1 请求时兜底
+          });
       }
       return NextResponse.json({
         ok: true,
