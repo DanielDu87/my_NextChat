@@ -1526,10 +1526,48 @@ export const useDrawStore = createPersistStore<
                 logger.draw.log(
                   `✅ 成功 id=${data.id}, 图片URL=${normalizeLogUrl(imageUrl)}`,
                 );
+                // 将外部 URL 图片下载并外部化到本机数据库，避免预签名 URL 过期
+                let finalSrc = imageUrl;
+                let thumbData = "";
+                try {
+                  const response = await fetch(DRAW_IMAGE_API_BASE, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json; charset=utf-8",
+                    },
+                    body: JSON.stringify({ url: imageUrl }),
+                  });
+                  const payload = await response.json().catch(() => null);
+                  if (response.ok && payload?.ok && payload?.url) {
+                    finalSrc = String(payload.url);
+                    // 优先使用服务端用 sharp 生成的缩略图（纯代码，不依赖外部服务）
+                    if (payload.thumb_data) {
+                      thumbData = String(payload.thumb_data);
+                    } else {
+                      // 降级：从 DB URL 获取图片后生成本地缩略图
+                      try {
+                        const thumbBlob = await fetch(finalSrc).then((r) =>
+                          r.blob(),
+                        );
+                        if (thumbBlob.size > 0) {
+                          thumbData = await compressImage(
+                            thumbBlob,
+                            DRAW_THUMB_MAX_SIZE,
+                          );
+                        }
+                      } catch {
+                        // 缩略图生成失败不影响主流程
+                      }
+                    }
+                  }
+                } catch {
+                  // 上传失败则保留原 URL
+                }
                 get().updateDraw({
                   ...data,
                   status: "success",
-                  img_data: imageUrl,
+                  img_data: finalSrc,
+                  ...(thumbData ? { thumb_data: thumbData } : {}),
                 });
                 return true;
               }
