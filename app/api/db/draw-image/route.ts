@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { StoreKey } from "@/app/constant";
-import { createDrawImage } from "@/app/utils/server/draw-image-repository";
+import { createDrawImageWithThumb } from "@/app/utils/server/draw-image-repository";
 import {
   isPostgresTemporarilyUnavailableError,
   withRetryablePostgresOperation,
@@ -15,6 +15,14 @@ export const revalidate = 0;
 const DRAW_THUMB_MAX_SIZE = 80 * 1024;
 
 async function compressImageToThumb(buffer: Buffer): Promise<string> {
+  const { data } = await compressImageToThumbWithBuffer(buffer);
+  return data;
+}
+
+async function compressImageToThumbWithBuffer(buffer: Buffer): Promise<{
+  data: string;
+  raw: Buffer;
+}> {
   const sharp = (await import("sharp")).default;
 
   let result = await sharp(buffer)
@@ -23,7 +31,10 @@ async function compressImageToThumb(buffer: Buffer): Promise<string> {
     .toBuffer();
 
   if (result.length <= DRAW_THUMB_MAX_SIZE) {
-    return `data:image/jpeg;base64,${result.toString("base64")}`;
+    return {
+      data: `data:image/jpeg;base64,${result.toString("base64")}`,
+      raw: result,
+    };
   }
 
   let quality = 80;
@@ -43,7 +54,10 @@ async function compressImageToThumb(buffer: Buffer): Promise<string> {
     }
   }
 
-  return `data:image/jpeg;base64,${thumb.toString("base64")}`;
+  return {
+    data: `data:image/jpeg;base64,${thumb.toString("base64")}`,
+    raw: thumb,
+  };
 }
 
 function parseDataUrl(dataUrl: string) {
@@ -88,21 +102,28 @@ export async function POST(req: NextRequest) {
         StoreKey.DrawList,
         req,
       );
+      // 生成缩略图
+      let thumbData = "";
+      let thumbRaw: Buffer | null = null;
+      try {
+        const thumbResult = await compressImageToThumbWithBuffer(parsed.data);
+        thumbData = thumbResult.data;
+        thumbRaw = thumbResult.raw;
+      } catch (e) {
+        // 缩略图生成失败不阻塞主流程
+      }
       const id = await withRetryablePostgresOperation(() =>
-        createDrawImage(externalUserId, parsed),
+        createDrawImageWithThumb(externalUserId, {
+          contentType: parsed.contentType,
+          data: parsed.data,
+          thumbData: thumbRaw,
+        }),
       );
       if (!id) {
         return NextResponse.json(
           { ok: false, error: "upload_failed" },
           { status: 500 },
         );
-      }
-      // 生成缩略图
-      let thumbData = "";
-      try {
-        thumbData = await compressImageToThumb(parsed.data);
-      } catch (e) {
-        // 缩略图生成失败不阻塞主流程
       }
       return NextResponse.json({
         ok: true,
@@ -140,21 +161,28 @@ export async function POST(req: NextRequest) {
         StoreKey.DrawList,
         req,
       );
+      // 生成缩略图
+      let thumbData = "";
+      let thumbRaw: Buffer | null = null;
+      try {
+        const thumbResult = await compressImageToThumbWithBuffer(data);
+        thumbData = thumbResult.data;
+        thumbRaw = thumbResult.raw;
+      } catch (e) {
+        // 缩略图生成失败不阻塞主流程
+      }
       const id = await withRetryablePostgresOperation(() =>
-        createDrawImage(externalUserId, { contentType, data }),
+        createDrawImageWithThumb(externalUserId, {
+          contentType,
+          data,
+          thumbData: thumbRaw,
+        }),
       );
       if (!id) {
         return NextResponse.json(
           { ok: false, error: "upload_failed" },
           { status: 500 },
         );
-      }
-      // 生成缩略图
-      let thumbData = "";
-      try {
-        thumbData = await compressImageToThumb(data);
-      } catch (e) {
-        // 缩略图生成失败不阻塞主流程
       }
       return NextResponse.json({
         ok: true,

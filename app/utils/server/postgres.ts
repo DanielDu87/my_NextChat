@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-16-draw-store-table-v2";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-22-draw-thumb-v1";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -383,12 +383,37 @@ export async function ensureSyncStorageSchema() {
           content_type text not null,
           size_bytes integer not null,
           data bytea not null,
+          thumb_data bytea,
           created_at timestamptz not null default now()
         )
       `);
         await client.query(`
         create index if not exists idx_user_draw_images_user_created_at
         on user_draw_images(user_id, created_at desc)
+      `);
+        // 迁移：添加 thumb_data 列到 user_draw_images（已有表）
+        await client.query(`
+        alter table user_draw_images
+        add column if not exists thumb_data bytea
+      `);
+        // 删除完全重复的数据记录
+        await client.query(`
+        delete from user_draw_images
+        where id in (
+          select id from (
+            select id, row_number() over (
+              partition by user_id, content_type, data
+              order by created_at desc
+            ) as rn
+            from user_draw_images
+          ) dup
+          where dup.rn > 1
+        )
+      `);
+        // 防止未来插入重复数据
+        await client.query(`
+        create unique index if not exists idx_user_draw_images_user_content_data
+        on user_draw_images(user_id, content_type, md5(data))
       `);
         await client.query(`
         create table if not exists conversations (
