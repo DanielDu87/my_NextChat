@@ -2101,6 +2101,8 @@ function _Chat() {
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const initializedBottomSessionRef = useRef("");
+  const [bottomRenderReadySessionId, setBottomRenderReadySessionId] =
+    useState("");
   const forceScrollTimeoutsRef = useRef<number[]>([]);
   const forceScrollRafsRef = useRef<number[]>([]);
   const programmaticScrollToBottomUntilRef = useRef(0);
@@ -3994,6 +3996,7 @@ function _Chat() {
     setAutoScroll(false);
     setHitBottom(true);
     initializedBottomSessionRef.current = "";
+    setBottomRenderReadySessionId(safeSession.id);
     followStreamingAfterScrollButtonRef.current = false;
     streamingAutoScrollPausedRef.current = true;
   }, [safeSession.id, setAutoScroll]);
@@ -4321,19 +4324,6 @@ function _Chat() {
   }, [autoScrollEnabled]);
 
   const scrollToBottomLikeMobileTitle = useCallback(() => {
-    const isMobileBrowser =
-      typeof navigator !== "undefined" &&
-      /Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(
-        navigator.userAgent || "",
-      );
-    const isTouchBrowser =
-      typeof navigator !== "undefined" && Number(navigator.maxTouchPoints) > 0;
-
-    if (!isMobileScreen && !isMobileBrowser && !isTouchBrowser) {
-      scrollToBottom();
-      return;
-    }
-
     userScrollIntentRef.current = false;
     userScrollIntentUntilRef.current = 0;
     streamingAutoScrollPausedRef.current = false;
@@ -4404,9 +4394,7 @@ function _Chat() {
         window.requestAnimationFrame(trackAnimatedBottom);
     });
   }, [
-    isMobileScreen,
     renderMessages.length,
-    scrollToBottom,
     scrollRef,
     setAutoScroll,
     setAutoScrollEnabled,
@@ -4415,28 +4403,17 @@ function _Chat() {
   ]);
 
   const handleScrollToBottomButton = useCallback(
-    (immediate: boolean) => {
+    (_immediate: boolean) => {
       userScrollIntentRef.current = false;
       userScrollIntentUntilRef.current = 0;
       streamingAutoScrollPausedRef.current = false;
       setAutoScrollEnabled(true);
       setAutoScroll(true);
       setHitBottom(true);
-
-      if (immediate) {
-        scrollToBottomLikeMobileTitle();
-        return;
-      }
-
-      scrollToBottom();
-      window.requestAnimationFrame(() => {
-        syncHitBottomFromDom();
-      });
+      scrollToBottomLikeMobileTitle();
     },
     [
-      scrollToBottom,
       scrollToBottomLikeMobileTitle,
-      syncHitBottomFromDom,
       setAutoScroll,
       setAutoScrollEnabled,
       setHitBottom,
@@ -6247,6 +6224,7 @@ function _Chat() {
     if (shouldHideChatMessages) return;
     if (!currentSessionHasMessages) return;
     if (sessionMessages.length === 0) return;
+    if (bottomRenderReadySessionId !== safeSession.id) return;
     if (initializedBottomSessionRef.current === safeSession.id) return;
 
     const targetRenderIndex = Math.max(
@@ -6273,6 +6251,7 @@ function _Chat() {
     setChatBodyOverflowing(isScrollDomOverflowing(dom));
     streamingAutoScrollPausedRef.current = true;
   }, [
+    bottomRenderReadySessionId,
     currentSessionHasMessages,
     isScrollDomOverflowing,
     msgRenderIndex,

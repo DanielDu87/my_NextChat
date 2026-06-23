@@ -161,40 +161,40 @@ function isMobileUserAgent() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-function getNavigationType() {
-  if (typeof window === "undefined") {
-    return "";
+function isAndroidUserAgent() {
+  if (typeof navigator === "undefined") {
+    return false;
   }
 
-  try {
-    const [navigationEntry] = performance.getEntriesByType(
-      "navigation",
-    ) as PerformanceNavigationTiming[];
-    return navigationEntry?.type || "";
-  } catch {
-    return "";
-  }
+  return /Android/i.test(navigator.userAgent);
 }
 
-function isDesktopPwaStartEntry(urlId: string) {
+function isDesktopPwaStartEntry() {
   if (typeof window === "undefined") {
     return false;
   }
 
   try {
-    if (!isStandaloneDisplayMode() || !isMobileUserAgent()) {
-      return false;
+    if (!isAndroidUserAgent()) {
+      return isStandaloneDisplayMode() && isMobileUserAgent();
     }
 
-    const navigationType = getNavigationType();
-    if (navigationType === "reload") {
-      return false;
-    }
+    const source = new URLSearchParams(window.location.search)
+      .get("source")
+      ?.toLowerCase();
+    const hasDesktopLaunchMarker = [
+      "pwa",
+      "shortcut",
+      "homescreen",
+      "a2hs",
+    ].includes(source || "");
+    const isDirectExternalEntry = document.referrer.trim().length === 0;
 
-    const routePath =
-      String(window.location.hash || "").replace(/^#/, "") ||
-      window.location.pathname;
-    return !urlId || routePath === "/chat" || /^\/chat\/[^/]+$/.test(routePath);
+    return (
+      isStandaloneDisplayMode() ||
+      hasDesktopLaunchMarker ||
+      isDirectExternalEntry
+    );
   } catch {
     return false;
   }
@@ -1787,7 +1787,7 @@ export const useChatStore = createPersistStore(
         const resolveSessionById = (sessionId: string) =>
           sessions.find((session) => session.id === sessionId);
 
-        const isPwaStartEntry = isDesktopPwaStartEntry(urlId);
+        const isPwaStartEntry = isDesktopPwaStartEntry();
         const isNewTab = !hasTabInitialized || isPwaStartEntry;
         const isRefreshWithChatUrl =
           !isPwaStartEntry &&
