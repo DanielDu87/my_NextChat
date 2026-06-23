@@ -111,8 +111,6 @@ import {
 import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 
 import dynamic from "next/dynamic";
-import { flushSync } from "react-dom";
-
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
 import Locale from "../locales";
@@ -2050,7 +2048,6 @@ function _Chat() {
   const preserveMobileInputBlurHeightRef = useRef(false);
   const collapseTimersRef = useRef<number[]>([]);
   const mobileBlurTimerRef = useRef<number | null>(null);
-  const pendingMobileSubmitScrollRestoreRef = useRef(false);
   const pendingMobileInputResetAfterSubmitRef = useRef(false);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputPanelRef = useRef<HTMLDivElement>(null);
@@ -2103,8 +2100,7 @@ function _Chat() {
   const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const historyAutoBottomSessionRef = useRef("");
-  const pendingInitialBottomSessionRef = useRef<string | null>(null);
+  const initializedBottomSessionRef = useRef("");
   const forceScrollTimeoutsRef = useRef<number[]>([]);
   const forceScrollRafsRef = useRef<number[]>([]);
   const programmaticScrollToBottomUntilRef = useRef(0);
@@ -2281,6 +2277,8 @@ function _Chat() {
   const userScrollIntentUntilRef = useRef(0);
   const lastChatBodyScrollTopRef = useRef(0);
   const chatBodyTouchStartYRef = useRef<number | null>(null);
+  const chatBodyTouchMovedRef = useRef(false);
+  const chatBodyTouchPausedFollowRef = useRef(false);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -3428,9 +3426,6 @@ function _Chat() {
     setIsLoading(true);
     chatStore.onUserInput(userInput, attachImages).then(() => {
       setIsLoading(false);
-      if (isMobileScreen) {
-        scrollDomToBottom();
-      }
     });
     setAttachImages([]);
     localStorage.removeItem(unfinishedAttachImagesKey);
@@ -3440,18 +3435,9 @@ function _Chat() {
     setPromptHints([]);
     resetMobileComposerAfterSubmit();
     if (isMobileScreen) {
-      pendingMobileSubmitScrollRestoreRef.current = true;
       if (!mobileInputSubmitBlurRef.current) {
         prepareMobileSubmitKeyboardDismiss();
       }
-      setAutoScroll(true);
-      setHitBottom(true);
-      [50, 180, 420, 760].forEach((delay) => {
-        window.setTimeout(() => {
-          window.scrollTo(0, 0);
-          forceScrollToBottom();
-        }, delay);
-      });
     } else {
       (isMobileScreen ? mobileInputRef.current : inputRef.current)?.focus();
     }
@@ -3962,6 +3948,8 @@ function _Chat() {
   const renderMessages = useMemo(() => {
     return context.concat(sessionMessages as RenderMessage[]);
   }, [context, sessionMessages]);
+  const renderMessagesLengthRef = useRef(renderMessages.length);
+  renderMessagesLengthRef.current = renderMessages.length;
 
   const [msgRenderIndex, _setMsgRenderIndex] = useState(
     Math.max(0, renderMessages.length - CHAT_PAGE_SIZE),
@@ -3999,13 +3987,16 @@ function _Chat() {
   }, [messages, context.length]);
 
   useLayoutEffect(() => {
-    _setMsgRenderIndex(Math.max(0, renderMessages.length - CHAT_PAGE_SIZE));
+    _setMsgRenderIndex(
+      Math.max(0, renderMessagesLengthRef.current - CHAT_PAGE_SIZE),
+    );
+    setAutoScrollEnabled(false);
+    setAutoScroll(false);
     setHitBottom(true);
-  }, [safeSession.id, renderMessages.length]);
-
-  useLayoutEffect(() => {
-    pendingInitialBottomSessionRef.current = safeSession.id || null;
-  }, [safeSession.id]);
+    initializedBottomSessionRef.current = "";
+    followStreamingAfterScrollButtonRef.current = false;
+    streamingAutoScrollPausedRef.current = true;
+  }, [safeSession.id, setAutoScroll]);
 
   const updateStatusPanelOverlap = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -4165,9 +4156,6 @@ function _Chat() {
     if (isScrollingUp) {
       followStreamingAfterScrollButtonRef.current = false;
       clearForceScrollToBottom();
-      if (pendingInitialBottomSessionRef.current === safeSession.id) {
-        pendingInitialBottomSessionRef.current = null;
-      }
     }
 
     if (isAssistantStreaming) {
@@ -4219,41 +4207,19 @@ function _Chat() {
     scrollDomToBottom();
   }, [renderMessages.length, scrollDomToBottom, setMsgRenderIndex]);
 
-  const jumpToBottom = useCallback(() => {
-    setAutoScroll(true);
-    setHitBottom(true);
-    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-
-    const dom = scrollRef.current;
-    if (dom) {
-      const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
-      dom.scrollTop = targetTop;
-    }
-  }, [
-    renderMessages.length,
-    scrollRef,
-    setAutoScroll,
-    setHitBottom,
-    setMsgRenderIndex,
-  ]);
-
   const forceScrollToBottom = useCallback(() => {
     if (typeof window === "undefined") return;
     clearForceScrollToBottom();
-    programmaticScrollToBottomUntilRef.current = Date.now() + 1600;
-    setAutoScroll(true);
-    setHitBottom(true);
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
     const runScroll = () => {
-      programmaticScrollToBottomUntilRef.current = Date.now() + 240;
-      setAutoScroll(true);
-      setHitBottom(true);
+      programmaticScrollToBottomUntilRef.current = Date.now() + 32;
       const dom = scrollRef.current;
       if (dom) {
         const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
         dom.scrollTop = targetTop;
-        dom.scrollTo?.({ top: targetTop, behavior: "auto" });
+        lastChatBodyScrollTopRef.current = targetTop;
+        setHitBottom(isScrollDomHitBottom(dom));
       }
     };
 
@@ -4270,24 +4236,11 @@ function _Chat() {
       forceScrollRafsRef.current.push(innerRaf);
     });
     forceScrollRafsRef.current.push(outerRaf);
-    const delays = isMobileScreen
-      ? [0, 48, 120, 260, 420, 700, 1000, 1400]
-      : [48, 120, 260, 420];
-    delays.forEach((delay) => {
-      const timer = window.setTimeout(() => {
-        forceScrollTimeoutsRef.current = forceScrollTimeoutsRef.current.filter(
-          (timeoutId) => timeoutId !== timer,
-        );
-        runScroll();
-      }, delay);
-      forceScrollTimeoutsRef.current.push(timer);
-    });
   }, [
     clearForceScrollToBottom,
-    isMobileScreen,
+    isScrollDomHitBottom,
     renderMessages.length,
     scrollRef,
-    setAutoScroll,
     setHitBottom,
     setMsgRenderIndex,
   ]);
@@ -4302,20 +4255,29 @@ function _Chat() {
   const scrollToBottomTouchTriggeredRef = useRef(false);
   const pauseStreamingAutoScrollForUser = useCallback(
     (durationMs = 1800) => {
-      if (!isAssistantStreaming) return;
       clearStreamingScrollResumeTimer();
+      clearForceScrollToBottom();
+      followStreamingAfterScrollButtonRef.current = false;
+      programmaticScrollToBottomUntilRef.current = 0;
+      const dom = scrollRef.current;
+      if (dom) {
+        dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
+        lastChatBodyScrollTopRef.current = dom.scrollTop;
+      }
       userScrollIntentRef.current = true;
       userScrollIntentUntilRef.current = Date.now() + durationMs;
       streamingAutoScrollPausedRef.current = true;
       setAutoScrollEnabled(false);
       setAutoScroll(false);
-      setHitBottom(false);
+      syncHitBottomFromDom();
     },
     [
+      clearForceScrollToBottom,
       clearStreamingScrollResumeTimer,
-      isAssistantStreaming,
+      scrollRef,
       setAutoScroll,
       setAutoScrollEnabled,
+      syncHitBottomFromDom,
     ],
   );
 
@@ -4325,6 +4287,38 @@ function _Chat() {
       userScrollIntentUntilRef.current = Date.now() + 1200;
     }
   }, [isAssistantStreaming]);
+
+  const prepareTouchScrollTakeover = useCallback(() => {
+    chatBodyTouchMovedRef.current = false;
+    chatBodyTouchPausedFollowRef.current =
+      autoScrollEnabled ||
+      followStreamingAfterScrollButtonRef.current ||
+      animatedScrollToBottomRafRef.current !== null;
+    if (!chatBodyTouchPausedFollowRef.current) return;
+
+    clearForceScrollToBottom();
+    streamingAutoScrollPausedRef.current = true;
+    programmaticScrollToBottomUntilRef.current = 0;
+    const dom = scrollRef.current;
+    if (dom) {
+      dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
+      lastChatBodyScrollTopRef.current = dom.scrollTop;
+    }
+  }, [autoScrollEnabled, clearForceScrollToBottom, scrollRef]);
+
+  const finishTouchScrollTakeover = useCallback(() => {
+    if (
+      chatBodyTouchPausedFollowRef.current &&
+      !chatBodyTouchMovedRef.current &&
+      autoScrollEnabled
+    ) {
+      streamingAutoScrollPausedRef.current = false;
+      followStreamingAfterScrollButtonRef.current = true;
+    }
+    chatBodyTouchPausedFollowRef.current = false;
+    chatBodyTouchMovedRef.current = false;
+    chatBodyTouchStartYRef.current = null;
+  }, [autoScrollEnabled]);
 
   const scrollToBottomLikeMobileTitle = useCallback(() => {
     const isMobileBrowser =
@@ -4342,21 +4336,16 @@ function _Chat() {
 
     userScrollIntentRef.current = false;
     userScrollIntentUntilRef.current = 0;
-    programmaticScrollToBottomUntilRef.current = Date.now() + 700;
     streamingAutoScrollPausedRef.current = false;
     followStreamingAfterScrollButtonRef.current = true;
-    flushSync(() => {
-      setAutoScrollEnabled(true);
-      setAutoScroll(true);
-      setHitBottom(true);
-      setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-    });
+    setAutoScrollEnabled(true);
+    setAutoScroll(true);
+    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
     const settleToBottom = (behavior: ScrollBehavior = "auto") => {
       const nextDom = scrollRef.current;
       if (!nextDom) return;
-      programmaticScrollToBottomUntilRef.current =
-        Date.now() + (behavior === "smooth" ? 720 : 240);
+      programmaticScrollToBottomUntilRef.current = Date.now() + 32;
 
       const targetTop = Math.max(
         0,
@@ -4380,8 +4369,10 @@ function _Chat() {
       }
 
       const elapsed = performance.now() - startedAt;
-      if (elapsed > 920 || !isAssistantStreaming) {
+      if (elapsed > 900) {
         animatedScrollToBottomRafRef.current = null;
+        programmaticScrollToBottomUntilRef.current = 0;
+        syncHitBottomFromDom();
         return;
       }
 
@@ -4391,7 +4382,7 @@ function _Chat() {
       );
       const distanceToBottom = targetTop - nextDom.scrollTop;
       if (distanceToBottom > 12) {
-        programmaticScrollToBottomUntilRef.current = Date.now() + 180;
+        programmaticScrollToBottomUntilRef.current = Date.now() + 32;
         nextDom.scrollTo?.({
           top: targetTop,
           behavior: "smooth",
@@ -4412,46 +4403,21 @@ function _Chat() {
       animatedScrollToBottomRafRef.current =
         window.requestAnimationFrame(trackAnimatedBottom);
     });
-    window.setTimeout(() => {
-      const nextDom = scrollRef.current;
-      if (!nextDom || isScrollDomHitBottom(nextDom)) return;
-      settleToBottom("smooth");
-    });
-    window.setTimeout(() => {
-      const nextDom = scrollRef.current;
-      if (!nextDom || isScrollDomHitBottom(nextDom)) return;
-      settleToBottom("auto");
-    }, 520);
-    window.setTimeout(() => {
-      if (!followStreamingAfterScrollButtonRef.current) return;
-      programmaticScrollToBottomUntilRef.current = 0;
-      streamingAutoScrollPausedRef.current = false;
-      setAutoScrollEnabled(true);
-      setAutoScroll(true);
-      setHitBottom(true);
-      if (isAssistantStreaming) {
-        scrollDomToBottom();
-      }
-    }, 760);
   }, [
     isMobileScreen,
-    isAssistantStreaming,
-    isScrollDomHitBottom,
     renderMessages.length,
     scrollToBottom,
-    scrollDomToBottom,
     scrollRef,
     setAutoScroll,
     setAutoScrollEnabled,
-    setHitBottom,
     setMsgRenderIndex,
+    syncHitBottomFromDom,
   ]);
 
   const handleScrollToBottomButton = useCallback(
     (immediate: boolean) => {
       userScrollIntentRef.current = false;
       userScrollIntentUntilRef.current = 0;
-      programmaticScrollToBottomUntilRef.current = Date.now() + 700;
       streamingAutoScrollPausedRef.current = false;
       setAutoScrollEnabled(true);
       setAutoScroll(true);
@@ -5096,9 +5062,6 @@ function _Chat() {
 
     const stabilize = () => {
       resetMobileDocumentScroll();
-      if (pendingMobileSubmitScrollRestoreRef.current) {
-        forceScrollToBottom();
-      }
     };
     const delays = [0, 80, 180, 360, 700];
 
@@ -5106,14 +5069,12 @@ function _Chat() {
       window.setTimeout(() => {
         stabilize();
         if (index === delays.length - 1) {
-          pendingMobileSubmitScrollRestoreRef.current = false;
           mobileViewportReleaseTimersRef.current = [];
         }
       }, delay),
     );
   }, [
     clearMobileKeyboardReleaseTimers,
-    forceScrollToBottom,
     isMobileScreen,
     resetMobileDocumentScroll,
   ]);
@@ -5232,10 +5193,7 @@ function _Chat() {
         mobileBlurTimerRef.current = null;
       }
       const shouldResetAfterSubmit =
-        pendingMobileInputResetAfterSubmitRef.current ||
-        (pendingMobileSubmitScrollRestoreRef.current &&
-          userInput.trim().length === 0 &&
-          attachImages.length === 0);
+        pendingMobileInputResetAfterSubmitRef.current;
       if (shouldResetAfterSubmit) {
         pendingMobileInputResetAfterSubmitRef.current = false;
         setInputRows(1);
@@ -5262,7 +5220,6 @@ function _Chat() {
     },
     [
       cancelMobileKeyboardViewportSync,
-      attachImages.length,
       collapseMobileInput,
       prepareMobileInputBlurLayout,
       resetMobileInputBlurLayout,
@@ -5270,7 +5227,6 @@ function _Chat() {
       scheduleCollapseMobileInput,
       scheduleMobileKeyboardReleaseStabilize,
       syncMobileInputHeight,
-      userInput,
     ],
   );
 
@@ -5677,9 +5633,6 @@ function _Chat() {
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       }
-      scrollToBottom();
-    } else if (pendingMobileSubmitScrollRestoreRef.current) {
-      scrollToBottom();
     }
   }, [
     isMobileScreen,
@@ -5689,7 +5642,6 @@ function _Chat() {
     resetMobileDocumentScroll,
     scheduleMoveInputCursorToEnd,
     scheduleScrollMobileInputToBottom,
-    scrollToBottom,
     finalizeMobileInputBlur,
   ]);
 
@@ -5889,28 +5841,6 @@ function _Chat() {
     collapseMobileInput,
     scheduleMobileKeyboardViewportSync,
     scheduleMobileKeyboardReleaseStabilize,
-  ]);
-
-  useLayoutEffect(() => {
-    if (
-      sessionLoading ||
-      !safeSession.id ||
-      historyAutoBottomSessionRef.current === safeSession.id ||
-      !currentSessionHasMessages ||
-      sessionMessages.length === 0
-    ) {
-      return;
-    }
-
-    historyAutoBottomSessionRef.current = safeSession.id;
-    pendingInitialBottomSessionRef.current = safeSession.id;
-    forceScrollToBottom();
-  }, [
-    currentSessionHasMessages,
-    forceScrollToBottom,
-    safeSession.id,
-    sessionLoading,
-    sessionMessages.length,
   ]);
 
   useEffect(() => {
@@ -6256,10 +6186,7 @@ function _Chat() {
     enterLoading ||
     (isChatUnavailableForSync && currentSessionHasMessages);
   const shouldShowScrollToBottomButton =
-    !autoScrollEnabled &&
-    chatBodyOverflowing &&
-    !hitBottom &&
-    !shouldShowChatRestoreNotice;
+    chatBodyOverflowing && !hitBottom && !shouldShowChatRestoreNotice;
 
   useLayoutEffect(() => {
     if (shouldHideChatMessages) {
@@ -6304,44 +6231,6 @@ function _Chat() {
     };
   }, [shouldHideChatMessages, scrollRef, syncHitBottomFromDom]);
 
-  useLayoutEffect(() => {
-    if (
-      sessionLoading ||
-      shouldHideChatMessages ||
-      !safeSession.id ||
-      !currentSessionHasMessages ||
-      sessionMessages.length === 0
-    ) {
-      return;
-    }
-    if (pendingInitialBottomSessionRef.current !== safeSession.id) {
-      return;
-    }
-
-    forceScrollToBottom();
-    const timer = window.setTimeout(
-      () => {
-        if (pendingInitialBottomSessionRef.current === safeSession.id) {
-          pendingInitialBottomSessionRef.current = null;
-        }
-      },
-      isMobileScreen ? 1500 : 180,
-    );
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    currentSessionHasMessages,
-    forceScrollToBottom,
-    isMobileScreen,
-    msgRenderIndex,
-    safeSession.id,
-    sessionLoading,
-    sessionMessages.length,
-    shouldHideChatMessages,
-  ]);
-
   const chatRestoreNoticeTitle = sessionLoading
     ? "正在载入这段对话"
     : "正在恢复这段对话";
@@ -6353,19 +6242,46 @@ function _Chat() {
     ? "消息正文还在加载，完成后会自动显示。"
     : "对话内容即将显示。";
 
-  const initialAutoScrollSessionIdRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (shouldHideChatMessages) return;
     if (!currentSessionHasMessages) return;
-    if (initialAutoScrollSessionIdRef.current === safeSession.id) return;
+    if (sessionMessages.length === 0) return;
+    if (initializedBottomSessionRef.current === safeSession.id) return;
 
-    initialAutoScrollSessionIdRef.current = safeSession.id;
-    forceScrollToBottom();
+    const targetRenderIndex = Math.max(
+      0,
+      renderMessages.length - CHAT_PAGE_SIZE,
+    );
+    if (msgRenderIndex !== targetRenderIndex) {
+      setMsgRenderIndex(targetRenderIndex);
+      return;
+    }
+
+    const dom = scrollRef.current;
+    if (!dom) return;
+
+    programmaticScrollToBottomUntilRef.current = Date.now() + 32;
+    const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+    dom.scrollTop = targetTop;
+    lastChatBodyScrollTopRef.current = targetTop;
+
+    initializedBottomSessionRef.current = safeSession.id;
+    setAutoScrollEnabled(false);
+    setAutoScroll(false);
+    setHitBottom(true);
+    setChatBodyOverflowing(isScrollDomOverflowing(dom));
+    streamingAutoScrollPausedRef.current = true;
   }, [
     currentSessionHasMessages,
-    forceScrollToBottom,
+    isScrollDomOverflowing,
+    msgRenderIndex,
+    renderMessages.length,
     safeSession.id,
+    scrollRef,
+    sessionMessages.length,
+    setAutoScroll,
+    setMsgRenderIndex,
     shouldHideChatMessages,
   ]);
 
@@ -7287,7 +7203,7 @@ function _Chat() {
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
               onWheel={(e) => {
                 markUserScrollIntent();
-                if (e.deltaY < -1) {
+                if (Math.abs(e.deltaY) > 1) {
                   pauseStreamingAutoScrollForUser();
                 }
               }}
@@ -7299,9 +7215,9 @@ function _Chat() {
               }
               onTouchStart={(e) => {
                 chatBodyTouchStartYRef.current = e.touches[0]?.clientY ?? null;
+                prepareTouchScrollTakeover();
                 markUserScrollIntent();
                 if (isMobileScreen) {
-                  pauseStreamingAutoScrollForUser();
                   mobileInputOutsidePointerBlurRef.current = false;
                   finalizeMobileInputBlur(true);
                   blurMobileKeyboard();
@@ -7314,18 +7230,20 @@ function _Chat() {
                 const startY = chatBodyTouchStartYRef.current;
                 const currentY = e.touches[0]?.clientY;
                 if (
+                  !chatBodyTouchMovedRef.current &&
                   startY != null &&
                   currentY != null &&
                   Math.abs(currentY - startY) > 3
                 ) {
+                  chatBodyTouchMovedRef.current = true;
                   pauseStreamingAutoScrollForUser();
                 }
               }}
               onTouchEnd={() => {
-                chatBodyTouchStartYRef.current = null;
+                finishTouchScrollTakeover();
               }}
               onTouchCancel={() => {
-                chatBodyTouchStartYRef.current = null;
+                finishTouchScrollTakeover();
               }}
             >
               {shouldShowChatRestoreNotice && (

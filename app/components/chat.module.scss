@@ -2825,6 +2825,8 @@
   .chat-body {
     --chat-scroll-button-clearance: 72px;
     padding: 14px 14px var(--chat-scroll-button-clearance);
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
   }
 
   .chat-session-loading {
