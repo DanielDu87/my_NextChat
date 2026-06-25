@@ -307,6 +307,104 @@ export async function getCacheFile(externalUserId: string, id: string) {
   };
 }
 
+export async function getCacheFileMeta(externalUserId: string, id: string) {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const result = await pgQuery<{
+    file_name: string;
+    file_ext: string;
+    content_type: string;
+    size_bytes: number;
+  }>(
+    `select
+       f.file_name,
+       f.file_ext,
+       f.content_type,
+       f.size_bytes
+     from user_cache_files f
+     where f.id = $1::uuid and f.user_id = $2::uuid
+       and (f.is_pinned = true or f.expires_at > now())
+     limit 1`,
+    [id, userId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    fileName: row.file_name,
+    fileExt: row.file_ext,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+  };
+}
+
+export async function getCacheFileMetaById(id: string) {
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<{
+    file_name: string;
+    file_ext: string;
+    content_type: string;
+    size_bytes: number;
+  }>(
+    `select
+       f.file_name,
+       f.file_ext,
+       f.content_type,
+       f.size_bytes
+     from user_cache_files f
+     where f.id = $1::uuid
+       and (f.is_pinned = true or f.expires_at > now())
+     limit 1`,
+    [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    fileName: row.file_name,
+    fileExt: row.file_ext,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+  };
+}
+
+export async function getCacheFileChunk(
+  externalUserId: string,
+  id: string,
+  offset: number,
+  length: number,
+) {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const result = await pgQuery<{
+    file_name: string;
+    file_ext: string;
+    content_type: string;
+    size_bytes: number;
+    data: Buffer;
+  }>(
+    `select
+       f.file_name,
+       f.file_ext,
+       f.content_type,
+       f.size_bytes,
+       substring(coalesce(f.data, b.data) from $3::int + 1 for $4::int) as data
+     from user_cache_files f
+     left join cache_file_blobs b on b.id = f.blob_id
+     where f.id = $1::uuid and f.user_id = $2::uuid
+       and (f.is_pinned = true or f.expires_at > now())
+     limit 1`,
+    [id, userId, Math.max(0, offset), Math.max(0, length)],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    fileName: row.file_name,
+    fileExt: row.file_ext,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+    data: row.data,
+  };
+}
+
 export async function getCacheFileById(id: string) {
   await ensureSyncStorageSchema();
   const result = await pgQuery<{
@@ -328,6 +426,43 @@ export async function getCacheFileById(id: string) {
        and (f.is_pinned = true or f.expires_at > now())
      limit 1`,
     [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    fileName: row.file_name,
+    fileExt: row.file_ext,
+    contentType: row.content_type,
+    sizeBytes: row.size_bytes,
+    data: row.data,
+  };
+}
+
+export async function getCacheFileChunkById(
+  id: string,
+  offset: number,
+  length: number,
+) {
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<{
+    file_name: string;
+    file_ext: string;
+    content_type: string;
+    size_bytes: number;
+    data: Buffer;
+  }>(
+    `select
+       f.file_name,
+       f.file_ext,
+       f.content_type,
+       f.size_bytes,
+       substring(coalesce(f.data, b.data) from $2::int + 1 for $3::int) as data
+     from user_cache_files f
+     left join cache_file_blobs b on b.id = f.blob_id
+     where f.id = $1::uuid
+       and (f.is_pinned = true or f.expires_at > now())
+     limit 1`,
+    [id, Math.max(0, offset), Math.max(0, length)],
   );
   const row = result.rows[0];
   if (!row) return null;

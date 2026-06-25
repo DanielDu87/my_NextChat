@@ -14,6 +14,7 @@ import BotIconDefault from "../icons/llm-icons/default.svg";
 
 import Locale from "../locales";
 import { PROVIDER_ICONS } from "../config/provider-icons";
+import { LoadingPanel } from "./loading-panel";
 
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -207,17 +208,12 @@ export function List(props: {
 
 export function Loading() {
   return (
-    <div
-      style={{
-        height: "100vh",
-        width: "100vw",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <LoadingIcon />
-    </div>
+    <LoadingPanel
+      title="正在加载页面..."
+      message="请稍候，内容正在准备中。"
+      icon={<LoadingIcon />}
+      layout="fullscreen"
+    />
   );
 }
 

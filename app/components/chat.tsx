@@ -117,6 +117,7 @@ import { Prompt, usePromptStore } from "../store/prompt";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
+import { LoadingPanel } from "./loading-panel";
 import styles from "./chat.module.scss";
 
 import {
@@ -1044,6 +1045,86 @@ function formatAttachmentSize(size: number) {
   return `${(safeSize / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function yieldToBrowserPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window !== "undefined" && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+
+    setTimeout(resolve, 0);
+  });
+}
+
+const PREVIEW_DOWNLOAD_CHUNK_SIZE = 256 * 1024;
+
+async function downloadPreviewBlobInChunks(options: {
+  url: string;
+  signal?: AbortSignal;
+  fileContentType: string;
+  onHeaders?: (contentType: string, total: number) => void;
+  onProgress?: (loaded: number, total: number) => Promise<void> | void;
+}) {
+  const headResponse = await fetch(options.url, {
+    method: "HEAD",
+    credentials: "include",
+    signal: options.signal,
+  });
+  if (!headResponse.ok) {
+    throw new Error(`预览文件读取失败（${headResponse.status}）`);
+  }
+
+  const responseType =
+    String(headResponse.headers.get("content-type") || "").trim() ||
+    options.fileContentType;
+  const total = Number(headResponse.headers.get("content-length") || 0);
+  options.onHeaders?.(responseType, total);
+
+  if (!(total > 0)) {
+    const response = await fetch(options.url, {
+      credentials: "include",
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`预览文件读取失败（${response.status}）`);
+    }
+    const blob = await response.blob();
+    await options.onProgress?.(blob.size || 0, blob.size || 0);
+    return blob;
+  }
+
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+
+  while (loaded < total) {
+    const start = loaded;
+    const end = Math.min(total - 1, start + PREVIEW_DOWNLOAD_CHUNK_SIZE - 1);
+    const response = await fetch(options.url, {
+      credentials: "include",
+      signal: options.signal,
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`预览文件读取失败（${response.status}）`);
+    }
+
+    const chunk = new Uint8Array(await response.arrayBuffer());
+    if (chunk.byteLength === 0) {
+      throw new Error("download_empty_chunk");
+    }
+
+    chunks.push(chunk);
+    loaded += chunk.byteLength;
+    await options.onProgress?.(loaded, total);
+  }
+
+  return new Blob(chunks, {
+    type: responseType || options.fileContentType,
+  });
+}
+
 function isImageAttachmentFile(
   file: Pick<ChatMessageAttachedFile, "type" | "name">,
 ) {
@@ -1287,10 +1368,41 @@ function FilePreviewState(props: {
   progressLabel?: string;
   actionLabel?: string;
   onAction?: () => void;
+  cancelLabel?: string;
+  onCancel?: () => void;
+  metaItems?: string[];
 }) {
+  const actions = [
+    props.onAction
+      ? {
+          label: props.actionLabel || "重试",
+          onClick: props.onAction,
+          tone: "primary" as const,
+        }
+      : null,
+    props.onCancel
+      ? {
+          label: props.cancelLabel || "取消下载",
+          onClick: props.onCancel,
+          tone: "secondary" as const,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    label: string;
+    onClick?: () => void;
+    tone?: "primary" | "secondary";
+  }>;
+
   return (
-    <div className={styles["file-preview-state"]}>
-      <div className={styles["file-preview-state-bubble"]}>
+    <LoadingPanel
+      title={props.title}
+      message={props.message}
+      progress={props.progress}
+      progressLabel={props.progressLabel}
+      fileName={props.file.name || "未命名文件"}
+      metaItems={props.metaItems}
+      actions={actions}
+      icon={
         <div
           className={clsx(
             styles["file-preview-state-icon"],
@@ -1301,39 +1413,9 @@ function FilePreviewState(props: {
             <span className={styles["attach-file-glyph"]}></span>
           </div>
         </div>
-        <div className={styles["file-preview-state-title"]}>{props.title}</div>
-        <div className={styles["file-preview-state-message"]}>
-          {props.message}
-        </div>
-        {typeof props.progress === "number" && props.progress >= 0 && (
-          <div className={styles["file-preview-state-progress"]}>
-            <div className={styles["file-preview-state-progress-track"]}>
-              <div
-                className={styles["file-preview-state-progress-bar"]}
-                style={{
-                  width: `${Math.round(
-                    Math.min(1, Math.max(0, props.progress)) * 100,
-                  )}%`,
-                }}
-              />
-            </div>
-            <div className={styles["file-preview-state-progress-label"]}>
-              {props.progressLabel ||
-                `${Math.round(
-                  Math.min(1, Math.max(0, props.progress)) * 100,
-                )}%`}
-            </div>
-          </div>
-        )}
-        <div className={styles["file-preview-state-actions"]}>
-          {props.onAction && (
-            <button type="button" onClick={props.onAction}>
-              {props.actionLabel || "重试"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+      }
+      className={styles["file-preview-state"]}
+    />
   );
 }
 
@@ -1353,7 +1435,48 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [downloadTotalBytes, setDownloadTotalBytes] = useState(0);
+  const [downloadCancelled, setDownloadCancelled] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const downloadAbortRef = useRef<(() => void) | null>(null);
+  const userCancelledDownloadRef = useRef(false);
+
+  const restartPreview = useCallback(() => {
+    userCancelledDownloadRef.current = false;
+    setDownloadCancelled(false);
+    setReloadKey((value) => value + 1);
+  }, []);
+
+  const cancelDownload = useCallback(() => {
+    userCancelledDownloadRef.current = true;
+    setDownloadCancelled(true);
+    setError("");
+    setLoading(false);
+    downloadAbortRef.current?.();
+  }, []);
+
+  const downloadProgressLabel = useMemo(() => {
+    return `${Math.round(downloadProgress * 100)}%`;
+  }, [downloadProgress]);
+
+  const downloadMetaItems = useMemo(() => {
+    if (downloadTotalBytes > 0) {
+      return [
+        `${file.typeLabel || "文件"} · ${formatAttachmentSize(
+          downloadedBytes,
+        )} / ${formatAttachmentSize(downloadTotalBytes)}`,
+      ];
+    }
+
+    if (downloadedBytes > 0) {
+      return [
+        `${file.typeLabel || "文件"} · 已下载 ${formatAttachmentSize(
+          downloadedBytes,
+        )}`,
+      ];
+    }
+
+    return [`${file.typeLabel || "文件"} · ${formatAttachmentSize(file.size)}`];
+  }, [downloadedBytes, downloadTotalBytes, file.size, file.typeLabel]);
 
   const objectPreview = (url: string) => (
     <object
@@ -1382,6 +1505,8 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
     let shouldRevokeObjectUrl = false;
     let abortController: AbortController | null = null;
     let localObjectUrl = "";
+    let lastProgressPaintAt = 0;
+    let lastProgressPaintBytes = 0;
 
     const load = async () => {
       if (!previewUrl) {
@@ -1399,6 +1524,8 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
       setDownloadProgress(0);
       setDownloadedBytes(0);
       setDownloadTotalBytes(0);
+      setDownloadCancelled(false);
+      userCancelledDownloadRef.current = false;
       if (hostRef.current) {
         hostRef.current.innerHTML = "";
       }
@@ -1469,58 +1596,52 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
           return;
         }
 
+        let responseType = "";
+        let contentLength = 0;
+
         abortController = new AbortController();
-        const response = await fetch(previewUrl, {
-          credentials: "include",
+        downloadAbortRef.current = () => abortController?.abort();
+        const responseBlob = await downloadPreviewBlobInChunks({
+          url: previewUrl,
           signal: abortController.signal,
+          fileContentType: getPreviewContentType(file),
+          onHeaders: (nextContentType, nextTotal) => {
+            responseType = nextContentType;
+            contentLength = nextTotal;
+            if (!cancelled && nextTotal > 0) {
+              setDownloadTotalBytes(nextTotal);
+            }
+          },
+          onProgress: async (loaded, total) => {
+            if (cancelled) {
+              return;
+            }
+
+            const resolvedTotal = total > 0 ? total : contentLength;
+            if (resolvedTotal > 0) {
+              contentLength = resolvedTotal;
+              setDownloadTotalBytes(resolvedTotal);
+            }
+
+            setDownloadedBytes(loaded);
+            setDownloadProgress(
+              resolvedTotal > 0
+                ? Math.min(1, Math.max(0, loaded / resolvedTotal))
+                : 0,
+            );
+
+            const now = Date.now();
+            const shouldYieldForPaint =
+              (resolvedTotal > 0 && loaded === resolvedTotal) ||
+              now - lastProgressPaintAt >= 48 ||
+              loaded - lastProgressPaintBytes >= 128 * 1024;
+            if (shouldYieldForPaint) {
+              lastProgressPaintAt = now;
+              lastProgressPaintBytes = loaded;
+              await yieldToBrowserPaint();
+            }
+          },
         });
-        if (!response.ok) {
-          throw new Error(`预览文件读取失败（${response.status}）`);
-        }
-
-        const responseType = String(response.headers.get("content-type") || "");
-        const contentLength = Number(
-          response.headers.get("content-length") || 0,
-        );
-        if (contentLength > 0) {
-          setDownloadTotalBytes(contentLength);
-        }
-        if (responseType.includes("application/json")) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.msg || "预览文件读取失败");
-        }
-
-        const responseBlob = response.body
-          ? await (async () => {
-              const reader = response.body!.getReader();
-              const chunks: Uint8Array[] = [];
-              let receivedLength = 0;
-
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                  break;
-                }
-                if (!value) {
-                  continue;
-                }
-                chunks.push(value);
-                receivedLength += value.byteLength;
-                if (!cancelled) {
-                  setDownloadedBytes(receivedLength);
-                  setDownloadProgress(
-                    contentLength > 0
-                      ? Math.min(1, Math.max(0, receivedLength / contentLength))
-                      : 0,
-                  );
-                }
-              }
-
-              return new Blob(chunks, {
-                type: responseType || getPreviewContentType(file),
-              });
-            })()
-          : await response.blob();
         if (cancelled) return;
 
         setDownloadedBytes(
@@ -1593,12 +1714,21 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         }
       } catch (error) {
         if (!cancelled) {
-          setError(getFilePreviewErrorMessage(error));
+          if (
+            userCancelledDownloadRef.current ||
+            (error instanceof DOMException && error.name === "AbortError")
+          ) {
+            setDownloadCancelled(true);
+            setError("");
+          } else {
+            setError(getFilePreviewErrorMessage(error));
+          }
         }
       } finally {
         if (!cancelled) {
           setLoading(false);
         }
+        downloadAbortRef.current = null;
       }
     };
 
@@ -1640,24 +1770,26 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
             title="正在下载文件..."
             message="请稍候，文件下载完成后会自动预览。"
             progress={downloadProgress}
-            progressLabel={
-              downloadTotalBytes > 0
-                ? `${Math.round(
-                    downloadProgress * 100,
-                  )}% · ${formatAttachmentSize(
-                    downloadedBytes,
-                  )} / ${formatAttachmentSize(downloadTotalBytes)}`
-                : `${Math.round(
-                    downloadProgress * 100,
-                  )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
-            }
+            progressLabel={downloadProgressLabel}
+            metaItems={downloadMetaItems}
+            onCancel={cancelDownload}
+          />
+        ) : downloadCancelled ? (
+          <FilePreviewState
+            file={file}
+            title="已取消下载"
+            message="下载已取消，重新开始后会继续预览这个文件。"
+            actionLabel="重新下载"
+            onAction={restartPreview}
+            metaItems={downloadMetaItems}
           />
         ) : error ? (
           <FilePreviewState
             file={file}
             title="PDF 预览失败"
             message={error}
-            onAction={() => setReloadKey((value) => value + 1)}
+            onAction={restartPreview}
+            metaItems={downloadMetaItems}
           />
         ) : pdfSourceUrl ? (
           objectPreview(pdfUrl)
@@ -1666,7 +1798,8 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
             file={file}
             title="PDF 预览失败"
             message="没有拿到可预览的文件内容，请重试。"
-            onAction={() => setReloadKey((value) => value + 1)}
+            onAction={restartPreview}
+            metaItems={downloadMetaItems}
           />
         )}
       </div>
@@ -1679,42 +1812,43 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
 
   let body: React.ReactNode = null;
   if (fileKind === "document") {
-    body =
-      !loading && error ? (
-        <FilePreviewState
-          file={file}
-          title="Word 预览失败"
-          message={error}
-          onAction={() => setReloadKey((value) => value + 1)}
-        />
-      ) : (
-        <div
-          className={clsx(styles["docx-preview-root"], {
-            [styles["docx-preview-root-loading"]]: loading,
-          })}
-        >
-          <div ref={hostRef} className={styles["docx-preview-container"]} />
-          {loading && (
-            <FilePreviewState
-              file={file}
-              title="正在下载文件..."
-              message="请稍候，文件下载完成后会自动预览。"
-              progress={downloadProgress}
-              progressLabel={
-                downloadTotalBytes > 0
-                  ? `${Math.round(
-                      downloadProgress * 100,
-                    )}% · ${formatAttachmentSize(
-                      downloadedBytes,
-                    )} / ${formatAttachmentSize(downloadTotalBytes)}`
-                  : `${Math.round(
-                      downloadProgress * 100,
-                    )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
-              }
-            />
-          )}
-        </div>
-      );
+    body = downloadCancelled ? (
+      <FilePreviewState
+        file={file}
+        title="已取消下载"
+        message="下载已取消，重新开始后会继续预览这个文件。"
+        actionLabel="重新下载"
+        onAction={restartPreview}
+        metaItems={downloadMetaItems}
+      />
+    ) : !loading && error ? (
+      <FilePreviewState
+        file={file}
+        title="Word 预览失败"
+        message={error}
+        onAction={restartPreview}
+        metaItems={downloadMetaItems}
+      />
+    ) : (
+      <div
+        className={clsx(styles["docx-preview-root"], {
+          [styles["docx-preview-root-loading"]]: loading,
+        })}
+      >
+        <div ref={hostRef} className={styles["docx-preview-container"]} />
+        {loading && (
+          <FilePreviewState
+            file={file}
+            title="正在下载文件..."
+            message="请稍候，文件下载完成后会自动预览。"
+            progress={downloadProgress}
+            progressLabel={downloadProgressLabel}
+            metaItems={downloadMetaItems}
+            onCancel={cancelDownload}
+          />
+        )}
+      </div>
+    );
   } else if (loading) {
     body = (
       <FilePreviewState
@@ -1722,15 +1856,20 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         title="正在下载文件..."
         message="请稍候，文件下载完成后会自动预览。"
         progress={downloadProgress}
-        progressLabel={
-          downloadTotalBytes > 0
-            ? `${Math.round(downloadProgress * 100)}% · ${formatAttachmentSize(
-                downloadedBytes,
-              )} / ${formatAttachmentSize(downloadTotalBytes)}`
-            : `${Math.round(
-                downloadProgress * 100,
-              )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
-        }
+        progressLabel={downloadProgressLabel}
+        metaItems={downloadMetaItems}
+        onCancel={cancelDownload}
+      />
+    );
+  } else if (downloadCancelled) {
+    body = (
+      <FilePreviewState
+        file={file}
+        title="已取消下载"
+        message="下载已取消，重新开始后会继续预览这个文件。"
+        actionLabel="重新下载"
+        onAction={restartPreview}
+        metaItems={downloadMetaItems}
       />
     );
   } else if (error) {
@@ -1739,7 +1878,8 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         file={file}
         title="文件预览失败"
         message={error}
-        onAction={() => setReloadKey((value) => value + 1)}
+        onAction={restartPreview}
+        metaItems={downloadMetaItems}
       />
     );
   } else if (textContent) {
@@ -1778,7 +1918,8 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
             file={file}
             title="表格预览失败"
             message={error}
-            onAction={() => setReloadKey((value) => value + 1)}
+            onAction={restartPreview}
+            metaItems={downloadMetaItems}
           />
         )}
         {!loading && !error && activeSheet && (

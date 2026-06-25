@@ -9,6 +9,10 @@ import { resolveStoreSyncUserId } from "@/app/utils/server/sync-user";
 import {
   getCacheFileById,
   getCacheFile,
+  getCacheFileChunk,
+  getCacheFileChunkById,
+  getCacheFileMeta,
+  getCacheFileMetaById,
   removeOwnedCacheFile,
   removeCacheFile,
   purgeExpiredCacheFiles,
@@ -59,6 +63,126 @@ function getInlineContentType(
   return "application/octet-stream";
 }
 
+function parseRangeHeader(rangeHeader: string | null, sizeBytes: number) {
+  if (!rangeHeader || !rangeHeader.startsWith("bytes=")) {
+    return null;
+  }
+
+  const [rawStart, rawEnd] = rangeHeader.replace(/^bytes=/, "").split("-", 2);
+  const hasStart = rawStart !== undefined && rawStart.trim() !== "";
+  const hasEnd = rawEnd !== undefined && rawEnd.trim() !== "";
+
+  if (!hasStart && !hasEnd) {
+    return null;
+  }
+
+  let start = hasStart ? Number(rawStart) : 0;
+  let end = hasEnd ? Number(rawEnd) : sizeBytes - 1;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return null;
+  }
+
+  if (!hasStart && hasEnd) {
+    const suffixLength = Math.max(0, Math.floor(end));
+    if (suffixLength <= 0) {
+      return null;
+    }
+    start = Math.max(0, sizeBytes - suffixLength);
+    end = sizeBytes - 1;
+  }
+
+  start = Math.max(0, Math.floor(start));
+  end = Math.min(sizeBytes - 1, Math.floor(end));
+
+  if (start > end || start >= sizeBytes) {
+    return { invalid: true as const, start, end };
+  }
+
+  return { start, end, invalid: false as const };
+}
+
+function buildInlineHeaders(file: {
+  fileName: string;
+  fileExt: string;
+  contentType: string;
+  sizeBytes: number;
+}) {
+  return {
+    "Content-Type": getInlineContentType(
+      file.fileName,
+      file.fileExt,
+      file.contentType,
+    ),
+    "Cache-Control": "no-store, no-transform",
+    "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
+      file.fileName || "file",
+    )}`,
+    "Accept-Ranges": "bytes",
+    "Content-Length": String(file.sizeBytes),
+  };
+}
+
+async function resolveCacheFileMetaForRequest(
+  externalUserId: string,
+  uuid: string,
+) {
+  return (
+    (await withRetryablePostgresOperation(() =>
+      getCacheFileMeta(externalUserId, uuid),
+    )) ||
+    (await withRetryablePostgresOperation(() => getCacheFileMetaById(uuid)))
+  );
+}
+
+async function resolveCacheFileChunkForRequest(
+  externalUserId: string,
+  uuid: string,
+  offset: number,
+  length: number,
+) {
+  return (
+    (await withRetryablePostgresOperation(() =>
+      getCacheFileChunk(externalUserId, uuid, offset, length),
+    )) ||
+    (await withRetryablePostgresOperation(() =>
+      getCacheFileChunkById(uuid, offset, length),
+    ))
+  );
+}
+
+export async function HEAD(
+  req: NextRequest,
+  context: { params: { id: string } },
+) {
+  try {
+    const rawId = decodeURIComponent(context.params.id || "");
+    const uuid = extractUuid(rawId);
+    const externalUserId = await resolveStoreSyncUserId(StoreKey.Chat, req);
+
+    await withRetryablePostgresOperation(() =>
+      purgeExpiredCacheFiles(externalUserId),
+    );
+    const file = await resolveCacheFileMetaForRequest(externalUserId, uuid);
+    if (!file) {
+      return new NextResponse(null, { status: 404 });
+    }
+
+    return new NextResponse(null, {
+      status: 200,
+      headers: buildInlineHeaders(file),
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return new NextResponse(null, { status: error.status });
+    }
+    if (isPostgresTemporarilyUnavailableError(error)) {
+      return new NextResponse(null, { status: 503 });
+    }
+    return new NextResponse(null, { status: 500 });
+  }
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: { id: string } },
@@ -71,28 +195,63 @@ export async function GET(
     await withRetryablePostgresOperation(() =>
       purgeExpiredCacheFiles(externalUserId),
     );
-    const file =
-      (await withRetryablePostgresOperation(() =>
-        getCacheFile(externalUserId, uuid),
-      )) ||
-      (await withRetryablePostgresOperation(() => getCacheFileById(uuid)));
-    if (!file) {
+    const fileMeta = await resolveCacheFileMetaForRequest(externalUserId, uuid);
+    if (!fileMeta) {
       return NextResponse.json({ code: 1, msg: "not_found" }, { status: 404 });
     }
 
-    return new NextResponse(file.data, {
-      status: 200,
+    const range = parseRangeHeader(
+      req.headers.get("range"),
+      fileMeta.sizeBytes,
+    );
+    if (range?.invalid) {
+      return new NextResponse(null, {
+        status: 416,
+        headers: {
+          ...buildInlineHeaders(fileMeta),
+          "Content-Range": `bytes */${fileMeta.sizeBytes}`,
+        },
+      });
+    }
+
+    if (!range) {
+      const file =
+        (await withRetryablePostgresOperation(() =>
+          getCacheFile(externalUserId, uuid),
+        )) ||
+        (await withRetryablePostgresOperation(() => getCacheFileById(uuid)));
+      if (!file) {
+        return NextResponse.json(
+          { code: 1, msg: "not_found" },
+          { status: 404 },
+        );
+      }
+
+      return new NextResponse(file.data, {
+        status: 200,
+        headers: buildInlineHeaders(file),
+      });
+    }
+
+    const length = range.end - range.start + 1;
+    const fileChunk = await resolveCacheFileChunkForRequest(
+      externalUserId,
+      uuid,
+      range.start,
+      length,
+    );
+    if (!fileChunk) {
+      return NextResponse.json({ code: 1, msg: "not_found" }, { status: 404 });
+    }
+
+    return new NextResponse(fileChunk.data, {
+      status: 206,
       headers: {
-        "Content-Type": getInlineContentType(
-          file.fileName,
-          file.fileExt,
-          file.contentType,
-        ),
-        "Cache-Control": "no-store",
-        "Content-Length": String(file.sizeBytes),
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
-          file.fileName || "file",
-        )}`,
+        ...buildInlineHeaders(fileChunk),
+        "Content-Length": String(fileChunk.data.length || length),
+        "Content-Range": `bytes ${range.start}-${
+          range.start + Math.max(fileChunk.data.length - 1, 0)
+        }/${fileChunk.sizeBytes}`,
       },
     });
   } catch (error) {

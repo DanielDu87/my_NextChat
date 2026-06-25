@@ -28,6 +28,7 @@ import {
   showModal,
   showTopNotice,
 } from "@/app/components/ui-lib";
+import { LoadingPanel } from "@/app/components/loading-panel";
 import { removeImage } from "@/app/utils/chat";
 import { prepareRouteEntryForSync } from "@/app/utils/route-sync-entry";
 import { SideBar } from "./draw-sidebar";
@@ -352,12 +353,12 @@ function DrawImagePlaceholder(props: { error?: boolean; text?: string }) {
       {props.error ? (
         <span className={styles["draw-error-mark"]} aria-hidden="true" />
       ) : (
-        <>
-          <LoadingIcon className={styles["draw-loading-mark"]} />
-          {props.text && (
-            <span className={styles["draw-loading-text"]}>{props.text}</span>
-          )}
-        </>
+        <LoadingPanel
+          title={props.text || "资源加载中"}
+          message="请稍候，预览内容正在准备。"
+          icon={<LoadingIcon className={styles["draw-loading-mark"]} />}
+          layout="plain"
+        />
       )}
     </div>
   );

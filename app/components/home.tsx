@@ -26,6 +26,7 @@ import {
 import { SideBar } from "./sidebar";
 import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
+import { LoadingPanel } from "./loading-panel";
 import { getClientConfig } from "../config/client";
 import { useAccessStore, useChatIndexStore, useChatStore } from "../store";
 import clsx from "clsx";
@@ -43,9 +44,13 @@ import {
 
 export function Loading(props: { noLogo?: boolean }) {
   return (
-    <div className={clsx("no-dark", styles["loading-content"])}>
-      {!props.noLogo && <BotIcon />}
-      <LoadingIcon />
+    <div className={styles["loading-content"]}>
+      <LoadingPanel
+        title={props.noLogo ? "正在加载页面..." : "NextChat 正在启动..."}
+        message="界面资源正在准备中。"
+        icon={props.noLogo ? <LoadingIcon /> : <BotIcon />}
+        layout="plain"
+      />
     </div>
   );
 }
