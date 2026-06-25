@@ -157,6 +157,8 @@ yarn build
 
 说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本，不要再把它们作为默认验证命令。`devDependencies` 中仍残留 `jest` / `@testing-library/*` 相关包但无对应配置和脚本，不可直接运行测试。
 
+补充约定：后续浏览器手工测试、回归测试默认切换到 `ccc` 用户后再执行，除非用户明确指定其他账号。
+
 ### 数据库与模型维护脚本
 
 通过 `tsx` 运行（`scripts/` 目录），改动数据库前务必先确认影响范围：

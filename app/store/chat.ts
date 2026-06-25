@@ -245,6 +245,7 @@ export type ChatMessageAttachedFile = {
   name: string;
   type: string;
   size: number;
+  contentMd5?: string;
   typeLabel: string;
   typeKind: "document" | "spreadsheet" | "pdf" | "archive" | "file";
   previewText?: string;
@@ -776,6 +777,83 @@ function isSessionPayloadPlaceholder(
     Number(summary?.messageCount || 0) > 0 &&
     (!Array.isArray(session.messages) || session.messages.length === 0)
   );
+}
+
+function normalizeCacheAttachmentUrl(url: unknown) {
+  const value = String(url || "").trim();
+  if (!value.startsWith(CACHE_URL_PREFIX)) {
+    return "";
+  }
+  return value.split("?")[0].split("#")[0];
+}
+
+function collectSessionCacheAttachmentUrls(session: ChatSession | undefined) {
+  const urls = new Set<string>();
+  for (const message of session?.messages || []) {
+    for (const file of message.attachedFiles || []) {
+      const url = normalizeCacheAttachmentUrl(file.previewUrl);
+      if (url) {
+        urls.add(url);
+      }
+    }
+
+    const content = (message as any)?.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const part of content) {
+      const imageUrl =
+        part?.type === "image_url" ? part?.image_url?.url : undefined;
+      const url = normalizeCacheAttachmentUrl(imageUrl);
+      if (url) {
+        urls.add(url);
+      }
+    }
+  }
+  return urls;
+}
+
+function cleanupUnusedDeletedSessionAttachments(
+  deletedSessions: ChatSession[],
+  remainingSessions: ChatSession[],
+) {
+  const deletedUrls = new Set<string>();
+  deletedSessions.forEach((session) => {
+    collectSessionCacheAttachmentUrls(session).forEach((url) =>
+      deletedUrls.add(url),
+    );
+  });
+
+  if (deletedUrls.size === 0) {
+    return;
+  }
+
+  const remainingUrls = new Set<string>();
+  remainingSessions.forEach((session) => {
+    collectSessionCacheAttachmentUrls(session).forEach((url) =>
+      remainingUrls.add(url),
+    );
+  });
+
+  deletedUrls.forEach((url) => {
+    if (remainingUrls.has(url)) {
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("force", "1");
+    deletedSessions.forEach((session) => {
+      if (session.id) {
+        params.append("excludeSessionId", session.id);
+      }
+    });
+    void fetch(`${url}?${params.toString()}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch((error) => {
+      logger.chat.error("❌ 删除未引用附件缓存失败:", error);
+    });
+  });
 }
 
 function clearPendingSessionRefresh(sessionId: string | undefined) {
@@ -2020,6 +2098,7 @@ export const useChatStore = createPersistStore(
               deletedSessions,
             )}；已新建 ${formatChatSessionLogLabel(newSessions[0])}`,
           );
+          cleanupUnusedDeletedSessionAttachments(deletedSessions, newSessions);
         }
 
         // 使用统一聊天同步链路传播删除，避免远端残留旧会话。
@@ -2309,19 +2388,6 @@ export const useChatStore = createPersistStore(
           [deletedSession.id]: deletedAt,
         };
 
-        // for undo delete action
-        const restoreState = silent
-          ? null
-          : {
-              currentSessionIndex: get().currentSessionIndex,
-              selectedSessionId: get().currentSessionId(),
-              sessions: get().sessions.slice(),
-              sessionSummaries: get().sessionSummaries.slice(),
-              deletedSessionTimestamps: {
-                ...get().deletedSessionTimestamps,
-              },
-            };
-
         set(() => ({
           currentSessionIndex: nextIndex,
           selectedSessionId: sessions[nextIndex]?.id || "",
@@ -2340,26 +2406,10 @@ export const useChatStore = createPersistStore(
         console.log(
           `[Chat] ➖ 删除对话：${formatChatSessionLogLabel(deletedSession)}`,
         );
+        cleanupUnusedDeletedSessionAttachments([deletedSession], sessions);
 
         if (!silent) {
-          showToast(
-            Locale.Home.DeleteToast,
-            {
-              text: Locale.Home.Revert,
-              onClick() {
-                set(() => restoreState!);
-                import("./sync").then(({ useSyncStore }) => {
-                  useSyncStore
-                    .getState()
-                    .sync([StoreKey.Chat], { force: true })
-                    .catch((error) => {
-                      logger.chat.error("❌ 撤销删除后立即同步失败:", error);
-                    });
-                });
-              },
-            },
-            5000,
-          );
+          showToast(Locale.Home.DeleteToast);
         }
 
         // 删除会话后立即同步，避免远端旧会话被自动同步拉回
@@ -2401,15 +2451,6 @@ export const useChatStore = createPersistStore(
 
         if (deletedSessions.length === 0) return;
 
-        const restoreState = {
-          currentSessionIndex: currentState.currentSessionIndex,
-          selectedSessionId: currentState.currentSessionId(),
-          sessions: currentState.sessions.slice(),
-          sessionSummaries: currentState.sessionSummaries.slice(),
-          deletedSessionTimestamps: {
-            ...currentState.deletedSessionTimestamps,
-          },
-        };
         const deletedAt = Date.now();
         const deletedSessionTimestamps = {
           ...currentState.deletedSessionTimestamps,
@@ -2454,25 +2495,9 @@ export const useChatStore = createPersistStore(
             .map(formatChatSessionLogLabel)
             .join("、")}`,
         );
+        cleanupUnusedDeletedSessionAttachments(deletedSessions, sessions);
 
-        showToast(
-          Locale.Home.DeleteToast,
-          {
-            text: Locale.Home.Revert,
-            onClick() {
-              set(() => restoreState);
-              import("./sync").then(({ useSyncStore }) => {
-                useSyncStore
-                  .getState()
-                  .sync([StoreKey.Chat], { force: true })
-                  .catch((error) => {
-                    logger.chat.error("❌ 撤销批量删除后立即同步失败:", error);
-                  });
-              });
-            },
-          },
-          5000,
-        );
+        showToast(Locale.Home.DeleteToast);
 
         import("./sync").then(({ useSyncStore }) => {
           useSyncStore

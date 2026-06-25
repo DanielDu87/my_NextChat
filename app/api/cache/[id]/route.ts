@@ -7,7 +7,9 @@ import {
 } from "@/app/utils/server/postgres";
 import { resolveStoreSyncUserId } from "@/app/utils/server/sync-user";
 import {
+  getCacheFileById,
   getCacheFile,
+  removeOwnedCacheFile,
   removeCacheFile,
   purgeExpiredCacheFiles,
 } from "@/app/utils/server/cache-file-repository";
@@ -69,9 +71,11 @@ export async function GET(
     await withRetryablePostgresOperation(() =>
       purgeExpiredCacheFiles(externalUserId),
     );
-    const file = await withRetryablePostgresOperation(() =>
-      getCacheFile(externalUserId, uuid),
-    );
+    const file =
+      (await withRetryablePostgresOperation(() =>
+        getCacheFile(externalUserId, uuid),
+      )) ||
+      (await withRetryablePostgresOperation(() => getCacheFileById(uuid)));
     if (!file) {
       return NextResponse.json({ code: 1, msg: "not_found" }, { status: 404 });
     }
@@ -119,11 +123,21 @@ export async function DELETE(
     const rawId = decodeURIComponent(context.params.id || "");
     const uuid = extractUuid(rawId);
     const externalUserId = await resolveStoreSyncUserId(StoreKey.Chat, req);
+    const force = req.nextUrl.searchParams.get("force") === "1";
+    const excludeExternalSessionIds = req.nextUrl.searchParams
+      .getAll("excludeSessionId")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 200);
     await withRetryablePostgresOperation(() =>
       purgeExpiredCacheFiles(externalUserId),
     );
     await withRetryablePostgresOperation(() =>
-      removeCacheFile(externalUserId, uuid),
+      force
+        ? removeOwnedCacheFile(externalUserId, uuid, {
+            excludeExternalSessionIds,
+          })
+        : removeCacheFile(externalUserId, uuid),
     );
     return NextResponse.json({ code: 0 });
   } catch (error) {

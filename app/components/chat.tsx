@@ -9,6 +9,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import SparkMD5 from "spark-md5";
 
 import SendUpIcon from "../icons/send-up.svg";
 import BrainIcon from "../icons/brain.svg";
@@ -122,7 +123,9 @@ import {
   List,
   ListItem,
   Modal,
+  NoticePill,
   Selector,
+  hideTopNotice as hideTopNoticeCard,
   showConfirm,
   showImageModal,
   showModal,
@@ -137,6 +140,7 @@ import {
   ModelProvider,
   Path,
   REQUEST_TIMEOUT_MS,
+  CACHE_URL_PREFIX,
   ServiceProvider,
   StoreKey,
   UPLOAD_URL,
@@ -670,9 +674,12 @@ type ComposerUploadingAttachment = {
   file: File;
   previewUrl: string;
   isImage: boolean;
+  contentMd5?: string;
+  uploadContentType: string;
   typeKind: AttachmentTypeKind;
   typeLabel: string;
   progress: number;
+  phase: "preparing" | "uploading";
 };
 
 const sessionComposerAttachmentDrafts = new Map<
@@ -687,6 +694,15 @@ let currentPageComposerAttachmentDraft: {
   files: ChatMessageAttachedFile[];
 } | null = null;
 let currentPageComposerAttachmentDraftSessionId = "";
+const FILE_PREVIEW_CACHE_MAX_ENTRIES = 24;
+const filePreviewObjectUrlCache = new Map<
+  string,
+  {
+    blob: Blob;
+    objectUrl: string;
+    updatedAt: number;
+  }
+>();
 
 function clearComposerAttachmentDraftCache(sessionId: string) {
   if (!sessionId) {
@@ -697,6 +713,52 @@ function clearComposerAttachmentDraftCache(sessionId: string) {
     currentPageComposerAttachmentDraft = null;
     currentPageComposerAttachmentDraftSessionId = "";
   }
+}
+
+function getCachedPreviewBlob(previewUrl: string) {
+  const cacheKey = String(previewUrl || "").trim();
+  if (!cacheKey) {
+    return null;
+  }
+  const cached = filePreviewObjectUrlCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+  cached.updatedAt = Date.now();
+  return cached;
+}
+
+function setCachedPreviewBlob(previewUrl: string, blob: Blob) {
+  const cacheKey = String(previewUrl || "").trim();
+  if (!cacheKey) {
+    return null;
+  }
+  const existing = filePreviewObjectUrlCache.get(cacheKey);
+  if (existing) {
+    existing.blob = blob;
+    existing.updatedAt = Date.now();
+    return existing;
+  }
+
+  const cached = {
+    blob,
+    objectUrl: URL.createObjectURL(blob),
+    updatedAt: Date.now(),
+  };
+  filePreviewObjectUrlCache.set(cacheKey, cached);
+
+  while (filePreviewObjectUrlCache.size > FILE_PREVIEW_CACHE_MAX_ENTRIES) {
+    const oldestEntry = [...filePreviewObjectUrlCache.entries()].sort(
+      (a, b) => a[1].updatedAt - b[1].updatedAt,
+    )[0];
+    if (!oldestEntry) {
+      break;
+    }
+    filePreviewObjectUrlCache.delete(oldestEntry[0]);
+    URL.revokeObjectURL(oldestEntry[1].objectUrl);
+  }
+
+  return cached;
 }
 
 function trimBoundaryInvisibleChars(text: string) {
@@ -999,17 +1061,107 @@ function createAttachedFileFromUpload(
   file: File,
   previewUrl: string,
   localPreviewUrl?: string,
+  contentMd5?: string,
 ): ChatMessageAttachedFile {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     name: file.name || "未命名文件",
     type: getPreviewContentType(file),
     size: file.size || 0,
+    contentMd5,
     typeLabel: getAttachmentTypeLabel(file),
     typeKind: getAttachmentTypeKind(file),
     previewUrl,
     localPreviewUrl,
   };
+}
+
+function getUploadContentType(file: Pick<File, "type">) {
+  return String(file.type || "application/octet-stream").trim();
+}
+
+function getComposerAttachedFileIdentityKey(
+  file: Pick<
+    ChatMessageAttachedFile,
+    "previewUrl" | "name" | "size" | "type" | "typeKind" | "contentMd5"
+  >,
+) {
+  const contentMd5 = String(file.contentMd5 || "")
+    .trim()
+    .toLowerCase();
+  if (contentMd5) {
+    return `md5:${file.type}:${contentMd5}`;
+  }
+  const previewUrl = String(file.previewUrl || "").trim();
+  if (previewUrl) {
+    return `preview:${previewUrl}`;
+  }
+  return `meta:${file.name}|${file.size}|${file.type}|${file.typeKind}`;
+}
+
+function getComposerPendingFileMetaKey(file: File) {
+  return `meta:${file.name}|${file.size}|${getPreviewContentType(
+    file,
+  )}|${getAttachmentTypeKind(file)}`;
+}
+
+function mergeComposerAttachedFiles(
+  currentFiles: ChatMessageAttachedFile[],
+  nextFiles: ChatMessageAttachedFile[],
+) {
+  const ordered: ChatMessageAttachedFile[] = [];
+  const byKey = new Map<string, ChatMessageAttachedFile>();
+
+  for (const item of [...currentFiles, ...nextFiles]) {
+    const identityKey = getComposerAttachedFileIdentityKey(item);
+    if (!identityKey) {
+      continue;
+    }
+
+    const existing = byKey.get(identityKey);
+    if (!existing) {
+      const normalized = { ...item };
+      byKey.set(identityKey, normalized);
+      ordered.push(normalized);
+      continue;
+    }
+
+    if (!existing.localPreviewUrl && item.localPreviewUrl) {
+      existing.localPreviewUrl = item.localPreviewUrl;
+    }
+  }
+
+  return ordered.slice(0, MAX_ATTACH_IMAGES);
+}
+
+async function computeFileContentMd5(file: Blob) {
+  const buffer = await file.arrayBuffer();
+  return SparkMD5.ArrayBuffer.hash(buffer);
+}
+
+async function resolveComposerCachedUploadUrl(
+  file: File,
+  contentMd5: string,
+): Promise<string> {
+  const res = await fetch("/api/cache/resolve", {
+    method: "POST",
+    credentials: "include",
+    headers: withSyncUserHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({
+      fileName: file.name || "file",
+      contentType: getUploadContentType(file),
+      contentMd5,
+    }),
+  });
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.code !== 0) {
+    return "";
+  }
+
+  return payload?.data?.hit ? String(payload.data.url || "").trim() : "";
 }
 
 function revokeLocalAttachmentPreviewUrl(
@@ -1026,6 +1178,24 @@ function stripLocalAttachmentPreviewUrl(
 ): ChatMessageAttachedFile {
   const { localPreviewUrl: _localPreviewUrl, ...rest } = file;
   return rest;
+}
+
+function isServerCacheUrl(url: unknown) {
+  return String(url || "")
+    .trim()
+    .startsWith(CACHE_URL_PREFIX);
+}
+
+function deleteUnsentServerCacheUrl(url: unknown) {
+  const cacheUrl = String(url || "").trim();
+  if (!isServerCacheUrl(cacheUrl)) {
+    return;
+  }
+
+  void fetch(cacheUrl, {
+    method: "DELETE",
+    credentials: "include",
+  }).catch(() => {});
 }
 
 function buildAttachedFilesPromptText(files: ChatMessageAttachedFile[]) {
@@ -1071,6 +1241,102 @@ function getPreviewFileKind(
   return "generic";
 }
 
+function isDocxPreviewFile(
+  file: Pick<ChatMessageAttachedFile, "name" | "type">,
+) {
+  const normalizedType = getPreviewContentType(file);
+  const normalizedName = String(file.name || "").toLowerCase();
+  return (
+    normalizedType.includes(
+      "vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ) || normalizedName.endsWith(".docx")
+  );
+}
+
+function getFilePreviewErrorMessage(error: unknown) {
+  const raw = String((error as Error)?.message || error || "").trim();
+  if (!raw) {
+    return "文件预览失败，请稍后重试。";
+  }
+  if (raw.includes("download_timeout")) {
+    return "文件下载超时，请检查网络后重试。";
+  }
+  if (raw.includes("download_network_error")) {
+    return "文件下载失败，请检查网络后重试。";
+  }
+  if (raw.includes("AbortError") || raw.includes("aborted")) {
+    return "文件加载超时，请检查网络后重试。";
+  }
+  if (raw.includes("401") || raw.includes("403")) {
+    return "没有权限读取该文件，请重新登录后再试。";
+  }
+  if (raw.includes("404") || raw.includes("not_found")) {
+    return "文件缓存已失效或不存在，请重新发送文件。";
+  }
+  if (raw.includes("503") || raw.includes("postgres_temporarily_unavailable")) {
+    return "文件服务暂时不可用，请稍后重试。";
+  }
+  return raw;
+}
+
+function FilePreviewState(props: {
+  file: ChatMessageAttachedFile;
+  title: string;
+  message: string;
+  progress?: number;
+  progressLabel?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className={styles["file-preview-state"]}>
+      <div className={styles["file-preview-state-bubble"]}>
+        <div
+          className={clsx(
+            styles["file-preview-state-icon"],
+            styles[`attach-file-${props.file.typeKind}`],
+          )}
+        >
+          <div className={styles["attach-file-icon"]}>
+            <span className={styles["attach-file-glyph"]}></span>
+          </div>
+        </div>
+        <div className={styles["file-preview-state-title"]}>{props.title}</div>
+        <div className={styles["file-preview-state-message"]}>
+          {props.message}
+        </div>
+        {typeof props.progress === "number" && props.progress >= 0 && (
+          <div className={styles["file-preview-state-progress"]}>
+            <div className={styles["file-preview-state-progress-track"]}>
+              <div
+                className={styles["file-preview-state-progress-bar"]}
+                style={{
+                  width: `${Math.round(
+                    Math.min(1, Math.max(0, props.progress)) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
+            <div className={styles["file-preview-state-progress-label"]}>
+              {props.progressLabel ||
+                `${Math.round(
+                  Math.min(1, Math.max(0, props.progress)) * 100,
+                )}%`}
+            </div>
+          </div>
+        )}
+        <div className={styles["file-preview-state-actions"]}>
+          {props.onAction && (
+            <button type="button" onClick={props.onAction}>
+              {props.actionLabel || "重试"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
   const { file } = props;
   const previewUrl = String(file.previewUrl || "").trim();
@@ -1084,6 +1350,10 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
   const [activeSpreadsheetSheet, setActiveSpreadsheetSheet] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadedBytes, setDownloadedBytes] = useState(0);
+  const [downloadTotalBytes, setDownloadTotalBytes] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const objectPreview = (url: string) => (
     <object
@@ -1109,13 +1379,14 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl = "";
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let shouldRevokeObjectUrl = false;
+    let abortController: AbortController | null = null;
+    let localObjectUrl = "";
 
     const load = async () => {
-      if (isImageAttachmentFile(file) || fileKind === "generic") {
+      if (!previewUrl) {
         setLoading(false);
-        setError("");
+        setError("该文件暂时无法预览");
         return;
       }
 
@@ -1125,47 +1396,159 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
       setSpreadsheetSheets([]);
       setActiveSpreadsheetSheet("");
       setBlobUrl("");
+      setDownloadProgress(0);
+      setDownloadedBytes(0);
+      setDownloadTotalBytes(0);
       if (hostRef.current) {
         hostRef.current.innerHTML = "";
       }
 
       try {
-        const controller = new AbortController();
-        timeoutId = setTimeout(() => controller.abort(), 15000);
-        const response = await fetch(previewUrl, {
-          credentials: "include",
-          signal: controller.signal,
-        });
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = undefined;
+        if (fileKind === "document" && !isDocxPreviewFile(file)) {
+          throw new Error(
+            "暂不支持直接预览该 Word 格式，请转换为 docx 后再试。",
+          );
         }
-        if (!response.ok) {
-          throw new Error(`预览文件读取失败（${response.status}）`);
-        }
-        const blob = await response.blob();
-        if (cancelled) return;
 
-        const previewBlob =
-          fileKind === "pdf" && blob.type !== "application/pdf"
-            ? new Blob([await blob.arrayBuffer()], { type: "application/pdf" })
-            : blob;
-        if (cancelled) return;
+        const cachedPreview = getCachedPreviewBlob(previewUrl);
+        if (cachedPreview) {
+          setBlobUrl(cachedPreview.objectUrl);
+          setDownloadedBytes(cachedPreview.blob.size || 0);
+          setDownloadTotalBytes(cachedPreview.blob.size || 0);
+          setDownloadProgress(1);
 
-        objectUrl = URL.createObjectURL(previewBlob);
-        setBlobUrl(objectUrl);
+          if (fileKind === "text") {
+            setTextContent(await cachedPreview.blob.text());
+            return;
+          }
 
-        if (fileKind === "pdf") {
+          if (fileKind === "spreadsheet") {
+            const buffer = await cachedPreview.blob.arrayBuffer();
+            if (cancelled) return;
+            const XLSX = await import("xlsx");
+            const workbook = XLSX.read(buffer, { type: "array" });
+            const nextSheets = workbook.SheetNames.map((sheetName) => {
+              const sheet = workbook.Sheets[sheetName];
+              if (!sheet) {
+                return null;
+              }
+              return {
+                name: sheetName,
+                html: XLSX.utils.sheet_to_html(sheet, {
+                  id: `sheet-${sheetName}`,
+                }),
+              };
+            }).filter((sheet): sheet is { name: string; html: string } =>
+              Boolean(sheet),
+            );
+            if (nextSheets.length === 0) {
+              setTextContent("表格文件没有可预览的工作表。");
+              return;
+            }
+            setSpreadsheetSheets(nextSheets);
+            setActiveSpreadsheetSheet((prev) =>
+              nextSheets.some((sheet) => sheet.name === prev)
+                ? prev
+                : nextSheets[0].name,
+            );
+            return;
+          }
+
+          if (fileKind === "document") {
+            const buffer = await cachedPreview.blob.arrayBuffer();
+            if (cancelled) return;
+            const docxPreview = await import("docx-preview");
+            if (cancelled || !hostRef.current) return;
+            hostRef.current.innerHTML = "";
+            await docxPreview.renderAsync(buffer, hostRef.current, undefined, {
+              inWrapper: false,
+              ignoreWidth: false,
+              ignoreHeight: false,
+            });
+          }
           return;
         }
 
+        abortController = new AbortController();
+        const response = await fetch(previewUrl, {
+          credentials: "include",
+          signal: abortController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`预览文件读取失败（${response.status}）`);
+        }
+
+        const responseType = String(response.headers.get("content-type") || "");
+        const contentLength = Number(
+          response.headers.get("content-length") || 0,
+        );
+        if (contentLength > 0) {
+          setDownloadTotalBytes(contentLength);
+        }
+        if (responseType.includes("application/json")) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.msg || "预览文件读取失败");
+        }
+
+        const responseBlob = response.body
+          ? await (async () => {
+              const reader = response.body!.getReader();
+              const chunks: Uint8Array[] = [];
+              let receivedLength = 0;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
+                }
+                if (!value) {
+                  continue;
+                }
+                chunks.push(value);
+                receivedLength += value.byteLength;
+                if (!cancelled) {
+                  setDownloadedBytes(receivedLength);
+                  setDownloadProgress(
+                    contentLength > 0
+                      ? Math.min(1, Math.max(0, receivedLength / contentLength))
+                      : 0,
+                  );
+                }
+              }
+
+              return new Blob(chunks, {
+                type: responseType || getPreviewContentType(file),
+              });
+            })()
+          : await response.blob();
+        if (cancelled) return;
+
+        setDownloadedBytes(
+          contentLength > 0 ? contentLength : responseBlob.size || 0,
+        );
+        setDownloadTotalBytes(
+          contentLength > 0 ? contentLength : responseBlob.size || 0,
+        );
+        setDownloadProgress(1);
+
+        const cached = setCachedPreviewBlob(previewUrl, responseBlob) || {
+          blob: responseBlob,
+          objectUrl: URL.createObjectURL(responseBlob),
+          updatedAt: Date.now(),
+        };
+        if (!filePreviewObjectUrlCache.has(previewUrl)) {
+          shouldRevokeObjectUrl = true;
+          localObjectUrl = cached.objectUrl;
+        }
+        setBlobUrl(cached.objectUrl);
+
         if (fileKind === "text") {
-          setTextContent(await blob.text());
+          setTextContent(await responseBlob.text());
           return;
         }
 
         if (fileKind === "spreadsheet") {
-          const buffer = await blob.arrayBuffer();
+          const buffer = await responseBlob.arrayBuffer();
           if (cancelled) return;
           const XLSX = await import("xlsx");
           const workbook = XLSX.read(buffer, { type: "array" });
@@ -1197,7 +1580,7 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         }
 
         if (fileKind === "document") {
-          const buffer = await blob.arrayBuffer();
+          const buffer = await responseBlob.arrayBuffer();
           if (cancelled) return;
           const docxPreview = await import("docx-preview");
           if (cancelled || !hostRef.current) return;
@@ -1210,7 +1593,7 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         }
       } catch (error) {
         if (!cancelled) {
-          setError(String((error as Error)?.message || error || "预览失败"));
+          setError(getFilePreviewErrorMessage(error));
         }
       } finally {
         if (!cancelled) {
@@ -1223,14 +1606,14 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
 
     return () => {
       cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+      if (abortController) {
+        abortController.abort();
       }
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      if (shouldRevokeObjectUrl && localObjectUrl) {
+        URL.revokeObjectURL(localObjectUrl);
       }
     };
-  }, [file, fileKind, previewUrl]);
+  }, [file, fileKind, previewUrl, reloadKey]);
 
   if (isImageAttachmentFile(file)) {
     return objectPreview(previewUrl);
@@ -1241,16 +1624,51 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
   }
 
   if (fileKind === "pdf") {
-    const pdfUrl = (blobUrl || previewUrl).includes("#")
-      ? blobUrl || previewUrl
-      : `${blobUrl || previewUrl}#toolbar=1&navpanes=0`;
+    const pdfSourceUrl = blobUrl || previewUrl;
+    const pdfUrl = pdfSourceUrl.includes("#")
+      ? pdfSourceUrl
+      : `${pdfSourceUrl}#toolbar=1&navpanes=0`;
     return (
       <div className={styles["file-preview-root"]}>
         <div className={styles["file-preview-meta"]}>
           <span>{file.typeLabel || "PDF"}</span>
           <span>{formatAttachmentSize(file.size)}</span>
         </div>
-        {iframePreview(pdfUrl)}
+        {loading ? (
+          <FilePreviewState
+            file={file}
+            title="正在下载文件..."
+            message="请稍候，文件下载完成后会自动预览。"
+            progress={downloadProgress}
+            progressLabel={
+              downloadTotalBytes > 0
+                ? `${Math.round(
+                    downloadProgress * 100,
+                  )}% · ${formatAttachmentSize(
+                    downloadedBytes,
+                  )} / ${formatAttachmentSize(downloadTotalBytes)}`
+                : `${Math.round(
+                    downloadProgress * 100,
+                  )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
+            }
+          />
+        ) : error ? (
+          <FilePreviewState
+            file={file}
+            title="PDF 预览失败"
+            message={error}
+            onAction={() => setReloadKey((value) => value + 1)}
+          />
+        ) : pdfSourceUrl ? (
+          objectPreview(pdfUrl)
+        ) : (
+          <FilePreviewState
+            file={file}
+            title="PDF 预览失败"
+            message="没有拿到可预览的文件内容，请重试。"
+            onAction={() => setReloadKey((value) => value + 1)}
+          />
+        )}
       </div>
     );
   }
@@ -1261,23 +1679,69 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
 
   let body: React.ReactNode = null;
   if (fileKind === "document") {
-    body = (
-      <div className={styles["docx-preview-root"]}>
-        <div ref={hostRef} className={styles["docx-preview-container"]} />
-        {loading && (
-          <div className={styles["file-preview-loading"]}>正在加载预览...</div>
-        )}
-        {!loading && error && (
-          <div className={styles["file-preview-error"]}>{error}</div>
-        )}
-      </div>
-    );
+    body =
+      !loading && error ? (
+        <FilePreviewState
+          file={file}
+          title="Word 预览失败"
+          message={error}
+          onAction={() => setReloadKey((value) => value + 1)}
+        />
+      ) : (
+        <div
+          className={clsx(styles["docx-preview-root"], {
+            [styles["docx-preview-root-loading"]]: loading,
+          })}
+        >
+          <div ref={hostRef} className={styles["docx-preview-container"]} />
+          {loading && (
+            <FilePreviewState
+              file={file}
+              title="正在下载文件..."
+              message="请稍候，文件下载完成后会自动预览。"
+              progress={downloadProgress}
+              progressLabel={
+                downloadTotalBytes > 0
+                  ? `${Math.round(
+                      downloadProgress * 100,
+                    )}% · ${formatAttachmentSize(
+                      downloadedBytes,
+                    )} / ${formatAttachmentSize(downloadTotalBytes)}`
+                  : `${Math.round(
+                      downloadProgress * 100,
+                    )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
+              }
+            />
+          )}
+        </div>
+      );
   } else if (loading) {
     body = (
-      <div className={styles["file-preview-loading"]}>正在加载预览...</div>
+      <FilePreviewState
+        file={file}
+        title="正在下载文件..."
+        message="请稍候，文件下载完成后会自动预览。"
+        progress={downloadProgress}
+        progressLabel={
+          downloadTotalBytes > 0
+            ? `${Math.round(downloadProgress * 100)}% · ${formatAttachmentSize(
+                downloadedBytes,
+              )} / ${formatAttachmentSize(downloadTotalBytes)}`
+            : `${Math.round(
+                downloadProgress * 100,
+              )}% · 已下载 ${formatAttachmentSize(downloadedBytes)}`
+        }
+      />
     );
   } else if (error) {
-    body = <div className={styles["file-preview-error"]}>{error}</div>;
+    body = (
+      <FilePreviewState
+        file={file}
+        title="文件预览失败"
+        message={error}
+        onAction={() => setReloadKey((value) => value + 1)}
+      />
+    );
   } else if (textContent) {
     body = <pre className={styles["file-preview-text"]}>{textContent}</pre>;
   } else if (fileKind === "spreadsheet") {
@@ -1303,10 +1767,19 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
           </div>
         )}
         {loading && (
-          <div className={styles["file-preview-loading"]}>正在加载预览...</div>
+          <FilePreviewState
+            file={file}
+            title="正在加载预览..."
+            message="请稍候"
+          />
         )}
         {!loading && error && (
-          <div className={styles["file-preview-error"]}>{error}</div>
+          <FilePreviewState
+            file={file}
+            title="表格预览失败"
+            message={error}
+            onAction={() => setReloadKey((value) => value + 1)}
+          />
         )}
         {!loading && !error && activeSheet && (
           <div
@@ -1315,9 +1788,11 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
           />
         )}
         {!loading && !error && !activeSheet && (
-          <div className={styles["file-preview-error"]}>
-            表格文件没有可预览的工作表。
-          </div>
+          <FilePreviewState
+            file={file}
+            title="表格预览失败"
+            message="表格文件没有可预览的工作表。"
+          />
         )}
       </div>
     );
@@ -1618,15 +2093,11 @@ function PromptToast(props: { showToast?: boolean; onClick?: () => void }) {
   return (
     <div className={styles["prompt-toast"]} key="prompt-toast">
       {props.showToast && context.length > 0 && (
-        <div
-          className={clsx(styles["prompt-toast-inner"], "clickable")}
-          role="button"
-          onClick={props.onClick}
-        >
-          <BrainIcon />
-          <span className={styles["prompt-toast-content"]}>
-            {Locale.Context.Toast(context.length)}
-          </span>
+        <div className="clickable" role="button" onClick={props.onClick}>
+          <NoticePill>
+            <BrainIcon />
+            <span>{Locale.Context.Toast(context.length)}</span>
+          </NoticePill>
         </div>
       )}
     </div>
@@ -3571,34 +4042,23 @@ function _Chat() {
   // 供应商选择器相关
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
   const [modelSelectorResetKey, setModelSelectorResetKey] = useState(0);
-  const [providerSwitchToast, setProviderSwitchToast] = useState<{
-    show: boolean;
-    message: string;
-  }>({ show: false, message: "" });
-  const providerSwitchToastTimerRef = useRef<number | null>(null);
-  const providerSwitchToastDurationMs = isMobileScreen ? 3500 : 2200;
-  const hideTopNotice = useCallback(() => {
-    if (providerSwitchToastTimerRef.current !== null) {
-      window.clearTimeout(providerSwitchToastTimerRef.current);
-      providerSwitchToastTimerRef.current = null;
-    }
-    setProviderSwitchToast({ show: false, message: "" });
-  }, []);
   const showTopNotice = useCallback(
     (message: string) => {
-      if (providerSwitchToastTimerRef.current !== null) {
-        window.clearTimeout(providerSwitchToastTimerRef.current);
-      }
-      setProviderSwitchToast({ show: true, message });
-      providerSwitchToastTimerRef.current = window.setTimeout(() => {
-        setProviderSwitchToast((prev) => ({ ...prev, show: false }));
-        providerSwitchToastTimerRef.current = null;
-      }, providerSwitchToastDurationMs);
+      showTopNoticeCard(message, isMobileScreen ? 3500 : 2200);
     },
-    [providerSwitchToastDurationMs],
+    [isMobileScreen],
   );
   const showCopyNotice = useCallback((ok: boolean) => {
     showTopNoticeCard(ok ? Locale.Copy.Success : Locale.Copy.Failed);
+  }, []);
+  const activeFilePreviewCloseRef = useRef<null | (() => void)>(null);
+  const activeFilePreviewKeyRef = useRef("");
+  useEffect(() => {
+    return () => {
+      activeFilePreviewCloseRef.current?.();
+      activeFilePreviewCloseRef.current = null;
+      activeFilePreviewKeyRef.current = "";
+    };
   }, []);
   const openMessageAttachedFilePreview = useCallback(
     (file: ChatMessageAttachedFile) => {
@@ -3610,12 +4070,28 @@ function _Chat() {
         return;
       }
 
-      showModal({
+      const previewKey = `${file.id}|${previewUrl}|${file.name}|${file.type}`;
+      if (activeFilePreviewKeyRef.current === previewKey) {
+        return;
+      }
+
+      activeFilePreviewCloseRef.current?.();
+      activeFilePreviewCloseRef.current = null;
+      activeFilePreviewKeyRef.current = previewKey;
+
+      const closePreview = showModal({
         title: file.name || "文件预览",
         defaultMax: false,
         className: styles["file-preview-modal"],
+        onClose: () => {
+          if (activeFilePreviewCloseRef.current === closePreview) {
+            activeFilePreviewCloseRef.current = null;
+            activeFilePreviewKeyRef.current = "";
+          }
+        },
         children: <FilePreviewContent file={{ ...file, previewUrl }} />,
       });
+      activeFilePreviewCloseRef.current = closePreview;
     },
     [showTopNotice],
   );
@@ -3744,9 +4220,6 @@ function _Chat() {
 
   useEffect(() => {
     return () => {
-      if (providerSwitchToastTimerRef.current !== null) {
-        clearTimeout(providerSwitchToastTimerRef.current);
-      }
       if (modelSelectorNoticeTimerRef.current) {
         clearTimeout(modelSelectorNoticeTimerRef.current);
       }
@@ -3758,13 +4231,13 @@ function _Chat() {
       location.pathname === Path.Chat ||
       location.pathname.startsWith(Path.Chat + "/");
     if (isChatRoute) return;
-    hideTopNotice();
+    hideTopNoticeCard();
     setModelSelectorNotice("");
     if (modelSelectorNoticeTimerRef.current) {
       clearTimeout(modelSelectorNoticeTimerRef.current);
       modelSelectorNoticeTimerRef.current = null;
     }
-  }, [hideTopNotice, location.pathname]);
+  }, [location.pathname]);
 
   const providerSwitchDisabled = useMemo(() => {
     return false;
@@ -4141,7 +4614,7 @@ function _Chat() {
       .then(() => {
         setIsLoading(false);
       });
-    clearComposerAttachments();
+    clearComposerAttachments({ preserveServerFiles: true });
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     chatStore.setLastInput(userInput);
@@ -5329,6 +5802,7 @@ function _Chat() {
       setAttachImages((prev) => {
         const target = prev[index];
         if (target) {
+          deleteUnsentServerCacheUrl(target.previewUrl);
           revokeLocalComposerAttachedImagePreviewUrl(target);
         }
         const nextImages = prev.filter((_, current) => current !== index);
@@ -5349,6 +5823,7 @@ function _Chat() {
       if (!confirmed) {
         return;
       }
+      deleteUnsentServerCacheUrl(file.previewUrl);
       revokeLocalAttachmentPreviewUrl(file);
       setAttachedFiles((prev) => {
         const nextFiles = prev.filter((item) => item.id !== file.id);
@@ -5365,10 +5840,12 @@ function _Chat() {
     (options?: {
       preserveComposerDraftUrls?: boolean;
       clearDraftCache?: boolean;
+      preserveServerFiles?: boolean;
     }) => {
       const preserveComposerDraftUrls = Boolean(
         options?.preserveComposerDraftUrls,
       );
+      const preserveServerFiles = Boolean(options?.preserveServerFiles);
       const clearDraftCache = options?.clearDraftCache !== false;
       if (clearDraftCache) {
         clearComposerAttachmentDraftCache(
@@ -5377,14 +5854,22 @@ function _Chat() {
       }
       setAttachImages((prev) => {
         if (!preserveComposerDraftUrls) {
-          prev.forEach((image) =>
-            revokeLocalComposerAttachedImagePreviewUrl(image),
-          );
+          prev.forEach((image) => {
+            if (!preserveServerFiles) {
+              deleteUnsentServerCacheUrl(image.previewUrl);
+            }
+            revokeLocalComposerAttachedImagePreviewUrl(image);
+          });
         }
         return prev.length > 0 ? [] : prev;
       });
       if (!preserveComposerDraftUrls) {
-        attachedFiles.forEach((file) => revokeLocalAttachmentPreviewUrl(file));
+        attachedFiles.forEach((file) => {
+          if (!preserveServerFiles) {
+            deleteUnsentServerCacheUrl(file.previewUrl);
+          }
+          revokeLocalAttachmentPreviewUrl(file);
+        });
       }
       uploadingAttachments.forEach((attachment) => {
         ignoredUploadingAttachmentIdsRef.current.add(attachment.id);
@@ -5400,6 +5885,27 @@ function _Chat() {
     },
     [attachedFiles, uploadingAttachments],
   );
+
+  const clearComposerAttachmentsRef = useRef(clearComposerAttachments);
+  useEffect(() => {
+    clearComposerAttachmentsRef.current = clearComposerAttachments;
+  }, [clearComposerAttachments]);
+
+  const previousComposerSessionIdRef = useRef(safeSession.id);
+  useEffect(() => {
+    const previousSessionId = previousComposerSessionIdRef.current;
+    if (previousSessionId && previousSessionId !== safeSession.id) {
+      clearComposerAttachmentDraftCache(previousSessionId);
+      clearComposerAttachmentsRef.current();
+    }
+    previousComposerSessionIdRef.current = safeSession.id;
+  }, [safeSession.id]);
+
+  useEffect(() => {
+    return () => {
+      clearComposerAttachmentsRef.current();
+    };
+  }, []);
 
   const uploadFilesToComposer = useCallback(
     async (incomingFiles: File[]) => {
@@ -5420,99 +5926,177 @@ function _Chat() {
         showAttachLimitHint();
       }
 
-      const candidateFiles = files.slice(0, remainingSlots);
+      const existingAttachedFileMetaKeys = new Set(
+        attachedFiles.map(
+          (file) =>
+            `meta:${file.name}|${file.size}|${file.type}|${file.typeKind}`,
+        ),
+      );
+      const seenIncomingMetaKeys = new Set<string>();
+      let hasDuplicateExistingFile = false;
+      const filteredFiles = files.filter((file) => {
+        const metaKey = getComposerPendingFileMetaKey(file);
+        if (seenIncomingMetaKeys.has(metaKey)) {
+          return false;
+        }
+        seenIncomingMetaKeys.add(metaKey);
+
+        if (
+          !isAttachableImageFile(file) &&
+          existingAttachedFileMetaKeys.has(metaKey)
+        ) {
+          hasDuplicateExistingFile = true;
+          console.info("[附件上传] 当前输入框已存在相同文件，跳过追加", {
+            name: file.name || "未命名文件",
+            size: file.size || 0,
+            type: getUploadContentType(file),
+            contentMd5: "",
+          });
+          return false;
+        }
+        return true;
+      });
+      if (hasDuplicateExistingFile) {
+        showAttachLimitHint("同一个文件只能添加一个");
+      }
+
+      const candidateFiles = filteredFiles.slice(0, remainingSlots);
       if (candidateFiles.length === 0) {
         return;
       }
 
-      const uploadCacheTtlMs = 3 * 24 * 60 * 60 * 1000;
-      const getUploadCacheKey = (file: File) => {
-        const raw = `${file.name}|${file.size}|${file.lastModified}|${file.type}`;
-        let hash = 0;
-        for (let i = 0; i < raw.length; i += 1) {
-          hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
-        }
-        return `nextchat-upload-ref:${hash.toString(16)}`;
-      };
-      const getCachedUploadUrl = (file: File) => {
-        try {
-          const raw = localStorage.getItem(getUploadCacheKey(file));
-          if (!raw) return "";
-          const parsed = JSON.parse(raw) as {
-            url?: string;
-            expiresAt?: number;
-          };
-          const expiresAt = Number(parsed?.expiresAt || 0);
-          const url = String(parsed?.url || "");
-          if (!url || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-            localStorage.removeItem(getUploadCacheKey(file));
-            return "";
-          }
-          return url;
-        } catch {
-          return "";
-        }
-      };
-      const setCachedUploadUrl = (file: File, url: string) => {
-        try {
-          localStorage.setItem(
-            getUploadCacheKey(file),
-            JSON.stringify({ url, expiresAt: Date.now() + uploadCacheTtlMs }),
-          );
-        } catch {}
-      };
-
-      const filesToUpload: File[] = [];
-      for (const file of candidateFiles) {
-        const cachedUrl = getCachedUploadUrl(file);
-        if (cachedUrl) {
-          if (isAttachableImageFile(file)) {
-            setAttachImages((prev) => {
-              return mergeComposerAttachedImages(prev, [
-                createComposerAttachedImage(
-                  cachedUrl,
-                  URL.createObjectURL(file),
-                ),
-              ]);
-            });
-          } else {
-            const uploadedFile = createAttachedFileFromUpload(
-              file,
-              cachedUrl,
-              URL.createObjectURL(file),
-            );
-            setAttachedFiles((prev) => {
-              const all = [...prev, uploadedFile];
-              return all.length > MAX_ATTACH_IMAGES
-                ? all.slice(0, MAX_ATTACH_IMAGES)
-                : all;
-            });
-          }
-          continue;
-        }
-        filesToUpload.push(file);
-      }
-
-      if (filesToUpload.length === 0) {
-        return;
-      }
-
-      const newUploadingAttachments = filesToUpload.map((file) => ({
+      const pendingAttachments = candidateFiles.map((file) => ({
         id: Math.random().toString(36).slice(2),
         file,
         previewUrl: URL.createObjectURL(file),
         isImage: isAttachableImageFile(file),
+        contentMd5: "",
+        uploadContentType: getUploadContentType(file),
         typeKind: getAttachmentTypeKind(file),
         typeLabel: getAttachmentTypeLabel(file),
         progress: 0,
+        phase: "preparing" as const,
       }));
 
-      setUploadingAttachments((prev) => [...prev, ...newUploadingAttachments]);
+      setUploadingAttachments((prev) => [...prev, ...pendingAttachments]);
+
+      const existingAttachedFileKeys = new Set(
+        attachedFiles.map((file) => getComposerAttachedFileIdentityKey(file)),
+      );
+      const claimedAttachmentKeys = new Set(existingAttachedFileKeys);
 
       await Promise.all(
-        newUploadingAttachments.map(async (attachment) => {
+        pendingAttachments.map(async (attachment) => {
           let uploadedUrl = "";
+          let shouldKeepLocalPreview = false;
+          let contentMd5 = "";
+
           try {
+            try {
+              contentMd5 = await computeFileContentMd5(attachment.file);
+            } catch {
+              contentMd5 = "";
+              console.warn("[附件上传] 文件 MD5 计算失败，将继续直接上传", {
+                name: attachment.file.name || "未命名文件",
+                size: attachment.file.size || 0,
+                type: attachment.uploadContentType,
+              });
+            }
+
+            if (ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
+              return;
+            }
+
+            const identityKey = contentMd5
+              ? `md5:${getPreviewContentType(attachment.file)}:${contentMd5}`
+              : `meta:${attachment.file.name}|${
+                  attachment.file.size
+                }|${getPreviewContentType(attachment.file)}|${
+                  attachment.typeKind
+                }`;
+
+            if (!attachment.isImage && claimedAttachmentKeys.has(identityKey)) {
+              console.info("[附件上传] 当前输入框已存在相同文件，跳过追加", {
+                name: attachment.file.name || "未命名文件",
+                size: attachment.file.size || 0,
+                type: attachment.uploadContentType,
+                contentMd5: contentMd5 || "",
+              });
+              return;
+            }
+            claimedAttachmentKeys.add(identityKey);
+
+            let cachedUrl = "";
+            if (contentMd5) {
+              cachedUrl = await resolveComposerCachedUploadUrl(
+                attachment.file,
+                contentMd5,
+              ).catch(() => "");
+            }
+
+            if (ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
+              return;
+            }
+
+            if (cachedUrl) {
+              console.info("[附件上传] 命中已存在文件，跳过上传", {
+                name: attachment.file.name || "未命名文件",
+                size: attachment.file.size || 0,
+                type: attachment.uploadContentType,
+                contentMd5: contentMd5 || "",
+                url: cachedUrl,
+              });
+              showAttachLimitHint("已命中已有文件，已直接复用");
+
+              shouldKeepLocalPreview = true;
+              if (attachment.isImage) {
+                setAttachImages((prev) =>
+                  mergeComposerAttachedImages(prev, [
+                    createComposerAttachedImage(
+                      cachedUrl,
+                      attachment.previewUrl,
+                    ),
+                  ]),
+                );
+              } else {
+                const uploadedFile = createAttachedFileFromUpload(
+                  attachment.file,
+                  cachedUrl,
+                  attachment.previewUrl,
+                  contentMd5,
+                );
+                setAttachedFiles((prev) =>
+                  mergeComposerAttachedFiles(prev, [uploadedFile]),
+                );
+              }
+              return;
+            }
+
+            console.info("[附件上传] 未命中已有文件，准备上传", {
+              name: attachment.file.name || "未命名文件",
+              size: attachment.file.size || 0,
+              type: attachment.uploadContentType,
+              contentMd5: contentMd5 || "",
+            });
+
+            setUploadingAttachments((prev) =>
+              prev.map((item) =>
+                item.id === attachment.id
+                  ? {
+                      ...item,
+                      contentMd5,
+                      phase: "uploading",
+                      progress: 0,
+                    }
+                  : item,
+              ),
+            );
+
+            console.info("[附件上传] 开始上传新文件", {
+              name: attachment.file.name || "未命名文件",
+              size: attachment.file.size || 0,
+              type: attachment.uploadContentType,
+            });
             uploadedUrl = await new Promise<string>((resolve, reject) => {
               const xhr = new XMLHttpRequest();
               uploadingAttachmentXhrRef.current.set(attachment.id, xhr);
@@ -5536,13 +6120,6 @@ function _Chat() {
                     (xhr.response as any) ??
                     JSON.parse(String(xhr.responseText || "{}"));
                   if (res?.code === 0 && res?.data) {
-                    setUploadingAttachments((prev) =>
-                      prev.map((item) =>
-                        item.id === attachment.id
-                          ? { ...item, progress: 1 }
-                          : item,
-                      ),
-                    );
                     resolve(String(res.data));
                     return;
                   }
@@ -5557,53 +6134,60 @@ function _Chat() {
               formData.append("file", attachment.file);
               xhr.send(formData);
             });
+
             if (ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
               return;
             }
-            setCachedUploadUrl(attachment.file, uploadedUrl);
+            console.info("[附件上传] 新文件上传成功", {
+              name: attachment.file.name || "未命名文件",
+              size: attachment.file.size || 0,
+              type: attachment.uploadContentType,
+              url: uploadedUrl,
+            });
+
+            shouldKeepLocalPreview = true;
             if (attachment.isImage) {
-              setAttachImages((prev) => {
-                return mergeComposerAttachedImages(prev, [
+              setAttachImages((prev) =>
+                mergeComposerAttachedImages(prev, [
                   createComposerAttachedImage(
                     uploadedUrl,
                     attachment.previewUrl,
                   ),
-                ]);
-              });
+                ]),
+              );
             } else {
               const uploadedFile = createAttachedFileFromUpload(
                 attachment.file,
                 uploadedUrl,
                 attachment.previewUrl,
+                contentMd5,
               );
-              setAttachedFiles((prev) => {
-                const all = [...prev, uploadedFile];
-                return all.length > MAX_ATTACH_IMAGES
-                  ? all.slice(0, MAX_ATTACH_IMAGES)
-                  : all;
-              });
+              setAttachedFiles((prev) =>
+                mergeComposerAttachedFiles(prev, [uploadedFile]),
+              );
             }
           } catch (error) {
             if (!ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
+              console.error("[附件上传] 新文件上传失败", {
+                name: attachment.file.name || "未命名文件",
+                size: attachment.file.size || 0,
+                type: attachment.uploadContentType,
+                error:
+                  error instanceof Error ? error.message : String(error || ""),
+              });
               showAttachLimitHint("文件上传失败，请重试");
             }
           } finally {
             uploadingAttachmentXhrRef.current.delete(attachment.id);
-            if (
-              uploadedUrl &&
-              !ignoredUploadingAttachmentIdsRef.current.has(attachment.id) &&
-              typeof requestAnimationFrame !== "undefined"
-            ) {
-              await new Promise<void>((resolve) =>
-                requestAnimationFrame(() => resolve()),
-              );
-            }
             setUploadingAttachments((prev) =>
               prev.filter((item) => item.id !== attachment.id),
             );
-            const shouldKeepLocalPreview =
-              Boolean(uploadedUrl) &&
-              !ignoredUploadingAttachmentIdsRef.current.has(attachment.id);
+            if (
+              uploadedUrl &&
+              ignoredUploadingAttachmentIdsRef.current.has(attachment.id)
+            ) {
+              deleteUnsentServerCacheUrl(uploadedUrl);
+            }
             ignoredUploadingAttachmentIdsRef.current.delete(attachment.id);
             if (!shouldKeepLocalPreview) {
               URL.revokeObjectURL(attachment.previewUrl);
@@ -5614,7 +6198,7 @@ function _Chat() {
     },
     [
       attachImages.length,
-      attachedFiles.length,
+      attachedFiles,
       showAttachLimitHint,
       uploadingAttachments.length,
     ],
@@ -7435,7 +8019,7 @@ function _Chat() {
   } | null>(null);
 
   useEffect(() => {
-    if (!safeSession.id || currentSessionHasMessages) {
+    if (!safeSession.id) {
       clearComposerAttachmentDraftCache(safeSession.id);
       return;
     }
@@ -7454,19 +8038,13 @@ function _Chat() {
     sessionComposerAttachmentDrafts.set(safeSession.id, nextDraft);
     currentPageComposerAttachmentDraft = nextDraft;
     currentPageComposerAttachmentDraftSessionId = safeSession.id;
-  }, [attachImages, attachedFiles, currentSessionHasMessages, safeSession.id]);
+  }, [attachImages, attachedFiles, safeSession.id]);
 
   useEffect(() => {
     if (currentSessionHasMessages) {
       localStorage.removeItem(unfinishedInputKey);
       localStorage.removeItem(unfinishedAttachImagesKey);
       restoredInputDraftKeyRef.current = unfinishedInputKey;
-      if (userInput.length > 0) {
-        setUserInput("");
-      }
-      if (hasComposerAttachments) {
-        clearComposerAttachments();
-      }
       return;
     }
 
@@ -7541,9 +8119,6 @@ function _Chat() {
       );
       localStorage.removeItem(unfinishedAttachImagesKey);
       localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-      clearComposerAttachments({
-        preserveComposerDraftUrls: true,
-      });
       return;
     }
 
@@ -7558,9 +8133,7 @@ function _Chat() {
       localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
       if (cancelled) return;
 
-      const restoredDraft =
-        sessionComposerAttachmentDrafts.get(safeSession.id) ??
-        currentPageComposerAttachmentDraft;
+      const restoredDraft = sessionComposerAttachmentDrafts.get(safeSession.id);
 
       if (isChatUnavailableForSync) {
         if (composerSnapshotRef.current.hasComposerAttachments) {
@@ -7586,7 +8159,7 @@ function _Chat() {
         files: nextFiles,
       });
       setAttachImages(nextImages);
-      setAttachedFiles(nextFiles);
+      setAttachedFiles(mergeComposerAttachedFiles([], nextFiles));
     })();
 
     return () => {
@@ -7966,15 +8539,6 @@ function _Chat() {
         }
         key={safeSession.id}
       >
-        {/* 自定义供应商切换提示 */}
-        {providerSwitchToast.show && (
-          <div className={styles["provider-switch-toast"]}>
-            <div className={styles["provider-switch-toast-content"]}>
-              {providerSwitchToast.message}
-            </div>
-          </div>
-        )}
-
         <div className="window-header">
           {isMobileScreen && location.pathname !== Path.Home && (
             <div className="window-actions">
@@ -8353,7 +8917,10 @@ function _Chat() {
                                         createComposerAttachedImage(image),
                                       );
                                     const nextFiles =
-                                      messageAttachedFiles.slice();
+                                      mergeComposerAttachedFiles(
+                                        [],
+                                        messageAttachedFiles.slice(),
+                                      );
                                     setEditMobileMessageId(message.id ?? null);
                                     setUserInput(nextText);
                                     setAttachImages(nextImages);
@@ -9000,7 +9567,9 @@ function _Chat() {
                                   {attachment.file.name}
                                 </div>
                                 <div className={styles["attach-file-type"]}>
-                                  上传中{" "}
+                                  {attachment.phase === "uploading"
+                                    ? "上传中"
+                                    : "准备上传"}{" "}
                                   {Math.round(
                                     Math.min(
                                       1,
@@ -9435,9 +10004,7 @@ function _Chat() {
             <>
               {modelSelectorNotice ? (
                 <div className={styles["model-selector-notice"]}>
-                  <div className={styles["provider-switch-toast-content"]}>
-                    {modelSelectorNotice}
-                  </div>
+                  <NoticePill content={modelSelectorNotice} />
                 </div>
               ) : null}
               <div className={styles["model-selector-hint"]}>

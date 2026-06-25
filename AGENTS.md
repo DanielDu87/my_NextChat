@@ -47,6 +47,7 @@ cp .env.docker.example .env.docker
 - 不提交临时调试文件、历史 `.bak` 文件、截图/浏览器误生成的空 `div*` 文件。
 - 当前仓库不维护 Jest 测试目录，`test/`、`jest.config.ts`、`jest.setup.ts`、`setup-test-data.js` 属于已清理内容。
 - 不再使用 `yarn test` / `yarn test:ci` 作为默认验证命令；优先使用 `yarn lint`、`yarn build`、针对性脚本或手工验证。
+- 后续浏览器手工测试、回归测试默认切换到 `ccc` 用户后再执行，除非用户明确指定其他账号。
 
 ## 生产部署
 

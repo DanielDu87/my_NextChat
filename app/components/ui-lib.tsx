@@ -340,7 +340,12 @@ export function showModal(props: ModalProps) {
   document.body.appendChild(div);
 
   const root = createRoot(div);
+  let closed = false;
   const closeModal = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
     props.onClose?.();
     root.unmount();
     div.classList.add("modal-mask-closing");
@@ -354,6 +359,7 @@ export function showModal(props: ModalProps) {
   };
 
   root.render(<Modal {...props} onClose={closeModal}></Modal>);
+  return closeModal;
 }
 
 export type ToastProps = {
@@ -375,12 +381,55 @@ let globalTopNoticeRoot: ReturnType<typeof createRoot> | null = null;
 let globalTopNoticeCloseTimer: number | null = null;
 let globalTopNoticeCleanupTimer: number | null = null;
 
+export function NoticePill(props: {
+  content?: React.ReactNode;
+  children?: React.ReactNode;
+  action?: ToastProps["action"];
+  onClose?: () => void;
+}) {
+  return (
+    <div className={styles["notice-pill"]}>
+      <span className={styles["notice-pill-content"]}>
+        {props.children ?? props.content}
+      </span>
+      {props.action && (
+        <button
+          onClick={() => {
+            props.action?.onClick?.();
+            props.onClose?.();
+          }}
+          className={styles["notice-pill-action"]}
+        >
+          {props.action.text}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function TopNotice(props: TopNoticeProps) {
   return (
     <div className={styles["top-notice-host"]} style={props.style}>
-      <div className={styles["top-notice-content"]}>{props.content}</div>
+      <NoticePill content={props.content} />
     </div>
   );
+}
+
+export function hideTopNotice() {
+  if (typeof window === "undefined") return;
+
+  if (globalTopNoticeCloseTimer !== null) {
+    window.clearTimeout(globalTopNoticeCloseTimer);
+    globalTopNoticeCloseTimer = null;
+  }
+  if (globalTopNoticeCleanupTimer !== null) {
+    window.clearTimeout(globalTopNoticeCleanupTimer);
+    globalTopNoticeCleanupTimer = null;
+  }
+
+  if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
+  globalTopNoticeRoot.render(<></>);
+  globalTopNoticeDiv.className = "";
 }
 
 export function showTopNotice(content: string, delay = 2200) {
@@ -435,20 +484,11 @@ export function showTopNotice(content: string, delay = 2200) {
 export function Toast(props: ToastProps) {
   return (
     <div className={styles["toast-container"]}>
-      <div className={styles["toast-content"]}>
-        <span>{props.content}</span>
-        {props.action && (
-          <button
-            onClick={() => {
-              props.action?.onClick?.();
-              props.onClose?.();
-            }}
-            className={styles["toast-action"]}
-          >
-            {props.action.text}
-          </button>
-        )}
-      </div>
+      <NoticePill
+        content={props.content}
+        action={props.action}
+        onClose={props.onClose}
+      />
     </div>
   );
 }

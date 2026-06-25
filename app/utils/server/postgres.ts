@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-24-cache-file-v2";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-25-global-cache-blob-dedupe";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -416,6 +416,17 @@ export async function ensureSyncStorageSchema() {
         on user_draw_images(user_id, content_type, md5(data))
       `);
         await client.query(`
+        create table if not exists cache_file_blobs (
+          id uuid primary key default generate_uuid_v4(),
+          content_type text not null,
+          content_md5 text not null,
+          size_bytes integer not null,
+          data bytea not null,
+          created_at timestamptz not null default now(),
+          unique (content_type, content_md5)
+        )
+      `);
+        await client.query(`
         create table if not exists user_cache_files (
           id uuid primary key default generate_uuid_v4(),
           user_id uuid not null references app_users(id) on delete cascade,
@@ -428,6 +439,18 @@ export async function ensureSyncStorageSchema() {
           expires_at timestamptz not null default (now() + interval '3 days'),
           created_at timestamptz not null default now()
         )
+      `);
+        await client.query(`
+        alter table user_cache_files
+        add column if not exists blob_id uuid references cache_file_blobs(id) on delete restrict
+      `);
+        await client.query(`
+        alter table user_cache_files
+        add column if not exists content_md5 text
+      `);
+        await client.query(`
+        alter table user_cache_files
+        alter column data drop not null
       `);
         await client.query(`
         alter table user_cache_files
@@ -447,6 +470,51 @@ export async function ensureSyncStorageSchema() {
         where is_pinned = false
       `);
         await client.query(`
+        update user_cache_files
+        set content_md5 = md5(data)
+        where content_md5 is null
+          and data is not null
+      `);
+        await client.query(`
+        insert into cache_file_blobs (content_type, content_md5, size_bytes, data)
+        select distinct on (content_type, content_md5)
+          content_type,
+          content_md5,
+          size_bytes,
+          data
+        from user_cache_files
+        where blob_id is null
+          and content_md5 is not null
+          and data is not null
+        order by content_type, content_md5, is_pinned desc, created_at asc
+        on conflict (content_type, content_md5) do nothing
+      `);
+        await client.query(`
+        update user_cache_files f
+        set blob_id = b.id
+        from cache_file_blobs b
+        where f.blob_id is null
+          and f.content_type = b.content_type
+          and f.content_md5 = b.content_md5
+      `);
+        await client.query(`
+        update user_cache_files
+        set data = null
+        where blob_id is not null
+          and data is not null
+      `);
+        await client.query(`
+        create index if not exists idx_user_cache_files_blob_id
+        on user_cache_files(blob_id)
+      `);
+        await client.query(`
+        create index if not exists idx_cache_file_blobs_content_md5
+        on cache_file_blobs(content_type, content_md5)
+      `);
+        await client.query(`
+        drop index if exists idx_user_cache_files_user_content_data
+      `);
+        await client.query(`
         delete from user_cache_files
         where id in (
           select id from (
@@ -455,6 +523,8 @@ export async function ensureSyncStorageSchema() {
               order by created_at desc
             ) as rn
             from user_cache_files
+            where blob_id is null
+              and data is not null
           ) dup
           where dup.rn > 1
         )
@@ -462,6 +532,7 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create unique index if not exists idx_user_cache_files_user_content_data
         on user_cache_files(user_id, content_type, md5(data))
+        where blob_id is null and data is not null
       `);
         await client.query(`
         create table if not exists conversations (

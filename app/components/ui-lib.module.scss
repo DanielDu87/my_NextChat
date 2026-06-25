@@ -389,41 +389,62 @@
 
 .toast-container {
   position: fixed;
-  bottom: 5vh;
+  top: 100px;
   left: 0;
   width: 100vw;
   display: flex;
   justify-content: center;
+  z-index: 10000;
   pointer-events: none;
+  animation: top-notice-slide-down 0.3s ease-out;
+}
 
-  .toast-content {
-    max-width: 80vw;
-    word-break: break-all;
-    font-size: 14px;
-    background-color: var(--white);
-    box-shadow: var(--card-shadow);
-    border: var(--border-in-light);
-    color: var(--black);
-    padding: 10px 20px;
-    border-radius: 50px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    pointer-events: all;
+.notice-pill {
+  max-width: min(520px, calc(100vw - 64px));
+  word-break: break-word;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  background: rgba(240, 249, 255, 0.96);
+  box-shadow: 0 4px 15px rgba(186, 230, 253, 0.4);
+  border: 1px solid rgba(186, 230, 253, 0.8);
+  color: #0369a1;
+  padding: 8px 20px;
+  border-radius: 999px;
+  margin-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  backdrop-filter: blur(10px);
+  pointer-events: all;
+  white-space: nowrap;
+}
 
-    .toast-action {
-      padding-left: 20px;
-      color: var(--primary);
-      opacity: 0.8;
-      border: 0;
-      background: none;
-      cursor: pointer;
-      font-family: inherit;
+.notice-pill-content {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 
-      &:hover {
-        opacity: 1;
-      }
-    }
+.notice-pill-action {
+  padding: 0;
+  color: inherit;
+  opacity: 0.9;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 800;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:hover {
+    opacity: 1;
   }
 }
 
@@ -442,6 +463,8 @@
 .top-notice-host {
   position: fixed;
   top: 100px;
+  left: 0;
+  width: 100vw;
   display: flex;
   justify-content: center;
   z-index: 10000;
@@ -462,49 +485,41 @@
     transform 0.2s ease;
 }
 
-.top-notice-content {
-  background: rgba(240, 249, 255, 0.96);
-  color: #0369a1;
-  padding: 8px 20px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 20px;
-  box-shadow: 0 4px 15px rgba(186, 230, 253, 0.4);
-  backdrop-filter: blur(10px);
-  white-space: nowrap;
-  text-align: center;
-  border: 1px solid rgba(186, 230, 253, 0.8);
-}
-
-:global(body.light) .top-notice-content,
-:global(.light) .top-notice-content {
+:global(body.light) .notice-pill,
+:global(.light) .notice-pill {
   background: rgba(240, 249, 255, 0.96);
   color: #0369a1 !important;
   border: 1px solid rgba(186, 230, 253, 0.8);
   box-shadow: none;
 }
 
-:global(body.dark) .top-notice-content,
-:global(.dark) .top-notice-content {
-  background: rgba(30, 41, 59, 0.94);
-  color: #f8fafc !important;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.38);
+:global(body.dark) .notice-pill,
+:global(.dark) .notice-pill {
+  background: rgba(51, 65, 85, 0.82);
+  color: #7dd3fc !important;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.32),
+    0 0 10px rgba(125, 211, 252, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .top-notice-content {
-    background: rgba(30, 41, 59, 0.94);
-    color: #f8fafc !important;
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    box-shadow: 0 8px 24px rgba(2, 6, 23, 0.38);
+  :global(body:not(.light):not(.dark)) .notice-pill {
+    background: rgba(96, 165, 250, 0.9);
+    color: #ffffff !important;
+    border: none;
+    box-shadow: 0 8px 24px rgba(96, 165, 250, 0.3);
   }
 }
 
 @media only screen and (max-width: 600px) {
   .toast-container {
-    bottom: calc(5vh + env(safe-area-inset-bottom, 0px));
+    top: 100px;
+  }
+
+  .notice-pill {
+    max-width: min(320px, calc(100vw - 64px));
+    white-space: normal;
   }
 }
 
