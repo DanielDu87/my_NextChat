@@ -101,7 +101,7 @@ curl http://127.0.0.1:3000/api/db/health
 - `postgres.user`
 - `postgres.configuredHost`
 - `postgres.configuredPort`
-- `schemaVersion`（v4 优化后输出，例：`2026-06-11-sync-storage-v4`）
+- ~~`schemaVersion`~~（schema 版本是应用内部变量 `globalThis.__nextchatSyncStorageSchemaVersion`，当前 `2026-06-22-draw-thumb-v1`，**不在** health 响应中返回）
 - ~~`modelCatalogCount`~~（v4 优化后已移除；模型计数请改读 `app_settings.security_settings -> 'access-control' -> apiProfiles[*].cachedModels.length`）
 
 ## 5. 迁移顺序建议

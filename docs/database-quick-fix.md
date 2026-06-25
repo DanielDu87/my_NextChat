@@ -1,5 +1,9 @@
 # NextChat 数据库问题快速排除指南
 
+> ⚠️ **文档状态（已过时）**：本文写于 v4 存储优化（2026-06-11）之前，"手动修复"SQL 引用的 `model_settings` 列已废弃（`app-config` 现位于 `app_settings.extra_settings`），照搬会报错。当前 `app_settings` 只有 4 个 JSONB 列：`chat_settings / plugin_settings / security_settings / extra_settings`。排查请以最新文档为准：
+> - [PostgreSQL schema](db/nextchat-postgres-schema.sql)
+> - [数据存储同步总表](db/data-storage-sync-matrix.md)
+
 本文档提供了 NextChat 在宝塔面板部署后常见数据库问题的快速解决方案。
 
 ## 🚨 常见错误速查表

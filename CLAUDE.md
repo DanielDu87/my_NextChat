@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working on code
 
 ## 项目概述
 
-NextChat 是一个基于 Next.js 14 的跨平台 AI 聊天应用，支持多个 AI 服务提供商（OpenAI、Claude、Gemini、DeepSeek 等）。项目可作为 Web 应用（PWA）或 Tauri 桌面应用运行。
+NextChat 是一个基于 Next.js 14 的跨平台 AI 聊天应用（当前版本 `2.16.1`），支持 18 个 AI 服务提供商，可作为 Web 应用（PWA）、Tauri 桌面应用运行。除对话外，还内置**绘画（AI 绘图）**、**实时语音对话**、**声纹**、**MCP 工具调用**、**插件**、**Artifacts** 等功能。
+
+技术栈：Next.js 14 + React 18 + TypeScript 5.6 + Zustand 4 + PostgreSQL（`pg`），路由基于 `react-router-dom`，样式使用 SCSS + CSS Modules。
 
 ## 数据库连接规范
 
@@ -41,11 +43,13 @@ ssh -f -N -L 15432:127.0.0.1:5432 root@42.193.15.117 -p 222
 ### 提交规则
 
 1. **不主动提交**
+
    - 开发过程中不自动提交代码
    - 完成修改后不主动提交
    - 只有当用户明确说"提交"、"commit"、"提交代码"等明确指令时才执行提交
 
 2. **提交后自动推送**
+
    - 执行 `git commit` 后自动执行 `git push`
    - 确保本地提交同步到远程仓库
 
@@ -79,12 +83,14 @@ git push
 ### 示例对话
 
 **错误示例（不要这样做）：**
+
 ```
 用户: "修改完成了"
 助手: [自动执行 git commit] ❌ 错误！
 ```
 
 **正确示例：**
+
 ```
 用户: "修改完成了"
 助手: "修改已完成。" ✅ 正确，不提交
@@ -117,6 +123,12 @@ yarn app:dev
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
 ```
 
+常用页面：
+
+- 聊天页：`/chat`
+- 绘图页：`/draw`、绘图历史：`/draw/history`
+- API 配置：`/api-config`
+
 ### 构建
 
 ```bash
@@ -128,9 +140,6 @@ yarn export
 
 # 构建 Tauri 桌面应用
 yarn app:build
-
-# 构建 mask（通常在 build 前自动执行）
-yarn mask
 ```
 
 ### 测试与质量
@@ -146,7 +155,34 @@ npx tsc --noEmit --pretty false
 yarn build
 ```
 
-说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本；不要再把它们作为默认验证命令。
+说明：本仓库已移除 Jest 配置、`test/` 目录和 `yarn test` / `yarn test:ci` 脚本，不要再把它们作为默认验证命令。`devDependencies` 中仍残留 `jest` / `@testing-library/*` 相关包但无对应配置和脚本，不可直接运行测试。
+
+### 数据库与模型维护脚本
+
+通过 `tsx` 运行（`scripts/` 目录），改动数据库前务必先确认影响范围：
+
+```bash
+# 数据库健康检查
+yarn db:health
+
+# 模型同步与维护
+yarn models:published-at          # 维护模型发布时间
+yarn db:sync-models               # 同步模型到 PostgreSQL
+yarn db:refresh-provider-models   # 刷新各提供商模型列表
+
+# 迁移脚本（一般只执行一次）
+yarn db:migrate-chat-store        # 旧 chat store 迁移到 conversations
+yarn db:migrate-draw-store        # 迁移绘画存储
+yarn db:migrate-sync-artifacts    # sync artifacts 迁移到独立表
+
+# 清理脚本（⚠️ 高风险，执行前确认）
+yarn db:cleanup-legacy-chat-store
+yarn db:cleanup-legacy-sync-storage
+yarn db:drop-unused-tables
+yarn db:purge-keep-provider-configs
+yarn db:unify-user-id
+yarn db:seed-chat-performance     # 性能压测数据填充
+```
 
 ### 其他
 
@@ -157,77 +193,178 @@ yarn prompts
 
 ## 架构概览
 
+### 路由约定
+
+- 使用 `react-router-dom`，URL 为**普通路径**（如 `/chat`、`/draw`），不再新增 `/#/...` hash 链接。
+- 旧 hash 地址在客户端启动时自动迁移到普通路径。
+- 服务端通过 `app/[...path]/page.tsx` catch-all 渲染，直接刷新 `/draw`、`/api-config` 等页面应正常进入应用。
+
 ### 状态管理（Zustand + Persist）
 
-项目使用 Zustand 进行状态管理，配合自定义的持久化存储系统：
+项目使用 Zustand 进行状态管理，配合自定义持久化存储。需要持久化的 store 在 `app/constant.ts` 的 `StoreKey` 注册（`Chat`/`Plugin`/`Access`/`Config`/`ModelCache`/`Prompt`/`Update`/`Sync`/`DrawList`/`Mcp`），store 实现位于 `app/store/`：
 
-- **`app/store/chat.ts`** - 核心聊天状态（会话、消息、记忆压缩）
-- **`app/store/config.ts`** - 应用配置（模型、主题、TTS 等）
-- **`app/store/access.ts`** - API 访问控制（API Key、访问码）
-- **`app/store/mask.ts`** - Prompt 模板（Masks）管理
-- **`app/store/sync.ts`** - 聊天记录与配置同步（Database/WebDAV 等）
+| Store | 文件 | 职责 |
+| --- | --- | --- |
+| Chat | `chat.ts` | 核心聊天状态（会话、消息、记忆压缩、附件） |
+| Config | `config.ts` | 应用配置（模型、主题、TTS、实时语音） |
+| Access | `access.ts` | API 访问控制（API Key、访问码、多 Key 配置） |
+| Auth | `auth.ts` | 用户认证状态（登录态、当前用户） |
+| DrawList | `draw.ts` | 绘画任务与历史 |
+| Mask | `mask.ts` | Prompt 模板（Masks） |
+| Prompt | `prompt.ts` | 自定义 Prompt |
+| ModelCache | `model-cache.ts` | 模型列表缓存 |
+| Sync | `sync.ts` | 聊天记录与配置同步（Database/WebDAV 等） |
+| Plugin | `plugin.ts` | 插件 |
+| Mcp | — | MCP 工具（`app/mcp/`，非持久化 store） |
+| Update | `update.ts` | 版本更新 |
+
+聊天 store 进一步拆分为辅助模块（非独立 store）：`chat-defaults.ts`、`chat-index.ts`、`chat-session.ts`。
 
 ### 存储架构
 
-项目当前使用双层存储：
+项目使用双层存储：
 
 1. **PostgreSQL** - 主要业务存储
-
-   - 存储对话、配置、Prompt、Mask、插件、模型同步快照等核心数据
+   - 通过 `app/utils/server/postgres.ts` 的全局连接池（`global.__nextchatPostgresPool`）访问，含连接异常重试。
+   - 存储对话、配置、Prompt、Mask、插件、模型同步快照、绘画任务与图片、用户与认证等核心数据。
+   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-06-22-draw-thumb-v1`）自动初始化/迁移。
 
 2. **localStorage** - 纯本地偏好存储
-   - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态
+   - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态。
+   - 持久化封装见 `app/utils/store.ts`（`createPersistStore`）、`app/utils/database-state-storage.ts`、`indexeddb-state-storage.ts`。
+
+### 数据库 Repository 层（服务端）
+
+`app/utils/server/` 是所有服务端数据访问的统一入口（Repository 模式），**新增/修改数据库逻辑应优先复用这里的封装**，避免直接写裸 SQL：
+
+- `postgres.ts` - 连接池、重试、Schema 版本管理
+- `chat-conversation-repository.ts` - 对话与会话
+- `draw-image-repository.ts` / `draw-store-repository.ts` - 绘画图片与任务
+- `sync-store-repository.ts` / `sync-store-helpers.ts` / `sync-meta-loader.ts` - 同步键值存储与元数据
+- `provider-config-repository.ts` - 提供商配置
+- `provider-model-fetch.ts` / `provider-model-sync.ts` - 提供商模型拉取与同步
+- `app-settings-repository.ts` - 应用设置
+- `sync-app-user.ts` / `sync-user.ts` / `auth.ts` / `site-password.ts` - 用户与认证
+- `access-store-security.ts` / `sync-secrets.ts` - 访问安全与密钥
+
+### API 路由
+
+服务端路由位于 `app/api/`：
+
+- `[provider]/[...path]` - **AI 提供商代理**（核心聊天/补全/图像转发）
+- `proxy/[...path]` - 通用代理
+- `db/` - 数据库同步接口
+  - `sync/[key]` - 通用键值同步（对话/配置等）
+  - `chat-sync`（含 `sessions`）、`chat-updated-at` - 对话同步
+  - `draw-image`（含 `[id]`） - 绘画图片存取（含缩略图）
+  - `sync-meta` - 同步元数据、`health` - 健康检查
+  - `models/refresh` - 模型刷新、`balance` - 余额查询
+- `auth/` - 登录（`login`）、登出（`logout`）、当前用户（`me`）
+- `admin/` - 用户管理（`users`）、切换用户（`switch-user`）
+- `site-auth` - 站点访问密码
+- `config` - 客户端配置下发
+- 聚合模型元数据服务：`aihubmix`、`ocoolai`、`toapis`、`yuto`、`tencent`
+- `webhook/sync-models` - 模型同步 webhook
+- `model-probe` - 模型探测、`artifacts` - Artifacts
 
 ### API 客户端架构
 
-多服务提供商支持的抽象层：
+多服务提供商抽象层，路由入口在 `app/client/api.ts` 的 `ClientApi` 类：
 
-- **`app/client/api.ts`** - `ClientApi` 类，根据提供商路由到具体实现
-- **`app/client/platforms/*.ts`** - 各服务提供商的具体实现
-  - `openai.ts` - OpenAI/Azure
-  - `anthropic.ts` - Claude
-  - `google.ts` - Gemini
-  - `deepseek.ts` - DeepSeek
-  - 等其他提供商...
+- **`app/client/api.ts`** - `ClientApi`，根据 `ServiceProvider` 路由到具体平台实现，含 `getBearerToken` 等通用工具。
+- **`app/client/controller.ts`** - 请求流程控制器。
+- **`app/client/model-capability.ts`** / **`model-parameter-rules.ts`** - 模型能力与参数规则。
+- **`app/client/openai-media-utils.ts`** - 多模态/媒体处理。
 
-每个平台实现 `LLMApi` 抽象类的 `chat()`、`speech()`、`usage()`、`models()` 方法。
+各平台实现位于 `app/client/platforms/`，实现统一的 `chat()`、`speech()`、`usage()`、`models()` 等方法：
+
+| 文件 | 提供商 |
+| --- | --- |
+| `openai.ts` | OpenAI / Azure / 兼容协议 |
+| `anthropic.ts` | Claude |
+| `google.ts` | Gemini |
+| `deepseek.ts` | DeepSeek |
+| `glm.ts` | 智谱 ChatGLM |
+| `alibaba.ts` | 通义千问 |
+| `bytedance.ts` | 豆包 |
+| `baidu.ts` | 文心一言 |
+| `tencent.ts` | 腾讯混元 |
+| `moonshot.ts` | 月之暗面 |
+| `iflytek.ts` | 讯飞星火 |
+| `siliconflow.ts` | 硅基流动 |
+| `xai.ts` | Grok (xAI) |
+| `ai302.ts` | 302.AI |
+| `local.ts` | 本地模型 |
+
+新增平台：在 `app/constant.ts` 的 `ServiceProvider` 添加枚举，在 `platforms/` 新建实现，并在 `ClientApi` 构造函数中添加对应 case。
+
+### 绘画系统
+
+- **`app/store/draw.ts`** - 绘画任务状态与历史。
+- **`app/components/draw/`** - 绘画 UI：`draw-panel.tsx`（参数面板）、`draw-sidebar.tsx`、`draw.tsx`（主界面）、`index.tsx`。
+- **`app/api/db/draw-image/`** - 绘画图片服务端存储（原图 + `?thumb=1` 缩略图）。
+- **`app/utils/draw-model-params.ts`** - 绘画模型参数归一化（尺寸、质量、DashScope 适配等）。
+- 支持的绘画协议：OpenAI 兼容图像接口（`v1/images/generations`，覆盖通义万相、即梦、智谱、SiliconFlow 等）与 Stability。
+- 路由：`/draw`（绘图）、`/draw/history`（历史）。
+- 数据库迁移：`yarn db:migrate-draw-store`。
+
+### 认证与多用户
+
+- **`app/store/auth.ts`** - 登录态、当前用户。
+- **`app/api/auth/`**（login/logout/me）、**`app/api/admin/`**（用户管理/切换）、**`app/api/site-auth`**（站点访问密码）。
+- **`app/utils/server/`**：`auth.ts`、`site-password.ts`、`sync-app-user.ts`、`sync-user.ts`。
+- 组件：`app/components/auth.tsx`、`site-password-gate.tsx`、`user-menu.tsx`。
+
+### 模型管理
+
+围绕模型列表的获取、分类、能力判定、自动同步：
+
+- 缓存 store：`app/store/model-cache.ts`。
+- 工具：`app/utils/model*.ts`（`model.ts`、`models.ts`、`model-capabilities.ts`、`model-classification.ts`、`model-category-rules.ts`、`model-pool.ts`、`model-provider.ts`、`model-sync-diff.ts`、`model-selector-provider.ts`、`model-published-at.ts`、`auto-model.ts`、`managed-model-rebuild.ts`、`manual-model-selection.ts`、`manual-sync-guard.ts`、`useModelFetcher.ts`）。
+- 聚合元数据服务：`aihubmix.ts`、`tencent.ts`、`baidu.ts`、`cloudflare.ts` 等。
+- 服务端同步：`app/utils/server/provider-model-sync.ts`。
+
+### 多 API Key 管理
+
+- **`app/utils/multi-key.ts`** - 多 Key 轮询与失败切换。
+- **`app/utils/model-api-key-memory.ts`** - 记忆可用 Key 分组。
+- **`app/utils/access-profiles.ts`** / **`access-snapshot.ts`** - 访问配置多档位。
 
 ### 关键组件
 
-- **`app/components/chat.tsx`** - 主聊天界面
-- **`app/components/sidebar.tsx`** - 侧边栏（会话列表）
-- **`app/components/settings.tsx`** - 设置页面
-- **`app/components/api-config.tsx`** - API 配置页面
-- **`app/components/mask.tsx`** - Mask 编辑器
-- **`app/components/artifacts.tsx`** - Artifacts 预览窗口
+位于 `app/components/`：
+
+- **聊天**：`chat.tsx`（主界面）、`chat-list.tsx`、`chat.module.scss`、`search-chat.tsx`、`new-chat.tsx`。
+- **侧边栏**：`sidebar.tsx`、`sidebar-context.ts`。
+- **设置/配置**：`settings.tsx`、`api-config.tsx`、`model-config.tsx`、`add-model-modal.tsx`、`tts-config.tsx`。
+- **Mask**：`mask.tsx`；**Artifacts**：`artifacts.tsx`；**导出**：`exporter.tsx`、`message-selector.tsx`。
+- **插件/MCP**：`plugin.tsx`、`mcp-market.tsx`。
+- **绘画**：`draw/`；**实时语音**：`realtime-chat/`；**声纹**：`voice-print/`。
+- **首页/用户**：`home.tsx`、`home-entry.tsx`、`user-menu.tsx`、`auto-sync.tsx`。
+- **通用 UI**：`ui-lib.tsx`、`button.tsx`、`input-range.tsx`、`emoji.tsx`、`error.tsx`、`markdown.tsx`。
 
 ### MCP (Model Context Protocol)
 
-MCP 功能位于 `app/mcp/` 目录：
-
-- **`actions.ts`** - MCP 动作执行和工具获取
-- **`client.ts`** - MCP 客户端管理
-- **`types.ts`** - MCP 类型定义
-
-MCP 通过 `ENABLE_MCP` 环境变量启用。
+位于 `app/mcp/`：`actions.ts`（动作执行与工具获取）、`client.ts`（客户端管理）、`types.ts`。通过 `ENABLE_MCP` 环境变量启用。
 
 ### 插件系统
 
-插件支持位于 `app/store/plugin.ts` 和 `app/components/plugin.tsx`。插件仓库：`https://github.com/ChatGPTNextWeb/NextChat-Awesome-Plugins`
+`app/store/plugin.ts` + `app/components/plugin.tsx`。插件仓库：`https://github.com/ChatGPTNextWeb/NextChat-Awesome-Plugins`。
 
-### 实时聊天
+### 实时聊天与声纹
 
-使用 Azure Realtime Audio SDK（`rt-client`）实现语音实时对话，相关配置在 `app/store/config.ts` 的 `realtimeConfig`。
+- **实时语音**：`app/components/realtime-chat/`，基于 Azure Realtime Audio SDK（`rt-client`，`vendor/rt-client-0.5.0.tgz`），配置在 `app/store/config.ts` 的 `realtimeConfig`。
+- **声纹**：`app/components/voice-print/`，音频工具 `app/lib/audio.ts`、`app/utils/audio.ts`。
 
 ### Tauri 桌面应用
 
-桌面相关代码在 `src-tauri/` 目录，使用 Tauri 1.x API。
+桌面相关代码在 `src-tauri/`，使用 Tauri 1.x API（`@tauri-apps/api` v2）。
 
 ## 当前聊天 UI 注意事项
 
 - 移动端流式输出时，用户轻微上滑应立即暂停自动贴底，不需要大幅滑动。
 - 点击页面空白只负责收起输入焦点，不应触发自动回到底部。
-- “回到底部”按钮采用类似点击标题滚到顶部的两帧滚动方式，避免虚拟消息窗口切换时出现大块空白。
+- "回到底部"按钮采用类似点击标题滚到顶部的两帧滚动方式，避免虚拟消息窗口切换时出现大块空白。
 - 点击标题滚到顶部时，即使正在流式输出，也必须暂停自动贴底。
 - Token 用量行允许自动换行，窄屏或文本过长时不能撑破消息宽度。
 
@@ -239,15 +376,25 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 
 ## 环境变量
 
-关键环境变量（见 `.env.template`）：
+关键环境变量（见 `.env.template` / `.env.docker.example`，服务端类型定义在 `app/config/server.ts`）：
 
-- `OPENAI_API_KEY` - OpenAI API 密钥
-- `CODE` - 访问密码（逗号分隔多个）
-- `BASE_URL` - 自定义 API 代理地址
-- `ENABLE_MCP` - 启用 MCP 功能
-- `HIDE_USER_API_KEY` - 隐藏用户 API Key 输入
-- `CUSTOM_MODELS` - 自定义模型列表
-- `DEFAULT_MODEL` - 默认模型
+- **访问控制**：`CODE`（访问密码，逗号分隔多个）、`HIDE_USER_API_KEY`
+- **OpenAI**：`OPENAI_API_KEY`、`BASE_URL`、`OPENAI_ORG_ID`
+- **数据库（PostgreSQL）**：`DATABASE_URL` 或 `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSL`/`PGSSLMODE`，连接池/超时：`PGPOOL_MAX`、`PG_CONNECT_TIMEOUT_MS`、`PG_IDLE_TIMEOUT_MS`，重试：`PG_RETRY_COUNT`
+- **各提供商密钥**：`ANTHROPIC_API_KEY`、`GOOGLE_API_KEY`、`AZURE_API_KEY`、`BAIDU_*`、`STABILITY_API_KEY` 等
+- **功能开关**：`ENABLE_MCP`（MCP）
+- **模型**：`CUSTOM_MODELS`、`DEFAULT_MODEL`、`VISION_MODELS`、`DISABLE_GPT4`
+- **构建/部署**：`BUILD_MODE`（standalone/export）、`BUILD_APP`、`PROXY_URL`（docker only）
+
+## 部署
+
+线上默认使用宝塔 DockerSite（详见 [DEPLOY.md](./DEPLOY.md)、[README_BAOTA.md](./README_BAOTA.md)、[docs/baota-chat-dyxcloud-runbook.md](./docs/baota-chat-dyxcloud-runbook.md)）：
+
+- 部署路径：`/www/dk_project/my_NextChat`
+- Compose：`docker-compose.baota.yml`，环境变量：`.env.baota`
+- 域名：`https://chat.dyxcloud.com`，上游：`http://127.0.0.1:3000`
+
+仓库内 Compose 文件：`docker-compose.yml`（默认）、`docker-compose.baota.yml`（宝塔）、`docker-compose.postgres.yml`。非宝塔部署参考 [docs/docker-deploy-cn.md](./docs/docker-deploy-cn.md)。
 
 ## 样式系统
 
@@ -257,11 +404,15 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 
 ## 工具函数
 
-- **`app/utils/store.ts`** - Zustand 持久化存储创建器
-- **`app/utils/chat.ts`** - 聊天相关工具
-- **`app/utils/token.ts`** - Token 估算
-- **`app/utils/chat-sync.ts` / `app/store/sync.ts`** - 聊天记录与状态同步
-- **`app/utils/model.ts`** - 模型相关工具
+`app/utils/` 关键模块：
+
+- **存储/同步**：`store.ts`、`database-state-storage.ts`、`indexeddb-state-storage.ts`、`sync.ts`、`chat-sync.ts`、`chat-sync-state.ts`、`chat-persist-storage.ts`、`sync-store-keys.ts`、`sync-user-client.ts`、`sync-tab-coordination.ts`
+- **聊天**：`chat.ts`、`chat-session-model.ts`、`chat-session-merge.ts`、`new-chat.ts`、`stream.ts`、`token.ts`、`clone.ts`、`merge.ts`
+- **模型**：见上文「模型管理」
+- **绘画参数**：`draw-model-params.ts`
+- **访问/Key**：`access-profiles.ts`、`multi-key.ts`、`model-api-key-memory.ts`
+- **服务端**：`app/utils/server/`（见「数据库 Repository 层」）
+- **通用**：`object.ts`、`format.ts`、`url.ts`、`hmac.ts`、`logger.ts`、`perf.ts`、`hooks.ts`、`safe-local-storage.ts`
 
 ## 构建模式
 
@@ -272,7 +423,10 @@ MCP 通过 `ENABLE_MCP` 环境变量启用。
 
 ## 开发注意事项
 
-1. **修改 store 后**：确保更新对应的 `version` 号和 `migrate` 函数
-2. **添加新平台 API**：在 `app/client/platforms/` 创建文件，在 `ClientApi` 构造函数中添加 case
-3. **Mask 系统**：Masks 是 prompt 模板，存储在 `app/masks/` 目录，构建时生成
-4. **国际化**：语言文件在 `app/locales/` 目录
+1. **修改 store 后**：确保更新对应的 `version` 号和 `migrate` 函数（持久化 store）。
+2. **修改数据库结构**：更新 `app/utils/server/postgres.ts` 的 `SYNC_STORAGE_SCHEMA_VERSION` 并保证迁移可重复执行；提供迁移/回滚脚本（`scripts/` 下）。
+3. **添加新平台 API**：在 `app/constant.ts` 的 `ServiceProvider` 添加枚举，在 `app/client/platforms/` 创建实现，在 `ClientApi` 构造函数添加 case。
+4. **新增数据库逻辑**：优先复用 `app/utils/server/` 的 Repository 封装，不直接写裸 SQL。
+5. **Mask 系统**：Masks 是 prompt 模板，存储在 `app/masks/` 目录。
+6. **国际化**：语言文件在 `app/locales/` 目录（`cn.ts` 为简体中文，`index.ts` 汇总）。
+7. **路由**：新增页面用普通路径（`react-router-dom`），不使用 hash 路由；服务端通过 `app/[...path]/page.tsx` catch-all 兜底。

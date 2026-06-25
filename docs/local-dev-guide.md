@@ -39,6 +39,8 @@ cp .env.docker.example .env.docker
 - 当前默认使用 `.env.docker` 中配置的外部 PostgreSQL 或 `DATABASE_URL`。
 - `local-db` profile 是历史兼容选项，默认不要启用。
 - 如用户明确要求本地 PostgreSQL，再检查 `docker-compose.yml`、`.env.docker` 和数据风险后叠加 `--profile local-db`。
+- 表结构由运行时 `ensureSyncStorageSchema()` 自动建表/迁移（当前版本 `2026-06-22-draw-thumb-v1`），无需手动执行 SQL。
+- 常用维护脚本：`yarn db:health`（健康检查）、`yarn db:refresh-provider-models`（刷新模型）、`yarn db:migrate-*`（迁移），完整列表见 [package.json](../package.json) 的 `db:*` 脚本。
 
 ## 验证
 

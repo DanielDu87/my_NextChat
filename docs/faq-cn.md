@@ -1,5 +1,12 @@
 # 常见问题
 
+> 说明：本 FAQ 主要为 NextChat 上游通用问题（部署、网络、OpenAI 计费等）。本项目特有的功能（绘画、PostgreSQL 数据库同步、多 Key、MCP、实时语音等）请见：
+> - [用户手册](user-manual-cn.md)
+> - [同步功能使用指南](sync-usage-guide.md)
+> - [数据存储同步总表](db/data-storage-sync-matrix.md)
+>
+> 注：文中 OpenAI 计费表为早期参考价格，请以 [OpenAI 官网](https://openai.com/pricing) 为准；GPT-4 申请队列等说明已不适用。
+
 ## 如何快速获得帮助？
 
 1. 询问 ChatGPT / Bing / 百度 / Google 等。

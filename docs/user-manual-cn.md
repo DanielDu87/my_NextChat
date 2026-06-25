@@ -107,3 +107,20 @@
 3. 预设提示词：当前对话内设置的预设提示词，用于 In-Context Learning 或者注入系统级限制；
 4. 最近 n 条对话记录：作为短期记忆，提供短暂但精确的上下文信息；
 5. 用户当前输入的消息。
+
+## 绘画 (Draw)
+
+NextChat 内置 AI 绘画功能，入口在 `/draw`，绘图历史在 `/draw/history`。
+
+- 支持多家供应商的文生图模型（OpenAI gpt-image / DALL·E、Google Gemini / Imagen、阿里通义万相 / Qwen-Image、豆包 Seedream、智谱 GLM / CogView、Stability、Flux、Ideogram 等）。
+- 每个模型按其官方文档启用对应参数（尺寸、质量、比例、风格等），具体规则见 [Draw 文生图模型参数矩阵](draw-model-parameter-matrix.md)。
+- 生成的图片原图与缩略图存储在 PostgreSQL 的 `user_draw_images` 表，历史任务记录在 `user_draw_stores`。
+- 绘画数据与对话数据独立，通过 `/api/db/draw-image` 接口单独上传/读取，不随对话 store 同步。
+
+## 其他功能
+
+- **插件**：在设置页的插件区启用第三方工具插件。
+- **MCP**：启用后可调用 MCP 工具（受 `ENABLE_MCP` 环境变量控制）。
+- **实时语音**：基于实时音频 SDK 的语音对话。
+- **Artifacts**：对代码、文档等结构化内容提供独立预览窗口。
+- **同步**：对话、配置、Mask、Prompt、绘图等数据可通过 PostgreSQL 数据库在多设备间同步（详见 [同步功能使用指南](sync-usage-guide.md)）。

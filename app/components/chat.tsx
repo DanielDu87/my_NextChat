@@ -44,6 +44,7 @@ import McpToolIcon from "../icons/tool.svg";
 import {
   BOT_HELLO,
   ChatMessage,
+  ChatMessageAttachedFile,
   createMessage,
   createEmptySession,
   normalizeSession,
@@ -99,7 +100,6 @@ import {
 import { resolveModelProviderId } from "../utils/model";
 import { getPreferredDefaultChatModel } from "../utils/model";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
-import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { createNewChatWithSyncedModel } from "../utils/new-chat";
@@ -125,6 +125,7 @@ import {
   Selector,
   showConfirm,
   showImageModal,
+  showModal,
   showPrompt,
   showTopNotice as showTopNoticeCard,
   showToast,
@@ -138,6 +139,7 @@ import {
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
   StoreKey,
+  UPLOAD_URL,
   UNFINISHED_INPUT,
 } from "../constant";
 
@@ -648,12 +650,54 @@ const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 
+type ComposerAttachedImage = {
+  id: string;
+  previewUrl: string;
+  localPreviewUrl?: string;
+};
+
 type AttachImagesDraftPayload = {
-  version: 1;
-  images: string[];
+  version: 2;
+  images: Array<Pick<ComposerAttachedImage, "id" | "previewUrl">>;
   updatedAt: number;
   expiresAt: number;
 };
+
+type AttachmentTypeKind = ChatMessageAttachedFile["typeKind"];
+
+type ComposerUploadingAttachment = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  isImage: boolean;
+  typeKind: AttachmentTypeKind;
+  typeLabel: string;
+  progress: number;
+};
+
+const sessionComposerAttachmentDrafts = new Map<
+  string,
+  {
+    images: ComposerAttachedImage[];
+    files: ChatMessageAttachedFile[];
+  }
+>();
+let currentPageComposerAttachmentDraft: {
+  images: ComposerAttachedImage[];
+  files: ChatMessageAttachedFile[];
+} | null = null;
+let currentPageComposerAttachmentDraftSessionId = "";
+
+function clearComposerAttachmentDraftCache(sessionId: string) {
+  if (!sessionId) {
+    return;
+  }
+  sessionComposerAttachmentDrafts.delete(sessionId);
+  if (currentPageComposerAttachmentDraftSessionId === sessionId) {
+    currentPageComposerAttachmentDraft = null;
+    currentPageComposerAttachmentDraftSessionId = "";
+  }
+}
 
 function trimBoundaryInvisibleChars(text: string) {
   return String(text || "").replace(
@@ -666,24 +710,128 @@ function sanitizeDraftInputText(text: string) {
   return trimBoundaryInvisibleChars(text);
 }
 
+function createComposerAttachedImage(
+  previewUrl: string,
+  localPreviewUrl?: string,
+  id?: string,
+): ComposerAttachedImage {
+  return {
+    id: String(
+      id || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    ),
+    previewUrl: String(previewUrl || "").trim(),
+    localPreviewUrl: String(localPreviewUrl || "").trim() || undefined,
+  };
+}
+
+function normalizeComposerAttachedImage(
+  image: unknown,
+): ComposerAttachedImage | null {
+  if (typeof image === "string") {
+    const previewUrl = image.trim();
+    return previewUrl ? createComposerAttachedImage(previewUrl) : null;
+  }
+
+  if (!image || typeof image !== "object") {
+    return null;
+  }
+
+  const previewUrl = String(
+    (image as { previewUrl?: unknown; url?: unknown }).previewUrl ??
+      (image as { previewUrl?: unknown; url?: unknown }).url ??
+      "",
+  ).trim();
+  if (!previewUrl) {
+    return null;
+  }
+
+  const id = String((image as { id?: unknown }).id || "").trim() || undefined;
+  return createComposerAttachedImage(previewUrl, undefined, id);
+}
+
 function sanitizeDraftAttachImages(images: unknown) {
-  return Array.isArray(images)
-    ? images
-        .filter((item): item is string => typeof item === "string" && !!item)
-        .slice(0, MAX_ATTACH_IMAGES)
-    : [];
+  if (!Array.isArray(images)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: ComposerAttachedImage[] = [];
+  for (const item of images) {
+    const nextImage = normalizeComposerAttachedImage(item);
+    if (!nextImage || seen.has(nextImage.previewUrl)) {
+      continue;
+    }
+    seen.add(nextImage.previewUrl);
+    normalized.push(nextImage);
+    if (normalized.length >= MAX_ATTACH_IMAGES) {
+      break;
+    }
+  }
+
+  return normalized;
 }
 
 function createAttachImagesDraftPayload(
-  images: string[],
+  images: ComposerAttachedImage[],
 ): AttachImagesDraftPayload {
   const now = Date.now();
   return {
-    version: 1,
-    images: sanitizeDraftAttachImages(images),
+    version: 2,
+    images: sanitizeDraftAttachImages(images).map((image) => ({
+      id: image.id,
+      previewUrl: image.previewUrl,
+    })),
     updatedAt: now,
     expiresAt: now + UNFINISHED_ATTACH_IMAGES_TTL_MS,
   };
+}
+
+function getComposerAttachedImagePreviewUrl(
+  image: Pick<ComposerAttachedImage, "previewUrl" | "localPreviewUrl">,
+) {
+  return String(image.localPreviewUrl || image.previewUrl || "").trim();
+}
+
+function revokeLocalComposerAttachedImagePreviewUrl(
+  image: Pick<ComposerAttachedImage, "localPreviewUrl">,
+) {
+  const url = String(image.localPreviewUrl || "").trim();
+  if (url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function mergeComposerAttachedImages(
+  currentImages: ComposerAttachedImage[],
+  nextImages: ComposerAttachedImage[],
+) {
+  const ordered: ComposerAttachedImage[] = [];
+  const byUrl = new Map<string, ComposerAttachedImage>();
+
+  for (const item of [...currentImages, ...nextImages]) {
+    const previewUrl = String(item.previewUrl || "").trim();
+    if (!previewUrl) {
+      continue;
+    }
+
+    const existing = byUrl.get(previewUrl);
+    if (!existing) {
+      const normalized = createComposerAttachedImage(
+        previewUrl,
+        item.localPreviewUrl,
+        item.id,
+      );
+      byUrl.set(previewUrl, normalized);
+      ordered.push(normalized);
+      continue;
+    }
+
+    if (!existing.localPreviewUrl && item.localPreviewUrl) {
+      existing.localPreviewUrl = item.localPreviewUrl;
+    }
+  }
+
+  return ordered.slice(0, MAX_ATTACH_IMAGES);
 }
 
 async function readAttachImagesDraft(keys: string[]) {
@@ -731,6 +879,471 @@ async function readAttachImagesDraft(keys: string[]) {
   }
 
   return null;
+}
+
+function isAttachableImageFile(file: Pick<File, "name" | "type">) {
+  const normalizedType = String(file.type || "").toLowerCase();
+  const normalizedName = String(file.name || "").toLowerCase();
+  return (
+    normalizedType.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif|heic|heif|bmp|avif|svg)$/i.test(normalizedName)
+  );
+}
+
+function getAttachmentTypeKind(
+  file: Pick<File, "name" | "type">,
+): AttachmentTypeKind {
+  const normalizedType = String(file.type || "").toLowerCase();
+  const normalizedName = String(file.name || "").toLowerCase();
+
+  if (normalizedType.includes("pdf") || normalizedName.endsWith(".pdf")) {
+    return "pdf";
+  }
+
+  if (
+    normalizedType.includes("sheet") ||
+    normalizedType.includes("excel") ||
+    normalizedType.includes("csv") ||
+    /\.(xlsx?|csv|tsv|numbers)$/i.test(normalizedName)
+  ) {
+    return "spreadsheet";
+  }
+
+  if (
+    normalizedType.includes("word") ||
+    normalizedType.includes("document") ||
+    normalizedType.startsWith("text/") ||
+    /\.(docx?|txt|md|rtf|pages|pptx?|key)$/i.test(normalizedName)
+  ) {
+    return "document";
+  }
+
+  if (
+    normalizedType.includes("zip") ||
+    normalizedType.includes("tar") ||
+    normalizedType.includes("rar") ||
+    normalizedType.includes("7z") ||
+    /\.(zip|rar|7z|tar|gz|tgz|bz2|xz)$/i.test(normalizedName)
+  ) {
+    return "archive";
+  }
+
+  return "file";
+}
+
+function getAttachmentTypeLabel(file: Pick<File, "name" | "type">) {
+  const typeKind = getAttachmentTypeKind(file);
+  switch (typeKind) {
+    case "pdf":
+      return "PDF";
+    case "spreadsheet":
+      return "表格文件";
+    case "document":
+      return "文档文件";
+    case "archive":
+      return "压缩文件";
+    default:
+      return "文件";
+  }
+}
+
+function getPreviewContentType(file: Pick<File, "name" | "type">) {
+  const normalizedType = String(file.type || "").toLowerCase();
+  const normalizedName = String(file.name || "").toLowerCase();
+  if (normalizedType && normalizedType !== "application/octet-stream") {
+    return normalizedType;
+  }
+  if (normalizedName.endsWith(".pdf")) return "application/pdf";
+  if (/\.(png)$/i.test(normalizedName)) return "image/png";
+  if (/\.(jpe?g)$/i.test(normalizedName)) return "image/jpeg";
+  if (/\.(webp)$/i.test(normalizedName)) return "image/webp";
+  if (/\.(gif)$/i.test(normalizedName)) return "image/gif";
+  if (/\.(svg)$/i.test(normalizedName)) return "image/svg+xml";
+  if (/\.(txt|md|log)$/i.test(normalizedName)) return "text/plain";
+  if (/\.(json)$/i.test(normalizedName)) return "application/json";
+  if (/\.(csv)$/i.test(normalizedName)) return "text/csv";
+  if (/\.(tsv)$/i.test(normalizedName)) return "text/tab-separated-values";
+  if (/\.(docx)$/i.test(normalizedName)) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (/\.(xlsx)$/i.test(normalizedName)) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  return "application/octet-stream";
+}
+
+function formatAttachmentSize(size: number) {
+  const safeSize = Number.isFinite(size) ? Math.max(0, size) : 0;
+  if (safeSize < 1024) return `${safeSize} B`;
+  if (safeSize < 1024 * 1024) return `${(safeSize / 1024).toFixed(1)} KB`;
+  if (safeSize < 1024 * 1024 * 1024) {
+    return `${(safeSize / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(safeSize / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function isImageAttachmentFile(
+  file: Pick<ChatMessageAttachedFile, "type" | "name">,
+) {
+  return (
+    String(file.type || "")
+      .toLowerCase()
+      .startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(
+      String(file.name || ""),
+    )
+  );
+}
+
+function createAttachedFileFromUpload(
+  file: File,
+  previewUrl: string,
+  localPreviewUrl?: string,
+): ChatMessageAttachedFile {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    name: file.name || "未命名文件",
+    type: getPreviewContentType(file),
+    size: file.size || 0,
+    typeLabel: getAttachmentTypeLabel(file),
+    typeKind: getAttachmentTypeKind(file),
+    previewUrl,
+    localPreviewUrl,
+  };
+}
+
+function revokeLocalAttachmentPreviewUrl(
+  file: Pick<ChatMessageAttachedFile, "localPreviewUrl">,
+) {
+  const url = String(file.localPreviewUrl || "").trim();
+  if (url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function stripLocalAttachmentPreviewUrl(
+  file: ChatMessageAttachedFile,
+): ChatMessageAttachedFile {
+  const { localPreviewUrl: _localPreviewUrl, ...rest } = file;
+  return rest;
+}
+
+function buildAttachedFilesPromptText(files: ChatMessageAttachedFile[]) {
+  if (files.length === 0) return "";
+  const lines = files.map((file, index) => {
+    const parts = [
+      `${index + 1}. 名称：${file.name || "未命名文件"}`,
+      `类型：${file.typeLabel || "文件"}`,
+      `大小：${formatAttachmentSize(file.size)}`,
+    ];
+    return parts.join("，");
+  });
+  return [
+    "用户附加了以下文件，仅提供文件元数据，不代表已经提取正文内容：",
+    ...lines,
+  ].join("\n");
+}
+
+function getPreviewFileKind(
+  file: Pick<ChatMessageAttachedFile, "type" | "name">,
+) {
+  const normalizedType = getPreviewContentType(file);
+  const normalizedName = String(file.name || "").toLowerCase();
+  if (normalizedType === "application/pdf" || normalizedName.endsWith(".pdf")) {
+    return "pdf";
+  }
+  if (
+    normalizedType.includes("spreadsheet") ||
+    normalizedType.includes("excel") ||
+    /\.(xlsx?|csv|tsv)$/i.test(normalizedName)
+  ) {
+    return "spreadsheet";
+  }
+  if (normalizedType.includes("word") || /\.(docx?)$/i.test(normalizedName)) {
+    return "document";
+  }
+  if (
+    normalizedType.startsWith("text/") ||
+    /\.(txt|md|json|csv|tsv|log|xml|yaml|yml)$/i.test(normalizedName)
+  ) {
+    return "text";
+  }
+  return "generic";
+}
+
+function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
+  const { file } = props;
+  const previewUrl = String(file.previewUrl || "").trim();
+  const fileKind = getPreviewFileKind(file);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [blobUrl, setBlobUrl] = useState("");
+  const [textContent, setTextContent] = useState("");
+  const [spreadsheetSheets, setSpreadsheetSheets] = useState<
+    Array<{ name: string; html: string }>
+  >([]);
+  const [activeSpreadsheetSheet, setActiveSpreadsheetSheet] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const objectPreview = (url: string) => (
+    <object
+      data={url}
+      type={getPreviewContentType(file)}
+      className={styles["file-preview-frame"]}
+    >
+      <iframe
+        src={url}
+        title={file.name || "文件预览"}
+        className={styles["file-preview-frame"]}
+      />
+    </object>
+  );
+
+  const iframePreview = (url: string) => (
+    <iframe
+      src={url}
+      title={file.name || "文件预览"}
+      className={styles["file-preview-frame"]}
+    />
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const load = async () => {
+      if (isImageAttachmentFile(file) || fileKind === "generic") {
+        setLoading(false);
+        setError("");
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+      setTextContent("");
+      setSpreadsheetSheets([]);
+      setActiveSpreadsheetSheet("");
+      setBlobUrl("");
+      if (hostRef.current) {
+        hostRef.current.innerHTML = "";
+      }
+
+      try {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch(previewUrl, {
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+        if (!response.ok) {
+          throw new Error(`预览文件读取失败（${response.status}）`);
+        }
+        const blob = await response.blob();
+        if (cancelled) return;
+
+        const previewBlob =
+          fileKind === "pdf" && blob.type !== "application/pdf"
+            ? new Blob([await blob.arrayBuffer()], { type: "application/pdf" })
+            : blob;
+        if (cancelled) return;
+
+        objectUrl = URL.createObjectURL(previewBlob);
+        setBlobUrl(objectUrl);
+
+        if (fileKind === "pdf") {
+          return;
+        }
+
+        if (fileKind === "text") {
+          setTextContent(await blob.text());
+          return;
+        }
+
+        if (fileKind === "spreadsheet") {
+          const buffer = await blob.arrayBuffer();
+          if (cancelled) return;
+          const XLSX = await import("xlsx");
+          const workbook = XLSX.read(buffer, { type: "array" });
+          const nextSheets = workbook.SheetNames.map((sheetName) => {
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet) {
+              return null;
+            }
+            return {
+              name: sheetName,
+              html: XLSX.utils.sheet_to_html(sheet, {
+                id: `sheet-${sheetName}`,
+              }),
+            };
+          }).filter((sheet): sheet is { name: string; html: string } =>
+            Boolean(sheet),
+          );
+          if (nextSheets.length === 0) {
+            setTextContent("表格文件没有可预览的工作表。");
+            return;
+          }
+          setSpreadsheetSheets(nextSheets);
+          setActiveSpreadsheetSheet((prev) =>
+            nextSheets.some((sheet) => sheet.name === prev)
+              ? prev
+              : nextSheets[0].name,
+          );
+          return;
+        }
+
+        if (fileKind === "document") {
+          const buffer = await blob.arrayBuffer();
+          if (cancelled) return;
+          const docxPreview = await import("docx-preview");
+          if (cancelled || !hostRef.current) return;
+          hostRef.current.innerHTML = "";
+          await docxPreview.renderAsync(buffer, hostRef.current, undefined, {
+            inWrapper: false,
+            ignoreWidth: false,
+            ignoreHeight: false,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setError(String((error as Error)?.message || error || "预览失败"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [file, fileKind, previewUrl]);
+
+  if (isImageAttachmentFile(file)) {
+    return objectPreview(previewUrl);
+  }
+
+  if (fileKind === "generic") {
+    return objectPreview(previewUrl);
+  }
+
+  if (fileKind === "pdf") {
+    const pdfUrl = (blobUrl || previewUrl).includes("#")
+      ? blobUrl || previewUrl
+      : `${blobUrl || previewUrl}#toolbar=1&navpanes=0`;
+    return (
+      <div className={styles["file-preview-root"]}>
+        <div className={styles["file-preview-meta"]}>
+          <span>{file.typeLabel || "PDF"}</span>
+          <span>{formatAttachmentSize(file.size)}</span>
+        </div>
+        {iframePreview(pdfUrl)}
+      </div>
+    );
+  }
+
+  const activeSheet =
+    spreadsheetSheets.find((sheet) => sheet.name === activeSpreadsheetSheet) ||
+    spreadsheetSheets[0];
+
+  let body: React.ReactNode = null;
+  if (fileKind === "document") {
+    body = (
+      <div className={styles["docx-preview-root"]}>
+        <div ref={hostRef} className={styles["docx-preview-container"]} />
+        {loading && (
+          <div className={styles["file-preview-loading"]}>正在加载预览...</div>
+        )}
+        {!loading && error && (
+          <div className={styles["file-preview-error"]}>{error}</div>
+        )}
+      </div>
+    );
+  } else if (loading) {
+    body = (
+      <div className={styles["file-preview-loading"]}>正在加载预览...</div>
+    );
+  } else if (error) {
+    body = <div className={styles["file-preview-error"]}>{error}</div>;
+  } else if (textContent) {
+    body = <pre className={styles["file-preview-text"]}>{textContent}</pre>;
+  } else if (fileKind === "spreadsheet") {
+    body = (
+      <div className={styles["xlsx-preview-root"]}>
+        {spreadsheetSheets.length > 0 && (
+          <div className={styles["xlsx-preview-tabs"]}>
+            {spreadsheetSheets.map((sheet) => {
+              const isActive = sheet.name === activeSheet?.name;
+              return (
+                <button
+                  key={sheet.name}
+                  type="button"
+                  className={clsx(styles["xlsx-preview-tab"], {
+                    [styles["xlsx-preview-tab-active"]]: isActive,
+                  })}
+                  onClick={() => setActiveSpreadsheetSheet(sheet.name)}
+                >
+                  {sheet.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {loading && (
+          <div className={styles["file-preview-loading"]}>正在加载预览...</div>
+        )}
+        {!loading && error && (
+          <div className={styles["file-preview-error"]}>{error}</div>
+        )}
+        {!loading && !error && activeSheet && (
+          <div
+            className={styles["xlsx-preview-sheet"]}
+            dangerouslySetInnerHTML={{ __html: activeSheet.html }}
+          />
+        )}
+        {!loading && !error && !activeSheet && (
+          <div className={styles["file-preview-error"]}>
+            表格文件没有可预览的工作表。
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    body = objectPreview(blobUrl || previewUrl);
+  }
+
+  return (
+    <div className={styles["file-preview-root"]}>
+      <div className={styles["file-preview-meta"]}>
+        <span>{file.typeLabel || "文件"}</span>
+        <span>{formatAttachmentSize(file.size)}</span>
+        {spreadsheetSheets.length > 0 && (
+          <span>{`${spreadsheetSheets.length} 个工作表`}</span>
+        )}
+      </div>
+      {body}
+    </div>
+  );
+}
+
+function isCacheUploadEnabled() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return Boolean((window as any)._SW_ENABLED);
 }
 
 function formatModelProviderLabel(modelName: unknown, providerName: unknown) {
@@ -1313,7 +1926,7 @@ function useScrollToBottom(
 
 export function ChatActions(props: {
   uploadImage: () => void;
-  setAttachImages: (images: string[]) => void;
+  setAttachImages: (images: ComposerAttachedImage[]) => void;
   setUploading: (uploading: boolean) => void;
   uploading: boolean;
 }) {
@@ -1826,7 +2439,14 @@ export function EditMessageModal(props: { onClose: () => void }) {
 
 export function DeleteImageButton(props: { deleteImage: () => void }) {
   return (
-    <div className={styles["delete-image"]} onClick={props.deleteImage}>
+    <div
+      className={styles["delete-image"]}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.deleteImage();
+      }}
+    >
       <DeleteIcon />
     </div>
   );
@@ -2038,7 +2658,6 @@ function _Chat() {
   const mobileInputOutsidePointerBlurRef = useRef(false);
   const mobileInputSubmitBlurRef = useRef(false);
   const mobileSubmitTouchHandledRef = useRef(false);
-  const attachLimitHintTimerRef = useRef<number | null>(null);
   const inputScrollIndicatorHideTimerRef = useRef<number | null>(null);
   const syncInputScrollIndicatorRef = useRef<(visible?: boolean) => void>(
     () => {},
@@ -2267,10 +2886,25 @@ function _Chat() {
   }, [currentSessionHasMessages, isMobileScreen]);
 
   const navigate = useNavigate();
-  const [attachImages, setAttachImages] = useState<string[]>([]);
-  const [attachLimitHint, setAttachLimitHint] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [attachImages, setAttachImages] = useState<ComposerAttachedImage[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<ChatMessageAttachedFile[]>(
+    [],
+  );
+  const [uploadingAttachments, setUploadingAttachments] = useState<
+    ComposerUploadingAttachment[]
+  >([]);
   const lastAssistantSignatureRef = useRef("");
+  const ignoredUploadingAttachmentIdsRef = useRef(new Set<string>());
+  const uploadingAttachmentXhrRef = useRef(new Map<string, XMLHttpRequest>());
+  const composerSnapshotRef = useRef({
+    attachImages: 0,
+    attachedFiles: 0,
+    uploadingAttachments: 0,
+    hasComposerAttachments: false,
+    currentSessionHasMessages: false,
+    isChatUnavailableForSync: false,
+    safeSessionId: "",
+  });
   const streamingScrollResumeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -2284,6 +2918,45 @@ function _Chat() {
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
+  const hasPendingUploads = uploadingAttachments.length > 0;
+  const hasUploadedFiles = attachedFiles.length > 0;
+  const uploadingImageCount = uploadingAttachments.filter(
+    (attachment) => attachment.isImage,
+  ).length;
+  const uploadingFileCount = uploadingAttachments.length - uploadingImageCount;
+  const hasComposerImageCards =
+    attachImages.length > 0 || uploadingImageCount > 0;
+  const hasComposerFileCards =
+    attachedFiles.length > 0 || uploadingFileCount > 0;
+  const hasMixedComposerAttachmentKinds =
+    hasComposerImageCards && hasComposerFileCards;
+  const hasImageOnlyComposerAttachments =
+    hasComposerImageCards && !hasComposerFileCards;
+  const hasComposerAttachments =
+    attachImages.length > 0 || hasUploadedFiles || hasPendingUploads;
+  const totalComposerAttachmentCount =
+    attachImages.length + attachedFiles.length + uploadingAttachments.length;
+  const uploading = hasPendingUploads;
+
+  useEffect(() => {
+    composerSnapshotRef.current = {
+      attachImages: attachImages.length,
+      attachedFiles: attachedFiles.length,
+      uploadingAttachments: uploadingAttachments.length,
+      hasComposerAttachments,
+      currentSessionHasMessages,
+      isChatUnavailableForSync,
+      safeSessionId: safeSession.id,
+    };
+  }, [
+    attachImages.length,
+    attachedFiles.length,
+    currentSessionHasMessages,
+    hasComposerAttachments,
+    isChatUnavailableForSync,
+    safeSession.id,
+    uploadingAttachments.length,
+  ]);
   const isStaleStreamingMessage = useCallback(
     (message: ChatMessage) => {
       if (!message.streaming) return false;
@@ -2927,6 +3600,25 @@ function _Chat() {
   const showCopyNotice = useCallback((ok: boolean) => {
     showTopNoticeCard(ok ? Locale.Copy.Success : Locale.Copy.Failed);
   }, []);
+  const openMessageAttachedFilePreview = useCallback(
+    (file: ChatMessageAttachedFile) => {
+      const previewUrl = String(
+        file.localPreviewUrl || file.previewUrl || "",
+      ).trim();
+      if (!previewUrl) {
+        showTopNotice("该文件暂时无法预览");
+        return;
+      }
+
+      showModal({
+        title: file.name || "文件预览",
+        defaultMax: false,
+        className: styles["file-preview-modal"],
+        children: <FilePreviewContent file={{ ...file, previewUrl }} />,
+      });
+    },
+    [showTopNotice],
+  );
   const [modelSelectorNotice, setModelSelectorNotice] = useState("");
   const lastProviderSwitchTimeRef = useRef(0);
   const modelSelectorOpenStartedAtRef = useRef(0);
@@ -3247,7 +3939,6 @@ function _Chat() {
       trailing: true,
     },
   );
-
   // 内容或聚焦状态变化时重新测量（聚焦展开 / 失焦收回）
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(measure, [userInput, isMobileInputFocused]);
@@ -3380,7 +4071,14 @@ function _Chat() {
   }, [blurMobileKeyboard, isMobileScreen]);
 
   const doSubmit = (userInput: string) => {
-    if (userInput.trim() === "" && isEmpty(attachImages)) return;
+    if (
+      userInput.trim() === "" &&
+      isEmpty(attachImages) &&
+      attachedFiles.length === 0
+    ) {
+      return;
+    }
+    if (hasPendingUploads) return;
 
     const resetMobileComposerAfterSubmit = () => {
       if (!isMobileScreen) return;
@@ -3401,13 +4099,21 @@ function _Chat() {
       });
     };
 
+    const messageAttachedFiles = attachedFiles.map(
+      stripLocalAttachmentPreviewUrl,
+    );
+    const messageAttachImages = attachImages
+      .map((image) => String(image.previewUrl || "").trim())
+      .filter(Boolean);
+
     // Handle mobile edit mode: resend edited message
     if (editMobileMessageId) {
       const message = sessionMessages.find((m) => m.id === editMobileMessageId);
       if (message) {
         setEditMobileMessageId(null);
-        onResend(message, userInput, attachImages);
+        onResend(message, userInput, messageAttachImages, messageAttachedFiles);
         setAttachImages([]);
+        setAttachedFiles([]);
         resetMobileComposerAfterSubmit();
         return;
       }
@@ -3426,10 +4132,16 @@ function _Chat() {
       return;
     }
     setIsLoading(true);
-    chatStore.onUserInput(userInput, attachImages).then(() => {
-      setIsLoading(false);
-    });
-    setAttachImages([]);
+    chatStore
+      .onUserInput(userInput, messageAttachImages, undefined, {
+        attachedFiles: messageAttachedFiles,
+        attachedFilesPromptText:
+          buildAttachedFilesPromptText(messageAttachedFiles),
+      })
+      .then(() => {
+        setIsLoading(false);
+      });
+    clearComposerAttachments();
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     chatStore.setLastInput(userInput);
@@ -3722,6 +4434,10 @@ function _Chat() {
       return;
     }
     if (shouldSubmit(e) && promptHints.length === 0) {
+      if (hasPendingUploads) {
+        e.preventDefault();
+        return;
+      }
       doSubmit(userInput);
       e.preventDefault();
     }
@@ -3738,6 +4454,10 @@ function _Chat() {
       return;
     }
     if (shouldSubmit(e) && promptHints.length === 0) {
+      if (hasPendingUploads) {
+        e.preventDefault();
+        return;
+      }
       doSubmit(userInput);
       e.preventDefault();
       return;
@@ -3777,6 +4497,7 @@ function _Chat() {
     message: ChatMessage,
     editedContent?: string,
     editedImages?: string[],
+    editedFiles?: ChatMessageAttachedFile[],
   ) => {
     // when it is resending a message
     // 1. for a user's message, find the next bot response
@@ -3824,7 +4545,7 @@ function _Chat() {
     setIsEditingMessage(false);
     setUserInput("");
     setPromptHints([]);
-    setAttachImages([]);
+    clearComposerAttachments();
     setIsMobileInputFocused(false);
     localStorage.removeItem(unfinishedInputKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
@@ -3855,13 +4576,15 @@ function _Chat() {
     setIsLoading(true);
     const textContent = editedContent ?? getMessageTextContent(userMessage);
     const images = editedImages ?? getMessageImages(userMessage);
+    const files = (editedFiles ?? userMessage.attachedFiles ?? []).map(
+      stripLocalAttachmentPreviewUrl,
+    );
     chatStore
-      .onUserInput(
-        textContent,
-        images,
-        undefined,
-        isLatestMessage ? { reuseUserMessageId: userMessage.id } : undefined,
-      )
+      .onUserInput(textContent, images, undefined, {
+        ...(isLatestMessage ? { reuseUserMessageId: userMessage.id } : {}),
+        attachedFiles: files,
+        attachedFilesPromptText: buildAttachedFilesPromptText(files),
+      })
       .then(() => setIsLoading(false));
   };
 
@@ -4568,33 +5291,334 @@ function _Chat() {
   }, [resetMobileInputViewportToStart]);
 
   const showAttachLimitHint = useCallback(
-    (message = `最多只能添加${MAX_ATTACH_IMAGES}张图片`) => {
-      if (typeof window === "undefined") {
+    (message = `最多只能添加${MAX_ATTACH_IMAGES}个文件`) => {
+      showTopNotice(message);
+    },
+    [showTopNotice],
+  );
+
+  const cancelUploadingAttachment = useCallback(
+    async (attachment: ComposerUploadingAttachment) => {
+      const confirmed = await showConfirm(
+        `确认取消上传“${attachment.file.name || "未命名文件"}”？`,
+      );
+      if (!confirmed) {
         return;
       }
 
-      setAttachLimitHint(message);
-      if (attachLimitHintTimerRef.current !== null) {
-        window.clearTimeout(attachLimitHintTimerRef.current);
+      ignoredUploadingAttachmentIdsRef.current.add(attachment.id);
+      const xhr = uploadingAttachmentXhrRef.current.get(attachment.id);
+      if (xhr) {
+        xhr.abort();
+        uploadingAttachmentXhrRef.current.delete(attachment.id);
       }
-      attachLimitHintTimerRef.current = window.setTimeout(() => {
-        setAttachLimitHint("");
-        attachLimitHintTimerRef.current = null;
-      }, 1800);
+      URL.revokeObjectURL(attachment.previewUrl);
+      setUploadingAttachments((prev) =>
+        prev.filter((item) => item.id !== attachment.id),
+      );
     },
     [],
   );
 
-  useEffect(() => {
-    return () => {
-      if (
-        typeof window !== "undefined" &&
-        attachLimitHintTimerRef.current !== null
-      ) {
-        window.clearTimeout(attachLimitHintTimerRef.current);
+  const removeAttachedImage = useCallback(
+    async (index: number) => {
+      const confirmed = await showConfirm("确认移除这张图片？");
+      if (!confirmed) {
+        return;
       }
-    };
-  }, []);
+      setAttachImages((prev) => {
+        const target = prev[index];
+        if (target) {
+          revokeLocalComposerAttachedImagePreviewUrl(target);
+        }
+        const nextImages = prev.filter((_, current) => current !== index);
+        if (nextImages.length === 0 && attachedFiles.length === 0) {
+          clearComposerAttachmentDraftCache(safeSession.id);
+        }
+        return nextImages;
+      });
+    },
+    [attachedFiles.length, safeSession.id],
+  );
+
+  const removeAttachedFile = useCallback(
+    async (file: ChatMessageAttachedFile) => {
+      const confirmed = await showConfirm(
+        `确认移除“${file.name || "未命名文件"}”？`,
+      );
+      if (!confirmed) {
+        return;
+      }
+      revokeLocalAttachmentPreviewUrl(file);
+      setAttachedFiles((prev) => {
+        const nextFiles = prev.filter((item) => item.id !== file.id);
+        if (attachImages.length === 0 && nextFiles.length === 0) {
+          clearComposerAttachmentDraftCache(safeSession.id);
+        }
+        return nextFiles;
+      });
+    },
+    [attachImages.length, safeSession.id],
+  );
+
+  const clearComposerAttachments = useCallback(
+    (options?: {
+      preserveComposerDraftUrls?: boolean;
+      clearDraftCache?: boolean;
+    }) => {
+      const preserveComposerDraftUrls = Boolean(
+        options?.preserveComposerDraftUrls,
+      );
+      const clearDraftCache = options?.clearDraftCache !== false;
+      if (clearDraftCache) {
+        clearComposerAttachmentDraftCache(
+          composerSnapshotRef.current.safeSessionId,
+        );
+      }
+      setAttachImages((prev) => {
+        if (!preserveComposerDraftUrls) {
+          prev.forEach((image) =>
+            revokeLocalComposerAttachedImagePreviewUrl(image),
+          );
+        }
+        return prev.length > 0 ? [] : prev;
+      });
+      if (!preserveComposerDraftUrls) {
+        attachedFiles.forEach((file) => revokeLocalAttachmentPreviewUrl(file));
+      }
+      uploadingAttachments.forEach((attachment) => {
+        ignoredUploadingAttachmentIdsRef.current.add(attachment.id);
+        const xhr = uploadingAttachmentXhrRef.current.get(attachment.id);
+        if (xhr) {
+          xhr.abort();
+          uploadingAttachmentXhrRef.current.delete(attachment.id);
+        }
+        URL.revokeObjectURL(attachment.previewUrl);
+      });
+      setAttachedFiles((prev) => (prev.length > 0 ? [] : prev));
+      setUploadingAttachments((prev) => (prev.length > 0 ? [] : prev));
+    },
+    [attachedFiles, uploadingAttachments],
+  );
+
+  const uploadFilesToComposer = useCallback(
+    async (incomingFiles: File[]) => {
+      const files = incomingFiles.filter(Boolean);
+      if (files.length === 0) {
+        return;
+      }
+
+      const remainingSlots = Math.max(
+        0,
+        MAX_ATTACH_IMAGES -
+          (attachImages.length +
+            attachedFiles.length +
+            uploadingAttachments.length),
+      );
+
+      if (files.length > remainingSlots) {
+        showAttachLimitHint();
+      }
+
+      const candidateFiles = files.slice(0, remainingSlots);
+      if (candidateFiles.length === 0) {
+        return;
+      }
+
+      const uploadCacheTtlMs = 3 * 24 * 60 * 60 * 1000;
+      const getUploadCacheKey = (file: File) => {
+        const raw = `${file.name}|${file.size}|${file.lastModified}|${file.type}`;
+        let hash = 0;
+        for (let i = 0; i < raw.length; i += 1) {
+          hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+        }
+        return `nextchat-upload-ref:${hash.toString(16)}`;
+      };
+      const getCachedUploadUrl = (file: File) => {
+        try {
+          const raw = localStorage.getItem(getUploadCacheKey(file));
+          if (!raw) return "";
+          const parsed = JSON.parse(raw) as {
+            url?: string;
+            expiresAt?: number;
+          };
+          const expiresAt = Number(parsed?.expiresAt || 0);
+          const url = String(parsed?.url || "");
+          if (!url || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+            localStorage.removeItem(getUploadCacheKey(file));
+            return "";
+          }
+          return url;
+        } catch {
+          return "";
+        }
+      };
+      const setCachedUploadUrl = (file: File, url: string) => {
+        try {
+          localStorage.setItem(
+            getUploadCacheKey(file),
+            JSON.stringify({ url, expiresAt: Date.now() + uploadCacheTtlMs }),
+          );
+        } catch {}
+      };
+
+      const filesToUpload: File[] = [];
+      for (const file of candidateFiles) {
+        const cachedUrl = getCachedUploadUrl(file);
+        if (cachedUrl) {
+          if (isAttachableImageFile(file)) {
+            setAttachImages((prev) => {
+              return mergeComposerAttachedImages(prev, [
+                createComposerAttachedImage(
+                  cachedUrl,
+                  URL.createObjectURL(file),
+                ),
+              ]);
+            });
+          } else {
+            const uploadedFile = createAttachedFileFromUpload(
+              file,
+              cachedUrl,
+              URL.createObjectURL(file),
+            );
+            setAttachedFiles((prev) => {
+              const all = [...prev, uploadedFile];
+              return all.length > MAX_ATTACH_IMAGES
+                ? all.slice(0, MAX_ATTACH_IMAGES)
+                : all;
+            });
+          }
+          continue;
+        }
+        filesToUpload.push(file);
+      }
+
+      if (filesToUpload.length === 0) {
+        return;
+      }
+
+      const newUploadingAttachments = filesToUpload.map((file) => ({
+        id: Math.random().toString(36).slice(2),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        isImage: isAttachableImageFile(file),
+        typeKind: getAttachmentTypeKind(file),
+        typeLabel: getAttachmentTypeLabel(file),
+        progress: 0,
+      }));
+
+      setUploadingAttachments((prev) => [...prev, ...newUploadingAttachments]);
+
+      await Promise.all(
+        newUploadingAttachments.map(async (attachment) => {
+          let uploadedUrl = "";
+          try {
+            uploadedUrl = await new Promise<string>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              uploadingAttachmentXhrRef.current.set(attachment.id, xhr);
+              xhr.open("POST", UPLOAD_URL);
+              xhr.withCredentials = true;
+              xhr.responseType = "json";
+              xhr.upload.onprogress = (event) => {
+                const progress =
+                  event.lengthComputable && event.total > 0
+                    ? Math.min(1, Math.max(0, event.loaded / event.total))
+                    : 0;
+                setUploadingAttachments((prev) =>
+                  prev.map((item) =>
+                    item.id === attachment.id ? { ...item, progress } : item,
+                  ),
+                );
+              };
+              xhr.onload = () => {
+                try {
+                  const res =
+                    (xhr.response as any) ??
+                    JSON.parse(String(xhr.responseText || "{}"));
+                  if (res?.code === 0 && res?.data) {
+                    setUploadingAttachments((prev) =>
+                      prev.map((item) =>
+                        item.id === attachment.id
+                          ? { ...item, progress: 1 }
+                          : item,
+                      ),
+                    );
+                    resolve(String(res.data));
+                    return;
+                  }
+                  reject(new Error(`upload Error: ${res?.msg}`));
+                } catch (error) {
+                  reject(error);
+                }
+              };
+              xhr.onerror = () => reject(new Error("upload_network_error"));
+              xhr.onabort = () => reject(new Error("upload_aborted"));
+              const formData = new FormData();
+              formData.append("file", attachment.file);
+              xhr.send(formData);
+            });
+            if (ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
+              return;
+            }
+            setCachedUploadUrl(attachment.file, uploadedUrl);
+            if (attachment.isImage) {
+              setAttachImages((prev) => {
+                return mergeComposerAttachedImages(prev, [
+                  createComposerAttachedImage(
+                    uploadedUrl,
+                    attachment.previewUrl,
+                  ),
+                ]);
+              });
+            } else {
+              const uploadedFile = createAttachedFileFromUpload(
+                attachment.file,
+                uploadedUrl,
+                attachment.previewUrl,
+              );
+              setAttachedFiles((prev) => {
+                const all = [...prev, uploadedFile];
+                return all.length > MAX_ATTACH_IMAGES
+                  ? all.slice(0, MAX_ATTACH_IMAGES)
+                  : all;
+              });
+            }
+          } catch (error) {
+            if (!ignoredUploadingAttachmentIdsRef.current.has(attachment.id)) {
+              showAttachLimitHint("文件上传失败，请重试");
+            }
+          } finally {
+            uploadingAttachmentXhrRef.current.delete(attachment.id);
+            if (
+              uploadedUrl &&
+              !ignoredUploadingAttachmentIdsRef.current.has(attachment.id) &&
+              typeof requestAnimationFrame !== "undefined"
+            ) {
+              await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve()),
+              );
+            }
+            setUploadingAttachments((prev) =>
+              prev.filter((item) => item.id !== attachment.id),
+            );
+            const shouldKeepLocalPreview =
+              Boolean(uploadedUrl) &&
+              !ignoredUploadingAttachmentIdsRef.current.has(attachment.id);
+            ignoredUploadingAttachmentIdsRef.current.delete(attachment.id);
+            if (!shouldKeepLocalPreview) {
+              URL.revokeObjectURL(attachment.previewUrl);
+            }
+          }
+        }),
+      );
+    },
+    [
+      attachImages.length,
+      attachedFiles.length,
+      showAttachLimitHint,
+      uploadingAttachments.length,
+    ],
+  );
 
   const updateMobileInputMeasuredHeight = useCallback(() => {
     const mobileInput = mobileInputRef.current;
@@ -4940,7 +5964,7 @@ function _Chat() {
     );
     const hasMobileInputText =
       mobileInputHasText || mobileInputText.trim().length > 0;
-    const hasAttachImages = attachImages.length > 0;
+    const hasAttachImages = hasComposerAttachments;
     const shouldPreserveExpandedHeight = hasMobileInputText || hasAttachImages;
     if (!shouldPreserveExpandedHeight) {
       resetMobileInputBlurLayout();
@@ -4985,7 +6009,7 @@ function _Chat() {
         );
 
         // 如果有图片且有文字，始终滚动到底部
-        if (attachImages.length > 0 && mobileInputHasText) {
+        if (hasComposerAttachments && mobileInputHasText) {
           mobileInputRef.current.scrollTop = targetScrollTop;
         } else if (mobileInputHasText && currentScrollTop > 0) {
           // 有文字但没有图片时，恢复之前的滚动位置，不超过新的最大滚动值
@@ -5002,7 +6026,7 @@ function _Chat() {
 
     return true;
   }, [
-    attachImages.length,
+    hasComposerAttachments,
     mobileInputHasText,
     resetMobileInputBlurLayout,
     measureMobileInputTextOnlyHeight,
@@ -5106,7 +6130,7 @@ function _Chat() {
           );
 
           // 如果有图片且有文字，始终滚动到底部
-          if (attachImages.length > 0 && mobileInputHasText) {
+          if (hasComposerAttachments && mobileInputHasText) {
             mobileInputRef.current.scrollTop = targetScrollTop;
           } else if (mobileInputHasText && currentScrollTop > 0) {
             // 有文字但没有图片时，恢复之前的滚动位置
@@ -5121,7 +6145,7 @@ function _Chat() {
         }
       });
     },
-    [attachImages.length, mobileInputHasText, resetMobileInputBlurLayout],
+    [hasComposerAttachments, mobileInputHasText, resetMobileInputBlurLayout],
   );
 
   const scheduleCollapseMobileInput = useCallback(
@@ -5218,7 +6242,7 @@ function _Chat() {
   const exitMobileEditMode = useCallback(() => {
     setEditMobileMessageId(null);
     setUserInput("");
-    setAttachImages([]);
+    clearComposerAttachments();
     setPromptHints([]);
     setIsMobileInputFocused(false);
     setPreserveMobileInputBlurHeight(false);
@@ -5236,6 +6260,7 @@ function _Chat() {
   }, [
     blurMobileKeyboard,
     cancelMobileKeyboardViewportSync,
+    clearComposerAttachments,
     clearMobileKeyboardReleaseTimers,
     resetMobileInputDom,
     resetMobileInputBlurLayout,
@@ -5308,7 +6333,7 @@ function _Chat() {
     });
     return () => window.cancelAnimationFrame(rafId);
   }, [
-    attachImages.length,
+    totalComposerAttachmentCount,
     isMobileInputFocused,
     isMobileScreen,
     updateInputScrollIndicator,
@@ -5320,7 +6345,7 @@ function _Chat() {
       !isMobileScreen ||
       !isMobileInputFocused ||
       !mobileInputHasText ||
-      attachImages.length === 0
+      !hasComposerAttachments
     ) {
       return;
     }
@@ -5344,7 +6369,7 @@ function _Chat() {
       timers.forEach(window.clearTimeout);
     };
   }, [
-    attachImages.length,
+    hasComposerAttachments,
     isMobileInputFocused,
     isMobileScreen,
     mobileInputHasText,
@@ -6403,21 +7428,52 @@ function _Chat() {
     () => UNFINISHED_ATTACH_IMAGES(safeSession.id),
     [safeSession.id],
   );
-  const skipNextAttachImagesPersistKeyRef = useRef<string>("");
+  const restoredInputDraftKeyRef = useRef<string>("");
   const pendingDraftRestoreRef = useRef<{
     input: string;
-    images: string[];
     sessionId: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!safeSession.id || currentSessionHasMessages) {
+      clearComposerAttachmentDraftCache(safeSession.id);
+      return;
+    }
+
+    if (attachImages.length === 0 && attachedFiles.length === 0) {
+      if (!sessionComposerAttachmentDrafts.has(safeSession.id)) {
+        clearComposerAttachmentDraftCache(safeSession.id);
+      }
+      return;
+    }
+
+    const nextDraft = {
+      images: attachImages.map((image) => ({ ...image })),
+      files: attachedFiles.map((file) => ({ ...file })),
+    };
+    sessionComposerAttachmentDrafts.set(safeSession.id, nextDraft);
+    currentPageComposerAttachmentDraft = nextDraft;
+    currentPageComposerAttachmentDraftSessionId = safeSession.id;
+  }, [attachImages, attachedFiles, currentSessionHasMessages, safeSession.id]);
 
   useEffect(() => {
     if (currentSessionHasMessages) {
       localStorage.removeItem(unfinishedInputKey);
       localStorage.removeItem(unfinishedAttachImagesKey);
-      setUserInput("");
-      setAttachImages([]);
+      restoredInputDraftKeyRef.current = unfinishedInputKey;
+      if (userInput.length > 0) {
+        setUserInput("");
+      }
+      if (hasComposerAttachments) {
+        clearComposerAttachments();
+      }
       return;
     }
+
+    if (restoredInputDraftKeyRef.current === unfinishedInputKey) {
+      return;
+    }
+    restoredInputDraftKeyRef.current = unfinishedInputKey;
 
     const mayBeUnfinishedInput = sanitizeDraftInputText(
       localStorage.getItem(unfinishedInputKey) ||
@@ -6428,7 +7484,6 @@ function _Chat() {
       if (isChatUnavailableForSync) {
         pendingDraftRestoreRef.current = {
           input: mayBeUnfinishedInput,
-          images: pendingDraftRestoreRef.current?.images ?? [],
           sessionId: safeSession.id,
         };
         setUserInput("");
@@ -6438,7 +7493,9 @@ function _Chat() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    clearComposerAttachments,
     currentSessionHasMessages,
+    hasComposerAttachments,
     isChatUnavailableForSync,
     safeSession.id,
     unfinishedAttachImagesKey,
@@ -6476,7 +7533,6 @@ function _Chat() {
   ]);
 
   useEffect(() => {
-    skipNextAttachImagesPersistKeyRef.current = unfinishedAttachImagesKey;
     let cancelled = false;
     if (currentSessionHasMessages) {
       void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
@@ -6485,115 +7541,62 @@ function _Chat() {
       );
       localStorage.removeItem(unfinishedAttachImagesKey);
       localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-      setAttachImages([]);
+      clearComposerAttachments({
+        preserveComposerDraftUrls: true,
+      });
       return;
     }
 
     void (async () => {
-      const restoredDraft: Awaited<ReturnType<typeof readAttachImagesDraft>> =
-        await readAttachImagesDraft([
-          unfinishedAttachImagesKey,
+      await Promise.all([
+        indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey),
+        indexedDbStateStorage.removeRawItem(
           ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-        ]);
+        ),
+      ]);
+      localStorage.removeItem(unfinishedAttachImagesKey);
+      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
       if (cancelled) return;
 
-      if (!restoredDraft) {
-        setAttachImages([]);
-        return;
-      }
-
-      const nextImages = restoredDraft.images;
-      if (restoredDraft.fromLegacy) {
-        const draftImages = JSON.stringify(
-          createAttachImagesDraftPayload(nextImages),
-        );
-        await Promise.all([
-          indexedDbStateStorage.setRawItem(
-            unfinishedAttachImagesKey,
-            draftImages,
-          ),
-          indexedDbStateStorage.setRawItem(
-            ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-            draftImages,
-          ),
-        ]);
-        localStorage.removeItem(unfinishedAttachImagesKey);
-        localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-        if (cancelled) return;
-      }
+      const restoredDraft =
+        sessionComposerAttachmentDrafts.get(safeSession.id) ??
+        currentPageComposerAttachmentDraft;
 
       if (isChatUnavailableForSync) {
-        pendingDraftRestoreRef.current = {
-          input: pendingDraftRestoreRef.current?.input ?? "",
-          images: nextImages,
-          sessionId: safeSession.id,
-        };
+        if (composerSnapshotRef.current.hasComposerAttachments) {
+          return;
+        }
         setAttachImages([]);
+        setAttachedFiles([]);
         return;
       }
 
+      if (composerSnapshotRef.current.hasComposerAttachments) {
+        return;
+      }
+      if (!restoredDraft) {
+        setAttachImages([]);
+        setAttachedFiles([]);
+        return;
+      }
+      const nextImages = restoredDraft.images.map((image) => ({ ...image }));
+      const nextFiles = restoredDraft.files.map((file) => ({ ...file }));
+      sessionComposerAttachmentDrafts.set(safeSession.id, {
+        images: nextImages,
+        files: nextFiles,
+      });
       setAttachImages(nextImages);
+      setAttachedFiles(nextFiles);
     })();
 
     return () => {
       cancelled = true;
     };
   }, [
+    clearComposerAttachments,
     currentSessionHasMessages,
     isChatUnavailableForSync,
     safeSession.id,
-    unfinishedAttachImagesKey,
-  ]);
-
-  useEffect(() => {
-    if (
-      skipNextAttachImagesPersistKeyRef.current === unfinishedAttachImagesKey
-    ) {
-      skipNextAttachImagesPersistKeyRef.current = "";
-      return;
-    }
-
-    if (currentSessionHasMessages) {
-      void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
-      void indexedDbStateStorage.removeRawItem(
-        ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-      );
-      localStorage.removeItem(unfinishedAttachImagesKey);
-      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-      return;
-    }
-
-    if (isChatUnavailableForSync) {
-      return;
-    }
-
-    if (attachImages.length > 0) {
-      const draftImages = JSON.stringify(
-        createAttachImagesDraftPayload(attachImages),
-      );
-      void indexedDbStateStorage.setRawItem(
-        unfinishedAttachImagesKey,
-        draftImages,
-      );
-      void indexedDbStateStorage.setRawItem(
-        ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-        draftImages,
-      );
-      localStorage.removeItem(unfinishedAttachImagesKey);
-      localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-      return;
-    }
-
-    void indexedDbStateStorage.removeRawItem(unfinishedAttachImagesKey);
-    void indexedDbStateStorage.removeRawItem(
-      ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-    );
-    localStorage.removeItem(unfinishedAttachImagesKey);
-    localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-  }, [
-    attachImages,
-    currentSessionHasMessages,
-    isChatUnavailableForSync,
     unfinishedAttachImagesKey,
   ]);
 
@@ -6611,7 +7614,6 @@ function _Chat() {
     if (pendingDraft.input) {
       setUserInput(pendingDraft.input);
     }
-    setAttachImages(pendingDraft.images);
 
     if (!pendingDraft.input.trim()) {
       window.requestAnimationFrame(() => {
@@ -6629,38 +7631,59 @@ function _Chat() {
         inputEl instanceof HTMLTextAreaElement ? inputEl : undefined;
       const text = event.clipboardData.getData("text/plain");
       const html = event.clipboardData.getData("text/html");
-      const imageFiles: File[] = [];
+      const pastedFiles: File[] = [];
       const imageUrlsFromHtml: string[] = [];
       const clipboardItems = Array.from(event.clipboardData.items);
       const clipboardFiles = Array.from(event.clipboardData.files);
+      let hasUnsupportedDirectoryItem = false;
+      const isLikelyDirectoryPlaceholder = (file: File) =>
+        file.size === 0 &&
+        !file.type &&
+        !/\.[^./\\]+$/.test(String(file.name || "").trim());
       const isImageFile = (file: File) =>
         file.type.startsWith("image/") ||
         /\.(png|jpe?g|webp|gif|heic|heif|bmp|avif)$/i.test(file.name);
-      const appendImageFile = (file: File) => {
-        if (!isImageFile(file)) return;
-        const duplicated = imageFiles.some(
+      const appendClipboardFile = (file: File) => {
+        const duplicated = pastedFiles.some(
           (item) =>
             item.name === file.name &&
             item.size === file.size &&
             item.type === file.type &&
             item.lastModified === file.lastModified,
         );
-        if (!duplicated) imageFiles.push(file);
+        if (!duplicated) pastedFiles.push(file);
       };
       const appendImageBlob = (blob: Blob, type: string) => {
         if (!type.startsWith("image/")) return;
         const ext = type.split("/")[1] || "png";
-        appendImageFile(new File([blob], `clipboard.${ext}`, { type }));
+        appendClipboardFile(new File([blob], `clipboard.${ext}`, { type }));
       };
 
       for (const file of clipboardFiles) {
-        appendImageFile(file);
+        if (isLikelyDirectoryPlaceholder(file)) {
+          hasUnsupportedDirectoryItem = true;
+          continue;
+        }
+        appendClipboardFile(file);
       }
 
       for (const item of clipboardItems) {
         if (item.kind !== "file") continue;
+        const entry = (
+          item as DataTransferItem & {
+            webkitGetAsEntry?: () => FileSystemEntry | null;
+          }
+        ).webkitGetAsEntry?.();
+        if (entry?.isDirectory) {
+          hasUnsupportedDirectoryItem = true;
+          continue;
+        }
         const file = item.getAsFile();
-        if (file) appendImageFile(file);
+        if (file && isLikelyDirectoryPlaceholder(file)) {
+          hasUnsupportedDirectoryItem = true;
+          continue;
+        }
+        if (file) appendClipboardFile(file);
       }
 
       if (html) {
@@ -6682,7 +7705,7 @@ function _Chat() {
         clipboardItems.some((item) => item.kind === "file");
 
       if (
-        imageFiles.length > 0 ||
+        pastedFiles.length > 0 ||
         imageUrlsFromHtml.length > 0 ||
         hasFileLikeClipboardData ||
         text
@@ -6690,7 +7713,7 @@ function _Chat() {
         event.preventDefault();
       }
 
-      if (imageFiles.length === 0 && navigator.clipboard?.read) {
+      if (pastedFiles.length === 0 && navigator.clipboard?.read) {
         try {
           const clipboardItems = await navigator.clipboard.read();
           for (const item of clipboardItems) {
@@ -6708,7 +7731,9 @@ function _Chat() {
         }
       }
 
-      const hasImages = imageFiles.length > 0 || imageUrlsFromHtml.length > 0;
+      const hasImages =
+        pastedFiles.some((file) => isImageFile(file)) ||
+        imageUrlsFromHtml.length > 0;
 
       if (text && !hasImages && !hasFileLikeClipboardData) {
         if (textarea) {
@@ -6730,33 +7755,39 @@ function _Chat() {
         }
       }
 
-      if (imageFiles.length > 0) {
+      if (hasUnsupportedDirectoryItem) {
+        showAttachLimitHint("不支持文件夹上传，请选择具体文件");
+        return;
+      }
+
+      if (pastedFiles.length > 0) {
         try {
-          setUploading(true);
-          const uploadedUrls = await Promise.all(
-            imageFiles.map((file) => uploadImageRemote(file)),
-          );
-          setAttachImages((prev) => {
-            const all = [...prev, ...uploadedUrls];
-            return all.length > MAX_ATTACH_IMAGES
-              ? all.slice(0, MAX_ATTACH_IMAGES)
-              : all;
-          });
+          await uploadFilesToComposer(pastedFiles);
         } catch {
-          showToast("图片粘贴失败，请重试");
-        } finally {
-          setUploading(false);
+          showAttachLimitHint("文件粘贴失败，请重试");
         }
       }
 
       if (imageUrlsFromHtml.length > 0) {
         setAttachImages((prev) => {
-          const all = [...prev, ...imageUrlsFromHtml];
-          return [...new Set(all)].slice(0, MAX_ATTACH_IMAGES);
+          const availableSlots = Math.max(
+            0,
+            MAX_ATTACH_IMAGES - (prev.length + attachedFiles.length),
+          );
+          return mergeComposerAttachedImages(
+            prev,
+            imageUrlsFromHtml.map((url) => createComposerAttachedImage(url)),
+          ).slice(0, prev.length + availableSlots);
         });
       }
     },
-    [onInput, userInput],
+    [
+      attachedFiles.length,
+      onInput,
+      showAttachLimitHint,
+      uploadFilesToComposer,
+      userInput,
+    ],
   );
 
   async function uploadImage() {
@@ -6775,31 +7806,16 @@ function _Chat() {
 
     fileInput.onchange = async (event: Event) => {
       const target = event.target as HTMLInputElement;
-      const selectedFiles = Array.from(target.files ?? []);
-      const remainingSlots = Math.max(
-        0,
-        MAX_ATTACH_IMAGES - attachImages.length,
-      );
-      if (selectedFiles.length > remainingSlots) {
-        showAttachLimitHint();
-      }
-      const files = selectedFiles.slice(0, remainingSlots);
-
+      const files = Array.from(target.files ?? []);
       if (files.length === 0) {
         cleanupFileInput();
         return;
       }
 
-      setUploading(true);
       try {
-        const uploadedImages = await Promise.all(
-          files.map((file) => uploadImageRemote(file)),
-        );
         const shouldPreserveBlurHeight =
           isMobileScreen && !isMobileInputFocused && mobileInputHasText;
-        setAttachImages((prev) =>
-          [...prev, ...uploadedImages].slice(0, MAX_ATTACH_IMAGES),
-        );
+        await uploadFilesToComposer(files);
         if (shouldPreserveBlurHeight) {
           requestAnimationFrame(() => {
             const shouldPreserveExpandedHeight = prepareMobileInputBlurLayout();
@@ -6807,9 +7823,8 @@ function _Chat() {
           });
         }
       } catch {
-        showToast("图片上传失败，请重试");
+        showAttachLimitHint("文件上传失败，请重试");
       } finally {
-        setUploading(false);
         cleanupFileInput();
       }
     };
@@ -7274,10 +8289,12 @@ function _Chat() {
                     const isContext = i < context.length;
                     const messageTextContent = getMessageTextContent(message);
                     const messageImages = getMessageImages(message);
+                    const messageAttachedFiles = message.attachedFiles || [];
                     const isEmptyUserMessage =
                       isUser &&
                       messageTextContent.length === 0 &&
-                      messageImages.length === 0;
+                      messageImages.length === 0 &&
+                      messageAttachedFiles.length === 0;
                     const showActions =
                       !message.preview && !isContext && !isEmptyUserMessage;
                     const showTyping = message.preview || message.streaming;
@@ -7285,10 +8302,12 @@ function _Chat() {
                     const shouldStackMessageActions =
                       messageTextContent.trim().length > 12 ||
                       messageImages.length > 0 ||
+                      messageAttachedFiles.length > 0 ||
                       editingMessageId === message.id;
                     const shouldInlineMobileActions =
                       isMobileScreen &&
                       (messageImages.length > 0 ||
+                        messageAttachedFiles.length > 0 ||
                         (i === firstActionableMessageIndex &&
                           messageImages.length === 0 &&
                           messageTextContent.trim().length > 12));
@@ -7328,11 +8347,17 @@ function _Chat() {
                                 onClick={() => {
                                   if (isMobileScreen) {
                                     const nextText = messageTextContent.trim();
-                                    const nextImages =
-                                      messageImages.filter(Boolean);
+                                    const nextImages = messageImages
+                                      .filter(Boolean)
+                                      .map((image) =>
+                                        createComposerAttachedImage(image),
+                                      );
+                                    const nextFiles =
+                                      messageAttachedFiles.slice();
                                     setEditMobileMessageId(message.id ?? null);
                                     setUserInput(nextText);
                                     setAttachImages(nextImages);
+                                    setAttachedFiles(nextFiles);
                                     setPromptHints([]);
                                     resetMobileInputDom(nextText);
                                     syncMobileInputHeight(nextText);
@@ -7503,6 +8528,9 @@ function _Chat() {
                                 className={clsx(styles["chat-message-item"], {
                                   [styles["chat-message-item-with-images"]]:
                                     messageImages.length > 0,
+                                  [styles[
+                                    "chat-message-item-with-attached-files"
+                                  ]]: messageAttachedFiles.length > 0,
                                 })}
                               >
                                 {showActions &&
@@ -7545,25 +8573,131 @@ function _Chat() {
                                     }}
                                   />
                                 ) : (
-                                  <Markdown
-                                    key={message.streaming ? "loading" : "done"}
-                                    content={messageTextContent}
-                                    loading={
-                                      ((message as any).preview ||
-                                        message.streaming) &&
-                                      !messageTextContent
-                                    }
-                                    onDoubleClickCapture={() => {
-                                      if (!isMobileScreen || !isUser) return;
-                                      setUserInput(
-                                        getMessageTextContent(message),
-                                      );
-                                    }}
-                                    fontSize={fontSize}
-                                    fontFamily={fontFamily}
-                                    parentRef={scrollRef}
-                                    defaultShow={i >= messages.length - 6}
-                                  />
+                                  <>
+                                    {messageAttachedFiles.length > 0 && (
+                                      <div
+                                        className={
+                                          styles["chat-message-attached-files"]
+                                        }
+                                      >
+                                        {messageAttachedFiles.map((file) => {
+                                          const previewUrl = String(
+                                            file.previewUrl || "",
+                                          ).trim();
+                                          const cardClassName = clsx(
+                                            styles[
+                                              "chat-message-attached-file"
+                                            ],
+                                            styles[
+                                              `attach-file-${file.typeKind}`
+                                            ],
+                                          );
+
+                                          const cardContent = (
+                                            <>
+                                              <div
+                                                className={
+                                                  styles["attach-file-icon"]
+                                                }
+                                              >
+                                                <span
+                                                  className={
+                                                    styles["attach-file-glyph"]
+                                                  }
+                                                ></span>
+                                              </div>
+                                              <div
+                                                className={
+                                                  styles[
+                                                    "chat-message-attached-file-info"
+                                                  ]
+                                                }
+                                              >
+                                                <div
+                                                  className={
+                                                    styles[
+                                                      "chat-message-attached-file-name"
+                                                    ]
+                                                  }
+                                                >
+                                                  {file.name}
+                                                </div>
+                                                <div
+                                                  className={
+                                                    styles[
+                                                      "chat-message-attached-file-type"
+                                                    ]
+                                                  }
+                                                >
+                                                  {file.typeLabel} ·{" "}
+                                                  {formatAttachmentSize(
+                                                    file.size,
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </>
+                                          );
+
+                                          if (previewUrl) {
+                                            return (
+                                              <button
+                                                key={file.id}
+                                                type="button"
+                                                className={cardClassName}
+                                                onClick={() =>
+                                                  openMessageAttachedFilePreview(
+                                                    file,
+                                                  )
+                                                }
+                                                title={`${file.name}\n${
+                                                  file.typeLabel
+                                                } · ${formatAttachmentSize(
+                                                  file.size,
+                                                )}`}
+                                              >
+                                                {cardContent}
+                                              </button>
+                                            );
+                                          }
+
+                                          return (
+                                            <div
+                                              key={file.id}
+                                              className={cardClassName}
+                                              title={`${file.name}\n${
+                                                file.typeLabel
+                                              } · ${formatAttachmentSize(
+                                                file.size,
+                                              )}`}
+                                            >
+                                              {cardContent}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    <Markdown
+                                      key={
+                                        message.streaming ? "loading" : "done"
+                                      }
+                                      content={messageTextContent}
+                                      loading={
+                                        ((message as any).preview ||
+                                          message.streaming) &&
+                                        !messageTextContent
+                                      }
+                                      onDoubleClickCapture={() => {
+                                        if (!isMobileScreen || !isUser) return;
+                                        setUserInput(
+                                          getMessageTextContent(message),
+                                        );
+                                      }}
+                                      fontSize={fontSize}
+                                      fontFamily={fontFamily}
+                                      parentRef={scrollRef}
+                                      defaultShow={i >= messages.length - 6}
+                                    />
+                                  </>
                                 )}
                                 {messageImages.length == 1 &&
                                   renderGeneratedMedia(
@@ -7693,14 +8827,14 @@ function _Chat() {
                 prompts={promptHints}
                 onPromptSelect={onPromptSelect}
               />
-              {attachLimitHint && (
-                <div className={styles["chat-input-limit-hint"]}>
-                  {attachLimitHint}
-                </div>
-              )}
 
               {!isMobileScreen && !currentSessionHasMessages && (
-                <div className={styles["chat-input-empty-title"]}>
+                <div
+                  className={clsx(styles["chat-input-empty-title"], {
+                    [styles["chat-input-empty-title-reserved-hidden"]]:
+                      hasComposerAttachments,
+                  })}
+                >
                   {getBotHelloContent()}
                 </div>
               )}
@@ -7710,7 +8844,226 @@ function _Chat() {
                   <span>编辑消息</span>
                 </div>
               )}
-              <div className={styles["chat-input-row"]}>
+              <div
+                className={styles["chat-input-row"]}
+                style={
+                  !isMobileScreen && hasImageOnlyComposerAttachments
+                    ? ({
+                        ["--chat-attach-strip-visual-height" as any]: "116px",
+                      } as React.CSSProperties)
+                    : undefined
+                }
+              >
+                {!isMobileScreen &&
+                  !currentSessionHasMessages &&
+                  hasComposerAttachments && (
+                    <div
+                      className={clsx(
+                        styles["chat-input-empty-title"],
+                        styles["chat-input-empty-title-floating"],
+                      )}
+                    >
+                      {getBotHelloContent()}
+                    </div>
+                  )}
+                {hasComposerAttachments && (
+                  <div className={styles["chat-attach-strip"]}>
+                    <div
+                      className={clsx(styles["attach-images"], {
+                        [styles["attach-images-mixed-kinds"]]:
+                          hasMixedComposerAttachmentKinds,
+                      })}
+                    >
+                      {attachImages.map((image, index) => {
+                        const previewUrl =
+                          getComposerAttachedImagePreviewUrl(image);
+                        return (
+                          <div
+                            key={image.id}
+                            className={styles["attach-image"]}
+                            style={{ backgroundImage: `url("${previewUrl}")` }}
+                            role="button"
+                            tabIndex={0}
+                            title="点击预览"
+                            onClick={() => showImageModal(previewUrl, true)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                showImageModal(previewUrl, true);
+                              }
+                            }}
+                          >
+                            <div className={styles["attach-image-mask"]}>
+                              <DeleteImageButton
+                                deleteImage={() =>
+                                  void removeAttachedImage(index)
+                                }
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {attachedFiles.map((file) => {
+                        return (
+                          <div
+                            key={file.id}
+                            className={clsx(
+                              styles["attach-file"],
+                              styles[`attach-file-${file.typeKind}`],
+                            )}
+                            title={`${file.name}\n${
+                              file.typeLabel
+                            } · ${formatAttachmentSize(file.size)}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openMessageAttachedFilePreview(file)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openMessageAttachedFilePreview(file);
+                              }
+                            }}
+                          >
+                            <div className={styles["attach-file-icon"]}>
+                              <span
+                                className={styles["attach-file-glyph"]}
+                              ></span>
+                            </div>
+                            <div className={styles["attach-file-info"]}>
+                              <div className={styles["attach-file-name"]}>
+                                {file.name}
+                              </div>
+                              <div className={styles["attach-file-type"]}>
+                                {file.typeLabel} ·{" "}
+                                {formatAttachmentSize(file.size)}
+                              </div>
+                            </div>
+                            <DeleteImageButton
+                              deleteImage={() => void removeAttachedFile(file)}
+                            />
+                          </div>
+                        );
+                      })}
+                      {uploadingAttachments.map((attachment) => {
+                        if (!attachment.isImage) {
+                          return (
+                            <div
+                              key={attachment.id}
+                              className={clsx(
+                                styles["attach-file"],
+                                styles[`attach-file-${attachment.typeKind}`],
+                              )}
+                              title={`${attachment.file.name}\n${
+                                attachment.typeLabel
+                              } · ${formatAttachmentSize(
+                                attachment.file.size,
+                              )}`}
+                            >
+                              <div
+                                className={clsx(
+                                  styles["attach-file-icon"],
+                                  styles["attach-file-icon-uploading"],
+                                )}
+                              >
+                                <span
+                                  className={styles["attach-file-glyph"]}
+                                ></span>
+                                <div
+                                  className={styles["attach-file-icon-mask"]}
+                                >
+                                  <span
+                                    className={
+                                      styles["attachment-upload-spinner"]
+                                    }
+                                    style={{
+                                      ["--upload-progress" as any]:
+                                        attachment.progress,
+                                    }}
+                                  ></span>
+                                  <span
+                                    className={
+                                      styles["attachment-upload-percent"]
+                                    }
+                                  >
+                                    {Math.round(
+                                      Math.min(
+                                        1,
+                                        Math.max(0, attachment.progress),
+                                      ) * 100,
+                                    )}
+                                    %
+                                  </span>
+                                </div>
+                              </div>
+                              <div className={styles["attach-file-info"]}>
+                                <div className={styles["attach-file-name"]}>
+                                  {attachment.file.name}
+                                </div>
+                                <div className={styles["attach-file-type"]}>
+                                  上传中{" "}
+                                  {Math.round(
+                                    Math.min(
+                                      1,
+                                      Math.max(0, attachment.progress),
+                                    ) * 100,
+                                  )}
+                                  %
+                                </div>
+                              </div>
+                              <DeleteImageButton
+                                deleteImage={() =>
+                                  void cancelUploadingAttachment(attachment)
+                                }
+                              />
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={attachment.id}
+                            className={styles["attach-image"]}
+                            style={{
+                              backgroundImage: `url("${attachment.previewUrl}")`,
+                            }}
+                          >
+                            <div className={styles["attach-image-mask"]}>
+                              <DeleteImageButton
+                                deleteImage={() =>
+                                  void cancelUploadingAttachment(attachment)
+                                }
+                              />
+                            </div>
+                            <div
+                              className={
+                                styles["attach-image-uploading-overlay"]
+                              }
+                            >
+                              <span
+                                className={styles["attachment-upload-spinner"]}
+                                style={{
+                                  ["--upload-progress" as any]:
+                                    attachment.progress,
+                                }}
+                              ></span>
+                              <span
+                                className={styles["attachment-upload-percent"]}
+                              >
+                                {Math.round(
+                                  Math.min(
+                                    1,
+                                    Math.max(0, attachment.progress),
+                                  ) * 100,
+                                )}
+                                %
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {isMobileScreen && (
                   <div className={styles["chat-input-mobile-actions"]}>
                     {editMobileMessageId && (
@@ -7728,7 +9081,7 @@ function _Chat() {
                         onClick={exitMobileEditMode}
                       />
                     )}
-                    {(userInput.length > 0 || attachImages.length > 0) && (
+                    {(userInput.length > 0 || hasComposerAttachments) && (
                       <IconButton
                         icon={<MobileClearIcon />}
                         className={styles["chat-input-mobile-add"]}
@@ -7741,7 +9094,7 @@ function _Chat() {
                           mobileInputOutsidePointerBlurRef.current = false;
                           setPromptHints([]);
                           setUserInput("");
-                          setAttachImages([]);
+                          clearComposerAttachments();
                           localStorage.removeItem(unfinishedInputKey);
                           localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
                           localStorage.removeItem(unfinishedAttachImagesKey);
@@ -7766,7 +9119,7 @@ function _Chat() {
                       onClick={() => {
                         const shouldPreserveBlurHeight =
                           isMobileScreen && !isMobileInputFocused;
-                        if (attachImages.length >= MAX_ATTACH_IMAGES) {
+                        if (totalComposerAttachmentCount >= MAX_ATTACH_IMAGES) {
                           showAttachLimitHint();
                           return;
                         }
@@ -7781,8 +9134,6 @@ function _Chat() {
                 <label
                   ref={chatInputInnerRef}
                   className={clsx(styles["chat-input-panel-inner"], {
-                    [styles["chat-input-panel-inner-attach"]]:
-                      attachImages.length !== 0,
                     [styles["chat-input-panel-inner-multiline"]]:
                       !isMobileScreen && inputRows > 1,
                   })}
@@ -7796,7 +9147,7 @@ function _Chat() {
                           shouldUseCompactInputHint ||
                           isChatUnavailableForSync ||
                           !!userInput ||
-                          attachImages.length > 0,
+                          hasComposerAttachments,
                       })}
                       style={{
                         fontSize: inputFontSize,
@@ -7805,29 +9156,6 @@ function _Chat() {
                     >
                       {chatInputHint}
                     </span>
-                  )}
-                  {attachImages.length != 0 && (
-                    <div className={styles["attach-images"]}>
-                      {attachImages.map((image, index) => {
-                        return (
-                          <div
-                            key={index}
-                            className={styles["attach-image"]}
-                            style={{ backgroundImage: `url("${image}")` }}
-                          >
-                            <div className={styles["attach-image-mask"]}>
-                              <DeleteImageButton
-                                deleteImage={() => {
-                                  setAttachImages(
-                                    attachImages.filter((_, i) => i !== index),
-                                  );
-                                }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
                   )}
                   <div className={styles["chat-input-text-wrap"]}>
                     {isMobileScreen ? (
@@ -8008,14 +9336,16 @@ function _Chat() {
                       icon={<SendUpIcon />}
                       className={styles["chat-input-send"]}
                       type="primary"
-                      disabled={isChatUnavailableForSync}
+                      disabled={isChatUnavailableForSync || hasPendingUploads}
                       onMouseDown={() => {
-                        if (userInput.trim() || attachImages.length > 0) {
+                        if (hasPendingUploads) return;
+                        if (userInput.trim() || hasComposerAttachments) {
                           prepareMobileSubmitKeyboardDismiss();
                         }
                       }}
                       onTouchStart={(e) => {
-                        if (userInput.trim() || attachImages.length > 0) {
+                        if (hasPendingUploads) return;
+                        if (userInput.trim() || hasComposerAttachments) {
                           e.preventDefault();
                           e.stopPropagation();
                           mobileSubmitTouchHandledRef.current = true;
@@ -8024,6 +9354,7 @@ function _Chat() {
                         }
                       }}
                       onClick={() => {
+                        if (hasPendingUploads) return;
                         if (mobileSubmitTouchHandledRef.current) {
                           mobileSubmitTouchHandledRef.current = false;
                           return;

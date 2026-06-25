@@ -144,6 +144,8 @@ app/
 - `provider_api_keys`：API Key 密文与分组。
 - `sync_secrets`：同步敏感 payload 密文。
 - `site_access_settings`：站点访问密码哈希。
+- `user_draw_stores`：绘画任务历史快照。
+- `user_draw_images`：绘画生成图片原图与缩略图（bytea，按 md5 去重）。
 
 ### 模型同步实现
 

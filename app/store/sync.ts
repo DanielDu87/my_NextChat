@@ -3796,6 +3796,14 @@ export const useSyncStore = createPersistStore(
                     status: regularResult.status,
                   });
                 } catch (e) {
+                  if (isSyncAbortError(e)) {
+                    logSyncDebug(
+                      `[Sync] ⏹️ [${index + 1}/${currentStoreKeys.length}] ${
+                        STORE_DISPLAY_NAMES[key]
+                      }同步已取消`,
+                    );
+                    throw e;
+                  }
                   failedKeys.push({
                     key,
                     name: STORE_DISPLAY_NAMES[key],

@@ -1,4 +1,10 @@
 # 同步聊天记录
+
+> ⚠️ **已过时**：本教程介绍的是 Upstash Redis 同步方式。**当前项目已移除 Upstash / WebDAV 同步**，云端同步统一改为 PostgreSQL 数据库（`app/utils/cloud/index.ts` 的 `ProviderType` 仅保留 `Database`）。请改阅：
+> - [同步功能使用指南](sync-usage-guide.md)
+> - [数据存储同步总表](db/data-storage-sync-matrix.md)
+> - [本地优先同步规则](db/local-first-sync-rules.md)
+
 ## 准备工作
 - GitHub账号
 - 拥有自己搭建过的ChatGPT-Next-Web的服务器

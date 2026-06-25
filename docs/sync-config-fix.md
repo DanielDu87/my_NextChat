@@ -1,5 +1,10 @@
 # NextChat 同步配置问题修复指南
 
+> ⚠️ **文档状态（已过时）**：本指南写于 v4 存储优化（2026-06-11）之前，文中多处引用已废弃的 `model_settings` / `sync_settings` 列。v4 后这些列已并入 `app_settings.extra_settings`（`app-config` / `sync` 等 store 统一落在 `extra_settings` JSONB），照搬文中 SQL 会因列不存在而报错。排查与修复请以以下权威文档为准：
+> - [数据存储同步总表](db/data-storage-sync-matrix.md)
+> - [本地优先同步规则](db/local-first-sync-rules.md)
+> - [PostgreSQL schema](db/nextchat-postgres-schema.sql)
+
 ## 🚨 问题描述
 
 ### 症状

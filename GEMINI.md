@@ -4,15 +4,16 @@
 
 ## 项目概览
 
-NextChat 是基于 Next.js 14、React、TypeScript、Zustand 和 SCSS Modules 的跨平台 AI 聊天应用，支持 Web/PWA 与 Tauri 桌面端。
+NextChat 是基于 Next.js 14、React、TypeScript、Zustand、PostgreSQL 和 SCSS Modules 的跨平台 AI 聊天应用，支持 Web/PWA 与 Tauri 桌面端。内置聊天、AI 绘画（Draw）、实时语音、MCP 工具、插件、Artifacts 等功能，支持 18 个模型供应商与多 API Key 轮询。云端数据持久化在 PostgreSQL，本地业务数据在 IndexedDB。更完整的架构导航见 [CLAUDE.md](./CLAUDE.md)。
 
 ## 目录结构
 
 - `app/`：Next.js 应用核心代码。
-- `app/components/`：聊天界面、设置、通用 UI 等组件。
-- `app/store/`：Zustand 状态管理。
-- `app/client/`：各模型 Provider 客户端。
-- `app/api/`：服务端 API 路由。
+- `app/components/`：聊天界面、设置、绘画（`draw/`）、实时语音（`realtime-chat/`）等组件。
+- `app/store/`：Zustand 状态管理（chat、config、access、auth、draw、mask、sync 等）。
+- `app/client/`：各模型 Provider 客户端（`platforms/` 下 14 个实现）。
+- `app/utils/server/`：服务端数据库 Repository 层（PostgreSQL 连接与各 `*-repository.ts`）。
+- `app/api/`：服务端 API 路由（提供商代理、`db/*` 同步、`auth/*` 认证等）。
 - `scripts/`：部署、数据库维护、模型同步等脚本。
 - `docs/`：中文文档与 Runbook。
 

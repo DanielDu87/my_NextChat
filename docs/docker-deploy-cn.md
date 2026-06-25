@@ -207,7 +207,9 @@ curl http://127.0.0.1:3000/api/db/health
 - `postgres.configuredPort`
 - `postgres.database`
 - `postgres.user`
-- `modelCatalogCount`
+- `postgres.version`、`postgres.now`
+
+> 说明：v4 优化后已移除 `modelCatalogCount`；模型计数改读 `app_settings.security_settings -> 'access-control' -> apiProfiles[*].cachedModels.length`。
 
 如果宿主机访问 `127.0.0.1:3000` 异常，但容器已经 `Up`，优先在容器内验证：
 

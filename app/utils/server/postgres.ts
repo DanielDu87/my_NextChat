@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-22-draw-thumb-v1";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-24-cache-file-v2";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -414,6 +414,54 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create unique index if not exists idx_user_draw_images_user_content_data
         on user_draw_images(user_id, content_type, md5(data))
+      `);
+        await client.query(`
+        create table if not exists user_cache_files (
+          id uuid primary key default generate_uuid_v4(),
+          user_id uuid not null references app_users(id) on delete cascade,
+          file_name text not null,
+          file_ext text not null default '',
+          content_type text not null,
+          size_bytes integer not null,
+          data bytea not null,
+          is_pinned boolean not null default false,
+          expires_at timestamptz not null default (now() + interval '3 days'),
+          created_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        alter table user_cache_files
+        add column if not exists is_pinned boolean not null default false
+      `);
+        await client.query(`
+        alter table user_cache_files
+        add column if not exists expires_at timestamptz not null default (now() + interval '3 days')
+      `);
+        await client.query(`
+        create index if not exists idx_user_cache_files_user_created_at
+        on user_cache_files(user_id, created_at desc)
+      `);
+        await client.query(`
+        create index if not exists idx_user_cache_files_user_expires_at
+        on user_cache_files(user_id, expires_at)
+        where is_pinned = false
+      `);
+        await client.query(`
+        delete from user_cache_files
+        where id in (
+          select id from (
+            select id, row_number() over (
+              partition by user_id, content_type, md5(data)
+              order by created_at desc
+            ) as rn
+            from user_cache_files
+          ) dup
+          where dup.rn > 1
+        )
+      `);
+        await client.query(`
+        create unique index if not exists idx_user_cache_files_user_content_data
+        on user_cache_files(user_id, content_type, md5(data))
       `);
         await client.query(`
         create table if not exists conversations (

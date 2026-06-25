@@ -1,6 +1,6 @@
 # 数据存储、同步与更新总表
 
-> 本文档以当前仓库代码为准（2026-06-11 v4 优化版）。
+> 本文档以当前仓库代码为准（2026-06-22 draw-thumb-v1）。
 > 当前实现的云端主存储不是统一的 `sync_artifacts` 表，而是按数据类型拆分到了多个 PostgreSQL 表和 `app_settings` 的 JSONB 列中。
 
 ## 1. 当前实现总览
@@ -29,6 +29,7 @@
 | Prompt store | `app_settings` | `extra_settings -> 'prompt-store'` | `app-settings-repository.ts` |
 | 更新状态 | `app_settings` | `extra_settings -> 'chat-update'` | `app-settings-repository.ts` |
 | 绘图记录 | `user_draw_stores` | `payload_json` | `draw-store-repository.ts` |
+| 绘图图片（原图+缩略图） | `user_draw_images` | `data`/`thumb_data` (bytea)，按 `md5(data)` 去重 | `draw-image-repository.ts` |
 | Access store 结构化 provider 配置 | `provider_configs` | 每个 profile 一行 | `provider-config-repository.ts` |
 | Access store 密钥 | `provider_api_keys` | 每类 key 一行 | `provider-config-repository.ts` |
 | 额外敏感配置加密存储 | `sync_secrets` | `encrypted_payload` | `sync-secrets.ts` |
@@ -171,6 +172,8 @@
 | 模型刷新接口 | [route.ts](../../app/api/db/models/refresh/route.ts) |
 | 同步规则说明 | [local-first-sync-rules.md](local-first-sync-rules.md) |
 | PostgreSQL 完整 schema | [nextchat-postgres-schema.sql](nextchat-postgres-schema.sql) |
+| 绘图历史存储 | [draw-store-repository.ts](../../app/utils/server/draw-store-repository.ts) |
+| 绘图图片存取（原图+缩略图） | [draw-image-repository.ts](../../app/utils/server/draw-image-repository.ts) |
 | 迁移优化脚本 | [optimize-2026-06-11.sql](optimize-2026-06-11.sql) |
 
 ## 11. 文档与代码差异说明

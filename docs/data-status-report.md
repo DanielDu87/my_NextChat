@@ -1,5 +1,7 @@
 # NextChat 数据恢复和同步 - 完整执行指南
 
+> ⚠️ **文档状态（历史快照）**：本报告生成于 2026-03-29。其中的 `model_settings` / `sync_settings` 列已在 v4 存储优化（2026-06-11）中废弃并并入 `app_settings.extra_settings`；文中具体用户 ID、配置数量为当时快照，不代表当前状态。当前结构请以 [PostgreSQL schema](db/nextchat-postgres-schema.sql) 和 [数据存储同步总表](db/data-storage-sync-matrix.md) 为准。
+
 ## ✅ 数据库当前状态
 
 ```

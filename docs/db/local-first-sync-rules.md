@@ -20,6 +20,9 @@
     - `provider_configs`
     - `provider_api_keys`
     - `sync_secrets`
+  - 绘图数据写入：
+    - `user_draw_stores`（绘画任务历史快照，`payload_json`）
+    - `user_draw_images`（绘画生成图片二进制：`data` 原图 + `thumb_data` 缩略图，按 `md5(data)` 去重；通过 `/api/db/draw-image` 单独上传/读取，不随 store 同步）
   - 模型数据写入（v4 优化后）：
     - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
     - `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
@@ -95,4 +98,8 @@
 - 手动模型刷新接口：`POST /api/db/models/refresh`
 - 若配置了 `MODEL_SYNC_TOKEN`，接口必须带：
   - `Authorization: Bearer <MODEL_SYNC_TOKEN>`
-- 运行时初始化保证：应用启动时 `ensureSyncStorageSchema()` 会自动建表 + 补齐 v4 优化所需的列（`provider_configs.api_path / api_format`、`provider_api_keys.last_verified_at`、`messages.reasoning_text / tool_calls / metadata_json` 等），并清理已下线的 4 张模型表 + 3 个冗余索引。完整 schema SQL 和运行时初始化保持同步维护。
+- 运行时初始化保证：应用启动时 `ensureSyncStorageSchema()` 会自动建表 + 补齐所需列：
+  - v4 优化：`provider_configs.api_path / api_format`、`provider_api_keys.last_verified_at`、`messages.reasoning_text / tool_calls / metadata_json`；清理已下线的 4 张模型表 + 3 个冗余索引。
+  - draw-thumb-v1（2026-06-22）：新建 `user_draw_images` 表（含 `thumb_data` 列），删除重复行并补 `(user_id, content_type, md5(data))` 唯一索引。
+  - `auth_sessions` / `site_access_settings` 分别由 `ensureAuthSchemaAndSeed()` / `ensureSitePasswordConfigured()` 维护。
+  - 完整 schema SQL 和运行时初始化保持同步维护。

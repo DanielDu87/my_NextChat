@@ -1,5 +1,9 @@
 # 数据库下载报错修复说明
 
+> ⚠️ **文档状态（已过时）**：本文写于 v4 存储优化（2026-06-11）之前。文中"手动修复"SQL 里 `app_settings` 的 `ui_settings` / `model_settings` / `sync_settings` 列已全部废弃，当前 `app_settings` 只有 4 个 JSONB 列：`chat_settings / plugin_settings / security_settings / extra_settings`，照搬文中 SQL 会报错。排查请以最新文档为准：
+> - [PostgreSQL schema](db/nextchat-postgres-schema.sql)
+> - [数据存储同步总表](db/data-storage-sync-matrix.md)
+
 ## 问题描述
 
 在宝塔面板中下载数据库时出现报错，主要原因是 `app_settings` 表中的 `plugin_settings` 字段包含了大量插件的 JSON Schema 数据，导致：

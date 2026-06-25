@@ -2,6 +2,8 @@
 
 > 最后更新：2026-03-18
 > 分析范围：对话、配置、备份、同步相关代码
+>
+> ⚠️ **历史分析快照**：本记录写于 2026-03-18，文中引用的代码行号（如 `sync.ts:207-237`、`database-state-storage.ts:99-104`、`sync-store-keys.ts:68`、`sync.ts:429`）在后续迭代中可能已变化，部分问题可能已修复。核实请以当前代码为准；同步架构现状见 [数据存储同步总表](docs/db/data-storage-sync-matrix.md) 与 [本地优先同步规则](docs/db/local-first-sync-rules.md)。
 
 ## 📋 问题列表
 

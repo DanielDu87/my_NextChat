@@ -75,12 +75,10 @@ https://chat.dyxcloud.com/api-config
 
 1. **导出配置**
 
+   > 说明：新版业务数据主要持久化在浏览器 `IndexedDB`（非 `localStorage`），最稳妥的方式是在界面点击"保存并同步"上传到数据库。如需在控制台查看本地副本，请检查 IndexedDB（库名 `nextchat-local-cache`），而不是 `localStorage`。
+
    ```javascript
-   // 在浏览器控制台执行
-   const config = JSON.parse(
-     localStorage.getItem("chat-next-web-access-control"),
-   );
-   console.log(JSON.stringify(config, null, 2));
+   // 仅供参考：从 IndexedDB 读取本地副本需异步访问，建议直接用界面"保存并同步"
    ```
 
 2. **保存配置文件**
@@ -221,12 +219,13 @@ NextChat 使用多种存储方式：
 
 ## 📊 当前数据库状态
 
-### 已初始化的配置
+> 以下为示例状态，实际以你环境为准。核心表结构见 [PostgreSQL schema](db/nextchat-postgres-schema.sql)。
 
-✅ `provider_configs` 表：已初始化（1条 OpenAI 配置）
-✅ `provider_api_keys` 表：已配置
-✅ `app_settings` 表：已配置
-✅ 同步功能：已启用
+### 关键表（配置同步相关）
+
+- `provider_configs` — 供应商配置（每个 profile 一行）
+- `provider_api_keys` — 供应商 API 密钥
+- `app_settings` — 用户设置（`security_settings`/`extra_settings` 等 JSONB 列）
 
 ### 可以执行的操作
 

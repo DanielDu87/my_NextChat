@@ -20,6 +20,7 @@ import { ChatControllerPool } from "../client/controller";
 import { showToast } from "../components/ui-lib";
 import {
   ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
+  CACHE_URL_PREFIX,
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
   DEFAULT_SYSTEM_TEMPLATE,
@@ -239,6 +240,18 @@ export type ChatMessageUsage = {
   systemTokens?: number;
 };
 
+export type ChatMessageAttachedFile = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  typeLabel: string;
+  typeKind: "document" | "spreadsheet" | "pdf" | "archive" | "file";
+  previewText?: string;
+  previewUrl?: string;
+  localPreviewUrl?: string;
+};
+
 export type ChatMessage = RequestMessage & {
   date: string;
   streaming?: boolean;
@@ -257,6 +270,8 @@ export type ChatMessage = RequestMessage & {
   isMcpResponse?: boolean;
   usage?: ChatMessageUsage;
   manualStopped?: boolean;
+  attachedFiles?: ChatMessageAttachedFile[];
+  attachedFilesPromptText?: string;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -266,6 +281,40 @@ export function createMessage(override: Partial<ChatMessage>): ChatMessage {
     role: "user",
     content: "",
     ...override,
+  };
+}
+
+function withAttachedFilesPromptText(message: ChatMessage): ChatMessage {
+  const extraPrompt = String(message.attachedFilesPromptText || "");
+  if (!extraPrompt.trim() || message.role !== "user") {
+    return message;
+  }
+
+  if (typeof message.content === "string") {
+    return {
+      ...message,
+      content: [message.content, extraPrompt].filter(Boolean).join("\n\n"),
+    };
+  }
+
+  const content = Array.isArray(message.content) ? message.content : [];
+  const nextContent = content.slice();
+  const firstTextIndex = nextContent.findIndex((item) => item.type === "text");
+  if (firstTextIndex >= 0) {
+    const firstTextItem = nextContent[firstTextIndex];
+    if (firstTextItem?.type === "text") {
+      nextContent[firstTextIndex] = {
+        ...firstTextItem,
+        text: [firstTextItem.text, extraPrompt].filter(Boolean).join("\n\n"),
+      };
+    }
+  } else {
+    nextContent.unshift({ type: "text", text: extraPrompt });
+  }
+
+  return {
+    ...message,
+    content: nextContent,
   };
 }
 
@@ -2716,7 +2765,11 @@ export const useChatStore = createPersistStore(
         content: string,
         attachImages?: string[],
         isMcpResponse?: boolean,
-        options?: { reuseUserMessageId?: string },
+        options?: {
+          reuseUserMessageId?: string;
+          attachedFiles?: ChatMessageAttachedFile[];
+          attachedFilesPromptText?: string;
+        },
       ) {
         logChatDebug("[Chat] 💬 用户输入:", {
           contentLength: content.length,
@@ -2846,11 +2899,15 @@ export const useChatStore = createPersistStore(
               ...reusedUserMessage,
               content: mContent,
               isMcpResponse,
+              attachedFiles: options?.attachedFiles || [],
+              attachedFilesPromptText: options?.attachedFilesPromptText || "",
             }
           : createMessage({
               role: "user",
               content: mContent,
               isMcpResponse,
+              attachedFiles: options?.attachedFiles || [],
+              attachedFilesPromptText: options?.attachedFilesPromptText || "",
             });
 
         const botMessage: ChatMessage = createMessage({
@@ -2872,13 +2929,52 @@ export const useChatStore = createPersistStore(
         });
 
         // get recent messages
-        const recentMessages =
-          await get().getMessagesWithMemory(initialModelConfig);
+        const recentMessages = (
+          await get().getMessagesWithMemory(initialModelConfig)
+        ).map(withAttachedFilesPromptText);
+        const requestUserMessage = withAttachedFilesPromptText(userMessage);
         const sendMessages = reusedUserMessage
           ? recentMessages
-          : recentMessages.concat(userMessage);
+          : recentMessages.concat(requestUserMessage);
         const messageIndex =
           session.messages.length + (reusedUserMessage ? 0 : 1);
+
+        const extractCacheUuid = (value: string) => {
+          const base = String(value || "")
+            .split("?")[0]
+            .split("#")[0];
+          const idPart = base.split("/").pop() || "";
+          return idPart.split(".")[0];
+        };
+        const cacheIds = new Set<string>();
+        const tryAddCacheUrl = (url?: string) => {
+          if (!url) return;
+          const normalized = String(url);
+          if (!normalized.startsWith(CACHE_URL_PREFIX)) return;
+          const uuid = extractCacheUuid(normalized);
+          if (uuid) cacheIds.add(uuid);
+        };
+        for (const message of sendMessages) {
+          const messageContent = (message as any)?.content;
+          if (Array.isArray(messageContent)) {
+            for (const part of messageContent) {
+              if (part?.type === "image_url" && part?.image_url?.url) {
+                tryAddCacheUrl(part.image_url.url);
+              }
+            }
+          }
+        }
+        for (const file of options?.attachedFiles || []) {
+          tryAddCacheUrl((file as any)?.previewUrl || (file as any)?.url);
+        }
+        if (cacheIds.size > 0) {
+          void fetch(`${CACHE_URL_PREFIX}/commit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: Array.from(cacheIds) }),
+            credentials: "include",
+          }).catch(() => {});
+        }
 
         logChatDebug("[Chat] 📨 发送消息:", {
           contextMessages: recentMessages.length,

@@ -1,6 +1,7 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-06-11 (v4 优化：下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at)
+-- 最后更新: 2026-06-22 (draw-thumb-v1：新增 user_draw_images 表，存储绘画原图 data + 缩略图 thumb_data)
+-- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
 
 BEGIN;
 
@@ -80,6 +81,24 @@ CREATE TABLE IF NOT EXISTS user_draw_stores (
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS user_draw_images (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  content_type text NOT NULL,
+  size_bytes integer NOT NULL,
+  data bytea NOT NULL,
+  thumb_data bytea,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+-- 按用户 + 创建时间倒序检索绘画图片
+CREATE INDEX IF NOT EXISTS idx_user_draw_images_user_created_at
+ON user_draw_images(user_id, created_at DESC);
+
+-- 按 (user_id, content_type, md5(data)) 去重，防止重复上传同一张原图
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_draw_images_user_content_data
+ON user_draw_images(user_id, content_type, md5(data));
 
 CREATE TABLE IF NOT EXISTS site_access_settings (
   setting_key text PRIMARY KEY,
@@ -237,6 +256,8 @@ COMMENT ON TABLE app_users IS '用户主表';
 COMMENT ON TABLE auth_sessions IS '登录会话（token 哈希存储）';
 COMMENT ON TABLE app_settings IS '用户全局设置（JSONB key-value store）';
 COMMENT ON TABLE site_access_settings IS '站点访问密码';
+COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw-list 快照）';
+COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';
 COMMENT ON TABLE provider_configs IS '模型供应商配置';
 COMMENT ON TABLE provider_api_keys IS '供应商 API 密钥和分组';
 COMMENT ON TABLE conversations IS '对话主表（删除走物理删除，is_deleted 仅作历史标记）';

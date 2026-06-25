@@ -457,11 +457,15 @@ export function base64Image2Blob(base64Data: string, contentType: string) {
   return new Blob([byteArray], { type: contentType });
 }
 
-export function uploadImage(file: Blob): Promise<string> {
-  if (!window._SW_ENABLED) {
-    // if serviceWorker register error, using compressImage
+export async function uploadImage(file: Blob): Promise<string> {
+  try {
+    return await uploadFile(file);
+  } catch {
     return compressImage(file, 256 * 1024);
   }
+}
+
+export function uploadFile(file: Blob): Promise<string> {
   const body = new FormData();
   body.append("file", file);
   return fetch(UPLOAD_URL, {
