@@ -2,7 +2,7 @@
 
 require("../polyfill");
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import styles from "./home.module.scss";
 
 import {
@@ -37,7 +37,7 @@ import {
   useChatStore,
 } from "../store";
 import clsx from "clsx";
-import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
+import { initializeMcpSystem } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
 import { useCurrentSession } from "../store/chat-session";
 import { isPerfDebugEnabled, logPerfSummary, nowMs } from "../utils/perf";
@@ -56,69 +56,146 @@ import {
 } from "../utils/chat-startup-loading";
 
 export function Loading(props: { noLogo?: boolean; splash?: boolean }) {
-  if (props.noLogo) {
-    return (
-      <LoadingView fullscreen size={props.splash ? "splash" : "default"} />
-    );
+  // 最早期就同步设置主题，确保背景色正确
+  if (typeof window !== "undefined") {
+    try {
+      const config = useAppConfig.getState();
+      if (config?.theme) {
+        const effective = resolveEffectiveTheme(
+          config.theme,
+          config._hasHydrated,
+        );
+        applyDocumentTheme(effective);
+      }
+    } catch {
+      // 忽略错误
+    }
   }
 
-  return (
-    <LoadingView
-      fullscreen
-      size={props.splash ? "splash" : "default"}
-      className="no-dark"
-    />
-  );
+  if (props.noLogo) {
+    return <LoadingView fullscreen size="splash" className="no-dark" />;
+  }
+
+  return <LoadingView fullscreen size="splash" className="no-dark" />;
 }
 
 const Artifacts = dynamic(async () => (await import("./artifacts")).Artifacts, {
-  loading: () => <Loading />,
+  loading: () => <LoadingView size="splash" className="no-dark" />,
 });
 
 const ApiConfigPage = dynamic(
   async () => (await import("./api-config")).ApiConfigPage,
   {
-    loading: () => <LoadingView size="default" className="no-dark" />,
+    loading: () => <LoadingView size="splash" className="no-dark" />,
   },
 );
 
 const NewChat = dynamic(async () => (await import("./new-chat")).NewChat, {
-  loading: () => <Loading />,
+  loading: () => <LoadingView size="splash" className="no-dark" />,
 });
 
 const PluginPage = dynamic(async () => (await import("./plugin")).PluginPage, {
-  loading: () => <LoadingView size="default" className="no-dark" />,
+  loading: () => <LoadingView size="splash" className="no-dark" />,
 });
 
 const SearchChat = dynamic(
   async () => (await import("./search-chat")).SearchChatPage,
   {
-    loading: () => <Loading />,
+    loading: () => <LoadingView size="splash" className="no-dark" />,
   },
 );
 
 const Draw = dynamic(async () => (await import("./draw")).Draw, {
-  loading: () => <Loading />,
+  loading: () => <LoadingView size="splash" className="no-dark" />,
 });
 
 const McpMarketPage = dynamic(
   async () => (await import("./mcp-market")).McpMarketPage,
   {
-    loading: () => <Loading />,
+    loading: () => <LoadingView size="splash" className="no-dark" />,
   },
 );
 
+function resolvePreloadTheme(): "dark" | "light" {
+  if (typeof window === "undefined") return "dark";
+  return (window as any).__NEXTCHAT_PRELOAD_THEME__ === "light"
+    ? "light"
+    : "dark";
+}
+
+function resolveEffectiveTheme(
+  theme: string,
+  hasHydrated = true,
+): "dark" | "light" {
+  if (theme === "dark" || theme === "light") return theme;
+  if (typeof window === "undefined") return "light";
+  if (!hasHydrated) return resolvePreloadTheme();
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+const PRELOAD_STYLE_ID = "theme-preload-style";
+
+function applyDocumentTheme(effective: "dark" | "light") {
+  const bgColor = effective === "dark" ? "#151515" : "#fafafa";
+  const targets = [document.documentElement, document.body].filter(Boolean);
+
+  targets.forEach((target) => {
+    target.classList.remove("light", "dark");
+    target.classList.add(effective);
+    target.style.setProperty("background-color", bgColor, "important");
+    target.style.setProperty("color-scheme", effective);
+  });
+}
+
+function updatePreloadStyle(isDark: boolean) {
+  try {
+    const styleEl = document.getElementById(PRELOAD_STYLE_ID);
+    if (styleEl) {
+      styleEl.textContent =
+        "html, body { background-color: " +
+        (isDark ? "#151515" : "#fafafa") +
+        " !important; color-scheme: " +
+        (isDark ? "dark" : "light") +
+        '; transition: none !important; } html:not(.light) [class*="loading-view"] { background-color: #151515 !important; }';
+    }
+  } catch {
+    // 忽略错误
+  }
+}
+
+function signalThemeReady() {
+  try {
+    window.dispatchEvent(new Event("nextchat:theme-ready"));
+  } catch {
+    // 忽略错误
+  }
+}
+
 export function useSwitchTheme() {
   const config = useAppConfig();
+  const prevThemeClass = useRef<string | null>(null);
+  const hasHydrated = config._hasHydrated;
 
-  useEffect(() => {
-    document.body.classList.remove("light");
-    document.body.classList.remove("dark");
+  // 同步阶段立即设置正确的主题 class
+  if (typeof window !== "undefined") {
+    const effective = resolveEffectiveTheme(config.theme, hasHydrated);
+    if (prevThemeClass.current !== effective) {
+      applyDocumentTheme(effective);
+      prevThemeClass.current = effective;
+      updatePreloadStyle(effective === "dark");
+    }
+  }
 
-    if (config.theme === "dark") {
-      document.body.classList.add("dark");
-    } else if (config.theme === "light") {
-      document.body.classList.add("light");
+  useLayoutEffect(() => {
+    const effective = resolveEffectiveTheme(config.theme, hasHydrated);
+
+    applyDocumentTheme(effective);
+    prevThemeClass.current = effective;
+    updatePreloadStyle(effective === "dark");
+    if (hasHydrated) {
+      signalThemeReady();
     }
 
     const metaDescriptionDark = document.querySelector(
@@ -136,6 +213,21 @@ export function useSwitchTheme() {
       metaDescriptionDark?.setAttribute("content", themeColor);
       metaDescriptionLight?.setAttribute("content", themeColor);
     }
+  }, [config.theme, hasHydrated]);
+
+  // auto 模式下监听系统主题变化
+  useEffect(() => {
+    if (config.theme !== "auto") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      const effective = media.matches ? "dark" : "light";
+      applyDocumentTheme(effective);
+      prevThemeClass.current = effective;
+      updatePreloadStyle(effective === "dark");
+    };
+    media.addEventListener("change", handler);
+    return () => media.removeEventListener("change", handler);
   }, [config.theme]);
 }
 
@@ -395,7 +487,18 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
       currentSessionLoading ||
       hasOnlyEmptyHistoryPlaceholders)
   ) {
-    return <Loading splash />;
+    return (
+      <>
+        <SideBar
+          className={clsx({
+            [styles["sidebar-show"]]: isHome,
+          })}
+        />
+        <WindowContent>
+          <LoadingView size="splash" className="no-dark" />
+        </WindowContent>
+      </>
+    );
   }
 
   const renderContent = () => {
@@ -522,13 +625,14 @@ export function Home() {
       });
 
     const initMcp = async () => {
+      if (!getClientConfig()?.enableMcp) {
+        return;
+      }
+
       try {
-        const enabled = await isMcpEnabled();
-        if (enabled) {
-          // console.log("[MCP] initializing...");
-          await initializeMcpSystem();
-          // console.log("[MCP] initialized");
-        }
+        // console.log("[MCP] initializing...");
+        await initializeMcpSystem();
+        // console.log("[MCP] initialized");
       } catch (e) {
         console.error("[MCP] initialization failed", e);
       }
@@ -550,6 +654,15 @@ export function Home() {
       window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
     } catch {}
 
+    const markChatBootstrapped = () => {
+      if (!cancelled) {
+        setChatBootstrapped(true);
+      }
+      try {
+        window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "1");
+      } catch {}
+    };
+
     const bootstrapChat = async () => {
       try {
         await useChatIndexStore.getState().initialize();
@@ -560,8 +673,9 @@ export function Home() {
       try {
         useChatStore.getState().initializeForNewPage();
         useChatIndexStore.getState().syncFromChatStore();
+        markChatBootstrapped();
 
-        // 启动时检查远端变更（删除、新增等），确保多端数据一致
+        // 远端变更同步放到首屏之后执行，避免弱网或超时拖慢首页打开。
         const scope = getCurrentAutoSyncScope();
         if (scope === "chat" || scope === "home") {
           try {
@@ -579,15 +693,12 @@ export function Home() {
           } catch (error) {
             console.error("[Home] 远端变更同步失败:", error);
           }
-          useChatIndexStore.getState().syncFromChatStore();
+          if (!cancelled) {
+            useChatIndexStore.getState().syncFromChatStore();
+          }
         }
       } finally {
-        if (!cancelled) {
-          setChatBootstrapped(true);
-        }
-        try {
-          window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "1");
-        } catch {}
+        markChatBootstrapped();
       }
     };
 

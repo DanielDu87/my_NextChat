@@ -366,15 +366,23 @@ export function ChatList() {
     [filteredSessions],
   );
 
+  const filteredSessionIdsKey = useMemo(
+    () => filteredSessions.map((item) => item.session.id).join(","),
+    [filteredSessions],
+  );
+
   useEffect(() => {
     setSelectedDeleteIds((ids) => {
+      if (ids.length === 0) return ids;
       const nextIds = ids.filter((id) => filteredSessionIdSet.has(id));
       if (nextIds.length === ids.length) {
         return ids;
       }
       return nextIds;
     });
-  }, [filteredSessionIdSet]);
+    // filteredSessionIdSet 与 filteredSessionIdsKey 同步变化，使用字符串键避免 Set 引用变动导致无限渲染
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSessionIdsKey]);
 
   const itemHeight = deferredFilterText
     ? FILTERED_ITEM_HEIGHT

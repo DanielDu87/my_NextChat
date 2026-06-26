@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Logo from "../icons/logo.svg";
 import EyeIcon from "../icons/eye.svg";
@@ -14,6 +14,12 @@ export default function SitePasswordGate(props: { initialError?: string }) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(props.initialError || "");
+
+  useEffect(() => {
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("nextchat:theme-ready"));
+    });
+  }, []);
 
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();

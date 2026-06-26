@@ -477,10 +477,10 @@ export function Draw() {
   } = useDrawTheme();
 
   // Draw 页面独立主题，仅作用于 Draw 路由，离开后恢复全局主题。
-  // 全局主题通过 body.light/dark 生效，故 Draw 主题也挂在 body 上，
+  // 全局主题通过 html.light/dark 生效，故 Draw 主题也挂在 html 上，
   // 并在 globals.scss 中置于 .light/.dark 之后以保证优先级。
   useEffect(() => {
-    const target = document.body;
+    const target = document.documentElement;
     const previous = target.getAttribute("data-draw-theme");
     target.setAttribute("data-draw-theme", resolvedTheme);
     return () => {

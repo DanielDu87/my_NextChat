@@ -232,6 +232,108 @@ function buildSnapshotFromChatStore(): ChatIndexSnapshot {
   };
 }
 
+function arraysShallowEqual(a: string[], b: string[]) {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function recordsShallowEqual(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+) {
+  if (a === b) {
+    return true;
+  }
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// 将派生快照合并进当前 state：仅在被追踪字段发生实质变化时才替换引用。
+// 这样可以保证 syncFromChatStore 幂等，避免「写会话 → 订阅器同步 → 重建全新引用 →
+// 组件重渲染 → 再次触发 effect」造成的无限更新循环。
+function mergeSnapshotIntoState(
+  state: ChatIndexState,
+  snapshot: ChatIndexSnapshot,
+): ChatIndexState | null {
+  const next: Partial<ChatIndexState> = {};
+  let changed = false;
+
+  if (
+    !arraysShallowEqual(
+      state.allOrderedSessionIds,
+      snapshot.allOrderedSessionIds,
+    )
+  ) {
+    next.allOrderedSessionIds = snapshot.allOrderedSessionIds;
+    changed = true;
+  }
+  if (
+    !arraysShallowEqual(state.orderedSessionIds, snapshot.orderedSessionIds)
+  ) {
+    next.orderedSessionIds = snapshot.orderedSessionIds;
+    changed = true;
+  }
+  if (
+    !recordsShallowEqual(
+      state.sessionSummaries as Record<string, unknown>,
+      snapshot.sessionSummaries as Record<string, unknown>,
+    )
+  ) {
+    next.sessionSummaries = snapshot.sessionSummaries;
+    changed = true;
+  }
+  if (state.currentSessionId !== snapshot.currentSessionId) {
+    next.currentSessionId = snapshot.currentSessionId;
+    changed = true;
+  }
+  if (state.globalClearAt !== snapshot.globalClearAt) {
+    next.globalClearAt = snapshot.globalClearAt;
+    changed = true;
+  }
+  if (
+    !recordsShallowEqual(
+      state.deletedSessionTimestamps,
+      snapshot.deletedSessionTimestamps,
+    )
+  ) {
+    next.deletedSessionTimestamps = snapshot.deletedSessionTimestamps;
+    changed = true;
+  }
+  if (state.visibleCount !== snapshot.visibleCount) {
+    next.visibleCount = snapshot.visibleCount;
+    changed = true;
+  }
+  if (!state.initialized) {
+    next.initialized = true;
+    changed = true;
+  }
+
+  if (!changed) {
+    return null;
+  }
+
+  return { ...state, ...next };
+}
+
 let hasBoundChatStoreSubscription = false;
 let syncFromChatStoreDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const SYNC_FROM_CHAT_STORE_DEBOUNCE_MS = 150;
@@ -262,17 +364,13 @@ function bindChatStoreSubscription() {
 
     if (syncFromChatStoreDebounceTimer) {
       clearTimeout(syncFromChatStoreDebounceTimer);
-      syncFromChatStoreDebounceTimer = null;
     }
 
-    if (sessionsChanged) {
+    const debounceMs = sessionsChanged ? 16 : SYNC_FROM_CHAT_STORE_DEBOUNCE_MS;
+    syncFromChatStoreDebounceTimer = setTimeout(() => {
+      syncFromChatStoreDebounceTimer = null;
       useChatIndexStore.getState().syncFromChatStore();
-    } else {
-      syncFromChatStoreDebounceTimer = setTimeout(() => {
-        syncFromChatStoreDebounceTimer = null;
-        useChatIndexStore.getState().syncFromChatStore();
-      }, SYNC_FROM_CHAT_STORE_DEBOUNCE_MS);
-    }
+    }, debounceMs);
   });
 }
 
@@ -404,10 +502,14 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
     });
   },
   syncFromChatStore() {
-    set(() => ({
-      ...buildSnapshotFromChatStore(),
-      initialized: true,
-    }));
+    set((state) => {
+      const merged = mergeSnapshotIntoState(
+        state,
+        buildSnapshotFromChatStore(),
+      );
+      // 内容无实质变化时返回原 state，复用旧引用，避免订阅组件无谓重渲染
+      return merged ?? state;
+    });
   },
   loadMore() {
     set((state) => {

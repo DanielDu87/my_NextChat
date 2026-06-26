@@ -1209,7 +1209,11 @@
     }
 
     &:active {
-      background-color: color-mix(in srgb, var(--hover-color, #f3f3f3) 88%, var(--white));
+      background-color: color-mix(
+        in srgb,
+        var(--hover-color, #f3f3f3) 88%,
+        var(--white)
+      );
       border-color: rgba(15, 23, 42, 0.08);
       box-shadow:
         0 0 0 1px rgba(15, 23, 42, 0.04),
@@ -2952,8 +2956,7 @@
 .chat-message-user .chat-message-attached-file {
   margin-left: 0;
   direction: ltr;
-  transition:
-    background-color 0.16s ease;
+  transition: background-color 0.16s ease;
 
   &:focus,
   &:active {
@@ -2996,7 +2999,9 @@
   text-align: right;
 }
 
-.chat-message-user .chat-message-item-with-attached-files :global(.markdown-body) {
+.chat-message-user
+  .chat-message-item-with-attached-files
+  :global(.markdown-body) {
   width: 100%;
   text-align: right;
 }
@@ -3724,10 +3729,9 @@
 .chat-input-empty-title {
   margin-bottom: 28px;
   color: var(--black);
-  font-family:
-    "-apple-system-body", "ui-sans-serif", "-apple-system", "system-ui",
-    "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial", "sans-serif",
-    "Segoe UI Emoji", "Segoe UI Symbol";
+  font-family: "-apple-system-body", "ui-sans-serif", "-apple-system",
+    "system-ui", "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial",
+    "sans-serif", "Segoe UI Emoji", "Segoe UI Symbol";
   font-size: 1.75rem;
   font-weight: 400;
   letter-spacing: 0.07px;
@@ -3892,8 +3896,8 @@
     var(--black) 26%,
     transparent
   );
-  --chat-input-scroll-indicator-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.42), 0 1px 4px rgba(0, 0, 0, 0.18);
+  --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.42),
+    0 1px 4px rgba(0, 0, 0, 0.18);
 
   cursor: text;
   display: flex;
@@ -3943,17 +3947,15 @@
 :global(.dark) .chat-input-panel-inner,
 :global(body.dark) .chat-input-panel-inner {
   --chat-input-scroll-indicator-bg: rgba(255, 255, 255, 0.5);
-  --chat-input-scroll-indicator-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 0 2px rgba(15, 23, 42, 0.24),
-    0 1px 5px rgba(0, 0, 0, 0.24);
+  --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 2px rgba(15, 23, 42, 0.24), 0 1px 5px rgba(0, 0, 0, 0.24);
 }
 
 @media (prefers-color-scheme: dark) {
   :global(body:not(.light):not(.dark)) .chat-input-panel-inner {
     --chat-input-scroll-indicator-bg: rgba(255, 255, 255, 0.5);
-    --chat-input-scroll-indicator-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 0 2px rgba(15, 23, 42, 0.24),
-      0 1px 5px rgba(0, 0, 0, 0.24);
+    --chat-input-scroll-indicator-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18),
+      0 0 0 2px rgba(15, 23, 42, 0.24), 0 1px 5px rgba(0, 0, 0, 0.24);
   }
 }
 
@@ -4373,7 +4375,8 @@
     }
   }
 
-  .chat-message-user .chat-message-content-mobile-actions-inline
+  .chat-message-user
+    .chat-message-content-mobile-actions-inline
     .chat-message-actions {
     right: auto;
     left: 8px;
@@ -5155,8 +5158,7 @@
           var(--chat-input-fill-height, 200px) - var(
               --chat-keyboard-panel-lift,
               0px
-            ) -
-            30px
+            ) - 30px
         )
       );
       height: auto;
@@ -5191,11 +5193,11 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
-    padding: 11px 44px 11px 12px;
-  }
+      padding: 11px 44px 11px 12px;
+    }
 
-  // 发送按钮始终绝对定位在输入框右下角，不受文字行数影响
-  .chat-input-send {
+    // 发送按钮始终绝对定位在输入框右下角，不受文字行数影响
+    .chat-input-send {
       position: absolute !important;
       right: 6px;
       bottom: 6px;
@@ -5921,7 +5923,6 @@
     width: 28px;
     height: 28px;
   }
-
 }
 
 @media only screen and (max-width: 420px) {
@@ -6136,7 +6137,6 @@
       border-color: rgba(96, 165, 250, 0.9) !important;
     }
   }
-
 }
 
 @media only screen and (max-width: 650px) {

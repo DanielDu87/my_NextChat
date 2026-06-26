@@ -4,6 +4,7 @@ export type BuildConfig = {
   commitHash: string;
   buildMode: string;
   isApp: boolean;
+  enableMcp: boolean;
   template: string;
   enableGoogleFonts: boolean;
   githubBaseUrl: string;

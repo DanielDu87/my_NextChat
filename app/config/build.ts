@@ -91,6 +91,7 @@ export const getBuildConfig = () => {
 
   const buildMode = process.env.BUILD_MODE ?? "standalone";
   const isApp = !!process.env.BUILD_APP;
+  const enableMcp = process.env.ENABLE_MCP === "true";
   const enableGoogleFonts = process.env.ENABLE_GOOGLE_FONTS === "true";
   const githubBaseUrl = process.env.GITHUB_BASE_URL ?? "https://github.com";
   const githubApiBaseUrl =
@@ -110,6 +111,7 @@ export const getBuildConfig = () => {
     ...getCommitInfo(),
     buildMode,
     isApp,
+    enableMcp,
     template: process.env.DEFAULT_INPUT_TEMPLATE ?? DEFAULT_INPUT_TEMPLATE,
     enableGoogleFonts,
     githubBaseUrl,

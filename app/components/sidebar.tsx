@@ -24,12 +24,16 @@ import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
 import { useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
+import dynamic from "next/dynamic";
 import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
-import { isMcpEnabled } from "../mcp/actions";
+import { getClientConfig } from "../config/client";
 import { useAuthStore } from "../store/auth";
 import { createNewChatWithSyncedModel } from "../utils/new-chat";
-import { ChatList } from "./chat-list";
+
+const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
+  loading: () => null,
+});
 
 const DISCOVERY = [
   { name: "插件", path: Path.Plugins, icon: <PluginIcon /> },
@@ -428,7 +432,7 @@ export function SideBar(props: { className?: string }) {
   const config = useAppConfig();
   const chatStore = useChatStore();
   const readOnly = useAuthStore((state) => state.readOnly);
-  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const mcpEnabled = Boolean(getClientConfig()?.enableMcp);
 
   const themeSelectorRef = useRef<HTMLDivElement>(null);
   const themeTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -448,16 +452,6 @@ export function SideBar(props: { className?: string }) {
     }
     setShowThemeSelector(true);
   };
-
-  useEffect(() => {
-    // 检查 MCP 是否启用
-    const checkMcpStatus = async () => {
-      const enabled = await isMcpEnabled();
-      setMcpEnabled(enabled);
-      // console.log("[SideBar] MCP enabled:", enabled);
-    };
-    checkMcpStatus();
-  }, []);
 
   return (
     <SideBarContainer {...props}>

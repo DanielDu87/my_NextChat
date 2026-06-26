@@ -642,7 +642,8 @@ function areModelConfigValuesEqual(
 }
 
 import clsx from "clsx";
-import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
+import { getAvailableClientsCount } from "../mcp/actions";
+import { getClientConfig } from "../config/client";
 
 const localStorage = safeLocalStorage();
 const ACTIVE_UNFINISHED_INPUT_KEY = "unfinished-input-active";
@@ -2138,20 +2139,44 @@ const Markdown = dynamic(async () => (await import("./markdown")).Markdown, {
 
 const MCPAction = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [count, setCount] = useState<number>(0);
-  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const mcpEnabled = Boolean(getClientConfig()?.enableMcp);
 
   useEffect(() => {
+    let cancelled = false;
+
+    if (!mcpEnabled) {
+      setCount(0);
+      return;
+    }
+
+    // `/chat` 往往只是过渡路由，等它稳定到具体会话页再触发 server action，
+    // 避免 Next 在路由切换时把 `POST /chat` 中止并刷出 ERR_ABORTED。
+    if (location.pathname === Path.Chat) {
+      setCount(0);
+      return;
+    }
+
     const checkMcpStatus = async () => {
-      const enabled = await isMcpEnabled();
-      setMcpEnabled(enabled);
-      if (enabled) {
+      try {
         const count = await getAvailableClientsCount();
+        if (cancelled) return;
         setCount(count);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("[MCP] failed to check status", error);
+          setCount(0);
+        }
       }
     };
-    checkMcpStatus();
-  }, []);
+
+    void checkMcpStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, mcpEnabled]);
 
   if (!mcpEnabled) return null;
 
@@ -2759,50 +2784,8 @@ export function ChatActions(props: {
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
-    const isSessionActivation = previousSessionIdRef.current !== sessionId;
     previousSessionIdRef.current = sessionId;
-    const shouldShowCompatibilityToast =
-      !sessionLoading && !isSessionActivation;
-
-    if (supportsSizeControl && sessionModelConfigSize !== currentSize) {
-      const previousSize = sessionModelConfigSize;
-      chatStore.updateTargetSession(sessionRef.current, (session) => {
-        session.mask.modelConfig.size = currentSize;
-      });
-      const adjustKey = `${currentModel}:${previousSize ?? ""}->${currentSize}`;
-      if (
-        shouldShowCompatibilityToast &&
-        autoAdjustedSizeRef.current !== adjustKey
-      ) {
-        autoAdjustedSizeRef.current = adjustKey;
-        showTopNoticeCard(
-          `当前模型仅支持 ${currentSize}，已自动切换到兼容尺寸`,
-        );
-      }
-    }
-    const normalizedQuality = normalizeImageQuality(
-      currentModel,
-      sessionModelConfigQuality,
-    );
-    if (
-      supportsQualityControl &&
-      sessionModelConfigQuality !== normalizedQuality
-    ) {
-      chatStore.updateTargetSession(sessionRef.current, (session) => {
-        session.mask.modelConfig.quality = normalizedQuality as any;
-      });
-    }
-  }, [
-    chatStore,
-    currentModel,
-    currentSize,
-    sessionId,
-    sessionLoading,
-    sessionModelConfigQuality,
-    sessionModelConfigSize,
-    supportsQualityControl,
-    supportsSizeControl,
-  ]);
+  }, [sessionId]);
 
   return (
     <div
@@ -4883,47 +4866,71 @@ function _Chat() {
       return;
     }
 
-    chatStore.updateTargetSession(session, (session) => {
-      session.messages = session.messages.filter(
-        (m) => !isStaleAssistantLoadingBubble(m),
-      );
-      session.messages.forEach((m) => {
-        const hasActiveController =
-          Boolean(m.streaming) &&
-          Boolean(m.id) &&
-          ChatControllerPool.has(session.id, m.id);
-        const shouldInterruptStaleStreaming =
-          Boolean(m.streaming) && (!m.id || !hasActiveController);
-        const shouldNormalizeEmptyResponse =
-          !m.manualStopped &&
-          (m.isError || new Date(m.date).getTime() < stopTiming) &&
-          m.content.length === 0;
+    const latestSession =
+      useChatStore.getState().sessions.find((item) => item.id === session.id) ??
+      session;
+    let hasNormalizedMessages = false;
+    const normalizedMessages = latestSession.messages.reduce<
+      typeof latestSession.messages
+    >((messages, m) => {
+      if (isStaleAssistantLoadingBubble(m)) {
+        hasNormalizedMessages = true;
+        return messages;
+      }
 
-        if (!shouldInterruptStaleStreaming && !shouldNormalizeEmptyResponse) {
-          return;
+      let nextMessage = m;
+      const updateMessage = () => {
+        if (nextMessage === m) {
+          nextMessage = { ...m };
         }
+        hasNormalizedMessages = true;
+        return nextMessage;
+      };
 
-        if (shouldInterruptStaleStreaming) {
-          const interruptedSuffix = "\n\n响应因页面刷新而中断";
-          const currentContent = getMessageTextContent(m).trimEnd();
-          m.streaming = false;
-          m.isError = true;
-          m.content = currentContent
-            ? currentContent.endsWith("响应因页面刷新而中断")
-              ? currentContent
-              : `${currentContent}${interruptedSuffix}`
-            : "响应因页面刷新而中断";
-        }
+      const hasActiveController =
+        Boolean(m.streaming) &&
+        Boolean(m.id) &&
+        ChatControllerPool.has(latestSession.id, m.id);
+      const shouldInterruptStaleStreaming =
+        Boolean(m.streaming) && (!m.id || !hasActiveController);
+      const shouldNormalizeEmptyResponse =
+        !m.manualStopped &&
+        (m.isError || new Date(m.date).getTime() < stopTiming) &&
+        m.content.length === 0;
 
-        if (shouldNormalizeEmptyResponse) {
-          m.streaming = false;
-          m.isError = true;
-          m.content = prettyObject({
-            error: true,
-            message: "empty response",
-          });
-        }
-      });
+      if (shouldInterruptStaleStreaming) {
+        const message = updateMessage();
+        const interruptedSuffix = "\n\n响应因页面刷新而中断";
+        const currentContent = getMessageTextContent(message).trimEnd();
+        message.streaming = false;
+        message.isError = true;
+        message.content = currentContent
+          ? currentContent.endsWith("响应因页面刷新而中断")
+            ? currentContent
+            : `${currentContent}${interruptedSuffix}`
+          : "响应因页面刷新而中断";
+      }
+
+      if (shouldNormalizeEmptyResponse) {
+        const message = updateMessage();
+        message.streaming = false;
+        message.isError = true;
+        message.content = prettyObject({
+          error: true,
+          message: "empty response",
+        });
+      }
+
+      messages.push(nextMessage);
+      return messages;
+    }, []);
+
+    if (!hasNormalizedMessages) {
+      return;
+    }
+
+    chatStore.updateTargetSession(latestSession, (session) => {
+      session.messages = normalizedMessages;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -9072,7 +9079,7 @@ function _Chat() {
         <div className={styles["chat-main"]}>
           {shouldHideChatMessages ? (
             <div className={styles["chat-main-loading"]}>
-              <LoadingView size="splash" />
+              <LoadingView size="splash" className="no-dark" />
             </div>
           ) : (
             <>

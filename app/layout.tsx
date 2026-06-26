@@ -3,6 +3,7 @@ import "./styles/globals.scss";
 import "./styles/markdown.scss";
 import "./styles/highlight.scss";
 import AutoSyncEntry from "./components/auto-sync-entry";
+import { ThemeBootScreen } from "./components/theme-boot-screen";
 import { getBuildConfig } from "./config/build";
 import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -14,6 +15,7 @@ import { getAuthSessionCookieName } from "./utils/server/auth";
 const AUTH_BYPASS_ENABLED =
   process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
   process.env.NEXTCHAT_DISABLE_AUTH === "true";
+const THEME_BOOT_SCREEN_ID = "theme-boot-screen";
 
 export const metadata: Metadata = {
   title: "NextChat",
@@ -51,8 +53,15 @@ export default function RootLayout({
   const shouldMountAutoSync = AUTH_BYPASS_ENABLED || hasAuthSession;
 
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html
+      lang="zh-CN"
+      className="dark"
+      style={{ backgroundColor: "#151515", colorScheme: "dark" }}
+      suppressHydrationWarning
+    >
       <head>
+        {/* 服务端预置深色背景：在 CSS 和 JS 加载前就防止白闪 */}
+        <style>{`html,body{background-color:#151515;color-scheme:dark}#${THEME_BOOT_SCREEN_ID}{position:fixed;inset:0;z-index:2147483647;background:#151515;color-scheme:dark;pointer-events:none}`}</style>
         <meta name="config" content={JSON.stringify(buildConfig)} />
         <meta httpEquiv="Content-Language" content="zh-CN" />
         <meta
@@ -67,8 +76,71 @@ export default function RootLayout({
           crossOrigin="use-credentials"
         ></link>
         <script src="/serviceWorkerRegister.js" defer></script>
+        {/* 最早期设置主题和背景色，彻底避免首屏加载闪烁 */}
+        {/* style 标签由脚本动态创建 + inline style 双保险 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('appConfig.theme');
+                  var html = document.documentElement;
+                  var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  var hasStoredTheme = theme === 'dark' || theme === 'light' || theme === 'auto';
+                  var isDark = theme === 'dark' || (theme === 'auto' && systemDark) || (!hasStoredTheme && systemDark);
+                  var preloadDark = isDark || !hasStoredTheme;
+                  var bgColor = preloadDark ? '#151515' : '#fafafa';
+                  window.__NEXTCHAT_PRELOAD_THEME__ = preloadDark ? 'dark' : 'light';
+
+                  // 方案1: 动态 style 标签覆盖 html,body（不依赖 class）
+                  var style = document.createElement('style');
+                  style.id = 'theme-preload-style';
+                  style.textContent = 'html, body { background-color: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; transition: none !important; } #' + '${THEME_BOOT_SCREEN_ID}' + ' { background: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; } html:not(.light) [class*="loading-view"] { background-color: #151515 !important; }';
+                  document.head.appendChild(style);
+
+                  // 方案2: html inline style 直接设置（不管 class 如何变化都生效）
+                  html.style.setProperty('background-color', bgColor, 'important');
+                  html.style.setProperty('color-scheme', preloadDark ? 'dark' : 'light');
+
+                  if (preloadDark) {
+                    html.classList.add('dark');
+                  } else {
+                    html.classList.add('light');
+                  }
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
       </head>
-      <body suppressHydrationWarning>
+      <body
+        className="dark"
+        style={{ backgroundColor: "#151515", colorScheme: "dark" }}
+        suppressHydrationWarning
+      >
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = window.__NEXTCHAT_PRELOAD_THEME__ || 'dark';
+                  var isDark = theme !== 'light';
+                  var bgColor = isDark ? '#151515' : '#fafafa';
+                  document.body.classList.remove('light', 'dark');
+                  document.body.classList.add(isDark ? 'dark' : 'light');
+                  document.body.style.setProperty('background-color', bgColor, 'important');
+                  document.body.style.setProperty('color-scheme', isDark ? 'dark' : 'light');
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
+        <div
+          id={THEME_BOOT_SCREEN_ID}
+          aria-hidden="true"
+          suppressHydrationWarning
+        />
+        <ThemeBootScreen id={THEME_BOOT_SCREEN_ID} />
         {shouldMountAutoSync && <AutoSyncEntry />}
         {children}
         {serverConfig?.isVercel && (

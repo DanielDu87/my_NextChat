@@ -70,29 +70,6 @@
   }
 }
 
-.light {
-  @include light;
-}
-
-.dark {
-  @include dark;
-}
-
-// Draw 页面独立主题（auto/light/dark），仅在 Draw 路由时通过 body 的
-// data-draw-theme 属性生效，离开 Draw 自动移除，不影响对话界面主题。
-// 置于 .light/.dark 之后，相同优先级下后定义胜出，从而覆盖全局主题。
-body[data-draw-theme="light"] {
-  @include light;
-}
-
-body[data-draw-theme="dark"] {
-  @include dark;
-}
-
-.mask {
-  filter: invert(0.8);
-}
-
 :root {
   @include light;
 
@@ -103,6 +80,51 @@ body[data-draw-theme="dark"] {
   --window-content-width: calc(100% - var(--sidebar-width));
   --message-max-width: 88%;
   --full-height: 100%;
+}
+
+/* 只跟随网页设置的主题，优先级最高 */
+html.light {
+  @include light;
+}
+
+html.dark {
+  @include dark;
+}
+
+/* 首屏主题尚未恢复时优先使用深色变量，避免黑色主题用户被系统浅色误导出白闪。 */
+html:not(.light) {
+  @include dark;
+}
+
+/* 系统深色模式兜底：auto 主题 + 首次加载无 localStorage 时生效 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    @include dark;
+  }
+}
+
+/* 保留原有类名兼容 */
+.light {
+  @include light;
+}
+
+.dark {
+  @include dark;
+}
+
+// Draw 页面独立主题（auto/light/dark），仅在 Draw 路由时通过 html 的
+// data-draw-theme 属性生效，离开 Draw 自动移除，不影响对话界面主题。
+// 置于 .light/.dark 之后，相同优先级下后定义胜出，从而覆盖全局主题。
+html[data-draw-theme="light"] {
+  @include light;
+}
+
+html[data-draw-theme="dark"] {
+  @include dark;
+}
+
+.mask {
+  filter: invert(0.8);
 }
 
 @media only screen and (max-width: 650px) {
@@ -118,18 +140,12 @@ body[data-draw-theme="dark"] {
   }
 }
 
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    @include dark;
-  }
-}
-
 html {
   height: var(--full-height);
   min-width: var(--window-min-width);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  background-color: var(--gray);
 
   font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
     "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
