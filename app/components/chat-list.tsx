@@ -29,11 +29,9 @@ import { formatChinaDateTime, useMobileScreen } from "../utils";
 import clsx from "clsx";
 import { ChatSessionSummary, DEFAULT_TOPIC } from "../store/chat";
 import {
-  AUTO_SYNC_CHANNEL_NAME,
-  STARTUP_CHAT_SYNC_STATUS_KEY,
-  STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
-  StartupChatSyncStatus,
-} from "../utils/sync-tab-coordination";
+  isChatListStartupLoading,
+  useStartupChatSyncStatus,
+} from "../utils/chat-startup-loading";
 
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
@@ -41,7 +39,6 @@ const NORMAL_ITEM_HEIGHT = 84;
 const FILTERED_ITEM_HEIGHT = 108;
 const PERF_DEBUG_KEY = "nextchat_perf_debug";
 const SNIPPET_CONTEXT_LENGTH = 18;
-const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
 export const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =
   "nextchat:open-chat-list-multi-delete";
 export const CHAT_LIST_SCROLL_TO_TOP_EVENT = "nextchat:chat-list-scroll-top";
@@ -186,8 +183,7 @@ export function ChatList() {
   const [initialEmptyListGuard, setInitialEmptyListGuard] = useState(true);
   const [multiDeleteMode, setMultiDeleteMode] = useState(false);
   const [selectedDeleteIds, setSelectedDeleteIds] = useState<string[]>([]);
-  const [startupChatSyncStatus, setStartupChatSyncStatus] =
-    useState<StartupChatSyncStatus | null>(null);
+  const startupChatSyncStatus = useStartupChatSyncStatus();
   const chatStoreHydrated = useChatStore((state) =>
     Boolean((state as any)._hasHydrated),
   );
@@ -234,49 +230,6 @@ export function ChatList() {
     window.addEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
     return () =>
       window.removeEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
-  }, []);
-
-  useEffect(() => {
-    const readStatus = () => {
-      try {
-        const raw = window.localStorage.getItem(STARTUP_CHAT_SYNC_STATUS_KEY);
-        if (!raw) {
-          return;
-        }
-
-        const parsed = JSON.parse(raw) as StartupChatSyncStatus;
-        if (
-          parsed &&
-          ["syncing", "done", "error"].includes(parsed.status) &&
-          Number.isFinite(parsed.updatedAt)
-        ) {
-          setStartupChatSyncStatus(parsed);
-        }
-      } catch {}
-    };
-
-    readStatus();
-
-    const channel =
-      typeof BroadcastChannel !== "undefined"
-        ? new BroadcastChannel(AUTO_SYNC_CHANNEL_NAME)
-        : null;
-    const onMessage = (event: MessageEvent) => {
-      if (event.data?.type !== STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE) {
-        return;
-      }
-
-      setStartupChatSyncStatus({
-        status: event.data.status,
-        updatedAt: event.data.updatedAt,
-      });
-    };
-    channel?.addEventListener("message", onMessage);
-
-    return () => {
-      channel?.removeEventListener("message", onMessage);
-      channel?.close();
-    };
   }, []);
 
   useEffect(() => {
@@ -351,17 +304,14 @@ export function ChatList() {
       ).length,
     [sessionSummaries],
   );
-  const isChatListLoading =
-    !initialized ||
-    (!chatStoreHydrated &&
-      totalChatCount === 0 &&
-      allOrderedSessionIds.length === 0) ||
-    (initialEmptyListGuard && totalChatCount === 0) ||
-    (totalChatCount === 0 &&
-      (!startupChatSyncStatus || startupChatSyncStatus.status === "syncing") &&
-      Date.now() -
-        (startupChatSyncStatus?.updatedAt ?? performance.timeOrigin) <
-        STARTUP_CHAT_SYNC_WAIT_MS);
+  const isChatListLoading = isChatListStartupLoading({
+    initialized,
+    chatStoreHydrated,
+    totalChatCount,
+    allSessionCount: allOrderedSessionIds.length,
+    initialEmptyListGuard,
+    startupChatSyncStatus,
+  });
   const pinnedSession = summaryList.find(isPinnedNewChat);
   const displayedSessions = useMemo<DisplayedSession[]>(
     () =>

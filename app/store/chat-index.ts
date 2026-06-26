@@ -282,17 +282,32 @@ function ensureSessionsInChatStore(sessionIds: string[]) {
   const sessionMap = new Map(
     chatStore.sessions.map((session) => [session.id, session]),
   );
+  const summaryIdSet = new Set(
+    (chatStore.sessionSummaries || []).map((summary) => summary.id),
+  );
   let shouldUpdateSessions = false;
+  let shouldUpdateSummaries = false;
 
   const nextSessions = chatStore.sessions.slice();
+  const nextSessionSummaries = (chatStore.sessionSummaries || []).slice();
 
   sessionIds.forEach((sessionId) => {
-    if (!sessionId || sessionMap.has(sessionId)) {
+    if (!sessionId) {
       return;
     }
 
     const summary = summaryMap[sessionId];
     if (!summary) {
+      return;
+    }
+
+    if (!summaryIdSet.has(sessionId)) {
+      nextSessionSummaries.push(summary);
+      summaryIdSet.add(sessionId);
+      shouldUpdateSummaries = true;
+    }
+
+    if (sessionMap.has(sessionId)) {
       return;
     }
 
@@ -316,10 +331,13 @@ function ensureSessionsInChatStore(sessionIds: string[]) {
     shouldUpdateSessions = true;
   });
 
-  if (shouldUpdateSessions) {
+  if (shouldUpdateSessions || shouldUpdateSummaries) {
     useChatStore.setState((state) => ({
       ...state,
-      sessions: nextSessions,
+      sessions: shouldUpdateSessions ? nextSessions : state.sessions,
+      sessionSummaries: shouldUpdateSummaries
+        ? nextSessionSummaries
+        : state.sessionSummaries,
     }));
   }
 }

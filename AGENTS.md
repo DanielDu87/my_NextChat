@@ -129,6 +129,11 @@ PY'
 - 详细部署、数据库和证书到期提醒修复步骤见 `docs/baota-chat-dyxcloud-runbook.md`。
 - 特别注意：`ssl_data.db.ssl_info.use_for_site` 必须指向 `site.db.sites.id=16`，不是 DockerSite 的 `docker_sites.id=13`。
 
+## Git 提交规则
+
+- 不允许自动提交。只有用户明确说出"提交"或"commit"时才能执行提交。
+- 不允许自动推送。只有用户明确要求推送时才能推送。
+
 ## AI 部署注意事项
 
 - 构建时优先使用仓库内置的 `vendor/rt-client-0.5.0.tgz`

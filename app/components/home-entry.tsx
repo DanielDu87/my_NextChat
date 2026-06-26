@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { getCurrentHashPath } from "../utils/startup-sync-scope";
 import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
+import { LoadingView } from "./loading-view";
 
 const Home = dynamic(() => import("./home"), {
   ssr: false,
-  loading: () => <div suppressHydrationWarning />,
+  loading: () => <LoadingView fullscreen size="splash" />,
 });
 
 function normalizeLegacyHashRoute() {
@@ -64,7 +65,7 @@ export default function HomeEntry() {
 
   if (!ready) {
     normalizeLegacyHashRoute() || normalizeLegacyDrawPath();
-    return <div suppressHydrationWarning />;
+    return <LoadingView fullscreen size="splash" />;
   }
 
   return <Home />;

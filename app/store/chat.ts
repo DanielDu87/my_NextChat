@@ -2953,16 +2953,49 @@ export const useChatStore = createPersistStore(
           ),
         });
 
+        const submittedMessageMeta = {
+          userMessageId: reusedUserMessage?.id ?? userMessage.id,
+        };
+        const savedUserMessage = {
+          ...userMessage,
+          content: mContent,
+          date: new Date().toISOString(),
+        };
+        const botMessageIndex =
+          session.messages.length + (reusedUserMessage ? 0 : 1);
+
+        // Show the user's message immediately before any async context prep.
+        get().updateTargetSession(session, (session) => {
+          session.mask.modelConfig = {
+            ...session.mask.modelConfig,
+            ...initialModelConfig,
+          };
+          if (isDefaultTopic(session.topic)) {
+            const fallbackTopic = trimTopic(content.trim());
+            if (fallbackTopic) {
+              session.topic = fallbackTopic;
+            }
+          }
+          if (reusedUserMessage) {
+            const userIndex = session.messages.findIndex(
+              (message) => message.id === reusedUserMessage.id,
+            );
+            if (userIndex >= 0) {
+              const nextMessages = session.messages.slice();
+              nextMessages[userIndex] = savedUserMessage;
+              session.messages = nextMessages;
+            }
+          } else {
+            session.messages = session.messages.concat([savedUserMessage]);
+          }
+        });
+
         // get recent messages
         const recentMessages = (
           await get().getMessagesWithMemory(initialModelConfig)
         ).map(withAttachedFilesPromptText);
-        const requestUserMessage = withAttachedFilesPromptText(userMessage);
-        const sendMessages = reusedUserMessage
-          ? recentMessages
-          : recentMessages.concat(requestUserMessage);
-        const messageIndex =
-          session.messages.length + (reusedUserMessage ? 0 : 1);
+        const sendMessages = recentMessages;
+        const messageIndex = botMessageIndex;
 
         const extractCacheUuid = (value: string) => {
           const base = String(value || "")
@@ -3006,43 +3039,26 @@ export const useChatStore = createPersistStore(
           totalMessages: sendMessages.length,
         });
 
-        // save user's and bot's message
         get().updateTargetSession(session, (session) => {
-          const savedUserMessage = {
-            ...userMessage,
-            content: mContent,
-            date: new Date().toISOString(),
-          };
-          session.mask.modelConfig = {
-            ...session.mask.modelConfig,
-            ...initialModelConfig,
-          };
-          if (isDefaultTopic(session.topic)) {
-            const fallbackTopic = trimTopic(content.trim());
-            if (fallbackTopic) {
-              session.topic = fallbackTopic;
-            }
-          }
           if (reusedUserMessage) {
             const userIndex = session.messages.findIndex(
               (message) => message.id === reusedUserMessage.id,
             );
             if (userIndex >= 0) {
               const nextMessages = session.messages.slice();
-              nextMessages[userIndex] = savedUserMessage;
-              nextMessages.splice(userIndex + 1, 0, botMessage);
+              if (nextMessages[userIndex + 1]?.id !== botMessage.id) {
+                nextMessages.splice(userIndex + 1, 0, botMessage);
+              }
               session.messages = nextMessages;
             } else {
               session.messages = session.messages.concat([botMessage]);
             }
-          } else {
-            session.messages = session.messages.concat([
-              savedUserMessage,
-              botMessage,
-            ]);
+          } else if (
+            session.messages[session.messages.length - 1]?.id !== botMessage.id
+          ) {
+            session.messages = session.messages.concat([botMessage]);
           }
         });
-
         if (!autoModeEnabled) {
           const api: ClientApi = getClientApi(initialModelConfig.providerName);
           api.llm.chat({
@@ -3062,6 +3078,7 @@ export const useChatStore = createPersistStore(
               });
             },
             onUpdate(message) {
+              if (botMessage.manualStopped) return;
               botMessage.streaming = true;
               if (message) {
                 botMessage.content = message;
@@ -3070,6 +3087,11 @@ export const useChatStore = createPersistStore(
             },
             async onFinish(message, responseRes) {
               get().flushTargetSessionRefresh(session);
+              if (botMessage.manualStopped) {
+                botMessage.streaming = false;
+                botMessage.content = "";
+                return;
+              }
               botMessage.streaming = false;
               const finalMessage = message || getMessageTextContent(botMessage);
               if (finalMessage) {
@@ -3203,7 +3225,7 @@ export const useChatStore = createPersistStore(
               );
             },
           });
-          return;
+          return submittedMessageMeta;
         }
 
         if (autoCandidates.length === 0) {
@@ -3218,7 +3240,7 @@ export const useChatStore = createPersistStore(
           });
           get().onNewMessage(botMessage, session);
           showToast(errorMessage);
-          return;
+          return submittedMessageMeta;
         }
 
         const attemptErrors: Array<{
@@ -3310,6 +3332,7 @@ export const useChatStore = createPersistStore(
                   });
                 },
                 onUpdate(message) {
+                  if (botMessage.manualStopped) return;
                   botMessage.streaming = true;
                   if (message) {
                     botMessage.content = message;
@@ -3318,6 +3341,11 @@ export const useChatStore = createPersistStore(
                 },
                 onFinish(message, responseRes) {
                   get().flushTargetSessionRefresh(session);
+                  if (botMessage.manualStopped) {
+                    botMessage.streaming = false;
+                    botMessage.content = "";
+                    return;
+                  }
                   botMessage.streaming = false;
                   const finalMessage =
                     message || getMessageTextContent(botMessage);
@@ -3500,10 +3528,10 @@ export const useChatStore = createPersistStore(
             attemptIndex,
           );
           if (result === "success") {
-            return;
+            return submittedMessageMeta;
           }
           if (result === "aborted") {
-            return;
+            return submittedMessageMeta;
           }
         }
 
@@ -3519,6 +3547,7 @@ export const useChatStore = createPersistStore(
         });
         get().onNewMessage(botMessage, session);
         showToast("自动模式尝试失败，请检查模型与 API 配置。");
+        return submittedMessageMeta;
       },
 
       getMemoryPrompt() {

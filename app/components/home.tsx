@@ -2,13 +2,15 @@
 
 require("../polyfill");
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./home.module.scss";
 
-import BotIcon from "../icons/bot.svg";
-import LoadingIcon from "../icons/three-dots.svg";
-
-import { getCSSVar, useMobileScreen } from "../utils";
+import {
+  getCSSVar,
+  getMessageImages,
+  getMessageTextContent,
+  useMobileScreen,
+} from "../utils";
 
 import dynamic from "next/dynamic";
 import { Path, SlotID } from "../constant";
@@ -24,15 +26,22 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { SideBar } from "./sidebar";
+import { Chat } from "./chat";
 import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
-import { LoadingPanel } from "./loading-panel";
 import { getClientConfig } from "../config/client";
-import { useAccessStore, useChatIndexStore, useChatStore } from "../store";
+import {
+  selectChatSessionById,
+  useAccessStore,
+  useChatIndexStore,
+  useChatStore,
+} from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
+import { useCurrentSession } from "../store/chat-session";
 import { isPerfDebugEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import { LoadingView } from "./loading-view";
 import {
   getCurrentAutoSyncScope,
   getCurrentHashPath,
@@ -41,58 +50,61 @@ import {
   markRouteSyncStart,
   prepareRouteEntryForSync,
 } from "../utils/route-sync-entry";
+import {
+  isChatListStartupLoading,
+  useStartupChatSyncStatus,
+} from "../utils/chat-startup-loading";
 
-export function Loading(props: { noLogo?: boolean }) {
+export function Loading(props: { noLogo?: boolean; splash?: boolean }) {
+  if (props.noLogo) {
+    return (
+      <LoadingView fullscreen size={props.splash ? "splash" : "default"} />
+    );
+  }
+
   return (
-    <div className={styles["loading-content"]}>
-      <LoadingPanel
-        title={props.noLogo ? "正在加载页面..." : "NextChat 正在启动..."}
-        message="界面资源正在准备中。"
-        icon={props.noLogo ? <LoadingIcon /> : <BotIcon />}
-        layout="plain"
-      />
-    </div>
+    <LoadingView
+      fullscreen
+      size={props.splash ? "splash" : "default"}
+      className="no-dark"
+    />
   );
 }
 
 const Artifacts = dynamic(async () => (await import("./artifacts")).Artifacts, {
-  loading: () => <Loading noLogo />,
+  loading: () => <Loading />,
 });
 
 const ApiConfigPage = dynamic(
   async () => (await import("./api-config")).ApiConfigPage,
   {
-    loading: () => <Loading noLogo />,
+    loading: () => <LoadingView size="default" className="no-dark" />,
   },
 );
 
-const Chat = dynamic(async () => (await import("./chat")).Chat, {
-  loading: () => <Loading noLogo />,
-});
-
 const NewChat = dynamic(async () => (await import("./new-chat")).NewChat, {
-  loading: () => <Loading noLogo />,
+  loading: () => <Loading />,
 });
 
 const PluginPage = dynamic(async () => (await import("./plugin")).PluginPage, {
-  loading: () => <Loading noLogo />,
+  loading: () => <LoadingView size="default" className="no-dark" />,
 });
 
 const SearchChat = dynamic(
   async () => (await import("./search-chat")).SearchChatPage,
   {
-    loading: () => <Loading noLogo />,
+    loading: () => <Loading />,
   },
 );
 
 const Draw = dynamic(async () => (await import("./draw")).Draw, {
-  loading: () => <Loading noLogo />,
+  loading: () => <Loading />,
 });
 
 const McpMarketPage = dynamic(
   async () => (await import("./mcp-market")).McpMarketPage,
   {
-    loading: () => <Loading noLogo />,
+    loading: () => <Loading />,
   },
 );
 
@@ -164,7 +176,24 @@ const loadAsyncGoogleFont = () => {
   document.head.appendChild(linkEl);
 };
 
+function isEmptyHistoryPlaceholderMessage(message: any) {
+  if (!message || message.preview || message.streaming) {
+    return false;
+  }
+  if (getMessageTextContent(message).trim().length > 0) {
+    return false;
+  }
+  if (getMessageImages(message).length > 0) {
+    return false;
+  }
+  if (Array.isArray(message.tools) && message.tools.length > 0) {
+    return false;
+  }
+  return true;
+}
+
 const CHAT_BOOTSTRAP_READY_KEY = "nextchat_chat_bootstrap_ready";
+const CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS = 6000;
 const SCROLLBAR_VISIBLE_CLASS = "scrollbar-visible";
 const SCROLLBAR_HIDE_DELAY_MS = 700;
 
@@ -176,7 +205,26 @@ export function WindowContent(props: { children: React.ReactNode }) {
   );
 }
 
-function Screen() {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`timeout_${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
   const isArtifact = location.pathname.includes(Path.Artifacts);
@@ -187,6 +235,103 @@ function Screen() {
   const isLegacySd = location.pathname === "/sd";
   const isLegacySdHistory = location.pathname === "/sd/history";
   const isLegacySdNew = location.pathname === "/sd-new";
+  const isChatRoute =
+    isHome ||
+    location.pathname === Path.Chat ||
+    location.pathname.startsWith(`${Path.Chat}/`);
+  const urlSessionId = location.pathname.startsWith(`${Path.Chat}/`)
+    ? decodeURIComponent(location.pathname.slice(Path.Chat.length + 1))
+    : "";
+  const selectedSessionId = useChatStore((state) => state.selectedSessionId);
+  const targetUrlSession = useChatStore((state) =>
+    urlSessionId
+      ? state.sessions.find((session) => session.id === urlSessionId)
+      : undefined,
+  );
+  const targetUrlSessionSummary = useChatStore((state) =>
+    urlSessionId
+      ? state.sessionSummaries.find((summary) => summary.id === urlSessionId)
+      : undefined,
+  );
+  const hydratingSessionId = useChatStore((state) => state.hydratingSessionId);
+  const chatStoreHydrated = useChatStore((state) =>
+    Boolean((state as any)._hasHydrated),
+  );
+  const chatIndexInitialized = useChatIndexStore((state) => state.initialized);
+  const chatIndexAllSessionCount = useChatIndexStore(
+    (state) => state.allOrderedSessionIds.length,
+  );
+  const chatIndexSessionSummaries = useChatIndexStore(
+    (state) => state.sessionSummaries,
+  );
+  const targetUrlIndexSummary = urlSessionId
+    ? chatIndexSessionSummaries[urlSessionId]
+    : undefined;
+  const expectedUrlMessageCount = Number(
+    targetUrlSessionSummary?.messageCount ||
+      targetUrlIndexSummary?.messageCount ||
+      0,
+  );
+  const { session: currentSession, loading: currentSessionLoading } =
+    useCurrentSession();
+  const startupChatSyncStatus = useStartupChatSyncStatus();
+  const [initialEmptyListGuard, setInitialEmptyListGuard] = useState(true);
+  const totalChatCount = useMemo(
+    () =>
+      Object.values(chatIndexSessionSummaries).filter(
+        (session) => session && session.messageCount > 0,
+      ).length,
+    [chatIndexSessionSummaries],
+  );
+  const isTargetUrlSessionPlaceholder = useMemo(() => {
+    if (!urlSessionId || expectedUrlMessageCount <= 0) {
+      return false;
+    }
+    const messages = targetUrlSession?.messages || [];
+    if (messages.length < expectedUrlMessageCount) {
+      return true;
+    }
+    return messages.every(isEmptyHistoryPlaceholderMessage);
+  }, [expectedUrlMessageCount, targetUrlSession?.messages, urlSessionId]);
+  const routeSession = urlSessionId ? targetUrlSession : currentSession;
+  const hasOnlyEmptyHistoryPlaceholders = useMemo(() => {
+    if (currentSessionLoading) {
+      return false;
+    }
+    const messages = routeSession?.messages || [];
+    if (messages.length === 0) {
+      return false;
+    }
+    return messages.every(isEmptyHistoryPlaceholderMessage);
+  }, [routeSession?.messages, currentSessionLoading]);
+  const isUrlSessionPending =
+    !!urlSessionId &&
+    (selectedSessionId !== urlSessionId ||
+      hydratingSessionId === urlSessionId ||
+      isTargetUrlSessionPlaceholder);
+  const isChatListLoadingForShell = isChatListStartupLoading({
+    initialized: chatIndexInitialized,
+    chatStoreHydrated,
+    totalChatCount,
+    allSessionCount: chatIndexAllSessionCount,
+    initialEmptyListGuard,
+    startupChatSyncStatus,
+  });
+
+  useEffect(() => {
+    if (!urlSessionId || selectedSessionId === urlSessionId) {
+      return;
+    }
+    selectChatSessionById(urlSessionId);
+  }, [selectedSessionId, urlSessionId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setInitialEmptyListGuard(false);
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const isMobileScreen = useMobileScreen();
   const isInitialEntry = location.key === "default";
@@ -237,6 +382,22 @@ function Screen() {
       </Routes>
     );
   }
+
+  // 非聊天路径不等待对话初始化，立即显示侧边栏
+  if (!chatBootstrapped && isChatRoute) {
+    return <Loading splash />;
+  }
+
+  if (
+    isChatRoute &&
+    (isUrlSessionPending ||
+      isChatListLoadingForShell ||
+      currentSessionLoading ||
+      hasOnlyEmptyHistoryPlaceholders)
+  ) {
+    return <Loading splash />;
+  }
+
   const renderContent = () => {
     if (isAuth) return <AuthPage />;
     if (isDraw || isLegacySd) return <Draw />;
@@ -389,38 +550,48 @@ export function Home() {
       window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
     } catch {}
 
-    void useChatIndexStore
-      .getState()
-      .initialize()
-      .catch((error) => {
+    const bootstrapChat = async () => {
+      try {
+        await useChatIndexStore.getState().initialize();
+      } catch (error) {
         console.error("[Home] 初始化 chat-index 失败:", error);
-      })
-      .finally(() => {
+      }
+
+      try {
         useChatStore.getState().initializeForNewPage();
         useChatIndexStore.getState().syncFromChatStore();
+
         // 启动时检查远端变更（删除、新增等），确保多端数据一致
         const scope = getCurrentAutoSyncScope();
         if (scope === "chat" || scope === "home") {
-          import("../store/sync").then(({ useSyncStore }) => {
+          try {
+            const { useSyncStore } = await import("../store/sync");
             markRouteSyncStart(entryPath, "home-bootstrap");
-            useSyncStore
-              .getState()
-              .syncChatIfRemoteChanged?.({
-                source: "page-init",
-                minIntervalMs: 0,
-              })
-              .catch((error: unknown) => {
-                console.error("[Home] 远端变更同步失败:", error);
-              });
-          });
+            await withTimeout(
+              Promise.resolve(
+                useSyncStore.getState().syncChatIfRemoteChanged?.({
+                  source: "page-init",
+                  minIntervalMs: 0,
+                }),
+              ),
+              CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS,
+            );
+          } catch (error) {
+            console.error("[Home] 远端变更同步失败:", error);
+          }
+          useChatIndexStore.getState().syncFromChatStore();
         }
+      } finally {
         if (!cancelled) {
           setChatBootstrapped(true);
         }
         try {
           window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "1");
         } catch {}
-      });
+      }
+    };
+
+    void bootstrapChat();
 
     return () => {
       cancelled = true;
@@ -448,14 +619,14 @@ export function Home() {
     };
   }, [authInitialized, hasHydrated]);
 
-  if (!hasHydrated || !authInitialized || !chatBootstrapped) {
-    return <Loading />;
+  if (!hasHydrated || !authInitialized) {
+    return <Loading splash />;
   }
 
   return (
     <ErrorBoundary>
       <Router>
-        <Screen />
+        <Screen chatBootstrapped={chatBootstrapped} />
       </Router>
     </ErrorBoundary>
   );

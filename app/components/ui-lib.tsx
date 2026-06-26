@@ -1,6 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
 import styles from "./ui-lib.module.scss";
-import LoadingIcon from "../icons/three-dots.svg";
 import CloseIcon from "../icons/close.svg";
 import EyeIcon from "../icons/eye.svg";
 import EyeOffIcon from "../icons/eye-off.svg";
@@ -14,7 +13,6 @@ import BotIconDefault from "../icons/llm-icons/default.svg";
 
 import Locale from "../locales";
 import { PROVIDER_ICONS } from "../config/provider-icons";
-import { LoadingPanel } from "./loading-panel";
 
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -32,6 +30,7 @@ import React, {
 } from "react";
 import { IconButton } from "./button";
 import { Avatar } from "./emoji";
+import { LoadingView } from "./loading-view";
 import clsx from "clsx";
 import { compareModelsForDisplay } from "../utils/model-published-at";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
@@ -207,14 +206,7 @@ export function List(props: {
 }
 
 export function Loading() {
-  return (
-    <LoadingPanel
-      title="正在加载页面..."
-      message="请稍候，内容正在准备中。"
-      icon={<LoadingIcon />}
-      layout="fullscreen"
-    />
-  );
+  return <LoadingView fullscreen />;
 }
 
 interface ModalProps {

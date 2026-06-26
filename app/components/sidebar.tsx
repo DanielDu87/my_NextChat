@@ -24,12 +24,12 @@ import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
 import { useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
-import dynamic from "next/dynamic";
 import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { isMcpEnabled } from "../mcp/actions";
 import { useAuthStore } from "../store/auth";
 import { createNewChatWithSyncedModel } from "../utils/new-chat";
+import { ChatList } from "./chat-list";
 
 const DISCOVERY = [
   { name: "插件", path: Path.Plugins, icon: <PluginIcon /> },
@@ -37,9 +37,6 @@ const DISCOVERY = [
   { name: "视频", icon: <VideoIcon /> },
 ];
 
-const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
-  loading: () => null,
-});
 const CHAT_LIST_SCROLL_TO_TOP_EVENT = "nextchat:chat-list-scroll-top";
 
 const OPEN_CHAT_LIST_MULTI_DELETE_EVENT =

@@ -51,6 +51,7 @@ import {
   normalizeSession,
   useChatStore,
 } from "../store/chat";
+import { selectChatSessionById } from "../store/chat-index";
 import { DEFAULT_TOPIC, getBotHelloContent } from "../store/chat-defaults";
 import { useAccessStore } from "../store/access";
 import {
@@ -118,6 +119,7 @@ import Locale from "../locales";
 
 import { IconButton } from "./button";
 import { LoadingPanel } from "./loading-panel";
+import { LoadingView } from "./loading-view";
 import styles from "./chat.module.scss";
 
 import {
@@ -3220,6 +3222,16 @@ function _Chat() {
       return;
     }
 
+    const routePath =
+      String(window.location.hash || "").replace(/^#/, "") ||
+      window.location.pathname;
+    const urlSessionId = routePath.startsWith(`${Path.Chat}/`)
+      ? decodeURIComponent(routePath.slice(Path.Chat.length + 1))
+      : "";
+    if (urlSessionId && urlSessionId !== safeSession.id) {
+      return;
+    }
+
     try {
       window.sessionStorage.setItem(
         "nextchat_tab_current_session_id",
@@ -3521,12 +3533,22 @@ function _Chat() {
     typeof setTimeout
   > | null>(null);
   const streamingAutoScrollPausedRef = useRef(false);
+  const pendingCenterLatestUserMessageRef = useRef<{
+    sessionId: string;
+    requestAt: number;
+  } | null>(null);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentUntilRef = useRef(0);
   const lastChatBodyScrollTopRef = useRef(0);
   const chatBodyTouchStartYRef = useRef<number | null>(null);
   const chatBodyTouchMovedRef = useRef(false);
   const chatBodyTouchPausedFollowRef = useRef(false);
+  const [centeredLatestUserMessageKey, setCenteredLatestUserMessageKey] =
+    useState<string | null>(null);
+  const [
+    centeredLatestUserMessageSpacerHeight,
+    setCenteredLatestUserMessageSpacerHeight,
+  ] = useState(0);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -3603,10 +3625,6 @@ function _Chat() {
       return !ChatControllerPool.has(session.id, message.id);
     },
     [session.id],
-  );
-  const hasAssistantLoadingBubbles = useMemo(
-    () => sessionMessages.some(isStaleAssistantLoadingBubble),
-    [isStaleAssistantLoadingBubble, sessionMessages],
   );
   const hasOnlyEmptyHistoryPlaceholders = useMemo(() => {
     if (sessionLoading || !currentSessionHasMessages) {
@@ -4720,6 +4738,17 @@ function _Chat() {
       .map((image) => String(image.previewUrl || "").trim())
       .filter(Boolean);
 
+    pendingCenterLatestUserMessageRef.current = {
+      sessionId: safeSession.id,
+      requestAt: Date.now(),
+    };
+    setCenteredLatestUserMessageKey(null);
+    setCenteredLatestUserMessageSpacerHeight(0);
+    followStreamingAfterScrollButtonRef.current = false;
+    streamingAutoScrollPausedRef.current = true;
+    setAutoScrollEnabled(false);
+    setAutoScroll(false);
+
     // Handle mobile edit mode: resend edited message
     if (editMobileMessageId) {
       const message = sessionMessages.find((m) => m.id === editMobileMessageId);
@@ -4745,16 +4774,20 @@ function _Chat() {
       }
       return;
     }
-    setIsLoading(true);
-    chatStore
-      .onUserInput(userInput, messageAttachImages, undefined, {
+    const submitPromise = chatStore.onUserInput(
+      userInput,
+      messageAttachImages,
+      undefined,
+      {
         attachedFiles: messageAttachedFiles,
         attachedFilesPromptText:
           buildAttachedFilesPromptText(messageAttachedFiles),
-      })
-      .then(() => {
-        setIsLoading(false);
-      });
+      },
+    );
+    setIsLoading(true);
+    submitPromise.finally(() => {
+      setIsLoading(false);
+    });
     clearComposerAttachments({ preserveServerFiles: true });
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
@@ -4815,6 +4848,19 @@ function _Chat() {
     }
   };
 
+  const onStopAll = () => {
+    chatStore.updateTargetSession(session, (session) => {
+      for (const m of session.messages) {
+        if (m.role === "assistant" && m.streaming) {
+          m.manualStopped = true;
+          m.streaming = false;
+          m.content = "";
+        }
+      }
+    });
+    ChatControllerPool.stopSession(session.id);
+  };
+
   // Effect A：消息标准化（修复残留 streaming 和空响应）
   useEffect(() => {
     const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
@@ -4849,6 +4895,7 @@ function _Chat() {
         const shouldInterruptStaleStreaming =
           Boolean(m.streaming) && (!m.id || !hasActiveController);
         const shouldNormalizeEmptyResponse =
+          !m.manualStopped &&
           (m.isError || new Date(m.date).getTime() < stopTiming) &&
           m.content.length === 0;
 
@@ -5037,6 +5084,11 @@ function _Chat() {
 
   // check if should send message
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // disable submit while AI is generating or message is being sent
+    if (isLoading || isAssistantStreaming) {
+      if (shouldSubmit(e)) e.preventDefault();
+      return;
+    }
     // if ArrowUp and no userInput, fill with last input
     if (
       e.key === "ArrowUp" &&
@@ -5058,6 +5110,11 @@ function _Chat() {
   };
 
   const onMobileInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // disable submit while AI is generating or message is being sent
+    if (isLoading || isAssistantStreaming) {
+      if (shouldSubmit(e)) e.preventDefault();
+      return;
+    }
     if (
       e.key === "ArrowUp" &&
       userInput.length <= 0 &&
@@ -5310,6 +5367,60 @@ function _Chat() {
     );
     return renderMessages.slice(msgRenderIndex, endRenderIndex);
   }, [msgRenderIndex, renderMessages]);
+
+  const getMessageDomKey = useCallback(
+    (message: ChatMessage, index: number) =>
+      String(message.id ?? `${message.role}-${message.date}-${index}`),
+    [],
+  );
+
+  const clearCenteredLatestUserMessage = useCallback(() => {
+    pendingCenterLatestUserMessageRef.current = null;
+    setCenteredLatestUserMessageKey(null);
+    setCenteredLatestUserMessageSpacerHeight(0);
+  }, []);
+
+  const getMessageCenterMetrics = useCallback(
+    (messageKey: string) => {
+      const dom = scrollRef.current;
+      if (!dom || !messageKey) return null;
+      const latestUserMessageCenterOffset = 0;
+
+      const escapedMessageKey =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(messageKey)
+          : messageKey.replace(/["\\]/g, "\\$&");
+      const targetMessage = dom.querySelector<HTMLElement>(
+        `[data-chat-message-dom-key="${escapedMessageKey}"]`,
+      );
+      if (!targetMessage) return null;
+
+      const containerRect = dom.getBoundingClientRect();
+      const targetRect = targetMessage.getBoundingClientRect();
+      const relativeTop = dom.scrollTop + (targetRect.top - containerRect.top);
+      const rawTargetTop =
+        relativeTop -
+        (dom.clientHeight - targetRect.height) / 2 -
+        latestUserMessageCenterOffset;
+      const maxScrollTopWithoutSpacer = Math.max(
+        0,
+        dom.scrollHeight -
+          centeredLatestUserMessageSpacerHeight -
+          dom.clientHeight,
+      );
+      const requiredBottomSpacer = Math.max(
+        0,
+        rawTargetTop - maxScrollTopWithoutSpacer,
+      );
+
+      return {
+        dom,
+        targetTop: Math.max(0, rawTargetTop),
+        requiredBottomSpacer,
+      };
+    },
+    [centeredLatestUserMessageSpacerHeight, scrollRef],
+  );
 
   const firstActionableMessageIndex = useMemo(() => {
     return messages.findIndex((message, i) => {
@@ -7571,6 +7682,10 @@ function _Chat() {
   ]);
 
   useEffect(() => {
+    clearCenteredLatestUserMessage();
+  }, [clearCenteredLatestUserMessage, safeSession.id]);
+
+  useEffect(() => {
     const lastAssistantMessage = [...sessionMessages]
       .reverse()
       .find((message) => message.role === "assistant");
@@ -7878,33 +7993,7 @@ function _Chat() {
     : "回车发送，长按回车换行，/ 选择预设提示词，：触发命令";
   const shouldUseCompactInputHint = useCompactInputHint || isInputHintOverflow;
 
-  const isInitialLoading = useMemo(() => {
-    if (sessionLoading || isChatUnavailableForSync) return false;
-    return hasAssistantLoadingBubbles;
-  }, [hasAssistantLoadingBubbles, isChatUnavailableForSync, sessionLoading]);
-
-  const [enterLoadingMin, setEnterLoadingMin] = useState(false);
-  const enterLoadingSessionIdRef = useRef("");
-  useEffect(() => {
-    if (!currentSessionHasMessages) {
-      enterLoadingSessionIdRef.current = safeSession.id;
-      setEnterLoadingMin(false);
-      return;
-    }
-
-    if (enterLoadingSessionIdRef.current === safeSession.id) {
-      setEnterLoadingMin(false);
-      return;
-    }
-
-    enterLoadingSessionIdRef.current = safeSession.id;
-    setEnterLoadingMin(true);
-    const timer = window.setTimeout(() => setEnterLoadingMin(false), 420);
-    return () => window.clearTimeout(timer);
-  }, [currentSessionHasMessages, safeSession.id]);
-
-  const enterLoading =
-    enterLoadingMin || isInitialLoading || hasOnlyEmptyHistoryPlaceholders;
+  const enterLoading = hasOnlyEmptyHistoryPlaceholders;
 
   const shouldHideChatMessages =
     sessionLoading || isChatUnavailableForSync || enterLoading;
@@ -7958,17 +8047,6 @@ function _Chat() {
     };
   }, [shouldHideChatMessages, scrollRef, syncHitBottomFromDom]);
 
-  const chatRestoreNoticeTitle = sessionLoading
-    ? "正在载入这段对话"
-    : "正在恢复这段对话";
-  const chatRestoreNoticeDescription = sessionLoading
-    ? "正在恢复完整消息内容，完成后会自动显示。"
-    : isChatUnavailableForSync
-    ? "模型配置同步完成后，对话内容会自动显示。"
-    : hasOnlyEmptyHistoryPlaceholders
-    ? "消息正文还在加载，完成后会自动显示。"
-    : "对话内容即将显示。";
-
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (shouldHideChatMessages) return;
@@ -8011,6 +8089,129 @@ function _Chat() {
     sessionMessages.length,
     setAutoScroll,
     setMsgRenderIndex,
+    shouldHideChatMessages,
+  ]);
+
+  useLayoutEffect(() => {
+    const pendingCenter = pendingCenterLatestUserMessageRef.current;
+    if (!pendingCenter || pendingCenter.sessionId !== safeSession.id) return;
+    if (shouldHideChatMessages) return;
+    if (sessionMessages.length <= 1) {
+      clearCenteredLatestUserMessage();
+      return;
+    }
+
+    let latestUserMessageIndex = -1;
+    for (let i = sessionMessages.length - 1; i >= 0; i -= 1) {
+      if (sessionMessages[i]?.role === "user") {
+        latestUserMessageIndex = i;
+        break;
+      }
+    }
+
+    if (latestUserMessageIndex < 0) {
+      clearCenteredLatestUserMessage();
+      return;
+    }
+
+    const targetRenderIndex = Math.max(
+      0,
+      renderMessages.length - CHAT_PAGE_SIZE,
+    );
+    if (msgRenderIndex !== targetRenderIndex) {
+      setMsgRenderIndex(targetRenderIndex);
+    }
+
+    const latestUserMessage = sessionMessages[latestUserMessageIndex];
+    const messageKey = getMessageDomKey(
+      latestUserMessage,
+      latestUserMessageIndex,
+    );
+    const centerMetrics = getMessageCenterMetrics(messageKey);
+    if (!centerMetrics) return;
+
+    if (
+      Math.abs(
+        centerMetrics.requiredBottomSpacer -
+          centeredLatestUserMessageSpacerHeight,
+      ) > 1
+    ) {
+      setCenteredLatestUserMessageSpacerHeight(
+        centerMetrics.requiredBottomSpacer,
+      );
+      return;
+    }
+
+    pendingCenterLatestUserMessageRef.current = null;
+    setCenteredLatestUserMessageKey(messageKey);
+    followStreamingAfterScrollButtonRef.current = false;
+    streamingAutoScrollPausedRef.current = true;
+    programmaticScrollToBottomUntilRef.current = Date.now() + 32;
+    centerMetrics.dom.scrollTop = centerMetrics.targetTop;
+    lastChatBodyScrollTopRef.current = centerMetrics.targetTop;
+    setAutoScrollEnabled(false);
+    setAutoScroll(false);
+    setHitBottom(isScrollDomHitBottom(centerMetrics.dom));
+    setChatBodyOverflowing(isScrollDomOverflowing(centerMetrics.dom));
+  }, [
+    centeredLatestUserMessageSpacerHeight,
+    clearCenteredLatestUserMessage,
+    getMessageCenterMetrics,
+    getMessageDomKey,
+    isScrollDomHitBottom,
+    isScrollDomOverflowing,
+    msgRenderIndex,
+    renderMessages.length,
+    safeSession.id,
+    sessionMessages,
+    setAutoScroll,
+    setMsgRenderIndex,
+    shouldHideChatMessages,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!centeredLatestUserMessageKey) return;
+    if (shouldHideChatMessages) return;
+
+    const centerMetrics = getMessageCenterMetrics(centeredLatestUserMessageKey);
+    if (!centerMetrics) {
+      setCenteredLatestUserMessageSpacerHeight(0);
+      return;
+    }
+
+    if (
+      Math.abs(
+        centerMetrics.requiredBottomSpacer -
+          centeredLatestUserMessageSpacerHeight,
+      ) > 1
+    ) {
+      setCenteredLatestUserMessageSpacerHeight(
+        centerMetrics.requiredBottomSpacer,
+      );
+      return;
+    }
+
+    // 流式输出时，如果内容增长导致消息偏离中心，即时回中
+    if (isAssistantStreaming) {
+      const hasRecentUserScrollIntent =
+        userScrollIntentRef.current ||
+        Date.now() < userScrollIntentUntilRef.current;
+      const scrollDrift = Math.abs(
+        centerMetrics.dom.scrollTop - centerMetrics.targetTop,
+      );
+
+      if (!hasRecentUserScrollIntent && scrollDrift > 20) {
+        programmaticScrollToBottomUntilRef.current = Date.now() + 32;
+        centerMetrics.dom.scrollTop = centerMetrics.targetTop;
+        lastChatBodyScrollTopRef.current = centerMetrics.targetTop;
+      }
+    }
+  }, [
+    centeredLatestUserMessageKey,
+    centeredLatestUserMessageSpacerHeight,
+    getMessageCenterMetrics,
+    isAssistantStreaming,
+    sessionMessages,
     shouldHideChatMessages,
   ]);
 
@@ -8869,815 +9070,972 @@ function _Chat() {
           />
         </div>
         <div className={styles["chat-main"]}>
-          <div className={styles["chat-body-container"]}>
-            {showStatusUserPanel && (
-              <div
-                ref={statusPanelRef}
-                className={clsx(styles["chat-status-user-panel"], {
-                  [styles["chat-status-user-panel-dimmed"]]:
-                    !isMobileScreen && statusPanelOverlapsMessages,
-                })}
-              >
-                {isMobileScreen ? (
-                  <div className={styles["chat-status-user-panel-mobile"]}>
-                    <div className={styles["chat-panel-model-info"]}>
-                      {currentModelName}
-                      <span className={styles["chat-panel-model-at"]}>@</span>
-                      {activeModelSelectorProviderDisplayName}
-                    </div>
-                    <UserMenu variant="chat-floating" />
-                  </div>
-                ) : (
-                  <>
-                    <UserMenu variant="chat-floating" />
-                  </>
-                )}
-              </div>
-            )}
-            <div
-              className={clsx(styles["chat-body"], {
-                [styles["chat-body-loading"]]: shouldHideChatMessages,
-              })}
-              ref={scrollRef}
-              onScroll={(e) => onChatBodyScroll(e.currentTarget)}
-              onWheel={(e) => {
-                markUserScrollIntent();
-                if (Math.abs(e.deltaY) > 1) {
-                  pauseStreamingAutoScrollForUser();
-                }
-              }}
-              onMouseDown={() =>
-                (isMobileScreen
-                  ? mobileInputRef.current
-                  : inputRef.current
-                )?.blur()
-              }
-              onTouchStart={(e) => {
-                chatBodyTouchStartYRef.current = e.touches[0]?.clientY ?? null;
-                prepareTouchScrollTakeover();
-                markUserScrollIntent();
-                if (isMobileScreen) {
-                  mobileInputOutsidePointerBlurRef.current = false;
-                  finalizeMobileInputBlur(true);
-                  blurMobileKeyboard();
-                } else {
-                  inputRef.current?.blur();
-                }
-              }}
-              onTouchMove={(e) => {
-                markUserScrollIntent();
-                const startY = chatBodyTouchStartYRef.current;
-                const currentY = e.touches[0]?.clientY;
-                if (
-                  !chatBodyTouchMovedRef.current &&
-                  startY != null &&
-                  currentY != null &&
-                  Math.abs(currentY - startY) > 3
-                ) {
-                  chatBodyTouchMovedRef.current = true;
-                  pauseStreamingAutoScrollForUser();
-                }
-              }}
-              onTouchEnd={() => {
-                finishTouchScrollTakeover();
-              }}
-              onTouchCancel={() => {
-                finishTouchScrollTakeover();
-              }}
-            >
-              {shouldShowChatRestoreNotice && (
-                <div className={styles["chat-session-loading"]}>
-                  <div className={styles["chat-session-loading-card"]}>
-                    <div className={styles["chat-session-loading-icon"]}>
-                      <LoadingIcon />
-                    </div>
-                    <div className={styles["chat-session-loading-content"]}>
-                      <div className={styles["chat-session-loading-badge"]}>
-                        历史对话
-                      </div>
-                      <div className={styles["chat-session-loading-text"]}>
-                        <strong>{chatRestoreNoticeTitle}</strong>
-                        <span>{chatRestoreNoticeDescription}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {isMobileScreen &&
-                !currentSessionHasMessages &&
-                !isMobileInputFocused &&
-                promptHints.length === 0 &&
-                (() => {
-                  const hints = mobileChatInputHint
-                    .replace(/，\//, "\n/")
-                    .replace(/, \//, "\n/")
-                    .split("\n");
-                  return (
-                    <div className={styles["chat-input-mobile-hint"]}>
-                      {hints.map((line, i) => (
-                        <div
-                          key={i}
-                          className={styles["chat-input-mobile-hint-line"]}
-                        >
-                          {line}
+          {shouldHideChatMessages ? (
+            <div className={styles["chat-main-loading"]}>
+              <LoadingView size="splash" />
+            </div>
+          ) : (
+            <>
+              <div className={styles["chat-body-container"]}>
+                {showStatusUserPanel && (
+                  <div
+                    ref={statusPanelRef}
+                    className={clsx(styles["chat-status-user-panel"], {
+                      [styles["chat-status-user-panel-dimmed"]]:
+                        !isMobileScreen && statusPanelOverlapsMessages,
+                    })}
+                  >
+                    {isMobileScreen ? (
+                      <div className={styles["chat-status-user-panel-mobile"]}>
+                        <div className={styles["chat-panel-model-info"]}>
+                          {currentModelName}
+                          <span className={styles["chat-panel-model-at"]}>
+                            @
+                          </span>
+                          {activeModelSelectorProviderDisplayName}
                         </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              {!shouldHideChatMessages &&
-                messages
-                  // TODO
-                  // .filter((m) => !m.isMcpResponse)
-                  .map((message, i) => {
-                    const isUser = message.role === "user";
-                    const isContext = i < context.length;
-                    const messageTextContent = getMessageTextContent(message);
-                    const messageImages = getMessageImages(message);
-                    const messageAttachedFiles = message.attachedFiles || [];
-                    const isEmptyUserMessage =
-                      isUser &&
-                      messageTextContent.length === 0 &&
-                      messageImages.length === 0 &&
-                      messageAttachedFiles.length === 0;
-                    const showActions =
-                      !message.preview && !isContext && !isEmptyUserMessage;
-                    const showTyping = message.preview || message.streaming;
-                    const messageUsageText = formatMessageUsage(message.usage);
-                    const shouldStackMessageActions =
-                      messageTextContent.trim().length > 12 ||
-                      messageImages.length > 0 ||
-                      messageAttachedFiles.length > 0 ||
-                      editingMessageId === message.id;
-                    const shouldInlineMobileActions =
-                      isMobileScreen &&
-                      (messageImages.length > 0 ||
-                        messageAttachedFiles.length > 0 ||
-                        (i === firstActionableMessageIndex &&
-                          messageImages.length === 0 &&
-                          messageTextContent.trim().length > 12));
-                    const shouldLeftMobileActions =
-                      isMobileScreen &&
-                      i === firstActionableMessageIndex &&
-                      messageImages.length === 0 &&
-                      messageTextContent.trim().length > 0 &&
-                      !shouldInlineMobileActions;
-                    const messageActions = showActions ? (
-                      <div className={styles["chat-input-actions"]}>
-                        {message.streaming ? (
-                          <ChatAction
-                            text={Locale.Chat.Actions.Stop}
-                            icon={<StopIcon />}
-                            onClick={() => onUserStop(String(message.id ?? i))}
-                          />
-                        ) : editingMessageId === message.id && isUser ? (
-                          <>
-                            <ChatAction
-                              text={Locale.UI.Confirm}
-                              icon={<ConfirmIcon />}
-                              onClick={() => onEditSave(message)}
-                            />
-                            <ChatAction
-                              text={Locale.UI.Cancel}
-                              icon={<CancelIcon />}
-                              onClick={onEditCancel}
-                            />
-                          </>
-                        ) : (
-                          <>
-                            {isUser && !editMobileMessageId && (
-                              <ChatAction
-                                text={Locale.Chat.Actions.Edit}
-                                icon={<RenameIcon />}
-                                onClick={() => {
-                                  if (isMobileScreen) {
-                                    const nextText = messageTextContent.trim();
-                                    const nextImages = messageImages
-                                      .filter(Boolean)
-                                      .map((image) =>
-                                        createComposerAttachedImage(image),
-                                      );
-                                    const nextFiles =
-                                      mergeComposerAttachedFiles(
-                                        [],
-                                        messageAttachedFiles.slice(),
-                                      );
-                                    setEditMobileMessageId(message.id ?? null);
-                                    setUserInput(nextText);
-                                    setAttachImages(nextImages);
-                                    setAttachedFiles(nextFiles);
-                                    setPromptHints([]);
-                                    resetMobileInputDom(nextText);
-                                    syncMobileInputHeight(nextText);
-                                    scheduleResetMobileInputViewportToStart();
-                                    const focusMobileEditInput = () => {
-                                      const mobileInput =
-                                        mobileInputRef.current;
-                                      if (!mobileInput) return;
-                                      mobileInput.focus();
-                                      setIsMobileInputFocused(true);
-                                      syncMobileInputHeight(nextText);
-                                      scheduleMoveInputCursorToEnd();
-                                      if (nextText.length > 0) {
-                                        scheduleScrollMobileInputToBottom();
-                                      }
-                                      scheduleMobileKeyboardViewportSync();
-                                    };
-                                    focusMobileEditInput();
-                                    window.requestAnimationFrame(
-                                      focusMobileEditInput,
-                                    );
-                                    window.setTimeout(focusMobileEditInput, 80);
-                                  } else {
-                                    setEditingMessageId(message.id ?? null);
-                                    setEditContent(messageTextContent.trim());
-                                    setPromptHints([]);
-                                  }
-                                }}
-                              />
-                            )}
-
-                            <ChatAction
-                              text={Locale.Chat.Actions.Retry}
-                              icon={<ResetIcon />}
-                              onClick={() => onResend(message)}
-                            />
-
-                            <ChatAction
-                              text={Locale.Chat.Actions.Copy}
-                              icon={<CopyIcon />}
-                              onClick={() => {
-                                void copyMessageToClipboard(message, {
-                                  silent: true,
-                                }).then(showCopyNotice);
-                              }}
-                            />
-                            {config.ttsConfig.enable && (
-                              <ChatAction
-                                text={
-                                  speechStatus
-                                    ? Locale.Chat.Actions.StopSpeech
-                                    : Locale.Chat.Actions.Speech
-                                }
-                                icon={
-                                  speechStatus ? (
-                                    <SpeakStopIcon />
-                                  ) : (
-                                    <SpeakIcon />
-                                  )
-                                }
-                                onClick={() =>
-                                  openaiSpeech(getMessageTextContent(message))
-                                }
-                              />
-                            )}
-                          </>
-                        )}
+                        <UserMenu variant="chat-floating" />
                       </div>
-                    ) : null;
-
-                    const shouldShowClearContextDivider =
-                      i === clearContextIndex - 1;
-
-                    return (
-                      <Fragment key={message.id ?? i}>
-                        <div
-                          className={
-                            isUser
-                              ? styles["chat-message-user"]
-                              : styles["chat-message"]
-                          }
-                        >
-                          <div className={styles["chat-message-container"]}>
-                            <div className={styles["chat-message-header"]}>
-                              <div className={styles["chat-message-avatar"]}>
-                                {isUser ? (
-                                  <Avatar avatar={FIXED_USER_AVATAR} />
-                                ) : (
-                                  <>
-                                    {["system"].includes(message.role) ? (
-                                      <Avatar avatar="2699-fe0f" />
-                                    ) : (
-                                      <MaskAvatar
-                                        avatar={sessionMask.avatar}
-                                        model={
-                                          message.modelIcon ||
-                                          message.model ||
-                                          sessionMask.modelConfig.model
-                                        }
-                                      />
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                              {!isUser && (
-                                <div className={styles["chat-model-name"]}>
-                                  {normalizeModelProviderDisplayLabel(
-                                    message.model ||
-                                      sessionMask.modelConfig.model,
-                                    getMessageProviderDisplayName(
-                                      message,
-                                      apiProfiles,
-                                    ) || currentProviderDisplayName,
-                                  )}
-                                </div>
-                              )}
-                              {showActions && !isMobileScreen && (
-                                <div
-                                  className={clsx(
-                                    styles["chat-message-actions"],
-                                    styles["chat-message-actions-header"],
-                                  )}
-                                >
-                                  {messageActions}
-                                </div>
-                              )}
-                            </div>
-                            {message?.tools?.length == 0 && showTyping && (
-                              <div className={styles["chat-message-status"]}>
-                                {Locale.Chat.Typing}
-                              </div>
-                            )}
-                            {/*@ts-ignore*/}
-                            {message?.tools?.length > 0 && (
-                              <div className={styles["chat-message-tools"]}>
-                                {message?.tools?.map((tool) => (
-                                  <div
-                                    key={tool.id}
-                                    title={tool?.errorMsg}
-                                    className={styles["chat-message-tool"]}
-                                  >
-                                    {tool.isError === true ? (
-                                      <CloseIcon />
-                                    ) : (
-                                      <span>&lt;插件&gt;</span>
-                                    )}
-                                    <span>{tool?.function?.name}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            <div
-                              className={clsx(styles["chat-message-content"], {
-                                [styles[
-                                  "chat-message-content-mobile-actions-left"
-                                ]]: shouldLeftMobileActions,
-                                [styles[
-                                  "chat-message-content-mobile-actions-inline"
-                                ]]: shouldInlineMobileActions,
-                                [styles["chat-message-content-stack-actions"]]:
-                                  shouldStackMessageActions,
-                                [styles["chat-message-content-editing"]]:
-                                  editingMessageId === message.id &&
-                                  !isMobileScreen,
-                              })}
-                            >
+                    ) : (
+                      <>
+                        <UserMenu variant="chat-floating" />
+                      </>
+                    )}
+                  </div>
+                )}
+                <div
+                  className={clsx(styles["chat-body"], {
+                    [styles["chat-body-loading"]]: shouldHideChatMessages,
+                  })}
+                  ref={scrollRef}
+                  onScroll={(e) => onChatBodyScroll(e.currentTarget)}
+                  onWheel={(e) => {
+                    markUserScrollIntent();
+                    if (Math.abs(e.deltaY) > 1) {
+                      clearCenteredLatestUserMessage();
+                      pauseStreamingAutoScrollForUser();
+                    }
+                  }}
+                  onMouseDown={() =>
+                    (isMobileScreen
+                      ? mobileInputRef.current
+                      : inputRef.current
+                    )?.blur()
+                  }
+                  onTouchStart={(e) => {
+                    chatBodyTouchStartYRef.current =
+                      e.touches[0]?.clientY ?? null;
+                    prepareTouchScrollTakeover();
+                    markUserScrollIntent();
+                    if (isMobileScreen) {
+                      mobileInputOutsidePointerBlurRef.current = false;
+                      finalizeMobileInputBlur(true);
+                      blurMobileKeyboard();
+                    } else {
+                      inputRef.current?.blur();
+                    }
+                  }}
+                  onTouchMove={(e) => {
+                    markUserScrollIntent();
+                    const startY = chatBodyTouchStartYRef.current;
+                    const currentY = e.touches[0]?.clientY;
+                    if (
+                      !chatBodyTouchMovedRef.current &&
+                      startY != null &&
+                      currentY != null &&
+                      Math.abs(currentY - startY) > 3
+                    ) {
+                      chatBodyTouchMovedRef.current = true;
+                      clearCenteredLatestUserMessage();
+                      pauseStreamingAutoScrollForUser();
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    finishTouchScrollTakeover();
+                  }}
+                  onTouchCancel={() => {
+                    finishTouchScrollTakeover();
+                  }}
+                >
+                  <>
+                    {isMobileScreen &&
+                      !currentSessionHasMessages &&
+                      !isMobileInputFocused &&
+                      promptHints.length === 0 &&
+                      (() => {
+                        const hints = mobileChatInputHint
+                          .replace(/，\//, "\n/")
+                          .replace(/, \//, "\n/")
+                          .split("\n");
+                        return (
+                          <div className={styles["chat-input-mobile-hint"]}>
+                            {hints.map((line, i) => (
                               <div
-                                className={clsx(styles["chat-message-item"], {
-                                  [styles["chat-message-item-with-images"]]:
-                                    messageImages.length > 0,
-                                  [styles[
-                                    "chat-message-item-with-attached-files"
-                                  ]]: messageAttachedFiles.length > 0,
-                                })}
+                                key={i}
+                                className={
+                                  styles["chat-input-mobile-hint-line"]
+                                }
                               >
-                                {showActions &&
-                                  isMobileScreen &&
-                                  shouldInlineMobileActions && (
+                                {line}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    {messages
+                      // TODO
+                      // .filter((m) => !m.isMcpResponse)
+                      .map((message, i) => {
+                        const messageDomKey = getMessageDomKey(
+                          message,
+                          msgRenderIndex + i,
+                        );
+                        const isUser = message.role === "user";
+                        const isContext = i < context.length;
+                        const messageTextContent =
+                          getMessageTextContent(message);
+                        const messageImages = getMessageImages(message);
+                        const messageAttachedFiles =
+                          message.attachedFiles || [];
+                        const isEmptyUserMessage =
+                          isUser &&
+                          messageTextContent.length === 0 &&
+                          messageImages.length === 0 &&
+                          messageAttachedFiles.length === 0;
+                        const showActions =
+                          !message.preview && !isContext && !isEmptyUserMessage;
+                        const showTyping =
+                          !isUser && (message.preview || message.streaming);
+                        const messageUsageText = formatMessageUsage(
+                          message.usage,
+                        );
+                        const shouldStackMessageActions =
+                          messageTextContent.trim().length > 12 ||
+                          messageImages.length > 0 ||
+                          messageAttachedFiles.length > 0 ||
+                          editingMessageId === message.id;
+                        const shouldInlineMobileActions =
+                          isMobileScreen &&
+                          (messageImages.length > 0 ||
+                            messageAttachedFiles.length > 0 ||
+                            (i === firstActionableMessageIndex &&
+                              messageImages.length === 0 &&
+                              messageTextContent.trim().length > 12));
+                        const shouldLeftMobileActions =
+                          isMobileScreen &&
+                          i === firstActionableMessageIndex &&
+                          messageImages.length === 0 &&
+                          messageTextContent.trim().length > 0 &&
+                          !shouldInlineMobileActions;
+                        const messageActions = showActions ? (
+                          <div className={styles["chat-input-actions"]}>
+                            {message.streaming ? (
+                              <ChatAction
+                                text={Locale.Chat.Actions.Stop}
+                                icon={<StopIcon />}
+                                onClick={() =>
+                                  onUserStop(String(message.id ?? i))
+                                }
+                              />
+                            ) : editingMessageId === message.id && isUser ? (
+                              <>
+                                <ChatAction
+                                  text={Locale.UI.Confirm}
+                                  icon={<ConfirmIcon />}
+                                  onClick={() => onEditSave(message)}
+                                />
+                                <ChatAction
+                                  text={Locale.UI.Cancel}
+                                  icon={<CancelIcon />}
+                                  onClick={onEditCancel}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                {isUser && !editMobileMessageId && (
+                                  <ChatAction
+                                    text={Locale.Chat.Actions.Edit}
+                                    icon={<RenameIcon />}
+                                    onClick={() => {
+                                      if (isMobileScreen) {
+                                        const nextText =
+                                          messageTextContent.trim();
+                                        const nextImages = messageImages
+                                          .filter(Boolean)
+                                          .map((image) =>
+                                            createComposerAttachedImage(image),
+                                          );
+                                        const nextFiles =
+                                          mergeComposerAttachedFiles(
+                                            [],
+                                            messageAttachedFiles.slice(),
+                                          );
+                                        setEditMobileMessageId(
+                                          message.id ?? null,
+                                        );
+                                        setUserInput(nextText);
+                                        setAttachImages(nextImages);
+                                        setAttachedFiles(nextFiles);
+                                        setPromptHints([]);
+                                        resetMobileInputDom(nextText);
+                                        syncMobileInputHeight(nextText);
+                                        scheduleResetMobileInputViewportToStart();
+                                        const focusMobileEditInput = () => {
+                                          const mobileInput =
+                                            mobileInputRef.current;
+                                          if (!mobileInput) return;
+                                          mobileInput.focus();
+                                          setIsMobileInputFocused(true);
+                                          syncMobileInputHeight(nextText);
+                                          scheduleMoveInputCursorToEnd();
+                                          if (nextText.length > 0) {
+                                            scheduleScrollMobileInputToBottom();
+                                          }
+                                          scheduleMobileKeyboardViewportSync();
+                                        };
+                                        focusMobileEditInput();
+                                        window.requestAnimationFrame(
+                                          focusMobileEditInput,
+                                        );
+                                        window.setTimeout(
+                                          focusMobileEditInput,
+                                          80,
+                                        );
+                                      } else {
+                                        setEditingMessageId(message.id ?? null);
+                                        setEditContent(
+                                          messageTextContent.trim(),
+                                        );
+                                        setPromptHints([]);
+                                      }
+                                    }}
+                                  />
+                                )}
+
+                                <ChatAction
+                                  text={Locale.Chat.Actions.Retry}
+                                  icon={<ResetIcon />}
+                                  onClick={() => onResend(message)}
+                                />
+
+                                <ChatAction
+                                  text={Locale.Chat.Actions.Copy}
+                                  icon={<CopyIcon />}
+                                  onClick={() => {
+                                    void copyMessageToClipboard(message, {
+                                      silent: true,
+                                    }).then(showCopyNotice);
+                                  }}
+                                />
+                                {config.ttsConfig.enable && (
+                                  <ChatAction
+                                    text={
+                                      speechStatus
+                                        ? Locale.Chat.Actions.StopSpeech
+                                        : Locale.Chat.Actions.Speech
+                                    }
+                                    icon={
+                                      speechStatus ? (
+                                        <SpeakStopIcon />
+                                      ) : (
+                                        <SpeakIcon />
+                                      )
+                                    }
+                                    onClick={() =>
+                                      openaiSpeech(
+                                        getMessageTextContent(message),
+                                      )
+                                    }
+                                  />
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ) : null;
+
+                        const shouldShowClearContextDivider =
+                          i === clearContextIndex - 1;
+
+                        return (
+                          <Fragment key={messageDomKey}>
+                            <div
+                              className={
+                                isUser
+                                  ? styles["chat-message-user"]
+                                  : styles["chat-message"]
+                              }
+                              data-chat-message-dom-key={messageDomKey}
+                            >
+                              <div className={styles["chat-message-container"]}>
+                                <div className={styles["chat-message-header"]}>
+                                  <div
+                                    className={styles["chat-message-avatar"]}
+                                  >
+                                    {isUser ? (
+                                      <Avatar avatar={FIXED_USER_AVATAR} />
+                                    ) : (
+                                      <>
+                                        {["system"].includes(message.role) ? (
+                                          <Avatar avatar="2699-fe0f" />
+                                        ) : (
+                                          <MaskAvatar
+                                            avatar={sessionMask.avatar}
+                                            model={
+                                              message.modelIcon ||
+                                              message.model ||
+                                              sessionMask.modelConfig.model
+                                            }
+                                          />
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                  {!isUser && (
+                                    <div className={styles["chat-model-name"]}>
+                                      {normalizeModelProviderDisplayLabel(
+                                        message.model ||
+                                          sessionMask.modelConfig.model,
+                                        getMessageProviderDisplayName(
+                                          message,
+                                          apiProfiles,
+                                        ) || currentProviderDisplayName,
+                                      )}
+                                    </div>
+                                  )}
+                                  {showActions && !isMobileScreen && (
                                     <div
                                       className={clsx(
                                         styles["chat-message-actions"],
-                                        styles["chat-message-actions-inline"],
-                                        {
-                                          [styles[
-                                            "chat-message-actions-streaming"
-                                          ]]: message.streaming,
-                                        },
+                                        styles["chat-message-actions-header"],
                                       )}
                                     >
                                       {messageActions}
                                     </div>
                                   )}
-                                {editingMessageId === message.id &&
-                                !isMobileScreen ? (
-                                  <textarea
-                                    ref={editInputRef}
-                                    className={
-                                      styles["chat-message-edit-input"]
-                                    }
-                                    value={editContent}
-                                    rows={editInputRows}
-                                    onChange={(e) => {
-                                      setEditContent(e.target.value);
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" && !e.shiftKey) {
-                                        e.preventDefault();
-                                        onEditSave(message);
-                                      }
-                                      if (e.key === "Escape") {
-                                        onEditCancel();
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <>
-                                    {messageAttachedFiles.length > 0 && (
+                                </div>
+
+                                {/*@ts-ignore*/}
+                                {message?.tools?.length > 0 && (
+                                  <div className={styles["chat-message-tools"]}>
+                                    {message?.tools?.map((tool) => (
+                                      <div
+                                        key={tool.id}
+                                        title={tool?.errorMsg}
+                                        className={styles["chat-message-tool"]}
+                                      >
+                                        {tool.isError === true ? (
+                                          <CloseIcon />
+                                        ) : (
+                                          <span>&lt;插件&gt;</span>
+                                        )}
+                                        <span>{tool?.function?.name}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div
+                                  className={clsx(
+                                    styles["chat-message-content"],
+                                    {
+                                      [styles[
+                                        "chat-message-content-mobile-actions-left"
+                                      ]]: shouldLeftMobileActions,
+                                      [styles[
+                                        "chat-message-content-mobile-actions-inline"
+                                      ]]: shouldInlineMobileActions,
+                                      [styles[
+                                        "chat-message-content-stack-actions"
+                                      ]]: shouldStackMessageActions,
+                                      [styles["chat-message-content-editing"]]:
+                                        editingMessageId === message.id &&
+                                        !isMobileScreen,
+                                    },
+                                  )}
+                                >
+                                  <div
+                                    className={clsx(
+                                      styles["chat-message-item"],
+                                      {
+                                        [styles[
+                                          "chat-message-item-with-images"
+                                        ]]: messageImages.length > 0,
+                                        [styles[
+                                          "chat-message-item-with-attached-files"
+                                        ]]: messageAttachedFiles.length > 0,
+                                      },
+                                    )}
+                                    data-chat-message-id={message.id}
+                                  >
+                                    {showActions &&
+                                      isMobileScreen &&
+                                      shouldInlineMobileActions && (
+                                        <div
+                                          className={clsx(
+                                            styles["chat-message-actions"],
+                                            styles[
+                                              "chat-message-actions-inline"
+                                            ],
+                                            {
+                                              [styles[
+                                                "chat-message-actions-streaming"
+                                              ]]: message.streaming,
+                                            },
+                                          )}
+                                        >
+                                          {messageActions}
+                                        </div>
+                                      )}
+                                    {editingMessageId === message.id &&
+                                    !isMobileScreen ? (
+                                      <textarea
+                                        ref={editInputRef}
+                                        className={
+                                          styles["chat-message-edit-input"]
+                                        }
+                                        value={editContent}
+                                        rows={editInputRows}
+                                        onChange={(e) => {
+                                          setEditContent(e.target.value);
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (
+                                            e.key === "Enter" &&
+                                            !e.shiftKey
+                                          ) {
+                                            e.preventDefault();
+                                            onEditSave(message);
+                                          }
+                                          if (e.key === "Escape") {
+                                            onEditCancel();
+                                          }
+                                        }}
+                                      />
+                                    ) : (
+                                      <>
+                                        {messageAttachedFiles.length > 0 && (
+                                          <div
+                                            className={
+                                              styles[
+                                                "chat-message-attached-files"
+                                              ]
+                                            }
+                                          >
+                                            {messageAttachedFiles.map(
+                                              (file) => {
+                                                const previewUrl = String(
+                                                  file.previewUrl || "",
+                                                ).trim();
+                                                const cardClassName = clsx(
+                                                  styles[
+                                                    "chat-message-attached-file"
+                                                  ],
+                                                  styles[
+                                                    `attach-file-${file.typeKind}`
+                                                  ],
+                                                );
+
+                                                const cardContent = (
+                                                  <>
+                                                    <div
+                                                      className={
+                                                        styles[
+                                                          "attach-file-icon"
+                                                        ]
+                                                      }
+                                                    >
+                                                      <span
+                                                        className={
+                                                          styles[
+                                                            "attach-file-glyph"
+                                                          ]
+                                                        }
+                                                      ></span>
+                                                    </div>
+                                                    <div
+                                                      className={
+                                                        styles[
+                                                          "chat-message-attached-file-info"
+                                                        ]
+                                                      }
+                                                    >
+                                                      <div
+                                                        className={
+                                                          styles[
+                                                            "chat-message-attached-file-name"
+                                                          ]
+                                                        }
+                                                      >
+                                                        {file.name}
+                                                      </div>
+                                                      <div
+                                                        className={
+                                                          styles[
+                                                            "chat-message-attached-file-type"
+                                                          ]
+                                                        }
+                                                      >
+                                                        {file.typeLabel} ·{" "}
+                                                        {formatAttachmentSize(
+                                                          file.size,
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </>
+                                                );
+
+                                                if (previewUrl) {
+                                                  return (
+                                                    <button
+                                                      key={file.id}
+                                                      type="button"
+                                                      className={cardClassName}
+                                                      onClick={() =>
+                                                        openMessageAttachedFilePreview(
+                                                          file,
+                                                        )
+                                                      }
+                                                      title={`${file.name}\n${
+                                                        file.typeLabel
+                                                      } · ${formatAttachmentSize(
+                                                        file.size,
+                                                      )}`}
+                                                    >
+                                                      {cardContent}
+                                                    </button>
+                                                  );
+                                                }
+
+                                                return (
+                                                  <div
+                                                    key={file.id}
+                                                    className={cardClassName}
+                                                    title={`${file.name}\n${
+                                                      file.typeLabel
+                                                    } · ${formatAttachmentSize(
+                                                      file.size,
+                                                    )}`}
+                                                  >
+                                                    {cardContent}
+                                                  </div>
+                                                );
+                                              },
+                                            )}
+                                          </div>
+                                        )}
+                                        <Markdown
+                                          key={
+                                            message.manualStopped
+                                              ? "stopped"
+                                              : message.streaming
+                                              ? "loading"
+                                              : "done"
+                                          }
+                                          content={messageTextContent}
+                                          loading={
+                                            !isUser &&
+                                            !message.manualStopped &&
+                                            !message.isError &&
+                                            ((message as any).preview ||
+                                              message.streaming) &&
+                                            !messageTextContent
+                                          }
+                                          onDoubleClickCapture={() => {
+                                            if (!isMobileScreen || !isUser)
+                                              return;
+                                            setUserInput(
+                                              getMessageTextContent(message),
+                                            );
+                                          }}
+                                          fontSize={fontSize}
+                                          fontFamily={fontFamily}
+                                          parentRef={scrollRef}
+                                          defaultShow={i >= messages.length - 6}
+                                        />
+                                      </>
+                                    )}
+                                    {messageImages.length == 1 &&
+                                      renderGeneratedMedia(
+                                        messageImages[0],
+                                        styles["chat-message-item-image"],
+                                      )}
+                                    {messageImages.length > 1 && (
                                       <div
                                         className={
-                                          styles["chat-message-attached-files"]
+                                          styles["chat-message-item-images"]
+                                        }
+                                        style={
+                                          {
+                                            "--image-count":
+                                              messageImages.length,
+                                          } as React.CSSProperties
                                         }
                                       >
-                                        {messageAttachedFiles.map((file) => {
-                                          const previewUrl = String(
-                                            file.previewUrl || "",
-                                          ).trim();
-                                          const cardClassName = clsx(
+                                        {messageImages.map((image, index) => {
+                                          return renderGeneratedMedia(
+                                            image,
                                             styles[
-                                              "chat-message-attached-file"
+                                              "chat-message-item-image-multi"
                                             ],
-                                            styles[
-                                              `attach-file-${file.typeKind}`
-                                            ],
-                                          );
-
-                                          const cardContent = (
-                                            <>
-                                              <div
-                                                className={
-                                                  styles["attach-file-icon"]
-                                                }
-                                              >
-                                                <span
-                                                  className={
-                                                    styles["attach-file-glyph"]
-                                                  }
-                                                ></span>
-                                              </div>
-                                              <div
-                                                className={
-                                                  styles[
-                                                    "chat-message-attached-file-info"
-                                                  ]
-                                                }
-                                              >
-                                                <div
-                                                  className={
-                                                    styles[
-                                                      "chat-message-attached-file-name"
-                                                    ]
-                                                  }
-                                                >
-                                                  {file.name}
-                                                </div>
-                                                <div
-                                                  className={
-                                                    styles[
-                                                      "chat-message-attached-file-type"
-                                                    ]
-                                                  }
-                                                >
-                                                  {file.typeLabel} ·{" "}
-                                                  {formatAttachmentSize(
-                                                    file.size,
-                                                  )}
-                                                </div>
-                                              </div>
-                                            </>
-                                          );
-
-                                          if (previewUrl) {
-                                            return (
-                                              <button
-                                                key={file.id}
-                                                type="button"
-                                                className={cardClassName}
-                                                onClick={() =>
-                                                  openMessageAttachedFilePreview(
-                                                    file,
-                                                  )
-                                                }
-                                                title={`${file.name}\n${
-                                                  file.typeLabel
-                                                } · ${formatAttachmentSize(
-                                                  file.size,
-                                                )}`}
-                                              >
-                                                {cardContent}
-                                              </button>
-                                            );
-                                          }
-
-                                          return (
-                                            <div
-                                              key={file.id}
-                                              className={cardClassName}
-                                              title={`${file.name}\n${
-                                                file.typeLabel
-                                              } · ${formatAttachmentSize(
-                                                file.size,
-                                              )}`}
-                                            >
-                                              {cardContent}
-                                            </div>
+                                            index,
                                           );
                                         })}
                                       </div>
                                     )}
-                                    <Markdown
-                                      key={
-                                        message.streaming ? "loading" : "done"
-                                      }
-                                      content={messageTextContent}
-                                      loading={
-                                        ((message as any).preview ||
-                                          message.streaming) &&
-                                        !messageTextContent
-                                      }
-                                      onDoubleClickCapture={() => {
-                                        if (!isMobileScreen || !isUser) return;
-                                        setUserInput(
-                                          getMessageTextContent(message),
-                                        );
-                                      }}
-                                      fontSize={fontSize}
-                                      fontFamily={fontFamily}
-                                      parentRef={scrollRef}
-                                      defaultShow={i >= messages.length - 6}
-                                    />
-                                  </>
-                                )}
-                                {messageImages.length == 1 &&
-                                  renderGeneratedMedia(
-                                    messageImages[0],
-                                    styles["chat-message-item-image"],
-                                  )}
-                                {messageImages.length > 1 && (
-                                  <div
-                                    className={
-                                      styles["chat-message-item-images"]
-                                    }
-                                    style={
-                                      {
-                                        "--image-count": messageImages.length,
-                                      } as React.CSSProperties
-                                    }
-                                  >
-                                    {messageImages.map((image, index) => {
-                                      return renderGeneratedMedia(
-                                        image,
-                                        styles["chat-message-item-image-multi"],
-                                        index,
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {message.manualStopped && (
-                                  <div className={styles["manual-stop-marker"]}>
-                                    【手动停止】
-                                  </div>
-                                )}
-                              </div>
-                              {showActions &&
-                                isMobileScreen &&
-                                !shouldInlineMobileActions && (
-                                  <div
-                                    className={clsx(
-                                      styles["chat-message-actions"],
-                                      {
-                                        [styles[
-                                          "chat-message-actions-streaming"
-                                        ]]: message.streaming,
-                                      },
+                                    {message.manualStopped && (
+                                      <div
+                                        className={styles["manual-stop-marker"]}
+                                      >
+                                        【手动停止】
+                                      </div>
                                     )}
-                                  >
-                                    {messageActions}
+                                  </div>
+                                  {showActions &&
+                                    isMobileScreen &&
+                                    !shouldInlineMobileActions && (
+                                      <div
+                                        className={clsx(
+                                          styles["chat-message-actions"],
+                                          {
+                                            [styles[
+                                              "chat-message-actions-streaming"
+                                            ]]: message.streaming,
+                                          },
+                                        )}
+                                      >
+                                        {messageActions}
+                                      </div>
+                                    )}
+                                </div>
+                                {message?.audio_url && (
+                                  <div className={styles["chat-message-audio"]}>
+                                    <audio src={message.audio_url} controls />
                                   </div>
                                 )}
-                            </div>
-                            {message?.audio_url && (
-                              <div className={styles["chat-message-audio"]}>
-                                <audio src={message.audio_url} controls />
-                              </div>
-                            )}
 
-                            <div className={styles["chat-message-action-date"]}>
-                              {isContext
-                                ? Locale.Chat.IsContext
-                                : formatChinaDateTime(message.date)}
-                            </div>
-                            {!isContext && !isUser && !!messageUsageText && (
-                              <div className={styles["chat-message-usage"]}>
-                                {messageUsageText}
+                                <div
+                                  className={styles["chat-message-action-date"]}
+                                >
+                                  {isContext
+                                    ? Locale.Chat.IsContext
+                                    : formatChinaDateTime(message.date)}
+                                </div>
+                                {!isContext &&
+                                  !isUser &&
+                                  !!messageUsageText && (
+                                    <div
+                                      className={styles["chat-message-usage"]}
+                                    >
+                                      {messageUsageText}
+                                    </div>
+                                  )}
                               </div>
+                            </div>
+                            {shouldShowClearContextDivider && (
+                              <ClearContextDivider />
                             )}
-                          </div>
-                        </div>
-                        {shouldShowClearContextDivider && (
-                          <ClearContextDivider />
-                        )}
-                      </Fragment>
-                    );
-                  })}
-            </div>
-            <div
-              className={clsx(styles["scroll-to-bottom"], {
-                [styles["scroll-to-bottom-visible"]]:
-                  shouldShowScrollToBottomButton,
-              })}
-              style={{
-                bottom: `calc(${Math.max(
-                  0,
-                  Math.round(inputPanelHeight + 10),
-                )}px + env(safe-area-inset-bottom) + var(--chat-keyboard-accessory-inset, 0px) + var(--chat-keyboard-overlap-correction, 0px))`,
-              }}
-              onTouchStart={(e) => {
-                if (!isMobileScreen) return;
-                scrollToBottomTouchTriggeredRef.current = true;
-                e.preventDefault();
-                handleScrollToBottomButton(true);
-                window.setTimeout(() => {
-                  scrollToBottomTouchTriggeredRef.current = false;
-                }, 600);
-              }}
-              onClick={() => {
-                if (isMobileScreen && scrollToBottomTouchTriggeredRef.current) {
-                  return;
-                }
-                handleScrollToBottomButton(isMobileScreen);
-              }}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </div>
-            <div
-              ref={inputPanelRef}
-              className={clsx(styles["chat-input-panel"], {
-                [styles["chat-input-panel-empty-desktop"]]:
-                  !isMobileScreen && !currentSessionHasMessages,
-                [styles["chat-input-panel-with-prompts"]]:
-                  !isMobileScreen && promptHints.length > 0,
-                [styles["chat-input-panel-compact-hint"]]:
-                  shouldUseCompactInputHint,
-              })}
-            >
-              <PromptHints
-                prompts={promptHints}
-                onPromptSelect={onPromptSelect}
-              />
-
-              {!isMobileScreen && !currentSessionHasMessages && (
+                          </Fragment>
+                        );
+                      })}
+                    {centeredLatestUserMessageSpacerHeight > 0 && (
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          height: centeredLatestUserMessageSpacerHeight,
+                        }}
+                      />
+                    )}
+                  </>
+                </div>
                 <div
-                  className={clsx(styles["chat-input-empty-title"], {
-                    [styles["chat-input-empty-title-reserved-hidden"]]:
-                      hasComposerAttachments,
+                  className={clsx(styles["scroll-to-bottom"], {
+                    [styles["scroll-to-bottom-visible"]]:
+                      shouldShowScrollToBottomButton,
+                  })}
+                  style={{
+                    bottom: `calc(${Math.max(
+                      0,
+                      Math.round(inputPanelHeight + 10),
+                    )}px + env(safe-area-inset-bottom) + var(--chat-keyboard-accessory-inset, 0px) + var(--chat-keyboard-overlap-correction, 0px))`,
+                  }}
+                  onTouchStart={(e) => {
+                    if (!isMobileScreen) return;
+                    scrollToBottomTouchTriggeredRef.current = true;
+                    e.preventDefault();
+                    clearCenteredLatestUserMessage();
+                    handleScrollToBottomButton(true);
+                    window.setTimeout(() => {
+                      scrollToBottomTouchTriggeredRef.current = false;
+                    }, 600);
+                  }}
+                  onClick={() => {
+                    if (
+                      isMobileScreen &&
+                      scrollToBottomTouchTriggeredRef.current
+                    ) {
+                      return;
+                    }
+                    clearCenteredLatestUserMessage();
+                    handleScrollToBottomButton(isMobileScreen);
+                  }}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </div>
+                <div
+                  ref={inputPanelRef}
+                  className={clsx(styles["chat-input-panel"], {
+                    [styles["chat-input-panel-empty-desktop"]]:
+                      !isMobileScreen && !currentSessionHasMessages,
+                    [styles["chat-input-panel-with-prompts"]]:
+                      !isMobileScreen && promptHints.length > 0,
+                    [styles["chat-input-panel-compact-hint"]]:
+                      shouldUseCompactInputHint,
                   })}
                 >
-                  {getBotHelloContent()}
-                </div>
-              )}
+                  <PromptHints
+                    prompts={promptHints}
+                    onPromptSelect={onPromptSelect}
+                  />
 
-              {editMobileMessageId && isMobileScreen && (
-                <div className={styles["chat-edit-mode-header"]}>
-                  <span>编辑消息</span>
-                </div>
-              )}
-              <div
-                className={styles["chat-input-row"]}
-                style={
-                  !isMobileScreen && hasImageOnlyComposerAttachments
-                    ? ({
-                        ["--chat-attach-strip-visual-height" as any]: "116px",
-                      } as React.CSSProperties)
-                    : undefined
-                }
-              >
-                {!isMobileScreen &&
-                  !currentSessionHasMessages &&
-                  hasComposerAttachments && (
+                  {!isMobileScreen && !currentSessionHasMessages && (
                     <div
-                      className={clsx(
-                        styles["chat-input-empty-title"],
-                        styles["chat-input-empty-title-floating"],
-                      )}
+                      className={clsx(styles["chat-input-empty-title"], {
+                        [styles["chat-input-empty-title-reserved-hidden"]]:
+                          hasComposerAttachments,
+                      })}
                     >
                       {getBotHelloContent()}
                     </div>
                   )}
-                {hasComposerAttachments && (
-                  <div className={styles["chat-attach-strip"]}>
-                    <div
-                      className={clsx(styles["attach-images"], {
-                        [styles["attach-images-mixed-kinds"]]:
-                          hasMixedComposerAttachmentKinds,
-                      })}
-                    >
-                      {attachImages.map((image, index) => {
-                        const previewUrl =
-                          getComposerAttachedImagePreviewUrl(image);
-                        return (
-                          <div
-                            key={image.id}
-                            className={styles["attach-image"]}
-                            style={{ backgroundImage: `url("${previewUrl}")` }}
-                            role="button"
-                            tabIndex={0}
-                            title="点击预览"
-                            onClick={() => showImageModal(previewUrl, true)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                showImageModal(previewUrl, true);
-                              }
-                            }}
-                          >
-                            <div className={styles["attach-image-mask"]}>
-                              <DeleteImageButton
-                                deleteImage={() =>
-                                  void removeAttachedImage(index)
-                                }
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {attachedFiles.map((file) => {
-                        return (
-                          <div
-                            key={file.id}
-                            className={clsx(
-                              styles["attach-file"],
-                              styles[`attach-file-${file.typeKind}`],
-                            )}
-                            title={`${file.name}\n${
-                              file.typeLabel
-                            } · ${formatAttachmentSize(file.size)}`}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openMessageAttachedFilePreview(file)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openMessageAttachedFilePreview(file);
-                              }
-                            }}
-                          >
-                            <div className={styles["attach-file-icon"]}>
-                              <span
-                                className={styles["attach-file-glyph"]}
-                              ></span>
-                            </div>
-                            <div className={styles["attach-file-info"]}>
-                              <div className={styles["attach-file-name"]}>
-                                {file.name}
-                              </div>
-                              <div className={styles["attach-file-type"]}>
-                                {file.typeLabel} ·{" "}
-                                {formatAttachmentSize(file.size)}
-                              </div>
-                            </div>
-                            <DeleteImageButton
-                              deleteImage={() => void removeAttachedFile(file)}
-                            />
-                          </div>
-                        );
-                      })}
-                      {uploadingAttachments.map((attachment) => {
-                        if (!attachment.isImage) {
-                          return (
-                            <div
-                              key={attachment.id}
-                              className={clsx(
-                                styles["attach-file"],
-                                styles[`attach-file-${attachment.typeKind}`],
-                              )}
-                              title={`${attachment.file.name}\n${
-                                attachment.typeLabel
-                              } · ${formatAttachmentSize(
-                                attachment.file.size,
-                              )}`}
-                            >
+
+                  {editMobileMessageId && isMobileScreen && (
+                    <div className={styles["chat-edit-mode-header"]}>
+                      <span>编辑消息</span>
+                    </div>
+                  )}
+                  <div
+                    className={styles["chat-input-row"]}
+                    style={
+                      !isMobileScreen && hasImageOnlyComposerAttachments
+                        ? ({
+                            ["--chat-attach-strip-visual-height" as any]:
+                              "116px",
+                          } as React.CSSProperties)
+                        : undefined
+                    }
+                  >
+                    {!isMobileScreen &&
+                      !currentSessionHasMessages &&
+                      hasComposerAttachments && (
+                        <div
+                          className={clsx(
+                            styles["chat-input-empty-title"],
+                            styles["chat-input-empty-title-floating"],
+                          )}
+                        >
+                          {getBotHelloContent()}
+                        </div>
+                      )}
+                    {hasComposerAttachments && (
+                      <div className={styles["chat-attach-strip"]}>
+                        <div
+                          className={clsx(styles["attach-images"], {
+                            [styles["attach-images-mixed-kinds"]]:
+                              hasMixedComposerAttachmentKinds,
+                          })}
+                        >
+                          {attachImages.map((image, index) => {
+                            const previewUrl =
+                              getComposerAttachedImagePreviewUrl(image);
+                            return (
                               <div
-                                className={clsx(
-                                  styles["attach-file-icon"],
-                                  styles["attach-file-icon-uploading"],
-                                )}
+                                key={image.id}
+                                className={styles["attach-image"]}
+                                style={{
+                                  backgroundImage: `url("${previewUrl}")`,
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                title="点击预览"
+                                onClick={() => showImageModal(previewUrl, true)}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    showImageModal(previewUrl, true);
+                                  }
+                                }}
                               >
-                                <span
-                                  className={styles["attach-file-glyph"]}
-                                ></span>
+                                <div className={styles["attach-image-mask"]}>
+                                  <DeleteImageButton
+                                    deleteImage={() =>
+                                      void removeAttachedImage(index)
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {attachedFiles.map((file) => {
+                            return (
+                              <div
+                                key={file.id}
+                                className={clsx(
+                                  styles["attach-file"],
+                                  styles[`attach-file-${file.typeKind}`],
+                                )}
+                                title={`${file.name}\n${
+                                  file.typeLabel
+                                } · ${formatAttachmentSize(file.size)}`}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                  openMessageAttachedFilePreview(file)
+                                }
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    openMessageAttachedFilePreview(file);
+                                  }
+                                }}
+                              >
+                                <div className={styles["attach-file-icon"]}>
+                                  <span
+                                    className={styles["attach-file-glyph"]}
+                                  ></span>
+                                </div>
+                                <div className={styles["attach-file-info"]}>
+                                  <div className={styles["attach-file-name"]}>
+                                    {file.name}
+                                  </div>
+                                  <div className={styles["attach-file-type"]}>
+                                    {file.typeLabel} ·{" "}
+                                    {formatAttachmentSize(file.size)}
+                                  </div>
+                                </div>
+                                <DeleteImageButton
+                                  deleteImage={() =>
+                                    void removeAttachedFile(file)
+                                  }
+                                />
+                              </div>
+                            );
+                          })}
+                          {uploadingAttachments.map((attachment) => {
+                            if (!attachment.isImage) {
+                              return (
                                 <div
-                                  className={styles["attach-file-icon-mask"]}
+                                  key={attachment.id}
+                                  className={clsx(
+                                    styles["attach-file"],
+                                    styles[
+                                      `attach-file-${attachment.typeKind}`
+                                    ],
+                                  )}
+                                  title={`${attachment.file.name}\n${
+                                    attachment.typeLabel
+                                  } · ${formatAttachmentSize(
+                                    attachment.file.size,
+                                  )}`}
+                                >
+                                  <div
+                                    className={clsx(
+                                      styles["attach-file-icon"],
+                                      styles["attach-file-icon-uploading"],
+                                    )}
+                                  >
+                                    <span
+                                      className={styles["attach-file-glyph"]}
+                                    ></span>
+                                    <div
+                                      className={
+                                        styles["attach-file-icon-mask"]
+                                      }
+                                    >
+                                      <span
+                                        className={
+                                          styles["attachment-upload-spinner"]
+                                        }
+                                        style={{
+                                          ["--upload-progress" as any]:
+                                            attachment.progress,
+                                        }}
+                                      ></span>
+                                      <span
+                                        className={
+                                          styles["attachment-upload-percent"]
+                                        }
+                                      >
+                                        {Math.round(
+                                          Math.min(
+                                            1,
+                                            Math.max(0, attachment.progress),
+                                          ) * 100,
+                                        )}
+                                        %
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className={styles["attach-file-info"]}>
+                                    <div className={styles["attach-file-name"]}>
+                                      {attachment.file.name}
+                                    </div>
+                                    <div className={styles["attach-file-type"]}>
+                                      {attachment.phase === "uploading"
+                                        ? "上传中"
+                                        : "准备上传"}{" "}
+                                      {Math.round(
+                                        Math.min(
+                                          1,
+                                          Math.max(0, attachment.progress),
+                                        ) * 100,
+                                      )}
+                                      %
+                                    </div>
+                                  </div>
+                                  <DeleteImageButton
+                                    deleteImage={() =>
+                                      void cancelUploadingAttachment(attachment)
+                                    }
+                                  />
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div
+                                key={attachment.id}
+                                className={styles["attach-image"]}
+                                style={{
+                                  backgroundImage: `url("${attachment.previewUrl}")`,
+                                }}
+                              >
+                                <div className={styles["attach-image-mask"]}>
+                                  <DeleteImageButton
+                                    deleteImage={() =>
+                                      void cancelUploadingAttachment(attachment)
+                                    }
+                                  />
+                                </div>
+                                <div
+                                  className={
+                                    styles["attach-image-uploading-overlay"]
+                                  }
                                 >
                                   <span
                                     className={
@@ -9703,412 +10061,380 @@ function _Chat() {
                                   </span>
                                 </div>
                               </div>
-                              <div className={styles["attach-file-info"]}>
-                                <div className={styles["attach-file-name"]}>
-                                  {attachment.file.name}
-                                </div>
-                                <div className={styles["attach-file-type"]}>
-                                  {attachment.phase === "uploading"
-                                    ? "上传中"
-                                    : "准备上传"}{" "}
-                                  {Math.round(
-                                    Math.min(
-                                      1,
-                                      Math.max(0, attachment.progress),
-                                    ) * 100,
-                                  )}
-                                  %
-                                </div>
-                              </div>
-                              <DeleteImageButton
-                                deleteImage={() =>
-                                  void cancelUploadingAttachment(attachment)
-                                }
-                              />
-                            </div>
-                          );
-                        }
-
-                        return (
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {isMobileScreen && (
+                      <div className={styles["chat-input-mobile-actions"]}>
+                        {editMobileMessageId && (
+                          <IconButton
+                            icon={<LogOutDoorIcon />}
+                            className={clsx(
+                              styles["chat-input-mobile-add"],
+                              styles["chat-edit-mode-exit"],
+                            )}
+                            title="退出编辑"
+                            aria="退出编辑模式"
+                            disabled={isChatUnavailableForSync}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onTouchStart={(e) => e.preventDefault()}
+                            onClick={exitMobileEditMode}
+                          />
+                        )}
+                        {(userInput.length > 0 || hasComposerAttachments) && (
+                          <IconButton
+                            icon={<MobileClearIcon />}
+                            className={styles["chat-input-mobile-add"]}
+                            title="清空输入"
+                            aria="清空输入"
+                            disabled={isChatUnavailableForSync}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onTouchStart={(e) => e.preventDefault()}
+                            onClick={() => {
+                              mobileInputOutsidePointerBlurRef.current = false;
+                              setPromptHints([]);
+                              setUserInput("");
+                              clearComposerAttachments();
+                              localStorage.removeItem(unfinishedInputKey);
+                              localStorage.removeItem(
+                                ACTIVE_UNFINISHED_INPUT_KEY,
+                              );
+                              localStorage.removeItem(
+                                unfinishedAttachImagesKey,
+                              );
+                              localStorage.removeItem(
+                                ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
+                              );
+                              if (isMobileScreen && !isMobileInputFocused) {
+                                setIsMobileInputFocused(false);
+                                cancelMobileKeyboardViewportSync();
+                                mobileInputRef.current?.blur();
+                              }
+                            }}
+                          />
+                        )}
+                        <IconButton
+                          icon={<MobileAddIcon />}
+                          className={styles["chat-input-mobile-add"]}
+                          title="添加照片"
+                          aria="添加照片"
+                          disabled={isChatUnavailableForSync || uploading}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            const shouldPreserveBlurHeight =
+                              isMobileScreen && !isMobileInputFocused;
+                            if (
+                              totalComposerAttachmentCount >= MAX_ATTACH_IMAGES
+                            ) {
+                              showAttachLimitHint();
+                              return;
+                            }
+                            if (shouldPreserveBlurHeight) {
+                              prepareMobileInputBlurLayout();
+                            }
+                            uploadImage();
+                          }}
+                        />
+                      </div>
+                    )}
+                    <label
+                      ref={chatInputInnerRef}
+                      className={clsx(styles["chat-input-panel-inner"], {
+                        [styles["chat-input-panel-inner-multiline"]]:
+                          !isMobileScreen && inputRows > 1,
+                      })}
+                      htmlFor="chat-input"
+                    >
+                      {!isMobileScreen && (
+                        <span
+                          ref={inputPlaceholderRef}
+                          className={clsx(styles["chat-input-placeholder"], {
+                            [styles["chat-input-placeholder-hidden"]]:
+                              shouldUseCompactInputHint ||
+                              isChatUnavailableForSync ||
+                              !!userInput ||
+                              hasComposerAttachments,
+                          })}
+                          style={{
+                            fontSize: inputFontSize,
+                            fontFamily: config.fontFamily,
+                          }}
+                        >
+                          {chatInputHint}
+                        </span>
+                      )}
+                      <div className={styles["chat-input-text-wrap"]}>
+                        {isMobileScreen ? (
                           <div
-                            key={attachment.id}
-                            className={styles["attach-image"]}
+                            id="chat-input"
+                            ref={mobileInputRef}
+                            className={styles["chat-input"]}
+                            contentEditable={!isChatUnavailableForSync}
+                            suppressContentEditableWarning
+                            role="textbox"
+                            aria-multiline="true"
+                            aria-disabled={isChatUnavailableForSync}
+                            onInput={(e) => {
+                              if (!mobileInputEndRef.current?.isConnected) {
+                                const endMarker =
+                                  document.createElement("span");
+                                endMarker.textContent = "\u200b";
+                                endMarker.setAttribute(
+                                  "data-chat-input-end",
+                                  "true",
+                                );
+                                e.currentTarget.appendChild(endMarker);
+                                mobileInputEndRef.current = endMarker;
+                              }
+                              const nextText = (
+                                e.currentTarget.textContent ?? ""
+                              ).replace(/\u200b/g, "");
+                              if (
+                                nextText.length > 0 &&
+                                nextText.trim() === ""
+                              ) {
+                                resetMobileInputDom("");
+                                onInput("");
+                                syncMobileInputHeight("");
+                                scheduleResetMobileInputViewportToStart();
+                                return;
+                              }
+                              onInput(nextText);
+                              syncMobileInputHeight(nextText);
+                              if (nextText.trim().length === 0) {
+                                scheduleResetMobileInputViewportToStart();
+                              }
+                            }}
+                            onKeyDown={onMobileInputKeyDown}
+                            onPointerDown={() => {
+                              inputFocusedBeforePointerRef.current =
+                                document.activeElement ===
+                                mobileInputRef.current;
+                            }}
+                            onFocus={() => {
+                              // 清除 collapse 残留定时器，防止聚焦后被重置为 44px
+                              collapseTimersRef.current.forEach(clearTimeout);
+                              collapseTimersRef.current = [];
+                              clearMobileKeyboardReleaseTimers();
+                              if (mobileBlurTimerRef.current !== null) {
+                                clearTimeout(mobileBlurTimerRef.current);
+                                mobileBlurTimerRef.current = null;
+                              }
+                              preserveMobileInputBlurHeightRef.current = false;
+                              mobileKeyboardOpenedSinceFocusRef.current = false;
+                              mobileKeyboardDismissByViewportRef.current =
+                                false;
+                              setPreserveMobileInputBlurHeight(false);
+                              chatInputInnerRef.current?.style.removeProperty(
+                                "--chat-mobile-input-preserved-height",
+                              );
+                              if (mobileInputRef.current) {
+                                mobileInputRef.current.style.removeProperty(
+                                  "--chat-mobile-input-preserved-height",
+                                );
+                                mobileInputRef.current.style.height =
+                                  mobileInputHasText ? "auto" : "44px";
+                                mobileInputRef.current.style.maxHeight = "";
+                              }
+                              syncMobileInputHeight(userInput);
+                              setIsMobileInputFocused(true);
+                              scheduleMoveInputCursorToEnd();
+                              if (mobileInputHasText) {
+                                scheduleScrollMobileInputToBottom();
+                              }
+                              scheduleMobileKeyboardViewportSync();
+                            }}
+                            onBlur={() => {
+                              if (mobileInputSubmitBlurRef.current) {
+                                mobileInputSubmitBlurRef.current = false;
+                                mobileInputOutsidePointerBlurRef.current =
+                                  false;
+                                sanitizeBoundaryInput();
+                                mobileBlurTimerRef.current = window.setTimeout(
+                                  () => {
+                                    finalizeMobileInputBlur();
+                                  },
+                                  50,
+                                );
+                                return;
+                              }
+                              if (mobileKeyboardDismissByViewportRef.current) {
+                                mobileKeyboardDismissByViewportRef.current =
+                                  false;
+                                return;
+                              }
+                              if (mobileInputOutsidePointerBlurRef.current) {
+                                mobileInputOutsidePointerBlurRef.current =
+                                  false;
+                                sanitizeBoundaryInput();
+                                mobileBlurTimerRef.current = window.setTimeout(
+                                  () => {
+                                    finalizeMobileInputBlur();
+                                  },
+                                  50,
+                                );
+                                return;
+                              }
+
+                              sanitizeBoundaryInput();
+                              mobileBlurTimerRef.current = window.setTimeout(
+                                () => {
+                                  finalizeMobileInputBlur();
+                                },
+                                50,
+                              );
+                            }}
+                            onClick={() => {
+                              if (inputFocusedBeforePointerRef.current) return;
+                              inputFocusedBeforePointerRef.current = true;
+                              scheduleMoveInputCursorToEnd();
+                              if (mobileInputHasText) {
+                                scheduleScrollMobileInputToBottom();
+                              }
+                            }}
+                            onPaste={handlePaste}
+                            onScroll={handleInputScroll}
                             style={{
-                              backgroundImage: `url("${attachment.previewUrl}")`,
+                              fontSize: inputFontSize,
+                              fontFamily: config.fontFamily,
                             }}
                           >
-                            <div className={styles["attach-image-mask"]}>
-                              <DeleteImageButton
-                                deleteImage={() =>
-                                  void cancelUploadingAttachment(attachment)
-                                }
-                              />
-                            </div>
-                            <div
-                              className={
-                                styles["attach-image-uploading-overlay"]
-                              }
+                            <span
+                              ref={mobileInputEndRef}
+                              data-chat-input-end="true"
                             >
-                              <span
-                                className={styles["attachment-upload-spinner"]}
-                                style={{
-                                  ["--upload-progress" as any]:
-                                    attachment.progress,
-                                }}
-                              ></span>
-                              <span
-                                className={styles["attachment-upload-percent"]}
-                              >
-                                {Math.round(
-                                  Math.min(
-                                    1,
-                                    Math.max(0, attachment.progress),
-                                  ) * 100,
-                                )}
-                                %
-                              </span>
-                            </div>
+                              {"\u200b"}
+                            </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {isMobileScreen && (
-                  <div className={styles["chat-input-mobile-actions"]}>
-                    {editMobileMessageId && (
-                      <IconButton
-                        icon={<LogOutDoorIcon />}
-                        className={clsx(
-                          styles["chat-input-mobile-add"],
-                          styles["chat-edit-mode-exit"],
+                        ) : (
+                          <textarea
+                            id="chat-input"
+                            ref={inputRef}
+                            className={styles["chat-input"]}
+                            placeholder={
+                              isChatUnavailableForSync ? chatInputHint : ""
+                            }
+                            onInput={(e) => onInput(e.currentTarget.value)}
+                            value={userInput}
+                            onKeyDown={onInputKeyDown}
+                            onPointerDown={() => {
+                              // 在浏览器定位光标之前，记录输入框当前是否已聚焦
+                              inputFocusedBeforePointerRef.current =
+                                document.activeElement === inputRef.current;
+                            }}
+                            onFocus={() => {
+                              setIsMobileInputFocused(true);
+                              scheduleMoveInputCursorToEnd();
+                              // 键盘打开时不强制滚动，由 scheduleMobileKeyboardViewportSync 处理视口调整
+                              scheduleMobileKeyboardViewportSync();
+                            }}
+                            onBlur={() => {
+                              sanitizeBoundaryInput();
+                              setTimeout(
+                                () => setIsMobileInputFocused(false),
+                                50,
+                              );
+                            }}
+                            onClick={() => {
+                              // 仅在“之前未聚焦”的首次点击时，把光标移动到文本末尾；
+                              // 已聚焦时保留用户点击的位置
+                              if (inputFocusedBeforePointerRef.current) return;
+                              inputFocusedBeforePointerRef.current = true;
+                              scheduleMoveInputCursorToEnd();
+                            }}
+                            onPaste={handlePaste}
+                            onScroll={handleInputScroll}
+                            rows={inputRows}
+                            autoFocus={autoFocus}
+                            disabled={isChatUnavailableForSync}
+                            style={{
+                              fontSize: inputFontSize,
+                              fontFamily: config.fontFamily,
+                            }}
+                          />
                         )}
-                        title="退出编辑"
-                        aria="退出编辑模式"
-                        disabled={isChatUnavailableForSync}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onTouchStart={(e) => e.preventDefault()}
-                        onClick={exitMobileEditMode}
-                      />
-                    )}
-                    {(userInput.length > 0 || hasComposerAttachments) && (
-                      <IconButton
-                        icon={<MobileClearIcon />}
-                        className={styles["chat-input-mobile-add"]}
-                        title="清空输入"
-                        aria="清空输入"
-                        disabled={isChatUnavailableForSync}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onTouchStart={(e) => e.preventDefault()}
-                        onClick={() => {
-                          mobileInputOutsidePointerBlurRef.current = false;
-                          setPromptHints([]);
-                          setUserInput("");
-                          clearComposerAttachments();
-                          localStorage.removeItem(unfinishedInputKey);
-                          localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
-                          localStorage.removeItem(unfinishedAttachImagesKey);
-                          localStorage.removeItem(
-                            ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY,
-                          );
-                          if (isMobileScreen && !isMobileInputFocused) {
-                            setIsMobileInputFocused(false);
-                            cancelMobileKeyboardViewportSync();
-                            mobileInputRef.current?.blur();
-                          }
-                        }}
-                      />
-                    )}
-                    <IconButton
-                      icon={<MobileAddIcon />}
-                      className={styles["chat-input-mobile-add"]}
-                      title="添加照片"
-                      aria="添加照片"
-                      disabled={isChatUnavailableForSync || uploading}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        const shouldPreserveBlurHeight =
-                          isMobileScreen && !isMobileInputFocused;
-                        if (totalComposerAttachmentCount >= MAX_ATTACH_IMAGES) {
-                          showAttachLimitHint();
-                          return;
-                        }
-                        if (shouldPreserveBlurHeight) {
-                          prepareMobileInputBlurLayout();
-                        }
-                        uploadImage();
-                      }}
-                    />
+                        {isLoading || isAssistantStreaming ? (
+                          <IconButton
+                            icon={<StopIcon />}
+                            className={styles["chat-input-send"]}
+                            type="primary"
+                            onClick={onStopAll}
+                          />
+                        ) : (
+                          <IconButton
+                            icon={<SendUpIcon />}
+                            className={styles["chat-input-send"]}
+                            type="primary"
+                            disabled={
+                              isChatUnavailableForSync || hasPendingUploads
+                            }
+                            onMouseDown={() => {
+                              if (hasPendingUploads) return;
+                              if (userInput.trim() || hasComposerAttachments) {
+                                prepareMobileSubmitKeyboardDismiss();
+                              }
+                            }}
+                            onTouchStart={(e) => {
+                              if (hasPendingUploads) return;
+                              if (userInput.trim() || hasComposerAttachments) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                mobileSubmitTouchHandledRef.current = true;
+                                prepareMobileSubmitKeyboardDismiss();
+                                doSubmit(userInput);
+                              }
+                            }}
+                            onClick={() => {
+                              if (hasPendingUploads) return;
+                              if (mobileSubmitTouchHandledRef.current) {
+                                mobileSubmitTouchHandledRef.current = false;
+                                return;
+                              }
+                              doSubmit(userInput);
+                            }}
+                          />
+                        )}
+                      </div>
+                    </label>
                   </div>
-                )}
-                <label
-                  ref={chatInputInnerRef}
-                  className={clsx(styles["chat-input-panel-inner"], {
-                    [styles["chat-input-panel-inner-multiline"]]:
-                      !isMobileScreen && inputRows > 1,
-                  })}
-                  htmlFor="chat-input"
-                >
                   {!isMobileScreen && (
-                    <span
-                      ref={inputPlaceholderRef}
-                      className={clsx(styles["chat-input-placeholder"], {
-                        [styles["chat-input-placeholder-hidden"]]:
-                          shouldUseCompactInputHint ||
-                          isChatUnavailableForSync ||
-                          !!userInput ||
-                          hasComposerAttachments,
+                    <div
+                      className={clsx(styles["chat-input-compact-hint"], {
+                        [styles["chat-input-compact-hint-hidden"]]:
+                          !shouldUseCompactInputHint || !!userInput,
                       })}
-                      style={{
-                        fontSize: inputFontSize,
-                        fontFamily: config.fontFamily,
-                      }}
                     >
                       {chatInputHint}
-                    </span>
+                    </div>
                   )}
-                  <div className={styles["chat-input-text-wrap"]}>
-                    {isMobileScreen ? (
-                      <div
-                        id="chat-input"
-                        ref={mobileInputRef}
-                        className={styles["chat-input"]}
-                        contentEditable={!isChatUnavailableForSync}
-                        suppressContentEditableWarning
-                        role="textbox"
-                        aria-multiline="true"
-                        aria-disabled={isChatUnavailableForSync}
-                        onInput={(e) => {
-                          if (!mobileInputEndRef.current?.isConnected) {
-                            const endMarker = document.createElement("span");
-                            endMarker.textContent = "\u200b";
-                            endMarker.setAttribute(
-                              "data-chat-input-end",
-                              "true",
-                            );
-                            e.currentTarget.appendChild(endMarker);
-                            mobileInputEndRef.current = endMarker;
-                          }
-                          const nextText = (
-                            e.currentTarget.textContent ?? ""
-                          ).replace(/\u200b/g, "");
-                          if (nextText.length > 0 && nextText.trim() === "") {
-                            resetMobileInputDom("");
-                            onInput("");
-                            syncMobileInputHeight("");
-                            scheduleResetMobileInputViewportToStart();
-                            return;
-                          }
-                          onInput(nextText);
-                          syncMobileInputHeight(nextText);
-                          if (nextText.trim().length === 0) {
-                            scheduleResetMobileInputViewportToStart();
-                          }
-                        }}
-                        onKeyDown={onMobileInputKeyDown}
-                        onPointerDown={() => {
-                          inputFocusedBeforePointerRef.current =
-                            document.activeElement === mobileInputRef.current;
-                        }}
-                        onFocus={() => {
-                          // 清除 collapse 残留定时器，防止聚焦后被重置为 44px
-                          collapseTimersRef.current.forEach(clearTimeout);
-                          collapseTimersRef.current = [];
-                          clearMobileKeyboardReleaseTimers();
-                          if (mobileBlurTimerRef.current !== null) {
-                            clearTimeout(mobileBlurTimerRef.current);
-                            mobileBlurTimerRef.current = null;
-                          }
-                          preserveMobileInputBlurHeightRef.current = false;
-                          mobileKeyboardOpenedSinceFocusRef.current = false;
-                          mobileKeyboardDismissByViewportRef.current = false;
-                          setPreserveMobileInputBlurHeight(false);
-                          chatInputInnerRef.current?.style.removeProperty(
-                            "--chat-mobile-input-preserved-height",
-                          );
-                          if (mobileInputRef.current) {
-                            mobileInputRef.current.style.removeProperty(
-                              "--chat-mobile-input-preserved-height",
-                            );
-                            mobileInputRef.current.style.height =
-                              mobileInputHasText ? "auto" : "44px";
-                            mobileInputRef.current.style.maxHeight = "";
-                          }
-                          syncMobileInputHeight(userInput);
-                          setIsMobileInputFocused(true);
-                          scheduleMoveInputCursorToEnd();
-                          if (mobileInputHasText) {
-                            scheduleScrollMobileInputToBottom();
-                          }
-                          scheduleMobileKeyboardViewportSync();
-                        }}
-                        onBlur={() => {
-                          if (mobileInputSubmitBlurRef.current) {
-                            mobileInputSubmitBlurRef.current = false;
-                            mobileInputOutsidePointerBlurRef.current = false;
-                            sanitizeBoundaryInput();
-                            mobileBlurTimerRef.current = window.setTimeout(
-                              () => {
-                                finalizeMobileInputBlur();
-                              },
-                              50,
-                            );
-                            return;
-                          }
-                          if (mobileKeyboardDismissByViewportRef.current) {
-                            mobileKeyboardDismissByViewportRef.current = false;
-                            return;
-                          }
-                          if (mobileInputOutsidePointerBlurRef.current) {
-                            mobileInputOutsidePointerBlurRef.current = false;
-                            sanitizeBoundaryInput();
-                            mobileBlurTimerRef.current = window.setTimeout(
-                              () => {
-                                finalizeMobileInputBlur();
-                              },
-                              50,
-                            );
-                            return;
-                          }
-
-                          sanitizeBoundaryInput();
-                          mobileBlurTimerRef.current = window.setTimeout(() => {
-                            finalizeMobileInputBlur();
-                          }, 50);
-                        }}
-                        onClick={() => {
-                          if (inputFocusedBeforePointerRef.current) return;
-                          inputFocusedBeforePointerRef.current = true;
-                          scheduleMoveInputCursorToEnd();
-                          if (mobileInputHasText) {
-                            scheduleScrollMobileInputToBottom();
-                          }
-                        }}
-                        onPaste={handlePaste}
-                        onScroll={handleInputScroll}
-                        style={{
-                          fontSize: inputFontSize,
-                          fontFamily: config.fontFamily,
-                        }}
-                      >
-                        <span
-                          ref={mobileInputEndRef}
-                          data-chat-input-end="true"
-                        >
-                          {"\u200b"}
-                        </span>
-                      </div>
-                    ) : (
-                      <textarea
-                        id="chat-input"
-                        ref={inputRef}
-                        className={styles["chat-input"]}
-                        placeholder={
-                          isChatUnavailableForSync ? chatInputHint : ""
-                        }
-                        onInput={(e) => onInput(e.currentTarget.value)}
-                        value={userInput}
-                        onKeyDown={onInputKeyDown}
-                        onPointerDown={() => {
-                          // 在浏览器定位光标之前，记录输入框当前是否已聚焦
-                          inputFocusedBeforePointerRef.current =
-                            document.activeElement === inputRef.current;
-                        }}
-                        onFocus={() => {
-                          setIsMobileInputFocused(true);
-                          scheduleMoveInputCursorToEnd();
-                          // 键盘打开时不强制滚动，由 scheduleMobileKeyboardViewportSync 处理视口调整
-                          scheduleMobileKeyboardViewportSync();
-                        }}
-                        onBlur={() => {
-                          sanitizeBoundaryInput();
-                          setTimeout(() => setIsMobileInputFocused(false), 50);
-                        }}
-                        onClick={() => {
-                          // 仅在“之前未聚焦”的首次点击时，把光标移动到文本末尾；
-                          // 已聚焦时保留用户点击的位置
-                          if (inputFocusedBeforePointerRef.current) return;
-                          inputFocusedBeforePointerRef.current = true;
-                          scheduleMoveInputCursorToEnd();
-                        }}
-                        onPaste={handlePaste}
-                        onScroll={handleInputScroll}
-                        rows={inputRows}
-                        autoFocus={autoFocus}
-                        disabled={isChatUnavailableForSync}
-                        style={{
-                          fontSize: inputFontSize,
-                          fontFamily: config.fontFamily,
-                        }}
-                      />
-                    )}
-                    <IconButton
-                      icon={<SendUpIcon />}
-                      className={styles["chat-input-send"]}
-                      type="primary"
-                      disabled={isChatUnavailableForSync || hasPendingUploads}
-                      onMouseDown={() => {
-                        if (hasPendingUploads) return;
-                        if (userInput.trim() || hasComposerAttachments) {
-                          prepareMobileSubmitKeyboardDismiss();
-                        }
-                      }}
-                      onTouchStart={(e) => {
-                        if (hasPendingUploads) return;
-                        if (userInput.trim() || hasComposerAttachments) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          mobileSubmitTouchHandledRef.current = true;
-                          prepareMobileSubmitKeyboardDismiss();
-                          doSubmit(userInput);
-                        }
-                      }}
-                      onClick={() => {
-                        if (hasPendingUploads) return;
-                        if (mobileSubmitTouchHandledRef.current) {
-                          mobileSubmitTouchHandledRef.current = false;
-                          return;
-                        }
-                        doSubmit(userInput);
-                      }}
-                    />
-                  </div>
-                </label>
+                  {currentSessionHasMessages && (
+                    <div className={styles["chat-input-footer-note"]}>
+                      专属于你的AI，也专属于我的偏爱。
+                    </div>
+                  )}
+                </div>
               </div>
-              {!isMobileScreen && (
-                <div
-                  className={clsx(styles["chat-input-compact-hint"], {
-                    [styles["chat-input-compact-hint-hidden"]]:
-                      !shouldUseCompactInputHint || !!userInput,
-                  })}
-                >
-                  {chatInputHint}
-                </div>
-              )}
-              {currentSessionHasMessages && (
-                <div className={styles["chat-input-footer-note"]}>
-                  专属于你的AI，也专属于我的偏爱。
-                </div>
-              )}
-            </div>
-          </div>
-          <div
-            className={clsx(styles["chat-side-panel"], {
-              [styles["mobile"]]: isMobileScreen,
-              [styles["chat-side-panel-show"]]: showChatSidePanel,
-            })}
-          >
-            {showChatSidePanel && (
-              <RealtimeChat
-                onClose={() => {
-                  setShowChatSidePanel(false);
-                }}
-                onStartVoice={async () => {
-                  console.log("start voice");
-                }}
-              />
-            )}
-          </div>
+              <div
+                className={clsx(styles["chat-side-panel"], {
+                  [styles["mobile"]]: isMobileScreen,
+                  [styles["chat-side-panel-show"]]: showChatSidePanel,
+                })}
+              >
+                {showChatSidePanel && (
+                  <RealtimeChat
+                    onClose={() => {
+                      setShowChatSidePanel(false);
+                    }}
+                    onStartVoice={async () => {
+                      console.log("start voice");
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
       {showExport && (
@@ -10515,30 +10841,11 @@ export function Chat() {
       const currentSession = store.sessions[store.currentSessionIndex];
       const currentId = currentSession?.id;
       if (currentId !== urlSessionId) {
-        const tabCurrentSessionId =
-          typeof window !== "undefined"
-            ? window.sessionStorage?.getItem("nextchat_tab_current_session_id")
-            : "";
-        if (
-          currentId &&
-          currentId === tabCurrentSessionId &&
-          currentSession.messages.length === 0
-        ) {
-          navigate(Path.Chat, { replace: true });
-          return;
-        }
-        const isNewTab =
-          typeof window !== "undefined" &&
-          window.sessionStorage?.getItem("nextchat_tab_initialized") !== "1";
-        if (isNewTab) {
-          navigate("/", { replace: true });
-          return;
-        }
         isNavigatingFromUrl.current = true;
-        store.selectSessionById(urlSessionId);
+        selectChatSessionById(urlSessionId);
       }
     }
-  }, [navigate, sessionIdListKey, urlSessionId]);
+  }, [sessionIdListKey, urlSessionId]);
 
   // 对话变化时同步 URL
   useEffect(() => {
