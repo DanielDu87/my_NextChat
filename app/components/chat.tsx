@@ -4726,10 +4726,6 @@ function _Chat() {
     };
     setCenteredLatestUserMessageKey(null);
     setCenteredLatestUserMessageSpacerHeight(0);
-    followStreamingAfterScrollButtonRef.current = false;
-    streamingAutoScrollPausedRef.current = true;
-    setAutoScrollEnabled(false);
-    setAutoScroll(false);
 
     // Handle mobile edit mode: resend edited message
     if (editMobileMessageId) {
@@ -5390,7 +5386,7 @@ function _Chat() {
     (messageKey: string) => {
       const dom = scrollRef.current;
       if (!dom || !messageKey) return null;
-      const latestUserMessageCenterOffset = 0;
+      const latestUserMessageAboveCenterOffset = 64;
 
       const escapedMessageKey =
         typeof CSS !== "undefined" && typeof CSS.escape === "function"
@@ -5406,8 +5402,8 @@ function _Chat() {
       const relativeTop = dom.scrollTop + (targetRect.top - containerRect.top);
       const rawTargetTop =
         relativeTop -
-        (dom.clientHeight - targetRect.height) / 2 -
-        latestUserMessageCenterOffset;
+        (dom.clientHeight - targetRect.height) / 2 +
+        latestUserMessageAboveCenterOffset;
       const maxScrollTopWithoutSpacer = Math.max(
         0,
         dom.scrollHeight -
@@ -8135,6 +8131,12 @@ function _Chat() {
     );
     const centerMetrics = getMessageCenterMetrics(messageKey);
     if (!centerMetrics) return;
+
+    // 必须在新消息完成渲染后判断；发送前可能尚未溢出，新增消息后才超出屏幕。
+    if (!isScrollDomOverflowing(centerMetrics.dom)) {
+      clearCenteredLatestUserMessage();
+      return;
+    }
 
     if (
       Math.abs(
