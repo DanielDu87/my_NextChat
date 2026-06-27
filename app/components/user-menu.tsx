@@ -318,7 +318,10 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     console.log("🔄 加载用户列表...");
     setLoadingUsers(true);
     try {
-      const loadedUsers = await preloadManagedUsers({ force });
+      const loadedUsers = await preloadManagedUsers({
+        force,
+        source: force ? "user-refresh" : "user-menu",
+      });
       console.log("✅ 用户列表加载成功，共", loadedUsers.length, "个用户");
       console.log(
         "用户:",

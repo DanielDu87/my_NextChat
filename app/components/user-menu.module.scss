@@ -26,6 +26,12 @@
   box-shadow: none;
 }
 
+.chatFloatingTrigger:hover,
+.chatFloatingTrigger:active {
+  background: transparent;
+  box-shadow: none;
+}
+
 .chatFloatingText {
   width: 100%;
   min-width: 0;
@@ -323,9 +329,9 @@
 .userRow {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(250px, 1.35fr);
+  grid-template-columns: minmax(125px, 0.65fr) minmax(290px, 1.35fr);
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
@@ -383,13 +389,13 @@
 .userDetails {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(58px, 0.65fr) minmax(52px, 0.55fr) minmax(
-      116px,
-      1.35fr
+  grid-template-columns: minmax(52px, 0.55fr) minmax(65px, 0.7fr) minmax(
+      145px,
+      1.55fr
     );
   align-items: center;
   gap: 8px;
-  padding-right: 54px;
+  padding-right: 48px;
 }
 
 .userDetail {
@@ -439,6 +445,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.userDetailWide .userInfoValue {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .badge {

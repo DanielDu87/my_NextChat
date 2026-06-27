@@ -704,7 +704,7 @@ export function Home() {
             const { preloadManagedUsers } = await import(
               "../utils/managed-users"
             );
-            await preloadManagedUsers();
+            await preloadManagedUsers({ source: "page-init" });
           } catch (error) {
             console.error("[Home] 预取用户列表失败:", error);
           }
