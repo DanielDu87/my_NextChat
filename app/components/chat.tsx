@@ -3332,6 +3332,8 @@ function _Chat() {
   const forceScrollRafsRef = useRef<number[]>([]);
   const programmaticScrollToBottomUntilRef = useRef(0);
   const animatedScrollToBottomRafRef = useRef<number | null>(null);
+  const [isScrollToBottomAnimating, setIsScrollToBottomAnimating] =
+    useState(false);
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
         scrollRef.current.scrollHeight -
@@ -3433,6 +3435,7 @@ function _Chat() {
   );
   const [hitBottom, setHitBottom] = useState(true);
   const [chatBodyOverflowing, setChatBodyOverflowing] = useState(false);
+  const [isFarFromBottom, setIsFarFromBottom] = useState(false);
   const isMobileScreen = useMobileScreen();
   const isIOSMobile = useMemo(
     () => isMobileScreen && isIOS(),
@@ -5551,6 +5554,7 @@ function _Chat() {
       window.cancelAnimationFrame(animatedScrollToBottomRafRef.current);
       animatedScrollToBottomRafRef.current = null;
     }
+    setIsScrollToBottomAnimating(false);
   }, []);
 
   const isScrollDomHitBottom = useCallback(
@@ -5572,8 +5576,14 @@ function _Chat() {
     const nextHitBottom = isScrollDomHitBottom(dom);
     setChatBodyOverflowing(isScrollDomOverflowing(dom));
     setHitBottom(nextHitBottom);
+    setIsFarFromBottom(() => {
+      if (!dom) return false;
+      const distanceToBottom =
+        dom.scrollHeight - dom.clientHeight - dom.scrollTop;
+      return distanceToBottom > (isMobileScreen ? 48 : 64);
+    });
     return nextHitBottom;
-  }, [isScrollDomHitBottom, isScrollDomOverflowing, scrollRef]);
+  }, [isMobileScreen, isScrollDomHitBottom, isScrollDomOverflowing, scrollRef]);
 
   const onChatBodyScroll = (e: HTMLElement) => {
     updateStatusPanelOverlap();
@@ -5605,6 +5615,10 @@ function _Chat() {
 
     setChatBodyOverflowing(isScrollDomOverflowing(e));
     setHitBottom(isHitBottom);
+    setIsFarFromBottom(
+      e.scrollHeight - e.clientHeight - e.scrollTop >
+        (isMobileScreen ? 48 : 64),
+    );
 
     if (isScrollingUp) {
       followStreamingAfterScrollButtonRef.current = false;
@@ -5774,76 +5788,81 @@ function _Chat() {
   }, [autoScrollEnabled]);
 
   const scrollToBottomLikeMobileTitle = useCallback(() => {
+    clearForceScrollToBottom();
     userScrollIntentRef.current = false;
     userScrollIntentUntilRef.current = 0;
     streamingAutoScrollPausedRef.current = false;
     followStreamingAfterScrollButtonRef.current = true;
     setAutoScrollEnabled(true);
     setAutoScroll(true);
+    setIsScrollToBottomAnimating(true);
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
-    const settleToBottom = (behavior: ScrollBehavior = "auto") => {
+    const settleToBottom = () => {
       const nextDom = scrollRef.current;
       if (!nextDom) return;
-      programmaticScrollToBottomUntilRef.current = Date.now() + 32;
-
       const targetTop = Math.max(
         0,
         nextDom.scrollHeight - nextDom.clientHeight,
       );
-      nextDom.scrollTo?.({
-        top: targetTop,
-        behavior,
-      });
-      if (behavior === "auto") {
-        nextDom.scrollTop = targetTop;
-      }
+      nextDom.scrollTop = targetTop;
       lastChatBodyScrollTopRef.current = targetTop;
+      programmaticScrollToBottomUntilRef.current = 0;
+      animatedScrollToBottomRafRef.current = null;
+      setIsScrollToBottomAnimating(false);
+      syncHitBottomFromDom();
     };
 
-    const trackAnimatedBottom = (startedAt = performance.now()) => {
+    const animateToBottom = (startedAt: number, startTop: number) => {
       const nextDom = scrollRef.current;
       if (!nextDom || !followStreamingAfterScrollButtonRef.current) {
         animatedScrollToBottomRafRef.current = null;
+        setIsScrollToBottomAnimating(false);
         return;
       }
 
       const elapsed = performance.now() - startedAt;
-      if (elapsed > 900) {
-        animatedScrollToBottomRafRef.current = null;
-        programmaticScrollToBottomUntilRef.current = 0;
-        syncHitBottomFromDom();
-        return;
-      }
-
       const targetTop = Math.max(
         0,
         nextDom.scrollHeight - nextDom.clientHeight,
       );
-      const distanceToBottom = targetTop - nextDom.scrollTop;
-      if (distanceToBottom > 12) {
-        programmaticScrollToBottomUntilRef.current = Date.now() + 32;
-        nextDom.scrollTo?.({
-          top: targetTop,
-          behavior: "smooth",
-        });
-        lastChatBodyScrollTopRef.current = targetTop;
+      const initialDistance = Math.abs(targetTop - startTop);
+      const duration = Math.min(480, Math.max(240, initialDistance * 0.22));
+
+      if (
+        elapsed >= duration ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        settleToBottom();
+        return;
       }
 
+      const progress = Math.min(1, elapsed / duration);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      const nextTop = startTop + (targetTop - startTop) * easedProgress;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 64;
+      nextDom.scrollTop = nextTop;
+      lastChatBodyScrollTopRef.current = nextTop;
+
       animatedScrollToBottomRafRef.current = window.requestAnimationFrame(() =>
-        trackAnimatedBottom(startedAt),
+        animateToBottom(startedAt, startTop),
       );
     };
 
     window.requestAnimationFrame(() => {
-      settleToBottom("smooth");
-      if (animatedScrollToBottomRafRef.current !== null) {
-        window.cancelAnimationFrame(animatedScrollToBottomRafRef.current);
+      const nextDom = scrollRef.current;
+      if (!nextDom) {
+        setIsScrollToBottomAnimating(false);
+        return;
       }
-      animatedScrollToBottomRafRef.current =
-        window.requestAnimationFrame(trackAnimatedBottom);
+      const startTop = nextDom.scrollTop;
+      const startedAt = performance.now();
+      animatedScrollToBottomRafRef.current = window.requestAnimationFrame(() =>
+        animateToBottom(startedAt, startTop),
+      );
     });
   }, [
+    clearForceScrollToBottom,
     renderMessages.length,
     scrollRef,
     setAutoScroll,
@@ -8004,7 +8023,11 @@ function _Chat() {
     enterLoading ||
     (isChatUnavailableForSync && currentSessionHasMessages);
   const shouldShowScrollToBottomButton =
-    chatBodyOverflowing && !hitBottom && !shouldShowChatRestoreNotice;
+    chatBodyOverflowing &&
+    !hitBottom &&
+    isFarFromBottom &&
+    !isScrollToBottomAnimating &&
+    !shouldShowChatRestoreNotice;
 
   useLayoutEffect(() => {
     if (shouldHideChatMessages) {

@@ -488,7 +488,11 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
       hasOnlyEmptyHistoryPlaceholders)
   ) {
     return (
-      <>
+      <div
+        className={clsx(styles.container, {
+          [styles["rtl-screen"]]: getLang() === "ar",
+        })}
+      >
         <SideBar
           className={clsx({
             [styles["sidebar-show"]]: isHome,
@@ -497,7 +501,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
         <WindowContent>
           <LoadingView size="splash" className="no-dark" />
         </WindowContent>
-      </>
+      </div>
     );
   }
 
