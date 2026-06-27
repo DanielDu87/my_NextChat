@@ -100,12 +100,13 @@
   color: #b54708;
 }
 
-.manageList {
+.manageModal .manageList {
   max-height: 52vh;
   overflow: auto;
   overflow-x: hidden;
   margin-bottom: 0;
   border: 0;
+  border-radius: 0;
   box-shadow: none;
   background: transparent;
   display: block;
@@ -117,6 +118,24 @@
 .manageList::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+}
+
+.manageModal .manageListLoading {
+  height: min(180px, 32vh);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loadingState {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--black-alpha-60);
+  font-size: 13px;
 }
 
 .manageModal.manageModal {
@@ -155,6 +174,7 @@
 
 .manageModal :global(.modal-footer > div) {
   min-width: 0;
+  gap: 10px;
   flex-wrap: wrap;
   row-gap: 8px;
 }
@@ -163,7 +183,10 @@
   margin-right: 0 !important;
 }
 
-.manageModal :global(.modal-footer button[class*="icon-button"]:not([class*="danger"]):hover) {
+.manageModal
+  :global(
+    .modal-footer button[class*="icon-button"]:not([class*="danger"]):hover
+  ) {
   box-shadow: 0 0 0 1px var(--primary);
 }
 
@@ -239,12 +262,13 @@
   border-bottom: 0;
 }
 
-.manageListItem {
-  margin-bottom: 6px;
+.manageList .manageListItem,
+.manageList .manageListItem:last-child {
+  margin-bottom: 8px;
   display: block;
-  border: var(--border-in-light);
-  border-radius: 12px;
-  background: var(--hover-color);
+  border: var(--border-in-light) !important;
+  border-radius: 14px;
+  background: var(--white);
   box-shadow: none;
   width: 100%;
   box-sizing: border-box;
@@ -252,21 +276,22 @@
   transition: background-color 0.18s ease;
 }
 
-.manageListItem:hover {
-  background: rgba(72, 154, 221, 0.08);
+.manageList .manageListItem:hover {
+  background: color-mix(in srgb, var(--primary) 6%, var(--white));
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
 .manageList .manageListItem:last-child {
   margin-bottom: 0;
 }
 
-.manageListItemActive {
-  background: rgba(72, 154, 221, 0.12);
-  box-shadow: none;
+.manageList .manageListItem.manageListItemActive {
+  background: color-mix(in srgb, var(--primary) 9%, var(--white)) !important;
+  border-color: color-mix(in srgb, var(--primary) 38%, transparent) !important;
 }
 
-.manageListItemActive:hover {
-  background: rgba(72, 154, 221, 0.18);
+.manageList .manageListItem.manageListItemActive:hover {
+  background: color-mix(in srgb, var(--primary) 13%, var(--white)) !important;
 }
 
 .switchUserInfo {
@@ -286,7 +311,7 @@
   display: block;
   width: 100%;
   min-width: 0;
-  padding: 10px 20px;
+  padding: 12px 14px;
 }
 
 .manageListItem :global(.list-item-title) {
@@ -297,22 +322,81 @@
 
 .userRow {
   position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(250px, 1.35fr);
+  align-items: center;
+  gap: 14px;
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
 }
 
-.userInfoGrid {
+.userIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.userAvatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--white));
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.userIdentityText {
+  min-width: 0;
+}
+
+.userName {
+  overflow: hidden;
+  color: var(--black);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--black-alpha-60);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.disabledState {
+  color: #b54708;
+}
+
+.userDetails {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 0.3fr) minmax(0, 0.3fr) minmax(0, 0.3fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(58px, 0.65fr) minmax(52px, 0.55fr) minmax(
+      116px,
+      1.35fr
+    );
   align-items: center;
-  gap: 20px;
-  width: 100%;
-  padding-left: 40px;
-  padding-right: 72px;
-  box-sizing: border-box;
+  gap: 8px;
+  padding-right: 54px;
+}
+
+.userDetail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .rowAction {
@@ -341,42 +425,26 @@
   cursor: pointer;
 }
 
-.userInfoItem {
-  min-width: 0;
-  flex: 1;
-  text-align: center;
-}
-
 .userInfoLabel {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
   color: var(--black-alpha-60);
-  margin-bottom: 2px;
 }
 
 .userInfoValue {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
-  font-weight: 700;
+  font-weight: 650;
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.userInfoItem:last-child {
-  text-align: left;
-}
-
-.userInfoItem:last-child .userInfoValue {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .badge {
   position: absolute;
   top: 50%;
-  right: 8px;
+  right: 2px;
   transform: translateY(-50%);
   padding: 2px 8px;
   border-radius: 999px;
@@ -387,20 +455,25 @@
 }
 
 @media screen and (max-width: 600px) {
-  .manageModal {
+  .manageModal.manageModal {
     width: calc(100vw - 16px);
     max-width: 420px;
-    height: 55dvh;
-    max-height: 55dvh;
+    min-width: 0;
+    height: min(62vh, calc(var(--full-height) - 24px));
+    height: min(62dvh, calc(var(--full-height) - 24px));
+    max-height: calc(var(--full-height) - 24px);
+    overflow: hidden;
   }
 
   .manageModal :global(.modal-content) {
     max-height: none;
     min-height: 0;
     padding: 12px;
+    overflow: hidden;
   }
 
   .manageModal :global(.modal-header) {
+    flex: 0 0 auto;
     padding: 10px 12px;
   }
 
@@ -412,6 +485,7 @@
     position: sticky;
     bottom: 0;
     z-index: 2;
+    flex: 0 0 auto;
     background: var(--white);
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
     margin-top: auto;
@@ -423,7 +497,7 @@
   .manageModal :global(.modal-footer) > div {
     width: 100%;
     display: flex;
-    gap: 6px;
+    gap: 10px;
     justify-content: flex-start !important;
   }
 
@@ -450,7 +524,12 @@
     padding: 0 8px !important;
   }
 
-  .manageModal :global(.modal-footer-action button[class*="icon-button"] [class*="icon-button-text"]) {
+  .manageModal
+    :global(
+      .modal-footer-action
+        button[class*="icon-button"]
+        [class*="icon-button-text"]
+    ) {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -463,30 +542,67 @@
     margin-bottom: 8px;
   }
 
-  .manageListItem :global(.list-header) {
-    padding: 10px 14px;
+  .manageModal .manageList {
+    height: 100%;
+    max-height: 100%;
   }
 
-  .userInfoGrid {
-    grid-template-columns: minmax(0, 0.45fr) minmax(36px, 0.45fr) minmax(36px, 0.35fr) minmax(80px, 1fr);
-    gap: 8px;
-    padding-left: 30px;
-    padding-right: 56px;
-    align-items: start;
+  .manageListItem :global(.list-header) {
+    padding: 10px 12px;
+  }
+
+  .userRow {
+    grid-template-columns: minmax(70px, 0.65fr) minmax(0, 1.35fr);
+    gap: 6px;
+  }
+
+  .userAvatar {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+    border-radius: 10px;
+  }
+
+  .userDetails {
+    grid-template-columns: minmax(36px, 0.55fr) minmax(48px, 0.7fr) minmax(
+        96px,
+        1.45fr
+      );
+    gap: 5px;
+    padding-right: 34px;
   }
 
   .userInfoLabel {
     font-size: 9px;
+    white-space: nowrap;
   }
 
   .userInfoValue {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .badge {
+    top: 50%;
     right: 0;
+    transform: translateY(-50%);
     font-size: 10px;
-    padding: 1px 6px;
+    padding: 1px 5px;
+  }
+
+  .rowAction {
+    top: 50%;
+    right: 0;
+    width: 32px;
+    transform: translateY(-50%);
+  }
+
+  .userDetailWide .userInfoValue {
+    white-space: nowrap;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: clip;
+    font-size: 9px;
+    letter-spacing: -0.15px;
   }
 
   .chatFloatingTrigger {
@@ -522,12 +638,13 @@
     background: rgba(59, 130, 246, 0.18);
   }
 
-  .manageListItemActive {
-    background: rgba(59, 130, 246, 0.22);
+  .manageList .manageListItem.manageListItemActive {
+    background: rgba(59, 130, 246, 0.22) !important;
+    border-color: rgba(96, 165, 250, 0.62) !important;
   }
 
-  .manageListItemActive:hover {
-    background: rgba(59, 130, 246, 0.28);
+  .manageList .manageListItem.manageListItemActive:hover {
+    background: rgba(59, 130, 246, 0.28) !important;
   }
 
   .userInfoLabel {
@@ -536,6 +653,10 @@
 
   .userInfoValue {
     color: rgba(226, 232, 240, 0.92);
+  }
+
+  .userAvatar {
+    background: rgba(59, 130, 246, 0.2);
   }
 }
 
@@ -551,12 +672,13 @@
       background: rgba(59, 130, 246, 0.18);
     }
 
-    .manageListItemActive {
-      background: rgba(59, 130, 246, 0.22);
+    .manageList .manageListItem.manageListItemActive {
+      background: rgba(59, 130, 246, 0.22) !important;
+      border-color: rgba(96, 165, 250, 0.62) !important;
     }
 
-    .manageListItemActive:hover {
-      background: rgba(59, 130, 246, 0.28);
+    .manageList .manageListItem.manageListItemActive:hover {
+      background: rgba(59, 130, 246, 0.28) !important;
     }
 
     .userInfoLabel {
@@ -565,6 +687,10 @@
 
     .userInfoValue {
       color: rgba(226, 232, 240, 0.92);
+    }
+
+    .userAvatar {
+      background: rgba(59, 130, 246, 0.2);
     }
   }
 }

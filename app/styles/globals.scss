@@ -80,6 +80,9 @@
   --window-content-width: calc(100% - var(--sidebar-width));
   --message-max-width: 88%;
   --full-height: 100%;
+  --close-button-border-width: 1px;
+  --close-button-border-color: rgba(100, 116, 139, 0.24);
+  --close-button-hover-shadow: 0 0 0 1px var(--primary), var(--card-shadow);
 }
 
 /* 只跟随网页设置的主题，优先级最高 */
@@ -133,6 +136,9 @@ html[data-draw-theme="dark"] {
     --window-height: var(--full-height);
     --window-content-width: var(--window-width);
     --message-max-width: 100%;
+    --close-button-border-width: 2px;
+    --close-button-border-color: rgba(148, 163, 184, 0.26);
+    --close-button-hover-shadow: var(--card-shadow);
   }
 
   .no-mobile {

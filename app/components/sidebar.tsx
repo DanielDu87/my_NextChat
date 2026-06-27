@@ -29,7 +29,6 @@ import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { getClientConfig } from "../config/client";
 import { useAuthStore } from "../store/auth";
-import { createNewChatWithSyncedModel } from "../utils/new-chat";
 
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
   loading: () => null,
@@ -623,11 +622,7 @@ export function SideBar(props: { className?: string }) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;
                 }
-                const startNewChat = async () => {
-                  await createNewChatWithSyncedModel();
-                  navigate(Path.Chat);
-                };
-                void startNewChat();
+                navigate(Path.NewChat);
               }}
               shadow
             />

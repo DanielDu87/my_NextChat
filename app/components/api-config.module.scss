@@ -670,7 +670,8 @@
   width: 38px;
   height: 38px;
   padding: 10px;
-  border: 1px solid rgba(100, 116, 139, 0.24);
+  border: var(--close-button-border-width) solid
+    var(--close-button-border-color);
   border-radius: 10px;
   background: var(--white);
   box-shadow: var(--card-shadow);
@@ -697,9 +698,7 @@
       var(--primary) 4%,
       var(--white)
     );
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow);
+    box-shadow: var(--close-button-hover-shadow);
     outline: none;
     transform: none;
     filter: none;

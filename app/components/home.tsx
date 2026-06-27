@@ -697,6 +697,18 @@ export function Home() {
             useChatIndexStore.getState().syncFromChatStore();
           }
         }
+
+        // 用户列表放在页面数据初始化与同步之后预取，打开切换弹窗时可直接显示。
+        if (!cancelled && useAuthStore.getState().user?.role === "admin") {
+          try {
+            const { preloadManagedUsers } = await import(
+              "../utils/managed-users"
+            );
+            await preloadManagedUsers();
+          } catch (error) {
+            console.error("[Home] 预取用户列表失败:", error);
+          }
+        }
       } finally {
         markChatBootstrapped();
       }

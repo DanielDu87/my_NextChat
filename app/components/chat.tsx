@@ -104,7 +104,6 @@ import { getPreferredDefaultChatModel } from "../utils/model";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
-import { createNewChatWithSyncedModel } from "../utils/new-chat";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import {
   getActiveModelSelectorProviderId,
@@ -4582,7 +4581,7 @@ function _Chat() {
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({
-    new: () => void createNewChatWithSyncedModel(),
+    new: () => navigate(Path.NewChat),
     newm: () => navigate(Path.NewChat),
     prev: () => chatStore.nextSession(-1),
     next: () => chatStore.nextSession(1),
@@ -8767,11 +8766,7 @@ function _Chat() {
         event.key.toLowerCase() === "o"
       ) {
         event.preventDefault();
-        setTimeout(() => {
-          void createNewChatWithSyncedModel().finally(() => {
-            navigate(Path.Chat);
-          });
-        }, 10);
+        setTimeout(() => navigate(Path.NewChat), 10);
       }
       // 聚焦聊天输入 shift + esc
       else if (event.shiftKey && event.key.toLowerCase() === "escape") {

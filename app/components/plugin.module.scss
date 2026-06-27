@@ -820,7 +820,8 @@
   height: 38px !important;
   min-height: 38px !important;
   padding: 10px !important;
-  border: 1px solid rgba(100, 116, 139, 0.24) !important;
+  border: var(--close-button-border-width) solid
+    var(--close-button-border-color) !important;
   border-radius: 10px !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
@@ -831,16 +832,14 @@
   &:hover,
   &:focus-visible,
   &:active {
-    border-width: 1px !important;
+    border-width: var(--close-button-border-width) !important;
     border-color: var(--primary) !important;
     background-color: color-mix(
       in srgb,
       var(--primary) 4%,
       var(--white)
     ) !important;
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow) !important;
+    box-shadow: var(--close-button-hover-shadow) !important;
     transform: none !important;
     filter: none !important;
   }

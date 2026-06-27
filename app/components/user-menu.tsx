@@ -16,18 +16,11 @@ import { IconButton } from "./button";
 import { useAuthStore } from "../store/auth";
 import { Path } from "../constant";
 import { useNavigate } from "react-router-dom";
-
-type ManagedUser = {
-  id: string;
-  username: string;
-  displayName: string;
-  role: "admin" | "user";
-  isActive: boolean;
-  lastChatAt: string | null;
-  createdAt?: string | null;
-  conversationCount?: number;
-  lastConversationAt?: string | null;
-};
+import {
+  getCachedManagedUsers,
+  preloadManagedUsers,
+  type ManagedUser,
+} from "../utils/managed-users";
 
 function getUserInitial(name: string) {
   return (
@@ -36,10 +29,6 @@ function getUserInitial(name: string) {
       .slice(0, 1)
       .toUpperCase() || "?"
   );
-}
-
-function formatRole(role: string) {
-  return role === "admin" ? "管理员" : "用户";
 }
 
 function formatLoginTime(value?: string | null) {
@@ -319,35 +308,27 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     setShowManageModal(true);
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (force = false) => {
+    const cachedUsers = force ? null : getCachedManagedUsers();
+    if (cachedUsers) {
+      setUsers(cachedUsers);
+      return;
+    }
+
     console.log("🔄 加载用户列表...");
     setLoadingUsers(true);
     try {
-      const response: Response = await fetch("/api/admin/users", {
-        method: "GET",
-        cache: "no-store",
-      });
-      console.log("📥 收到响应:", response.status, response.statusText);
-
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) {
-        throw new Error(String(payload?.error || "获取用户列表失败"));
-      }
-
-      console.log(
-        "✅ 用户列表加载成功，共",
-        payload.users?.length || 0,
-        "个用户",
-      );
+      const loadedUsers = await preloadManagedUsers({ force });
+      console.log("✅ 用户列表加载成功，共", loadedUsers.length, "个用户");
       console.log(
         "用户:",
-        (payload.users || []).map(
+        loadedUsers.map(
           (u: any) =>
             `${u.username} (${u.role}, ${u.conversationCount ?? 0}个对话)`,
         ),
       );
 
-      setUsers(Array.isArray(payload?.users) ? payload.users : []);
+      setUsers(loadedUsers);
     } catch (error) {
       console.error("❌ 加载用户列表失败:", error);
       showToast(error instanceof Error ? error.message : "获取用户列表失败");
@@ -423,7 +404,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       showToast("删除用户成功");
       setDeleteMode(false);
       setSelectedUserIds([]);
-      await loadUsers();
+      await loadUsers(true);
 
       console.log("✅ 用户列表已刷新");
       console.log("=== 删除用户完成 ===\n");
@@ -519,7 +500,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
 
       showToast("新增用户成功");
       setShowCreateModal(false);
-      await loadUsers();
+      await loadUsers(true);
 
       console.log("✅ 用户列表已刷新");
       console.log("=== 新增用户完成 ===\n");
@@ -555,7 +536,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       showToast("用户名已修改");
       setShowEditUsernameModal(false);
       setEditTargetUser(null);
-      await loadUsers();
+      await loadUsers(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "修改用户名失败");
     }
@@ -741,12 +722,13 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                   />,
                 ].filter(Boolean as any)}
               >
-                <List className={styles.manageList}>
+                <List
+                  className={clsx(styles.manageList, {
+                    [styles.manageListLoading]: loadingUsers,
+                  })}
+                >
                   {loadingUsers ? (
-                    <ListItem
-                      className={styles.manageListItem}
-                      title="加载中..."
-                    />
+                    <div className={styles.loadingState}>加载中...</div>
                   ) : (
                     users.map((managedUser) => (
                       <ListItem
@@ -757,47 +739,65 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                         })}
                         title={
                           <div className={styles.userRow}>
-                            <div className={styles.userInfoGrid}>
-                              <div className={styles.userInfoItem}>
-                                <div className={styles.userInfoLabel}>
-                                  用户名
-                                </div>
-                                <div className={styles.userInfoValue}>
+                            <div className={styles.userIdentity}>
+                              <div className={styles.userAvatar}>
+                                {getUserInitial(
+                                  managedUser.displayName ||
+                                    managedUser.username,
+                                )}
+                              </div>
+                              <div className={styles.userIdentityText}>
+                                <div className={styles.userName}>
                                   {managedUser.displayName ||
                                     managedUser.username}
                                 </div>
+                                {!managedUser.isActive && (
+                                  <div className={styles.userMeta}>
+                                    <span className={styles.disabledState}>
+                                      已禁用
+                                    </span>
+                                  </div>
+                                )}
                               </div>
-                              <div className={styles.userInfoItem}>
-                                <div className={styles.userInfoLabel}>密码</div>
-                                <div className={styles.userInfoValue}>
+                            </div>
+                            <div className={styles.userDetails}>
+                              <div className={styles.userDetail}>
+                                <span className={styles.userInfoLabel}>
+                                  密码
+                                </span>
+                                <span className={styles.userInfoValue}>
                                   {showAllPasswords
                                     ? managedUser.username
                                     : "******"}
-                                </div>
+                                </span>
                               </div>
-                              <div className={styles.userInfoItem}>
-                                <div className={styles.userInfoLabel}>
-                                  对话数
-                                </div>
-                                <div className={styles.userInfoValue}>
-                                  {managedUser.conversationCount ?? "-"}
-                                </div>
+                              <div className={styles.userDetail}>
+                                <span className={styles.userInfoLabel}>
+                                  对话数量
+                                </span>
+                                <span className={styles.userInfoValue}>
+                                  {managedUser.conversationCount ?? "-"} 条
+                                </span>
                               </div>
-                              <div className={styles.userInfoItem}>
-                                <div className={styles.userInfoLabel}>
-                                  最后对话
-                                </div>
-                                <div className={styles.userInfoValue}>
+                              <div
+                                className={clsx(
+                                  styles.userDetail,
+                                  styles.userDetailWide,
+                                )}
+                              >
+                                <span className={styles.userInfoLabel}>
+                                  最近对话
+                                </span>
+                                <span className={styles.userInfoValue}>
                                   {formatLoginTime(
                                     managedUser.lastConversationAt,
                                   )}
-                                </div>
+                                </span>
                               </div>
                             </div>
                             {renderRowAction(managedUser)}
                           </div>
                         }
-                        subTitle={!managedUser.isActive ? "已禁用" : undefined}
                         onClick={() => {
                           if (toggleUserSelection(managedUser)) {
                             return;
@@ -985,48 +985,76 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
               />,
             ]}
           >
-            <List className={styles.manageList}>
+            <List
+              className={clsx(styles.manageList, {
+                [styles.manageListLoading]: loadingUsers,
+              })}
+            >
               {loadingUsers ? (
-                <ListItem className={styles.manageListItem} title="加载中..." />
+                <div className={styles.loadingState}>加载中...</div>
               ) : (
                 users.map((managedUser) => (
                   <ListItem
                     key={managedUser.id}
-                    className={styles.manageListItem}
+                    className={clsx(styles.manageListItem, {
+                      [styles.manageListItemActive]:
+                        effectiveUser.id === managedUser.id,
+                    })}
                     title={
                       <div className={styles.userRow}>
-                        <div className={styles.userInfoGrid}>
-                          <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>用户名</div>
-                            <div className={styles.userInfoValue}>
+                        <div className={styles.userIdentity}>
+                          <div className={styles.userAvatar}>
+                            {getUserInitial(
+                              managedUser.displayName || managedUser.username,
+                            )}
+                          </div>
+                          <div className={styles.userIdentityText}>
+                            <div className={styles.userName}>
                               {managedUser.displayName || managedUser.username}
                             </div>
+                            {!managedUser.isActive && (
+                              <div className={styles.userMeta}>
+                                <span className={styles.disabledState}>
+                                  已禁用
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>密码</div>
-                            <div className={styles.userInfoValue}>
+                        </div>
+                        <div className={styles.userDetails}>
+                          <div className={styles.userDetail}>
+                            <span className={styles.userInfoLabel}>密码</span>
+                            <span className={styles.userInfoValue}>
                               {showAllPasswords
                                 ? managedUser.username
                                 : "******"}
-                            </div>
+                            </span>
                           </div>
-                          <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>对话数</div>
-                            <div className={styles.userInfoValue}>
-                              {managedUser.conversationCount ?? "-"}
-                            </div>
+                          <div className={styles.userDetail}>
+                            <span className={styles.userInfoLabel}>
+                              对话数量
+                            </span>
+                            <span className={styles.userInfoValue}>
+                              {managedUser.conversationCount ?? "-"} 条
+                            </span>
                           </div>
-                          <div className={styles.userInfoItem}>
-                            <div className={styles.userInfoLabel}>最后对话</div>
-                            <div className={styles.userInfoValue}>
+                          <div
+                            className={clsx(
+                              styles.userDetail,
+                              styles.userDetailWide,
+                            )}
+                          >
+                            <span className={styles.userInfoLabel}>
+                              最近对话
+                            </span>
+                            <span className={styles.userInfoValue}>
                               {formatLoginTime(managedUser.lastConversationAt)}
-                            </div>
+                            </span>
                           </div>
                         </div>
                         {renderRowAction(managedUser)}
                       </div>
                     }
-                    subTitle={!managedUser.isActive ? "已禁用" : undefined}
                     onClick={() => {
                       if (toggleUserSelection(managedUser)) {
                         return;
