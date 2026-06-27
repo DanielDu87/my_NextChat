@@ -187,7 +187,9 @@ export function SearchChatPage() {
           <div className="window-actions">
             <div className="window-action-button">
               <IconButton
+                aria={Locale.UI.Close}
                 icon={<CloseIcon />}
+                close
                 bordered
                 onClick={() => {
                   if (window.history.length > 1) {

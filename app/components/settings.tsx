@@ -1384,6 +1384,7 @@ export function Settings() {
             <IconButton
               aria={Locale.UI.Close}
               icon={<CloseIcon />}
+              close
               onClick={() => navigate(Path.Home)}
               bordered
             />

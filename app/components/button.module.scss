@@ -87,6 +87,43 @@
   }
 }
 
+.icon-button.close {
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 10px !important;
+  border: 1px solid rgba(100, 116, 139, 0.24) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:not([disabled]):hover,
+  &:not([disabled]):focus-visible,
+  &:not([disabled]):active {
+    border-width: 1px !important;
+    border-color: var(--primary) !important;
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    outline: none;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
 .icon-button-icon {
   width: 16px;
   height: 16px;

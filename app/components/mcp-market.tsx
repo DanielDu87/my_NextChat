@@ -669,7 +669,9 @@ export function McpMarketPage() {
             </div>
             <div className="window-action-button">
               <IconButton
+                aria="关闭"
                 icon={<CloseIcon />}
+                close
                 bordered
                 onClick={() => navigate(-1)}
                 disabled={isLoading}

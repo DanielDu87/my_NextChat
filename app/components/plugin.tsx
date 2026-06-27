@@ -158,7 +158,9 @@ export function PluginPage() {
               <IconButton icon={<GithubIcon />} bordered />
             </a>
             <IconButton
+              aria={Locale.UI.Close}
               icon={<CloseIcon />}
+              close
               bordered
               onClick={() => navigate(-1)}
             />
@@ -187,7 +189,9 @@ export function PluginPage() {
             </div>
             <div className="window-action-button">
               <IconButton
+                aria={Locale.UI.Close}
                 icon={<CloseIcon />}
+                close
                 bordered
                 onClick={() => navigate(-1)}
               />

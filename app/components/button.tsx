@@ -22,6 +22,7 @@ export function IconButton(props: {
   autoFocus?: boolean;
   style?: CSSProperties;
   aria?: string;
+  close?: boolean;
 }) {
   return (
     <button
@@ -30,6 +31,7 @@ export function IconButton(props: {
         {
           [styles.border]: props.bordered,
           [styles.shadow]: props.shadow,
+          [styles.close]: props.close,
         },
         styles[props.type ?? ""],
         props.className,
@@ -44,6 +46,7 @@ export function IconButton(props: {
       autoFocus={props.autoFocus}
       style={props.style}
       aria-label={props.aria}
+      data-close-button={props.close ? "true" : undefined}
     >
       {props.icon && (
         <div

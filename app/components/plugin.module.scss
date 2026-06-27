@@ -19,7 +19,7 @@
     }
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"])) {
     border-color: rgba(148, 163, 184, 0.26) !important;
     background-color: var(--white) !important;
     box-shadow: var(--card-shadow);
@@ -29,8 +29,8 @@
       box-shadow 0.2s ease;
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]:hover),
-  :global(.window-header .window-actions button[class*="button_icon-button"]:focus-visible) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):hover),
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):focus-visible) {
     background-color: color-mix(
       in srgb,
       var(--primary) 4%,
@@ -41,7 +41,7 @@
     outline: none;
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]:active) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):active) {
     transform: none !important;
     filter: none !important;
   }
@@ -716,7 +716,7 @@
 }
 
 .plugin-page {
-  :global(button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"])) {
+  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"])) {
     --chat-window-button-idle-border: rgba(148, 163, 184, 0.26);
 
     border: 2px solid var(--chat-window-button-idle-border) !important;
@@ -733,8 +733,8 @@
       box-shadow 0.2s ease;
   }
 
-  :global(button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):hover),
-  :global(button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):focus-visible) {
+  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):hover),
+  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):focus-visible) {
     background-color: color-mix(
       in srgb,
       var(--primary) 4%,
@@ -746,7 +746,7 @@
     outline: none;
   }
 
-  :global(button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):active) {
+  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):active) {
     background-color: color-mix(
       in srgb,
       var(--primary) 4%,
@@ -782,7 +782,7 @@
     justify-content: center;
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"])) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"])) {
     --chat-window-button-idle-border: rgba(148, 163, 184, 0.26);
 
     height: 100% !important;
@@ -794,8 +794,8 @@
     box-shadow: var(--card-shadow) !important;
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):hover),
-  :global(.window-header .window-actions button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):focus-visible) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):hover),
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):focus-visible) {
     background-color: color-mix(
       in srgb,
       var(--primary) 4%,
@@ -806,9 +806,42 @@
     box-shadow: var(--card-shadow) !important;
   }
 
-  :global(.window-header .window-actions button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):focus:not(:hover)),
-  :global(.window-header .window-actions button[class*="button_icon-button"]:not([class*="button_primary"]):not([class*="button_danger"]):active:not(:hover)) {
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):focus:not(:hover)),
+  :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):active:not(:hover)) {
     border-color: var(--chat-window-button-idle-border) !important;
     box-shadow: none !important;
+  }
+}
+
+// 关闭按钮在桌面端和移动端保持完全相同，避免页面按钮规则改变尺寸或边框。
+.plugin-page :global(button[data-close-button="true"]) {
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 10px !important;
+  border: 1px solid rgba(100, 116, 139, 0.24) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
+
+  &:hover,
+  &:focus-visible,
+  &:active {
+    border-width: 1px !important;
+    border-color: var(--primary) !important;
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    transform: none !important;
+    filter: none !important;
   }
 }

@@ -253,7 +253,10 @@ export function Modal(props: ModalProps) {
         <div className={styles["modal-title"]}>{props.title}</div>
 
         <div className={styles["modal-header-actions"]}>
-          <div
+          <button
+            type="button"
+            aria-label={Locale.UI.Close}
+            data-close-button="true"
             className={styles["modal-header-action"]}
             onClick={(event) => {
               event.preventDefault();
@@ -276,7 +279,7 @@ export function Modal(props: ModalProps) {
             }}
           >
             <CloseIcon />
-          </div>
+          </button>
         </div>
       </div>
 

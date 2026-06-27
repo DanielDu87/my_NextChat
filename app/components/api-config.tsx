@@ -1045,17 +1045,6 @@ export function ApiConfigPage() {
           min-width: unset !important;
           margin: 0 auto !important;
         }
-        .modal-mask .modal-header-action {
-          opacity: 1 !important;
-          padding: 8px !important;
-          background: rgba(0, 0, 0, 0.05) !important;
-          border-radius: 8px !important;
-          transition: all 0.2s !important;
-        }
-        .modal-mask .modal-header-action:hover {
-          background: rgba(0, 0, 0, 0.1) !important;
-          transform: scale(1.1) !important;
-        }
       `;
       document.head.appendChild(style);
     }
@@ -2096,6 +2085,7 @@ export function ApiConfigPage() {
             <IconButton
               aria="关闭"
               icon={<CloseIcon />}
+              close
               onClick={() => {
                 if (window.history.length > 1) {
                   navigate(-1);
@@ -2474,6 +2464,8 @@ export function ApiConfigPage() {
                           </div>
                           <button
                             type="button"
+                            aria-label="关闭"
+                            data-close-button="true"
                             className={styles.profileYutoModalClose}
                             onClick={() => {
                               setEditingYutoProfileId("");
