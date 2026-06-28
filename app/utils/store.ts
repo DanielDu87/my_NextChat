@@ -55,6 +55,19 @@ let syncQueue: Array<() => Promise<void>> = [];
 let isSyncQueueProcessing = false;
 let syncQueueIdleResolvers: Array<() => void> = [];
 
+function shouldDeferApiConfigImmediateSync(storeKey?: SyncStoreKey) {
+  if (
+    typeof window === "undefined" ||
+    (storeKey !== StoreKey.Access && storeKey !== StoreKey.Config)
+  ) {
+    return false;
+  }
+
+  const hashPath = window.location.hash.replace(/^#/, "").split("?")[0];
+  const currentPath = hashPath || window.location.pathname;
+  return currentPath === "/api-config" || currentPath === "/api-config/backups";
+}
+
 function resolveSyncQueueIdle() {
   if (isSyncQueueProcessing || syncQueue.length > 0) {
     return;
@@ -131,6 +144,7 @@ function triggerImmediateStoreSync(storeName?: string) {
     immediateStoreSyncPauseCount > 0 ||
     useAuthStore.getState().readOnly ||
     !syncStoreKey ||
+    shouldDeferApiConfigImmediateSync(syncStoreKey) ||
     !IMMEDIATE_SYNC_STORE_KEYS.has(syncStoreKey)
   ) {
     return;

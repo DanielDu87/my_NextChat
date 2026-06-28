@@ -75,6 +75,7 @@ export enum Path {
   ChatWithId = "/chat/:id",
   Settings = "/settings",
   ApiConfig = "/api-config",
+  ApiConfigBackups = "/api-config/backups",
   NewChat = "/new-chat",
   Plugins = "/plugins",
   Auth = "/auth",

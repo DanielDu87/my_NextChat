@@ -4201,9 +4201,15 @@ function _Chat() {
           </span>{" "}
         </>
       )}
-      <span className={styles["provider-button-model"]}>
-        {currentModelName}
-      </span>
+      {isModelSelectionSyncing ? (
+        <span className={styles["provider-button-model-syncing"]}>
+          {currentModelName}
+        </span>
+      ) : (
+        <span className={styles["provider-button-model"]}>
+          {currentModelName}
+        </span>
+      )}
     </>
   );
   const modelSelectorButtonTitle = autoModeEnabled

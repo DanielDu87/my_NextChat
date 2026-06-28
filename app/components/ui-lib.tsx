@@ -371,6 +371,7 @@ let globalTopNoticeDiv: HTMLDivElement | null = null;
 let globalTopNoticeRoot: ReturnType<typeof createRoot> | null = null;
 let globalTopNoticeCloseTimer: number | null = null;
 let globalTopNoticeCleanupTimer: number | null = null;
+let globalTopNoticeReplaceTimer: number | null = null;
 
 export function NoticePill(props: {
   content?: React.ReactNode;
@@ -417,6 +418,10 @@ export function hideTopNotice() {
     window.clearTimeout(globalTopNoticeCleanupTimer);
     globalTopNoticeCleanupTimer = null;
   }
+  if (globalTopNoticeReplaceTimer !== null) {
+    window.clearTimeout(globalTopNoticeReplaceTimer);
+    globalTopNoticeReplaceTimer = null;
+  }
 
   if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
   globalTopNoticeRoot.render(<></>);
@@ -446,6 +451,8 @@ export function showTopNotice(content: string, delay = 2200) {
 
   if (!globalTopNoticeRoot || !globalTopNoticeDiv) return;
 
+  const shouldAnimateReplacement = Boolean(globalTopNoticeDiv.className);
+
   if (globalTopNoticeCloseTimer !== null) {
     window.clearTimeout(globalTopNoticeCloseTimer);
     globalTopNoticeCloseTimer = null;
@@ -454,22 +461,42 @@ export function showTopNotice(content: string, delay = 2200) {
     window.clearTimeout(globalTopNoticeCleanupTimer);
     globalTopNoticeCleanupTimer = null;
   }
+  if (globalTopNoticeReplaceTimer !== null) {
+    window.clearTimeout(globalTopNoticeReplaceTimer);
+    globalTopNoticeReplaceTimer = null;
+  }
 
-  globalTopNoticeDiv.className = `${styles["top-notice-show"]}`;
-  globalTopNoticeRoot.render(<TopNotice content={content} style={hostStyle} />);
-
-  globalTopNoticeCloseTimer = window.setTimeout(() => {
+  const renderNotice = () => {
     if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
+    globalTopNoticeDiv.className = `${styles["top-notice-show"]}`;
+    globalTopNoticeRoot.render(
+      <TopNotice content={content} style={hostStyle} />,
+    );
+
+    globalTopNoticeCloseTimer = window.setTimeout(() => {
+      if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
+      globalTopNoticeDiv.className = `${styles["top-notice-hide"]}`;
+      globalTopNoticeCleanupTimer = window.setTimeout(() => {
+        globalTopNoticeRoot?.render(<></>);
+        if (globalTopNoticeDiv) {
+          globalTopNoticeDiv.className = "";
+        }
+        globalTopNoticeCleanupTimer = null;
+      }, 220);
+      globalTopNoticeCloseTimer = null;
+    }, delay);
+  };
+
+  if (shouldAnimateReplacement) {
     globalTopNoticeDiv.className = `${styles["top-notice-hide"]}`;
-    globalTopNoticeCleanupTimer = window.setTimeout(() => {
-      globalTopNoticeRoot?.render(<></>);
-      if (globalTopNoticeDiv) {
-        globalTopNoticeDiv.className = "";
-      }
-      globalTopNoticeCleanupTimer = null;
+    globalTopNoticeReplaceTimer = window.setTimeout(() => {
+      globalTopNoticeReplaceTimer = null;
+      renderNotice();
     }, 220);
-    globalTopNoticeCloseTimer = null;
-  }, delay);
+    return;
+  }
+
+  renderNotice();
 }
 
 export function Toast(props: ToastProps) {

@@ -1,17 +1,23 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 import styles from "./api-config.module.scss";
 
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
-import UploadIcon from "../icons/upload.svg";
 import DownloadIcon from "../icons/download.svg";
 import AddIcon from "../icons/add.svg";
 import TrashIcon from "../icons/trash.svg";
 
 import { IconButton } from "./button";
-import { List, ListItem, Select, showToast, showConfirm } from "./ui-lib";
+import {
+  List,
+  ListItem,
+  Select,
+  showToast,
+  showConfirm,
+  showTopNotice,
+} from "./ui-lib";
 import {
   AI302,
   Alibaba,
@@ -40,14 +46,12 @@ import {
   useChatStore,
   useModelCacheStore,
 } from "../store";
-import { useSyncStore, waitForSyncIdleSafely } from "../store/sync";
+import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
-import { AppState, getLocalAppState, setLocalAppState } from "../utils/sync";
+import { getLocalAppState } from "../utils/sync";
 import {
   parseStoreStatePayload,
-  stringifyPersistedStoreState,
-  SYNC_STORE_KEYS,
   type SyncStoreKey,
 } from "../utils/sync-store-keys";
 import { writeAccessSnapshot } from "../utils/access-snapshot";
@@ -329,53 +333,6 @@ function normalizeAccessStateForUi(
 
   return nextAccessState;
 }
-
-function normalizeDownloadedStoreState(
-  key: SyncStoreKey,
-  parsedState: unknown,
-  localAccessState: Record<string, any>,
-) {
-  if (key === StoreKey.Access) {
-    const safeAccessState =
-      parsedState &&
-      typeof parsedState === "object" &&
-      !Array.isArray(parsedState)
-        ? (parsedState as Record<string, any>)
-        : {};
-
-    if (
-      !parsedState ||
-      typeof parsedState !== "object" ||
-      Array.isArray(parsedState)
-    ) {
-      console.warn(
-        `[API Config] ⚠️ ${key} 云端快照不是对象，已回退为空对象兼容导入`,
-        parsedState,
-      );
-    }
-
-    return normalizeAccessStateForUi(
-      restoreEncryptedAccessSecrets(localAccessState, safeAccessState),
-    );
-  }
-
-  if (key === StoreKey.Config) {
-    if (
-      !parsedState ||
-      typeof parsedState !== "object" ||
-      Array.isArray(parsedState)
-    ) {
-      console.warn(
-        `[API Config] ⚠️ ${key} 云端快照不是对象，已回退为空对象兼容导入`,
-        parsedState,
-      );
-      return {};
-    }
-  }
-
-  return parsedState;
-}
-
 async function refreshDatabaseMetaSafely(
   client: any,
   keys: readonly SyncStoreKey[],
@@ -965,8 +922,6 @@ export function ApiConfigPage() {
   const chatStore = useChatStore();
   const syncStore = useSyncStore();
   const [syncing, setSyncing] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [modelFetchStatusMap, setModelFetchStatusMap] = useState<
     Partial<Record<string, ModelFetchStatus>>
   >({});
@@ -1052,6 +1007,43 @@ export function ApiConfigPage() {
     (profile) => profile.enabled,
   );
   const dbSyncTargetLabel = "PostgreSQL / nextchat";
+  const syncedApiConfigSnapshotRef = useRef<Record<string, string> | null>(
+    null,
+  );
+
+  const getApiConfigSnapshot = useCallback(() => {
+    const state = getLocalAppState();
+    return {
+      [StoreKey.Access]: JSON.stringify(state[StoreKey.Access]),
+      [StoreKey.Config]: JSON.stringify(state[StoreKey.Config]),
+    };
+  }, []);
+
+  const getChangedApiConfigKeys = useCallback(() => {
+    const baseline = syncedApiConfigSnapshotRef.current;
+    if (!baseline) return [] as SyncStoreKey[];
+    const current = getApiConfigSnapshot();
+    return DATABASE_META_KEYS.filter(
+      (key) => baseline[key] !== current[key],
+    ) as SyncStoreKey[];
+  }, [getApiConfigSnapshot]);
+
+  useEffect(() => {
+    if (syncedApiConfigSnapshotRef.current === null) {
+      syncedApiConfigSnapshotRef.current = getApiConfigSnapshot();
+    }
+  }, [getApiConfigSnapshot]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (getChangedApiConfigKeys().length > 0) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [getChangedApiConfigKeys]);
 
   const allProfiles = accessStore.apiProfiles;
   const updateStoredMeta = (metas: StoreSnapshotMeta[]) => {
@@ -1220,7 +1212,7 @@ export function ApiConfigPage() {
           if (useSyncStore.getState().provider === ProviderType.Database) {
             useModelCacheStore.getState().migrateFromAccessProfiles?.();
             console.log(
-              "[API Config] ℹ️ 进入 API 配置页不会自动同步；请使用上传、保存并同步或从数据库下载按钮手动同步",
+              "[API Config] ℹ️ 进入 API 配置页不会自动同步；修改后请使用保存并同步按钮",
             );
           } else {
             console.log("[API Config] ℹ️ 当前未启用数据库同步");
@@ -1256,7 +1248,7 @@ export function ApiConfigPage() {
     accessStore.customOpenAICompatible,
   ]);
 
-  const syncActionDisabled = syncing || backingUp || downloading;
+  const syncActionDisabled = syncing;
   // const customProviderUnsupported =
   //   accessStore.provider === ServiceProvider.Custom &&
   //   !accessStore.customOpenAICompatible;
@@ -1783,10 +1775,17 @@ export function ApiConfigPage() {
     console.clear();
     console.log("===== 💾 API配置保存并同步 =====");
     console.log("[API Config] 🚀 开始保存并同步到 PostgreSQL...");
+    const changedKeys = getChangedApiConfigKeys();
+    if (changedKeys.length === 0) {
+      console.log("[API Config] ℹ️ 未检测到配置变化，跳过同步");
+      showTopNotice("API 配置没有需要同步的修改");
+      return true;
+    }
+
     try {
       setSyncing(true);
+      console.log("[API Config] 📦 本次仅同步发生变化的数据块", changedKeys);
       await runWithManualDatabaseSyncActive(async () => {
-        syncStore.cancelQueuedAutoSync?.();
         await runWithImmediateStoreSyncPaused(async () => {
           ensureDatabaseSyncProvider();
           await ensureRemoteAccessProfilesLoaded();
@@ -1798,16 +1797,12 @@ export function ApiConfigPage() {
           }
         });
 
-        await syncStore.sync([...SYNC_STORE_KEYS], {
+        await syncStore.sync(changedKeys, {
           force: true,
           manual: true,
         });
         const client = syncStore.getClient() as any;
-        await refreshDatabaseMetaSafely(
-          client,
-          SYNC_STORE_KEYS,
-          updateStoredMeta,
-        );
+        await refreshDatabaseMetaSafely(client, changedKeys, updateStoredMeta);
 
         const syncedUserModelCount = countUserAddedModels(
           useAppConfig.getState().customModels,
@@ -1823,231 +1818,36 @@ export function ApiConfigPage() {
         console.log(LOG_SEPARATOR);
         console.log("===== ✅ API配置保存并同步完成 =====");
 
-        showToast("已同步全部配置、用户已添加模型和对话记录到 PostgreSQL");
+        syncedApiConfigSnapshotRef.current = getApiConfigSnapshot();
+        showTopNotice("API 配置同步成功");
       });
+      return true;
     } catch (error) {
       console.error("[API Config] ❌ 数据库同步失败:", error);
       showToast("同步到 PostgreSQL 失败，请检查数据库连接");
+      return false;
     } finally {
       setSyncing(false);
     }
+  };
+
+  const closeApiConfigPage = async () => {
+    const hasUnsyncedChanges = getChangedApiConfigKeys().length > 0;
+    if (hasUnsyncedChanges) {
+      console.warn("[API Config] ⚠️ 关闭页面时检测到未同步的配置修改");
+      const shouldSync = await showConfirm(
+        "API 配置已修改但尚未同步。是否保存并同步后退出？",
+      );
+      if (!shouldSync) return;
+      if (!(await syncToDatabase())) return;
+    }
+    navigate(Path.Chat);
   };
 
   const ensureDatabaseSyncProvider = () => {
     syncStore.update((state) => {
       state.provider = ProviderType.Database;
     });
-  };
-
-  const backupToDatabase = async () => {
-    console.log("[API Config] ⬆️ 开始上传到数据库...");
-    try {
-      setBackingUp(true);
-      await runWithImmediateStoreSyncPaused(async () => {
-        syncStore.cancelQueuedAutoSync?.();
-        const idle = await waitForSyncIdleSafely({ timeoutMs: 8000 });
-        if (!idle) {
-          console.warn(
-            "[API Config] ⚠️ 等待同步空闲超时，继续执行上传（可能存在后台同步任务）",
-          );
-        }
-        {
-          ensureDatabaseSyncProvider();
-          const activeProfile = accessStore.apiProfiles.find(
-            (profile) => profile.enabled,
-          );
-          if (activeProfile) {
-            syncProfileToAccess(activeProfile.id, { skipFetchModels: true });
-          }
-
-          const syncedUserModelCount = countUserAddedModels(
-            useAppConfig.getState().customModels,
-          );
-          console.log("[API Config] ⏳ 本地快照已准备，等待数据库写入完成...");
-          console.log(LOG_SEPARATOR);
-          const client = syncStore.getClient() as any;
-          const localState = getLocalAppState();
-
-          console.log(
-            `[API Config] 📦 准备上传 ${SYNC_STORE_KEYS.length} 个数据块`,
-          );
-
-          for (const key of SYNC_STORE_KEYS) {
-            const storeData = localState[key as keyof AppState];
-            console.log(`[API Config] 📤 正在写入数据库: ${key}...`);
-            await client.set(key, stringifyPersistedStoreState(key, storeData));
-          }
-
-          syncStore.markSyncTime();
-          await refreshDatabaseMetaSafely(
-            client,
-            SYNC_STORE_KEYS,
-            updateStoredMeta,
-          );
-
-          console.log("[API Config] ✅ 上传到数据库完成");
-          console.log(
-            `[API Config] ✅ 已上传用户添加模型: ${syncedUserModelCount} 个`,
-          );
-          console.log(
-            "[API Config] ℹ️ 本次未上传供应商完整模型缓存，仅上传用户数据与界面偏好",
-          );
-          console.log(LOG_SEPARATOR);
-          showToast("已上传全部配置、用户已添加模型和对话记录到 PostgreSQL");
-        }
-      });
-    } catch (error) {
-      console.error("[API Config] ❌ 数据库写入失败:", error);
-      showToast("上传全部配置到 PostgreSQL 失败");
-    } finally {
-      setBackingUp(false);
-    }
-  };
-
-  const downloadAllAndOverwriteLocalFromDatabase = async () => {
-    const confirmed = await showConfirm(
-      "确定要从数据库下载全部配置、对话和已添加模型，并完全覆盖本地吗？本地当前数据将被替换。",
-    );
-    if (!confirmed) return;
-
-    console.log("[API Config] ⬇️ 开始从数据库下载并覆盖本地...");
-    try {
-      setDownloading(true);
-      await runWithImmediateStoreSyncPaused(async () => {
-        syncStore.cancelQueuedAutoSync?.();
-        const idle = await waitForSyncIdleSafely({ timeoutMs: 8000 });
-        if (!idle) {
-          console.warn(
-            "[API Config] ⚠️ 等待同步空闲超时，继续执行下载（可能存在后台同步任务）",
-          );
-        }
-        ensureDatabaseSyncProvider();
-        const client = syncStore.getClient() as any;
-        const localState = getLocalAppState();
-        const nextState = { ...localState } as AppState;
-        const fallbackKeys: string[] = [];
-        const localAccessProfiles = Array.isArray(
-          (localState[StoreKey.Access] as any)?.apiProfiles,
-        )
-          ? ((localState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
-          : [];
-
-        console.log(
-          `[API Config] 📦 准备下载 ${SYNC_STORE_KEYS.length} 个数据块`,
-        );
-
-        for (const key of SYNC_STORE_KEYS) {
-          console.log(`[API Config] 📥 正在下载: ${key}...`);
-          const remoteStateText = await client.get(key);
-          if (!remoteStateText || remoteStateText === "") {
-            console.warn(
-              `[API Config] ⚠️ ${key}: 数据库无数据，保留本地当前数据`,
-            );
-            fallbackKeys.push(key);
-            continue;
-          }
-
-          try {
-            const parsedState = parseStoreStatePayload(remoteStateText);
-            (nextState as Record<string, unknown>)[key] =
-              normalizeDownloadedStoreState(
-                key,
-                parsedState,
-                (localState[StoreKey.Access] || {}) as Record<string, any>,
-              );
-          } catch (error) {
-            console.warn(
-              `[API Config] ⚠️ ${key}: 云端数据不可用，保留本地当前数据`,
-              error,
-            );
-            fallbackKeys.push(key);
-            continue;
-          }
-
-          if (key === StoreKey.Access) {
-            const debugAccessState = (nextState as Record<string, any>)[
-              key
-            ] as Record<string, any>;
-            console.log(
-              "[API Config] 🔐 access-control 下载结果",
-              (debugAccessState?.apiProfiles || [])
-                .slice(0, 3)
-                .map((profile: any) => ({
-                  id: profile.id,
-                  name: profile.name,
-                  apiKey: profile.apiKey,
-                  modelFetchApiKey: profile.modelFetchApiKey,
-                })),
-            );
-          }
-          console.log(`[API Config] ✅ ${key}: 下载成功`);
-        }
-
-        const nextAccessProfiles = Array.isArray(
-          (nextState[StoreKey.Access] as any)?.apiProfiles,
-        )
-          ? ((nextState[StoreKey.Access] as any)?.apiProfiles as any[]) || []
-          : [];
-
-        if (
-          localAccessProfiles.length === 0 &&
-          nextAccessProfiles.length === 0
-        ) {
-          console.warn(
-            "[API Config] ⚠️ 数据库中的 access-control 为空或不可用，将保留当前本地 API 配置状态",
-          );
-          fallbackKeys.push(StoreKey.Access);
-        }
-
-        console.log("[API Config] 🔧 正在用数据库快照覆盖本地...");
-        setLocalAppState(nextState);
-        const latestAccessState = useAccessStore.getState();
-        const latestActiveProfile = latestAccessState.apiProfiles.find(
-          (profile) => profile.enabled,
-        );
-
-        if (latestActiveProfile) {
-          syncProfileToAccess(latestActiveProfile.id, {
-            skipFetchModels: true,
-          });
-        } else {
-          applyProviderToChat(latestAccessState.provider);
-        }
-
-        syncStore.markSyncTime();
-        await refreshDatabaseMetaSafely(
-          client,
-          SYNC_STORE_KEYS,
-          updateStoredMeta,
-        );
-
-        console.log("[API Config] ✅ 从数据库下载并覆盖本地完成");
-        console.log(LOG_SEPARATOR);
-        if (fallbackKeys.length > 0) {
-          console.warn(
-            `[API Config] ⚠️ 以下数据块缺失或格式异常，已保留本地数据: ${fallbackKeys.join(
-              ", ",
-            )}`,
-          );
-          showToast(
-            `已完成下载，以下数据块因云端为空或格式异常而保留本地数据：${fallbackKeys.join(
-              ", ",
-            )}`,
-          );
-        } else {
-          showToast(
-            "已从 PostgreSQL 下载全部配置、对话和已添加模型，并覆盖本地",
-          );
-        }
-      });
-    } catch (error) {
-      console.error("[API Config] ❌ 数据库下载失败:", error);
-      showToast(
-        "从 PostgreSQL 下载并覆盖本地失败: " + (error as Error).message,
-      );
-    } finally {
-      setDownloading(false);
-    }
   };
 
   const clearLocalAndCloudModels = async () => {
@@ -2086,7 +1886,7 @@ export function ApiConfigPage() {
 
   if (isMobileScreen) {
     return (
-      <div className={styles.page}>
+      <div className={styles.page} data-top-notice-anchor="true">
         <div className="window-header" data-tauri-drag-region>
           <div className="window-header-title">
             <div className="window-header-main-title">API 配置</div>
@@ -2101,11 +1901,7 @@ export function ApiConfigPage() {
                 icon={<CloseIcon />}
                 close
                 onClick={() => {
-                  if (window.history.length > 1) {
-                    navigate(-1);
-                    return;
-                  }
-                  navigate(Path.Home);
+                  void closeApiConfigPage();
                 }}
                 bordered
               />
@@ -2125,7 +1921,7 @@ export function ApiConfigPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} data-top-notice-anchor="true">
       <div className="window-header" data-tauri-drag-region>
         <div className="window-header-title">
           <div className="window-header-main-title">API 配置</div>
@@ -2136,15 +1932,19 @@ export function ApiConfigPage() {
         <div className="window-actions">
           <div className="window-action-button">
             <IconButton
+              icon={<DownloadIcon />}
+              text="配置备份"
+              bordered
+              onClick={() => navigate(Path.ApiConfigBackups)}
+            />
+          </div>
+          <div className="window-action-button">
+            <IconButton
               aria="关闭"
               icon={<CloseIcon />}
               close
               onClick={() => {
-                if (window.history.length > 1) {
-                  navigate(-1);
-                  return;
-                }
-                navigate(Path.Home);
+                void closeApiConfigPage();
               }}
               bordered
             />
@@ -2175,12 +1975,15 @@ export function ApiConfigPage() {
           />
 
           <ListItem
-            title={
-              <div className={styles.profileSectionTitle}>
-                <span>配置条目</span>
+            title="配置条目"
+            subTitle="所有对话和模型获取都优先使用当前配置条目的 Base URL、API Key、OpenAI 兼容与多 key 设置"
+            vertical
+          >
+            <div className={styles.profileList}>
+              <div className={styles.profileListActions}>
                 <IconButton
                   icon={<AddIcon />}
-                  text=""
+                  text="新增配置"
                   bordered
                   className={styles.addProfileButton}
                   onClick={() => {
@@ -2205,11 +2008,6 @@ export function ApiConfigPage() {
                   }}
                 />
               </div>
-            }
-            subTitle="所有对话和模型获取都优先使用当前配置条目的 Base URL、API Key、OpenAI 兼容与多 key 设置"
-            vertical
-          >
-            <div className={styles.profileList}>
               <div className={styles.profileTable}>
                 <div className={styles.profileTableHeader}>
                   <div className={styles.profileColProvider}>平台</div>
@@ -2217,86 +2015,148 @@ export function ApiConfigPage() {
                   <div className={styles.profileColBaseUrl}>Base URL</div>
                   <div className={styles.profileColApiKey}>API Key</div>
                   <div className={styles.profileColCompatible}>OPENAI兼容</div>
-                  <div className={styles.profileColMultiKey}>是否多key</div>
+                  <div className={styles.profileColMultiKey}>是否多KEY</div>
                   <div className={styles.profileColActions}>操作</div>
                 </div>
 
                 {providerProfiles.map((profile, index) => (
                   <div key={profile.id} className={styles.profileRow}>
-                    <div
-                      className={`${styles.profileCell} ${styles.profileColProvider}`}
-                    >
-                      <div className={styles.profileCellLabel}>平台</div>
-                      <Select
-                        value={profile.provider}
-                        onChange={(e) => {
-                          const provider = e.currentTarget
-                            .value as ServiceProvider;
-                          accessStore.update((access) => {
-                            const nextAccess = access as AccessState;
-                            access.apiProfiles = access.apiProfiles.map(
-                              (item) =>
-                                item.id === profile.id
-                                  ? {
-                                      ...item,
-                                      provider,
-                                      baseUrl: getProfileBaseUrl(
-                                        provider,
-                                        nextAccess,
-                                      ),
-                                      apiKey: getProfileApiKey(
-                                        provider,
-                                        nextAccess,
-                                      ),
-                                      openAICompatible:
-                                        provider === ServiceProvider.Custom
-                                          ? nextAccess.customOpenAICompatible
-                                          : undefined,
-                                    }
-                                  : item,
-                            );
-                          });
-                          if (profile.enabled) {
-                            syncProfileToAccess(profile.id);
-                          }
-                        }}
+                    {isOfficialProviderBaseUrlLocked(profile.provider) ? (
+                      <div
+                        className={`${styles.profileCell} ${styles.profileColProvider} ${styles.officialProviderNameCell}`}
                       >
-                        {PROVIDER_OPTIONS.map((provider) => (
-                          <option key={provider} value={provider}>
-                            {provider}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
+                        <div className={styles.profileCellLabel}>
+                          平台 / 名称
+                        </div>
+                        <Select
+                          value={profile.provider}
+                          onChange={(e) => {
+                            const provider = e.currentTarget
+                              .value as ServiceProvider;
+                            accessStore.update((access) => {
+                              const nextAccess = access as AccessState;
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? {
+                                        ...item,
+                                        provider,
+                                        name: provider,
+                                        baseUrl: getProfileBaseUrl(
+                                          provider,
+                                          nextAccess,
+                                        ),
+                                        apiKey: getProfileApiKey(
+                                          provider,
+                                          nextAccess,
+                                        ),
+                                        openAICompatible:
+                                          provider === ServiceProvider.Custom
+                                            ? nextAccess.customOpenAICompatible
+                                            : undefined,
+                                      }
+                                    : item,
+                              );
+                            });
+                            if (profile.enabled) {
+                              syncProfileToAccess(profile.id);
+                            }
+                          }}
+                        >
+                          {PROVIDER_OPTIONS.map((provider) => (
+                            <option key={provider} value={provider}>
+                              {provider}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className={`${styles.profileCell} ${styles.profileColProvider}`}
+                        >
+                          <div className={styles.profileCellLabel}>平台</div>
+                          <Select
+                            value={profile.provider}
+                            onChange={(e) => {
+                              const provider = e.currentTarget
+                                .value as ServiceProvider;
+                              accessStore.update((access) => {
+                                const nextAccess = access as AccessState;
+                                access.apiProfiles = access.apiProfiles.map(
+                                  (item) =>
+                                    item.id === profile.id
+                                      ? {
+                                          ...item,
+                                          provider,
+                                          name: isOfficialProviderBaseUrlLocked(
+                                            provider,
+                                          )
+                                            ? provider
+                                            : item.name,
+                                          baseUrl: getProfileBaseUrl(
+                                            provider,
+                                            nextAccess,
+                                          ),
+                                          apiKey: getProfileApiKey(
+                                            provider,
+                                            nextAccess,
+                                          ),
+                                          openAICompatible:
+                                            provider === ServiceProvider.Custom
+                                              ? nextAccess.customOpenAICompatible
+                                              : undefined,
+                                        }
+                                      : item,
+                                );
+                              });
+                              if (profile.enabled) {
+                                syncProfileToAccess(profile.id);
+                              }
+                            }}
+                          >
+                            {PROVIDER_OPTIONS.map((provider) => (
+                              <option key={provider} value={provider}>
+                                {provider}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
 
-                    <div
-                      className={`${styles.profileCell} ${styles.profileColName}`}
-                    >
-                      <div className={styles.profileCellLabel}>名称</div>
-                      <input
-                        className={styles.textInput}
-                        type="text"
-                        placeholder={`${profile.provider} #${index + 1}`}
-                        value={profile.name}
-                        onChange={(e) => {
-                          accessStore.update((access) => {
-                            access.apiProfiles = access.apiProfiles.map(
-                              (item) =>
-                                item.id === profile.id
-                                  ? { ...item, name: e.currentTarget.value }
-                                  : item,
-                            );
-                          });
-                        }}
-                      />
-                    </div>
+                        <div
+                          className={`${styles.profileCell} ${styles.profileColName}`}
+                        >
+                          <div className={styles.profileCellLabel}>名称</div>
+                          <input
+                            className={styles.textInput}
+                            type="text"
+                            placeholder={`${profile.provider} #${index + 1}`}
+                            value={profile.name}
+                            onChange={(e) => {
+                              accessStore.update((access) => {
+                                access.apiProfiles = access.apiProfiles.map(
+                                  (item) =>
+                                    item.id === profile.id
+                                      ? { ...item, name: e.currentTarget.value }
+                                      : item,
+                                );
+                              });
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <div
                       className={`${styles.profileCell} ${styles.profileColBaseUrl}`}
                     >
                       <div className={styles.profileCellLabel}>Base URL</div>
                       <input
-                        className={styles.textInput}
+                        className={`${styles.textInput} ${
+                          isOfficialProviderBaseUrlLocked(profile.provider)
+                            ? styles.officialBaseUrlInputDisabled
+                            : ""
+                        }`}
                         type="text"
                         placeholder={
                           (PROVIDER_FIELDS[profile.provider] ?? []).find((f) =>
@@ -2409,7 +2269,7 @@ export function ApiConfigPage() {
                     <div
                       className={`${styles.profileCell} ${styles.profileColMultiKey}`}
                     >
-                      <div className={styles.profileCellLabel}>是否多key</div>
+                      <div className={styles.profileCellLabel}>是否多KEY</div>
                       <label className={styles.profileCheck}>
                         <input
                           type="checkbox"
@@ -2468,10 +2328,11 @@ export function ApiConfigPage() {
                       <div className={styles.profileCellLabel}>操作</div>
                       <div className={styles.profileRowActions}>
                         <IconButton
+                          icon={<TrashIcon />}
                           text="删除"
                           type="danger"
                           bordered
-                          className={styles.dangerButton}
+                          className={`${styles.dangerButton} ${styles.profileDeleteButton}`}
                           onClick={async () => {
                             const confirmed = await showConfirm(
                               `确定要删除配置"${profile.name}"吗？`,
@@ -2706,15 +2567,9 @@ export function ApiConfigPage() {
                 <div>同步方式：通过服务端 API 直接读写 PostgreSQL。</div>
                 <div>目标数据库：{dbSyncTargetLabel}</div>
                 <div>
-                  上传到数据库：把本地聊天、插件、设置、用户已添加模型、提示词、面具、更新状态和绘图等数据写入数据库，不上传供应商完整模型列表。
-                </div>
-                <div>
-                  保存并同步：和 PostgreSQL
-                  执行双向合并，最后把最新配置、用户已添加模型和对话记录回写到本地与数据库。
-                </div>
-                <div>
-                  从数据库下载：读取 PostgreSQL 中的完整快照，覆盖本地对话、API
-                  配置、用户已添加模型、插件、提示词、面具和绘图记录；供应商模型列表会在管理模型时按需本地拉取。
+                  保存并同步：仅同步本次涉及的 API 配置和相关界面设置，并与
+                  PostgreSQL
+                  中的数据合并。未修改的聊天、插件、提示词、面具和绘图记录不会参与本次同步。
                 </div>
               </>
             }
@@ -2722,15 +2577,6 @@ export function ApiConfigPage() {
           >
             <div className={styles.actions}>
               <div className={styles.actionPrimaryRow}>
-                <IconButton
-                  icon={backingUp ? <LoadingIcon /> : <UploadIcon />}
-                  text={backingUp ? "上传中..." : "上传到数据库"}
-                  bordered
-                  disabled={syncActionDisabled}
-                  onClick={() => {
-                    void backupToDatabase();
-                  }}
-                />
                 <IconButton
                   icon={syncing ? <LoadingIcon /> : <ConfirmIcon />}
                   text={syncing ? "同步中..." : "保存并同步"}
@@ -2742,20 +2588,11 @@ export function ApiConfigPage() {
                   }}
                 />
                 <IconButton
-                  icon={downloading ? <LoadingIcon /> : <DownloadIcon />}
-                  text={downloading ? "下载中..." : "从数据库下载"}
-                  bordered
-                  disabled={syncActionDisabled}
-                  onClick={() => {
-                    void downloadAllAndOverwriteLocalFromDatabase();
-                  }}
-                />
-                <IconButton
                   icon={<TrashIcon />}
                   text="清空已添加模型"
                   bordered
                   type="danger"
-                  className={styles.dangerButton}
+                  className={`${styles.dangerButton} ${styles.clearModelsButton}`}
                   onClick={() => {
                     void clearLocalAndCloudModels();
                   }}

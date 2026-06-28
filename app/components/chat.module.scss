@@ -1449,6 +1449,18 @@
   }
 }
 
+.provider-button-model-syncing {
+  display: inline;
+  height: auto;
+  margin-left: 5px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 // 消息操作按钮保持横向排列
 .chat-message-actions .chat-input-actions {
   flex-direction: row !important;

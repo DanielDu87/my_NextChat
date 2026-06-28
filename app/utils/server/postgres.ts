@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-25-global-cache-blob-dedupe";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-28-api-config-backup-counts";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -672,6 +672,36 @@ export async function ensureSyncStorageSchema() {
           updated_at timestamptz not null default now(),
           unique (user_id, secret_key)
         )
+      `);
+        await client.query(`
+        create table if not exists api_config_backup_settings (
+          user_id uuid primary key references app_users(id) on delete cascade,
+          enabled boolean not null default true,
+          interval_minutes integer not null default 1440 check (interval_minutes >= 1),
+          max_backups integer not null default 10 check (max_backups >= 1),
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists api_config_backups (
+          id uuid primary key default generate_uuid_v4(),
+          user_id uuid not null references app_users(id) on delete cascade,
+          source text not null check (source in ('auto', 'manual', 'pre_restore')),
+          payload_json jsonb not null,
+          checksum text not null,
+          profile_count integer not null default 0,
+          created_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_api_config_backups_user_created
+        on api_config_backups(user_id, created_at desc)
+      `);
+        await client.query(`
+        create or replace trigger trg_api_config_backup_settings_updated_at
+        before update on api_config_backup_settings
+        for each row execute function set_updated_at()
       `);
         await client.query(`
         create index if not exists idx_sync_secrets_user_updated

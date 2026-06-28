@@ -205,6 +205,11 @@
           width: 16px;
           height: 16px;
         }
+
+        svg path {
+          stroke: currentcolor !important;
+          stroke-opacity: 1 !important;
+        }
       }
     }
   }

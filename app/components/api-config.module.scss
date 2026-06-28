@@ -40,7 +40,11 @@
 }
 
 .page
-  :global(.window-header .window-actions button[class*="icon-button"]:not([data-close-button="true"])) {
+  :global(
+    .window-header
+      .window-actions
+      button[class*="icon-button"]:not([data-close-button="true"])
+  ) {
   --api-config-button-idle-border: rgba(100, 116, 139, 0.24);
 
   min-height: 38px !important;
@@ -74,7 +78,11 @@
 }
 
 .page
-  :global(button[class*="icon-button"]:not([data-close-button="true"]):not([class*="primary"]):not([class*="danger"])) {
+  :global(
+    button[class*="icon-button"]:not([data-close-button="true"]):not(
+        [class*="primary"]
+      ):not([class*="danger"])
+  ) {
   --api-config-button-idle-border: rgba(100, 116, 139, 0.24);
 
   border: 1px solid var(--api-config-button-idle-border) !important;
@@ -215,12 +223,17 @@
   min-width: 0;
 }
 
-.actionPrimaryRow :global(.icon-button) {
+.actionPrimaryRow :global(button[class*="icon-button"]) {
   width: 100%;
+  height: 40px !important;
+  min-height: 40px !important;
+  box-sizing: border-box !important;
   justify-content: center;
 }
 
 .dangerButton {
+  height: 40px !important;
+  min-height: 40px !important;
   color: #ff4d4f !important;
   border-color: #ff4d4f !important;
   background-color: rgba(255, 77, 79, 0.12) !important;
@@ -228,18 +241,52 @@
   border-width: 2px !important;
   box-shadow: none !important;
   box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
   transform: none !important;
   filter: none !important;
+  line-height: 16px !important;
 
   // 固定按钮高度，防止 hover 时文字位置变化
-  :global(.icon-button) {
-    height: 40px !important;
-    min-height: 40px !important;
-    background-color: rgba(255, 77, 79, 0.12) !important;
-    transition:
-      background-color 0.3s ease,
-      color 0.3s ease,
-      border-color 0.3s ease;
+  :global([class*="icon-button-icon"]),
+  :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 16px !important;
+  }
+
+  :global([class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  :global([class*="icon-button-text"]) {
+    margin-left: 0 !important;
+  }
+
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+    fill: white !important;
+    stroke: white !important;
+    color: white !important;
+  }
+
+  &:global([class*="danger"]) :global(svg),
+  &:global([class*="danger"]) :global(svg path),
+  &:global([class*="danger"]) :global(svg circle),
+  &:global([class*="danger"]) :global(svg rect) {
+    fill: white !important;
+    stroke: white !important;
+    color: white !important;
   }
 
   &:hover,
@@ -252,26 +299,77 @@
     box-shadow: none !important;
     transform: none !important;
     filter: none !important;
+  }
+}
 
-    :global(svg),
-    :global(svg path),
-    :global(svg circle),
-    :global(svg rect) {
-      fill: white !important;
-      stroke: white !important;
-      color: white !important;
-    }
+.dangerButton.clearModelsButton:global([class*="danger"]),
+.dangerButton.profileDeleteButton:global([class*="danger"]) {
+  color: white !important;
+  background-color: color-mix(in srgb, #ff4d4f 75%, white) !important;
+  border-color: #ff4d4f !important;
+  border-width: 2px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease !important;
+
+  :global([class*="icon-button-icon"]),
+  :global([class*="icon-button-text"]) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    transform: none !important;
+    transition: none !important;
   }
 
   :global(svg),
   :global(svg path),
   :global(svg circle),
   :global(svg rect) {
-    width: 16px !important;
-    height: 16px !important;
-    flex-shrink: 0 !important;
-    fill: #ff4d4f !important;
-    color: #ff4d4f !important;
+    fill: currentColor !important;
+    color: inherit !important;
+  }
+
+  :global(svg) {
+    filter: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  :global(svg path) {
+    stroke: none !important;
+  }
+
+  &:hover,
+  &:focus,
+  &:active {
+    color: white !important;
+    background-color: #ff4d4f !important;
+    border-color: #ff4d4f !important;
+    border-width: 2px !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+.dangerButton.profileDeleteButton:global([class*="danger"]) {
+  color: var(--black-2) !important;
+  background-color: rgba(255, 77, 79, 0.12) !important;
+  border-color: rgba(255, 77, 79, 0.35) !important;
+
+  &:hover,
+  &:focus,
+  &:active {
+    color: white !important;
+    background-color: #ff4d4f !important;
+    border-color: #ff4d4f !important;
   }
 }
 
@@ -337,6 +435,25 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 60%, transparent);
 }
 
+.officialBaseUrlInputDisabled,
+.officialBaseUrlInputDisabled:hover,
+.officialBaseUrlInputDisabled:focus,
+.officialBaseUrlInputDisabled:focus-visible,
+.officialBaseUrlInputDisabled:active {
+  cursor: not-allowed !important;
+  color: var(--black-2);
+  background-color: color-mix(in srgb, var(--white) 92%, var(--gray));
+  border-color: rgba(148, 163, 184, 0.42) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  opacity: 0.65;
+}
+
+.page .officialBaseUrlInputDisabled,
+.page .officialBaseUrlInputDisabled:hover {
+  cursor: not-allowed !important;
+}
+
 .syncCard {
   margin-top: 16px;
   padding-top: 8px;
@@ -381,8 +498,11 @@
       }
     }
 
-    > :global(button[class*="icon-button"]):nth-child(1),
-    > :global(button[class*="icon-button"]):nth-child(3) {
+    > :global(
+        button[class*="icon-button"]:not([class*="primary"]):not(
+            [class*="danger"]
+          )
+      ) {
       border: 1px solid rgba(100, 116, 139, 0.24) !important;
       border-radius: 10px !important;
       background-color: var(--white) !important;
@@ -404,11 +524,15 @@
       }
     }
 
-    > :global(button[class*="icon-button"]):nth-child(2) {
+    > :global(button[class*="icon-button"][class*="primary"]) {
       box-sizing: border-box !important;
       border-width: 2px !important;
       border-color: var(--primary) !important;
-      background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+      background-color: color-mix(
+        in srgb,
+        var(--primary) 75%,
+        white
+      ) !important;
       box-shadow: none !important;
 
       &:not(:disabled):hover,
@@ -423,8 +547,7 @@
       }
     }
 
-    > :global(button[class*="icon-button"]):nth-child(4),
-    > :global(button[class*="icon-button"]):nth-child(5) {
+    > :global(button[class*="icon-button"][class*="danger"]) {
       border-width: 2px !important;
       border-color: #ff4d4f !important;
       box-shadow: none !important;
@@ -501,11 +624,17 @@
   flex-wrap: wrap;
 }
 
+.profileListActions {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
 .addProfileButton {
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0 !important;
+  min-height: 38px;
+  padding: 8px 14px !important;
   border-radius: 10px;
   border: 1px solid rgba(100, 116, 139, 0.24) !important;
   background-color: var(--white) !important;
@@ -524,9 +653,7 @@
     ) !important;
     border-width: 1px !important;
     border-color: var(--primary) !important;
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow) !important;
+    box-shadow: var(--card-shadow) !important;
     transform: none !important;
     filter: none !important;
     outline: none !important;
@@ -538,15 +665,12 @@
   }
 }
 
-.addProfileButton :global(.icon-button-text) {
-  display: none;
-}
-
 .profileList {
   display: grid;
   gap: 14px;
   width: 100%;
   overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .profileTable {
@@ -575,6 +699,9 @@
 
 .profileColProvider {
   grid-column: 1;
+}
+.officialProviderNameCell {
+  grid-column: 1 / span 2;
 }
 .profileColName {
   grid-column: 2;
@@ -645,7 +772,6 @@
   text-align: center !important;
 }
 
-
 .profileColProvider {
   justify-content: center;
   min-width: 70px;
@@ -693,7 +819,11 @@
 
   :global([class*="select-with-icon-select"]:hover) {
     background: var(--white) !important;
-    border-color: color-mix(in srgb, var(--primary) 60%, transparent) !important;
+    border-color: color-mix(
+      in srgb,
+      var(--primary) 60%,
+      transparent
+    ) !important;
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent) !important;
   }
 
@@ -826,11 +956,7 @@
   &:focus-visible,
   &:active {
     border-color: var(--primary);
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    );
+    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
     box-shadow: var(--close-button-hover-shadow);
     outline: none;
     transform: none;
@@ -895,7 +1021,10 @@
   flex: 0 0 auto;
   position: relative;
   padding: 0;
-  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
 
   &:hover:not(:disabled) {
     background: var(--primary);
@@ -1020,7 +1149,8 @@
 }
 
 .mobileOnly {
-  min-height: calc(100vh - var(--window-header-height));
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1053,8 +1183,35 @@
 }
 
 @media screen and (max-width: 650px) {
+  .page :global(.window-header) {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-header-title) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 96px);
+    max-width: calc(100% - 96px);
+    margin: 0;
+    text-align: center;
+  }
+
+  .page :global(.window-header-main-title),
+  .page :global(.window-header-sub-title) {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
   .page :global(.window-actions) {
-    align-self: stretch;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    align-self: auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1181,10 +1338,12 @@
     align-items: center;
   }
 
+  .profileListActions {
+    justify-content: flex-start;
+  }
+
   .addProfileButton {
-    width: 34px;
-    height: 34px;
-    min-height: 34px;
+    min-height: 42px;
   }
 
   .profileTable {
@@ -1231,6 +1390,10 @@
   .profileColName,
   .profileColBaseUrl,
   .profileColApiKey {
+    grid-column: 1 / -1;
+  }
+
+  .officialProviderNameCell {
     grid-column: 1 / -1;
   }
 
