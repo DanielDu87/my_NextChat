@@ -9,7 +9,6 @@ import UploadIcon from "../icons/upload.svg";
 import DownloadIcon from "../icons/download.svg";
 import AddIcon from "../icons/add.svg";
 import TrashIcon from "../icons/trash.svg";
-import DeleteIcon from "../icons/delete.svg";
 
 import { IconButton } from "./button";
 import { List, ListItem, Select, showToast, showConfirm } from "./ui-lib";
@@ -2712,22 +2711,6 @@ export function ApiConfigPage() {
                   disabled={syncActionDisabled}
                   onClick={() => {
                     void downloadAllAndOverwriteLocalFromDatabase();
-                  }}
-                />
-                <IconButton
-                  icon={<DeleteIcon />}
-                  text="清空所有对话"
-                  bordered
-                  type="danger"
-                  className={styles.dangerButton}
-                  onClick={async () => {
-                    const confirmed = await showConfirm(
-                      "确定要清空所有对话吗？这会删除本地和数据库中的全部对话记录，且不可恢复。",
-                    );
-                    if (confirmed) {
-                      chatStore.clearSessions();
-                      showToast("已清空本地和数据库中的所有对话");
-                    }
                   }}
                 />
                 <IconButton

@@ -77,6 +77,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   count: number;
   time: string;
   selected: boolean;
+  hideDelete?: boolean;
   multiDeleteMode?: boolean;
   multiDeleteSelected?: boolean;
   avatar: string;
@@ -146,16 +147,18 @@ const ChatItemCard = memo(function ChatItemCard(props: {
         </div>
       )}
 
-      <div
-        className={styles["chat-item-delete"]}
-        onClickCapture={(e) => {
-          props.onDelete?.();
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-      >
-        <DeleteIcon />
-      </div>
+      {!props.hideDelete && (
+        <div
+          className={styles["chat-item-delete"]}
+          onClickCapture={(e) => {
+            props.onDelete?.();
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <DeleteIcon />
+        </div>
+      )}
     </div>
   );
 });
@@ -449,10 +452,7 @@ export function ChatList() {
       }
 
       if (isPinnedNewChat(item)) {
-        if (
-          location.pathname !== Path.Home &&
-          location.pathname !== Path.Chat
-        ) {
+        if (isMobileScreen || location.pathname !== Path.Chat) {
           navigate(Path.Chat);
         }
         selectChatSessionById(item.id);
@@ -462,7 +462,13 @@ export function ChatList() {
       navigate(`/chat/${item.id}`);
       selectChatSessionById(item.id);
     },
-    [location.pathname, multiDeleteMode, navigate, toggleDeleteSelection],
+    [
+      isMobileScreen,
+      location.pathname,
+      multiDeleteMode,
+      navigate,
+      toggleDeleteSelection,
+    ],
   );
 
   const renderScrollContainer = useCallback(
@@ -567,6 +573,7 @@ export function ChatList() {
               selected={item.id === currentSessionId}
               onClick={() => onSelectSession(item)}
               onDelete={() => void onDeleteSession(item.id)}
+              hideDelete={isPinnedNewChat(item)}
               multiDeleteMode={multiDeleteMode}
               multiDeleteSelected={selectedDeleteIds.includes(item.id)}
               avatar={item.avatar}
@@ -600,6 +607,7 @@ export function ChatList() {
                   selected={item.id === currentSessionId}
                   onClick={() => onSelectSession(item)}
                   onDelete={() => void onDeleteSession(item.id)}
+                  hideDelete={isPinnedNewChat(item)}
                   multiDeleteMode={multiDeleteMode}
                   multiDeleteSelected={selectedDeleteIds.includes(item.id)}
                   avatar={item.avatar}

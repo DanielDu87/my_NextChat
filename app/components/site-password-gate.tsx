@@ -23,6 +23,9 @@ export default function SitePasswordGate(props: { initialError?: string }) {
 
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    if (submitting) {
+      return;
+    }
     if (!username.trim()) {
       setError("请输入用户名");
       return;
@@ -49,6 +52,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
 
       if (!response.ok || payload?.ok !== true) {
         setError(String(payload?.error || "登录失败"));
+        setSubmitting(false);
         return;
       }
 
@@ -56,7 +60,6 @@ export default function SitePasswordGate(props: { initialError?: string }) {
       router.refresh();
     } catch (error) {
       setError(error instanceof Error ? error.message : "登录失败");
-    } finally {
       setSubmitting(false);
     }
   };
@@ -64,7 +67,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
   return (
     <div className={styles.page}>
       <form className={styles.card} onSubmit={handleSubmit}>
-        <div className={styles.logo}>
+        <div className={`${styles.logo} no-dark`}>
           <Logo />
         </div>
         <div className={styles.title}>账号登录</div>
@@ -117,7 +120,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
           <button
             type="submit"
             className={styles.submitButton}
-            disabled={submitting}
+            aria-disabled={submitting}
           >
             <span className={styles.actionText}>
               {submitting ? "登录中..." : "进入系统"}

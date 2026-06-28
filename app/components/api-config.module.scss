@@ -9,6 +9,36 @@
   overflow: auto;
 }
 
+.page :global([class*="list-item"]),
+.page :global([class*="list-item"] *) {
+  cursor: default !important;
+}
+
+.page :global(button),
+.page :global(button *),
+.page :global([class*="list-item"] button),
+.page :global([class*="list-item"] button *) {
+  cursor: pointer !important;
+}
+
+.page :global(button:disabled),
+.page :global(button:disabled *),
+.page :global([class*="list-item"] button:disabled),
+.page :global([class*="list-item"] button:disabled *) {
+  cursor: not-allowed !important;
+}
+
+.page input:not([type="checkbox"]),
+.page textarea {
+  cursor: text !important;
+}
+
+.page select,
+.page input[type="checkbox"],
+.page input[type="checkbox"] + span {
+  cursor: pointer !important;
+}
+
 .page
   :global(.window-header .window-actions button[class*="icon-button"]:not([data-close-button="true"])) {
   --api-config-button-idle-border: rgba(100, 116, 139, 0.24);
@@ -36,7 +66,9 @@
       var(--white)
     ) !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
     outline: none !important;
   }
 }
@@ -65,9 +97,11 @@
       var(--primary) 4%,
       var(--white)
     ) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
     outline: none !important;
   }
 
@@ -77,10 +111,37 @@
       var(--primary) 4%,
       var(--white)
     ) !important;
+    border-width: 1px !important;
+    border-color: var(--primary) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    opacity: 1 !important;
+  }
+}
+
+.page :global(button[class*="icon-button"][class*="primary"]) {
+  box-sizing: border-box !important;
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
     border-width: 2px !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
-    opacity: 1 !important;
+    background-color: var(--primary) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
 
@@ -106,21 +167,36 @@
 
   :global(button[class*="icon-button"][class*="border"]) {
     border-width: 1px;
+    transform: none !important;
+    filter: none !important;
 
-    &:hover {
-      border-width: 2px !important;
-      box-shadow: var(--card-shadow) !important;
+    &:hover,
+    &:focus-visible,
+    &:active {
+      border-width: 1px !important;
+      box-shadow:
+        0 0 0 1px var(--primary),
+        var(--card-shadow) !important;
       border-color: var(--primary) !important;
+      transform: none !important;
+      filter: none !important;
     }
   }
 
   :global(button[class*="icon-button"][class*="primary"]) {
+    border-width: 2px !important;
     background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
     border-color: var(--primary) !important;
 
-    &:hover {
+    &:hover,
+    &:focus-visible,
+    &:active {
       background-color: var(--primary) !important;
+      border-width: 2px !important;
       border-color: var(--primary) !important;
+      box-shadow: none !important;
+      transform: none !important;
+      filter: none !important;
     }
   }
 }
@@ -149,6 +225,11 @@
   border-color: #ff4d4f !important;
   background-color: rgba(255, 77, 79, 0.12) !important;
   margin-left: auto !important;
+  border-width: 2px !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
 
   // 固定按钮高度，防止 hover 时文字位置变化
   :global(.icon-button) {
@@ -161,7 +242,27 @@
       border-color 0.3s ease;
   }
 
-  // 固定 SVG 尺寸和对齐
+  &:hover,
+  &:focus,
+  &:active {
+    background-color: #ff4d4f !important;
+    color: white !important;
+    border-color: #ff4d4f !important;
+    border-width: 2px !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+
+    :global(svg),
+    :global(svg path),
+    :global(svg circle),
+    :global(svg rect) {
+      fill: white !important;
+      stroke: white !important;
+      color: white !important;
+    }
+  }
+
   :global(svg),
   :global(svg path),
   :global(svg circle),
@@ -171,21 +272,6 @@
     flex-shrink: 0 !important;
     fill: #ff4d4f !important;
     color: #ff4d4f !important;
-  }
-
-  &:hover,
-  &:focus {
-    background-color: #ff4d4f !important;
-    color: white !important;
-    border-color: #ff4d4f !important;
-
-    :global(svg),
-    :global(svg path),
-    :global(svg circle),
-    :global(svg rect) {
-      fill: white !important;
-      color: white !important;
-    }
   }
 }
 
@@ -276,16 +362,31 @@
   }
 
   .actionPrimaryRow {
+    > :global(button[class*="icon-button"]) {
+      border-width: 1px !important;
+      transform: none !important;
+      filter: none !important;
+      transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        color 0.2s ease;
+
+      &:not(:disabled):hover,
+      &:not(:disabled):focus-visible,
+      &:not(:disabled):active {
+        border-width: 1px !important;
+        transform: none !important;
+        filter: none !important;
+      }
+    }
+
     > :global(button[class*="icon-button"]):nth-child(1),
     > :global(button[class*="icon-button"]):nth-child(3) {
       border: 1px solid rgba(100, 116, 139, 0.24) !important;
       border-radius: 10px !important;
       background-color: var(--white) !important;
-      box-shadow: var(--card-shadow);
-      transition:
-        background-color 0.2s ease,
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
+      box-shadow: var(--card-shadow) !important;
 
       &:not(:disabled):hover,
       &:not(:disabled):focus-visible,
@@ -295,19 +396,46 @@
           var(--primary) 4%,
           var(--white)
         ) !important;
+        border: 1px solid var(--primary) !important;
+        box-shadow:
+          0 0 0 1px var(--primary),
+          var(--card-shadow) !important;
+        outline: none !important;
+      }
+    }
+
+    > :global(button[class*="icon-button"]):nth-child(2) {
+      box-sizing: border-box !important;
+      border-width: 2px !important;
+      border-color: var(--primary) !important;
+      background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+      box-shadow: none !important;
+
+      &:not(:disabled):hover,
+      &:not(:disabled):focus-visible,
+      &:not(:disabled):active {
+        background-color: var(--primary) !important;
         border-width: 2px !important;
         border-color: var(--primary) !important;
-        box-shadow: var(--card-shadow) !important;
-        outline: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+        filter: none !important;
       }
     }
 
     > :global(button[class*="icon-button"]):nth-child(4),
     > :global(button[class*="icon-button"]):nth-child(5) {
+      border-width: 2px !important;
+      border-color: #ff4d4f !important;
+      box-shadow: none !important;
+      box-sizing: border-box !important;
+
       &:not(:disabled):hover,
       &:not(:disabled):focus {
         background-color: #ff4d4f !important;
+        border-width: 2px !important;
         border-color: #ff4d4f !important;
+        box-shadow: none !important;
         color: white !important;
       }
     }
@@ -394,9 +522,13 @@
       var(--primary) 4%,
       var(--white)
     ) !important;
-    border-width: 2px !important;
+    border-width: 1px !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    transform: none !important;
+    filter: none !important;
     outline: none !important;
   }
 
@@ -851,16 +983,18 @@
 }
 
 .profileRowActions .dangerButton {
-  border-width: 1px !important;
+  border-width: 2px !important;
+  box-shadow: none !important;
 }
 
 .profileRowActions .dangerButton:not(:disabled):hover,
 .profileRowActions .dangerButton:not(:disabled):focus,
 .profileRow :global(.icon-button.danger:hover),
 .profileRow :global(.icon-button.danger:focus) {
-  border-width: 1px !important;
+  border-width: 2px !important;
   background-color: #ff4d4f !important;
   border-color: #ff4d4f !important;
+  box-shadow: none !important;
   color: white !important;
 }
 
