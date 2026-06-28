@@ -389,9 +389,14 @@ export const usePluginStore = createPersistStore(
       const plugin = plugins[id];
       if (!plugin) return;
       const updatePlugin = { ...plugin };
+      const beforePlugin = JSON.stringify(updatePlugin);
       const beforeEnabled = updatePlugin.enabled;
       const beforeConfig = getPluginConfigSignature(updatePlugin);
       updater(updatePlugin);
+      if (beforePlugin === JSON.stringify(updatePlugin)) {
+        FunctionToolService.add(updatePlugin, true);
+        return;
+      }
       if (beforeEnabled !== updatePlugin.enabled) {
         updatePlugin.enabledUpdatedAt = Date.now();
         console.log("[Plugin] 全局启用状态变更", {
@@ -590,8 +595,10 @@ export const usePluginStore = createPersistStore(
                     plugin.version = info?.version || plugin.version || "";
                     plugin.builtin = true;
                     applyBuiltinPluginDefaults(plugin);
-                    plugin.enabled = true;
-                    plugin.enabledUpdatedAt = Date.now();
+                    if (plugin.enabled !== true) {
+                      plugin.enabled = true;
+                      plugin.enabledUpdatedAt = Date.now();
+                    }
                   },
                   { preserveConfigUpdatedAt: true },
                 );

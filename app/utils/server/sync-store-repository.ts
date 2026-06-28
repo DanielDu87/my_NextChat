@@ -57,6 +57,36 @@ function assertStoreKey(storeKey: string) {
   }
 }
 
+function stableJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function buildSnapshotMetaFromPayload(params: {
+  key: string;
+  updatedAt: string;
+  payload: unknown;
+}) {
+  const payloadText = stableJsonStringify(params.payload);
+  return {
+    key: params.key,
+    updatedAt: params.updatedAt,
+    checksum: createHash("md5").update(payloadText).digest("hex"),
+    sizeBytes: Buffer.byteLength(payloadText, "utf8"),
+  };
+}
+
 function normalizeChatStorePayload(payload: unknown) {
   const unwrapped = unwrapPersistedStoreState(payload) as Record<
     string,
@@ -357,15 +387,13 @@ export async function getStoreSnapshotMetas(
       ? await pgQuery<{
           store_key: string;
           updated_at: string;
-          checksum: string;
-          size_bytes: number;
+          payload_json: unknown;
         }>(
           `select * from (
        select
          'chat-next-web-plugin'::text as store_key,
          updated_at::text as updated_at,
-         md5((plugin_settings -> 'chat-next-web-plugin')::text) as checksum,
-         pg_column_size(plugin_settings -> 'chat-next-web-plugin') as size_bytes
+         plugin_settings -> 'chat-next-web-plugin' as payload_json
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and plugin_settings ? 'chat-next-web-plugin'
@@ -373,8 +401,7 @@ export async function getStoreSnapshotMetas(
        select
          'access-control'::text,
          updated_at::text,
-         md5((security_settings -> 'access-control')::text),
-         pg_column_size(security_settings -> 'access-control')
+         security_settings -> 'access-control'
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and security_settings ? 'access-control'
@@ -382,8 +409,7 @@ export async function getStoreSnapshotMetas(
        select
          'prompt-store'::text,
          updated_at::text,
-         md5((extra_settings -> 'prompt-store')::text),
-         pg_column_size(extra_settings -> 'prompt-store')
+         extra_settings -> 'prompt-store'
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and extra_settings ? 'prompt-store'
@@ -391,8 +417,7 @@ export async function getStoreSnapshotMetas(
        select
          'chat-update'::text,
          updated_at::text,
-         md5((extra_settings -> 'chat-update')::text),
-         pg_column_size(extra_settings -> 'chat-update')
+         extra_settings -> 'chat-update'
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and extra_settings ? 'chat-update'
@@ -400,8 +425,7 @@ export async function getStoreSnapshotMetas(
        select
          'app-config'::text,
          updated_at::text,
-         md5((extra_settings -> 'app-config')::text),
-         pg_column_size(extra_settings -> 'app-config')
+         extra_settings -> 'app-config'
        from app_settings
        where user_id = (select id from app_users where external_id = $2 limit 1)
          and extra_settings ? 'app-config'
@@ -414,12 +438,13 @@ export async function getStoreSnapshotMetas(
   const nextMetas = metas.concat(
     result.rows
       .filter((row) => row.store_key !== StoreKey.Access)
-      .map((row) => ({
-        key: row.store_key,
-        updatedAt: row.updated_at,
-        checksum: row.checksum,
-        sizeBytes: row.size_bytes,
-      })),
+      .map((row) =>
+        buildSnapshotMetaFromPayload({
+          key: row.store_key,
+          updatedAt: row.updated_at,
+          payload: row.payload_json,
+        }),
+      ),
   );
 
   if (nonChatKeys.includes(StoreKey.Access)) {
@@ -449,14 +474,15 @@ export async function getStoreSnapshotMetas(
          ) access_updates`,
         [userId],
       );
-      const payloadText = JSON.stringify(accessSnapshot);
-      nextMetas.push({
-        key: StoreKey.Access,
-        updatedAt:
-          updatedResult.rows[0]?.updated_at || new Date(0).toISOString(),
-        checksum: createHash("md5").update(payloadText).digest("hex"),
-        sizeBytes: Buffer.byteLength(payloadText, "utf8"),
-      });
+      const updatedAt =
+        updatedResult.rows[0]?.updated_at || new Date(0).toISOString();
+      nextMetas.push(
+        buildSnapshotMetaFromPayload({
+          key: StoreKey.Access,
+          updatedAt,
+          payload: accessSnapshot,
+        }),
+      );
     }
   }
 

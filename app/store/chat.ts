@@ -3107,7 +3107,7 @@ export const useChatStore = createPersistStore(
                     promptTokens: Number(apiUsage.prompt_tokens),
                     completionTokens: Number(apiUsage.completion_tokens),
                     totalTokens: Number(apiUsage.total_tokens),
-                    systemTokens: countSystemTokens(
+                    systemTokens: await countSystemTokens(
                       sendMessages,
                       initialModelConfig.model,
                     ),
@@ -3131,22 +3131,20 @@ export const useChatStore = createPersistStore(
                     );
                   }
                 } else {
-                  const promptTokens = countPromptTokens(
-                    sendMessages,
-                    initialModelConfig.model,
-                  );
-                  const completionTokens = countCompletionTokens(
-                    finalMessage,
-                    initialModelConfig.model,
-                  );
+                  const [promptTokens, completionTokens, systemTokens] =
+                    await Promise.all([
+                      countPromptTokens(sendMessages, initialModelConfig.model),
+                      countCompletionTokens(
+                        finalMessage,
+                        initialModelConfig.model,
+                      ),
+                      countSystemTokens(sendMessages, initialModelConfig.model),
+                    ]);
                   botMessage.usage = {
                     promptTokens,
                     completionTokens,
                     totalTokens: promptTokens + completionTokens,
-                    systemTokens: countSystemTokens(
-                      sendMessages,
-                      initialModelConfig.model,
-                    ),
+                    systemTokens,
                   };
                 }
                 botMessage.isError = hasFailure;
@@ -3339,7 +3337,7 @@ export const useChatStore = createPersistStore(
                   }
                   get().scheduleTargetSessionRefresh(session);
                 },
-                onFinish(message, responseRes) {
+                async onFinish(message, responseRes) {
                   get().flushTargetSessionRefresh(session);
                   if (botMessage.manualStopped) {
                     botMessage.streaming = false;
@@ -3403,22 +3401,17 @@ export const useChatStore = createPersistStore(
                   botMessage.date = new Date().toISOString();
                   botMessage.reasoning_details = (responseRes as any)
                     ?.__reasoning_details;
-                  const promptTokens = countPromptTokens(
-                    sendMessages,
-                    candidate.model,
-                  );
-                  const completionTokens = countCompletionTokens(
-                    finalMessage,
-                    candidate.model,
-                  );
+                  const [promptTokens, completionTokens, systemTokens] =
+                    await Promise.all([
+                      countPromptTokens(sendMessages, candidate.model),
+                      countCompletionTokens(finalMessage, candidate.model),
+                      countSystemTokens(sendMessages, candidate.model),
+                    ]);
                   botMessage.usage = {
                     promptTokens,
                     completionTokens,
                     totalTokens: promptTokens + completionTokens,
-                    systemTokens: countSystemTokens(
-                      sendMessages,
-                      candidate.model,
-                    ),
+                    systemTokens,
                   };
                   botMessage.isError = false;
                   userMessage.isError = false;

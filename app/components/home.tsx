@@ -153,12 +153,15 @@ function updatePreloadStyle(isDark: boolean) {
   try {
     const styleEl = document.getElementById(PRELOAD_STYLE_ID);
     if (styleEl) {
+      const bgColor = isDark ? "#151515" : "#fafafa";
       styleEl.textContent =
         "html, body { background-color: " +
-        (isDark ? "#151515" : "#fafafa") +
+        bgColor +
         " !important; color-scheme: " +
         (isDark ? "dark" : "light") +
-        '; transition: none !important; } html:not(.light) [class*="loading-view"] { background-color: #151515 !important; }';
+        "; transition: none !important; } " +
+        'html.light [class*="loading-view"] { background-color: #fafafa !important; } ' +
+        'html.dark [class*="loading-view"], html:not(.light):not(.dark) [class*="loading-view"] { background-color: #151515 !important; }';
     }
   } catch {
     // 忽略错误
@@ -295,25 +298,6 @@ export function WindowContent(props: { children: React.ReactNode }) {
       {props?.children}
     </div>
   );
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
-  return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      reject(new Error(`timeout_${timeoutMs}ms`));
-    }, timeoutMs);
-
-    promise.then(
-      (value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }
 
 function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
@@ -588,6 +572,7 @@ export function Home() {
   useTransientScrollbars();
   const hasHydrated = useHasHydrated();
   const authInitialized = useAuthStore((state) => state.initialized);
+  const authUser = useAuthStore((state) => state.user);
   const [chatBootstrapped, setChatBootstrapped] = useState(false);
   const bootStartedAtRef = useRef(nowMs());
   const bootLongTaskCountRef = useRef(0);
@@ -650,6 +635,7 @@ export function Home() {
     }
 
     let cancelled = false;
+    const bootstrapSyncController = new AbortController();
     const entryPath = getCurrentHashPath();
     prepareRouteEntryForSync(entryPath, {
       source: "home-bootstrap",
@@ -685,32 +671,23 @@ export function Home() {
           try {
             const { useSyncStore } = await import("../store/sync");
             markRouteSyncStart(entryPath, "home-bootstrap");
-            await withTimeout(
-              Promise.resolve(
-                useSyncStore.getState().syncChatIfRemoteChanged?.({
-                  source: "page-init",
-                  minIntervalMs: 0,
-                }),
-              ),
-              CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS,
-            );
+            const timeoutId = window.setTimeout(() => {
+              bootstrapSyncController.abort();
+            }, CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS);
+            try {
+              await useSyncStore.getState().syncChatOnStartup?.({
+                source: "page-init",
+                minIntervalMs: 0,
+                abortSignal: bootstrapSyncController.signal,
+              });
+            } finally {
+              window.clearTimeout(timeoutId);
+            }
           } catch (error) {
             console.error("[Home] 远端变更同步失败:", error);
           }
           if (!cancelled) {
             useChatIndexStore.getState().syncFromChatStore();
-          }
-        }
-
-        // 用户列表放在页面数据初始化与同步之后预取，打开切换弹窗时可直接显示。
-        if (!cancelled && useAuthStore.getState().user?.role === "admin") {
-          try {
-            const { preloadManagedUsers } = await import(
-              "../utils/managed-users"
-            );
-            await preloadManagedUsers({ source: "page-init" });
-          } catch (error) {
-            console.error("[Home] 预取用户列表失败:", error);
           }
         }
       } finally {
@@ -722,8 +699,58 @@ export function Home() {
 
     return () => {
       cancelled = true;
+      bootstrapSyncController.abort();
     };
   }, [authInitialized, hasHydrated]);
+
+  useEffect(() => {
+    if (!chatBootstrapped || authUser?.role !== "admin") {
+      return;
+    }
+
+    const controller = new AbortController();
+    let idleCallbackId: number | null = null;
+    const preload = () => {
+      void import("../utils/managed-users")
+        .then(({ preloadManagedUsers }) =>
+          preloadManagedUsers({
+            ownerUserId: authUser.id,
+            source: "page-init",
+            signal: controller.signal,
+          }),
+        )
+        .catch((error) => {
+          if (
+            controller.signal.aborted ||
+            (error instanceof DOMException && error.name === "AbortError")
+          ) {
+            return;
+          }
+          console.error(
+            "[Home] 预取用户列表失败:",
+            error instanceof Error ? error.message : "unknown_error",
+          );
+        });
+    };
+
+    const delayId = window.setTimeout(() => {
+      if ("requestIdleCallback" in window) {
+        idleCallbackId = window.requestIdleCallback(preload, {
+          timeout: 10_000,
+        });
+      } else {
+        preload();
+      }
+    }, 8_000);
+
+    return () => {
+      window.clearTimeout(delayId);
+      controller.abort();
+      if (idleCallbackId !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+    };
+  }, [authUser?.id, authUser?.role, chatBootstrapped]);
 
   useEffect(() => {
     if (!hasHydrated || !authInitialized) {

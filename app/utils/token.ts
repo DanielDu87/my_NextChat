@@ -1,4 +1,11 @@
-import { encodeChat, encode } from "gpt-tokenizer";
+type TokenizerModule = typeof import("gpt-tokenizer");
+
+let tokenizerModulePromise: Promise<TokenizerModule> | null = null;
+
+function loadTokenizer() {
+  tokenizerModulePromise ??= import("gpt-tokenizer");
+  return tokenizerModulePromise;
+}
 
 function extractTextFromContent(
   content:
@@ -13,10 +20,11 @@ function extractTextFromContent(
     .join(" ");
 }
 
-export function countPromptTokens(
+export async function countPromptTokens(
   messages: { role: string; content: string | any }[],
   model?: string,
-): number {
+): Promise<number> {
+  const { encodeChat, encode } = await loadTokenizer();
   const chatMessages = messages.map((m) => ({
     role: m.role,
     content: extractTextFromContent(m.content),
@@ -31,10 +39,11 @@ export function countPromptTokens(
   }
 }
 
-export function countSystemTokens(
+export async function countSystemTokens(
   messages: { role: string; content: string | any }[],
   model?: string,
-): number {
+): Promise<number> {
+  const { encodeChat, encode } = await loadTokenizer();
   const systemMessages = messages.filter((m) => m.role === "system");
   const chatMessages = systemMessages.map((m) => ({
     role: m.role,
@@ -50,8 +59,12 @@ export function countSystemTokens(
   }
 }
 
-export function countCompletionTokens(text: string, model?: string): number {
+export async function countCompletionTokens(
+  text: string,
+  model?: string,
+): Promise<number> {
   if (!text) return 0;
+  const { encode } = await loadTokenizer();
   return (encode as any)(text, model || "gpt-4").length;
 }
 

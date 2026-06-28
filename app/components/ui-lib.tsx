@@ -736,31 +736,57 @@ export function showPrompt(
   });
 }
 
+function ImageModalContent(props: {
+  img: string;
+  style?: CSSProperties;
+  boxStyle?: CSSProperties;
+  onImageSrcUpdater?: (updateSrc: (src: string) => void) => void;
+}) {
+  const { img, style, boxStyle, onImageSrcUpdater } = props;
+  const [currentImg, setCurrentImg] = useState(img);
+
+  useEffect(() => {
+    onImageSrcUpdater?.(setCurrentImg);
+  }, [onImageSrcUpdater]);
+
+  return (
+    <div
+      className="image-preview-box"
+      style={{ display: "flex", justifyContent: "center", ...boxStyle }}
+    >
+      <img
+        src={currentImg}
+        alt="preview"
+        style={
+          style ?? {
+            maxWidth: "100%",
+          }
+        }
+      ></img>
+    </div>
+  );
+}
+
 export function showImageModal(
   img: string,
   defaultMax?: boolean,
   style?: CSSProperties,
   boxStyle?: CSSProperties,
+  options?: {
+    onImageSrcUpdater?: (updateSrc: (src: string) => void) => void;
+  },
 ) {
   showModal({
     title: Locale.Export.Image.Modal,
     defaultMax: defaultMax,
     className: "image-preview-modal",
     children: (
-      <div
-        className="image-preview-box"
-        style={{ display: "flex", justifyContent: "center", ...boxStyle }}
-      >
-        <img
-          src={img}
-          alt="preview"
-          style={
-            style ?? {
-              maxWidth: "100%",
-            }
-          }
-        ></img>
-      </div>
+      <ImageModalContent
+        img={img}
+        style={style}
+        boxStyle={boxStyle}
+        onImageSrcUpdater={options?.onImageSrcUpdater}
+      />
     ),
   });
 }

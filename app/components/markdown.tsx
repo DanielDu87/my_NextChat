@@ -7,7 +7,6 @@ import RemarkGfm from "remark-gfm";
 import RehypeHighlight from "rehype-highlight";
 import { useRef, useState, RefObject, useEffect, useMemo } from "react";
 import { copyToClipboard, useWindowSize } from "../utils";
-import mermaid from "mermaid";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
 import ReloadButtonIcon from "../icons/reload.svg";
@@ -26,22 +25,40 @@ import { IconButton } from "./button";
 import { useAppConfig } from "../store/config";
 import clsx from "clsx";
 
+let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
+
+function loadMermaid() {
+  mermaidModulePromise ??= import("mermaid");
+  return mermaidModulePromise;
+}
+
 export function Mermaid(props: { code: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    if (props.code && ref.current) {
-      mermaid
-        .run({
-          nodes: [ref.current],
+    const node = ref.current;
+    if (!props.code || !node) return;
+
+    let cancelled = false;
+    setHasError(false);
+    void loadMermaid()
+      .then(({ default: mermaid }) =>
+        mermaid.run({
+          nodes: [node],
           suppressErrors: true,
-        })
-        .catch((e) => {
+        }),
+      )
+      .catch((e) => {
+        if (!cancelled) {
           setHasError(true);
           console.error("[Mermaid] ", e.message);
-        });
-    }
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.code]);
 

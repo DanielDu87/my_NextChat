@@ -500,10 +500,36 @@ const DRAW_LOCAL_ONLY_FIELDS = [
   "lastResponseLog",
 ] as const;
 
+function isDrawDataUrl(value: unknown) {
+  return String(value || "").startsWith("data:");
+}
+
+function isDrawDbImageUrl(value: unknown) {
+  return String(value || "").startsWith("/api/db/draw-image/");
+}
+
+function normalizeDrawItemForSync(item: any) {
+  if (!isObjectLike(item)) return item;
+
+  const nextItem = { ...item };
+  if (isDrawDbImageUrl(nextItem.img_data)) {
+    delete nextItem.thumb_data;
+  } else if (isDrawDataUrl(nextItem.thumb_data)) {
+    delete nextItem.thumb_data;
+  }
+
+  return nextItem;
+}
+
 function normalizeDrawSyncState<T extends Record<string, any>>(state: T): T {
   const syncState = { ...state };
   for (const field of DRAW_LOCAL_ONLY_FIELDS) {
     delete (syncState as Record<string, unknown>)[field];
+  }
+  if (Array.isArray(syncState.draw)) {
+    (syncState as Record<string, unknown>).draw = syncState.draw.map(
+      normalizeDrawItemForSync,
+    );
   }
   return syncState as T;
 }

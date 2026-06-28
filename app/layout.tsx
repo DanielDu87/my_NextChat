@@ -88,20 +88,21 @@ export default function RootLayout({
                   var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                   var hasStoredTheme = theme === 'dark' || theme === 'light' || theme === 'auto';
                   var isDark = theme === 'dark' || (theme === 'auto' && systemDark) || (!hasStoredTheme && systemDark);
-                  var preloadDark = isDark || !hasStoredTheme;
+                  var preloadDark = isDark;
                   var bgColor = preloadDark ? '#151515' : '#fafafa';
                   window.__NEXTCHAT_PRELOAD_THEME__ = preloadDark ? 'dark' : 'light';
 
                   // 方案1: 动态 style 标签覆盖 html,body（不依赖 class）
                   var style = document.createElement('style');
                   style.id = 'theme-preload-style';
-                  style.textContent = 'html, body { background-color: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; transition: none !important; } #' + '${THEME_BOOT_SCREEN_ID}' + ' { background: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; } html:not(.light) [class*="loading-view"] { background-color: #151515 !important; }';
+                  style.textContent = 'html, body { background-color: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; transition: none !important; } #' + '${THEME_BOOT_SCREEN_ID}' + ' { background: ' + bgColor + ' !important; color-scheme: ' + (preloadDark ? 'dark' : 'light') + '; } html.light [class*="loading-view"] { background-color: #fafafa !important; } html.dark [class*="loading-view"], html:not(.light):not(.dark) [class*="loading-view"] { background-color: #151515 !important; }';
                   document.head.appendChild(style);
 
                   // 方案2: html inline style 直接设置（不管 class 如何变化都生效）
                   html.style.setProperty('background-color', bgColor, 'important');
                   html.style.setProperty('color-scheme', preloadDark ? 'dark' : 'light');
 
+                  html.classList.remove('light', 'dark');
                   if (preloadDark) {
                     html.classList.add('dark');
                   } else {

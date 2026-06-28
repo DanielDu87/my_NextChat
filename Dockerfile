@@ -1,4 +1,4 @@
-# # syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1
 # =============================================================================
 # NextChat Dockerfile - 优化版
 # 支持本地开发热加载和服务器生产部署
@@ -79,7 +79,8 @@ ENV HUSKY=0
 # 预装开发依赖到镜像缓存目录，避免每次容器启动都完整重新安装
 COPY package.json yarn.lock ./
 COPY vendor ./vendor
-RUN yarn install --frozen-lockfile --network-timeout 600000 && \
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+    yarn install --frozen-lockfile --network-timeout 600000 && \
     mkdir -p /opt/nextchat-node_modules && \
     cp -a node_modules/. /opt/nextchat-node_modules/ && \
     cat package.json yarn.lock | sha256sum | awk '{print $1}' > /opt/nextchat-node_modules/.nextchat-deps-hash
@@ -90,7 +91,8 @@ RUN chmod +x /usr/local/bin/dev-container-start.sh
 # 开发环境变量
 ENV HOSTNAME=0.0.0.0 \
     NODE_ENV=development \
-    WATCHPACK_POLLING=true
+    WATCHPACK_POLLING=false \
+    CHOKIDAR_USEPOLLING=false
 
 EXPOSE 3000
 
@@ -108,7 +110,8 @@ COPY package.json yarn.lock ./
 COPY vendor ./vendor
 
 # 仓库仅维护 yarn.lock，生产构建统一使用 Yarn 安装依赖
-RUN yarn install --frozen-lockfile --network-timeout 600000
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+    yarn install --frozen-lockfile --network-timeout 600000
 
 # =============================================================================
 # 构建阶段
@@ -125,7 +128,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # 构建应用
-RUN yarn build && \
+RUN --mount=type=cache,target=/app/.next/cache \
+    yarn build && \
     # 清理不需要的文件减小镜像体积
     rm -rf node_modules/.cache && \
     yarn cache clean

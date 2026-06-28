@@ -174,6 +174,7 @@ export function ChatList() {
     loadMore,
   } = useChatIndexStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobileScreen = useMobileScreen();
   const listRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -189,6 +190,8 @@ export function ChatList() {
   );
   const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
   const loadingMoreTimerRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
+  const pendingScrollElementRef = useRef<HTMLDivElement | null>(null);
   const hasMoreSessions =
     orderedSessionIds.length < allOrderedSessionIds.length;
 
@@ -410,6 +413,9 @@ export function ChatList() {
       if (loadingMoreTimerRef.current) {
         window.clearTimeout(loadingMoreTimerRef.current);
       }
+      if (scrollRafRef.current !== null) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+      }
     };
   }, []);
 
@@ -419,7 +425,7 @@ export function ChatList() {
       return;
     }
 
-    if (!isMobileScreen || (await showConfirm(Locale.Home.DeleteChat))) {
+    if (await showConfirm(Locale.Home.DeleteChat)) {
       useChatStore.getState().deleteSessionById(sessionId);
     }
   };
@@ -435,6 +441,30 @@ export function ChatList() {
     }
   };
 
+  const onSelectSession = useCallback(
+    (item: ChatSessionSummary) => {
+      if (multiDeleteMode) {
+        toggleDeleteSelection(item.id);
+        return;
+      }
+
+      if (isPinnedNewChat(item)) {
+        if (
+          location.pathname !== Path.Home &&
+          location.pathname !== Path.Chat
+        ) {
+          navigate(Path.Chat);
+        }
+        selectChatSessionById(item.id);
+        return;
+      }
+
+      navigate(`/chat/${item.id}`);
+      selectChatSessionById(item.id);
+    },
+    [location.pathname, multiDeleteMode, navigate, toggleDeleteSelection],
+  );
+
   const renderScrollContainer = useCallback(
     (
       content: ReactNode,
@@ -444,14 +474,23 @@ export function ChatList() {
         className={styles["chat-list-scroll"]}
         ref={listRef}
         onScroll={(event) => {
-          setScrollTop(event.currentTarget.scrollTop);
           onScroll?.(event);
-          if (
-            event.currentTarget.scrollTop + event.currentTarget.clientHeight >=
-            event.currentTarget.scrollHeight - itemHeight * 2
-          ) {
-            triggerLoadMore();
-          }
+          pendingScrollElementRef.current = event.currentTarget;
+          if (scrollRafRef.current !== null) return;
+          scrollRafRef.current = window.requestAnimationFrame(() => {
+            scrollRafRef.current = null;
+            const element = pendingScrollElementRef.current;
+            pendingScrollElementRef.current = null;
+            if (!element) return;
+
+            setScrollTop(element.scrollTop);
+            if (
+              element.scrollTop + element.clientHeight >=
+              element.scrollHeight - itemHeight * 2
+            ) {
+              triggerLoadMore();
+            }
+          });
         }}
       >
         {content}
@@ -465,7 +504,13 @@ export function ChatList() {
     0,
     Math.floor(scrollTop / itemHeight) - VIRTUAL_OVERSCAN,
   );
-  const visibleCount = Math.ceil((viewportHeight || itemHeight) / itemHeight);
+  const estimatedViewportHeight =
+    viewportHeight ||
+    listRef.current?.clientHeight ||
+    (typeof window !== "undefined"
+      ? Math.max(window.innerHeight - itemHeight * 2, itemHeight * 6)
+      : itemHeight * 8);
+  const visibleCount = Math.ceil(estimatedViewportHeight / itemHeight);
   const endIndex = Math.min(
     filteredSessions.length,
     startIndex + visibleCount + VIRTUAL_OVERSCAN * 2,
@@ -520,14 +565,7 @@ export function ChatList() {
               time={formatChinaDateTime(item.displayTime)}
               count={item.messageCount}
               selected={item.id === currentSessionId}
-              onClick={() => {
-                if (multiDeleteMode) {
-                  toggleDeleteSelection(item.id);
-                  return;
-                }
-                navigate(`/chat/${item.id}`);
-                selectChatSessionById(item.id);
-              }}
+              onClick={() => onSelectSession(item)}
               onDelete={() => void onDeleteSession(item.id)}
               multiDeleteMode={multiDeleteMode}
               multiDeleteSelected={selectedDeleteIds.includes(item.id)}
@@ -560,14 +598,7 @@ export function ChatList() {
                   time={formatChinaDateTime(item.displayTime)}
                   count={item.messageCount}
                   selected={item.id === currentSessionId}
-                  onClick={() => {
-                    if (multiDeleteMode) {
-                      toggleDeleteSelection(item.id);
-                      return;
-                    }
-                    navigate(`/chat/${item.id}`);
-                    selectChatSessionById(item.id);
-                  }}
+                  onClick={() => onSelectSession(item)}
                   onDelete={() => void onDeleteSession(item.id)}
                   multiDeleteMode={multiDeleteMode}
                   multiDeleteSelected={selectedDeleteIds.includes(item.id)}

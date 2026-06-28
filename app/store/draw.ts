@@ -77,7 +77,11 @@ function joinUrl(baseUrl: string, path: string) {
 }
 
 const DRAW_THUMB_MAX_SIZE = 80 * 1024;
-const DRAW_IMAGE_EXTERNALIZE_MIN_SIZE = 512 * 1024;
+// 大图（≥256KB）外部化到数据库，store/同步只保留短 URL，避免大体积
+// base64 拖慢 draw 页面首屏 hydrate 与云同步；小图（<256KB）保留 base64
+// 以保持自包含（可直接下载/导出，不依赖按用户鉴权的图片 URL）。
+// 旧的大图进入页面时由 externalizeLargeImages 自动迁移，小图不动。
+const DRAW_IMAGE_EXTERNALIZE_MIN_SIZE = 256 * 1024;
 const DRAW_IMAGE_API_BASE = "/api/db/draw-image";
 
 function isDataUrl(value: string) {
@@ -96,9 +100,16 @@ async function buildDrawThumbDataUrl(imageSrc: string) {
   return await compressImage(blob, DRAW_THUMB_MAX_SIZE);
 }
 
-async function uploadDrawImageToDb(imageSrc: string) {
+type UploadedDrawImage = {
+  url: string;
+  thumbData: string;
+};
+
+async function uploadDrawImageToDb(
+  imageSrc: string,
+): Promise<UploadedDrawImage | null> {
   if (!isDataUrl(imageSrc)) {
-    return "";
+    return null;
   }
   const response = await fetch(DRAW_IMAGE_API_BASE, {
     method: "POST",
@@ -111,7 +122,28 @@ async function uploadDrawImageToDb(imageSrc: string) {
   if (!response.ok || !payload?.ok || !payload?.url) {
     throw new Error(payload?.error || `upload_failed_${response.status}`);
   }
-  return String(payload.url);
+  return {
+    url: String(payload.url),
+    thumbData: String(payload.thumb_data || ""),
+  };
+}
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(concurrency, 1), items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(workers);
 }
 
 let externalizeLargeDrawImagesTask: Promise<void> | null = null;
@@ -1194,37 +1226,37 @@ export const useDrawStore = createPersistStore<
               if (isExternalizedDrawImageUrl(src)) return false;
               return src.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE;
             });
+            let changed = false;
 
-            for (const item of candidates) {
-              const src = String(item?.img_data || "");
-              if (!src || !isDataUrl(src)) continue;
-              if (isExternalizedDrawImageUrl(src)) continue;
-
-              let thumbData = String(item?.thumb_data || "");
-              if (!thumbData) {
-                thumbData = await buildDrawThumbDataUrl(src).catch(() => "");
-              }
+            await mapWithConcurrency(candidates, 3, async (item) => {
+              const latestItem = (_get().draw || []).find(
+                (entry: any) => entry?.id === item?.id,
+              );
+              const src = String(latestItem?.img_data || item?.img_data || "");
+              if (!src || !isDataUrl(src)) return;
+              if (isExternalizedDrawImageUrl(src)) return;
 
               try {
-                const uploadedUrl = await uploadDrawImageToDb(src);
-                if (!uploadedUrl) continue;
+                const uploaded = await uploadDrawImageToDb(src);
+                if (!uploaded?.url) return;
                 get().updateDraw({
-                  ...item,
-                  img_data: uploadedUrl,
-                  ...(thumbData ? { thumb_data: thumbData } : {}),
+                  ...(latestItem || item),
+                  img_data: uploaded.url,
+                  ...(uploaded.thumbData
+                    ? { thumb_data: uploaded.thumbData }
+                    : {}),
                 });
+                changed = true;
               } catch (error) {
-                if (thumbData && thumbData !== item?.thumb_data) {
-                  get().updateDraw({
-                    ...item,
-                    thumb_data: thumbData,
-                  });
-                }
                 logger.draw.warn(
                   `externalizeLargeImages 上传失败 id=${item?.id}`,
                   error,
                 );
               }
+            });
+
+            if (changed) {
+              globalThis.setTimeout(() => get().markUpdate(), 0);
             }
           },
         ).finally(() => {
@@ -1481,12 +1513,18 @@ export const useDrawStore = createPersistStore<
               logger.draw.log(
                 `✅ 成功 id=${data.id}, 图片=${img.slice(0, 80)}...`,
               );
-              const thumbData = await buildDrawThumbDataUrl(img).catch(
-                () => "",
-              );
               let finalSrc = img;
+              let thumbData = "";
               if (img.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE) {
-                finalSrc = await uploadDrawImageToDb(img).catch(() => img);
+                const uploaded = await uploadDrawImageToDb(img).catch(
+                  () => null,
+                );
+                if (uploaded?.url) {
+                  finalSrc = uploaded.url;
+                  thumbData = uploaded.thumbData;
+                }
+              } else {
+                thumbData = await buildDrawThumbDataUrl(img).catch(() => "");
               }
               get().updateDraw({
                 ...data,
@@ -1507,12 +1545,18 @@ export const useDrawStore = createPersistStore<
                 logger.draw.log(
                   `✅ 成功 id=${data.id}, 图片(base64长度=${base64Image.length}, mime=${mimeType})`,
                 );
-                const thumbData = await buildDrawThumbDataUrl(img).catch(
-                  () => "",
-                );
                 let finalSrc = img;
+                let thumbData = "";
                 if (img.length >= DRAW_IMAGE_EXTERNALIZE_MIN_SIZE) {
-                  finalSrc = await uploadDrawImageToDb(img).catch(() => img);
+                  const uploaded = await uploadDrawImageToDb(img).catch(
+                    () => null,
+                  );
+                  if (uploaded?.url) {
+                    finalSrc = uploaded.url;
+                    thumbData = uploaded.thumbData;
+                  }
+                } else {
+                  thumbData = await buildDrawThumbDataUrl(img).catch(() => "");
                 }
                 get().updateDraw({
                   ...data,
@@ -1543,21 +1587,6 @@ export const useDrawStore = createPersistStore<
                     // 优先使用服务端用 sharp 生成的缩略图（纯代码，不依赖外部服务）
                     if (payload.thumb_data) {
                       thumbData = String(payload.thumb_data);
-                    } else {
-                      // 降级：从 DB URL 获取图片后生成本地缩略图
-                      try {
-                        const thumbBlob = await fetch(finalSrc).then((r) =>
-                          r.blob(),
-                        );
-                        if (thumbBlob.size > 0) {
-                          thumbData = await compressImage(
-                            thumbBlob,
-                            DRAW_THUMB_MAX_SIZE,
-                          );
-                        }
-                      } catch {
-                        // 缩略图生成失败不影响主流程
-                      }
                     }
                   }
                 } catch {

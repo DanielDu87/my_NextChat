@@ -325,6 +325,28 @@ function createApiKeyGroupRetryContext(params: {
   };
 }
 
+function isHeicImage(file: Blob) {
+  const name = String((file as Blob & { name?: string }).name || "");
+  return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(name);
+}
+
+export async function convertHeicImage(file: Blob): Promise<Blob> {
+  if (!isHeicImage(file)) {
+    return file;
+  }
+
+  const { default: heic2any } = await import("heic2any");
+  const converted = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+  });
+  const convertedBlob = Array.isArray(converted) ? converted[0] : converted;
+  if (!(convertedBlob instanceof Blob)) {
+    throw new Error("HEIC 图片转换失败");
+  }
+  return convertedBlob;
+}
+
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -364,22 +386,10 @@ export function compressImage(file: Blob, maxSize: number): Promise<string> {
     };
     reader.onerror = reject;
 
-    if (file.type.includes("heic")) {
-      try {
-        const heic2any = require("heic2any");
-        heic2any({ blob: file, toType: "image/jpeg" })
-          .then((blob: Blob) => {
-            reader.readAsDataURL(blob);
-          })
-          .catch((e: any) => {
-            reject(e);
-          });
-      } catch (e) {
-        reject(e);
-      }
-    }
-
-    reader.readAsDataURL(file);
+    void (async () => {
+      const source = await convertHeicImage(file);
+      reader.readAsDataURL(source);
+    })().catch(reject);
   });
 }
 

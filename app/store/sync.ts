@@ -83,6 +83,7 @@ import {
   saveCustomModelSyncSnapshot,
   type ModelSyncPlatformDiff,
 } from "../utils/model-sync-diff";
+import SparkMD5 from "spark-md5";
 
 type DatabaseCacheMeta = Record<
   string,
@@ -129,6 +130,8 @@ const ABORTED_DB_SYNC_ERROR = /^\[DB Sync\] aborted\b/;
 const ABORTED_SYNC_ERROR = /^\[Sync\] aborted\b/;
 let lastMissingApiKeyWarningKey = "";
 let lastRemoteChatMetaCheckAt = 0;
+let startupChatSyncInFlight: Promise<boolean> | null = null;
+let lastStartupChatSyncCompletedAt = 0;
 const syncConsoleDedupMap = new Map<string, number>();
 
 function isSyncAbortError(error: unknown) {
@@ -313,13 +316,47 @@ function getLocalStoreLastUpdateTime(state: unknown) {
   return Number.isFinite(nextValue) ? nextValue : 0;
 }
 
+function calculateTextChecksum(text: string) {
+  return SparkMD5.hash(text);
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function calculateLocalStoreChecksum(
+  key: SyncStoreKey,
+  localStoreState: unknown,
+) {
+  const localStoreStateToPersist =
+    key === StoreKey.Config
+      ? stripConfigLocalModelFields(localStoreState as Record<string, any>)
+      : localStoreState;
+  const payload = JSON.parse(
+    stringifyPersistedStoreState(key, localStoreStateToPersist),
+  );
+  return calculateTextChecksum(stableJsonStringify(payload));
+}
+
 function shouldSkipSyncByChecksum(params: {
   key: SyncStoreKey;
   localStoreState: unknown;
   remoteMetaMap: Map<SyncStoreKey, StoreSnapshotMeta>;
   databaseCacheMeta: DatabaseCacheMeta;
   lastSyncTime: number;
-}) {
+}): "remote" | false {
   if (!isPerfFeatureEnabled("PERF_ENABLE_SYNC_CHECKSUM_SKIP")) {
     return false;
   }
@@ -343,10 +380,7 @@ function shouldSkipSyncByChecksum(params: {
     return false;
   }
 
-  return (
-    remoteMeta.updatedAt === cachedMeta.updatedAt &&
-    remoteMeta.checksum === cachedMeta.checksum
-  );
+  return remoteMeta.checksum === cachedMeta.checksum ? "remote" : false;
 }
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
@@ -1809,6 +1843,51 @@ function shouldUploadChatSession(
   );
 }
 
+function hasChatIndexStateChanged(
+  localIndex: ReturnType<typeof buildUploadChatIndexPayload>,
+  remoteIndex: any,
+) {
+  const remoteSessionIds = new Set(
+    (Array.isArray(remoteIndex?.state?.sessionIds)
+      ? remoteIndex.state.sessionIds
+      : []
+    )
+      .map((sessionId: unknown) => String(sessionId || ""))
+      .filter(Boolean),
+  );
+  const localSessionIds = new Set(
+    (Array.isArray(localIndex?.state?.sessionIds)
+      ? localIndex.state.sessionIds
+      : []
+    )
+      .map((sessionId: unknown) => String(sessionId || ""))
+      .filter(Boolean),
+  );
+  if (remoteSessionIds.size !== localSessionIds.size) {
+    return true;
+  }
+  for (const sessionId of localSessionIds) {
+    if (!remoteSessionIds.has(sessionId)) {
+      return true;
+    }
+  }
+
+  const localCurrentSessionId = String(
+    localIndex?.state?.currentSessionId || "",
+  );
+  const currentSessionChanged =
+    localCurrentSessionId &&
+    localSessionIds.has(localCurrentSessionId) &&
+    localCurrentSessionId !==
+      String(remoteIndex?.state?.currentSessionId || "");
+
+  return (
+    currentSessionChanged ||
+    getChatGlobalClearAt(localIndex?.state) !==
+      getChatGlobalClearAt(remoteIndex?.state)
+  );
+}
+
 function getChatGlobalClearAt(state: unknown) {
   return getChatGlobalClearAtFromState(state);
 }
@@ -2049,10 +2128,7 @@ export const useSyncStore = createPersistStore(
           return fn(...args) as Promise<T>;
         }
         const mergedOptions = { ...extraOptions, signal: abortSignal };
-        if (typeof fn === "function" && fn.length > args.length) {
-          return fn(...args, mergedOptions) as Promise<T>;
-        }
-        return fn(...args) as Promise<T>;
+        return fn(...args, mergedOptions) as Promise<T>;
       };
 
       const lightMode = get().criticalSyncInProgress;
@@ -2648,6 +2724,12 @@ export const useSyncStore = createPersistStore(
           "warn",
           "[Sync] ⚠️ 跳过上传: hasPendingChatRequest=true（用户正在对话中）",
         );
+      } else if (
+        upsertSessions.length === 0 &&
+        deleteSessionIds.length === 0 &&
+        !hasChatIndexStateChanged(mergedIndex, remoteIndex)
+      ) {
+        logSyncDebug("[Sync] ⏭️ 会话索引与远端一致，跳过空 delta 写入");
       } else {
         logSyncDebug(
           `[Sync] 🔬 执行 setChatDelta: 上传 ${upsertSessions.length} 个会话`,
@@ -2879,6 +2961,7 @@ export const useSyncStore = createPersistStore(
       async resumePendingDebounceSync(options?: {
         excludeKeys?: SyncStoreKey[];
         includeKeys?: SyncStoreKey[];
+        abortSignal?: AbortSignal;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过恢复未完成同步");
@@ -2900,9 +2983,11 @@ export const useSyncStore = createPersistStore(
           (key) =>
             !excludedKeys.has(key) && (!includedKeys || includedKeys.has(key)),
         );
+        const remainingKeys = pendingTask.keys.filter(
+          (key) => !resumedKeys.includes(key),
+        );
 
         if (resumedKeys.length === 0) {
-          clearPendingDebounceTask();
           return false;
         }
 
@@ -2915,15 +3000,31 @@ export const useSyncStore = createPersistStore(
           keys: resumedKeys.map((k) => STORE_DISPLAY_NAMES[k]).join(", "),
         });
 
-        clearPendingDebounceTask();
+        if (remainingKeys.length > 0) {
+          writePendingDebounceTask({
+            keys: remainingKeys,
+            scheduledAt: pendingTask.scheduledAt,
+          });
+        } else {
+          clearPendingDebounceTask();
+        }
 
         try {
-          await this.sync(resumedKeys);
+          await this.sync(resumedKeys, {
+            abortSignal: options?.abortSignal,
+          });
+          if (options?.abortSignal?.aborted) {
+            writePendingDebounceTask({
+              keys: normalizeSyncKeys([...remainingKeys, ...resumedKeys]),
+              scheduledAt: Date.now(),
+            });
+            return false;
+          }
           return true;
         } catch (error) {
           logger.sync.error("[Sync] ❌ 恢复防抖同步失败:", error);
           writePendingDebounceTask({
-            keys: resumedKeys,
+            keys: normalizeSyncKeys([...remainingKeys, ...resumedKeys]),
             scheduledAt: Date.now(),
           });
           throw error;
@@ -3047,10 +3148,7 @@ export const useSyncStore = createPersistStore(
             return fn(...args) as Promise<T>;
           }
           const mergedOptions = { ...extraOptions, signal: abortSignal };
-          if (typeof fn === "function" && fn.length > args.length) {
-            return fn(...args, mergedOptions) as Promise<T>;
-          }
-          return fn(...args) as Promise<T>;
+          return fn(...args, mergedOptions) as Promise<T>;
         };
 
         const currentSync = (async () => {
@@ -3595,7 +3693,7 @@ export const useSyncStore = createPersistStore(
                   }
                   const localStoreState = localAppStateCache[key];
 
-                  if (
+                  const skipByChecksum =
                     !options?.force &&
                     shouldSkipSyncByChecksum({
                       key,
@@ -3603,8 +3701,8 @@ export const useSyncStore = createPersistStore(
                       remoteMetaMap,
                       databaseCacheMeta: get().database.cacheMeta,
                       lastSyncTime: get().lastSyncTime,
-                    })
-                  ) {
+                    });
+                  if (skipByChecksum) {
                     syncConsole(
                       "log",
                       `[Sync] ⏭️ [${stepLabel}] ${displayName}跳过: 远端元数据未变化，跳过同步`,
@@ -3623,6 +3721,38 @@ export const useSyncStore = createPersistStore(
                       ),
                     });
                     continue;
+                  }
+
+                  const currentMeta = remoteMetaMap.get(key);
+                  if (
+                    !options?.force &&
+                    key !== StoreKey.Chat &&
+                    currentMeta?.checksum
+                  ) {
+                    const localChecksum = calculateLocalStoreChecksum(
+                      key,
+                      localStoreState,
+                    );
+                    if (localChecksum === currentMeta.checksum) {
+                      syncConsole(
+                        "log",
+                        `[Sync] ⏭️ [${stepLabel}] ${displayName}跳过: 本地与远端内容一致，跳过写入`,
+                      );
+                      syncResults.push({
+                        key,
+                        name: displayName,
+                        summary: "本地与远端内容一致，跳过写入",
+                        status: "skipped",
+                      });
+                      logPerfSummary("Sync", {
+                        key,
+                        skippedByLocalChecksumCount: 1,
+                        durationMs: Number(
+                          (nowMs() - keySyncStartedAt).toFixed(2),
+                        ),
+                      });
+                      continue;
+                    }
                   }
 
                   if (
@@ -4003,7 +4133,6 @@ export const useSyncStore = createPersistStore(
           if (criticalKeys.length > 0) {
             await this.sync(criticalKeys, {
               isolateQueue: true,
-              force: true,
               broadcastChatHint: false,
               abortSignal: options?.abortSignal,
             });
@@ -4027,6 +4156,8 @@ export const useSyncStore = createPersistStore(
       async syncChatIfRemoteChanged(options?: {
         minIntervalMs?: number;
         source?: string;
+        abortSignal?: AbortSignal;
+        bootstrapIfMissing?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，尝试 downloadOnly 拉取");
@@ -4035,6 +4166,7 @@ export const useSyncStore = createPersistStore(
               isolateQueue: true,
               force: true,
               downloadOnlyChat: true,
+              abortSignal: options?.abortSignal,
             });
           } catch {
             return false;
@@ -4054,17 +4186,19 @@ export const useSyncStore = createPersistStore(
         lastRemoteChatMetaCheckAt = now;
 
         const isRetryable = (error: unknown) =>
+          !options?.abortSignal?.aborted &&
           error instanceof Error &&
           (RETRYABLE_DB_SYNC_ERROR.test(error.message) ||
             RETRYABLE_NETWORK_ERROR.test(error.message));
 
         try {
-          const { updatedAt } = await withRetry(
+          const { updatedAt, remoteAvailable } = await withRetry(
             async () => {
               const resp = await fetch("/api/db/chat-updated-at", {
                 method: "GET",
                 cache: "no-store",
                 credentials: "same-origin",
+                signal: options?.abortSignal,
               });
               if (!resp.ok) {
                 if (resp.status >= 500 || resp.status === 408) {
@@ -4072,13 +4206,16 @@ export const useSyncStore = createPersistStore(
                     `[DB Sync] ${resp.status} chat-updated-at 请求失败`,
                   );
                 }
-                return { updatedAt: null };
+                return { updatedAt: null, remoteAvailable: false };
               }
               const data = await resp.json();
-              if (!data?.ok || !data.updatedAt) {
-                return { updatedAt: null };
+              if (!data?.ok) {
+                return { updatedAt: null, remoteAvailable: false };
               }
-              return { updatedAt: data.updatedAt as string };
+              return {
+                updatedAt: data.updatedAt ? (data.updatedAt as string) : null,
+                remoteAvailable: true,
+              };
             },
             {
               retries: 3,
@@ -4091,6 +4228,22 @@ export const useSyncStore = createPersistStore(
               },
             },
           );
+
+          if (
+            !updatedAt &&
+            remoteAvailable &&
+            options?.bootstrapIfMissing &&
+            getSyncableChatSessions(useChatStore.getState().sessions as any)
+              .length > 0
+          ) {
+            await this.sync([StoreKey.Chat], {
+              isolateQueue: true,
+              force: true,
+              broadcastChatHint: false,
+              abortSignal: options?.abortSignal,
+            });
+            return true;
+          }
 
           if (!updatedAt) {
             return false;
@@ -4131,6 +4284,7 @@ export const useSyncStore = createPersistStore(
                 force: true,
                 broadcastChatHint: false,
                 downloadOnlyChat: true,
+                abortSignal: options?.abortSignal,
               }),
             {
               retries: 2,
@@ -4146,6 +4300,9 @@ export const useSyncStore = createPersistStore(
           );
           return true;
         } catch (error) {
+          if (options?.abortSignal?.aborted) {
+            return false;
+          }
           syncConsole(
             "error",
             "[Sync] ❌ 远端聊天检查失败（已耗尽重试）:",
@@ -4153,6 +4310,56 @@ export const useSyncStore = createPersistStore(
           );
           return false;
         }
+      },
+
+      async syncChatOnStartup(options?: {
+        minIntervalMs?: number;
+        source?: string;
+        abortSignal?: AbortSignal;
+      }) {
+        if (startupChatSyncInFlight) {
+          return startupChatSyncInFlight;
+        }
+
+        const minIntervalMs = Math.max(0, options?.minIntervalMs ?? 15000);
+        if (
+          Date.now() - lastStartupChatSyncCompletedAt < minIntervalMs &&
+          !options?.abortSignal?.aborted
+        ) {
+          return false;
+        }
+
+        const task = (async () => {
+          if (options?.abortSignal?.aborted) {
+            return false;
+          }
+
+          const resumed = await this.resumePendingDebounceSync({
+            includeKeys: [StoreKey.Chat],
+            abortSignal: options?.abortSignal,
+          });
+          if (options?.abortSignal?.aborted) {
+            return resumed;
+          }
+
+          const remoteChanged = await this.syncChatIfRemoteChanged({
+            source: options?.source || "startup",
+            minIntervalMs: 0,
+            abortSignal: options?.abortSignal,
+            bootstrapIfMissing: !resumed,
+          });
+          if (!options?.abortSignal?.aborted) {
+            lastStartupChatSyncCompletedAt = Date.now();
+          }
+          return resumed || remoteChanged;
+        })().finally(() => {
+          if (startupChatSyncInFlight === task) {
+            startupChatSyncInFlight = null;
+          }
+        });
+
+        startupChatSyncInFlight = task;
+        return task;
       },
 
       async autoSyncDeferred(options?: {

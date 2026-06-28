@@ -106,6 +106,29 @@ export async function getDrawImageWithThumb(
   };
 }
 
+// 仅查询缩略图，避免把整张原图 bytea（TOAST 大字段）也读出来，
+// 让 ?thumb=1 缩略图请求更快、更省内存。
+export async function getDrawImageThumb(externalUserId: string, id: string) {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const result = await pgQuery<{
+    content_type: string;
+    thumb_data: Buffer | null;
+  }>(
+    `select content_type, thumb_data
+     from user_draw_images
+     where id = $1::uuid and user_id = $2::uuid
+     limit 1`,
+    [id, userId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    contentType: row.content_type,
+    thumbData: row.thumb_data,
+  };
+}
+
 export async function updateDrawImageThumb(
   externalUserId: string,
   id: string,

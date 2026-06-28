@@ -49,10 +49,17 @@ export function useStartupChatSyncStatus() {
       });
     };
     channel?.addEventListener("message", onMessage);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === STARTUP_CHAT_SYNC_STATUS_KEY) {
+        readStatus();
+      }
+    };
+    window.addEventListener("storage", onStorage);
 
     return () => {
       channel?.removeEventListener("message", onMessage);
       channel?.close();
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 

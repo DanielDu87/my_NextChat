@@ -989,11 +989,12 @@ export default function AutoSync() {
                   try {
                     autoSyncConsole(
                       "log",
-                      "[AutoSync] 📤 后台上传本地会话到远端...",
+                      "[AutoSync] 🔄 后台检查本地与远端会话...",
                     );
-                    await syncStore.sync([StoreKey.Chat], {
-                      isolateQueue: true,
-                      force: true,
+                    await syncStore.syncChatOnStartup?.({
+                      source: "auto-sync-deferred",
+                      minIntervalMs: 60_000,
+                      abortSignal,
                     });
                     if (shouldCancelAutoSync(syncPath)) {
                       return;

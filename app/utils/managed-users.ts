@@ -10,66 +10,120 @@ export type ManagedUser = {
   lastConversationAt?: string | null;
 };
 
-let managedUsersCache: ManagedUser[] | null = null;
-let managedUsersRequest: Promise<ManagedUser[]> | null = null;
+const MANAGED_USERS_CACHE_TTL_MS = 60_000;
 
-export function getCachedManagedUsers() {
-  return managedUsersCache;
+type ManagedUsersCacheEntry = {
+  ownerUserId: string;
+  users: ManagedUser[];
+  fetchedAt: number;
+  generation: number;
+};
+
+type ManagedUsersRequestEntry = {
+  ownerUserId: string;
+  generation: number;
+  controller: AbortController;
+  promise: Promise<ManagedUser[]>;
+};
+
+let managedUsersCache: ManagedUsersCacheEntry | null = null;
+let managedUsersRequest: ManagedUsersRequestEntry | null = null;
+let managedUsersGeneration = 0;
+
+export function getCachedManagedUsers(ownerUserId: string) {
+  if (
+    !managedUsersCache ||
+    managedUsersCache.ownerUserId !== ownerUserId ||
+    Date.now() - managedUsersCache.fetchedAt > MANAGED_USERS_CACHE_TTL_MS
+  ) {
+    return null;
+  }
+
+  return managedUsersCache.users;
+}
+
+export function invalidateManagedUsersCache(ownerUserId?: string) {
+  if (!ownerUserId || managedUsersCache?.ownerUserId === ownerUserId) {
+    managedUsersCache = null;
+  }
+  if (!ownerUserId || managedUsersRequest?.ownerUserId === ownerUserId) {
+    managedUsersRequest?.controller.abort();
+    managedUsersRequest = null;
+  }
+  managedUsersGeneration += 1;
 }
 
 export async function preloadManagedUsers(options?: {
+  ownerUserId: string;
   force?: boolean;
   source?: "page-init" | "user-menu" | "user-refresh";
+  signal?: AbortSignal;
 }) {
-  const source = options?.source ?? "user-menu";
-  const sourceLabel =
-    source === "page-init"
-      ? "页面初始化"
-      : source === "user-refresh"
-      ? "用户数据刷新"
-      : "用户切换弹窗";
-
-  if (!options?.force && managedUsersCache) {
-    console.log(
-      `[Users] ⚡ ${sourceLabel}命中用户缓存，共 ${managedUsersCache.length} 个用户`,
-    );
-    return managedUsersCache;
+  const ownerUserId = String(options?.ownerUserId || "").trim();
+  if (!ownerUserId) {
+    throw new Error("缺少管理员身份");
   }
 
-  if (!options?.force && managedUsersRequest) {
-    console.log(`[Users] ⏳ ${sourceLabel}复用正在进行的用户获取请求`);
-    return managedUsersRequest;
+  if (!options?.force) {
+    const cachedUsers = getCachedManagedUsers(ownerUserId);
+    if (cachedUsers) {
+      return cachedUsers;
+    }
   }
 
-  console.log(`[Users] 🔄 ${sourceLabel}开始获取用户列表`);
+  if (!options?.force && managedUsersRequest?.ownerUserId === ownerUserId) {
+    return managedUsersRequest.promise;
+  }
+
+  if (options?.force) {
+    invalidateManagedUsersCache(ownerUserId);
+  }
+
+  const generation = ++managedUsersGeneration;
+  const controller = new AbortController();
+  const abortRequest = () => controller.abort();
+  options?.signal?.addEventListener("abort", abortRequest, { once: true });
+  if (options?.signal?.aborted) {
+    controller.abort();
+  }
 
   const request = fetch("/api/admin/users", {
     method: "GET",
     cache: "no-store",
+    signal: controller.signal,
   })
     .then(async (response) => {
       const payload = await response.json().catch(() => null);
       if (!response.ok || payload?.ok !== true) {
         throw new Error(String(payload?.error || "获取用户列表失败"));
       }
+      if (!Array.isArray(payload.users)) {
+        throw new Error("用户列表响应格式错误");
+      }
 
-      const users = Array.isArray(payload?.users) ? payload.users : [];
-      managedUsersCache = users;
-      console.log(
-        `[Users] ✅ ${sourceLabel}获取用户列表完成，共 ${users.length} 个用户`,
-      );
+      const users = payload.users as ManagedUser[];
+      if (generation === managedUsersGeneration) {
+        managedUsersCache = {
+          ownerUserId,
+          users,
+          fetchedAt: Date.now(),
+          generation,
+        };
+      }
       return users;
     })
-    .catch((error) => {
-      console.error(`[Users] ❌ ${sourceLabel}获取用户列表失败:`, error);
-      throw error;
-    })
     .finally(() => {
-      if (managedUsersRequest === request) {
+      options?.signal?.removeEventListener("abort", abortRequest);
+      if (managedUsersRequest?.generation === generation) {
         managedUsersRequest = null;
       }
     });
 
-  managedUsersRequest = request;
+  managedUsersRequest = {
+    ownerUserId,
+    generation,
+    controller,
+    promise: request,
+  };
   return request;
 }

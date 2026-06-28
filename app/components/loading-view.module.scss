@@ -10,12 +10,13 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  background-color: #151515;
-  background-color: var(--gray, #151515);
+  background-color: #fafafa;
+  background-color: var(--gray, #fafafa);
   color-scheme: light;
 }
 
-:global(html:not(.light)) .loading-view {
+:global(html.dark) .loading-view,
+:global(html:not(.light):not(.dark)) .loading-view {
   background-color: #151515;
 }
 

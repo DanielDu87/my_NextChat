@@ -296,11 +296,29 @@ function getImageExtFromUrl(url: string) {
 async function downloadImage(url: string, id: string) {
   if (!url) return;
 
+  const normalizedUrl = normalizeDrawImageSrc(url);
+  const isDbImage = normalizedUrl.startsWith("/api/db/draw-image/");
+  const directDownloadUrl = isDbImage
+    ? `${normalizedUrl}${normalizedUrl.includes("?") ? "&" : "?"}download=1`
+    : "";
+
   try {
-    const response = await fetch(url);
+    if (directDownloadUrl) {
+      const link = document.createElement("a");
+      link.href = directDownloadUrl;
+      link.download = `nextchat-draw-${id}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    const response = await fetch(normalizedUrl);
     const blob = await response.blob();
     const ext =
-      getImageExtFromUrl(url) || getImageExtFromMime(blob.type) || "png";
+      getImageExtFromUrl(normalizedUrl) ||
+      getImageExtFromMime(blob.type) ||
+      "png";
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = objectUrl;
@@ -365,6 +383,7 @@ function DrawImagePlaceholder(props: { error?: boolean; text?: string }) {
 
 function DrawImagePreview(props: {
   item: any;
+  eager?: boolean;
   onImageLoaded?: () => void;
   onOpenImage?: (fullSrc: string, previewSrc: string) => void;
 }) {
@@ -426,7 +445,8 @@ function DrawImagePreview(props: {
         })}
         src={previewSrc}
         alt={props.item.params?.prompt || props.item.id}
-        loading="lazy"
+        loading={props.eager ? "eager" : "lazy"}
+        fetchPriority={props.eager ? "high" : "auto"}
         decoding="async"
         onError={() => setLoadFailed(true)}
         onLoad={(event) => {
@@ -468,7 +488,7 @@ export function Draw() {
     DRAW_INITIAL_RENDER_COUNT,
   );
   const [, refreshImageDimensions] = useState(0);
-  const [fullImageLoading, setFullImageLoading] = useState(false);
+  const modalImageUpdaterRef = useRef<((src: string) => void) | null>(null);
   const isDraw = location.pathname === Path.Draw || location.pathname === "/sd";
   const {
     theme: drawTheme,
@@ -544,48 +564,49 @@ export function Draw() {
     refreshImageDimensions((count) => count + 1);
   }, []);
 
-  const handleOpenImage = useCallback(
-    async (fullSrc: string, previewSrc: string) => {
-      const targetSrc = fullSrc || previewSrc;
-      if (!targetSrc) return;
+  const handleOpenImage = useCallback((fullSrc: string, previewSrc: string) => {
+    const initialSrc = previewSrc || fullSrc;
+    if (!initialSrc) return;
 
-      if (
-        fullSrc &&
-        fullSrc !== previewSrc &&
-        !loadedFullDrawImages.has(fullSrc)
-      ) {
-        setFullImageLoading(true);
-        try {
-          await preloadDrawImage(fullSrc);
+    modalImageUpdaterRef.current = null;
+    showImageModal(
+      initialSrc,
+      true,
+      {
+        width: "100%",
+        height: "100%",
+        maxWidth: "100%",
+        maxHeight: "100%",
+        objectFit: "contain",
+      },
+      {
+        width: "100%",
+        height: "100%",
+        justifyContent: "center",
+        alignItems: "center",
+        overflow: "hidden",
+        WebkitOverflowScrolling: "touch",
+      },
+      {
+        onImageSrcUpdater: (updateSrc) => {
+          modalImageUpdaterRef.current = updateSrc;
+        },
+      },
+    );
+
+    if (
+      fullSrc &&
+      fullSrc !== initialSrc &&
+      !loadedFullDrawImages.has(fullSrc)
+    ) {
+      preloadDrawImage(fullSrc)
+        .then(() => {
           loadedFullDrawImages.add(fullSrc);
-        } catch {
-        } finally {
-          setFullImageLoading(false);
-        }
-      }
-
-      showImageModal(
-        targetSrc,
-        true,
-        {
-          width: "100%",
-          height: "100%",
-          maxWidth: "100%",
-          maxHeight: "100%",
-          objectFit: "contain",
-        },
-        {
-          width: "100%",
-          height: "100%",
-          justifyContent: "center",
-          alignItems: "center",
-          overflow: "hidden",
-          WebkitOverflowScrolling: "touch",
-        },
-      );
-    },
-    [],
-  );
+          modalImageUpdaterRef.current?.(fullSrc);
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const handleCopyPrompt = useCallback(async (prompt: string) => {
     const ok = await copyToClipboard(prompt, { silent: true });
@@ -634,11 +655,6 @@ export function Draw() {
 
   return (
     <>
-      {fullImageLoading && (
-        <div className={styles["full-image-loading"]}>
-          <div className={styles["full-image-loading-card"]}>正在加载原图…</div>
-        </div>
-      )}
       <SideBar
         className={clsx(styles["draw-sidebar"], {
           [homeStyles["sidebar-show"]]: isDraw,
@@ -779,7 +795,7 @@ export function Draw() {
             </div>
             <div className={styles["draw-img-list"]}>
               {drawImages.length > 0 ? (
-                visibleDrawImages.map((item: any) => {
+                visibleDrawImages.map((item: any, index: number) => {
                   return (
                     <div
                       key={item.id}
@@ -791,6 +807,7 @@ export function Draw() {
                       <div className={styles["draw-preview"]}>
                         <DrawImagePreview
                           item={item}
+                          eager={index < 2}
                           onImageLoaded={handleImageLoaded}
                           onOpenImage={handleOpenImage}
                         />

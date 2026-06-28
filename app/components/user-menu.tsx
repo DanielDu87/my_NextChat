@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import styles from "./user-menu.module.scss";
@@ -308,37 +308,40 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     setShowManageModal(true);
   };
 
-  const loadUsers = async (force = false) => {
-    const cachedUsers = force ? null : getCachedManagedUsers();
-    if (cachedUsers) {
-      setUsers(cachedUsers);
-      return;
-    }
+  const loadUsers = useCallback(
+    async (force = false) => {
+      if (!user) return;
 
-    console.log("🔄 加载用户列表...");
-    setLoadingUsers(true);
-    try {
-      const loadedUsers = await preloadManagedUsers({
-        force,
-        source: force ? "user-refresh" : "user-menu",
-      });
-      console.log("✅ 用户列表加载成功，共", loadedUsers.length, "个用户");
-      console.log(
-        "用户:",
-        loadedUsers.map(
-          (u: any) =>
-            `${u.username} (${u.role}, ${u.conversationCount ?? 0}个对话)`,
-        ),
-      );
+      const cachedUsers = force ? null : getCachedManagedUsers(user.id);
+      if (cachedUsers) {
+        setUsers(cachedUsers);
+        setLoadingUsers(false);
+        return;
+      }
 
-      setUsers(loadedUsers);
-    } catch (error) {
-      console.error("❌ 加载用户列表失败:", error);
-      showToast(error instanceof Error ? error.message : "获取用户列表失败");
-    } finally {
-      setLoadingUsers(false);
-    }
-  };
+      setLoadingUsers(true);
+      try {
+        const loadedUsers = await preloadManagedUsers({
+          ownerUserId: user.id,
+          force,
+          source: force ? "user-refresh" : "user-menu",
+        });
+        setUsers(loadedUsers);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        console.error(
+          "[UserMenu] 用户列表加载失败:",
+          error instanceof Error ? error.message : "unknown_error",
+        );
+        showToast(error instanceof Error ? error.message : "获取用户列表失败");
+      } finally {
+        setLoadingUsers(false);
+      }
+    },
+    [user],
+  );
 
   const isDeletableUser = (managedUser: ManagedUser) => {
     return !!user && user.id !== managedUser.id;
@@ -363,19 +366,8 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
-    console.log("=== 开始删除用户 ===");
-    console.log("待删除用户数量:", deletableUsers.length);
-    console.log(
-      "用户列表:",
-      deletableUsers.map((u) => `${u.username} (${u.displayName})`),
-    );
-
     try {
       for (const managedUser of deletableUsers) {
-        console.log(`\n📤 删除用户: ${managedUser.username}`);
-        console.log("用户ID:", managedUser.id);
-        console.log("发送请求: DELETE /api/admin/users");
-
         const response = await fetch("/api/admin/users", {
           method: "DELETE",
           headers: {
@@ -386,33 +378,26 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
           }),
         });
 
-        console.log("📥 收到响应:", response.status, response.statusText);
-
         const payload = await response.json().catch(() => null);
-        console.log("响应数据:", payload);
 
         if (!response.ok || payload?.ok !== true) {
           throw new Error(String(payload?.error || "删除用户失败"));
         }
 
-        console.log(`✅ 用户 ${managedUser.username} 删除成功`);
-
         if (effectiveUser.id === managedUser.id && user) {
-          console.log("🔄 切换回当前用户...");
           await switchUser(user.id);
         }
       }
 
-      console.log("\n🔄 刷新用户列表...");
       showToast("删除用户成功");
       setDeleteMode(false);
       setSelectedUserIds([]);
       await loadUsers(true);
-
-      console.log("✅ 用户列表已刷新");
-      console.log("=== 删除用户完成 ===\n");
     } catch (error) {
-      console.error("❌ 删除用户失败:", error);
+      console.error(
+        "[UserMenu] 删除用户失败:",
+        error instanceof Error ? error.message : "unknown_error",
+      );
       showToast(error instanceof Error ? error.message : "删除用户失败");
     }
   };
@@ -464,17 +449,12 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
-    console.log("=== 开始新增用户 ===");
-    console.log("用户名:", username);
-
     try {
-      console.log("📤 发送请求: POST /api/admin/users");
       const requestBody = {
         username,
         displayName: username,
         password,
       };
-      console.log("请求体:", { ...requestBody, password: "***" });
 
       const response = await fetch("/api/admin/users", {
         method: "POST",
@@ -484,31 +464,24 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         body: JSON.stringify(requestBody),
       });
 
-      console.log("📥 收到响应:", response.status, response.statusText);
-
       const responsePayload: {
         ok?: boolean;
         error?: string;
         user?: any;
       } | null = await response.json().catch(() => null);
 
-      console.log("响应数据:", responsePayload);
-
       if (!response.ok || responsePayload?.ok !== true) {
         throw new Error(String(responsePayload?.error || "新增用户失败"));
       }
 
-      console.log("✅ 用户创建成功:", responsePayload?.user);
-      console.log("🔄 刷新用户列表...");
-
       showToast("新增用户成功");
       setShowCreateModal(false);
       await loadUsers(true);
-
-      console.log("✅ 用户列表已刷新");
-      console.log("=== 新增用户完成 ===\n");
     } catch (error) {
-      console.error("❌ 新增用户失败:", error);
+      console.error(
+        "[UserMenu] 新增用户失败:",
+        error instanceof Error ? error.message : "unknown_error",
+      );
       showToast(error instanceof Error ? error.message : "新增用户失败");
     }
   };
@@ -559,6 +532,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       showToast("密码已修改");
       setShowEditPasswordModal(false);
       setEditTargetUser(null);
+      await loadUsers(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "修改密码失败");
     }
@@ -610,6 +584,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     currentEffectiveUserId,
     effectiveUserUsername,
     effectiveUserDisplayName,
+    loadUsers,
   ]);
 
   useEffect(() => {
