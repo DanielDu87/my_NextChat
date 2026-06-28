@@ -35,6 +35,9 @@ type AccessProfile = {
   cachedModels?: string;
   modelCount?: number;
   modelFetchApiKey?: string;
+  authType?: string;
+  authQueryParam?: string;
+  extraHeaders?: string;
   [key: string]: unknown;
 };
 
@@ -135,15 +138,9 @@ function normalizeProfilesWithFallbackSecrets(state: AccessState) {
       profileWithFallback.apiKeyGroups,
       profileWithFallback,
     );
-    const hasGroupKeys = Object.values(normalizedGroups).some((value) =>
-      String(value || "").trim(),
-    );
     const multiKeyEnabled = shouldAutoEnableMultiKey({
       ...profileWithFallback,
       apiKeyGroups: normalizedGroups,
-      multiKeyEnabled: hasGroupKeys
-        ? true
-        : profileWithFallback.multiKeyEnabled,
     });
 
     if (!multiKeyEnabled) {
@@ -186,6 +183,16 @@ function buildProfileRequestConfig(profile: AccessProfile) {
     modelFetchApiKey:
       typeof profile.modelFetchApiKey === "string" && profile.modelFetchApiKey
         ? "__encrypted__"
+        : undefined,
+    authType:
+      typeof profile.authType === "string" ? profile.authType : undefined,
+    authQueryParam:
+      typeof profile.authQueryParam === "string"
+        ? profile.authQueryParam
+        : undefined,
+    extraHeaders:
+      typeof profile.extraHeaders === "string"
+        ? profile.extraHeaders
         : undefined,
   };
 }
@@ -252,6 +259,13 @@ function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
         secret: profile.modelFetchApiKey,
       });
     }
+  }
+
+  if (!profile.multiKeyEnabled) {
+    return rows.map((row) => ({
+      providerConfigId,
+      ...row,
+    }));
   }
 
   Object.entries(profile.apiKeyGroups || {}).forEach(([groupName, value]) => {
@@ -463,6 +477,15 @@ export async function getProviderProfilesForAccessState(
     if (typeof requestConfig.modelCount === "number") {
       existing.modelCount = requestConfig.modelCount;
     }
+    if (typeof requestConfig.authType === "string") {
+      existing.authType = requestConfig.authType;
+    }
+    if (typeof requestConfig.authQueryParam === "string") {
+      existing.authQueryParam = requestConfig.authQueryParam;
+    }
+    if (typeof requestConfig.extraHeaders === "string") {
+      existing.extraHeaders = requestConfig.extraHeaders;
+    }
     const secretValue = safeDecryptProviderSecret(row.encrypted_secret, {
       externalUserId,
       providerCode: row.provider_code,
@@ -474,6 +497,7 @@ export async function getProviderProfilesForAccessState(
     } else if (row.key_name === "model-fetch" && secretValue) {
       existing.modelFetchApiKey = secretValue;
     } else if (
+      existing.multiKeyEnabled &&
       row.key_name?.startsWith("group:") &&
       row.api_key_group &&
       secretValue

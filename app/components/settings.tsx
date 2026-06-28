@@ -50,7 +50,12 @@ import Locale, {
   changeLang,
   getLang,
 } from "../locales";
-import { copyToClipboard, clientUpdate, semverCompare } from "../utils";
+import {
+  copyToClipboard,
+  clientUpdate,
+  semverCompare,
+  useMobileScreen,
+} from "../utils";
 import Link from "next/link";
 import {
   Anthropic,
@@ -491,6 +496,7 @@ export function Settings() {
   const remoteId = updateStore.formatVersion(updateStore.remoteVersion);
   const hasNewVersion = semverCompare(currentVersion, remoteId) === -1;
   const updateUrl = getClientConfig()?.isApp ? getReleaseUrl() : getUpdateUrl();
+  const isMobileScreen = useMobileScreen();
 
   function checkUpdate(force = false) {
     setCheckingUpdate(true);
@@ -1359,6 +1365,52 @@ export function Settings() {
       </ListItem>
     </>
   );
+
+  if (isMobileScreen) {
+    return (
+      <ErrorBoundary>
+        <div
+          className={`window-header ${styles["settings-header"]}`}
+          data-tauri-drag-region
+        >
+          <div
+            className={`window-header-title ${styles["settings-header-title"]}`}
+          >
+            <div
+              className={`window-header-main-title ${styles["settings-header-main-title"]}`}
+            >
+              {Locale.Settings.Title}
+            </div>
+            <div className="window-header-sub-title">
+              {Locale.Settings.SubTitle}
+            </div>
+          </div>
+          <div className="window-actions">
+            <div className="window-action-button"></div>
+            <div className="window-action-button">
+              <IconButton
+                aria={Locale.UI.Close}
+                icon={<CloseIcon />}
+                close
+                onClick={() => navigate(Path.Home)}
+                bordered
+              />
+            </div>
+          </div>
+        </div>
+        <div className={styles["settings-mobile-only"]}>
+          <div className={styles["settings-mobile-card"]}>
+            <div className={styles["settings-mobile-title"]}>
+              本页面只能在电脑端打开
+            </div>
+            <div className={styles["settings-mobile-desc"]}>
+              请切换到电脑端或放大浏览器窗口后再打开设置页面。
+            </div>
+          </div>
+        </div>
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <ErrorBoundary>

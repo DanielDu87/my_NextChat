@@ -335,12 +335,6 @@ function mergeApiKeyGroups(
   );
 }
 
-function hasNonEmptyGroupKey(groups: Record<string, string> | undefined) {
-  return Object.values(groups || {}).some((value) =>
-    String(value || "").trim(),
-  );
-}
-
 function normalizeMergedAccessProfile<T extends Record<string, any>>(
   profile: T,
 ) {
@@ -348,11 +342,9 @@ function normalizeMergedAccessProfile<T extends Record<string, any>>(
     profile.apiKeyGroups,
     profile,
   );
-  const hasGroupKeys = hasNonEmptyGroupKey(normalizedGroups);
   const multiKeyEnabled = shouldAutoEnableMultiKey({
     ...profile,
     apiKeyGroups: normalizedGroups,
-    multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
   });
 
   if (!multiKeyEnabled) {
@@ -372,7 +364,7 @@ function isDefaultBootstrapProfile(profile: Record<string, any>) {
     String(profile?.id || "") === "default_aihubmix_profile" &&
     String(profile?.name || "") === "AihubMix" &&
     String(profile?.provider || "") === ServiceProvider.Custom &&
-    String(profile?.baseUrl || "") === "https://aihubmix.com" &&
+    !hasNonEmptyString(profile?.baseUrl) &&
     !hasNonEmptyString(profile?.apiKey) &&
     !hasNonEmptyString(profile?.modelFetchApiKey) &&
     !hasNonEmptyString(profile?.cachedModels) &&

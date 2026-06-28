@@ -25,6 +25,11 @@ import {
   getRequestCompatibilityState,
   rememberRequestCompatibilityState,
 } from "@/app/utils/request-compat-memory";
+import { appendAuthQueryParam } from "@/app/utils/model-fetch-common";
+import {
+  getRememberedChatEndpoint,
+  rememberChatEndpoint,
+} from "@/app/utils/api-path-memory";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { ModelSize, DalleQuality, DalleStyle } from "@/app/typing";
 
@@ -74,6 +79,140 @@ const {
 } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
+
+const GENERIC_CHAT_ENDPOINT_CANDIDATES = [
+  { path: "v1/chat/completions", method: "POST", format: "openai-chat" },
+  { path: "chat/completions", method: "POST", format: "openai-chat" },
+  { path: "api/v1/chat/completions", method: "POST", format: "openai-chat" },
+  { path: "api/chat/completions", method: "POST", format: "openai-chat" },
+  { path: "v1/responses", method: "POST", format: "openai-responses" },
+  { path: "responses", method: "POST", format: "openai-responses" },
+  { path: "api/v1/responses", method: "POST", format: "openai-responses" },
+  { path: "api/responses", method: "POST", format: "openai-responses" },
+  { path: "v1/messages", method: "POST", format: "anthropic-messages" },
+  { path: "messages", method: "POST", format: "anthropic-messages" },
+  { path: "api/v1/messages", method: "POST", format: "anthropic-messages" },
+  { path: "api/messages", method: "POST", format: "anthropic-messages" },
+] as const;
+
+type GenericChatEndpointFormat =
+  (typeof GENERIC_CHAT_ENDPOINT_CANDIDATES)[number]["format"];
+
+type GenericChatEndpointCandidate = {
+  path: string;
+  method: "POST";
+  format: GenericChatEndpointFormat;
+};
+
+const DEFAULT_GENERIC_CHAT_ENDPOINT: GenericChatEndpointCandidate = {
+  path: normalizeCandidatePath(OpenaiPath.ChatPath),
+  method: "POST",
+  format: "openai-chat",
+};
+
+function buildGenericChatPayload(
+  requestPayload:
+    | RequestPayload
+    | DalleRequestPayload
+    | Record<string, unknown>
+    | FormData,
+  format: GenericChatEndpointFormat,
+) {
+  if (
+    requestPayload instanceof FormData ||
+    format === "openai-chat" ||
+    !Array.isArray((requestPayload as RequestPayload).messages)
+  ) {
+    return requestPayload;
+  }
+
+  const chatRequestPayload = requestPayload as RequestPayload;
+
+  if (format === "openai-responses") {
+    return {
+      model: chatRequestPayload.model,
+      input: chatRequestPayload.messages.map((message) => ({
+        role: message.role === "developer" ? "system" : message.role,
+        content: message.content,
+      })),
+      temperature: chatRequestPayload.temperature,
+      top_p: chatRequestPayload.top_p,
+      max_output_tokens:
+        chatRequestPayload.max_completion_tokens ||
+        chatRequestPayload.max_tokens,
+      stream: chatRequestPayload.stream,
+    };
+  }
+
+  if (format === "anthropic-messages") {
+    const system = chatRequestPayload.messages
+      .filter(
+        (message) => message.role === "system" || message.role === "developer",
+      )
+      .map((message) => message.content)
+      .filter((content) => typeof content === "string")
+      .join("\n\n");
+    return {
+      model: chatRequestPayload.model,
+      messages: chatRequestPayload.messages
+        .filter(
+          (message) =>
+            message.role !== "system" && message.role !== "developer",
+        )
+        .map((message) => ({
+          role: message.role === "assistant" ? "assistant" : "user",
+          content: message.content,
+        })),
+      ...(system ? { system } : {}),
+      max_tokens:
+        chatRequestPayload.max_completion_tokens ||
+        chatRequestPayload.max_tokens ||
+        1024,
+      temperature: chatRequestPayload.temperature,
+      top_p: chatRequestPayload.top_p,
+      stream: chatRequestPayload.stream,
+    };
+  }
+
+  return requestPayload;
+}
+
+function extractGenericMessage(res: any) {
+  const openaiContent = res?.choices?.at?.(0)?.message?.content;
+  if (openaiContent) return openaiContent;
+
+  const responseText = res?.output_text;
+  if (responseText) return responseText;
+
+  const responseOutput = Array.isArray(res?.output)
+    ? res.output
+        .flatMap((item: any) => item?.content || [])
+        .map((item: any) => item?.text || item?.content || "")
+        .filter(Boolean)
+        .join("")
+    : "";
+  if (responseOutput) return responseOutput;
+
+  const anthropicContent = Array.isArray(res?.content)
+    ? res.content
+        .map((item: any) => item?.text || "")
+        .filter(Boolean)
+        .join("")
+    : "";
+  if (anthropicContent) return anthropicContent;
+
+  return "";
+}
+
+function normalizeCandidatePath(path?: string) {
+  return String(path || "")
+    .trim()
+    .replace(/^\/+/, "");
+}
+
+function isRetryablePathProbeStatus(status: number) {
+  return [400, 404, 405, 422].includes(status);
+}
 
 function getAccessProviderId(profile: { provider: string; name: string }) {
   return profile.provider === ServiceProvider.Custom
@@ -190,7 +329,9 @@ function isGeminiImagePreviewModel(model: string) {
 }
 
 function isAiHubMixBaseUrl(baseUrl: string) {
-  return baseUrl.includes("aihubmix.com");
+  return (
+    baseUrl.includes("aihubmix.com") || baseUrl.includes("api.inferera.com")
+  );
 }
 
 function isToApisBaseUrl(baseUrl?: string) {
@@ -1410,10 +1551,15 @@ export class ChatGPTApi implements LLMApi {
         return ApiPath.OpenAI + "/" + path;
       }
 
-      if (
-        currentProvider === ServiceProvider.Custom &&
-        accessStore.customOpenAICompatible
-      ) {
+      if (currentProvider === ServiceProvider.Custom) {
+        const profileCompatible =
+          configuredCustomProfile?.openAICompatible ??
+          accessStore.customOpenAICompatible;
+        if (!profileCompatible) {
+          throw Error(
+            "current custom profile is not OpenAI-compatible, please enable it in API config or choose a matching provider",
+          );
+        }
         baseUrl = configuredCustomProfile?.baseUrl || accessStore.customUrl;
       } else {
         baseUrl = isAzure ? accessStore.azureUrl : accessStore.openaiUrl;
@@ -1989,6 +2135,18 @@ export class ChatGPTApi implements LLMApi {
     let chatPath = "";
     let currentBaseUrl = "";
     let proxyBaseUrl = "";
+    let shouldProbeChatPaths = false;
+    let rememberedChatEndpoint:
+      | ReturnType<typeof getRememberedChatEndpoint>
+      | undefined;
+    let chatPathMemoryParams:
+      | {
+          provider?: string;
+          profileId?: string;
+          profileName?: string;
+          baseUrl?: string;
+        }
+      | undefined;
 
     try {
       if (modelConfig.providerName === ServiceProvider.Azure) {
@@ -2018,6 +2176,23 @@ export class ChatGPTApi implements LLMApi {
           modelConfig,
         );
       } else {
+        const configuredCustomProfileForRequest =
+          modelConfig.providerName === ServiceProvider.Custom
+            ? getCustomProfileForModelConfig(
+                useAccessStore.getState() as any,
+                modelConfig,
+              )
+            : undefined;
+        chatPathMemoryParams = {
+          provider: String(modelConfig.providerName || ServiceProvider.Custom),
+          profileId: configuredCustomProfileForRequest?.id,
+          profileName: configuredCustomProfileForRequest?.name,
+          baseUrl: currentBaseUrlForRequest,
+        };
+        shouldProbeChatPaths =
+          modelConfig.providerName === ServiceProvider.Custom &&
+          !shouldUseImageEndpoint &&
+          Boolean(currentBaseUrlForRequest);
         const nextPath = aiHubMixPredictionPath
           ? `v1/models/${aiHubMixPredictionPath}/predictions`
           : aiHubMixVideoPath
@@ -2029,6 +2204,13 @@ export class ChatGPTApi implements LLMApi {
           : shouldUseImageGenerationEndpoint
           ? OpenaiPath.ImagePath
           : OpenaiPath.ChatPath;
+        rememberedChatEndpoint =
+          shouldProbeChatPaths && !shouldStream
+            ? getRememberedChatEndpoint(chatPathMemoryParams)
+            : undefined;
+        const initialNextPath = rememberedChatEndpoint?.path
+          ? rememberedChatEndpoint.path
+          : nextPath;
         if (
           shouldUseImageEndpoint &&
           modelConfig.providerName === ServiceProvider.Custom &&
@@ -2036,12 +2218,12 @@ export class ChatGPTApi implements LLMApi {
         ) {
           const proxyTarget = buildProxyPathForBaseUrl(
             currentBaseUrlForRequest,
-            nextPath,
+            initialNextPath,
           );
           chatPath = proxyTarget.chatPath;
           proxyBaseUrl = proxyTarget.proxyBaseUrl;
         } else {
-          chatPath = this.path(nextPath, modelConfig);
+          chatPath = this.path(initialNextPath, modelConfig);
         }
       }
 
@@ -2052,6 +2234,75 @@ export class ChatGPTApi implements LLMApi {
           ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
           : {}),
         ...(proxyBaseUrl ? { "x-base-url": proxyBaseUrl } : {}),
+      };
+      chatPath = appendAuthQueryParam(
+        chatPath,
+        (requestHeaders as any).Authorization ||
+          (requestHeaders as any)["x-api-key"] ||
+          (requestHeaders as any)["api-key"] ||
+          (requestHeaders as any)["x-goog-api-key"] ||
+          (requestHeaders as any)["x-api-key-query-value"],
+        (requestHeaders as any)["x-api-key-auth-type"],
+        (requestHeaders as any)["x-api-key-auth-query-param"],
+      );
+      const buildChatPathForCandidate = (candidatePath: string) =>
+        appendAuthQueryParam(
+          this.path(normalizeCandidatePath(candidatePath), modelConfig),
+          (requestHeaders as any).Authorization ||
+            (requestHeaders as any)["x-api-key"] ||
+            (requestHeaders as any)["api-key"] ||
+            (requestHeaders as any)["x-goog-api-key"] ||
+            (requestHeaders as any)["x-api-key-query-value"],
+          (requestHeaders as any)["x-api-key-auth-type"],
+          (requestHeaders as any)["x-api-key-auth-query-param"],
+        );
+      let currentChatEndpoint: GenericChatEndpointCandidate =
+        rememberedChatEndpoint?.path
+          ? {
+              path: normalizeCandidatePath(rememberedChatEndpoint.path),
+              method: "POST",
+              format:
+                (rememberedChatEndpoint.format as GenericChatEndpointFormat) ||
+                "openai-chat",
+            }
+          : DEFAULT_GENERIC_CHAT_ENDPOINT;
+      const chatEndpointCandidates = shouldProbeChatPaths
+        ? [currentChatEndpoint, ...GENERIC_CHAT_ENDPOINT_CANDIDATES].filter(
+            (candidate, index, all) =>
+              candidate.path &&
+              all.findIndex(
+                (item) =>
+                  item.path === candidate.path &&
+                  item.method === candidate.method &&
+                  item.format === candidate.format,
+              ) === index,
+          )
+        : [];
+      let chatPathProbeIndex = 0;
+      const rememberCurrentChatEndpoint = (endpoint = currentChatEndpoint) => {
+        if (shouldProbeChatPaths && chatPathMemoryParams) {
+          rememberChatEndpoint(chatPathMemoryParams, {
+            ...endpoint,
+            path: normalizeCandidatePath(endpoint.path),
+          });
+        }
+      };
+      const rememberCurrentChatPath = () => {
+        rememberCurrentChatEndpoint(currentChatEndpoint);
+      };
+      const getNextChatEndpointCandidate = (currentPath = chatPath) => {
+        if (!shouldProbeChatPaths) return undefined;
+        while (chatPathProbeIndex < chatEndpointCandidates.length) {
+          const candidate = chatEndpointCandidates[chatPathProbeIndex++];
+          const candidateChatPath = buildChatPathForCandidate(candidate.path);
+          if (candidateChatPath !== currentPath) {
+            return {
+              ...candidate,
+              chatPath: candidateChatPath,
+            };
+          }
+        }
+        return undefined;
       };
       options.onRequest?.({
         provider: modelConfig.providerName,
@@ -2082,6 +2333,33 @@ export class ChatGPTApi implements LLMApi {
         });
         const streamOptions = {
           ...options,
+          onPathRetry(
+            reason: string,
+            currentPath: string,
+            response?: Response,
+          ) {
+            const status = response?.status || 0;
+            if (status && !isRetryablePathProbeStatus(status)) {
+              return "";
+            }
+            const nextCandidate = getNextChatEndpointCandidate(currentPath);
+            if (nextCandidate) {
+              console.warn(
+                "[Chat Path Probe] 当前候选请求失败，自动尝试下一个候选",
+                {
+                  currentPath,
+                  nextCandidate: nextCandidate.chatPath,
+                  status,
+                  reason: String(reason || "").slice(0, 160),
+                },
+              );
+              currentChatEndpoint = nextCandidate;
+            }
+            return nextCandidate?.chatPath || "";
+          },
+          onPathSuccess() {
+            rememberCurrentChatPath();
+          },
           onCompatibilityRetry(reason: string) {
             if (!tryRequestCompatibilityRetry(reason)) {
               return false;
@@ -2103,6 +2381,7 @@ export class ChatGPTApi implements LLMApi {
             if (latestUsage) {
               (responseRes as any).__usage = latestUsage;
             }
+            rememberCurrentChatPath();
             options.onFinish(message, responseRes);
           },
         };
@@ -2287,15 +2566,20 @@ export class ChatGPTApi implements LLMApi {
           streamOptions,
         );
       } else {
-        let chatPayload = {
-          method: "POST",
+        const buildChatPayloadForEndpoint = (
+          endpoint = currentChatEndpoint,
+        ) => ({
+          method: endpoint.method,
           body:
             requestPayload instanceof FormData
               ? requestPayload
-              : JSON.stringify(requestPayload),
+              : JSON.stringify(
+                  buildGenericChatPayload(requestPayload, endpoint.format),
+                ),
           signal: controller.signal,
           headers: stripInternalChatHeaders(requestHeaders),
-        };
+        });
+        let chatPayload = buildChatPayloadForEndpoint();
 
         // make a fetch request
         const requestTimeoutId = setTimeout(
@@ -2305,6 +2589,33 @@ export class ChatGPTApi implements LLMApi {
 
         let res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
+
+        if (
+          shouldProbeChatPaths &&
+          isRetryablePathProbeStatus(res.status) &&
+          chatEndpointCandidates.length > 0
+        ) {
+          let nextEndpoint = getNextChatEndpointCandidate(chatPath);
+          while (nextEndpoint) {
+            const probePayload = buildChatPayloadForEndpoint(nextEndpoint);
+            const probeTimeoutId = setTimeout(
+              () => controller.abort(),
+              getTimeoutMSByModel(options.config.model),
+            );
+            const probeRes = await fetch(nextEndpoint.chatPath, probePayload);
+            clearTimeout(probeTimeoutId);
+            if (!isRetryablePathProbeStatus(probeRes.status) || probeRes.ok) {
+              currentChatEndpoint = nextEndpoint;
+              chatPath = nextEndpoint.chatPath;
+              chatPayload = probePayload;
+              res = probeRes;
+              rememberCurrentChatEndpoint(nextEndpoint);
+              break;
+            }
+            res = probeRes;
+            nextEndpoint = getNextChatEndpointCandidate(nextEndpoint.chatPath);
+          }
+        }
 
         // 通用多 key 降级重试：检测到失败后按分组顺序尝试下一个 API key
         const fallbackApiKeys: string[] =
@@ -2321,15 +2632,7 @@ export class ChatGPTApi implements LLMApi {
           resJson = parseJsonOrSSEPayload(resText);
 
           if (!res.ok && tryRequestCompatibilityRetry(resText)) {
-            chatPayload = {
-              method: "POST",
-              body:
-                requestPayload instanceof FormData
-                  ? requestPayload
-                  : JSON.stringify(requestPayload),
-              signal: controller.signal,
-              headers: stripInternalChatHeaders(requestHeaders),
-            };
+            chatPayload = buildChatPayloadForEndpoint();
             const retryTimeoutId = setTimeout(
               () => controller.abort(),
               getTimeoutMSByModel(options.config.model),
@@ -2368,25 +2671,27 @@ export class ChatGPTApi implements LLMApi {
           const nextApiKey = fallbackApiKeys[retryCount];
 
           // 更新 headers 中的 API key
-          const authHeader = Object.keys(requestHeaders).find(
-            (k) =>
-              k.toLowerCase() === "authorization" ||
-              k.toLowerCase() === "x-api-key",
+          const authHeader =
+            (requestHeaders as any)["x-api-key-auth-header"] ||
+            Object.keys(requestHeaders).find(
+              (k) =>
+                k.toLowerCase() === "authorization" ||
+                k.toLowerCase() === "x-api-key" ||
+                k.toLowerCase() === "api-key" ||
+                k.toLowerCase() === "x-goog-api-key",
+            );
+          const authType = String(
+            (requestHeaders as any)["x-api-key-auth-type"] || "bearer",
           );
-          if (authHeader) {
-            (requestHeaders as any)[authHeader] = `Bearer ${nextApiKey}`;
+          if (authType === "query-key") {
+            (requestHeaders as any)["x-api-key-query-value"] = nextApiKey;
+          } else if (authHeader) {
+            (requestHeaders as any)[authHeader] =
+              authType === "bearer" ? `Bearer ${nextApiKey}` : nextApiKey;
           }
 
           // 更新 chatPayload 中的 headers
-          chatPayload = {
-            method: "POST",
-            body:
-              requestPayload instanceof FormData
-                ? requestPayload
-                : JSON.stringify(requestPayload),
-            signal: controller.signal,
-            headers: stripInternalChatHeaders(requestHeaders),
-          };
+          chatPayload = buildChatPayloadForEndpoint();
 
           // 重试请求
           const retryTimeoutId = setTimeout(
@@ -2468,7 +2773,12 @@ export class ChatGPTApi implements LLMApi {
             providerId: (requestHeaders as any)["x-api-key-provider-id"],
           });
         }
-        const message = await this.extractMessage(resJson);
+        const message =
+          extractGenericMessage(resJson) ||
+          (await this.extractMessage(resJson));
+        if (res.ok) {
+          rememberCurrentChatPath();
+        }
         options.onFinish(message, res);
       }
     } catch (e) {

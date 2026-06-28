@@ -4,7 +4,9 @@ export function isAiHubMixUrl(baseUrl?: string) {
   if (!baseUrl) return false;
 
   try {
-    return new URL(baseUrl).hostname === "aihubmix.com";
+    return ["aihubmix.com", "api.inferera.com"].includes(
+      new URL(baseUrl).hostname,
+    );
   } catch {
     return false;
   }

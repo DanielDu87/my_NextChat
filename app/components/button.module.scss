@@ -145,6 +145,14 @@
   }
 }
 
+.icon-button.close .icon-button-icon > svg {
+  transform: none;
+}
+
+.icon-button.close .icon-button-icon > svg > g {
+  transform: none !important;
+}
+
 .icon-button-icon {
   width: 16px;
   height: 16px;
@@ -193,6 +201,10 @@
     .icon-button-text {
       display: none !important;
     }
+  }
+
+  .icon-button.close .icon-button-icon > svg {
+    transform: translateX(1px);
   }
 
   :global(.modal-footer-action) {

@@ -19,6 +19,9 @@ type AccessProfile = {
   multiKeyEnabled?: boolean;
   enabled: boolean;
   openAICompatible?: boolean;
+  authType?: string;
+  authQueryParam?: string;
+  extraHeaders?: string;
   cachedModels?: string;
   modelCount?: number;
 };
@@ -92,6 +95,12 @@ export async function refreshConfiguredProviderModels(
       profile.apiKey,
       profile.name,
       profile.apiKeyGroups,
+      profile.openAICompatible,
+      {
+        authType: profile.authType,
+        authQueryParam: profile.authQueryParam,
+        extraHeaders: profile.extraHeaders,
+      },
     );
 
     summaries.push({
@@ -122,7 +131,10 @@ export async function refreshConfiguredProviderModels(
   );
 
   // 计算各平台数量相加的总数（不去重）
-  const totalCount = summaries.reduce((sum, item) => sum + item.fetchedCount, 0);
+  const totalCount = summaries.reduce(
+    (sum, item) => sum + item.fetchedCount,
+    0,
+  );
 
   const summary = {
     profileCount: summaries.length,

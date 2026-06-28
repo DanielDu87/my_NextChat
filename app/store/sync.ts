@@ -527,11 +527,9 @@ function logAccessProfileSyncSummary(state: any) {
       profile?.apiKeyGroups,
       profile,
     );
-    const hasGroupKeys = countNonEmptyGroupKeys(normalizedGroups) > 0;
     const multiKeyEnabled = shouldAutoEnableMultiKey({
       ...profile,
       apiKeyGroups: normalizedGroups,
-      multiKeyEnabled: hasGroupKeys ? true : profile?.multiKeyEnabled,
     });
     const normalKeyCount = countNonEmptyString(profile?.apiKey);
     const groupKeyCount = multiKeyEnabled

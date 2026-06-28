@@ -13,27 +13,6 @@ export type GenericAccessProfile = Record<string, any> & {
 
 const GENERATED_PROFILE_ID_PREFIX = "profile_";
 const SECRET_KEYS = ["apiKey", "modelFetchApiKey"];
-const CANONICAL_CUSTOM_PROFILE_BY_BASE_URL: Record<
-  string,
-  { id: string; name: string }
-> = {
-  "https://aihubmix.com": {
-    id: "default_aihubmix_profile",
-    name: "AihubMix",
-  },
-  "https://cn.gptapi.asia": {
-    id: "default_yuto_profile",
-    name: "YutoAPI",
-  },
-  "https://one.ooo.cool": {
-    id: "default_ocool_profile",
-    name: "Ocoolai",
-  },
-  "https://toapis.com": {
-    id: "default_toapis_profile",
-    name: "ToAPIs",
-  },
-};
 const LEGACY_GENERATED_CUSTOM_NAME_RE =
   /^custom\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?$/i;
 const PLACEHOLDER_BASE_URL_RE = /^xxx(?:-\d+)?$/i;
@@ -117,18 +96,8 @@ export function normalizeAccessProfileIdentity<T extends GenericAccessProfile>(
   const provider = String(profile?.provider || "")
     .trim()
     .toLowerCase();
-  const canonical =
-    CANONICAL_CUSTOM_PROFILE_BY_BASE_URL[normalizeBaseUrl(profile?.baseUrl)];
-
-  if (provider !== "custom" || !canonical || isGeneratedProfileId(profile)) {
-    return profile;
-  }
-
-  return {
-    ...profile,
-    id: canonical.id,
-    name: canonical.name,
-  };
+  void provider;
+  return profile;
 }
 
 export function getAccessProfileDedupeKey(profile: GenericAccessProfile) {

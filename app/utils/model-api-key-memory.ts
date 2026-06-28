@@ -58,15 +58,10 @@ export function supportsApiKeyGroupingForProfile(
     profile.apiKeyGroups,
     profile,
   );
-  const hasGroupKeys = Object.values(normalizedGroups).some((value) =>
-    String(value || "").trim(),
-  );
-
   return Boolean(
     shouldAutoEnableMultiKey({
       ...profile,
       apiKeyGroups: normalizedGroups,
-      multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
     }),
   );
 }
@@ -169,13 +164,9 @@ export function getCustomModelApiKeySelection(
     profile.apiKeyGroups,
     profile,
   );
-  const hasGroupKeys = Object.values(normalizedProfileGroups).some((value) =>
-    String(value || "").trim(),
-  );
   const multiKeyEnabled = shouldAutoEnableMultiKey({
     ...profile,
     apiKeyGroups: normalizedProfileGroups,
-    multiKeyEnabled: hasGroupKeys ? true : profile.multiKeyEnabled,
   });
   if (!multiKeyEnabled) {
     return {

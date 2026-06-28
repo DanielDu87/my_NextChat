@@ -645,6 +645,7 @@
   text-align: center !important;
 }
 
+
 .profileColProvider {
   justify-content: center;
   min-width: 70px;
@@ -1018,6 +1019,63 @@
   }
 }
 
+.mobileOnly {
+  min-height: calc(100vh - var(--window-header-height));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.mobileOnlyCard {
+  width: min(100%, 360px);
+  padding: 28px 22px;
+  border: var(--border-in-light);
+  border-radius: 18px;
+  background: var(--white);
+  box-shadow: var(--card-shadow);
+  text-align: center;
+}
+
+.mobileOnlyTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--black);
+}
+
+.mobileOnlyDesc {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--black);
+  opacity: 0.72;
+}
+
+@media screen and (max-width: 650px) {
+  .page :global(.window-actions) {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-action-button) {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-action-button > button) {
+    margin: auto;
+  }
+}
+
+/*
+ * API 配置页移动端样式已停用：移动端现在只展示“本页面只能在电脑端打开”提示。
+ * 保留以下代码，后续如需恢复移动端 API 配置页可直接启用。
 @media screen and (max-width: 600px) {
   .page {
     :global(.window-header) {
@@ -1456,3 +1514,4 @@
     }
   }
 }
+*/

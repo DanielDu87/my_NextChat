@@ -5,6 +5,14 @@ export type ModelFetchKeySource = {
   multiKeyGroupOrder?: string[];
 };
 
+export type ApiProfileAuthType =
+  | "bearer"
+  | "x-api-key"
+  | "api-key"
+  | "x-goog-api-key"
+  | "query-key"
+  | "none";
+
 function normalizeSecret(value: unknown) {
   return String(value || "").trim();
 }
@@ -43,7 +51,9 @@ function getHostname(baseUrl: string) {
 }
 
 export function isAiHubMixModelBaseUrl(baseUrl?: string) {
-  return getHostname(baseUrl || "") === "aihubmix.com";
+  return ["aihubmix.com", "api.inferera.com"].includes(
+    getHostname(baseUrl || ""),
+  );
 }
 
 export function isYutoModelBaseUrl(baseUrl?: string) {
@@ -69,7 +79,13 @@ export const MODEL_FETCH_UPSTREAM_PATHS = [
   "/models",
   "/v1/models",
   "/api/models",
-  // 聚合商/计费型网关常见模型价格接口
+  // Anthropic / Cohere / Google 等原生模型列表常见路径
+  "/v1/models?limit=1000",
+  "/v1/models?page_size=1000",
+  "/v1beta/models",
+  "/v1/models:list",
+  // OpenRouter endpoint 详情和聚合商/计费型网关常见接口
+  "/api/v1/endpoints",
   "/api/pricing",
   "/pricing",
   // Ocoolai / OneAPI 派生接口
@@ -77,6 +93,7 @@ export const MODEL_FETCH_UPSTREAM_PATHS = [
   "/api/user/available_models",
   "/api/user/available_models_by_groups",
   "/api/user/available-models-by-groups",
+  "/api/user/available-models",
   "/available_model",
   "/available_models",
   // 本地和开源 OpenAI-compatible 服务
@@ -101,42 +118,146 @@ export const MODEL_FETCH_UPSTREAM_PATHS = [
   "/api/v1/compatibility/openai/v1/models",
 ] as const;
 
-export const MODEL_FETCH_FIXED_UPSTREAM_URLS = [
-  "https://one.ocoolai.com/api/user/available_models_by_groups",
-] as const;
-
-export const MODEL_FETCH_FIXED_PROXY_CANDIDATES = [
-  {
-    url: "/api/ocoolai/available-models-by-groups",
-    upstreamUrl: "https://one.ocoolai.com/api/user/available_models_by_groups",
-  },
-] as const;
-
-export function buildUpstreamModelFetchCandidateUrls(baseUrl: string) {
-  const baseWithoutV1 = normalizeModelBaseUrl(baseUrl);
-  return [
-    ...MODEL_FETCH_UPSTREAM_PATHS.map((path) => `${baseWithoutV1}${path}`),
-    ...MODEL_FETCH_FIXED_UPSTREAM_URLS,
-  ].filter((url, index, all) => url && all.indexOf(url) === index);
+export function parseListConfig(value?: string | string[]) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[\n,]/)
+        .map((item) => item.trim());
+  return rawItems
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) =>
+      item.startsWith("/") || item.startsWith("http") ? item : `/${item}`,
+    )
+    .filter((item, index, all) => all.indexOf(item) === index);
 }
 
-export function buildProxyModelFetchCandidates(baseUrl?: string) {
+export function parseExtraHeaders(value?: string | Record<string, string>) {
+  if (!value) return {} as Record<string, string>;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([key, headerValue]) => [
+          key.trim(),
+          String(headerValue || "").trim(),
+        ])
+        .filter(([key, headerValue]) => key && headerValue),
+    );
+  }
+
+  const text = String(value || "").trim();
+  if (!text) return {} as Record<string, string>;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parseExtraHeaders(parsed as Record<string, string>);
+    }
+  } catch {
+    // 允许使用每行 `Header: value` 的轻量格式。
+  }
+
+  return Object.fromEntries(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const separator = line.indexOf(":");
+        if (separator < 0) return ["", ""];
+        return [
+          line.slice(0, separator).trim(),
+          line.slice(separator + 1).trim(),
+        ];
+      })
+      .filter(([key, headerValue]) => key && headerValue),
+  );
+}
+
+export function getAuthHeaderForType(authType?: ApiProfileAuthType) {
+  switch (authType || "bearer") {
+    case "x-api-key":
+      return "x-api-key";
+    case "api-key":
+      return "api-key";
+    case "x-goog-api-key":
+      return "x-goog-api-key";
+    case "none":
+    case "query-key":
+      return "";
+    case "bearer":
+    default:
+      return "Authorization";
+  }
+}
+
+export function buildAuthHeaders(
+  apiKey?: string,
+  authType?: ApiProfileAuthType,
+) {
+  const key = normalizeSecret(apiKey);
+  const headerName = getAuthHeaderForType(authType);
+  if (!key || !headerName) return {} as Record<string, string>;
+  return {
+    [headerName]: authType === "bearer" || !authType ? `Bearer ${key}` : key,
+  };
+}
+
+export function appendAuthQueryParam(
+  url: string,
+  apiKey?: string,
+  authType?: ApiProfileAuthType,
+  authQueryParam?: string,
+) {
+  const key = normalizeSecret(apiKey);
+  if ((authType || "bearer") !== "query-key" || !key) return url;
+  const param = String(authQueryParam || "key").trim() || "key";
+  const joiner = url.includes("?") ? "&" : "?";
+  return `${url}${joiner}${encodeURIComponent(param)}=${encodeURIComponent(
+    key,
+  )}`;
+}
+
+export function getAuthorizationCandidates(
+  apiKeys: string[],
+  authType?: ApiProfileAuthType,
+) {
+  if ((authType || "bearer") === "query-key") return apiKeys;
+  const headerName = getAuthHeaderForType(authType);
+  if (!headerName) return [];
+  return apiKeys.map((key) =>
+    authType === "bearer" || !authType ? `Bearer ${key}` : key,
+  );
+}
+
+export function buildUpstreamModelFetchCandidateUrls(
+  baseUrl: string,
+  customPaths?: string | string[],
+) {
+  const baseWithoutV1 = normalizeModelBaseUrl(baseUrl);
+  return [...parseListConfig(customPaths), ...MODEL_FETCH_UPSTREAM_PATHS]
+    .map((path) => (path.startsWith("http") ? path : `${baseWithoutV1}${path}`))
+    .filter((url, index, all) => url && all.indexOf(url) === index);
+}
+
+export function buildProxyModelFetchCandidates(
+  baseUrl?: string,
+  customPaths?: string | string[],
+) {
+  const paths = [
+    ...parseListConfig(customPaths),
+    ...MODEL_FETCH_UPSTREAM_PATHS,
+  ];
   const candidates: Array<{
     url: string;
     upstreamPath: string;
     note?: string;
-  }> = MODEL_FETCH_UPSTREAM_PATHS.map((path) => ({
-    url: `/api/proxy${path}`,
+  }> = paths.map((path) => ({
+    url: path.startsWith("http")
+      ? `/api/proxy${new URL(path).pathname}${new URL(path).search}`
+      : `/api/proxy${path}`,
     upstreamPath: path,
   }));
-  candidates.push(
-    ...MODEL_FETCH_FIXED_PROXY_CANDIDATES.map((candidate) => ({
-      url: candidate.url,
-      upstreamPath: candidate.upstreamUrl,
-      note: "Ocoolai 固定分组模型接口",
-    })),
-  );
-
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     if (seen.has(candidate.url)) return false;
@@ -156,12 +277,18 @@ export function isLocalModelProxyBaseUrl(baseUrl?: string) {
   }
 }
 
-export function buildModelFetchCandidateUrls(baseUrl: string) {
-  return buildUpstreamModelFetchCandidateUrls(baseUrl);
+export function buildModelFetchCandidateUrls(
+  baseUrl: string,
+  customPaths?: string | string[],
+) {
+  return buildUpstreamModelFetchCandidateUrls(baseUrl, customPaths);
 }
 
-export function buildProxyModelFetchCandidateUrls(baseUrl?: string) {
-  return buildProxyModelFetchCandidates(baseUrl).map(
+export function buildProxyModelFetchCandidateUrls(
+  baseUrl?: string,
+  customPaths?: string | string[],
+) {
+  return buildProxyModelFetchCandidates(baseUrl, customPaths).map(
     (candidate) => candidate.url,
   );
 }

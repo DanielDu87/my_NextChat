@@ -62,7 +62,7 @@ const DEFAULT_SILICONFLOW_URL = isApp
   : ApiPath.SiliconFlow;
 
 const DEFAULT_AI302_URL = isApp ? AI302_BASE_URL : ApiPath["302.AI"];
-const DEFAULT_AIHUBMIX_URL = "https://aihubmix.com";
+const DEFAULT_CUSTOM_URL = "";
 const DEFAULT_AIHUBMIX_PROFILE_ID = "default_aihubmix_profile";
 const LEGACY_DEFAULT_CUSTOM_PROFILES = [
   {
@@ -91,16 +91,16 @@ function createBootstrapCustomProfiles() {
       id: DEFAULT_AIHUBMIX_PROFILE_ID,
       name: "AihubMix",
       provider: ServiceProvider.Custom,
-      baseUrl: DEFAULT_AIHUBMIX_URL,
-      apiKey: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
+      baseUrl: DEFAULT_CUSTOM_URL,
+      apiKey: "",
       modelFetchApiKey: "",
-      apiKeyGroups: {
-        default: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
-        user: "sk-BxgRxTsLAZyLAktAB0Cc3e9bF9554cEc952cF0C8A7C840B3",
-      },
+      apiKeyGroups: {},
       multiKeyEnabled: false,
-      enabled: true,
+      enabled: false,
       openAICompatible: true,
+      authType: "bearer",
+      authQueryParam: "key",
+      extraHeaders: "",
       cachedModels: "",
       modelCount: 0,
     },
@@ -272,12 +272,21 @@ const DEFAULT_ACCESS_STATE = {
     multiKeyEnabled?: boolean;
     enabled: boolean;
     openAICompatible?: boolean;
+    authType?:
+      | "bearer"
+      | "x-api-key"
+      | "api-key"
+      | "x-goog-api-key"
+      | "query-key"
+      | "none";
+    authQueryParam?: string;
+    extraHeaders?: string;
     cachedModels?: string;
     modelCount?: number; // 🆕 存储该平台获取的模型数量
   }>,
 
   // custom
-  customUrl: DEFAULT_AIHUBMIX_URL,
+  customUrl: DEFAULT_CUSTOM_URL,
   customApiKey: "",
   customOpenAICompatible: true,
 
@@ -519,7 +528,7 @@ export const useAccessStore = createPersistStore(
   }),
   {
     name: StoreKey.Access,
-    version: 5,
+    version: 7,
     onRehydrateStorage() {
       return () => {
         const normalizedState = normalizeAccessStateDerivedFields({

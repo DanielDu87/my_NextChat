@@ -33,6 +33,9 @@ export type ApiProfile = {
   multiKeyEnabled?: boolean;
   enabled: boolean;
   openAICompatible?: boolean;
+  authType?: string;
+  authQueryParam?: string;
+  extraHeaders?: string;
   cachedModels?: string;
   modelCount?: number;
 };
@@ -46,6 +49,10 @@ type FetchFromProvider = (
     profileName?: string;
     apiKeyGroups?: Record<string, string>;
     multiKeyGroupOrder?: string[];
+    openAICompatible?: boolean;
+    authType?: string;
+    authQueryParam?: string;
+    extraHeaders?: string;
     throwOnError?: boolean;
   },
 ) => Promise<FetchModelsResult>;
@@ -194,6 +201,12 @@ export async function syncProfileModels(
       profile.name,
       profile.apiKeyGroups,
       profile.multiKeyGroupOrder,
+      profile.openAICompatible,
+      {
+        authType: profile.authType,
+        authQueryParam: profile.authQueryParam,
+        extraHeaders: profile.extraHeaders,
+      },
     );
 
     const sortedModels = [...result.models]

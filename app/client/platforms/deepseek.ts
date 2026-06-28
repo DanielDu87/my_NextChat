@@ -24,6 +24,7 @@ import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
 import { joinUrlPath } from "@/app/utils/url";
+import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
 
 export class DeepSeekApi implements LLMApi {
   private disableListModels = true;
@@ -34,7 +35,10 @@ export class DeepSeekApi implements LLMApi {
     let baseUrl = "";
 
     if (accessStore.useCustomConfig) {
-      baseUrl = accessStore.deepseekUrl;
+      baseUrl = getEffectiveProviderBaseUrl(
+        "DeepSeek",
+        accessStore.deepseekUrl,
+      );
     }
 
     if (baseUrl.length === 0) {

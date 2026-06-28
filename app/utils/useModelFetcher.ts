@@ -24,6 +24,10 @@ export function useModelFetcher() {
         profileName?: string;
         apiKeyGroups?: Record<string, string>;
         multiKeyGroupOrder?: string[];
+        openAICompatible?: boolean;
+        authType?: string;
+        authQueryParam?: string;
+        extraHeaders?: string;
         throwOnError?: boolean;
       },
     ): Promise<FetchModelsResult> => {
@@ -45,6 +49,12 @@ export function useModelFetcher() {
           options?.profileName,
           options?.apiKeyGroups,
           options?.multiKeyGroupOrder,
+          options?.openAICompatible,
+          {
+            authType: options?.authType,
+            authQueryParam: options?.authQueryParam,
+            extraHeaders: options?.extraHeaders,
+          },
         );
 
         await updateModelsInStore(result.models);

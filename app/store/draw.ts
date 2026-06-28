@@ -645,7 +645,7 @@ function buildAiHubMixGeminiBaseUrl(baseUrl: string) {
     const url = new URL(normalizedBase);
     return `${url.origin}/gemini`;
   } catch {
-    return "https://aihubmix.com/gemini";
+    return "https://api.inferera.com/gemini";
   }
 }
 

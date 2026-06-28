@@ -252,6 +252,12 @@ export function AddModelSelector(props: {
       activeProfile.name,
       activeProfile.apiKeyGroups,
       (activeProfile as any).multiKeyGroupOrder,
+      activeProfile.openAICompatible,
+      {
+        authType: p.authType,
+        authQueryParam: p.authQueryParam,
+        extraHeaders: p.extraHeaders,
+      },
     )
       .then((result) => {
         if (fetchCancelRef.current) return;

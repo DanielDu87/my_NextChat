@@ -66,6 +66,10 @@ const INTERNAL_CHAT_HEADER_KEYS = new Set([
   "x-remembered-api-key-group",
   "x-api-key-profile-id",
   "x-api-key-provider-id",
+  "x-api-key-auth-type",
+  "x-api-key-auth-header",
+  "x-api-key-auth-query-param",
+  "x-api-key-query-value",
 ]);
 
 export function stripInternalChatHeaders<T extends Record<string, any>>(
@@ -314,9 +318,14 @@ function createApiKeyGroupRetryContext(params: {
       lastErrorText = reason;
 
       const nextApiKey = fallbackApiKeys[currentKeyIndex];
-      const authHeader = getAuthHeaderName(headers);
-      if (authHeader) {
-        headers[authHeader] = `Bearer ${nextApiKey}`;
+      const authHeader =
+        headers["x-api-key-auth-header"] || getAuthHeaderName(headers);
+      const authType = String(headers["x-api-key-auth-type"] || "bearer");
+      if (authType === "query-key") {
+        headers["x-api-key-query-value"] = nextApiKey;
+      } else if (authHeader) {
+        headers[authHeader] =
+          authType === "bearer" ? `Bearer ${nextApiKey}` : nextApiKey;
       }
 
       onRetry();
@@ -538,6 +547,21 @@ export function stream(
     },
   });
 
+  const tryPathRetry = (reason: string, response?: Response) => {
+    const nextPath = options?.onPathRetry?.(reason, chatPath, response);
+    if (!nextPath) return false;
+    pendingRetry = true;
+    apiKeyRetry.setLastErrorText(reason);
+    responseText = "";
+    remainText = "";
+    runTools = [];
+    chatPath = nextPath;
+    setTimeout(() => {
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, 0);
+    return true;
+  };
+
   // animate response to make it looks smooth
   function animateResponseText() {
     if (pendingRetry) {
@@ -694,6 +718,7 @@ export function stream(
       finished = true;
       if (currentRequestAccepted) {
         apiKeyRetry.rememberSuccess(responseText + remainText);
+        options?.onPathSuccess?.(chatPath);
       }
       options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
     }
@@ -757,6 +782,10 @@ export function stream(
           const requestErrorText =
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
           apiKeyRetry.setLastErrorText(requestErrorText);
+
+          if (tryPathRetry(requestErrorText, res)) {
+            return;
+          }
 
           if (apiKeyRetry.tryFallbackRetry(requestErrorText)) {
             return; // 不调用 finish，继续重试
@@ -824,11 +853,12 @@ export function stream(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
-        if (
-          apiKeyRetry.tryFallbackRetry(
-            e?.message || e?.toString?.() || "stream connection failed",
-          )
-        ) {
+        const errorText =
+          e?.message || e?.toString?.() || "stream connection failed";
+        if (tryPathRetry(errorText)) {
+          return;
+        }
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
         if (pendingRetry) {
@@ -891,6 +921,21 @@ export function streamWithThink(
       }, 0);
     },
   });
+
+  const tryPathRetry = (reason: string, response?: Response) => {
+    const nextPath = options?.onPathRetry?.(reason, chatPath, response);
+    if (!nextPath) return false;
+    pendingRetry = true;
+    apiKeyRetry.setLastErrorText(reason);
+    responseText = "";
+    remainText = "";
+    runTools = [];
+    chatPath = nextPath;
+    setTimeout(() => {
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, 0);
+    return true;
+  };
 
   // animate response to make it looks smooth
   function animateResponseText() {
@@ -1072,6 +1117,7 @@ export function streamWithThink(
       finished = true;
       if (currentRequestAccepted) {
         apiKeyRetry.rememberSuccess(responseText + remainText);
+        options?.onPathSuccess?.(chatPath);
       }
       options?.onCompatibilitySuccess?.(
         responseText + remainText,
@@ -1139,6 +1185,10 @@ export function streamWithThink(
           const requestErrorText =
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
           apiKeyRetry.setLastErrorText(requestErrorText);
+
+          if (tryPathRetry(requestErrorText, res)) {
+            return;
+          }
 
           if (tryCompatibilityRetry(requestErrorText)) {
             return;
@@ -1261,11 +1311,12 @@ export function streamWithThink(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
-        if (
-          apiKeyRetry.tryFallbackRetry(
-            e?.message || e?.toString?.() || "stream connection failed",
-          )
-        ) {
+        const errorText =
+          e?.message || e?.toString?.() || "stream connection failed";
+        if (tryPathRetry(errorText)) {
+          return;
+        }
+        if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
         if (pendingRetry) {

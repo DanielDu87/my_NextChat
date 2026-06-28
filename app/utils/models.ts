@@ -16,11 +16,20 @@ import {
 } from "./aihubmix-model-metadata";
 import modelPublishedAtUtils from "./model-published-at";
 import {
+  buildAuthHeaders,
   buildProxyModelFetchCandidates,
+  getAuthorizationCandidates,
   getModelFetchApiKeyCandidates,
   isLocalModelProxyBaseUrl,
+  parseExtraHeaders,
+  appendAuthQueryParam,
+  type ApiProfileAuthType,
 } from "./model-fetch-common";
 import { getEffectiveProviderBaseUrl } from "./provider-url";
+import {
+  getRememberedModelListPath,
+  rememberModelListPath,
+} from "./api-path-memory";
 
 export {
   getAiHubMixLookupKeys,
@@ -74,7 +83,7 @@ function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
 
 /**
  * AiHubMix developer_id 到供应商名称的映射
- * 数据来源: https://aihubmix.com/api/v1/models
+ * 数据来源: https://api.inferera.com/api/v1/models
  * 最后更新: 2026-03-16
  *
  * 注意: developer_id 分类是 AiHubMix 内部使用的，不完全对应原始供应商
@@ -432,8 +441,8 @@ function extractOcoolaiAvailableModels(data: any): any[] {
         Array.isArray(group?.models)
           ? group.models
           : Array.isArray(group?.items)
-            ? group.items
-            : [],
+          ? group.items
+          : [],
       ),
     );
   }
@@ -444,8 +453,8 @@ function extractOcoolaiAvailableModels(data: any): any[] {
         Array.isArray(group?.models)
           ? group.models
           : Array.isArray(group?.items)
-            ? group.items
-            : [],
+          ? group.items
+          : [],
       ),
     );
   }
@@ -511,6 +520,63 @@ function extractModelListFromResponse(data: any, baseUrl?: string): any[] {
   }
 
   return [];
+}
+
+function inferEndpointCapabilities(model: any) {
+  const endpointTypes = Array.isArray(model?.supported_endpoint_types)
+    ? model.supported_endpoint_types
+    : Array.isArray(model?.supportedEndpointTypes)
+    ? model.supportedEndpointTypes
+    : Array.isArray(model?.endpoints)
+    ? model.endpoints
+    : [];
+  const normalizedEndpoints = endpointTypes
+    .map((item: unknown) => String(item || "").toLowerCase())
+    .filter(Boolean);
+  if (normalizedEndpoints.length === 0) {
+    return {};
+  }
+
+  const features = new Set<string>();
+  const types = new Set<string>();
+  if (normalizedEndpoints.some((item: string) => item.includes("chat"))) {
+    features.add("chat");
+    types.add("chat");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("response"))) {
+    features.add("responses");
+    types.add("chat");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("image"))) {
+    features.add("image");
+    types.add("image");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("video"))) {
+    features.add("video");
+    types.add("video");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("audio"))) {
+    features.add("audio");
+    types.add("audio");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("embedding"))) {
+    features.add("embedding");
+    types.add("embedding");
+  }
+
+  return {
+    features: [...features],
+    types: [...types],
+    type: types.values().next().value,
+    capabilities: [
+      ...(features.has("chat") || features.has("responses") ? ["chat"] : []),
+      ...(features.has("responses") ? ["responses"] : []),
+      ...(features.has("image") ? ["image"] : []),
+      ...(features.has("video") ? ["video"] : []),
+      ...(features.has("audio") ? ["audio"] : []),
+      ...(features.has("embedding") ? ["embedding"] : []),
+    ],
+  };
 }
 
 function mapModels(
@@ -622,10 +688,22 @@ function mapModels(
       catalogRank,
       category: normalizedCapabilities.category,
       categorySource: normalizedCapabilities.categorySource,
-      type: normalizedCapabilities.type,
-      types: normalizedCapabilities.types,
-      features: normalizedCapabilities.features,
-      capabilities: normalizedCapabilities.capabilities,
+      type: inferEndpointCapabilities(m).type || normalizedCapabilities.type,
+      types: inferEndpointCapabilities(m).types?.length
+        ? inferEndpointCapabilities(m).types
+        : normalizedCapabilities.types,
+      features: [
+        ...new Set([
+          ...(normalizedCapabilities.features || []),
+          ...(inferEndpointCapabilities(m).features || []),
+        ]),
+      ],
+      capabilities: [
+        ...new Set([
+          ...(normalizedCapabilities.capabilities || []),
+          ...(inferEndpointCapabilities(m).capabilities || []),
+        ]),
+      ],
       categories: normalizedCapabilities.categories,
       apiKeyGroup,
       provider: {
@@ -639,11 +717,14 @@ function mapModels(
   });
 }
 
-async function fetchAiHubMixCatalogMetadataMap() {
-  const response = await fetch("/api/aihubmix/models", {
+async function fetchAiHubMixCatalogMetadataMap(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
+  const targetUrl = `/api/proxy/api/v1/models`;
+  const response = await fetch(targetUrl, {
     method: "GET",
     headers: {
       Accept: "application/json",
+      ...(normalizedBaseUrl ? { "x-base-url": normalizedBaseUrl } : {}),
     },
   });
 
@@ -685,16 +766,16 @@ async function fetchAiHubMixCatalogMetadataMap() {
   return catalogMetadataMap;
 }
 
-async function fetchAiHubMixClassificationMap() {
-  const response = await fetch(
-    "/api/aihubmix/models?source=page&p=0&num=10000",
-    {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
+async function fetchAiHubMixClassificationMap(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
+  const targetUrl = `/api/proxy/call/mdl_info_pagination?p=0&num=10000`;
+  const response = await fetch(targetUrl, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...(normalizedBaseUrl ? { "x-base-url": normalizedBaseUrl } : {}),
     },
-  );
+  });
 
   if (!response.ok) {
     throw new Error(`AihubMix classification ${response.status}`);
@@ -740,43 +821,43 @@ async function fetchAiHubMixClassificationMap() {
   return classificationMap;
 }
 
-async function getAiHubMixCatalogMetadataMap() {
+async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
   if (!aihubmixCatalogMetadataMapPromise) {
-    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap().catch(
-      (error) => {
-        const cachedMetadataMap = readAiHubMixCatalogMetadataCache();
-        if (cachedMetadataMap.size > 0) {
-          console.warn(
-            "[Fetch Models] AihubMix 模型目录顺序拉取失败，回退到本地缓存",
-            error instanceof Error ? error.message : String(error),
-          );
-          return cachedMetadataMap;
-        }
-        aihubmixCatalogMetadataMapPromise = null;
-        throw error;
-      },
-    );
+    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap(
+      baseUrl,
+    ).catch((error) => {
+      const cachedMetadataMap = readAiHubMixCatalogMetadataCache();
+      if (cachedMetadataMap.size > 0) {
+        console.warn(
+          "[Fetch Models] AihubMix 模型目录顺序拉取失败，回退到本地缓存",
+          error instanceof Error ? error.message : String(error),
+        );
+        return cachedMetadataMap;
+      }
+      aihubmixCatalogMetadataMapPromise = null;
+      throw error;
+    });
   }
 
   return aihubmixCatalogMetadataMapPromise;
 }
 
-async function getAiHubMixClassificationMap() {
+async function getAiHubMixClassificationMap(baseUrl: string) {
   if (!aihubmixClassificationMapPromise) {
-    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap().catch(
-      (error) => {
-        const cachedClassificationMap = readAiHubMixClassificationCache();
-        if (cachedClassificationMap.size > 0) {
-          console.warn(
-            "[Fetch Models] AihubMix 分类元数据拉取失败，回退到本地缓存",
-            error instanceof Error ? error.message : String(error),
-          );
-          return cachedClassificationMap;
-        }
-        aihubmixClassificationMapPromise = null;
-        throw error;
-      },
-    );
+    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap(
+      baseUrl,
+    ).catch((error) => {
+      const cachedClassificationMap = readAiHubMixClassificationCache();
+      if (cachedClassificationMap.size > 0) {
+        console.warn(
+          "[Fetch Models] AihubMix 分类元数据拉取失败，回退到本地缓存",
+          error instanceof Error ? error.message : String(error),
+        );
+        return cachedClassificationMap;
+      }
+      aihubmixClassificationMapPromise = null;
+      throw error;
+    });
   }
 
   return aihubmixClassificationMapPromise;
@@ -788,9 +869,6 @@ async function getAiHubMixClassificationMap() {
 function fullUrl(url: string, baseUrl?: string): string {
   if (url.startsWith("/")) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    if (url.startsWith("/api/ocoolai/available-models-by-groups")) {
-      return `${origin}${url} (固定 → https://one.ocoolai.com/api/user/available_models_by_groups)`;
-    }
     if (baseUrl) {
       if (url.startsWith("/api/proxy/")) {
         const upstreamPath = url.replace("/api/proxy", "") || "/";
@@ -868,6 +946,10 @@ type FetchJsonOptions = {
   validateJson?: (data: any) => boolean;
   authorizationCandidates?: string[];
   authCacheKey?: string;
+  authType?: ApiProfileAuthType;
+  onSuccessCandidate?: (candidate: FetchCandidate) => void;
+  authQueryParam?: string;
+  authorizationHeaderName?: string;
 };
 
 const preferredAuthorizationCache = new Map<string, string>();
@@ -898,8 +980,8 @@ async function fetchJsonWithCandidates(
     options.authorizationCandidates.length > 0
       ? options.authorizationCandidates
       : headers.Authorization
-        ? [headers.Authorization]
-        : [undefined];
+      ? [headers.Authorization]
+      : [undefined];
   const preferredAuthorization = options?.authCacheKey
     ? preferredAuthorizationCache.get(options.authCacheKey)
     : undefined;
@@ -918,14 +1000,14 @@ async function fetchJsonWithCandidates(
     const displayBaseUrl =
       typeof candidate === "string"
         ? baseUrl
-        : (candidate.displayBaseUrl ?? baseUrl);
+        : candidate.displayBaseUrl ?? baseUrl;
     const display = fullUrl(url, displayBaseUrl);
     const interfaceLabel =
       typeof candidate === "string"
         ? display
         : candidate.note && candidate.upstreamPath
-          ? `${candidate.note} (${candidate.upstreamPath})`
-          : candidate.upstreamPath || candidate.note || display;
+        ? `${candidate.note} (${candidate.upstreamPath})`
+        : candidate.upstreamPath || candidate.note || display;
 
     for (
       let authIndex = 0;
@@ -939,10 +1021,12 @@ async function fetchJsonWithCandidates(
           : { "x-base-url": candidate.headerBaseUrl }),
       } as Record<string, string>;
       const authorization = orderedAuthCandidates[authIndex];
-      if (authorization) {
-        requestHeaders.Authorization = authorization;
-      } else {
-        delete requestHeaders.Authorization;
+      const authorizationHeaderName =
+        options?.authorizationHeaderName || "Authorization";
+      if (authorization && authorizationHeaderName) {
+        requestHeaders[authorizationHeaderName] = authorization;
+      } else if (authorizationHeaderName) {
+        delete requestHeaders[authorizationHeaderName];
       }
       const logPayload = {
         url: display,
@@ -972,8 +1056,14 @@ async function fetchJsonWithCandidates(
         }
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15_000);
-        const response = await fetchModelCandidate(
+        const requestUrl = appendAuthQueryParam(
           url,
+          authorization,
+          options?.authType,
+          options?.authQueryParam,
+        );
+        const response = await fetchModelCandidate(
+          requestUrl,
           requestHeaders,
           controller.signal,
         ).finally(() => clearTimeout(timeoutId));
@@ -1061,6 +1151,7 @@ async function fetchJsonWithCandidates(
         if (options?.authCacheKey && authorization) {
           preferredAuthorizationCache.set(options.authCacheKey, authorization);
         }
+        options?.onSuccessCandidate?.(candidate);
         return data;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -1096,7 +1187,16 @@ export async function fetchModelsFromProvider(
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
   multiKeyGroupOrder?: string[],
+  openAICompatible?: boolean,
+  fetchOptions?: {
+    authType?: string;
+    authQueryParam?: string;
+    extraHeaders?: string;
+  },
 ): Promise<FetchModelsResult> {
+  const profileOpenAICompatible =
+    openAICompatible ??
+    (provider === ServiceProvider.Custom || provider === ServiceProvider.Local);
   baseUrl = getEffectiveProviderBaseUrl(provider, baseUrl) || baseUrl;
 
   // 构建API路径
@@ -1115,8 +1215,12 @@ export async function fetchModelsFromProvider(
       sorted = 1;
       break;
     case ServiceProvider.Anthropic:
-      // Anthropic 暂不支持公开模型列表API，返回空
-      return { models: [], total: 0 };
+      apiPath = "/api/anthropic/v1/models";
+      providerId = "anthropic";
+      providerName = "Anthropic";
+      providerType = "anthropic";
+      sorted = 4;
+      break;
     case ServiceProvider.Azure:
       apiPath = "/api/azure/openai/deployments";
       providerId = "azure";
@@ -1153,7 +1257,10 @@ export async function fetchModelsFromProvider(
       sorted = 12;
       break;
     case ServiceProvider.Custom:
-      // 自定义供应商通过代理获取模型列表
+      // 自定义供应商只有在配置页勾选 OpenAI 兼容时才走通用模型接口。
+      if (!profileOpenAICompatible) {
+        return { models: [], total: 0 };
+      }
       if (baseUrl) {
         apiPath = "/api/proxy/v1/models";
         providerId = profileName
@@ -1167,6 +1274,9 @@ export async function fetchModelsFromProvider(
       }
       break;
     case ServiceProvider.Local:
+      if (!profileOpenAICompatible) {
+        return { models: [], total: 0 };
+      }
       if (baseUrl) {
         apiPath = "/api/proxy/v1/models";
         providerId = profileName
@@ -1184,15 +1294,8 @@ export async function fetchModelsFromProvider(
   }
 
   try {
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-    }
-    appendAihubmixHeaders(headers, baseUrl);
-
-    let data: any;
-    const normalizedBaseUrl = baseUrl ? normalizeBaseUrl(baseUrl) : undefined;
     const accessProfiles = useAccessStore.getState().apiProfiles || [];
+    const normalizedBaseUrl = baseUrl ? normalizeBaseUrl(baseUrl) : undefined;
     const matchedProviderProfile =
       accessProfiles.find(
         (profile) =>
@@ -1214,6 +1317,36 @@ export async function fetchModelsFromProvider(
       accessProfiles.find(
         (profile) => profile.provider === provider && profile.enabled,
       );
+    const authType = (fetchOptions?.authType ||
+      matchedProviderProfile?.authType ||
+      (String(provider) === ServiceProvider.Anthropic
+        ? "x-api-key"
+        : String(provider) === ServiceProvider.Azure
+        ? "api-key"
+        : String(provider) === ServiceProvider.Google
+        ? "x-goog-api-key"
+        : "bearer")) as ApiProfileAuthType;
+    const authQueryParam =
+      fetchOptions?.authQueryParam ||
+      matchedProviderProfile?.authQueryParam ||
+      "key";
+    const pathMemoryParams = {
+      provider: String(provider),
+      profileId: matchedProviderProfile?.id,
+      profileName: profileName || matchedProviderProfile?.name,
+      baseUrl,
+    };
+    const rememberedModelListPath =
+      getRememberedModelListPath(pathMemoryParams);
+    const headers: Record<string, string> = {
+      ...parseExtraHeaders(
+        fetchOptions?.extraHeaders || matchedProviderProfile?.extraHeaders,
+      ),
+      ...buildAuthHeaders(apiKey, authType),
+    };
+    appendAihubmixHeaders(headers, baseUrl);
+
+    let data: any;
     const matchedCustomProfile =
       provider === ServiceProvider.Custom ? matchedProviderProfile : undefined;
     const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
@@ -1224,17 +1357,13 @@ export async function fetchModelsFromProvider(
         matchedProviderProfile?.multiKeyGroupOrder || multiKeyGroupOrder,
     });
     if (modelFetchApiKeyCandidates[0]) {
-      headers["Authorization"] = `Bearer ${modelFetchApiKeyCandidates[0]}`;
+      Object.assign(
+        headers,
+        buildAuthHeaders(modelFetchApiKeyCandidates[0], authType),
+      );
     }
 
-    if (
-      baseUrl &&
-      [
-        ServiceProvider.OpenAI,
-        ServiceProvider.Custom,
-        ServiceProvider.Local,
-      ].includes(provider)
-    ) {
+    if (baseUrl && profileOpenAICompatible) {
       const effectiveBaseUrl =
         provider === ServiceProvider.Local
           ? normalizeLocalProxyBaseUrl(baseUrl)
@@ -1243,15 +1372,8 @@ export async function fetchModelsFromProvider(
       const baseWithoutV1 = effectiveNormalizedBaseUrl.replace(/\/v1$/, "");
       const proxyBaseUrl = isServerSide() ? baseUrl : baseWithoutV1;
 
-      // 为代理型供应商设置 x-base-url header
-      if (
-        provider === ServiceProvider.OpenAI ||
-        provider === ServiceProvider.Custom ||
-        provider === ServiceProvider.Local
-      ) {
-        headers["x-base-url"] =
-          provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
-      }
+      headers["x-base-url"] =
+        provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
 
       logFetchModels(`[Fetch Models] 🔍 检测 baseUrl:`, {
         baseUrl,
@@ -1262,17 +1384,34 @@ export async function fetchModelsFromProvider(
       });
 
       // 按兼容性顺序依次尝试所有候选模型接口
-      const candidateUrls: FetchCandidate[] =
-        buildProxyModelFetchCandidates(baseUrl);
+      const candidateUrls: FetchCandidate[] = buildProxyModelFetchCandidates(
+        baseUrl,
+        rememberedModelListPath,
+      );
 
       logFetchModels(
         `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个模型接口`,
       );
 
       data = await fetchJsonWithCandidates(candidateUrls, headers, baseUrl, {
-        authorizationCandidates: modelFetchApiKeyCandidates.map(
-          (key) => `Bearer ${key}`,
+        authorizationCandidates: getAuthorizationCandidates(
+          modelFetchApiKeyCandidates,
+          authType,
         ),
+        authorizationHeaderName:
+          Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+        authType,
+        authQueryParam,
+        onSuccessCandidate: (candidate) => {
+          if (typeof candidate === "string") {
+            rememberModelListPath(pathMemoryParams, candidate);
+          } else {
+            rememberModelListPath(
+              pathMemoryParams,
+              candidate.upstreamPath || candidate.url,
+            );
+          }
+        },
         authCacheKey: normalizedBaseUrl
           ? `model-fetch:${normalizedBaseUrl}`
           : undefined,
@@ -1289,9 +1428,12 @@ export async function fetchModelsFromProvider(
         : "";
       const candidateUrls = isLocalModelProxyBaseUrl(normalizedProviderBaseUrl)
         ? [apiPath]
-        : normalizedProviderBaseUrl
-          ? buildProxyModelFetchCandidates(normalizedProviderBaseUrl)
-          : [apiPath];
+        : normalizedProviderBaseUrl && profileOpenAICompatible
+        ? buildProxyModelFetchCandidates(
+            normalizedProviderBaseUrl,
+            rememberedModelListPath,
+          )
+        : [apiPath];
 
       const nextHeaders = { ...headers };
       if (
@@ -1314,9 +1456,24 @@ export async function fetchModelsFromProvider(
           nextHeaders,
           nextHeaders["x-base-url"] || normalizedProviderBaseUrl,
           {
-            authorizationCandidates: modelFetchApiKeyCandidates.map(
-              (key) => `Bearer ${key}`,
+            authorizationCandidates: getAuthorizationCandidates(
+              modelFetchApiKeyCandidates,
+              authType,
             ),
+            authorizationHeaderName:
+              Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+            authType,
+            authQueryParam,
+            onSuccessCandidate: (candidate) => {
+              if (typeof candidate === "string") {
+                rememberModelListPath(pathMemoryParams, candidate);
+              } else {
+                rememberModelListPath(
+                  pathMemoryParams,
+                  candidate.upstreamPath || candidate.url,
+                );
+              }
+            },
             authCacheKey: normalizedProviderBaseUrl
               ? `model-fetch:${provider}:${normalizedProviderBaseUrl}`
               : undefined,
@@ -1357,21 +1514,23 @@ export async function fetchModelsFromProvider(
       | Map<string, { features?: string[]; types?: string[] }>
       | undefined;
 
-    try {
-      catalogMetadataMap = await getAiHubMixCatalogMetadataMap();
-    } catch (error) {
-      console.warn(
-        "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到原始返回顺序",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      classificationMap = await getAiHubMixClassificationMap();
-    } catch (error) {
-      console.warn(
-        "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
-        error instanceof Error ? error.message : String(error),
-      );
+    if (isAiHubMixUrl(baseUrl)) {
+      try {
+        catalogMetadataMap = await getAiHubMixCatalogMetadataMap(baseUrl!);
+      } catch (error) {
+        console.warn(
+          "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到原始返回顺序",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      try {
+        classificationMap = await getAiHubMixClassificationMap(baseUrl!);
+      } catch (error) {
+        console.warn(
+          "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
 
     // YutoAPI: 从 vendors 数组构建映射
@@ -1402,8 +1561,8 @@ export async function fetchModelsFromProvider(
       const candidateUrls = isServerSide()
         ? [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`]
         : baseWithoutV1.includes("toapis.com")
-          ? ["/api/toapis/pricing"]
-          : ["/api/yuto/pricing"];
+        ? ["/api/toapis/pricing"]
+        : ["/api/yuto/pricing"];
 
       const fetchKey = apiKey || "";
 
@@ -1513,9 +1672,10 @@ export async function fetchModelsFromProvider(
       const groupsData = await fetchJsonWithCandidates(
         [
           {
-            url: "/api/ocoolai/available-models-by-groups",
-            displayBaseUrl: "https://one.ocoolai.com",
-            headerBaseUrl: "https://one.ocoolai.com",
+            url: "/api/proxy/api/user/available_models_by_groups",
+            displayBaseUrl: baseWithoutV1,
+            headerBaseUrl: baseWithoutV1,
+            upstreamPath: "/api/user/available_models_by_groups",
           },
         ],
         {
@@ -1526,9 +1686,14 @@ export async function fetchModelsFromProvider(
         {
           logLabel: "分组接口",
           logAttempt: false,
-          authorizationCandidates: modelFetchApiKeyCandidates.map(
-            (key) => `Bearer ${key}`,
+          authorizationCandidates: getAuthorizationCandidates(
+            modelFetchApiKeyCandidates,
+            authType,
           ),
+          authorizationHeaderName:
+            Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+          authType,
+          authQueryParam,
           authCacheKey: `ocool-groups:${normalizedBaseUrl}`,
           logSuccess: false,
           suppressCandidateErrors: true,

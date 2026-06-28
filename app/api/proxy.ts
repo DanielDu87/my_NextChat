@@ -68,6 +68,7 @@ function shouldUseNativeRequest(fetchUrl: string, method: string) {
     return [
       "aihubmix.com",
       "www.aihubmix.com",
+      "api.inferera.com",
       "toapis.com",
       "www.toapis.com",
       "cn.gptapi.asia",
@@ -215,7 +216,8 @@ export async function handle(
   const headers = new Headers(
     Array.from(req.headers.entries()).filter((item) => {
       if (
-        item[0].indexOf("x-") > -1 ||
+        (item[0].indexOf("x-") > -1 &&
+          !["x-api-key", "x-goog-api-key"].includes(item[0].toLowerCase())) ||
         item[0].indexOf("sec-") > -1 ||
         skipHeaders.includes(item[0])
       ) {
@@ -229,6 +231,9 @@ export async function handle(
   console.log(`[Proxy Route] 🔑 Authorization header:`, {
     hasAuth: req.headers.has("authorization"),
     authPrefix: req.headers.get("authorization")?.substring(0, 20) + "...",
+    hasXApiKey: req.headers.has("x-api-key"),
+    hasApiKey: req.headers.has("api-key"),
+    hasGoogleApiKey: req.headers.has("x-goog-api-key"),
   });
   // if dalle3 use openai api key
   if (baseUrl?.includes("api.openai.com")) {

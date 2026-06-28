@@ -16,6 +16,9 @@ export type AccessSnapshot = {
     multiKeyEnabled?: boolean;
     enabled: boolean;
     openAICompatible?: boolean;
+    authType?: string;
+    authQueryParam?: string;
+    extraHeaders?: string;
     cachedModels?: string;
   }>;
   customModels: string;

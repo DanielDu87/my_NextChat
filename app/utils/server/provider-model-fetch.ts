@@ -3,9 +3,15 @@ import { requestUpstream } from "@/app/api/upstream";
 import { applyModelPublishedAt } from "@/app/utils/model-published-at";
 import { normalizeModelClassification } from "@/app/utils/model-classification";
 import {
+  appendAuthQueryParam,
+  buildAuthHeaders,
   buildModelFetchCandidateUrls,
+  getAuthorizationCandidates,
   getModelFetchApiKeyCandidates,
+  parseExtraHeaders,
+  type ApiProfileAuthType,
 } from "@/app/utils/model-fetch-common";
+import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
 
 export type SyncedLLMModel = {
   name: string;
@@ -281,7 +287,9 @@ function resolveProviderFetchPreset(
 function isAiHubMixUrl(baseUrl?: string) {
   if (!baseUrl) return false;
   try {
-    return new URL(baseUrl).hostname === "aihubmix.com";
+    return ["aihubmix.com", "api.inferera.com"].includes(
+      new URL(baseUrl).hostname,
+    );
   } catch {
     return false;
   }
@@ -499,6 +507,63 @@ function extractModelListFromResponse(data: any): any[] {
   return [];
 }
 
+function inferEndpointCapabilities(model: any) {
+  const endpointTypes = Array.isArray(model?.supported_endpoint_types)
+    ? model.supported_endpoint_types
+    : Array.isArray(model?.supportedEndpointTypes)
+    ? model.supportedEndpointTypes
+    : Array.isArray(model?.endpoints)
+    ? model.endpoints
+    : [];
+  const normalizedEndpoints = endpointTypes
+    .map((item: unknown) => String(item || "").toLowerCase())
+    .filter(Boolean);
+  if (normalizedEndpoints.length === 0) {
+    return {};
+  }
+
+  const features = new Set<string>();
+  const types = new Set<string>();
+  if (normalizedEndpoints.some((item: string) => item.includes("chat"))) {
+    features.add("chat");
+    types.add("chat");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("response"))) {
+    features.add("responses");
+    types.add("chat");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("image"))) {
+    features.add("image");
+    types.add("image");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("video"))) {
+    features.add("video");
+    types.add("video");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("audio"))) {
+    features.add("audio");
+    types.add("audio");
+  }
+  if (normalizedEndpoints.some((item: string) => item.includes("embedding"))) {
+    features.add("embedding");
+    types.add("embedding");
+  }
+
+  return {
+    features: [...features],
+    types: [...types],
+    type: types.values().next().value,
+    capabilities: [
+      ...(features.has("chat") || features.has("responses") ? ["chat"] : []),
+      ...(features.has("responses") ? ["responses"] : []),
+      ...(features.has("image") ? ["image"] : []),
+      ...(features.has("video") ? ["video"] : []),
+      ...(features.has("audio") ? ["audio"] : []),
+      ...(features.has("embedding") ? ["embedding"] : []),
+    ],
+  };
+}
+
 function mapModels(
   models: any[],
   providerId: string,
@@ -601,10 +666,22 @@ function mapModels(
         catalogRank !== undefined ? "aihubmix_catalog" : "provider_models",
       category: normalized.category,
       categorySource: normalized.categorySource,
-      type: normalized.type,
-      types: normalized.types,
-      features: normalized.features,
-      capabilities: normalized.capabilities,
+      type: inferEndpointCapabilities(model).type || normalized.type,
+      types: inferEndpointCapabilities(model).types?.length
+        ? inferEndpointCapabilities(model).types
+        : normalized.types,
+      features: [
+        ...new Set([
+          ...(normalized.features || []),
+          ...(inferEndpointCapabilities(model).features || []),
+        ]),
+      ],
+      capabilities: [
+        ...new Set([
+          ...(normalized.capabilities || []),
+          ...(inferEndpointCapabilities(model).capabilities || []),
+        ]),
+      ],
       categories: normalized.categories,
       apiKeyGroup,
       provider: {
@@ -618,8 +695,9 @@ function mapModels(
   });
 }
 
-async function fetchAiHubMixCatalogMetadataMap() {
-  const response = await requestUpstream("https://aihubmix.com/api/v1/models", {
+async function fetchAiHubMixCatalogMetadataMap(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
+  const response = await requestUpstream(`${normalizedBaseUrl}/api/v1/models`, {
     method: "GET",
     dnsServers: ["1.1.1.1", "8.8.8.8"],
     headers: {
@@ -670,9 +748,10 @@ async function fetchAiHubMixCatalogMetadataMap() {
   return metadataMap;
 }
 
-async function fetchAiHubMixClassificationMap() {
+async function fetchAiHubMixClassificationMap(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
   const response = await requestUpstream(
-    "https://aihubmix.com/call/mdl_info_pagination?p=0&num=10000",
+    `${normalizedBaseUrl}/call/mdl_info_pagination?p=0&num=10000`,
     {
       method: "GET",
       dnsServers: ["1.1.1.1", "8.8.8.8"],
@@ -727,26 +806,26 @@ async function fetchAiHubMixClassificationMap() {
   return classificationMap;
 }
 
-async function getAiHubMixCatalogMetadataMap() {
+async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
   if (!aihubmixCatalogMetadataMapPromise) {
-    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap().catch(
-      (error) => {
-        aihubmixCatalogMetadataMapPromise = null;
-        throw error;
-      },
-    );
+    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap(
+      baseUrl,
+    ).catch((error) => {
+      aihubmixCatalogMetadataMapPromise = null;
+      throw error;
+    });
   }
   return aihubmixCatalogMetadataMapPromise;
 }
 
-async function getAiHubMixClassificationMap() {
+async function getAiHubMixClassificationMap(baseUrl: string) {
   if (!aihubmixClassificationMapPromise) {
-    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap().catch(
-      (error) => {
-        aihubmixClassificationMapPromise = null;
-        throw error;
-      },
-    );
+    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap(
+      baseUrl,
+    ).catch((error) => {
+      aihubmixClassificationMapPromise = null;
+      throw error;
+    });
   }
   return aihubmixClassificationMapPromise;
 }
@@ -757,6 +836,11 @@ async function fetchJsonWithCandidates(
   authorizationCandidates?: string[],
   validateJson?: (data: any) => boolean,
   getModelCount?: (data: any) => number,
+  options?: {
+    authType?: ApiProfileAuthType;
+    authQueryParam?: string;
+    authorizationHeaderName?: string;
+  },
 ) {
   let lastError: Error | null = null;
   const attempts: Array<{
@@ -796,13 +880,21 @@ async function fetchJsonWithCandidates(
           `[Fetch Models] 🔁 正在尝试服务端模型接口：${progressPrefix} ${url}`,
         );
         const requestHeaders = { ...headers };
-        if (authorization) {
-          requestHeaders.Authorization = authorization;
-        } else {
-          delete requestHeaders.Authorization;
+        const authorizationHeaderName =
+          options?.authorizationHeaderName || "Authorization";
+        if (authorization && authorizationHeaderName) {
+          requestHeaders[authorizationHeaderName] = authorization;
+        } else if (authorizationHeaderName) {
+          delete requestHeaders[authorizationHeaderName];
         }
-        const hostname = new URL(url).hostname;
-        const response = await requestUpstream(url, {
+        const requestUrl = appendAuthQueryParam(
+          url,
+          authorization,
+          options?.authType,
+          options?.authQueryParam,
+        );
+        const hostname = new URL(requestUrl).hostname;
+        const response = await requestUpstream(requestUrl, {
           method: "GET",
           headers: requestHeaders,
           dnsServers: [
@@ -960,9 +1052,26 @@ export async function fetchModelsFromProviderForServer(
   apiKey?: string,
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
+  openAICompatible?: boolean,
+  fetchOptions?: {
+    authType?: string;
+    authQueryParam?: string;
+    extraHeaders?: string;
+  },
 ): Promise<ServerFetchModelsResult> {
+  const profileOpenAICompatible =
+    openAICompatible ??
+    (provider === ServiceProvider.Custom || provider === ServiceProvider.Local);
+  baseUrl = getEffectiveProviderBaseUrl(provider, baseUrl) || baseUrl;
   const preset = resolveProviderFetchPreset(provider, baseUrl, profileName);
   if (!preset || !baseUrl || preset.strategy === "unsupported") {
+    return { models: [], total: 0 };
+  }
+
+  if (
+    [ServiceProvider.Custom, ServiceProvider.Local].includes(provider) &&
+    !profileOpenAICompatible
+  ) {
     return { models: [], total: 0 };
   }
 
@@ -973,15 +1082,26 @@ export async function fetchModelsFromProviderForServer(
     apiKeyGroups,
   });
 
-  const headers: Record<string, string> = {};
-  if (modelFetchApiKeyCandidates[0]) {
-    headers.Authorization = `Bearer ${modelFetchApiKeyCandidates[0]}`;
-  }
+  const authType = (fetchOptions?.authType ||
+    (String(provider) === ServiceProvider.Anthropic
+      ? "x-api-key"
+      : String(provider) === ServiceProvider.Azure
+      ? "api-key"
+      : String(provider) === ServiceProvider.Google
+      ? "x-goog-api-key"
+      : "bearer")) as ApiProfileAuthType;
+  const authQueryParam = fetchOptions?.authQueryParam || "key";
+  const headers: Record<string, string> = {
+    ...parseExtraHeaders(fetchOptions?.extraHeaders),
+    ...buildAuthHeaders(modelFetchApiKeyCandidates[0], authType),
+  };
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
 
-  const candidateUrls = buildModelFetchCandidateUrls(baseUrl);
+  const candidateUrls = profileOpenAICompatible
+    ? buildModelFetchCandidateUrls(baseUrl)
+    : [normalizedBaseUrl];
   console.log(
     `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个服务端模型接口`,
   );
@@ -989,9 +1109,15 @@ export async function fetchModelsFromProviderForServer(
   const data = await fetchJsonWithCandidates(
     candidateUrls,
     headers,
-    modelFetchApiKeyCandidates.map((key) => `Bearer ${key}`),
+    getAuthorizationCandidates(modelFetchApiKeyCandidates, authType),
     (payload) => extractModelListFromResponse(payload).length > 0,
     (payload) => extractModelListFromResponse(payload).length,
+    {
+      authType,
+      authQueryParam,
+      authorizationHeaderName:
+        Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+    },
   );
 
   let models: any[] = [];
@@ -1006,21 +1132,23 @@ export async function fetchModelsFromProviderForServer(
     | Map<string, { features?: string[]; types?: string[] }>
     | undefined;
 
-  try {
-    catalogMetadataMap = await getAiHubMixCatalogMetadataMap();
-  } catch (error) {
-    console.warn(
-      "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到本地兜底排序",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-  try {
-    classificationMap = await getAiHubMixClassificationMap();
-  } catch (error) {
-    console.warn(
-      "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
-      error instanceof Error ? error.message : String(error),
-    );
+  if (isAiHubMixUrl(baseUrl)) {
+    try {
+      catalogMetadataMap = await getAiHubMixCatalogMetadataMap(baseUrl);
+    } catch (error) {
+      console.warn(
+        "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到本地兜底排序",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      classificationMap = await getAiHubMixClassificationMap(baseUrl);
+    } catch (error) {
+      console.warn(
+        "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   if (data.vendors && Array.isArray(data.vendors)) {
@@ -1199,11 +1327,13 @@ export async function fetchModelsFromProviderForServer(
       }
     }
 
-    const mappedModels = [...mergedModelMap.values()];
-    return {
-      models: mappedModels,
-      total: mappedModels.length,
-    };
+    if (mergedModelMap.size > 0) {
+      const mappedModels = [...mergedModelMap.values()];
+      return {
+        models: mappedModels,
+        total: mappedModels.length,
+      };
+    }
   }
 
   const mappedModels = mapModels(

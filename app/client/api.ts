@@ -26,6 +26,13 @@ import {
   isRememberedApiKeyProfile,
 } from "../utils/model-api-key-memory";
 import { appendAihubmixHeaders } from "../utils/aihubmix";
+import {
+  buildAuthHeaders,
+  getAuthHeaderForType,
+  getAuthorizationCandidates,
+  parseExtraHeaders,
+  type ApiProfileAuthType,
+} from "../utils/model-fetch-common";
 
 const { ACCESS_CODE_PREFIX, ModelProvider, ServiceProvider } = constants;
 type ModelProviderValue = (typeof ModelProvider)[keyof typeof ModelProvider];
@@ -532,6 +539,11 @@ export function getHeaders(
   }
 
   function getAuthHeader(): string {
+    const customAuthType = (currentCustomProfile?.authType ||
+      "") as ApiProfileAuthType;
+    if (isCustom && customAuthType) {
+      return getAuthHeaderForType(customAuthType) || "Authorization";
+    }
     return isAzure
       ? "api-key"
       : isAnthropic
@@ -569,16 +581,34 @@ export function getHeaders(
   // when using baidu api in app, not set auth header
   if (isBaidu && clientConfig?.isApp) return headers;
 
+  const customAuthType = (currentCustomProfile?.authType ||
+    "bearer") as ApiProfileAuthType;
   const authHeader = getAuthHeader();
 
-  const bearerToken = getBearerToken(
-    apiKey,
-    isAzure || isAnthropic || isGoogle,
-  );
+  if (isCustom) {
+    Object.assign(
+      headers,
+      parseExtraHeaders(currentCustomProfile?.extraHeaders),
+    );
+    Object.assign(headers, buildAuthHeaders(apiKey, customAuthType));
+    if (customAuthType === "query-key" && apiKey) {
+      (headers as any)["x-api-key-query-value"] = apiKey;
+    }
+  } else {
+    const bearerToken = getBearerToken(
+      apiKey,
+      isAzure || isAnthropic || isGoogle,
+    );
+    if (bearerToken) {
+      headers[authHeader] = bearerToken;
+    }
+  }
 
-  if (bearerToken) {
-    headers[authHeader] = bearerToken;
-  } else if (isEnabledAccessControl && validString(accessStore.accessCode)) {
+  if (
+    !headers[authHeader] &&
+    isEnabledAccessControl &&
+    validString(accessStore.accessCode)
+  ) {
     headers["Authorization"] = getBearerToken(
       ACCESS_CODE_PREFIX + accessStore.accessCode,
     );
@@ -612,6 +642,10 @@ export function getHeaders(
     (headers as any)["x-api-key-provider-id"] = currentCustomProfile?.name
       ? `custom_${currentCustomProfile.name}`.toLowerCase()
       : "";
+    (headers as any)["x-api-key-auth-type"] = customAuthType;
+    (headers as any)["x-api-key-auth-header"] = authHeader;
+    (headers as any)["x-api-key-auth-query-param"] =
+      currentCustomProfile?.authQueryParam || "key";
     console.log("[MultiKey] 已添加多 key fallback headers", {
       profileId: currentCustomProfile?.id || "",
       profileName: currentCustomProfile?.name || "",

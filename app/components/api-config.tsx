@@ -62,6 +62,7 @@ import {
 } from "../utils/models";
 import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 import { dedupeAccessProfiles } from "../utils/access-profiles";
+import { useMobileScreen } from "../utils";
 import {
   getEffectiveProviderBaseUrl,
   getOfficialProviderBaseUrl,
@@ -84,27 +85,8 @@ function isYutoProfile(profile: { name: string; baseUrl: string }) {
   return isYutoProfileLike(profile);
 }
 
-function isAihubMixProfile(profile: { name: string; baseUrl: string }) {
-  const name = profile.name.toLowerCase();
-  const baseUrl = profile.baseUrl.toLowerCase();
-  return name.includes("aihubmix") || baseUrl.includes("aihubmix.com");
-}
-
-function isVisibleApiConfigProfile(profile: {
-  id?: string;
-  provider?: ServiceProvider;
-  name: string;
-  baseUrl: string;
-}) {
-  return (
-    String(profile.id || "").startsWith("profile_") ||
-    String(profile.id || "").startsWith("default_") ||
-    profile.name === "默认新增配置" ||
-    isYutoProfile(profile) ||
-    isOcoolProfile(profile) ||
-    profile.provider === ServiceProvider.Custom ||
-    isAihubMixProfile(profile)
-  );
+function isVisibleApiConfigProfile(profile: { id?: string }) {
+  return Boolean(profile?.id);
 }
 
 function normalizeProfileBaseUrl(profile: {
@@ -121,14 +103,17 @@ function createVisibleApiConfigProfile(): AccessState["apiProfiles"][number] {
     id: `profile_${timestamp}`,
     name: "默认新增配置",
     provider: ServiceProvider.Custom,
-    baseUrl: `xxx-${timestamp}`,
-    apiKey: "xxx",
+    baseUrl: "",
+    apiKey: "",
     modelFetchApiKey: "",
     apiKeyGroups: createEmptyMultiKeyGroups(),
     multiKeyGroupOrder: [...MULTI_KEY_GROUP_IDS],
     multiKeyEnabled: false,
     enabled: false,
     openAICompatible: true,
+    authType: "bearer",
+    authQueryParam: "key",
+    extraHeaders: "",
     cachedModels: "",
     modelCount: 0,
   };
@@ -320,6 +305,11 @@ function normalizeAccessStateForUi(
         nextProfile.modelFetchApiKey = String(
           nextProfile.modelFetchApiKey || "",
         );
+        nextProfile.authType = String(nextProfile.authType || "bearer");
+        nextProfile.authQueryParam = String(
+          nextProfile.authQueryParam || "key",
+        );
+        nextProfile.extraHeaders = String(nextProfile.extraHeaders || "");
 
         if (
           nextProfile.apiKeyGroups &&
@@ -986,6 +976,7 @@ export function ApiConfigPage() {
   );
   const pageLoadSyncNoticeLoggedRef = useRef(false);
   const { fetchFromProvider } = useModelFetcher();
+  const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
     prepareRouteEntryForSync(Path.ApiConfig, {
@@ -1203,6 +1194,9 @@ export function ApiConfigPage() {
           apiKey: profile.apiKey,
           enabled: profile.enabled,
           openAICompatible: profile.openAICompatible,
+          authType: profile.authType,
+          authQueryParam: profile.authQueryParam,
+          extraHeaders: profile.extraHeaders,
           modelCount: profile.modelCount,
           apiKeyGroups: profile.apiKeyGroups,
         })),
@@ -1293,6 +1287,22 @@ export function ApiConfigPage() {
       multiKeyGroupOrder: profileId
         ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
             ?.multiKeyGroupOrder
+        : undefined,
+      openAICompatible: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.openAICompatible
+        : provider === ServiceProvider.Custom,
+      authType: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.authType
+        : undefined,
+      authQueryParam: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.authQueryParam
+        : undefined,
+      extraHeaders: profileId
+        ? useAccessStore.getState().apiProfiles.find((p) => p.id === profileId)
+            ?.extraHeaders
         : undefined,
     })
       .then((result) => {
@@ -1613,6 +1623,10 @@ export function ApiConfigPage() {
               profileName: profile.name,
               apiKeyGroups: profile.apiKeyGroups,
               multiKeyGroupOrder: profile.multiKeyGroupOrder,
+              openAICompatible: profile.openAICompatible,
+              authType: profile.authType,
+              authQueryParam: profile.authQueryParam,
+              extraHeaders: profile.extraHeaders,
             },
           );
           totalFetched += result.total;
@@ -2070,6 +2084,46 @@ export function ApiConfigPage() {
     }
   };
 
+  if (isMobileScreen) {
+    return (
+      <div className={styles.page}>
+        <div className="window-header" data-tauri-drag-region>
+          <div className="window-header-title">
+            <div className="window-header-main-title">API 配置</div>
+            <div className="window-header-sub-title">
+              管理多平台配置、模型刷新与 PostgreSQL 双向同步
+            </div>
+          </div>
+          <div className="window-actions">
+            <div className="window-action-button">
+              <IconButton
+                aria="关闭"
+                icon={<CloseIcon />}
+                close
+                onClick={() => {
+                  if (window.history.length > 1) {
+                    navigate(-1);
+                    return;
+                  }
+                  navigate(Path.Home);
+                }}
+                bordered
+              />
+            </div>
+          </div>
+        </div>
+        <div className={styles.mobileOnly}>
+          <div className={styles.mobileOnlyCard}>
+            <div className={styles.mobileOnlyTitle}>本页面只能在电脑端打开</div>
+            <div className={styles.mobileOnlyDesc}>
+              请切换到电脑端或放大浏览器窗口后再打开 API 配置页面。
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <div className="window-header" data-tauri-drag-region>
@@ -2120,87 +2174,223 @@ export function ApiConfigPage() {
             }
           />
 
-          {providerProfiles.length > 0 && (
-            <ListItem
-              title={
-                <div className={styles.profileSectionTitle}>
-                  <span>配置条目</span>
-                  <IconButton
-                    icon={<AddIcon />}
-                    text=""
-                    bordered
-                    className={styles.addProfileButton}
-                    onClick={() => {
-                      accessStore.update((access) => {
-                        access.lastUpdateTime = Date.now();
-                        access.apiProfiles = [
-                          ...access.apiProfiles,
-                          createVisibleApiConfigProfile(),
-                        ];
-                      });
-                      const latestAccessState = useAccessStore.getState();
-                      writeAccessSnapshot({
-                        useCustomConfig: latestAccessState.useCustomConfig,
-                        provider: latestAccessState.provider,
-                        apiProfiles: latestAccessState.apiProfiles,
-                        customModels: latestAccessState.customModels,
-                        customUrl: latestAccessState.customUrl,
-                        customApiKey: latestAccessState.customApiKey,
-                        customOpenAICompatible:
-                          latestAccessState.customOpenAICompatible,
-                      });
-                    }}
-                  />
+          <ListItem
+            title={
+              <div className={styles.profileSectionTitle}>
+                <span>配置条目</span>
+                <IconButton
+                  icon={<AddIcon />}
+                  text=""
+                  bordered
+                  className={styles.addProfileButton}
+                  onClick={() => {
+                    accessStore.update((access) => {
+                      access.lastUpdateTime = Date.now();
+                      access.apiProfiles = [
+                        ...access.apiProfiles,
+                        createVisibleApiConfigProfile(),
+                      ];
+                    });
+                    const latestAccessState = useAccessStore.getState();
+                    writeAccessSnapshot({
+                      useCustomConfig: latestAccessState.useCustomConfig,
+                      provider: latestAccessState.provider,
+                      apiProfiles: latestAccessState.apiProfiles,
+                      customModels: latestAccessState.customModels,
+                      customUrl: latestAccessState.customUrl,
+                      customApiKey: latestAccessState.customApiKey,
+                      customOpenAICompatible:
+                        latestAccessState.customOpenAICompatible,
+                    });
+                  }}
+                />
+              </div>
+            }
+            subTitle="所有对话和模型获取都优先使用当前配置条目的 Base URL、API Key、OpenAI 兼容与多 key 设置"
+            vertical
+          >
+            <div className={styles.profileList}>
+              <div className={styles.profileTable}>
+                <div className={styles.profileTableHeader}>
+                  <div className={styles.profileColProvider}>平台</div>
+                  <div className={styles.profileColName}>名称</div>
+                  <div className={styles.profileColBaseUrl}>Base URL</div>
+                  <div className={styles.profileColApiKey}>API Key</div>
+                  <div className={styles.profileColCompatible}>OPENAI兼容</div>
+                  <div className={styles.profileColMultiKey}>是否多key</div>
+                  <div className={styles.profileColActions}>操作</div>
                 </div>
-              }
-              subTitle="仅显示 YutoAPI 与 AihubMix 的 Base URL 与 API Key"
-              vertical
-            >
-              <div className={styles.profileList}>
-                <div className={styles.profileTable}>
-                  <div className={styles.profileTableHeader}>
-                    <div className={styles.profileColProvider}>平台</div>
-                    <div className={styles.profileColName}>名称</div>
-                    <div className={styles.profileColBaseUrl}>Base URL</div>
-                    <div className={styles.profileColApiKey}>API Key</div>
-                    <div className={styles.profileColCompatible}>
-                      OPENAI兼容
-                    </div>
-                    <div className={styles.profileColMultiKey}>是否多key</div>
-                    <div className={styles.profileColActions}>操作</div>
-                  </div>
 
-                  {providerProfiles.map((profile, index) => (
-                    <div key={profile.id} className={styles.profileRow}>
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColProvider}`}
+                {providerProfiles.map((profile, index) => (
+                  <div key={profile.id} className={styles.profileRow}>
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColProvider}`}
+                    >
+                      <div className={styles.profileCellLabel}>平台</div>
+                      <Select
+                        value={profile.provider}
+                        onChange={(e) => {
+                          const provider = e.currentTarget
+                            .value as ServiceProvider;
+                          accessStore.update((access) => {
+                            const nextAccess = access as AccessState;
+                            access.apiProfiles = access.apiProfiles.map(
+                              (item) =>
+                                item.id === profile.id
+                                  ? {
+                                      ...item,
+                                      provider,
+                                      baseUrl: getProfileBaseUrl(
+                                        provider,
+                                        nextAccess,
+                                      ),
+                                      apiKey: getProfileApiKey(
+                                        provider,
+                                        nextAccess,
+                                      ),
+                                      openAICompatible:
+                                        provider === ServiceProvider.Custom
+                                          ? nextAccess.customOpenAICompatible
+                                          : undefined,
+                                    }
+                                  : item,
+                            );
+                          });
+                          if (profile.enabled) {
+                            syncProfileToAccess(profile.id);
+                          }
+                        }}
                       >
-                        <div className={styles.profileCellLabel}>平台</div>
-                        <Select
-                          value={profile.provider}
+                        {PROVIDER_OPTIONS.map((provider) => (
+                          <option key={provider} value={provider}>
+                            {provider}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColName}`}
+                    >
+                      <div className={styles.profileCellLabel}>名称</div>
+                      <input
+                        className={styles.textInput}
+                        type="text"
+                        placeholder={`${profile.provider} #${index + 1}`}
+                        value={profile.name}
+                        onChange={(e) => {
+                          accessStore.update((access) => {
+                            access.apiProfiles = access.apiProfiles.map(
+                              (item) =>
+                                item.id === profile.id
+                                  ? { ...item, name: e.currentTarget.value }
+                                  : item,
+                            );
+                          });
+                        }}
+                      />
+                    </div>
+
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColBaseUrl}`}
+                    >
+                      <div className={styles.profileCellLabel}>Base URL</div>
+                      <input
+                        className={styles.textInput}
+                        type="text"
+                        placeholder={
+                          (PROVIDER_FIELDS[profile.provider] ?? []).find((f) =>
+                            String(f.key).toLowerCase().includes("url"),
+                          )?.placeholder
+                        }
+                        value={normalizeProfileBaseUrl(profile)}
+                        disabled={isOfficialProviderBaseUrlLocked(
+                          profile.provider,
+                        )}
+                        title={
+                          isOfficialProviderBaseUrlLocked(profile.provider)
+                            ? "官方配置使用固定 Base URL，不可修改"
+                            : undefined
+                        }
+                        onChange={(e) => {
+                          if (
+                            isOfficialProviderBaseUrlLocked(profile.provider)
+                          ) {
+                            return;
+                          }
+                          const nextValue = e.currentTarget.value;
+                          accessStore.update((access) => {
+                            access.apiProfiles = access.apiProfiles.map(
+                              (item) =>
+                                item.id === profile.id
+                                  ? { ...item, baseUrl: nextValue }
+                                  : item,
+                            );
+                          });
+                          if (profile.enabled) {
+                            syncProfileToAccess(profile.id);
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColApiKey}`}
+                    >
+                      <div className={styles.profileCellLabel}>API Key</div>
+                      {profile.multiKeyEnabled ? (
+                        <div className={styles.profileApiKeyEditor}>
+                          <button
+                            type="button"
+                            className={`${styles.textInput} ${styles.profileApiKeyButton}`}
+                            onClick={() => setEditingYutoProfileId(profile.id)}
+                          >
+                            点击编辑分组
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          className={styles.textInput}
+                          type="text"
+                          placeholder="API Key"
+                          value={profile.apiKey}
                           onChange={(e) => {
-                            const provider = e.currentTarget
-                              .value as ServiceProvider;
+                            const nextValue = e.currentTarget.value;
                             accessStore.update((access) => {
-                              const nextAccess = access as AccessState;
+                              access.apiProfiles = access.apiProfiles.map(
+                                (item) =>
+                                  item.id === profile.id
+                                    ? { ...item, apiKey: nextValue }
+                                    : item,
+                              );
+                            });
+                            if (profile.enabled) {
+                              syncProfileToAccess(profile.id, {
+                                skipFetchModels: true,
+                              });
+                            }
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColCompatible}`}
+                    >
+                      <div className={styles.profileCellLabel}>兼容</div>
+                      <label className={styles.profileCheck}>
+                        <input
+                          type="checkbox"
+                          checked={profile.openAICompatible ?? true}
+                          onChange={(e) => {
+                            accessStore.update((access) => {
                               access.apiProfiles = access.apiProfiles.map(
                                 (item) =>
                                   item.id === profile.id
                                     ? {
                                         ...item,
-                                        provider,
-                                        baseUrl: getProfileBaseUrl(
-                                          provider,
-                                          nextAccess,
-                                        ),
-                                        apiKey: getProfileApiKey(
-                                          provider,
-                                          nextAccess,
-                                        ),
                                         openAICompatible:
-                                          provider === ServiceProvider.Custom
-                                            ? nextAccess.customOpenAICompatible
-                                            : undefined,
+                                          e.currentTarget.checked,
                                       }
                                     : item,
                               );
@@ -2209,72 +2399,58 @@ export function ApiConfigPage() {
                               syncProfileToAccess(profile.id);
                             }
                           }}
-                        >
-                          {PROVIDER_OPTIONS.map((provider) => (
-                            <option key={provider} value={provider}>
-                              {provider}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColName}`}
-                      >
-                        <div className={styles.profileCellLabel}>名称</div>
-                        <input
-                          className={styles.textInput}
-                          type="text"
-                          placeholder={`${profile.provider} #${index + 1}`}
-                          value={profile.name}
-                          onChange={(e) => {
-                            accessStore.update((access) => {
-                              access.apiProfiles = access.apiProfiles.map(
-                                (item) =>
-                                  item.id === profile.id
-                                    ? { ...item, name: e.currentTarget.value }
-                                    : item,
-                              );
-                            });
-                          }}
                         />
-                      </div>
+                        <span>
+                          {profile.openAICompatible ?? true ? "是" : "否"}
+                        </span>
+                      </label>
+                    </div>
 
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColBaseUrl}`}
-                      >
-                        <div className={styles.profileCellLabel}>Base URL</div>
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColMultiKey}`}
+                    >
+                      <div className={styles.profileCellLabel}>是否多key</div>
+                      <label className={styles.profileCheck}>
                         <input
-                          className={styles.textInput}
-                          type="text"
-                          placeholder={
-                            (PROVIDER_FIELDS[profile.provider] ?? []).find(
-                              (f) =>
-                                String(f.key).toLowerCase().includes("url"),
-                            )?.placeholder
-                          }
-                          value={normalizeProfileBaseUrl(profile)}
-                          disabled={isOfficialProviderBaseUrlLocked(
-                            profile.provider,
-                          )}
-                          title={
-                            isOfficialProviderBaseUrlLocked(profile.provider)
-                              ? "官方配置使用固定 Base URL，不可修改"
-                              : undefined
-                          }
+                          type="checkbox"
+                          checked={Boolean(profile.multiKeyEnabled)}
                           onChange={(e) => {
-                            if (
-                              isOfficialProviderBaseUrlLocked(profile.provider)
-                            ) {
-                              return;
-                            }
-                            const nextValue = e.currentTarget.value;
+                            const checked = e.currentTarget.checked;
                             accessStore.update((access) => {
+                              access.lastUpdateTime = Date.now();
                               access.apiProfiles = access.apiProfiles.map(
-                                (item) =>
-                                  item.id === profile.id
-                                    ? { ...item, baseUrl: nextValue }
-                                    : item,
+                                (item) => {
+                                  if (item.id !== profile.id) return item;
+
+                                  const currentGroups = normalizeMultiKeyGroups(
+                                    item.apiKeyGroups,
+                                    item,
+                                  );
+                                  if (!checked) {
+                                    multiKeyDraftGroupsRef.current[item.id] =
+                                      currentGroups;
+                                    return {
+                                      ...item,
+                                      multiKeyEnabled: false,
+                                      apiKeyGroups: item.apiKeyGroups,
+                                    };
+                                  }
+
+                                  const draftGroups =
+                                    multiKeyDraftGroupsRef.current[item.id];
+                                  const nextGroups =
+                                    draftGroups || currentGroups;
+                                  return {
+                                    ...item,
+                                    multiKeyEnabled: true,
+                                    apiKeyGroups: nextGroups,
+                                    multiKeyGroupOrder:
+                                      normalizeMultiKeyGroupOrder(
+                                        item.multiKeyGroupOrder,
+                                        nextGroups,
+                                      ),
+                                  };
+                                },
                               );
                             });
                             if (profile.enabled) {
@@ -2282,343 +2458,204 @@ export function ApiConfigPage() {
                             }
                           }}
                         />
-                      </div>
+                        <span>{profile.multiKeyEnabled ? "是" : "否"}</span>
+                      </label>
+                    </div>
 
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColApiKey}`}
-                      >
-                        <div className={styles.profileCellLabel}>API Key</div>
-                        {profile.multiKeyEnabled ? (
-                          <div className={styles.profileApiKeyEditor}>
-                            <button
-                              type="button"
-                              className={`${styles.textInput} ${styles.profileApiKeyButton}`}
-                              onClick={() =>
-                                setEditingYutoProfileId(profile.id)
-                              }
-                            >
-                              点击编辑分组
-                            </button>
-                          </div>
-                        ) : (
-                          <input
-                            className={styles.textInput}
-                            type="text"
-                            placeholder="API Key"
-                            value={profile.apiKey}
-                            onChange={(e) => {
-                              const nextValue = e.currentTarget.value;
+                    <div
+                      className={`${styles.profileCell} ${styles.profileColActions}`}
+                    >
+                      <div className={styles.profileCellLabel}>操作</div>
+                      <div className={styles.profileRowActions}>
+                        <IconButton
+                          text="删除"
+                          type="danger"
+                          bordered
+                          className={styles.dangerButton}
+                          onClick={async () => {
+                            const confirmed = await showConfirm(
+                              `确定要删除配置"${profile.name}"吗？`,
+                            );
+                            if (confirmed) {
                               accessStore.update((access) => {
-                                access.apiProfiles = access.apiProfiles.map(
-                                  (item) =>
-                                    item.id === profile.id
-                                      ? { ...item, apiKey: nextValue }
-                                      : item,
+                                access.apiProfiles = access.apiProfiles.filter(
+                                  (item) => item.id !== profile.id,
                                 );
                               });
-                              if (profile.enabled) {
-                                syncProfileToAccess(profile.id, {
-                                  skipFetchModels: true,
-                                });
-                              }
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColCompatible}`}
-                      >
-                        <div className={styles.profileCellLabel}>兼容</div>
-                        <label className={styles.profileCheck}>
-                          <input
-                            type="checkbox"
-                            checked={profile.openAICompatible ?? true}
-                            onChange={(e) => {
-                              accessStore.update((access) => {
-                                access.apiProfiles = access.apiProfiles.map(
-                                  (item) =>
-                                    item.id === profile.id
-                                      ? {
-                                          ...item,
-                                          openAICompatible:
-                                            e.currentTarget.checked,
-                                        }
-                                      : item,
-                                );
-                              });
-                              if (profile.enabled) {
-                                syncProfileToAccess(profile.id);
-                              }
-                            }}
-                          />
-                          <span>
-                            {profile.openAICompatible ?? true ? "是" : "否"}
-                          </span>
-                        </label>
-                      </div>
-
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColMultiKey}`}
-                      >
-                        <div className={styles.profileCellLabel}>是否多key</div>
-                        <label className={styles.profileCheck}>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(profile.multiKeyEnabled)}
-                            onChange={(e) => {
-                              const checked = e.currentTarget.checked;
-                              accessStore.update((access) => {
-                                access.lastUpdateTime = Date.now();
-                                access.apiProfiles = access.apiProfiles.map(
-                                  (item) => {
-                                    if (item.id !== profile.id) return item;
-
-                                    const currentGroups =
-                                      normalizeMultiKeyGroups(
-                                        item.apiKeyGroups,
-                                        item,
-                                      );
-                                    if (!checked) {
-                                      multiKeyDraftGroupsRef.current[item.id] =
-                                        currentGroups;
-                                      return {
-                                        ...item,
-                                        multiKeyEnabled: false,
-                                        apiKeyGroups: item.apiKeyGroups,
-                                      };
-                                    }
-
-                                    const draftGroups =
-                                      multiKeyDraftGroupsRef.current[item.id];
-                                    const nextGroups =
-                                      draftGroups || currentGroups;
-                                    return {
-                                      ...item,
-                                      multiKeyEnabled: true,
-                                      apiKeyGroups: nextGroups,
-                                      multiKeyGroupOrder:
-                                        normalizeMultiKeyGroupOrder(
-                                          item.multiKeyGroupOrder,
-                                          nextGroups,
-                                        ),
-                                    };
-                                  },
-                                );
-                              });
-                              if (profile.enabled) {
-                                syncProfileToAccess(profile.id);
-                              }
-                            }}
-                          />
-                          <span>{profile.multiKeyEnabled ? "是" : "否"}</span>
-                        </label>
-                      </div>
-
-                      <div
-                        className={`${styles.profileCell} ${styles.profileColActions}`}
-                      >
-                        <div className={styles.profileCellLabel}>操作</div>
-                        <div className={styles.profileRowActions}>
-                          <IconButton
-                            text="删除"
-                            type="danger"
-                            bordered
-                            className={styles.dangerButton}
-                            onClick={async () => {
-                              const confirmed = await showConfirm(
-                                `确定要删除配置"${profile.name}"吗？`,
-                              );
-                              if (confirmed) {
-                                accessStore.update((access) => {
-                                  access.apiProfiles =
-                                    access.apiProfiles.filter(
-                                      (item) => item.id !== profile.id,
-                                    );
-                                });
-                              }
-                            }}
-                          />
-                        </div>
+                            }
+                          }}
+                        />
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-              {editingYutoProfileId ? (
-                (() => {
-                  const editingProfile = providerProfiles.find(
-                    (profile) => profile.id === editingYutoProfileId,
-                  );
-                  if (!editingProfile) return <></>;
+            </div>
+            {editingYutoProfileId ? (
+              (() => {
+                const editingProfile = providerProfiles.find(
+                  (profile) => profile.id === editingYutoProfileId,
+                );
+                if (!editingProfile) return <></>;
 
-                  return (
-                    <div
-                      className={`modal-mask ${styles.profileYutoModalMask}`}
-                    >
-                      <div className={styles.profileYutoModalContainer}>
-                        <div className={styles.profileYutoModalHeader}>
-                          <div className={styles.profileYutoModalTitle}>
-                            {`${editingProfile.name} 分组 API Key`}
-                          </div>
-                          <button
-                            type="button"
-                            aria-label="关闭"
-                            data-close-button="true"
-                            className={styles.profileYutoModalClose}
-                            onClick={() => {
-                              setEditingYutoProfileId("");
-                            }}
-                          >
-                            <CloseIcon />
-                          </button>
+                return (
+                  <div className={`modal-mask ${styles.profileYutoModalMask}`}>
+                    <div className={styles.profileYutoModalContainer}>
+                      <div className={styles.profileYutoModalHeader}>
+                        <div className={styles.profileYutoModalTitle}>
+                          {`${editingProfile.name} 分组 API Key`}
                         </div>
-                        <div className={styles.profileYutoModalBody}>
-                          <div className={styles.profileYutoKeyGrid}>
-                            {(function () {
-                              const apiKeyGroups = normalizeMultiKeyGroups(
-                                editingProfile.apiKeyGroups,
-                                editingProfile,
-                              );
-                              const groupOrder = normalizeMultiKeyGroupOrder(
-                                editingProfile.multiKeyGroupOrder,
-                                apiKeyGroups,
-                              );
+                        <button
+                          type="button"
+                          aria-label="关闭"
+                          data-close-button="true"
+                          className={styles.profileYutoModalClose}
+                          onClick={() => {
+                            setEditingYutoProfileId("");
+                          }}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
+                      <div className={styles.profileYutoModalBody}>
+                        <div className={styles.profileYutoKeyGrid}>
+                          {(function () {
+                            const apiKeyGroups = normalizeMultiKeyGroups(
+                              editingProfile.apiKeyGroups,
+                              editingProfile,
+                            );
+                            const groupOrder = normalizeMultiKeyGroupOrder(
+                              editingProfile.multiKeyGroupOrder,
+                              apiKeyGroups,
+                            );
 
-                              return groupOrder.map((group, index) => {
-                                const hasGroupKey = Boolean(
-                                  String(apiKeyGroups[group] || "").trim(),
+                            return groupOrder.map((group, index) => {
+                              const hasGroupKey = Boolean(
+                                String(apiKeyGroups[group] || "").trim(),
+                              );
+                              const previousGroup = groupOrder[index - 1];
+                              const nextGroup = groupOrder[index + 1];
+                              const canMoveUp =
+                                Boolean(previousGroup) &&
+                                hasGroupKey &&
+                                Boolean(
+                                  String(
+                                    apiKeyGroups[previousGroup] || "",
+                                  ).trim(),
                                 );
-                                const previousGroup = groupOrder[index - 1];
-                                const nextGroup = groupOrder[index + 1];
-                                const canMoveUp =
-                                  Boolean(previousGroup) &&
-                                  hasGroupKey &&
-                                  Boolean(
-                                    String(
-                                      apiKeyGroups[previousGroup] || "",
-                                    ).trim(),
-                                  );
-                                const canMoveDown =
-                                  Boolean(nextGroup) &&
-                                  hasGroupKey &&
-                                  Boolean(
-                                    String(
-                                      apiKeyGroups[nextGroup] || "",
-                                    ).trim(),
-                                  );
+                              const canMoveDown =
+                                Boolean(nextGroup) &&
+                                hasGroupKey &&
+                                Boolean(
+                                  String(apiKeyGroups[nextGroup] || "").trim(),
+                                );
 
-                                return (
-                                  <div
-                                    key={group}
-                                    className={styles.profileYutoKeyItem}
-                                  >
-                                    <div className={styles.profileYutoKeyInner}>
-                                      <div
-                                        className={styles.profileYutoKeyHeader}
-                                      >
-                                        <div
-                                          className={styles.profileCellLabel}
-                                        >
-                                          {`分组${index + 1}`}
-                                        </div>
-                                      </div>
-                                      <div
-                                        className={
-                                          styles.profileYutoKeyDescription
-                                        }
-                                      >
+                              return (
+                                <div
+                                  key={group}
+                                  className={styles.profileYutoKeyItem}
+                                >
+                                  <div className={styles.profileYutoKeyInner}>
+                                    <div
+                                      className={styles.profileYutoKeyHeader}
+                                    >
+                                      <div className={styles.profileCellLabel}>
                                         {`分组${index + 1}`}
                                       </div>
+                                    </div>
+                                    <div
+                                      className={
+                                        styles.profileYutoKeyDescription
+                                      }
+                                    >
+                                      {`分组${index + 1}`}
+                                    </div>
+                                    <div className={styles.profileYutoInputRow}>
+                                      <input
+                                        className={styles.textInput}
+                                        type="text"
+                                        placeholder="留空则不尝试请求"
+                                        value={apiKeyGroups[group] ?? ""}
+                                        onChange={(e) => {
+                                          const nextValue =
+                                            e.currentTarget.value;
+                                          updateMultiKeyGroups(
+                                            editingProfile.id,
+                                            {
+                                              ...apiKeyGroups,
+                                              [group]: nextValue,
+                                            },
+                                          );
+                                        }}
+                                      />
                                       <div
-                                        className={styles.profileYutoInputRow}
+                                        className={
+                                          styles.profileYutoOrderActions
+                                        }
                                       >
-                                        <input
-                                          className={styles.textInput}
-                                          type="text"
-                                          placeholder="留空则不尝试请求"
-                                          value={apiKeyGroups[group] ?? ""}
-                                          onChange={(e) => {
-                                            const nextValue =
-                                              e.currentTarget.value;
-                                            updateMultiKeyGroups(
+                                        <button
+                                          type="button"
+                                          className={`${styles.profileYutoOrderButton} ${styles.profileYutoOrderButtonUp}`}
+                                          disabled={!canMoveUp}
+                                          title="上移"
+                                          aria-label="上移"
+                                          onClick={() => {
+                                            if (!previousGroup) return;
+                                            moveMultiKeyGroup(
                                               editingProfile.id,
-                                              {
-                                                ...apiKeyGroups,
-                                                [group]: nextValue,
-                                              },
+                                              group,
+                                              previousGroup,
+                                              apiKeyGroups,
+                                              groupOrder,
                                             );
                                           }}
-                                        />
-                                        <div
+                                        ></button>
+                                        <button
+                                          type="button"
                                           className={
-                                            styles.profileYutoOrderActions
+                                            styles.profileYutoOrderButton
                                           }
-                                        >
-                                          <button
-                                            type="button"
-                                            className={`${styles.profileYutoOrderButton} ${styles.profileYutoOrderButtonUp}`}
-                                            disabled={!canMoveUp}
-                                            title="上移"
-                                            aria-label="上移"
-                                            onClick={() => {
-                                              if (!previousGroup) return;
-                                              moveMultiKeyGroup(
-                                                editingProfile.id,
-                                                group,
-                                                previousGroup,
-                                                apiKeyGroups,
-                                                groupOrder,
-                                              );
-                                            }}
-                                          ></button>
-                                          <button
-                                            type="button"
-                                            className={
-                                              styles.profileYutoOrderButton
-                                            }
-                                            disabled={!canMoveDown}
-                                            title="下移"
-                                            aria-label="下移"
-                                            onClick={() => {
-                                              if (!nextGroup) return;
-                                              moveMultiKeyGroup(
-                                                editingProfile.id,
-                                                group,
-                                                nextGroup,
-                                                apiKeyGroups,
-                                                groupOrder,
-                                              );
-                                            }}
-                                          ></button>
-                                        </div>
+                                          disabled={!canMoveDown}
+                                          title="下移"
+                                          aria-label="下移"
+                                          onClick={() => {
+                                            if (!nextGroup) return;
+                                            moveMultiKeyGroup(
+                                              editingProfile.id,
+                                              group,
+                                              nextGroup,
+                                              apiKeyGroups,
+                                              groupOrder,
+                                            );
+                                          }}
+                                        ></button>
                                       </div>
                                     </div>
                                   </div>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </div>
-                        <div className={styles.profileYutoModalFooter}>
-                          <IconButton
-                            type="primary"
-                            text="关闭"
-                            icon={<ConfirmIcon />}
-                            onClick={() => {
-                              setEditingYutoProfileId("");
-                            }}
-                          />
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
+                      <div className={styles.profileYutoModalFooter}>
+                        <IconButton
+                          type="primary"
+                          text="关闭"
+                          icon={<ConfirmIcon />}
+                          onClick={() => {
+                            setEditingYutoProfileId("");
+                          }}
+                        />
+                      </div>
                     </div>
-                  );
-                })()
-              ) : (
-                <></>
-              )}
-            </ListItem>
-          )}
+                  </div>
+                );
+              })()
+            ) : (
+              <></>
+            )}
+          </ListItem>
 
           {extraFields.length > 0 && (
             <ListItem title="附加配置" subTitle="当前平台的额外字段" vertical>
