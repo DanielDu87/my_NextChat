@@ -2328,7 +2328,9 @@ export function ApiConfigPage() {
                       <div className={styles.profileCellLabel}>操作</div>
                       <div className={styles.profileRowActions}>
                         <IconButton
-                          icon={<TrashIcon />}
+                          icon={
+                            <TrashIcon className={styles.profileDeleteIcon} />
+                          }
                           text="删除"
                           type="danger"
                           bordered

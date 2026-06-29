@@ -335,6 +335,7 @@ export function ApiConfigBackupsPage() {
                 <IconButton
                   icon={working === "backup" ? <LoadingIcon /> : <UploadIcon />}
                   text={working === "backup" ? "备份中..." : "立即备份"}
+                  type="primary"
                   bordered
                   className={styles.createBackupButton}
                   disabled={!!working}
@@ -371,6 +372,7 @@ export function ApiConfigBackupsPage() {
                           )
                         }
                         text="恢复"
+                        type="primary"
                         bordered
                         disabled={!!working}
                         onClick={() => void restore(backup)}

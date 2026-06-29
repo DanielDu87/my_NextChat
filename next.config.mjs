@@ -57,11 +57,10 @@ const nextConfig = {
   images: {
     unoptimized: mode === "export",
   },
-  experimental: isDev
-    ? {}
-    : {
-        forceSwcTransforms: true,
-      },
+  experimental: {
+    instrumentationHook: true,
+    ...(!isDev ? { forceSwcTransforms: true } : {}),
+  },
 };
 
 const CorsHeaders = [

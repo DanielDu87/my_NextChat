@@ -4753,6 +4753,12 @@ function _Chat() {
       });
     };
 
+    const clearSubmittedInputDraft = () => {
+      localStorage.removeItem(unfinishedInputKey);
+      localStorage.removeItem(ACTIVE_UNFINISHED_INPUT_KEY);
+      pendingDraftRestoreRef.current = null;
+    };
+
     const messageAttachedFiles = attachedFiles.map(
       stripLocalAttachmentPreviewUrl,
     );
@@ -4773,6 +4779,8 @@ function _Chat() {
       if (message) {
         setEditMobileMessageId(null);
         onResend(message, userInput, messageAttachImages, messageAttachedFiles);
+        setUserInput("");
+        clearSubmittedInputDraft();
         setAttachImages([]);
         setAttachedFiles([]);
         resetMobileComposerAfterSubmit();
@@ -4807,6 +4815,7 @@ function _Chat() {
       setIsLoading(false);
     });
     clearComposerAttachments({ preserveServerFiles: true });
+    clearSubmittedInputDraft();
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
     chatStore.setLastInput(userInput);

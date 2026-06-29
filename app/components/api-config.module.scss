@@ -359,10 +359,28 @@
   }
 }
 
+.profileDeleteIcon,
+.profileDeleteIcon path {
+  color: white !important;
+  fill: white !important;
+}
+
 .dangerButton.profileDeleteButton:global([class*="danger"]) {
-  color: var(--black-2) !important;
-  background-color: rgba(255, 77, 79, 0.12) !important;
+  color: white !important;
+  background-color: rgba(255, 77, 79, 0.28) !important;
   border-color: rgba(255, 77, 79, 0.35) !important;
+
+  :global([class*="icon-button-icon"]) {
+    color: white !important;
+  }
+
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
+    color: white !important;
+    fill: white !important;
+  }
 
   &:hover,
   &:focus,

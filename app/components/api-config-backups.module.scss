@@ -3,6 +3,26 @@
   display: flex;
   flex-direction: column;
 }
+.page :global([class*="list-item"]),
+.page :global([class*="list-item"] *) {
+  cursor: default !important;
+}
+.page :global(button),
+.page :global(button *) {
+  cursor: pointer !important;
+}
+.page :global(button:disabled),
+.page :global(button:disabled *) {
+  cursor: not-allowed !important;
+}
+.page input[type="number"] {
+  cursor: text !important;
+}
+.page input[type="checkbox"],
+.page input[type="checkbox"] + span,
+.page label:has(input[type="checkbox"]) {
+  cursor: pointer !important;
+}
 .content {
   padding: 20px;
   overflow: auto;
@@ -63,11 +83,36 @@
   line-height: 1.5;
 }
 .createBackupButton {
+  --backup-green: #22a06b;
+
   align-self: center;
   width: 145px;
   min-width: 145px;
   margin-right: 15px;
   justify-content: center;
+  color: white !important;
+  background-color: color-mix(
+    in srgb,
+    var(--backup-green) 75%,
+    white
+  ) !important;
+  border-color: var(--backup-green) !important;
+
+  &:not(:disabled) {
+    cursor: pointer !important;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    color: white !important;
+    background-color: var(--backup-green) !important;
+    border-color: var(--backup-green) !important;
+  }
+
+  &:disabled {
+    cursor: not-allowed !important;
+  }
 }
 .backups {
   width: 100%;
@@ -96,6 +141,12 @@
 .backupActions {
   display: flex;
   gap: 8px;
+}
+.createBackupButton:not(:disabled),
+.createBackupButton:not(:disabled) *,
+.backupActions button:not(:disabled),
+.backupActions button:not(:disabled) * {
+  cursor: pointer !important;
 }
 @media (max-width: 700px) {
   .page :global(.window-header) {
