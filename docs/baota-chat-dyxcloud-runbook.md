@@ -21,6 +21,23 @@
 | Compose 显示名 | `my_nextchat` |
 | Compose 实际 project | `03b890c97bdecc48c2294402d8768906`，即 `md5(my_nextchat)` |
 
+### 1.1 生产端口安全基线
+
+- NextChat 端口必须映射为 `127.0.0.1:3000:3000`，仅供宿主机 Nginx 反代使用。
+- PostgreSQL 只监听 `127.0.0.1,172.20.0.1`，不得监听 `0.0.0.0` 或服务器公网 IP。
+- `pg_hba.conf` 中 NextChat 连接来源必须限制为 Docker 网段 `172.20.0.0/16`，不得使用 `0.0.0.0/0`。
+- `.env.baota` 和宝塔 Compose `.env` 的 `PGHOST` 必须为 `172.20.0.1`，不得通过公网 IP 回连数据库。
+- 腾讯云安全组不应放行公网入站 TCP `3000` 或 `5432`；公网只保留网站和运维所需端口。
+
+检查命令：
+
+```bash
+ssh ss 'ss -lntp | grep -E "(:3000|:5432)([[:space:]]|$)"'
+ssh ss 'grep -nE "^[[:space:]]*listen_addresses[[:space:]]*=|^host[[:space:]]+nextchat" /www/server/pgsql/data/postgresql.conf /www/server/pgsql/data/pg_hba.conf'
+```
+
+预期只出现 `127.0.0.1:3000`、`127.0.0.1:5432` 和 `172.20.0.1:5432`。
+
 ## 2. 必须区分的三套宝塔数据
 
 宝塔不同功能读取不同 SQLite 数据库，不能只改一处。
