@@ -4,7 +4,7 @@
 # 使用方法：
 # 1. 在宝塔面板 -> Docker -> Compose 项目 中导入此文件
 # 2. 环境变量通过 .env.baota 文件配置
-# 3. 通过 chat.dyxcloud.com 域名访问（Nginx 反代到 3000 端口，应用直连远程 PostgreSQL）
+# 3. 通过 chat.dyxcloud.com 域名访问（Nginx 反代到本机 3000 端口，应用直连远程 PostgreSQL）
 # =============================================================================
 
 services:
@@ -32,7 +32,8 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${PORT:-3000}:3000"
+      # 仅允许宿主机 Nginx 访问，避免 3000 端口直接暴露到公网
+      - "127.0.0.1:${PORT:-3000}:3000"
 
     environment:
       # 运行环境
