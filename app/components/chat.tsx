@@ -5694,7 +5694,11 @@ function _Chat() {
         pendingScrollMetricsRef.current = null;
         if (!pending) return;
 
-        if (pending.updateMessageWindow && !pending.programmatic) {
+        if (
+          pending.updateMessageWindow &&
+          !pending.programmatic &&
+          !(isAssistantStreaming && streamingAutoScrollPausedRef.current)
+        ) {
           const bottomHeight = pending.dom.scrollTop + pending.dom.clientHeight;
           const edgeThreshold = pending.dom.clientHeight;
           const isTouchTopEdge = pending.dom.scrollTop <= edgeThreshold;
@@ -5710,7 +5714,12 @@ function _Chat() {
         commitScrollMetrics(pending.dom);
       });
     },
-    [commitScrollMetrics, msgRenderIndex, setMsgRenderIndex],
+    [
+      commitScrollMetrics,
+      isAssistantStreaming,
+      msgRenderIndex,
+      setMsgRenderIndex,
+    ],
   );
 
   const syncHitBottomFromDom = useCallback(() => {
@@ -5876,7 +5885,7 @@ function _Chat() {
   const prepareTouchScrollTakeover = useCallback(() => {
     chatBodyTouchMovedRef.current = false;
     chatBodyTouchPausedFollowRef.current =
-      autoScrollEnabled ||
+      autoScrollEnabledRef.current ||
       followStreamingAfterScrollButtonRef.current ||
       animatedScrollToBottomRafRef.current !== null;
     if (!chatBodyTouchPausedFollowRef.current) return;
@@ -5889,13 +5898,13 @@ function _Chat() {
       dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
       lastChatBodyScrollTopRef.current = dom.scrollTop;
     }
-  }, [autoScrollEnabled, clearForceScrollToBottom, scrollRef]);
+  }, [clearForceScrollToBottom, scrollRef]);
 
   const finishTouchScrollTakeover = useCallback(() => {
     if (
       chatBodyTouchPausedFollowRef.current &&
       !chatBodyTouchMovedRef.current &&
-      autoScrollEnabled
+      autoScrollEnabledRef.current
     ) {
       streamingAutoScrollPausedRef.current = false;
       followStreamingAfterScrollButtonRef.current = true;
@@ -5903,7 +5912,7 @@ function _Chat() {
     chatBodyTouchPausedFollowRef.current = false;
     chatBodyTouchMovedRef.current = false;
     chatBodyTouchStartYRef.current = null;
-  }, [autoScrollEnabled]);
+  }, []);
 
   const scrollToBottomLikeMobileTitle = useCallback(() => {
     clearForceScrollToBottom();
@@ -7590,6 +7599,9 @@ function _Chat() {
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       }
+      if (keyboardObscuredHeight > 140) {
+        scrollDomToBottom();
+      }
     }
   }, [
     isMobileScreen,
@@ -7599,6 +7611,7 @@ function _Chat() {
     resetMobileDocumentScroll,
     scheduleMoveInputCursorToEnd,
     scheduleScrollMobileInputToBottom,
+    scrollDomToBottom,
     finalizeMobileInputBlur,
   ]);
 
