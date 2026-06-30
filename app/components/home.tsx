@@ -478,7 +478,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   ) {
     return (
       <div
-        className={clsx(styles.container, {
+        className={clsx(styles.container, styles["container-loading"], {
           [styles["rtl-screen"]]: getLang() === "ar",
         })}
       >
@@ -693,6 +693,12 @@ export function Home() {
               window.clearTimeout(timeoutId);
             }
           } catch (error) {
+            if (
+              error instanceof Error &&
+              /^\[(DB Sync|Sync)\] aborted\b/.test(error.message)
+            ) {
+              return;
+            }
             console.error("[Home] 远端变更同步失败:", error);
           }
           if (!cancelled) {

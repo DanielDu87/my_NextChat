@@ -64,12 +64,15 @@ export function ApiConfigBackupsPage() {
       setBackups(data.backups);
       syncedSettingsRef.current = JSON.stringify(data.settings);
       settingsReadyRef.current = true;
-      setSettingsSyncStatus("已与服务器同步");
+      setSettingsSyncStatus(
+        data.degraded ? "服务器暂不可用，显示默认设置" : "已与服务器同步",
+      );
       console.log("[API Config] ✅ 备份设置和历史记录读取完成", {
         备份数量: data.backups.length,
         自动备份: data.settings.enabled,
         备份间隔分钟: data.settings.intervalMinutes,
         最大保留数量: data.settings.maxBackups,
+        降级读取: Boolean(data.degraded),
       });
       console.log("===== ✅ API配置备份列表读取完成 =====");
     } catch (error) {

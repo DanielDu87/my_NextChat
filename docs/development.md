@@ -12,11 +12,14 @@
 ```bash
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
 ```
 
 访问：<http://localhost:3000>
+
+本地热加载测试默认免登录，避免账号登录阻塞 UI 回归。仅对本地 `dev` profile 使用命令行临时覆盖 `NEXTCHAT_DISABLE_AUTH=true`；默认就是 `ccc` 用户，读写和操作都按 `ccc` 处理，用户切换等功能应保持正常。远端 PostgreSQL 只监听服务器本机和 Docker 内网，本地读取聊天记录时通过项目内 `postgres-ssh-tunnel` 容器建立 SSH key 隧道，并用 `PGHOST=postgres-ssh-tunnel PGPORT=5432` 启动开发容器。远程部署、宝塔部署、生产环境必须恢复密码鉴权，不要把该值写入 `.env.baota` 或生产环境变量；部署后默认仍按正常鉴权进入 `admin`。
 
 常用页面：
 
@@ -45,6 +48,7 @@ cp .env.docker.example .env.docker
 ## 环境变量与安全
 
 - 开发/部署默认使用 `.env.docker`，不要把真实密钥、数据库密码写进仓库。
+- 本地热加载如需重新创建开发容器，继续使用 `NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d`，不要为了免登录修改生产配置。
 - 如果需要启用数据库同步，优先在 `.env.docker` 填写 `DATABASE_URL` 或 `PG*` 参数（示例见 [.env.docker.example](../.env.docker.example)）。
 
 ## 生产部署

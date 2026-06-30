@@ -3020,6 +3020,13 @@ export const useSyncStore = createPersistStore(
           }
           return true;
         } catch (error) {
+          if (isSyncAbortError(error)) {
+            writePendingDebounceTask({
+              keys: normalizeSyncKeys([...remainingKeys, ...resumedKeys]),
+              scheduledAt: Date.now(),
+            });
+            return false;
+          }
           logger.sync.error("[Sync] ❌ 恢复防抖同步失败:", error);
           writePendingDebounceTask({
             keys: normalizeSyncKeys([...remainingKeys, ...resumedKeys]),
@@ -3123,7 +3130,15 @@ export const useSyncStore = createPersistStore(
                   .join(", "),
               },
             );
-            await syncInFlight;
+            try {
+              await syncInFlight;
+            } catch (error) {
+              if (isSyncAbortError(error)) {
+                logSyncDebug("[Sync] ⏹️ 已有同步被取消，本轮自动同步跳过");
+                return;
+              }
+              throw error;
+            }
             if (options?.isolateQueue) {
               return this.sync(normalizedStoreKeys, options);
             }
@@ -4212,7 +4227,7 @@ export const useSyncStore = createPersistStore(
               }
               return {
                 updatedAt: data.updatedAt ? (data.updatedAt as string) : null,
-                remoteAvailable: true,
+                remoteAvailable: data.remoteAvailable !== false,
               };
             },
             {

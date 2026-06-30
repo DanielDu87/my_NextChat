@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       sessions,
     });
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 500;
+    const status = error instanceof AuthError ? error.status : 200;
     return NextResponse.json(
       {
         ok: true,

@@ -58,12 +58,16 @@ export async function GET(_: NextRequest, { params }: Params) {
       },
     });
   } catch (error) {
-    const status =
-      error instanceof AuthError
-        ? error.status
-        : isPostgresTemporarilyUnavailableError(error)
-        ? 503
-        : 500;
+    if (isPostgresTemporarilyUnavailableError(error)) {
+      return new Response("", {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-NextChat-Degraded": "1",
+        },
+      });
+    }
+    const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {
         ok: false,

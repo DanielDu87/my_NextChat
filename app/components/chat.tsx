@@ -3761,6 +3761,23 @@ function _Chat() {
       ),
     [activeModelSelectorProviderId, apiProfiles],
   );
+  const isActiveProfileModelSyncing = (() => {
+    if (!activeModelSelectorProfile) return false;
+    const cache = modelCacheProfiles?.[activeModelSelectorProfile.id];
+    const syncStatus = String(cache?.syncStatus || "").toLowerCase();
+    if (syncStatus === "first_sync" || syncStatus === "syncing") return true;
+    if (syncStatus === "checking_remote") {
+      const providerId = getProfileProviderId(
+        activeModelSelectorProfile,
+      ).toLowerCase();
+      return !allModels.some(
+        (model) =>
+          model.available &&
+          String(model?.provider?.id || "").toLowerCase() === providerId,
+      );
+    }
+    return false;
+  })();
   const activeModelSelectorProviderDisplayName =
     activeModelSelectorProfile?.name || currentProviderDisplayName;
   const autoModeEnabled = autoModelSeries.length > 0;
@@ -4127,24 +4144,15 @@ function _Chat() {
       disable: true,
     }));
   }, [manualModelSelectionDisabled, providerModelSelectorItems]);
+  const isModelSelectorSyncing =
+    isModelSelectionSyncing || isActiveProfileModelSyncing;
   const currentModelName = useMemo(() => {
-    if (isModelSelectionSyncing) {
+    if (isModelSelectorSyncing) {
       return "同步中...";
     }
 
-    const matchedModel = models.find(
-      (model) =>
-        model.name === currentModel &&
-        String(model?.provider?.id || "").toLowerCase() ===
-          activeModelSelectorProviderId,
-    );
-    return matchedModel?.displayName ?? currentModel;
-  }, [
-    activeModelSelectorProviderId,
-    currentModel,
-    isModelSelectionSyncing,
-    models,
-  ]);
+    return currentModel;
+  }, [currentModel, isModelSelectorSyncing]);
   const isPendingSessionModelSelection = useMemo(() => {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
       return false;
@@ -4194,14 +4202,14 @@ function _Chat() {
     <>{autoModeButtonText}</>
   ) : (
     <>
-      {!isModelSelectionSyncing && (
+      {!isModelSelectorSyncing && (
         <>
           <span className={styles["provider-button-name"]}>
             {activeModelSelectorProviderDisplayName}
           </span>{" "}
         </>
       )}
-      {isModelSelectionSyncing ? (
+      {isModelSelectorSyncing ? (
         <span className={styles["provider-button-model-syncing"]}>
           {currentModelName}
         </span>
@@ -4214,7 +4222,7 @@ function _Chat() {
   );
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
-    : isModelSelectionSyncing
+    : isModelSelectorSyncing
     ? currentModelName
     : `${activeModelSelectorProviderDisplayName} ${currentModelName}`;
   const currentDisplaySelectorValue = `${currentRawModel}@${
@@ -4733,6 +4741,24 @@ function _Chat() {
       return;
     }
     if (hasPendingUploads) return;
+
+    if (isModelSelectorSyncing) {
+      const allSessions = chatStore.sessions;
+      const lastSession = [...allSessions]
+        .filter((s) => s.id !== session.id && s.mask?.modelConfig?.model)
+        .sort((a, b) => (b.lastUpdate || 0) - (a.lastUpdate || 0))[0];
+      const lastModel = lastSession?.mask?.modelConfig?.model;
+      if (lastModel) {
+        chatStore.updateTargetSession(session, (s) => {
+          s.mask.modelConfig.model = lastModel;
+          s.mask.modelConfig.providerName =
+            lastSession.mask.modelConfig.providerName;
+        });
+      } else {
+        showTopNotice("模型同步中，请稍候...");
+        return;
+      }
+    }
 
     const resetMobileComposerAfterSubmit = () => {
       if (!isMobileScreen) return;
@@ -5811,9 +5837,10 @@ function _Chat() {
 
   const scrollToBottomTouchTriggeredRef = useRef(false);
   const pauseStreamingAutoScrollForUser = useCallback(
-    (durationMs = 1800) => {
+    (durationMs = 6000) => {
       clearStreamingScrollResumeTimer();
       clearForceScrollToBottom();
+      clearCenteredLatestUserMessage();
       followStreamingAfterScrollButtonRef.current = false;
       programmaticScrollToBottomUntilRef.current = 0;
       const dom = scrollRef.current;
@@ -5829,6 +5856,7 @@ function _Chat() {
       syncHitBottomFromDom();
     },
     [
+      clearCenteredLatestUserMessage,
       clearForceScrollToBottom,
       clearStreamingScrollResumeTimer,
       scrollRef,
@@ -5889,72 +5917,34 @@ function _Chat() {
     setAutoScroll(true);
     setIsScrollToBottomAnimating(true);
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
 
     const settleToBottom = () => {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
       const nextDom = scrollRef.current;
       if (!nextDom) return;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 180;
       const targetTop = Math.max(
         0,
         nextDom.scrollHeight - nextDom.clientHeight,
       );
       nextDom.scrollTop = targetTop;
       lastChatBodyScrollTopRef.current = targetTop;
-      programmaticScrollToBottomUntilRef.current = 0;
-      animatedScrollToBottomRafRef.current = null;
-      setIsScrollToBottomAnimating(false);
       syncHitBottomFromDom();
     };
 
-    const animateToBottom = (startedAt: number, startTop: number) => {
+    const finishSettle = () => {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
-      const nextDom = scrollRef.current;
-      if (!nextDom || !followStreamingAfterScrollButtonRef.current) {
-        animatedScrollToBottomRafRef.current = null;
-        setIsScrollToBottomAnimating(false);
-        return;
-      }
-
-      const elapsed = performance.now() - startedAt;
-      const targetTop = Math.max(
-        0,
-        nextDom.scrollHeight - nextDom.clientHeight,
-      );
-      const initialDistance = Math.abs(targetTop - startTop);
-      const duration = Math.min(480, Math.max(240, initialDistance * 0.22));
-
-      if (elapsed >= duration || prefersReducedMotion) {
-        settleToBottom();
-        return;
-      }
-
-      const progress = Math.min(1, elapsed / duration);
-      const easedProgress = 1 - Math.pow(1 - progress, 3);
-      const nextTop = startTop + (targetTop - startTop) * easedProgress;
-      programmaticScrollToBottomUntilRef.current = Date.now() + 64;
-      nextDom.scrollTop = nextTop;
-      lastChatBodyScrollTopRef.current = nextTop;
-
-      animatedScrollToBottomRafRef.current = window.requestAnimationFrame(() =>
-        animateToBottom(startedAt, startTop),
-      );
+      settleToBottom();
+      programmaticScrollToBottomUntilRef.current = Date.now() + 96;
+      animatedScrollToBottomRafRef.current = null;
+      setIsScrollToBottomAnimating(false);
     };
 
     window.requestAnimationFrame(() => {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
-      const nextDom = scrollRef.current;
-      if (!nextDom) {
-        setIsScrollToBottomAnimating(false);
-        return;
-      }
-      const startTop = nextDom.scrollTop;
-      const startedAt = performance.now();
-      animatedScrollToBottomRafRef.current = window.requestAnimationFrame(() =>
-        animateToBottom(startedAt, startTop),
-      );
+      settleToBottom();
+      animatedScrollToBottomRafRef.current =
+        window.requestAnimationFrame(finishSettle);
     });
   }, [
     clearForceScrollToBottom,
@@ -9196,7 +9186,7 @@ function _Chat() {
                       <div className={styles["chat-status-user-panel-mobile"]}>
                         <div className={styles["chat-panel-model-info"]}>
                           {currentModelName}
-                          {!isModelSelectionSyncing && (
+                          {!isModelSelectorSyncing && (
                             <>
                               <span className={styles["chat-panel-model-at"]}>
                                 @
@@ -10957,6 +10947,25 @@ export function Chat() {
       }
     }
   }, [sessionIdListKey, urlSessionId]);
+
+  // 首页默认显示新对话
+  useEffect(() => {
+    if (location.pathname !== Path.Home) return;
+    const store = useChatStore.getState();
+    const currentSession = store.currentSession();
+    if (!currentSession) return;
+    const normalizedTopic = String(currentSession.topic || "").trim();
+    const isFresh =
+      currentSession.messages.length === 0 &&
+      !currentSession.memoryPrompt &&
+      (!normalizedTopic ||
+        normalizedTopic === DEFAULT_TOPIC ||
+        normalizedTopic === "New Chat" ||
+        normalizedTopic === "新的聊天");
+    if (!isFresh) {
+      store.newSession();
+    }
+  }, [location.pathname]);
 
   // 对话变化时同步 URL
   useEffect(() => {

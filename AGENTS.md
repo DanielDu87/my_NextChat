@@ -6,12 +6,18 @@
 - 默认使用 [scripts/docker-compose-safe.sh](./scripts/docker-compose-safe.sh) 包装 `docker compose`
 - 不要直接执行 `docker compose build`
   因为部分环境会在 `~/.docker/buildx/activity` 报权限错误；包装脚本会自动把 `BUILDX_CONFIG` 指向 `/tmp/nextchat-docker-buildx`
+- 本地热加载测试默认免登录：启动或重建 `nextchat-dev` 时必须用命令行临时覆盖 `NEXTCHAT_DISABLE_AUTH=true`
+- 本地免登录模式默认就是 `ccc` 用户，读写和操作都按 `ccc` 处理；用户切换等功能应保持正常
+- 本地热加载读取远端聊天记录时，使用项目内 `postgres-ssh-tunnel` 容器连接服务器 PostgreSQL；本地用 SSH key 免密，不输入密码，`nextchat-dev` 用 `PGHOST=postgres-ssh-tunnel PGPORT=5432` 连接隧道服务
+- 远程部署、宝塔部署、生产环境必须恢复密码鉴权，不要把 `NEXTCHAT_DISABLE_AUTH=true` 写入 `.env.baota` 或生产环境变量
+- 远程部署、宝塔部署、生产环境默认仍按正常鉴权进入 `admin`
 - 启动命令：
 
 ```bash
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
 ```
 
 - 查看日志：

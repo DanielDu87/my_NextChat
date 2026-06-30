@@ -1,4 +1,5 @@
 import { getStoreSnapshotMetas } from "./sync-store-repository";
+import { isPostgresTemporarilyUnavailableError } from "./postgres";
 
 export async function loadStoreSnapshotMetasSafely(
   keys: string[],
@@ -11,6 +12,14 @@ export async function loadStoreSnapshotMetasSafely(
   try {
     return await getStoreSnapshotMetas(keys, userId);
   } catch (error) {
+    if (isPostgresTemporarilyUnavailableError(error)) {
+      console.warn(
+        `[DB Sync Meta] 数据库暂时不可用，跳过元数据读取: ${keys.join(", ")}`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return [];
+    }
+
     if (keys.length === 1) {
       console.error(`[DB Sync Meta] 读取 ${keys[0]} 失败`, error);
       return [];

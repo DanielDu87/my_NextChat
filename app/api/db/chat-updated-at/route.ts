@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveStoreSyncUserId } from "@/app/utils/server/sync-user";
 import { AuthError } from "@/app/utils/server/auth";
+import { isPostgresTemporarilyUnavailableError } from "@/app/utils/server/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,21 @@ export async function GET(req: NextRequest) {
       updatedAt,
     });
   } catch (error) {
+    if (isPostgresTemporarilyUnavailableError(error)) {
+      return NextResponse.json(
+        {
+          ok: true,
+          updatedAt: null,
+          remoteAvailable: false,
+          degraded: true,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
     const status = error instanceof AuthError ? error.status : 500;
     return NextResponse.json(
       {

@@ -36,6 +36,23 @@ function isRetryablePostgresError(error: unknown) {
   const message =
     error instanceof Error ? error.message : String(error ?? "unknown_error");
   const code = getPostgresErrorCode(error);
+  if (
+    [
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "ENETUNREACH",
+      "ETIMEDOUT",
+      "EHOSTUNREACH",
+    ].includes(code)
+  ) {
+    return true;
+  }
+  const nestedErrors = Array.isArray((error as any)?.errors)
+    ? ((error as any).errors as unknown[])
+    : [];
+  if (nestedErrors.some(isRetryablePostgresError)) {
+    return true;
+  }
 
   return [
     "Connection terminated unexpectedly",
@@ -45,6 +62,7 @@ function isRetryablePostgresError(error: unknown) {
     "database system is not accepting connections",
     "the database system is starting up",
     "too many clients already",
+    "Connection terminated due to connection timeout",
   ].some((pattern) => message.includes(pattern));
 }
 

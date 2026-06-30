@@ -13,6 +13,7 @@ import {
   getStoreSnapshot,
   setStoreSnapshot,
 } from "@/app/utils/server/sync-store-repository";
+import { isPostgresTemporarilyUnavailableError } from "@/app/utils/server/postgres";
 import {
   requireWritableSharedSyncUserId,
   resolveSharedSyncUserId,
@@ -20,6 +21,12 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const DEFAULT_API_CONFIG_BACKUP_SETTINGS = {
+  enabled: true,
+  intervalMinutes: 1440,
+  maxBackups: 10,
+};
 
 function errorResponse(error: unknown) {
   console.error(
@@ -44,6 +51,25 @@ export async function GET(req: NextRequest) {
     ]);
     return NextResponse.json({ ok: true, settings, backups });
   } catch (error) {
+    if (isPostgresTemporarilyUnavailableError(error)) {
+      console.warn(
+        "[API Config] ⚠️ 配置备份读取暂时不可用，返回空列表",
+        error instanceof Error ? error.message : String(error),
+      );
+      return NextResponse.json(
+        {
+          ok: true,
+          degraded: true,
+          settings: DEFAULT_API_CONFIG_BACKUP_SETTINGS,
+          backups: [],
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
     return errorResponse(error);
   }
 }

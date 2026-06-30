@@ -17,6 +17,21 @@ const DEFAULT_ADMIN_PASSWORD =
 const AUTH_BYPASS_ENABLED =
   process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
   process.env.NEXTCHAT_DISABLE_AUTH === "true";
+const LOCAL_AUTH_BYPASS_USERNAME =
+  process.env.NEXTCHAT_LOCAL_BYPASS_USER?.trim() || "ccc";
+const LOCAL_AUTH_BYPASS_USER: AuthUser = {
+  id: "00000000-0000-0000-0000-000000000ccc",
+  externalId: normalizeExternalId(LOCAL_AUTH_BYPASS_USERNAME),
+  username: LOCAL_AUTH_BYPASS_USERNAME,
+  displayName: LOCAL_AUTH_BYPASS_USERNAME,
+  role: "user",
+  isActive: true,
+  lastChatAt: null,
+};
+
+export function isAuthBypassEnabled() {
+  return AUTH_BYPASS_ENABLED;
+}
 
 declare global {
   var __nextchatAuthSchemaReady: Promise<void> | undefined;
@@ -464,15 +479,19 @@ export async function revokeAuthSession(sessionToken?: string | null) {
 
 export async function getAuthContextFromCookies(values: AuthCookieValues) {
   if (AUTH_BYPASS_ENABLED) {
-    const adminUser = await getDefaultAdminUser();
-    if (!adminUser) {
-      return null;
+    let effectiveUser = LOCAL_AUTH_BYPASS_USER;
+    const targetUserId = String(values.effectiveUserId || "").trim();
+    if (targetUserId && targetUserId !== LOCAL_AUTH_BYPASS_USER.id) {
+      const targetUser = await getUserById(targetUserId).catch(() => null);
+      if (targetUser?.isActive) {
+        effectiveUser = targetUser;
+      }
     }
 
     return {
-      actor: adminUser,
-      effective: adminUser,
-      isImpersonating: false,
+      actor: LOCAL_AUTH_BYPASS_USER,
+      effective: effectiveUser,
+      isImpersonating: LOCAL_AUTH_BYPASS_USER.id !== effectiveUser.id,
       readOnly: false,
     } satisfies AuthContext;
   }

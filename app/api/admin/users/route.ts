@@ -3,7 +3,9 @@ import {
   AuthError,
   createManagedUser,
   deleteManagedUser,
+  isAuthBypassEnabled,
   listManagedUsers,
+  requireAuthContext,
   requireAdminContext,
   updateManagedUser,
 } from "@/app/utils/server/auth";
@@ -14,7 +16,11 @@ export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAdminContext(req);
+    if (isAuthBypassEnabled()) {
+      await requireAuthContext(req);
+    } else {
+      await requireAdminContext(req);
+    }
     const users = await listManagedUsers();
     return NextResponse.json({ ok: true, users });
   } catch (error) {

@@ -246,6 +246,8 @@ services:
       - SSH_TUNNEL_REMOTE_HOST=${SSH_TUNNEL_REMOTE_HOST:-127.0.0.1}
       - SSH_TUNNEL_REMOTE_PORT=${SSH_TUNNEL_REMOTE_PORT:-5432}
       - SSH_TUNNEL_LOCAL_PORT=${SSH_TUNNEL_LOCAL_PORT:-5432}
+    volumes:
+      - ${SSH_TUNNEL_KEY_FILE:-${HOME}/.ssh/id_ed25519}:/root/.ssh/id_ed25519:ro
 
   # ---------------------------------------------------------------------------
   # 生产环境 - 使用官方镜像（快速部署）

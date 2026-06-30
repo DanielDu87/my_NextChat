@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       index: index ?? null,
     });
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 500;
+    const status = error instanceof AuthError ? error.status : 200;
     return NextResponse.json(
       {
         ok: true,
