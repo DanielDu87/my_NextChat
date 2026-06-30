@@ -812,6 +812,15 @@
   padding: 44px 20px 32px;
   overflow-y: auto;
 
+  &.selector-fast-open {
+    backdrop-filter: none;
+    animation: none;
+
+    .selector-content {
+      animation: none;
+    }
+  }
+
   @media screen and (max-width: 768px) {
     padding: 0;
     align-items: flex-start;

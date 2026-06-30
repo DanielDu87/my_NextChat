@@ -10733,7 +10733,8 @@ function _Chat() {
           onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
           onDisabledItemClick={handleManualModelSelectionDisabled}
           items={modelSelectorItems}
-          itemsArePreSorted={false}
+          itemsArePreSorted={true}
+          disableOpenAnimation={true}
           enableVirtualization={isPerfFeatureEnabled(
             "PERF_ENABLE_MODEL_SELECTOR_VIRTUAL_LIST",
           )}

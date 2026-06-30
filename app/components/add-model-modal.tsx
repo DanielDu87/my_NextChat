@@ -122,7 +122,7 @@ export function AddModelSelector(props: {
     useState(initialProviderId);
   const [fetchedModels, setFetchedModels] = useState<LLMModel[]>([]);
   const [fetchedTotal, setFetchedTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState("");
   const [pendingSelection, setPendingSelection] = useState<string[]>([]);
   const [showAdded, setShowAdded] = useState(false);
@@ -179,18 +179,15 @@ export function AddModelSelector(props: {
       });
   }, [addedModelKeys, selectedProviderId]);
 
-  // 切换供应商时获取模型（已有本地/持久缓存则直接使用）
-  useEffect(() => {
-    if (!activeProfile) return;
-    fetchCancelRef.current = false;
-    setFetchError("");
+  const loadCachedModels = useCallback(() => {
+    if (!activeProfile) return false;
 
     const cached = modelCache.get(selectedProviderId);
     if (cached) {
       setFetchedModels(cached.models);
       setFetchedTotal(cached.total);
       setLoading(false);
-      return;
+      return true;
     }
 
     const profileCache = modelCacheProfiles?.[activeProfile.id];
@@ -208,7 +205,7 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(total);
       setLoading(false);
-      return;
+      return true;
     }
 
     const cachedModelNames = parseCachedModelNames(
@@ -231,12 +228,39 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(total);
       setLoading(false);
-      return;
+      return true;
     }
 
+    return false;
+  }, [
+    activeProfile,
+    config.models,
+    modelCacheProfiles,
+    runtimeModels,
+    selectedProviderId,
+  ]);
+
+  // 切换供应商时不读取大模型缓存，只重置管理器列表。
+  useEffect(() => {
+    if (!activeProfile) return;
+    fetchCancelRef.current = false;
+    setFetchError("");
+    setFetchedModels([]);
+    setFetchedTotal(0);
+    setLoading(false);
+  }, [activeProfile, selectedProviderId]);
+
+  const fetchRemoteModels = useCallback(() => {
+    if (!activeProfile) return;
+    fetchCancelRef.current = false;
+    setFetchError("");
     setLoading(true);
     setFetchedModels([]);
     setFetchedTotal(0);
+
+    if (loadCachedModels()) {
+      return;
+    }
 
     const p = activeProfile as any;
     const modelFetchKey =
@@ -301,17 +325,13 @@ export function AddModelSelector(props: {
         setFetchedTotal(0);
         setLoading(false);
       });
+  }, [activeProfile, loadCachedModels, selectedProviderId]);
 
+  useEffect(() => {
     return () => {
       fetchCancelRef.current = true;
     };
-  }, [
-    activeProfile,
-    config.models,
-    modelCacheProfiles,
-    runtimeModels,
-    selectedProviderId,
-  ]);
+  }, []);
 
   const removeModel = useCallback(
     (key: string) => {
@@ -599,8 +619,7 @@ export function AddModelSelector(props: {
   const displayTotal = showAdded
     ? addedModelsList.length
     : selectorItems.length || fetchedTotal || candidateFetchedModels.length;
-  const confirmDisabled =
-    loading || !!fetchError || pendingSelection.length === 0;
+  const confirmDisabled = loading || pendingSelection.length === 0;
 
   return (
     <Selector
@@ -623,6 +642,8 @@ export function AddModelSelector(props: {
       showSearch={true}
       showGroupFilter={true}
       hiddenGroupFilterOptions={["已添加", "Custom"]}
+      itemsArePreSorted={true}
+      disableOpenAnimation={true}
       onSelection={handleSelectionChange}
       onClose={handleClose}
       resetKey={selectorResetKey}
@@ -660,7 +681,9 @@ export function AddModelSelector(props: {
               ? "正在获取模型..."
               : fetchError
               ? "获取失败，请检查网络或配置"
-              : `共 ${displayTotal} 个模型可用`}
+              : displayTotal > 0
+              ? `共 ${displayTotal} 个模型可用`
+              : "暂无缓存模型，可手动获取"}
           </span>
           {providerDropdownOpen && (
             <div className={styles["model-selector-provider-menu"]}>
@@ -831,6 +854,18 @@ export function AddModelSelector(props: {
                   )}
                 </div>
                 <div className={styles["add-modal-footer-group"]}>
+                  <button
+                    type="button"
+                    onClick={fetchRemoteModels}
+                    disabled={loading}
+                    className={styles["add-modal-btn"]}
+                  >
+                    {loading
+                      ? "获取中"
+                      : fetchedModels.length > 0 || fetchError
+                      ? "重新获取"
+                      : "获取模型"}
+                  </button>
                   <button
                     type="button"
                     disabled={confirmDisabled}

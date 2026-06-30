@@ -857,6 +857,7 @@ export function Selector<T>(props: {
   estimatedGroupHeight?: number;
   perfScope?: string;
   perfStartedAt?: number;
+  disableOpenAnimation?: boolean;
   groupFilterAction?:
     | React.ReactNode
     | ((ctx: {
@@ -1375,7 +1376,11 @@ export function Selector<T>(props: {
 
   const selectorNode = (
     <div
-      className={clsx(styles["selector"], props.className)}
+      className={clsx(
+        styles["selector"],
+        props.disableOpenAnimation && styles["selector-fast-open"],
+        props.className,
+      )}
       data-selector-container="true"
       data-auto-model-enabled={props.dataAutoModelEnabled ? "true" : undefined}
       onPointerDown={(e) => {
