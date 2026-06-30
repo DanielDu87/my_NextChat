@@ -9531,7 +9531,14 @@ function _Chat() {
                                 {/*@ts-ignore*/}
                                 {message?.tools?.length > 0 && (
                                   <div className={styles["chat-message-tools"]}>
-                                    {message?.tools?.map((tool) => (
+                                    {Array.from(
+                                      new Map(
+                                        message.tools!.map((t) => [
+                                          t.function?.name,
+                                          t,
+                                        ]),
+                                      ).values(),
+                                    ).map((tool) => (
                                       <div
                                         key={tool.id}
                                         title={tool?.errorMsg}

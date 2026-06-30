@@ -83,7 +83,7 @@ import { createSyncClient, ProviderType } from "../utils/cloud";
 
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
-const AUTO_TITLE_REFRESH_USER_TEXT_THRESHOLD = 50;
+const AUTO_TITLE_REFINEMENT_MAX_USER_MESSAGES = 3;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
 export const CHAT_DELETE_UI_GUARD_UNTIL_KEY =
@@ -328,6 +328,10 @@ export interface ChatStat {
 export interface ChatSession {
   id: string;
   topic: string;
+  titleGeneratedByAI?: boolean;
+  titleFallbackText?: string;
+  titleGeneratedMessageCount?: number;
+  titleGeneratedUserMessageCount?: number;
 
   memoryPrompt: string;
   messages: ChatMessage[];
@@ -1149,6 +1153,102 @@ function getProfileForModelConfig(modelConfig: ModelConfig) {
   return getActiveAccessProfile(accessStore, modelConfig.providerName);
 }
 
+function normalizeTitleCandidateProviderName(
+  providerName: ServiceProvider | string | undefined,
+  profile?: {
+    provider?: ServiceProvider;
+  },
+) {
+  if (profile?.provider) {
+    return profile.provider;
+  }
+
+  if (
+    providerName &&
+    Object.values(ServiceProvider).includes(providerName as ServiceProvider)
+  ) {
+    return providerName as ServiceProvider;
+  }
+
+  return ServiceProvider.Custom;
+}
+
+function triggerTitleSync() {
+  import("./sync").then(({ useSyncStore }) => {
+    useSyncStore
+      .getState()
+      .triggerDebounceSync([StoreKey.Chat], { delayMs: 0 });
+  });
+}
+
+function applyGeneratedSessionTitle(targetSession: ChatSession, title: string) {
+  const nextTitle = trimTopic(title);
+  if (!nextTitle) {
+    return false;
+  }
+
+  useChatStore.getState().updateTargetSession(targetSession, (session) => {
+    session.topic = nextTitle;
+    session.titleGeneratedByAI = true;
+    session.titleFallbackText = "";
+    session.titleGeneratedMessageCount = session.messages.length;
+    session.titleGeneratedUserMessageCount = session.messages.filter(
+      (message) =>
+        !message.isError &&
+        message.role === "user" &&
+        Boolean(getMessageTextContent(message).trim()),
+    ).length;
+  });
+  triggerTitleSync();
+  return true;
+}
+
+const pendingTitleBackfillSessionIds = new Set<string>();
+
+function isSessionFallbackTitle(session: ChatSession) {
+  const currentTopic = String(session.topic || "").trim();
+  const fallbackTopic =
+    String(session.titleFallbackText || "").trim() ||
+    getSessionFallbackTopic(session);
+
+  return (
+    !session.titleGeneratedByAI &&
+    Boolean(fallbackTopic) &&
+    trimTopic(currentTopic) === trimTopic(fallbackTopic)
+  );
+}
+
+function shouldBackfillSessionTitle(session: ChatSession) {
+  return (
+    canAutoGenerateSessionTitle(session.messages) &&
+    isSessionFallbackTitle(session)
+  );
+}
+
+function scheduleSessionTitleBackfill(sessionId: string, delayMs = 1200) {
+  if (!sessionId || pendingTitleBackfillSessionIds.has(sessionId)) {
+    return;
+  }
+
+  pendingTitleBackfillSessionIds.add(sessionId);
+  setTimeout(() => {
+    pendingTitleBackfillSessionIds.delete(sessionId);
+
+    const config = useAppConfig.getState();
+    if (!config.enableAutoGenerateTitle) {
+      return;
+    }
+
+    const store = useChatStore.getState();
+    const session = store.getSessionById(sessionId);
+    if (!session || !shouldBackfillSessionTitle(session)) {
+      return;
+    }
+
+    void store.summarizeSession(false, session);
+  }, delayMs);
+}
+
 function getRefreshTitleCandidates(targetSession: ChatSession) {
   const configStore = useAppConfig.getState();
   const accessStore = useAccessStore.getState();
@@ -1182,7 +1282,10 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   if (currentProfile && currentProviderId && modelConfig.model) {
     candidates.push({
       model: modelConfig.model,
-      providerName: currentProviderName,
+      providerName: normalizeTitleCandidateProviderName(
+        currentProviderName,
+        currentProfile,
+      ),
       profile: currentProfile,
       providerId: currentProviderId,
       score: 1000,
@@ -1197,8 +1300,10 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   ) {
     candidates.push({
       model: currentRefreshModel.name,
-      providerName: (currentRefreshModel.provider?.providerName ||
-        currentProviderName) as ServiceProvider,
+      providerName: normalizeTitleCandidateProviderName(
+        currentRefreshModel.provider?.providerName || currentProviderName,
+        currentProfile,
+      ),
       profile: currentProfile,
       providerId: currentProviderId,
       score: 900,
@@ -1208,7 +1313,10 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   if (!currentRefreshModel && currentProfile && currentProviderId) {
     candidates.push({
       model: SUMMARIZE_MODEL,
-      providerName: currentProviderName,
+      providerName: normalizeTitleCandidateProviderName(
+        currentProviderName,
+        currentProfile,
+      ),
       profile: currentProfile,
       providerId: currentProviderId,
       score: 800,
@@ -1329,7 +1437,10 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
   return [
     {
       model: fallback.model,
-      providerName: fallback.providerName,
+      providerName: normalizeTitleCandidateProviderName(
+        fallback.providerName,
+        fallback.profile,
+      ),
       profile: fallback.profile,
       providerId: fallback.profile
         ? getAccessProviderId(fallback.profile)
@@ -1528,7 +1639,8 @@ function logRequestBanner(
 }
 
 async function refreshSessionTitle(targetSession: ChatSession) {
-  const session = targetSession;
+  const session =
+    useChatStore.getState().getSessionById(targetSession.id) ?? targetSession;
   const modelConfig = session.mask.modelConfig;
   const messages = session.messages;
   const candidates = getRefreshTitleCandidates(session);
@@ -1583,11 +1695,7 @@ async function refreshSessionTitle(targetSession: ChatSession) {
               responseRes?.status === 200 && Boolean(trimTopic(message || ""));
 
             if (success) {
-              useChatStore
-                .getState()
-                .updateTargetSession(session, (session) => {
-                  session.topic = trimTopic(message);
-                });
+              success = applyGeneratedSessionTitle(session, message);
             }
           },
           onError(err) {
@@ -1716,13 +1824,17 @@ function shouldAutoRefreshSessionTitle(session: ChatSession) {
     return false;
   }
 
-  if (userMessages.length <= 1) {
+  if (!session.titleGeneratedByAI || isSessionFallbackTitle(session)) {
     return true;
   }
 
+  const generatedUserMessageCount =
+    session.titleGeneratedUserMessageCount ?? userMessages.length;
+
   return (
-    getMessageTextContent(latestUserMessage).trim().length >
-    AUTO_TITLE_REFRESH_USER_TEXT_THRESHOLD
+    generatedUserMessageCount <= 1 &&
+    userMessages.length > generatedUserMessageCount &&
+    userMessages.length <= AUTO_TITLE_REFINEMENT_MAX_USER_MESSAGES
   );
 }
 
@@ -1893,6 +2005,10 @@ export const useChatStore = createPersistStore(
             const fallbackTopic = getSessionFallbackTopic(session);
             if (fallbackTopic) {
               session.topic = fallbackTopic;
+              session.titleGeneratedByAI = false;
+              session.titleFallbackText = fallbackTopic;
+              session.titleGeneratedMessageCount = 0;
+              session.titleGeneratedUserMessageCount = 0;
               changed = true;
             }
           }
@@ -1996,6 +2112,11 @@ export const useChatStore = createPersistStore(
         );
 
         get().pruneInactiveSessionsInMemory();
+        sessions.forEach((session) => {
+          if (shouldBackfillSessionTitle(session)) {
+            scheduleSessionTitleBackfill(session.id);
+          }
+        });
 
         // 首开页面对“新空对话”的本地整理不再触发远端聊天同步，
         // 避免首次进入就因为空会话变更打远端接口。
@@ -2646,6 +2767,10 @@ export const useChatStore = createPersistStore(
             };
           });
 
+          if (shouldBackfillSessionTitle(persistedSession)) {
+            scheduleSessionTitleBackfill(persistedSession.id, 800);
+          }
+
           return persistedSession;
         } finally {
           logPerfSummary("ChatHydrate", {
@@ -2730,7 +2855,8 @@ export const useChatStore = createPersistStore(
 
         get().checkMcpJson(message);
 
-        get().summarizeSession(false, targetSession);
+        const latestSession = get().getSessionById(targetSession.id);
+        get().summarizeSession(false, latestSession ?? targetSession);
 
         // 触发防抖同步（动态导入避免循环依赖）
         import("./sync").then(({ useSyncStore }) => {
@@ -2974,6 +3100,10 @@ export const useChatStore = createPersistStore(
             const fallbackTopic = trimTopic(content.trim());
             if (fallbackTopic) {
               session.topic = fallbackTopic;
+              session.titleGeneratedByAI = false;
+              session.titleFallbackText = fallbackTopic;
+              session.titleGeneratedMessageCount = 0;
+              session.titleGeneratedUserMessageCount = 0;
             }
           }
           if (reusedUserMessage) {
@@ -3718,7 +3848,7 @@ export const useChatStore = createPersistStore(
         targetSession: ChatSession,
       ) {
         const config = useAppConfig.getState();
-        const session = targetSession;
+        const session = get().getSessionById(targetSession.id) ?? targetSession;
         const modelConfig = session.mask.modelConfig;
         // skip summarize when using dalle3?
         if (isDalle3(modelConfig.model)) {
@@ -3807,11 +3937,7 @@ export const useChatStore = createPersistStore(
                         Boolean(trimTopic(message || ""));
 
                       if (success) {
-                        useChatStore
-                          .getState()
-                          .updateTargetSession(session, (session) => {
-                            session.topic = trimTopic(message);
-                          });
+                        success = applyGeneratedSessionTitle(session, message);
                       }
                     },
                     onError(err) {
