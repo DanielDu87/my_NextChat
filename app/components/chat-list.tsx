@@ -176,6 +176,12 @@ export function ChatList() {
     initialized,
     loadMore,
   } = useChatIndexStore();
+  const selectedSessionId = useChatStore((state) => state.selectedSessionId);
+  const liveCurrentSessionId = useChatStore(
+    (state) => state.sessions[state.currentSessionIndex]?.id || "",
+  );
+  const effectiveCurrentSessionId =
+    selectedSessionId || liveCurrentSessionId || currentSessionId;
   const navigate = useNavigate();
   const location = useLocation();
   const isMobileScreen = useMobileScreen();
@@ -239,13 +245,13 @@ export function ChatList() {
   }, []);
 
   useEffect(() => {
-    const listener = () => enterMultiDeleteMode(currentSessionId);
+    const listener = () => enterMultiDeleteMode(effectiveCurrentSessionId);
     window.addEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
 
     return () => {
       window.removeEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
     };
-  }, [currentSessionId, enterMultiDeleteMode]);
+  }, [effectiveCurrentSessionId, enterMultiDeleteMode]);
 
   useEffect(() => {
     if (!isMobileScreen && multiDeleteMode) {
@@ -532,7 +538,7 @@ export function ChatList() {
       totalSessions: displayedSessions.length,
       availableSessions: allOrderedSessionIds.length,
       filteredSessions: filteredSessions.length,
-      currentSessionId,
+      currentSessionId: effectiveCurrentSessionId,
       virtualized: shouldVirtualize,
       renderedCount: shouldVirtualize
         ? visibleSessions.length
@@ -552,7 +558,7 @@ export function ChatList() {
     startIndex,
     viewportHeight,
     visibleSessions.length,
-    currentSessionId,
+    effectiveCurrentSessionId,
   ]);
 
   if (!initialized) {
@@ -570,7 +576,7 @@ export function ChatList() {
               preview={preview}
               time={formatChinaDateTime(item.displayTime)}
               count={item.messageCount}
-              selected={item.id === currentSessionId}
+              selected={item.id === effectiveCurrentSessionId}
               onClick={() => onSelectSession(item)}
               onDelete={() => void onDeleteSession(item.id)}
               hideDelete={isPinnedNewChat(item)}
@@ -604,7 +610,7 @@ export function ChatList() {
                   preview={preview}
                   time={formatChinaDateTime(item.displayTime)}
                   count={item.messageCount}
-                  selected={item.id === currentSessionId}
+                  selected={item.id === effectiveCurrentSessionId}
                   onClick={() => onSelectSession(item)}
                   onDelete={() => void onDeleteSession(item.id)}
                   hideDelete={isPinnedNewChat(item)}

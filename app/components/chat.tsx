@@ -3179,6 +3179,14 @@ export function ShortcutKeyModal(props: { onClose: () => void }) {
 
 function _Chat() {
   type RenderMessage = ChatMessage & { preview?: boolean };
+  type AiTextSelection = {
+    text: string;
+    messageId: string;
+  };
+  type AiTextSelectionBubble = AiTextSelection & {
+    top: number;
+    left: number;
+  };
 
   const location = useLocation();
   const suppressInitialModelToast = Boolean(
@@ -3292,6 +3300,9 @@ function _Chat() {
   const mobileViewportReleaseTimersRef = useRef<number[]>([]);
   const mobileKeyboardOpenedSinceFocusRef = useRef(false);
   const mobileKeyboardDismissByViewportRef = useRef(false);
+  const aiSelectionTouchTimerRef = useRef<number | null>(null);
+  const aiSelectionActiveMessageIdRef = useRef("");
+  const aiSelectionPendingRef = useRef<AiTextSelectionBubble | null>(null);
   const mobileKeyboardStableMetricsRef = useRef<{
     visualHeight: number;
     accessoryInset: number;
@@ -3300,6 +3311,10 @@ function _Chat() {
   } | null>(null);
   const syncReadyFocusSessionRef = useRef("");
   const [userInput, setUserInput] = useState("");
+  const [aiSelectionBubble, setAiSelectionBubble] =
+    useState<AiTextSelectionBubble | null>(null);
+  const [aiSelectionContext, setAiSelectionContext] =
+    useState<AiTextSelection | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editInputRows, setEditInputRows] = useState(1);
@@ -3328,8 +3343,12 @@ function _Chat() {
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const initializedBottomSessionRef = useRef("");
-  const [bottomRenderReadySessionId, setBottomRenderReadySessionId] =
-    useState("");
+  // 打开会话后用于"内容撑高补滚"的守护资源（Markdown 异步渲染：省略号 -> 真实文字 -> 高度变化）
+  const initialBottomGuardRef = useRef<{
+    observer: MutationObserver | null;
+    timeout: number | null;
+    raf: number | null;
+  }>({ observer: null, timeout: null, raf: null });
   const forceScrollTimeoutsRef = useRef<number[]>([]);
   const forceScrollRafsRef = useRef<number[]>([]);
   const programmaticScrollToBottomUntilRef = useRef(0);
@@ -4662,6 +4681,20 @@ function _Chat() {
     [chatCommands, config.disablePromptHint, onSearch],
   );
 
+  const buildAiSelectionPromptText = useCallback(
+    (selection: AiTextSelection | null) => {
+      const selectedText = selection?.text.trim();
+      if (!selectedText) return "";
+
+      return [
+        "请只围绕下面这段 AI 回复内容回答：",
+        "",
+        `> ${selectedText.replace(/\n/g, "\n> ")}`,
+      ].join("\n");
+    },
+    [],
+  );
+
   // auto close prompt hints when clicking outside
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
@@ -4730,8 +4763,10 @@ function _Chat() {
   }, [blurMobileKeyboard, isMobileScreen]);
 
   const doSubmit = (userInput: string) => {
+    const hasAiSelectionContext = !!aiSelectionContext?.text.trim();
     if (
       userInput.trim() === "" &&
+      !hasAiSelectionContext &&
       isEmpty(attachImages) &&
       attachedFiles.length === 0
     ) {
@@ -4788,6 +4823,9 @@ function _Chat() {
     const messageAttachImages = attachImages
       .map((image) => String(image.previewUrl || "").trim())
       .filter(Boolean);
+    const submittedInput = userInput.trim() || "请说明这段内容。";
+    const aiSelectionPromptText =
+      buildAiSelectionPromptText(aiSelectionContext);
 
     pendingCenterLatestUserMessageRef.current = {
       sessionId: safeSession.id,
@@ -4803,6 +4841,7 @@ function _Chat() {
         setEditMobileMessageId(null);
         onResend(message, userInput, messageAttachImages, messageAttachedFiles);
         setUserInput("");
+        setAiSelectionContext(null);
         clearSubmittedInputDraft();
         setAttachImages([]);
         setAttachedFiles([]);
@@ -4811,9 +4850,12 @@ function _Chat() {
       }
     }
 
-    const matchCommand = chatCommands.match(userInput);
+    const matchCommand = hasAiSelectionContext
+      ? { matched: false, invoke: () => {} }
+      : chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
+      setAiSelectionContext(null);
       setPromptHints([]);
       resetMobileComposerAfterSubmit();
       matchCommand.invoke();
@@ -4824,13 +4866,15 @@ function _Chat() {
       return;
     }
     const submitPromise = chatStore.onUserInput(
-      userInput,
+      submittedInput,
       messageAttachImages,
       undefined,
       {
         attachedFiles: messageAttachedFiles,
         attachedFilesPromptText:
           buildAttachedFilesPromptText(messageAttachedFiles),
+        aiSelectionText: aiSelectionContext?.text || "",
+        aiSelectionPromptText,
       },
     );
     setIsLoading(true);
@@ -4841,8 +4885,9 @@ function _Chat() {
     clearSubmittedInputDraft();
     localStorage.removeItem(unfinishedAttachImagesKey);
     localStorage.removeItem(ACTIVE_UNFINISHED_ATTACH_IMAGES_KEY);
-    chatStore.setLastInput(userInput);
+    chatStore.setLastInput(submittedInput);
     setUserInput("");
+    setAiSelectionContext(null);
     setPromptHints([]);
     resetMobileComposerAfterSubmit();
     if (isMobileScreen) {
@@ -5514,13 +5559,11 @@ function _Chat() {
     _setMsgRenderIndex(
       Math.max(0, renderMessagesLengthRef.current - CHAT_PAGE_SIZE),
     );
-    setAutoScrollEnabled(false);
-    setAutoScroll(false);
+    setAutoScrollEnabled(true);
+    setAutoScroll(true);
     setHitBottom(true);
+    followStreamingAfterScrollButtonRef.current = true;
     initializedBottomSessionRef.current = "";
-    setBottomRenderReadySessionId(safeSession.id);
-    followStreamingAfterScrollButtonRef.current = false;
-    streamingAutoScrollPausedRef.current = true;
   }, [safeSession.id, setAutoScroll]);
 
   const updateStatusPanelOverlap = useCallback(() => {
@@ -7200,9 +7243,149 @@ function _Chat() {
     setTimeout(moveInputCursorToEnd, 520);
   }, [moveInputCursorToEnd]);
 
+  const handleAiMessageTextSelection = useCallback(
+    (
+      messageId: string,
+      options: {
+        delayMs?: number;
+        clearOnEmpty?: boolean;
+        showBubble?: boolean;
+      } = {},
+    ) => {
+      const { delayMs = 0, clearOnEmpty = true, showBubble = true } = options;
+      if (aiSelectionTouchTimerRef.current !== null) {
+        window.clearTimeout(aiSelectionTouchTimerRef.current);
+      }
+      aiSelectionTouchTimerRef.current = window.setTimeout(() => {
+        aiSelectionTouchTimerRef.current = null;
+        const selection = window.getSelection?.();
+        const rawText = selection?.toString() ?? "";
+        const text = rawText.replace(/\s+\n/g, "\n").trim();
+        if (!selection || selection.rangeCount === 0 || text.length === 0) {
+          if (clearOnEmpty) {
+            setAiSelectionBubble(null);
+            aiSelectionPendingRef.current = null;
+            aiSelectionActiveMessageIdRef.current = "";
+          }
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const getSelectionElement = (node: Node) =>
+          node.nodeType === Node.ELEMENT_NODE
+            ? (node as Element)
+            : node.parentNode instanceof Element
+            ? node.parentNode
+            : null;
+        const startElement = getSelectionElement(range.startContainer);
+        const endElement = getSelectionElement(range.endContainer);
+        const startTextRoot = startElement?.closest(
+          `[data-chat-ai-message-text="true"][data-chat-message-id="${messageId}"]`,
+        );
+        const endTextRoot = endElement?.closest(
+          `[data-chat-ai-message-text="true"][data-chat-message-id="${messageId}"]`,
+        );
+        if (!startTextRoot || startTextRoot !== endTextRoot) {
+          if (clearOnEmpty) {
+            setAiSelectionBubble(null);
+            aiSelectionPendingRef.current = null;
+            aiSelectionActiveMessageIdRef.current = "";
+          }
+          return;
+        }
+
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) {
+          if (clearOnEmpty) {
+            setAiSelectionBubble(null);
+            aiSelectionPendingRef.current = null;
+            aiSelectionActiveMessageIdRef.current = "";
+          }
+          return;
+        }
+
+        const bubbleWidth = 112;
+        const bubbleHeight = 40;
+        const verticalGap = isMobileScreen ? 12 : 8;
+        const left = Math.min(
+          window.innerWidth - bubbleWidth / 2 - 12,
+          Math.max(bubbleWidth / 2 + 12, rect.left + rect.width / 2),
+        );
+        const preferredTop = rect.top - bubbleHeight - verticalGap;
+        const top =
+          preferredTop >= 12
+            ? preferredTop
+            : Math.min(
+                window.innerHeight - bubbleHeight - 12,
+                rect.bottom + verticalGap,
+              );
+        const nextSelectionBubble = {
+          messageId,
+          text: text.slice(0, 4000),
+          left,
+          top,
+        };
+        aiSelectionPendingRef.current = nextSelectionBubble;
+        if (showBubble) {
+          setAiSelectionBubble(nextSelectionBubble);
+        }
+        aiSelectionActiveMessageIdRef.current = messageId;
+      }, delayMs);
+    },
+    [isMobileScreen],
+  );
+
+  const askAiAboutSelection = useCallback(() => {
+    if (!aiSelectionBubble?.text.trim()) return;
+
+    setAiSelectionContext({
+      messageId: aiSelectionBubble.messageId,
+      text: aiSelectionBubble.text,
+    });
+    aiSelectionActiveMessageIdRef.current = "";
+    setAiSelectionBubble(null);
+    window.getSelection?.()?.removeAllRanges();
+    setPromptHints([]);
+
+    window.requestAnimationFrame(() => {
+      const input = isMobileScreen ? mobileInputRef.current : inputRef.current;
+      input?.focus();
+      scheduleMoveInputCursorToEnd();
+    });
+  }, [aiSelectionBubble, isMobileScreen, scheduleMoveInputCursorToEnd]);
+
+  useEffect(() => {
+    if (!aiSelectionBubble) return;
+
+    const clear = (event?: Event) => {
+      const target = event?.target as HTMLElement | null;
+      if (target?.closest?.(`.${styles["chat-ai-selection-popover"]}`)) {
+        return;
+      }
+      // 点击/触摸其他位置时，主动清除文字选区高亮，与隐藏"询问 AI"按钮保持一致。
+      // 滚动/缩放只隐藏按钮、不动选区，避免滚动时突兀地丢失用户已选中的内容。
+      if (event?.type === "mousedown" || event?.type === "touchstart") {
+        window.getSelection?.()?.removeAllRanges();
+      }
+      aiSelectionActiveMessageIdRef.current = "";
+      setAiSelectionBubble(null);
+    };
+    window.addEventListener("scroll", clear, true);
+    window.addEventListener("resize", clear);
+    window.addEventListener("mousedown", clear);
+    window.addEventListener("touchstart", clear, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", clear, true);
+      window.removeEventListener("resize", clear);
+      window.removeEventListener("mousedown", clear);
+      window.removeEventListener("touchstart", clear);
+    };
+  }, [aiSelectionBubble, isMobileScreen]);
+
   const exitMobileEditMode = useCallback(() => {
     setEditMobileMessageId(null);
     setUserInput("");
+    setAiSelectionContext(null);
     clearComposerAttachments();
     setPromptHints([]);
     setIsMobileInputFocused(false);
@@ -8151,9 +8334,12 @@ function _Chat() {
     if (shouldHideChatMessages) return;
     if (!currentSessionHasMessages) return;
     if (sessionMessages.length === 0) return;
-    if (bottomRenderReadySessionId !== safeSession.id) return;
     if (initializedBottomSessionRef.current === safeSession.id) return;
 
+    // 消息是异步加载的（hydrateSessionIntoMemory），切换会话瞬间 renderMessages 尚不完整，
+    // msgRenderIndex 可能仍停留在旧渲染窗口（例如 0）。必须先把它修正到末尾窗口并等待下一帧
+    // 渲染，否则 DOM 中尚无最新消息，即使把 scrollTop 滚到底部也看不到最新内容
+    // （表现为打开会话后需要手动点一次"回到底部"才显示最新消息）。
     const targetRenderIndex = Math.max(
       0,
       renderMessages.length - CHAT_PAGE_SIZE,
@@ -8163,33 +8349,90 @@ function _Chat() {
       return;
     }
 
-    const dom = scrollRef.current;
-    if (!dom) return;
-
-    programmaticScrollToBottomUntilRef.current = Date.now() + 32;
-    const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
-    dom.scrollTop = targetTop;
-    lastChatBodyScrollTopRef.current = targetTop;
-
     initializedBottomSessionRef.current = safeSession.id;
-    setAutoScrollEnabled(false);
-    setAutoScroll(false);
-    setHitBottom(true);
-    setChatBodyOverflowing(isScrollDomOverflowing(dom));
-    streamingAutoScrollPausedRef.current = true;
+
+    // 渲染窗口已就位、最新消息已渲染到 DOM 后，直接复用"回到底部"按钮的逻辑，
+    // 等价于打开会话自动点了一次滚动按钮，保证落到最底部。
+    scrollToBottomLikeMobileTitle();
+
+    // Markdown 是动态导入组件，chunk 加载完成前消息先显示省略号（three-dots），
+    // 随后才替换成真实文字并撑高内容。仅滚一次会停在"省略号高度"的位置，看起来没到底。
+    // 这里挂一个短时守护：内容 DOM 变化时，只要用户没主动上滑，就补滚到最底部，
+    // 覆盖省略号 -> 真实文字 的渲染过程。
+    const guard = initialBottomGuardRef.current;
+    if (guard.observer) guard.observer.disconnect();
+    if (guard.timeout !== null) window.clearTimeout(guard.timeout);
+    if (guard.raf !== null) window.cancelAnimationFrame(guard.raf);
+
+    const dom = scrollRef.current;
+    if (dom) {
+      const snapToBottom = () => {
+        // 用户已上滑（按钮跟随标记被清除）则不再强制贴底
+        if (!followStreamingAfterScrollButtonRef.current) return;
+        const target = Math.max(0, dom.scrollHeight - dom.clientHeight);
+        if (Math.abs(dom.scrollTop - target) <= 1) return;
+        programmaticScrollToBottomUntilRef.current = Date.now() + 96;
+        dom.scrollTop = target;
+        lastChatBodyScrollTopRef.current = target;
+        syncHitBottomFromDom();
+      };
+
+      const observer = new MutationObserver(() => {
+        if (guard.raf !== null) window.cancelAnimationFrame(guard.raf);
+        guard.raf = window.requestAnimationFrame(() => {
+          guard.raf = null;
+          snapToBottom();
+        });
+      });
+      observer.observe(dom, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+      guard.observer = observer;
+
+      // 守护窗口足够覆盖 markdown chunk 加载，超时后自动停止避免长期干预滚动
+      guard.timeout = window.setTimeout(() => {
+        observer.disconnect();
+        guard.observer = null;
+        if (guard.raf !== null) {
+          window.cancelAnimationFrame(guard.raf);
+          guard.raf = null;
+        }
+        guard.timeout = null;
+      }, 2500);
+    }
   }, [
-    bottomRenderReadySessionId,
     currentSessionHasMessages,
-    isScrollDomOverflowing,
     msgRenderIndex,
     renderMessages.length,
     safeSession.id,
     scrollRef,
+    scrollToBottomLikeMobileTitle,
     sessionMessages.length,
-    setAutoScroll,
     setMsgRenderIndex,
     shouldHideChatMessages,
+    syncHitBottomFromDom,
   ]);
+
+  // 切换会话或卸载时，停止上一个会话遗留的"内容撑高补滚"守护，避免资源泄漏与误触发
+  useEffect(() => {
+    const guard = initialBottomGuardRef.current;
+    return () => {
+      if (guard.observer) {
+        guard.observer.disconnect();
+        guard.observer = null;
+      }
+      if (guard.timeout !== null) {
+        window.clearTimeout(guard.timeout);
+        guard.timeout = null;
+      }
+      if (guard.raf !== null) {
+        window.cancelAnimationFrame(guard.raf);
+        guard.raf = null;
+      }
+    };
+  }, [safeSession.id]);
 
   useLayoutEffect(() => {
     const pendingCenter = pendingCenterLatestUserMessageRef.current;
@@ -9740,35 +9983,83 @@ function _Chat() {
                                             )}
                                           </div>
                                         )}
-                                        <Markdown
-                                          key={
-                                            message.manualStopped
-                                              ? "stopped"
-                                              : message.streaming
-                                              ? "loading"
-                                              : "done"
+                                        <div
+                                          className={
+                                            styles["chat-message-text"]
                                           }
-                                          content={messageTextContent}
-                                          loading={
-                                            !isUser &&
-                                            !message.manualStopped &&
-                                            !message.isError &&
-                                            ((message as any).preview ||
-                                              message.streaming) &&
-                                            !messageTextContent
+                                          data-chat-ai-message-text={
+                                            !isUser ? "true" : undefined
                                           }
-                                          onDoubleClickCapture={() => {
-                                            if (!isMobileScreen || !isUser)
+                                          data-chat-message-id={
+                                            !isUser ? message.id : undefined
+                                          }
+                                          onMouseUpCapture={() => {
+                                            if (isUser || isMobileScreen)
                                               return;
-                                            setUserInput(
-                                              getMessageTextContent(message),
+                                            handleAiMessageTextSelection(
+                                              message.id,
                                             );
                                           }}
-                                          fontSize={fontSize}
-                                          fontFamily={fontFamily}
-                                          parentRef={scrollRef}
-                                          defaultShow={i >= messages.length - 6}
-                                        />
+                                        >
+                                          {isUser &&
+                                            message.aiSelectionText?.trim() && (
+                                              <div
+                                                className={
+                                                  styles[
+                                                    "chat-message-ai-selection-quote"
+                                                  ]
+                                                }
+                                              >
+                                                <ReturnIcon
+                                                  className={
+                                                    styles[
+                                                      "chat-message-ai-selection-quote-icon"
+                                                    ]
+                                                  }
+                                                />
+                                                <span
+                                                  className={
+                                                    styles[
+                                                      "chat-message-ai-selection-quote-text"
+                                                    ]
+                                                  }
+                                                >
+                                                  “{message.aiSelectionText}”
+                                                </span>
+                                              </div>
+                                            )}
+                                          <Markdown
+                                            key={
+                                              message.manualStopped
+                                                ? "stopped"
+                                                : message.streaming
+                                                ? "loading"
+                                                : "done"
+                                            }
+                                            content={messageTextContent}
+                                            loading={
+                                              !isUser &&
+                                              !message.manualStopped &&
+                                              !message.isError &&
+                                              ((message as any).preview ||
+                                                message.streaming) &&
+                                              !messageTextContent
+                                            }
+                                            onDoubleClickCapture={() => {
+                                              if (!isMobileScreen || !isUser)
+                                                return;
+                                              setUserInput(
+                                                getMessageTextContent(message),
+                                              );
+                                            }}
+                                            fontSize={fontSize}
+                                            fontFamily={fontFamily}
+                                            parentRef={scrollRef}
+                                            defaultShow={
+                                              i >= messages.length - 6
+                                            }
+                                          />
+                                        </div>
                                       </>
                                     )}
                                     {messageImages.length == 1 &&
@@ -9909,6 +10200,37 @@ function _Chat() {
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
                 </div>
+                {aiSelectionBubble && (
+                  <button
+                    type="button"
+                    className={clsx(styles["chat-ai-selection-popover"], {
+                      [styles["chat-ai-selection-popover-mobile"]]:
+                        isMobileScreen,
+                    })}
+                    style={
+                      {
+                        left: aiSelectionBubble.left,
+                        top: aiSelectionBubble.top,
+                      } as React.CSSProperties
+                    }
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onTouchStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onTouchEnd={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      askAiAboutSelection();
+                    }}
+                    onClick={askAiAboutSelection}
+                  >
+                    询问 AI
+                  </button>
+                )}
                 <div
                   ref={inputPanelRef}
                   className={clsx(styles["chat-input-panel"], {
@@ -10214,6 +10536,7 @@ function _Chat() {
                               mobileInputOutsidePointerBlurRef.current = false;
                               setPromptHints([]);
                               setUserInput("");
+                              setAiSelectionContext(null);
                               clearComposerAttachments();
                               localStorage.removeItem(unfinishedInputKey);
                               localStorage.removeItem(
@@ -10261,10 +10584,37 @@ function _Chat() {
                       ref={chatInputInnerRef}
                       className={clsx(styles["chat-input-panel-inner"], {
                         [styles["chat-input-panel-inner-multiline"]]:
-                          !isMobileScreen && inputRows > 1,
+                          !isMobileScreen &&
+                          (inputRows > 1 || !!aiSelectionContext),
+                        [styles["chat-input-panel-inner-with-ai-selection"]]:
+                          !!aiSelectionContext,
                       })}
                       htmlFor="chat-input"
                     >
+                      {aiSelectionContext && (
+                        <div className={styles["chat-ai-selection-context"]}>
+                          <ReturnIcon
+                            className={styles["chat-ai-selection-context-icon"]}
+                          />
+                          <div
+                            className={styles["chat-ai-selection-context-text"]}
+                          >
+                            “{aiSelectionContext.text}”
+                          </div>
+                          <button
+                            type="button"
+                            className={
+                              styles["chat-ai-selection-context-close"]
+                            }
+                            aria-label="移除选中文本"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onTouchStart={(event) => event.preventDefault()}
+                            onClick={() => setAiSelectionContext(null)}
+                          >
+                            <CloseIcon />
+                          </button>
+                        </div>
+                      )}
                       {!isMobileScreen && (
                         <span
                           ref={inputPlaceholderRef}
@@ -10273,6 +10623,7 @@ function _Chat() {
                               shouldUseCompactInputHint ||
                               isChatUnavailableForSync ||
                               !!userInput ||
+                              !!aiSelectionContext ||
                               hasComposerAttachments,
                           })}
                           style={{
@@ -11002,6 +11353,7 @@ export function Chat() {
     }
     if (
       location.pathname !== Path.Home &&
+      location.pathname !== Path.NewChat &&
       session?.id &&
       session.messages.length > 0
     ) {

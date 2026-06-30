@@ -976,6 +976,52 @@ async function fetchJsonWithCandidates(
   throw lastError ?? new Error("未找到可用的模型接口");
 }
 
+async function fetchAllJsonWithCandidates(
+  urls: string[],
+  headers: Record<string, string>,
+  authorizationCandidates?: string[],
+  validateJson?: (data: any) => boolean,
+  getModelCount?: (data: any) => number,
+  options?: {
+    authType?: ApiProfileAuthType;
+    authQueryParam?: string;
+    authorizationHeaderName?: string;
+  },
+) {
+  const results: Array<{ data: any; url: string; keyIndex: number }> = [];
+
+  for (const url of urls) {
+    const authCandidates =
+      authorizationCandidates && authorizationCandidates.length > 0
+        ? authorizationCandidates
+        : headers.Authorization
+        ? [headers.Authorization]
+        : [undefined];
+
+    for (let index = 0; index < authCandidates.length; index++) {
+      try {
+        const data = await fetchJsonWithCandidates(
+          [url],
+          headers,
+          [authCandidates[index]].filter(Boolean) as string[],
+          validateJson,
+          getModelCount,
+          options,
+        );
+        results.push({ data, url, keyIndex: index + 1 });
+      } catch {
+        // 单个路径或 key 失败不影响后续全量尝试。
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    throw new Error("未找到可用的模型接口");
+  }
+
+  return results;
+}
+
 function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
   const normalizedGroup = String(groupName || "default")
     .trim()
@@ -1053,6 +1099,7 @@ export async function fetchModelsFromProviderForServer(
   profileName?: string,
   apiKeyGroups?: Record<string, string>,
   openAICompatible?: boolean,
+  multiKeyGroupOrder?: string[],
   fetchOptions?: {
     authType?: string;
     authQueryParam?: string;
@@ -1080,6 +1127,7 @@ export async function fetchModelsFromProviderForServer(
   const modelFetchApiKeyCandidates = getModelFetchApiKeyCandidates({
     apiKey,
     apiKeyGroups,
+    multiKeyGroupOrder,
   });
 
   const authType = (fetchOptions?.authType ||
@@ -1106,19 +1154,73 @@ export async function fetchModelsFromProviderForServer(
     `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个服务端模型接口`,
   );
 
-  const data = await fetchJsonWithCandidates(
-    candidateUrls,
-    headers,
-    getAuthorizationCandidates(modelFetchApiKeyCandidates, authType),
-    (payload) => extractModelListFromResponse(payload).length > 0,
-    (payload) => extractModelListFromResponse(payload).length,
-    {
-      authType,
-      authQueryParam,
-      authorizationHeaderName:
-        Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
-    },
+  const orderedGroupNames = [
+    ...(multiKeyGroupOrder || []),
+    ...Object.keys(apiKeyGroups || {}),
+  ].filter((group, index, all) => group && all.indexOf(group) === index);
+  const keyEntries = [
+    { groupName: undefined as string | undefined, apiKey: apiKey || "" },
+    ...orderedGroupNames.map((groupName) => ({
+      groupName,
+      apiKey: apiKeyGroups?.[groupName] || "",
+    })),
+  ]
+    .map((entry) => ({ ...entry, apiKey: String(entry.apiKey || "").trim() }))
+    .filter((entry) => entry.apiKey);
+  const uniqueKeyEntries = keyEntries.filter(
+    (entry, index, all) =>
+      all.findIndex((item) => item.apiKey === entry.apiKey) === index,
   );
+
+  const payloadResults: Array<{
+    data: any;
+    groupName?: string;
+    url: string;
+  }> = [];
+
+  for (const entry of uniqueKeyEntries.length > 0
+    ? uniqueKeyEntries
+    : [{ groupName: undefined, apiKey: modelFetchApiKeyCandidates[0] || "" }]) {
+    const entryHeaders = {
+      ...headers,
+      ...buildAuthHeaders(entry.apiKey, authType),
+    };
+    const entryResults = await fetchAllJsonWithCandidates(
+      candidateUrls,
+      entryHeaders,
+      getAuthorizationCandidates([entry.apiKey], authType),
+      (payload) => extractModelListFromResponse(payload).length > 0,
+      (payload) => extractModelListFromResponse(payload).length,
+      {
+        authType,
+        authQueryParam,
+        authorizationHeaderName:
+          Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+      },
+    ).catch((error) => {
+      console.warn(
+        `[Fetch Models] key ${
+          entry.groupName || "default"
+        } 全路径尝试失败，继续尝试其他 key`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return [];
+    });
+
+    entryResults.forEach((result) => {
+      payloadResults.push({
+        data: result.data,
+        groupName: entry.groupName,
+        url: result.url,
+      });
+    });
+  }
+
+  if (payloadResults.length === 0) {
+    throw new Error("未找到可用的模型接口");
+  }
+
+  const data = payloadResults[0].data;
 
   let models: any[] = [];
   let vendorsMap: Record<number, { name: string; icon?: string }> | undefined;
@@ -1165,10 +1267,54 @@ export async function fetchModelsFromProviderForServer(
 
   models = extractModelListFromResponse(data);
 
+  const mergedModelMap = new Map<string, SyncedLLMModel>();
+  for (const result of payloadResults) {
+    const payload = result.data;
+    let payloadVendorsMap = vendorsMap;
+    if (payload?.vendors && Array.isArray(payload.vendors)) {
+      payloadVendorsMap = {};
+      payload.vendors.forEach((vendor: any) => {
+        payloadVendorsMap![vendor.id] = {
+          name: vendor.name,
+          icon: vendor.icon,
+        };
+      });
+    }
+
+    mapModels(
+      extractModelListFromResponse(payload),
+      providerId,
+      providerName,
+      providerType,
+      sorted,
+      payloadVendorsMap,
+      result.groupName,
+      catalogMetadataMap,
+      classificationMap,
+    ).forEach((model) => {
+      const key = `${model.name}@${model.provider?.id}`;
+      if (!mergedModelMap.has(key)) {
+        mergedModelMap.set(key, model);
+      }
+    });
+  }
+
+  if (mergedModelMap.size > 0) {
+    const mappedModels = [...mergedModelMap.values()];
+    return {
+      models: mappedModels,
+      total: mappedModels.length,
+    };
+  }
+
   if (isYutoApiUrl(baseUrl)) {
-    const groupedEntries = Object.entries(apiKeyGroups || {}).filter(
-      ([, value]) => Boolean(value?.trim()),
-    );
+    const orderedGroupNames = [
+      ...(multiKeyGroupOrder || []),
+      ...Object.keys(apiKeyGroups || {}),
+    ].filter((group, index, all) => group && all.indexOf(group) === index);
+    const groupedEntries = orderedGroupNames
+      .map((groupName) => [groupName, apiKeyGroups?.[groupName] || ""] as const)
+      .filter(([, value]) => Boolean(value?.trim()));
     const fetchEntries =
       groupedEntries.length > 0 ? groupedEntries : [["default", apiKey || ""]];
     const mergedModelMap = new Map<string, SyncedLLMModel>();
@@ -1241,9 +1387,13 @@ export async function fetchModelsFromProviderForServer(
     apiKeyGroups &&
     Object.keys(apiKeyGroups).length > 0
   ) {
-    const groupedEntries = Object.entries(apiKeyGroups).filter(
-      ([key, value]) => key && value?.trim(),
-    );
+    const orderedGroupNames = [
+      ...(multiKeyGroupOrder || []),
+      ...Object.keys(apiKeyGroups),
+    ].filter((group, index, all) => group && all.indexOf(group) === index);
+    const groupedEntries = orderedGroupNames
+      .map((groupName) => [groupName, apiKeyGroups[groupName] || ""] as const)
+      .filter(([key, value]) => key && value?.trim());
 
     if (groupedEntries.length === 0) {
       // 没有配置分组，使用默认获取方式
@@ -1265,6 +1415,74 @@ export async function fetchModelsFromProviderForServer(
     }
 
     const mergedModelMap = new Map<string, SyncedLLMModel>();
+
+    for (const [groupName, groupApiKey] of groupedEntries) {
+      try {
+        const groupedData = await fetchJsonWithCandidates(
+          buildModelFetchCandidateUrls(baseWithoutV1),
+          {
+            ...headers,
+            ...buildAuthHeaders(groupApiKey, authType),
+          },
+          getAuthorizationCandidates([groupApiKey], authType),
+          (payload) => extractModelListFromResponse(payload).length > 0,
+          (payload) => extractModelListFromResponse(payload).length,
+          {
+            authType,
+            authQueryParam,
+            authorizationHeaderName:
+              Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+          },
+        );
+        const groupModels = extractModelListFromResponse(groupedData);
+
+        mapModels(
+          groupModels,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+          vendorsMap,
+          groupName,
+          catalogMetadataMap,
+          classificationMap,
+        ).forEach((model) => {
+          const key = `${model.name}@${model.provider?.id}`;
+          const existing = mergedModelMap.get(key);
+
+          if (!existing) {
+            mergedModelMap.set(key, model);
+            return;
+          }
+
+          const existingPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            existing.apiKeyGroup,
+          );
+          const nextPriority = getOcoolApiKeyGroupPriority(
+            model.name,
+            groupName,
+          );
+
+          if (nextPriority > existingPriority) {
+            mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+          }
+        });
+      } catch (error) {
+        console.warn(
+          `[Fetch Models] Ocoolai 分组 ${groupName} 的模型接口获取失败，继续尝试其他分组`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    if (mergedModelMap.size > 0) {
+      const mappedModels = [...mergedModelMap.values()];
+      return {
+        models: mappedModels,
+        total: mappedModels.length,
+      };
+    }
 
     // 使用 Ocoolai 的分组 API
     const groupsData = await fetchJsonWithCandidates(

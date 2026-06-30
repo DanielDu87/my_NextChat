@@ -96,6 +96,7 @@ export async function refreshConfiguredProviderModels(
       profile.name,
       profile.apiKeyGroups,
       profile.openAICompatible,
+      profile.multiKeyGroupOrder,
       {
         authType: profile.authType,
         authQueryParam: profile.authQueryParam,

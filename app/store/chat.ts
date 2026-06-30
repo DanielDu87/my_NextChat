@@ -273,6 +273,8 @@ export type ChatMessage = RequestMessage & {
   manualStopped?: boolean;
   attachedFiles?: ChatMessageAttachedFile[];
   attachedFilesPromptText?: string;
+  aiSelectionText?: string;
+  aiSelectionPromptText?: string;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -285,8 +287,10 @@ export function createMessage(override: Partial<ChatMessage>): ChatMessage {
   };
 }
 
-function withAttachedFilesPromptText(message: ChatMessage): ChatMessage {
-  const extraPrompt = String(message.attachedFilesPromptText || "");
+function appendHiddenPromptText(
+  message: ChatMessage,
+  extraPrompt: string,
+): ChatMessage {
   if (!extraPrompt.trim() || message.role !== "user") {
     return message;
   }
@@ -317,6 +321,20 @@ function withAttachedFilesPromptText(message: ChatMessage): ChatMessage {
     ...message,
     content: nextContent,
   };
+}
+
+function withAttachedFilesPromptText(message: ChatMessage): ChatMessage {
+  return appendHiddenPromptText(
+    message,
+    String(message.attachedFilesPromptText || ""),
+  );
+}
+
+function withAiSelectionPromptText(message: ChatMessage): ChatMessage {
+  return appendHiddenPromptText(
+    message,
+    String(message.aiSelectionPromptText || ""),
+  );
 }
 
 export interface ChatStat {
@@ -2920,6 +2938,8 @@ export const useChatStore = createPersistStore(
           reuseUserMessageId?: string;
           attachedFiles?: ChatMessageAttachedFile[];
           attachedFilesPromptText?: string;
+          aiSelectionText?: string;
+          aiSelectionPromptText?: string;
         },
       ) {
         logChatDebug("[Chat] 💬 用户输入:", {
@@ -3052,6 +3072,8 @@ export const useChatStore = createPersistStore(
               isMcpResponse,
               attachedFiles: options?.attachedFiles || [],
               attachedFilesPromptText: options?.attachedFilesPromptText || "",
+              aiSelectionText: options?.aiSelectionText || "",
+              aiSelectionPromptText: options?.aiSelectionPromptText || "",
             }
           : createMessage({
               role: "user",
@@ -3059,6 +3081,8 @@ export const useChatStore = createPersistStore(
               isMcpResponse,
               attachedFiles: options?.attachedFiles || [],
               attachedFilesPromptText: options?.attachedFilesPromptText || "",
+              aiSelectionText: options?.aiSelectionText || "",
+              aiSelectionPromptText: options?.aiSelectionPromptText || "",
             });
 
         const botMessage: ChatMessage = createMessage({
@@ -3123,7 +3147,9 @@ export const useChatStore = createPersistStore(
         // get recent messages
         const recentMessages = (
           await get().getMessagesWithMemory(initialModelConfig)
-        ).map(withAttachedFilesPromptText);
+        )
+          .map(withAttachedFilesPromptText)
+          .map(withAiSelectionPromptText);
         const sendMessages = recentMessages;
         const messageIndex = botMessageIndex;
 

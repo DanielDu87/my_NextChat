@@ -235,7 +235,11 @@ export function buildUpstreamModelFetchCandidateUrls(
   customPaths?: string | string[],
 ) {
   const baseWithoutV1 = normalizeModelBaseUrl(baseUrl);
-  return [...parseListConfig(customPaths), ...MODEL_FETCH_UPSTREAM_PATHS]
+  const paths = [
+    ...parseListConfig(customPaths),
+    ...MODEL_FETCH_UPSTREAM_PATHS,
+  ];
+  return paths
     .map((path) => (path.startsWith("http") ? path : `${baseWithoutV1}${path}`))
     .filter((url, index, all) => url && all.indexOf(url) === index);
 }
