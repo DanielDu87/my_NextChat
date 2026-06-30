@@ -3,6 +3,10 @@
 import { Path } from "../constant";
 import type { AutoSyncScope } from "./sync-store-keys";
 
+function normalizeSyncPath(path: string) {
+  return path.replace(/\/+$/, "") || Path.Home;
+}
+
 export function getCurrentHashPath() {
   if (typeof window === "undefined") {
     return Path.Home;
@@ -12,10 +16,10 @@ export function getCurrentHashPath() {
     .replace(/^#/, "")
     .trim();
   if (hashPath) {
-    return hashPath.split("?")[0] || Path.Home;
+    return normalizeSyncPath(hashPath.split("?")[0]) || Path.Home;
   }
 
-  return window.location.pathname || Path.Home;
+  return normalizeSyncPath(window.location.pathname) || Path.Home;
 }
 
 export function getCurrentAutoSyncScope(): AutoSyncScope {

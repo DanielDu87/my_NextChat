@@ -174,6 +174,7 @@ import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { runWithImmediateStoreSyncPausedSync } from "../utils/store";
+import { markPendingModelSelection } from "../utils/sync";
 import { prettyObject } from "../utils/format";
 import {
   readManualSessionModelSelection,
@@ -4147,7 +4148,7 @@ function _Chat() {
   const isModelSelectorSyncing =
     isModelSelectionSyncing || isActiveProfileModelSyncing;
   const currentModelName = useMemo(() => {
-    if (isModelSelectorSyncing) {
+    if (isModelSelectorSyncing && !currentModel) {
       return "同步中...";
     }
 
@@ -4202,13 +4203,9 @@ function _Chat() {
     <>{autoModeButtonText}</>
   ) : (
     <>
-      {!isModelSelectorSyncing && (
-        <>
-          <span className={styles["provider-button-name"]}>
-            {activeModelSelectorProviderDisplayName}
-          </span>{" "}
-        </>
-      )}
+      <span className={styles["provider-button-name"]}>
+        {activeModelSelectorProviderDisplayName}
+      </span>{" "}
       {isModelSelectorSyncing ? (
         <span className={styles["provider-button-model-syncing"]}>
           {currentModelName}
@@ -10845,22 +10842,41 @@ function _Chat() {
               profileId: selectedProfile?.id || "",
             });
 
-            // 同步写回全局 appConfig.modelConfig，使新建会话默认采用本次手动选择，
-            // 并通过 Config store 跨浏览器同步当前供应商/模型。
-            runWithImmediateStoreSyncPausedSync(() => {
-              useAppConfig.getState().update((config) => {
-                config.modelConfig = sanitizeModelConfigForCapability({
-                  ...config.modelConfig,
-                  model: nextModelConfig.model,
-                  providerName: nextModelConfig.providerName,
+            // 只有在空白（默认）新对话中切换模型才同步到全局配置，
+            // 使新建会话默认采用本次手动选择，同时持久化到 localStorage。
+            // 在已有消息的旧对话中切换模型只影响当前对话，不影响后续新对话的默认模型。
+            if (!currentSessionHasMessages) {
+              runWithImmediateStoreSyncPausedSync(() => {
+                useAppConfig.getState().update((config) => {
+                  const selectedAt = Date.now();
+                  config.modelConfig = sanitizeModelConfigForCapability({
+                    ...config.modelConfig,
+                    model: nextModelConfig.model,
+                    providerName: nextModelConfig.providerName,
+                  });
+                  (config.modelConfig as any).providerId = selectedProviderId;
+                  (config.modelConfig as any).profileId =
+                    selectedProfile?.id || "";
+                  (config as any).modelSelectionUpdatedAt = selectedAt;
+                  markPendingModelSelection({
+                    ...config.modelConfig,
+                    modelSelectionUpdatedAt: selectedAt,
+                  });
                 });
-                (config.modelConfig as any).providerId = selectedProviderId;
-                (config.modelConfig as any).profileId =
-                  selectedProfile?.id || "";
-                (config as any).modelSelectionUpdatedAt = Date.now();
               });
-            });
-            syncModelSelectionNow();
+              syncModelSelectionNow();
+
+              if (selectedProfile?.name) {
+                localStorage.setItem(
+                  MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+                  selectedProfile.name,
+                );
+              }
+              localStorage.setItem(
+                LAST_MODEL_SELECTION_STORAGE_KEY,
+                `${nextModelConfig.model}@${selectedProviderId}`,
+              );
+            }
 
             console.info("[模型选择器] 模型已切换", {
               对话ID: session.id,
@@ -10873,16 +10889,6 @@ function _Chat() {
               `[Sync] 📤 模型选择已变更，等待上传：${
                 nextModelConfig.model
               }@${selectedProviderId.replace(/^custom_/, "")}`,
-            );
-            if (selectedProfile?.name) {
-              localStorage.setItem(
-                MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
-                selectedProfile.name,
-              );
-            }
-            localStorage.setItem(
-              LAST_MODEL_SELECTION_STORAGE_KEY,
-              `${nextModelConfig.model}@${selectedProviderId}`,
             );
 
             // 只有在非供应商切换后的1秒内才显示提示

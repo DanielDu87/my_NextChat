@@ -4,10 +4,17 @@ export const AUTO_SYNC_LOCK_TTL_MS = 30_000;
 export const AUTO_SYNC_TAB_ID_KEY = "nextchat_auto_sync_tab_id";
 export const CHAT_SYNC_HINT_KEY = "nextchat_chat_sync_hint";
 export const CHAT_SYNC_UPDATED_MESSAGE_TYPE = "chat-sync-updated";
+export const CONFIG_SYNC_HINT_KEY = "nextchat_config_sync_hint";
+export const CONFIG_SYNC_UPDATED_MESSAGE_TYPE = "config-sync-updated";
 export const STARTUP_CHAT_SYNC_STATUS_KEY = "nextchat_startup_chat_sync_status";
 export const STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE = "startup-chat-sync-status";
 
 export type ChatSyncHint = {
+  owner: string;
+  updatedAt: number;
+};
+
+export type ConfigSyncHint = {
   owner: string;
   updatedAt: number;
 };
@@ -108,6 +115,38 @@ export function parseChatSyncHint(raw: string | null | undefined) {
       owner: parsed.owner,
       updatedAt: parsed.updatedAt,
     } satisfies ChatSyncHint;
+  } catch {
+    return null;
+  }
+}
+
+export function buildConfigSyncHint(owner: string, updatedAt = Date.now()) {
+  return {
+    owner,
+    updatedAt,
+  } satisfies ConfigSyncHint;
+}
+
+export function parseConfigSyncHint(raw: string | null | undefined) {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ConfigSyncHint>;
+    if (
+      typeof parsed.owner !== "string" ||
+      !parsed.owner ||
+      typeof parsed.updatedAt !== "number" ||
+      !Number.isFinite(parsed.updatedAt)
+    ) {
+      return null;
+    }
+
+    return {
+      owner: parsed.owner,
+      updatedAt: parsed.updatedAt,
+    } satisfies ConfigSyncHint;
   } catch {
     return null;
   }

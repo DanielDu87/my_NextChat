@@ -64,7 +64,10 @@ import {
   AUTO_SYNC_CHANNEL_NAME,
   CHAT_SYNC_HINT_KEY,
   CHAT_SYNC_UPDATED_MESSAGE_TYPE,
+  CONFIG_SYNC_HINT_KEY,
+  CONFIG_SYNC_UPDATED_MESSAGE_TYPE,
   buildChatSyncHint,
+  buildConfigSyncHint,
   getOrCreateAutoSyncTabId,
 } from "../utils/sync-tab-coordination";
 import {
@@ -231,6 +234,36 @@ function emitChatSyncHint() {
     channel.close();
   } catch (error) {
     logSyncDebug("[Sync] ⚠️ 广播聊天同步 hint 失败", error);
+  }
+}
+
+function emitConfigSyncHint() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const tabId = getOrCreateAutoSyncTabId(window.sessionStorage);
+  const hint = buildConfigSyncHint(tabId);
+
+  try {
+    window.localStorage.setItem(CONFIG_SYNC_HINT_KEY, JSON.stringify(hint));
+  } catch (error) {
+    logSyncDebug("[Sync] ⚠️ 写入配置同步 hint 失败", error);
+  }
+
+  if (typeof BroadcastChannel === "undefined") {
+    return;
+  }
+
+  try {
+    const channel = new BroadcastChannel(AUTO_SYNC_CHANNEL_NAME);
+    channel.postMessage({
+      type: CONFIG_SYNC_UPDATED_MESSAGE_TYPE,
+      ...hint,
+    });
+    channel.close();
+  } catch (error) {
+    logSyncDebug("[Sync] ⚠️ 广播配置同步 hint 失败", error);
   }
 }
 
@@ -745,6 +778,7 @@ function syncModelSelectionToLocalStorage(state: any) {
       "nextchat:model-selector-provider",
       providerDisplayName,
     );
+    localStorage.removeItem("nextchat:pending-model-selection");
   } catch (_) {}
 }
 
@@ -1459,12 +1493,30 @@ function getStoreLastUpdateTime(state: unknown) {
   return Number((state as { lastUpdateTime?: number }).lastUpdateTime || 0);
 }
 
+function getConfigModelSelectionUpdatedAt(state: unknown) {
+  if (!state || typeof state !== "object") {
+    return 0;
+  }
+  return (
+    Number(
+      (state as { modelSelectionUpdatedAt?: number }).modelSelectionUpdatedAt,
+    ) || 0
+  );
+}
+
 function rebaseRegularSyncResultOnLiveState<T extends SyncStoreKey>(
   key: T,
   mergedStoreState: AppState[T],
   syncBaseState: AppState[T],
 ) {
   const liveLocalState = getLocalAppState()[key];
+  if (
+    key === StoreKey.Config &&
+    getConfigModelSelectionUpdatedAt(liveLocalState) >
+      getConfigModelSelectionUpdatedAt(syncBaseState)
+  ) {
+    return mergeStoreState(key, liveLocalState, mergedStoreState);
+  }
   if (
     getStoreLastUpdateTime(liveLocalState) <=
     getStoreLastUpdateTime(syncBaseState)
@@ -4037,6 +4089,13 @@ export const useSyncStore = createPersistStore(
                 lastChatSyncCompletedAt = Date.now();
                 if (options?.broadcastChatHint !== false) {
                   emitChatSyncHint();
+                }
+              } else if (
+                currentStoreKeys.length === 1 &&
+                currentStoreKeys[0] === StoreKey.Config
+              ) {
+                if (options?.broadcastChatHint !== false) {
+                  emitConfigSyncHint();
                 }
               }
             } catch (e) {

@@ -27,11 +27,14 @@ import {
   AUTO_SYNC_LOCK_TTL_MS,
   CHAT_SYNC_HINT_KEY,
   CHAT_SYNC_UPDATED_MESSAGE_TYPE,
+  CONFIG_SYNC_HINT_KEY,
+  CONFIG_SYNC_UPDATED_MESSAGE_TYPE,
   STARTUP_CHAT_SYNC_STATUS_KEY,
   STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
   buildAutoSyncLock,
   getOrCreateAutoSyncTabId,
   parseChatSyncHint,
+  parseConfigSyncHint,
   parseAutoSyncLock,
   shouldAutoSyncLockBeTakenOver,
 } from "../utils/sync-tab-coordination";
@@ -452,8 +455,10 @@ export default function AutoSync() {
       return true;
     };
 
+    const normalizePath = (p: string) => p.replace(/\/+$/, "") || "/";
     const shouldCancelForRouteChange = (expectedPath: string) => {
-      if (getCurrentHashPath() === expectedPath) {
+      const actualPath = getCurrentHashPath();
+      if (actualPath === normalizePath(expectedPath)) {
         return false;
       }
       autoSyncCancelledByRouteChange = true;
@@ -464,7 +469,7 @@ export default function AutoSync() {
         routeChangeCancelLogged = true;
         autoSyncConsole(
           "log",
-          "[AutoSync] ⏹️ 检测到页面切换，当前页面同步终止",
+          `[AutoSync] ⏹️ 检测到页面切换（期望路径: ${expectedPath}, 实际路径: ${actualPath}），当前页面同步终止`,
         );
       }
       return true;
@@ -1168,6 +1173,20 @@ export default function AutoSync() {
         }
 
         if (
+          event.data?.type === CONFIG_SYNC_UPDATED_MESSAGE_TYPE &&
+          event.data?.owner &&
+          event.data.owner !== tabId
+        ) {
+          if (!shouldCancelAutoSync(activeRoutePath)) {
+            const syncStore = useSyncStore.getState() as any;
+            syncStore
+              .sync?.([StoreKey.Config], { force: true })
+              .catch(() => {});
+          }
+          return;
+        }
+
+        if (
           event.data?.type === "auto-sync-finished" &&
           !hasCompletedAutoSync &&
           !autoSyncInProgress &&
@@ -1215,11 +1234,12 @@ export default function AutoSync() {
         typeof event.detail?.autoStart === "boolean"
           ? event.detail.autoStart
           : shouldAutoStartRouteSync(getCurrentHashPath());
-      const nextPath =
+      const nextPath = normalizePath(
         event instanceof CustomEvent && typeof event.detail?.path === "string"
           ? event.detail.path
-          : getCurrentHashPath();
-      if (nextPath === activeRoutePath) {
+          : getCurrentHashPath(),
+      );
+      if (nextPath === normalizePath(activeRoutePath)) {
         return;
       }
 
@@ -1337,6 +1357,19 @@ export default function AutoSync() {
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== CHAT_SYNC_HINT_KEY) {
+        if (event.key === CONFIG_SYNC_HINT_KEY && event.newValue) {
+          const hint = parseConfigSyncHint(event.newValue);
+          if (
+            hint &&
+            hint.owner !== tabId &&
+            !shouldCancelAutoSync(activeRoutePath)
+          ) {
+            const syncStore = useSyncStore.getState() as any;
+            syncStore
+              .sync?.([StoreKey.Config], { force: true })
+              .catch(() => {});
+          }
+        }
         return;
       }
 

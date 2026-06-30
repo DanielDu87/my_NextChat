@@ -37,6 +37,80 @@ import {
 } from "./multi-key";
 export { SYNC_STORE_KEYS } from "./sync-store-keys";
 
+const PENDING_MODEL_SELECTION_KEY = "nextchat:pending-model-selection";
+const PENDING_MODEL_SELECTION_TTL_MS = 60_000;
+
+type PendingModelSelection = {
+  model: string;
+  providerName: string;
+  providerId: string;
+  profileId?: string;
+  updatedAt: number;
+};
+
+function normalizeModelSelectionPart(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function readPendingModelSelection(): PendingModelSelection | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(PENDING_MODEL_SELECTION_KEY);
+    if (!raw) return undefined;
+    const payload = JSON.parse(raw) as Partial<PendingModelSelection>;
+    const updatedAt = Number(payload.updatedAt) || 0;
+    if (!payload.model || !payload.providerId || updatedAt <= 0) {
+      globalThis.localStorage?.removeItem(PENDING_MODEL_SELECTION_KEY);
+      return undefined;
+    }
+    if (Date.now() - updatedAt > PENDING_MODEL_SELECTION_TTL_MS) {
+      globalThis.localStorage?.removeItem(PENDING_MODEL_SELECTION_KEY);
+      return undefined;
+    }
+    return {
+      model: String(payload.model),
+      providerName: String(payload.providerName || ""),
+      providerId: String(payload.providerId),
+      profileId: String(payload.profileId || ""),
+      updatedAt,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function modelConfigMatchesPending(
+  modelConfig: Record<string, any> | undefined,
+  pending: PendingModelSelection | undefined,
+) {
+  if (!modelConfig || !pending) return false;
+  return (
+    String(modelConfig.model || "") === pending.model &&
+    normalizeModelSelectionPart(modelConfig.providerId) ===
+      normalizeModelSelectionPart(pending.providerId)
+  );
+}
+
+export function markPendingModelSelection(modelConfig: Record<string, any>) {
+  const model = String(modelConfig.model || "").trim();
+  const providerId = String(modelConfig.providerId || "").trim();
+  if (!model || !providerId) return;
+  try {
+    const payload: PendingModelSelection = {
+      model,
+      providerName: String(modelConfig.providerName || ""),
+      providerId,
+      profileId: String(modelConfig.profileId || ""),
+      updatedAt: Number(modelConfig.modelSelectionUpdatedAt) || Date.now(),
+    };
+    globalThis.localStorage?.setItem(
+      PENDING_MODEL_SELECTION_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {}
+}
+
 function isSyncDebugLoggingEnabled() {
   if (process.env.NODE_ENV === "test") {
     return false;
@@ -914,6 +988,11 @@ const MergeStates: StateMerger = {
 
     const localModelSelAt = Number(local.modelSelectionUpdatedAt) || 0;
     const remoteModelSelAt = Number(remote.modelSelectionUpdatedAt) || 0;
+    const pendingModelSelection = readPendingModelSelection();
+    const hasPendingLocalModelSelection = modelConfigMatchesPending(
+      local.modelConfig,
+      pendingModelSelection,
+    );
     const defaultPlaceholderModel = DEFAULT_CONFIG.modelConfig.model;
     const localHasMeaningfulModel =
       hasNonEmptyString(local.modelConfig?.model) &&
@@ -924,6 +1003,8 @@ const MergeStates: StateMerger = {
     // 时间戳相同（含双 0）时，倾向已设置具体模型的一边
     const useRemoteModelSelection = preferRemoteOnBootstrap
       ? true
+      : hasPendingLocalModelSelection
+      ? false
       : remoteModelSelAt > localModelSelAt
       ? true
       : remoteModelSelAt < localModelSelAt
