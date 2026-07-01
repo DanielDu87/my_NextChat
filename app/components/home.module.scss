@@ -252,7 +252,8 @@
 .chat-list-filter-card:focus-within {
   .chat-list-filter-input {
     border-color: var(--primary);
-    box-shadow: var(--card-shadow);
+    box-shadow: none;
+    outline: none;
     background-color: var(--white);
   }
 }
@@ -296,7 +297,7 @@
   border-width: 2px;
   border-color: var(--primary);
   background-color: var(--white);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: none;
   outline: none;
 }
 
@@ -356,6 +357,15 @@
 
 .chat-list-panel > .chat-list-load-more-indicator:only-child {
   flex: 1;
+}
+
+.chat-list-loading-panel {
+  justify-content: center;
+
+  > .chat-list-load-more-indicator:only-child {
+    flex: 0 0 auto;
+    font-size: 15px;
+  }
 }
 
 .chat-list-load-more-dots {

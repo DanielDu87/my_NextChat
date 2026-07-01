@@ -608,9 +608,14 @@ export function ChatList() {
     effectiveCurrentSessionId,
   ]);
 
-  if (!initialized) {
+  if (isChatListLoading) {
     return (
-      <div className={styles["chat-list-panel"]}>
+      <div
+        className={clsx(
+          styles["chat-list-panel"],
+          styles["chat-list-loading-panel"],
+        )}
+      >
         <div className={styles["chat-list-load-more-indicator"]}>
           <span className={styles["chat-list-load-more-dots"]}>
             <i />
@@ -710,16 +715,7 @@ export function ChatList() {
           onChange={(e) => setFilterText(e.currentTarget.value)}
         />
       </div>
-      {isChatListLoading ? (
-        <div className={styles["chat-list-load-more-indicator"]}>
-          <span className={styles["chat-list-load-more-dots"]}>
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>正在加载全部对话...</span>
-        </div>
-      ) : filteredSessions.length === 0 ? (
+      {filteredSessions.length === 0 ? (
         <div className={styles["chat-list-empty"]}>没有匹配的会话</div>
       ) : (
         <>

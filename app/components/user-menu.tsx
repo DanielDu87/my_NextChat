@@ -305,6 +305,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       window.requestAnimationFrame(resetScroll);
       window.setTimeout(resetScroll, 120);
     }
+    setLoadingUsers(true);
     setShowManageModal(true);
   };
 
@@ -581,7 +582,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
-    void loadUsers();
+    void loadUsers(true);
   }, [
     showManageModal,
     currentEffectiveUserId,
@@ -709,7 +710,14 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                   })}
                 >
                   {loadingUsers ? (
-                    <div className={styles.loadingState}>加载中...</div>
+                    <div className={styles.loadingState}>
+                      <span className={styles.loadingDots}>
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      <span>正在加载用户...</span>
+                    </div>
                   ) : (
                     users.map((managedUser) => (
                       <ListItem
@@ -972,7 +980,14 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
               })}
             >
               {loadingUsers ? (
-                <div className={styles.loadingState}>加载中...</div>
+                <div className={styles.loadingState}>
+                  <span className={styles.loadingDots}>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>正在加载用户...</span>
+                </div>
               ) : (
                 users.map((managedUser) => (
                   <ListItem

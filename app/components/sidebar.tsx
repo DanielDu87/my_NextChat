@@ -32,7 +32,23 @@ import { getClientConfig } from "../config/client";
 import { useAuthStore } from "../store/auth";
 
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
-  loading: () => null,
+  loading: () => (
+    <div
+      className={clsx(
+        styles["chat-list-panel"],
+        styles["chat-list-loading-panel"],
+      )}
+    >
+      <div className={styles["chat-list-load-more-indicator"]}>
+        <span className={styles["chat-list-load-more-dots"]}>
+          <i />
+          <i />
+          <i />
+        </span>
+        <span>正在加载全部对话...</span>
+      </div>
+    </div>
+  ),
 });
 
 const DISCOVERY = [
