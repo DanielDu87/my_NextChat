@@ -52,6 +52,7 @@ import {
 } from "../utils/route-sync-entry";
 import {
   isChatListStartupLoading,
+  publishStartupChatSyncStatus,
   useStartupChatSyncStatus,
 } from "../utils/chat-startup-loading";
 
@@ -692,11 +693,20 @@ export function Home() {
               bootstrapSyncController.abort();
             }, CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS);
             try {
+              publishStartupChatSyncStatus("syncing");
               await useSyncStore.getState().syncChatOnStartup?.({
                 source: "page-init",
                 minIntervalMs: 0,
                 abortSignal: bootstrapSyncController.signal,
               });
+              if (!bootstrapSyncController.signal.aborted) {
+                publishStartupChatSyncStatus("done");
+              }
+            } catch (error) {
+              if (!bootstrapSyncController.signal.aborted) {
+                publishStartupChatSyncStatus("error");
+              }
+              throw error;
             } finally {
               window.clearTimeout(timeoutId);
             }

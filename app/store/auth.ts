@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { Path, StoreKey } from "@/app/constant";
+import { publishStartupChatSyncStatus } from "@/app/utils/chat-startup-loading";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
@@ -218,6 +219,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { useChatIndexStore } = await chatIndexModule;
 
     // 立即重置 chat store 和 chat index store，确保不显示旧用户的历史对话
+    publishStartupChatSyncStatus("syncing");
     chatStore.getState().resetForUserSwitch({ sync: false });
 
     // 立即同步 index store 到新状态
@@ -271,10 +273,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     chatStore.getState().initializeForNewPage?.();
     useChatIndexStore.getState().syncFromChatStore();
     // 最后同步新用户的远端对话
-    useSyncStore.getState().sync([StoreKey.Chat], {
-      isolateQueue: true,
-      downloadOnlyChat: true,
-    });
+    useSyncStore
+      .getState()
+      .sync([StoreKey.Chat], {
+        isolateQueue: true,
+        downloadOnlyChat: true,
+      })
+      .then(() => publishStartupChatSyncStatus("done"))
+      .catch((error) => {
+        publishStartupChatSyncStatus("error");
+        console.error("[Auth] 切换用户后同步对话失败:", error);
+      });
   },
   async exitSwitch() {
     const response = await fetch("/api/admin/switch-user", {

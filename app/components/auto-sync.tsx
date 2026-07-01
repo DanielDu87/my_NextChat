@@ -29,8 +29,6 @@ import {
   CHAT_SYNC_UPDATED_MESSAGE_TYPE,
   CONFIG_SYNC_HINT_KEY,
   CONFIG_SYNC_UPDATED_MESSAGE_TYPE,
-  STARTUP_CHAT_SYNC_STATUS_KEY,
-  STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
   buildAutoSyncLock,
   getOrCreateAutoSyncTabId,
   parseChatSyncHint,
@@ -46,6 +44,7 @@ import {
   type AutoSyncScope,
   type SyncStoreKey,
 } from "../utils/sync-store-keys";
+import { publishStartupChatSyncStatus } from "../utils/chat-startup-loading";
 import {
   getCurrentAutoSyncScope,
   getCurrentHashPath,
@@ -233,34 +232,6 @@ function logCriticalStartupSyncBanner(
       ? `${LOG_SEPARATOR} ${title} | ${detail} ${LOG_SEPARATOR}`
       : `${LOG_SEPARATOR} ${title} ${LOG_SEPARATOR}`,
   );
-}
-
-function publishStartupChatSyncStatus(
-  status: "syncing" | "done" | "error",
-  channel?: BroadcastChannel | null,
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const payload = {
-    status,
-    updatedAt: Date.now(),
-  };
-
-  try {
-    window.localStorage.setItem(
-      STARTUP_CHAT_SYNC_STATUS_KEY,
-      JSON.stringify(payload),
-    );
-  } catch {}
-
-  try {
-    channel?.postMessage({
-      type: STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
-      ...payload,
-    });
-  } catch {}
 }
 
 function scheduleIdleTask(task: () => void, timeout = 800) {

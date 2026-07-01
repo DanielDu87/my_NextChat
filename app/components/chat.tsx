@@ -10,6 +10,7 @@ import React, {
   useState,
 } from "react";
 import SparkMD5 from "spark-md5";
+import { createPortal } from "react-dom";
 
 import SendUpIcon from "../icons/send-up.svg";
 import BrainIcon from "../icons/brain.svg";
@@ -2320,6 +2321,29 @@ function useSubmitHandler() {
   };
 }
 
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getHighlightedPromptText(text: string, keyword: string) {
+  const trimmedKeyword = keyword.trim();
+  if (!trimmedKeyword) return text;
+
+  const pattern = new RegExp(`(${escapeRegExp(trimmedKeyword)})`, "gi");
+  return text.split(pattern).map((part, index) =>
+    part.toLowerCase() === trimmedKeyword.toLowerCase() ? (
+      <mark
+        key={`${part}-${index}`}
+        className={styles["prompt-search-highlight"]}
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
 export type RenderPrompt = Pick<Prompt, "title" | "content">;
 
 export function PromptHints(props: {
@@ -2390,6 +2414,100 @@ export function PromptHints(props: {
       ))}
     </div>
   );
+}
+
+function PromptPickerModal(props: {
+  prompts: RenderPrompt[];
+  onClose: () => void;
+  onManage: () => void;
+  onPromptSelect: (prompt: RenderPrompt) => void;
+}) {
+  const [searchText, setSearchText] = useState("");
+  const isMobileScreen = useMobileScreen();
+  const promptStore = usePromptStore();
+  const keyword = searchText.trim();
+  const visiblePrompts = useMemo(() => {
+    return keyword ? promptStore.search(keyword) : props.prompts;
+  }, [keyword, promptStore, props.prompts]);
+
+  const pickerNode = (
+    <div className={styles["prompt-picker-mask"]} onClick={props.onClose}>
+      <div
+        className={styles["prompt-picker-panel"]}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={styles["prompt-picker-header"]}>
+          <div>
+            <div className={styles["prompt-picker-title-main"]}>选择提示词</div>
+            <div className={styles["prompt-picker-title-sub"]}>
+              选择后会插入当前对话输入框
+            </div>
+          </div>
+          <div className={styles["prompt-picker-header-actions"]}>
+            <span className={styles["prompt-picker-count"]}>
+              共 {visiblePrompts.length} 条
+            </span>
+            <IconButton
+              aria="关闭"
+              icon={<CloseIcon />}
+              close
+              bordered
+              onClick={props.onClose}
+            />
+          </div>
+        </div>
+
+        <div className={styles["prompt-picker-toolbar"]}>
+          <input
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="搜索提示词..."
+            className={styles["prompt-picker-search"]}
+            autoFocus={!isMobileScreen}
+          />
+          <IconButton
+            icon={<PromptIcon />}
+            text="管理提示词"
+            bordered
+            className={styles["prompt-picker-manage"]}
+            onClick={props.onManage}
+          />
+        </div>
+
+        <div className={styles["prompt-picker-list"]}>
+          {visiblePrompts.length === 0 ? (
+            <div className={styles["prompt-picker-empty"]}>
+              <div className={styles["prompt-picker-empty-icon"]}>🔍</div>
+              <div>{keyword ? "未搜索到相关提示词" : "暂无可用提示词"}</div>
+            </div>
+          ) : (
+            visiblePrompts.map((prompt, index) => (
+              <button
+                type="button"
+                className={styles["prompt-picker-item"]}
+                key={`${prompt.title}-${index}`}
+                onClick={() => props.onPromptSelect(prompt)}
+              >
+                <span className={styles["prompt-picker-item-icon"]}>
+                  <PromptIcon />
+                </span>
+                <span className={styles["prompt-picker-item-body"]}>
+                  <span className={styles["prompt-picker-title"]}>
+                    {getHighlightedPromptText(prompt.title, keyword)}
+                  </span>
+                  <span className={styles["prompt-picker-content"]}>
+                    {getHighlightedPromptText(prompt.content, keyword)}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(pickerNode, document.body);
 }
 
 function ClearContextDivider() {
@@ -4598,6 +4716,8 @@ function _Chat() {
   // prompt hints
   const promptStore = usePromptStore();
   const [promptHints, setPromptHints] = useState<RenderPrompt[]>([]);
+  const [showPromptPicker, setShowPromptPicker] = useState(false);
+  const pickerPrompts = useMemo(() => promptStore.search(""), [promptStore]);
   const onSearch = useDebouncedCallback(
     (text: string) => {
       const matchedPrompts = promptStore.search(text);
@@ -4943,6 +5063,7 @@ function _Chat() {
 
   const onPromptSelect = (prompt: RenderPrompt) => {
     setPromptHints([]);
+    setShowPromptPicker(false);
     setTimeout(() => {
       const matchedChatCommand = chatCommands.match(prompt.content);
       if (matchedChatCommand.matched) {
@@ -4958,16 +5079,15 @@ function _Chat() {
   };
 
   const togglePromptHints = useCallback(() => {
-    if (promptHints.length > 0) {
-      setPromptHints([]);
-      return;
-    }
+    setPromptHints([]);
+    setShowPromptPicker((show) => !show);
+  }, []);
 
-    if (!isMobileScreen) {
-      inputRef.current?.focus();
-    }
-    onSearch("");
-  }, [onSearch, promptHints.length, isMobileScreen]);
+  const openPromptManager = useCallback(() => {
+    setPromptHints([]);
+    setShowPromptPicker(false);
+    navigate(Path.PromptManager);
+  }, [navigate]);
 
   // stop response
   const onUserStop = (messageId: string) => {
@@ -10301,6 +10421,14 @@ function _Chat() {
                     prompts={promptHints}
                     onPromptSelect={onPromptSelect}
                   />
+                  {showPromptPicker && (
+                    <PromptPickerModal
+                      prompts={pickerPrompts}
+                      onClose={() => setShowPromptPicker(false)}
+                      onManage={openPromptManager}
+                      onPromptSelect={onPromptSelect}
+                    />
+                  )}
 
                   {!isMobileScreen && !currentSessionHasMessages && (
                     <div

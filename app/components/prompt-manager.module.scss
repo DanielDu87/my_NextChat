@@ -33,6 +33,33 @@
   cursor: text !important;
 }
 
+// 与聊天记录搜索框保持一致，不影响聊天页输入框。
+.page
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):not(:disabled):not(:read-only) {
+  &:hover {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+    box-shadow: none;
+  }
+
+  &:focus,
+  &:focus-visible {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: var(--white);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--primary) 18%, transparent);
+    outline: none;
+  }
+}
+
+// 提示词编辑弹层使用与模型选择器相同的遮罩明度。
+.page :global(.modal-mask) {
+  background-color: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(10px);
+}
+
 .promptList {
   margin-bottom: 20px;
 }

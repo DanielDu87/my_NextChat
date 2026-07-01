@@ -34,7 +34,7 @@
           border-width: 2px;
           border-color: var(--primary);
           box-shadow: 0 0 0 2px
-            color-mix(in srgb, var(--primary) 18%, transparent);
+            color-mix(in srgb, var(--primary) 18%, transparent) !important;
           outline: none;
         }
 

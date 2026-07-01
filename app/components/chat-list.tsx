@@ -609,7 +609,18 @@ export function ChatList() {
   ]);
 
   if (!initialized) {
-    return <div className={styles["chat-list-panel"]} />;
+    return (
+      <div className={styles["chat-list-panel"]}>
+        <div className={styles["chat-list-load-more-indicator"]}>
+          <span className={styles["chat-list-load-more-dots"]}>
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>正在加载全部对话...</span>
+        </div>
+      </div>
+    );
   }
 
   const listContent = !shouldVirtualize

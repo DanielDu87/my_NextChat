@@ -8,6 +8,43 @@ import {
 } from "./sync-tab-coordination";
 
 export const STARTUP_CHAT_SYNC_WAIT_MS = 30_000;
+export const STARTUP_CHAT_SYNC_STATUS_EVENT =
+  "nextchat:startup-chat-sync-status";
+
+export function publishStartupChatSyncStatus(
+  status: StartupChatSyncStatus["status"],
+  channel?: BroadcastChannel | null,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const payload: StartupChatSyncStatus = {
+    status,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    window.localStorage.setItem(
+      STARTUP_CHAT_SYNC_STATUS_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {}
+
+  try {
+    channel?.postMessage({
+      type: STARTUP_CHAT_SYNC_STATUS_MESSAGE_TYPE,
+      ...payload,
+    });
+  } catch {}
+
+  // storage 事件不会在当前标签页触发，补一个同页事件让侧边栏即时刷新。
+  try {
+    window.dispatchEvent(
+      new CustomEvent(STARTUP_CHAT_SYNC_STATUS_EVENT, { detail: payload }),
+    );
+  } catch {}
+}
 
 export function useStartupChatSyncStatus() {
   const [startupChatSyncStatus, setStartupChatSyncStatus] =
@@ -55,11 +92,26 @@ export function useStartupChatSyncStatus() {
       }
     };
     window.addEventListener("storage", onStorage);
+    const onCurrentTabStatus = (event: Event) => {
+      const detail = (event as CustomEvent<StartupChatSyncStatus>).detail;
+      if (
+        detail &&
+        ["syncing", "done", "error"].includes(detail.status) &&
+        Number.isFinite(detail.updatedAt)
+      ) {
+        setStartupChatSyncStatus(detail);
+      }
+    };
+    window.addEventListener(STARTUP_CHAT_SYNC_STATUS_EVENT, onCurrentTabStatus);
 
     return () => {
       channel?.removeEventListener("message", onMessage);
       channel?.close();
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(
+        STARTUP_CHAT_SYNC_STATUS_EVENT,
+        onCurrentTabStatus,
+      );
     };
   }, []);
 

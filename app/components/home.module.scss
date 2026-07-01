@@ -347,10 +347,15 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+  flex-shrink: 0;
   padding: 10px 12px 14px;
   color: color-mix(in srgb, var(--black) 58%, transparent);
   font-size: 12px;
   line-height: 1;
+}
+
+.chat-list-panel > .chat-list-load-more-indicator:only-child {
+  flex: 1;
 }
 
 .chat-list-load-more-dots {

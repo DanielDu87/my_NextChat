@@ -39,6 +39,32 @@
   cursor: pointer !important;
 }
 
+// 非聊天表单统一沿用聊天记录搜索框的 hover / focus 反馈。
+.page
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):not(:disabled):not(:read-only) {
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background-color 0.3s ease;
+
+  &:hover {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+    box-shadow: none;
+  }
+
+  &:focus,
+  &:focus-visible {
+    border-width: 2px;
+    border-color: var(--primary);
+    background-color: var(--white);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--primary) 18%, transparent);
+    outline: none;
+  }
+}
+
 .page
   :global(
     .window-header
