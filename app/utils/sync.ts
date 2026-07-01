@@ -15,7 +15,7 @@ import { DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import merge from "lodash-es/merge";
-import { usePromptStore } from "../store/prompt";
+import { SearchService, usePromptStore } from "../store/prompt";
 import { DEFAULT_SIDEBAR_WIDTH, ServiceProvider, StoreKey } from "../constant";
 import {
   getMessageTime,
@@ -858,13 +858,6 @@ const MergeStates: StateMerger = {
         ...((localState as any).deletedPromptIds || []),
       ]),
     ];
-    const hiddenBuiltinPromptIds = [
-      ...new Set([
-        ...((remoteState as any).hiddenBuiltinPromptIds || []),
-        ...((localState as any).hiddenBuiltinPromptIds || []),
-      ]),
-    ];
-
     localState.prompts = {
       ...remoteState.prompts,
       ...localState.prompts,
@@ -873,7 +866,6 @@ const MergeStates: StateMerger = {
       delete localState.prompts?.[id];
     });
     (localState as any).deletedPromptIds = deletedPromptIds;
-    (localState as any).hiddenBuiltinPromptIds = hiddenBuiltinPromptIds;
     return localState;
   },
   [StoreKey.Plugin]: (localState, remoteState) => {
@@ -1468,6 +1460,13 @@ export function setLocalStoreState<T extends keyof AppState>(
     if (key === StoreKey.Plugin) {
       LocalStateSetters[key](state);
       resetPluginToolCache();
+      return;
+    }
+
+    if (key === StoreKey.Prompt) {
+      LocalStateSetters[key](state);
+      const userPrompts = usePromptStore.getState().getUserPrompts();
+      SearchService.setUserPrompts(userPrompts);
       return;
     }
 

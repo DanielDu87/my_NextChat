@@ -1,7 +1,6 @@
 import Fuse from "fuse.js";
 import { nanoid } from "nanoid";
 import { StoreKey } from "../constant";
-import { getLang } from "../locales";
 import { createPersistStore } from "../utils/store";
 
 export interface Prompt {
@@ -14,32 +13,25 @@ export interface Prompt {
 
 export const SearchService = {
   ready: false,
-  builtinEngine: new Fuse<Prompt>([], { keys: ["title", "content"] }),
   userEngine: new Fuse<Prompt>([], { keys: ["title", "content"] }),
-  count: {
-    builtin: 0,
-  },
   allPrompts: [] as Prompt[],
-  builtinPrompts: [] as Prompt[],
 
-  init(builtinPrompts: Prompt[], userPrompts: Prompt[]) {
+  init(userPrompts: Prompt[]) {
     if (this.ready) {
+      this.setUserPrompts(userPrompts);
       return;
     }
-    this.allPrompts = userPrompts.concat(builtinPrompts);
-    this.builtinPrompts = builtinPrompts.slice();
-    this.builtinEngine.setCollection(builtinPrompts);
-    this.userEngine.setCollection(userPrompts);
+    this.setUserPrompts(userPrompts);
     this.ready = true;
+  },
+
+  setUserPrompts(userPrompts: Prompt[]) {
+    this.allPrompts = userPrompts.slice();
+    this.userEngine.setCollection(userPrompts);
   },
 
   remove(id: string) {
     this.userEngine.remove((doc) => doc.id === id);
-  },
-
-  removeBuiltin(id: string) {
-    this.builtinPrompts = this.builtinPrompts.filter((doc) => doc.id !== id);
-    this.builtinEngine.remove((doc) => doc.id === id);
   },
 
   add(prompt: Prompt) {
@@ -47,26 +39,14 @@ export const SearchService = {
   },
 
   search(text: string) {
-    const userResults = this.userEngine.search(text);
-    const builtinResults = this.builtinEngine.search(text);
-    return userResults.concat(builtinResults).map((v) => v.item);
+    return this.userEngine.search(text).map((v) => v.item);
   },
 };
-
-function getBuiltinPromptId(title: string, content: string, index: number) {
-  const source = `${index}:${title}:${content}`;
-  let hash = 0;
-  for (let i = 0; i < source.length; i += 1) {
-    hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
-  }
-  return `builtin-${index}-${hash.toString(36)}`;
-}
 
 export const usePromptStore = createPersistStore(
   {
     counter: 0,
     prompts: {} as Record<string, Prompt>,
-    hiddenBuiltinPromptIds: [] as string[],
     deletedPromptIds: [] as string[],
   },
 
@@ -94,10 +74,6 @@ export const usePromptStore = createPersistStore(
     get(id: string) {
       const targetPrompt = get().prompts[id];
 
-      if (!targetPrompt) {
-        return SearchService.builtinPrompts.find((v) => v.id === id);
-      }
-
       return targetPrompt;
     },
 
@@ -123,17 +99,6 @@ export const usePromptStore = createPersistStore(
       SearchService.remove(id);
     },
 
-    hideBuiltinPrompt(id: string) {
-      get().update((state) => {
-        state.hiddenBuiltinPromptIds = Array.from(
-          new Set([...(state.hiddenBuiltinPromptIds ?? []), id]),
-        );
-        state.counter = get().counter + 1;
-      });
-
-      SearchService.removeBuiltin(id);
-    },
-
     getUserPrompts() {
       const deletedPromptIds = new Set(get().deletedPromptIds ?? []);
       const userPrompts = Object.values(get().prompts ?? {}).filter(
@@ -142,6 +107,7 @@ export const usePromptStore = createPersistStore(
       userPrompts.sort((a, b) =>
         b.id && a.id ? b.createdAt - a.createdAt : 0,
       );
+      SearchService.setUserPrompts(userPrompts);
       return userPrompts;
     },
 
@@ -165,22 +131,14 @@ export const usePromptStore = createPersistStore(
 
     search(text: string) {
       if (text.length === 0) {
-        // return all rompts
-        const hiddenBuiltinPromptIds = new Set(
-          get().hiddenBuiltinPromptIds ?? [],
-        );
-        return this.getUserPrompts().concat(
-          SearchService.builtinPrompts.filter(
-            (prompt) => !hiddenBuiltinPromptIds.has(prompt.id),
-          ),
-        );
+        return this.getUserPrompts();
       }
-      const hiddenBuiltinPromptIds = new Set(
-        get().hiddenBuiltinPromptIds ?? [],
+      return this.getUserPrompts().filter((prompt) =>
+        `${prompt.title}
+${prompt.content}`
+          .toLowerCase()
+          .includes(text.toLowerCase()),
       );
-      return SearchService.search(text).filter(
-        (prompt) => prompt.isUser || !hiddenBuiltinPromptIds.has(prompt.id),
-      ) as Prompt[];
     },
   }),
   {
@@ -190,7 +148,6 @@ export const usePromptStore = createPersistStore(
     migrate(state, version) {
       const newState = JSON.parse(JSON.stringify(state)) as {
         prompts: Record<string, Prompt>;
-        hiddenBuiltinPromptIds?: string[];
         deletedPromptIds?: string[];
       };
 
@@ -198,59 +155,9 @@ export const usePromptStore = createPersistStore(
         Object.values(newState.prompts).forEach((p) => (p.id = nanoid()));
       }
 
-      newState.hiddenBuiltinPromptIds = newState.hiddenBuiltinPromptIds ?? [];
       newState.deletedPromptIds = newState.deletedPromptIds ?? [];
 
       return newState as any;
-    },
-
-    onRehydrateStorage(state) {
-      // Skip store rehydration on server side
-      if (typeof window === "undefined") {
-        return;
-      }
-
-      const PROMPT_URL = "/prompts.json";
-
-      type PromptList = Array<[string, string]>;
-
-      fetch(PROMPT_URL)
-        .then((res) => {
-          const contentType = res.headers.get("content-type") || "";
-          if (!res.ok || !contentType.includes("application/json")) {
-            throw new Error(
-              `[Prompt] prompts.json load failed: ${res.status} ${contentType}`,
-            );
-          }
-          return res.json();
-        })
-        .then((res) => {
-          const promptList: PromptList = res.cn || [];
-          const hiddenBuiltinPromptIds = new Set(
-            usePromptStore.getState().hiddenBuiltinPromptIds ?? [],
-          );
-          const builtinPrompts = promptList.map(
-            ([title, content], index) =>
-              ({
-                id: getBuiltinPromptId(title, content, index),
-                title,
-                content,
-                createdAt: Date.now(),
-              }) as Prompt,
-          );
-
-          const userPrompts = usePromptStore.getState().getUserPrompts() ?? [];
-
-          const allPromptsForSearch = builtinPrompts.filter(
-            (v) =>
-              !!v.title && !!v.content && !hiddenBuiltinPromptIds.has(v.id),
-          );
-          SearchService.count.builtin = promptList.length;
-          SearchService.init(allPromptsForSearch, userPrompts);
-        })
-        .catch((error) => {
-          console.warn("[Prompt] 内置提示词加载失败:", error);
-        });
     },
   },
 );

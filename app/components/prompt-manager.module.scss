@@ -7,6 +7,31 @@
 .content {
   padding: 20px;
   overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.promptLoading {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 240px;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.promptLoadingText {
+  position: absolute;
+  top: calc(50% + 54px);
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  color: var(--black);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0.62;
 }
 
 .page :global([class*="list-item"]),
@@ -35,7 +60,11 @@
 
 // 与聊天记录搜索框保持一致，不影响聊天页输入框。
 .page
-  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):not(:disabled):not(:read-only) {
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    select
+  ):not(:disabled):not(:read-only) {
   &:hover {
     border-width: 2px;
     border-color: var(--primary);
@@ -48,8 +77,7 @@
     border-width: 2px;
     border-color: var(--primary);
     background-color: var(--white);
-    box-shadow: 0 0 0 2px
-      color-mix(in srgb, var(--primary) 18%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
     outline: none;
   }
 }
@@ -1070,4 +1098,5 @@
     display: flex;
     align-items: center;
     justify-content: center;
-  }}
+  }
+}

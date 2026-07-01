@@ -14,11 +14,13 @@ import ConfirmIcon from "../icons/confirm.svg";
 import TrashIcon from "../icons/trash.svg";
 import EyeIcon from "../icons/eye.svg";
 import { useNavigate } from "react-router-dom";
-import { usePromptStore, type Prompt, SearchService } from "../store/prompt";
+import { usePromptStore, type Prompt } from "../store/prompt";
 import { Path, StoreKey } from "../constant";
+import { LoadingView } from "./loading-view";
 import styles from "./prompt-manager.module.scss";
 
 type PromptModalMode = "create" | "edit";
+const MIN_PROMPT_LOADING_DURATION_MS = 700;
 
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -77,7 +79,6 @@ export function PromptManagerPage() {
 
   const [searchText, setSearchText] = useState("");
   const [editingPromptId, setEditingPromptId] = useState<string | undefined>();
-  const [editingPromptIsUser, setEditingPromptIsUser] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState<{
     title: string;
     content: string;
@@ -85,8 +86,54 @@ export function PromptManagerPage() {
   const [promptModalMode, setPromptModalMode] =
     useState<PromptModalMode>("create");
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(true);
   const promptSyncingRef = useRef(false);
   const promptSyncTaskCountRef = useRef(0);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    const loadPromptsFromDatabase = async () => {
+      const loadingStartedAt = Date.now();
+      let loadSucceeded = false;
+      showTopNotice("正在从数据库读取提示词...");
+      try {
+        const { useSyncStore } = await import("../store/sync");
+        await useSyncStore.getState().sync([StoreKey.Prompt], {
+          force: true,
+          isolateQueue: true,
+          downloadOnlyRegular: true,
+          silentSummary: true,
+          abortSignal: abortController.signal,
+        });
+        loadSucceeded = true;
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        console.error("[PromptManager] 从数据库读取提示词失败:", error);
+        showTopNotice("从数据库读取提示词失败，已保留本地数据");
+        showToast("提示词读取失败，请检查数据库连接");
+      } finally {
+        const remainingLoadingTime = Math.max(
+          0,
+          MIN_PROMPT_LOADING_DURATION_MS - (Date.now() - loadingStartedAt),
+        );
+        if (remainingLoadingTime > 0) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, remainingLoadingTime),
+          );
+        }
+        if (!abortController.signal.aborted) {
+          setIsLoadingPrompts(false);
+          if (loadSucceeded) {
+            showTopNotice("提示词已从数据库更新");
+          }
+        }
+      }
+    };
+
+    void loadPromptsFromDatabase();
+    return () => abortController.abort();
+  }, []);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -104,30 +151,13 @@ export function PromptManagerPage() {
   const userPrompts = useMemo(() => {
     const all = promptStore.getUserPrompts();
     if (searchText.length === 0) return all;
-    return promptStore.search(searchText).filter((p) => p.isUser);
+    return promptStore.search(searchText);
   }, [promptStore, searchText]);
 
-  const builtinPrompts = useMemo(() => {
-    const hiddenBuiltinPromptIds = new Set(
-      promptStore.hiddenBuiltinPromptIds ?? [],
-    );
-    const all = SearchService.builtinPrompts.filter(
-      (prompt) => !hiddenBuiltinPromptIds.has(prompt.id),
-    );
-    if (searchText.length === 0) return all;
-    return SearchService.search(searchText).filter(
-      (p) => !p.isUser && !hiddenBuiltinPromptIds.has(p.id),
-    );
-  }, [promptStore.hiddenBuiltinPromptIds, searchText]);
-
-  const allPrompts = useMemo(
-    () => [...userPrompts, ...builtinPrompts],
-    [builtinPrompts, userPrompts],
-  );
+  const allPrompts = userPrompts;
 
   const openCreateModal = () => {
     setEditingPromptId(undefined);
-    setEditingPromptIsUser(true);
     setEditingPrompt({ title: "", content: "" });
     setPromptModalMode("create");
     setIsPromptModalOpen(true);
@@ -135,7 +165,6 @@ export function PromptManagerPage() {
 
   const openEditModal = (prompt: Prompt) => {
     setEditingPromptId(prompt.id);
-    setEditingPromptIsUser(Boolean(prompt.isUser));
     setEditingPrompt({ title: prompt.title, content: prompt.content });
     setPromptModalMode("edit");
     setIsPromptModalOpen(true);
@@ -195,7 +224,7 @@ export function PromptManagerPage() {
       return;
     }
 
-    if (editingPromptId && editingPromptIsUser) {
+    if (editingPromptId) {
       promptStore.updatePrompt(editingPromptId, (p) => {
         p.title = editingPrompt.title;
         p.content = editingPrompt.content;
@@ -210,14 +239,8 @@ export function PromptManagerPage() {
         isUser: true,
         createdAt: Date.now(),
       });
-      if (editingPromptId && !editingPromptIsUser) {
-        promptStore.hideBuiltinPrompt(editingPromptId);
-        showToast("已保存为我的提示词");
-        void syncPromptsToDatabase("提示词同步成功");
-      } else {
-        showToast("提示词已添加");
-        void syncPromptsToDatabase("提示词同步成功");
-      }
+      showToast("提示词已添加");
+      void syncPromptsToDatabase("提示词同步成功");
     }
 
     setEditingPromptId(undefined);
@@ -228,18 +251,13 @@ export function PromptManagerPage() {
     const confirmed = await showConfirm("确定要删除这个提示词吗？");
     if (!confirmed) return;
 
-    if (prompt.isUser) {
-      promptStore.remove(prompt.id);
-    } else {
-      promptStore.hideBuiltinPrompt(prompt.id);
-    }
+    promptStore.remove(prompt.id);
     showToast("提示词已删除");
     void syncPromptsToDatabase("提示词同步成功");
   };
 
   const closeModal = () => {
     setEditingPromptId(undefined);
-    setEditingPromptIsUser(false);
     setIsPromptModalOpen(false);
   };
 
@@ -313,70 +331,82 @@ export function PromptManagerPage() {
       </div>
 
       <div className={styles.content}>
-        <List className={styles.promptList}>
-          <ListItem
-            title="当前状态"
-            subTitle={`当前共 ${totalPromptCount} 条提示词`}
-          />
-
-          <ListItem
-            title="搜索和管理"
-            subTitle="你可以搜索、查看并编辑、删除提示词"
-            vertical
-            className={styles.toolbarItem}
+        {isLoadingPrompts ? (
+          <div
+            className={styles.promptLoading}
+            aria-label="正在从数据库读取提示词"
           >
-            <div className={styles.searchBar}>
-              <input
-                type="text"
-                placeholder="搜索提示词..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className={styles.searchInput}
-              />
-              <IconButton
-                icon={<AddIcon />}
-                text="新增提示词"
-                bordered
-                className={styles.addPromptButton}
-                onClick={openCreateModal}
-              />
+            <LoadingView size="splash" className="no-dark" />
+            <div className={styles.promptLoadingText}>
+              正在加载最新提示词...
             </div>
-          </ListItem>
-
-          <ListItem
-            title={`提示词列表 (${allPrompts.length})`}
-            subTitle="提示词已合并展示，点击标题可查看完整内容"
-            className={styles.sectionHeader}
-          />
-
-          {allPrompts.length === 0 ? (
+          </div>
+        ) : (
+          <List className={styles.promptList}>
             <ListItem
-              title={
-                <div className={styles.emptyState}>
-                  <span className={styles.emptyIcon}>✦</span>
-                  <span>
-                    {searchText.trim() ? "未搜索到相关提示词" : "暂无提示词"}
-                  </span>
-                </div>
-              }
-              subTitle={
-                searchText.trim()
-                  ? "请尝试更换关键词或清空搜索条件"
-                  : "点击上方按钮添加提示词"
-              }
-              className={styles.emptyItem}
+              title="当前状态"
+              subTitle={`当前共 ${totalPromptCount} 条提示词`}
             />
-          ) : (
-            <div className={styles.promptTable}>
-              <div className={styles.promptTableHeader}>
-                <div className={styles.promptColTitle}>标题</div>
-                <div className={styles.promptColContent}>内容</div>
-                <div className={styles.promptColActions}>操作</div>
+
+            <ListItem
+              title="搜索和管理"
+              subTitle="你可以搜索、查看并编辑、删除提示词"
+              vertical
+              className={styles.toolbarItem}
+            >
+              <div className={styles.searchBar}>
+                <input
+                  type="text"
+                  placeholder="搜索提示词..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className={styles.searchInput}
+                />
+                <IconButton
+                  icon={<AddIcon />}
+                  text="新增提示词"
+                  bordered
+                  className={styles.addPromptButton}
+                  onClick={openCreateModal}
+                />
               </div>
-              {allPrompts.map((prompt) => renderPromptRow(prompt))}
-            </div>
-          )}
-        </List>
+            </ListItem>
+
+            <ListItem
+              title={`提示词列表 (${allPrompts.length})`}
+              subTitle="提示词已合并展示，点击标题可查看完整内容"
+              className={styles.sectionHeader}
+            />
+
+            {allPrompts.length === 0 ? (
+              <ListItem
+                title={
+                  <div className={styles.emptyState}>
+                    <span className={styles.emptyIcon}>✦</span>
+                    <span>
+                      {searchText.trim() ? "未搜索到相关提示词" : "暂无提示词"}
+                    </span>
+                  </div>
+                }
+                subTitle={
+                  searchText.trim()
+                    ? "请尝试更换关键词或清空搜索条件"
+                    : "点击上方按钮添加提示词"
+                }
+                className={styles.emptyItem}
+              />
+            ) : (
+              <div className={styles.promptTable}>
+                <div className={styles.promptTableHeader}>
+                  <div className={styles.promptColTitle}>标题</div>
+                  <div className={styles.promptColContent}>内容</div>
+                  <div className={styles.promptColActions}>操作</div>
+                </div>
+                {allPrompts.map((prompt) => renderPromptRow(prompt))}
+              </div>
+            )}
+          </List>
+        )}
       </div>
 
       {isPromptModalOpen && (

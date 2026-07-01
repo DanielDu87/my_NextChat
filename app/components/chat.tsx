@@ -659,6 +659,11 @@ const UNFINISHED_ATTACH_IMAGES = (id: string) =>
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
+const PROMPT_PICKER_LOADED_STORAGE_KEY = "nextchat:prompt-picker-loaded";
+
+if (typeof window !== "undefined") {
+  localStorage.removeItem(PROMPT_PICKER_LOADED_STORAGE_KEY);
+}
 
 type ComposerAttachedImage = {
   id: string;
@@ -2418,6 +2423,7 @@ export function PromptHints(props: {
 
 function PromptPickerModal(props: {
   prompts: RenderPrompt[];
+  isLoading: boolean;
   onClose: () => void;
   onManage: () => void;
   onPromptSelect: (prompt: RenderPrompt) => void;
@@ -2475,7 +2481,18 @@ function PromptPickerModal(props: {
         </div>
 
         <div className={styles["prompt-picker-list"]}>
-          {visiblePrompts.length === 0 ? (
+          {props.isLoading ? (
+            <div
+              className={clsx(
+                styles["prompt-picker-empty"],
+                styles["prompt-picker-loading"],
+              )}
+              aria-label="正在从数据库加载提示词"
+            >
+              <LoadingIcon className={styles["prompt-picker-loading-dots"]} />
+              <div>正在从数据库加载提示词...</div>
+            </div>
+          ) : visiblePrompts.length === 0 ? (
             <div className={styles["prompt-picker-empty"]}>
               <div className={styles["prompt-picker-empty-icon"]}>🔍</div>
               <div>{keyword ? "未搜索到相关提示词" : "暂无可用提示词"}</div>
@@ -4717,6 +4734,8 @@ function _Chat() {
   const promptStore = usePromptStore();
   const [promptHints, setPromptHints] = useState<RenderPrompt[]>([]);
   const [showPromptPicker, setShowPromptPicker] = useState(false);
+  const [isPromptPickerLoading, setIsPromptPickerLoading] = useState(false);
+  const promptPickerLoadAbortRef = useRef<AbortController | null>(null);
   const pickerPrompts = useMemo(() => promptStore.search(""), [promptStore]);
   const onSearch = useDebouncedCallback(
     (text: string) => {
@@ -5078,10 +5097,63 @@ function _Chat() {
     }, 30);
   };
 
+  const loadPromptPickerFromDatabase = useCallback(async () => {
+    if (localStorage.getItem(PROMPT_PICKER_LOADED_STORAGE_KEY) === "1") {
+      setIsPromptPickerLoading(false);
+      return;
+    }
+
+    promptPickerLoadAbortRef.current?.abort();
+    const abortController = new AbortController();
+    promptPickerLoadAbortRef.current = abortController;
+    setIsPromptPickerLoading(true);
+
+    try {
+      await useSyncStore.getState().sync([StoreKey.Prompt], {
+        force: true,
+        isolateQueue: true,
+        downloadOnlyRegular: true,
+        silentSummary: true,
+        abortSignal: abortController.signal,
+      });
+      if (!abortController.signal.aborted) {
+        localStorage.setItem(PROMPT_PICKER_LOADED_STORAGE_KEY, "1");
+      }
+      // 工具栏选择器已有内联加载态，成功时不额外弹出顶部提示。
+    } catch (error) {
+      if (abortController.signal.aborted) return;
+      console.error("[PromptPicker] 从数据库读取提示词失败:", error);
+      showTopNotice("从数据库读取提示词失败，已保留本地数据");
+    } finally {
+      if (promptPickerLoadAbortRef.current === abortController) {
+        promptPickerLoadAbortRef.current = null;
+      }
+      if (!abortController.signal.aborted) {
+        setIsPromptPickerLoading(false);
+      }
+    }
+  }, [showTopNotice]);
+
+  useEffect(() => {
+    return () => {
+      promptPickerLoadAbortRef.current?.abort();
+    };
+  }, []);
+
   const togglePromptHints = useCallback(() => {
     setPromptHints([]);
-    setShowPromptPicker((show) => !show);
-  }, []);
+
+    if (showPromptPicker) {
+      promptPickerLoadAbortRef.current?.abort();
+      promptPickerLoadAbortRef.current = null;
+      setIsPromptPickerLoading(false);
+      setShowPromptPicker(false);
+      return;
+    }
+
+    setShowPromptPicker(true);
+    void loadPromptPickerFromDatabase();
+  }, [loadPromptPickerFromDatabase, showPromptPicker]);
 
   const openPromptManager = useCallback(() => {
     setPromptHints([]);
@@ -10424,7 +10496,13 @@ function _Chat() {
                   {showPromptPicker && (
                     <PromptPickerModal
                       prompts={pickerPrompts}
-                      onClose={() => setShowPromptPicker(false)}
+                      isLoading={isPromptPickerLoading}
+                      onClose={() => {
+                        promptPickerLoadAbortRef.current?.abort();
+                        promptPickerLoadAbortRef.current = null;
+                        setIsPromptPickerLoading(false);
+                        setShowPromptPicker(false);
+                      }}
                       onManage={openPromptManager}
                       onPromptSelect={onPromptSelect}
                     />

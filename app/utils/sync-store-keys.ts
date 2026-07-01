@@ -40,7 +40,11 @@ SYNC_STORE_KEYS.sort((a, b) => {
   return 0;
 });
 
-export const AUTO_SYNC_STORE_KEYS = [...SYNC_STORE_KEYS] as SyncStoreKey[];
+// 提示词以数据库为页面打开时的唯一数据源，编辑后由提示词管理页显式保存。
+// 不参加后台双向自动同步，避免旧本地快照在页面打开前覆盖数据库。
+export const AUTO_SYNC_STORE_KEYS = SYNC_STORE_KEYS.filter(
+  (key) => key !== StoreKey.Prompt,
+) as SyncStoreKey[];
 
 export const MODEL_SYNC_STORE_KEYS = [StoreKey.Config] as const;
 
@@ -61,7 +65,6 @@ export const DRAW_AUTO_SYNC_DEFERRED_STORE_KEYS =
 
 export const HOME_AUTO_SYNC_DEFERRED_STORE_KEYS = [
   StoreKey.Plugin,
-  StoreKey.Prompt,
   StoreKey.Update,
 ] as const satisfies readonly SyncStoreKey[];
 

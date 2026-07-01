@@ -114,10 +114,6 @@ export enum SlotID {
   CustomModel = "custom-model",
 }
 
-export enum FileName {
-  Prompts = "prompts.json",
-}
-
 export enum StoreKey {
   Chat = "chat-next-web-store",
   Plugin = "chat-next-web-plugin",

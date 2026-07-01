@@ -3117,13 +3117,18 @@ export const useSyncStore = createPersistStore(
           force?: boolean;
           broadcastChatHint?: boolean;
           downloadOnlyChat?: boolean;
+          downloadOnlyRegular?: boolean;
           skipChatWriteBack?: boolean;
           silentSummary?: boolean;
           manual?: boolean;
           abortSignal?: AbortSignal;
         },
       ): Promise<void> {
-        if (useAuthStore.getState().readOnly && !options?.downloadOnlyChat) {
+        if (
+          useAuthStore.getState().readOnly &&
+          !options?.downloadOnlyChat &&
+          !options?.downloadOnlyRegular
+        ) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过同步请求");
           return;
         }
@@ -3384,6 +3389,9 @@ export const useSyncStore = createPersistStore(
 
                 const currentMeta = remoteMetaMap.get(key);
                 if (!remoteDataText || remoteDataText === "") {
+                  if (options?.downloadOnlyRegular) {
+                    throw new Error(`[Sync] ${displayName}远端数据为空`);
+                  }
                   if (key === StoreKey.Config) {
                     console.log(
                       `[Sync] 🔍 Config远端为空，上传本地状态` +
@@ -3483,6 +3491,24 @@ export const useSyncStore = createPersistStore(
                 const parsedRemoteState =
                   parseStoreStatePayload(remoteDataText);
                 const parseDurationMs = nowMs() - parseStartedAt;
+                if (options?.downloadOnlyRegular) {
+                  setLocalStoreState(key, parsedRemoteState as any);
+                  localAppStateCache[key] = parsedRemoteState as any;
+                  logPerfSummary("Sync", {
+                    key,
+                    getPayloadDurationMs: Number(
+                      getPayloadDurationMs.toFixed(2),
+                    ),
+                    parseDurationMs: Number(parseDurationMs.toFixed(2)),
+                    payloadBytes: remoteDataText.length,
+                    downloadOnly: true,
+                  });
+                  return {
+                    summary: getStoreSummary(key, parsedRemoteState),
+                    status: "merged" as const,
+                    remoteSummary: getStoreSummary(key, parsedRemoteState),
+                  };
+                }
                 const mergeStartedAt = nowMs();
                 const mergedStoreState = mergeStoreState(
                   key,

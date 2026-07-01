@@ -13,7 +13,6 @@
     "app:dev": "npx tauri dev",
     "app:build": "npx tauri build",
     "app:clear": "npx tauri dev",
-    "prompts": "node ./scripts/fetch-prompts.mjs",
     "models:published-at": "npx tsx ./scripts/maintain-models-published-at.ts",
     "db:health": "npx tsx ./scripts/check-postgres-health.ts",
     "db:sync-models": "npx tsx ./scripts/sync-models-to-postgres.ts",

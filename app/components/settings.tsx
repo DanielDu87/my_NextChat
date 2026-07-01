@@ -114,7 +114,6 @@ function EditPromptModal(props: { id: string; onClose: () => void }) {
           <input
             type="text"
             value={prompt.title}
-            readOnly={!prompt.isUser}
             className={styles["edit-prompt-title"]}
             onInput={(e) =>
               promptStore.updatePrompt(
@@ -125,7 +124,6 @@ function EditPromptModal(props: { id: string; onClose: () => void }) {
           ></input>
           <Input
             value={prompt.content}
-            readOnly={!prompt.isUser}
             className={styles["edit-prompt-content"]}
             rows={10}
             onInput={(e) =>
@@ -143,9 +141,7 @@ function EditPromptModal(props: { id: string; onClose: () => void }) {
 
 function UserPromptModal(props: { onClose?: () => void }) {
   const promptStore = usePromptStore();
-  const userPrompts = promptStore.getUserPrompts();
-  const builtinPrompts = SearchService.builtinPrompts;
-  const allPrompts = userPrompts.concat(builtinPrompts);
+  const allPrompts = promptStore.getUserPrompts();
   const [searchInput, setSearchInput] = useState("");
   const [searchPrompts, setSearchPrompts] = useState<Prompt[]>([]);
   const prompts = searchInput.length > 0 ? searchPrompts : allPrompts;
@@ -204,26 +200,16 @@ function UserPromptModal(props: { onClose?: () => void }) {
                 </div>
 
                 <div className={styles["user-prompt-buttons"]}>
-                  {v.isUser && (
-                    <IconButton
-                      icon={<ClearIcon />}
-                      className={styles["user-prompt-button"]}
-                      onClick={() => promptStore.remove(v.id!)}
-                    />
-                  )}
-                  {v.isUser ? (
-                    <IconButton
-                      icon={<EditIcon />}
-                      className={styles["user-prompt-button"]}
-                      onClick={() => setEditingPromptId(v.id)}
-                    />
-                  ) : (
-                    <IconButton
-                      icon={<EyeIcon />}
-                      className={styles["user-prompt-button"]}
-                      onClick={() => setEditingPromptId(v.id)}
-                    />
-                  )}
+                  <IconButton
+                    icon={<ClearIcon />}
+                    className={styles["user-prompt-button"]}
+                    onClick={() => promptStore.remove(v.id!)}
+                  />
+                  <IconButton
+                    icon={<EditIcon />}
+                    className={styles["user-prompt-button"]}
+                    onClick={() => setEditingPromptId(v.id)}
+                  />
                   <IconButton
                     icon={<CopyIcon />}
                     className={styles["user-prompt-button"]}
@@ -510,8 +496,7 @@ export function Settings() {
 
   const accessStore = useAccessStore();
   const promptStore = usePromptStore();
-  const builtinCount = SearchService.count.builtin;
-  const customCount = promptStore.getUserPrompts().length ?? 0;
+  const promptCount = promptStore.getUserPrompts().length ?? 0;
   const [shouldShowPromptModal, setShowPromptModal] = useState(false);
 
   useEffect(() => {
@@ -1658,10 +1643,7 @@ export function Settings() {
 
           <ListItem
             title={Locale.Settings.Prompt.List}
-            subTitle={Locale.Settings.Prompt.ListCount(
-              builtinCount,
-              customCount,
-            )}
+            subTitle={`共 ${promptCount} 条提示词`}
           >
             <IconButton
               aria={Locale.Settings.Prompt.List + Locale.Settings.Prompt.Edit}

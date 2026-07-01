@@ -34,7 +34,6 @@ const IMMEDIATE_SYNC_STORE_KEYS = new Set<SyncStoreKey>([
   StoreKey.Access,
   StoreKey.Config,
   StoreKey.DrawList,
-  StoreKey.Prompt,
   StoreKey.Plugin,
 ]);
 
@@ -44,7 +43,6 @@ const IMMEDIATE_SYNC_STORE_DISPLAY_NAMES: Partial<
   [StoreKey.Access]: "API配置",
   [StoreKey.Config]: "模型与设置",
   [StoreKey.DrawList]: "绘图记录",
-  [StoreKey.Prompt]: "提示词",
   [StoreKey.Plugin]: "插件",
 };
 
