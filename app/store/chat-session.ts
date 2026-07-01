@@ -4,7 +4,7 @@ import { ChatSession, normalizeSession, useChatStore } from "./chat";
 
 // loading 延迟显示阈值（毫秒）：hydrate 在该时间内完成则完全不显示遮罩，
 // 避免极短的 IndexedDB 读取触发一闪而过的 splash 动画造成碍眼
-const SESSION_LOADING_DELAY_MS = 150;
+const SESSION_LOADING_DELAY_MS = 50;
 
 // 延迟门控：flag 置 true 时延迟一段时间才对外生效；置 false 时立即生效。
 // 用于消除快速加载时的 loading 闪烁，同时保证内容就绪后立刻撤掉遮罩。

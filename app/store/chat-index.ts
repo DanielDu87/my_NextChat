@@ -14,7 +14,7 @@ import { logger } from "../utils/logger";
 
 const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 20;
 const LOAD_MORE_SESSION_TITLE_COUNT = 10;
-const INITIAL_PRELOAD_SESSION_BODY_COUNT = 2;
+const INITIAL_PRELOAD_SESSION_BODY_COUNT = 5;
 
 type ChatIndexState = {
   allOrderedSessionIds: string[];

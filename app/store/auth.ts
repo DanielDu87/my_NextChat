@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
-import { StoreKey } from "@/app/constant";
+import { Path, StoreKey } from "@/app/constant";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
@@ -187,7 +187,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await resetClientCache("", true);
     window.location.reload();
   },
-  async switchUser(userId: string) {
+  async switchUser(
+    userId: string,
+    userPreview?: { username?: string; displayName?: string },
+  ) {
+    // 立即更新 UI，显示正在切换的用户信息（如果提供了预览数据）
+    if (userPreview) {
+      set({
+        effectiveUser: {
+          id: userId,
+          username: userPreview.username || "",
+          displayName: userPreview.displayName || userPreview.username || "",
+          role: "user",
+        },
+        isImpersonating: true,
+        readOnly: false,
+      });
+    }
+
+    // 立即设置 cache marker，让持久化存储知道我们要切换到新用户
+    setCacheMarker(userId);
+
+    // 立即重置 UI，避免 API 等待期间保留旧数据
+    const chatStoreModule = import("./chat");
+    const chatIndexModule = import("./chat-index");
+    const { useChatStore: chatStore } = await chatStoreModule;
+    const { useChatIndexStore } = await chatIndexModule;
+
+    // 立即重置 chat store 和 chat index store，确保不显示旧用户的历史对话
+    chatStore.getState().resetForUserSwitch({ sync: false });
+
+    // 立即同步 index store 到新状态
+    useChatIndexStore.getState().syncFromChatStore();
+
+    // 清除 URL 中的旧会话 ID，并通过 popstate 通知 React Router 更新内部状态
+    try {
+      window.history.replaceState(null, "", Path.Chat);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } catch {}
+
     const response = await fetch("/api/admin/switch-user", {
       method: "POST",
       headers: {
@@ -197,7 +235,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || payload?.ok !== true) {
-      throw new Error(String(payload?.error || "切换用户失败"));
+      // API 失败，刷新页面恢复到切换前状态
+      window.location.reload();
+      return;
     }
 
     const effectiveUser = payload.effectiveUser
@@ -211,24 +251,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       : null;
 
+    // 确保最终状态是正确的
     set({
       effectiveUser,
       isImpersonating: true,
       readOnly: false,
     });
 
+    // 再次确认 cache marker 设置正确
     setCacheMarker(String(effectiveUser?.id || ""));
 
-    const [{ useChatStore }, { useChatIndexStore }, { useSyncStore }] =
-      await Promise.all([
-        import("./chat"),
-        import("./chat-index"),
-        import("./sync"),
-      ]);
-    await useChatStore.getState().resetForUserSwitch({ sync: false });
-    await (useChatStore as any).persist?.rehydrate?.();
-    useChatStore.getState().initializeForNewPage?.();
+    const { useSyncStore } = await import("./sync");
+    // 先 rehydrate 新用户的数据
+    await (chatStore as any).persist?.rehydrate?.();
+    // 然后初始化新页面，显示新空会话或加载新用户的已有会话
+    chatStore.getState().initializeForNewPage?.();
     useChatIndexStore.getState().syncFromChatStore();
+    // 最后同步新用户的远端对话
     useSyncStore.getState().sync([StoreKey.Chat], {
       isolateQueue: true,
       downloadOnlyChat: true,

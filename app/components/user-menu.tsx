@@ -491,7 +491,10 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
 
     setShowManageModal(false);
     try {
-      await switchUser(managedUser.id);
+      await switchUser(managedUser.id, {
+        username: managedUser.username,
+        displayName: managedUser.displayName,
+      });
       navigate(Path.Chat, { replace: true });
     } catch (error) {
       showToast(error instanceof Error ? error.message : "切换用户失败");
