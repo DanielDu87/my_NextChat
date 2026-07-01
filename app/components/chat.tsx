@@ -3050,6 +3050,59 @@ export function DeleteImageButton(props: { deleteImage: () => void }) {
   );
 }
 
+function ChatImage(props: {
+  url: string;
+  className: string;
+  onOpen: (url: string) => void;
+}) {
+  const { url, className, onOpen } = props;
+  // 加载状态：loading 时显示占位符，加载完成或失败后移除占位层
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading",
+  );
+
+  // 缓存命中时图片可能在 React 绑定 onLoad 之前就已就绪，
+  // 在 img 挂载瞬间检测 complete，命中则直接进入 loaded，避免占位符闪烁
+  const handleImgRef = useCallback((node: HTMLImageElement | null) => {
+    if (node && node.complete) {
+      setStatus(node.naturalWidth > 0 ? "loaded" : "error");
+    }
+  }, []);
+
+  return (
+    <span
+      className={clsx(styles["chat-message-item-image-wrapper"], className)}
+      data-status={status}
+    >
+      {status === "loading" && (
+        <span
+          className={styles["chat-message-item-image-placeholder"]}
+          aria-hidden="true"
+        />
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={handleImgRef}
+        className={styles["chat-message-item-image-inner"]}
+        src={url}
+        alt=""
+        role="button"
+        tabIndex={0}
+        title="点击查看原图"
+        onLoad={() => setStatus("loaded")}
+        onError={() => setStatus("error")}
+        onClick={() => onOpen(url)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen(url);
+          }
+        }}
+      />
+    </span>
+  );
+}
+
 function renderGeneratedMedia(
   url: string,
   className: string,
@@ -3090,22 +3143,11 @@ function renderGeneratedMedia(
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      className={className}
+    <ChatImage
       key={key}
-      src={url}
-      alt=""
-      role="button"
-      tabIndex={0}
-      title="点击查看原图"
-      onClick={() => showImageModal(url, true)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          showImageModal(url, true);
-        }
-      }}
+      url={url}
+      className={className}
+      onOpen={(target) => showImageModal(target, true)}
     />
   );
 }
@@ -4935,6 +4977,9 @@ function _Chat() {
       );
       if (targetMessage && targetMessage.role === "assistant") {
         targetMessage.manualStopped = true;
+        // 同步落定停止状态：若停止后立即刷新，持久化的消息也不会残留
+        // streaming=true 而被误判为"刷新中断"，从而保留手动停止标识
+        targetMessage.streaming = false;
       }
     });
     const stopped = ChatControllerPool.stop(session.id, messageId);
@@ -4971,7 +5016,10 @@ function _Chat() {
         return false;
       }
 
-      return m.content.length === 0;
+      // 已标记手动停止/刷新中断的空消息无需再标准化（保持幂等）
+      return (
+        !m.manualStopped && !m.refreshInterrupted && m.content.length === 0
+      );
     });
 
     if (!shouldNormalizeMessages) {
@@ -4985,7 +5033,16 @@ function _Chat() {
     const normalizedMessages = latestSession.messages.reduce<
       typeof latestSession.messages
     >((messages, m) => {
-      if (isStaleAssistantLoadingBubble(m)) {
+      const hasActiveController =
+        Boolean(m.streaming) &&
+        Boolean(m.id) &&
+        ChatControllerPool.has(latestSession.id, m.id);
+      const shouldInterruptStaleStreaming =
+        Boolean(m.streaming) && (!m.id || !hasActiveController);
+
+      // 空内容僵尸气泡：preview 占位（未发起请求）才删除；
+      // 已发起请求的 streaming 残留要保留并标记为"刷新中断"（即使一字未收）
+      if (isStaleAssistantLoadingBubble(m) && !shouldInterruptStaleStreaming) {
         hasNormalizedMessages = true;
         return messages;
       }
@@ -4999,28 +5056,21 @@ function _Chat() {
         return nextMessage;
       };
 
-      const hasActiveController =
-        Boolean(m.streaming) &&
-        Boolean(m.id) &&
-        ChatControllerPool.has(latestSession.id, m.id);
-      const shouldInterruptStaleStreaming =
-        Boolean(m.streaming) && (!m.id || !hasActiveController);
       const shouldNormalizeEmptyResponse =
         !m.manualStopped &&
+        !m.refreshInterrupted &&
+        !shouldInterruptStaleStreaming &&
         (m.isError || new Date(m.date).getTime() < stopTiming) &&
         m.content.length === 0;
 
       if (shouldInterruptStaleStreaming) {
         const message = updateMessage();
-        const interruptedSuffix = "\n\n响应因页面刷新而中断";
-        const currentContent = getMessageTextContent(message).trimEnd();
+        // 标记为"刷新中断"，保留已收到的部分正文（可能为空）；
+        // 已手动停止的消息不覆盖其语义，仅落定 streaming 状态
         message.streaming = false;
-        message.isError = true;
-        message.content = currentContent
-          ? currentContent.endsWith("响应因页面刷新而中断")
-            ? currentContent
-            : `${currentContent}${interruptedSuffix}`
-          : "响应因页面刷新而中断";
+        if (!message.manualStopped) {
+          message.refreshInterrupted = true;
+        }
       }
 
       if (shouldNormalizeEmptyResponse) {
@@ -10030,7 +10080,8 @@ function _Chat() {
                                             )}
                                           <Markdown
                                             key={
-                                              message.manualStopped
+                                              message.manualStopped ||
+                                              message.refreshInterrupted
                                                 ? "stopped"
                                                 : message.streaming
                                                 ? "loading"
@@ -10040,6 +10091,7 @@ function _Chat() {
                                             loading={
                                               !isUser &&
                                               !message.manualStopped &&
+                                              !message.refreshInterrupted &&
                                               !message.isError &&
                                               ((message as any).preview ||
                                                 message.streaming) &&
@@ -10090,11 +10142,14 @@ function _Chat() {
                                         })}
                                       </div>
                                     )}
-                                    {message.manualStopped && (
+                                    {(message.manualStopped ||
+                                      message.refreshInterrupted) && (
                                       <div
                                         className={styles["manual-stop-marker"]}
                                       >
-                                        【手动停止】
+                                        {message.refreshInterrupted
+                                          ? "【刷新中断】"
+                                          : "【手动停止】"}
                                       </div>
                                     )}
                                   </div>
@@ -11311,6 +11366,7 @@ export function Chat() {
   const { id: urlSessionId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const isMobileScreen = useMobileScreen();
   const isNavigatingFromUrl = useRef(false);
 
   // 从 URL 恢复对话选中
@@ -11326,8 +11382,10 @@ export function Chat() {
     }
   }, [sessionIdListKey, urlSessionId]);
 
-  // 首页默认显示新对话
+  // 首页默认显示新对话（仅桌面端：首页同时展示列表与对话面板，
+  // 需保证面板停在新对话。移动端首页只是列表，返回列表时应保留刚查看的会话选中态，不可重置）
   useEffect(() => {
+    if (isMobileScreen) return;
     if (location.pathname !== Path.Home) return;
     const store = useChatStore.getState();
     const currentSession = store.currentSession();
@@ -11343,7 +11401,7 @@ export function Chat() {
     if (!isFresh) {
       store.newSession();
     }
-  }, [location.pathname]);
+  }, [location.pathname, isMobileScreen]);
 
   // 对话变化时同步 URL
   useEffect(() => {

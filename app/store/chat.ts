@@ -271,6 +271,7 @@ export type ChatMessage = RequestMessage & {
   isMcpResponse?: boolean;
   usage?: ChatMessageUsage;
   manualStopped?: boolean;
+  refreshInterrupted?: boolean;
   attachedFiles?: ChatMessageAttachedFile[];
   attachedFilesPromptText?: string;
   aiSelectionText?: string;

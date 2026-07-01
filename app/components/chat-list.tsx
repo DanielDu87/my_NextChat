@@ -201,6 +201,8 @@ export function ChatList() {
   const loadingMoreTimerRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const pendingScrollElementRef = useRef<HTMLDivElement | null>(null);
+  // 标记本次页面加载是否已将当前会话滚动到可视区（仅刷新场景执行一次）
+  const scrolledToCurrentOnMountRef = useRef(false);
   const hasMoreSessions =
     orderedSessionIds.length < allOrderedSessionIds.length;
 
@@ -416,6 +418,51 @@ export function ChatList() {
 
     return () => observer.disconnect();
   }, [shouldVirtualize]);
+
+  // 刷新后：将当前查看的会话滚动到侧边栏可视区中间（仅滚动，不改变会话顺序）
+  useEffect(() => {
+    if (scrolledToCurrentOnMountRef.current) {
+      return;
+    }
+    // 列表未初始化时滚动容器尚未渲染，等就绪后（依赖变化）再尝试
+    if (!initialized || deferredFilterText || !effectiveCurrentSessionId) {
+      return;
+    }
+    if (filteredSessions.length === 0) {
+      return;
+    }
+    const targetIndex = filteredSessions.findIndex(
+      (item) => item.session.id === effectiveCurrentSessionId,
+    );
+    if (targetIndex < 0) {
+      return;
+    }
+
+    // 推迟到下一帧，确保滚动容器已挂载且布局稳定（clientHeight 可用）
+    const raf = window.requestAnimationFrame(() => {
+      const dom = listRef.current;
+      if (!dom) {
+        return;
+      }
+      scrolledToCurrentOnMountRef.current = true;
+      const viewport = dom.clientHeight || 0;
+      const maxScrollTop = Math.max(0, dom.scrollHeight - viewport);
+      // 让目标会话居中显示
+      const centeredTop =
+        targetIndex * itemHeight - Math.max(0, (viewport - itemHeight) / 2);
+      const nextTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
+      dom.scrollTop = nextTop;
+      setScrollTop(nextTop);
+    });
+
+    return () => window.cancelAnimationFrame(raf);
+  }, [
+    initialized,
+    deferredFilterText,
+    effectiveCurrentSessionId,
+    filteredSessions,
+    itemHeight,
+  ]);
 
   useEffect(() => {
     return () => {

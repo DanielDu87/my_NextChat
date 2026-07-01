@@ -623,7 +623,9 @@ export function SideBar(props: { className?: string }) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;
                 }
-                if (isCurrentFreshDefaultChat()) {
+                // 移动端列表页点击应直接进入新对话视图；
+                // 桌面端列表与对话面板同屏，已是空白新对话时无需跳转
+                if (!isMobileScreen && isCurrentFreshDefaultChat()) {
                   return;
                 }
                 navigate(Path.NewChat);

@@ -102,25 +102,42 @@ function parseRangeHeader(rangeHeader: string | null, sizeBytes: number) {
   return { start, end, invalid: false as const };
 }
 
-function buildInlineHeaders(file: {
-  fileName: string;
-  fileExt: string;
-  contentType: string;
-  sizeBytes: number;
-}) {
-  return {
+// 缓存文件按 uuid 寻址且内容不可变（同一 uuid 永远是同一份内容），
+// 因此可安全启用强缓存，避免每次刷新都重新下载。
+// 接口按用户鉴权隔离，必须用 private 防止共享代理/CDN 缓存到他人图片。
+const CACHE_FILE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 天
+
+function buildCacheControl() {
+  return `private, max-age=${CACHE_FILE_MAX_AGE_SECONDS}, immutable, no-transform`;
+}
+
+function buildInlineHeaders(
+  file: {
+    fileName: string;
+    fileExt: string;
+    contentType: string;
+    sizeBytes: number;
+  },
+  uuid?: string,
+) {
+  const headers: Record<string, string> = {
     "Content-Type": getInlineContentType(
       file.fileName,
       file.fileExt,
       file.contentType,
     ),
-    "Cache-Control": "no-store, no-transform",
+    "Cache-Control": buildCacheControl(),
     "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
       file.fileName || "file",
     )}`,
     "Accept-Ranges": "bytes",
     "Content-Length": String(file.sizeBytes),
   };
+  if (uuid) {
+    // 内容寻址，uuid 即可作为稳定的 ETag，支持 304 协商缓存兜底
+    headers["ETag"] = `"${uuid}"`;
+  }
+  return headers;
 }
 
 async function resolveCacheFileMetaForRequest(
@@ -168,9 +185,16 @@ export async function HEAD(
       return new NextResponse(null, { status: 404 });
     }
 
+    if (req.headers.get("if-none-match") === `"${uuid}"`) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: { "Cache-Control": buildCacheControl(), ETag: `"${uuid}"` },
+      });
+    }
+
     return new NextResponse(null, {
       status: 200,
-      headers: buildInlineHeaders(file),
+      headers: buildInlineHeaders(file, uuid),
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -208,13 +232,21 @@ export async function GET(
       return new NextResponse(null, {
         status: 416,
         headers: {
-          ...buildInlineHeaders(fileMeta),
+          ...buildInlineHeaders(fileMeta, uuid),
           "Content-Range": `bytes */${fileMeta.sizeBytes}`,
         },
       });
     }
 
     if (!range) {
+      // 非分片请求支持 If-None-Match 协商缓存：命中则返回 304，省去重传图片体
+      if (req.headers.get("if-none-match") === `"${uuid}"`) {
+        return new NextResponse(null, {
+          status: 304,
+          headers: { "Cache-Control": buildCacheControl(), ETag: `"${uuid}"` },
+        });
+      }
+
       const file =
         (await withRetryablePostgresOperation(() =>
           getCacheFile(externalUserId, uuid),
@@ -229,7 +261,7 @@ export async function GET(
 
       return new NextResponse(file.data, {
         status: 200,
-        headers: buildInlineHeaders(file),
+        headers: buildInlineHeaders(file, uuid),
       });
     }
 
@@ -247,7 +279,7 @@ export async function GET(
     return new NextResponse(fileChunk.data, {
       status: 206,
       headers: {
-        ...buildInlineHeaders(fileChunk),
+        ...buildInlineHeaders(fileChunk, uuid),
         "Content-Length": String(fileChunk.data.length || length),
         "Content-Range": `bytes ${range.start}-${
           range.start + Math.max(fileChunk.data.length - 1, 0)
