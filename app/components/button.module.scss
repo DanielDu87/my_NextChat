@@ -114,7 +114,7 @@
   min-width: 38px !important;
   height: 38px !important;
   min-height: 38px !important;
-  padding: 10px !important;
+  padding: 0 !important;
   border: var(--close-button-border-width) solid
     var(--close-button-border-color) !important;
   border-radius: 10px !important;
@@ -203,8 +203,28 @@
     }
   }
 
+  .icon-button.close {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 !important;
+  }
+
+  .icon-button.close .icon-button-icon {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
   .icon-button.close .icon-button-icon > svg {
-    transform: translateX(1px);
+    width: 16px !important;
+    height: 16px !important;
+    transform: none !important;
+
+    > g {
+      transform: none !important;
+    }
   }
 
   :global(.modal-footer-action) {

@@ -852,10 +852,28 @@ const MergeStates: StateMerger = {
     return localState;
   },
   [StoreKey.Prompt]: (localState, remoteState) => {
+    const deletedPromptIds = [
+      ...new Set([
+        ...((remoteState as any).deletedPromptIds || []),
+        ...((localState as any).deletedPromptIds || []),
+      ]),
+    ];
+    const hiddenBuiltinPromptIds = [
+      ...new Set([
+        ...((remoteState as any).hiddenBuiltinPromptIds || []),
+        ...((localState as any).hiddenBuiltinPromptIds || []),
+      ]),
+    ];
+
     localState.prompts = {
       ...remoteState.prompts,
       ...localState.prompts,
     };
+    deletedPromptIds.forEach((id) => {
+      delete localState.prompts?.[id];
+    });
+    (localState as any).deletedPromptIds = deletedPromptIds;
+    (localState as any).hiddenBuiltinPromptIds = hiddenBuiltinPromptIds;
     return localState;
   },
   [StoreKey.Plugin]: (localState, remoteState) => {

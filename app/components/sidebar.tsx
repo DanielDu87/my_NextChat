@@ -14,6 +14,7 @@ import McpIcon from "../icons/mcp.svg";
 import PluginIcon from "../icons/plugin.svg";
 import PaletteIcon from "../icons/palette.svg";
 import VideoIcon from "../icons/video.svg";
+import PromptIcon from "../icons/prompt.svg";
 
 import Locale from "../locales";
 
@@ -36,6 +37,7 @@ const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
 });
 
 const DISCOVERY = [
+  { name: "提示词", path: Path.PromptManager, icon: <PromptIcon /> },
   { name: "插件", path: Path.Plugins, icon: <PluginIcon /> },
   { name: "画图", path: Path.Draw, icon: <PaletteIcon /> },
   { name: "视频", icon: <VideoIcon /> },

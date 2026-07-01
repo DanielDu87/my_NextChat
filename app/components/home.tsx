@@ -121,6 +121,13 @@ const McpMarketPage = dynamic(
   },
 );
 
+const PromptManagerPage = dynamic(
+  async () => (await import("./prompt-manager")).PromptManagerPage,
+  {
+    loading: () => <LoadingView size="splash" className="no-dark" />,
+  },
+);
+
 function resolvePreloadTheme(): "dark" | "light" {
   if (typeof window === "undefined") return "dark";
   return (window as any).__NEXTCHAT_PRELOAD_THEME__ === "light"
@@ -519,6 +526,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
               element={<ApiConfigBackupsPage />}
             />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
+            <Route path={Path.PromptManager} element={<PromptManagerPage />} />
           </Routes>
         </WindowContent>
       </>

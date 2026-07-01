@@ -19,7 +19,10 @@ type AuthState = {
   initialized: boolean;
   fetchMe: () => Promise<AuthUserInfo | null>;
   logout: () => Promise<void>;
-  switchUser: (userId: string) => Promise<void>;
+  switchUser: (
+    userId: string,
+    userPreview?: { username?: string; displayName?: string },
+  ) => Promise<void>;
   exitSwitch: () => Promise<void>;
 };
 

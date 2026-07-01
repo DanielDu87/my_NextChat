@@ -14,8 +14,8 @@ export interface Prompt {
 
 export const SearchService = {
   ready: false,
-  builtinEngine: new Fuse<Prompt>([], { keys: ["title"] }),
-  userEngine: new Fuse<Prompt>([], { keys: ["title"] }),
+  builtinEngine: new Fuse<Prompt>([], { keys: ["title", "content"] }),
+  userEngine: new Fuse<Prompt>([], { keys: ["title", "content"] }),
   count: {
     builtin: 0,
   },
@@ -37,6 +37,11 @@ export const SearchService = {
     this.userEngine.remove((doc) => doc.id === id);
   },
 
+  removeBuiltin(id: string) {
+    this.builtinPrompts = this.builtinPrompts.filter((doc) => doc.id !== id);
+    this.builtinEngine.remove((doc) => doc.id === id);
+  },
+
   add(prompt: Prompt) {
     this.userEngine.add(prompt);
   },
@@ -48,25 +53,42 @@ export const SearchService = {
   },
 };
 
+function getBuiltinPromptId(title: string, content: string, index: number) {
+  const source = `${index}:${title}:${content}`;
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+  }
+  return `builtin-${index}-${hash.toString(36)}`;
+}
+
 export const usePromptStore = createPersistStore(
   {
     counter: 0,
     prompts: {} as Record<string, Prompt>,
+    hiddenBuiltinPromptIds: [] as string[],
+    deletedPromptIds: [] as string[],
   },
 
   (set, get) => ({
     add(prompt: Prompt) {
-      const prompts = get().prompts;
-      prompt.id = nanoid();
-      prompt.isUser = true;
-      prompt.createdAt = Date.now();
-      prompts[prompt.id] = prompt;
+      const id = nanoid();
+      const nextPrompt = {
+        ...prompt,
+        id,
+        isUser: true,
+        createdAt: Date.now(),
+      };
 
-      set(() => ({
-        prompts: prompts,
-      }));
+      get().update((state) => {
+        state.prompts[id] = nextPrompt;
+        state.deletedPromptIds = (state.deletedPromptIds ?? []).filter(
+          (deletedId) => deletedId !== id,
+        );
+      });
 
-      return prompt.id!;
+      SearchService.add(nextPrompt);
+      return id;
     },
 
     get(id: string) {
@@ -80,27 +102,43 @@ export const usePromptStore = createPersistStore(
     },
 
     remove(id: string) {
-      const prompts = get().prompts;
-      delete prompts[id];
+      get().update((state) => {
+        delete state.prompts[id];
 
-      Object.entries(prompts).some(([key, prompt]) => {
-        if (prompt.id === id) {
-          delete prompts[key];
-          return true;
-        }
-        return false;
+        Object.entries(state.prompts).some(([key, prompt]) => {
+          if (prompt.id === id) {
+            delete state.prompts[key];
+            return true;
+          }
+          return false;
+        });
+
+        state.deletedPromptIds = Array.from(
+          new Set([...(state.deletedPromptIds ?? []), id]),
+        );
+
+        state.counter = get().counter + 1;
       });
 
       SearchService.remove(id);
+    },
 
-      set(() => ({
-        prompts,
-        counter: get().counter + 1,
-      }));
+    hideBuiltinPrompt(id: string) {
+      get().update((state) => {
+        state.hiddenBuiltinPromptIds = Array.from(
+          new Set([...(state.hiddenBuiltinPromptIds ?? []), id]),
+        );
+        state.counter = get().counter + 1;
+      });
+
+      SearchService.removeBuiltin(id);
     },
 
     getUserPrompts() {
-      const userPrompts = Object.values(get().prompts ?? {});
+      const deletedPromptIds = new Set(get().deletedPromptIds ?? []);
+      const userPrompts = Object.values(get().prompts ?? {}).filter(
+        (prompt) => !deletedPromptIds.has(prompt.id),
+      );
       userPrompts.sort((a, b) =>
         b.id && a.id ? b.createdAt - a.createdAt : 0,
       );
@@ -116,18 +154,33 @@ export const usePromptStore = createPersistStore(
 
       SearchService.remove(id);
       updater(prompt);
-      const prompts = get().prompts;
-      prompts[id] = prompt;
-      set(() => ({ prompts }));
+      get().update((state) => {
+        state.prompts[id] = prompt;
+        state.deletedPromptIds = (state.deletedPromptIds ?? []).filter(
+          (deletedId) => deletedId !== id,
+        );
+      });
       SearchService.add(prompt);
     },
 
     search(text: string) {
       if (text.length === 0) {
         // return all rompts
-        return this.getUserPrompts().concat(SearchService.builtinPrompts);
+        const hiddenBuiltinPromptIds = new Set(
+          get().hiddenBuiltinPromptIds ?? [],
+        );
+        return this.getUserPrompts().concat(
+          SearchService.builtinPrompts.filter(
+            (prompt) => !hiddenBuiltinPromptIds.has(prompt.id),
+          ),
+        );
       }
-      return SearchService.search(text) as Prompt[];
+      const hiddenBuiltinPromptIds = new Set(
+        get().hiddenBuiltinPromptIds ?? [],
+      );
+      return SearchService.search(text).filter(
+        (prompt) => prompt.isUser || !hiddenBuiltinPromptIds.has(prompt.id),
+      ) as Prompt[];
     },
   }),
   {
@@ -137,11 +190,16 @@ export const usePromptStore = createPersistStore(
     migrate(state, version) {
       const newState = JSON.parse(JSON.stringify(state)) as {
         prompts: Record<string, Prompt>;
+        hiddenBuiltinPromptIds?: string[];
+        deletedPromptIds?: string[];
       };
 
       if (version < 3) {
         Object.values(newState.prompts).forEach((p) => (p.id = nanoid()));
       }
+
+      newState.hiddenBuiltinPromptIds = newState.hiddenBuiltinPromptIds ?? [];
+      newState.deletedPromptIds = newState.deletedPromptIds ?? [];
 
       return newState as any;
     },
@@ -168,10 +226,13 @@ export const usePromptStore = createPersistStore(
         })
         .then((res) => {
           const promptList: PromptList = res.cn || [];
+          const hiddenBuiltinPromptIds = new Set(
+            usePromptStore.getState().hiddenBuiltinPromptIds ?? [],
+          );
           const builtinPrompts = promptList.map(
-            ([title, content]) =>
+            ([title, content], index) =>
               ({
-                id: nanoid(),
+                id: getBuiltinPromptId(title, content, index),
                 title,
                 content,
                 createdAt: Date.now(),
@@ -181,7 +242,8 @@ export const usePromptStore = createPersistStore(
           const userPrompts = usePromptStore.getState().getUserPrompts() ?? [];
 
           const allPromptsForSearch = builtinPrompts.filter(
-            (v) => !!v.title && !!v.content,
+            (v) =>
+              !!v.title && !!v.content && !hiddenBuiltinPromptIds.has(v.id),
           );
           SearchService.count.builtin = promptList.length;
           SearchService.init(allPromptsForSearch, userPrompts);

@@ -13,6 +13,7 @@
   background-color: #fafafa;
   background-color: var(--gray, #fafafa);
   color-scheme: light;
+  transition: none !important;
 }
 
 :global(html.dark) .loading-view,
@@ -52,6 +53,7 @@
 	width: fit-content;
 	max-width: 100%;
 	margin: auto;
+  transition: none !important;
 }
 
 .loading-view-row {
@@ -107,6 +109,37 @@
 		--loading-icon-size: 58px;
 		--loading-dots-width: 48px;
 		--loading-gap: 14px;
+		animation: none !important;
+		transition: none !important;
+	}
+
+	.loading-view-fullscreen {
+		position: fixed;
+		inset: 0;
+		width: 100vw;
+		min-height: 100vh;
+		height: 100vh;
+		min-height: 100dvh;
+		height: 100dvh;
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+		box-sizing: border-box;
+		z-index: 999;
+	}
+
+	.loading-view-fill {
+		min-height: 100%;
+		height: 100%;
+	}
+
+	.loading-view-stack,
+	.loading-view-row,
+	.loading-view-icon-slot,
+	.loading-view-dots-slot,
+	.loading-view-logo,
+	.loading-view-dots {
+		animation: none !important;
+		transition: none !important;
 	}
 
 	.loading-view-splash {

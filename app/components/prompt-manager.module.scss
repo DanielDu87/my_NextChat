@@ -1,0 +1,1046 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  padding: 20px;
+  overflow: auto;
+}
+
+.page :global([class*="list-item"]),
+.page :global([class*="list-item"] *) {
+  cursor: default !important;
+}
+
+.page :global(button),
+.page :global(button *),
+.page :global([class*="list-item"] button),
+.page :global([class*="list-item"] button *) {
+  cursor: pointer !important;
+}
+
+.page :global(button:disabled),
+.page :global(button:disabled *),
+.page :global([class*="list-item"] button:disabled),
+.page :global([class*="list-item"] button:disabled *) {
+  cursor: not-allowed !important;
+}
+
+.page input:not([type="checkbox"]),
+.page textarea {
+  cursor: text !important;
+}
+
+.promptList {
+  margin-bottom: 20px;
+}
+
+.toolbarItem {
+  padding: 10px 20px !important;
+}
+
+.sectionHeader {
+  min-height: 40px !important;
+  padding: 10px 20px !important;
+}
+
+.emptyItem {
+  min-height: 48px !important;
+  padding: 12px 20px !important;
+}
+
+.emptyState {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emptyIcon {
+  color: var(--primary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.searchBar {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: center;
+}
+
+.searchInput,
+.input,
+.textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--black);
+  padding: 12px 14px;
+  outline: none;
+  font: inherit;
+  line-height: 1.5;
+  cursor: text;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+
+  &::placeholder {
+    color: var(--black);
+    opacity: 0.45;
+  }
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
+  &:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 60%, transparent);
+  }
+
+  &:read-only {
+    cursor: default !important;
+    color: var(--black);
+    background-color: color-mix(in srgb, var(--white) 92%, var(--gray));
+    border-color: rgba(148, 163, 184, 0.42) !important;
+    box-shadow: none !important;
+    opacity: 0.85;
+  }
+}
+
+.addPromptButton {
+  width: auto !important;
+  min-width: 128px !important;
+  min-height: 38px;
+  padding: 8px 14px !important;
+  flex: 0 0 auto;
+  white-space: nowrap;
+
+  :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    white-space: nowrap;
+  }
+}
+
+.promptTable {
+  width: calc(100% - 40px);
+  max-width: calc(100% - 40px);
+  margin: 10px 20px 20px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 14px;
+  background: var(--white);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.promptTableHeader,
+.promptRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 2.4fr) 210px;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  padding: 12px;
+  border-bottom: var(--border-in-light);
+  box-sizing: border-box;
+}
+
+.promptTableHeader {
+  background: color-mix(in srgb, var(--gray) 55%, var(--white));
+  color: var(--black);
+  font-size: 12px;
+  font-weight: 700;
+
+  & > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+    padding: 0 4px;
+  }
+}
+
+.promptRow:last-child {
+  border-bottom: 0;
+}
+
+.promptCell {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.promptCellLabel {
+  display: none;
+}
+
+.promptColTitle {
+  grid-column: 1;
+}
+
+.promptColContent {
+  grid-column: 2;
+}
+
+.promptColActions {
+  grid-column: 3;
+}
+
+.promptTitleButton {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--black);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary);
+    outline: none;
+  }
+}
+
+.searchHighlight {
+  background-color: color-mix(in srgb, var(--primary) 34%, transparent);
+  color: var(--black);
+  padding: 0 3px;
+  border-radius: 4px;
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--primary) 82%, transparent);
+}
+
+.promptContent {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  text-align: center;
+  color: var(--black);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  opacity: 0.78;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  width: 100%;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+
+  :global(button[class*="icon-button"]) {
+    width: auto !important;
+    flex: 0 0 auto;
+    min-height: 36px !important;
+    padding: 8px 10px !important;
+  }
+
+  :global(
+      button[class*="icon-button"][class*="border"]:not([class*="danger"])
+    ) {
+    border-width: 1px;
+    transform: none !important;
+    filter: none !important;
+
+    &:hover,
+    &:focus-visible,
+    &:active {
+      border-width: 1px !important;
+      border-color: var(--primary) !important;
+      box-shadow:
+        0 0 0 1px var(--primary),
+        var(--card-shadow) !important;
+      transform: none !important;
+      filter: none !important;
+    }
+  }
+}
+
+.dangerButton {
+  height: 36px !important;
+  min-height: 36px !important;
+  color: #ff4d4f !important;
+  border-color: #ff4d4f !important;
+  background-color: rgba(255, 77, 79, 0.12) !important;
+  border-width: 2px !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  transform: none !important;
+  filter: none !important;
+  line-height: 16px !important;
+
+  :global([class*="icon-button-icon"]),
+  :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 16px !important;
+  }
+
+  :global([class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  :global([class*="icon-button-text"]) {
+    margin-left: 0 !important;
+  }
+
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+    fill: white !important;
+    stroke: white !important;
+    color: white !important;
+  }
+
+  &:global([class*="danger"]) :global(svg),
+  &:global([class*="danger"]) :global(svg path),
+  &:global([class*="danger"]) :global(svg circle),
+  &:global([class*="danger"]) :global(svg rect) {
+    fill: white !important;
+    stroke: white !important;
+    color: white !important;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    background-color: #ff4d4f !important;
+    color: white !important;
+    border-color: #ff4d4f !important;
+    border-width: 2px !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+.profileDeleteIcon,
+.profileDeleteIcon path {
+  color: white !important;
+  fill: white !important;
+}
+
+.promptColActions .dangerButton {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 8px 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+}
+
+.promptColActions .dangerButton > div:last-child {
+  display: block !important;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.promptColActions .dangerButton > div:first-child {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.promptColActions .dangerButton > div:first-child > svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.modalContent {
+  min-width: min(560px, calc(100vw - 80px));
+  max-height: calc(var(--full-height) - 120px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.formItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  label {
+    color: var(--black);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+}
+
+.textarea {
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+  resize: none;
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.page
+  :global(
+    .window-header
+      .window-actions
+      button[class*="icon-button"]:not([data-close-button="true"])
+  ) {
+  --prompt-manager-button-idle-border: rgba(100, 116, 139, 0.24);
+
+  min-height: 38px !important;
+  align-self: center;
+  border: 1px solid var(--prompt-manager-button-idle-border) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow);
+  box-sizing: border-box;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    border-color: var(--primary) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    outline: none !important;
+  }
+}
+
+.page
+  :global(
+    button[class*="icon-button"]:not([data-close-button="true"]):not(
+        [class*="primary"]
+      ):not([class*="danger"])
+  ) {
+  --prompt-manager-button-idle-border: rgba(100, 116, 139, 0.24);
+
+  border: 1px solid var(--prompt-manager-button-idle-border) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  box-sizing: border-box;
+  color: var(--black);
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    border-width: 1px !important;
+    border-color: var(--primary) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    outline: none !important;
+  }
+
+  &:not(:disabled):active {
+    background-color: color-mix(
+      in srgb,
+      var(--primary) 4%,
+      var(--white)
+    ) !important;
+    border-width: 1px !important;
+    border-color: var(--primary) !important;
+    box-shadow:
+      0 0 0 1px var(--primary),
+      var(--card-shadow) !important;
+    opacity: 1 !important;
+  }
+}
+
+.page :global(button[class*="icon-button"][class*="primary"]) {
+  box-sizing: border-box !important;
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    border-width: 2px !important;
+    border-color: var(--primary) !important;
+    background-color: var(--primary) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+@media screen and (max-width: 900px) {
+  .promptTableHeader,
+  .promptRow {
+    grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.8fr) 210px;
+  }
+}
+
+@media screen and (max-width: 600px) {
+  .page {
+    min-width: 0;
+  }
+
+  .content {
+    padding: 12px;
+    overflow-x: hidden;
+  }
+
+  .promptList {
+    margin-bottom: 12px;
+  }
+
+  .toolbarItem {
+    padding: 10px 14px !important;
+  }
+
+  .searchBar {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .addPromptButton {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 16px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center;
+    gap: 8px !important;
+    color: color-mix(in srgb, var(--black) 88%, transparent) !important;
+    line-height: 1 !important;
+
+    :global([class*="icon-button-icon"]) {
+      width: 18px !important;
+      height: 18px !important;
+      margin: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box;
+      color: inherit;
+    }
+
+    :global([class*="icon-button-icon"] svg) {
+      width: 18px !important;
+      height: 18px !important;
+      display: block !important;
+      color: inherit !important;
+      transform: none !important;
+    }
+
+    :global([class*="icon-button-icon"] svg path),
+    :global([class*="icon-button-icon"] svg circle),
+    :global([class*="icon-button-icon"] svg rect) {
+      stroke: currentcolor !important;
+      stroke-opacity: 1 !important;
+    }
+
+    :global([class*="icon-button-text"]) {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      margin-left: 0 !important;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: 0;
+      color: inherit;
+      overflow: visible !important;
+      text-overflow: clip !important;
+    }
+
+    &:not(:disabled):hover,
+    &:not(:disabled):focus-visible,
+    &:not(:disabled):active {
+      color: color-mix(in srgb, var(--primary) 92%, var(--black)) !important;
+    }
+  }
+
+  .page :global(button[class*="icon-button"]).addPromptButton {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 16px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+  }
+
+  .page
+    :global(button[class*="icon-button"]).addPromptButton
+    :global([class*="icon-button-icon"]) {
+    flex: 0 0 18px !important;
+  }
+
+  .page
+    :global(button[class*="icon-button"]).addPromptButton
+    :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: auto !important;
+    margin-left: 0 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: inherit !important;
+    font-size: 14px !important;
+    font-weight: 400 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  .page
+    .searchBar
+    :global(button[class*="icon-button"]).addPromptButton
+    :global([class*="icon-button-icon"]),
+  .page
+    .searchBar
+    :global(button[class*="icon-button"]).addPromptButton
+    :global([class*="icon-button-text"]) {
+    flex: 0 0 auto !important;
+  }
+
+  .page
+    .searchBar
+    :global(button[class*="icon-button"]).addPromptButton
+    :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    width: auto !important;
+    max-width: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .searchInput,
+  .input,
+  .textarea {
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+
+  .searchInput {
+    height: 44px;
+    min-height: 44px;
+    text-align: center;
+    font-size: 16px;
+
+    &::placeholder {
+      font-size: 16px;
+      opacity: 0.38;
+      text-align: center;
+    }
+  }
+
+  .promptTable {
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
+    margin: 12px 12px 18px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .promptTableHeader {
+    display: none;
+  }
+
+  .promptRow {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 18px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.42);
+    border-radius: 16px;
+    background: var(--white);
+    box-shadow: var(--card-shadow);
+  }
+
+  .promptRow:last-child {
+    margin-bottom: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.42);
+  }
+
+  .promptCell {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: stretch;
+    text-align: left;
+  }
+
+  .promptCellLabel {
+    display: block;
+    color: var(--black);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.3;
+    opacity: 0.72;
+    text-align: left;
+  }
+
+  .promptColTitle,
+  .promptColContent,
+  .promptColActions {
+    grid-column: 1;
+  }
+
+  .promptTitleButton {
+    padding: 0;
+    text-align: left;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .promptContent {
+    padding: 0;
+    text-align: left;
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    line-height: 1.65;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 10px;
+
+    :global(button[class*="icon-button"]) {
+      width: calc((100% - 10px) / 2) !important;
+      min-width: 0 !important;
+      max-width: 180px !important;
+      min-height: 40px !important;
+      padding: 0 12px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center;
+      gap: 6px !important;
+    }
+
+    :global([class*="icon-button-text"]) {
+      display: inline-flex !important;
+      margin-left: 0 !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      font-size: 13px;
+    }
+
+    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+      display: inline-flex !important;
+      width: auto !important;
+      max-width: none !important;
+      height: auto !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      margin-left: 0 !important;
+      align-items: center !important;
+      justify-content: center !important;
+      color: inherit !important;
+      font-size: 13px !important;
+      font-weight: 400 !important;
+      line-height: 1 !important;
+      white-space: nowrap !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+    }
+
+    :global([class*="icon-button-icon"]) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+      flex: 0 0 16px !important;
+    }
+
+    :global([class*="icon-button-icon"] svg) {
+      width: 16px !important;
+      height: 16px !important;
+    }
+  }
+
+  .promptColActions {
+    align-items: stretch;
+  }
+
+  .promptColActions .promptCellLabel {
+    display: none;
+  }
+
+  .promptColActions .dangerButton {
+    width: calc((100% - 10px) / 2) !important;
+    min-width: 0 !important;
+    max-width: 180px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 12px !important;
+  }
+
+  .modalContent {
+    min-width: unset;
+    width: 100%;
+    max-width: calc(100vw - 48px);
+    gap: 12px;
+  }
+
+  .textarea {
+    height: 120px;
+    min-height: 120px;
+    max-height: 120px;
+  }
+
+  .modalActions {
+    width: 100%;
+    justify-content: stretch;
+    gap: 10px;
+    padding-top: 10px;
+
+    &,
+    * {
+      animation: none !important;
+      transition: none !important;
+    }
+
+    :global(button[class*="icon-button"]) {
+      width: calc((100% - 10px) / 2) !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      flex: 1 1 0 !important;
+      height: 40px !important;
+      min-height: 40px !important;
+      padding: 0 12px !important;
+      display: inline-grid !important;
+      grid-template-columns: 16px auto;
+      column-gap: 6px !important;
+      align-items: center !important;
+      justify-content: center !important;
+      justify-items: center !important;
+      line-height: 1 !important;
+      vertical-align: middle !important;
+      transition: none !important;
+      animation: none !important;
+      transform: none !important;
+    }
+
+    :global([class*="icon-button-icon"]) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+      display: inline-grid !important;
+      grid-column: 1;
+      place-items: center !important;
+      line-height: 0 !important;
+      transition: none !important;
+      animation: none !important;
+      transform: none !important;
+    }
+
+    :global([class*="icon-button-icon"] svg) {
+      width: 16px !important;
+      height: 16px !important;
+      display: block !important;
+      transform: none !important;
+      transform-origin: center center !important;
+      transition: none !important;
+      animation: none !important;
+    }
+
+    :global([class*="icon-button-icon"] svg > g) {
+      transform: none !important;
+    }
+
+    :global([class*="icon-button-icon"] svg path) {
+      stroke: currentcolor !important;
+      stroke-opacity: 1 !important;
+    }
+
+    :global(button[class*="primary"] [class*="icon-button-icon"] svg) {
+      width: 14px !important;
+      height: 14px !important;
+      opacity: 0.88;
+      transform: none !important;
+      transform-origin: center center !important;
+      animation: none !important;
+      transition: none !important;
+    }
+
+    :global(button[class*="primary"] [class*="icon-button-icon"] svg path) {
+      fill: currentcolor !important;
+      stroke: none !important;
+    }
+
+    :global([class*="icon-button-text"]) {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      grid-column: 2;
+      margin-left: 0 !important;
+      color: inherit !important;
+      font-size: 13px !important;
+      font-weight: 400 !important;
+      line-height: 1 !important;
+      vertical-align: middle !important;
+      white-space: nowrap !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      transition: none !important;
+    }
+
+    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+      display: inline-flex !important;
+      width: auto !important;
+      max-width: none !important;
+      height: auto !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      margin-left: 0 !important;
+      align-items: center !important;
+      justify-content: center !important;
+      grid-column: 2;
+      color: inherit !important;
+      font-size: 13px !important;
+      font-weight: 400 !important;
+      line-height: 1 !important;
+      vertical-align: middle !important;
+      white-space: nowrap !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      transition: none !important;
+    }
+  }
+
+  .page :global(.window-header) {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-header-title) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 96px);
+    max-width: calc(100% - 96px);
+    margin: 0;
+    text-align: center;
+  }
+
+  .page :global(.window-header-main-title),
+  .page :global(.window-header-sub-title) {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .page :global(.window-actions) {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    align-self: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-action-button) {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
