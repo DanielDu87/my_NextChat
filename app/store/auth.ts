@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
+import { clearUserScopedPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { Path, StoreKey } from "@/app/constant";
 import { publishStartupChatSyncStatus } from "@/app/utils/chat-startup-loading";
+import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
@@ -79,7 +80,7 @@ function clearAuthState() {
 
 async function resetClientCache(nextUserId = "", clearPersistedState = true) {
   if (clearPersistedState) {
-    await clearPersistedStateStorage();
+    await clearUserScopedPersistedStateStorage();
   }
   if (nextUserId) {
     setCacheMarker(nextUserId);
@@ -218,9 +219,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { useChatStore: chatStore } = await chatStoreModule;
     const { useChatIndexStore } = await chatIndexModule;
 
-    // 立即重置 chat store 和 chat index store，确保不显示旧用户的历史对话
+    // 先确认目标用户是否已有独立缓存，避免空状态覆盖其历史缓存。
+    const targetUserCachedChat = await chatPersistStorage.getItem(
+      StoreKey.Chat,
+    );
+
+    // 立即切换到目标用户缓存；无缓存时才创建空状态，绝不沿用旧用户数据。
     publishStartupChatSyncStatus("syncing");
-    chatStore.getState().resetForUserSwitch({ sync: false });
+    if (targetUserCachedChat) {
+      await (chatStore as any).persist?.rehydrate?.();
+    } else {
+      await chatStore.getState().resetForUserSwitch({ sync: false });
+    }
 
     // 立即同步 index store 到新状态
     useChatIndexStore.getState().syncFromChatStore();
@@ -267,8 +277,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     setCacheMarker(String(effectiveUser?.id || ""));
 
     const { useSyncStore } = await import("./sync");
-    // 先 rehydrate 新用户的数据
-    await (chatStore as any).persist?.rehydrate?.();
+    // 再次确认目标用户缓存已加载（远端同步仍在后台执行）。
+    if (targetUserCachedChat) {
+      await (chatStore as any).persist?.rehydrate?.();
+    }
     // 然后初始化新页面，显示新空会话或加载新用户的已有会话
     chatStore.getState().initializeForNewPage?.();
     useChatIndexStore.getState().syncFromChatStore();

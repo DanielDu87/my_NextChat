@@ -1,3 +1,9 @@
+import { safeLocalStorage } from "./safe-local-storage";
+import {
+  bootstrapStaleRevalidate,
+  runStaleRevalidate,
+} from "./stale-revalidate";
+
 export type ManagedUser = {
   id: string;
   username: string;
@@ -10,7 +16,8 @@ export type ManagedUser = {
   lastConversationAt?: string | null;
 };
 
-const MANAGED_USERS_CACHE_TTL_MS = 60_000;
+const MANAGED_USERS_CACHE_STORAGE_PREFIX = "nextchat:managed-users-cache:v1:";
+const managedUsersStorage = safeLocalStorage();
 
 type ManagedUsersCacheEntry = {
   ownerUserId: string;
@@ -19,36 +26,61 @@ type ManagedUsersCacheEntry = {
   generation: number;
 };
 
-type ManagedUsersRequestEntry = {
-  ownerUserId: string;
-  generation: number;
-  controller: AbortController;
-  promise: Promise<ManagedUser[]>;
-};
-
 let managedUsersCache: ManagedUsersCacheEntry | null = null;
-let managedUsersRequest: ManagedUsersRequestEntry | null = null;
 let managedUsersGeneration = 0;
 
-export function getCachedManagedUsers(ownerUserId: string) {
-  if (
-    !managedUsersCache ||
-    managedUsersCache.ownerUserId !== ownerUserId ||
-    Date.now() - managedUsersCache.fetchedAt > MANAGED_USERS_CACHE_TTL_MS
-  ) {
-    return null;
+async function fetchManagedUsers(ownerUserId: string, signal?: AbortSignal) {
+  const response = await fetch("/api/admin/users", {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true) {
+    throw new Error(String(payload?.error || "获取用户列表失败"));
+  }
+  if (!Array.isArray(payload.users)) {
+    throw new Error("用户列表响应格式错误");
   }
 
-  return managedUsersCache.users;
+  const users = payload.users as ManagedUser[];
+  managedUsersCache = {
+    ownerUserId,
+    users,
+    fetchedAt: Date.now(),
+    generation: ++managedUsersGeneration,
+  };
+  managedUsersStorage.setItem(
+    `${MANAGED_USERS_CACHE_STORAGE_PREFIX}${ownerUserId}`,
+    JSON.stringify(managedUsersCache),
+  );
+  return users;
+}
+
+export function getCachedManagedUsers(ownerUserId: string) {
+  if (managedUsersCache?.ownerUserId === ownerUserId) {
+    return managedUsersCache.users;
+  }
+
+  try {
+    const cachedText = managedUsersStorage.getItem(
+      `${MANAGED_USERS_CACHE_STORAGE_PREFIX}${ownerUserId}`,
+    );
+    if (!cachedText) return null;
+    const cached = JSON.parse(cachedText) as ManagedUsersCacheEntry;
+    if (cached.ownerUserId !== ownerUserId || !Array.isArray(cached.users)) {
+      return null;
+    }
+    managedUsersCache = cached;
+    return cached.users;
+  } catch {
+    return null;
+  }
 }
 
 export function invalidateManagedUsersCache(ownerUserId?: string) {
   if (!ownerUserId || managedUsersCache?.ownerUserId === ownerUserId) {
     managedUsersCache = null;
-  }
-  if (!ownerUserId || managedUsersRequest?.ownerUserId === ownerUserId) {
-    managedUsersRequest?.controller.abort();
-    managedUsersRequest = null;
   }
   managedUsersGeneration += 1;
 }
@@ -56,6 +88,7 @@ export function invalidateManagedUsersCache(ownerUserId?: string) {
 export async function preloadManagedUsers(options?: {
   ownerUserId: string;
   force?: boolean;
+  revalidate?: boolean;
   source?: "page-init" | "user-menu" | "user-refresh";
   signal?: AbortSignal;
 }) {
@@ -64,66 +97,38 @@ export async function preloadManagedUsers(options?: {
     throw new Error("缺少管理员身份");
   }
 
-  if (!options?.force) {
+  if (!options?.force && !options?.revalidate) {
     const cachedUsers = getCachedManagedUsers(ownerUserId);
     if (cachedUsers) {
       return cachedUsers;
     }
   }
 
-  if (!options?.force && managedUsersRequest?.ownerUserId === ownerUserId) {
-    return managedUsersRequest.promise;
-  }
+  const revalidateKey = `managed-users:${ownerUserId}`;
 
   if (options?.force) {
     invalidateManagedUsersCache(ownerUserId);
   }
 
-  const generation = ++managedUsersGeneration;
-  const controller = new AbortController();
-  const abortRequest = () => controller.abort();
-  options?.signal?.addEventListener("abort", abortRequest, { once: true });
-  if (options?.signal?.aborted) {
-    controller.abort();
-  }
+  return runStaleRevalidate({
+    key: revalidateKey,
+    forceRestart: options?.force,
+    signal: options?.signal,
+    task: (signal) => fetchManagedUsers(ownerUserId, signal),
+  });
+}
 
-  const request = fetch("/api/admin/users", {
-    method: "GET",
-    cache: "no-store",
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.ok !== true) {
-        throw new Error(String(payload?.error || "获取用户列表失败"));
-      }
-      if (!Array.isArray(payload.users)) {
-        throw new Error("用户列表响应格式错误");
-      }
-
-      const users = payload.users as ManagedUser[];
-      if (generation === managedUsersGeneration) {
-        managedUsersCache = {
-          ownerUserId,
-          users,
-          fetchedAt: Date.now(),
-          generation,
-        };
-      }
-      return users;
-    })
-    .finally(() => {
-      options?.signal?.removeEventListener("abort", abortRequest);
-      if (managedUsersRequest?.generation === generation) {
-        managedUsersRequest = null;
-      }
-    });
-
-  managedUsersRequest = {
-    ownerUserId,
-    generation,
-    controller,
-    promise: request,
-  };
-  return request;
+export function bootstrapManagedUsers(options: {
+  ownerUserId: string;
+  forceRestart?: boolean;
+  signal?: AbortSignal;
+}) {
+  const ownerUserId = String(options.ownerUserId || "").trim();
+  return bootstrapStaleRevalidate({
+    key: `managed-users:${ownerUserId}`,
+    cachedData: getCachedManagedUsers(ownerUserId),
+    forceRestart: options.forceRestart,
+    signal: options.signal,
+    revalidate: (signal) => fetchManagedUsers(ownerUserId, signal),
+  });
 }

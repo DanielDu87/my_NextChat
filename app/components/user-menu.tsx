@@ -17,10 +17,12 @@ import { useAuthStore } from "../store/auth";
 import { Path } from "../constant";
 import { useNavigate } from "react-router-dom";
 import {
+  bootstrapManagedUsers,
   getCachedManagedUsers,
   preloadManagedUsers,
   type ManagedUser,
 } from "../utils/managed-users";
+import { isAbortLikeError } from "../utils/stale-revalidate";
 
 function getUserInitial(name: string) {
   return (
@@ -305,7 +307,9 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       window.requestAnimationFrame(resetScroll);
       window.setTimeout(resetScroll, 120);
     }
-    setLoadingUsers(true);
+    const cachedUsers = user ? getCachedManagedUsers(user.id) : null;
+    if (cachedUsers) setUsers(cachedUsers);
+    setLoadingUsers(!cachedUsers);
     setShowManageModal(true);
   };
 
@@ -313,10 +317,31 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
     async (force = false) => {
       if (!user) return;
 
-      const cachedUsers = force ? null : getCachedManagedUsers(user.id);
-      if (cachedUsers) {
-        setUsers(cachedUsers);
-        setLoadingUsers(false);
+      if (!force) {
+        const bootstrap = bootstrapManagedUsers({ ownerUserId: user.id });
+        console.log("[UserMenu] 打开用户切换界面，静默更新用户对话数量");
+        if (bootstrap.cachedData) {
+          setUsers(bootstrap.cachedData);
+          setLoadingUsers(false);
+        } else {
+          setLoadingUsers(true);
+        }
+
+        void bootstrap.revalidatePromise
+          .then((nextUsers) => {
+            setUsers(nextUsers);
+            console.log("[UserMenu] 用户对话数量静默更新完成", {
+              count: nextUsers.length,
+            });
+          })
+          .catch((error) => {
+            if (isAbortLikeError(error)) return;
+            console.error(
+              "[UserMenu] 用户列表后台更新失败:",
+              error instanceof Error ? error.message : "unknown_error",
+            );
+          })
+          .finally(() => setLoadingUsers(false));
         return;
       }
 
@@ -329,9 +354,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         });
         setUsers(loadedUsers);
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
+        if (isAbortLikeError(error)) return;
         console.error(
           "[UserMenu] 用户列表加载失败:",
           error instanceof Error ? error.message : "unknown_error",
@@ -582,7 +605,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
       return;
     }
 
-    void loadUsers(true);
+    void loadUsers(false);
   }, [
     showManageModal,
     currentEffectiveUserId,

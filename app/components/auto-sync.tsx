@@ -428,8 +428,9 @@ export default function AutoSync() {
 
     const normalizePath = (p: string) => p.replace(/\/+$/, "") || "/";
     const shouldCancelForRouteChange = (expectedPath: string) => {
-      const actualPath = getCurrentHashPath();
-      if (actualPath === normalizePath(expectedPath)) {
+      const actualPath = normalizePath(getCurrentHashPath());
+      const normalizedExpectedPath = normalizePath(expectedPath);
+      if (actualPath === normalizedExpectedPath) {
         return false;
       }
       autoSyncCancelledByRouteChange = true;
@@ -440,7 +441,7 @@ export default function AutoSync() {
         routeChangeCancelLogged = true;
         autoSyncConsole(
           "log",
-          `[AutoSync] ⏹️ 检测到页面切换（期望路径: ${expectedPath}, 实际路径: ${actualPath}），当前页面同步终止`,
+          `[AutoSync] ⏹️ 检测到页面切换（期望路径: ${normalizedExpectedPath}, 实际路径: ${actualPath}），当前页面同步终止`,
         );
       }
       return true;
@@ -448,6 +449,16 @@ export default function AutoSync() {
 
     const shouldCancelAutoSync = (expectedPath: string) =>
       shouldCancelForManualSync() || shouldCancelForRouteChange(expectedPath);
+
+    const getAutoSyncCancelMessage = (phase: string) => {
+      if (autoSyncCancelledByManualSync) {
+        return `[AutoSync] ⏹️ 保存并同步已接管，${phase}终止`;
+      }
+      if (autoSyncCancelledByRouteChange) {
+        return `[AutoSync] ⏹️ 检测到页面切换，${phase}终止`;
+      }
+      return `[AutoSync] ⏹️ ${phase}已取消`;
+    };
 
     const writeLock = () => {
       if (!localStorage) {
@@ -912,12 +923,7 @@ export default function AutoSync() {
           })
           .then(async () => {
             if (shouldCancelAutoSync(syncPath)) {
-              autoSyncConsole(
-                "log",
-                autoSyncCancelledByManualSync
-                  ? "[AutoSync] ⏹️ 保存并同步已接管，自动同步终止"
-                  : "[AutoSync] ⏹️ 检测到页面切换，当前页面同步终止",
-              );
+              autoSyncConsole("log", getAutoSyncCancelMessage("当前页面同步"));
               return;
             }
             // 不再自动同步全量模型，模型由用户手动添加后按需获取
@@ -942,12 +948,7 @@ export default function AutoSync() {
               });
               if (deferredSyncExecuted) return;
               if (shouldCancelAutoSync(syncPath)) {
-                autoSyncConsole(
-                  "log",
-                  autoSyncCancelledByManualSync
-                    ? "[AutoSync] ⏹️ 保存并同步已接管，后台同步终止"
-                    : "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
-                );
+                autoSyncConsole("log", getAutoSyncCancelMessage("后台同步"));
                 return;
               }
               deferredSyncExecuted = true;
@@ -1013,7 +1014,7 @@ export default function AutoSync() {
                   if (isAbortError(error)) {
                     autoSyncConsole(
                       "log",
-                      "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
+                      getAutoSyncCancelMessage("后台同步"),
                     );
                     return;
                   }
@@ -1062,7 +1063,7 @@ export default function AutoSync() {
                   if (isAbortError(error)) {
                     autoSyncConsole(
                       "log",
-                      "[AutoSync] ⏹️ 检测到页面切换，后台同步终止",
+                      getAutoSyncCancelMessage("后台同步"),
                     );
                     return;
                   }

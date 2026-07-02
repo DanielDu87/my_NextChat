@@ -14,7 +14,9 @@ import ConfirmIcon from "../icons/confirm.svg";
 import TrashIcon from "../icons/trash.svg";
 import EyeIcon from "../icons/eye.svg";
 import { useNavigate } from "react-router-dom";
-import { usePromptStore, type Prompt } from "../store/prompt";
+import { readPromptCache, usePromptStore, type Prompt } from "../store/prompt";
+import { bootstrapSharedPrompts } from "../utils/prompt-bootstrap";
+import { isAbortLikeError } from "../utils/stale-revalidate";
 import { Path, StoreKey } from "../constant";
 import { LoadingView } from "./loading-view";
 import styles from "./prompt-manager.module.scss";
@@ -86,9 +88,14 @@ export function PromptManagerPage() {
   const [promptModalMode, setPromptModalMode] =
     useState<PromptModalMode>("create");
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
-  const [isLoadingPrompts, setIsLoadingPrompts] = useState(true);
+  const hasCachedPromptsRef = useRef(readPromptCache() !== null);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(
+    !hasCachedPromptsRef.current,
+  );
   const promptSyncingRef = useRef(false);
   const promptSyncTaskCountRef = useRef(0);
+  const promptTitleInputRef = useRef<HTMLInputElement>(null);
+  const promptContentInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -96,27 +103,27 @@ export function PromptManagerPage() {
     const loadPromptsFromDatabase = async () => {
       const loadingStartedAt = Date.now();
       let loadSucceeded = false;
-      showTopNotice("正在从数据库读取提示词...");
+      const bootstrap = bootstrapSharedPrompts({
+        signal: abortController.signal,
+      });
+      if (!hasCachedPromptsRef.current) {
+        showTopNotice("正在从数据库读取提示词...");
+      }
       try {
-        const { useSyncStore } = await import("../store/sync");
-        await useSyncStore.getState().sync([StoreKey.Prompt], {
-          force: true,
-          isolateQueue: true,
-          downloadOnlyRegular: true,
-          silentSummary: true,
-          abortSignal: abortController.signal,
-        });
+        await bootstrap.revalidatePromise;
         loadSucceeded = true;
       } catch (error) {
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted || isAbortLikeError(error)) return;
         console.error("[PromptManager] 从数据库读取提示词失败:", error);
         showTopNotice("从数据库读取提示词失败，已保留本地数据");
         showToast("提示词读取失败，请检查数据库连接");
       } finally {
-        const remainingLoadingTime = Math.max(
-          0,
-          MIN_PROMPT_LOADING_DURATION_MS - (Date.now() - loadingStartedAt),
-        );
+        const remainingLoadingTime = hasCachedPromptsRef.current
+          ? 0
+          : Math.max(
+              0,
+              MIN_PROMPT_LOADING_DURATION_MS - (Date.now() - loadingStartedAt),
+            );
         if (remainingLoadingTime > 0) {
           await new Promise((resolve) =>
             window.setTimeout(resolve, remainingLoadingTime),
@@ -124,7 +131,7 @@ export function PromptManagerPage() {
         }
         if (!abortController.signal.aborted) {
           setIsLoadingPrompts(false);
-          if (loadSucceeded) {
+          if (loadSucceeded && !hasCachedPromptsRef.current) {
             showTopNotice("提示词已从数据库更新");
           }
         }
@@ -170,13 +177,12 @@ export function PromptManagerPage() {
     setIsPromptModalOpen(true);
   };
 
-  const syncPromptsToDatabase = async (successMessage: string) => {
+  const syncPromptsToDatabase = async (action: "新增" | "更新" | "删除") => {
     promptSyncTaskCountRef.current += 1;
     promptSyncingRef.current = true;
 
-    showTopNotice("提示词同步中，请稍候...");
-    console.log("===== 💾 提示词保存并同步 =====");
-    console.log("[PromptManager] 🚀 开始同步提示词到 PostgreSQL...");
+    showTopNotice(`正在${action}提示词并同步...`);
+    console.log(`[PromptManager] 🚀 开始${action}提示词并同步到 PostgreSQL`);
     try {
       const { useSyncStore } = await import("../store/sync");
       await useSyncStore.getState().sync([StoreKey.Prompt], {
@@ -184,13 +190,12 @@ export function PromptManagerPage() {
         isolateQueue: true,
         silentSummary: true,
       });
-      console.log("[PromptManager] ✅ 提示词同步完成");
-      console.log("===== ✅ 提示词保存并同步完成 =====");
-      showTopNotice(successMessage);
+      console.log(`[PromptManager] ✅ 提示词${action}并同步成功`);
+      showTopNotice(`提示词${action}并同步成功`);
     } catch (error) {
-      console.error("[PromptManager] 提示词同步失败:", error);
-      showTopNotice("提示词同步失败，请稍后重试");
-      showToast("提示词同步失败，请检查数据库连接");
+      console.error(`[PromptManager] ❌ 提示词${action}同步失败:`, error);
+      showTopNotice(`提示词${action}同步失败，请稍后重试`);
+      showToast(`提示词${action}同步失败，请检查数据库连接`);
     } finally {
       promptSyncTaskCountRef.current = Math.max(
         0,
@@ -215,32 +220,35 @@ export function PromptManagerPage() {
   };
 
   const savePrompt = async () => {
-    if (!editingPrompt.title.trim()) {
+    const nextTitle = promptTitleInputRef.current?.value.trim() ?? "";
+    const nextContent = promptContentInputRef.current?.value.trim() ?? "";
+
+    if (!nextTitle) {
       showToast("请输入提示词标题");
       return;
     }
-    if (!editingPrompt.content.trim()) {
+    if (!nextContent) {
       showToast("请输入提示词内容");
       return;
     }
 
     if (editingPromptId) {
       promptStore.updatePrompt(editingPromptId, (p) => {
-        p.title = editingPrompt.title;
-        p.content = editingPrompt.content;
+        p.title = nextTitle;
+        p.content = nextContent;
       });
       showToast("提示词已更新");
-      void syncPromptsToDatabase("提示词同步成功");
+      void syncPromptsToDatabase("更新");
     } else {
       promptStore.add({
         id: "",
-        title: editingPrompt.title,
-        content: editingPrompt.content,
+        title: nextTitle,
+        content: nextContent,
         isUser: true,
         createdAt: Date.now(),
       });
       showToast("提示词已添加");
-      void syncPromptsToDatabase("提示词同步成功");
+      void syncPromptsToDatabase("新增");
     }
 
     setEditingPromptId(undefined);
@@ -253,7 +261,7 @@ export function PromptManagerPage() {
 
     promptStore.remove(prompt.id);
     showToast("提示词已删除");
-    void syncPromptsToDatabase("提示词同步成功");
+    void syncPromptsToDatabase("删除");
   };
 
   const closeModal = () => {
@@ -417,14 +425,9 @@ export function PromptManagerPage() {
                 <div className={styles.formItem}>
                   <label>标题</label>
                   <input
+                    ref={promptTitleInputRef}
                     type="text"
-                    value={editingPrompt.title}
-                    onChange={(e) =>
-                      setEditingPrompt({
-                        ...editingPrompt,
-                        title: e.target.value,
-                      })
-                    }
+                    defaultValue={editingPrompt.title}
                     placeholder="输入提示词标题"
                     className={styles.input}
                   />
@@ -432,13 +435,8 @@ export function PromptManagerPage() {
                 <div className={styles.formItem}>
                   <label>内容</label>
                   <textarea
-                    value={editingPrompt.content}
-                    onChange={(e) =>
-                      setEditingPrompt({
-                        ...editingPrompt,
-                        content: e.target.value,
-                      })
-                    }
+                    ref={promptContentInputRef}
+                    defaultValue={editingPrompt.content}
                     placeholder="输入提示词内容"
                     className={styles.textarea}
                     rows={8}

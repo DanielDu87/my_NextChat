@@ -51,6 +51,11 @@ const STORE_STATE_ARTIFACT_TYPE = "store_state";
 const CHAT_INDEX_ARTIFACT_TYPE = "chat_index";
 const CHAT_SESSION_ARTIFACT_TYPE = "chat_session";
 
+function resolveStoreSnapshotUserId(storeKey: string, userId: string) {
+  // 提示词是全站共享数据，任何调用路径都强制读写默认共享用户。
+  return storeKey === StoreKey.Prompt ? getDefaultSyncUserId() : userId;
+}
+
 function assertStoreKey(storeKey: string) {
   if (!SUPPORTED_STORE_KEYS.has(storeKey)) {
     throw new Error(`[DB Sync] 不支持的 store key: ${storeKey}`);
@@ -255,20 +260,21 @@ export async function getStoreSnapshot(
 ) {
   await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
+  const snapshotUserId = resolveStoreSnapshotUserId(storeKey, userId);
 
   if (storeKey === StoreKey.Chat) {
-    return getFullChatStateSnapshot(userId);
+    return getFullChatStateSnapshot(snapshotUserId);
   }
 
   if (storeKey === StoreKey.DrawList) {
-    const drawPayload = await getDrawStoreSnapshot(userId);
+    const drawPayload = await getDrawStoreSnapshot(snapshotUserId);
     if (drawPayload !== undefined) {
       return drawPayload;
     }
 
-    const legacyPayload = await getLegacyDrawAppSettingsStore(userId);
+    const legacyPayload = await getLegacyDrawAppSettingsStore(snapshotUserId);
     if (legacyPayload !== undefined) {
-      await setDrawStoreSnapshot(userId, legacyPayload);
+      await setDrawStoreSnapshot(snapshotUserId, legacyPayload);
       return legacyPayload;
     }
 
@@ -281,7 +287,7 @@ export async function getStoreSnapshot(
   );
 
   const payload = result.rows[0]?.payload_json;
-  const settingsPayload = await getAppSettingsStore(userId, storeKey);
+  const settingsPayload = await getAppSettingsStore(snapshotUserId, storeKey);
   if (settingsPayload !== undefined) {
     if (storeKey !== StoreKey.Access) {
       return storeKey === StoreKey.Config
@@ -290,7 +296,7 @@ export async function getStoreSnapshot(
     }
 
     const secretPayload = await getEncryptedSyncSecret({
-      userId,
+      userId: snapshotUserId,
       secretKey: storeKey,
     });
     const mergedPayload = mergeAccessStorePayload(
@@ -308,7 +314,7 @@ export async function getStoreSnapshot(
   }
 
   const secretPayload = await getEncryptedSyncSecret({
-    userId,
+    userId: snapshotUserId,
     secretKey: storeKey,
   });
   const mergedPayload = mergeAccessStorePayload(
@@ -330,6 +336,7 @@ export async function getStoreSnapshotMetas(
   if (normalizedStoreKeys.length === 0) {
     return [];
   }
+  const promptUserId = getDefaultSyncUserId();
 
   const metas: Array<{
     key: string;
@@ -411,7 +418,7 @@ export async function getStoreSnapshotMetas(
          updated_at::text,
          extra_settings -> 'prompt-store'
        from app_settings
-       where user_id = (select id from app_users where external_id = $2 limit 1)
+       where user_id = (select id from app_users where external_id = $3 limit 1)
          and extra_settings ? 'prompt-store'
        union all
        select
@@ -432,7 +439,7 @@ export async function getStoreSnapshotMetas(
      ) snapshots
      where store_key = any($1::text[])
      order by store_key`,
-          [settingsStoreKeys, userId],
+          [settingsStoreKeys, userId, promptUserId],
         )
       : { rows: [] };
   const nextMetas = metas.concat(
@@ -572,14 +579,15 @@ export async function setStoreSnapshot(
 ) {
   await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
+  const snapshotUserId = resolveStoreSnapshotUserId(storeKey, userId);
 
   if (storeKey === StoreKey.Chat) {
-    await setFullChatStateSnapshot(payload, userId);
+    await setFullChatStateSnapshot(payload, snapshotUserId);
     return;
   }
 
   if (storeKey === StoreKey.DrawList) {
-    await setDrawStoreSnapshot(userId, payload);
+    await setDrawStoreSnapshot(snapshotUserId, payload);
     return;
   }
 
@@ -591,14 +599,23 @@ export async function setStoreSnapshot(
       const runQuery = client.query.bind(client);
       await setEncryptedSyncSecret(
         {
-          userId,
+          userId: snapshotUserId,
           secretKey: storeKey,
           payload: secretPayload,
         },
         runQuery,
       );
-      await syncProviderConfigsFromAccessState(userId, payload, client as any);
-      await syncAppSettingsStore(userId, storeKey, nextPayload, runQuery);
+      await syncProviderConfigsFromAccessState(
+        snapshotUserId,
+        payload,
+        client as any,
+      );
+      await syncAppSettingsStore(
+        snapshotUserId,
+        storeKey,
+        nextPayload,
+        runQuery,
+      );
     });
     return;
   }
@@ -607,7 +624,7 @@ export async function setStoreSnapshot(
     nextPayload = stripPersistedConfigModelFields(payload);
   }
 
-  await syncAppSettingsStore(userId, storeKey, nextPayload);
+  await syncAppSettingsStore(snapshotUserId, storeKey, nextPayload);
 }
 
 export async function removeFullChatStateSnapshot(
@@ -628,16 +645,17 @@ export async function removeStoreSnapshot(
 ) {
   await ensureSyncStorageSchema();
   assertStoreKey(storeKey);
+  const snapshotUserId = resolveStoreSnapshotUserId(storeKey, userId);
 
   if (storeKey === StoreKey.Chat) {
-    await removeFullChatStateSnapshot(userId);
+    await removeFullChatStateSnapshot(snapshotUserId);
     return;
   }
 
   if (storeKey === StoreKey.DrawList) {
-    await removeDrawStoreSnapshot(userId);
+    await removeDrawStoreSnapshot(snapshotUserId);
     return;
   }
 
-  await syncAppSettingsStore(userId, storeKey, null);
+  await syncAppSettingsStore(snapshotUserId, storeKey, null);
 }

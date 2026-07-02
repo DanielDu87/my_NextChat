@@ -383,10 +383,32 @@ class IndexedDbStateStorage implements StateStorage {
     }
     await this.clearIndexedDb();
   }
+
+  public async clearExcept(preservedKeys: readonly StoreKey[]): Promise<void> {
+    const preserved = new Set<string>(preservedKeys);
+    const keysToRemove = PERSIST_STORE_KEYS.filter(
+      (key) => !preserved.has(key),
+    );
+
+    for (const key of keysToRemove) {
+      this.cache.delete(key);
+      this.pendingWrites.delete(key);
+      this.hydrated.delete(key);
+      this.hydrating.delete(key);
+      removeLocalStorageValue(key);
+    }
+
+    await this.applyRawChanges({ remove: [...keysToRemove] });
+  }
 }
 
 export const indexedDbStateStorage = new IndexedDbStateStorage();
 
 export async function clearPersistedStateStorage() {
   await indexedDbStateStorage.clear();
+}
+
+// 提示词是所有用户共享的数据，切换账号时保留已加载的本地快照。
+export async function clearUserScopedPersistedStateStorage() {
+  await indexedDbStateStorage.clearExcept([StoreKey.Prompt]);
 }

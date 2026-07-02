@@ -116,6 +116,8 @@ import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 import dynamic from "next/dynamic";
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
+import { bootstrapSharedPrompts } from "../utils/prompt-bootstrap";
+import { isAbortLikeError } from "../utils/stale-revalidate";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
@@ -659,12 +661,6 @@ const UNFINISHED_ATTACH_IMAGES = (id: string) =>
 const MODEL_SELECTOR_GROUP_STORAGE_KEY = "nextchat:model-selector-group";
 const MODEL_SELECTOR_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
-const PROMPT_PICKER_LOADED_STORAGE_KEY = "nextchat:prompt-picker-loaded";
-
-if (typeof window !== "undefined") {
-  localStorage.removeItem(PROMPT_PICKER_LOADED_STORAGE_KEY);
-}
-
 type ComposerAttachedImage = {
   id: string;
   previewUrl: string;
@@ -4735,6 +4731,8 @@ function _Chat() {
   const [promptHints, setPromptHints] = useState<RenderPrompt[]>([]);
   const [showPromptPicker, setShowPromptPicker] = useState(false);
   const [isPromptPickerLoading, setIsPromptPickerLoading] = useState(false);
+  const [hasPromptPickerBootstrapped, setHasPromptPickerBootstrapped] =
+    useState(false);
   const promptPickerLoadAbortRef = useRef<AbortController | null>(null);
   const pickerPrompts = useMemo(() => promptStore.search(""), [promptStore]);
   const onSearch = useDebouncedCallback(
@@ -5098,32 +5096,29 @@ function _Chat() {
   };
 
   const loadPromptPickerFromDatabase = useCallback(async () => {
-    if (localStorage.getItem(PROMPT_PICKER_LOADED_STORAGE_KEY) === "1") {
-      setIsPromptPickerLoading(false);
-      return;
-    }
-
     promptPickerLoadAbortRef.current?.abort();
     const abortController = new AbortController();
     promptPickerLoadAbortRef.current = abortController;
-    setIsPromptPickerLoading(true);
+    const bootstrap = bootstrapSharedPrompts({
+      signal: abortController.signal,
+    });
+    const hasCachedPrompts =
+      !bootstrap.isFirstLoad || hasPromptPickerBootstrapped;
+    // 首次加载显示内联状态；之后直接复用本地快照，仅在后台静默更新。
+    setIsPromptPickerLoading(!hasCachedPrompts);
 
     try {
-      await useSyncStore.getState().sync([StoreKey.Prompt], {
-        force: true,
-        isolateQueue: true,
-        downloadOnlyRegular: true,
-        silentSummary: true,
-        abortSignal: abortController.signal,
-      });
+      await bootstrap.revalidatePromise;
       if (!abortController.signal.aborted) {
-        localStorage.setItem(PROMPT_PICKER_LOADED_STORAGE_KEY, "1");
+        setHasPromptPickerBootstrapped(true);
       }
       // 工具栏选择器已有内联加载态，成功时不额外弹出顶部提示。
     } catch (error) {
-      if (abortController.signal.aborted) return;
+      if (abortController.signal.aborted || isAbortLikeError(error)) return;
       console.error("[PromptPicker] 从数据库读取提示词失败:", error);
-      showTopNotice("从数据库读取提示词失败，已保留本地数据");
+      if (!hasCachedPrompts) {
+        showTopNotice("从数据库读取提示词失败，已保留本地数据");
+      }
     } finally {
       if (promptPickerLoadAbortRef.current === abortController) {
         promptPickerLoadAbortRef.current = null;
@@ -5132,7 +5127,7 @@ function _Chat() {
         setIsPromptPickerLoading(false);
       }
     }
-  }, [showTopNotice]);
+  }, [hasPromptPickerBootstrapped, showTopNotice]);
 
   useEffect(() => {
     return () => {
@@ -5151,9 +5146,11 @@ function _Chat() {
       return;
     }
 
+    // 刷新后先同步恢复持久化快照，弹层立即展示；远端更新在后台进行。
+    promptStore.restorePromptCache();
     setShowPromptPicker(true);
     void loadPromptPickerFromDatabase();
-  }, [loadPromptPickerFromDatabase, showPromptPicker]);
+  }, [loadPromptPickerFromDatabase, promptStore, showPromptPicker]);
 
   const openPromptManager = useCallback(() => {
     setPromptHints([]);
@@ -8514,12 +8511,10 @@ function _Chat() {
 
   const enterLoading = hasOnlyEmptyHistoryPlaceholders;
 
-  const shouldHideChatMessages =
-    sessionLoading || isChatUnavailableForSync || enterLoading;
-  const shouldShowChatRestoreNotice =
-    sessionLoading ||
-    enterLoading ||
-    (isChatUnavailableForSync && currentSessionHasMessages);
+  // 已有本地会话缓存时立即展示正文；模型配置和远端会话在后台更新，
+  // 仅限制发送能力，不再用同步加载态遮住已缓存的聊天记录。
+  const shouldHideChatMessages = sessionLoading || enterLoading;
+  const shouldShowChatRestoreNotice = sessionLoading || enterLoading;
   const shouldShowScrollToBottomButton =
     chatBodyOverflowing &&
     !hitBottom &&

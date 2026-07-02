@@ -481,7 +481,6 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
     isChatRoute &&
     (isUrlSessionPending ||
       isChatListLoadingForShell ||
-      currentSessionLoading ||
       hasOnlyEmptyHistoryPlaceholders)
   ) {
     return (
@@ -737,21 +736,25 @@ export function Home() {
   }, [authInitialized, hasHydrated]);
 
   useEffect(() => {
-    if (!chatBootstrapped || authUser?.role !== "admin") {
+    if (!chatBootstrapped || !authUser?.id) {
       return;
     }
 
     const controller = new AbortController();
     let idleCallbackId: number | null = null;
     const preload = () => {
+      console.log("[ManagedUsers] 页面启动后自动更新用户数据");
       void import("../utils/managed-users")
-        .then(({ preloadManagedUsers }) =>
-          preloadManagedUsers({
-            ownerUserId: authUser.id,
-            source: "page-init",
-            signal: controller.signal,
-          }),
+        .then(
+          ({ bootstrapManagedUsers }) =>
+            bootstrapManagedUsers({
+              ownerUserId: authUser.id,
+              signal: controller.signal,
+            }).revalidatePromise,
         )
+        .then(() => {
+          console.log("[ManagedUsers] 页面启动用户数据更新完成");
+        })
         .catch((error) => {
           if (
             controller.signal.aborted ||
@@ -759,10 +762,13 @@ export function Home() {
           ) {
             return;
           }
-          console.error(
-            "[Home] 预取用户列表失败:",
-            error instanceof Error ? error.message : "unknown_error",
-          );
+          const message =
+            error instanceof Error ? error.message : "unknown_error";
+          if (message.includes("权限") || message.includes("登录")) {
+            console.log("[ManagedUsers] 当前用户无用户列表权限，跳过启动更新");
+            return;
+          }
+          console.error("[Home] 预取用户列表失败:", message);
         });
     };
 
@@ -774,7 +780,7 @@ export function Home() {
       } else {
         preload();
       }
-    }, 8_000);
+    }, 1_200);
 
     return () => {
       window.clearTimeout(delayId);

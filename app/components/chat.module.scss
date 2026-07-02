@@ -4483,6 +4483,14 @@
   background: var(--white) !important;
 }
 
+.prompt-picker-list:has(.prompt-picker-empty) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .prompt-picker-item {
   display: flex;
   align-items: center;
@@ -4582,21 +4590,20 @@
 
 .prompt-picker-empty {
   display: flex;
+  width: 100%;
   min-height: 100%;
-  height: 100%;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   gap: 12px;
   padding: 40px 20px;
+  background: transparent;
   color: var(--black);
   opacity: 0.5;
   box-sizing: border-box;
 }
 
 .prompt-picker-loading {
-  min-height: 100%;
-  height: 100%;
   opacity: 1;
 }
 

@@ -1,6 +1,7 @@
 import Fuse from "fuse.js";
 import { nanoid } from "nanoid";
 import { StoreKey } from "../constant";
+import { safeLocalStorage } from "../utils/safe-local-storage";
 import { createPersistStore } from "../utils/store";
 
 export interface Prompt {
@@ -9,6 +10,48 @@ export interface Prompt {
   title: string;
   content: string;
   createdAt: number;
+}
+
+type PromptStoreSnapshot = {
+  prompts: Record<string, Prompt>;
+  deletedPromptIds: string[];
+};
+
+const PROMPT_CACHE_STORAGE_KEY = "nextchat:prompt-cache-v1";
+const promptCacheStorage = safeLocalStorage();
+
+export function persistPromptCache(state: PromptStoreSnapshot) {
+  promptCacheStorage.setItem(PROMPT_CACHE_STORAGE_KEY, JSON.stringify(state));
+}
+
+export function persistPromptCacheFromState(state: {
+  prompts?: Record<string, Prompt>;
+  deletedPromptIds?: string[];
+}) {
+  persistPromptCache({
+    prompts: state.prompts ?? {},
+    deletedPromptIds: state.deletedPromptIds ?? [],
+  });
+}
+
+export function readPromptCache(): PromptStoreSnapshot | null {
+  const cachedText = promptCacheStorage.getItem(PROMPT_CACHE_STORAGE_KEY);
+  if (!cachedText) return null;
+
+  try {
+    const parsed = JSON.parse(cachedText) as Partial<PromptStoreSnapshot>;
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      prompts: (parsed.prompts ?? {}) as Record<string, Prompt>,
+      deletedPromptIds: Array.isArray(parsed.deletedPromptIds)
+        ? parsed.deletedPromptIds.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const SearchService = {
@@ -67,6 +110,10 @@ export const usePromptStore = createPersistStore(
         );
       });
 
+      persistPromptCache({
+        prompts: get().prompts,
+        deletedPromptIds: get().deletedPromptIds ?? [],
+      });
       SearchService.add(nextPrompt);
       return id;
     },
@@ -96,6 +143,10 @@ export const usePromptStore = createPersistStore(
         state.counter = get().counter + 1;
       });
 
+      persistPromptCache({
+        prompts: get().prompts,
+        deletedPromptIds: get().deletedPromptIds ?? [],
+      });
       SearchService.remove(id);
     },
 
@@ -109,6 +160,24 @@ export const usePromptStore = createPersistStore(
       );
       SearchService.setUserPrompts(userPrompts);
       return userPrompts;
+    },
+
+    restorePromptCache() {
+      const cached = readPromptCache();
+      if (!cached) {
+        return false;
+      }
+
+      get().update((state) => {
+        state.prompts = cached.prompts;
+        state.deletedPromptIds = cached.deletedPromptIds;
+      });
+      SearchService.setUserPrompts(
+        Object.values(cached.prompts).filter(
+          (prompt) => !cached.deletedPromptIds.includes(prompt.id),
+        ),
+      );
+      return true;
     },
 
     updatePrompt(id: string, updater: (prompt: Prompt) => void) {
@@ -125,6 +194,10 @@ export const usePromptStore = createPersistStore(
         state.deletedPromptIds = (state.deletedPromptIds ?? []).filter(
           (deletedId) => deletedId !== id,
         );
+      });
+      persistPromptCache({
+        prompts: get().prompts,
+        deletedPromptIds: get().deletedPromptIds ?? [],
       });
       SearchService.add(prompt);
     },
