@@ -110,8 +110,9 @@ git push
 ```bash
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
 
 # Tauri 桌面应用开发（例外，不走 Docker）
 yarn app:dev
@@ -229,7 +230,7 @@ yarn prompts
 1. **PostgreSQL** - 主要业务存储
    - 通过 `app/utils/server/postgres.ts` 的全局连接池（`global.__nextchatPostgresPool`）访问，含连接异常重试。
    - 存储对话、配置、Prompt、Mask、插件、模型同步快照、绘画任务与图片、用户与认证等核心数据。
-   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-06-22-draw-thumb-v1`）自动初始化/迁移。
+   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-06-28-api-config-backup-counts`）自动初始化/迁移。
 
 2. **localStorage** - 纯本地偏好存储
    - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态。

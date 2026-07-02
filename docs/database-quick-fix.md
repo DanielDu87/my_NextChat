@@ -1,4 +1,6 @@
 # NextChat 数据库问题快速排除指南
+> 注意：本文是历史数据库排障记录。当前表结构以 `docs/db/data-storage-sync-matrix.md` 和 `docs/db/nextchat-postgres-schema.sql` 为准；旧列 `model_settings/ui_settings/sync_settings` 已合并到 `app_settings` 的 4 个 JSONB 列。
+
 
 > ⚠️ **文档状态（已过时）**：本文写于 v4 存储优化（2026-06-11）之前，"手动修复"SQL 引用的 `model_settings` 列已废弃（`app-config` 现位于 `app_settings.extra_settings`），照搬会报错。当前 `app_settings` 只有 4 个 JSONB 列：`chat_settings / plugin_settings / security_settings / extra_settings`。排查请以最新文档为准：
 > - [PostgreSQL schema](db/nextchat-postgres-schema.sql)
@@ -10,7 +12,7 @@
 
 | 错误信息 | 问题原因 | 快速解决方案 |
 |---------|---------|-------------|
-| `app-config 格式不正确` | model_settings 缺少 app-config 键 | 运行 `./scripts/fix-app-config.sh` |
+| `app-config 格式不正确` | `extra_settings` 缺少 `app-config` 键（历史版本） | 运行 `./scripts/fix-app-config.sh` 或按当前 schema 手动补齐 |
 | `数据库下载失败` | app_settings 数据过大 | 运行 `./scripts/fix-app-settings.sh` |
 | `ENOTFOUND nextchat-postgres` | 容器网络不通 | 连接到同一网络 |
 | `password authentication failed` | 数据库密码错误 | 检查 PGPASSWORD 配置 |
@@ -33,17 +35,18 @@ cd /www/wwwroot/nextchat
 
 ### 手动修复
 ```bash
-# 添加 app-config 到 model_settings
+# 添加 app-config 到 extra_settings
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
 UPDATE app_settings
-SET model_settings = jsonb_build_object(
-  'app-config', jsonb_build_object(
-    'models', '[]'::jsonb,
+SET extra_settings = jsonb_set(
+  coalesce(extra_settings, '{}'::jsonb),
+  '{app-config}',
+  jsonb_build_object(
     'customModels', ''::text,
-    'providers', '{}'::jsonb,
     'lastUpdate', 0,
     'version', '1.0'
-  )
+  ),
+  true
 );
 "
 ```
@@ -51,7 +54,7 @@ SET model_settings = jsonb_build_object(
 ### 验证
 ```bash
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
-SELECT model_settings -> 'app-config' FROM app_settings;
+SELECT extra_settings -> 'app-config' FROM app_settings;
 "
 ```
 
@@ -78,11 +81,8 @@ cd /www/wwwroot/nextchat
 # 清理 app_settings
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
 UPDATE app_settings SET
-  ui_settings = '{}'::jsonb,
   chat_settings = '{}'::jsonb,
-  model_settings = '{}'::jsonb,
   plugin_settings = '{}'::jsonb,
-  sync_settings = '{}'::jsonb,
   security_settings = '{}'::jsonb,
   extra_settings = '{}'::jsonb;
 "
@@ -184,25 +184,29 @@ netstat -tlnp | grep 3000
 ```bash
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
 SELECT
-  jsonb_object_keys(model_settings) as model_keys,
+  jsonb_object_keys(chat_settings) as chat_keys,
+  jsonb_object_keys(plugin_settings) as plugin_keys,
+  jsonb_object_keys(security_settings) as security_keys,
   jsonb_object_keys(extra_settings) as extra_keys
 FROM app_settings;
 "
 ```
 
 **应该包含：**
-- `model_keys`: `app-config`
-- `extra_keys`: `sd-list`, `mask-store`, `chat-update`, `prompt-store`
+- `chat_keys`: `__chat-index-state__`
+- `plugin_keys`: `chat-next-web-plugin`
+- `security_keys`: `access-control`
+- `extra_keys`: `app-config`, `model-cache-store`, `sync`, `mask-store`, `chat-update`, `prompt-store`（绘图记录已拆到 `user_draw_stores.payload_json`）
 
 ### 数据大小检查
 
 ```bash
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
 SELECT
-  length(ui_settings::text) as ui_size,
   length(chat_settings::text) as chat_size,
   length(plugin_settings::text) as plugin_size,
-  length(model_settings::text) as model_size
+  length(security_settings::text) as security_size,
+  length(extra_settings::text) as extra_size
 FROM app_settings;
 "
 ```
@@ -250,7 +254,7 @@ docker exec nextchat ping nextchat-postgres
 echo -e "\n3. 配置检查："
 docker exec nextchat-postgres psql -U nextchat_user -d nextchat -c "
 SELECT
-  jsonb_object_keys(model_settings) as model_keys,
+  jsonb_object_keys(extra_settings) as extra_keys,
   length(plugin_settings::text) as plugin_size
 FROM app_settings;
 "
@@ -353,7 +357,7 @@ fi
 
 # 检查 app-config 存在
 HAS_CONFIG=$(docker exec nextchat-postgres psql -U nextchat_user -d nextchat -t -c "
-SELECT COUNT(*) FROM app_settings WHERE model_settings ? 'app-config';
+SELECT COUNT(*) FROM app_settings WHERE extra_settings ? 'app-config';
 ")
 
 if [ "$HAS_CONFIG" -eq 0 ]; then

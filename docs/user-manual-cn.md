@@ -123,4 +123,6 @@ NextChat 内置 AI 绘画功能，入口在 `/draw`，绘图历史在 `/draw/his
 - **MCP**：启用后可调用 MCP 工具（受 `ENABLE_MCP` 环境变量控制）。
 - **实时语音**：基于实时音频 SDK 的语音对话。
 - **Artifacts**：对代码、文档等结构化内容提供独立预览窗口。
-- **同步**：对话、配置、Mask、Prompt、绘图等数据可通过 PostgreSQL 数据库在多设备间同步（详见 [同步功能使用指南](sync-usage-guide.md)）。
+- **API 配置备份**：API 配置页支持自动/手动备份和恢复，备份保存在 PostgreSQL 的 `api_config_backups` 表。
+- **文件缓存**：上传文件通过 `/api/cache/*` 写入 PostgreSQL 文件缓存表，内容按 MD5 去重并支持过期清理。
+- **同步**：对话、配置、Mask、Prompt、绘图等数据可通过 PostgreSQL 数据库在多设备间同步（详见 [同步功能使用指南](sync-usage-guide.md) 和 [数据存储矩阵](db/data-storage-sync-matrix.md)）。

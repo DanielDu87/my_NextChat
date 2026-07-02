@@ -10,7 +10,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 - 提供一个可私有部署的 AI 聊天入口。
 - 支持多个模型供应商和多个 API Profile。
-- 支持聊天记录、配置、模型缓存等数据持久化到 PostgreSQL。
+- 支持聊天记录、配置、模型缓存、绘图记录、上传文件和 API 配置备份等数据持久化到 PostgreSQL。
 - 在移动端提供接近原生聊天应用的输入、滚动和键盘体验。
 - 适配宝塔 DockerSite 生产环境，降低服务器维护成本。
 
@@ -46,8 +46,8 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 ### 数据与同步
 
-- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存等。
-- localStorage / IndexedDB 仅保存设备级偏好、本地缓存和临时草稿。
+- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存和 API 配置备份等。
+- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿和少量启动标记。
 - 支持数据库同步与本地优先合并策略。
 - 提供数据库审计、迁移、清理、模型同步等维护脚本。
 
@@ -81,14 +81,16 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 ```text
 app/
-├── api/            # 服务端 API 路由
+├── page.tsx        # 服务端入口：鉴权/站点密码门禁
+├── [...path]/      # 普通路径刷新兜底
+├── api/            # 服务端 API、供应商代理、认证和数据库同步
 ├── client/         # 模型供应商客户端
-├── components/     # UI 和业务组件
-├── config/         # Provider 图标等配置
+├── components/     # UI、聊天、绘图、API 配置、MCP 等业务组件
+├── config/         # 构建/客户端/服务端配置
 ├── locales/        # 多语言文案
 ├── mcp/            # MCP 相关能力
 ├── store/          # Zustand 状态
-└── utils/          # 同步、模型、存储、服务端工具
+└── utils/          # 同步、模型、存储、服务端 repository 和工具
 ```
 
 ### 聊天界面实现
@@ -103,6 +105,7 @@ app/
 
 实现要点：
 
+- 聊天持久化按用户拆分为索引和单会话正文，首屏只 hydrate 当前会话和少量最近会话。
 - 使用虚拟消息窗口控制长对话渲染量。
 - 流式输出期间根据用户滚动意图决定是否自动贴底。
 - 移动端通过 `visualViewport`、输入框测量和多阶段布局同步处理软键盘遮挡。
@@ -146,6 +149,8 @@ app/
 - `site_access_settings`：站点访问密码哈希。
 - `user_draw_stores`：绘画任务历史快照。
 - `user_draw_images`：绘画生成图片原图与缩略图（bytea，按 md5 去重）。
+- `cache_file_blobs` / `user_cache_files`：上传文件二进制去重与用户文件记录。
+- `api_config_backup_settings` / `api_config_backups`：API 配置自动/手动备份。
 
 ### 模型同步实现
 
@@ -161,9 +166,9 @@ app/
 实现方式：
 
 - 服务端按 Provider 拉取模型列表。
-- 前端以本地缓存优先，必要时触发刷新。
-- 数据库存储供应商配置和模型缓存状态。
-- 空的历史模型目录表已清理，当前以运行时代码和 `docs/db/nextchat-postgres-schema.sql` 为准。
+- 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
+- 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
+- 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
 
 ### 部署实现
 
@@ -172,8 +177,9 @@ app/
 ```bash
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
 ```
 
 生产部署当前以宝塔 DockerSite 为准：
@@ -195,7 +201,7 @@ cp .env.docker.example .env.docker
 
 - 开发指南：[docs/development.md](docs/development.md)
 - Docker 部署与开发：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)
-- 旧本地数据库开发说明：[docs/local-dev-guide.md](docs/local-dev-guide.md)（仅作历史参考，默认不要使用 `local-db`）
+- 本地开发快速入口：[docs/local-dev-guide.md](docs/local-dev-guide.md)
 
 ### 部署相关
 
@@ -209,6 +215,7 @@ cp .env.docker.example .env.docker
 
 - 用户手册：[docs/user-manual-cn.md](docs/user-manual-cn.md)
 - 常见问题：[docs/faq-cn.md](docs/faq-cn.md)
+- 同步功能使用指南：[docs/sync-usage-guide.md](docs/sync-usage-guide.md)
 - 聊天记录同步说明：[docs/synchronise-chat-logs-cn.md](docs/synchronise-chat-logs-cn.md)
 - 数据库存储矩阵：[docs/db/data-storage-sync-matrix.md](docs/db/data-storage-sync-matrix.md)
 - 模型刷新说明：[docs/db/provider-model-auto-refresh.md](docs/db/provider-model-auto-refresh.md)
@@ -230,8 +237,9 @@ cp .env.docker.example .env.docker
 ```bash
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev up -d
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev logs -f nextchat-dev
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
 ```
 
 停止：

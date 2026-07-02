@@ -614,14 +614,11 @@ git pull
 # 删除配置数据
 PGPASSWORD=YourPassword psql -h 127.0.0.1 -U nextchat_user -d nextchat << 'EOF'
 DELETE FROM app_settings WHERE user_id = (SELECT id FROM app_users WHERE external_id = 'user:admin');
-INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
+INSERT INTO app_settings (user_id, chat_settings, plugin_settings, security_settings, extra_settings)
 SELECT
   id,
-  '{}'::jsonb as ui_settings,
   '{}'::jsonb as chat_settings,
-  '{}'::jsonb as model_settings,
   '{}'::jsonb as plugin_settings,
-  '{}'::jsonb as sync_settings,
   '{}'::jsonb as security_settings,
   '{}'::jsonb as extra_settings
 FROM app_users WHERE external_id = 'user:admin';
@@ -681,7 +678,7 @@ EOF
 1. **清除浏览器缓存**
 2. **检查配置是否保存到数据库：**
    ```bash
-   PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT jsonb_pretty(ui_settings) FROM app_settings;"
+   PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT jsonb_pretty(extra_settings) FROM app_settings;"
    ```
 3. **如果为空，重新执行初始化配置脚本**
 
@@ -797,16 +794,16 @@ DECLARE user_id uuid;
 BEGIN
   SELECT id INTO user_id FROM app_users WHERE external_id = 'user:admin';
   IF user_id IS NULL THEN
-    INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active, profile_json)
-    VALUES (generate_uuid_v4(), 'user:admin', 'user:admin', 'zh-CN', 'Asia/Shanghai', true, '{}'::jsonb);
+    INSERT INTO app_users (id, external_id, display_name, locale, timezone, is_active)
+    VALUES (generate_uuid_v4(), 'user:admin', 'user:admin', 'zh-CN', 'Asia/Shanghai', true);
     SELECT id INTO user_id FROM app_users WHERE external_id = 'user:admin';
   END IF;
   DELETE FROM app_settings WHERE user_id = user_id;
-  INSERT INTO app_settings (user_id, ui_settings, chat_settings, model_settings, plugin_settings, sync_settings, security_settings, extra_settings)
-  VALUES (user_id, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb);
+  INSERT INTO app_settings (user_id, chat_settings, plugin_settings, security_settings, extra_settings)
+  VALUES (user_id, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb);
 END $$;
 "
 
 # 查看配置数据
-PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT user_id, jsonb_pretty(ui_settings) FROM app_settings;"
+PGPASSWORD='YourPassword' psql -h 127.0.0.1 -U nextchat_user -d nextchat -c "SELECT user_id, jsonb_pretty(extra_settings) FROM app_settings;"
 ```

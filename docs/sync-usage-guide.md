@@ -178,30 +178,35 @@ EOF
 
 ### NextChat 的数据存储
 
-NextChat 使用多种存储方式：
+NextChat 使用三层存储：
 
-1. **本地浏览器存储**
+1. **IndexedDB 本地工作副本**
 
-   - localStorage
-   - 快速访问
-   - 单设备使用
+   - Zustand store 的主要持久化位置，库名 `nextchat-local-cache`。
+   - 聊天数据按用户拆分为索引和单会话正文，首屏只加载必要会话。
+   - API 配置、模型缓存、绘图记录、Prompt/Mask 等也会先落本地。
 
-2. **服务器数据库存储**
-   - PostgreSQL
-   - 跨设备同步
-   - 配置备份
+2. **localStorage 设备级偏好**
+
+   - 只保存语言、侧边栏宽度、输入草稿、启动标记等临时态。
+   - 不作为跨设备同步来源。
+
+3. **PostgreSQL 云端共享副本**
+
+   - 保存用户、登录 session、store 快照、聊天会话、供应商配置、API Key 密文、绘图图片、上传文件缓存和 API 配置备份。
+   - 负责跨设备同步、恢复和服务端维护脚本。
 
 ### 同步功能说明
 
 **"保存并同步"按钮：**
 
-- 作用：将本地配置**上传**到数据库
-- 需要：先在本地有配置
-- 用于：备份配置、多设备同步
+- 作用：将当前 IndexedDB 本地工作副本合并/上传到 PostgreSQL
+- 需要：先在本地有有效配置或数据
+- 用于：备份配置、多设备同步；Access store 保存还会按设置触发 API 配置自动备份
 
 **"从数据库下载"按钮：**
 
-- 作用：从数据库**下载**配置到本地
+- 作用：从 PostgreSQL 下载快照覆盖/合并到本地 IndexedDB
 - 需要：数据库中已保存配置
 - 用于：恢复配置、跨设备同步
 
@@ -226,6 +231,10 @@ NextChat 使用多种存储方式：
 - `provider_configs` — 供应商配置（每个 profile 一行）
 - `provider_api_keys` — 供应商 API 密钥
 - `app_settings` — 用户设置（`security_settings`/`extra_settings` 等 JSONB 列）
+- `api_config_backup_settings` / `api_config_backups` — API 配置备份设置和快照
+- `conversations` / `messages` — 聊天会话和消息正文
+- `user_draw_stores` / `user_draw_images` — 绘图历史和图片二进制
+- `cache_file_blobs` / `user_cache_files` — 上传文件缓存
 
 ### 可以执行的操作
 
@@ -265,7 +274,7 @@ NextChat 使用多种存储方式：
 ### 流程 3：从本地导入
 
 ```
-本地项目：导出配置
+本地项目：通过界面保存并同步，或导出配置
     ↓
 准备配置文件
     ↓
@@ -336,9 +345,9 @@ NextChat 使用多种存储方式：
 
 **从本地导入：**
 
-1. 本地导出配置
+1. 本地通过界面保存并同步，或准备导出的配置文件
 2. 使用 import-config.sh 导入
-3. 网页刷新即可使用
+3. 网页刷新后从数据库下载或直接验证
 
 ---
 

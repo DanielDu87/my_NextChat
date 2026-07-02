@@ -20,13 +20,16 @@
     - `provider_configs`
     - `provider_api_keys`
     - `sync_secrets`
-  - 绘图数据写入：
+  - 绘图与文件数据写入：
     - `user_draw_stores`（绘画任务历史快照，`payload_json`）
     - `user_draw_images`（绘画生成图片二进制：`data` 原图 + `thumb_data` 缩略图，按 `md5(data)` 去重；通过 `/api/db/draw-image` 单独上传/读取，不随 store 同步）
+    - `cache_file_blobs` / `user_cache_files`（上传文件内容去重和用户文件记录；通过 `/api/cache/*` 写入/读取）
+  - API 配置备份写入：
+    - `api_config_backup_settings` / `api_config_backups`（Access store 保存时按设置自动备份，也支持手动备份/恢复）
   - 模型数据写入（v4 优化后）：
     - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
-    - `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
     - `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+    - `app-config.models` 上传前会被剥离，不再作为云端模型集合持久化入口
 - 模型供应商 API
   - 只作为模型数据更新来源
   - 不作为页面运行时直接主数据源
@@ -79,9 +82,8 @@
 
 - 页面加载不直接请求供应商 API
 - 后台脚本或受控接口负责从供应商拉模型
-- 拉取后更新三份云端数据（**v4 优化后不再写 `model_catalog` / `model_sync_runs`**）：
+- 拉取后更新两类云端数据（**v4 优化后不再写 `model_catalog` / `model_sync_runs`，`app-config.models` 上传前会被剥离**）：
   - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
-  - `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
   - `app_settings.extra_settings -> 'model-cache-store'` 的缓存
 - `access-control` 只保留 profile 主配置，`cachedModels` 是当前模型数据的**唯一**持久化入口
 - 应用启动或直接进入 API 配置页时，会自动把历史 `cachedModels` / `modelCount` 迁移到 `model-cache-store`
@@ -101,5 +103,6 @@
 - 运行时初始化保证：应用启动时 `ensureSyncStorageSchema()` 会自动建表 + 补齐所需列：
   - v4 优化：`provider_configs.api_path / api_format`、`provider_api_keys.last_verified_at`、`messages.reasoning_text / tool_calls / metadata_json`；清理已下线的 4 张模型表 + 3 个冗余索引。
   - draw-thumb-v1（2026-06-22）：新建 `user_draw_images` 表（含 `thumb_data` 列），删除重复行并补 `(user_id, content_type, md5(data))` 唯一索引。
+  - api-config-backup-counts（2026-06-28）：补 `cache_file_blobs` / `user_cache_files`、`api_config_backup_settings` / `api_config_backups` 及相关索引。
   - `auth_sessions` / `site_access_settings` 分别由 `ensureAuthSchemaAndSeed()` / `ensureSitePasswordConfigured()` 维护。
   - 完整 schema SQL 和运行时初始化保持同步维护。

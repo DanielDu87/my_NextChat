@@ -44,8 +44,8 @@ curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
 - 只有当新供应商的模型列表接口完全不兼容现有候选路径时，才需要补一个新的 fetch adapter
 - 拉取后会更新（**v4 优化后**）：
   - PostgreSQL `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
-  - PostgreSQL `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
   - PostgreSQL `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+  - `app-config.models` 上传前会被剥离，不再作为云端模型集合持久化入口
   - ~~`model_catalog`~~（v4 已下线）
   - ~~`model_sync_runs`~~（v4 已下线）
 
@@ -56,4 +56,4 @@ curl -X POST http://127.0.0.1:3000/api/db/models/refresh \
 - 供应商模型变化会先进入 PostgreSQL 的 `app_settings` JSONB 列
 - 页面下次检查到版本变化时，再按需同步到本地
 
-> **历史变更**：v4 优化（2026-06-11）之前，模型数据还会写入 `model_catalog` / `model_sync_runs` 两张表，并产生 `user_model_refresh_states` 状态表。v4 优化已将这些表全部下线（DDL 已从 `nextchat-postgres-schema.sql` 移除，repository/API 路由全部删除），全部数据收敛到 `app_settings` JSONB 中。
+> **历史变更**：v4 优化（2026-06-11）之前，模型数据还会写入 `model_catalog` / `model_sync_runs` 两张表，并产生 `user_model_refresh_states` 状态表。v4 优化已将这些表全部下线（DDL 已从 `nextchat-postgres-schema.sql` 移除，repository/API 路由全部删除），全部数据收敛到 `access-control` JSONB 和 `model-cache-store` 中。

@@ -70,8 +70,8 @@ SSH_TUNNEL_LOCAL_PORT=5432
 模型目录同步在 v4 优化（2026-06-11）后**不再写 `model_catalog`**，全部收敛到 `app_settings` JSONB：
 
 - `app_settings.security_settings -> 'access-control'` 的 `apiProfiles[*].cachedModels`
-- `app_settings.extra_settings -> 'app-config'` 的 `models` 集合
 - `app_settings.extra_settings -> 'model-cache-store'` 的缓存
+- `app-config.models` 上传前会被剥离，不再作为云端模型集合持久化入口
 
 历史脚本 `yarn db:sync-models` 已改为 no-op（仅输出 `skipped: true`），因为 `provider-model-sync.ts` 在拉取时已经把模型数据合并到 `access-control` JSONB，无需额外落盘。
 
@@ -101,7 +101,7 @@ curl http://127.0.0.1:3000/api/db/health
 - `postgres.user`
 - `postgres.configuredHost`
 - `postgres.configuredPort`
-- ~~`schemaVersion`~~（schema 版本是应用内部变量 `globalThis.__nextchatSyncStorageSchemaVersion`，当前 `2026-06-22-draw-thumb-v1`，**不在** health 响应中返回）
+- ~~`schemaVersion`~~（schema 版本是应用内部变量 `globalThis.__nextchatSyncStorageSchemaVersion`，当前 `2026-06-28-api-config-backup-counts`，**不在** health 响应中返回）
 - ~~`modelCatalogCount`~~（v4 优化后已移除；模型计数请改读 `app_settings.security_settings -> 'access-control' -> apiProfiles[*].cachedModels.length`）
 
 ## 5. 迁移顺序建议
@@ -111,7 +111,9 @@ curl http://127.0.0.1:3000/api/db/health
 1. `app_settings(chat/plugin/security/extra) / provider_configs / provider_api_keys`（结构化云端）
 2. `conversations / messages`
 3. `sync_secrets / auth_sessions / site_access_settings`
-4. ~~`model_catalog / model_sync_runs`~~（v4 已下线）
-5. ~~`message_attachments / tags / share_links / model_aliases`~~（历史表已下线）
+4. `user_draw_stores / user_draw_images / cache_file_blobs / user_cache_files`
+5. `api_config_backup_settings / api_config_backups`
+6. ~~`model_catalog / model_sync_runs`~~（v4 已下线）
+7. ~~`message_attachments / tags / share_links / model_aliases`~~（历史表已下线）
 
 这样可以先迁移服务端只读和后台数据，再迁移聊天主链路。

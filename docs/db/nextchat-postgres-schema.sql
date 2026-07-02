@@ -1,6 +1,6 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-06-22 (draw-thumb-v1：新增 user_draw_images 表，存储绘画原图 data + 缩略图 thumb_data)
+-- 最后更新: 2026-07-02 (同步 schema 2026-06-28-api-config-backup-counts：补文件缓存和 API 配置备份表)
 -- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
 
 BEGIN;
@@ -99,6 +99,48 @@ ON user_draw_images(user_id, created_at DESC);
 -- 按 (user_id, content_type, md5(data)) 去重，防止重复上传同一张原图
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_draw_images_user_content_data
 ON user_draw_images(user_id, content_type, md5(data));
+
+CREATE TABLE IF NOT EXISTS cache_file_blobs (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  content_type text NOT NULL,
+  content_md5 text NOT NULL,
+  size_bytes integer NOT NULL,
+  data bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (content_type, content_md5)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cache_file_blobs_content_md5
+ON cache_file_blobs(content_type, content_md5);
+
+CREATE TABLE IF NOT EXISTS user_cache_files (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  file_name text NOT NULL,
+  file_ext text NOT NULL DEFAULT '',
+  content_type text NOT NULL,
+  size_bytes integer NOT NULL,
+  data bytea,
+  blob_id uuid REFERENCES cache_file_blobs(id) ON DELETE RESTRICT,
+  content_md5 text,
+  is_pinned boolean NOT NULL DEFAULT false,
+  expires_at timestamptz NOT NULL DEFAULT (NOW() + interval '3 days'),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_cache_files_user_created_at
+ON user_cache_files(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_cache_files_user_expires_at
+ON user_cache_files(user_id, expires_at)
+WHERE is_pinned = false;
+
+CREATE INDEX IF NOT EXISTS idx_user_cache_files_blob_id
+ON user_cache_files(blob_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_cache_files_user_content_data
+ON user_cache_files(user_id, content_type, md5(data))
+WHERE blob_id IS NULL AND data IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS site_access_settings (
   setting_key text PRIMARY KEY,
@@ -208,6 +250,28 @@ CREATE TABLE IF NOT EXISTS sync_secrets (
 CREATE INDEX IF NOT EXISTS idx_sync_secrets_user_updated
 ON sync_secrets(user_id, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS api_config_backup_settings (
+  user_id uuid PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+  enabled boolean NOT NULL DEFAULT true,
+  interval_minutes integer NOT NULL DEFAULT 1440 CHECK (interval_minutes >= 1),
+  max_backups integer NOT NULL DEFAULT 10 CHECK (max_backups >= 1),
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS api_config_backups (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  source text NOT NULL CHECK (source IN ('auto', 'manual', 'pre_restore')),
+  payload_json jsonb NOT NULL,
+  checksum text NOT NULL,
+  profile_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_config_backups_user_created
+ON api_config_backups(user_id, created_at DESC);
+
 -- ============================================================
 -- 触发器：自动更新 updated_at
 -- ============================================================
@@ -248,6 +312,10 @@ CREATE OR REPLACE TRIGGER trg_sync_secrets_updated_at
 BEFORE UPDATE ON sync_secrets
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE OR REPLACE TRIGGER trg_api_config_backup_settings_updated_at
+BEFORE UPDATE ON api_config_backup_settings
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- ============================================================
 -- 表注释
 -- ============================================================
@@ -258,10 +326,14 @@ COMMENT ON TABLE app_settings IS '用户全局设置（JSONB key-value store）'
 COMMENT ON TABLE site_access_settings IS '站点访问密码';
 COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw-list 快照）';
 COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';
+COMMENT ON TABLE cache_file_blobs IS '上传文件内容 blob（按 content_type + content_md5 去重）';
+COMMENT ON TABLE user_cache_files IS '用户上传/缓存文件记录（可过期或 pinned，引用 cache_file_blobs）';
 COMMENT ON TABLE provider_configs IS '模型供应商配置';
 COMMENT ON TABLE provider_api_keys IS '供应商 API 密钥和分组';
 COMMENT ON TABLE conversations IS '对话主表（删除走物理删除，is_deleted 仅作历史标记）';
 COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete）';
 COMMENT ON TABLE sync_secrets IS '同步用敏感数据密文存储';
+COMMENT ON TABLE api_config_backup_settings IS 'API 配置自动备份设置';
+COMMENT ON TABLE api_config_backups IS 'API 配置备份快照';
 
 COMMIT;
