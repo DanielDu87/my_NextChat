@@ -3737,6 +3737,7 @@ function _Chat() {
   } | null>(null);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentUntilRef = useRef(0);
+  const userScrollWindowUpdateUntilRef = useRef(0);
   const lastChatBodyScrollTopRef = useRef(0);
   const chatBodyTouchStartYRef = useRef<number | null>(null);
   const chatBodyTouchMovedRef = useRef(false);
@@ -5985,6 +5986,8 @@ function _Chat() {
         if (
           pending.updateMessageWindow &&
           !pending.programmatic &&
+          (!isAssistantStreaming ||
+            Date.now() < userScrollWindowUpdateUntilRef.current) &&
           !(isAssistantStreaming && streamingAutoScrollPausedRef.current)
         ) {
           const bottomHeight = pending.dom.scrollTop + pending.dom.clientHeight;
@@ -6171,6 +6174,7 @@ function _Chat() {
     if (isAssistantStreaming) {
       userScrollIntentRef.current = true;
       userScrollIntentUntilRef.current = Date.now() + 1200;
+      userScrollWindowUpdateUntilRef.current = Date.now() + 180;
     }
   }, [isAssistantStreaming]);
 
@@ -9719,8 +9723,6 @@ function _Chat() {
                   onTouchStart={(e) => {
                     chatBodyTouchStartYRef.current =
                       e.touches[0]?.clientY ?? null;
-                    prepareTouchScrollTakeover();
-                    markUserScrollIntent();
                     if (isMobileScreen) {
                       const mobileInput = mobileInputRef.current;
                       const shouldDismissMobileKeyboard =
@@ -9737,7 +9739,6 @@ function _Chat() {
                     }
                   }}
                   onTouchMove={(e) => {
-                    markUserScrollIntent();
                     const startY = chatBodyTouchStartYRef.current;
                     const currentY = e.touches[0]?.clientY;
                     if (
@@ -9746,8 +9747,14 @@ function _Chat() {
                       currentY != null &&
                       Math.abs(currentY - startY) > 3
                     ) {
+                      prepareTouchScrollTakeover();
                       chatBodyTouchMovedRef.current = true;
+                      markUserScrollIntent();
                       pauseStreamingAutoScrollForUser();
+                      return;
+                    }
+                    if (chatBodyTouchMovedRef.current) {
+                      markUserScrollIntent();
                     }
                   }}
                   onTouchEnd={() => {
@@ -10419,6 +10426,13 @@ function _Chat() {
                       0,
                       Math.round(inputPanelHeight + 10),
                     )}px + env(safe-area-inset-bottom) + var(--chat-keyboard-accessory-inset, 0px) + var(--chat-keyboard-overlap-correction, 0px))`,
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onTouchStart={(event) => {
+                    event.stopPropagation();
                   }}
                   onClick={() => {
                     clearCenteredLatestUserMessage();
