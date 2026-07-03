@@ -5013,10 +5013,15 @@ function _Chat() {
     const aiSelectionPromptText =
       buildAiSelectionPromptText(aiSelectionContext);
 
-    pendingCenterLatestUserMessageRef.current = {
-      sessionId: safeSession.id,
-      requestAt: Date.now(),
-    };
+    // 手机端只保留单一的贴底/触摸暂停滚动 owner。若同时启用
+    // “最新用户消息居中”，它插入的 spacer 和 scrollTop 会与流式
+    // 贴底、触摸接管争抢布局，导致气泡闪烁、跨屏抖动或点击跳回开头。
+    pendingCenterLatestUserMessageRef.current = isMobileScreen
+      ? null
+      : {
+          sessionId: safeSession.id,
+          requestAt: Date.now(),
+        };
     setCenteredLatestUserMessageKey(null);
     setCenteredLatestUserMessageSpacerHeight(0);
 
