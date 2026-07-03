@@ -8774,6 +8774,11 @@ function _Chat() {
     if (!centeredLatestUserMessageKey) return;
     if (shouldHideChatMessages) return;
 
+    // 首次定位完成后冻结 spacer。流式正文每增加一行都会减少等量的
+    // requiredBottomSpacer；若在输出期间持续同步这个高度，正文和 spacer
+    // 会在临界一屏附近交替触发布局，移动端表现为整页抖动。
+    if (isAssistantStreaming) return;
+
     const centerMetrics = getMessageCenterMetrics(centeredLatestUserMessageKey);
     if (!centerMetrics) {
       setCenteredLatestUserMessageSpacerHeight(0);
@@ -8799,6 +8804,7 @@ function _Chat() {
     centeredLatestUserMessageKey,
     centeredLatestUserMessageSpacerHeight,
     getMessageCenterMetrics,
+    isAssistantStreaming,
     sessionMessages,
     shouldHideChatMessages,
   ]);
