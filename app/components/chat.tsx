@@ -2641,23 +2641,35 @@ function useScrollToBottom(
   const fallbackScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const scrollRafRef = useRef<number | null>(null);
+  const cancelScheduledScrollToBottom = useCallback(() => {
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+    if (fallbackScrollTimerRef.current) {
+      clearTimeout(fallbackScrollTimerRef.current);
+      fallbackScrollTimerRef.current = null;
+    }
+  }, []);
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
     if (dom) {
       const runScroll = () => {
+        scrollRafRef.current = null;
         setAutoScroll(true);
         const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
         dom.scrollTop = targetTop;
       };
 
-      requestAnimationFrame(runScroll);
-
-      if (fallbackScrollTimerRef.current) {
-        clearTimeout(fallbackScrollTimerRef.current);
-      }
-      fallbackScrollTimerRef.current = setTimeout(runScroll, 48);
+      cancelScheduledScrollToBottom();
+      scrollRafRef.current = requestAnimationFrame(runScroll);
+      fallbackScrollTimerRef.current = setTimeout(() => {
+        fallbackScrollTimerRef.current = null;
+        runScroll();
+      }, 48);
     }
-  }, [scrollRef]);
+  }, [cancelScheduledScrollToBottom, scrollRef]);
 
   // auto scroll when messages length changes (非流式期间)
   const lastMessagesLength = useRef(messages.length);
@@ -2681,17 +2693,16 @@ function useScrollToBottom(
 
   useEffect(() => {
     return () => {
-      if (fallbackScrollTimerRef.current) {
-        clearTimeout(fallbackScrollTimerRef.current);
-      }
+      cancelScheduledScrollToBottom();
     };
-  }, []);
+  }, [cancelScheduledScrollToBottom]);
 
   return {
     scrollRef,
     autoScroll,
     setAutoScroll,
     scrollDomToBottom,
+    cancelScheduledScrollToBottom,
   };
 }
 
@@ -3622,12 +3633,8 @@ function _Chat() {
   const autoScrollEnabledRef = useRef(false);
   autoScrollEnabledRef.current = autoScrollEnabled;
   const followStreamingAfterScrollButtonRef = useRef(false);
-  const { setAutoScroll, scrollDomToBottom } = useScrollToBottom(
-    scrollRef,
-    false,
-    sessionMessages,
-    autoScrollEnabled,
-  );
+  const { setAutoScroll, scrollDomToBottom, cancelScheduledScrollToBottom } =
+    useScrollToBottom(scrollRef, false, sessionMessages, autoScrollEnabled);
   const [hitBottom, setHitBottom] = useState(true);
   const [chatBodyOverflowing, setChatBodyOverflowing] = useState(false);
   const [isFarFromBottom, setIsFarFromBottom] = useState(false);
@@ -6128,6 +6135,7 @@ function _Chat() {
     (durationMs = 6000) => {
       clearStreamingScrollResumeTimer();
       clearForceScrollToBottom();
+      cancelScheduledScrollToBottom();
       clearCenteredLatestUserMessage();
       followStreamingAfterScrollButtonRef.current = false;
       programmaticScrollToBottomUntilRef.current = 0;
@@ -6147,6 +6155,7 @@ function _Chat() {
       clearCenteredLatestUserMessage,
       clearForceScrollToBottom,
       clearStreamingScrollResumeTimer,
+      cancelScheduledScrollToBottom,
       scrollRef,
       setAutoScroll,
       setAutoScrollEnabled,
@@ -6170,6 +6179,7 @@ function _Chat() {
     if (!chatBodyTouchPausedFollowRef.current) return;
 
     clearForceScrollToBottom();
+    cancelScheduledScrollToBottom();
     streamingAutoScrollPausedRef.current = true;
     programmaticScrollToBottomUntilRef.current = 0;
     const dom = scrollRef.current;
@@ -6177,7 +6187,7 @@ function _Chat() {
       dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
       lastChatBodyScrollTopRef.current = dom.scrollTop;
     }
-  }, [clearForceScrollToBottom, scrollRef]);
+  }, [cancelScheduledScrollToBottom, clearForceScrollToBottom, scrollRef]);
 
   const finishTouchScrollTakeover = useCallback(() => {
     if (
@@ -8782,26 +8792,13 @@ function _Chat() {
       return;
     }
 
-    // 流式输出时，如果内容增长导致消息偏离中心，即时回中
-    if (isAssistantStreaming) {
-      const hasRecentUserScrollIntent =
-        userScrollIntentRef.current ||
-        Date.now() < userScrollIntentUntilRef.current;
-      const scrollDrift = Math.abs(
-        centerMetrics.dom.scrollTop - centerMetrics.targetTop,
-      );
-
-      if (!hasRecentUserScrollIntent && scrollDrift > 20) {
-        programmaticScrollToBottomUntilRef.current = Date.now() + 32;
-        centerMetrics.dom.scrollTop = centerMetrics.targetTop;
-        lastChatBodyScrollTopRef.current = centerMetrics.targetTop;
-      }
-    }
+    // 只用 spacer 维持首次定位，不在流式换行时反复改写 scrollTop。
+    // 服务器端分片较慢时，每次 Markdown 高度变化都会触发绝对回中，
+    // 与手机原生滚动和用户触摸争抢 scrollTop，表现为换行抖动或偶发跳转。
   }, [
     centeredLatestUserMessageKey,
     centeredLatestUserMessageSpacerHeight,
     getMessageCenterMetrics,
-    isAssistantStreaming,
     sessionMessages,
     shouldHideChatMessages,
   ]);
