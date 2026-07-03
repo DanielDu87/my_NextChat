@@ -3538,8 +3538,7 @@ function _Chat() {
   const programmaticScrollToBottomUntilRef = useRef(0);
   const animatedScrollToBottomRafRef = useRef<number | null>(null);
   const animatedScrollToBottomRunRef = useRef(0);
-  const [isScrollToBottomAnimating, setIsScrollToBottomAnimating] =
-    useState(false);
+  const [, setIsScrollToBottomAnimating] = useState(false);
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
         scrollRef.current.scrollHeight -
@@ -6265,14 +6264,8 @@ function _Chat() {
     streamingAutoScrollPausedRef.current = false;
     setAutoScrollEnabled(true);
     setAutoScroll(true);
-    setHitBottom(true);
     scrollToBottomLikeMobileTitle();
-  }, [
-    scrollToBottomLikeMobileTitle,
-    setAutoScroll,
-    setAutoScrollEnabled,
-    setHitBottom,
-  ]);
+  }, [scrollToBottomLikeMobileTitle, setAutoScroll, setAutoScrollEnabled]);
 
   const scrollToTopOnMobile = useCallback(() => {
     mobileInputRef.current?.blur();
@@ -8531,7 +8524,6 @@ function _Chat() {
     chatBodyOverflowing &&
     !hitBottom &&
     isFarFromBottom &&
-    !isScrollToBottomAnimating &&
     !shouldShowChatRestoreNotice;
 
   useLayoutEffect(() => {
