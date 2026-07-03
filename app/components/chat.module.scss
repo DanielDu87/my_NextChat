@@ -5474,9 +5474,12 @@
       min-height: 0;
     }
 
-    &:last-child {
-      animation: mobile-chat-message-fade-in ease 0.2s;
-    }
+  }
+
+  // 只让新增的助手消息淡入。用户消息在发送瞬间会先成为
+  // :last-child，随后又被流式占位消息替代，对它施加该动画会闪烁。
+  .chat-message:last-child {
+    animation: mobile-chat-message-fade-in ease 0.2s;
   }
 
   .chat-model-name {
