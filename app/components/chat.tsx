@@ -5013,15 +5013,10 @@ function _Chat() {
     const aiSelectionPromptText =
       buildAiSelectionPromptText(aiSelectionContext);
 
-    // 手机端只保留单一的贴底/触摸暂停滚动 owner。若同时启用
-    // “最新用户消息居中”，它插入的 spacer 和 scrollTop 会与流式
-    // 贴底、触摸接管争抢布局，导致气泡闪烁、跨屏抖动或点击跳回开头。
-    pendingCenterLatestUserMessageRef.current = isMobileScreen
-      ? null
-      : {
-          sessionId: safeSession.id,
-          requestAt: Date.now(),
-        };
+    pendingCenterLatestUserMessageRef.current = {
+      sessionId: safeSession.id,
+      requestAt: Date.now(),
+    };
     setCenteredLatestUserMessageKey(null);
     setCenteredLatestUserMessageSpacerHeight(0);
 
@@ -5768,10 +5763,13 @@ function _Chat() {
       const containerRect = dom.getBoundingClientRect();
       const targetRect = targetMessage.getBoundingClientRect();
       const relativeTop = dom.scrollTop + (targetRect.top - containerRect.top);
-      const rawTargetTop =
-        relativeTop -
-        (dom.clientHeight - targetRect.height) / 2 +
-        latestUserMessageAboveCenterOffset;
+      // ChatGPT 官方移动 Web 在新回合开始时将用户消息一次性
+      // 定位到视口顶部附近，流式生成期间不再持续追踪底部。
+      const rawTargetTop = isMobileScreen
+        ? relativeTop - 14
+        : relativeTop -
+          (dom.clientHeight - targetRect.height) / 2 +
+          latestUserMessageAboveCenterOffset;
       const maxScrollTopWithoutSpacer = Math.max(
         0,
         dom.scrollHeight -
@@ -5789,7 +5787,7 @@ function _Chat() {
         requiredBottomSpacer,
       };
     },
-    [centeredLatestUserMessageSpacerHeight, scrollRef],
+    [centeredLatestUserMessageSpacerHeight, isMobileScreen, scrollRef],
   );
 
   const firstActionableMessageIndex = useMemo(() => {
@@ -6135,13 +6133,14 @@ function _Chat() {
     chatStore.summarizeSession(true, session);
   }, [chatStore, forceScrollToBottom, session, showTopNotice]);
 
-  const scrollToBottomTouchTriggeredRef = useRef(false);
   const pauseStreamingAutoScrollForUser = useCallback(
     (durationMs = 6000) => {
       clearStreamingScrollResumeTimer();
       clearForceScrollToBottom();
       cancelScheduledScrollToBottom();
-      clearCenteredLatestUserMessage();
+      if (!isMobileScreen) {
+        clearCenteredLatestUserMessage();
+      }
       followStreamingAfterScrollButtonRef.current = false;
       programmaticScrollToBottomUntilRef.current = 0;
       const dom = scrollRef.current;
@@ -6161,6 +6160,7 @@ function _Chat() {
       clearForceScrollToBottom,
       clearStreamingScrollResumeTimer,
       cancelScheduledScrollToBottom,
+      isMobileScreen,
       scrollRef,
       setAutoScroll,
       setAutoScrollEnabled,
@@ -6259,23 +6259,20 @@ function _Chat() {
     syncHitBottomFromDom,
   ]);
 
-  const handleScrollToBottomButton = useCallback(
-    (_immediate: boolean) => {
-      userScrollIntentRef.current = false;
-      userScrollIntentUntilRef.current = 0;
-      streamingAutoScrollPausedRef.current = false;
-      setAutoScrollEnabled(true);
-      setAutoScroll(true);
-      setHitBottom(true);
-      scrollToBottomLikeMobileTitle();
-    },
-    [
-      scrollToBottomLikeMobileTitle,
-      setAutoScroll,
-      setAutoScrollEnabled,
-      setHitBottom,
-    ],
-  );
+  const handleScrollToBottomButton = useCallback(() => {
+    userScrollIntentRef.current = false;
+    userScrollIntentUntilRef.current = 0;
+    streamingAutoScrollPausedRef.current = false;
+    setAutoScrollEnabled(true);
+    setAutoScroll(true);
+    setHitBottom(true);
+    scrollToBottomLikeMobileTitle();
+  }, [
+    scrollToBottomLikeMobileTitle,
+    setAutoScroll,
+    setAutoScrollEnabled,
+    setHitBottom,
+  ]);
 
   const scrollToTopOnMobile = useCallback(() => {
     mobileInputRef.current?.blur();
@@ -8727,7 +8724,7 @@ function _Chat() {
     if (!centerMetrics) return;
 
     // 必须在新消息完成渲染后判断；发送前可能尚未溢出，新增消息后才超出屏幕。
-    if (!isScrollDomOverflowing(centerMetrics.dom)) {
+    if (!isMobileScreen && !isScrollDomOverflowing(centerMetrics.dom)) {
       if (!isAssistantStreaming && !isLoading) {
         clearCenteredLatestUserMessage();
       }
@@ -8766,6 +8763,7 @@ function _Chat() {
     isScrollDomOverflowing,
     isAssistantStreaming,
     isLoading,
+    isMobileScreen,
     msgRenderIndex,
     renderMessages.length,
     safeSession.id,
@@ -8778,6 +8776,10 @@ function _Chat() {
   useLayoutEffect(() => {
     if (!centeredLatestUserMessageKey) return;
     if (shouldHideChatMessages) return;
+
+    // 移动端将当前回合的布局空间保持到用户显式点击“回到底部”。
+    // 不在流式结束或触摸时回收，避免 scrollHeight 突变导致跳转。
+    if (isMobileScreen) return;
 
     // 首次定位完成后冻结 spacer。流式正文每增加一行都会减少等量的
     // requiredBottomSpacer；若在输出期间持续同步这个高度，正文和 spacer
@@ -8810,6 +8812,7 @@ function _Chat() {
     centeredLatestUserMessageSpacerHeight,
     getMessageCenterMetrics,
     isAssistantStreaming,
+    isMobileScreen,
     sessionMessages,
     shouldHideChatMessages,
   ]);
@@ -9752,7 +9755,6 @@ function _Chat() {
                       Math.abs(currentY - startY) > 3
                     ) {
                       chatBodyTouchMovedRef.current = true;
-                      clearCenteredLatestUserMessage();
                       pauseStreamingAutoScrollForUser();
                     }
                   }}
@@ -10412,7 +10414,10 @@ function _Chat() {
                     )}
                   </>
                 </div>
-                <div
+                <button
+                  type="button"
+                  aria-label={Locale.Chat.InputActions.ToBottom}
+                  title={Locale.Chat.InputActions.ToBottom}
                   className={clsx(styles["scroll-to-bottom"], {
                     [styles["scroll-to-bottom-visible"]]:
                       shouldShowScrollToBottomButton,
@@ -10423,25 +10428,9 @@ function _Chat() {
                       Math.round(inputPanelHeight + 10),
                     )}px + env(safe-area-inset-bottom) + var(--chat-keyboard-accessory-inset, 0px) + var(--chat-keyboard-overlap-correction, 0px))`,
                   }}
-                  onTouchStart={(e) => {
-                    if (!isMobileScreen) return;
-                    scrollToBottomTouchTriggeredRef.current = true;
-                    e.preventDefault();
-                    clearCenteredLatestUserMessage();
-                    handleScrollToBottomButton(true);
-                    window.setTimeout(() => {
-                      scrollToBottomTouchTriggeredRef.current = false;
-                    }, 600);
-                  }}
                   onClick={() => {
-                    if (
-                      isMobileScreen &&
-                      scrollToBottomTouchTriggeredRef.current
-                    ) {
-                      return;
-                    }
                     clearCenteredLatestUserMessage();
-                    handleScrollToBottomButton(isMobileScreen);
+                    handleScrollToBottomButton();
                   }}
                 >
                   <svg
@@ -10456,7 +10445,7 @@ function _Chat() {
                   >
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
-                </div>
+                </button>
                 {aiSelectionBubble && (
                   <button
                     type="button"
