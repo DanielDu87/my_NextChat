@@ -9727,9 +9727,16 @@ function _Chat() {
                     prepareTouchScrollTakeover();
                     markUserScrollIntent();
                     if (isMobileScreen) {
-                      mobileInputOutsidePointerBlurRef.current = false;
-                      finalizeMobileInputBlur(true);
-                      blurMobileKeyboard();
+                      const mobileInput = mobileInputRef.current;
+                      const shouldDismissMobileKeyboard =
+                        isMobileInputFocused ||
+                        mobileKeyboardOpenedSinceFocusRef.current ||
+                        document.activeElement === mobileInput;
+                      if (shouldDismissMobileKeyboard) {
+                        mobileInputOutsidePointerBlurRef.current = false;
+                        finalizeMobileInputBlur(true);
+                        blurMobileKeyboard();
+                      }
                     } else {
                       inputRef.current?.blur();
                     }
