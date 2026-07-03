@@ -2600,6 +2600,9 @@
   padding-bottom: var(--chat-scroll-button-clearance);
   position: relative;
   overscroll-behavior: none;
+  // 流式 Markdown 会持续重渲染整条消息，禁用浏览器原生滚动锚定，
+  // 避免它与应用自己的贴底/触摸暂停逻辑争抢滚动位置。
+  overflow-anchor: none;
 }
 
 .chat-body-loading {
