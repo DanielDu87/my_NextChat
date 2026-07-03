@@ -5986,8 +5986,8 @@ function _Chat() {
         if (
           pending.updateMessageWindow &&
           !pending.programmatic &&
-          (!isAssistantStreaming ||
-            Date.now() < userScrollWindowUpdateUntilRef.current) &&
+          // 在流式输出期间，除非用户明确暂停了自动滚动，否则不调整消息渲染范围
+          !isAssistantStreaming &&
           !(isAssistantStreaming && streamingAutoScrollPausedRef.current)
         ) {
           const bottomHeight = pending.dom.scrollTop + pending.dom.clientHeight;
@@ -6096,7 +6096,7 @@ function _Chat() {
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
     const runScroll = () => {
-      programmaticScrollToBottomUntilRef.current = Date.now() + 32;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 50;
       const dom = scrollRef.current;
       if (dom) {
         const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
@@ -6106,19 +6106,14 @@ function _Chat() {
       }
     };
 
-    const outerRaf = window.requestAnimationFrame(() => {
+    // 简化动画流程，减少不必要的渲染帧
+    const raf = window.requestAnimationFrame(() => {
       forceScrollRafsRef.current = forceScrollRafsRef.current.filter(
-        (raf) => raf !== outerRaf,
+        (r) => r !== raf,
       );
-      const innerRaf = window.requestAnimationFrame(() => {
-        forceScrollRafsRef.current = forceScrollRafsRef.current.filter(
-          (raf) => raf !== innerRaf,
-        );
-        runScroll();
-      });
-      forceScrollRafsRef.current.push(innerRaf);
+      runScroll();
     });
-    forceScrollRafsRef.current.push(outerRaf);
+    forceScrollRafsRef.current.push(raf);
   }, [
     clearForceScrollToBottom,
     isScrollDomHitBottom,
@@ -6219,6 +6214,8 @@ function _Chat() {
     userScrollIntentUntilRef.current = 0;
     streamingAutoScrollPausedRef.current = false;
     followStreamingAfterScrollButtonRef.current = true;
+
+    // 一次性设置状态，避免多次渲染
     setAutoScrollEnabled(true);
     setAutoScroll(true);
     setIsScrollToBottomAnimating(true);
@@ -6228,24 +6225,25 @@ function _Chat() {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
       const nextDom = scrollRef.current;
       if (!nextDom) return;
-      programmaticScrollToBottomUntilRef.current = Date.now() + 180;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 200;
       const targetTop = Math.max(
         0,
         nextDom.scrollHeight - nextDom.clientHeight,
       );
       nextDom.scrollTop = targetTop;
       lastChatBodyScrollTopRef.current = targetTop;
-      syncHitBottomFromDom();
     };
 
     const finishSettle = () => {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
       settleToBottom();
-      programmaticScrollToBottomUntilRef.current = Date.now() + 96;
+      programmaticScrollToBottomUntilRef.current = Date.now() + 100;
       animatedScrollToBottomRafRef.current = null;
       setIsScrollToBottomAnimating(false);
+      syncHitBottomFromDom();
     };
 
+    // 简化动画流程，减少闪烁
     window.requestAnimationFrame(() => {
       if (animatedScrollToBottomRunRef.current !== animationRunId) return;
       settleToBottom();
@@ -6266,10 +6264,9 @@ function _Chat() {
     userScrollIntentRef.current = false;
     userScrollIntentUntilRef.current = 0;
     streamingAutoScrollPausedRef.current = false;
-    setAutoScrollEnabled(true);
-    setAutoScroll(true);
+    // 直接调用，避免重复状态设置
     scrollToBottomLikeMobileTitle();
-  }, [scrollToBottomLikeMobileTitle, setAutoScroll, setAutoScrollEnabled]);
+  }, [scrollToBottomLikeMobileTitle]);
 
   const scrollToTopOnMobile = useCallback(() => {
     mobileInputRef.current?.blur();
