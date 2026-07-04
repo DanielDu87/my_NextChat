@@ -38,22 +38,23 @@ function getVersion() {
 }
 
 function getCommitInfo() {
-  const commitDateEnv =
-    process.env.BUILD_COMMIT_DATE ?? process.env.NEXT_PUBLIC_BUILD_COMMIT_DATE;
-  const commitHashEnv =
-    process.env.BUILD_COMMIT_HASH ?? process.env.NEXT_PUBLIC_BUILD_COMMIT_HASH;
+  const normalizeBuildValue = (value?: string) => {
+    const normalized = value?.trim();
+    return normalized && normalized.toLowerCase() !== "unknown"
+      ? normalized
+      : undefined;
+  };
+  const commitDateEnv = normalizeBuildValue(
+    process.env.BUILD_COMMIT_DATE ?? process.env.NEXT_PUBLIC_BUILD_COMMIT_DATE,
+  );
+  const commitHashEnv = normalizeBuildValue(
+    process.env.BUILD_COMMIT_HASH ?? process.env.NEXT_PUBLIC_BUILD_COMMIT_HASH,
+  );
 
   if (commitDateEnv || commitHashEnv) {
     return {
       commitDate: commitDateEnv ?? "unknown",
       commitHash: commitHashEnv ?? "unknown",
-    };
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    return {
-      commitDate: "unknown",
-      commitHash: "unknown",
     };
   }
 

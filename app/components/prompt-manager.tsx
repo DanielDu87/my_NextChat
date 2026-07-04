@@ -308,7 +308,7 @@ export function PromptManagerPage() {
             text="删除"
             type="danger"
             bordered
-            className={styles.dangerButton}
+            className={`${styles.dangerButton} ${styles.profileDeleteButton}`}
             onClick={() => deletePrompt(prompt)}
           />
         </div>

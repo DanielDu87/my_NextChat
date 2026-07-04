@@ -478,7 +478,11 @@ export function Settings() {
 
   const updateStore = useUpdateStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const currentVersion = updateStore.formatVersion(updateStore.version);
+  const localVersion =
+    updateStore.version && updateStore.version !== "unknown"
+      ? updateStore.version
+      : getClientConfig()?.version || "unknown";
+  const currentVersion = updateStore.formatVersion(localVersion);
   const remoteId = updateStore.formatVersion(updateStore.remoteVersion);
   const hasNewVersion = semverCompare(currentVersion, remoteId) === -1;
   const updateUrl = getClientConfig()?.isApp ? getReleaseUrl() : getUpdateUrl();

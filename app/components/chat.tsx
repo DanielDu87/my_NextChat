@@ -6210,14 +6210,17 @@ function _Chat() {
     clearForceScrollToBottom();
     const animationRunId = animatedScrollToBottomRunRef.current + 1;
     animatedScrollToBottomRunRef.current = animationRunId;
-    userScrollIntentRef.current = false;
-    userScrollIntentUntilRef.current = 0;
-    streamingAutoScrollPausedRef.current = false;
-    followStreamingAfterScrollButtonRef.current = true;
 
-    // 一次性设置状态，避免多次渲染
-    setAutoScrollEnabled(true);
-    setAutoScroll(true);
+    // 只滚动到当前位置，不恢复自动跟随
+    // 保持用户滚动意图，之后新内容不会自动跟随
+    userScrollIntentRef.current = true;
+    userScrollIntentUntilRef.current = Date.now() + 3600000; // 保持1小时
+    streamingAutoScrollPausedRef.current = true;
+    followStreamingAfterScrollButtonRef.current = false;
+
+    // 不启用自动滚动
+    setAutoScrollEnabled(false);
+    setAutoScroll(false);
     setIsScrollToBottomAnimating(true);
     setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
 
@@ -6261,9 +6264,11 @@ function _Chat() {
   ]);
 
   const handleScrollToBottomButton = useCallback(() => {
-    userScrollIntentRef.current = false;
-    userScrollIntentUntilRef.current = 0;
-    streamingAutoScrollPausedRef.current = false;
+    // 保持用户滚动意图，只滚动到当前位置，不恢复自动跟随
+    userScrollIntentRef.current = true;
+    userScrollIntentUntilRef.current = Date.now() + 3600000; // 保持1小时
+    streamingAutoScrollPausedRef.current = true;
+    followStreamingAfterScrollButtonRef.current = false;
     // 直接调用，避免重复状态设置
     scrollToBottomLikeMobileTitle();
   }, [scrollToBottomLikeMobileTitle]);

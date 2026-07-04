@@ -419,6 +419,19 @@
   fill: white !important;
 }
 
+.dangerButton.profileDeleteButton:global([class*="danger"]) {
+  color: white !important;
+  background-color: rgba(255, 77, 79, 0.28) !important;
+  border-color: rgba(255, 77, 79, 0.35) !important;
+
+  &:hover,
+  &:focus,
+  &:active {
+    background-color: #ff4d4f !important;
+    border-color: #ff4d4f !important;
+  }
+}
+
 .promptColActions .dangerButton {
   width: auto !important;
   min-width: 0 !important;

@@ -23,6 +23,7 @@ import {
   type ManagedUser,
 } from "../utils/managed-users";
 import { isAbortLikeError } from "../utils/stale-revalidate";
+import { getClientConfig } from "../config/client";
 
 function getUserInitial(name: string) {
   return (
@@ -626,6 +627,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   }
 
   if (props?.variant === "chat-floating") {
+    const buildConfig = getClientConfig();
     return (
       <>
         <div
@@ -639,6 +641,17 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
             <div className={clsx(styles.chatFloatingValue, "one-line")}>
               {effectiveUser.displayName || effectiveUser.username}
             </div>
+            {buildConfig && (
+              <div
+                className={clsx(styles.chatFloatingLabel, "one-line")}
+                style={{ fontSize: "11px", fontWeight: 600, opacity: 0.7 }}
+              >
+                当前版本：
+                {buildConfig.commitHash && buildConfig.commitHash !== "unknown"
+                  ? buildConfig.commitHash.substring(0, 8)
+                  : buildConfig.version}
+              </div>
+            )}
           </div>
         </div>
 
@@ -878,6 +891,28 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
               <div>
                 当前查看：{effectiveUser.displayName || effectiveUser.username}
               </div>
+              {(() => {
+                const buildConfig = getClientConfig();
+                if (buildConfig) {
+                  return (
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        opacity: 0.7,
+                        marginTop: "4px",
+                      }}
+                    >
+                      当前版本：
+                      {buildConfig.commitHash &&
+                      buildConfig.commitHash !== "unknown"
+                        ? buildConfig.commitHash.substring(0, 8)
+                        : buildConfig.version}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <List>

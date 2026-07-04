@@ -8,7 +8,8 @@ const revalidateEntries = new Map<string, RevalidateEntry<unknown>>();
 export function isAbortLikeError(error: unknown) {
   return (
     (error instanceof DOMException && error.name === "AbortError") ||
-    String(error).toLowerCase().includes("signal is aborted")
+    String(error).toLowerCase().includes("signal is aborted") ||
+    /^error: \[(?:db )?sync\] aborted\b/i.test(String(error))
   );
 }
 
@@ -18,9 +19,13 @@ export function runStaleRevalidate<T>(params: {
   signal?: AbortSignal;
   task: (signal: AbortSignal) => Promise<T>;
 }) {
-  const existing = revalidateEntries.get(params.key) as
+  let existing = revalidateEntries.get(params.key) as
     | RevalidateEntry<T>
     | undefined;
+  if (existing?.controller.signal.aborted) {
+    revalidateEntries.delete(params.key);
+    existing = undefined;
+  }
   if (existing && !params.forceRestart) {
     return existing.promise;
   }
