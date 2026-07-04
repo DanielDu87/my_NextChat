@@ -9664,6 +9664,24 @@ function _Chat() {
                 disabled={false}
               />
             </div>
+            {!isMobileScreen && (
+              <div
+                className={clsx(
+                  "window-action-button",
+                  styles["chat-window-action-button"],
+                )}
+              >
+                <IconButton
+                  icon={<ConfirmIcon />}
+                  bordered
+                  className={styles["chat-window-icon-button"]}
+                  text={useHeaderIconOnly ? undefined : "余额查询"}
+                  title="余额查询"
+                  aria="余额查询"
+                  onClick={() => navigate(Path.ProviderBalances)}
+                />
+              </div>
+            )}
             <div
               className={clsx(
                 "window-action-button",
