@@ -53,15 +53,17 @@ export default function RootLayout({
   const shouldMountAutoSync = AUTH_BYPASS_ENABLED || hasAuthSession;
 
   return (
-    <html
-      lang="zh-CN"
-      className="dark"
-      style={{ backgroundColor: "#151515", colorScheme: "dark" }}
-      suppressHydrationWarning
-    >
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        {/* 服务端预置深色背景：在 CSS 和 JS 加载前就防止白闪 */}
-        <style>{`html,body{background-color:#151515;color-scheme:dark}#${THEME_BOOT_SCREEN_ID}{position:fixed;inset:0;z-index:2147483647;background:#151515;color-scheme:dark;pointer-events:none}`}</style>
+        {/* 首帧先跟随系统主题，随后由本地保存的主题在 head 阶段立即接管。 */}
+        <style>{`
+          html,body{background-color:#fafafa;color-scheme:light}
+          #${THEME_BOOT_SCREEN_ID}{position:fixed;inset:0;z-index:2147483647;background:#fafafa;color-scheme:light;pointer-events:none}
+          @media(prefers-color-scheme:dark){
+            html,body{background-color:#151515;color-scheme:dark}
+            #${THEME_BOOT_SCREEN_ID}{background:#151515;color-scheme:dark}
+          }
+        `}</style>
         <meta name="config" content={JSON.stringify(buildConfig)} />
         <meta httpEquiv="Content-Language" content="zh-CN" />
         <meta
@@ -114,11 +116,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body
-        className="dark"
-        style={{ backgroundColor: "#151515", colorScheme: "dark" }}
-        suppressHydrationWarning
-      >
+      <body suppressHydrationWarning>
         <script
           dangerouslySetInnerHTML={{
             __html: `

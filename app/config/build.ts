@@ -51,23 +51,20 @@ function getCommitInfo() {
     process.env.BUILD_COMMIT_HASH ?? process.env.NEXT_PUBLIC_BUILD_COMMIT_HASH,
   );
 
-  if (commitDateEnv || commitHashEnv) {
-    return {
-      commitDate: commitDateEnv ?? "unknown",
-      commitHash: commitHashEnv ?? "unknown",
-    };
-  }
-
   try {
     const childProcess = require("child_process");
-    const commitDate: string = childProcess
-      .execSync('git log -1 --format="%at000" --date=unix')
-      .toString()
-      .trim();
-    const commitHash: string = childProcess
-      .execSync('git log --pretty=format:"%H" -n 1')
-      .toString()
-      .trim();
+    const commitDate: string =
+      commitDateEnv ??
+      childProcess
+        .execSync('git log -1 --format="%at000" --date=unix')
+        .toString()
+        .trim();
+    const commitHash: string =
+      commitHashEnv ??
+      childProcess
+        .execSync('git log --pretty=format:"%H" -n 1')
+        .toString()
+        .trim();
 
     return { commitDate, commitHash };
   } catch (e) {

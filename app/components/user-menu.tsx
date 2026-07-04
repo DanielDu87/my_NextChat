@@ -649,7 +649,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                 当前版本：
                 {buildConfig.commitHash && buildConfig.commitHash !== "unknown"
                   ? buildConfig.commitHash.substring(0, 8)
-                  : buildConfig.version}
+                  : "unknown"}
               </div>
             )}
           </div>
@@ -907,7 +907,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
                       {buildConfig.commitHash &&
                       buildConfig.commitHash !== "unknown"
                         ? buildConfig.commitHash.substring(0, 8)
-                        : buildConfig.version}
+                        : "unknown"}
                     </div>
                   );
                 }
