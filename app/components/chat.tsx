@@ -3528,7 +3528,6 @@ function _Chat() {
   const syncProvider = useSyncStore((state) => state.provider);
   const isChatUnavailableForSync = false;
   const readOnly = useAuthStore((state) => state.readOnly);
-  const effectiveAuthUser = useAuthStore((state) => state.effectiveUser);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const initializedBottomSessionRef = useRef("");
@@ -3660,12 +3659,10 @@ function _Chat() {
     [isMobileScreen],
   );
   const { width: windowWidth } = useWindowSize();
-  const [showStatusUserPanel, setShowStatusUserPanel] = useState(
-    () => !isMobileScreen,
-  );
+  const [showStatusUserPanel, setShowStatusUserPanel] = useState(true);
 
   useEffect(() => {
-    setShowStatusUserPanel(!isMobileScreen);
+    setShowStatusUserPanel(true);
   }, [isMobileScreen]);
 
   useLayoutEffect(() => {
@@ -3985,6 +3982,36 @@ function _Chat() {
   })();
   const activeModelSelectorProviderDisplayName =
     activeModelSelectorProfile?.name || currentProviderDisplayName;
+  const balanceProfileId =
+    currentProfile?.id ||
+    String((sessionMask.modelConfig as any)?.profileId || "") ||
+    String((currentActiveProviderProfile as any)?.id || "");
+  const balanceRefreshSignal = useMemo(() => {
+    const latestCompletedAssistant = [...sessionMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.streaming &&
+          !message.isError &&
+          Boolean(getMessageTextContent(message)),
+      );
+    if (!balanceProfileId || !isModelConfigSyncConfirmed) return "";
+    const replySignal = latestCompletedAssistant
+      ? `${latestCompletedAssistant.id}:${latestCompletedAssistant.date}`
+      : "initial";
+    const selectionUpdatedAt = Number(
+      (safeSession.mask as any)?.modelSelectionUpdatedAt || 0,
+    );
+    return `${safeSession.id}:${currentProviderId}:${balanceProfileId}:${selectionUpdatedAt}:${replySignal}`;
+  }, [
+    balanceProfileId,
+    currentProviderId,
+    isModelConfigSyncConfirmed,
+    safeSession.mask,
+    safeSession.id,
+    sessionMessages,
+  ]);
   const autoModeEnabled = autoModelSeries.length > 0;
   const latestAutoModeProviderMessage = useMemo(() => {
     if (!autoModeEnabled) {
@@ -5037,6 +5064,9 @@ function _Chat() {
         setAttachImages([]);
         setAttachedFiles([]);
         resetMobileComposerAfterSubmit();
+        if (isMobileScreen) {
+          setShowStatusUserPanel(false);
+        }
         return;
       }
     }
@@ -5082,6 +5112,7 @@ function _Chat() {
     setPromptHints([]);
     resetMobileComposerAfterSubmit();
     if (isMobileScreen) {
+      setShowStatusUserPanel(false);
       if (!mobileInputSubmitBlurRef.current) {
         prepareMobileSubmitKeyboardDismiss();
       }
@@ -9737,11 +9768,19 @@ function _Chat() {
                             </>
                           )}
                         </div>
-                        <UserMenu variant="chat-floating" />
+                        <UserMenu
+                          variant="chat-floating"
+                          balanceProfileId={balanceProfileId}
+                          balanceRefreshSignal={balanceRefreshSignal}
+                        />
                       </div>
                     ) : (
                       <>
-                        <UserMenu variant="chat-floating" />
+                        <UserMenu
+                          variant="chat-floating"
+                          balanceProfileId={balanceProfileId}
+                          balanceRefreshSignal={balanceRefreshSignal}
+                        />
                       </>
                     )}
                   </div>

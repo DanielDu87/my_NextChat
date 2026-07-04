@@ -24,6 +24,8 @@ function getRouteSyncLogName(path: string) {
       return "首页";
     case Path.ApiConfig:
       return "API 配置页";
+    case Path.ProviderBalances:
+      return "余额查询页";
     case Path.Draw:
       return "绘画页";
     case Path.DrawHistory:
@@ -85,7 +87,8 @@ export function shouldPrepareRouteEntryForSync(path: string) {
     normalizedPath === Path.Draw ||
     normalizedPath === Path.DrawHistory ||
     /^\/chat\/[^/]+$/.test(normalizedPath) ||
-    normalizedPath === Path.ApiConfig
+    normalizedPath === Path.ApiConfig ||
+    normalizedPath === Path.ProviderBalances
   );
 }
 

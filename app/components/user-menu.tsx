@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import styles from "./user-menu.module.scss";
@@ -24,6 +24,25 @@ import {
 } from "../utils/managed-users";
 import { isAbortLikeError } from "../utils/stale-revalidate";
 import { getClientConfig } from "../config/client";
+import { safeLocalStorage } from "../utils/safe-local-storage";
+
+type CachedProviderBalance = {
+  value: number;
+  currency: string;
+  queriedAt: number;
+};
+
+const balanceStorage = safeLocalStorage();
+
+function readCachedBalance(key: string): CachedProviderBalance | null {
+  if (!key) return null;
+  try {
+    const value = JSON.parse(balanceStorage.getItem(key) || "null");
+    return Number.isFinite(value?.value) ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function getUserInitial(name: string) {
   return (
@@ -270,7 +289,11 @@ function EditPasswordModal(props: {
   );
 }
 
-export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
+export function UserMenu(props?: {
+  variant?: "default" | "chat-floating";
+  balanceProfileId?: string;
+  balanceRefreshSignal?: string;
+}) {
   const user = useAuthStore((state) => state.user);
   const effectiveUser = useAuthStore((state) => state.effectiveUser);
   const logout = useAuthStore((state) => state.logout);
@@ -293,6 +316,50 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
   const currentEffectiveUserId = effectiveUser?.id ?? "";
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
+  const balanceCacheKey = props?.balanceProfileId
+    ? `nextchat:provider-balance:${effectiveUser?.id || "unknown"}:${
+        props.balanceProfileId
+      }`
+    : "";
+  const [providerBalance, setProviderBalance] =
+    useState<CachedProviderBalance | null>(() =>
+      readCachedBalance(balanceCacheKey),
+    );
+  const previousRefreshSignalRef = useRef("");
+
+  useEffect(() => {
+    setProviderBalance(readCachedBalance(balanceCacheKey));
+  }, [balanceCacheKey]);
+
+  useEffect(() => {
+    const signal = props?.balanceRefreshSignal || "";
+    if (!signal || signal === previousRefreshSignalRef.current) return;
+    previousRefreshSignalRef.current = signal;
+    if (!props?.balanceProfileId || !balanceCacheKey) return;
+
+    const controller = new AbortController();
+    void fetch("/api/db/provider-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ profileId: props.balanceProfileId }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || payload?.ok !== true) return;
+        const balance = payload.balance as CachedProviderBalance;
+        if (!Number.isFinite(balance?.value)) return;
+        balanceStorage.setItem(balanceCacheKey, JSON.stringify(balance));
+        setProviderBalance(balance);
+      })
+      .catch((error) => {
+        if (!isAbortLikeError(error)) {
+          console.warn("[UserMenu] 余额查询失败");
+        }
+      });
+
+    return () => controller.abort();
+  }, [balanceCacheKey, props?.balanceProfileId, props?.balanceRefreshSignal]);
 
   const openManageModal = () => {
     if (typeof document !== "undefined") {
@@ -635,21 +702,35 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
           onClick={openManageModal}
         >
           <div className={styles.chatFloatingText}>
-            <div className={clsx(styles.chatFloatingLabel, "one-line")}>
-              当前用户（切换）
-            </div>
             <div className={clsx(styles.chatFloatingValue, "one-line")}>
-              {effectiveUser.displayName || effectiveUser.username}
+              当前用户：
+              <span className={styles.chatFloatingData}>
+                {effectiveUser.displayName || effectiveUser.username}
+              </span>
+            </div>
+            <div className={clsx(styles.chatFloatingLabel, "one-line")}>
+              余额：
+              <span className={styles.chatFloatingData}>
+                {providerBalance
+                  ? `$${providerBalance.value.toFixed(2)}`
+                  : "无"}
+              </span>
             </div>
             {buildConfig && (
               <div
-                className={clsx(styles.chatFloatingLabel, "one-line")}
-                style={{ fontSize: "11px", fontWeight: 600, opacity: 0.7 }}
+                className={clsx(
+                  styles.chatFloatingLabel,
+                  styles.chatFloatingVersion,
+                  "one-line",
+                )}
               >
                 当前版本：
-                {buildConfig.commitHash && buildConfig.commitHash !== "unknown"
-                  ? buildConfig.commitHash.substring(0, 8)
-                  : "unknown"}
+                <span className={styles.chatFloatingData}>
+                  {buildConfig.commitHash &&
+                  buildConfig.commitHash !== "unknown"
+                    ? buildConfig.commitHash.substring(0, 8)
+                    : "unknown"}
+                </span>
               </div>
             )}
           </div>

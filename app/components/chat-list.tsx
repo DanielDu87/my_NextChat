@@ -80,6 +80,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
   hideDelete?: boolean;
   multiDeleteMode?: boolean;
   multiDeleteSelected?: boolean;
+  disabled?: boolean;
   avatar: string;
   model: string;
 }) {
@@ -122,8 +123,9 @@ const ChatItemCard = memo(function ChatItemCard(props: {
         [styles["chat-item-multi-delete"]]: props.multiDeleteMode,
         [styles["chat-item-multi-delete-selected"]]:
           props.multiDeleteMode && props.multiDeleteSelected,
+        [styles["chat-item-disabled"]]: props.disabled,
       })}
-      onClick={props.onClick}
+      onClick={props.disabled ? undefined : props.onClick}
       title={`${props.title}\n${Locale.ChatItem.ChatItemCount(props.count)}`}
     >
       <div className={styles["chat-item-title"]}>
@@ -147,7 +149,7 @@ const ChatItemCard = memo(function ChatItemCard(props: {
         </div>
       )}
 
-      {!props.hideDelete && (
+      {!props.hideDelete && !props.disabled && (
         <div
           className={styles["chat-item-delete"]}
           onClickCapture={(e) => {
@@ -184,6 +186,12 @@ export function ChatList() {
     selectedSessionId || liveCurrentSessionId || currentSessionId;
   const navigate = useNavigate();
   const location = useLocation();
+  const isChatPage =
+    location.pathname === Path.Home ||
+    location.pathname === Path.Chat ||
+    location.pathname === Path.NewChat ||
+    /^\/chat\/[^/]+$/.test(location.pathname);
+  const isChatListDisabled = !isChatPage;
   const isMobileScreen = useMobileScreen();
   const listRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -247,13 +255,22 @@ export function ChatList() {
   }, []);
 
   useEffect(() => {
-    const listener = () => enterMultiDeleteMode(effectiveCurrentSessionId);
+    const listener = () => {
+      if (isChatListDisabled) return;
+      enterMultiDeleteMode(effectiveCurrentSessionId);
+    };
     window.addEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
 
     return () => {
       window.removeEventListener(OPEN_CHAT_LIST_MULTI_DELETE_EVENT, listener);
     };
-  }, [effectiveCurrentSessionId, enterMultiDeleteMode]);
+  }, [effectiveCurrentSessionId, enterMultiDeleteMode, isChatListDisabled]);
+
+  useEffect(() => {
+    if (isChatListDisabled && multiDeleteMode) {
+      exitMultiDeleteMode();
+    }
+  }, [exitMultiDeleteMode, isChatListDisabled, multiDeleteMode]);
 
   useEffect(() => {
     if (!isMobileScreen && multiDeleteMode) {
@@ -499,6 +516,10 @@ export function ChatList() {
 
   const onSelectSession = useCallback(
     (item: ChatSessionSummary) => {
+      if (isChatListDisabled) {
+        return;
+      }
+
       if (multiDeleteMode) {
         toggleDeleteSelection(item.id);
         return;
@@ -517,6 +538,7 @@ export function ChatList() {
     },
     [
       isMobileScreen,
+      isChatListDisabled,
       location.pathname,
       multiDeleteMode,
       navigate,
@@ -645,6 +667,7 @@ export function ChatList() {
               hideDelete={isPinnedNewChat(item)}
               multiDeleteMode={multiDeleteMode}
               multiDeleteSelected={selectedDeleteIds.includes(item.id)}
+              disabled={isChatListDisabled}
               avatar={item.avatar}
               model={item.model}
             />
@@ -679,6 +702,7 @@ export function ChatList() {
                   hideDelete={isPinnedNewChat(item)}
                   multiDeleteMode={multiDeleteMode}
                   multiDeleteSelected={selectedDeleteIds.includes(item.id)}
+                  disabled={isChatListDisabled}
                   avatar={item.avatar}
                   model={item.model}
                 />
@@ -689,8 +713,12 @@ export function ChatList() {
       );
 
   return (
-    <div className={styles["chat-list-panel"]}>
-      {multiDeleteMode && (
+    <div
+      className={clsx(styles["chat-list-panel"], {
+        [styles["chat-list-disabled"]]: isChatListDisabled,
+      })}
+    >
+      {multiDeleteMode && !isChatListDisabled && (
         <div className={styles["chat-list-delete-bar"]}>
           <button type="button" onClick={exitMultiDeleteMode}>
             <CloseIcon />
@@ -712,6 +740,7 @@ export function ChatList() {
           className={styles["chat-list-filter-input"]}
           placeholder={Locale.SearchChat.Page.Search}
           value={filterText}
+          disabled={isChatListDisabled}
           onChange={(e) => setFilterText(e.currentTarget.value)}
         />
       </div>

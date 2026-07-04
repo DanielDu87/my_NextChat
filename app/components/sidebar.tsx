@@ -22,7 +22,7 @@ import { Theme } from "../store/config";
 
 import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
 import { isCurrentFreshDefaultChat } from "../utils/new-chat";
 import dynamic from "next/dynamic";
@@ -445,6 +445,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
   const isMobileScreen = useMobileScreen();
   const [showThemeSelector, setShowThemeSelector] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const config = useAppConfig();
   const chatStore = useChatStore();
   const readOnly = useAuthStore((state) => state.readOnly);
@@ -461,6 +462,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
   };
 
   const handleMouseEnter = () => {
+    if (isChatListControlsDisabled) return;
     // 清除关闭定时器
     if (themeTimerRef.current) {
       clearTimeout(themeTimerRef.current);
@@ -468,6 +470,13 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
     }
     setShowThemeSelector(true);
   };
+
+  const isChatPage =
+    location.pathname === Path.Home ||
+    location.pathname === Path.Chat ||
+    location.pathname === Path.NewChat ||
+    /^\/chat\/[^/]+$/.test(location.pathname);
+  const isChatListControlsDisabled = !isChatPage;
 
   return (
     <SideBarContainer {...props}>
@@ -542,18 +551,28 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
       <SideBarTail
         primaryAction={
           <>
-            <div className={styles["sidebar-action"]}>
+            <div
+              className={clsx(styles["sidebar-action"], {
+                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+              })}
+            >
               <IconButton
                 aria={Locale.Settings.Title}
                 icon={<SettingsIcon />}
                 className={styles["sidebar-icon-button"]}
                 shadow
+                disabled={isChatListControlsDisabled}
                 onClick={() => {
+                  if (isChatListControlsDisabled) return;
                   window.dispatchEvent(new CustomEvent("openEditModal"));
                 }}
               />
             </div>
-            <div className={styles["sidebar-action"]}>
+            <div
+              className={clsx(styles["sidebar-action"], {
+                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+              })}
+            >
               <div
                 className={styles["theme-selector"]}
                 ref={themeSelectorRef}
@@ -573,8 +592,9 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                   }
                   className={styles["sidebar-icon-button"]}
                   shadow
+                  disabled={isChatListControlsDisabled}
                 />
-                {showThemeSelector && (
+                {showThemeSelector && !isChatListControlsDisabled && (
                   <div
                     className={styles["theme-dropdown"]}
                     onMouseEnter={handleMouseEnter}
@@ -627,11 +647,17 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
         }
         secondaryAction={
           <>
-            <div className={clsx(styles["sidebar-action"], styles.mobile)}>
+            <div
+              className={clsx(styles["sidebar-action"], styles.mobile, {
+                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+              })}
+            >
               <IconButton
                 icon={<DeleteIcon />}
                 className={styles["sidebar-icon-button"]}
+                disabled={isChatListControlsDisabled}
                 onClick={async () => {
+                  if (isChatListControlsDisabled) return;
                   if (readOnly) {
                     showToast("管理员查看他人数据时为只读模式，不能删除会话");
                     return;
@@ -652,7 +678,9 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
               icon={<AddIcon />}
               className={styles["sidebar-icon-button"]}
               text={Locale.Home.NewChat}
+              disabled={isChatListControlsDisabled}
               onClick={() => {
+                if (isChatListControlsDisabled) return;
                 if (readOnly) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;

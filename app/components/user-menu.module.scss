@@ -38,23 +38,36 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   text-align: center;
 }
 
 .chatFloatingLabel {
-  font-size: 12px;
-  line-height: 1.2;
+  font-size: 13px;
+  line-height: 1.4;
   color: var(--black);
-  opacity: 0.7;
+  opacity: 1;
+  font-weight: 700;
 }
 
 .chatFloatingValue {
   font-size: 13px;
-  line-height: 1.3;
+  line-height: 1.4;
   font-weight: 700;
   color: var(--black);
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatFloatingData {
+  color: var(--black);
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.chatFloatingVersion {
+  color: var(--black-alpha-60);
 }
 
 .avatar {
@@ -657,11 +670,11 @@
   }
 
   .chatFloatingLabel {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .chatFloatingValue {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   :global(body.light) .chatFloatingTrigger,

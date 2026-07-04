@@ -639,7 +639,16 @@ export async function ensureSyncStorageSchema() {
         add column if not exists last_verified_at timestamptz
       `);
         await client.query(`
-        drop table if exists user_provider_balance_snapshots
+        create table if not exists provider_balance_configs (
+          provider_config_id uuid primary key references provider_configs(id) on delete cascade,
+          encrypted_management_key text,
+          masked_management_key text,
+          balance_snapshot jsonb,
+          last_error text,
+          queried_at timestamptz,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
       `);
         await client.query(`
         create index if not exists idx_conversations_user_updated

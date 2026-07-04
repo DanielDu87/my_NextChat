@@ -95,6 +95,10 @@ const ApiConfigBackupsPage = dynamic(
   async () => (await import("./api-config-backups")).ApiConfigBackupsPage,
   { loading: () => <LoadingView size="splash" className="no-dark" /> },
 );
+const ProviderBalancesPage = dynamic(
+  async () => (await import("./provider-balances")).ProviderBalancesPage,
+  { loading: () => <LoadingView size="splash" className="no-dark" /> },
+);
 
 const NewChat = dynamic(async () => (await import("./new-chat")).NewChat, {
   loading: () => <LoadingView size="splash" className="no-dark" />,
@@ -528,6 +532,10 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
             <Route
               path={Path.ApiConfigBackups}
               element={<ApiConfigBackupsPage />}
+            />
+            <Route
+              path={Path.ProviderBalances}
+              element={<ProviderBalancesPage />}
             />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
             <Route path={Path.PromptManager} element={<PromptManagerPage />} />

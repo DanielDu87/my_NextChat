@@ -1932,6 +1932,14 @@ export function ApiConfigPage() {
         <div className="window-actions">
           <div className="window-action-button">
             <IconButton
+              icon={<ConfirmIcon />}
+              text="余额查询"
+              bordered
+              onClick={() => navigate(Path.ProviderBalances)}
+            />
+          </div>
+          <div className="window-action-button">
+            <IconButton
               icon={<DownloadIcon />}
               text="配置备份"
               bordered

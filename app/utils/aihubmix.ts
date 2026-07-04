@@ -1,4 +1,4 @@
-const AIHUBMIX_APP_CODE = "NVIO0436";
+const AIHUBMIX_APP_CODE = "HVZT6369";
 
 export function isAiHubMixUrl(baseUrl?: string) {
   if (!baseUrl) return false;
