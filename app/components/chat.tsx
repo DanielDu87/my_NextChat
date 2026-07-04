@@ -2652,6 +2652,7 @@ function useScrollToBottom(
       fallbackScrollTimerRef.current = null;
     }
   }, []);
+
   const scrollDomToBottom = useCallback(() => {
     const dom = scrollRef.current;
     if (dom) {
@@ -5986,9 +5987,8 @@ function _Chat() {
         if (
           pending.updateMessageWindow &&
           !pending.programmatic &&
-          // 在流式输出期间，除非用户明确暂停了自动滚动，否则不调整消息渲染范围
-          !isAssistantStreaming &&
-          !(isAssistantStreaming && streamingAutoScrollPausedRef.current)
+          // 在流式输出期间，完全不调整消息渲染范围，避免滚动位置跳变
+          !isAssistantStreaming
         ) {
           const bottomHeight = pending.dom.scrollTop + pending.dom.clientHeight;
           const edgeThreshold = pending.dom.clientHeight;
