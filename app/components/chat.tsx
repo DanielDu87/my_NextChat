@@ -27,6 +27,7 @@ import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
+import MoneyIcon from "../icons/money.svg";
 import ConfigIcon from "../icons/config.svg";
 import UserIcon from "../icons/user.svg";
 import DeleteIcon from "../icons/clear.svg";
@@ -9672,7 +9673,7 @@ function _Chat() {
                 )}
               >
                 <IconButton
-                  icon={<ConfirmIcon />}
+                  icon={<MoneyIcon />}
                   bordered
                   className={styles["chat-window-icon-button"]}
                   text={useHeaderIconOnly ? undefined : "余额查询"}

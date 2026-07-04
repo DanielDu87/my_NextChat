@@ -676,15 +676,26 @@ export function AddModelSelector(props: {
             </span>
             <DownIcon />
           </button>
-          <span className={styles["model-selector-hint-count"]}>
-            {loading
-              ? "正在获取模型..."
-              : fetchError
-              ? "获取失败，请检查网络或配置"
-              : displayTotal > 0
-              ? `共 ${displayTotal} 个模型可用`
-              : "暂无缓存模型，可手动获取"}
-          </span>
+          {!loading && !fetchError && displayTotal === 0 ? (
+            <button
+              type="button"
+              className={clsx(
+                styles["model-selector-hint-count"],
+                styles["model-selector-hint-fetch"],
+              )}
+              onClick={fetchRemoteModels}
+            >
+              暂无缓存模型，可手动获取
+            </button>
+          ) : (
+            <span className={styles["model-selector-hint-count"]}>
+              {loading
+                ? "正在获取模型..."
+                : fetchError
+                ? "获取失败，请检查网络或配置"
+                : `共 ${displayTotal} 个模型可用`}
+            </span>
+          )}
           {providerDropdownOpen && (
             <div className={styles["model-selector-provider-menu"]}>
               {profiles.map((p) => {

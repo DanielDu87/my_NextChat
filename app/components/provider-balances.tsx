@@ -413,7 +413,7 @@ export function ProviderBalancesPage() {
       );
       if (!confirmed) return;
     }
-    navigate(Path.ApiConfig);
+    navigate(Path.Chat);
   };
 
   return (

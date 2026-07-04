@@ -1733,6 +1733,16 @@
   font-weight: 700;
 }
 
+.model-selector-hint-fetch {
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    border-color: #2563eb;
+  }
+}
+
 .model-selector-hint-count-inline {
   display: none;
   margin-left: 6px;
