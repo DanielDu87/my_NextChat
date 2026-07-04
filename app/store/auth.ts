@@ -18,6 +18,7 @@ type AuthState = {
   effectiveUser: AuthUserInfo | null;
   isImpersonating: boolean;
   readOnly: boolean;
+  switchingUser: boolean;
   initialized: boolean;
   fetchMe: () => Promise<AuthUserInfo | null>;
   logout: () => Promise<void>;
@@ -97,6 +98,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   effectiveUser: cachedAuthState?.effectiveUser || null,
   isImpersonating: cachedAuthState?.isImpersonating || false,
   readOnly: cachedAuthState?.readOnly || false,
+  switchingUser: false,
   initialized: !!cachedAuthState?.user,
   async fetchMe() {
     // 首次请求失败时重试一次，避免 DB 暂时不可用导致误判未登录
@@ -196,6 +198,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     userId: string,
     userPreview?: { username?: string; displayName?: string },
   ) {
+    // 必须在任何异步导入和缓存读取之前发布，立即遮住原用户的聊天内容。
+    set({ switchingUser: true });
+    publishStartupChatSyncStatus("syncing");
+
     // 立即更新 UI，显示正在切换的用户信息（如果提供了预览数据）
     if (userPreview) {
       set({
@@ -219,13 +225,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { useChatStore: chatStore } = await chatStoreModule;
     const { useChatIndexStore } = await chatIndexModule;
 
+    // 先进入无会话 ID 的聊天壳并显示同步状态。这里不能提前进入 /new-chat：
+    // 目标缓存尚未恢复时，新对话页面会基于原用户内存创建会话，并可能写入
+    // 已切换 marker 的目标用户缓存，造成用户数据和会话数量串线。
+    try {
+      window.history.replaceState(null, "", Path.Chat);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } catch {}
+
     // 先确认目标用户是否已有独立缓存，避免空状态覆盖其历史缓存。
     const targetUserCachedChat = await chatPersistStorage.getItem(
       StoreKey.Chat,
     );
 
     // 立即切换到目标用户缓存；无缓存时才创建空状态，绝不沿用旧用户数据。
-    publishStartupChatSyncStatus("syncing");
     if (targetUserCachedChat) {
       await (chatStore as any).persist?.rehydrate?.();
     } else {
@@ -234,12 +247,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // 立即同步 index store 到新状态
     useChatIndexStore.getState().syncFromChatStore();
-
-    // 清除 URL 中的旧会话 ID，并通过 popstate 通知 React Router 更新内部状态
-    try {
-      window.history.replaceState(null, "", Path.Chat);
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    } catch {}
 
     const response = await fetch("/api/admin/switch-user", {
       method: "POST",
@@ -291,9 +298,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isolateQueue: true,
         downloadOnlyChat: true,
       })
-      .then(() => publishStartupChatSyncStatus("done"))
+      .then(() => {
+        publishStartupChatSyncStatus("done");
+        set({ switchingUser: false });
+      })
       .catch((error) => {
         publishStartupChatSyncStatus("error");
+        set({ switchingUser: false });
         console.error("[Auth] 切换用户后同步对话失败:", error);
       });
   },

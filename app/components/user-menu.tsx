@@ -520,7 +520,7 @@ export function UserMenu(props?: { variant?: "default" | "chat-floating" }) {
         username: managedUser.username,
         displayName: managedUser.displayName,
       });
-      navigate(Path.Chat, { replace: true });
+      navigate(Path.NewChat, { replace: true });
     } catch (error) {
       showToast(error instanceof Error ? error.message : "切换用户失败");
     }

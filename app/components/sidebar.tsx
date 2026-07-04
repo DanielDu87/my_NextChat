@@ -439,7 +439,7 @@ export function SideBarTail(props: {
   );
 }
 
-export function SideBar(props: { className?: string }) {
+export function SideBar(props: { className?: string; loading?: boolean }) {
   useHotKey();
   useFixedSideBar();
   const isMobileScreen = useMobileScreen();
@@ -519,7 +519,25 @@ export function SideBar(props: { className?: string }) {
           }
         }}
       >
-        <ChatList />
+        {props.loading ? (
+          <div
+            className={clsx(
+              styles["chat-list-panel"],
+              styles["chat-list-loading-panel"],
+            )}
+          >
+            <div className={styles["chat-list-load-more-indicator"]}>
+              <span className={styles["chat-list-load-more-dots"]}>
+                <i />
+                <i />
+                <i />
+              </span>
+              <span>正在加载全部对话...</span>
+            </div>
+          </div>
+        ) : (
+          <ChatList />
+        )}
       </SideBarBody>
       <SideBarTail
         primaryAction={

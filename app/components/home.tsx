@@ -316,6 +316,7 @@ export function WindowContent(props: { children: React.ReactNode }) {
 function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const switchingUser = useAuthStore((state) => state.switchingUser);
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
   const isAuth = location.pathname === Path.Auth;
@@ -327,6 +328,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const isChatRoute =
     isHome ||
     location.pathname === Path.Chat ||
+    location.pathname === Path.NewChat ||
     location.pathname.startsWith(`${Path.Chat}/`);
   const urlSessionId = location.pathname.startsWith(`${Path.Chat}/`)
     ? decodeURIComponent(location.pathname.slice(Path.Chat.length + 1))
@@ -479,7 +481,8 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
 
   if (
     isChatRoute &&
-    (isUrlSessionPending ||
+    (switchingUser ||
+      isUrlSessionPending ||
       isChatListLoadingForShell ||
       hasOnlyEmptyHistoryPlaceholders)
   ) {
@@ -490,6 +493,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
         })}
       >
         <SideBar
+          loading={switchingUser}
           className={clsx({
             [styles["sidebar-show"]]: isHome,
           })}
