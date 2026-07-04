@@ -268,7 +268,7 @@ import sys, json
 sys.path[:0]=['/www/server/panel/class','/www/server/panel']
 import public
 from mod.project.docker.sites.sitesManage import SitesManage
-get=public.to_dict_obj({'type':'all','p':1,'row':20,'classify':999,'query':'ngpt'})
+get=public.to_dict_obj({'type':'all','p':1,'row':20,'classify':999,'query':'chat.dyxcloud.com'})
 print(json.dumps(SitesManage().get_site_list(get), ensure_ascii=False, default=str)[:4000])
 PY
 REMOTE
