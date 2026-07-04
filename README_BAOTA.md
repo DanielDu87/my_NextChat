@@ -64,8 +64,8 @@ set -euo pipefail
 git pull --ff-only
 export BUILDX_CONFIG=/tmp/nextchat-docker-buildx
 mkdir -p "$BUILDX_CONFIG"
-docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat
-docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat
+./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat
+./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d nextchat
 '\'' 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ```
 
