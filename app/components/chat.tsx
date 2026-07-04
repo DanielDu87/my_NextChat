@@ -3485,6 +3485,8 @@ function _Chat() {
   const mobileViewportReleaseTimersRef = useRef<number[]>([]);
   const mobileKeyboardOpenedSinceFocusRef = useRef(false);
   const mobileKeyboardDismissByViewportRef = useRef(false);
+  const mobileExpandedViewportHeightRef = useRef(0);
+  const mobileKeyboardReleaseWasActiveRef = useRef(false);
   const aiSelectionTouchTimerRef = useRef<number | null>(null);
   const aiSelectionActiveMessageIdRef = useRef("");
   const aiSelectionPendingRef = useRef<AiTextSelectionBubble | null>(null);
@@ -3508,6 +3510,8 @@ function _Chat() {
   );
   const [isInputHintOverflow, setIsInputHintOverflow] = useState(false);
   const [isMobileInputFocused, setIsMobileInputFocused] = useState(false);
+  const [isMobileKeyboardReleasing, setIsMobileKeyboardReleasing] =
+    useState(false);
   const [preserveMobileInputBlurHeight, setPreserveMobileInputBlurHeight] =
     useState(false);
   const [statusPanelOverlapsMessages, setStatusPanelOverlapsMessages] =
@@ -6338,6 +6342,10 @@ function _Chat() {
   ]);
 
   const moveInputCursorToEnd = useCallback(() => {
+    // 移动端交给浏览器按用户触点定位光标，不再在聚焦、视口变化或内容同步时
+    // 自动把光标推到最后一个字符。
+    if (isMobileScreen) return;
+
     const mobileInput = mobileInputRef.current;
     if (mobileInput) {
       const range = document.createRange();
@@ -6360,7 +6368,7 @@ function _Chat() {
     const len = textarea.value.length;
     textarea.setSelectionRange(len, len);
     textarea.scrollTop = textarea.scrollHeight;
-  }, [mobileInputHasText]);
+  }, [isMobileScreen, mobileInputHasText]);
 
   const scrollMobileInputToBottom = useCallback(() => {
     const mobileInput = mobileInputRef.current;
@@ -7314,20 +7322,38 @@ function _Chat() {
     if (!isMobileScreen || typeof window === "undefined") return;
 
     clearMobileKeyboardReleaseTimers();
+    setIsMobileKeyboardReleasing(true);
 
+    let lastHeight = -1;
+    let stableCount = 0;
+    const startedAt = Date.now();
     const stabilize = () => {
       resetMobileDocumentScroll();
-    };
-    const delays = [0, 80, 180, 360, 700];
+      const visualHeight = Math.floor(
+        window.visualViewport?.height ?? window.innerHeight,
+      );
+      const expandedHeight = mobileExpandedViewportHeightRef.current;
+      stableCount =
+        Math.abs(visualHeight - lastHeight) <= 1 ? stableCount + 1 : 0;
+      lastHeight = visualHeight;
 
-    mobileViewportReleaseTimersRef.current = delays.map((delay, index) =>
-      window.setTimeout(() => {
-        stabilize();
-        if (index === delays.length - 1) {
-          mobileViewportReleaseTimersRef.current = [];
-        }
-      }, delay),
-    );
+      const viewportRestored =
+        expandedHeight > 0 && visualHeight >= expandedHeight - 2;
+      if (
+        (viewportRestored && stableCount >= 2) ||
+        Date.now() - startedAt >= 1200
+      ) {
+        setIsMobileKeyboardReleasing(false);
+        resetMobileDocumentScroll();
+        mobileViewportReleaseTimersRef.current = [];
+        return;
+      }
+
+      mobileViewportReleaseTimersRef.current = [
+        window.setTimeout(stabilize, 80),
+      ];
+    };
+    stabilize();
   }, [
     clearMobileKeyboardReleaseTimers,
     isMobileScreen,
@@ -7484,6 +7510,25 @@ function _Chat() {
       syncMobileInputHeight,
     ],
   );
+
+  useLayoutEffect(() => {
+    if (isMobileKeyboardReleasing) {
+      mobileKeyboardReleaseWasActiveRef.current = true;
+      return;
+    }
+    if (!mobileKeyboardReleaseWasActiveRef.current) return;
+
+    mobileKeyboardReleaseWasActiveRef.current = false;
+    // 在浏览器绘制普通态之前同步恢复多行高度，避免先按单行绘制一帧再变高。
+    const shouldPreserveExpandedHeight = prepareMobileInputBlurLayout();
+    collapseMobileInput(shouldPreserveExpandedHeight);
+    resetMobileDocumentScroll();
+  }, [
+    collapseMobileInput,
+    isMobileKeyboardReleasing,
+    prepareMobileInputBlurLayout,
+    resetMobileDocumentScroll,
+  ]);
 
   const scheduleMoveInputCursorToEnd = useCallback(() => {
     requestAnimationFrame(moveInputCursorToEnd);
@@ -8122,7 +8167,7 @@ function _Chat() {
   useEffect(() => {
     if (
       !isMobileScreen ||
-      !isMobileInputFocused ||
+      (!isMobileInputFocused && !isMobileKeyboardReleasing) ||
       typeof window === "undefined"
     ) {
       mobileKeyboardStableMetricsRef.current = null;
@@ -8145,9 +8190,6 @@ function _Chat() {
       document.documentElement.style.removeProperty("--chat-input-fill-height");
       cancelMobileKeyboardViewportSync();
       collapseMobileInput(preserveMobileInputBlurHeightRef.current);
-      if (isMobileScreen) {
-        scheduleMobileKeyboardReleaseStabilize();
-      }
       return;
     }
 
@@ -8236,11 +8278,11 @@ function _Chat() {
   }, [
     cancelMobileKeyboardViewportSync,
     isMobileInputFocused,
+    isMobileKeyboardReleasing,
     isMobileScreen,
     isIOSMobile,
     collapseMobileInput,
     scheduleMobileKeyboardViewportSync,
-    scheduleMobileKeyboardReleaseStabilize,
   ]);
 
   useEffect(() => {
@@ -9466,7 +9508,8 @@ function _Chat() {
         ref={chatRootRef}
         className={clsx(styles.chat, {
           [styles["chat-mobile-keyboard-open"]]:
-            isMobileScreen && isMobileInputFocused,
+            isMobileScreen &&
+            (isMobileInputFocused || isMobileKeyboardReleasing),
         })}
         data-top-notice-anchor="true"
         data-mobile-input-empty={
@@ -10951,10 +10994,18 @@ function _Chat() {
                                 mobileInputRef.current;
                             }}
                             onFocus={() => {
+                              mobileExpandedViewportHeightRef.current =
+                                Math.max(
+                                  window.visualViewport?.height ?? 0,
+                                  window.innerHeight,
+                                  document.documentElement.clientHeight,
+                                );
                               // 清除 collapse 残留定时器，防止聚焦后被重置为 44px
                               collapseTimersRef.current.forEach(clearTimeout);
                               collapseTimersRef.current = [];
                               clearMobileKeyboardReleaseTimers();
+                              setIsMobileKeyboardReleasing(false);
+                              mobileKeyboardReleaseWasActiveRef.current = false;
                               if (mobileBlurTimerRef.current !== null) {
                                 clearTimeout(mobileBlurTimerRef.current);
                                 mobileBlurTimerRef.current = null;
