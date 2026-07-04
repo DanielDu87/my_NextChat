@@ -1,0 +1,267 @@
+import { safeLocalStorage } from "./safe-local-storage";
+
+export type ProviderBalanceSnapshot = {
+  value: number;
+  currency: string;
+  queriedAt: number;
+};
+
+export type ProviderBalanceProfile = {
+  profileId: string;
+  profileName: string;
+  hasManagementKey: boolean;
+  maskedManagementKey: string;
+  managementKey: string;
+  balance: ProviderBalanceSnapshot | null;
+  lastError: string;
+};
+
+export type ProviderBalanceAttempt = Record<string, unknown>;
+
+const PROVIDER_BALANCE_API_PATH = "/api/db/provider-balance";
+let balanceRequestSequence = 0;
+
+function createBalanceRequestContext(action: string, profileId?: string) {
+  balanceRequestSequence += 1;
+  return {
+    requestId: `balance-${Date.now()}-${balanceRequestSequence}`,
+    action,
+    profileId: profileId || "",
+    requestPath: PROVIDER_BALANCE_API_PATH,
+    startedAt: Date.now(),
+  };
+}
+
+function logBalanceAttempts(attempts: ProviderBalanceAttempt[]) {
+  if (attempts.length === 0) {
+    console.log("[Provider Balance Request] 上游请求记录：无");
+    return;
+  }
+  console.log("[Provider Balance Request] 上游请求路径与结果", {
+    attemptCount: attempts.length,
+  });
+  console.table(
+    attempts.map((attempt) => ({
+      ...attempt,
+      requestUrl:
+        attempt.baseUrl && attempt.path
+          ? `${String(attempt.baseUrl).replace(/\/$/, "")}/${String(
+              attempt.path,
+            ).replace(/^\//, "")}`
+          : "",
+    })),
+  );
+}
+
+const BALANCE_ERROR_MESSAGES: Record<string, string> = {
+  balance_profile_incomplete:
+    "余额查询配置不完整，请检查 Base URL 和管理 API Key",
+  balance_auth_failed: "余额查询鉴权失败，请检查管理 API Key 是否有效或已过期",
+  balance_rate_limited: "余额查询触发上游限流，请稍后重试或减少批量查询",
+  balance_not_supported:
+    "未找到可用的余额查询路径，请确认该供应商支持余额接口或填写管理 API Key",
+  missing_profile_id: "缺少配置 ID",
+  provider_not_found: "未找到对应 API 配置",
+  query_failed: "余额查询失败",
+};
+
+export function getProviderBalanceErrorMessage(
+  error: unknown,
+  fallback = "余额查询失败",
+) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return BALANCE_ERROR_MESSAGES[message] || message || fallback;
+}
+
+export function getProviderBalanceCacheKey(userId: string, profileId: string) {
+  return `nextchat:provider-balance:${userId || "unknown"}:${profileId}`;
+}
+
+export function readCachedProviderBalance(
+  userId: string,
+  profileId: string,
+): ProviderBalanceSnapshot | null {
+  if (!profileId) return null;
+  try {
+    const value = JSON.parse(
+      safeLocalStorage().getItem(
+        getProviderBalanceCacheKey(userId, profileId),
+      ) || "null",
+    );
+    return Number.isFinite(value?.value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function cacheProviderBalance(
+  userId: string,
+  profileId: string,
+  balance: ProviderBalanceSnapshot,
+) {
+  safeLocalStorage().setItem(
+    getProviderBalanceCacheKey(userId, profileId),
+    JSON.stringify(balance),
+  );
+}
+
+export class ProviderBalanceRequestError extends Error {
+  attempts: ProviderBalanceAttempt[];
+
+  constructor(message: string, attempts: ProviderBalanceAttempt[] = []) {
+    super(message);
+    this.name = "ProviderBalanceRequestError";
+    this.attempts = attempts;
+  }
+}
+
+type ProviderBalanceApiPayload = {
+  ok?: boolean;
+  error?: string;
+  profiles?: unknown;
+  balance?: unknown;
+  attempts?: unknown;
+};
+
+async function readResponsePayload(response: Response) {
+  return response
+    .json()
+    .catch(() => null) as Promise<ProviderBalanceApiPayload | null>;
+}
+
+export async function loadProviderBalanceProfiles() {
+  const context = createBalanceRequestContext("load-profiles");
+  console.log("[Provider Balance Request] 开始读取余额配置", context);
+  const response = await fetch(PROVIDER_BALANCE_API_PATH, {
+    cache: "no-store",
+  });
+  const payload = await readResponsePayload(response);
+  if (!response.ok || payload?.ok !== true) {
+    console.error("[Provider Balance Request] 读取余额配置失败", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      httpStatus: response.status,
+      response: payload,
+    });
+    throw new Error(payload?.error || "load_failed");
+  }
+  const profiles = (
+    Array.isArray(payload.profiles) ? payload.profiles : []
+  ) as ProviderBalanceProfile[];
+  console.log("[Provider Balance Request] 余额配置读取完成", {
+    ...context,
+    durationMs: Date.now() - context.startedAt,
+    httpStatus: response.status,
+    result: profiles.map((profile) => ({
+      profileId: profile.profileId,
+      profileName: profile.profileName,
+      hasManagementKey: profile.hasManagementKey,
+      balance: profile.balance,
+      lastError: profile.lastError,
+    })),
+  });
+  return profiles;
+}
+
+export async function saveProviderManagementKey(
+  profileId: string,
+  managementKey: string,
+) {
+  const context = createBalanceRequestContext("save-management-key", profileId);
+  console.log("[Provider Balance Request] 开始保存管理 API Key", {
+    ...context,
+    hasManagementKey: Boolean(managementKey.trim()),
+  });
+  const response = await fetch(PROVIDER_BALANCE_API_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId, managementKey }),
+  });
+  const payload = await readResponsePayload(response);
+  if (!response.ok || payload?.ok !== true) {
+    console.error("[Provider Balance Request] 管理 API Key 保存失败", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      httpStatus: response.status,
+      response: payload,
+    });
+    throw new Error(payload?.error || "save_failed");
+  }
+  console.log("[Provider Balance Request] 管理 API Key 保存完成", {
+    ...context,
+    durationMs: Date.now() - context.startedAt,
+    httpStatus: response.status,
+    response: payload,
+  });
+}
+
+export async function queryProviderBalanceProfile(
+  profileId: string,
+  options?: { signal?: AbortSignal; source?: string; providerName?: string },
+) {
+  const context = {
+    ...createBalanceRequestContext("query-balance", profileId),
+    source: options?.source || "unknown",
+    providerName: options?.providerName || profileId,
+  };
+  console.log("[Provider Balance Request] 开始更新余额", context);
+  let response: Response;
+  try {
+    response = await fetch(PROVIDER_BALANCE_API_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ profileId }),
+      signal: options?.signal,
+    });
+  } catch (error) {
+    console.error("[Provider Balance Request] 余额请求未完成", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  const payload = await readResponsePayload(response);
+  const attempts = Array.isArray(payload?.attempts) ? payload.attempts : [];
+  if (!response.ok || payload?.ok !== true) {
+    console.error("[Provider Balance Request] 余额更新失败", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      httpStatus: response.status,
+      response: payload,
+    });
+    logBalanceAttempts(attempts);
+    throw new ProviderBalanceRequestError(
+      payload?.error || "query_failed",
+      attempts,
+    );
+  }
+  const balance = payload.balance as ProviderBalanceSnapshot;
+  if (!Number.isFinite(balance?.value)) {
+    console.error("[Provider Balance Request] 返回结果缺少有效余额", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      httpStatus: response.status,
+      response: payload,
+    });
+    logBalanceAttempts(attempts);
+    throw new ProviderBalanceRequestError("query_failed", attempts);
+  }
+  const formattedBalance =
+    balance.value === -1 ? "无限" : `$${balance.value.toFixed(2)}`;
+  console.log(
+    `[Provider Balance] ✅ 最终结果：供应商 ${context.providerName}，余额 ${formattedBalance}`,
+  );
+  console.log("[Provider Balance Request] 余额更新完成", {
+    ...context,
+    durationMs: Date.now() - context.startedAt,
+    httpStatus: response.status,
+    providerName: context.providerName,
+    balance: formattedBalance,
+    currency: balance.currency,
+    result: balance,
+    response: payload,
+  });
+  logBalanceAttempts(attempts);
+  return { balance, attempts };
+}

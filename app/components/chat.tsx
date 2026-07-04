@@ -9790,6 +9790,9 @@ function _Chat() {
                         <UserMenu
                           variant="chat-floating"
                           balanceProfileId={balanceProfileId}
+                          balanceProviderName={
+                            activeModelSelectorProviderDisplayName
+                          }
                           balanceRefreshSignal={balanceRefreshSignal}
                         />
                       </div>
@@ -9798,6 +9801,9 @@ function _Chat() {
                         <UserMenu
                           variant="chat-floating"
                           balanceProfileId={balanceProfileId}
+                          balanceProviderName={
+                            activeModelSelectorProviderDisplayName
+                          }
                           balanceRefreshSignal={balanceRefreshSignal}
                         />
                       </>

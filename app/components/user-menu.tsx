@@ -24,25 +24,13 @@ import {
 } from "../utils/managed-users";
 import { isAbortLikeError } from "../utils/stale-revalidate";
 import { getClientConfig } from "../config/client";
-import { safeLocalStorage } from "../utils/safe-local-storage";
-
-type CachedProviderBalance = {
-  value: number;
-  currency: string;
-  queriedAt: number;
-};
-
-const balanceStorage = safeLocalStorage();
-
-function readCachedBalance(key: string): CachedProviderBalance | null {
-  if (!key) return null;
-  try {
-    const value = JSON.parse(balanceStorage.getItem(key) || "null");
-    return Number.isFinite(value?.value) ? value : null;
-  } catch {
-    return null;
-  }
-}
+import {
+  cacheProviderBalance,
+  ProviderBalanceRequestError,
+  queryProviderBalanceProfile,
+  readCachedProviderBalance,
+  type ProviderBalanceSnapshot,
+} from "../utils/provider-balance";
 
 function getUserInitial(name: string) {
   return (
@@ -293,6 +281,7 @@ export function UserMenu(props?: {
   variant?: "default" | "chat-floating";
   balanceProfileId?: string;
   balanceRefreshSignal?: string;
+  balanceProviderName?: string;
 }) {
   const user = useAuthStore((state) => state.user);
   const effectiveUser = useAuthStore((state) => state.effectiveUser);
@@ -316,50 +305,51 @@ export function UserMenu(props?: {
   const currentEffectiveUserId = effectiveUser?.id ?? "";
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
-  const balanceCacheKey = props?.balanceProfileId
-    ? `nextchat:provider-balance:${effectiveUser?.id || "unknown"}:${
-        props.balanceProfileId
-      }`
-    : "";
+  const balanceUserId = effectiveUser?.id || "unknown";
   const [providerBalance, setProviderBalance] =
-    useState<CachedProviderBalance | null>(() =>
-      readCachedBalance(balanceCacheKey),
+    useState<ProviderBalanceSnapshot | null>(() =>
+      readCachedProviderBalance(balanceUserId, props?.balanceProfileId || ""),
     );
   const previousRefreshSignalRef = useRef("");
 
   useEffect(() => {
-    setProviderBalance(readCachedBalance(balanceCacheKey));
-  }, [balanceCacheKey]);
+    setProviderBalance(
+      readCachedProviderBalance(balanceUserId, props?.balanceProfileId || ""),
+    );
+  }, [balanceUserId, props?.balanceProfileId]);
 
   useEffect(() => {
     const signal = props?.balanceRefreshSignal || "";
     if (!signal || signal === previousRefreshSignalRef.current) return;
     previousRefreshSignalRef.current = signal;
-    if (!props?.balanceProfileId || !balanceCacheKey) return;
+    if (!props?.balanceProfileId) return;
 
     const controller = new AbortController();
-    void fetch("/api/db/provider-balance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ profileId: props.balanceProfileId }),
+    void queryProviderBalanceProfile(props.balanceProfileId, {
       signal: controller.signal,
+      source: "chat-page-auto-refresh",
+      providerName: props.balanceProviderName,
     })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || payload?.ok !== true) return;
-        const balance = payload.balance as CachedProviderBalance;
-        if (!Number.isFinite(balance?.value)) return;
-        balanceStorage.setItem(balanceCacheKey, JSON.stringify(balance));
+      .then(({ balance }) => {
+        cacheProviderBalance(balanceUserId, props.balanceProfileId!, balance);
         setProviderBalance(balance);
       })
       .catch((error) => {
-        if (!isAbortLikeError(error)) {
+        if (
+          !isAbortLikeError(error) &&
+          !(error instanceof ProviderBalanceRequestError)
+        ) {
           console.warn("[UserMenu] 余额查询失败");
         }
       });
 
     return () => controller.abort();
-  }, [balanceCacheKey, props?.balanceProfileId, props?.balanceRefreshSignal]);
+  }, [
+    balanceUserId,
+    props?.balanceProfileId,
+    props?.balanceProviderName,
+    props?.balanceRefreshSignal,
+  ]);
 
   const openManageModal = () => {
     if (typeof document !== "undefined") {

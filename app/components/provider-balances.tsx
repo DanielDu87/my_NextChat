@@ -6,7 +6,15 @@ import ReloadIcon from "../icons/reload.svg";
 import { Path } from "../constant";
 import { useAccessStore } from "../store";
 import { useAuthStore } from "../store/auth";
-import { safeLocalStorage } from "../utils/safe-local-storage";
+import {
+  cacheProviderBalance,
+  getProviderBalanceErrorMessage,
+  loadProviderBalanceProfiles,
+  queryProviderBalanceProfile,
+  readCachedProviderBalance,
+  saveProviderManagementKey,
+  type ProviderBalanceProfile,
+} from "../utils/provider-balance";
 import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
 import { IconButton } from "./button";
 import { showConfirm, showToast } from "./ui-lib";
@@ -15,44 +23,16 @@ import styles from "./provider-balances.module.scss";
 
 const LOG_SEPARATOR = "=".repeat(5);
 const BATCH_QUERY_CONCURRENCY = 2;
-const profileMemoryCache = new Map<string, ProfileBalance[]>();
-
-type ProfileBalance = {
-  profileId: string;
-  profileName: string;
-  hasManagementKey: boolean;
-  maskedManagementKey: string;
-  managementKey: string;
-  balance: { value: number; currency: string; queriedAt: number } | null;
-  lastError: string;
-};
+const profileMemoryCache = new Map<string, ProviderBalanceProfile[]>();
 
 type QueryStatus =
   | { type: "querying"; text: string }
   | { type: "success"; text: string }
   | { type: "error"; text: string };
 
-function getQueryErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "余额查询失败";
-  switch (message) {
-    case "balance_profile_incomplete":
-      return "余额查询配置不完整，请检查 Base URL 和管理 API Key";
-    case "balance_auth_failed":
-      return "余额查询鉴权失败，请检查管理 API Key 是否有效或已过期";
-    case "balance_rate_limited":
-      return "余额查询触发上游限流，请稍后重试或减少批量查询";
-    case "balance_not_supported":
-      return "未找到可用的余额查询路径，请确认该供应商支持余额接口或填写管理 API Key";
-    case "query_failed":
-      return "余额查询失败";
-    default:
-      return message || "余额查询失败";
-  }
-}
-
 function mergeProfiles(
-  localProfiles: ProfileBalance[],
-  remoteProfiles: ProfileBalance[],
+  localProfiles: ProviderBalanceProfile[],
+  remoteProfiles: ProviderBalanceProfile[],
 ) {
   const remoteMap = new Map(
     remoteProfiles.map((profile) => [profile.profileId, profile]),
@@ -82,18 +62,10 @@ export function ProviderBalancesPage() {
     return apiProfiles
       .filter((profile) => Boolean(profile?.id))
       .map((profile) => {
-        const cacheKey = `nextchat:provider-balance:${profileCacheKey}:${profile.id}`;
-        const cachedBalance = (() => {
-          try {
-            const value = JSON.parse(
-              safeLocalStorage().getItem(cacheKey) || "null",
-            );
-            // 允许 -1 作为无限额度的标记
-            return Number.isFinite(value?.value) ? value : null;
-          } catch {
-            return null;
-          }
-        })();
+        const cachedBalance = readCachedProviderBalance(
+          profileCacheKey,
+          profile.id,
+        );
         const cachedProfile = cachedProfileMap.get(profile.id);
         return {
           profileId: profile.id,
@@ -106,7 +78,8 @@ export function ProviderBalancesPage() {
         };
       });
   }, [apiProfiles, profileCacheKey]);
-  const [profiles, setProfiles] = useState<ProfileBalance[]>(localProfiles);
+  const [profiles, setProfiles] =
+    useState<ProviderBalanceProfile[]>(localProfiles);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [queryStatusMap, setQueryStatusMap] = useState<
     Record<string, QueryStatus>
@@ -140,16 +113,12 @@ export function ProviderBalancesPage() {
 
   const load = useCallback(async () => {
     console.log("[Provider Balance] 🔄 正在读取余额配置...");
-    const response = await fetch("/api/db/provider-balance", {
-      cache: "no-store",
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || "load_failed");
-    const mergedProfiles = mergeProfiles(localProfiles, data.profiles || []);
+    const remoteProfiles = await loadProviderBalanceProfiles();
+    const mergedProfiles = mergeProfiles(localProfiles, remoteProfiles);
     profileMemoryCache.set(profileCacheKey, mergedProfiles);
     setProfiles(mergedProfiles);
     console.log("[Provider Balance] ✅ 余额配置读取完成", {
-      profileCount: Array.isArray(data.profiles) ? data.profiles.length : 0,
+      profileCount: remoteProfiles.length,
     });
   }, [localProfiles, profileCacheKey]);
 
@@ -194,31 +163,15 @@ export function ProviderBalancesPage() {
       [profileId]: { type: "querying", text: "正在查询余额..." },
     }));
     try {
-      const response = await fetch("/api/db/provider-balance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId }),
+      const { balance } = await queryProviderBalanceProfile(profileId, {
+        source: options?.batch ? "balances-page-batch" : "balances-page-manual",
+        providerName: profileName,
       });
-      const data = await response.json();
-      if (Array.isArray(data.attempts)) {
-        console.table(data.attempts.slice(0, 80));
-        if (data.attempts.length > 80) {
-          console.log("[Provider Balance] 已省略部分尝试记录", {
-            shown: 80,
-            total: data.attempts.length,
-          });
-        }
-      }
-      if (!response.ok || !data.ok)
-        throw new Error(data.error || "query_failed");
-      const cacheKey = `nextchat:provider-balance:${
-        effectiveUser?.id || "unknown"
-      }:${profileId}`;
-      safeLocalStorage().setItem(cacheKey, JSON.stringify(data.balance));
+      cacheProviderBalance(profileCacheKey, profileId, balance);
       setProfiles((value) =>
         value.map((profile) =>
           profile.profileId === profileId
-            ? { ...profile, balance: data.balance, lastError: "" }
+            ? { ...profile, balance, lastError: "" }
             : profile,
         ),
       );
@@ -227,15 +180,15 @@ export function ProviderBalancesPage() {
         {
           profileId,
           profileName,
-          balance: data.balance?.value,
-          queriedAt: data.balance?.queriedAt,
+          balance: balance.value,
+          queriedAt: balance.queriedAt,
         },
       );
       console.log(LOG_SEPARATOR);
       // 本次页面会话内查询成功后保持绿色，刷新页面时自然恢复。
       setRecentlyUpdatedIds((prev) => new Set(prev).add(profileId));
       const updatedAt = new Date(
-        data.balance?.queriedAt || Date.now(),
+        balance.queriedAt || Date.now(),
       ).toLocaleString("zh-CN", { hour12: false });
       setQueryStatusMap((value) => ({
         ...value,
@@ -245,7 +198,7 @@ export function ProviderBalancesPage() {
         },
       }));
     } catch (error) {
-      const errorMessage = getQueryErrorMessage(error);
+      const errorMessage = getProviderBalanceErrorMessage(error);
       setProfiles((value) =>
         value.map((profile) =>
           profile.profileId === profileId
@@ -308,17 +261,7 @@ export function ProviderBalancesPage() {
       hasKey: Boolean(managementKey),
     });
     try {
-      const response = await fetch("/api/db/provider-balance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileId,
-          managementKey,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok)
-        throw new Error(data.error || "save_failed");
+      await saveProviderManagementKey(profileId, managementKey);
       console.log(
         "[Provider Balance] 🔄 管理 API Key 数据库同步完成，正在刷新页面状态",
         {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getProviderBalanceErrorMessage } from "@/app/utils/provider-balance";
 import { AuthError } from "@/app/utils/server/auth";
 import {
   ProviderBalanceQueryError,
@@ -18,26 +19,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function getBalanceErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "unknown_error";
-  switch (message) {
-    case "balance_profile_incomplete":
-      return "余额查询配置不完整，请检查 Base URL 和管理 API Key";
-    case "balance_auth_failed":
-      return "余额查询鉴权失败，请检查管理 API Key 是否有效或已过期";
-    case "balance_rate_limited":
-      return "余额查询触发上游限流，请稍后重试或减少批量查询";
-    case "balance_not_supported":
-      return "未找到可用的余额查询路径，请确认该供应商支持余额接口或填写管理 API Key";
-    case "missing_profile_id":
-      return "缺少配置 ID";
-    case "provider_not_found":
-      return "未找到对应 API 配置";
-    default:
-      return message || "余额查询失败";
-  }
-}
 
 async function getContext(req: NextRequest) {
   const externalUserId = await resolveSyncUserId(req);
@@ -155,7 +136,7 @@ export async function POST(req: NextRequest) {
         attempts: attempts || [],
       });
     } catch (error) {
-      const errorMessage = getBalanceErrorMessage(error);
+      const errorMessage = getProviderBalanceErrorMessage(error);
       await saveProviderBalanceResult(
         sharedUserId,
         profileId,
@@ -177,7 +158,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: getBalanceErrorMessage(error),
+        error: getProviderBalanceErrorMessage(error),
         attempts:
           error instanceof ProviderBalanceQueryError ? error.attempts : [],
       },
