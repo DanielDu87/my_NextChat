@@ -125,6 +125,28 @@
   align-items: center;
 }
 
+.searchInputWrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.searchInputIcon {
+  position: absolute;
+  left: 14px;
+  z-index: 1;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--black);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .searchInput,
 .input,
 .textarea {
@@ -172,17 +194,115 @@
   }
 }
 
-.addPromptButton {
+.page .searchBar :global(button[class*="icon-button"]).addPromptButton {
   width: auto !important;
   min-width: 128px !important;
   min-height: 38px;
   padding: 8px 14px !important;
   flex: 0 0 auto;
   white-space: nowrap;
+  border-width: 2px !important;
+  border-color: #000 !important;
+  border-radius: 10px !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  box-sizing: border-box;
+  color: var(--black) !important;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
+    color: var(--black) !important;
+    stroke: var(--black) !important;
+    stroke-opacity: 1 !important;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    border-width: 2px !important;
+    border-color: var(--primary) !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    color: var(--black) !important;
+    outline: none !important;
+  }
 
   :global([class*="icon-button-text"]) {
     display: inline-flex !important;
+    color: inherit !important;
     white-space: nowrap;
+  }
+}
+
+.searchInputWrap .searchInput {
+  height: 38px;
+  min-height: 38px;
+  padding: 8px 14px 8px 40px;
+  border-radius: 10px;
+}
+
+:global(body.dark) .searchInputIcon {
+  color: #e5e7eb;
+}
+
+:global(body.dark)
+  .page
+  .searchBar
+  :global(button[class*="icon-button"]).addPromptButton {
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  background-color: transparent !important;
+  color: #e5e7eb !important;
+
+  :global(svg),
+  :global(svg path),
+  :global(svg circle),
+  :global(svg rect) {
+    color: #e5e7eb !important;
+    stroke: #e5e7eb !important;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    border-color: var(--primary) !important;
+    background-color: transparent !important;
+    color: #e5e7eb !important;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .searchInputIcon {
+    color: #e5e7eb;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .page
+    .searchBar
+    :global(button[class*="icon-button"]).addPromptButton {
+    border-color: rgba(71, 85, 105, 0.7) !important;
+    background-color: transparent !important;
+    color: #e5e7eb !important;
+
+    :global(svg),
+    :global(svg path),
+    :global(svg circle),
+    :global(svg rect) {
+      color: #e5e7eb !important;
+      stroke: #e5e7eb !important;
+    }
+
+    &:not(:disabled):hover,
+    &:not(:disabled):focus-visible,
+    &:not(:disabled):active {
+      border-color: var(--primary) !important;
+      background-color: transparent !important;
+      color: #e5e7eb !important;
+    }
   }
 }
 
@@ -659,7 +779,6 @@
     align-items: center !important;
     justify-content: center;
     gap: 8px !important;
-    color: color-mix(in srgb, var(--black) 88%, transparent) !important;
     line-height: 1 !important;
 
     :global([class*="icon-button-icon"]) {
@@ -702,11 +821,6 @@
       text-overflow: clip !important;
     }
 
-    &:not(:disabled):hover,
-    &:not(:disabled):focus-visible,
-    &:not(:disabled):active {
-      color: color-mix(in srgb, var(--primary) 92%, var(--black)) !important;
-    }
   }
 
   .page :global(button[class*="icon-button"]).addPromptButton {
@@ -782,7 +896,8 @@
   .searchInput {
     height: 44px;
     min-height: 44px;
-    text-align: center;
+    padding-left: 40px;
+    text-align: left;
     font-size: 16px;
 
     &::placeholder {

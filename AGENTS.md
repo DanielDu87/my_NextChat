@@ -158,3 +158,36 @@ PY'
 - 如果 Docker 生产构建失败，先检查 `buildx`、`.dockerignore`、构建上下文和环境变量，不要先假设是外网问题
 - 版本号来自 `package.json`；如果页面里出现 `vundefined`，先检查 `package.json` 的 `version`
 - 如果宿主机访问 `127.0.0.1:3000` 异常，但容器日志显示 `Ready`，先在容器内执行 `wget http://127.0.0.1:3000`，再判断是不是宿主机代理或端口转发干扰
+
+## 删除操作强制确认规则
+
+**所有删除动作都必须用户单独确认**，不得用「清理过期」「顺手」「按规则」等理由批量执行。
+
+覆盖范围（与全局 §16.3 一致）：
+
+- **文档 / 脚本 / 配置**：`git rm`、`rm` 删除 `docs/`、`scripts/`、`*.yml`、`*.json`、`*.ts`、`*.tsx`、`.env*`、`Dockerfile`、`next.config.mjs`、`tsconfig.json`、`package.json`、`yarn.lock`、`.github/**` 等；删除前必须**列出每个具体路径**，逐项等待用户确认。
+- **数据库 / Schema**：`DROP TABLE / DATABASE`、`TRUNCATE`、`DELETE FROM ... 无 WHERE`、`ALTER TABLE DROP COLUMN / CONSTRAINT`、直接 SQL 修改宝塔数据库（docker.db / site.db / ssl_data.db）；删除前必须打印 SQL + 影响行数 + 备份状态。
+- **容器 / 镜像 / 卷 / 网络**：`docker rm / rm -f`、`docker image rm`、`docker volume rm`、`docker network rm`、`docker system prune`；删除前必须列出每个具体名称；**禁止全局 prune**。
+- **构建产物 / 缓存**：`rm -rf .next / dist / build / node_modules`、`yarn cache clean`、`docker builder prune`。
+- **Git stash / branch / tag / reflog**：`git stash drop`、`git branch -D`、`git tag -d`、`git reflog expire --expire=now --all`、`git filter-branch / filter-repo`。
+- **远程推送 / 强推**：`git push`、`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>`；一律禁止，需逐项单独授权。
+- **宝塔数据库 / 配置 / 证书**：docker.db / site.db / ssl_data.db 的 DELETE / UPDATE / INSERT、Nginx vhost、证书目录。
+
+执行要求：
+
+1. 涉及上述任何一类，AI 必须**先列出待删除 / 修改的对象清单**（路径 / SQL / 命令 + 影响），逐项等待用户 Yes / No。
+2. 用户单字回答「是 / 好 / 继续」**只对当时列出的那一项有效**，不能延伸到下一项。
+3. 删除前**必须先备份**（`cp -a <path> /root/<path>.bak-<TS>` 或 `git mv` 到暂存区），备份是默认行为，不是可选项。
+4. 最终交付摘要必须**逐行列出已删除对象**，便于用户审计。
+5. 当用户明确说出「这次的全部都要」时，AI 必须先完整列出本次剩余删除对象及影响，并再发起一次批量确认；用户确认后，该次确认可覆盖清单内全部对象，无需继续逐项询问。此授权仅对当次明确列出的清单有效，新增对象仍须重新确认。
+
+凡是以上任一类操作跳过单独确认直接执行，等同违反本规则。详见 `~/.claude/CLAUDE.md`（或对应全局 AI md）的 §16.3。
+
+## 文档同步规则（每完成一个功能立即更新文档 + 删除多余文档）
+
+- 任何新增 / 修改 / 删除的功能、页面、API、数据库表、配置项，都必须在**同一轮 commit 内**同步**更新文档**，不允许只改代码留下一份过期文档留给下次清理。
+- **更新文档**优先列表：`README.md`、`docs/development.md`、`docs/db/data-storage-sync-matrix.md`、`docs/db/nextchat-postgres-schema.sql`、`docs/db/local-first-sync-rules.md`、`docs/local-dev-guide.md`、`docs/sync-usage-guide.md`、`docs/user-manual-cn.md`、`docs/yuto-balance-query.md`、各专题 Runbook；新增或重命名的文档必须在 `README.md` 的「文档入口」登记。
+- **删除多余 / 过期文档**：删除 / 重命名页面或文档时，必须彻底移除对应文件并从所有 README / 文档入口清除死链，不保留为「历史背景」。过期 / 临时 / 历史修复总结类文档（fix-*.md、*-summary.md、current-database-audit-*.md 等）如果已经没有参考价值，直接删除；如必须保留作历史参考，须在文档顶部明确标注「⚠️ 已过时，以 *最新文档* 为准」并指向权威文档链接。
+- schema 版本、表结构、字段、数据矩阵和顶部「以代码为准」日期必须与代码同步更新；新增 DDL 时同步修改 `docs/db/nextchat-postgres-schema.sql`。
+- 提交或部署前必须自检：所有新增 / 修改的功能点是否都有对应文档段落；README 文档入口是否仍然完整；是否存在可以删除的过期文档。
+- 不为了凑文档而堆模板；只写仍然准确、能帮助未来 AI / 工程师快速理解的内容。

@@ -1,19 +1,176 @@
 import { createHash } from "crypto";
-import { ensureSyncStorageSchema, pgQuery } from "./postgres";
+import {
+  ensureSyncStorageSchema,
+  pgQuery,
+  withPgTransaction,
+} from "./postgres";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
+import {
+  decryptSyncSecretPayload,
+  encryptSyncSecretPayload,
+} from "./sync-secrets";
 
 export type ApiConfigBackupSource = "auto" | "manual" | "pre_restore";
+
+export const API_CONFIG_BACKUP_PAYLOAD_SCHEMA = 2;
+
+export type ApiConfigBalanceEntry = {
+  providerCode: string;
+  encryptedManagementKey: string | null;
+  maskedManagementKey: string | null;
+  balanceSnapshot: unknown;
+  lastError: string | null;
+  queriedAt: string | null;
+};
+
+export type ApiConfigBackupPayloadV2 = {
+  schema: 2;
+  state: unknown;
+  balanceEntries: ApiConfigBalanceEntry[];
+};
+
+export type ApiConfigBackupPayload = unknown;
 
 function checksum(payload: unknown) {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
+function unwrapState(payload: any) {
+  return payload?.state && typeof payload.state === "object"
+    ? payload.state
+    : payload;
+}
+
 function profileCount(payload: any) {
-  const state =
-    payload?.state && typeof payload.state === "object"
-      ? payload.state
-      : payload;
+  const state = unwrapState(payload);
   return Array.isArray(state?.apiProfiles) ? state.apiProfiles.length : 0;
+}
+
+export function readBalanceEntriesFromPayload(
+  payload: any,
+): ApiConfigBalanceEntry[] {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    payload.schema === API_CONFIG_BACKUP_PAYLOAD_SCHEMA &&
+    Array.isArray(payload.balanceEntries)
+  ) {
+    return payload.balanceEntries as ApiConfigBalanceEntry[];
+  }
+  return [];
+}
+
+async function loadProviderBalanceEntries(
+  externalUserId: string,
+): Promise<ApiConfigBalanceEntry[]> {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const result = await pgQuery<{
+    provider_code: string;
+    encrypted_management_key: string | null;
+    masked_management_key: string | null;
+    balance_snapshot: unknown;
+    last_error: string | null;
+    queried_at: string | null;
+  }>(
+    `select pc.provider_code,
+            pbc.encrypted_management_key,
+            pbc.masked_management_key,
+            pbc.balance_snapshot,
+            pbc.last_error,
+            pbc.queried_at::text as queried_at
+       from provider_configs pc
+       left join provider_balance_configs pbc on pbc.provider_config_id = pc.id
+      where pc.user_id = $1::uuid
+      order by pc.provider_code`,
+    [userId],
+  );
+  return result.rows.map((row) => ({
+    providerCode: row.provider_code,
+    encryptedManagementKey: row.encrypted_management_key,
+    maskedManagementKey: row.masked_management_key,
+    balanceSnapshot: row.balance_snapshot ?? null,
+    lastError: row.last_error ?? null,
+    queriedAt: row.queried_at ?? null,
+  }));
+}
+
+export async function buildApiConfigBackupPayload(
+  externalUserId: string,
+  state: unknown,
+): Promise<ApiConfigBackupPayloadV2> {
+  return {
+    schema: API_CONFIG_BACKUP_PAYLOAD_SCHEMA,
+    state,
+    balanceEntries: await loadProviderBalanceEntries(externalUserId),
+  };
+}
+
+export async function writeApiConfigBalanceEntries(
+  externalUserId: string,
+  entries: ApiConfigBalanceEntry[],
+) {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  await withPgTransaction(async (client) => {
+    for (const entry of entries) {
+      if (!entry?.providerCode) continue;
+      const target = await client.query<{ id: string }>(
+        `select id::text as id from provider_configs
+          where user_id = $1::uuid and provider_code = $2 limit 1`,
+        [userId, entry.providerCode],
+      );
+      const providerConfigId = target.rows[0]?.id;
+      if (!providerConfigId) {
+        console.warn(
+          "[API Config Backup] 跳过余额条目，找不到对应 provider_config",
+          { providerCode: entry.providerCode },
+        );
+        continue;
+      }
+      const encrypted = entry.encryptedManagementKey
+        ? (() => {
+            try {
+              return encryptSyncSecretPayload(
+                decryptSyncSecretPayload(entry.encryptedManagementKey),
+              );
+            } catch {
+              // 历史脏数据：原密文已损坏时直接落空，避免恢复阻塞
+              return null;
+            }
+          })()
+        : null;
+      await client.query(
+        `insert into provider_balance_configs (
+           provider_config_id,
+           encrypted_management_key,
+           masked_management_key,
+           balance_snapshot,
+           last_error,
+           queried_at
+         ) values ($1::uuid, $2, $3, $4::jsonb, $5, $6::timestamptz)
+         on conflict (provider_config_id) do update set
+           encrypted_management_key = excluded.encrypted_management_key,
+           masked_management_key = excluded.masked_management_key,
+           balance_snapshot = excluded.balance_snapshot,
+           last_error = excluded.last_error,
+           queried_at = excluded.queried_at,
+           updated_at = now()`,
+        [
+          providerConfigId,
+          encrypted,
+          entry.maskedManagementKey ?? null,
+          entry.balanceSnapshot === null || entry.balanceSnapshot === undefined
+            ? null
+            : JSON.stringify(entry.balanceSnapshot),
+          entry.lastError ?? null,
+          entry.queriedAt ?? null,
+        ],
+      );
+    }
+  });
 }
 
 export async function getApiConfigBackupSettings(externalUserId: string) {

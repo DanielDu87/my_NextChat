@@ -29,6 +29,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持文本、图片、多模态消息和生成媒体展示。
 - 支持消息复制、重发、编辑、语音朗读。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
+- 聊天页头部支持一键刷新当前 Profile 余额，结果就地展示。
 - 移动端优化：
   - 流式输出时轻微上滑即可暂停自动贴底。
   - 点击页面空白不会自动跳到底部。
@@ -38,18 +39,21 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 ### 模型与供应商
 
-- 支持多 Provider / 多 Profile 管理。
-- 支持模型列表缓存、自动刷新、手动同步。
+- 支持多 Provider / 多 Profile 管理，Profile 保存时自动落库到 `provider_configs` + `provider_api_keys`。
+- 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。
+- 内置「余额查询」页面（`/api-config/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（如 Yuto `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
+- 聊天页头部新增「余额」入口：选中模型所属 Profile 一键刷新余额，复用通用余额查询链路。
+- API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；旧备份（无 `balanceEntries`）保持兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
 
 ### 数据与同步
 
-- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存和 API 配置备份等。
+- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
 - IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿和少量启动标记。
 - 支持数据库同步与本地优先合并策略。
-- 提供数据库审计、迁移、清理、模型同步等维护脚本。
+- 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
 
 ### 访问控制与部署
 
@@ -118,10 +122,13 @@ app/
 
 - 首页：`http://localhost:3000/`
 - 聊天页：`http://localhost:3000/chat`
+- 指定会话：`http://localhost:3000/chat/<session-id>`
 - 绘图页：`http://localhost:3000/draw`
 - 绘图历史：`http://localhost:3000/draw/history`
 - API 配置：`http://localhost:3000/api-config`
-- 线上 API 配置：`https://chat.dyxcloud.com/api-config`
+- API 配置备份：`http://localhost:3000/api-config/backups`
+- 余额查询：`http://localhost:3000/api-config/balances`
+- 线上对应：`https://chat.dyxcloud.com/...`（同样使用普通路径）
 
 旧地址如 `http://localhost:3000/#/draw`、`/#/settings`、`/#/auth` 会在客户端启动时自动迁移到对应普通路径。直接刷新 `/draw`、`/api-config` 等路径由 Next.js catch-all 页面兜底进入同一个应用入口。
 
@@ -133,6 +140,7 @@ app/
 - `app/utils/server/auth.ts`
 - `app/utils/server/chat-conversation-repository.ts`
 - `app/utils/server/provider-config-repository.ts`
+- `app/utils/server/provider-balance-repository.ts`
 - `app/utils/server/sync-store-repository.ts`
 - `docs/db/nextchat-postgres-schema.sql`
 
@@ -145,6 +153,7 @@ app/
 - `messages`：聊天消息内容。
 - `provider_configs`：供应商配置。
 - `provider_api_keys`：API Key 密文与分组。
+- `provider_balance_configs`：供应商余额快照、查询时间戳和管理 API Key 密文。
 - `sync_secrets`：同步敏感 payload 密文。
 - `site_access_settings`：站点访问密码哈希。
 - `user_draw_stores`：绘画任务历史快照。
@@ -158,7 +167,10 @@ app/
 
 - `app/utils/server/provider-model-fetch.ts`
 - `app/utils/server/provider-model-sync.ts`
-- `app/utils/provider-sync.ts`
+- `app/utils/server/provider-balance.ts`
+- `app/utils/provider-balance.ts`
+- `app/api/db/provider-balance/route.ts`
+- `app/components/provider-balances.tsx`
 - `app/store/model-cache.ts`
 - `scripts/sync-models-to-postgres.ts`
 - `scripts/refresh-provider-models.ts`
@@ -169,6 +181,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；服务端按前缀 × 资源组合探测上游接口，并保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
 
 ### 部署实现
 
@@ -208,18 +221,19 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 部署入口：[DEPLOY.md](DEPLOY.md)
 - 宝塔当前线上说明：[README_BAOTA.md](README_BAOTA.md)
 - 宝塔详细 Runbook：[docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
-- 宝塔安装说明：[docs/BAOTA_INSTALL_GUIDE.md](docs/BAOTA_INSTALL_GUIDE.md)
-- 宝塔 Docker 指南：[docs/baota-docker-guide.md](docs/baota-docker-guide.md)
+- 宝塔 DockerSite 页面操作：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
+- 宝塔 PostgreSQL 操作：[docs/baota-postgres-guide.md](docs/baota-postgres-guide.md)
+- 宝塔 DockerSite 页面操作：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
 
 ### 功能与维护
 
 - 用户手册：[docs/user-manual-cn.md](docs/user-manual-cn.md)
-- 常见问题：[docs/faq-cn.md](docs/faq-cn.md)
+- 多用户与登录：[docs/user-admin-guide.md](docs/user-admin-guide.md)
 - 同步功能使用指南：[docs/sync-usage-guide.md](docs/sync-usage-guide.md)
-- 聊天记录同步说明：[docs/synchronise-chat-logs-cn.md](docs/synchronise-chat-logs-cn.md)
 - 数据库存储矩阵：[docs/db/data-storage-sync-matrix.md](docs/db/data-storage-sync-matrix.md)
 - 模型刷新说明：[docs/db/provider-model-auto-refresh.md](docs/db/provider-model-auto-refresh.md)
-- 翻译说明：[docs/translation.md](docs/translation.md)
+- 余额查询 / Yuto 集成：[docs/yuto-balance-query.md](docs/yuto-balance-query.md)
+- 质量与部署后验证：[docs/quality-checklist.md](docs/quality-checklist.md)
 
 ## 当前约定
 

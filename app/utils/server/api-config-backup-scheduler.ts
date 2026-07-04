@@ -1,5 +1,8 @@
 import { StoreKey } from "@/app/constant";
-import { createApiConfigBackup } from "./api-config-backup-repository";
+import {
+  buildApiConfigBackupPayload,
+  createApiConfigBackup,
+} from "./api-config-backup-repository";
 import { getStoreSnapshot } from "./sync-store-repository";
 import { getDefaultSyncUserId } from "./sync-user";
 
@@ -16,8 +19,9 @@ async function runApiConfigBackupScheduler() {
 
   try {
     const sharedUserId = getDefaultSyncUserId();
-    const payload = await getStoreSnapshot(StoreKey.Access, sharedUserId);
-    if (payload !== undefined) {
+    const state = await getStoreSnapshot(StoreKey.Access, sharedUserId);
+    if (state !== undefined) {
+      const payload = await buildApiConfigBackupPayload(sharedUserId, state);
       await createApiConfigBackup(sharedUserId, payload, "auto");
     }
   } catch (error) {

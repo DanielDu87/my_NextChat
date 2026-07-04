@@ -3,7 +3,7 @@
 旧的部署说明已经废弃，当前仓库统一使用下面两份文档：
 
 - 中文部署文档：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)
-- 宝塔专项文档：[docs/baota-docker-guide.md](docs/baota-docker-guide.md)
+- 宝塔专项文档：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
 - 仓库文档入口：[README.md](README.md)
 
 统一规则：

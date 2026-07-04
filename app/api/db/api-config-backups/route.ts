@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { StoreKey } from "@/app/constant";
 import { AuthError } from "@/app/utils/server/auth";
 import {
+  buildApiConfigBackupPayload,
   createApiConfigBackup,
   deleteApiConfigBackup,
   getApiConfigBackupPayload,
   getApiConfigBackupSettings,
   listApiConfigBackups,
+  readBalanceEntriesFromPayload,
   saveApiConfigBackupSettings,
+  writeApiConfigBalanceEntries,
 } from "@/app/utils/server/api-config-backup-repository";
 import {
   getStoreSnapshot,
@@ -109,16 +112,40 @@ export async function POST(req: NextRequest) {
       const current = await getStoreSnapshot(StoreKey.Access, userId);
       if (current) {
         console.log("[API Config] 💾 恢复前正在创建保护备份...");
-        await createApiConfigBackup(userId, current, "pre_restore");
+        const currentPayload = await buildApiConfigBackupPayload(
+          userId,
+          current,
+        );
+        await createApiConfigBackup(userId, currentPayload, "pre_restore");
       }
-      await setStoreSnapshot(StoreKey.Access, payload, userId);
+      const state =
+        payload && typeof payload === "object" && (payload as any).state
+          ? (payload as any).state
+          : payload;
+      await setStoreSnapshot(StoreKey.Access, state, userId);
+      const balanceEntries = readBalanceEntriesFromPayload(payload);
+      if (balanceEntries.length > 0) {
+        console.log("[API Config] ♻️ 同步恢复供应商余额条目", {
+          条目数量: balanceEntries.length,
+        });
+        await writeApiConfigBalanceEntries(userId, balanceEntries);
+      } else {
+        console.log(
+          "[API Config] ♻️ 备份未携带余额条目，仅恢复 access-control",
+        );
+      }
       console.log("[API Config] ✅ 服务端配置备份恢复完成", {
         备份ID: String(body.id || ""),
+        恢复余额条目: balanceEntries.length,
       });
       return NextResponse.json({ ok: true, payload });
     }
-    const payload =
-      body.payload ?? (await getStoreSnapshot(StoreKey.Access, userId));
+    const payload = await (async () => {
+      if (body.payload) return body.payload;
+      const currentState = await getStoreSnapshot(StoreKey.Access, userId);
+      if (!currentState) return undefined;
+      return buildApiConfigBackupPayload(userId, currentState);
+    })();
     if (!payload)
       return NextResponse.json(
         { ok: false, error: "api_config_empty" },

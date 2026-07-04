@@ -1016,7 +1016,7 @@
       flex: 0 0 44px;
       margin-top: 4px;
       padding: 0 18px;
-      border: 1px solid rgba(191, 219, 254, 0.95);
+      border: 2px solid rgba(191, 219, 254, 0.95);
       border-radius: 16px;
       background: #ffffff;
       box-sizing: border-box;
@@ -1109,7 +1109,7 @@
       min-height: 44px;
       max-height: 44px;
       padding: 8px 18px;
-      border: 1px solid rgba(191, 219, 254, 0.95);
+      border: 2px solid rgba(191, 219, 254, 0.95);
       border-radius: 16px;
       outline: none;
       font-size: 15px;
@@ -1120,13 +1120,9 @@
       box-sizing: border-box;
       font-family: inherit;
       box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-      transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        transform 0.2s ease;
+      transition: none;
       cursor: pointer;
       text-align: center;
-      border: 1px solid rgba(191, 219, 254, 0.95);
 
       // 只针对箭头 SVG（按钮的直接子元素），不影响 .selector-group-filter-leading 内的图标
       > :global(svg) {
@@ -1151,10 +1147,11 @@
         background: rgb(239, 246, 255);
         color: #475569;
         border-color: #60a5fa;
+        border-width: 2px;
         box-shadow:
           0 0 0 3px rgba(96, 165, 250, 0.18),
           0 14px 28px rgba(15, 23, 42, 0.12);
-        transform: translateY(-1px);
+        transform: none;
 
         > :global(svg) {
           stroke: #475569;
@@ -1169,16 +1166,18 @@
         background: rgb(239, 246, 255);
         color: #475569;
         border-color: #60a5fa;
+        border-width: 2px;
         box-shadow:
           0 0 0 3px rgba(96, 165, 250, 0.18),
           0 14px 28px rgba(15, 23, 42, 0.12);
-        transform: translateY(-1px);
+        transform: none;
       }
 
       &:active {
         background: rgb(239, 246, 255);
         color: #475569;
         border-color: #60a5fa;
+        border-width: 2px;
         box-shadow:
           0 0 0 2px rgba(96, 165, 250, 0.14),
           0 10px 20px rgba(15, 23, 42, 0.1);
@@ -1442,6 +1441,14 @@
       justify-content: center;
       gap: 10px;
       flex-wrap: wrap;
+      cursor: pointer;
+      transition: none;
+
+      &:hover,
+      &:focus {
+        border-width: 2px;
+        border-color: rgba(191, 219, 254, 0.95);
+      }
     }
 
     .selector-header-hint .model-selector-provider-menu {
@@ -1489,9 +1496,10 @@
     .selector-header-hint .model-selector-provider-option:hover,
     .selector-header-hint .model-selector-provider-option:focus {
       background: #f8fafc;
-      border-color: rgba(191, 219, 254, 0.95);
+      border-width: 2px;
+      border-color: rgba(226, 232, 240, 0.95);
       color: #1d4ed8;
-      transform: translateY(-1px);
+      transform: none;
       box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     }
 
@@ -1541,11 +1549,6 @@
         font-size: 12px !important;
         font-weight: 600 !important;
         gap: 6px !important;
-
-        &:hover,
-        &:focus {
-          transform: none !important;
-        }
       }
     }
 
@@ -1914,6 +1917,14 @@
   border-color: rgba(71, 85, 105, 0.95);
   box-shadow: 0 10px 26px rgba(2, 6, 23, 0.3);
   color: #e5e7eb;
+  cursor: pointer;
+  transition: none;
+
+  &:hover,
+  &:focus {
+    border-width: 2px;
+    border-color: rgba(71, 85, 105, 0.95);
+  }
 }
 
 :global(.dark) .selector-header-hint .model-selector-provider-menu,
@@ -1936,7 +1947,7 @@
 :global(body.dark) .selector-header-hint .model-selector-provider-option:focus {
   background: rgba(30, 41, 59, 0.72);
   color: #1d4ed8;
-  border-color: rgba(191, 219, 254, 0.95);
+  border-color: rgba(71, 85, 105, 0.95);
 }
 
 :global(.dark) .selector-header-hint .model-selector-provider-option-active,
@@ -1961,6 +1972,7 @@
 :global(body.dark) .selector-search-wrap {
   background: rgba(30, 41, 59, 0.8) !important;
   background-color: rgba(30, 41, 59, 0.8) !important;
+  border-width: 2px !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
 }
@@ -1993,6 +2005,7 @@
 :global(body.dark) .selector-group-filter {
   background: rgba(30, 41, 59, 0.8) !important;
   background-color: rgba(30, 41, 59, 0.8) !important;
+  border-width: 2px !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   box-shadow: 0 14px 28px rgba(2, 6, 23, 0.4) !important;
 }
@@ -2004,6 +2017,7 @@
 :global(body.dark) .selector-group-filter:focus,
 :global(body.dark) .selector-group-filter-open {
   color: #e5e7eb !important;
+  border-width: 2px !important;
 }
 
 :global(.dark) .selector-group-filter:hover > span,
@@ -2086,9 +2100,10 @@
 :global(body.dark) .selector-group-filter:hover {
   background: rgba(59, 130, 246, 0.15) !important;
   color: #60a5fa !important;
+  border-width: 2px !important;
   border-color: rgba(96, 165, 250, 0.9) !important;
   box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36) !important;
-  transform: translateY(-1px);
+  transform: none;
 
   :global(svg:last-child) {
     stroke: #60a5fa !important;
@@ -2128,6 +2143,7 @@
   background: rgba(30, 41, 59, 0.8) !important;
   background-color: rgba(30, 41, 59, 0.8) !important;
   color: #64748b !important;
+  border-width: 2px !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   box-shadow: none !important;
   transform: none !important;

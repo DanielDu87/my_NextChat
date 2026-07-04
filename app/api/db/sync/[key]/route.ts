@@ -15,7 +15,10 @@ import {
   resolveStoreSyncUserId,
 } from "@/app/utils/server/sync-user";
 import { AuthError } from "@/app/utils/server/auth";
-import { createApiConfigBackup } from "@/app/utils/server/api-config-backup-repository";
+import {
+  buildApiConfigBackupPayload,
+  createApiConfigBackup,
+} from "@/app/utils/server/api-config-backup-repository";
 import { StoreKey } from "@/app/constant";
 
 export const runtime = "nodejs";
@@ -131,9 +134,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
       setStoreSnapshot(params.key, payload, userId),
     );
     if (params.key === StoreKey.Access) {
-      await createApiConfigBackup(userId, payload, "auto").catch((error) => {
-        console.error("[API Config Backup] 自动备份失败", error);
-      });
+      const backupPayload = await buildApiConfigBackupPayload(userId, payload);
+      await createApiConfigBackup(userId, backupPayload, "auto").catch(
+        (error) => {
+          console.error("[API Config Backup] 自动备份失败", error);
+        },
+      );
     }
     console.log("[DB Sync PUT] done", {
       key: params.key,

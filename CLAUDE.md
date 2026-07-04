@@ -246,7 +246,9 @@ yarn prompts
 - `sync-store-repository.ts` / `sync-store-helpers.ts` / `sync-meta-loader.ts` - 同步键值存储与元数据
 - `provider-config-repository.ts` - 提供商配置
 - `provider-model-fetch.ts` / `provider-model-sync.ts` - 提供商模型拉取与同步
+- `provider-balance-repository.ts` / `provider-balance.ts` - 供应商余额快照、管理 API Key 密文存取与上游探测
 - `app-settings-repository.ts` - 应用设置
+- `api-config-backup-repository.ts` / `api-config-backup-scheduler.ts` - API 配置自动备份与恢复（含余额条目）
 - `sync-app-user.ts` / `sync-user.ts` / `auth.ts` / `site-password.ts` - 用户与认证
 - `access-store-security.ts` / `sync-secrets.ts` - 访问安全与密钥
 
@@ -257,9 +259,11 @@ yarn prompts
 - `[provider]/[...path]` - **AI 提供商代理**（核心聊天/补全/图像转发）
 - `proxy/[...path]` - 通用代理
 - `db/` - 数据库同步接口
-  - `sync/[key]` - 通用键值同步（对话/配置等）
+  - `sync/[key]` - 通用键值同步（对话/配置等），access-control 写入会触发 API 配置自动备份
   - `chat-sync`（含 `sessions`）、`chat-updated-at` - 对话同步
   - `draw-image`（含 `[id]`） - 绘画图片存取（含缩略图）
+  - `provider-balance` - 供应商余额查询（GET 列表 / PUT 管理 API Key / POST 单次查询）
+  - `api-config-backups` - API 配置备份与恢复（含供应商余额条目）
   - `sync-meta` - 同步元数据、`health` - 健康检查
   - `models/refresh` - 模型刷新、`balance` - 余额查询
 - `auth/` - 登录（`login`）、登出（`logout`）、当前用户（`me`）
@@ -317,6 +321,19 @@ yarn prompts
 - **`app/api/auth/`**（login/logout/me）、**`app/api/admin/`**（用户管理/切换）、**`app/api/site-auth`**（站点访问密码）。
 - **`app/utils/server/`**：`auth.ts`、`site-password.ts`、`sync-app-user.ts`、`sync-user.ts`。
 - 组件：`app/components/auth.tsx`、`site-password-gate.tsx`、`user-menu.tsx`。
+
+### 余额查询与 API 配置备份
+
+- **入口页面**：`/api-config/balances`（通用余额查询页），聊天页头部也提供当前 Profile 的余额按钮。
+- **核心代码**：
+  - `app/utils/server/provider-balance.ts` - 服务端余额查询核心，按「前缀 × 资源」组合探测上游接口，保留每次探测的 `attempts`。
+  - `app/utils/server/provider-balance-repository.ts` - 余额快照、查询时间戳、错误信息、加密管理 API Key（`encrypted_management_key` / `masked_management_key`）。
+  - `app/utils/provider-balance.ts` - 前端请求 SDK，统一打印请求 ID、耗时与上游路径日志。
+  - `app/api/db/provider-balance/route.ts` - `GET`（列表）、`PUT`（保存管理 Key，密文落库）、`POST`（单次查询）。
+  - `app/components/provider-balances.tsx` - 余额查询页面。
+- **数据库表**：`provider_balance_configs`，按 `provider_configs.id` 一对一关联；密文管理 Key 通过 `sync-secrets.ts` 加密。
+- **API 配置备份包含余额条目**：API 配置自动备份 / 手动备份 / 恢复前保护备份都会把当前用户的 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema 版本 = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回。旧备份（无 `balanceEntries`）仍然兼容，只恢复 access-control。
+- **实现位置**：`app/utils/server/api-config-backup-repository.ts`（`buildApiConfigBackupPayload` / `writeApiConfigBalanceEntries`）、`app/api/db/api-config-backups/route.ts`、`app/api/db/sync/[key]/route.ts`（access-control PUT 时自动备份）、`app/utils/server/api-config-backup-scheduler.ts`（后台定时备份）。
 
 ### 模型管理
 
@@ -433,3 +450,50 @@ yarn prompts
 5. **Mask 系统**：Masks 是 prompt 模板，存储在 `app/masks/` 目录。
 6. **国际化**：语言文件在 `app/locales/` 目录（`cn.ts` 为简体中文，`index.ts` 汇总）。
 7. **路由**：新增页面用普通路径（`react-router-dom`），不使用 hash 路由；服务端通过 `app/[...path]/page.tsx` catch-all 兜底。
+
+### 每个功能完成后必须立即更新文档
+
+新功能 / 行为变更 / 新页面 / 新增 API / 新增数据库表 / 新增配置项 / 删除 / 重命名，只要会改变使用者或后续 AI 的认知，都必须在「同一轮提交」内同步更新文档，**不允许**只改代码、留下一份过期文档留给下次清理。
+
+需要更新或审视的文档（按优先级）：
+
+1. `README.md`：项目概述、功能概览、页面路由、数据库存储实现、API 路由、文档入口
+2. `README_BAOTA.md`、`DEPLOY.md`：仅当变更涉及部署 / 域名 / 路径 / 密钥 / 端口时
+3. `docs/development.md`：开发架构、目录结构、API 分层、数据表、注意事项
+4. `docs/local-dev-guide.md`：本地启动、调试入口
+5. `docs/quality-checklist.md`：质量检查、部署后验证清单
+6. `docs/user-admin-guide.md`：多用户 / 登录 / 站点访问 / 用户切换 / 密码
+7. `docs/baota-postgres-guide.md`：宝塔 PostgreSQL 安装 / 连接 / 备份 / 还原 / 迁移
+8. `docs/baota-dockersite-guide.md`：宝塔 DockerSite 页面操作（建站、反代、SSL、清理、验证）
+9. `docs/baota-chat-dyxcloud-runbook.md`、`docs/baota-dockersite-guide.md`、`docs/baota-postgres-guide.md`：宝塔专题 Runbook（域名切换、DockerSite 页面操作、PostgreSQL、SSL 数据库）
+10. `docs/db/data-storage-sync-matrix.md`：新增 / 变更数据表或字段必须更新；新增 schema 版本必须同步
+11. `docs/db/local-first-sync-rules.md`：存储分层和合并策略变化时
+12. `docs/db/postgres-docker-deploy.md`：直连 / 隧道部署与健康检查字段
+13. `docs/db/nextchat-postgres-schema.sql`：新增 / 变更表 DDL 必须同步
+14. `docs/db/provider-model-auto-refresh.md`：模型刷新链路与触发方式
+15. `docs/user-manual-cn.md`、`docs/sync-usage-guide.md`、`docs/yuto-balance-query.md`、`docs/draw-model-parameter-matrix.md` 等功能说明
+16. 任何新增或重命名的文档必须在 `README.md` 的「文档入口」中登记
+
+执行要求：
+
+- 完成功能后，**先**在代码 commit 里把对应文档改完，再执行提交；不允许「下次再补」式延期。
+- 如果删除了文档或页面，必须在仓库里彻底移除对应文件，并从 README / CLAUDE.md 文档入口清除链接，不保留死链。
+- 同步矩阵、PostgreSQL schema 文件、CLAUDE.md 与代码一起视为「一组改动」，schema 版本、文件头注释日期、文档顶部「以代码为准」日期要保持同步。
+- 不要为了凑文档而堆模板；只写仍然准确、能帮助未来 AI / 工程师快速理解的内容；过期 / 与代码无关 / 历史审计型文档直接删除而不是保留。
+- 提交或部署前必须自检：所有新增 / 修改的功能点是否都有对应文档段落；README 文档入口是否仍然完整。
+
+### 删除操作强制确认规则（本项目层）
+
+**所有删除动作都必须用户单独确认**，不得用「清理过期」「顺手」「按规则」等理由批量执行。完整规则见全局 `~/.claude/CLAUDE.md`（或对应全局 AI md）§16.3，本节只列重点：
+
+例外：当用户明确说出「这次的全部都要」时，必须先完整列出本次剩余删除对象及影响，并再发起一次批量确认；用户确认后，该次确认可覆盖清单内全部对象。此授权仅对当次列出的清单有效。
+
+- **文档 / 脚本 / 配置**：删除 `docs/`、`scripts/`、`*.yml`、`*.json`、`*.ts`、`*.tsx`、`.env*`、`Dockerfile`、`next.config.mjs`、`tsconfig.json`、`package.json`、`yarn.lock`、`.github/**` 等；删除前必须**逐路径列出**让用户确认，**不能批量删除**。
+- **数据库 / Schema**：`DROP TABLE / DATABASE`、`TRUNCATE`、`DELETE FROM ... 无 WHERE`、`ALTER TABLE DROP COLUMN / CONSTRAINT`、直接 SQL 修改宝塔数据库（docker.db / site.db / ssl_data.db）；删除前必须打印 SQL + 影响行数 + 备份状态。
+- **容器 / 镜像 / 卷 / 网络**：`docker rm / rm -f`、`docker image rm`、`docker volume rm`、`docker network rm`、`docker system prune`；**禁止全局 prune**。
+- **构建产物 / 缓存**：`rm -rf .next / dist / build / node_modules`、`yarn cache clean`、`docker builder prune`。
+- **Git stash / branch / tag / reflog**：`git stash drop`、`git branch -D`、`git tag -d`、`git reflog expire --expire=now --all`、`git filter-branch / filter-repo`。
+- **远程推送 / 强推**：`git push`、`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>`；一律禁止，逐项单独授权。
+- **宝塔数据库 / 配置 / 证书**：docker.db / site.db / ssl_data.db 的 DELETE / UPDATE / INSERT、Nginx vhost、证书目录。
+
+执行要求：删除前必须先备份（`cp -a <path> /root/<path>.bak-<TS>` 或 `git mv` 到暂存区）；最终交付摘要逐行列出已删除对象；用户单字确认「是 / 好 / 继续」**只对当下那一个具体项有效**。

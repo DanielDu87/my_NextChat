@@ -1,6 +1,8 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-02 (同步 schema 2026-06-28-api-config-backup-counts：补文件缓存和 API 配置备份表)
+-- 最后更新: 2026-07-04 (同步 schema 2026-06-28-api-config-backup-counts：补供应商余额表 provider_balance_configs)
+-- 历史变更: 2026-06-28 api-config-backup-counts（补文件缓存和 API 配置备份表）
+-- 历史变更: 2026-06-22 draw-thumb-v1（user_draw_images.thumb_data + md5 唯一索引）
 -- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
 
 BEGIN;
@@ -272,6 +274,17 @@ CREATE TABLE IF NOT EXISTS api_config_backups (
 CREATE INDEX IF NOT EXISTS idx_api_config_backups_user_created
 ON api_config_backups(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS provider_balance_configs (
+  provider_config_id uuid PRIMARY KEY REFERENCES provider_configs(id) ON DELETE CASCADE,
+  encrypted_management_key text,
+  masked_management_key text,
+  balance_snapshot jsonb,
+  last_error text,
+  queried_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- 触发器：自动更新 updated_at
 -- ============================================================
@@ -316,6 +329,10 @@ CREATE OR REPLACE TRIGGER trg_api_config_backup_settings_updated_at
 BEFORE UPDATE ON api_config_backup_settings
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE OR REPLACE TRIGGER trg_provider_balance_configs_updated_at
+BEFORE UPDATE ON provider_balance_configs
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- ============================================================
 -- 表注释
 -- ============================================================
@@ -335,5 +352,6 @@ COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete�
 COMMENT ON TABLE sync_secrets IS '同步用敏感数据密文存储';
 COMMENT ON TABLE api_config_backup_settings IS 'API 配置自动备份设置';
 COMMENT ON TABLE api_config_backups IS 'API 配置备份快照';
+COMMENT ON TABLE provider_balance_configs IS '供应商余额快照 + 加密存储的管理 API Key';
 
 COMMIT;

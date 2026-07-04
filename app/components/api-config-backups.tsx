@@ -155,7 +155,7 @@ export function ApiConfigBackupsPage() {
   const restore = async (backup: Backup) => {
     if (
       !(await showConfirm(
-        "确定恢复此备份？当前配置会先自动备份，然后由该备份完整覆盖。",
+        "确定恢复此备份？当前配置会先自动备份，然后由该备份完整覆盖。备份中包含的供应商余额管理密钥、最近一次余额快照和查询错误信息也会一起恢复。",
       ))
     )
       return;
@@ -332,7 +332,8 @@ export function ApiConfigBackupsPage() {
                 <div className={styles.historyHeaderText}>
                   <div className={styles.historyTitle}>恢复历史备份</div>
                   <div className={styles.historySubTitle}>
-                    恢复只覆盖 API 配置，不影响聊天、插件及其他数据。
+                    恢复会覆盖 API
+                    配置和供应商余额管理密钥、最近一次余额快照；不影响聊天、插件及其他数据。
                   </div>
                 </div>
                 <IconButton

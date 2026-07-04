@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { IconButton } from "./button";
 import {
   List,
@@ -13,6 +13,7 @@ import AddIcon from "../icons/add.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import TrashIcon from "../icons/trash.svg";
 import EyeIcon from "../icons/eye.svg";
+import SearchIcon from "../icons/zoom.svg";
 import { useNavigate } from "react-router-dom";
 import { readPromptCache, usePromptStore, type Prompt } from "../store/prompt";
 import { bootstrapSharedPrompts } from "../utils/prompt-bootstrap";
@@ -85,6 +86,7 @@ export function PromptManagerPage() {
     title: string;
     content: string;
   }>({ title: "", content: "" });
+  const [draftContent, setDraftContent] = useState("");
   const [promptModalMode, setPromptModalMode] =
     useState<PromptModalMode>("create");
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
@@ -143,6 +145,15 @@ export function PromptManagerPage() {
   }, []);
 
   useEffect(() => {
+    if (!isPromptModalOpen) return;
+    // 打开模态框时自动聚焦标题输入框
+    const focusTimer = window.setTimeout(() => {
+      promptTitleInputRef.current?.focus();
+    }, 30);
+    return () => window.clearTimeout(focusTimer);
+  }, [isPromptModalOpen]);
+
+  useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!promptSyncingRef.current) return;
 
@@ -166,6 +177,7 @@ export function PromptManagerPage() {
   const openCreateModal = () => {
     setEditingPromptId(undefined);
     setEditingPrompt({ title: "", content: "" });
+    setDraftContent("");
     setPromptModalMode("create");
     setIsPromptModalOpen(true);
   };
@@ -173,6 +185,7 @@ export function PromptManagerPage() {
   const openEditModal = (prompt: Prompt) => {
     setEditingPromptId(prompt.id);
     setEditingPrompt({ title: prompt.title, content: prompt.content });
+    setDraftContent(prompt.content);
     setPromptModalMode("edit");
     setIsPromptModalOpen(true);
   };
@@ -221,14 +234,19 @@ export function PromptManagerPage() {
 
   const savePrompt = async () => {
     const nextTitle = promptTitleInputRef.current?.value.trim() ?? "";
-    const nextContent = promptContentInputRef.current?.value.trim() ?? "";
+    // 优先使用实时受控草稿，避免某些浏览器下 defaultValue 与受控输入脱钩
+    const nextContent = (
+      promptContentInputRef.current?.value ?? draftContent
+    ).trim();
 
     if (!nextTitle) {
       showToast("请输入提示词标题");
+      promptTitleInputRef.current?.focus();
       return;
     }
     if (!nextContent) {
       showToast("请输入提示词内容");
+      promptContentInputRef.current?.focus();
       return;
     }
 
@@ -252,6 +270,7 @@ export function PromptManagerPage() {
     }
 
     setEditingPromptId(undefined);
+    setDraftContent("");
     setIsPromptModalOpen(false);
   };
 
@@ -266,8 +285,34 @@ export function PromptManagerPage() {
 
   const closeModal = () => {
     setEditingPromptId(undefined);
+    setDraftContent("");
     setIsPromptModalOpen(false);
   };
+
+  // 模态框快捷键：ESC 关闭、Cmd/Ctrl + Enter 保存
+  const handleModalKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (!isPromptModalOpen) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeModal();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        void savePrompt();
+      }
+    },
+    // 依赖项通过 ref / 函数闭包自然捕获最新值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isPromptModalOpen],
+  );
+
+  useEffect(() => {
+    if (!isPromptModalOpen) return;
+    window.addEventListener("keydown", handleModalKeyDown);
+    return () => window.removeEventListener("keydown", handleModalKeyDown);
+  }, [isPromptModalOpen, handleModalKeyDown]);
 
   const totalPromptCount = allPrompts.length;
   const promptModalTitle =
@@ -363,13 +408,19 @@ export function PromptManagerPage() {
               className={styles.toolbarItem}
             >
               <div className={styles.searchBar}>
-                <input
-                  type="text"
-                  placeholder="搜索提示词..."
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  className={styles.searchInput}
-                />
+                <div className={styles.searchInputWrap}>
+                  <span className={styles.searchInputIcon} aria-hidden="true">
+                    <SearchIcon />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="搜索提示词标题或内容..."
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    className={styles.searchInput}
+                    aria-label="搜索提示词"
+                  />
+                </div>
                 <IconButton
                   icon={<AddIcon />}
                   text="新增提示词"
@@ -423,24 +474,35 @@ export function PromptManagerPage() {
             <Modal title={promptModalTitle} onClose={closeModal}>
               <div className={styles.modalContent}>
                 <div className={styles.formItem}>
-                  <label>标题</label>
+                  <label htmlFor="prompt-manager-title">标题</label>
                   <input
+                    id="prompt-manager-title"
                     ref={promptTitleInputRef}
                     type="text"
                     defaultValue={editingPrompt.title}
                     placeholder="输入提示词标题"
                     className={styles.input}
+                    maxLength={120}
                   />
                 </div>
                 <div className={styles.formItem}>
-                  <label>内容</label>
+                  <label htmlFor="prompt-manager-content">内容</label>
                   <textarea
+                    id="prompt-manager-content"
                     ref={promptContentInputRef}
                     defaultValue={editingPrompt.content}
-                    placeholder="输入提示词内容"
+                    placeholder="输入提示词内容，支持多行..."
                     className={styles.textarea}
-                    rows={8}
+                    onChange={(e) => setDraftContent(e.target.value)}
                   />
+                  <div className={styles.textareaMeta}>
+                    <span className={styles.textareaMetaHint}>
+                      按 Ctrl/⌘ + Enter 保存，Esc 关闭
+                    </span>
+                    <span className={styles.textareaMetaCount}>
+                      <strong>{draftContent.length}</strong> 字符
+                    </span>
+                  </div>
                 </div>
                 <div className={styles.modalActions}>
                   <IconButton
