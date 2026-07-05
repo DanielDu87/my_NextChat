@@ -10,7 +10,7 @@ import React, {
   useState,
 } from "react";
 import SparkMD5 from "spark-md5";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import SendUpIcon from "../icons/send-up.svg";
 import BrainIcon from "../icons/brain.svg";
@@ -3484,6 +3484,7 @@ function _Chat() {
   const statusPanelOverlapRafRef = useRef<number | null>(null);
   const mobileViewportRafRef = useRef<number | null>(null);
   const mobileViewportReleaseTimersRef = useRef<number[]>([]);
+  const mobileMessageVisibilityTimersRef = useRef<number[]>([]);
   const mobileKeyboardOpenedSinceFocusRef = useRef(false);
   const mobileKeyboardDismissByViewportRef = useRef(false);
   const mobileExpandedViewportHeightRef = useRef(0);
@@ -6169,7 +6170,7 @@ function _Chat() {
   }, [chatStore, forceScrollToBottom, session, showTopNotice]);
 
   const pauseStreamingAutoScrollForUser = useCallback(
-    (durationMs = 6000) => {
+    (durationMs = 6000, freezeCurrentPosition = true) => {
       clearStreamingScrollResumeTimer();
       clearForceScrollToBottom();
       cancelScheduledScrollToBottom();
@@ -6179,7 +6180,7 @@ function _Chat() {
       followStreamingAfterScrollButtonRef.current = false;
       programmaticScrollToBottomUntilRef.current = 0;
       const dom = scrollRef.current;
-      if (dom) {
+      if (dom && freezeCurrentPosition) {
         dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
         lastChatBodyScrollTopRef.current = dom.scrollTop;
       }
@@ -6213,6 +6214,7 @@ function _Chat() {
 
   const prepareTouchScrollTakeover = useCallback(() => {
     chatBodyTouchMovedRef.current = false;
+    pendingCenterLatestUserMessageRef.current = null;
     chatBodyTouchPausedFollowRef.current =
       autoScrollEnabledRef.current ||
       followStreamingAfterScrollButtonRef.current ||
@@ -6223,12 +6225,7 @@ function _Chat() {
     cancelScheduledScrollToBottom();
     streamingAutoScrollPausedRef.current = true;
     programmaticScrollToBottomUntilRef.current = 0;
-    const dom = scrollRef.current;
-    if (dom) {
-      dom.scrollTo?.({ top: dom.scrollTop, behavior: "auto" });
-      lastChatBodyScrollTopRef.current = dom.scrollTop;
-    }
-  }, [cancelScheduledScrollToBottom, clearForceScrollToBottom, scrollRef]);
+  }, [cancelScheduledScrollToBottom, clearForceScrollToBottom]);
 
   const finishTouchScrollTakeover = useCallback(() => {
     if (
@@ -6317,6 +6314,13 @@ function _Chat() {
       setAutoScrollEnabled(false);
       setAutoScroll(false);
 
+      // 先同步切到最后一个虚拟消息窗口并移除当前回合占位，再读取真实底部。
+      // 若先读旧窗口，按钮会把 scrollTop 写到旧窗口的起点，表现为跳回第一行。
+      flushSync(() => {
+        setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+        clearCenteredLatestUserMessage();
+      });
+
       const dom = scrollRef.current;
       if (dom) {
         const clickedBottom = Math.max(0, dom.scrollHeight - dom.clientHeight);
@@ -6331,11 +6335,14 @@ function _Chat() {
     scrollToBottomLikeMobileTitle();
   }, [
     cancelScheduledScrollToBottom,
+    clearCenteredLatestUserMessage,
     clearForceScrollToBottom,
     isAssistantStreaming,
+    renderMessages.length,
     scrollRef,
     scrollToBottomLikeMobileTitle,
     setAutoScroll,
+    setMsgRenderIndex,
     syncHitBottomFromDom,
   ]);
 
@@ -8136,9 +8143,6 @@ function _Chat() {
       if (mobileInputHasText) {
         scheduleScrollMobileInputToBottom();
       }
-      if (keyboardObscuredHeight > 140) {
-        scrollDomToBottom();
-      }
     }
   }, [
     isMobileScreen,
@@ -8148,7 +8152,6 @@ function _Chat() {
     resetMobileDocumentScroll,
     scheduleMoveInputCursorToEnd,
     scheduleScrollMobileInputToBottom,
-    scrollDomToBottom,
     finalizeMobileInputBlur,
   ]);
 
@@ -8168,14 +8171,27 @@ function _Chat() {
   const scheduleMobileLatestMessagesIntoView = useCallback(() => {
     if (!isMobileScreen || typeof window === "undefined") return;
 
-    [0, 80, 180, 320].forEach((delay) => {
+    mobileMessageVisibilityTimersRef.current.forEach(window.clearTimeout);
+    mobileMessageVisibilityTimersRef.current = [];
+    setMsgRenderIndex(renderMessages.length - CHAT_PAGE_SIZE);
+    mobileMessageVisibilityTimersRef.current = [0, 80, 180, 320].map((delay) =>
       window.setTimeout(() => {
-        setAutoScroll(true);
-        setHitBottom(true);
-        scrollDomToBottom();
-      }, delay);
-    });
-  }, [isMobileScreen, scrollDomToBottom, setAutoScroll, setHitBottom]);
+        const dom = scrollRef.current;
+        if (!dom) return;
+        programmaticScrollToBottomUntilRef.current = Date.now() + 96;
+        const targetTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+        dom.scrollTop = targetTop;
+        lastChatBodyScrollTopRef.current = targetTop;
+        syncHitBottomFromDom();
+      }, delay),
+    );
+  }, [
+    isMobileScreen,
+    renderMessages.length,
+    scrollRef,
+    setMsgRenderIndex,
+    syncHitBottomFromDom,
+  ]);
 
   useLayoutEffect(() => {
     if (!isMobileScreen || !isMobileInputFocused) return;
@@ -8189,17 +8205,34 @@ function _Chat() {
     mobileInput.style.height = mobileInputHasText ? "auto" : "44px";
     mobileInput.style.maxHeight = "";
     syncMobileInputHeight(userInput);
-    scheduleMobileLatestMessagesIntoView();
     scheduleMobileKeyboardViewportSync();
   }, [
     attachImages.length,
     isMobileInputFocused,
     isMobileScreen,
     mobileInputHasText,
-    scheduleMobileLatestMessagesIntoView,
     scheduleMobileKeyboardViewportSync,
     syncMobileInputHeight,
     userInput,
+  ]);
+
+  useEffect(() => {
+    if (!isMobileScreen || !isMobileInputFocused) {
+      mobileMessageVisibilityTimersRef.current.forEach(window.clearTimeout);
+      mobileMessageVisibilityTimersRef.current = [];
+      return;
+    }
+
+    scheduleMobileLatestMessagesIntoView();
+    return () => {
+      mobileMessageVisibilityTimersRef.current.forEach(window.clearTimeout);
+      mobileMessageVisibilityTimersRef.current = [];
+    };
+  }, [
+    isMobileInputFocused,
+    isMobileScreen,
+    safeSession.id,
+    scheduleMobileLatestMessagesIntoView,
   ]);
 
   useEffect(() => {
@@ -9889,7 +9922,7 @@ function _Chat() {
                       prepareTouchScrollTakeover();
                       chatBodyTouchMovedRef.current = true;
                       markUserScrollIntent();
-                      pauseStreamingAutoScrollForUser();
+                      pauseStreamingAutoScrollForUser(6000, false);
                       return;
                     }
                     if (chatBodyTouchMovedRef.current) {
@@ -10574,7 +10607,6 @@ function _Chat() {
                     event.stopPropagation();
                   }}
                   onClick={() => {
-                    clearCenteredLatestUserMessage();
                     handleScrollToBottomButton();
                   }}
                 >
@@ -11088,6 +11120,7 @@ function _Chat() {
                                 mobileInputRef.current;
                             }}
                             onFocus={() => {
+                              clearCenteredLatestUserMessage();
                               mobileExpandedViewportHeightRef.current =
                                 Math.max(
                                   window.visualViewport?.height ?? 0,
@@ -11552,6 +11585,9 @@ function _Chat() {
 
             modelSelectorRequiresSelectionRef.current = false;
             setModelSelectorDefaultValue(s[0]);
+            if (isMobileScreen) {
+              setShowStatusUserPanel(false);
+            }
             const [model, selectedProviderIdRaw] = getModelProvider(s[0]);
             const selectedProviderId = String(
               selectedProviderIdRaw || currentProviderId || "",
@@ -11606,41 +11642,39 @@ function _Chat() {
               profileId: selectedProfile?.id || "",
             });
 
-            // 只有在空白（默认）新对话中切换模型才同步到全局配置，
-            // 使新建会话默认采用本次手动选择，同时持久化到 localStorage。
-            // 在已有消息的旧对话中切换模型只影响当前对话，不影响后续新对话的默认模型。
-            if (!currentSessionHasMessages) {
-              runWithImmediateStoreSyncPausedSync(() => {
-                useAppConfig.getState().update((config) => {
-                  const selectedAt = Date.now();
-                  config.modelConfig = sanitizeModelConfigForCapability({
-                    ...config.modelConfig,
-                    model: nextModelConfig.model,
-                    providerName: nextModelConfig.providerName,
-                  });
-                  (config.modelConfig as any).providerId = selectedProviderId;
-                  (config.modelConfig as any).profileId =
-                    selectedProfile?.id || "";
-                  (config as any).modelSelectionUpdatedAt = selectedAt;
-                  markPendingModelSelection({
-                    ...config.modelConfig,
-                    modelSelectionUpdatedAt: selectedAt,
-                  });
+            // 任何手动模型选择都同时成为后续新对话的默认模型。
+            // 当前旧会话仍保留自己的 session mask；只有用户在该会话主动选择时才更新它。
+            runWithImmediateStoreSyncPausedSync(() => {
+              useAppConfig.getState().update((config) => {
+                const selectedAt = Date.now();
+                config.modelConfig = sanitizeModelConfigForCapability({
+                  ...config.modelConfig,
+                  model: nextModelConfig.model,
+                  providerName: nextModelConfig.providerName,
+                });
+                (config.modelConfig as any).providerId = selectedProviderId;
+                (config.modelConfig as any).profileId =
+                  selectedProfile?.id || "";
+                (config as any).modelSelectionUpdatedAt = selectedAt;
+                markPendingModelSelection({
+                  ...config.modelConfig,
+                  modelSelectionUpdatedAt: selectedAt,
                 });
               });
-              syncModelSelectionNow();
+            });
+            useChatStore.getState().refreshFreshDefaultSessionModel?.();
+            syncModelSelectionNow();
 
-              if (selectedProfile?.name) {
-                localStorage.setItem(
-                  MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
-                  selectedProfile.name,
-                );
-              }
+            if (selectedProfile?.name) {
               localStorage.setItem(
-                LAST_MODEL_SELECTION_STORAGE_KEY,
-                `${nextModelConfig.model}@${selectedProviderId}`,
+                MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+                selectedProfile.name,
               );
             }
+            localStorage.setItem(
+              LAST_MODEL_SELECTION_STORAGE_KEY,
+              `${nextModelConfig.model}@${selectedProviderId}`,
+            );
 
             console.info("[模型选择器] 模型已切换", {
               对话ID: session.id,
