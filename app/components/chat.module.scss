@@ -2781,7 +2781,8 @@
 	}
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.add-modal-footer {
 		align-items: stretch;
 		flex-direction: column;
@@ -3342,7 +3343,8 @@
 	}
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-message-item-images {
 		grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
 	}
@@ -5482,7 +5484,8 @@
 	}
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-body {
 		--chat-scroll-button-clearance: 72px;
 		padding: 14px 14px var(--chat-scroll-button-clearance);
@@ -5758,18 +5761,24 @@
 
 	.chat-message-item :global(.markdown-body table) {
 		box-sizing: border-box;
-		display: table;
-		width: 100%;
+		display: block;
+		width: max-content;
+		min-width: 100%;
 		max-width: 100%;
-		table-layout: fixed;
-		overflow: visible;
+		table-layout: auto;
+		overflow-x: auto;
+		overflow-y: hidden;
+		overscroll-behavior-x: contain;
+		-webkit-overflow-scrolling: touch;
+		touch-action: pan-x pan-y;
 	}
 
 	.chat-message-item :global(.markdown-body th),
 	.chat-message-item :global(.markdown-body td) {
-		min-width: 0;
-		overflow-wrap: anywhere;
-		word-break: break-word;
+		min-width: max-content;
+		overflow-wrap: normal;
+		word-break: normal;
+		white-space: nowrap;
 	}
 
 	.chat-message-item :global(.markdown-body pre) {
@@ -6813,7 +6822,8 @@
 	}
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-status-user-panel {
 		top: 14px;
 		left: 16px;
@@ -7376,7 +7386,8 @@
 	}
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-window-action-button .chat-window-icon-button {
 		border: 2px solid var(--chat-window-button-idle-border) !important;
 

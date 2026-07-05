@@ -31,7 +31,11 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
 - 聊天页头部支持一键刷新当前 Profile 余额，结果就地展示。
 - 移动端优化：
-  - 流式输出时轻微上滑即可暂停自动贴底。
+  - 新空对话默认显示用户状态与切换入口；发送消息后自动收起，进入已有消息的历史对话时默认保持收起，可通过头部用户按钮手动切换显示状态。
+  - 流式输出期间，点击或滑动不会中断模型请求；“回到底部”只定位到点击瞬间已有内容的底部，不持续跟随后续增量。
+  - 手机浏览器或 PWA 返回主屏幕后再回到前台时不主动中断输出；只有关闭页面、关闭应用或系统销毁进程时才允许连接终止。
+  - Markdown 表格保留完整列宽，超出消息区域时可在表格内部左右滑动查看，不带动整个页面横移。
+  - 手机旋转为横屏后仍保持移动端组件和交互，不因横向视口超过断点切换为桌面视角。
   - 点击页面空白不会自动跳到底部。
   - 点击标题可滚动到顶部，输出中也会暂停自动贴底。
   - 回到底部按钮采用两帧滚动方式，避免虚拟消息窗口切换时出现空白。
@@ -43,7 +47,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。
-- 内置「余额查询」页面（`/api-config/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（如 Yuto `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
+- 内置「余额查询」页面（`/api-config/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
 - 聊天页头部新增「余额」入口：选中模型所属 Profile 一键刷新余额，复用通用余额查询链路。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；旧备份（无 `balanceEntries`）保持兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
@@ -181,7 +185,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
-- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；服务端按前缀 × 资源组合探测上游接口，并保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，其他通用供应商按前缀 × 资源组合探测；服务端保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
 
 ### 部署实现
 

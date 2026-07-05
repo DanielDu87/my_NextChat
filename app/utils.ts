@@ -208,18 +208,38 @@ export function useWindowSize() {
 }
 
 export const MOBILE_MAX_WIDTH = 650;
+
+function isPhoneDevice() {
+  const nav = navigator as Navigator & {
+    userAgentData?: { mobile?: boolean };
+  };
+  if (nav.userAgentData?.mobile === true) return true;
+
+  const userAgent = nav.userAgent || "";
+  if (/iPhone|iPod|Windows Phone|Android.+Mobile/i.test(userAgent)) {
+    return true;
+  }
+
+  const shortScreenEdge = Math.min(screen.width, screen.height);
+  return (
+    shortScreenEdge <= MOBILE_MAX_WIDTH &&
+    window.matchMedia("(hover: none) and (pointer: coarse)").matches
+  );
+}
+
 export function useMobileScreen() {
   const getIsMobileScreen = () =>
+    isPhoneDevice() ||
     window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches;
   const [isMobileScreen, setIsMobileScreen] = useState(getIsMobileScreen);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`);
     const handleChange = (event: MediaQueryListEvent) => {
-      setIsMobileScreen(event.matches);
+      setIsMobileScreen(isPhoneDevice() || event.matches);
     };
 
-    setIsMobileScreen(mediaQuery.matches);
+    setIsMobileScreen(isPhoneDevice() || mediaQuery.matches);
 
     if (typeof mediaQuery.addEventListener === "function") {
       mediaQuery.addEventListener("change", handleChange);

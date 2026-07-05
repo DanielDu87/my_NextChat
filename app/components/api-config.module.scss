@@ -1226,7 +1226,8 @@
   opacity: 0.72;
 }
 
-@media screen and (max-width: 650px) {
+@media screen and (max-width: 650px),
+	screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;

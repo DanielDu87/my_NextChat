@@ -196,7 +196,8 @@
   opacity: 0.72;
 }
 
-@media screen and (max-width: 650px) {
+@media screen and (max-width: 650px),
+	screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .settings-header :global(.window-actions) {
     align-self: stretch;
     display: flex;

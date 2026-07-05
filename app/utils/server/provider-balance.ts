@@ -641,14 +641,15 @@ export async function queryProviderBalance(
         },
       ];
     } else if (isAiHubMix) {
-      // AiHubMix: 只使用最可能的配置
-      candidates = AIHUBMIX_MANAGEMENT_BASE_URLS.flatMap((managementUrl) => [
-        {
+      // AiHubMix 官方接口使用 Manage Key + Bearer 认证；
+      // 保留裸 Authorization 作为旧版网关的兼容回退。
+      candidates = AIHUBMIX_MANAGEMENT_BASE_URLS.flatMap((managementUrl) =>
+        (["bearer", "authorization-raw"] as const).map((authType) => ({
           candidateBaseUrl: managementUrl,
           path: "api/user/self",
-          authType: "authorization-raw" as const,
-        },
-      ]);
+          authType,
+        })),
+      );
     } else if (isToApis) {
       // ToAPIs: 只使用文档中明确的路径
       candidates = TOAPIS_BASE_URLS.flatMap((toapisUrl) => [

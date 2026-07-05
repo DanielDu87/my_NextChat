@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ChatControllerPool } from "../client/controller";
 import { StoreKey } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
@@ -1263,6 +1264,11 @@ export default function AutoSync() {
 
     const triggerForegroundChatSync = () => {
       if (!isChatLikeScope(getCurrentAutoSyncScope())) {
+        return;
+      }
+      // 手机浏览器或 PWA 从主屏幕回到前台时，正在进行的模型请求
+      // 继续由原控制器持有；此时不启动聊天合并，避免覆盖流式本地状态。
+      if (ChatControllerPool.hasPending()) {
         return;
       }
       if (

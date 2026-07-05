@@ -104,7 +104,8 @@
 	filter: none;
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.loading-view {
 		--loading-icon-size: 58px;
 		--loading-dots-width: 48px;

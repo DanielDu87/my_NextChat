@@ -3660,11 +3660,13 @@ function _Chat() {
     [isMobileScreen],
   );
   const { width: windowWidth } = useWindowSize();
-  const [showStatusUserPanel, setShowStatusUserPanel] = useState(true);
+  const [showStatusUserPanel, setShowStatusUserPanel] = useState(
+    () => !isMobileScreen || !currentSessionHasMessages,
+  );
 
   useEffect(() => {
-    setShowStatusUserPanel(true);
-  }, [isMobileScreen]);
+    setShowStatusUserPanel(!isMobileScreen || !currentSessionHasMessages);
+  }, [currentSessionHasMessages, isMobileScreen, safeSession.id]);
 
   useLayoutEffect(() => {
     const panel = inputPanelRef.current;
@@ -6305,9 +6307,37 @@ function _Chat() {
     userScrollIntentUntilRef.current = Date.now() + 3600000; // 保持1小时
     streamingAutoScrollPausedRef.current = true;
     followStreamingAfterScrollButtonRef.current = false;
-    // 直接调用，避免重复状态设置
+
+    if (isAssistantStreaming) {
+      // 流式输出期间只定位到点击这一刻已经存在的底部，后续增量内容
+      // 不得继续推动视口，也不启动新的持续跟随状态。
+      clearForceScrollToBottom();
+      cancelScheduledScrollToBottom();
+      animatedScrollToBottomRunRef.current += 1;
+      setAutoScrollEnabled(false);
+      setAutoScroll(false);
+
+      const dom = scrollRef.current;
+      if (dom) {
+        const clickedBottom = Math.max(0, dom.scrollHeight - dom.clientHeight);
+        programmaticScrollToBottomUntilRef.current = Date.now() + 100;
+        dom.scrollTop = clickedBottom;
+        lastChatBodyScrollTopRef.current = clickedBottom;
+        syncHitBottomFromDom();
+      }
+      return;
+    }
+
     scrollToBottomLikeMobileTitle();
-  }, [scrollToBottomLikeMobileTitle]);
+  }, [
+    cancelScheduledScrollToBottom,
+    clearForceScrollToBottom,
+    isAssistantStreaming,
+    scrollRef,
+    scrollToBottomLikeMobileTitle,
+    setAutoScroll,
+    syncHitBottomFromDom,
+  ]);
 
   const scrollToTopOnMobile = useCallback(() => {
     mobileInputRef.current?.blur();

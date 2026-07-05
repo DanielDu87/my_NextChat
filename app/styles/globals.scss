@@ -130,7 +130,8 @@ html[data-draw-theme="dark"] {
   filter: invert(0.8);
 }
 
-@media only screen and (max-width: 650px) {
+@media only screen and (max-width: 650px),
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   :root {
     --window-width: 100vw;
     --window-height: var(--full-height);
@@ -174,7 +175,8 @@ body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 
-  @media only screen and (max-width: 650px) {
+  @media only screen and (max-width: 650px),
+    only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     background-color: var(--second);
     display: block;
     width: 100%;
@@ -362,7 +364,8 @@ div.math {
   touch-action: pan-y;
   overscroll-behavior-x: contain;
 
-  @media screen and (max-width: 650px) {
+  @media screen and (max-width: 650px),
+    screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     padding: 12px;
     align-items: center;
   }
@@ -373,7 +376,8 @@ div.math {
   pointer-events: auto;
 }
 
-@media screen and (max-width: 650px) {
+@media screen and (max-width: 650px),
+  screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .modal-mask-small {
     align-items: center;
     justify-content: center;
