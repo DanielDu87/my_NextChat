@@ -641,11 +641,16 @@ export async function queryProviderBalance(
         },
       ];
     } else if (isAiHubMix) {
-      // AiHubMix 官方接口使用 Manage Key + Bearer 认证；
-      // 保留裸 Authorization 作为旧版网关的兼容回退。
-      candidates = AIHUBMIX_MANAGEMENT_BASE_URLS.flatMap((managementUrl) =>
+      // AiHubMix 系列（含 api.inferera.com 等镜像）使用 Manage Key + Bearer 访问 api/user/self。
+      // 必须基于用户配置的 baseUrl 查询：镜像站点的 Manage Key 与官方域名不互通，
+      // 且部分部署环境（如本服务器）无法访问 aihubmix.com 官方域名，只能访问镜像。
+      // 官方域名不强制注入，用户若配置官方域名则 baseUrl 本身即覆盖。
+      const aihubmixBaseUrls = [rootBaseUrl, baseUrl].filter(
+        (url, index, all) => url && all.indexOf(url) === index,
+      );
+      candidates = aihubmixBaseUrls.flatMap((candidateBaseUrl) =>
         (["bearer", "authorization-raw"] as const).map((authType) => ({
-          candidateBaseUrl: managementUrl,
+          candidateBaseUrl,
           path: "api/user/self",
           authType,
         })),

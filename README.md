@@ -188,7 +188,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
-- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，其他通用供应商按前缀 × 资源组合探测；服务端保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，且始终基于用户配置的 `baseUrl`（含 `api.inferera.com` 等镜像）查询——镜像站点的 Manage Key 与官方域名 `aihubmix.com` 不互通，部分部署环境也无法访问官方域名，因此不强制改写为官方域名；其他通用供应商按前缀 × 资源组合探测；服务端保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
 
 ### 部署实现
 
