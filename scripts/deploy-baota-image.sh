@@ -256,6 +256,8 @@ echo "[Deploy] 上传部署文件到远程服务器"
   "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_APP_DIR}/docker-compose.baota.yml"
 "${SCP_BASE[@]}" "$ROOT_DIR/scripts/docker-compose-safe.sh" \
   "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_APP_DIR}/scripts/docker-compose-safe.sh"
+"${SCP_BASE[@]}" "$ROOT_DIR/scripts/sync-baota-dockersite-container-id.sh" \
+  "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_APP_DIR}/scripts/sync-baota-dockersite-container-id.sh"
 "${SCP_BASE[@]}" "$LOCAL_ARCHIVE" \
   "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_ARCHIVE}"
 
@@ -263,6 +265,7 @@ echo "[Deploy] 远端加载镜像并启动容器"
 "${SSH_BASE[@]}" "
   set -euo pipefail
   chmod +x '$REMOTE_APP_DIR/scripts/docker-compose-safe.sh'
+  chmod +x '$REMOTE_APP_DIR/scripts/sync-baota-dockersite-container-id.sh'
   gunzip -c '$REMOTE_ARCHIVE' | docker load
   cd '$REMOTE_APP_DIR'
   NEXTCHAT_IMAGE='$IMAGE_NAME' \
@@ -286,6 +289,7 @@ echo "[Deploy] 远端加载镜像并启动容器"
     -e BUILD_GIT_BRANCH='$(git -C "$ROOT_DIR" branch --show-current)' \
     -e NEXTCHAT_IMAGE='$IMAGE_NAME' \
     nextchat node /app/scripts/record-deployment-version.mjs
+  '$REMOTE_APP_DIR/scripts/sync-baota-dockersite-container-id.sh'
 "
 
 echo "[Deploy] 完成"

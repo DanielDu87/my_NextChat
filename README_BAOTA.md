@@ -88,6 +88,7 @@ for i in $(seq 1 60); do
 done
 docker exec -e BUILD_GIT_BRANCH=main -e NEXTCHAT_IMAGE=nextchat-baota:latest \
   nextchat node /app/scripts/record-deployment-version.mjs
+./scripts/sync-baota-dockersite-container-id.sh
 '\'' 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ```
 
@@ -114,20 +115,11 @@ ENV=/www/server/panel/data/compose/my_nextchat/.env
 REMOTE
 ```
 
-容器重建后必须刷新 `docker.db.docker_sites.container_id`，否则宝塔 DockerSite 页面会显示 `exited`：
+容器重建后必须刷新 `docker.db.docker_sites.container_id`，否则宝塔 DockerSite 页面会显示 `exited`。
+标准部署已自动执行以下脚本，脚本会先备份 `docker.db`，再只更新 `chat.dyxcloud.com` 记录；成功后自动清理上一轮 `docker.db.bak-nextchat-*` 备份，只保留本轮最新备份：
 
 ```bash
-ssh ss 'bash -s' <<'REMOTE'
-set -euo pipefail
-CID=$(docker inspect nextchat --format '{{.Id}}')
-python3 - <<PY
-import sqlite3
-con = sqlite3.connect('/www/server/panel/data/db/docker.db')
-con.execute("update docker_sites set container_id=? where name=?", ('$CID', 'chat.dyxcloud.com'))
-con.commit(); con.close()
-print('container_id 已同步', '$CID')
-PY
-REMOTE
+ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-container-id.sh'
 ```
 
 ## 4. 日常部署 / 重启 / 清理快捷命令
@@ -136,7 +128,7 @@ REMOTE
 |---|---|
 | 重建镜像并发布 | §3 标准重部署流程 |
 | 仅重启当前镜像 | `docker-compose ... up -d --no-build`（见 §3 末尾） |
-| 同步 `container_id` | §3 末尾 SQL 块 |
+| 同步 `container_id` | `scripts/sync-baota-dockersite-container-id.sh` |
 | 停止应用但保留数据 | `docker rm -f nextchat` |
 | 清理旧镜像（仅限 NextChat 专用） | `docker image rm nextchat-baota:latest nextchat:latest` |
 | 重置宝塔 DockerSite 记录 | 跑 `scripts/baota-register-dockersite.py` |
