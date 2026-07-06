@@ -152,6 +152,8 @@ function buildBalancePaths() {
 const BALANCE_PATHS = buildBalancePaths();
 const BALANCE_QUERY_BATCH_SIZE = 4;
 const BALANCE_MAX_ATTEMPTS_PER_KEY = 240;
+const BALANCE_QUERY_MAX_ROUNDS = 3;
+const BALANCE_QUERY_RETRY_DELAYS_MS = [800, 2_000] as const;
 const AIHUBMIX_MANAGEMENT_BASE_URLS = [
   "https://api.aihubmix.com",
   "https://aihubmix.com",
@@ -793,4 +795,75 @@ export async function queryProviderBalance(
   }
 
   throw new ProviderBalanceQueryError("balance_not_supported", attempts);
+}
+
+function shouldRetryProviderBalanceQuery(error: ProviderBalanceQueryError) {
+  if (
+    error.message === "balance_profile_incomplete" ||
+    error.message === "balance_auth_failed" ||
+    error.attempts.length === 0
+  ) {
+    return false;
+  }
+
+  return error.attempts.some((attempt) => {
+    if (attempt.status === undefined) return true;
+    if ([408, 425, 429].includes(attempt.status)) return true;
+    if (attempt.status >= 500) return true;
+    return attempt.status === 200 && attempt.reason === "balance_field_missing";
+  });
+}
+
+/**
+ * 对可恢复失败沿用同一套 baseUrl/path/auth 候选队列重试。
+ * 明确的配置、鉴权或稳定 4xx 错误不重试，避免无意义地请求上游。
+ */
+export async function queryProviderBalanceWithRetry(
+  profile: BalanceProfile,
+): Promise<ProviderBalanceResult> {
+  const accumulatedAttempts: ProviderBalanceAttempt[] = [];
+
+  for (let round = 1; round <= BALANCE_QUERY_MAX_ROUNDS; round += 1) {
+    try {
+      const result = await queryProviderBalance(profile);
+      if (accumulatedAttempts.length > 0) {
+        console.info("[Provider Balance] 按原路径重试后查询成功", {
+          round,
+          previousAttemptCount: accumulatedAttempts.length,
+          successAttemptCount: result.attempts?.length || 0,
+        });
+      }
+      return {
+        ...result,
+        attempts: [...accumulatedAttempts, ...(result.attempts || [])],
+      };
+    } catch (error) {
+      if (!(error instanceof ProviderBalanceQueryError)) {
+        throw error;
+      }
+
+      accumulatedAttempts.push(...error.attempts);
+      const retryable = shouldRetryProviderBalanceQuery(error);
+      const hasNextRound = round < BALANCE_QUERY_MAX_ROUNDS;
+      if (!retryable || !hasNextRound) {
+        throw new ProviderBalanceQueryError(error.message, accumulatedAttempts);
+      }
+
+      const delayMs = BALANCE_QUERY_RETRY_DELAYS_MS[round - 1] || 1_000;
+      console.warn("[Provider Balance] 上游查询暂时失败，按原路径重试", {
+        round,
+        nextRound: round + 1,
+        maxRounds: BALANCE_QUERY_MAX_ROUNDS,
+        delayMs,
+        reason: error.message,
+        roundAttemptCount: error.attempts.length,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new ProviderBalanceQueryError(
+    "balance_not_supported",
+    accumulatedAttempts,
+  );
 }

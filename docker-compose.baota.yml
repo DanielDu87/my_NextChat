@@ -27,8 +27,9 @@ services:
         - GITHUB_RAW_BASE_URL=${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com}
         - ENABLE_SHAREGPT=${ENABLE_SHAREGPT:-false}
         - NEXT_PUBLIC_DEFAULT_SYNC_USER_ID=${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-user:admin}
-        - BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE:-unknown}
-        - BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH:-unknown}
+        # 生产构建禁止静默回退到 unknown，必须通过 docker-compose-safe.sh 注入。
+        - BUILD_COMMIT_DATE=${BUILD_COMMIT_DATE:?请使用 scripts/docker-compose-safe.sh 构建以注入提交时间}
+        - BUILD_COMMIT_HASH=${BUILD_COMMIT_HASH:?请使用 scripts/docker-compose-safe.sh 构建以注入提交哈希}
 
     container_name: nextchat
     restart: unless-stopped

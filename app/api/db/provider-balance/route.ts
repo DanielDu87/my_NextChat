@@ -3,7 +3,7 @@ import { getProviderBalanceErrorMessage } from "@/app/utils/provider-balance";
 import { AuthError } from "@/app/utils/server/auth";
 import {
   ProviderBalanceQueryError,
-  queryProviderBalance,
+  queryProviderBalanceWithRetry,
 } from "@/app/utils/server/provider-balance";
 import { getProviderProfilesForAccessState } from "@/app/utils/server/provider-config-repository";
 import { resolveSyncUserId } from "@/app/utils/server/sync-user";
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
       const queryProfile = managementKey
         ? { ...profile, apiKey: managementKey, apiKeyGroups: {} }
         : profile;
-      const balance = await queryProviderBalance(queryProfile);
+      const balance = await queryProviderBalanceWithRetry(queryProfile);
       const { attempts, ...balanceSnapshot } = balance;
       await saveProviderBalanceResult(sharedUserId, profileId, balanceSnapshot);
       return NextResponse.json({

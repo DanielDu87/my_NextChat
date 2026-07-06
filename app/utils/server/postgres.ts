@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-06-28-api-config-backup-counts";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-06-deployment-metadata";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -351,6 +351,15 @@ export async function ensureSyncStorageSchema() {
           extra_settings jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists deployment_metadata (
+          commit_hash text primary key,
+          commit_date bigint not null,
+          git_branch text not null,
+          image_name text not null,
+          deployed_at timestamptz not null default now()
         )
       `);
         await client.query(`

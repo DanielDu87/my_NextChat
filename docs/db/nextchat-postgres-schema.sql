@@ -1,6 +1,7 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-04 (同步 schema 2026-06-28-api-config-backup-counts：补供应商余额表 provider_balance_configs)
+-- 最后更新: 2026-07-06 (同步 schema 2026-07-06-deployment-metadata：新增成功部署版本记录)
+-- 历史变更: 2026-07-04 补供应商余额表 provider_balance_configs
 -- 历史变更: 2026-06-28 api-config-backup-counts（补文件缓存和 API 配置备份表）
 -- 历史变更: 2026-06-22 draw-thumb-v1（user_draw_images.thumb_data + md5 唯一索引）
 -- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
@@ -149,6 +150,14 @@ CREATE TABLE IF NOT EXISTS site_access_settings (
   password_hash text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS deployment_metadata (
+  commit_hash text PRIMARY KEY,
+  commit_date bigint NOT NULL,
+  git_branch text NOT NULL,
+  image_name text NOT NULL,
+  deployed_at timestamptz NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS provider_configs (
@@ -341,6 +350,7 @@ COMMENT ON TABLE app_users IS '用户主表';
 COMMENT ON TABLE auth_sessions IS '登录会话（token 哈希存储）';
 COMMENT ON TABLE app_settings IS '用户全局设置（JSONB key-value store）';
 COMMENT ON TABLE site_access_settings IS '站点访问密码';
+COMMENT ON TABLE deployment_metadata IS '部署成功后记录的实际线上 Git 版本';
 COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw-list 快照）';
 COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';
 COMMENT ON TABLE cache_file_blobs IS '上传文件内容 blob（按 content_type + content_md5 去重）';

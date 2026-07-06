@@ -37,7 +37,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
   - Markdown 表格保留完整列宽，超出消息区域时可在表格内部左右滑动查看，不带动整个页面横移。
   - 手机旋转为横屏后仍保持移动端组件和交互，不因横向视口超过断点切换为桌面视角。
   - 移动端切换模型后自动收起用户状态面板；流式上滑由原生手势接管，“回到底部”始终定位末页且不持续跟随。
-  - 在任意对话中手动切换模型后，当前对话立即使用新模型，后续新建对话也默认继承该选择；已有的其他历史对话仍保留各自模型。
+  - 手动切换模型时先保存 localStorage，再在后台静默同步并输出日志；最新对话无论为空还是正在对话，都会同时更新全局默认模型，老对话只更新自身。
   - 多轮对话展开软键盘时至少保留一块可见消息区域，并稳定展示最近消息，避免滚入空白占位区。
   - 点击页面空白不会自动跳到底部。
   - 点击标题可滚动到顶部，输出中也会暂停自动贴底。
@@ -188,7 +188,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
-- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，且始终基于用户配置的 `baseUrl`（含 `api.inferera.com` 等镜像）查询——镜像站点的 Manage Key 与官方域名 `aihubmix.com` 不互通，部分部署环境也无法访问官方域名，因此不强制改写为官方域名；其他通用供应商按前缀 × 资源组合探测；服务端保留每次探测的 `attempts`，前端日志可直接观察路径与状态码。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，且始终基于用户配置的 `baseUrl`（含 `api.inferera.com` 等镜像）查询——镜像站点的 Manage Key 与官方域名 `aihubmix.com` 不互通，部分部署环境也无法访问官方域名，因此不强制改写为官方域名；其他通用供应商按前缀 × 资源组合探测。超时、网络错误、`5xx`/`429` 或成功响应暂时缺少余额字段时，服务端会沿用原候选路径最多查询 3 轮，最终结果才落库；明确的配置、鉴权和稳定 `4xx` 错误不重试。服务端保留每轮探测的 `attempts`，前端日志可直接观察路径与状态码。
 
 ### 部署实现
 

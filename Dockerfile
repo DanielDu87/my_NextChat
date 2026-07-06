@@ -180,6 +180,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/.next/server ./.next/server
+COPY --from=builder /app/scripts/record-deployment-version.mjs ./scripts/record-deployment-version.mjs
 
 # MCP 配置
 RUN mkdir -p /app/app/mcp && chmod 777 /app/app/mcp

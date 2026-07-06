@@ -158,16 +158,25 @@ import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 
-function syncModelSelectionNow() {
+function syncModelSelectionNow(includeGlobalDefault: boolean) {
   const syncStore = useSyncStore.getState();
   if (!syncStore.cloudSync?.()) {
+    console.info("[模型选择器] 未启用云同步，本地模型选择已保留");
     return;
   }
-  // 只同步模型选择，API 配置由后台防抖同步处理
+  // 老对话只同步会话模型；最新对话同时更新后续新对话的默认模型。
+  const keys: Array<StoreKey.Config | StoreKey.Chat> = includeGlobalDefault
+    ? [StoreKey.Config, StoreKey.Chat]
+    : [StoreKey.Chat];
   void syncStore
-    .sync([StoreKey.Config], {
+    .sync(keys, {
       force: true,
       isolateQueue: true,
+    })
+    .then(() => {
+      console.info("[模型选择器] 模型选择后台同步完成", {
+        同步范围: includeGlobalDefault ? "最新对话 + 全局默认" : "当前老对话",
+      });
     })
     .catch((error: unknown) => {
       console.error("[模型选择器] 模型选择立即同步失败", error);
@@ -3611,6 +3620,7 @@ function _Chat() {
   });
   const currentSessionHasMessages =
     sessionMessages.length > 0 || currentSessionSummaryMessageCount > 0;
+  const latestSessionId = useChatStore((state) => state.sessions[0]?.id || "");
 
   const sessionMask =
     liveSession?.mask ?? safeSession.mask ?? emptySessionRef.current.mask;
@@ -11629,42 +11639,17 @@ function _Chat() {
             });
             (nextModelConfig as any).providerId = selectedProviderId;
             (nextModelConfig as any).profileId = selectedProfile?.id || "";
-            // 手动切换模型必须立即写回当前会话。
-            // Effect B 仅会在空白会话时把全局配置同步到会话，
-            // 已有消息的会话如果不在这里更新，会继续沿用旧模型发起请求。
-            chatStore.updateTargetSession(session, (session) => {
-              session.mask.modelConfig = nextModelConfig;
-              session.mask.syncGlobalConfig = true;
-            });
+            const selectedAt = Date.now();
+            (nextModelConfig as any).modelSelectionUpdatedAt = selectedAt;
+            const shouldUpdateGlobalDefault = session.id === latestSessionId;
+
+            // 手动选择先落 localStorage，再更新 store 并在后台同步。
+            // 即使同步返回较慢，当前会话也不会被旧快照覆盖。
             saveManualSessionModelSelection(session.id, {
               ...nextModelConfig,
               providerId: selectedProviderId,
               profileId: selectedProfile?.id || "",
             });
-
-            // 任何手动模型选择都同时成为后续新对话的默认模型。
-            // 当前旧会话仍保留自己的 session mask；只有用户在该会话主动选择时才更新它。
-            runWithImmediateStoreSyncPausedSync(() => {
-              useAppConfig.getState().update((config) => {
-                const selectedAt = Date.now();
-                config.modelConfig = sanitizeModelConfigForCapability({
-                  ...config.modelConfig,
-                  model: nextModelConfig.model,
-                  providerName: nextModelConfig.providerName,
-                });
-                (config.modelConfig as any).providerId = selectedProviderId;
-                (config.modelConfig as any).profileId =
-                  selectedProfile?.id || "";
-                (config as any).modelSelectionUpdatedAt = selectedAt;
-                markPendingModelSelection({
-                  ...config.modelConfig,
-                  modelSelectionUpdatedAt: selectedAt,
-                });
-              });
-            });
-            useChatStore.getState().refreshFreshDefaultSessionModel?.();
-            syncModelSelectionNow();
-
             if (selectedProfile?.name) {
               localStorage.setItem(
                 MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
@@ -11675,6 +11660,46 @@ function _Chat() {
               LAST_MODEL_SELECTION_STORAGE_KEY,
               `${nextModelConfig.model}@${selectedProviderId}`,
             );
+            console.info("[模型选择器] 模型选择已保存到 localStorage", {
+              对话ID: session.id,
+              模型: nextModelConfig.model,
+              供应商ID: selectedProviderId,
+              作用域: shouldUpdateGlobalDefault
+                ? "最新对话 + 全局默认"
+                : "当前老对话",
+            });
+            // 手动切换模型必须立即写回当前会话。
+            // Effect B 仅会在空白会话时把全局配置同步到会话，
+            // 已有消息的会话如果不在这里更新，会继续沿用旧模型发起请求。
+            chatStore.updateTargetSession(session, (session) => {
+              session.mask.modelConfig = nextModelConfig;
+              (session.mask as any).modelSelectionUpdatedAt = selectedAt;
+              session.mask.syncGlobalConfig = shouldUpdateGlobalDefault;
+            });
+
+            // 最新对话无论是空白还是正在对话，都会改变全局默认；
+            // 从历史打开的老对话只更新自身。
+            if (shouldUpdateGlobalDefault) {
+              runWithImmediateStoreSyncPausedSync(() => {
+                useAppConfig.getState().update((config) => {
+                  config.modelConfig = sanitizeModelConfigForCapability({
+                    ...config.modelConfig,
+                    model: nextModelConfig.model,
+                    providerName: nextModelConfig.providerName,
+                  });
+                  (config.modelConfig as any).providerId = selectedProviderId;
+                  (config.modelConfig as any).profileId =
+                    selectedProfile?.id || "";
+                  (config as any).modelSelectionUpdatedAt = selectedAt;
+                  markPendingModelSelection({
+                    ...config.modelConfig,
+                    modelSelectionUpdatedAt: selectedAt,
+                  });
+                });
+              });
+              useChatStore.getState().refreshFreshDefaultSessionModel?.();
+            }
+            syncModelSelectionNow(shouldUpdateGlobalDefault);
 
             console.info("[模型选择器] 模型已切换", {
               对话ID: session.id,

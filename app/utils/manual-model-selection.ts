@@ -1,5 +1,6 @@
 const MANUAL_MODEL_SELECTION_STORAGE_KEY =
   "nextchat:manual-session-model-selection";
+const MANUAL_MODEL_SELECTION_STORAGE_PREFIX = `${MANUAL_MODEL_SELECTION_STORAGE_KEY}:`;
 const MANUAL_MODEL_SELECTION_TTL_MS = 30 * 60 * 1000;
 
 type ManualModelSelectionPayload = {
@@ -32,7 +33,7 @@ export function saveManualSessionModelSelection(
       updatedAt: Date.now(),
     };
     window.localStorage.setItem(
-      MANUAL_MODEL_SELECTION_STORAGE_KEY,
+      `${MANUAL_MODEL_SELECTION_STORAGE_PREFIX}${sessionId}`,
       JSON.stringify(payload),
     );
   } catch {}
@@ -44,7 +45,10 @@ export function readManualSessionModelSelection(sessionId: string) {
   }
 
   try {
-    const raw = window.localStorage.getItem(MANUAL_MODEL_SELECTION_STORAGE_KEY);
+    const raw =
+      window.localStorage.getItem(
+        `${MANUAL_MODEL_SELECTION_STORAGE_PREFIX}${sessionId}`,
+      ) || window.localStorage.getItem(MANUAL_MODEL_SELECTION_STORAGE_KEY);
     if (!raw) {
       return undefined;
     }

@@ -267,11 +267,25 @@ echo "[Deploy] 远端加载镜像并启动容器"
   cd '$REMOTE_APP_DIR'
   NEXTCHAT_IMAGE='$IMAGE_NAME' \
   NEXTCHAT_PLATFORM='$IMAGE_PLATFORM' \
+  BUILD_COMMIT_DATE='$BUILD_COMMIT_DATE_VALUE' \
+  BUILD_COMMIT_HASH='$BUILD_COMMIT_HASH_VALUE' \
     docker compose \
     --env-file '$ENV_FILE' \
     -f '$REMOTE_COMPOSE_FILE' \
     up -d --no-build nextchat
   docker ps --format '{{.Names}}\t{{.Status}}' | grep -E '^nextchat\\b|^nextchat-postgres\\b'
+  for i in \$(seq 1 60); do
+    docker inspect nextchat --format '{{.State.Health.Status}}' | grep -qx healthy && break
+    if [[ \"\$i\" -eq 60 ]]; then
+      echo 'nextchat 健康检查超时' >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  docker exec \
+    -e BUILD_GIT_BRANCH='$(git -C "$ROOT_DIR" branch --show-current)' \
+    -e NEXTCHAT_IMAGE='$IMAGE_NAME' \
+    nextchat node /app/scripts/record-deployment-version.mjs
 "
 
 echo "[Deploy] 完成"

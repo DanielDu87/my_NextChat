@@ -68,6 +68,8 @@
 ## 3. 标准重部署流程
 
 所有长时间部署必须放入 `tmux`，避免 SSH 断开导致构建中断。
+宝塔生产 Compose 要求构建时必须注入 Git 提交哈希和时间；绕过
+`scripts/docker-compose-safe.sh` 会直接报错，不再生成界面版本为 `unknown` 的镜像。
 
 ```bash
 ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && bash -lc '\''
@@ -79,8 +81,19 @@ mkdir -p \"\$BUILDX_CONFIG\"
 (docker rm -f nextchat 2>/dev/null || true)
 (docker image rm nextchat:latest 2>/dev/null || true)
 ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat
+for i in $(seq 1 60); do
+  docker inspect nextchat --format '{{.State.Health.Status}}' | grep -qx healthy && break
+  [ "$i" -eq 60 ] && { echo "nextchat 健康检查超时" >&2; exit 1; }
+  sleep 2
+done
+docker exec -e BUILD_GIT_BRANCH=main -e NEXTCHAT_IMAGE=nextchat-baota:latest \
+  nextchat node /app/scripts/record-deployment-version.mjs
 '\'' 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ```
+
+只有容器健康检查通过后才会执行版本写入。写入表为
+`deployment_metadata`，包含 Git commit hash、commit 时间、分支、镜像名和实际部署时间；
+未部署的普通 Git 提交不会写入该表。
 
 查看进度：
 
