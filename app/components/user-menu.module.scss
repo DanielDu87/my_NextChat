@@ -707,6 +707,22 @@
     font-size: 13px;
   }
 
+  .versionInfo {
+    padding: 8px 12px;
+    gap: 12px;
+  }
+
+  .versionItem {
+    font-size: 11px;
+  }
+
+  .versionValue {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+
   :global(body.light) .chatFloatingTrigger,
   :global(.light) .chatFloatingTrigger,
   :global(body:not(.dark)) .chatFloatingTrigger {
