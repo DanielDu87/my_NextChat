@@ -63,7 +63,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 不要把线上宝塔部署切回 `.env.docker`、`--profile no-proxy` 或内置 PostgreSQL
 - 长时间构建必须放入 `tmux`
 - 每次部署默认允许替换旧 `nextchat` 容器和旧 `nextchat` 相关镜像，无需再次确认；范围仅限 `nextchat`、`nextchat-baota:latest`、`nextchat:latest`，不要执行全局 Docker prune
-- 每次成功重建 `nextchat` 容器后，必须自动执行 `scripts/sync-baota-dockersite-container-id.sh`：先备份 `/www/server/panel/data/db/docker.db`，再仅更新 `docker_sites.name='chat.dyxcloud.com'` 这一条记录的 `container_id`，成功后清理上一轮 `docker.db.bak-nextchat-*` 备份并只保留本轮新备份，无需再次询问。这是部署固定步骤，不得扩大到其他表、站点、字段或备份前缀。
+- 每次成功重建 `nextchat` 容器后，必须自动执行 `scripts/sync-baota-dockersite-container-id.sh`：脚本会先等待容器健康并写入 `deployment_metadata`，再备份 `/www/server/panel/data/db/docker.db`，仅更新 `docker_sites.name='chat.dyxcloud.com'` 这一条记录的 `container_id`，成功后清理上一轮 `docker.db.bak-nextchat-*` 备份并只保留本轮新备份，无需再次询问。这是部署固定步骤，不得扩大到其他表、站点、字段或备份前缀。
 
 ### 标准部署命令
 

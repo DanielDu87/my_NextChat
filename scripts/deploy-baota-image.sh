@@ -285,10 +285,6 @@ echo "[Deploy] 远端加载镜像并启动容器"
     fi
     sleep 2
   done
-  docker exec \
-    -e BUILD_GIT_BRANCH='$(git -C "$ROOT_DIR" branch --show-current)' \
-    -e NEXTCHAT_IMAGE='$IMAGE_NAME' \
-    nextchat node /app/scripts/record-deployment-version.mjs
   '$REMOTE_APP_DIR/scripts/sync-baota-dockersite-container-id.sh'
 "
 

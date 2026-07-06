@@ -29,7 +29,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= ./scripts/docker-compose-safe.sh --env-file 
 服务器 `ss` 的标准宝塔 DockerSite 部署：
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat && ./scripts/sync-baota-dockersite-container-id.sh 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ssh ss 'tail -120 /tmp/nextchat-baota-deploy.log'
 ```
@@ -37,7 +37,7 @@ ssh ss 'tail -120 /tmp/nextchat-baota-deploy.log'
 如果担心 SSH 在 `yarn build` 期间断开，优先放进 `tmux`：
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d nextchat && ./scripts/sync-baota-dockersite-container-id.sh 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ```
 
@@ -51,7 +51,7 @@ ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 宝塔专用更新命令：
 
 ```bash
-ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && export BUILDX_CONFIG=/tmp/nextchat-docker-buildx && mkdir -p /tmp/nextchat-docker-buildx && docker compose -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && docker compose -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat && (docker rm -f nextchat 2>/dev/null || true) && (docker image rm nextchat:latest 2>/dev/null || true) && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat && ./scripts/sync-baota-dockersite-container-id.sh 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 ```
 

@@ -81,20 +81,14 @@ mkdir -p \"\$BUILDX_CONFIG\"
 (docker rm -f nextchat 2>/dev/null || true)
 (docker image rm nextchat:latest 2>/dev/null || true)
 ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat
-for i in $(seq 1 60); do
-  docker inspect nextchat --format '{{.State.Health.Status}}' | grep -qx healthy && break
-  [ "$i" -eq 60 ] && { echo "nextchat 健康检查超时" >&2; exit 1; }
-  sleep 2
-done
-docker exec -e BUILD_GIT_BRANCH=main -e NEXTCHAT_IMAGE=nextchat-baota:latest \
-  nextchat node /app/scripts/record-deployment-version.mjs
 ./scripts/sync-baota-dockersite-container-id.sh
 '\'' 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
 ```
 
-只有容器健康检查通过后才会执行版本写入。写入表为
-`deployment_metadata`，包含 Git commit hash、commit 时间、分支、镜像名和实际部署时间；
-未部署的普通 Git 提交不会写入该表。
+`scripts/sync-baota-dockersite-container-id.sh` 现在会先等待 `nextchat`
+容器健康，再自动写入 `deployment_metadata`，最后同步
+`docker.db.docker_sites.container_id`。`deployment_metadata` 包含 Git commit
+hash、commit 时间、分支、镜像名和实际部署时间；未部署的普通 Git 提交不会写入该表。
 
 查看进度：
 
@@ -116,7 +110,9 @@ REMOTE
 ```
 
 容器重建后必须刷新 `docker.db.docker_sites.container_id`，否则宝塔 DockerSite 页面会显示 `exited`。
-标准部署已自动执行以下脚本，脚本会先备份 `docker.db`，再只更新 `chat.dyxcloud.com` 记录；成功后自动清理上一轮 `docker.db.bak-nextchat-*` 备份，只保留本轮最新备份：
+标准部署已自动执行以下脚本；脚本会等待容器健康、写入 `deployment_metadata`，
+再备份 `docker.db` 并只更新 `chat.dyxcloud.com` 记录，成功后自动清理上一轮
+`docker.db.bak-nextchat-*` 备份，只保留本轮最新备份：
 
 ```bash
 ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-container-id.sh'
@@ -128,7 +124,7 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 |---|---|
 | 重建镜像并发布 | §3 标准重部署流程 |
 | 仅重启当前镜像 | `docker-compose ... up -d --no-build`（见 §3 末尾） |
-| 同步 `container_id` | `scripts/sync-baota-dockersite-container-id.sh` |
+| 写部署版本并同步 `container_id` | `scripts/sync-baota-dockersite-container-id.sh` |
 | 停止应用但保留数据 | `docker rm -f nextchat` |
 | 清理旧镜像（仅限 NextChat 专用） | `docker image rm nextchat-baota:latest nextchat:latest` |
 | 重置宝塔 DockerSite 记录 | 跑 `scripts/baota-register-dockersite.py` |
