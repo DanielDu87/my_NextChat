@@ -78,6 +78,7 @@ import {
   normalizeMultiKeyGroups,
   shouldAutoEnableMultiKey,
 } from "../utils/multi-key";
+import { writeStoredGlobalModelConfig } from "../utils/global-model-config";
 
 import {
   buildCustomModelSyncDiffBetween,
@@ -778,6 +779,8 @@ function syncModelSelectionToLocalStorage(state: any) {
       "nextchat:model-selector-provider",
       providerDisplayName,
     );
+    // 同步时也将模型配置写入全局 key，确保跨用户、跨页面持久化
+    writeStoredGlobalModelConfig(modelConfig);
     localStorage.removeItem("nextchat:pending-model-selection");
   } catch (_) {}
 }

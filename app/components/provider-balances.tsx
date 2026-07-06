@@ -5,7 +5,6 @@ import ConfirmIcon from "../icons/confirm.svg";
 import ReloadIcon from "../icons/reload.svg";
 import { Path } from "../constant";
 import { useAccessStore } from "../store";
-import { useAuthStore } from "../store/auth";
 import {
   cacheProviderBalance,
   getProviderBalanceErrorMessage,
@@ -52,8 +51,7 @@ function mergeProfiles(
 export function ProviderBalancesPage() {
   const navigate = useNavigate();
   const apiProfiles = useAccessStore((state) => state.apiProfiles || []);
-  const effectiveUser = useAuthStore((state) => state.effectiveUser);
-  const profileCacheKey = effectiveUser?.id || "unknown";
+  const profileCacheKey = "shared";
   const localProfiles = useMemo(() => {
     const cachedProfiles = profileMemoryCache.get(profileCacheKey) || [];
     const cachedProfileMap = new Map(

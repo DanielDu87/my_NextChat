@@ -174,9 +174,27 @@ function buildSnapshotFromPersistedIndex(
     return null;
   }
 
-  const orderedSessionIds = Array.isArray(parsedIndex.state.sessionIds)
+  let orderedSessionIds = Array.isArray(parsedIndex.state.sessionIds)
     ? parsedIndex.state.sessionIds.map(String)
     : [];
+  const deletedSessionTimestamps = isObjectLike(
+    parsedIndex.state.deletedSessionTimestamps,
+  )
+    ? (parsedIndex.state.deletedSessionTimestamps as Record<string, number>)
+    : {};
+  const summaries = normalizeSessionSummaries(
+    parsedIndex.state.sessionSummaries,
+    orderedSessionIds,
+  );
+
+  // 过滤已删除会话，避免从旧快照中复活
+  const filtered = removeDeletedSessionIds(
+    orderedSessionIds,
+    summaries,
+    deletedSessionTimestamps,
+  );
+  orderedSessionIds = filtered.filteredIds;
+
   const currentSessionIndex = Math.max(
     0,
     Number(parsedIndex.state.currentSessionIndex) || 0,
@@ -186,17 +204,10 @@ function buildSnapshotFromPersistedIndex(
 
   return {
     ...visibleWindow,
-    sessionSummaries: normalizeSessionSummaries(
-      parsedIndex.state.sessionSummaries,
-      orderedSessionIds,
-    ),
+    sessionSummaries: filtered.filteredSummaries,
     currentSessionId,
     globalClearAt: Number(parsedIndex.state.globalClearAt) || 0,
-    deletedSessionTimestamps: isObjectLike(
-      parsedIndex.state.deletedSessionTimestamps,
-    )
-      ? (parsedIndex.state.deletedSessionTimestamps as Record<string, number>)
-      : {},
+    deletedSessionTimestamps,
   };
 }
 
@@ -205,9 +216,22 @@ function buildSnapshotFromChatStore(): ChatIndexSnapshot {
   const sessionSummaries = Array.isArray(chatState.sessionSummaries)
     ? chatState.sessionSummaries
     : [];
-  const orderedSessionIds = sessionSummaries
+  const deletedSessionTimestamps = chatState.deletedSessionTimestamps || {};
+  let orderedSessionIds = sessionSummaries
     .map((summary) => String(summary?.id || ""))
     .filter(Boolean);
+  const summariesMap = Object.fromEntries(
+    sessionSummaries.map((summary) => [summary.id, summary]),
+  );
+
+  // 过滤已删除会话，防止 chat-index 持有过期摘要
+  const filtered = removeDeletedSessionIds(
+    orderedSessionIds,
+    summariesMap,
+    deletedSessionTimestamps,
+  );
+  orderedSessionIds = filtered.filteredIds;
+
   const currentSessionId =
     chatState.selectedSessionId ||
     chatState.sessions?.[Math.max(0, chatState.currentSessionIndex || 0)]?.id ||
@@ -223,12 +247,10 @@ function buildSnapshotFromChatStore(): ChatIndexSnapshot {
 
   return {
     ...visibleWindow,
-    sessionSummaries: Object.fromEntries(
-      sessionSummaries.map((summary) => [summary.id, summary]),
-    ),
+    sessionSummaries: filtered.filteredSummaries,
     currentSessionId,
     globalClearAt: chatState.globalClearAt,
-    deletedSessionTimestamps: chatState.deletedSessionTimestamps,
+    deletedSessionTimestamps,
   };
 }
 
@@ -374,15 +396,43 @@ function bindChatStoreSubscription() {
   });
 }
 
+function removeDeletedSessionIds(
+  orderedIds: string[],
+  summaries: Record<string, ChatSessionSummary>,
+  deletedTimestamps: Record<string, number>,
+) {
+  if (Object.keys(deletedTimestamps).length === 0) {
+    return { filteredIds: orderedIds, filteredSummaries: summaries };
+  }
+
+  const filteredIds = orderedIds.filter((id) => !deletedTimestamps[id]);
+  const filteredSummaries: Record<string, ChatSessionSummary> = {};
+  for (const id of filteredIds) {
+    if (summaries[id]) {
+      filteredSummaries[id] = summaries[id];
+    }
+  }
+
+  return { filteredIds, filteredSummaries };
+}
+
 function ensureSessionsInChatStore(sessionIds: string[]) {
   const chatStore = useChatStore.getState();
-  const summaryMap = useChatIndexStore.getState().sessionSummaries;
+  const chatIndexStore = useChatIndexStore.getState();
+  const summaryMap = chatIndexStore.sessionSummaries;
   const sessionMap = new Map(
     chatStore.sessions.map((session) => [session.id, session]),
   );
   const summaryIdSet = new Set(
     (chatStore.sessionSummaries || []).map((summary) => summary.id),
   );
+
+  // 合并两端 deletedSessionTimestamps，防止已删除会话被重新创建
+  const mergedDeletedTimestamps = {
+    ...chatStore.deletedSessionTimestamps,
+    ...chatIndexStore.deletedSessionTimestamps,
+  };
+
   let shouldUpdateSessions = false;
   let shouldUpdateSummaries = false;
 
@@ -391,6 +441,11 @@ function ensureSessionsInChatStore(sessionIds: string[]) {
 
   sessionIds.forEach((sessionId) => {
     if (!sessionId) {
+      return;
+    }
+
+    // 已删除的会话不应被重新创建
+    if (mergedDeletedTimestamps[sessionId]) {
       return;
     }
 

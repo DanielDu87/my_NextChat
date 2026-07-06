@@ -19,6 +19,7 @@ export type ProviderBalanceProfile = {
 export type ProviderBalanceAttempt = Record<string, unknown>;
 
 const PROVIDER_BALANCE_API_PATH = "/api/db/provider-balance";
+const PROVIDER_BALANCE_CACHE_SCOPE = "shared";
 let balanceRequestSequence = 0;
 
 function createBalanceRequestContext(action: string, profileId?: string) {
@@ -74,6 +75,11 @@ export function getProviderBalanceErrorMessage(
 }
 
 export function getProviderBalanceCacheKey(userId: string, profileId: string) {
+  void userId;
+  return `nextchat:provider-balance:${PROVIDER_BALANCE_CACHE_SCOPE}:${profileId}`;
+}
+
+function getLegacyProviderBalanceCacheKey(userId: string, profileId: string) {
   return `nextchat:provider-balance:${userId || "unknown"}:${profileId}`;
 }
 
@@ -83,10 +89,11 @@ export function readCachedProviderBalance(
 ): ProviderBalanceSnapshot | null {
   if (!profileId) return null;
   try {
+    const storage = safeLocalStorage();
     const value = JSON.parse(
-      safeLocalStorage().getItem(
-        getProviderBalanceCacheKey(userId, profileId),
-      ) || "null",
+      storage.getItem(getProviderBalanceCacheKey(userId, profileId)) ||
+        storage.getItem(getLegacyProviderBalanceCacheKey(userId, profileId)) ||
+        "null",
     );
     return Number.isFinite(value?.value) ? value : null;
   } catch {

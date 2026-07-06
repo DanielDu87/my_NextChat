@@ -37,7 +37,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
   - Markdown 表格保留完整列宽，超出消息区域时可在表格内部左右滑动查看，不带动整个页面横移。
   - 手机旋转为横屏后仍保持移动端组件和交互，不因横向视口超过断点切换为桌面视角。
   - 移动端切换模型后自动收起用户状态面板；流式上滑由原生手势接管，“回到底部”始终定位末页且不持续跟随。
-  - 手动切换模型时先保存 localStorage，再在后台静默同步并输出日志；最新对话无论为空还是正在对话，都会同时更新全局默认模型，老对话只更新自身。
+  - 手动切换模型时先持久化本地模型配置，再在后台静默同步并输出日志；最新对话无论为空还是正在对话，都会同时更新全局默认模型，老对话只更新自身。
   - 多轮对话展开软键盘时至少保留一块可见消息区域，并稳定展示最近消息，避免滚入空白占位区。
   - 点击页面空白不会自动跳到底部。
   - 点击标题可滚动到顶部，输出中也会暂停自动贴底。
@@ -49,16 +49,17 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持多 Provider / 多 Profile 管理，Profile 保存时自动落库到 `provider_configs` + `provider_api_keys`。
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
+- 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。
 - 内置「余额查询」页面（`/api-config/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
-- 聊天页头部新增「余额」入口：选中模型所属 Profile 一键刷新余额，复用通用余额查询链路。
+- 聊天页头部新增「余额」入口：选中模型所属 Profile 一键刷新余额，复用通用余额查询链路；用户切换或模型切换不会主动中断已发起的余额查询请求。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；旧备份（无 `balanceEntries`）保持兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
 
 ### 数据与同步
 
 - PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
-- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿和少量启动标记。
+- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿、全局模型选择和少量启动标记。
 - 支持数据库同步与本地优先合并策略。
 - 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
 

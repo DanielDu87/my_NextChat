@@ -12,6 +12,10 @@ import {
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import { safeLocalStorage } from "../utils/safe-local-storage";
 import {
+  readStoredGlobalModelConfig,
+  writeStoredGlobalModelConfig,
+} from "../utils/global-model-config";
+import {
   buildAutoModelCandidates,
   type AutoModelCandidate,
 } from "../utils/auto-model";
@@ -63,6 +67,14 @@ function parseStoredModelSelection(value: string) {
   };
 }
 
+export function saveGlobalModelConfig(modelConfig: ModelConfig) {
+  writeStoredGlobalModelConfig(modelConfig as Record<string, unknown>);
+}
+
+export function loadGlobalModelConfig(): ModelConfig | null {
+  return readStoredGlobalModelConfig() as ModelConfig | null;
+}
+
 export function getPreferredStartupProfile(
   apiProfiles: Array<{
     id: string;
@@ -104,8 +116,28 @@ export function getPreferredStartupProfile(
 }
 
 export const createEmptyMask = () => {
-  const appConfig = useAppConfig.getState();
+  const defaultPlaceholder = DEFAULT_CONFIG.modelConfig.model;
   const accessStore = useAccessStore.getState();
+
+  // 全局模型配置持久化恢复：当 Config store 的 model 仍是默认值时，
+  // 从 localStorage 恢复用户/跨页面都生效的全局模型选择。
+  const globalConfig = loadGlobalModelConfig();
+  const appConfigPrev = useAppConfig.getState();
+  if (
+    globalConfig &&
+    (!appConfigPrev.modelConfig.model ||
+      appConfigPrev.modelConfig.model === defaultPlaceholder)
+  ) {
+    useAppConfig.getState().update((config) => {
+      config.modelConfig = sanitizeModelConfigForCapability({
+        ...config.modelConfig,
+        ...globalConfig,
+      });
+    });
+  }
+  // 重新读取已恢复的 Config store
+  const appConfig = useAppConfig.getState();
+
   const allModels = collectModelsWithDefaultModel(
     appConfig.models,
     appConfig.customModels,
@@ -114,7 +146,6 @@ export const createEmptyMask = () => {
 
   // 自动模式优先：autoModelSeries 已通过云端同步，直接选首个候选
   const autoSeries = (appConfig.autoModelSeries || []) as AutoModelSeriesKey[];
-  const defaultPlaceholder = DEFAULT_CONFIG.modelConfig.model;
   const syncedModel = appConfig.modelConfig.model;
   // 模型列表未加载时，直接信任已同步的 appConfig.modelConfig
   if (

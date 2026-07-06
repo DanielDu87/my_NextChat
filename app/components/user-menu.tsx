@@ -324,15 +324,16 @@ export function UserMenu(props?: {
     previousRefreshSignalRef.current = signal;
     if (!props?.balanceProfileId) return;
 
-    const controller = new AbortController();
+    let active = true;
     void queryProviderBalanceProfile(props.balanceProfileId, {
-      signal: controller.signal,
       source: "chat-page-auto-refresh",
       providerName: props.balanceProviderName,
     })
       .then(({ balance }) => {
         cacheProviderBalance(balanceUserId, props.balanceProfileId!, balance);
-        setProviderBalance(balance);
+        if (active) {
+          setProviderBalance(balance);
+        }
       })
       .catch((error) => {
         if (
@@ -343,7 +344,9 @@ export function UserMenu(props?: {
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, [
     balanceUserId,
     props?.balanceProfileId,

@@ -3,6 +3,8 @@ import { clearUserScopedPersistedStateStorage } from "@/app/utils/indexeddb-stat
 import { Path, StoreKey } from "@/app/constant";
 import { publishStartupChatSyncStatus } from "@/app/utils/chat-startup-loading";
 import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
+import { sanitizeModelConfigForCapability } from "@/app/client/model-parameter-rules";
+import { readStoredGlobalModelConfig } from "@/app/utils/global-model-config";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
@@ -291,6 +293,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // 然后初始化新页面，显示新空会话或加载新用户的已有会话
     chatStore.getState().initializeForNewPage?.();
     useChatIndexStore.getState().syncFromChatStore();
+
+    // 切换用户后恢复全局模型选择（从 localStorage），确保 Config store
+    // 中的 modelConfig 在跨用户切换时不回退到各用户的独立配置。
+    try {
+      const globalConfig = readStoredGlobalModelConfig();
+      if (globalConfig) {
+        const { useAppConfig } = await import("./config");
+        useAppConfig.getState().update((config) => {
+          const globalModelConfig = globalConfig as Partial<
+            typeof config.modelConfig
+          >;
+          config.modelConfig = sanitizeModelConfigForCapability({
+            ...config.modelConfig,
+            ...globalModelConfig,
+          });
+          (config.modelConfig as any).providerId = String(
+            globalConfig.providerId ||
+              (config.modelConfig as any).providerId ||
+              "",
+          );
+          (config.modelConfig as any).profileId = String(
+            globalConfig.profileId ||
+              (config.modelConfig as any).profileId ||
+              "",
+          );
+          (config as any).modelSelectionUpdatedAt = Math.max(
+            Number((config as any).modelSelectionUpdatedAt) || 0,
+            Number(globalConfig.modelSelectionUpdatedAt) || 0,
+          );
+        });
+      }
+    } catch {
+      // 恢复失败不影响主流程
+    }
+
     // 最后同步新用户的远端对话
     useSyncStore
       .getState()

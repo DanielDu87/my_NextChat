@@ -23,6 +23,11 @@ import {
   isLegacyGeneratedCustomProviderId,
   pruneLegacyGeneratedCustomModels,
 } from "../utils/access-profiles";
+import {
+  getStoredGlobalModelSelectionUpdatedAt,
+  readStoredGlobalModelConfig,
+  writeStoredGlobalModelConfig,
+} from "../utils/global-model-config";
 import type { Voice } from "rt-client";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
@@ -78,6 +83,35 @@ function hasStoredTightBorderPreference() {
 
 function readSidebarWidthFromLocalStorage() {
   return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function hasNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function buildStoredGlobalModelConfigSnapshot(state: ChatConfig) {
+  return {
+    ...state.modelConfig,
+    providerId: String((state.modelConfig as any)?.providerId || ""),
+    profileId: String((state.modelConfig as any)?.profileId || ""),
+    modelSelectionUpdatedAt:
+      Number((state as any).modelSelectionUpdatedAt) || 0,
+  };
+}
+
+function getGlobalModelConfigIdentityKey(
+  state: ChatConfig | undefined,
+  snapshot?: Record<string, unknown> | null,
+) {
+  const source =
+    snapshot || (state ? buildStoredGlobalModelConfigSnapshot(state) : null);
+  return [
+    String(source?.model || "").trim(),
+    String(source?.providerName || "").trim(),
+    String(source?.providerId || "").trim(),
+    String(source?.profileId || "").trim(),
+    Number(source?.modelSelectionUpdatedAt) || 0,
+  ].join("|");
 }
 
 function normalizeModelProviderId(providerId: unknown) {
@@ -646,14 +680,38 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
+      const storedGlobalModelConfig = readStoredGlobalModelConfig();
+      const storedGlobalSelectionUpdatedAt =
+        getStoredGlobalModelSelectionUpdatedAt(storedGlobalModelConfig);
       if (!state) {
+        const storedGlobalModelConfigPatch = storedGlobalModelConfig as Partial<
+          typeof currentState.modelConfig
+        > | null;
         return {
           ...currentState,
+          modelConfig: sanitizeLegacyGeneratedCustomModelConfig(
+            applyOpenAIStandardModelConfig({
+              ...currentState.modelConfig,
+              ...(storedGlobalModelConfigPatch || {}),
+            }),
+          ),
+          modelSelectionUpdatedAt: storedGlobalSelectionUpdatedAt,
           theme: readThemeFromLocalStorage(),
           tightBorder: readTightBorderFromLocalStorage(),
           sidebarWidth: readSidebarWidthFromLocalStorage(),
         } as typeof currentState;
       }
+      const persistedModelSelectionUpdatedAt =
+        Number((state as any).modelSelectionUpdatedAt) || 0;
+      const shouldApplyStoredGlobalModelConfig =
+        !!storedGlobalModelConfig &&
+        hasNonEmptyString(storedGlobalModelConfig.model) &&
+        hasNonEmptyString(storedGlobalModelConfig.providerName) &&
+        (storedGlobalSelectionUpdatedAt >= persistedModelSelectionUpdatedAt ||
+          !hasNonEmptyString(state.modelConfig?.model));
+      const storedGlobalModelConfigPatch = shouldApplyStoredGlobalModelConfig
+        ? (storedGlobalModelConfig as Partial<typeof currentState.modelConfig>)
+        : undefined;
       return {
         ...currentState,
         ...state,
@@ -662,9 +720,14 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
           applyOpenAIStandardModelConfig({
             ...currentState.modelConfig,
             ...state.modelConfig,
+            ...(storedGlobalModelConfigPatch || {}),
           }),
         ),
         models: currentState.models,
+        modelSelectionUpdatedAt: Math.max(
+          persistedModelSelectionUpdatedAt,
+          storedGlobalSelectionUpdatedAt,
+        ),
         theme: state.theme ?? readThemeFromLocalStorage(),
         tightBorder: hasStoredTightBorderPreference()
           ? readTightBorderFromLocalStorage()
@@ -776,6 +839,12 @@ if (typeof window !== "undefined") {
           detail: DEFAULT_SIDEBAR_WIDTH,
         }),
       );
+    }
+
+    const currentGlobalModelIdentity = getGlobalModelConfigIdentityKey(state);
+    const prevGlobalModelIdentity = getGlobalModelConfigIdentityKey(prevState);
+    if (currentGlobalModelIdentity !== prevGlobalModelIdentity) {
+      writeStoredGlobalModelConfig(buildStoredGlobalModelConfigSnapshot(state));
     }
   });
 }

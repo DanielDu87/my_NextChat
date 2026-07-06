@@ -185,6 +185,7 @@ function syncModelSelectionNow(includeGlobalDefault: boolean) {
 
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
+import { saveGlobalModelConfig } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { runWithImmediateStoreSyncPausedSync } from "../utils/store";
 import { markPendingModelSelection } from "../utils/sync";
@@ -5418,14 +5419,17 @@ function _Chat() {
           }),
         );
       } else if (!autoModeEnabled && !currentSessionHasMessages) {
-        nextModelConfig = sanitizeModelConfigForCapability({
-          ...nextModelConfig,
-          ...(getPreferredDefaultChatModel(
-            allModels,
-            nextModelConfig,
-            apiProfiles,
-          ) || {}),
-        });
+        const preferredRuntimeModelConfig = getPreferredRuntimeModelConfig(
+          allModels,
+          nextModelConfig,
+          apiProfiles,
+        );
+        if (preferredRuntimeModelConfig) {
+          nextModelConfig = sanitizeModelConfigForCapability({
+            ...nextModelConfig,
+            ...preferredRuntimeModelConfig,
+          });
+        }
       }
 
       shouldSyncMaskConfig = !areModelConfigValuesEqual(
@@ -11698,6 +11702,10 @@ function _Chat() {
                 });
               });
               useChatStore.getState().refreshFreshDefaultSessionModel?.();
+            }
+            // 持久化全局模型配置，跨用户、跨页面生效
+            if (shouldUpdateGlobalDefault) {
+              saveGlobalModelConfig(nextModelConfig as any);
             }
             syncModelSelectionNow(shouldUpdateGlobalDefault);
 

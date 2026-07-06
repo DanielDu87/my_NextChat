@@ -2781,8 +2781,7 @@
 	}
 }
 
-@media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+@media only screen and (max-width: 650px), only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.add-modal-footer {
 		align-items: stretch;
 		flex-direction: column;
@@ -3343,8 +3342,7 @@
 	}
 }
 
-@media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+@media only screen and (max-width: 650px), only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-message-item-images {
 		grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
 	}
@@ -5484,8 +5482,7 @@
 	}
 }
 
-@media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+@media only screen and (max-width: 650px), only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-body {
 		--chat-scroll-button-clearance: 72px;
 		padding: 14px 14px var(--chat-scroll-button-clearance);
@@ -6822,8 +6819,7 @@
 	}
 }
 
-@media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+@media only screen and (max-width: 650px), only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-status-user-panel {
 		top: 14px;
 		left: 16px;
@@ -7386,8 +7382,7 @@
 	}
 }
 
-@media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+@media only screen and (max-width: 650px), only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
 	.chat-window-action-button .chat-window-icon-button {
 		border: 2px solid var(--chat-window-button-idle-border) !important;
 
