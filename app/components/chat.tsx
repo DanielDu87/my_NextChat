@@ -6094,9 +6094,8 @@ function _Chat() {
 
     if (isAssistantStreaming) {
       if (isProgrammaticScrollToBottom) {
-        if (isHitBottom) {
-          streamingAutoScrollPausedRef.current = false;
-        }
+        // 用户点击滚动按钮时已经设置了 streamingAutoScrollPausedRef.current = true
+        // 这里不要重置它，保持用户的选择
         return;
       }
 
