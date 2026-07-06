@@ -114,6 +114,36 @@
   color: var(--black-alpha-80);
 }
 
+.versionInfo {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, white);
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.versionItem {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.versionLabel {
+  color: var(--black-alpha-70);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.versionValue {
+  color: var(--black-alpha-90);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .readonly {
   margin-top: 8px;
   color: #b54708;
@@ -688,6 +718,18 @@
 
 :global(.dark) .manageModal,
 :global(body.dark) .manageModal {
+  .versionInfo {
+    background: rgba(59, 130, 246, 0.12);
+  }
+
+  .versionLabel {
+    color: rgba(203, 213, 225, 0.85);
+  }
+
+  .versionValue {
+    color: rgba(226, 232, 240, 0.95);
+  }
+
   .manageListItem,
   .manageList .manageListItem:last-child {
     border-color: rgba(100, 116, 139, 0.4);
@@ -722,6 +764,18 @@
 
 @media (prefers-color-scheme: dark) {
   :global(body:not(.light):not(.dark)) .manageModal {
+    .versionInfo {
+      background: rgba(59, 130, 246, 0.12);
+    }
+
+    .versionLabel {
+      color: rgba(203, 213, 225, 0.85);
+    }
+
+    .versionValue {
+      color: rgba(226, 232, 240, 0.95);
+    }
+
     .manageListItem,
     .manageList .manageListItem:last-child {
       border-color: rgba(100, 116, 139, 0.4);

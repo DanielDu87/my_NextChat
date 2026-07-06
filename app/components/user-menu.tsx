@@ -56,6 +56,51 @@ function formatLoginTime(value?: string | null) {
   });
 }
 
+function formatCommitDate(value?: string | null) {
+  if (!value || value === "unknown") {
+    return "未知";
+  }
+
+  const timestamp = Number(value);
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "未知";
+  }
+
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function VersionInfo() {
+  const buildConfig = getClientConfig();
+  if (!buildConfig) {
+    return null;
+  }
+
+  return (
+    <div className={styles.versionInfo}>
+      <div className={styles.versionItem}>
+        <span className={styles.versionLabel}>提交时间：</span>
+        <span className={styles.versionValue}>
+          {formatCommitDate(buildConfig.commitDate)}
+        </span>
+      </div>
+      <div className={styles.versionItem}>
+        <span className={styles.versionLabel}>版本号：</span>
+        <span className={styles.versionValue}>
+          {buildConfig.commitHash?.substring(0, 8) || "unknown"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function CreateUserModal(props: {
   open: boolean;
   onClose: () => void;
@@ -814,6 +859,7 @@ export function UserMenu(props?: {
                   />,
                 ].filter(Boolean as any)}
               >
+                <VersionInfo />
                 <List
                   className={clsx(styles.manageList, {
                     [styles.manageListLoading]: loadingUsers,
@@ -1106,6 +1152,7 @@ export function UserMenu(props?: {
               />,
             ]}
           >
+            <VersionInfo />
             <List
               className={clsx(styles.manageList, {
                 [styles.manageListLoading]: loadingUsers,
