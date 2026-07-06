@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-import pg from "pg";
+import { createRequire } from "node:module";
 
+const require = createRequire(import.meta.url);
+const pg = require("pg");
 const { Pool } = pg;
 
 function requiredBuildValue(name) {
