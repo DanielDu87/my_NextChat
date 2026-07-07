@@ -386,37 +386,42 @@ export function ProviderBalancesPage() {
 
   return (
     <div className={apiConfigStyles.page} data-top-notice-anchor="true">
-      <div className="window-header" data-tauri-drag-region>
-        <div className="window-header-title">
-          <div className="window-header-main-title">余额查询</div>
-          <div className="window-header-sub-title">
-            独立管理查询 Key、批量更新并保存到数据库
+      <div
+        className={`window-header ${styles.pageHeader}`}
+        data-tauri-drag-region
+      >
+        <div className={styles.headerInner}>
+          <div className="window-header-title">
+            <div className="window-header-main-title">余额查询</div>
+            <div className="window-header-sub-title">
+              独立管理查询 Key、批量更新并保存到数据库
+            </div>
           </div>
-        </div>
-        <div className="window-actions">
-          <div className="window-action-button">
-            <IconButton
-              icon={<ReloadIcon />}
-              text="全部查询"
-              bordered
-              className={styles.headerQueryButton}
-              disabled={
-                working === "all" ||
-                savingProfileIds.length > 0 ||
-                (profiles.length > 0 &&
-                  queryingProfileIds.length === profiles.length)
-              }
-              onClick={() => void queryAll()}
-            />
-          </div>
-          <div className="window-action-button">
-            <IconButton
-              aria="关闭"
-              icon={<CloseIcon />}
-              close
-              bordered
-              onClick={() => void closePage()}
-            />
+          <div className="window-actions">
+            <div className="window-action-button">
+              <IconButton
+                icon={<ReloadIcon />}
+                text="全部查询"
+                bordered
+                className={styles.headerQueryButton}
+                disabled={
+                  working === "all" ||
+                  savingProfileIds.length > 0 ||
+                  (profiles.length > 0 &&
+                    queryingProfileIds.length === profiles.length)
+                }
+                onClick={() => void queryAll()}
+              />
+            </div>
+            <div className="window-action-button">
+              <IconButton
+                aria="关闭"
+                icon={<CloseIcon />}
+                close
+                bordered
+                onClick={() => void closePage()}
+              />
+            </div>
           </div>
         </div>
       </div>

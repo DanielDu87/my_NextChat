@@ -28,6 +28,7 @@ import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ConfigIcon from "../icons/config.svg";
+import ConnectionIcon from "../icons/connection.svg";
 import DownloadIcon from "../icons/download.svg";
 import HistoryIcon from "../icons/history.svg";
 import MoneyIcon from "../icons/money.svg";
@@ -161,7 +162,7 @@ import { ProviderType } from "../utils/cloud";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 
 const CHAT_BACKUP_ENTRIES = [
-  { name: "API 配置", path: Path.ApiConfig, icon: <ConfigIcon /> },
+  { name: "API 配置", path: Path.ApiConfig, icon: <ConnectionIcon /> },
   { name: "API 备份", path: Path.ApiConfigBackups, icon: <DownloadIcon /> },
   { name: "对话备份", path: Path.ChatBackups, icon: <HistoryIcon /> },
   { name: "余额查询", path: Path.ProviderBalances, icon: <MoneyIcon /> },
@@ -9775,11 +9776,15 @@ function _Chat() {
             >
               <div
                 className={styles["chat-backup-menu"]}
-                onMouseEnter={handleBackupMenuEnter}
-                onMouseLeave={handleBackupMenuLeave}
+                onMouseEnter={
+                  isMobileScreen ? undefined : handleBackupMenuEnter
+                }
+                onMouseLeave={
+                  isMobileScreen ? undefined : handleBackupMenuLeave
+                }
               >
                 <IconButton
-                  icon={<DownloadIcon />}
+                  icon={<ConfigIcon />}
                   bordered
                   className={styles["chat-window-icon-button"]}
                   text={useHeaderIconOnly ? undefined : "配置管理"}
@@ -9793,8 +9798,12 @@ function _Chat() {
                 {showBackupMenu && (
                   <div
                     className={styles["chat-backup-dropdown"]}
-                    onMouseEnter={handleBackupMenuEnter}
-                    onMouseLeave={handleBackupMenuLeave}
+                    onMouseEnter={
+                      isMobileScreen ? undefined : handleBackupMenuEnter
+                    }
+                    onMouseLeave={
+                      isMobileScreen ? undefined : handleBackupMenuLeave
+                    }
                   >
                     {CHAT_BACKUP_ENTRIES.map((item) => (
                       <button

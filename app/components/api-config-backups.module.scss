@@ -28,6 +28,42 @@
   overflow: auto;
 }
 
+.page :global(button[class*="icon-button"][class*="primary"]) {
+  height: 40px !important;
+  min-height: 40px !important;
+  border: 2px solid var(--primary) !important;
+  border-radius: 10px !important;
+  color: white !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):hover,
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):focus-visible,
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):active {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+  background-color: var(--primary) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
 .content > :global([class*="list"]) {
   display: flex;
   flex-direction: column;
@@ -103,6 +139,8 @@
   align-self: center;
   width: 145px;
   min-width: 145px;
+  height: 40px !important;
+  min-height: 40px !important;
   margin-right: 15px;
   justify-content: center;
   color: white !important;
@@ -111,7 +149,12 @@
     var(--backup-green) 75%,
     white
   ) !important;
+  border-width: 2px !important;
   border-color: var(--backup-green) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
 
   &:not(:disabled) {
     cursor: pointer !important;
@@ -122,7 +165,11 @@
   &:not(:disabled):active {
     color: white !important;
     background-color: var(--backup-green) !important;
+    border-width: 2px !important;
     border-color: var(--backup-green) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
   }
 
   &:disabled {
@@ -228,6 +275,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .page :global(.window-actions button[data-close-button="true"]) {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    border-width: 2px !important;
   }
 
   .content {

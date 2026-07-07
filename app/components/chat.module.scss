@@ -1332,9 +1332,9 @@
   display: flex;
   width: 100%;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 10px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1350,7 +1350,7 @@
 
   &:hover {
     background: color-mix(in srgb, var(--primary) 15%, transparent);
-    color: var(--primary);
+    color: var(--black);
   }
 }
 
@@ -1367,6 +1367,15 @@
     width: 18px;
     height: 18px;
   }
+
+  svg {
+    color: currentColor;
+  }
+}
+
+:global(.dark) .chat-backup-option-icon svg,
+:global(body.dark) .chat-backup-option-icon svg {
+  filter: invert(1) brightness(0.78);
 }
 
 @keyframes chatBackupMenuFadeIn {

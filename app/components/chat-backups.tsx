@@ -1039,7 +1039,7 @@ export function ChatBackupsPage() {
                 </div>
                 <IconButton
                   icon={working === "backup" ? <LoadingIcon /> : <UploadIcon />}
-                  text={working === "backup" ? "备份中..." : "全部备份"}
+                  text={working === "backup" ? "备份中..." : "立即备份"}
                   type="primary"
                   bordered
                   className={styles.createBackupButton}

@@ -3,6 +3,19 @@
   overflow: auto;
 }
 
+.pageHeader {
+  justify-content: center;
+}
+
+.headerInner {
+  display: flex;
+  width: 100%;
+  max-width: 980px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .autofillTrap {
   position: fixed;
   top: -10000px;
@@ -98,14 +111,79 @@
   gap: 10px;
 }
 
+.row :global(button[class*="icon-button"]:not([data-close-button="true"]):not([class*="danger"])) {
+  height: 40px !important;
+  min-height: 40px !important;
+  border: 2px solid var(--primary) !important;
+  border-radius: 10px !important;
+  color: white !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.row
+  :global(
+    button[class*="icon-button"]:not([data-close-button="true"]):not(
+        [class*="danger"]
+      )
+  ):not(:disabled):hover,
+.row
+  :global(
+    button[class*="icon-button"]:not([data-close-button="true"]):not(
+        [class*="danger"]
+      )
+  ):not(:disabled):focus-visible,
+.row
+  :global(
+    button[class*="icon-button"]:not([data-close-button="true"]):not(
+        [class*="danger"]
+      )
+  ):not(:disabled):active {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+  background-color: var(--primary) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
 .input {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border: var(--border-in-light);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 10px;
   background: var(--white);
   color: var(--black);
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.input:hover {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.input:focus {
+  border-width: 1px;
+  border-color: var(--primary);
+  background-color: var(--white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 .hint {
@@ -137,16 +215,15 @@
 .headerQueryButton.headerQueryButton.headerQueryButton {
   width: auto !important;
   min-width: max-content !important;
-  height: 38px !important;
-  min-height: 38px !important;
+  height: 40px !important;
+  min-height: 40px !important;
   padding: 0 12px !important;
   box-sizing: border-box !important;
-  border: var(--close-button-border-width) solid
-    var(--close-button-border-color) !important;
+  border: 2px solid var(--primary) !important;
   border-radius: 10px !important;
-  color: var(--black) !important;
-  background-color: var(--white) !important;
-  box-shadow: var(--card-shadow) !important;
+  color: white !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
   filter: none !important;
   transform: none !important;
   transition:
@@ -158,15 +235,11 @@
 .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):hover,
 .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):focus-visible,
 .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):active {
-  border-width: var(--close-button-border-width) !important;
+  border-width: 2px !important;
   border-color: var(--primary) !important;
-  color: var(--black) !important;
-  background-color: color-mix(
-    in srgb,
-    var(--primary) 4%,
-    var(--white)
-  ) !important;
-  box-shadow: var(--close-button-hover-shadow) !important;
+  color: white !important;
+  background-color: var(--primary) !important;
+  box-shadow: none !important;
   outline: none;
   filter: none !important;
   transform: none !important;
@@ -198,11 +271,8 @@
 
 :global(.window-header .window-actions)
   .headerQueryButton.headerQueryButton.headerQueryButton {
-  --api-config-button-idle-border: var(--close-button-border-color);
-
-  border: var(--close-button-border-width) solid
-    var(--close-button-border-color) !important;
-  box-shadow: var(--card-shadow) !important;
+  border: 2px solid var(--primary) !important;
+  box-shadow: none !important;
 }
 
 :global(.window-header .window-actions)
@@ -213,9 +283,9 @@
   ):focus-visible,
 :global(.window-header .window-actions)
   .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):active {
-  border-width: var(--close-button-border-width) !important;
+  border-width: 2px !important;
   border-color: var(--primary) !important;
-  box-shadow: var(--close-button-hover-shadow) !important;
+  box-shadow: none !important;
 }
 
 :global([class*="api-config_page"])
@@ -223,10 +293,7 @@
   .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
     [data-close-button="true"]
   ):not([class*="primary"]):not([class*="danger"]) {
-  --api-config-button-idle-border: var(--close-button-border-color);
-
-  border: var(--close-button-border-width) solid
-    var(--close-button-border-color) !important;
+  border: 2px solid var(--primary) !important;
 }
 
 :global([class*="api-config_page"])
@@ -244,19 +311,31 @@
   .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
     [data-close-button="true"]
   ):not([class*="primary"]):not([class*="danger"]):not(:disabled):active {
-  border-width: var(--close-button-border-width) !important;
+  border-width: 2px !important;
   border-color: var(--primary) !important;
-  box-shadow: var(--close-button-hover-shadow) !important;
+  box-shadow: none !important;
 }
 
 @media (max-width: 700px) {
+  .headerInner {
+    gap: 8px;
+  }
+
   .headerQueryButton.headerQueryButton.headerQueryButton {
     width: 38px !important;
     min-width: 38px !important;
     height: 38px !important;
     min-height: 38px !important;
     padding: 0 !important;
-    border: 2px solid rgba(148, 163, 184, 0.26) !important;
+    border: 2px solid var(--primary) !important;
+  }
+
+  .headerInner :global(button[data-close-button="true"]) {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    border-width: 2px !important;
   }
 
   .headerQueryButton.headerQueryButton.headerQueryButton

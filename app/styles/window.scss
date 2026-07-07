@@ -85,6 +85,32 @@
     align-items: center;
     justify-content: center;
 
+    button[data-close-button="true"] {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+
+      [class*="icon-button-icon"] {
+        display: flex !important;
+        width: 16px !important;
+        height: 16px !important;
+        margin: 0 !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
+      svg {
+        display: block !important;
+        width: 16px !important;
+        height: 16px !important;
+        transform: none !important;
+      }
+
+      svg > g {
+        transform: none !important;
+      }
+    }
+
     button {
       -webkit-tap-highlight-color: transparent;
 

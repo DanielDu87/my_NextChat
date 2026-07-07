@@ -24,6 +24,42 @@
   overflow: auto;
 }
 
+.page :global(button[class*="icon-button"][class*="primary"]) {
+  height: 40px !important;
+  min-height: 40px !important;
+  border: 2px solid var(--primary) !important;
+  border-radius: 10px !important;
+  color: white !important;
+  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):hover,
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):focus-visible,
+.page :global(button[class*="icon-button"][class*="primary"]):not(
+    :disabled
+  ):active {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+  background-color: var(--primary) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
 .content > :global([class*="list"]) {
   display: flex;
   flex-direction: column;
@@ -137,16 +173,30 @@
   height: 40px;
   margin-top: 14px;
   padding: 0 12px;
-  border: var(--border-in-light);
-  border-radius: 7px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 10px;
   color: var(--black);
   background: var(--white);
   color-scheme: light dark;
   outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.userSelector select:hover {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 .userSelector select:focus {
+  border-width: 1px;
   border-color: var(--primary);
+  background-color: var(--white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 .summaryValue {
@@ -301,6 +351,8 @@
   align-self: center;
   width: 145px;
   min-width: 145px;
+  height: 40px !important;
+  min-height: 40px !important;
   margin-right: 15px;
   justify-content: center;
   color: white !important;
@@ -309,14 +361,23 @@
     var(--backup-green) 75%,
     white
   ) !important;
+  border-width: 2px !important;
   border-color: var(--backup-green) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
 
   &:not(:disabled):hover,
   &:not(:disabled):focus-visible,
   &:not(:disabled):active {
     color: white !important;
     background-color: var(--backup-green) !important;
+    border-width: 2px !important;
     border-color: var(--backup-green) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
 
@@ -333,31 +394,43 @@
   min-width: 0;
   height: 40px;
   padding: 0 12px;
-  border: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
-  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 10px;
   color: var(--black);
   background: var(--white);
   outline: none;
   transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
 }
 
-.searchBar input:hover,
+.searchBar input:hover {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
 .searchBar input:focus {
-  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent),
-    0 8px 20px rgba(0, 0, 0, 0.035);
+  border-width: 1px;
+  border-color: var(--primary);
+  background-color: var(--white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 :global(.dark) .searchBar input:hover,
 :global(.dark) .searchBar input:focus {
-  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 42%, transparent),
-    0 8px 22px rgba(0, 0, 0, 0.28);
+  border-color: var(--primary);
+}
+
+:global(.dark) .searchBar input:hover {
+  border-color: color-mix(in srgb, var(--primary) 78%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+:global(.dark) .searchBar input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 42%, transparent);
 }
 
 .backups {
@@ -442,7 +515,7 @@
 
 .session.hoverCard {
   background: radial-gradient(
-      180px circle at var(--hover-x) var(--hover-y),
+      220px circle at var(--hover-x) var(--hover-y),
       color-mix(in srgb, var(--primary) 16%, transparent),
       transparent 58%
     ),
@@ -543,6 +616,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .page :global(.window-actions button[data-close-button="true"]) {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    border-width: 2px !important;
   }
 
   .content {
@@ -654,7 +735,7 @@
     line-height: 1.5;
   }
 
-  /* 全部备份按钮优化 */
+  /* 立即备份按钮优化 */
   .createBackupButton {
     align-self: stretch;
     width: 100% !important;

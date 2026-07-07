@@ -233,7 +233,7 @@ export function ApiConfigBackupsPage() {
             icon={<CloseIcon />}
             close
             bordered
-            onClick={() => navigate(Path.ApiConfig)}
+            onClick={() => navigate(Path.Chat)}
           />
         </div>
       </div>
