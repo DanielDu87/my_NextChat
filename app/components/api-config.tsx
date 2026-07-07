@@ -5,7 +5,6 @@ import styles from "./api-config.module.scss";
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
-import DownloadIcon from "../icons/download.svg";
 import AddIcon from "../icons/add.svg";
 import TrashIcon from "../icons/trash.svg";
 
@@ -66,7 +65,6 @@ import {
 } from "../utils/models";
 import { runWithManualDatabaseSyncActive } from "../utils/manual-sync-guard";
 import { dedupeAccessProfiles } from "../utils/access-profiles";
-import { useMobileScreen } from "../utils";
 import {
   getEffectiveProviderBaseUrl,
   getOfficialProviderBaseUrl,
@@ -931,7 +929,6 @@ export function ApiConfigPage() {
   );
   const pageLoadSyncNoticeLoggedRef = useRef(false);
   const { fetchFromProvider } = useModelFetcher();
-  const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
     prepareRouteEntryForSync(Path.ApiConfig, {
@@ -1884,42 +1881,6 @@ export function ApiConfigPage() {
     }
   };
 
-  if (isMobileScreen) {
-    return (
-      <div className={styles.page} data-top-notice-anchor="true">
-        <div className="window-header" data-tauri-drag-region>
-          <div className="window-header-title">
-            <div className="window-header-main-title">API 配置</div>
-            <div className="window-header-sub-title">
-              管理多平台配置、模型刷新与 PostgreSQL 双向同步
-            </div>
-          </div>
-          <div className="window-actions">
-            <div className="window-action-button">
-              <IconButton
-                aria="关闭"
-                icon={<CloseIcon />}
-                close
-                onClick={() => {
-                  void closeApiConfigPage();
-                }}
-                bordered
-              />
-            </div>
-          </div>
-        </div>
-        <div className={styles.mobileOnly}>
-          <div className={styles.mobileOnlyCard}>
-            <div className={styles.mobileOnlyTitle}>本页面只能在电脑端打开</div>
-            <div className={styles.mobileOnlyDesc}>
-              请切换到电脑端或放大浏览器窗口后再打开 API 配置页面。
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.page} data-top-notice-anchor="true">
       <div className="window-header" data-tauri-drag-region>
@@ -1930,14 +1891,6 @@ export function ApiConfigPage() {
           </div>
         </div>
         <div className="window-actions">
-          <div className="window-action-button">
-            <IconButton
-              icon={<DownloadIcon />}
-              text="配置备份"
-              bordered
-              onClick={() => navigate(Path.ApiConfigBackups)}
-            />
-          </div>
           <div className="window-action-button">
             <IconButton
               aria="关闭"

@@ -4,5 +4,10 @@ export async function register() {
       "./app/utils/server/api-config-backup-scheduler"
     );
     startApiConfigBackupScheduler();
+    
+    const { startChatBackupScheduler } = await import(
+      "./app/utils/server/chat-backup-scheduler"
+    );
+    startChatBackupScheduler();
   }
 }

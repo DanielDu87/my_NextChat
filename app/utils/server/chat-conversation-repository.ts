@@ -183,6 +183,9 @@ async function replaceConversationMessages(
   client: PoolClient,
   conversationId: string,
   session: ChatSessionRecord,
+  options?: {
+    pruneExtraMessages?: boolean;
+  },
 ) {
   const messages = getSessionMessages(session);
   for (let index = 0; index < messages.length; index += 1) {
@@ -231,12 +234,14 @@ async function replaceConversationMessages(
     );
   }
 
-  await client.query(
-    `delete from messages
-     where conversation_id = $1::uuid
-       and seq >= $2`,
-    [conversationId, messages.length],
-  );
+  if (options?.pruneExtraMessages !== false) {
+    await client.query(
+      `delete from messages
+       where conversation_id = $1::uuid
+         and seq >= $2`,
+      [conversationId, messages.length],
+    );
+  }
 }
 
 export async function syncNormalizedChatSessions(
@@ -246,6 +251,7 @@ export async function syncNormalizedChatSessions(
     index?: ChatIndexPayload;
     upsertSessions: Array<Record<string, unknown>>;
     deleteSessionIds?: string[];
+    pruneExtraMessages?: boolean;
   },
 ) {
   await ensureSyncStorageSchema();
@@ -278,7 +284,9 @@ export async function syncNormalizedChatSessions(
 
     // 只有上传的 session 包含消息时才替换远端消息，避免占位符（空 messages）覆盖远端完整数据
     if (getSessionMessages(session).length > 0) {
-      await replaceConversationMessages(client, conversationId, session);
+      await replaceConversationMessages(client, conversationId, session, {
+        pruneExtraMessages: params.pruneExtraMessages,
+      });
     }
   }
 
@@ -370,6 +378,39 @@ export async function getNormalizedChatSessionSnapshots(
   return sessionMap;
 }
 
+function buildSessionSummaryFromMetadata(row: {
+  external_session_id: string;
+  metadata_json: JsonObject;
+  updated_at: string;
+  actual_message_count: string;
+}) {
+  const metadata = row.metadata_json || {};
+  const mask = metadata.mask as JsonObject | undefined;
+  const modelConfig = mask?.modelConfig as JsonObject | undefined;
+  const restoredAt = Number(metadata._backupRestoredAt || 0);
+  const lastUpdate = Number(metadata.lastUpdate || 0);
+  const createdAt = Number(metadata.createdAt || 0);
+
+  const messageCount =
+    Number(row.actual_message_count || 0) ||
+    Number(metadata._syncMessageCount || 0) ||
+    0;
+
+  // 使用恢复时间（如果有）作为优先显示时间，否则使用 lastUpdate 或 createdAt
+  const displayTime = restoredAt || lastUpdate || createdAt || 0;
+
+  return {
+    id: row.external_session_id,
+    topic: String(metadata.topic || metadata.title || ""),
+    messageCount,
+    createdAt: createdAt || 0,
+    displayTime,
+    avatar: String(mask?.avatar || ""),
+    model: String(modelConfig?.model || ""),
+    searchText: "", // 搜索文本在前端构建
+  };
+}
+
 export async function buildNormalizedChatIndexSnapshot(
   externalUserId: string,
   state?: Record<string, unknown>,
@@ -390,8 +431,7 @@ export async function buildNormalizedChatIndexSnapshot(
      from conversations c
      where c.user_id = $1::uuid
        and c.is_deleted = false
-       and exists (select 1 from messages m where m.conversation_id = c.id and m.role = 'user')
-       and exists (select 1 from messages m where m.conversation_id = c.id and m.role = 'assistant')
+       and exists (select 1 from messages m where m.conversation_id = c.id)
      order by
        coalesce((c.metadata_json ->> '_syncIndexOrder')::integer, 2147483647),
        c.updated_at desc`,
@@ -402,19 +442,7 @@ export async function buildNormalizedChatIndexSnapshot(
     return undefined;
   }
 
-  const sessions = result.rows.map((row) => ({
-    id: row.external_session_id,
-    topic:
-      typeof row.metadata_json?.topic === "string"
-        ? row.metadata_json.topic
-        : "",
-    createdAt: Number(row.metadata_json?.createdAt || 0) || 0,
-    lastUpdate: Number(row.metadata_json?.lastUpdate || 0) || 0,
-    messageCount:
-      Number(row.actual_message_count || 0) ||
-      Number(row.metadata_json?._syncMessageCount || 0) ||
-      0,
-  }));
+  const sessions = result.rows.map(buildSessionSummaryFromMetadata);
 
   const statePayload =
     state && typeof state === "object" && !Array.isArray(state) ? state : {};
@@ -431,4 +459,49 @@ export async function buildNormalizedChatIndexSnapshot(
     sessions,
     currentSessionIndex,
   });
+}
+
+// 获取单个会话的完整内容
+export async function getChatSessionById(
+  externalUserId: string,
+  externalSessionId: string,
+): Promise<JsonObject | null> {
+  await ensureSyncStorageSchema();
+  const appUserId = await getOrCreateSyncAppUserId(externalUserId);
+
+  const result = await pgQuery<{
+    metadata_json: JsonObject;
+    messages: JsonObject[];
+  }>(
+    `select 
+       c.metadata_json,
+       array_agg(
+         m.content_json 
+         order by m.seq 
+       ) as messages
+     from conversations c
+     left join messages m on m.conversation_id = c.id
+     where c.user_id = $1::uuid
+       and c.external_session_id = $2
+       and c.is_deleted = false
+     group by c.id
+     limit 1`,
+    [appUserId, externalSessionId],
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  const metadata = row.metadata_json || {};
+  const messages = Array.isArray(row.messages)
+    ? row.messages.filter(Boolean)
+    : [];
+
+  return {
+    ...metadata,
+    id: externalSessionId,
+    messages: messages,
+  };
 }

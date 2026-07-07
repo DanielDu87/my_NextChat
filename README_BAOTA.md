@@ -290,9 +290,10 @@ REMOTE
 - 聊天页：`https://chat.dyxcloud.com/chat`
 - 绘图页：`https://chat.dyxcloud.com/draw`
 - 绘图历史：`https://chat.dyxcloud.com/draw/history`
-- API 配置：`https://chat.dyxcloud.com/api-config`
-- API 配置备份：`https://chat.dyxcloud.com/api-config/backups`
-- 余额查询：`https://chat.dyxcloud.com/api-config/balances`
+- API 配置：`https://chat.dyxcloud.com/api_config`
+- 对话备份：`https://chat.dyxcloud.com/backup/chat`
+- API 配置备份：`https://chat.dyxcloud.com/backup/api_config`
+- 余额查询：`https://chat.dyxcloud.com/balances`
 
 旧 `/#/...` 地址会在客户端启动时自动迁移到普通路径。宝塔 Nginx 反代仍只需要指向 `http://127.0.0.1:3000`，无需为这些前端路径单独配置反代规则。
 

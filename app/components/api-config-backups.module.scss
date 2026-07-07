@@ -27,6 +27,21 @@
   padding: 20px;
   overflow: auto;
 }
+
+.content > :global([class*="list"]) {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.content > :global([class*="list"]) > :global([class*="list-item"]).hoverCard {
+  border: var(--border-in-light);
+  border-radius: 8px;
+}
+
 .settings {
   display: grid;
   grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
@@ -120,6 +135,39 @@
   flex-direction: column;
   gap: 10px;
 }
+.hoverCard {
+  --hover-x: 50%;
+  --hover-y: 50%;
+
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: radial-gradient(
+      220px circle at var(--hover-x) var(--hover-y),
+      color-mix(in srgb, var(--primary) 12%, transparent),
+      transparent 62%
+    ),
+    var(--white);
+  background-repeat: no-repeat;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+.hoverCard:hover,
+.hoverCard:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
+    0 8px 20px rgba(0, 0, 0, 0.035);
+}
+:global(.dark) .hoverCard:hover,
+:global(.dark) .hoverCard:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.28);
+}
 .backup {
   display: flex;
   justify-content: space-between;
@@ -185,27 +233,150 @@
   .content {
     padding: 12px;
   }
+
   .settings {
-    grid-template-columns: 1fr;
-  }
-  .backup {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .backupActions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 10px;
     width: 100%;
   }
-  .backupActions button {
-    flex: 1;
+
+  .settings label {
+    gap: 4px;
+    font-size: 12px;
+    width: 100%;
   }
+
+  .settings label:first-child {
+    grid-column: span 2;
+    padding-bottom: 0;
+  }
+
+  .settings input[type="number"],
+  .settings :global(.textInput) {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 12px;
+    font-size: 15px;
+  }
+
+  .syncStatus {
+    grid-column: span 2;
+    margin-top: 2px;
+    min-height: 28px;
+    font-size: 11px;
+  }
+
+  .syncStatus svg {
+    width: 14px;
+    height: 14px;
+  }
+
   .historyHeader {
     align-items: flex-start;
     flex-direction: column;
+    gap: 12px;
   }
-  .createBackupButton {
-    align-self: flex-start;
+
+  .historyHeaderText {
     width: 100%;
-    min-width: 0;
+  }
+
+  .historyTitle {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .historySubTitle {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .createBackupButton {
+    align-self: stretch;
+    width: 100% !important;
+    min-width: 0 !important;
     margin-right: 0;
+    min-height: 42px !important;
+    height: 42px !important;
+    padding: 0 12px !important;
+    font-size: 14px !important;
+    font-weight: 600;
+    border-radius: 9px;
+  }
+
+  .createBackupButton :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .createBackupButton :global([class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .backups {
+    gap: 10px;
+  }
+
+  .backup {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .backupTitle {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .backupMeta {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .backupActions {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .backupActions :global(button[class*="icon-button"]) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    justify-content: center;
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 10px !important;
+    font-size: 13px !important;
+    border-radius: 9px;
+  }
+
+  .backupActions
+    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+    display: inline-flex !important;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .backupActions
+    :global(button[class*="icon-button"] [class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .backupActions :global(button[class*="icon-button"] svg) {
+    width: 16px;
+    height: 16px;
   }
 }

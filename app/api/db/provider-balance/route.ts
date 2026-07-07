@@ -142,11 +142,18 @@ export async function POST(req: NextRequest) {
         profileId,
         null,
         errorMessage,
+        { keepExistingBalance: true },
+      );
+      // 读取当前的余额配置来返回给前端
+      const currentConfigs = await listProviderBalanceConfigs(sharedUserId);
+      const currentConfig = currentConfigs.find(
+        (c) => c.profileId === profileId,
       );
       return NextResponse.json(
         {
           ok: false,
           error: errorMessage,
+          balance: currentConfig?.balance,
           attempts:
             error instanceof ProviderBalanceQueryError ? error.attempts : [],
         },

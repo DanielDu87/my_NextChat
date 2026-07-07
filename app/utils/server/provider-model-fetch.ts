@@ -1216,11 +1216,7 @@ export async function fetchModelsFromProviderForServer(
     });
   }
 
-  if (payloadResults.length === 0) {
-    throw new Error("未找到可用的模型接口");
-  }
-
-  const data = payloadResults[0].data;
+  const data = payloadResults[0]?.data;
 
   let models: any[] = [];
   let vendorsMap: Record<number, { name: string; icon?: string }> | undefined;
@@ -1253,7 +1249,7 @@ export async function fetchModelsFromProviderForServer(
     }
   }
 
-  if (data.vendors && Array.isArray(data.vendors)) {
+  if (data?.vendors && Array.isArray(data.vendors)) {
     vendorsMap = {};
     data.vendors.forEach((vendor: any) => {
       vendorsMap![vendor.id] = {
@@ -1265,7 +1261,7 @@ export async function fetchModelsFromProviderForServer(
     vendorsMap = AIHUBMIX_VENDOR_MAP;
   }
 
-  models = extractModelListFromResponse(data);
+  models = data ? extractModelListFromResponse(data) : [];
 
   const mergedModelMap = new Map<string, SyncedLLMModel>();
   for (const result of payloadResults) {
@@ -1324,54 +1320,69 @@ export async function fetchModelsFromProviderForServer(
       const groupedHeaders: Record<string, string> = {
         Authorization: `Bearer ${groupApiKey}`,
       };
-      const groupedData = await fetchJsonWithCandidates(
+      const groupedResults = await fetchAllJsonWithCandidates(
         [`${baseWithoutV1}/api/pricing`, `${baseWithoutV1}/pricing`],
         groupedHeaders,
-      );
-      const groupedModels =
-        groupedData?.vendors &&
-        Array.isArray(groupedData.vendors) &&
-        groupedData?.data &&
-        Array.isArray(groupedData.data)
-          ? groupedData.data
-          : [];
-      const groupedVendorsMap: Record<number, { name: string; icon?: string }> =
-        {};
-      (groupedData?.vendors || []).forEach((vendor: any) => {
-        groupedVendorsMap[vendor.id] = {
-          name: vendor.name,
-          icon: vendor.icon,
-        };
-      });
-
-      mapModels(
-        groupedModels,
-        providerId,
-        providerName,
-        providerType,
-        sorted,
-        groupedVendorsMap,
-        groupName,
-        catalogMetadataMap,
-        classificationMap,
-      ).forEach((model) => {
-        const key = `${model.name}@${model.provider?.id}`;
-        const existing = mergedModelMap.get(key);
-        if (!existing) {
-          mergedModelMap.set(key, model);
-          return;
-        }
-
-        const existingPriority = getYutoApiKeyGroupPriority(
-          model.name,
-          existing.apiKeyGroup,
+      ).catch((error) => {
+        console.warn(
+          `[Fetch Models] Yuto 分组 ${groupName} 的定价接口获取失败，继续尝试其他分组`,
+          error instanceof Error ? error.message : String(error),
         );
-        const nextPriority = getYutoApiKeyGroupPriority(model.name, groupName);
-
-        if (nextPriority > existingPriority) {
-          mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
-        }
+        return [];
       });
+
+      for (const result of groupedResults) {
+        const groupedData = result.data;
+        const groupedModels =
+          groupedData?.vendors &&
+          Array.isArray(groupedData.vendors) &&
+          groupedData?.data &&
+          Array.isArray(groupedData.data)
+            ? groupedData.data
+            : [];
+        const groupedVendorsMap: Record<
+          number,
+          { name: string; icon?: string }
+        > = {};
+        (groupedData?.vendors || []).forEach((vendor: any) => {
+          groupedVendorsMap[vendor.id] = {
+            name: vendor.name,
+            icon: vendor.icon,
+          };
+        });
+
+        mapModels(
+          groupedModels,
+          providerId,
+          providerName,
+          providerType,
+          sorted,
+          groupedVendorsMap,
+          groupName,
+          catalogMetadataMap,
+          classificationMap,
+        ).forEach((model) => {
+          const key = `${model.name}@${model.provider?.id}`;
+          const existing = mergedModelMap.get(key);
+          if (!existing) {
+            mergedModelMap.set(key, model);
+            return;
+          }
+
+          const existingPriority = getYutoApiKeyGroupPriority(
+            model.name,
+            existing.apiKeyGroup,
+          );
+          const nextPriority = getYutoApiKeyGroupPriority(
+            model.name,
+            groupName,
+          );
+
+          if (nextPriority > existingPriority) {
+            mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+          }
+        });
+      }
     }
 
     const mappedModels = [...mergedModelMap.values()];
@@ -1418,7 +1429,7 @@ export async function fetchModelsFromProviderForServer(
 
     for (const [groupName, groupApiKey] of groupedEntries) {
       try {
-        const groupedData = await fetchJsonWithCandidates(
+        const groupedResults = await fetchAllJsonWithCandidates(
           buildModelFetchCandidateUrls(baseWithoutV1),
           {
             ...headers,
@@ -1434,40 +1445,42 @@ export async function fetchModelsFromProviderForServer(
               Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
           },
         );
-        const groupModels = extractModelListFromResponse(groupedData);
+        for (const result of groupedResults) {
+          const groupModels = extractModelListFromResponse(result.data);
 
-        mapModels(
-          groupModels,
-          providerId,
-          providerName,
-          providerType,
-          sorted,
-          vendorsMap,
-          groupName,
-          catalogMetadataMap,
-          classificationMap,
-        ).forEach((model) => {
-          const key = `${model.name}@${model.provider?.id}`;
-          const existing = mergedModelMap.get(key);
-
-          if (!existing) {
-            mergedModelMap.set(key, model);
-            return;
-          }
-
-          const existingPriority = getOcoolApiKeyGroupPriority(
-            model.name,
-            existing.apiKeyGroup,
-          );
-          const nextPriority = getOcoolApiKeyGroupPriority(
-            model.name,
+          mapModels(
+            groupModels,
+            providerId,
+            providerName,
+            providerType,
+            sorted,
+            vendorsMap,
             groupName,
-          );
+            catalogMetadataMap,
+            classificationMap,
+          ).forEach((model) => {
+            const key = `${model.name}@${model.provider?.id}`;
+            const existing = mergedModelMap.get(key);
 
-          if (nextPriority > existingPriority) {
-            mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
-          }
-        });
+            if (!existing) {
+              mergedModelMap.set(key, model);
+              return;
+            }
+
+            const existingPriority = getOcoolApiKeyGroupPriority(
+              model.name,
+              existing.apiKeyGroup,
+            );
+            const nextPriority = getOcoolApiKeyGroupPriority(
+              model.name,
+              groupName,
+            );
+
+            if (nextPriority > existingPriority) {
+              mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+            }
+          });
+        }
       } catch (error) {
         console.warn(
           `[Fetch Models] Ocoolai 分组 ${groupName} 的模型接口获取失败，继续尝试其他分组`,
@@ -1552,6 +1565,10 @@ export async function fetchModelsFromProviderForServer(
         total: mappedModels.length,
       };
     }
+  }
+
+  if (models.length === 0) {
+    throw new Error("未找到可用的模型接口");
   }
 
   const mappedModels = mapModels(

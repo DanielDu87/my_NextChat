@@ -32,6 +32,7 @@ import {
   isChatListStartupLoading,
   useStartupChatSyncStatus,
 } from "../utils/chat-startup-loading";
+import { getSidebarRouteState } from "../utils/sidebar-route-state";
 
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
@@ -186,12 +187,9 @@ export function ChatList() {
     selectedSessionId || liveCurrentSessionId || currentSessionId;
   const navigate = useNavigate();
   const location = useLocation();
-  const isChatPage =
-    location.pathname === Path.Home ||
-    location.pathname === Path.Chat ||
-    location.pathname === Path.NewChat ||
-    /^\/chat\/[^/]+$/.test(location.pathname);
-  const isChatListDisabled = !isChatPage;
+  const isChatListDisabled = getSidebarRouteState(
+    location.pathname,
+  ).disableChatList;
   const isMobileScreen = useMobileScreen();
   const listRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);

@@ -143,13 +143,24 @@ export function buildChatIndexPayload(
         .map((session) => (session.id ? String(session.id) : ""))
         .filter(Boolean),
     },
-    sessions: sessions.map((session) => ({
-      id: String(session.id || ""),
-      topic: String(session.topic || ""),
-      createdAt: toFiniteNumber(session.createdAt),
-      lastUpdate: toFiniteNumber(session.lastUpdate),
-      messageCount: getSessionMessageCount(session),
-    })),
+    sessions: sessions.map((session) => {
+      const summary = sessionSummaryMap.get(String(session.id));
+      return {
+        id: String(session.id || ""),
+        topic: String(session.topic || ""),
+        createdAt: toFiniteNumber(session.createdAt),
+        lastUpdate: toFiniteNumber(session.lastUpdate),
+        messageCount: getSessionMessageCount(session),
+        // 保留额外字段
+        displayTime:
+          (summary?.displayTime as number) ||
+          toFiniteNumber(session.lastUpdate) ||
+          toFiniteNumber(session.createdAt),
+        avatar: (summary?.avatar as string) || "",
+        model: (summary?.model as string) || "",
+        searchText: (summary?.searchText as string) || "",
+      };
+    }),
   };
 }
 
@@ -183,6 +194,8 @@ export function buildChatStateFromIndex(
     ...restState,
     currentSessionIndex: currentSessionIndex >= 0 ? currentSessionIndex : 0,
     sessions,
+    // 传递远端索引会话给 normalizeMergedChatState 使用
+    remoteIndexSessions: indexPayload.sessions,
   };
 }
 

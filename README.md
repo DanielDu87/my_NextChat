@@ -11,6 +11,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 提供一个可私有部署的 AI 聊天入口。
 - 支持多个模型供应商和多个 API Profile。
 - 支持聊天记录、配置、模型缓存、绘图记录、上传文件和 API 配置备份等数据持久化到 PostgreSQL。
+- 对话记录支持按用户区分的会话级增量备份，可切换用户查看备份，在线展开某次备份中的会话内容，并按快照覆盖恢复或删除单个对话快照。
 - 在移动端提供接近原生聊天应用的输入、滚动和键盘体验。
 - 适配宝塔 DockerSite 生产环境，降低服务器维护成本。
 
@@ -29,7 +30,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持文本、图片、多模态消息和生成媒体展示。
 - 支持消息复制、重发、编辑、语音朗读。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
-- 聊天页头部支持一键刷新当前 Profile 余额，结果就地展示。
+- 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照覆盖恢复或删除某个对话快照，也可删除整次备份记录。
 - 移动端优化：
   - 新空对话默认显示用户状态与切换入口；发送消息后自动收起，进入已有消息的历史对话时默认保持收起，可通过头部用户按钮手动切换显示状态。
   - 流式输出期间，点击或滑动不会中断模型请求；“回到底部”只定位到点击瞬间已有内容的底部，不持续跟随后续增量。
@@ -51,14 +52,13 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。
-- 内置「余额查询」页面（`/api-config/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
-- 聊天页头部新增「余额」入口：选中模型所属 Profile 一键刷新余额，复用通用余额查询链路；用户切换或模型切换不会主动中断已发起的余额查询请求。
-- API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；旧备份（无 `balanceEntries`）保持兼容。
+- 内置「余额查询」页面（`/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
+- API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；新备份统一写入单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
 
 ### 数据与同步
 
-- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
+- PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、对话备份、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
 - IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿、全局模型选择和少量启动标记。
 - 支持数据库同步与本地优先合并策略。
 - 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
@@ -131,14 +131,15 @@ app/
 - 首页：`http://localhost:3000/`
 - 聊天页：`http://localhost:3000/chat`
 - 指定会话：`http://localhost:3000/chat/<session-id>`
+- 对话备份：`http://localhost:3000/backup/chat`
 - 绘图页：`http://localhost:3000/draw`
 - 绘图历史：`http://localhost:3000/draw/history`
-- API 配置：`http://localhost:3000/api-config`
-- API 配置备份：`http://localhost:3000/api-config/backups`
-- 余额查询：`http://localhost:3000/api-config/balances`
+- API 配置：`http://localhost:3000/api_config`
+- API 配置备份：`http://localhost:3000/backup/api_config`
+- 余额查询：`http://localhost:3000/balances`
 - 线上对应：`https://chat.dyxcloud.com/...`（同样使用普通路径）
 
-旧地址如 `http://localhost:3000/#/draw`、`/#/settings`、`/#/auth` 会在客户端启动时自动迁移到对应普通路径。直接刷新 `/draw`、`/api-config` 等路径由 Next.js catch-all 页面兜底进入同一个应用入口。
+旧地址如 `http://localhost:3000/#/draw`、`/#/settings`、`/#/auth` 会在客户端启动时自动迁移到对应普通路径。直接刷新 `/draw`、`/api_config` 等路径由 Next.js catch-all 页面兜底进入同一个应用入口。
 
 ### 数据库存储实现
 
@@ -159,6 +160,7 @@ app/
 - `app_settings`：前端 store 快照和同步状态。
 - `conversations`：聊天会话元数据。
 - `messages`：聊天消息内容。
+- `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`：按用户区分的对话增量备份和会话快照。
 - `provider_configs`：供应商配置。
 - `provider_api_keys`：API Key 密文与分组。
 - `provider_balance_configs`：供应商余额快照、查询时间戳和管理 API Key 密文。
@@ -168,6 +170,8 @@ app/
 - `user_draw_images`：绘画生成图片原图与缩略图（bytea，按 md5 去重）。
 - `cache_file_blobs` / `user_cache_files`：上传文件二进制去重与用户文件记录。
 - `api_config_backup_settings` / `api_config_backups`：API 配置自动/手动备份。
+
+对话记录当前已经规范化拆分到 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份使用独立的 `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`，按用户隔离；页面点击「立即备份」会为所有用户逐个创建增量备份，并可切换用户查看对应备份。每次增量只收录上次备份后变更过的会话，但每个会话保存完整消息快照，包含软删除会话，便于在线展开查看。单会话恢复会把备份会话恢复为可见，并按备份快照覆盖同 ID 会话的消息内容；恢复写入会刷新会话更新时间，避免本地旧缓存或后续同步再次覆盖恢复结果。页面支持删除整次备份记录，或删除某次备份中的单个会话快照。生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
 
 ### 模型同步实现
 

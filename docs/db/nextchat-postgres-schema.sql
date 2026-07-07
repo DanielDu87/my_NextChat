@@ -1,6 +1,7 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-06 (同步 schema 2026-07-06-deployment-metadata：新增成功部署版本记录)
+-- 最后更新: 2026-07-06 (同步 schema 2026-07-06-chat-backups：新增按用户区分的对话增量备份)
+-- 历史变更: 2026-07-06 deployment-metadata（新增成功部署版本记录）
 -- 历史变更: 2026-07-04 补供应商余额表 provider_balance_configs
 -- 历史变更: 2026-06-28 api-config-backup-counts（补文件缓存和 API 配置备份表）
 -- 历史变更: 2026-06-22 draw-thumb-v1（user_draw_images.thumb_data + md5 唯一索引）
@@ -283,6 +284,51 @@ CREATE TABLE IF NOT EXISTS api_config_backups (
 CREATE INDEX IF NOT EXISTS idx_api_config_backups_user_created
 ON api_config_backups(user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS chat_backup_settings (
+  user_id uuid PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+  enabled boolean NOT NULL DEFAULT true,
+  interval_minutes integer NOT NULL DEFAULT 1440 CHECK (interval_minutes >= 1),
+  max_backups integer NOT NULL DEFAULT 30 CHECK (max_backups >= 1),
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_backup_runs (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  source text NOT NULL CHECK (source IN ('manual', 'auto')),
+  mode text NOT NULL DEFAULT 'incremental' CHECK (mode IN ('full', 'incremental')),
+  from_watermark timestamptz,
+  to_watermark timestamptz NOT NULL DEFAULT NOW(),
+  session_count integer NOT NULL DEFAULT 0,
+  message_count integer NOT NULL DEFAULT 0,
+  checksum text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_backup_runs_user_created
+ON chat_backup_runs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_backup_conversation_snapshots (
+  id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  backup_id uuid NOT NULL REFERENCES chat_backup_runs(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  external_session_id text NOT NULL,
+  title text NOT NULL DEFAULT '',
+  message_count integer NOT NULL DEFAULT 0,
+  session_payload jsonb NOT NULL,
+  checksum text NOT NULL,
+  updated_at_snapshot timestamptz,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (backup_id, external_session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_backup_snapshots_backup
+ON chat_backup_conversation_snapshots(backup_id, external_session_id);
+
+CREATE INDEX IF NOT EXISTS idx_chat_backup_snapshots_user_session
+ON chat_backup_conversation_snapshots(user_id, external_session_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS provider_balance_configs (
   provider_config_id uuid PRIMARY KEY REFERENCES provider_configs(id) ON DELETE CASCADE,
   encrypted_management_key text,
@@ -338,6 +384,10 @@ CREATE OR REPLACE TRIGGER trg_api_config_backup_settings_updated_at
 BEFORE UPDATE ON api_config_backup_settings
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE OR REPLACE TRIGGER trg_chat_backup_settings_updated_at
+BEFORE UPDATE ON chat_backup_settings
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 CREATE OR REPLACE TRIGGER trg_provider_balance_configs_updated_at
 BEFORE UPDATE ON provider_balance_configs
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -362,6 +412,9 @@ COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete�
 COMMENT ON TABLE sync_secrets IS '同步用敏感数据密文存储';
 COMMENT ON TABLE api_config_backup_settings IS 'API 配置自动备份设置';
 COMMENT ON TABLE api_config_backups IS 'API 配置备份快照';
+COMMENT ON TABLE chat_backup_settings IS '对话增量备份设置';
+COMMENT ON TABLE chat_backup_runs IS '按用户区分的对话备份批次';
+COMMENT ON TABLE chat_backup_conversation_snapshots IS '对话备份批次中的完整会话快照';
 COMMENT ON TABLE provider_balance_configs IS '供应商余额快照 + 加密存储的管理 API Key';
 
 COMMIT;

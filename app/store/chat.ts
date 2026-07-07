@@ -605,7 +605,7 @@ export function buildSessionSummary(session: ChatSession): ChatSessionSummary {
       : 0,
     createdAt: normalizedSession.createdAt,
     displayTime:
-      normalizedSession.createdAt || normalizedSession.lastUpdate || Date.now(),
+      normalizedSession.lastUpdate || normalizedSession.createdAt || Date.now(),
     avatar: normalizedSession.mask?.avatar || fallbackMask.avatar,
     model:
       normalizedSession.mask?.modelConfig?.model ||

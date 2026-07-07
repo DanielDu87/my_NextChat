@@ -1,0 +1,867 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.page :global([class*="list-item"]),
+.page :global([class*="list-item"] *) {
+  cursor: default !important;
+}
+
+.page :global(button),
+.page :global(button *) {
+  cursor: pointer !important;
+}
+
+.page :global(button:disabled),
+.page :global(button:disabled *) {
+  cursor: not-allowed !important;
+}
+
+.content {
+  padding: 20px;
+  overflow: auto;
+}
+
+.content > :global([class*="list"]) {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.content > :global([class*="list"]) > :global([class*="list-item"]).hoverCard {
+  border: var(--border-in-light);
+  border-radius: 8px;
+}
+
+.settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  gap: 16px;
+  align-items: end;
+  width: 100%;
+  margin-top: 16px;
+}
+.settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.settings label:first-child {
+  flex-direction: row;
+  align-items: center;
+  padding-bottom: 10px;
+}
+.settings input[type="number"] {
+  width: 100%;
+}
+.syncStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  color: var(--black-2);
+  font-size: 12px;
+}
+.syncStatus svg {
+  width: 18px;
+  height: 18px;
+}
+
+.summaryContent {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) repeat(2, minmax(180px, 1fr));
+  grid-template-rows: repeat(2, 128px);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.hoverCard {
+  --hover-x: 50%;
+  --hover-y: 50%;
+
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: var(--border-in-light);
+  border-radius: 8px;
+  background: radial-gradient(
+      220px circle at var(--hover-x) var(--hover-y),
+      color-mix(in srgb, var(--primary) 12%, transparent),
+      transparent 62%
+    ),
+    var(--white);
+  background-repeat: no-repeat;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.hoverCard:hover,
+.hoverCard:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
+    0 8px 20px rgba(0, 0, 0, 0.035);
+}
+
+:global(.dark) .hoverCard:hover,
+:global(.dark) .hoverCard:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+.userSelector {
+  width: 100%;
+}
+
+.summaryCard {
+  height: 128px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.userSelector select {
+  width: 100%;
+  height: 40px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: var(--border-in-light);
+  border-radius: 7px;
+  color: var(--black);
+  background: var(--white);
+  color-scheme: light dark;
+  outline: none;
+}
+
+.userSelector select:focus {
+  border-color: var(--primary);
+}
+
+.summaryValue {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 32px;
+  margin-top: 12px;
+  padding: 4px 12px;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 36%, transparent);
+  border-radius: 999px;
+  color: #4b5563;
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.summaryLabel {
+  margin-top: 0;
+  color: var(--black);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.userSummaryList {
+  display: grid;
+  grid-auto-rows: minmax(44px, 1fr);
+  gap: 8px;
+  flex: 1;
+  width: calc(100% + 8px);
+  min-height: 0;
+  margin: 8px -4px -4px;
+  padding: 4px;
+  overflow: auto;
+}
+
+.userSummaryBox {
+  grid-row: span 2;
+  width: 100%;
+  height: 268px;
+  min-height: 0;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.userSummaryBoxTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0;
+  color: var(--black);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.userSummaryTitleCount {
+  min-width: 52px;
+  padding: 4px 10px;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 44%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--primary) 78%, #374151);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.userSummaryItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+.userSummaryName {
+  overflow: hidden;
+  color: var(--black);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userSummaryCount {
+  flex: none;
+  color: #4b5563;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.userSummaryCount span {
+  margin-left: 4px;
+  color: var(--black-2);
+  font-size: 12px;
+  font-weight: normal;
+}
+
+:global(.dark) .summaryValue,
+:global(.dark) .userSummaryCount {
+  color: #9ca3af;
+}
+
+:global(.dark) .summaryValue {
+  border-color: color-mix(in srgb, var(--primary) 44%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+:global(.dark) .userSummaryTitleCount {
+  border-color: color-mix(in srgb, var(--primary) 52%, transparent);
+  color: color-mix(in srgb, var(--primary) 82%, #d1d5db);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.historyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  white-space: normal;
+}
+
+.historyHeaderText {
+  min-width: 0;
+}
+
+.historyTitle {
+  font-weight: 700;
+}
+
+.historySubTitle {
+  margin-top: 4px;
+  color: var(--black-2);
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+}
+
+.createBackupButton {
+  --backup-green: #22a06b;
+
+  align-self: center;
+  width: 145px;
+  min-width: 145px;
+  margin-right: 15px;
+  justify-content: center;
+  color: white !important;
+  background-color: color-mix(
+    in srgb,
+    var(--backup-green) 75%,
+    white
+  ) !important;
+  border-color: var(--backup-green) !important;
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    color: white !important;
+    background-color: var(--backup-green) !important;
+    border-color: var(--backup-green) !important;
+  }
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+.searchBar input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  border-radius: 8px;
+  color: var(--black);
+  background: var(--white);
+  outline: none;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.searchBar input:hover,
+.searchBar input:focus {
+  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent),
+    0 8px 20px rgba(0, 0, 0, 0.035);
+}
+
+:global(.dark) .searchBar input:hover,
+:global(.dark) .searchBar input:focus {
+  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 42%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+.backups {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.backup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.backupActive {
+  border-color: color-mix(in srgb, var(--primary) 65%, transparent);
+}
+
+.backupTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.backupInfoButton {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.backupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--black);
+  font-weight: 600;
+}
+
+.modeBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border: var(--border-in-light);
+  border-radius: 999px;
+  color: var(--black-2);
+  font-size: 12px;
+  font-weight: normal;
+  background: color-mix(in srgb, var(--white) 88%, var(--gray));
+}
+
+.backupMeta,
+.empty {
+  margin-top: 5px;
+  color: var(--black-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.backupDetail {
+  padding-top: 12px;
+  border-top: var(--border-in-light);
+}
+
+.sessionList,
+.messageList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session {
+  padding: 14px;
+}
+
+.session.hoverCard {
+  background: radial-gradient(
+      180px circle at var(--hover-x) var(--hover-y),
+      color-mix(in srgb, var(--primary) 16%, transparent),
+      transparent 58%
+    ),
+    var(--gray);
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sessionInfoButton {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.sessionTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.messageList {
+  margin-top: 12px;
+}
+
+.message {
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.messageRole {
+  color: var(--black-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.messageContent {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.createBackupButton:not(:disabled),
+.createBackupButton:not(:disabled) *,
+.backupTop button:not(:disabled),
+.backupTop button:not(:disabled) *,
+.sessionInfoButton:not(:disabled),
+.sessionInfoButton:not(:disabled) *,
+.sessionHeader button:not(:disabled),
+.sessionHeader button:not(:disabled) * {
+  cursor: pointer !important;
+}
+
+@media (max-width: 1100px) {
+  .summaryContent {
+    grid-template-columns: minmax(260px, 360px) repeat(2, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .page :global(.window-header) {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-header-title) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 96px);
+    max-width: calc(100% - 96px);
+    margin: 0;
+    text-align: center;
+  }
+
+  .page :global(.window-header-main-title),
+  .page :global(.window-header-sub-title) {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .page :global(.window-actions) {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .content {
+    padding: 12px;
+  }
+
+  .summaryContent {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+  }
+
+  /* 移动端摘要卡片优化 - 每行2个 */
+  .summaryContent {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .userSummaryBox {
+    grid-column: span 2;
+  }
+
+  .summaryCard {
+    height: auto;
+    min-height: 88px;
+    padding: 16px;
+  }
+
+  .userSummaryBox {
+    height: auto;
+    min-height: 200px;
+  }
+
+  .userSummaryTitleCount {
+    min-width: 44px;
+    padding: 2px 8px;
+    font-size: 16px;
+  }
+
+  .summaryValue {
+    margin-top: 8px;
+    padding: 4px 10px;
+    font-size: 17px;
+  }
+
+  /* 移动端设置区域优化 - 每行2个，更紧凑 */
+  .settings {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .settings label {
+    gap: 4px;
+    font-size: 12px;
+    width: 100%;
+  }
+
+  .settings label:first-child {
+    grid-column: span 2;
+    padding-bottom: 0;
+  }
+
+  /* 移动端设置输入框优化 - 更高更大 */
+  .settings input[type="number"],
+  .settings :global(.textInput) {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 12px;
+    font-size: 15px;
+  }
+
+  .syncStatus {
+    grid-column: span 2;
+    margin-top: 2px;
+    min-height: 28px;
+    font-size: 11px;
+  }
+
+  .syncStatus svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* ==================== 第三个 div 区域（对话备份历史）移动端优化 ==================== */
+  
+  /* 备份历史标题区域优化 */
+  .historyHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .historyHeaderText {
+    width: 100%;
+  }
+
+  .historyTitle {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .historySubTitle {
+    font-size: 12px;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  /* 全部备份按钮优化 */
+  .createBackupButton {
+    align-self: stretch;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin-right: 0;
+    min-height: 42px !important;
+    height: 42px !important;
+    padding: 0 12px !important;
+    font-size: 14px !important;
+    font-weight: 600;
+    border-radius: 9px;
+  }
+
+  .createBackupButton :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .createBackupButton :global([class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  /* 搜索栏优化 */
+  .searchBar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin: 0 0 14px;
+  }
+
+  .searchBar input {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px !important;
+    height: 44px !important;
+    line-height: 20px;
+    font-size: 14px;
+    padding: 0 12px;
+    border-radius: 9px;
+  }
+
+  /* 备份列表优化 */
+  .backups {
+    gap: 10px;
+  }
+
+  /* 单个备份项优化 */
+  .backup {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .backupTop {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* 备份信息按钮优化 */
+  .backupInfoButton {
+    flex: 1 1 100%;
+    padding: 4px 0;
+  }
+
+  .backupTitle {
+    flex-wrap: wrap;
+    font-size: 14px;
+    gap: 6px;
+    line-height: 1.4;
+  }
+
+  .backupMeta {
+    font-size: 11px;
+    margin-top: 4px;
+    line-height: 1.6;
+  }
+
+  .modeBadge {
+    font-size: 11px;
+    padding: 2px 8px;
+    min-height: 20px;
+    border-radius: 999px;
+  }
+
+  /* 备份操作按钮组优化 */
+  .backupTop :global(button[class*="icon-button"]) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    justify-content: center;
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 10px !important;
+    font-size: 13px !important;
+    border-radius: 9px;
+  }
+
+  .backupTop :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+    display: inline-flex !important;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .backupTop :global(button[class*="icon-button"] [class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .backupTop :global(button[class*="icon-button"] svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* 备份详情区域优化 */
+  .backupDetail {
+    padding-top: 12px;
+    margin-top: 10px;
+  }
+
+  /* 会话列表优化 */
+  .sessionList,
+  .messageList {
+    gap: 10px;
+  }
+
+  /* 单个会话项优化 */
+  .session {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .sessionHeader {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* 会话信息按钮优化 */
+  .sessionInfoButton {
+    flex: 1 1 100%;
+    padding: 4px 0;
+  }
+
+  .sessionTitle {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  /* 会话操作按钮组优化 */
+  .sessionHeader :global(button[class*="icon-button"]) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    justify-content: center;
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 10px !important;
+    font-size: 13px !important;
+    border-radius: 9px;
+  }
+
+  .sessionHeader
+    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
+    display: inline-flex !important;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .sessionHeader
+    :global(button[class*="icon-button"] [class*="icon-button-icon"]) {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .sessionHeader :global(button[class*="icon-button"] svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* 消息列表优化 */
+  .messageList {
+    margin-top: 12px;
+  }
+
+  .message {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .messageRole {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .messageContent {
+    font-size: 12px;
+    margin-top: 6px;
+    line-height: 1.6;
+  }
+}

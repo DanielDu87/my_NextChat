@@ -30,6 +30,7 @@ import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
 import { getClientConfig } from "../config/client";
 import { useAuthStore } from "../store/auth";
+import { getSidebarRouteState } from "../utils/sidebar-route-state";
 
 const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
   loading: () => (
@@ -462,7 +463,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
   };
 
   const handleMouseEnter = () => {
-    if (isChatListControlsDisabled) return;
+    if (disableBottomActions) return;
     // 清除关闭定时器
     if (themeTimerRef.current) {
       clearTimeout(themeTimerRef.current);
@@ -471,12 +472,8 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
     setShowThemeSelector(true);
   };
 
-  const isChatPage =
-    location.pathname === Path.Home ||
-    location.pathname === Path.Chat ||
-    location.pathname === Path.NewChat ||
-    /^\/chat\/[^/]+$/.test(location.pathname);
-  const isChatListControlsDisabled = !isChatPage;
+  const { disableHeaderActions, disableBottomActions, disableDeleteAction } =
+    getSidebarRouteState(location.pathname);
 
   return (
     <SideBarContainer {...props}>
@@ -490,34 +487,50 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
       >
         <div className={styles["sidebar-header-bar"]}>
           {mcpEnabled && (
-            <IconButton
-              icon={<McpIcon />}
-              text={Locale.Mcp.Name}
-              className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
-              onClick={() => {
-                navigate(Path.McpMarket, { state: { fromHome: true } });
-              }}
-              shadow
-            />
+            <div
+              className={clsx({
+                [styles["sidebar-action-disabled"]]: disableHeaderActions,
+              })}
+            >
+              <IconButton
+                icon={<McpIcon />}
+                text={Locale.Mcp.Name}
+                className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
+                disabled={disableHeaderActions}
+                onClick={() => {
+                  if (disableHeaderActions) return;
+                  navigate(Path.McpMarket, { state: { fromHome: true } });
+                }}
+                shadow
+              />
+            </div>
           )}
           {DISCOVERY.map((item) => (
-            <IconButton
+            <div
               key={item.path ?? item.name}
-              icon={item.icon}
-              text={item.name}
-              className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
-              onClick={() => {
-                if (item.path) {
-                  if (item.path === Path.Draw) {
-                    console.clear();
+              className={clsx({
+                [styles["sidebar-action-disabled"]]: disableHeaderActions,
+              })}
+            >
+              <IconButton
+                icon={item.icon}
+                text={item.name}
+                className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
+                disabled={disableHeaderActions}
+                onClick={() => {
+                  if (disableHeaderActions) return;
+                  if (item.path) {
+                    if (item.path === Path.Draw) {
+                      console.clear();
+                    }
+                    navigate(item.path, { state: { fromHome: true } });
+                    return;
                   }
-                  navigate(item.path, { state: { fromHome: true } });
-                  return;
-                }
-                showToast(Locale.WIP);
-              }}
-              shadow
-            />
+                  showToast(Locale.WIP);
+                }}
+                shadow
+              />
+            </div>
           ))}
         </div>
       </SideBarHeader>
@@ -553,7 +566,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
           <>
             <div
               className={clsx(styles["sidebar-action"], {
-                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+                [styles["sidebar-action-disabled"]]: disableBottomActions,
               })}
             >
               <IconButton
@@ -561,16 +574,16 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                 icon={<SettingsIcon />}
                 className={styles["sidebar-icon-button"]}
                 shadow
-                disabled={isChatListControlsDisabled}
+                disabled={disableBottomActions}
                 onClick={() => {
-                  if (isChatListControlsDisabled) return;
+                  if (disableBottomActions) return;
                   window.dispatchEvent(new CustomEvent("openEditModal"));
                 }}
               />
             </div>
             <div
               className={clsx(styles["sidebar-action"], {
-                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+                [styles["sidebar-action-disabled"]]: disableBottomActions,
               })}
             >
               <div
@@ -592,9 +605,9 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                   }
                   className={styles["sidebar-icon-button"]}
                   shadow
-                  disabled={isChatListControlsDisabled}
+                  disabled={disableBottomActions}
                 />
-                {showThemeSelector && !isChatListControlsDisabled && (
+                {showThemeSelector && !disableBottomActions && (
                   <div
                     className={styles["theme-dropdown"]}
                     onMouseEnter={handleMouseEnter}
@@ -649,15 +662,15 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
           <>
             <div
               className={clsx(styles["sidebar-action"], styles.mobile, {
-                [styles["sidebar-action-disabled"]]: isChatListControlsDisabled,
+                [styles["sidebar-action-disabled"]]: disableDeleteAction,
               })}
             >
               <IconButton
                 icon={<DeleteIcon />}
                 className={styles["sidebar-icon-button"]}
-                disabled={isChatListControlsDisabled}
+                disabled={disableDeleteAction}
                 onClick={async () => {
-                  if (isChatListControlsDisabled) return;
+                  if (disableDeleteAction) return;
                   if (readOnly) {
                     showToast("管理员查看他人数据时为只读模式，不能删除会话");
                     return;
@@ -678,16 +691,20 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
               icon={<AddIcon />}
               className={styles["sidebar-icon-button"]}
               text={Locale.Home.NewChat}
-              disabled={isChatListControlsDisabled}
+              disabled={disableBottomActions}
               onClick={() => {
-                if (isChatListControlsDisabled) return;
+                if (disableBottomActions) return;
                 if (readOnly) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;
                 }
                 // 移动端列表页点击应直接进入新对话视图；
                 // 桌面端列表与对话面板同屏，已是空白新对话时无需跳转
-                if (!isMobileScreen && isCurrentFreshDefaultChat()) {
+                if (
+                  !isMobileScreen &&
+                  location.pathname === Path.Chat &&
+                  isCurrentFreshDefaultChat()
+                ) {
                   return;
                 }
                 navigate(Path.NewChat);

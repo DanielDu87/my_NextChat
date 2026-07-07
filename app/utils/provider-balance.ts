@@ -114,11 +114,17 @@ export function cacheProviderBalance(
 
 export class ProviderBalanceRequestError extends Error {
   attempts: ProviderBalanceAttempt[];
+  balance?: ProviderBalanceSnapshot | null;
 
-  constructor(message: string, attempts: ProviderBalanceAttempt[] = []) {
+  constructor(
+    message: string,
+    attempts: ProviderBalanceAttempt[] = [],
+    balance?: ProviderBalanceSnapshot | null,
+  ) {
     super(message);
     this.name = "ProviderBalanceRequestError";
     this.attempts = attempts;
+    this.balance = balance;
   }
 }
 
@@ -238,9 +244,15 @@ export async function queryProviderBalanceProfile(
       response: payload,
     });
     logBalanceAttempts(attempts);
+    // 从响应中提取可能的余额数据
+    let fallbackBalance: ProviderBalanceSnapshot | undefined;
+    if (payload && typeof payload === "object" && "balance" in payload) {
+      fallbackBalance = payload.balance as ProviderBalanceSnapshot;
+    }
     throw new ProviderBalanceRequestError(
       payload?.error || "query_failed",
       attempts,
+      fallbackBalance,
     );
   }
   const balance = payload.balance as ProviderBalanceSnapshot;

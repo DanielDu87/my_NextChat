@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { PointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
@@ -7,7 +8,6 @@ import TrashIcon from "../icons/trash.svg";
 import UploadIcon from "../icons/upload.svg";
 import { Path } from "../constant";
 import { useAccessStore } from "../store";
-import { useMobileScreen } from "../utils";
 import { unwrapPersistedStoreState } from "../utils/sync-store-keys";
 import { IconButton } from "./button";
 import { List, ListItem, showConfirm, showToast } from "./ui-lib";
@@ -35,7 +35,6 @@ const SOURCE_LABEL = {
 export function ApiConfigBackupsPage() {
   const navigate = useNavigate();
   const accessStore = useAccessStore();
-  const isMobileScreen = useMobileScreen();
   const [settings, setSettings] = useState<Settings>({
     enabled: true,
     intervalMinutes: 1440,
@@ -48,6 +47,18 @@ export function ApiConfigBackupsPage() {
     useState("正在读取服务器设置...");
   const settingsReadyRef = useRef(false);
   const syncedSettingsRef = useRef("");
+
+  const updateHoverPosition = (event: PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.style.setProperty(
+      "--hover-x",
+      `${event.clientX - rect.left}px`,
+    );
+    event.currentTarget.style.setProperty(
+      "--hover-y",
+      `${event.clientY - rect.top}px`,
+    );
+  };
 
   const load = useCallback(async () => {
     console.log("===== 📚 API配置备份列表 =====");
@@ -84,12 +95,11 @@ export function ApiConfigBackupsPage() {
   }, []);
 
   useEffect(() => {
-    if (isMobileScreen) return;
     void load();
-  }, [isMobileScreen, load]);
+  }, [load]);
 
   useEffect(() => {
-    if (isMobileScreen || !settingsReadyRef.current) return;
+    if (!settingsReadyRef.current) return;
     const settingsSnapshot = JSON.stringify(settings);
     if (settingsSnapshot === syncedSettingsRef.current) return;
     setSettingsSyncStatus("等待同步...");
@@ -120,7 +130,7 @@ export function ApiConfigBackupsPage() {
       }
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [isMobileScreen, settings]);
+  }, [settings]);
 
   const request = async (body: unknown) => {
     const response = await fetch("/api/db/api-config-backups", {
@@ -208,40 +218,6 @@ export function ApiConfigBackupsPage() {
     }
   };
 
-  if (isMobileScreen) {
-    return (
-      <div className={styles.page} data-top-notice-anchor="true">
-        <div className="window-header" data-tauri-drag-region>
-          <div className="window-header-title">
-            <div className="window-header-main-title">API 配置备份与恢复</div>
-            <div className="window-header-sub-title">
-              设置自动备份并恢复历史 API 配置
-            </div>
-          </div>
-          <div className="window-actions">
-            <IconButton
-              aria="关闭"
-              icon={<CloseIcon />}
-              close
-              bordered
-              onClick={() => navigate(Path.ApiConfig)}
-            />
-          </div>
-        </div>
-        <div className={apiConfigStyles.mobileOnly}>
-          <div className={apiConfigStyles.mobileOnlyCard}>
-            <div className={apiConfigStyles.mobileOnlyTitle}>
-              本页面只能在电脑端打开
-            </div>
-            <div className={apiConfigStyles.mobileOnlyDesc}>
-              请切换到电脑端或放大浏览器窗口后再打开 API 配置备份与恢复页面。
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.page} data-top-notice-anchor="true">
       <div className="window-header" data-tauri-drag-region>
@@ -264,6 +240,8 @@ export function ApiConfigBackupsPage() {
       <div className={styles.content}>
         <List>
           <ListItem
+            className={styles.hoverCard}
+            onPointerMove={updateHoverPosition}
             title="自动备份设置"
             subTitle="备份间隔按分钟计算，可自定义保留数量。"
             vertical
@@ -327,10 +305,12 @@ export function ApiConfigBackupsPage() {
             </div>
           </ListItem>
           <ListItem
+            className={styles.hoverCard}
+            onPointerMove={updateHoverPosition}
             title={
               <div className={styles.historyHeader}>
                 <div className={styles.historyHeaderText}>
-                  <div className={styles.historyTitle}>恢复历史备份</div>
+                  <div className={styles.historyTitle}>配置备份历史</div>
                   <div className={styles.historySubTitle}>
                     恢复会覆盖 API
                     配置和供应商余额管理密钥、最近一次余额快照；不影响聊天、插件及其他数据。
@@ -356,7 +336,11 @@ export function ApiConfigBackupsPage() {
             ) : (
               <div className={styles.backups}>
                 {backups.map((backup) => (
-                  <div className={styles.backup} key={backup.id}>
+                  <div
+                    className={`${styles.backup} ${styles.hoverCard}`}
+                    key={backup.id}
+                    onPointerMove={updateHoverPosition}
+                  >
                     <div>
                       <div className={styles.backupTitle}>
                         {SOURCE_LABEL[backup.source]}

@@ -328,22 +328,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // 恢复失败不影响主流程
     }
 
-    // 最后同步新用户的远端对话
-    useSyncStore
-      .getState()
-      .sync([StoreKey.Chat], {
+    // 最后同步新用户的远端对话。这里必须等待完成后再返回，
+    // 调用方可能会在切换后立即打开某个会话；提前返回会被后台下载同步覆盖。
+    try {
+      await useSyncStore.getState().sync([StoreKey.Chat], {
         isolateQueue: true,
         downloadOnlyChat: true,
-      })
-      .then(() => {
-        publishStartupChatSyncStatus("done");
-        set({ switchingUser: false });
-      })
-      .catch((error) => {
-        publishStartupChatSyncStatus("error");
-        set({ switchingUser: false });
-        console.error("[Auth] 切换用户后同步对话失败:", error);
       });
+      publishStartupChatSyncStatus("done");
+    } catch (error) {
+      publishStartupChatSyncStatus("error");
+      console.error("[Auth] 切换用户后同步对话失败:", error);
+    } finally {
+      set({ switchingUser: false });
+    }
   },
   async exitSwitch() {
     const response = await fetch("/api/admin/switch-user", {

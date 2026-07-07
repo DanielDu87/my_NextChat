@@ -35,15 +35,44 @@ function checksum(payload: unknown) {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function unwrapState(payload: any) {
-  return payload?.state && typeof payload.state === "object"
-    ? payload.state
-    : payload;
+function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
+  return (
+    typeof payload === "object" && payload !== null && !Array.isArray(payload)
+  );
 }
 
-function profileCount(payload: any) {
+function unwrapState(payload: unknown) {
+  let state = payload;
+  while (
+    isObjectPayload(state) &&
+    !Array.isArray(state.apiProfiles) &&
+    isObjectPayload(state.state)
+  ) {
+    state = state.state;
+  }
+  return state;
+}
+
+function profileCount(payload: unknown) {
   const state = unwrapState(payload);
-  return Array.isArray(state?.apiProfiles) ? state.apiProfiles.length : 0;
+  return isObjectPayload(state) && Array.isArray(state.apiProfiles)
+    ? state.apiProfiles.length
+    : 0;
+}
+
+function normalizeApiConfigBackupState(payload: unknown) {
+  const state = unwrapState(payload);
+  if (!isObjectPayload(state)) return state;
+
+  const {
+    state: _nestedPersistState,
+    version: _persistVersion,
+    ...accessState
+  } = state;
+  void _nestedPersistState;
+  void _persistVersion;
+
+  return accessState;
 }
 
 export function readBalanceEntriesFromPayload(
@@ -102,7 +131,7 @@ export async function buildApiConfigBackupPayload(
 ): Promise<ApiConfigBackupPayloadV2> {
   return {
     schema: API_CONFIG_BACKUP_PAYLOAD_SCHEMA,
-    state,
+    state: normalizeApiConfigBackupState(state),
     balanceEntries: await loadProviderBalanceEntries(externalUserId),
   };
 }
@@ -228,6 +257,8 @@ export async function listApiConfigBackups(externalUserId: string) {
          case
            when jsonb_typeof(payload_json -> 'state' -> 'apiProfiles') = 'array'
              then payload_json -> 'state' -> 'apiProfiles'
+           when jsonb_typeof(payload_json -> 'state' -> 'state' -> 'apiProfiles') = 'array'
+             then payload_json -> 'state' -> 'state' -> 'apiProfiles'
            when jsonb_typeof(payload_json -> 'apiProfiles') = 'array'
              then payload_json -> 'apiProfiles'
            else '[]'::jsonb

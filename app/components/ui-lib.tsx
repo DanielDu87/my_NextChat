@@ -155,6 +155,7 @@ export function ListItem(props: {
   icon?: JSX.Element;
   className?: string;
   onClick?: (e: MouseEvent) => void;
+  onPointerMove?: React.PointerEventHandler<HTMLDivElement>;
   vertical?: boolean;
 }) {
   return (
@@ -167,6 +168,7 @@ export function ListItem(props: {
         props.className,
       )}
       onClick={props.onClick}
+      onPointerMove={props.onPointerMove}
     >
       <div className={styles["list-header"]}>
         {props.icon && <div className={styles["list-icon"]}>{props.icon}</div>}

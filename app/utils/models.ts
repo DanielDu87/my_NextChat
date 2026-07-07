@@ -1575,10 +1575,6 @@ export async function fetchModelsFromProvider(
       }
     }
 
-    if (!data) {
-      throw new Error("未找到可用的模型接口");
-    }
-
     // 标准化模型列表响应
     let models: any[] = [];
 
@@ -1614,7 +1610,7 @@ export async function fetchModelsFromProvider(
     }
 
     // YutoAPI: 从 vendors 数组构建映射
-    if (data.vendors && Array.isArray(data.vendors)) {
+    if (data?.vendors && Array.isArray(data.vendors)) {
       vendorsMap = {};
       data.vendors.forEach((v: any) => {
         vendorsMap![v.id] = {
@@ -1633,7 +1629,7 @@ export async function fetchModelsFromProvider(
     }
 
     // 统一兼容 OpenAI、聚合商、Ollama、网关面板等常见模型列表格式
-    models = extractModelListFromResponse(data, baseUrl);
+    models = data ? extractModelListFromResponse(data, baseUrl) : [];
 
     const mergedModelMap = new Map<string, LLMModel>();
     for (const result of payloadResults) {
@@ -1802,7 +1798,7 @@ export async function fetchModelsFromProvider(
 
       for (const [groupName, groupApiKey] of groupedEntries) {
         try {
-          const groupData = await fetchJsonWithCandidates(
+          const groupResults = await fetchAllJsonWithCandidates(
             buildProxyModelFetchCandidates(baseWithoutV1),
             {
               ...headers,
@@ -1829,40 +1825,45 @@ export async function fetchModelsFromProvider(
                 extractModelListFromResponse(payload, baseUrl).length > 0,
             },
           );
-          const groupModels = extractModelListFromResponse(groupData, baseUrl);
-
-          mapModels(
-            groupModels,
-            providerId,
-            providerName,
-            providerType,
-            sorted,
-            vendorsMap,
-            groupName,
-            catalogMetadataMap,
-            classificationMap,
-          ).forEach((model) => {
-            const key = `${model.name}@${model.provider?.id}`;
-            const existing = mergedModelMap.get(key);
-
-            if (!existing) {
-              mergedModelMap.set(key, model);
-              return;
-            }
-
-            const existingPriority = getOcoolApiKeyGroupPriority(
-              model.name,
-              existing.apiKeyGroup,
+          for (const result of groupResults) {
+            const groupModels = extractModelListFromResponse(
+              result.data,
+              baseUrl,
             );
-            const nextPriority = getOcoolApiKeyGroupPriority(
-              model.name,
+
+            mapModels(
+              groupModels,
+              providerId,
+              providerName,
+              providerType,
+              sorted,
+              vendorsMap,
               groupName,
-            );
+              catalogMetadataMap,
+              classificationMap,
+            ).forEach((model) => {
+              const key = `${model.name}@${model.provider?.id}`;
+              const existing = mergedModelMap.get(key);
 
-            if (nextPriority > existingPriority) {
-              mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
-            }
-          });
+              if (!existing) {
+                mergedModelMap.set(key, model);
+                return;
+              }
+
+              const existingPriority = getOcoolApiKeyGroupPriority(
+                model.name,
+                existing.apiKeyGroup,
+              );
+              const nextPriority = getOcoolApiKeyGroupPriority(
+                model.name,
+                groupName,
+              );
+
+              if (nextPriority > existingPriority) {
+                mergedModelMap.set(key, { ...model, apiKeyGroup: groupName });
+              }
+            });
+          }
         } catch (error) {
           console.warn(
             `[Fetch Models] Ocoolai 分组 ${groupName} 获取失败，继续尝试其他分组`,
@@ -1966,6 +1967,10 @@ export async function fetchModelsFromProvider(
           total: mappedModels.length,
         };
       }
+    }
+
+    if (models.length === 0) {
+      throw new Error("未找到可用的模型接口");
     }
 
     if (isAiHubMixUrl(baseUrl)) {

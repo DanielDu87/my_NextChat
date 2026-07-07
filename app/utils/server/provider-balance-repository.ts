@@ -110,16 +110,32 @@ export async function saveProviderBalanceResult(
   profileId: string,
   balance: unknown,
   lastError = "",
+  options?: { keepExistingBalance?: boolean },
 ) {
   await ensureBalanceSchema();
-  await pgQuery(
-    `insert into provider_balance_configs (provider_config_id, balance_snapshot, last_error, queried_at)
-     select id, $3::jsonb, $4, now() from provider_configs where user_id = $1::uuid and provider_code = $2
-     on conflict (provider_config_id) do update set
-       balance_snapshot = excluded.balance_snapshot,
-       last_error = excluded.last_error,
-       queried_at = excluded.queried_at,
-       updated_at = now()`,
-    [userId, profileId, JSON.stringify(balance), lastError],
-  );
+
+  if (options?.keepExistingBalance && balance === null) {
+    // 保留现有余额，只更新错误信息和查询时间
+    await pgQuery(
+      `insert into provider_balance_configs (provider_config_id, balance_snapshot, last_error, queried_at)
+       select id, null, $3, now() from provider_configs where user_id = $1::uuid and provider_code = $2
+       on conflict (provider_config_id) do update set
+         last_error = excluded.last_error,
+         queried_at = excluded.queried_at,
+         updated_at = now()`,
+      [userId, profileId, lastError],
+    );
+  } else {
+    // 正常更新余额和错误信息
+    await pgQuery(
+      `insert into provider_balance_configs (provider_config_id, balance_snapshot, last_error, queried_at)
+       select id, $3::jsonb, $4, now() from provider_configs where user_id = $1::uuid and provider_code = $2
+       on conflict (provider_config_id) do update set
+         balance_snapshot = excluded.balance_snapshot,
+         last_error = excluded.last_error,
+         queried_at = excluded.queried_at,
+         updated_at = now()`,
+      [userId, profileId, JSON.stringify(balance), lastError],
+    );
+  }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { PointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
@@ -100,6 +101,18 @@ export function ProviderBalancesPage() {
   );
   const isSaving = working.startsWith("save:");
 
+  const updateHoverPosition = (event: PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.style.setProperty(
+      "--hover-x",
+      `${event.clientX - rect.left}px`,
+    );
+    event.currentTarget.style.setProperty(
+      "--hover-y",
+      `${event.clientY - rect.top}px`,
+    );
+  };
+
   useEffect(() => {
     console.clear();
     console.log(`${LOG_SEPARATOR} 💰 余额查询页面 ${LOG_SEPARATOR}`);
@@ -197,10 +210,24 @@ export function ProviderBalancesPage() {
       }));
     } catch (error) {
       const errorMessage = getProviderBalanceErrorMessage(error);
+      // 如果错误对象中包含 balance 数据（来自服务端的返回），使用它
+      let fallbackBalance = null;
+      if (error && typeof error === "object" && "balance" in error) {
+        const balanceFromError = (error as any).balance;
+        // 只有当余额数据有效时才使用
+        if (balanceFromError && Number.isFinite(balanceFromError?.value)) {
+          fallbackBalance = balanceFromError;
+        }
+      }
       setProfiles((value) =>
         value.map((profile) =>
           profile.profileId === profileId
-            ? { ...profile, lastError: errorMessage }
+            ? {
+                ...profile,
+                lastError: errorMessage,
+                // 如果有返回的余额数据就使用，否则保持原有的余额
+                balance: fallbackBalance || profile.balance,
+              }
             : profile,
         ),
       );
@@ -363,7 +390,7 @@ export function ProviderBalancesPage() {
         <div className="window-header-title">
           <div className="window-header-main-title">余额查询</div>
           <div className="window-header-sub-title">
-            独立管理查询 Key、批量更新并保存到 PostgreSQL
+            独立管理查询 Key、批量更新并保存到数据库
           </div>
         </div>
         <div className="window-actions">
@@ -372,10 +399,12 @@ export function ProviderBalancesPage() {
               icon={<ReloadIcon />}
               text="全部查询"
               bordered
+              className={styles.headerQueryButton}
               disabled={
                 working === "all" ||
                 savingProfileIds.length > 0 ||
-                queryingProfileIds.length > 0
+                (profiles.length > 0 &&
+                  queryingProfileIds.length === profiles.length)
               }
               onClick={() => void queryAll()}
             />
@@ -411,7 +440,11 @@ export function ProviderBalancesPage() {
             <div className={styles.empty}>暂无 API 配置</div>
           ) : (
             profiles.map((profile) => (
-              <div className={styles.card} key={profile.profileId}>
+              <div
+                className={`${styles.card} ${styles.hoverCard}`}
+                key={profile.profileId}
+                onPointerMove={updateHoverPosition}
+              >
                 <div className={styles.header}>
                   <span className={styles.name}>{profile.profileName}</span>
                   <span

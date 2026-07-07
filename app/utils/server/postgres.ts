@@ -24,7 +24,7 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-06-deployment-metadata";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-06-chat-backups";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -63,6 +63,7 @@ function isRetryablePostgresError(error: unknown) {
     "the database system is starting up",
     "too many clients already",
     "Connection terminated due to connection timeout",
+    "tuple concurrently updated",
   ].some((pattern) => message.includes(pattern));
 }
 
@@ -735,8 +736,64 @@ export async function ensureSyncStorageSchema() {
         on api_config_backups(user_id, created_at desc)
       `);
         await client.query(`
+        create table if not exists chat_backup_settings (
+          user_id uuid primary key references app_users(id) on delete cascade,
+          enabled boolean not null default true,
+          interval_minutes integer not null default 1440 check (interval_minutes >= 1),
+          max_backups integer not null default 30 check (max_backups >= 1),
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists chat_backup_runs (
+          id uuid primary key default generate_uuid_v4(),
+          user_id uuid not null references app_users(id) on delete cascade,
+          source text not null check (source in ('manual', 'auto')),
+          mode text not null default 'incremental' check (mode in ('full', 'incremental')),
+          from_watermark timestamptz,
+          to_watermark timestamptz not null default now(),
+          session_count integer not null default 0,
+          message_count integer not null default 0,
+          checksum text not null,
+          created_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_chat_backup_runs_user_created
+        on chat_backup_runs(user_id, created_at desc)
+      `);
+        await client.query(`
+        create table if not exists chat_backup_conversation_snapshots (
+          id uuid primary key default generate_uuid_v4(),
+          backup_id uuid not null references chat_backup_runs(id) on delete cascade,
+          user_id uuid not null references app_users(id) on delete cascade,
+          external_session_id text not null,
+          title text not null default '',
+          message_count integer not null default 0,
+          session_payload jsonb not null,
+          checksum text not null,
+          updated_at_snapshot timestamptz,
+          created_at timestamptz not null default now(),
+          unique (backup_id, external_session_id)
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_chat_backup_snapshots_backup
+        on chat_backup_conversation_snapshots(backup_id, external_session_id)
+      `);
+        await client.query(`
+        create index if not exists idx_chat_backup_snapshots_user_session
+        on chat_backup_conversation_snapshots(user_id, external_session_id, created_at desc)
+      `);
+        await client.query(`
         create or replace trigger trg_api_config_backup_settings_updated_at
         before update on api_config_backup_settings
+        for each row execute function set_updated_at()
+      `);
+        await client.query(`
+        create or replace trigger trg_chat_backup_settings_updated_at
+        before update on chat_backup_settings
         for each row execute function set_updated_at()
       `);
         await client.query(`

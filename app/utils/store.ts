@@ -7,6 +7,7 @@ import { StoreKey } from "../constant";
 import type { SyncStoreKey } from "./sync-store-keys";
 import { useAuthStore } from "../store/auth";
 import { logger } from "./logger";
+import { normalizeSidebarPathname } from "./sidebar-route-state";
 
 type SecondParam<T> = T extends (
   _f: infer _F,
@@ -62,8 +63,15 @@ function shouldDeferApiConfigImmediateSync(storeKey?: SyncStoreKey) {
   }
 
   const hashPath = window.location.hash.replace(/^#/, "").split("?")[0];
-  const currentPath = hashPath || window.location.pathname;
-  return currentPath === "/api-config" || currentPath === "/api-config/backups";
+  const currentPath = normalizeSidebarPathname(
+    hashPath || window.location.pathname,
+  );
+  return (
+    currentPath === "/api-config" ||
+    currentPath === "/api_config" ||
+    currentPath === "/api-config/backups" ||
+    currentPath === "/backup/api_config"
+  );
 }
 
 function resolveSyncQueueIdle() {

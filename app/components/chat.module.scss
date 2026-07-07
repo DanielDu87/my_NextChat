@@ -1307,6 +1307,79 @@
   }
 }
 
+.chat-backup-menu {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.chat-backup-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 20;
+  min-width: 116px;
+  padding: 8px;
+  border: var(--border-in-light);
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  animation: chatBackupMenuFadeIn 0.16s ease;
+}
+
+.chat-backup-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+  }
+}
+
+.chat-backup-option-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+
+  svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@keyframes chatBackupMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .chat-action-spinning-icon {
   display: inline-flex;
   align-items: center;

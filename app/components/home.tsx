@@ -20,6 +20,7 @@ import { getISOLang, getLang } from "../locales";
 
 import {
   BrowserRouter as Router,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -55,6 +56,7 @@ import {
   publishStartupChatSyncStatus,
   useStartupChatSyncStatus,
 } from "../utils/chat-startup-loading";
+import { isChatSessionRoutePath } from "../utils/sidebar-route-state";
 
 export function Loading(props: { noLogo?: boolean; splash?: boolean }) {
   // 最早期就同步设置主题，确保背景色正确
@@ -93,6 +95,10 @@ const ApiConfigPage = dynamic(
 
 const ApiConfigBackupsPage = dynamic(
   async () => (await import("./api-config-backups")).ApiConfigBackupsPage,
+  { loading: () => <LoadingView size="splash" className="no-dark" /> },
+);
+const ChatBackupsPage = dynamic(
+  async () => (await import("./chat-backups")).ChatBackupsPage,
   { loading: () => <LoadingView size="splash" className="no-dark" /> },
 );
 const ProviderBalancesPage = dynamic(
@@ -329,12 +335,13 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const isLegacySd = location.pathname === "/sd";
   const isLegacySdHistory = location.pathname === "/sd/history";
   const isLegacySdNew = location.pathname === "/sd-new";
+  const isChatSessionRoute = isChatSessionRoutePath(location.pathname);
   const isChatRoute =
     isHome ||
     location.pathname === Path.Chat ||
     location.pathname === Path.NewChat ||
-    location.pathname.startsWith(`${Path.Chat}/`);
-  const urlSessionId = location.pathname.startsWith(`${Path.Chat}/`)
+    isChatSessionRoute;
+  const urlSessionId = isChatSessionRoute
     ? decodeURIComponent(location.pathname.slice(Path.Chat.length + 1))
     : "";
   const selectedSessionId = useChatStore((state) => state.selectedSessionId);
@@ -526,16 +533,45 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
             <Route path={Path.NewChat} element={<NewChat />} />
             <Route path={Path.Plugins} element={<PluginPage />} />
             <Route path={Path.SearchChat} element={<SearchChat />} />
+            <Route path={Path.ChatBackups} element={<ChatBackupsPage />} />
+            <Route
+              path={Path.LegacyChatBackups}
+              element={<Navigate to={Path.ChatBackups} replace />}
+            />
+            <Route
+              path="/info/chat/bakcup"
+              element={<Navigate to={Path.ChatBackups} replace />}
+            />
             <Route path={Path.ChatWithId} element={<Chat />} />
             <Route path={Path.Chat} element={<Chat />} />
             <Route path={Path.ApiConfig} element={<ApiConfigPage />} />
+            <Route
+              path={Path.LegacyApiConfig}
+              element={<Navigate to={Path.ApiConfig} replace />}
+            />
             <Route
               path={Path.ApiConfigBackups}
               element={<ApiConfigBackupsPage />}
             />
             <Route
+              path={Path.LegacyApiConfigBackups}
+              element={<Navigate to={Path.ApiConfigBackups} replace />}
+            />
+            <Route
+              path="/info/api-config/bakcup"
+              element={<Navigate to={Path.ApiConfigBackups} replace />}
+            />
+            <Route
               path={Path.ProviderBalances}
               element={<ProviderBalancesPage />}
+            />
+            <Route
+              path={Path.LegacyProviderBalances}
+              element={<Navigate to={Path.ProviderBalances} replace />}
+            />
+            <Route
+              path="/info/balances"
+              element={<Navigate to={Path.ProviderBalances} replace />}
             />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
             <Route path={Path.PromptManager} element={<PromptManagerPage />} />

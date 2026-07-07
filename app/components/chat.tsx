@@ -27,8 +27,10 @@ import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
-import MoneyIcon from "../icons/money.svg";
 import ConfigIcon from "../icons/config.svg";
+import DownloadIcon from "../icons/download.svg";
+import HistoryIcon from "../icons/history.svg";
+import MoneyIcon from "../icons/money.svg";
 import UserIcon from "../icons/user.svg";
 import DeleteIcon from "../icons/clear.svg";
 import CloseIcon from "../icons/close.svg";
@@ -157,6 +159,13 @@ import {
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
+
+const CHAT_BACKUP_ENTRIES = [
+  { name: "API 配置", path: Path.ApiConfig, icon: <ConfigIcon /> },
+  { name: "API 备份", path: Path.ApiConfigBackups, icon: <DownloadIcon /> },
+  { name: "对话备份", path: Path.ChatBackups, icon: <HistoryIcon /> },
+  { name: "余额查询", path: Path.ProviderBalances, icon: <MoneyIcon /> },
+];
 
 function syncModelSelectionNow(includeGlobalDefault: boolean) {
   const syncStore = useSyncStore.getState();
@@ -3435,6 +3444,7 @@ function _Chat() {
   const autoModelSeries = useAppConfig((state) => state.autoModelSeries);
 
   const [showExport, setShowExport] = useState(false);
+  const [showBackupMenu, setShowBackupMenu] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showAddModelModal, setShowAddModelModal] = useState(false);
   const [addModelProfile, setAddModelProfile] = useState<{
@@ -3725,6 +3735,26 @@ function _Chat() {
   }, [currentSessionHasMessages, isMobileScreen]);
 
   const navigate = useNavigate();
+  const backupMenuTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleBackupMenuEnter = useCallback(() => {
+    if (backupMenuTimerRef.current) {
+      clearTimeout(backupMenuTimerRef.current);
+      backupMenuTimerRef.current = null;
+    }
+    setShowBackupMenu(true);
+  }, []);
+  const handleBackupMenuLeave = useCallback(() => {
+    backupMenuTimerRef.current = setTimeout(() => {
+      setShowBackupMenu(false);
+    }, 200);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (backupMenuTimerRef.current) {
+        clearTimeout(backupMenuTimerRef.current);
+      }
+    };
+  }, []);
   const [attachImages, setAttachImages] = useState<ComposerAttachedImage[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<ChatMessageAttachedFile[]>(
     [],
@@ -9710,38 +9740,7 @@ function _Chat() {
                 disabled={isChatUnavailableForSync}
               />
             </div>
-            <div
-              className={clsx(
-                "window-action-button",
-                styles["chat-window-action-button"],
-              )}
-            >
-              <IconButton
-                icon={isMobileScreen ? <UserIcon /> : <ConfigIcon />}
-                bordered
-                className={styles["chat-window-icon-button"]}
-                text={
-                  useHeaderIconOnly
-                    ? undefined
-                    : isMobileScreen
-                    ? showStatusUserPanel
-                      ? "隐藏状态"
-                      : "显示状态"
-                    : "API 配置"
-                }
-                title={isMobileScreen ? "显示或隐藏用户状态" : "API 配置"}
-                aria={isMobileScreen ? "显示或隐藏用户状态" : "API 配置"}
-                onClick={() => {
-                  if (isMobileScreen) {
-                    setShowStatusUserPanel((show) => !show);
-                    return;
-                  }
-                  navigate(Path.ApiConfig);
-                }}
-                disabled={false}
-              />
-            </div>
-            {!isMobileScreen && (
+            {isMobileScreen && (
               <div
                 className={clsx(
                   "window-action-button",
@@ -9749,16 +9748,74 @@ function _Chat() {
                 )}
               >
                 <IconButton
-                  icon={<MoneyIcon />}
+                  icon={<UserIcon />}
                   bordered
                   className={styles["chat-window-icon-button"]}
-                  text={useHeaderIconOnly ? undefined : "余额查询"}
-                  title="余额查询"
-                  aria="余额查询"
-                  onClick={() => navigate(Path.ProviderBalances)}
+                  text={
+                    useHeaderIconOnly
+                      ? undefined
+                      : showStatusUserPanel
+                      ? "隐藏状态"
+                      : "显示状态"
+                  }
+                  title="显示或隐藏用户状态"
+                  aria="显示或隐藏用户状态"
+                  onClick={() => {
+                    setShowStatusUserPanel((show) => !show);
+                  }}
+                  disabled={false}
                 />
               </div>
             )}
+            <div
+              className={clsx(
+                "window-action-button",
+                styles["chat-window-action-button"],
+              )}
+            >
+              <div
+                className={styles["chat-backup-menu"]}
+                onMouseEnter={handleBackupMenuEnter}
+                onMouseLeave={handleBackupMenuLeave}
+              >
+                <IconButton
+                  icon={<DownloadIcon />}
+                  bordered
+                  className={styles["chat-window-icon-button"]}
+                  text={useHeaderIconOnly ? undefined : "配置管理"}
+                  title="配置管理"
+                  aria="配置管理"
+                  onClick={() => {
+                    setShowBackupMenu((visible) => !visible);
+                  }}
+                  disabled={false}
+                />
+                {showBackupMenu && (
+                  <div
+                    className={styles["chat-backup-dropdown"]}
+                    onMouseEnter={handleBackupMenuEnter}
+                    onMouseLeave={handleBackupMenuLeave}
+                  >
+                    {CHAT_BACKUP_ENTRIES.map((item) => (
+                      <button
+                        type="button"
+                        key={item.path}
+                        className={styles["chat-backup-option"]}
+                        onClick={() => {
+                          setShowBackupMenu(false);
+                          navigate(item.path);
+                        }}
+                      >
+                        <span className={styles["chat-backup-option-icon"]}>
+                          {item.icon}
+                        </span>
+                        <span>{item.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <div
               className={clsx(
                 "window-action-button",
@@ -9774,13 +9831,9 @@ function _Chat() {
                     ? undefined
                     : isMobileScreen
                     ? Locale.Home.NewChat
-                    : Locale.Chat.Actions.RefreshTitle
+                    : "刷新标题"
                 }
-                title={
-                  isMobileScreen
-                    ? Locale.Home.NewChat
-                    : Locale.Chat.Actions.RefreshTitle
-                }
+                title={isMobileScreen ? Locale.Home.NewChat : "刷新标题"}
                 onTouchStart={(e) => {
                   if (isMobileScreen) return;
                   refreshTouchTriggeredRef.current = true;

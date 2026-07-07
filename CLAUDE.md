@@ -128,7 +128,7 @@ yarn app:dev
 
 - 聊天页：`/chat`
 - 绘图页：`/draw`、绘图历史：`/draw/history`
-- API 配置：`/api-config`
+- API 配置：`/api_config`
 
 ### 构建
 
@@ -200,7 +200,7 @@ yarn prompts
 
 - 使用 `react-router-dom`，URL 为**普通路径**（如 `/chat`、`/draw`），不再新增 `/#/...` hash 链接。
 - 旧 hash 地址在客户端启动时自动迁移到普通路径。
-- 服务端通过 `app/[...path]/page.tsx` catch-all 渲染，直接刷新 `/draw`、`/api-config` 等页面应正常进入应用。
+- 服务端通过 `app/[...path]/page.tsx` catch-all 渲染，直接刷新 `/draw`、`/api_config` 等页面应正常进入应用。
 
 ### 状态管理（Zustand + Persist）
 
@@ -230,7 +230,7 @@ yarn prompts
 1. **PostgreSQL** - 主要业务存储
    - 通过 `app/utils/server/postgres.ts` 的全局连接池（`global.__nextchatPostgresPool`）访问，含连接异常重试。
    - 存储对话、配置、Prompt、Mask、插件、模型同步快照、绘画任务与图片、用户与认证等核心数据。
-   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-06-28-api-config-backup-counts`）自动初始化/迁移。
+   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-07-06-chat-backups`）自动初始化/迁移。
 
 2. **localStorage** - 纯本地偏好存储
    - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态。
@@ -242,13 +242,14 @@ yarn prompts
 
 - `postgres.ts` - 连接池、重试、Schema 版本管理
 - `chat-conversation-repository.ts` - 对话与会话
+- `chat-backup-repository.ts` - 按用户区分的对话增量备份、在线查看、删除和单会话合并恢复
 - `draw-image-repository.ts` / `draw-store-repository.ts` - 绘画图片与任务
 - `sync-store-repository.ts` / `sync-store-helpers.ts` / `sync-meta-loader.ts` - 同步键值存储与元数据
 - `provider-config-repository.ts` - 提供商配置
 - `provider-model-fetch.ts` / `provider-model-sync.ts` - 提供商模型拉取与同步
 - `provider-balance-repository.ts` / `provider-balance.ts` - 供应商余额快照、管理 API Key 密文存取与上游探测
 - `app-settings-repository.ts` - 应用设置
-- `api-config-backup-repository.ts` / `api-config-backup-scheduler.ts` - API 配置自动备份与恢复（含余额条目）
+- `api-config-backup-repository.ts` / `api-config-backup-scheduler.ts` - API 配置自动备份与恢复（含余额条目；新备份写单层 state，历史双层 Zustand 持久化 state 兼容读取）
 - `sync-app-user.ts` / `sync-user.ts` / `auth.ts` / `site-password.ts` - 用户与认证
 - `access-store-security.ts` / `sync-secrets.ts` - 访问安全与密钥
 
@@ -261,6 +262,7 @@ yarn prompts
 - `db/` - 数据库同步接口
   - `sync/[key]` - 通用键值同步（对话/配置等），access-control 写入会触发 API 配置自动备份
   - `chat-sync`（含 `sessions`）、`chat-updated-at` - 对话同步
+  - `chat-backups` - 对话增量备份、全用户一键备份、按用户切换查看备份内容、删除备份/快照和单会话合并恢复
   - `draw-image`（含 `[id]`） - 绘画图片存取（含缩略图）
   - `provider-balance` - 供应商余额查询（GET 列表 / PUT 管理 API Key / POST 单次查询）
   - `api-config-backups` - API 配置备份与恢复（含供应商余额条目）
@@ -324,7 +326,7 @@ yarn prompts
 
 ### 余额查询与 API 配置备份
 
-- **入口页面**：`/api-config/balances`（通用余额查询页），聊天页头部也提供当前 Profile 的余额按钮。
+- **入口页面**：API 配置为 `/api_config`，API 配置备份为 `/backup/api_config`，余额查询为 `/balances`，均从对话页顶部统一「配置管理」按钮的悬停菜单进入。
 - **核心代码**：
   - `app/utils/server/provider-balance.ts` - 服务端余额查询核心，按「前缀 × 资源」组合探测上游接口，保留每次探测的 `attempts`。
   - `app/utils/server/provider-balance-repository.ts` - 余额快照、查询时间戳、错误信息、加密管理 API Key（`encrypted_management_key` / `masked_management_key`）。
@@ -332,8 +334,18 @@ yarn prompts
   - `app/api/db/provider-balance/route.ts` - `GET`（列表）、`PUT`（保存管理 Key，密文落库）、`POST`（单次查询）。
   - `app/components/provider-balances.tsx` - 余额查询页面。
 - **数据库表**：`provider_balance_configs`，按 `provider_configs.id` 一对一关联；密文管理 Key 通过 `sync-secrets.ts` 加密。
-- **API 配置备份包含余额条目**：API 配置自动备份 / 手动备份 / 恢复前保护备份都会把当前用户的 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema 版本 = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回。旧备份（无 `balanceEntries`）仍然兼容，只恢复 access-control。
+- **API 配置备份包含余额条目**：API 配置自动备份 / 手动备份 / 恢复前保护备份都会把当前用户的 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema 版本 = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回。旧备份（无 `balanceEntries`）仍然兼容，只恢复 access-control；新备份统一写单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - **实现位置**：`app/utils/server/api-config-backup-repository.ts`（`buildApiConfigBackupPayload` / `writeApiConfigBalanceEntries`）、`app/api/db/api-config-backups/route.ts`、`app/api/db/sync/[key]/route.ts`（access-control PUT 时自动备份）、`app/utils/server/api-config-backup-scheduler.ts`（后台定时备份）。
+- **对话记录备份落点**：对话已经拆成 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份已使用独立的 `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`，不要塞进 `api_config_backups`。生产灾备继续以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
+
+### 对话增量备份
+
+- **入口页面**：`/backup/chat`，从对话页顶部「配置管理」按钮的悬停菜单进入。
+- **用户隔离**：所有备份按用户写入 `app_users.id`，本地免登录默认是 `ccc`。页面点击「立即备份」会为所有启用用户逐个创建增量备份；用户下拉框只控制下方历史查看和单会话恢复目标。生产环境仅管理员或本地免登录模式可执行全用户备份，普通用户只能操作自身可写数据。
+- **增量策略**：以最近一次成功备份的 `to_watermark` 为起点，收录 `conversations.updated_at` 或关联 `messages.updated_at` 之后有变化的会话；每个被收录的会话保存完整 `session_payload`，包括软删除会话，便于在线查看和恢复已删除对话。
+- **查看、删除与恢复**：历史会话默认只显示标题和会话信息，点击后展开消息内容，再次点击收起。可删除整次备份记录，也可删除某次备份中的单个会话快照。单会话恢复是合并模式：恢复时会把该会话标记为可见并写回备份中的消息，但不会裁剪当前库里已有的更多消息，也不会删除其他会话。
+- **数据库表**：`chat_backup_settings`、`chat_backup_runs`、`chat_backup_conversation_snapshots`。这些表只服务站内恢复；生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
+- **实现位置**：`app/utils/server/chat-backup-repository.ts`、`app/api/db/chat-backups/route.ts`、`app/components/chat-backups.tsx`。
 
 ### 模型管理
 
