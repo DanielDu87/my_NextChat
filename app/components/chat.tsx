@@ -2233,7 +2233,6 @@ export function SessionConfigModel(props: { onClose: () => void }) {
           <IconButton
             key="reset"
             icon={<ResetIcon />}
-            bordered
             text={Locale.Chat.Config.Reset}
             onClick={async () => {
               if (await showConfirm(Locale.Memory.ResetConfirm)) {
@@ -2474,7 +2473,6 @@ function PromptPickerModal(props: {
               aria="关闭"
               icon={<CloseIcon />}
               close
-              bordered
               onClick={props.onClose}
             />
           </div>
@@ -2491,7 +2489,6 @@ function PromptPickerModal(props: {
           <IconButton
             icon={<PromptIcon />}
             text="管理提示词"
-            bordered
             className={styles["prompt-picker-manage"]}
             onClick={props.onManage}
           />
@@ -9670,8 +9667,6 @@ function _Chat() {
               >
                 <IconButton
                   icon={<ReturnIcon />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
                   title={Locale.Chat.Actions.ChatList}
                   onClick={() => {
                     console.clear();
@@ -9710,8 +9705,6 @@ function _Chat() {
             >
               <IconButton
                 icon={<RobotIcon />}
-                bordered
-                className={styles["chat-window-icon-button"]}
                 text={useHeaderIconOnly ? undefined : modelSelectorButtonText}
                 title={modelSelectorButtonTitle}
                 aria={modelSelectorButtonTitle}
@@ -9728,8 +9721,6 @@ function _Chat() {
             >
               <IconButton
                 icon={<PromptIcon />}
-                bordered
-                className={styles["chat-window-icon-button"]}
                 text={
                   useHeaderIconOnly
                     ? undefined
@@ -9750,8 +9741,6 @@ function _Chat() {
               >
                 <IconButton
                   icon={<UserIcon />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
                   text={
                     useHeaderIconOnly
                       ? undefined
@@ -9785,8 +9774,6 @@ function _Chat() {
               >
                 <IconButton
                   icon={<ConfigIcon />}
-                  bordered
-                  className={styles["chat-window-icon-button"]}
                   text={useHeaderIconOnly ? undefined : "配置管理"}
                   title="配置管理"
                   aria="配置管理"
@@ -9833,8 +9820,6 @@ function _Chat() {
             >
               <IconButton
                 icon={isMobileScreen ? <AddIcon /> : <ReloadIcon />}
-                bordered
-                className={styles["chat-window-icon-button"]}
                 text={
                   useHeaderIconOnly
                     ? undefined
@@ -9873,8 +9858,6 @@ function _Chat() {
             >
               <IconButton
                 icon={<ExportIcon />}
-                bordered
-                className={styles["chat-window-icon-button"]}
                 text={
                   useHeaderIconOnly ? undefined : Locale.Chat.Actions.Export
                 }
@@ -11115,6 +11098,7 @@ function _Chat() {
                           </div>
                           <button
                             type="button"
+                            data-close-button="true"
                             className={
                               styles["chat-ai-selection-context-close"]
                             }
@@ -11349,14 +11333,12 @@ function _Chat() {
                           <IconButton
                             icon={<StopIcon />}
                             className={styles["chat-input-send"]}
-                            type="primary"
                             onClick={onStopAll}
                           />
                         ) : (
                           <IconButton
                             icon={<SendUpIcon />}
                             className={styles["chat-input-send"]}
-                            type="primary"
                             disabled={
                               isChatUnavailableForSync || hasPendingUploads
                             }

@@ -259,7 +259,7 @@ export function Modal(props: ModalProps) {
             type="button"
             aria-label={Locale.UI.Close}
             data-close-button="true"
-            className={styles["modal-header-action"]}
+            className="nextchat-close-button"
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -635,8 +635,6 @@ export function showConfirm(content: any) {
             }}
             icon={<CancelIcon />}
             tabIndex={0}
-            bordered
-            shadow
           ></IconButton>,
           <IconButton
             key="confirm"
@@ -649,8 +647,6 @@ export function showConfirm(content: any) {
             icon={<ConfirmIcon />}
             tabIndex={0}
             autoFocus
-            bordered
-            shadow
           ></IconButton>,
         ]}
         onClose={closeModal}
@@ -730,8 +726,6 @@ export function showPrompt(
               closeModal();
             }}
             icon={<CancelIcon />}
-            bordered
-            shadow
             tabIndex={0}
           ></IconButton>,
           <IconButton
@@ -743,8 +737,6 @@ export function showPrompt(
               closeModal();
             }}
             icon={<ConfirmIcon />}
-            bordered
-            shadow
             tabIndex={0}
           ></IconButton>,
         ]}
@@ -1810,7 +1802,6 @@ export function FullScreen(props: any) {
         <IconButton
           icon={fullScreen ? <MinIcon /> : <MaxIcon />}
           onClick={toggleFullscreen}
-          bordered
         />
       </div>
       {children}

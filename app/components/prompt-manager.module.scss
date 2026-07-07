@@ -463,14 +463,11 @@
   }
 }
 
+/* 边框/背景/hover 由 globals.scss 中的 .nextchat-danger-button 统一接管。
+   本类只保留布局尺寸微调（高度、display、align、justify、gap）。*/
 .dangerButton {
   height: 36px !important;
   min-height: 36px !important;
-  color: #ff4d4f !important;
-  border-color: #ff4d4f !important;
-  background-color: rgba(255, 77, 79, 0.12) !important;
-  border-width: 2px !important;
-  box-shadow: none !important;
   box-sizing: border-box !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -505,31 +502,6 @@
     width: 16px !important;
     height: 16px !important;
     flex-shrink: 0 !important;
-    fill: white !important;
-    stroke: white !important;
-    color: white !important;
-  }
-
-  &:global([class*="danger"]) :global(svg),
-  &:global([class*="danger"]) :global(svg path),
-  &:global([class*="danger"]) :global(svg circle),
-  &:global([class*="danger"]) :global(svg rect) {
-    fill: white !important;
-    stroke: white !important;
-    color: white !important;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    background-color: #ff4d4f !important;
-    color: white !important;
-    border-color: #ff4d4f !important;
-    border-width: 2px !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
   }
 }
 
@@ -540,6 +512,7 @@
 }
 
 .dangerButton.profileDeleteButton:global([class*="danger"]) {
+  border-style: solid !important;
   color: white !important;
   background-color: rgba(255, 77, 79, 0.28) !important;
   border-color: rgba(255, 77, 79, 0.35) !important;
@@ -547,6 +520,7 @@
   &:hover,
   &:focus,
   &:active {
+    border-style: solid !important;
     background-color: #ff4d4f !important;
     border-color: #ff4d4f !important;
   }

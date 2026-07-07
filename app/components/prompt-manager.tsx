@@ -345,14 +345,12 @@ export function PromptManagerPage() {
           <IconButton
             icon={<EyeIcon />}
             text="查看并编辑"
-            bordered
             onClick={() => openEditModal(prompt)}
           />
           <IconButton
             icon={<TrashIcon className={styles.profileDeleteIcon} />}
             text="删除"
             type="danger"
-            bordered
             className={`${styles.dangerButton} ${styles.profileDeleteButton}`}
             onClick={() => deletePrompt(prompt)}
           />
@@ -377,7 +375,6 @@ export function PromptManagerPage() {
               icon={<CloseIcon />}
               close
               onClick={closePromptManagerPage}
-              bordered
             />
           </div>
         </div>
@@ -424,7 +421,6 @@ export function PromptManagerPage() {
                 <IconButton
                   icon={<AddIcon />}
                   text="新增提示词"
-                  bordered
                   className={styles.addPromptButton}
                   onClick={openCreateModal}
                 />
@@ -508,7 +504,6 @@ export function PromptManagerPage() {
                   <IconButton
                     icon={<CloseIcon />}
                     text="取消"
-                    bordered
                     onClick={closeModal}
                   />
                   <IconButton

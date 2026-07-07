@@ -723,7 +723,6 @@ export function Draw() {
                   <div className={"window-action-button"}>
                     <IconButton
                       icon={<ReturnIcon />}
-                      bordered
                       title={Locale.Chat.Actions.ChatList}
                       onClick={() => navigate(Path.Draw)}
                     />
@@ -737,7 +736,6 @@ export function Draw() {
                     <div className={"window-action-button"}>
                       <IconButton
                         icon={<ReturnIcon />}
-                        bordered
                         title={Locale.Chat.Actions.ChatList}
                         onClick={() => navigate(Path.Draw)}
                       />
@@ -781,8 +779,6 @@ export function Draw() {
                   <IconButton
                     icon={<DeleteIcon />}
                     text="清除全部"
-                    bordered
-                    shadow
                     className={styles["draw-clear-all-btn"]}
                     onClick={() => {
                       showConfirm("确认清除所有画图记录？").then((res) => {

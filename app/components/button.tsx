@@ -4,7 +4,7 @@ import styles from "./button.module.scss";
 import { CSSProperties } from "react";
 import clsx from "clsx";
 
-export type ButtonType = "primary" | "danger" | null;
+export type ButtonType = "primary" | "danger" | "green" | null;
 
 export function IconButton(props: {
   onClick?: () => void;
@@ -27,11 +27,26 @@ export function IconButton(props: {
   return (
     <button
       className={clsx(
-        styles["icon-button"],
         {
+          [styles["icon-button"]]: !props.close,
           [styles.border]: props.bordered,
           [styles.shadow]: props.shadow,
-          [styles.close]: props.close,
+          "nextchat-close-button": props.close,
+          /* 用户 className 已经包含 nextchat-action-button 时，
+             不再自动加 nextchat-default-button，避免类名重复。
+             chat-input-send 也是同理：聊天发送/停止按钮是 chat.module.scss 自己
+             完整控制的特殊按钮（圆形绝对定位），不依赖任何公共类样式。 */
+          "nextchat-default-button":
+            !props.close &&
+            !props.type &&
+            !props.className?.includes("nextchat-action-button") &&
+            !props.className?.includes("nextchat-primary-button") &&
+            !props.className?.includes("nextchat-danger-button") &&
+            !props.className?.includes("nextchat-green-button") &&
+            !props.className?.includes("chat-input-send"),
+          "nextchat-primary-button": props.type === "primary",
+          "nextchat-danger-button": props.type === "danger",
+          "nextchat-green-button": props.type === "green",
         },
         styles[props.type ?? ""],
         props.className,
@@ -52,7 +67,11 @@ export function IconButton(props: {
         <div
           aria-label={props.aria || props.title}
           className={clsx(styles["icon-button-icon"], {
-            "no-dark": props.type === "primary",
+            /* type=primary 时 no-dark 用于排除暗色模式 div:not(.no-dark) > svg 的
+               invert(0.5) 滤镜。chat-input-send 同样不依赖公共类，也需要排除。 */
+            "no-dark":
+              props.type === "primary" ||
+              props.className?.includes("chat-input-send"),
           })}
         >
           {props.icon}

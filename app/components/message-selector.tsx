@@ -157,7 +157,11 @@ export function MessageSelector(props: {
         <input
           type="text"
           placeholder={Locale.Select.Search}
-          className={clsx(styles["filter-item"], styles["search-bar"])}
+          className={clsx(
+            styles["filter-item"],
+            styles["search-bar"],
+            "nextchat-input-control",
+          )}
           value={searchInput}
           onInput={(e) => {
             setSearchInput(e.currentTarget.value);
@@ -166,16 +170,9 @@ export function MessageSelector(props: {
         ></input>
 
         <div className={styles["actions"]}>
-          <IconButton
-            text={Locale.Select.All}
-            bordered
-            className={styles["filter-item"]}
-            onClick={selectAll}
-          />
+          <IconButton text={Locale.Select.All} onClick={selectAll} />
           <IconButton
             text={Locale.Select.Latest}
-            bordered
-            className={styles["filter-item"]}
             onClick={() =>
               props.updateSelection((selection) => {
                 selection.clear();
@@ -187,8 +184,6 @@ export function MessageSelector(props: {
           />
           <IconButton
             text={Locale.Select.Clear}
-            bordered
-            className={styles["filter-item"]}
             onClick={() =>
               props.updateSelection((selection) => selection.clear())
             }

@@ -21,7 +21,8 @@ export function isSidebarRestrictedPagePath(pathname: string) {
     normalizedPathname === Path.ProviderBalances ||
     normalizedPathname === Path.LegacyProviderBalances ||
     normalizedPathname === Path.ApiConfigBackups ||
-    normalizedPathname === Path.LegacyApiConfigBackups
+    normalizedPathname === Path.LegacyApiConfigBackups ||
+    normalizedPathname === Path.Plugins
   );
 }
 

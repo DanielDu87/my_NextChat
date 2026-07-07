@@ -111,79 +111,19 @@
   gap: 10px;
 }
 
-.row :global(button[class*="icon-button"]:not([data-close-button="true"]):not([class*="danger"])) {
+/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button / .nextchat-default-button 统一接管。
+   本文件只保留页面特定的高度/宽度微调。*/
+.row :global(button[class*="icon-button"]) {
   height: 40px !important;
   min-height: 40px !important;
-  border: 2px solid var(--primary) !important;
-  border-radius: 10px !important;
-  color: white !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-  box-shadow: none !important;
-  box-sizing: border-box !important;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease;
 }
 
-.row
-  :global(
-    button[class*="icon-button"]:not([data-close-button="true"]):not(
-        [class*="danger"]
-      )
-  ):not(:disabled):hover,
-.row
-  :global(
-    button[class*="icon-button"]:not([data-close-button="true"]):not(
-        [class*="danger"]
-      )
-  ):not(:disabled):focus-visible,
-.row
-  :global(
-    button[class*="icon-button"]:not([data-close-button="true"]):not(
-        [class*="danger"]
-      )
-  ):not(:disabled):active {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  color: white !important;
-  background-color: var(--primary) !important;
-  box-shadow: none !important;
-  outline: none !important;
-  transform: none !important;
-  filter: none !important;
-}
-
+/* 输入框基础样式（边框/背景/hover/focus）由 globals.scss 中的 .nextchat-input-control 统一接管。
+   本类只保留 flex 布局相关微调。*/
 .input {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 10px;
-  background: var(--white);
-  color: var(--black);
-  outline: none;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.input:hover {
-  border-width: 2px;
-  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
-  background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
-}
-
-.input:focus {
-  border-width: 1px;
-  border-color: var(--primary);
-  background-color: var(--white);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 .hint {
@@ -212,6 +152,8 @@
   text-align: center;
 }
 
+/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button 统一接管。
+   本类只保留页面特殊微调：宽度/高度/字号/SVG。*/
 .headerQueryButton.headerQueryButton.headerQueryButton {
   width: auto !important;
   min-width: max-content !important;
@@ -219,30 +161,10 @@
   min-height: 40px !important;
   padding: 0 12px !important;
   box-sizing: border-box !important;
-  border: 2px solid var(--primary) !important;
-  border-radius: 10px !important;
-  color: white !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-  box-shadow: none !important;
-  filter: none !important;
-  transform: none !important;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-}
-
-.headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):hover,
-.headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):focus-visible,
-.headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):active {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  color: white !important;
-  background-color: var(--primary) !important;
-  box-shadow: none !important;
-  outline: none;
-  filter: none !important;
-  transform: none !important;
 }
 
 .headerQueryButton.headerQueryButton.headerQueryButton
@@ -267,53 +189,6 @@
 
 .headerQueryButton.headerQueryButton.headerQueryButton :global(svg > g) {
   transform: none !important;
-}
-
-:global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton {
-  border: 2px solid var(--primary) !important;
-  box-shadow: none !important;
-}
-
-:global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):hover,
-:global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton:not(
-    :disabled
-  ):focus-visible,
-:global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton:not(:disabled):active {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  box-shadow: none !important;
-}
-
-:global([class*="api-config_page"])
-  :global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
-    [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]) {
-  border: 2px solid var(--primary) !important;
-}
-
-:global([class*="api-config_page"])
-  :global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
-    [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):hover,
-:global([class*="api-config_page"])
-  :global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
-    [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):focus-visible,
-:global([class*="api-config_page"])
-  :global(.window-header .window-actions)
-  .headerQueryButton.headerQueryButton.headerQueryButton.headerQueryButton:not(
-    [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):active {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  box-shadow: none !important;
 }
 
 @media (max-width: 700px) {

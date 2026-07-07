@@ -83,6 +83,7 @@
   --close-button-border-width: 1px;
   --close-button-border-color: rgba(100, 116, 139, 0.24);
   --close-button-hover-shadow: 0 0 0 1px var(--primary), var(--card-shadow);
+  --close-button-idle-border-color: rgba(100, 116, 139, 0.24);
   --input-control-border-color: rgba(148, 163, 184, 0.42);
   --input-control-radius: 10px;
   --input-control-hover-bg: color-mix(
@@ -99,6 +100,14 @@
     color-mix(in srgb, var(--primary) 14%, transparent);
   --input-control-focus-shadow: 0 0 0 2px
     color-mix(in srgb, var(--primary) 32%, transparent);
+
+  /* 危险色 / 备份绿：主按钮和危险按钮的语义颜色 */
+  --danger-color: #ff4d4f;
+  --danger-color-bg: rgba(255, 77, 79, 0.12);
+  --backup-green: #22a06b;
+  --primary-75-bg: color-mix(in srgb, var(--primary) 75%, white);
+  --danger-75-bg: color-mix(in srgb, var(--danger-color) 75%, white);
+  --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 75%, white);
 }
 
 /* 只跟随网页设置的主题，优先级最高 */
@@ -207,11 +216,14 @@ body {
 .nextchat-input-control,
 .nextchat-input-surface {
   box-sizing: border-box;
-  border: 1px solid var(--input-control-border-color);
+  border-style: solid;
+  border-width: 2px;
+  border-color: var(--close-button-idle-border-color);
   border-radius: var(--input-control-radius);
   background-color: var(--white);
   color: var(--black);
   outline: none;
+  cursor: text;
 }
 
 .nextchat-input-control {
@@ -221,13 +233,633 @@ body {
   font: inherit;
 }
 
+/* ===========================================================================
+   自定义 Select 公共样式（draw 页同款）
+   使用结构：
+     <div className="nextchat-select [nextchat-select-open] [nextchat-select-disabled]">
+       <button className="nextchat-select-trigger">
+         <span className="nextchat-select-text [nextchat-select-text-shrink]">{label}</span>
+         <DownIcon className="nextchat-select-icon" />
+       </button>
+       {open && <div className="nextchat-select-menu">
+         {options.map(o => (
+           <button className="nextchat-select-option [nextchat-select-option-active]">
+             <span className="nextchat-select-check" />
+             <span className="nextchat-select-option-text [nextchat-select-text-shrink]">{o.name}</span>
+           </button>
+         ))}
+       </div>}
+     </div>
+   兼容：内部使用 <select> 或 .select-with-icon-select 时，hover/focus 也会被统一接管。
+   ======================================================================== */
+.nextchat-select {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  container-type: inline-size;
+
+  select,
+  .select-with-icon-select {
+    border-radius: 8px;
+    min-height: 40px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &:hover {
+    transform: none;
+  }
+
+  &:focus-within {
+    transform: none;
+
+    select,
+    .select-with-icon-select {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 60%, transparent) !important;
+    }
+  }
+}
+
+.nextchat-select-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 0 38px 0 14px;
+  border: var(--border-in-light);
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: var(--card-shadow);
+  color: var(--black);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  outline: none;
+  position: relative;
+  text-align: center;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.nextchat-select:not(.nextchat-select-disabled):hover {
+  select,
+  .select-with-icon-select,
+  .nextchat-select-trigger {
+    border-color: var(--primary) !important;
+    background-color: color-mix(in srgb, var(--primary) 9%, transparent) !important;
+    box-shadow: 0 0 0 1px var(--primary) !important;
+    transition: none;
+  }
+}
+
+.nextchat-select-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nextchat-select-text-shrink {
+  font-size: clamp(8px, 3.9cqw, 13px);
+}
+
+.nextchat-select-icon {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  color: #64748b;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+
+  path {
+    stroke: currentColor !important;
+  }
+}
+
+.nextchat-select-disabled {
+  .nextchat-select-trigger {
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 1;
+    background: color-mix(in srgb, var(--white) 82%, #94a3b8);
+    color: color-mix(in srgb, var(--black) 56%, transparent);
+    border-color: rgba(203, 213, 225, 0.7);
+    box-shadow: none !important;
+  }
+
+  .nextchat-select-icon {
+    opacity: 0.45;
+  }
+}
+
+.nextchat-select-open .nextchat-select-icon {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.nextchat-select-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: flex;
+  max-height: min(320px, 52vh);
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.nextchat-select-option {
+  display: flex;
+  position: relative;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--primary) 9%, transparent);
+  }
+}
+
+.nextchat-select-option-text {
+  order: 1;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.nextchat-select-option-text.nextchat-select-text-shrink {
+  font-size: clamp(8px, 3.2cqw, 13px);
+}
+
+.nextchat-select-check {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  width: 18px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  transform: translateY(-50%);
+}
+
+.nextchat-select-option-active .nextchat-select-check::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 11px;
+  border-right: 2px solid #2f7ffb;
+  border-bottom: 2px solid #2f7ffb;
+  transform: rotate(45deg);
+}
+
+.nextchat-select-option-active {
+  color: var(--black);
+}
+
+/* 关闭按钮：统一接管 38x38 尺寸 + 外观（边框/背景/hover/阴影）+ SVG 颜色控制。
+   所有关闭按钮的入口都收敛到这一组公共类：
+   - 手写 <button data-close-button="true" className="nextchat-close-button">
+   - <IconButton close /> 渲染后会带 nextchat-close-button 公共类
+   旧拆分出的 .nextchat-header-action 已被合并，不再单独使用。 */
+.nextchat-close-button,
+button[data-close-button="true"] {
+  overflow: hidden;
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--close-button-idle-border-color) !important;
+  border-radius: 10px !important;
+  box-sizing: border-box !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  color: var(--black);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+  appearance: none;
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.nextchat-close-button:not(:disabled):hover,
+.nextchat-close-button:not(:disabled):focus-visible,
+.nextchat-close-button:not(:disabled):active,
+button[data-close-button="true"]:not(:disabled):hover,
+button[data-close-button="true"]:not(:disabled):focus-visible,
+button[data-close-button="true"]:not(:disabled):active {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  box-shadow: none !important;
+  color: var(--black) !important;
+  outline: none;
+  transform: none !important;
+  filter: none !important;
+}
+
+.nextchat-close-button:disabled,
+button[data-close-button="true"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.nextchat-close-button [class*="icon-button-icon"],
+.nextchat-close-button svg,
+button[data-close-button="true"] [class*="icon-button-icon"],
+button[data-close-button="true"] svg {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+
+.nextchat-close-button svg,
+button[data-close-button="true"] svg {
+  display: block !important;
+}
+
+.nextchat-close-button svg > g,
+button[data-close-button="true"] svg > g {
+  transform: none !important;
+}
+
+.nextchat-close-button svg path,
+button[data-close-button="true"] svg path {
+  stroke: currentcolor !important;
+  stroke-opacity: 1 !important;
+}
+
+.nextchat-default-button {
+  /* border-style 必须显式声明为 solid，否则当基础样式（如 .icon-button 的
+     border: none）继承 border-style: none 时，border-width 会被吞掉，
+     导致边框不可见——sidebar 按钮正是踩到这个坑。 */
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--close-button-idle-border-color) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  color: var(--black);
+  outline: none;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+}
+
+.nextchat-default-button:not(:disabled):hover,
+.nextchat-default-button:not(:disabled):focus-visible,
+.nextchat-default-button:not(:disabled):active {
+  /* border-style 必须在 hover 状态重新声明，否则 .icon-button 的 border: none
+     会持续生效，导致 border-width/ border-color 不显示。 */
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  box-shadow: var(--input-control-hover-shadow) !important;
+  color: var(--black) !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.window-header .window-actions button.nextchat-default-button:not(
+    [data-close-button="true"]
+  ):not([class*="primary"]):not([class*="danger"]) {
+  border-color: var(--close-button-idle-border-color) !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  color: var(--black) !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.window-header .window-actions button.nextchat-default-button:not(
+    [data-close-button="true"]
+  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):hover,
+.window-header .window-actions button.nextchat-default-button:not(
+    [data-close-button="true"]
+  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):focus-visible,
+.window-header .window-actions button.nextchat-default-button:not(
+    [data-close-button="true"]
+  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):active {
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  box-shadow: var(--input-control-hover-shadow) !important;
+  color: var(--black) !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.nextchat-action-button {
+  /* 同样需要显式 border-style: solid，原因与 .nextchat-default-button 一致 */
+  border: 2px solid var(--close-button-idle-border-color) !important;
+  border-style: solid !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  box-sizing: border-box;
+  color: var(--black);
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.nextchat-action-button:not(:disabled):hover,
+.nextchat-action-button:not(:disabled):focus-visible,
+.nextchat-action-button:not(:disabled):active {
+  border-style: solid !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  box-shadow: var(--input-control-hover-shadow) !important;
+  color: var(--black) !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.nextchat-action-button [class*="icon-button-icon"],
+.nextchat-action-button [class*="button_icon-button-icon"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto;
+  margin: 0 6px 0 0 !important;
+}
+
+.nextchat-action-button [class*="icon-button-text"],
+.nextchat-action-button [class*="button_icon-button-text"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-width: 0;
+  margin-left: 0 !important;
+  white-space: nowrap;
+}
+
+/* ---------- 主按钮（primary）---------- */
+.nextchat-primary-button,
+button.nextchat-primary-button,
+button[class*="icon-button"][class*="primary"] {
+  box-sizing: border-box !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: var(--primary) !important;
+  border-radius: 10px !important;
+  color: white !important;
+  background-color: var(--primary-75-bg) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease !important;
+}
+
+.nextchat-primary-button:not(:disabled):hover,
+.nextchat-primary-button:not(:disabled):focus-visible,
+.nextchat-primary-button:not(:disabled):active,
+button.nextchat-primary-button:not(:disabled):hover,
+button.nextchat-primary-button:not(:disabled):focus-visible,
+button.nextchat-primary-button:not(:disabled):active,
+button[class*="icon-button"][class*="primary"]:not(:disabled):hover,
+button[class*="icon-button"][class*="primary"]:not(:disabled):focus-visible,
+button[class*="icon-button"][class*="primary"]:not(:disabled):active {
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+  background-color: var(--primary) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* 描边型图标（path 上带 inline style="stroke:..."，例如 add.svg）才走"白描边 + 不填充"路径，
+   让 .button-primary 的 fill:white 不至于把闭合外圈 path 填成实心白圆覆盖 + 号。
+   填充型图标（ConfirmIcon/StopIcon/SendUpIcon/UploadIcon/LoadingIcon 等 path style 只有 fill:#333）
+   不匹配本规则，继续由 button.module.scss 的 .icon-button.primary 规则（fill: white !important）控制。
+   选择器特意带 [style*="stroke"] 子串匹配，特异性 0,3,1 严格高于 .icon-button.primary 的 0,2,1，
+   不依赖 CSS 加载顺序的脆弱性。
+   排除 chat-input-send（聊天发送/停止按钮，圆形绝对定位的特例）以免任何图标规则影响其特殊布局。 */
+.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
+button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"] {
+  fill: none !important;
+  stroke: white !important;
+  stroke-opacity: 1 !important;
+  filter: none !important;
+}
+
+/* 暗色模式下全局 .dark 块里有 `div:not(.no-dark) > svg { filter: invert(0.5) }`，
+   会把已强制为白色的描边反相成灰色。原本靠 type="primary" 给图标 div 加 .no-dark 排除，
+   现在显式用类名选择器排除主按钮的图标 SVG。
+   同样排除 chat-input-send 这种已有完整暗色模式处理的特殊按钮。 */
+.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] > svg,
+button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] > svg,
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] > svg {
+  filter: none !important;
+}
+
+/* ---------- 危险按钮（danger）---------- */
+.nextchat-danger-button,
+button.nextchat-danger-button,
+button[class*="icon-button"][class*="danger"] {
+  box-sizing: border-box !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: var(--danger-color) !important;
+  border-radius: 10px !important;
+  color: var(--danger-color) !important;
+  background-color: var(--danger-color-bg) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease !important;
+}
+
+.nextchat-danger-button:not(:disabled):hover,
+.nextchat-danger-button:not(:disabled):focus-visible,
+.nextchat-danger-button:not(:disabled):active,
+button.nextchat-danger-button:not(:disabled):hover,
+button.nextchat-danger-button:not(:disabled):focus-visible,
+button.nextchat-danger-button:not(:disabled):active,
+button[class*="icon-button"][class*="danger"]:not(:disabled):hover,
+button[class*="icon-button"][class*="danger"]:not(:disabled):focus-visible,
+button[class*="icon-button"][class*="danger"]:not(:disabled):active {
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--danger-color) !important;
+  color: white !important;
+  background-color: var(--danger-color) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* 危险按钮的「实色」变体：默认就是实色红 + 白字，用于删除等强操作场景。
+   与 .nextchat-danger-button 区别在于默认状态不同。*/
+.nextchat-danger-button-filled,
+button.nextchat-danger-button-filled {
+  color: white !important;
+  background-color: var(--danger-75-bg) !important;
+  border-color: var(--danger-color) !important;
+}
+
+.nextchat-danger-button-filled:not(:disabled):hover,
+.nextchat-danger-button-filled:not(:disabled):focus-visible,
+.nextchat-danger-button-filled:not(:disabled):active,
+button.nextchat-danger-button-filled:not(:disabled):hover,
+button.nextchat-danger-button-filled:not(:disabled):focus-visible,
+button.nextchat-danger-button-filled:not(:disabled):active {
+  border-style: solid !important;
+  color: white !important;
+  background-color: var(--danger-color) !important;
+  border-color: var(--danger-color) !important;
+}
+
+/* ---------- 备份绿按钮（green）---------- */
+.nextchat-green-button,
+button.nextchat-green-button {
+  --backup-green: var(--backup-green);
+  box-sizing: border-box !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-color: var(--backup-green) !important;
+  border-radius: 10px !important;
+  color: white !important;
+  background-color: var(--backup-green-75-bg) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease !important;
+}
+
+.nextchat-green-button:not(:disabled):hover,
+.nextchat-green-button:not(:disabled):focus-visible,
+.nextchat-green-button:not(:disabled):active,
+button.nextchat-green-button:not(:disabled):hover,
+button.nextchat-green-button:not(:disabled):focus-visible,
+button.nextchat-green-button:not(:disabled):active {
+  border-style: solid !important;
+  border-color: var(--backup-green) !important;
+  color: white !important;
+  background-color: var(--backup-green) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* ---------- hover-card（鼠标位置高亮卡片）---------- */
+.nextchat-hover-card {
+  --hover-x: 50%;
+  --hover-y: 50%;
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: radial-gradient(
+      220px circle at var(--hover-x) var(--hover-y),
+      color-mix(in srgb, var(--primary) 12%, transparent),
+      transparent 62%
+    ),
+    var(--white);
+  background-repeat: no-repeat;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.nextchat-hover-card:hover,
+.nextchat-hover-card:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
+    0 8px 20px rgba(0, 0, 0, 0.035);
+}
+
+:global(.dark) .nextchat-hover-card:hover,
+:global(.dark) .nextchat-hover-card:focus-within,
+:global(body.dark) .nextchat-hover-card:hover,
+:global(body.dark) .nextchat-hover-card:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
+    0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
 :is(
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
         [type="file"]
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
       ):not(:disabled):not(:read-only),
-    textarea:not(:disabled):not(:read-only),
+    textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
     .nextchat-input-surface:not(:disabled):not(:read-only)
@@ -244,14 +876,15 @@ body {
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
       ):not(:disabled):not(:read-only),
-    textarea:not(:disabled):not(:read-only),
+    textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
     .nextchat-input-surface:not(:disabled):not(:read-only)
   ):hover {
+  border-style: solid !important;
   border-width: 2px !important;
-  border-color: var(--input-control-hover-border-color) !important;
-  background-color: var(--input-control-hover-bg) !important;
+  border-color: var(--primary) !important;
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
   outline: none !important;
 }
@@ -262,7 +895,7 @@ body {
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
       ):not(:disabled):not(:read-only),
-    textarea:not(:disabled):not(:read-only),
+    textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
     .nextchat-input-surface:not(:disabled):not(:read-only)
@@ -273,12 +906,13 @@ body {
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
       ):not(:disabled):not(:read-only),
-    textarea:not(:disabled):not(:read-only),
+    textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
     .nextchat-input-surface:not(:disabled):not(:read-only)
   ):focus-visible {
-  border-width: 1px !important;
+  border-style: solid !important;
+  border-width: 2px !important;
   border-color: var(--primary) !important;
   background-color: var(--white) !important;
   box-shadow: var(--input-control-focus-shadow) !important;
@@ -422,13 +1056,16 @@ input[type="text"],
 input[type="password"] {
   appearance: none;
   border-radius: 10px;
-  border: var(--border-in-light);
+  border-style: solid;
+  border-width: 2px;
+  border-color: var(--close-button-idle-border-color);
   min-height: 36px;
   box-sizing: border-box;
   background: var(--white);
   color: var(--black);
   padding: 0 10px;
   font-family: inherit;
+  cursor: text;
 }
 
 input[type="number"]:disabled,

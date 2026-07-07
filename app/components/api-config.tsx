@@ -1899,7 +1899,6 @@ export function ApiConfigPage() {
               onClick={() => {
                 void closeApiConfigPage();
               }}
-              bordered
             />
           </div>
         </div>
@@ -1937,7 +1936,7 @@ export function ApiConfigPage() {
                 <IconButton
                   icon={<AddIcon />}
                   text="新增配置"
-                  bordered
+                  type="green"
                   className={styles.addProfileButton}
                   onClick={() => {
                     accessStore.update((access) => {
@@ -2081,7 +2080,7 @@ export function ApiConfigPage() {
                         >
                           <div className={styles.profileCellLabel}>名称</div>
                           <input
-                            className={styles.textInput}
+                            className={`${styles.textInput} nextchat-input-surface`}
                             type="text"
                             placeholder={`${profile.provider} #${index + 1}`}
                             value={profile.name}
@@ -2105,7 +2104,9 @@ export function ApiConfigPage() {
                     >
                       <div className={styles.profileCellLabel}>Base URL</div>
                       <input
-                        className={`${styles.textInput} ${
+                        className={`${
+                          styles.textInput
+                        } nextchat-input-surface ${
                           isOfficialProviderBaseUrlLocked(profile.provider)
                             ? styles.officialBaseUrlInputDisabled
                             : ""
@@ -2163,7 +2164,7 @@ export function ApiConfigPage() {
                         </div>
                       ) : (
                         <input
-                          className={styles.textInput}
+                          className={`${styles.textInput} nextchat-input-surface`}
                           type="text"
                           placeholder="API Key"
                           value={profile.apiKey}
@@ -2286,8 +2287,7 @@ export function ApiConfigPage() {
                           }
                           text="删除"
                           type="danger"
-                          bordered
-                          className={`${styles.dangerButton} ${styles.profileDeleteButton}`}
+                          className={`${styles.dangerButton} ${styles.profileDeleteButton} nextchat-danger-button-filled`}
                           onClick={async () => {
                             const confirmed = await showConfirm(
                               `确定要删除配置"${profile.name}"吗？`,
@@ -2325,7 +2325,7 @@ export function ApiConfigPage() {
                           type="button"
                           aria-label="关闭"
                           data-close-button="true"
-                          className={styles.profileYutoModalClose}
+                          className="nextchat-close-button"
                           onClick={() => {
                             setEditingYutoProfileId("");
                           }}
@@ -2388,7 +2388,7 @@ export function ApiConfigPage() {
                                     </div>
                                     <div className={styles.profileYutoInputRow}>
                                       <input
-                                        className={styles.textInput}
+                                        className={`${styles.textInput} nextchat-input-surface`}
                                         type="text"
                                         placeholder="留空则不尝试请求"
                                         value={apiKeyGroups[group] ?? ""}
@@ -2488,7 +2488,7 @@ export function ApiConfigPage() {
                         </div>
                       )}
                       <input
-                        className={styles.textInput}
+                        className={`${styles.textInput} nextchat-input-surface`}
                         aria-label={field.label}
                         type="text"
                         placeholder={field.placeholder}
@@ -2536,7 +2536,6 @@ export function ApiConfigPage() {
                   icon={syncing ? <LoadingIcon /> : <ConfirmIcon />}
                   text={syncing ? "同步中..." : "保存并同步"}
                   type="primary"
-                  bordered
                   disabled={syncActionDisabled}
                   onClick={() => {
                     void syncToDatabase();
@@ -2545,9 +2544,8 @@ export function ApiConfigPage() {
                 <IconButton
                   icon={<TrashIcon />}
                   text="清空已添加模型"
-                  bordered
                   type="danger"
-                  className={`${styles.dangerButton} ${styles.clearModelsButton}`}
+                  className={`${styles.dangerButton} ${styles.clearModelsButton} nextchat-danger-button-filled`}
                   onClick={() => {
                     void clearLocalAndCloudModels();
                   }}

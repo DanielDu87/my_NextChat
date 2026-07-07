@@ -495,13 +495,11 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
               <IconButton
                 icon={<McpIcon />}
                 text={Locale.Mcp.Name}
-                className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]}`}
                 disabled={disableHeaderActions}
                 onClick={() => {
                   if (disableHeaderActions) return;
                   navigate(Path.McpMarket, { state: { fromHome: true } });
                 }}
-                shadow
               />
             </div>
           )}
@@ -515,7 +513,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
               <IconButton
                 icon={item.icon}
                 text={item.name}
-                className={`${styles["sidebar-bar-button"]} ${styles["sidebar-icon-button"]} ${styles["sidebar-header-action-button"]}`}
                 disabled={disableHeaderActions}
                 onClick={() => {
                   if (disableHeaderActions) return;
@@ -528,7 +525,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                   }
                   showToast(Locale.WIP);
                 }}
-                shadow
               />
             </div>
           ))}
@@ -572,8 +568,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
               <IconButton
                 aria={Locale.Settings.Title}
                 icon={<SettingsIcon />}
-                className={styles["sidebar-icon-button"]}
-                shadow
                 disabled={disableBottomActions}
                 onClick={() => {
                   if (disableBottomActions) return;
@@ -603,8 +597,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                       <LightIcon />
                     )
                   }
-                  className={styles["sidebar-icon-button"]}
-                  shadow
                   disabled={disableBottomActions}
                 />
                 {showThemeSelector && !disableBottomActions && (
@@ -667,7 +659,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
             >
               <IconButton
                 icon={<DeleteIcon />}
-                className={styles["sidebar-icon-button"]}
                 disabled={disableDeleteAction}
                 onClick={async () => {
                   if (disableDeleteAction) return;
@@ -689,7 +680,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
             </div>
             <IconButton
               icon={<AddIcon />}
-              className={styles["sidebar-icon-button"]}
               text={Locale.Home.NewChat}
               disabled={disableBottomActions}
               onClick={() => {
@@ -709,7 +699,6 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                 }
                 navigate(Path.NewChat);
               }}
-              shadow
             />
           </>
         }

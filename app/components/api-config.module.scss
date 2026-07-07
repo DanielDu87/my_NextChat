@@ -12,13 +12,10 @@
 .content > :global([class*="list"]) > :global([class*="list-item"]),
 .profileRow,
 .mobileOnlyCard {
-  --hover-x: 50%;
-  --hover-y: 50%;
-
   position: relative;
   overflow: hidden;
   background: radial-gradient(
-      220px circle at var(--hover-x) var(--hover-y),
+      220px circle at var(--hover-x, 50%) var(--hover-y, 50%),
       color-mix(in srgb, var(--primary) 12%, transparent),
       transparent 62%
     ),
@@ -101,20 +98,16 @@
     background-color 0.3s ease;
 
   &:hover {
-    border-width: 2px;
-    border-color: color-mix(in srgb, var(--primary) 70%, transparent);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-    box-shadow: 0 0 0 1px
-      color-mix(in srgb, var(--primary) 14%, transparent);
+    border-color: var(--input-control-hover-border-color);
+    background-color: var(--input-control-hover-bg);
+    box-shadow: var(--input-control-hover-shadow);
   }
 
   &:focus,
   &:focus-visible {
-    border-width: 1px;
     border-color: var(--primary);
     background-color: var(--white);
-    box-shadow: 0 0 0 2px
-      color-mix(in srgb, var(--primary) 32%, transparent);
+    box-shadow: var(--input-control-focus-shadow);
     outline: none;
   }
 }
@@ -208,35 +201,8 @@
   }
 }
 
-.page :global(button[class*="icon-button"][class*="primary"]) {
-  box-sizing: border-box !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  border-radius: 10px !important;
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  color: white !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    border-width: 2px !important;
-    border-color: var(--primary) !important;
-    color: white !important;
-    background-color: var(--primary) !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
-}
+/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button / .nextchat-danger-button / .nextchat-default-button 统一接管。
+   本文件只保留页面特定的微调（高度、布局、margin、SVG 子元素等）。*/
 
 .hint {
   margin: 0 0 16px;
@@ -258,45 +224,12 @@
   margin-top: 20px;
   width: 100%;
 
-  :global(button[class*="icon-button"][class*="border"]) {
-    border-width: 1px;
-    transform: none !important;
-    filter: none !important;
-
-    &:hover,
-    &:focus-visible,
-    &:active {
-      border-width: 1px !important;
-      box-shadow:
-        0 0 0 1px var(--primary),
-        var(--card-shadow) !important;
-      border-color: var(--primary) !important;
-      transform: none !important;
-      filter: none !important;
-    }
-  }
-
+  /* border / primary 按钮基础样式由 globals.scss 统一提供，这里只保留页面特定的高度/justify 微调 */
+  :global(button[class*="icon-button"][class*="border"]),
   :global(button[class*="icon-button"][class*="primary"]) {
     height: 40px !important;
     min-height: 40px !important;
-    border-radius: 10px !important;
-    border-width: 2px !important;
-    background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-    border-color: var(--primary) !important;
-    color: white !important;
-    box-shadow: none !important;
-
-    &:hover,
-    &:focus-visible,
-    &:active {
-      background-color: var(--primary) !important;
-      border-width: 2px !important;
-      border-color: var(--primary) !important;
-      color: white !important;
-      box-shadow: none !important;
-      transform: none !important;
-      filter: none !important;
-    }
+    box-sizing: border-box !important;
   }
 }
 
@@ -323,21 +256,15 @@
 }
 
 .dangerButton {
+  /* 边框/背景/hover 颜色由 globals.scss 中 .nextchat-danger-button 统一提供。
+     本类只保留页面特殊微调：高度、margin-left、内嵌 SVG 子元素颜色。*/
   height: 40px !important;
   min-height: 40px !important;
-  color: #ff4d4f !important;
-  border-color: #ff4d4f !important;
-  background-color: rgba(255, 77, 79, 0.12) !important;
   margin-left: auto !important;
-  border-width: 2px !important;
-  box-shadow: none !important;
-  box-sizing: border-box !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
-  transform: none !important;
-  filter: none !important;
   line-height: 16px !important;
 
   // 固定按钮高度，防止 hover 时文字位置变化
@@ -379,35 +306,15 @@
     stroke: white !important;
     color: white !important;
   }
-
-  &:hover,
-  &:focus,
-  &:active {
-    background-color: #ff4d4f !important;
-    color: white !important;
-    border-color: #ff4d4f !important;
-    border-width: 2px !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
 }
 
+/* .dangerButton.clearModelsButton / .dangerButton.profileDeleteButton 实色变体：
+   默认边框/背景/白字由 globals.scss 中 .nextchat-danger-button-filled 统一接管。
+   本类只保留页面特殊微调：icon/text 居中、SVG 颜色继承、profileDeleteButton 浅红背景覆盖。*/
 .dangerButton.clearModelsButton:global([class*="danger"]),
 .dangerButton.profileDeleteButton:global([class*="danger"]) {
-  color: white !important;
-  background-color: color-mix(in srgb, #ff4d4f 75%, white) !important;
-  border-color: #ff4d4f !important;
-  border-width: 2px !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
   align-items: center !important;
   justify-content: center !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease !important;
 
   :global([class*="icon-button-icon"]),
   :global([class*="icon-button-text"]) {
@@ -436,18 +343,6 @@
   :global(svg path) {
     stroke: none !important;
   }
-
-  &:hover,
-  &:focus,
-  &:active {
-    color: white !important;
-    background-color: #ff4d4f !important;
-    border-color: #ff4d4f !important;
-    border-width: 2px !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
 }
 
 .profileDeleteIcon,
@@ -456,15 +351,10 @@
   fill: white !important;
 }
 
+/* profileDeleteButton 用更淡的红背景覆盖 filled 变体 */
 .dangerButton.profileDeleteButton:global([class*="danger"]) {
-  color: white !important;
   background-color: rgba(255, 77, 79, 0.28) !important;
   border-color: rgba(255, 77, 79, 0.35) !important;
-  border-width: 2px !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
 
   :global([class*="icon-button-icon"]) {
     color: white !important;
@@ -476,18 +366,6 @@
   :global(svg rect) {
     color: white !important;
     fill: white !important;
-  }
-
-  &:hover,
-  &:focus,
-  &:active {
-    color: white !important;
-    background-color: #ff4d4f !important;
-    border-color: #ff4d4f !important;
-    border-width: 2px !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
   }
 }
 
@@ -522,39 +400,15 @@
   width: 100%;
   max-width: 100%;
   min-height: 48px;
-  box-sizing: border-box;
-  border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 12px;
-  background: var(--white);
-  color: var(--black);
   padding: 12px 14px;
-  outline: none;
   font: inherit;
   line-height: 1.5;
   cursor: text;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
 }
 
 .textInput::placeholder {
   color: var(--black);
   opacity: 0.45;
-}
-
-.textInput:hover {
-  border-width: 2px;
-  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
-  background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent);
-}
-
-.textInput:focus {
-  border-width: 1px;
-  border-color: var(--primary);
-  background-color: var(--white);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 .officialBaseUrlInputDisabled,
@@ -601,87 +455,15 @@
   }
 
   .actionPrimaryRow {
+    /* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button / .nextchat-default-button / .nextchat-danger-button 统一提供。
+       syncCard 的页面特殊样式仅保留：border-width 1px 的细边框规格。*/
     > :global(button[class*="icon-button"]) {
       border-width: 1px !important;
-      transform: none !important;
-      filter: none !important;
-      transition:
-        background-color 0.2s ease,
-        border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        color 0.2s ease;
 
       &:not(:disabled):hover,
       &:not(:disabled):focus-visible,
       &:not(:disabled):active {
         border-width: 1px !important;
-        transform: none !important;
-        filter: none !important;
-      }
-    }
-
-    > :global(
-        button[class*="icon-button"]:not([class*="primary"]):not(
-            [class*="danger"]
-          )
-      ) {
-      border: 1px solid rgba(100, 116, 139, 0.24) !important;
-      border-radius: 10px !important;
-      background-color: var(--white) !important;
-      box-shadow: var(--card-shadow) !important;
-
-      &:not(:disabled):hover,
-      &:not(:disabled):focus-visible,
-      &:not(:disabled):active {
-        background-color: color-mix(
-          in srgb,
-          var(--primary) 4%,
-          var(--white)
-        ) !important;
-        border: 1px solid var(--primary) !important;
-        box-shadow:
-          0 0 0 1px var(--primary),
-          var(--card-shadow) !important;
-        outline: none !important;
-      }
-    }
-
-    > :global(button[class*="icon-button"][class*="primary"]) {
-      box-sizing: border-box !important;
-      border-width: 2px !important;
-      border-color: var(--primary) !important;
-      background-color: color-mix(
-        in srgb,
-        var(--primary) 75%,
-        white
-      ) !important;
-      box-shadow: none !important;
-
-      &:not(:disabled):hover,
-      &:not(:disabled):focus-visible,
-      &:not(:disabled):active {
-        background-color: var(--primary) !important;
-        border-width: 2px !important;
-        border-color: var(--primary) !important;
-        box-shadow: none !important;
-        transform: none !important;
-        filter: none !important;
-      }
-    }
-
-    > :global(button[class*="icon-button"][class*="danger"]) {
-      border-width: 2px !important;
-      border-color: #ff4d4f !important;
-      box-shadow: none !important;
-      box-sizing: border-box !important;
-
-      &:not(:disabled):hover,
-      &:not(:disabled):focus {
-        background-color: #ff4d4f !important;
-        border-width: 2px !important;
-        border-color: #ff4d4f !important;
-        box-shadow: none !important;
-        color: white !important;
       }
     }
   }
@@ -754,38 +536,14 @@
   box-sizing: border-box;
 }
 
+/* 边框/背景/hover 颜色由 globals.scss 中 .nextchat-green-button 统一提供。
+   本类只保留页面特殊微调：高度、padding、SVG 大小。*/
 .addProfileButton {
-  --backup-green: #22a06b;
-
   min-height: 38px;
   padding: 8px 14px !important;
-  border-radius: 10px;
-  border: 2px solid var(--backup-green) !important;
-  background-color: color-mix(
-    in srgb,
-    var(--backup-green) 75%,
-    white
-  ) !important;
-  color: white !important;
-  box-shadow: none !important;
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: none !important;
-  filter: none !important;
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    background-color: var(--backup-green) !important;
-    border-width: 2px !important;
-    border-color: var(--backup-green) !important;
-    color: white !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-    outline: none !important;
-  }
 
   :global(svg) {
     width: 16px;
@@ -946,17 +704,15 @@
   }
 
   :global([class*="select-with-icon-select"]:hover) {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-width: 2px !important;
-    border-color: color-mix(in srgb, var(--primary) 70%, transparent) !important;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent) !important;
+    background: var(--input-control-hover-bg) !important;
+    border-color: var(--input-control-hover-border-color) !important;
+    box-shadow: var(--input-control-hover-shadow) !important;
   }
 
   :global([class*="select-with-icon-select"]:focus) {
     background: var(--white) !important;
-    border-width: 1px !important;
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 32%, transparent) !important;
+    box-shadow: var(--input-control-focus-shadow) !important;
     outline: none !important;
   }
 
@@ -1053,46 +809,6 @@
   font-weight: bolder;
   width: 80%;
   font-size: 16px;
-}
-
-.profileYutoModalClose {
-  width: 38px;
-  height: 38px;
-  padding: 10px;
-  border: var(--close-button-border-width) solid
-    var(--close-button-border-color);
-  border-radius: 10px;
-  background: var(--white);
-  box-shadow: var(--card-shadow);
-  box-sizing: border-box;
-  color: var(--black);
-  cursor: pointer;
-  appearance: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transform: none;
-  filter: none;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:hover,
-  &:focus-visible,
-  &:active {
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-    box-shadow: var(--close-button-hover-shadow);
-    outline: none;
-    transform: none;
-    filter: none;
-  }
-
-  svg {
-    width: 16px;
-    height: 16px;
-  }
 }
 
 .profileYutoKeyItem {
@@ -1500,9 +1216,9 @@
     padding: 0;
   }
 
+  /* 移动端 addProfileButton：globals 已提供绿底白字的基础样式，
+     这里只保留页面特殊微调：宽度/高度/字号/icon-text 间距。*/
   :global(button[class*="icon-button"]).addProfileButton {
-    --backup-green: #22a06b;
-
     align-self: stretch;
     width: 100% !important;
     min-width: 0 !important;
@@ -1510,25 +1226,11 @@
     min-height: 42px !important;
     margin-right: 0;
     padding: 0 12px !important;
-    border-color: var(--backup-green) !important;
-    background-color: color-mix(
-      in srgb,
-      var(--backup-green) 75%,
-      white
-    ) !important;
-    color: white !important;
     border-radius: 9px !important;
-    box-shadow: none !important;
     font-size: 14px !important;
     font-weight: 600;
     line-height: 1 !important;
     overflow: visible !important;
-    transform: none !important;
-    filter: none !important;
-    transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease,
-      box-shadow 0.2s ease;
 
     :global([class*="icon-button-icon"]) {
       display: inline-flex !important;
@@ -1563,21 +1265,6 @@
     svg * {
       fill: none !important;
       stroke: currentColor !important;
-    }
-
-    &:not(:disabled):hover,
-    &:not(:disabled):focus-visible,
-    &:not(:disabled):active {
-      border-color: var(--backup-green) !important;
-      background-color: color-mix(
-        in srgb,
-        var(--backup-green) 75%,
-        white
-      ) !important;
-      color: white !important;
-      box-shadow: none !important;
-      transform: none !important;
-      filter: none !important;
     }
   }
 
@@ -1937,8 +1624,8 @@
           [class*="primary"]
         ):not([class*="danger"])
     ).addProfileButton {
-    --backup-green: #22a06b;
-
+    /* globals 中的 .nextchat-green-button 已接管绿底白字基础样式，
+       这里只保留页面特定的高度/宽度/字号微调 */
     align-self: stretch;
     width: 100% !important;
     min-width: 0 !important;
@@ -1946,31 +1633,10 @@
     min-height: 42px !important;
     margin-right: 0;
     padding: 0 12px !important;
-    border-width: 2px !important;
-    border-color: var(--backup-green) !important;
-    background-color: color-mix(
-      in srgb,
-      var(--backup-green) 75%,
-      white
-    ) !important;
-    color: white !important;
     border-radius: 9px !important;
-    box-shadow: none !important;
     font-size: 14px !important;
     font-weight: 600;
     line-height: 1 !important;
-
-    &:hover,
-    &:focus-visible,
-    &:active {
-      border-width: 2px !important;
-      border-color: var(--backup-green) !important;
-      background-color: var(--backup-green) !important;
-      color: white !important;
-      box-shadow: none !important;
-      transform: none !important;
-      filter: none !important;
-    }
   }
 
   .page

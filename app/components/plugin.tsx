@@ -27,6 +27,7 @@ import {
   showToast,
 } from "./ui-lib";
 import { NextChatBrandIcon, SideBarHeader } from "./sidebar";
+import { DrawSelect } from "./draw/draw-panel";
 import Locale from "../locales";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
@@ -155,13 +156,12 @@ export function PluginPage() {
 
           <div className={pluginStyles["plugin-mobile-header-actions"]}>
             <a href={pluginsRepoUrl} target="_blank" rel="noopener noreferrer">
-              <IconButton icon={<GithubIcon />} bordered />
+              <IconButton icon={<GithubIcon />} />
             </a>
             <IconButton
               aria={Locale.UI.Close}
               icon={<CloseIcon />}
               close
-              bordered
               onClick={() => navigate(-1)}
             />
           </div>
@@ -184,7 +184,7 @@ export function PluginPage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <IconButton icon={<GithubIcon />} bordered />
+                <IconButton icon={<GithubIcon />} />
               </a>
             </div>
             <div className="window-action-button">
@@ -192,7 +192,6 @@ export function PluginPage() {
                 aria={Locale.UI.Close}
                 icon={<CloseIcon />}
                 close
-                bordered
                 onClick={() => navigate(-1)}
               />
             </div>
@@ -216,6 +215,7 @@ export function PluginPage() {
               className={clsx(
                 styles["search-bar"],
                 pluginStyles["plugin-search-bar"],
+                "nextchat-input-control",
               )}
               placeholder={Locale.Plugin.Page.Search}
               name="plugin-search"
@@ -226,13 +226,9 @@ export function PluginPage() {
             />
 
             <IconButton
-              className={clsx(
-                styles["mask-create"],
-                pluginStyles["plugin-create"],
-              )}
+              className="nextchat-primary-button"
               icon={<AddIcon />}
               text={Locale.Plugin.Page.Create}
-              bordered
               onClick={() => {
                 const createdPlugin = pluginStore.create();
                 setEditingPluginId(createdPlugin.id);
@@ -249,7 +245,7 @@ export function PluginPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <IconButton icon={<GithubIcon />} bordered />
+                  <IconButton icon={<GithubIcon />} />
                 </a>
               </div>
             )}
@@ -296,8 +292,7 @@ export function PluginPage() {
                   )}
                 >
                   <IconButton
-                    className={pluginStyles["plugin-action"]}
-                    bordered
+                    className="nextchat-action-button"
                     icon={<PowerIcon />}
                     text={
                       m.enabled !== false
@@ -313,16 +308,14 @@ export function PluginPage() {
                     }}
                   />
                   <IconButton
-                    className={pluginStyles["plugin-action"]}
-                    bordered
+                    className="nextchat-action-button"
                     icon={<EditIcon />}
                     text={Locale.Plugin.Item.Edit}
                     onClick={() => setEditingPluginId(m.id)}
                   />
                   {!m.builtin && (
                     <IconButton
-                      className={pluginStyles["plugin-action"]}
-                      bordered
+                      className="nextchat-action-button"
                       icon={<DeleteIcon />}
                       text={Locale.Plugin.Item.Delete}
                       style={{ marginLeft: 8 }}
@@ -353,49 +346,52 @@ export function PluginPage() {
                 icon={<ConfirmIcon />}
                 text={Locale.UI.Confirm}
                 key="export"
-                bordered
                 onClick={() => setEditingPluginId("")}
               />,
             ]}
           >
             <List className={pluginStyles["plugin-edit-list"]}>
               <ListItem title={Locale.Plugin.EditModal.Auth}>
-                <select
+                <DrawSelect
+                  ariaLabel={Locale.Plugin.EditModal.Auth}
                   value={editingPlugin?.authType ?? ""}
-                  onChange={(e) => {
+                  options={[
+                    { name: Locale.Plugin.Auth.None, value: "" },
+                    { name: Locale.Plugin.Auth.Bearer, value: "bearer" },
+                    { name: Locale.Plugin.Auth.Basic, value: "basic" },
+                    { name: Locale.Plugin.Auth.Custom, value: "custom" },
+                  ]}
+                  onChange={(value) => {
                     pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
-                      plugin.authType = e.target.value;
+                      plugin.authType = value;
                     });
                   }}
-                >
-                  <option value="">{Locale.Plugin.Auth.None}</option>
-                  <option value="bearer">{Locale.Plugin.Auth.Bearer}</option>
-                  <option value="basic">{Locale.Plugin.Auth.Basic}</option>
-                  <option value="custom">{Locale.Plugin.Auth.Custom}</option>
-                </select>
+                />
               </ListItem>
               {["bearer", "basic", "custom"].includes(
                 editingPlugin.authType as string,
               ) && (
                 <ListItem title={Locale.Plugin.Auth.Location}>
-                  <select
+                  <DrawSelect
+                    ariaLabel={Locale.Plugin.Auth.Location}
                     value={editingPlugin?.authLocation ?? "header"}
-                    onChange={(e) => {
+                    options={[
+                      {
+                        name: Locale.Plugin.Auth.LocationHeader,
+                        value: "header",
+                      },
+                      {
+                        name: Locale.Plugin.Auth.LocationQuery,
+                        value: "query",
+                      },
+                      { name: Locale.Plugin.Auth.LocationBody, value: "body" },
+                    ]}
+                    onChange={(value) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
-                        plugin.authLocation = e.target.value;
+                        plugin.authLocation = value;
                       });
                     }}
-                  >
-                    <option value="header">
-                      {Locale.Plugin.Auth.LocationHeader}
-                    </option>
-                    <option value="query">
-                      {Locale.Plugin.Auth.LocationQuery}
-                    </option>
-                    <option value="body">
-                      {Locale.Plugin.Auth.LocationBody}
-                    </option>
-                  </select>
+                  />
                 </ListItem>
               )}
               {editingPlugin.authType == "custom" && (
@@ -405,6 +401,7 @@ export function PluginPage() {
                     name="plugin-auth-header"
                     autoComplete="new-password"
                     aria-autocomplete="none"
+                    className="nextchat-input-surface"
                     value={editingPlugin?.authHeader ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
@@ -422,6 +419,7 @@ export function PluginPage() {
                     name="plugin-auth-token"
                     autoComplete="new-password"
                     aria-autocomplete="none"
+                    className="nextchat-input-surface"
                     value={editingPlugin?.authToken ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
@@ -441,14 +439,16 @@ export function PluginPage() {
                     autoComplete="new-password"
                     aria-autocomplete="none"
                     value={loadUrl}
-                    className={pluginStyles["plugin-schema-input"]}
+                    className={clsx(
+                      pluginStyles["plugin-schema-input"],
+                      "nextchat-input-surface",
+                    )}
                     onInput={(e) => setLoadUrl(e.currentTarget.value)}
                   ></input>
                   <IconButton
-                    className={pluginStyles["plugin-schema-load"]}
+                    className={`${pluginStyles["plugin-schema-load"]} nextchat-action-button`}
                     icon={<ReloadIcon />}
                     text={Locale.Plugin.EditModal.Load}
-                    bordered
                     onClick={() => loadFromUrl(loadUrl)}
                   />
                 </div>
@@ -465,6 +465,7 @@ export function PluginPage() {
                   >
                     <pre>
                       <code
+                        className="nextchat-input-surface"
                         contentEditable={true}
                         dangerouslySetInnerHTML={{
                           __html: editingPlugin.content,

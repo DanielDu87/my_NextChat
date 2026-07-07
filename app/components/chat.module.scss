@@ -1256,55 +1256,6 @@
 .chat-window-action-button {
   display: flex;
   align-items: stretch;
-
-  .chat-window-icon-button {
-    --chat-window-button-idle-border: rgba(148, 163, 184, 0.18);
-
-    height: 100%;
-    min-height: 38px;
-    box-sizing: border-box;
-    align-self: center;
-    border: 1px solid var(--chat-window-button-idle-border) !important;
-    background-color: var(--white) !important;
-    box-shadow: var(--card-shadow);
-    transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease,
-      box-shadow 0.2s ease;
-
-    &:hover {
-      background-color: color-mix(
-        in srgb,
-        var(--primary) 4%,
-        var(--white)
-      ) !important;
-      border-color: var(--primary) !important;
-      box-shadow:
-        0 0 0 1px var(--primary),
-        var(--card-shadow) !important;
-    }
-
-    &:focus:not(:hover),
-    &:focus-visible:not(:hover),
-    &:active:not(:hover) {
-      border-color: var(--chat-window-button-idle-border) !important;
-      box-shadow: none !important;
-    }
-
-    &[disabled] {
-      &,
-      &:hover,
-      &:focus,
-      &:focus-visible,
-      &:active {
-        box-shadow: none !important;
-        border-color: var(--chat-window-button-idle-border) !important;
-        background-color: inherit !important;
-        filter: none !important;
-        transform: none !important;
-      }
-    }
-  }
 }
 
 .chat-backup-menu {
@@ -1412,33 +1363,6 @@
   }
 }
 
-.chat-window-icon-button-model-syncing {
-  cursor: not-allowed !important;
-  opacity: 0.5;
-
-  &,
-  &:hover,
-  &:focus,
-  &:focus-visible,
-  &:active {
-    border-color: var(--chat-window-button-idle-border) !important;
-    background-color: inherit !important;
-    box-shadow: none !important;
-    filter: grayscale(0.25) !important;
-    transform: none !important;
-  }
-}
-
-@media only screen and (min-width: 1000px) {
-  .chat-window-action-button {
-    .chat-window-icon-button {
-      --chat-window-button-idle-border: rgba(100, 116, 139, 0.24);
-
-      border-color: var(--chat-window-button-idle-border) !important;
-    }
-  }
-}
-
 @media only screen and (min-width: 651px) and (max-width: 999px) {
   .chat-window-actions {
     display: flex;
@@ -1456,46 +1380,6 @@
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-  }
-
-  .chat-window-icon-button {
-    width: 38px;
-    min-width: 38px;
-    height: 38px;
-    min-height: 38px;
-    padding: 0 !important;
-    box-sizing: border-box;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    line-height: 0;
-
-    :global([class*="icon-button-text"]) {
-      display: none !important;
-    }
-
-    :global([class*="icon-button-icon"]) {
-      width: 20px !important;
-      height: 20px !important;
-      margin: 0 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      flex-shrink: 0;
-      line-height: 0;
-    }
-
-    :global(svg) {
-      width: 20px !important;
-      height: 20px !important;
-      display: block;
-      flex-shrink: 0;
-      overflow: visible;
-    }
-
-    :global(svg > g) {
-      transform-origin: center;
-    }
   }
 }
 
@@ -4738,8 +4622,7 @@
   }
 }
 
-// 工具栏按钮统一沿用关闭按钮的视觉规则
-.prompt-picker-panel :global(button[data-close-button="true"]),
+// 工具栏管理按钮沿用关闭按钮的视觉规则
 .prompt-picker-toolbar .prompt-picker-manage {
   --prompt-picker-button-idle-border: rgba(100, 116, 139, 0.24);
 
@@ -4804,9 +4687,6 @@
   }
 }
 
-:global(body.dark)
-  .prompt-picker-panel
-  :global(button[data-close-button="true"]),
 :global(body.dark) .prompt-picker-toolbar .prompt-picker-manage {
   border-width: 2px !important;
   border-color: rgba(71, 85, 105, 0.7) !important;
@@ -4862,9 +4742,6 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark))
-    .prompt-picker-panel
-    :global(button[data-close-button="true"]),
   :global(body:not(.light):not(.dark))
     .prompt-picker-toolbar
     .prompt-picker-manage {
@@ -5621,7 +5498,11 @@
   }
 }
 
-.chat-input-send {
+/* 套 .chat 父类把特异性从 0,1,0 提到 0,2,0，胜过 globals.scss 里 .nextchat-primary-button 的 0,1,0。
+   否则两者同特异性 + 同 !important 时，globals 后加载会让 .nextchat-primary-button 的
+   border-radius: 10px / background-color: var(--primary-75-bg) / transform: none 等
+   覆盖这里的 50% / var(--primary) / translateY(-50%)，导致发送按钮变方形、变色、错位。 */
+.chat .chat-input-send {
   background-color: var(--primary);
   color: white;
   position: absolute;
@@ -6992,11 +6873,14 @@
 }
 
 .chat-status-user-panel:hover {
-  border-color: color-mix(in srgb, var(--primary) 38%, transparent);
+  /* hover 时边框更深、外阴影更明显，但不加 2px 实心外环 */
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 12%, transparent),
-    0 12px 30px color-mix(in srgb, var(--primary) 18%, transparent),
-    0 0 24px color-mix(in srgb, var(--primary) 14%, transparent);
+    /* 上方向偏移一点让悬浮感更强，避免阴影全部沉在下方显得边框「被压薄」 */
+    0 -2px 18px color-mix(in srgb, var(--primary) 22%, transparent),
+    0 14px 36px color-mix(in srgb, var(--primary) 28%, transparent),
+    /* 外扩 2px 的柔和halo，让边框视觉上更厚但不形成实心环 */
+    0 0 0 2px color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 .chat-status-user-panel::after {
@@ -7016,26 +6900,29 @@
 
 :global(.light) .chat-status-user-panel,
 :global(body.light) .chat-status-user-panel {
-  border-color: color-mix(in srgb, #60a5fa 18%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 18%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #bfdbfe 55%, transparent),
-    0 10px 28px rgba(59, 130, 246, 0.14),
-    0 0 18px rgba(147, 197, 253, 0.18);
+    0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent),
+    0 10px 28px color-mix(in srgb, var(--primary) 14%, transparent),
+    0 0 18px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 :global(.light) .chat-status-user-panel:hover,
 :global(body.light) .chat-status-user-panel:hover {
-  border-color: rgba(96, 165, 250, 0.58);
+  /* hover 时边框更深、外阴影更明显，但不加 2px 实心外环 */
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
   box-shadow:
-    0 0 0 2px rgba(191, 219, 254, 0.48),
-    0 12px 30px rgba(59, 130, 246, 0.18),
-    0 0 24px rgba(147, 197, 253, 0.22);
+    /* 上方向偏移一点让悬浮感更强，避免阴影全部沉在下方显得边框「被压薄」 */
+    0 -2px 18px color-mix(in srgb, var(--primary) 24%, transparent),
+    0 14px 36px color-mix(in srgb, var(--primary) 28%, transparent),
+    /* 外扩 2px 的柔和halo，让边框视觉上更厚但不形成实心环 */
+    0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 :global(.light) .chat-status-user-panel::after,
 :global(body.light) .chat-status-user-panel::after {
   opacity: 1;
-  box-shadow: 0 0 18px rgba(147, 197, 253, 0.22);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 :global(.dark) .chat-status-user-panel,
@@ -7044,23 +6931,26 @@
   border-color: rgba(255, 255, 255, 0.192);
   background: var(--bg-color);
   box-shadow:
-    0 10px 28px rgba(209, 213, 219, 0.14),
-    0 0 18px rgba(209, 213, 219, 0.18);
+    0 10px 28px color-mix(in srgb, var(--primary) 14%, transparent),
+    0 0 18px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 :global(.dark) .chat-status-user-panel:hover,
 :global(body.dark) .chat-status-user-panel:hover {
-  border-color: rgba(147, 197, 253, 0.58);
+  /* hover 时边框更深、外阴影更明显，但不加 2px 实心外环 */
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
   box-shadow:
-    0 0 0 2px rgba(96, 165, 250, 0.18),
-    0 12px 30px rgba(59, 130, 246, 0.22),
-    0 0 24px rgba(96, 165, 250, 0.2);
+    /* 上方向偏移一点让悬浮感更强，避免阴影全部沉在下方显得边框「被压薄」 */
+    0 -2px 18px color-mix(in srgb, var(--primary) 28%, transparent),
+    0 14px 36px color-mix(in srgb, var(--primary) 32%, transparent),
+    /* 外扩 2px 的柔和halo，让边框视觉上更厚但不形成实心环 */
+    0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 :global(.dark) .chat-status-user-panel::after,
 :global(body.dark) .chat-status-user-panel::after {
   opacity: 1;
-  box-shadow: 0 0 18px rgba(209, 213, 219, 0.22);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
 .chat-status-user-panel > div {
@@ -7164,58 +7054,6 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-
-    .chat-window-icon-button {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px;
-      -webkit-tap-highlight-color: transparent;
-      transition:
-        background-color 0.2s ease,
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
-
-      &:not([disabled]):hover,
-      &:not([disabled]):active,
-      &:not([disabled]):focus,
-      &:not([disabled]):focus-visible {
-        background-color: color-mix(
-          in srgb,
-          var(--primary) 4%,
-          var(--white)
-        ) !important;
-        border-color: var(--primary) !important;
-        box-shadow: var(--card-shadow) !important;
-      }
-
-      .icon-button-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        svg {
-          display: block;
-
-          > g {
-            transform: translate(2px, 2px);
-          }
-        }
-      }
-    }
-  }
-
-  .chat-window-action-button .chat-window-icon-button {
-    --chat-window-button-idle-border: rgba(148, 163, 184, 0.26);
-
-    border: 2px solid var(--chat-window-button-idle-border) !important;
-
-    &:hover {
-      border-color: var(--primary) !important;
-      box-shadow: var(--card-shadow) !important;
-    }
   }
 }
 
@@ -7238,78 +7076,10 @@
     justify-content: center;
     box-sizing: border-box;
   }
-
-  .chat-window-icon-button {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
-    padding: 0 !important;
-    box-sizing: border-box;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    line-height: 0;
-
-    :global([class*="icon-button-text"]) {
-      display: none !important;
-    }
-
-    :global([class*="icon-button-icon"]) {
-      width: 20px !important;
-      height: 20px !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      flex: 0 0 20px;
-      line-height: 0;
-      transform: none !important;
-    }
-
-    :global(svg) {
-      width: 20px !important;
-      height: 20px !important;
-      display: block !important;
-      flex: 0 0 20px;
-      overflow: visible;
-      transform: none !important;
-    }
-
-    :global(svg > g) {
-      transform: translate(2px, 2px) !important;
-      transform-origin: center;
-    }
-  }
 }
 
-:global(body.light) .chat-window-actions .chat-window-icon-button {
-  @media only screen and (max-width: 999px) {
-    border-width: 1px !important;
-    border-color: rgba(100, 116, 139, 0.32) !important;
-  }
-}
-
-:global(body.light)
-  .chat
-  :global(.window-header > .window-actions:first-child)
-  .chat-window-icon-button {
-  @media only screen and (max-width: 999px) {
-    border-width: 1px !important;
-    border-color: rgba(100, 116, 139, 0.32) !important;
-  }
-}
-
-:global(body.dark) .chat-window-icon-button,
-:global(body:not(.light):not(.dark)) .chat-window-icon-button {
-  @media only screen and (max-width: 999px) {
-    --chat-window-button-idle-border: rgba(148, 163, 184, 0.26);
-
-    border-width: 1px !important;
-    border-color: var(--chat-window-button-idle-border) !important;
-  }
-}
+/* dark/light mode 边框颜色差异已统一由 globals.scss 中的 .nextchat-default-button 提供，
+   不再在 chat 模块内做差异化覆盖。*/
 
 :global(body.dark) .model-selector-hint-label {
   color: #e5e7eb;
@@ -7753,45 +7523,6 @@
 
 @media only screen and (max-width: 650px),
   only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
-  .chat-window-action-button .chat-window-icon-button {
-    border: 2px solid var(--chat-window-button-idle-border) !important;
-
-    &:hover {
-      border-color: var(--primary) !important;
-      box-shadow: var(--card-shadow) !important;
-    }
-  }
-
-  :global(body.light) .chat-window-actions .chat-window-icon-button {
-    border-width: 2px !important;
-    border-color: var(--chat-window-button-idle-border) !important;
-  }
-
-  :global(body.light)
-    .chat
-    :global(.window-header > .window-actions:first-child)
-    .chat-window-icon-button,
-  :global(.light)
-    .chat
-    :global(.window-header > .window-actions:first-child)
-    .chat-window-icon-button,
-  :global(body:not(.dark))
-    .chat
-    :global(.window-header > .window-actions:first-child)
-    .chat-window-icon-button {
-    border-width: 2px !important;
-    border-color: var(--chat-window-button-idle-border) !important;
-  }
-
-  :global(body.dark) .chat-window-icon-button,
-  :global(body:not(.light):not(.dark)) .chat-window-icon-button {
-    border-width: 2px !important;
-  }
-
-  :global(body.light) .chat-window-icon-button,
-  :global(.light) .chat-window-icon-button,
-  :global(body:not(.dark)) .chat-window-icon-button {
-    border-width: 2px !important;
-    border-color: var(--chat-window-button-idle-border) !important;
-  }
+  /* 边框/背景/hover 由 globals.scss 中的 .nextchat-default-button 提供。
+     本处不再覆盖任何 idle/hover 视觉属性，保持与 desktop 完全一致。*/
 }

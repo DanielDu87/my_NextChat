@@ -232,7 +232,6 @@ export function ApiConfigBackupsPage() {
             aria="关闭"
             icon={<CloseIcon />}
             close
-            bordered
             onClick={() => navigate(Path.Chat)}
           />
         </div>
@@ -320,7 +319,6 @@ export function ApiConfigBackupsPage() {
                   icon={working === "backup" ? <LoadingIcon /> : <UploadIcon />}
                   text={working === "backup" ? "备份中..." : "立即备份"}
                   type="primary"
-                  bordered
                   className={styles.createBackupButton}
                   disabled={!!working}
                   onClick={() => void createBackup()}
@@ -361,7 +359,6 @@ export function ApiConfigBackupsPage() {
                         }
                         text="恢复"
                         type="primary"
-                        bordered
                         disabled={!!working}
                         onClick={() => void restore(backup)}
                       />
@@ -369,7 +366,6 @@ export function ApiConfigBackupsPage() {
                         icon={<TrashIcon />}
                         text="删除"
                         type="danger"
-                        bordered
                         className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
                         disabled={!!working}
                         onClick={() => void remove(backup)}

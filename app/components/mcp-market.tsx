@@ -383,7 +383,6 @@ export function McpMarketPage() {
                   icon={<AddIcon />}
                   text={addButtonText}
                   className={styles["add-button"]}
-                  bordered
                   onClick={() => {
                     const newValue = [...currentValue, ""] as string[];
                     setUserConfig({ ...userConfig, [key]: newValue });
@@ -661,7 +660,6 @@ export function McpMarketPage() {
             <div className="window-action-button">
               <IconButton
                 icon={<RestartIcon />}
-                bordered
                 onClick={handleRestartAll}
                 text="Restart All"
                 disabled={isLoading}
@@ -672,7 +670,6 @@ export function McpMarketPage() {
                 aria="关闭"
                 icon={<CloseIcon />}
                 close
-                bordered
                 onClick={() => navigate(-1)}
                 disabled={isLoading}
               />
@@ -705,7 +702,6 @@ export function McpMarketPage() {
                   key="cancel"
                   text="Cancel"
                   onClick={() => setEditingServerId(undefined)}
-                  bordered
                   disabled={isLoading}
                 />,
                 <IconButton
@@ -713,7 +709,6 @@ export function McpMarketPage() {
                   text="Save"
                   type="primary"
                   onClick={saveServerConfig}
-                  bordered
                   disabled={isLoading}
                 />,
               ]}
@@ -733,7 +728,6 @@ export function McpMarketPage() {
                   key="close"
                   text="Close"
                   onClick={() => setViewingServerId(undefined)}
-                  bordered
                 />,
               ]}
             >

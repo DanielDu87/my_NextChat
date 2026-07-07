@@ -407,7 +407,7 @@ const drawCommonParams = () => params;
 
 export const models = DEFAULT_DRAW_MODELS.map(makeDrawModel);
 
-function DrawSelect(props: {
+export function DrawSelect(props: {
   ariaLabel: string;
   value: string;
   options: DrawSelectOption[];
@@ -449,9 +449,9 @@ function DrawSelect(props: {
 
   return (
     <div
-      className={clsx(styles["draw-select"], {
-        [styles["draw-select-open"]]: open,
-        [styles["draw-select-disabled"]]: props.disabled,
+      className={clsx("nextchat-select", {
+        "nextchat-select-open": open,
+        "nextchat-select-disabled": props.disabled,
       })}
       ref={rootRef}
     >
@@ -461,7 +461,7 @@ function DrawSelect(props: {
         aria-haspopup="listbox"
         aria-label={props.ariaLabel}
         aria-disabled={props.disabled}
-        className={styles["draw-select-button"]}
+        className="nextchat-select-trigger"
         disabled={props.disabled}
         onClick={() => {
           if (props.disabled) return;
@@ -480,20 +480,16 @@ function DrawSelect(props: {
         type="button"
       >
         <span
-          className={clsx(styles["draw-select-text"], {
-            [styles["draw-select-text-shrink"]]: shouldShrinkDisplayName,
+          className={clsx("nextchat-select-text", {
+            "nextchat-select-text-shrink": shouldShrinkDisplayName,
           })}
         >
           {displayName}
         </span>
-        <DownIcon className={styles["draw-select-icon"]} />
+        <DownIcon className="nextchat-select-icon" />
       </button>
       {open && !props.disabled && (
-        <div
-          className={styles["draw-select-menu"]}
-          id={selectId}
-          role="listbox"
-        >
+        <div className="nextchat-select-menu" id={selectId} role="listbox">
           {props.options.map((option) => {
             const selected = option.value === props.value;
             const shouldShrinkOptionName =
@@ -502,18 +498,18 @@ function DrawSelect(props: {
             return (
               <button
                 aria-selected={selected}
-                className={clsx(styles["draw-select-option"], {
-                  [styles["draw-select-option-active"]]: selected,
+                className={clsx("nextchat-select-option", {
+                  "nextchat-select-option-active": selected,
                 })}
                 key={option.value}
                 onClick={() => commitValue(option.value)}
                 role="option"
                 type="button"
               >
-                <span className={styles["draw-select-check"]} />
+                <span className="nextchat-select-check" />
                 <span
-                  className={clsx(styles["draw-select-option-text"], {
-                    [styles["draw-select-text-shrink"]]: shouldShrinkOptionName,
+                  className={clsx("nextchat-select-option-text", {
+                    "nextchat-select-text-shrink": shouldShrinkOptionName,
                   })}
                 >
                   {option.name}
@@ -914,16 +910,12 @@ function showDrawModelEditor(initialState: { models: string[] }) {
             <IconButton
               key="cancel"
               text={Locale.UI.Cancel}
-              bordered
-              shadow
               onClick={() => closeModal(null)}
             />,
             <IconButton
               key="confirm"
               text={Locale.UI.Confirm}
               type="primary"
-              bordered
-              shadow
               onClick={handleConfirm}
             />,
           ]}

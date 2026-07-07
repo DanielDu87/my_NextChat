@@ -21,22 +21,6 @@
         flex-grow: 1;
         max-width: 100%;
         min-width: 0;
-        transition: border-color 0.3s ease, box-shadow 0.3s ease,
-          background-color 0.3s ease;
-
-        &:hover {
-          border-width: 2px;
-          border-color: var(--primary);
-          background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-        }
-
-        &:focus {
-          border-width: 2px;
-          border-color: var(--primary);
-          box-shadow: 0 0 0 2px
-            color-mix(in srgb, var(--primary) 18%, transparent) !important;
-          outline: none;
-        }
 
         &:focus::placeholder {
           color: transparent;

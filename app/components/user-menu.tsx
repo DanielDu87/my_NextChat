@@ -136,16 +136,10 @@ function CreateUserModal(props: {
         hideMaxToggle
         onClose={handleClose}
         actions={[
-          <IconButton
-            key="cancel"
-            text="取消"
-            bordered
-            onClick={handleClose}
-          />,
+          <IconButton key="cancel" text="取消" onClick={handleClose} />,
           <IconButton
             key="confirm"
             text="确认新增"
-            bordered
             type="primary"
             onClick={() =>
               void onConfirm({
@@ -217,11 +211,10 @@ function EditUsernameModal(props: {
         hideMaxToggle
         onClose={onClose}
         actions={[
-          <IconButton key="cancel" text="取消" bordered onClick={onClose} />,
+          <IconButton key="cancel" text="取消" onClick={onClose} />,
           <IconButton
             key="confirm"
             text={submitting ? "保存中..." : "确认"}
-            bordered
             type="primary"
             disabled={submitting}
             onClick={handleConfirm}
@@ -288,11 +281,10 @@ function EditPasswordModal(props: {
         hideMaxToggle
         onClose={onClose}
         actions={[
-          <IconButton key="cancel" text="取消" bordered onClick={onClose} />,
+          <IconButton key="cancel" text="取消" onClick={onClose} />,
           <IconButton
             key="confirm"
             text={submitting ? "保存中..." : "确认"}
-            bordered
             type="primary"
             disabled={submitting}
             onClick={handleConfirm}
@@ -788,7 +780,6 @@ export function UserMenu(props?: {
                     <IconButton
                       key="edit-username"
                       text="修改用户名"
-                      bordered
                       onClick={() => {
                         if (effectiveUser) {
                           setEditTargetUser({
@@ -808,7 +799,6 @@ export function UserMenu(props?: {
                     <IconButton
                       key="edit-password"
                       text="修改密码"
-                      bordered
                       onClick={() => {
                         if (effectiveUser) {
                           setEditTargetUser({
@@ -827,7 +817,6 @@ export function UserMenu(props?: {
                   <IconButton
                     key="toggle-password"
                     text={showAllPasswords ? "隐藏密码" : "显示密码"}
-                    bordered
                     onClick={() => setShowAllPasswords(!showAllPasswords)}
                   />,
                 ]}
@@ -841,20 +830,17 @@ export function UserMenu(props?: {
                           : "取消删除"
                         : "删除用户"
                     }
-                    bordered
                     type={deleteMode ? "danger" : undefined}
                     onClick={() => toggleDeleteMode()}
                   />,
                   <IconButton
                     key="create"
                     text="新增用户"
-                    bordered
                     onClick={() => setShowCreateModal(true)}
                   />,
                   <IconButton
                     key="close"
                     text="关闭"
-                    bordered
                     onClick={() => setShowManageModal(false)}
                   />,
                 ].filter(Boolean as any)}
@@ -1081,7 +1067,6 @@ export function UserMenu(props?: {
                 <IconButton
                   key="edit-username"
                   text="修改用户名"
-                  bordered
                   onClick={() => {
                     if (effectiveUser) {
                       setEditTargetUser({
@@ -1101,7 +1086,6 @@ export function UserMenu(props?: {
                 <IconButton
                   key="edit-password"
                   text="修改密码"
-                  bordered
                   onClick={() => {
                     if (effectiveUser) {
                       setEditTargetUser({
@@ -1120,7 +1104,6 @@ export function UserMenu(props?: {
               <IconButton
                 key="toggle-password"
                 text={showAllPasswords ? "隐藏密码" : "显示密码"}
-                bordered
                 onClick={() => setShowAllPasswords(!showAllPasswords)}
               />,
             ]}
@@ -1134,20 +1117,17 @@ export function UserMenu(props?: {
                       : "取消删除"
                     : "删除用户"
                 }
-                bordered
                 type={deleteMode ? "danger" : undefined}
                 onClick={() => toggleDeleteMode()}
               />,
               <IconButton
                 key="create"
                 text="新增用户"
-                bordered
                 onClick={() => setShowCreateModal(true)}
               />,
               <IconButton
                 key="close"
                 text="关闭"
-                bordered
                 onClick={() => setShowManageModal(false)}
               />,
             ]}

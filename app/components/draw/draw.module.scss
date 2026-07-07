@@ -105,14 +105,8 @@
       box-shadow 0.2s ease;
   }
 
-  :global(button[class*="button_icon-button"]:hover),
-  :global(button[class*="button_icon-button"]:focus-visible) {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-  }
+  /* hover background 已由 globals.scss 的 .nextchat-default-button:hover 统一接管，
+     这里不再重复声明。 */
 
   :global(div[class*="button_icon-button-icon"]) {
     display: inline-flex !important;
@@ -239,24 +233,16 @@
   }
 }
 
+/* 边框/背景/hover 由 globals.scss 中的 .nextchat-primary-button 统一接管。
+   本类只保留布局尺寸微调。*/
 .draw-submit-button {
   width: 100% !important;
   min-width: 0 !important;
   justify-content: center !important;
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
     background-color 0.2s ease;
-
-  &:hover,
-  &:focus-visible {
-    background-color: var(--primary) !important;
-    border-color: var(--primary) !important;
-    box-shadow: none !important;
-  }
 }
 
 .draw-panel-scroll {

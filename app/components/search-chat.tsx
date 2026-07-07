@@ -190,7 +190,6 @@ export function SearchChatPage() {
                 aria={Locale.UI.Close}
                 icon={<CloseIcon />}
                 close
-                bordered
                 onClick={() => {
                   if (window.history.length > 1) {
                     navigate(-1);
@@ -208,7 +207,7 @@ export function SearchChatPage() {
             {/**搜索输入框 */}
             <input
               type="text"
-              className={styles["search-bar"]}
+              className={`${styles["search-bar"]} nextchat-input-control`}
               placeholder={Locale.SearchChat.Page.Search}
               autoFocus={!isMobileScreen}
               ref={searchInputRef}

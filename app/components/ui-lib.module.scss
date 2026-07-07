@@ -159,63 +159,11 @@
     .modal-header-actions {
       display: flex;
 
-      .modal-header-action {
-        width: 38px;
-        height: 38px;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: var(--close-button-border-width) solid
-          var(--close-button-border-color);
-        border-radius: 10px;
-        background-color: var(--white);
-        box-shadow: var(--card-shadow);
-        box-sizing: border-box;
-        color: var(--black);
-        cursor: pointer;
-        appearance: none;
-        transform: none;
-        filter: none;
-        transition:
-          background-color 0.2s ease,
-          border-color 0.2s ease,
-          box-shadow 0.2s ease;
-
-        &:not(:last-child) {
-          margin-right: 20px;
-        }
-
-        &:hover,
-        &:focus-visible,
-        &:active {
-          border-color: var(--primary);
-          background-color: color-mix(
-            in srgb,
-            var(--primary) 4%,
-            var(--white)
-          );
-          box-shadow: var(--close-button-hover-shadow);
-          outline: none;
-          transform: none;
-          filter: none;
-        }
-
-        svg {
-          width: 16px;
-          height: 16px;
-          display: block;
-          transform: none;
-        }
-
-        svg > g {
-          transform: none !important;
-        }
-
-        svg path {
-          stroke: currentcolor !important;
-          stroke-opacity: 1 !important;
-        }
+      /* 关闭按钮的边框/背景/hover/SVG 颜色由 globals.scss 中的
+         .nextchat-close-button 统一接管。本类只保留多个按钮时的
+         间距控制。 */
+      > *:not(:last-child) {
+        margin-right: 20px;
       }
     }
   }
@@ -1372,8 +1320,8 @@
         height: 16px;
       }
 
-      &:hover,
-      &:focus {
+      &:not(.selector-group-filter-option-active):hover,
+      &:not(.selector-group-filter-option-active):focus {
         background: #eff6ff;
         color: #1d4ed8;
         border-color: rgba(191, 219, 254, 0.95);
@@ -1764,8 +1712,8 @@
           padding-left: 14px;
         }
 
-        &:not(.selector-item-disabled):hover,
-        &:not(.selector-item-disabled):focus-within {
+        &:not(.selector-item-disabled):not(.selector-item-active):hover,
+        &:not(.selector-item-disabled):not(.selector-item-active):focus-within {
           background-color: #f3f8ff;
           color: #1d4ed8;
         }
@@ -2258,10 +2206,10 @@
   color: #f1f5f9;
 }
 
-:global(.dark) .selector-group-filter-option:hover,
-:global(.dark) .selector-group-filter-option:focus,
-:global(body.dark) .selector-group-filter-option:hover,
-:global(body.dark) .selector-group-filter-option:focus {
+:global(.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
+:global(.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):focus,
+:global(body.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
+:global(body.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):focus {
   background: rgba(37, 99, 235, 0.25);
   border-color: rgba(96, 165, 250, 0.9);
   color: #bfdbfe;
@@ -2320,9 +2268,9 @@
   color: #e2e8f0 !important;
 }
 
-:global(.dark) .selector .list .list-item:hover,
-:global(.dark) .selector .list .list-item:focus-within,
-:global(body.dark) .selector .list .list-item:hover {
+:global(.dark) .selector .list .list-item:not(.selector-item-active):hover,
+:global(.dark) .selector .list .list-item:not(.selector-item-active):focus-within,
+:global(body.dark) .selector .list .list-item:not(.selector-item-active):hover {
   background-color: rgba(37, 99, 235, 0.16) !important;
   color: rgb(147, 197, 253) !important;
   border-bottom-color: rgba(96, 165, 250, 0.4) !important;
@@ -2338,8 +2286,8 @@
   border-bottom-color: rgba(71, 85, 105, 0.82) !important;
 }
 
-:global(.dark) .selector .list .list-item:active,
-:global(body.dark) .selector .list .list-item:active {
+:global(.dark) .selector .list .list-item:not(.selector-item-active):active,
+:global(body.dark) .selector .list .list-item:not(.selector-item-active):active {
   background-color: rgba(59, 130, 246, 0.4) !important;
   border-bottom-color: rgba(59, 130, 246, 0.5) !important;
 }
@@ -2365,13 +2313,13 @@
   font-weight: 600;
 }
 
-:global(.dark) .selector .list .list-item:hover .list-item-title > div,
-:global(.dark) .selector .list .list-item:focus-within .list-item-title > div,
-:global(body.dark) .selector .list .list-item:hover .list-item-title > div,
+:global(.dark) .selector .list .list-item:not(.selector-item-active):hover .list-item-title > div,
+:global(.dark) .selector .list .list-item:not(.selector-item-active):focus-within .list-item-title > div,
+:global(body.dark) .selector .list .list-item:not(.selector-item-active):hover .list-item-title > div,
 :global(body.dark)
   .selector
   .list
-  .list-item:focus-within
+  .list-item:not(.selector-item-active):focus-within
   .list-item-title
   > div {
   color: rgb(147, 197, 253) !important;
@@ -2595,8 +2543,8 @@
     color: #e2e8f0 !important;
   }
 
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:hover,
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:focus-within {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):hover,
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):focus-within {
     background-color: rgba(37, 99, 235, 0.16) !important;
     color: rgb(147, 197, 253) !important;
     border-bottom-color: rgba(96, 165, 250, 0.4) !important;
@@ -2614,13 +2562,13 @@
   :global(body:not(.light):not(.dark))
     .selector
     .list
-    .list-item:hover
+    .list-item:not(.selector-item-active):hover
     .list-item-title
     > div,
   :global(body:not(.light):not(.dark))
     .selector
     .list
-    .list-item:focus-within
+    .list-item:not(.selector-item-active):focus-within
     .list-item-title
     > div {
     color: rgb(147, 197, 253) !important;
@@ -2666,8 +2614,8 @@
     color: #f1f5f9;
   }
 
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option:hover,
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option:focus {
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
+  :global(body:not(.light):not(.dark)) .selector-group-filter-option:not(.selector-group-filter-option-active):focus {
     background: rgba(37, 99, 235, 0.25);
     border-color: rgba(96, 165, 250, 0.9);
     color: #bfdbfe;
@@ -2719,11 +2667,11 @@
     border-bottom-color: rgba(71, 85, 105, 0.82) !important;
   }
 
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:hover {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):hover {
     background-color: rgba(30, 41, 59, 0.72) !important;
   }
 
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:active {
+  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):active {
     background-color: rgba(37, 99, 235, 0.16) !important;
   }
 

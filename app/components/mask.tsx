@@ -218,7 +218,6 @@ function ContextPromptItem(props: {
           icon={<DeleteIcon />}
           className={chatStyle["context-delete-button"]}
           onClick={() => props.remove()}
-          bordered
         />
       )}
     </div>

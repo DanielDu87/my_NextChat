@@ -118,7 +118,8 @@
       &:active,
       &:focus,
       &:focus-visible {
-        background-color: var(--white) !important;
+        transform: none !important;
+        filter: none !important;
       }
     }
   }

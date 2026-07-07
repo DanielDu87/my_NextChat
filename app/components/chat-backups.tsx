@@ -843,7 +843,6 @@ export function ChatBackupsPage() {
             aria="关闭"
             icon={<CloseIcon />}
             close
-            bordered
             onClick={() => navigate(Path.Chat)}
           />
         </div>
@@ -1040,8 +1039,7 @@ export function ChatBackupsPage() {
                 <IconButton
                   icon={working === "backup" ? <LoadingIcon /> : <UploadIcon />}
                   text={working === "backup" ? "备份中..." : "立即备份"}
-                  type="primary"
-                  bordered
+                  type="green"
                   className={styles.createBackupButton}
                   disabled={!!working}
                   onClick={() => void createBackup()}
@@ -1052,6 +1050,7 @@ export function ChatBackupsPage() {
           >
             <div className={styles.searchBar}>
               <input
+                className="nextchat-input-surface"
                 value={searchText}
                 onChange={(event) => setSearchText(event.currentTarget.value)}
                 placeholder="搜索全部备份：用户、来源、时间、数量或备份 ID"
@@ -1104,7 +1103,6 @@ export function ChatBackupsPage() {
                           icon={<ConfirmIcon />}
                           text={active ? "已展开" : "查看"}
                           type="primary"
-                          bordered
                           disabled={!!working}
                           onClick={() => toggleBackup(backup.id)}
                         />
@@ -1112,7 +1110,6 @@ export function ChatBackupsPage() {
                           icon={<TrashIcon />}
                           text="删除"
                           type="danger"
-                          bordered
                           className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
                           disabled={!!working}
                           onClick={() => void removeBackup(backup)}
@@ -1172,7 +1169,6 @@ export function ChatBackupsPage() {
                                       }
                                       text="恢复此对话"
                                       type="primary"
-                                      bordered
                                       disabled={!!working}
                                       onClick={() =>
                                         void restoreConversation(session)
@@ -1189,7 +1185,6 @@ export function ChatBackupsPage() {
                                       }
                                       text="删除"
                                       type="danger"
-                                      bordered
                                       className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
                                       disabled={!!working}
                                       onClick={() =>

@@ -402,7 +402,6 @@ export function ProviderBalancesPage() {
               <IconButton
                 icon={<ReloadIcon />}
                 text="全部查询"
-                bordered
                 className={styles.headerQueryButton}
                 disabled={
                   working === "all" ||
@@ -418,7 +417,6 @@ export function ProviderBalancesPage() {
                 aria="关闭"
                 icon={<CloseIcon />}
                 close
-                bordered
                 onClick={() => void closePage()}
               />
             </div>
@@ -470,7 +468,7 @@ export function ProviderBalancesPage() {
                 </div>
                 <div className={styles.row}>
                   <input
-                    className={styles.input}
+                    className={`${styles.input} nextchat-input-control`}
                     type="text"
                     autoComplete="one-time-code"
                     autoCorrect="off"
@@ -516,7 +514,6 @@ export function ProviderBalancesPage() {
                         ? "保存中..."
                         : "保存"
                     }
-                    bordered
                     disabled={
                       working === "all" ||
                       savingProfileIds.includes(profile.profileId) ||
@@ -531,7 +528,6 @@ export function ProviderBalancesPage() {
                         ? "获取中..."
                         : "更新"
                     }
-                    bordered
                     disabled={
                       working === "all" ||
                       savingProfileIds.includes(profile.profileId) ||

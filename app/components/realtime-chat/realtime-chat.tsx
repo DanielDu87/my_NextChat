@@ -364,18 +364,11 @@ export function RealtimeChat({
             icon={isRecording ? <VoiceIcon /> : <VoiceOffIcon />}
             onClick={toggleRecording}
             disabled={!isConnected}
-            shadow
-            bordered
           />
         </div>
         <div className={styles["icon-center"]}>{status}</div>
         <div>
-          <IconButton
-            icon={<PowerIcon />}
-            onClick={handleClose}
-            shadow
-            bordered
-          />
+          <IconButton icon={<PowerIcon />} onClick={handleClose} />
         </div>
       </div>
     </div>

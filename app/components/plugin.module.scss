@@ -37,7 +37,7 @@
       var(--white)
     ) !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
+    box-shadow: var(--input-control-hover-shadow) !important;
     outline: none;
   }
 
@@ -56,42 +56,37 @@
   box-sizing: border-box;
 }
 
-// 插件页表单沿用聊天记录搜索框的交互效果。
-.plugin-page
-  :global(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select):not(:disabled):not(:read-only)) {
-  transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease,
-    background-color 0.3s ease;
-
-  &:hover {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-  }
-
-  &:focus,
-  &:focus-visible {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: var(--white);
-    box-shadow: 0 0 0 2px
-      color-mix(in srgb, var(--primary) 18%, transparent);
-    outline: none;
-  }
-}
+// 输入框 hover/focus 行为已由 globals.scss 中的全局 :is(input, textarea, select) 选择器统一接管，无需重复定义。
 
 .plugin-filter {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 
   .plugin-search-bar {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 40px;
+    box-sizing: border-box;
   }
 
-  .plugin-create {
-    margin-left: 0;
-    flex: 0 0 auto;
+  // Create 按钮直接用 nextchat-primary-button 提供主色外观，
+  // 图标描边由 globals.scss 中的全局 nextchat-primary-button 子元素规则统一处理。
+  // 这里只需让按钮撑满 grid 子列即可。
+  > button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+
+    /* 只调整按钮内文字大小与左侧输入框一致，不改变按钮自身的尺寸。
+       通过收紧 line-height 让 16px 文字的高度等于原先 12px 文字 + 默认行高的高度，
+       从而保持按钮视觉高度不变。 */
+    :global([class*="icon-button-text"]) {
+      font-size: 16px !important;
+      line-height: 1 !important;
+    }
   }
 }
 
@@ -136,10 +131,10 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-}
 
-.plugin-action {
-  flex: 0 0 auto;
+  > button {
+    flex: 0 0 auto;
+  }
 }
 
 .plugin-content {
@@ -160,41 +155,18 @@
     overflow-y: auto;
     white-space: pre-wrap;
     min-width: 0;
-    box-sizing: border-box;
   }
 }
 
 .plugin-edit-modal {
-  :global(select) {
+  :global(.nextchat-select) {
+    width: auto !important;
+    max-width: none !important;
     min-width: 128px;
-    height: 44px;
-    padding: 0 36px;
-    box-sizing: border-box;
-    border-radius: 12px;
-    text-align: center;
-    text-align-last: center;
-    background-color: var(--white);
-    transition:
-      border-color 0.3s ease,
-      box-shadow 0.3s ease,
-      background-color 0.3s ease;
   }
 
-  :global(select option) {
-    text-align: center;
-  }
-
-  :global(select:hover) {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-  }
-
-  :global(select:focus) {
-    border-width: 2px;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
-    outline: none;
+  :global(.nextchat-select .nextchat-select-trigger) {
+    width: auto !important;
   }
 
   :global(.password-input-container) {
@@ -205,30 +177,12 @@
     gap: 8px;
   }
 
+  /* 边框/背景/hover/focus 由 globals.scss 的 .nextchat-input-surface 统一接管 */
   :global(.password-input-container .password-input) {
     min-width: 0;
     width: 100%;
     height: 44px;
-    box-sizing: border-box;
-    border-radius: 12px;
     text-align: left;
-    transition:
-      border-color 0.3s ease,
-      box-shadow 0.3s ease,
-      background-color 0.3s ease;
-  }
-
-  :global(.password-input-container .password-input:hover) {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-  }
-
-  :global(.password-input-container .password-input:focus) {
-    border-width: 2px;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
-    outline: none;
   }
 
   :global(.password-input-container .password-eye) {
@@ -239,8 +193,8 @@
     height: 44px;
     margin-right: 0;
     flex: 0 0 44px;
-    border-radius: 12px;
-    border: var(--border-in-light);
+    border-radius: var(--input-control-radius);
+    border: 1px solid var(--input-control-border-color);
     background-color: var(--white);
     color: var(--black);
     transition:
@@ -251,10 +205,11 @@
 
   :global(.password-input-container .password-eye:hover),
   :global(.password-input-container .password-eye:focus) {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 8%, var(--white));
+    border-color: var(--input-control-hover-border-color);
+    background-color: var(--input-control-hover-bg);
+    box-shadow: var(--input-control-hover-shadow);
     color: var(--primary);
+    outline: none;
   }
 }
 
@@ -265,29 +220,11 @@
   align-items: center;
   gap: 10px;
 
+  /* 边框/背景/hover/focus 由 globals.scss 的 .nextchat-input-surface 统一接管 */
   input {
     width: min(420px, 100%);
     min-width: 0;
     margin-right: 0;
-    box-sizing: border-box;
-    transition:
-      border-color 0.3s ease,
-      box-shadow 0.3s ease,
-      background-color 0.3s ease;
-
-    &:hover {
-      border-width: 2px;
-      border-color: var(--primary);
-      background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-    }
-
-    &:focus {
-      border-width: 2px;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
-      outline: none;
-    }
-
     text-align: left;
   }
 
@@ -354,8 +291,9 @@
 
   .plugin-mobile-header-actions {
     position: absolute;
-    top: 24px;
+    top: 50%;
     right: 0;
+    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -410,13 +348,56 @@
           var(--primary) 4%,
           var(--white)
         ) !important;
-        box-shadow: var(--card-shadow) !important;
+        box-shadow: var(--input-control-hover-shadow) !important;
         outline: none !important;
         opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
       }
     }
 
-    :global([class*="button_icon-button"] [class*="button_icon-button-icon"]) {
+    :global([class*="button_icon-button"][data-close-button="true"]) {
+      width: 38px !important;
+      min-width: 38px !important;
+      height: 38px !important;
+      min-height: 38px !important;
+      padding: 0 !important;
+      border-width: 2px !important;
+      border-color: var(--close-button-idle-border-color) !important;
+      border-radius: 10px !important;
+      background-color: var(--white) !important;
+      box-shadow: var(--card-shadow) !important;
+      transform: none !important;
+      filter: none !important;
+    }
+
+    :global([class*="button_icon-button"][data-close-button="true"]:hover),
+    :global([class*="button_icon-button"][data-close-button="true"]:focus-visible),
+    :global([class*="button_icon-button"][data-close-button="true"]:active) {
+      border-color: var(--primary) !important;
+      background-color: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+      box-shadow: none !important;
+      outline: none !important;
+      transform: none !important;
+      filter: none !important;
+    }
+
+    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"]),
+    :global([class*="button_icon-button"][data-close-button="true"] svg) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transform: none !important;
+    }
+
+    :global([class*="button_icon-button"][data-close-button="true"] svg > g) {
+      transform: none !important;
+    }
+
+    :global([class*="button_icon-button"]:not([data-close-button="true"]) [class*="button_icon-button-icon"]) {
       width: 20px !important;
       height: 20px !important;
       margin: 0 !important;
@@ -425,10 +406,22 @@
       justify-content: center !important;
     }
 
-    :global([class*="button_icon-button"] [class*="button_icon-button-icon"] > svg) {
+    :global([class*="button_icon-button"]:not([data-close-button="true"]) [class*="button_icon-button-icon"] > svg) {
       display: block !important;
       width: 20px !important;
       height: 20px !important;
+    }
+
+    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"]),
+    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"] > svg),
+    :global([class*="button_icon-button"][data-close-button="true"] svg) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transform: none !important;
     }
   }
 
@@ -446,27 +439,33 @@
     box-sizing: border-box;
     overflow: hidden;
     overflow-y: hidden;
-    overflow-x: hidden;
+    overflow-x: visible;
     background-color: var(--second);
   }
 
   .plugin-page .plugin-filter {
     display: grid !important;
     flex-shrink: 0;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto;
     gap: 8px;
-    height: 40px;
-    margin-bottom: 0;
+    min-height: 92px;
+    height: auto;
+    margin: 0;
+    padding: 4px;
     width: 100%;
     min-width: 0;
     max-width: 100%;
     box-sizing: border-box;
 
     .plugin-search-bar {
-      width: 100%;
-      max-width: 100%;
+      grid-row: 1;
+      order: 1;
+      width: calc(100% - 8px);
+      max-width: calc(100% - 8px);
       height: 38px;
       min-width: 0;
+      justify-self: center;
       padding: 0 42px;
       border: 2px solid transparent;
       border-radius: 10px;
@@ -487,85 +486,7 @@
         opacity: 1;
       }
 
-      &:hover {
-        border-width: 2px;
-        border-color: var(--primary);
-        background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-      }
-
-      &:focus {
-        border-width: 2px;
-        border-color: var(--primary);
-        background-color: var(--white);
-        box-shadow: 0 0 0 3px
-          color-mix(in srgb, var(--primary) 18%, transparent);
-        outline: none;
-      }
-    }
-
-    .plugin-create {
-      width: 100% !important;
-      max-width: 100% !important;
-      height: 40px !important;
-      min-width: 0 !important;
-      min-height: 40px !important;
-      padding: 0 10px !important;
-      margin-left: 0 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      border: 2px solid rgba(148, 163, 184, 0.26) !important;
-      border-radius: 12px;
-      background-color: var(--white) !important;
-      box-shadow: var(--card-shadow) !important;
-      box-sizing: border-box;
-      overflow: visible;
-
-      &:hover {
-        background-color: color-mix(
-          in srgb,
-          var(--primary) 4%,
-          var(--white)
-        ) !important;
-        border-color: var(--primary) !important;
-        box-shadow: var(--card-shadow) !important;
-      }
-
-      &:active {
-        transform: none !important;
-        filter: none !important;
-        opacity: 1 !important;
-      }
-    }
-
-    .plugin-create :global([class*="button_icon-button-icon"]) {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      flex: 0 0 16px;
-      width: 16px !important;
-      height: 16px !important;
-      margin: 0 5px 0 0 !important;
-    }
-
-    .plugin-create :global([class*="button_icon-button-icon"] > svg) {
-      display: block !important;
-      flex: 0 0 16px;
-      width: 16px !important;
-      height: 16px !important;
-    }
-
-    .plugin-create :global([class*="button_icon-button-icon"] > svg > g) {
-      transform: none !important;
-    }
-
-    .plugin-create :global([class*="button_icon-button-text"]) {
-      display: block !important;
-      max-width: none;
-      margin-left: 0 !important;
-      overflow: visible;
-      text-overflow: clip;
-      white-space: nowrap;
+      /* hover/focus 由 globals.scss 中的全局 input 选择器统一接管 */
     }
   }
 
@@ -631,48 +552,64 @@
 
   .plugin-item-actions {
     display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     width: 100%;
     gap: 8px;
+    align-items: stretch;
     padding-top: 0 !important;
-  }
 
-  .plugin-action {
-    width: 100% !important;
-    min-width: 0 !important;
-    height: 40px !important;
-    min-height: 40px !important;
-    margin: 0 !important;
-    padding: 0 8px !important;
-    border-radius: 10px;
-    box-sizing: border-box;
-  }
+    > button {
+      min-width: 0 !important;
+      height: 40px !important;
+      min-height: 40px !important;
+      margin: 0 !important;
+      padding: 0 8px !important;
+      border-radius: 10px;
+      box-sizing: border-box;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 5px;
+      overflow: hidden;
+      transform: none !important;
+      filter: none !important;
+    }
 
-  .plugin-action :global([class*="button_icon-button-icon"]) {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 5px 0 0 !important;
-  }
+    > button :global([class*="button_icon-button-icon"]) {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex: 0 0 16px !important;
+      width: 16px !important;
+      min-width: 16px !important;
+      height: 16px !important;
+      min-height: 16px !important;
+      margin: 0 !important;
+    }
 
-  .plugin-action :global([class*="button_icon-button-icon"] > svg) {
-    display: block !important;
-    width: 16px !important;
-    height: 16px !important;
-  }
+    > button :global([class*="button_icon-button-icon"] > svg) {
+      display: block !important;
+      width: 16px !important;
+      min-width: 16px !important;
+      height: 16px !important;
+      min-height: 16px !important;
+    }
 
-  .plugin-action :global([class*="button_icon-button-icon"] > svg > g) {
-    transform: none !important;
-  }
+    > button :global([class*="button_icon-button-icon"] > svg > g) {
+      transform: none !important;
+    }
 
-  .plugin-action :global([class*="button_icon-button-text"]) {
-    display: block !important;
-    min-width: 0;
-    margin-left: 0 !important;
-    font-size: 12px;
-    line-height: 1;
+    > button :global([class*="button_icon-button-text"]) {
+      display: inline-flex !important;
+      align-items: center !important;
+      min-width: 0;
+      margin-left: 0 !important;
+      font-size: 12px;
+      line-height: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .plugin-edit-modal {
@@ -697,7 +634,7 @@
       width: 100%;
     }
 
-    :global(select),
+    :global(.nextchat-select),
     :global(input[type="text"]),
     :global(.password-input-container) {
       width: 100%;
@@ -743,61 +680,6 @@
 }
 
 .plugin-page {
-  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"])) {
-    --chat-window-button-idle-border: rgba(148, 163, 184, 0.26);
-
-    border: 2px solid var(--chat-window-button-idle-border) !important;
-    border-radius: 10px !important;
-    background-color: var(--white) !important;
-    box-shadow: var(--card-shadow) !important;
-    box-sizing: border-box;
-    color: var(--black);
-    transform: none !important;
-    filter: none !important;
-    transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-
-  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):hover),
-  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):focus-visible) {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    border-width: 2px !important;
-    border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
-    outline: none;
-  }
-
-  :global(button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):active) {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    border-width: 2px !important;
-    border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
-    opacity: 1 !important;
-  }
-
-  :global(button[class*="button_icon-button"] [class*="button_icon-button-icon"]) {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-
-  :global(button[class*="button_icon-button"] [class*="button_icon-button-text"]) {
-    display: inline-flex;
-    align-items: center;
-  }
-}
-
-.plugin-page {
   :global(.window-header .window-actions) {
     align-items: stretch;
     flex: 0 0 auto;
@@ -830,7 +712,7 @@
     ) !important;
     border-width: 2px !important;
     border-color: var(--primary) !important;
-    box-shadow: var(--card-shadow) !important;
+    box-shadow: var(--input-control-hover-shadow) !important;
   }
 
   :global(.window-header .window-actions button[class*="button_icon-button"]:not([data-close-button="true"]):not([class*="button_primary"]):not([class*="button_danger"]):focus:not(:hover)),
@@ -840,34 +722,3 @@
   }
 }
 
-// 关闭按钮在桌面端和移动端保持完全相同，避免页面按钮规则改变尺寸或边框。
-.plugin-page :global(button[data-close-button="true"]) {
-  width: 38px !important;
-  min-width: 38px !important;
-  height: 38px !important;
-  min-height: 38px !important;
-  padding: 10px !important;
-  border: var(--close-button-border-width) solid
-    var(--close-button-border-color) !important;
-  border-radius: 10px !important;
-  background-color: var(--white) !important;
-  box-shadow: var(--card-shadow) !important;
-  box-sizing: border-box !important;
-  transform: none !important;
-  filter: none !important;
-
-  &:hover,
-  &:focus-visible,
-  &:active {
-    border-width: var(--close-button-border-width) !important;
-    border-color: var(--primary) !important;
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    box-shadow: var(--close-button-hover-shadow) !important;
-    transform: none !important;
-    filter: none !important;
-  }
-}

@@ -200,8 +200,6 @@ export function SideBar(props: {
           <IconButton
             icon={<ReturnIcon />}
             text={Locale.Draw.Actions.ReturnHome}
-            bordered
-            shadow
             onClick={() => void handleReturnHome()}
           />
           <div
@@ -213,8 +211,6 @@ export function SideBar(props: {
             <IconButton
               icon={<currentThemeOption.Icon />}
               text="主题切换"
-              bordered
-              shadow
               onClick={() => {
                 setThemeMenuOpen((value) => (isMobileScreen ? !value : true));
               }}
@@ -249,8 +245,6 @@ export function SideBar(props: {
             <IconButton
               icon={<HistoryIcon />}
               text="生成记录"
-              bordered
-              shadow
               onClick={() => navigate(Path.DrawHistory)}
             />
           )}
@@ -266,8 +260,6 @@ export function SideBar(props: {
           <IconButton
             text={Locale.DrawPanel.Submit}
             type="primary"
-            bordered
-            shadow
             className={styles["draw-submit-button"]}
             onClick={handleSubmit}
           ></IconButton>

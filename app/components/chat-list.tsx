@@ -735,7 +735,10 @@ export function ChatList() {
       <div className={styles["chat-list-filter-card"]}>
         <input
           type="text"
-          className={styles["chat-list-filter-input"]}
+          className={clsx(
+            styles["chat-list-filter-input"],
+            "nextchat-input-surface",
+          )}
           placeholder={Locale.SearchChat.Page.Search}
           value={filterText}
           disabled={isChatListDisabled}

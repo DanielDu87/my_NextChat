@@ -312,6 +312,28 @@
     flex-direction: column;
     gap: 10px;
 
+    /* 边框/背景/hover 由 globals.scss 中的 .nextchat-default-button 接管。
+       本类只保留 padding、color、font-size、margin 等布局微调。*/
+    .add-button {
+      align-self: flex-start;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 12px;
+      color: var(--black);
+      font-size: 12px;
+      margin-top: 5px;
+
+      &:hover {
+        color: var(--primary);
+      }
+
+      svg {
+        width: 16px;
+        height: 16px;
+      }
+    }
+
     .path-item {
       display: flex;
       gap: 10px;
@@ -340,71 +362,30 @@
         }
       }
 
-      .browse-button {
-        padding: 8px;
-        border: var(--border-in-light);
-        border-radius: 10px;
-        background-color: transparent;
-        color: var(--black-50);
-
-        &:hover {
-          border-color: var(--primary);
-          color: var(--primary);
-          background-color: transparent;
-        }
-
-        svg {
-          width: 16px;
-          height: 16px;
-        }
-      }
-
+      /* 边框/背景/hover 由 globals.scss 中的 .nextchat-default-button 接管。
+         本类只保留 padding、color 与 svg 尺寸等微调。*/
+      .browse-button,
       .delete-button {
         padding: 8px;
-        border: var(--border-in-light);
-        border-radius: 10px;
-        background-color: transparent;
         color: var(--black-50);
+      }
 
-        &:hover {
-          border-color: var(--danger);
-          color: var(--danger);
-          background-color: transparent;
-        }
+      .browse-button:hover {
+        color: var(--primary);
+      }
 
-        svg {
-          width: 16px;
-          height: 16px;
-        }
+      .delete-button:hover {
+        color: var(--danger);
+      }
+
+      .browse-button svg,
+      .delete-button svg {
+        width: 16px;
+        height: 16px;
       }
 
       .file-input {
         display: none;
-      }
-    }
-
-    .add-button {
-      align-self: flex-start;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 8px 12px;
-      background-color: transparent;
-      border: var(--border-in-light);
-      border-radius: 10px;
-      color: var(--black);
-      font-size: 12px;
-      margin-top: 5px;
-
-      &:hover {
-        border-color: var(--primary);
-        color: var(--primary);
-        background-color: transparent;
-      }
-
-      svg {
-        width: 16px;
-        height: 16px;
       }
     }
   }

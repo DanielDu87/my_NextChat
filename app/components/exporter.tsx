@@ -380,24 +380,18 @@ export function PreviewActions(props: {
         {props.showCopy && (
           <IconButton
             text={Locale.Export.Copy}
-            bordered
-            shadow
             icon={<CopyIcon />}
             onClick={props.copy}
           ></IconButton>
         )}
         <IconButton
           text={Locale.Export.Download}
-          bordered
-          shadow
           icon={<DownloadIcon />}
           onClick={props.download}
         ></IconButton>
         {clientConfig?.enableShareGpt && clientConfig?.shareGptUrl && (
           <IconButton
             text={Locale.Export.Share}
-            bordered
-            shadow
             icon={loading ? <LoadingIcon /> : <ShareIcon />}
             onClick={share}
           ></IconButton>
