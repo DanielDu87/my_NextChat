@@ -240,7 +240,8 @@ yarn prompts
 
 `app/utils/server/` 是所有服务端数据访问的统一入口（Repository 模式），**新增/修改数据库逻辑应优先复用这里的封装**，避免直接写裸 SQL：
 
-- `postgres.ts` - 连接池、重试、Schema 版本管理
+- `postgres.ts` - 主业务库连接池、重试、Schema 版本管理
+- `backup-postgres.ts` - 独立备份库连接池、重试、备份 Schema 版本管理（`ensureBackupStorageSchema`，由 `BACKUP_*` 环境变量指向 `nextchat_backup` 等独立库）
 - `chat-conversation-repository.ts` - 对话与会话
 - `chat-backup-repository.ts` - 按用户区分的对话增量备份、在线查看、删除和单会话合并恢复
 - `draw-image-repository.ts` / `draw-store-repository.ts` - 绘画图片与任务
@@ -339,7 +340,9 @@ yarn prompts
 - **数据库表**：`provider_balance_configs`，按 `provider_configs.id` 一对一关联；密文管理 Key 通过 `sync-secrets.ts` 加密。
 - **API 配置备份包含余额条目**：API 配置自动备份 / 手动备份 / 恢复前保护备份都会把当前用户的 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema 版本 = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回。旧备份（无 `balanceEntries`）仍然兼容，只恢复 access-control；新备份统一写单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - **实现位置**：`app/utils/server/api-config-backup-repository.ts`（`buildApiConfigBackupPayload` / `writeApiConfigBalanceEntries`）、`app/api/db/api-config-backups/route.ts`、`app/api/db/sync/[key]/route.ts`（access-control PUT 时自动备份）、`app/utils/server/api-config-backup-scheduler.ts`（后台定时备份）。
-- **对话记录备份落点**：对话已经拆成 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份已使用独立的 `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`，不要塞进 `api_config_backups`。生产灾备继续以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
+- **备份落在独立备份数据库**：所有站内备份表（`backup_api_config_settings` / `backup_api_config_snapshots` / `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`）由 `app/utils/server/backup-postgres.ts` 的 `ensureBackupStorageSchema()` 在 `BACKUP_DATABASE_URL` 或 `BACKUP_PGHOST/BACKUP_PGDATABASE/BACKUP_PGUSER/BACKUP_PGPASSWORD` 指向的**独立备份库**（如 `nextchat_backup`）中创建，与主业务库分离；备份表不再有指向 `app_users` 的外键，改用冗余 `external_user_id`，用户信息在需要时回主库 `app_users` 关联。未配置 `BACKUP_*` 时备份功能不可用，但 sync 主流程与两个 scheduler 都已 try/catch，不会影响正常同步。
+- **主库旧备份表自动清理**：主库里旧的 `chat_backup_*` / `api_config_backup*` 表已迁到独立备份库，`postgres.ts` 的 `cleanupLegacyMainDbBackupTables()` 会在两个自动备份 scheduler 触发时一次性 `drop table if exists` 清掉这批遗留表（进程内只执行一次，失败只记日志）。
+- **对话记录备份落点**：对话已经拆成 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`（均在主业务库）。站内对话备份写入上述独立备份库的 `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`，不要塞进 `backup_api_config_snapshots`。生产灾备继续以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准，**主库和备份库都要纳入备份范围**。
 
 ### 对话增量备份
 
@@ -347,8 +350,8 @@ yarn prompts
 - **用户隔离**：所有备份按用户写入 `app_users.id`，本地免登录默认是 `ccc`。页面点击「立即备份」会为所有启用用户逐个创建增量备份；用户下拉框只控制下方历史查看和单会话恢复目标。生产环境仅管理员或本地免登录模式可执行全用户备份，普通用户只能操作自身可写数据。
 - **增量策略**：以最近一次成功备份的 `to_watermark` 为起点，收录 `conversations.updated_at` 或关联 `messages.updated_at` 之后有变化的会话；每个被收录的会话保存完整 `session_payload`，包括软删除会话，便于在线查看和恢复已删除对话。
 - **查看、删除与恢复**：历史会话默认只显示标题和会话信息，点击后展开消息内容，再次点击收起。可删除整次备份记录，也可删除某次备份中的单个会话快照。单会话恢复是合并模式：恢复时会把该会话标记为可见并写回备份中的消息，但不会裁剪当前库里已有的更多消息，也不会删除其他会话。
-- **数据库表**：`chat_backup_settings`、`chat_backup_runs`、`chat_backup_conversation_snapshots`。这些表只服务站内恢复；生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
-- **实现位置**：`app/utils/server/chat-backup-repository.ts`、`app/api/db/chat-backups/route.ts`、`app/components/chat-backups.tsx`。
+- **数据库表**（均在独立备份库，见 `backup-postgres.ts`）：`backup_chat_settings`、`backup_chat_runs`、`backup_chat_conversation_snapshots`。这些表只服务站内恢复；生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
+- **实现位置**：`app/utils/server/chat-backup-repository.ts`、`app/utils/server/backup-postgres.ts`、`app/api/db/chat-backups/route.ts`、`app/components/chat-backups.tsx`。
 
 ### 模型管理
 

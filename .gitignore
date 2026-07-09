@@ -42,6 +42,12 @@ dev
 # docker-compose env files
 .env
 
+# 含真实数据库密码 / 密钥的运行时环境文件，禁止入库（仅保留 *.example 模板）
+.env.docker
+.env.baota
+.env.production
+.env.docker.bak
+
 *.key
 *.key.pub
 

@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { backupPgQuery, ensureBackupStorageSchema } from "./backup-postgres";
 import {
   ensureSyncStorageSchema,
   pgQuery,
@@ -203,15 +204,15 @@ export async function writeApiConfigBalanceEntries(
 }
 
 export async function getApiConfigBackupSettings(externalUserId: string) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery<{
+  const result = await backupPgQuery<{
     enabled: boolean;
     interval_minutes: number;
     max_backups: number;
   }>(
     `select enabled, interval_minutes, max_backups
-     from api_config_backup_settings where user_id = $1::uuid`,
+     from backup_api_config_settings where user_id = $1::uuid`,
     [userId],
   );
   const row = result.rows[0];
@@ -227,16 +228,23 @@ export async function saveApiConfigBackupSettings(
   settings: { enabled: boolean; intervalMinutes: number; maxBackups: number },
 ) {
   console.log("[API Config] ⚙️ 开始保存自动备份设置", settings);
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  await pgQuery(
-    `insert into api_config_backup_settings (user_id, enabled, interval_minutes, max_backups)
-     values ($1::uuid, $2, $3, $4)
+  await backupPgQuery(
+    `insert into backup_api_config_settings (user_id, external_user_id, enabled, interval_minutes, max_backups)
+     values ($1::uuid, $2, $3, $4, $5)
      on conflict (user_id) do update set
+       external_user_id = excluded.external_user_id,
        enabled = excluded.enabled,
        interval_minutes = excluded.interval_minutes,
        max_backups = excluded.max_backups`,
-    [userId, settings.enabled, settings.intervalMinutes, settings.maxBackups],
+    [
+      userId,
+      externalUserId,
+      settings.enabled,
+      settings.intervalMinutes,
+      settings.maxBackups,
+    ],
   );
   await pruneApiConfigBackups(externalUserId, settings.maxBackups);
   console.log("[API Config] ✅ 自动备份设置已保存");
@@ -244,9 +252,9 @@ export async function saveApiConfigBackupSettings(
 }
 
 export async function listApiConfigBackups(externalUserId: string) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery<{
+  const result = await backupPgQuery<{
     id: string;
     source: ApiConfigBackupSource;
     profile_count: number;
@@ -265,7 +273,7 @@ export async function listApiConfigBackups(externalUserId: string) {
          end
        ) as profile_count,
        created_at::text
-     from api_config_backups where user_id = $1::uuid
+     from backup_api_config_snapshots where user_id = $1::uuid
      order by created_at desc`,
     [userId],
   );
@@ -282,7 +290,7 @@ export async function createApiConfigBackup(
   payload: unknown,
   source: ApiConfigBackupSource,
 ) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
   const settings = await getApiConfigBackupSettings(externalUserId);
   const digest = checksum(payload);
@@ -296,8 +304,11 @@ export async function createApiConfigBackup(
       console.log("[API Config] ⏭️ 自动备份已关闭，跳过本次备份");
       return { created: false, reason: "disabled" };
     }
-    const latest = await pgQuery<{ checksum: string; created_at: string }>(
-      `select checksum, created_at::text from api_config_backups
+    const latest = await backupPgQuery<{
+      checksum: string;
+      created_at: string;
+    }>(
+      `select checksum, created_at::text from backup_api_config_snapshots
        where user_id = $1::uuid order by created_at desc limit 1`,
       [userId],
     );
@@ -317,11 +328,11 @@ export async function createApiConfigBackup(
       return { created: false, reason: "interval" };
     }
   }
-  const result = await pgQuery<{ id: string }>(
-    `insert into api_config_backups
-       (user_id, source, payload_json, checksum, profile_count)
-     values ($1::uuid, $2, $3::jsonb, $4, $5) returning id::text`,
-    [userId, source, JSON.stringify(payload), digest, count],
+  const result = await backupPgQuery<{ id: string }>(
+    `insert into backup_api_config_snapshots
+       (user_id, external_user_id, source, payload_json, checksum, profile_count)
+     values ($1::uuid, $2, $3, $4::jsonb, $5, $6) returning id::text`,
+    [userId, externalUserId, source, JSON.stringify(payload), digest, count],
   );
   await pruneApiConfigBackups(externalUserId, settings.maxBackups);
   console.log("[API Config] ✅ 配置备份已写入PostgreSQL", {
@@ -337,9 +348,9 @@ export async function pruneApiConfigBackups(
   max: number,
 ) {
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery(
-    `delete from api_config_backups where id in (
-       select id from api_config_backups where user_id = $1::uuid
+  const result = await backupPgQuery(
+    `delete from backup_api_config_snapshots where id in (
+       select id from backup_api_config_snapshots where user_id = $1::uuid
        order by created_at desc offset $2
      )`,
     [userId, max],
@@ -356,9 +367,10 @@ export async function deleteApiConfigBackup(
   externalUserId: string,
   id: string,
 ) {
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery(
-    `delete from api_config_backups where id = $1::uuid and user_id = $2::uuid`,
+  const result = await backupPgQuery(
+    `delete from backup_api_config_snapshots where id = $1::uuid and user_id = $2::uuid`,
     [id, userId],
   );
   console.log("[API Config] 🗑️ 删除配置备份结果", {
@@ -372,9 +384,10 @@ export async function getApiConfigBackupPayload(
   externalUserId: string,
   id: string,
 ) {
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery<{ payload_json: unknown }>(
-    `select payload_json from api_config_backups
+  const result = await backupPgQuery<{ payload_json: unknown }>(
+    `select payload_json from backup_api_config_snapshots
      where id = $1::uuid and user_id = $2::uuid`,
     [id, userId],
   );

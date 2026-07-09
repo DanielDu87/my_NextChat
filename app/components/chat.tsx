@@ -15,7 +15,6 @@ import { createPortal, flushSync } from "react-dom";
 import SendUpIcon from "../icons/send-up.svg";
 import BrainIcon from "../icons/brain.svg";
 import RenameIcon from "../icons/rename.svg";
-import ExportIcon from "../icons/share.svg";
 import ReturnIcon from "../icons/return.svg";
 import CopyIcon from "../icons/copy.svg";
 import SpeakIcon from "../icons/speak.svg";
@@ -1062,6 +1061,9 @@ function getPreviewContentType(file: Pick<File, "name" | "type">) {
   return "application/octet-stream";
 }
 
+// Excel 预览行数限制，超出则截断避免主线程阻塞
+const EXCEL_PREVIEW_MAX_ROWS = 500;
+
 function formatAttachmentSize(size: number) {
   const safeSize = Number.isFinite(size) ? Math.max(0, size) : 0;
   if (safeSize < 1024) return `${safeSize} B`;
@@ -1092,6 +1094,22 @@ async function downloadPreviewBlobInChunks(options: {
   onHeaders?: (contentType: string, total: number) => void;
   onProgress?: (loaded: number, total: number) => Promise<void> | void;
 }) {
+  if (options.url.startsWith("blob:")) {
+    const response = await fetch(options.url, {
+      credentials: "include",
+      signal: options.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`预览文件读取失败（${response.status}）`);
+    }
+    const blob = await response.blob();
+    const total = blob.size || 0;
+    options.onHeaders?.(options.fileContentType, total);
+    await options.onProgress?.(total, total);
+    await yieldToBrowserPaint();
+    return blob;
+  }
+
   const headResponse = await fetch(options.url, {
     method: "HEAD",
     credentials: "include",
@@ -1454,7 +1472,7 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
   const [blobUrl, setBlobUrl] = useState("");
   const [textContent, setTextContent] = useState("");
   const [spreadsheetSheets, setSpreadsheetSheets] = useState<
-    Array<{ name: string; html: string }>
+    Array<{ name: string; totalRows: number; html: string }>
   >([]);
   const [activeSpreadsheetSheet, setActiveSpreadsheetSheet] = useState("");
   const [error, setError] = useState("");
@@ -1580,20 +1598,39 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
             const buffer = await cachedPreview.blob.arrayBuffer();
             if (cancelled) return;
             const XLSX = await import("xlsx");
-            const workbook = XLSX.read(buffer, { type: "array" });
+            // 使用 sheetRows 限制每个 sheet 的最大行数，避免主线程阻塞
+            const workbook = XLSX.read(buffer, {
+              type: "array",
+              sheetRows: EXCEL_PREVIEW_MAX_ROWS,
+            });
+            // 记录每个 sheet 的原始范围以显示截断提示
+            const originalRangeRef = new Map<string, string>();
+            for (const sheetName of workbook.SheetNames) {
+              originalRangeRef.set(
+                sheetName,
+                workbook.Sheets[sheetName]?.["!ref"] || "",
+              );
+            }
             const nextSheets = workbook.SheetNames.map((sheetName) => {
               const sheet = workbook.Sheets[sheetName];
-              if (!sheet) {
-                return null;
-              }
+              if (!sheet) return null;
+              const originalRange = originalRangeRef.get(sheetName) || "";
+              const totalRows = (() => {
+                const m = originalRange.match(/:([A-Z]+)(\d+)$/);
+                return m ? parseInt(m[2], 10) : EXCEL_PREVIEW_MAX_ROWS;
+              })();
               return {
                 name: sheetName,
+                totalRows,
                 html: XLSX.utils.sheet_to_html(sheet, {
                   id: `sheet-${sheetName}`,
                 }),
               };
-            }).filter((sheet): sheet is { name: string; html: string } =>
-              Boolean(sheet),
+            }).filter(
+              (
+                sheet,
+              ): sheet is { name: string; totalRows: number; html: string } =>
+                sheet !== null,
             );
             if (nextSheets.length === 0) {
               setTextContent("表格文件没有可预览的工作表。");
@@ -1617,7 +1654,7 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
             await docxPreview.renderAsync(buffer, hostRef.current, undefined, {
               inWrapper: false,
               ignoreWidth: false,
-              ignoreHeight: false,
+              ignoreHeight: true,
             });
           }
           return;
@@ -1699,20 +1736,39 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
           const buffer = await responseBlob.arrayBuffer();
           if (cancelled) return;
           const XLSX = await import("xlsx");
-          const workbook = XLSX.read(buffer, { type: "array" });
+          // 使用 sheetRows 限制每个 sheet 的最大行数，避免主线程阻塞
+          const workbook = XLSX.read(buffer, {
+            type: "array",
+            sheetRows: EXCEL_PREVIEW_MAX_ROWS,
+          });
+          // 记录每个 sheet 的原始范围以显示截断提示
+          const originalRangeRef = new Map<string, string>();
+          for (const sheetName of workbook.SheetNames) {
+            originalRangeRef.set(
+              sheetName,
+              workbook.Sheets[sheetName]?.["!ref"] || "",
+            );
+          }
           const nextSheets = workbook.SheetNames.map((sheetName) => {
             const sheet = workbook.Sheets[sheetName];
-            if (!sheet) {
-              return null;
-            }
+            if (!sheet) return null;
+            const originalRange = originalRangeRef.get(sheetName) || "";
+            const totalRows = (() => {
+              const m = originalRange.match(/:([A-Z]+)(\d+)$/);
+              return m ? parseInt(m[2], 10) : EXCEL_PREVIEW_MAX_ROWS;
+            })();
             return {
               name: sheetName,
+              totalRows,
               html: XLSX.utils.sheet_to_html(sheet, {
                 id: `sheet-${sheetName}`,
               }),
             };
-          }).filter((sheet): sheet is { name: string; html: string } =>
-            Boolean(sheet),
+          }).filter(
+            (
+              sheet,
+            ): sheet is { name: string; totalRows: number; html: string } =>
+              sheet !== null,
           );
           if (nextSheets.length === 0) {
             setTextContent("表格文件没有可预览的工作表。");
@@ -1736,7 +1792,7 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
           await docxPreview.renderAsync(buffer, hostRef.current, undefined, {
             inWrapper: false,
             ignoreWidth: false,
-            ignoreHeight: false,
+            ignoreHeight: true,
           });
         }
       } catch (error) {
@@ -1976,8 +2032,13 @@ function FilePreviewContent(props: { file: ChatMessageAttachedFile }) {
         {spreadsheetSheets.length > 0 && (
           <span>{`${spreadsheetSheets.length} 个工作表`}</span>
         )}
+        {activeSheet && activeSheet.totalRows > EXCEL_PREVIEW_MAX_ROWS && (
+          <span style={{ color: "#d97706" }}>
+            （显示前 {EXCEL_PREVIEW_MAX_ROWS} / 共 {activeSheet.totalRows} 行）
+          </span>
+        )}
       </div>
-      {body}
+      <div className={styles["file-preview-body"]}>{body}</div>
     </div>
   );
 }
@@ -2643,6 +2704,21 @@ function MobileAddIcon() {
         stroke="currentColor"
         strokeWidth="2.4"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ChatHeaderExportIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M8.34 5.17C3.34 5.17 1.67 8.84 1.67 14.5C1.67 14.5 3.67 9.5 8.34 9.5V13.17L14.34 7.5L8.34 1.5V5.17Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.333"
+        strokeLinecap="butt"
+        strokeLinejoin="miter"
       />
     </svg>
   );
@@ -4542,11 +4618,16 @@ function _Chat() {
       activeFilePreviewCloseRef.current?.();
       activeFilePreviewCloseRef.current = null;
       activeFilePreviewKeyRef.current = previewKey;
+      const previewFileKind = getPreviewFileKind(file);
 
       const closePreview = showModal({
         title: file.name || "文件预览",
         defaultMax: false,
-        className: styles["file-preview-modal"],
+        className: clsx(styles["file-preview-modal"], {
+          [styles["file-preview-modal-office"]]:
+            previewFileKind === "spreadsheet" ||
+            (previewFileKind === "document" && isDocxPreviewFile(file)),
+        }),
         onClose: () => {
           if (activeFilePreviewCloseRef.current === closePreview) {
             activeFilePreviewCloseRef.current = null;
@@ -6517,6 +6598,9 @@ function _Chat() {
     },
     [showTopNotice],
   );
+  const showUploadingPreviewHint = useCallback(() => {
+    showTopNotice("文件正在上传，上传完成后再预览");
+  }, [showTopNotice]);
 
   const cancelUploadingAttachment = useCallback(
     async (attachment: ComposerUploadingAttachment) => {
@@ -9830,7 +9914,7 @@ function _Chat() {
               )}
             >
               <IconButton
-                icon={<ExportIcon />}
+                icon={<ChatHeaderExportIcon />}
                 className={styles["chat-export-action"]}
                 text={
                   useHeaderIconOnly ? undefined : Locale.Chat.Actions.Export
@@ -10338,6 +10422,15 @@ function _Chat() {
                                               ]
                                             }
                                           >
+                                            {messageImages.map((image, index) =>
+                                              renderGeneratedMedia(
+                                                image,
+                                                styles[
+                                                  "chat-message-attached-image"
+                                                ],
+                                                `image-${index}`,
+                                              ),
+                                            )}
                                             {messageAttachedFiles.map(
                                               (file) => {
                                                 const previewUrl = String(
@@ -10521,34 +10614,36 @@ function _Chat() {
                                         </div>
                                       </>
                                     )}
-                                    {messageImages.length == 1 &&
+                                    {messageAttachedFiles.length === 0 &&
+                                      messageImages.length == 1 &&
                                       renderGeneratedMedia(
                                         messageImages[0],
                                         styles["chat-message-item-image"],
                                       )}
-                                    {messageImages.length > 1 && (
-                                      <div
-                                        className={
-                                          styles["chat-message-item-images"]
-                                        }
-                                        style={
-                                          {
-                                            "--image-count":
-                                              messageImages.length,
-                                          } as React.CSSProperties
-                                        }
-                                      >
-                                        {messageImages.map((image, index) => {
-                                          return renderGeneratedMedia(
-                                            image,
-                                            styles[
-                                              "chat-message-item-image-multi"
-                                            ],
-                                            index,
-                                          );
-                                        })}
-                                      </div>
-                                    )}
+                                    {messageAttachedFiles.length === 0 &&
+                                      messageImages.length > 1 && (
+                                        <div
+                                          className={
+                                            styles["chat-message-item-images"]
+                                          }
+                                          style={
+                                            {
+                                              "--image-count":
+                                                messageImages.length,
+                                            } as React.CSSProperties
+                                          }
+                                        >
+                                          {messageImages.map((image, index) => {
+                                            return renderGeneratedMedia(
+                                              image,
+                                              styles[
+                                                "chat-message-item-image-multi"
+                                              ],
+                                              index,
+                                            );
+                                          })}
+                                        </div>
+                                      )}
                                     {(message.manualStopped ||
                                       message.refreshInterrupted) && (
                                       <div
@@ -10861,6 +10956,18 @@ function _Chat() {
                                   } · ${formatAttachmentSize(
                                     attachment.file.size,
                                   )}`}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={showUploadingPreviewHint}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key === "Enter" ||
+                                      event.key === " "
+                                    ) {
+                                      event.preventDefault();
+                                      showUploadingPreviewHint();
+                                    }
+                                  }}
                                 >
                                   <div
                                     className={clsx(
@@ -10932,6 +11039,19 @@ function _Chat() {
                                 className={styles["attach-image"]}
                                 style={{
                                   backgroundImage: `url("${attachment.previewUrl}")`,
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                title="文件正在上传，上传完成后再预览"
+                                onClick={showUploadingPreviewHint}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    showUploadingPreviewHint();
+                                  }
                                 }}
                               >
                                 <div className={styles["attach-image-mask"]}>

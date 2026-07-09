@@ -6,21 +6,26 @@ import {
 } from "./app-settings-repository";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 import {
+  backupPgQuery,
+  ensureBackupStorageSchema,
+  withBackupPgTransaction,
+} from "./backup-postgres";
+import {
   ensureSyncStorageSchema,
   pgQuery,
   withPgTransaction,
 } from "./postgres";
 
 export async function getChatBackupSettings(externalUserId: string) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery<{
+  const result = await backupPgQuery<{
     enabled: boolean;
     interval_minutes: number;
     max_backups: number;
   }>(
     `select enabled, interval_minutes, max_backups
-     from chat_backup_settings where user_id = $1::uuid`,
+     from backup_chat_settings where user_id = $1::uuid`,
     [userId],
   );
   const row = result.rows[0];
@@ -36,16 +41,23 @@ export async function saveChatBackupSettings(
   settings: { enabled: boolean; intervalMinutes: number; maxBackups: number },
 ) {
   console.log("[Chat Backup] ⚙️ 开始保存自动备份设置", settings);
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  await pgQuery(
-    `insert into chat_backup_settings (user_id, enabled, interval_minutes, max_backups)
-     values ($1::uuid, $2, $3, $4)
+  await backupPgQuery(
+    `insert into backup_chat_settings (user_id, external_user_id, enabled, interval_minutes, max_backups)
+     values ($1::uuid, $2, $3, $4, $5)
      on conflict (user_id) do update set
+       external_user_id = excluded.external_user_id,
        enabled = excluded.enabled,
        interval_minutes = excluded.interval_minutes,
        max_backups = excluded.max_backups`,
-    [userId, settings.enabled, settings.intervalMinutes, settings.maxBackups],
+    [
+      userId,
+      externalUserId,
+      settings.enabled,
+      settings.intervalMinutes,
+      settings.maxBackups,
+    ],
   );
   await pruneChatBackups(externalUserId, settings.maxBackups);
   console.log("[Chat Backup] ✅ 自动备份设置已保存");
@@ -54,9 +66,9 @@ export async function saveChatBackupSettings(
 
 export async function pruneChatBackups(externalUserId: string, max: number) {
   const userId = await getOrCreateSyncAppUserId(externalUserId);
-  const result = await pgQuery(
-    `delete from chat_backup_runs where id in (
-       select id from chat_backup_runs where user_id = $1::uuid
+  const result = await backupPgQuery(
+    `delete from backup_chat_runs where id in (
+       select id from backup_chat_runs where user_id = $1::uuid
        order by created_at desc offset $2
      )`,
     [userId, max],
@@ -72,6 +84,52 @@ export async function pruneChatBackups(externalUserId: string, max: number) {
 type JsonObject = Record<string, unknown>;
 
 export type ChatBackupSource = "manual" | "auto";
+
+type AppUserInfo = {
+  userId: string;
+  externalId: string | null;
+  username: string | null;
+  displayName: string | null;
+};
+
+async function getAppUserInfoByIds(userIds: string[]) {
+  const normalizedUserIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (normalizedUserIds.length === 0) return new Map<string, AppUserInfo>();
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<AppUserInfo>(
+    `select id::text as "userId",
+            external_id as "externalId",
+            username,
+            display_name as "displayName"
+       from app_users
+      where id = any($1::uuid[])`,
+    [normalizedUserIds],
+  );
+  return new Map(result.rows.map((row) => [row.userId, row]));
+}
+
+async function getConversationCountsByUserIds(userIds: string[]) {
+  const normalizedUserIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (normalizedUserIds.length === 0) return new Map<string, number>();
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<{
+    user_id: string;
+    conversation_count: string;
+  }>(
+    `select user_id::text,
+            count(*)::text as conversation_count
+       from conversations
+      where user_id = any($1::uuid[])
+      group by user_id`,
+    [normalizedUserIds],
+  );
+  return new Map(
+    result.rows.map((row) => [
+      row.user_id,
+      Number(row.conversation_count || 0) || 0,
+    ]),
+  );
+}
 
 function checksum(payload: unknown) {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -139,9 +197,9 @@ function buildRestoredSessionSummary(session: JsonObject, restoredAt: number) {
 }
 
 async function getLatestChatBackupWatermark(appUserId: string) {
-  const result = await pgQuery<{ to_watermark: string | null }>(
+  const result = await backupPgQuery<{ to_watermark: string | null }>(
     `select to_watermark::text
-       from chat_backup_runs
+       from backup_chat_runs
       where user_id = $1::uuid
       order by to_watermark desc, created_at desc
       limit 1`,
@@ -154,6 +212,7 @@ async function getChangedSessionIds(
   appUserId: string,
   fromWatermark: string | null,
 ) {
+  await ensureSyncStorageSchema();
   const params: unknown[] = [appUserId];
   const changedFilter = fromWatermark
     ? `and (
@@ -183,6 +242,7 @@ async function getChangedSessionIds(
 async function getSessionSnapshots(appUserId: string, sessionIds: string[]) {
   if (sessionIds.length === 0) return [] as JsonObject[];
 
+  await ensureSyncStorageSchema();
   const conversations = await pgQuery<{
     id: string;
     external_session_id: string;
@@ -238,7 +298,7 @@ export async function createChatBackup(
   externalUserId: string,
   source: ChatBackupSource = "manual",
 ) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = await getOrCreateSyncAppUserId(externalUserId);
   const settings = await getChatBackupSettings(externalUserId);
 
@@ -247,8 +307,8 @@ export async function createChatBackup(
       console.log("[Chat Backup] ⏭️ 自动备份已关闭，跳过本次备份");
       return { created: false, reason: "disabled" };
     }
-    const latest = await pgQuery<{ created_at: string }>(
-      `select created_at::text from chat_backup_runs
+    const latest = await backupPgQuery<{ created_at: string }>(
+      `select created_at::text from backup_chat_runs
        where user_id = $1::uuid order by created_at desc limit 1`,
       [appUserId],
     );
@@ -266,7 +326,7 @@ export async function createChatBackup(
   }
 
   const fromWatermark = await getLatestChatBackupWatermark(appUserId);
-  const toWatermarkResult = await pgQuery<{ now: string }>(
+  const toWatermarkResult = await backupPgQuery<{ now: string }>(
     `select now()::text as now`,
   );
   const toWatermark =
@@ -293,10 +353,11 @@ export async function createChatBackup(
     sessions,
   });
 
-  const backupId = await withPgTransaction(async (client) => {
+  const backupId = await withBackupPgTransaction(async (client) => {
     const runResult = await client.query<{ id: string }>(
-      `insert into chat_backup_runs (
+      `insert into backup_chat_runs (
          user_id,
+         external_user_id,
          source,
          mode,
          from_watermark,
@@ -305,10 +366,11 @@ export async function createChatBackup(
          message_count,
          checksum
        ) values (
-         $1::uuid, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8
+         $1::uuid, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7, $8, $9
        ) returning id::text`,
       [
         appUserId,
+        externalUserId,
         source,
         mode,
         fromWatermark,
@@ -323,9 +385,10 @@ export async function createChatBackup(
 
     for (const session of sessions) {
       await client.query(
-        `insert into chat_backup_conversation_snapshots (
+        `insert into backup_chat_conversation_snapshots (
            backup_id,
            user_id,
+           external_user_id,
            external_session_id,
            title,
            message_count,
@@ -333,11 +396,12 @@ export async function createChatBackup(
            checksum,
            updated_at_snapshot
          ) values (
-           $1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7, $8::timestamptz
+           $1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8, $9::timestamptz
          )`,
         [
           id,
           appUserId,
+          externalUserId,
           String(session.id || ""),
           getSessionTitle(session),
           getSessionMessages(session).length,
@@ -378,7 +442,7 @@ export async function listChatBackups(
   externalUserId?: string,
   searchText?: string,
 ) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = externalUserId
     ? await getOrCreateSyncAppUserId(externalUserId)
     : "";
@@ -394,8 +458,8 @@ export async function listChatBackups(
     const keywordParam = `$${params.length}`;
     filters.push(`exists (
         select 1
-         from chat_backup_conversation_snapshots s
-          join chat_backup_runs sr on sr.id = s.backup_id
+         from backup_chat_conversation_snapshots s
+          join backup_chat_runs sr on sr.id = s.backup_id
          where (
             s.backup_id = r.id
             or (
@@ -412,12 +476,10 @@ export async function listChatBackups(
   }
   const whereClause =
     filters.length > 0 ? `where ${filters.join(" and ")}` : "";
-  const result = await pgQuery<{
+  const result = await backupPgQuery<{
     id: string;
     user_id: string;
-    external_id: string | null;
-    username: string | null;
-    display_name: string | null;
+    external_user_id: string | null;
     source: ChatBackupSource;
     mode: string;
     from_watermark: string | null;
@@ -428,9 +490,7 @@ export async function listChatBackups(
   }>(
     `select r.id::text,
             r.user_id::text,
-            u.external_id,
-            u.username,
-            u.display_name,
+            r.external_user_id,
             r.source,
             r.mode,
             r.from_watermark::text,
@@ -438,8 +498,7 @@ export async function listChatBackups(
             coalesce(full_stats.session_count, 0)::int as session_count,
             coalesce(full_stats.message_count, 0)::int as message_count,
             r.created_at::text
-       from chat_backup_runs r
-       left join app_users u on u.id = r.user_id
+       from backup_chat_runs r
        left join lateral (
          select count(*) as session_count,
                 coalesce(sum(latest.message_count), 0) as message_count
@@ -447,8 +506,8 @@ export async function listChatBackups(
              select distinct on (s.external_session_id)
                     s.external_session_id,
                     s.message_count
-               from chat_backup_conversation_snapshots s
-               join chat_backup_runs sr on sr.id = s.backup_id
+               from backup_chat_conversation_snapshots s
+               join backup_chat_runs sr on sr.id = s.backup_id
               where s.user_id = r.user_id
                 and sr.user_id = r.user_id
                 and sr.created_at <= r.created_at
@@ -462,13 +521,18 @@ export async function listChatBackups(
       limit 100`,
     params,
   );
+  const userInfoMap = await getAppUserInfoByIds(
+    result.rows.map((row) => row.user_id),
+  );
 
   return result.rows.map((row) => ({
+    ...(userInfoMap.get(row.user_id) || {}),
     id: row.id,
     userId: row.user_id,
-    externalId: row.external_id,
-    username: row.username,
-    displayName: row.display_name,
+    externalId:
+      userInfoMap.get(row.user_id)?.externalId || row.external_user_id,
+    username: userInfoMap.get(row.user_id)?.username || null,
+    displayName: userInfoMap.get(row.user_id)?.displayName || null,
     source: row.source,
     mode: row.mode,
     fromWatermark: row.from_watermark,
@@ -480,7 +544,6 @@ export async function listChatBackups(
 }
 
 export async function listChatBackupSummaries(userIds?: string[]) {
-  await ensureSyncStorageSchema();
   const normalizedUserIds = Array.from(
     new Set(
       (userIds || []).map((id) => String(id || "").trim()).filter(Boolean),
@@ -493,32 +556,21 @@ export async function listChatBackupSummaries(userIds?: string[]) {
     params.push(normalizedUserIds);
   }
 
-  const result = await pgQuery<{
+  await ensureSyncStorageSchema();
+  const userResult = await pgQuery<{
     user_id: string;
     external_id: string | null;
     username: string | null;
     display_name: string | null;
-    backup_count: string;
     conversation_count: string;
-    last_backup_at: string | null;
   }>(
     `select
        u.id::text as user_id,
        u.external_id,
        u.username,
        u.display_name,
-       coalesce(r.backup_count, 0)::text as backup_count,
-       coalesce(s.conversation_count, 0)::text as conversation_count,
-       r.last_backup_at::text as last_backup_at
+       coalesce(s.conversation_count, 0)::text as conversation_count
      from app_users u
-     left join (
-       select
-         user_id,
-         count(*) as backup_count,
-         max(created_at) as last_backup_at
-       from chat_backup_runs
-       group by user_id
-     ) r on r.user_id = u.id
      left join (
        select
          user_id,
@@ -531,16 +583,46 @@ export async function listChatBackupSummaries(userIds?: string[]) {
        lower(coalesce(u.username, u.display_name, u.external_id, '')) asc`,
     params,
   );
+  const summaryUserIds = userResult.rows.map((row) => row.user_id);
+  await ensureBackupStorageSchema();
+  const backupResult =
+    summaryUserIds.length > 0
+      ? await backupPgQuery<{
+          user_id: string;
+          backup_count: string;
+          last_backup_at: string | null;
+        }>(
+          `select user_id::text,
+                  count(*)::text as backup_count,
+                  max(created_at)::text as last_backup_at
+             from backup_chat_runs
+            where user_id = any($1::uuid[])
+            group by user_id`,
+          [summaryUserIds],
+        )
+      : { rows: [] };
+  const backupStats = new Map(
+    backupResult.rows.map((row) => [
+      row.user_id,
+      {
+        backupCount: Number(row.backup_count || 0) || 0,
+        lastBackupAt: row.last_backup_at,
+      },
+    ]),
+  );
 
-  const users = result.rows.map((row) => ({
-    userId: row.user_id,
-    externalId: row.external_id,
-    username: row.username,
-    displayName: row.display_name,
-    backupCount: Number(row.backup_count || 0) || 0,
-    conversationCount: Number(row.conversation_count || 0) || 0,
-    lastBackupAt: row.last_backup_at,
-  }));
+  const users = userResult.rows.map((row) => {
+    const stats = backupStats.get(row.user_id);
+    return {
+      userId: row.user_id,
+      externalId: row.external_id,
+      username: row.username,
+      displayName: row.display_name,
+      backupCount: stats?.backupCount ?? 0,
+      conversationCount: Number(row.conversation_count || 0) || 0,
+      lastBackupAt: stats?.lastBackupAt ?? null,
+    };
+  });
 
   return {
     backupMode: "incremental",
@@ -561,7 +643,7 @@ export async function getChatBackupDetail(
   backupId: string,
   searchText?: string,
 ) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = externalUserId
     ? await getOrCreateSyncAppUserId(externalUserId)
     : "";
@@ -570,12 +652,10 @@ export async function getChatBackupDetail(
   if (appUserId) {
     params.push(appUserId);
   }
-  const runResult = await pgQuery<{
+  const runResult = await backupPgQuery<{
     id: string;
     user_id: string;
-    external_id: string | null;
-    username: string | null;
-    display_name: string | null;
+    external_user_id: string | null;
     source: ChatBackupSource;
     mode: string;
     from_watermark: string | null;
@@ -586,9 +666,7 @@ export async function getChatBackupDetail(
   }>(
     `select r.id::text,
             r.user_id::text,
-            u.external_id,
-            u.username,
-            u.display_name,
+            r.external_user_id,
             r.source,
             r.mode,
             r.from_watermark::text,
@@ -596,8 +674,7 @@ export async function getChatBackupDetail(
             r.session_count,
             r.message_count,
             r.created_at::text
-       from chat_backup_runs r
-       left join app_users u on u.id = r.user_id
+       from backup_chat_runs r
       where r.id = $1::uuid
         ${userFilter}
       limit 1`,
@@ -605,6 +682,7 @@ export async function getChatBackupDetail(
   );
   const run = runResult.rows[0];
   if (!run) return null;
+  const userInfo = (await getAppUserInfoByIds([run.user_id])).get(run.user_id);
 
   const snapshotParams: unknown[] = [run.user_id, run.created_at];
   const keyword = String(searchText || "").trim();
@@ -620,7 +698,7 @@ export async function getChatBackupDetail(
       })()
     : "";
 
-  const snapshots = await pgQuery<{
+  const snapshots = await backupPgQuery<{
     id: string;
     external_session_id: string;
     title: string;
@@ -635,8 +713,8 @@ export async function getChatBackupDetail(
             s.message_count,
             s.session_payload,
             s.created_at::text
-       from chat_backup_conversation_snapshots s
-       join chat_backup_runs r on r.id = s.backup_id
+       from backup_chat_conversation_snapshots s
+       join backup_chat_runs r on r.id = s.backup_id
       where s.user_id = $1::uuid
         and r.user_id = $1::uuid
         and r.created_at <= $2::timestamptz
@@ -650,9 +728,9 @@ export async function getChatBackupDetail(
   return {
     id: run.id,
     userId: run.user_id,
-    externalId: run.external_id,
-    username: run.username,
-    displayName: run.display_name,
+    externalId: userInfo?.externalId || run.external_user_id,
+    username: userInfo?.username || null,
+    displayName: userInfo?.displayName || null,
     source: run.source,
     mode: run.mode,
     fromWatermark: run.from_watermark,
@@ -675,7 +753,7 @@ export async function deleteChatBackup(
   externalUserId: string | undefined,
   backupId: string,
 ) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = externalUserId
     ? await getOrCreateSyncAppUserId(externalUserId)
     : "";
@@ -684,8 +762,8 @@ export async function deleteChatBackup(
   if (appUserId) {
     params.push(appUserId);
   }
-  const result = await pgQuery<{ id: string }>(
-    `delete from chat_backup_runs
+  const result = await backupPgQuery<{ id: string }>(
+    `delete from backup_chat_runs
       where id = $1::uuid
         ${userFilter}
       returning id::text`,
@@ -699,15 +777,15 @@ export async function deleteChatBackupConversationSnapshot(params: {
   backupId: string;
   externalSessionId: string;
 }) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = params.externalUserId
     ? await getOrCreateSyncAppUserId(params.externalUserId)
     : "";
 
-  return withPgTransaction(async (client) => {
+  return withBackupPgTransaction(async (client) => {
     const ownerResult = await client.query<{ user_id: string }>(
       `select user_id::text
-         from chat_backup_runs
+         from backup_chat_runs
         where id = $1::uuid
           ${appUserId ? "and user_id = $2::uuid" : ""}
         limit 1`,
@@ -717,7 +795,7 @@ export async function deleteChatBackupConversationSnapshot(params: {
     if (!ownerUserId) return false;
 
     const deleteResult = await client.query<{ id: string }>(
-      `delete from chat_backup_conversation_snapshots
+      `delete from backup_chat_conversation_snapshots
         where backup_id = $1::uuid
           and user_id = $2::uuid
           and external_session_id = $3
@@ -727,7 +805,7 @@ export async function deleteChatBackupConversationSnapshot(params: {
     if (!deleteResult.rows[0]?.id) return false;
 
     await client.query(
-      `update chat_backup_runs r
+      `update backup_chat_runs r
           set session_count = coalesce(s.session_count, 0),
               message_count = coalesce(s.message_count, 0),
               checksum = $3
@@ -735,7 +813,7 @@ export async function deleteChatBackupConversationSnapshot(params: {
            select
              count(*)::int as session_count,
              coalesce(sum(message_count), 0)::int as message_count
-           from chat_backup_conversation_snapshots
+           from backup_chat_conversation_snapshots
            where backup_id = $1::uuid
              and user_id = $2::uuid
          ) s
@@ -800,7 +878,7 @@ export async function restoreChatBackupConversation(params: {
   backupId: string;
   externalSessionId: string;
 }) {
-  await ensureSyncStorageSchema();
+  await ensureBackupStorageSchema();
   const appUserId = params.externalUserId
     ? await getOrCreateSyncAppUserId(params.externalUserId)
     : "";
@@ -808,20 +886,15 @@ export async function restoreChatBackupConversation(params: {
   const restoreParams = appUserId
     ? [params.backupId, params.externalSessionId, appUserId]
     : [params.backupId, params.externalSessionId];
-  const snapshot = await pgQuery<{
+  const snapshot = await backupPgQuery<{
     user_id: string;
-    external_id: string | null;
-    username: string | null;
-    display_name: string | null;
+    external_user_id: string | null;
     session_payload: JsonObject;
   }>(
-    `select u.id::text as user_id,
-            u.external_id,
-            u.username,
-            u.display_name,
+    `select s.user_id::text as user_id,
+            s.external_user_id,
             s.session_payload
-       from chat_backup_conversation_snapshots s
-       join app_users u on u.id = s.user_id
+       from backup_chat_conversation_snapshots s
       where s.backup_id = $1::uuid
         and s.external_session_id = $2
         ${restoreUserFilter}
@@ -830,7 +903,14 @@ export async function restoreChatBackupConversation(params: {
   );
   const row = snapshot.rows[0];
   const session = row?.session_payload;
-  const externalUserId = row?.external_id || params.externalUserId || "";
+  const userInfo = row?.user_id
+    ? (await getAppUserInfoByIds([row.user_id])).get(row.user_id)
+    : undefined;
+  const externalUserId =
+    userInfo?.externalId ||
+    row?.external_user_id ||
+    params.externalUserId ||
+    "";
   if (!session || !externalUserId) return null;
   const restoreTime = Date.now();
   const restoredSession = sanitizeJsonPayload({
@@ -938,8 +1018,8 @@ export async function restoreChatBackupConversation(params: {
   return {
     userId: row.user_id,
     externalUserId,
-    username: row.username,
-    displayName: row.display_name,
+    username: userInfo?.username || null,
+    displayName: userInfo?.displayName || null,
     externalSessionId: params.externalSessionId,
     title: getSessionTitle(restoredSession),
     messageCount: getSessionMessages(restoredSession).length,

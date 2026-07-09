@@ -3,6 +3,7 @@ import {
   buildApiConfigBackupPayload,
   createApiConfigBackup,
 } from "./api-config-backup-repository";
+import { cleanupLegacyMainDbBackupTables } from "./postgres";
 import { getStoreSnapshot } from "./sync-store-repository";
 import { getDefaultSyncUserId } from "./sync-user";
 
@@ -24,6 +25,8 @@ async function runApiConfigBackupScheduler() {
       const payload = await buildApiConfigBackupPayload(sharedUserId, state);
       await createApiConfigBackup(sharedUserId, payload, "auto");
     }
+    // 备份完成后顺带清理主业务库遗留的旧备份表（进程内只执行一次）
+    await cleanupLegacyMainDbBackupTables();
   } catch (error) {
     console.error(
       "[API Config Backup Scheduler] 后台扫描失败",

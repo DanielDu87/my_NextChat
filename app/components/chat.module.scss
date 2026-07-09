@@ -25,12 +25,12 @@
 }
 
 .attach-images-mixed-kinds {
-  align-items: stretch;
+  align-items: center;
 
   .attach-image {
-    width: 62px;
-    height: 62px;
-    flex: 0 0 62px;
+    width: 60px;
+    height: 60px;
+    flex: 0 0 60px;
     border-radius: 10px;
 
     .attach-image-mask {
@@ -505,12 +505,36 @@
   max-width: none;
   height: min(760px, calc(var(--full-height) - 48px));
   max-height: calc(var(--full-height) - 48px);
+  overflow: hidden;
 
   :global(.modal-content) {
+    flex: 1;
     min-height: 0;
     max-height: none;
     padding: 0;
     overflow: hidden;
+  }
+
+  :global(.modal-footer:empty) {
+    display: none;
+  }
+}
+
+.file-preview-modal-office {
+  height: min(720px, calc(var(--full-height) - 48px));
+
+  :global(.modal-content) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .file-preview-root {
+    height: 100%;
+  }
+
+  .file-preview-body {
+    flex: 1;
+    min-height: 0;
   }
 }
 
@@ -520,6 +544,14 @@
   min-height: 0;
   height: 100%;
   background: var(--white);
+}
+
+.file-preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .file-preview-meta {
@@ -538,9 +570,9 @@
 
 .file-preview-frame {
   width: 100%;
-  height: 100%;
-  min-height: 0;
-  flex: 1;
+  height: min(640px, calc(var(--full-height) - 132px));
+  min-height: min(420px, calc(var(--full-height) - 132px));
+  flex: 0 0 auto;
   border: 0;
   background: #f8fafc;
 }
@@ -903,7 +935,8 @@
   min-height: 0;
   position: relative;
   overflow: auto;
-  background: var(--white);
+  background: #f8fafc;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
   padding: 24px;
 }
 
@@ -926,20 +959,32 @@
 }
 
 .docx-preview-container {
-  min-height: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
 
   :global(.docx-wrapper) {
     background: transparent;
     padding: 0;
   }
 
-  :global(.docx) {
-    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
-    margin: 0 auto 18px auto;
+  :global(section.docx) {
+    height: auto !important;
+    min-height: 0 !important;
+    max-width: 100%;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 2px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+    margin: 0 auto;
   }
 }
 
-@media only screen and (max-width: 600px) {
+@media only screen and (max-width: 768px) {
   .file-preview-state {
     padding: 16px;
   }
@@ -948,6 +993,56 @@
     padding: 24px 18px;
     border-radius: 24px;
   }
+
+  // Office 预览在窄屏压缩：DOCX 减小外边距和内文字号，
+  // XLSX 缩小表格字号、单元格 padding 和列最小宽度。
+  .docx-preview-root {
+    padding: 12px 8px;
+  }
+
+  .docx-preview-container {
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .docx-preview-container :global(section.docx) {
+    transform-origin: top left;
+    margin: 0;
+    zoom: 0.72;
+    // 覆盖 docx-preview 内联写入的页面边距（A4 默认 96px），
+    // 避免在窄屏两侧留出过多空白。
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .xlsx-preview-tabs {
+    padding: 6px 8px;
+    gap: 4px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .xlsx-preview-tab {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .xlsx-preview-sheet {
+    // 顶部 padding 至少 12px，避免表格 box-shadow 向上溢出 8px 后盖住 tabs 底部分割线。
+    padding: 12px 6px 6px;
+
+    table {
+      font-size: 11px;
+    }
+
+    td,
+    th {
+      min-width: 56px;
+      max-width: 200px;
+      padding: 3px 5px;
+    }
+  }
 }
 
 .xlsx-preview-root {
@@ -955,7 +1050,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--white);
+  overflow: hidden;
+  background: #f8fafc;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
 }
 
 .xlsx-preview-tabs {
@@ -965,6 +1062,9 @@
   overflow-x: auto;
   border-bottom: 1px solid rgba(148, 163, 184, 0.35);
   background: #fff;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .xlsx-preview-tab {
@@ -986,16 +1086,23 @@
 }
 
 .xlsx-preview-sheet {
-  flex: 1;
+  flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  // 顶部 12px 给表格 box-shadow（向上 8px）留出空间，避免溢出盖住 tabs 底边线；
+  // 左右下 6px 与移动端对齐、保持视觉一致。
+  padding: 12px 6px 6px;
 
   table {
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto;
     border-collapse: collapse;
     background: #fff;
     color: var(--black);
     font-size: 13px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   }
 
   td,
@@ -1017,7 +1124,8 @@
 :global(.dark),
 :global(body.dark) {
   .docx-preview-root {
-    background: var(--white);
+    border-top-color: rgba(71, 85, 105, 0.52);
+    background: #24292f;
   }
 
   .docx-preview-root-loading {
@@ -1025,7 +1133,8 @@
   }
 
   .xlsx-preview-root {
-    background: var(--white);
+    border-top-color: rgba(71, 85, 105, 0.52);
+    background: #24292f;
   }
 
   .xlsx-preview-tabs {
@@ -1078,7 +1187,8 @@
 @media (prefers-color-scheme: dark) {
   :global(body:not(.light):not(.dark)) {
     .docx-preview-root {
-      background: var(--white);
+      border-top-color: rgba(71, 85, 105, 0.52);
+      background: #24292f;
     }
 
     .docx-preview-root-loading {
@@ -1086,7 +1196,8 @@
     }
 
     .xlsx-preview-root {
-      background: var(--white);
+      border-top-color: rgba(71, 85, 105, 0.52);
+      background: #24292f;
     }
 
     .xlsx-preview-tabs {
@@ -1258,48 +1369,128 @@
   align-items: stretch;
 }
 
-// 分享/导出按钮：idle/hover/active 状态复用全局 .nextchat-default-button，
-// 保持与相邻窗口操作按钮一致；此处仅覆盖「禁用态」为浅灰背景。
-.chat-export-action.chat-export-action {
+// 分享/导出按钮：完全独立的样式，不依赖 .nextchat-default-button 公共类。
+// idle/hover/focus/active 与相邻窗口按钮保持视觉一致，禁用态走浅灰底 + 深色图标。
+// 用 .chat-export-action（local）+ [class*="chat-export-action"]（global）混合，
+// 既满足 css-loader pure 选择器必须含 local 的要求，又用属性子串匹配提升 iOS Safari 上
+// 对 CSS Modules 哈希类名（chat_chat-export-action__xxx）的命中率。
+.chat-export-action[class*="chat-export-action"] {
+  // idle：边框 / 背景 / 阴影 / 文字色与 .nextchat-default-button 一致
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--close-button-idle-border-color) !important;
+  border-radius: 10px !important;
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  color: var(--black);
+  cursor: pointer !important;
+  outline: none;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
+
+  // 图标颜色跟随主题变量，覆盖 SVG 内联 stroke:#333
+  :global(svg path) {
+    stroke: var(--black) !important;
+    fill: none !important;
+  }
+
+  :global([class*="icon-button-icon"]),
+  :global([class*="icon-button-icon"] > svg),
+  :global([class*="icon-button-icon"] > svg > g),
+  :global([class*="icon-button-icon"] > svg path) {
+    opacity: 1 !important;
+    filter: none !important;
+  }
+
+  :global([class*="icon-button-icon"] > svg > g) {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  // hover / focus / active：与 .nextchat-default-button 同行视觉
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    border-color: var(--primary) !important;
+    background-color: var(--input-control-hover-bg) !important;
+    box-shadow: var(--input-control-hover-shadow) !important;
+    color: var(--black) !important;
+    outline: none !important;
+    transform: none !important;
+    filter: none !important;
+
+    :global(svg path) {
+      stroke: var(--black) !important;
+    }
+
+    :global([class*="icon-button-icon"]),
+    :global([class*="icon-button-icon"] > svg),
+    :global([class*="icon-button-icon"] > svg > g),
+    :global([class*="icon-button-icon"] > svg path) {
+      opacity: 1 !important;
+      filter: none !important;
+    }
+  }
+
+  // 禁用态：浅灰底 + 深色描边，避免和 idle 状态难以区分
   &[disabled],
   &:disabled {
     opacity: 1 !important;
-    color: #333333 !important;
+    color: #9ca3af !important;
     background-color: #e5e7eb !important;
-    border-color: #e5e7eb !important;
+    border-color: #d1d5db !important;
     box-shadow: none !important;
     cursor: not-allowed !important;
+    pointer-events: none !important;
 
     // 禁用态图标：取消全局 :disabled 的整体淡化，并把写死的 stroke:#333 归一到当前灰色，保证清晰可见
     :global(*) {
       opacity: 1 !important;
     }
 
+    :global(svg),
     :global(svg path),
     :global(svg circle),
     :global(svg rect) {
-      stroke: currentColor !important;
+      fill: none !important;
+      stroke: #9ca3af !important;
+      // 覆盖 @mixin dark 里 div:not(.no-dark) > svg 的 filter: invert(0.5)，
+      // 避免在 prefers-color-scheme: dark 的真机上把浅色图标反相成更浅色、和浅灰背景糊在一起。
+      filter: none !important;
     }
   }
 }
 
-:where(html.dark).chat-export-action.chat-export-action,
-:global(body.dark) .chat-export-action.chat-export-action {
+// 暗色模式：禁用态用深灰底 + 浅灰描边，避免和 idle 状态难以区分
+:where(:global(html.dark)) .chat-export-action[class*="chat-export-action"],
+:global(body.dark) .chat-export-action[class*="chat-export-action"] {
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible,
+  &:not(:disabled):active {
+    color: var(--black) !important;
+
+    :global(svg path) {
+      stroke: var(--black) !important;
+    }
+  }
+
   &[disabled],
   &:disabled {
-    color: #9ca3af !important;
-    background-color: #374151 !important;
-    border-color: #4b5563 !important;
+    color: rgba(148, 163, 184, 0.88) !important;
+    background-color: rgba(71, 85, 105, 0.24) !important;
+    border-color: rgba(71, 85, 105, 0.3) !important;
     box-shadow: none !important;
 
     :global(*) {
       opacity: 1 !important;
     }
 
+    :global(svg),
     :global(svg path),
     :global(svg circle),
     :global(svg rect) {
-      stroke: currentColor !important;
+      stroke: rgba(148, 163, 184, 0.88) !important;
       fill: none !important;
     }
 
@@ -2109,6 +2300,7 @@
 
 .chat-message-attached-files {
   display: flex;
+  align-items: center;
   flex-wrap: nowrap;
   gap: 8px;
   width: min(100%, 720px);
@@ -2128,6 +2320,19 @@
 
 .chat-message-user .chat-message-attached-files {
   align-self: flex-end;
+}
+
+.chat-message-attached-image {
+  width: 60px;
+  height: 60px;
+  flex: 0 0 60px;
+  margin-top: 0;
+  border-radius: 10px;
+}
+
+.chat-message-attached-image[data-status="loading"] {
+  width: 60px;
+  min-height: 60px;
 }
 
 .chat-message-user .chat-message-content {
@@ -2418,26 +2623,29 @@
 }
 
 .chat-message-item-image {
-  display: block;
-  width: 100%;
+  display: inline-block;
+  width: 60px;
   max-width: 100%;
-  height: auto;
+  height: 60px;
   margin-top: 10px;
 }
 
 .chat-message-item-images {
-  width: 100%;
+  width: fit-content;
   max-width: 100%;
   display: grid;
-  justify-content: stretch;
-  grid-gap: 10px;
-  grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
+  justify-content: start;
+  grid-gap: 6px;
+  grid-template-columns: repeat(var(--image-count), 60px);
   margin-top: 10px;
 }
 
 .chat-message-item-image-multi {
   display: block;
-  max-width: 100%;
+  width: 60px;
+  height: 60px;
+  max-width: 60px;
+  max-height: 60px;
   object-fit: cover;
   background-size: cover;
   background-position: center;
@@ -2455,19 +2663,22 @@
 // 图片加载占位：加载完成前显示骨架占位层，避免空白与布局抖动
 .chat-message-item-image-wrapper {
   position: relative;
-  display: block;
+  display: inline-block;
   overflow: hidden;
 }
 
 // 单图加载中需要预留高度，否则 height:auto 会塌陷导致占位层不可见
 .chat-message-item-image[data-status="loading"] {
-  min-height: 160px;
+  width: 60px;
+  min-height: 60px;
 }
 
 .chat-message-item-image-inner {
   display: block;
   width: 100%;
   height: 100%;
+  max-width: 60px;
+  max-height: 60px;
   object-fit: cover;
   border-radius: inherit;
   transition: opacity 0.2s ease;
@@ -2505,38 +2716,49 @@
 @media only screen and (max-width: 650px),
   only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .chat-message-item-images {
-    grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--image-count), 54px);
   }
 
   .chat-message-item-image-multi {
-    width: 100%;
+    width: 54px;
+    height: 54px;
     min-width: 0;
-    aspect-ratio: 1 / 1;
+    max-width: 54px;
+    max-height: 54px;
   }
 
   .chat-message-item-image {
-    max-width: min(100%, calc(100vw / 3 * 2));
+    width: 54px;
+    height: 54px;
+    max-width: 54px;
+  }
+
+  .chat-message-item-image[data-status="loading"] {
+    width: 54px;
+    min-height: 54px;
+  }
+
+  .chat-message-item-image-inner {
+    max-width: 54px;
+    max-height: 54px;
   }
 }
 
 @media screen and (min-width: 651px) {
-  $max-image-width: calc(
-    calc(1200px - var(--sidebar-width)) / 3 * 2 / var(--image-count)
-  );
   .chat-message-item-images {
-    grid-template-columns: repeat(var(--image-count), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--image-count), 60px);
   }
 
   .chat-message-item-image-multi {
-    width: 100%;
+    width: 60px;
+    height: 60px;
     min-width: 0;
-    aspect-ratio: 1 / 1;
-    max-width: $max-image-width;
-    max-height: $max-image-width;
+    max-width: 60px;
+    max-height: 60px;
   }
 
   .chat-message-item-image {
-    max-width: min(100%, calc(calc(1200px - var(--sidebar-width)) / 3 * 2));
+    max-width: 60px;
   }
 }
 
@@ -5250,6 +5472,16 @@
     flex: 0 0 60px;
   }
 
+  .attach-images-mixed-kinds {
+    align-items: center;
+
+    .attach-image {
+      width: 54px;
+      height: 54px;
+      flex: 0 0 54px;
+    }
+  }
+
   .attach-file {
     width: 214px;
     height: 54px;
@@ -5301,6 +5533,17 @@
   .chat-message-attached-files {
     width: min(100%, calc(100vw - 28px));
     gap: 6px;
+  }
+
+  .chat-message-attached-image {
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
+  }
+
+  .chat-message-attached-image[data-status="loading"] {
+    width: 54px;
+    min-height: 54px;
   }
 
   .chat-message-attached-file {
@@ -6077,29 +6320,56 @@
 @media only screen and (max-width: 650px),
   only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   /* 边框/背景/hover 由 globals.scss 统一提供，此处只覆盖尺寸。*/
-  .chat-export-action {
+  button.chat-export-action[class*="chat-export-action"] {
     width: 36px !important;
     min-width: 36px !important;
     height: 36px !important;
     min-height: 36px !important;
     padding: 0 !important;
     border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 
     :global([class*="icon-button-icon"]) {
-      width: 20px !important;
-      height: 20px !important;
+      width: 15px !important;
+      height: 15px !important;
       margin: 0 !important;
+      padding: 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex: 0 0 15px !important;
     }
 
-    :global(svg) {
-      width: 20px !important;
-      height: 20px !important;
+    :global([class*="icon-button-icon"] > svg) {
+      width: 15px !important;
+      height: 15px !important;
+      display: block !important;
+      transform: translate(1px, 0px) !important;
+    }
+
+    // 重置 button.module.scss 移动端给 svg > g 加的 translate(2px,2px)，
+    // 保持 path 在 viewBox 内的自然居中位置
+    :global([class*="icon-button-icon"] > svg > g) {
+      transform: none !important;
+    }
+
+    &[disabled],
+    &:disabled {
+      :global(svg),
+      :global(svg path),
+      :global(svg circle),
+      :global(svg rect) {
+        fill: none !important;
+        stroke: #9ca3af !important;
+      }
     }
   }
 
-  .chat-window-action-button :global(button.nextchat-default-button:disabled:not(.chat-export-action)),
+  .chat-window-action-button :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"])),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action)) {
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"])) {
     opacity: 1 !important;
     color: color-mix(in srgb, var(--black) 58%, var(--white)) !important;
     background-color: color-mix(
@@ -6112,28 +6382,28 @@
   }
 
   .chat-window-action-button
-    :global(button.nextchat-default-button:disabled:not(.chat-export-action) [class*="icon-button-icon"]),
+    :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"]) [class*="icon-button-icon"]),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action) [class*="icon-button-icon"]) {
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"]) [class*="icon-button-icon"]) {
     opacity: 1 !important;
   }
 
   .chat-window-action-button
-    :global(button.nextchat-default-button:disabled:not(.chat-export-action) svg),
+    :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"]) svg),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action) svg),
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"]) svg),
   .chat-window-action-button
-    :global(button.nextchat-default-button:disabled:not(.chat-export-action) path),
+    :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"]) path),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action) path),
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"]) path),
   .chat-window-action-button
-    :global(button.nextchat-default-button:disabled:not(.chat-export-action) circle),
+    :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"]) circle),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action) circle),
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"]) circle),
   .chat-window-action-button
-    :global(button.nextchat-default-button:disabled:not(.chat-export-action) rect),
+    :global(button.nextchat-default-button:disabled:not([class*="chat-export-action"]) rect),
   .chat-window-action-button
-    :global(button.nextchat-default-button[disabled]:not(.chat-export-action) rect) {
+    :global(button.nextchat-default-button[disabled]:not([class*="chat-export-action"]) rect) {
     opacity: 1 !important;
     color: currentColor !important;
     fill: currentColor !important;

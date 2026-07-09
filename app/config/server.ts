@@ -23,6 +23,18 @@ declare global {
       PGPOOL_MAX?: string;
       PG_CONNECT_TIMEOUT_MS?: string;
       PG_IDLE_TIMEOUT_MS?: string;
+      BACKUP_DATABASE_URL?: string;
+      BACKUP_PGHOST?: string;
+      BACKUP_PGPORT?: string;
+      BACKUP_PGDATABASE?: string;
+      BACKUP_PGUSER?: string;
+      BACKUP_PGPASSWORD?: string;
+      BACKUP_PGSSL?: string;
+      BACKUP_PGSSLMODE?: string;
+      BACKUP_PGPOOL_MAX?: string;
+      BACKUP_PG_CONNECT_TIMEOUT_MS?: string;
+      BACKUP_PG_IDLE_TIMEOUT_MS?: string;
+      BACKUP_PG_RETRY_COUNT?: string;
 
       VERCEL?: string;
       BUILD_MODE?: "standalone" | "export";

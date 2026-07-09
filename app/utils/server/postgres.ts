@@ -711,92 +711,6 @@ export async function ensureSyncStorageSchema() {
         )
       `);
         await client.query(`
-        create table if not exists api_config_backup_settings (
-          user_id uuid primary key references app_users(id) on delete cascade,
-          enabled boolean not null default true,
-          interval_minutes integer not null default 1440 check (interval_minutes >= 1),
-          max_backups integer not null default 10 check (max_backups >= 1),
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create table if not exists api_config_backups (
-          id uuid primary key default generate_uuid_v4(),
-          user_id uuid not null references app_users(id) on delete cascade,
-          source text not null check (source in ('auto', 'manual', 'pre_restore')),
-          payload_json jsonb not null,
-          checksum text not null,
-          profile_count integer not null default 0,
-          created_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create index if not exists idx_api_config_backups_user_created
-        on api_config_backups(user_id, created_at desc)
-      `);
-        await client.query(`
-        create table if not exists chat_backup_settings (
-          user_id uuid primary key references app_users(id) on delete cascade,
-          enabled boolean not null default true,
-          interval_minutes integer not null default 1440 check (interval_minutes >= 1),
-          max_backups integer not null default 30 check (max_backups >= 1),
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create table if not exists chat_backup_runs (
-          id uuid primary key default generate_uuid_v4(),
-          user_id uuid not null references app_users(id) on delete cascade,
-          source text not null check (source in ('manual', 'auto')),
-          mode text not null default 'incremental' check (mode in ('full', 'incremental')),
-          from_watermark timestamptz,
-          to_watermark timestamptz not null default now(),
-          session_count integer not null default 0,
-          message_count integer not null default 0,
-          checksum text not null,
-          created_at timestamptz not null default now()
-        )
-      `);
-        await client.query(`
-        create index if not exists idx_chat_backup_runs_user_created
-        on chat_backup_runs(user_id, created_at desc)
-      `);
-        await client.query(`
-        create table if not exists chat_backup_conversation_snapshots (
-          id uuid primary key default generate_uuid_v4(),
-          backup_id uuid not null references chat_backup_runs(id) on delete cascade,
-          user_id uuid not null references app_users(id) on delete cascade,
-          external_session_id text not null,
-          title text not null default '',
-          message_count integer not null default 0,
-          session_payload jsonb not null,
-          checksum text not null,
-          updated_at_snapshot timestamptz,
-          created_at timestamptz not null default now(),
-          unique (backup_id, external_session_id)
-        )
-      `);
-        await client.query(`
-        create index if not exists idx_chat_backup_snapshots_backup
-        on chat_backup_conversation_snapshots(backup_id, external_session_id)
-      `);
-        await client.query(`
-        create index if not exists idx_chat_backup_snapshots_user_session
-        on chat_backup_conversation_snapshots(user_id, external_session_id, created_at desc)
-      `);
-        await client.query(`
-        create or replace trigger trg_api_config_backup_settings_updated_at
-        before update on api_config_backup_settings
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
-        create or replace trigger trg_chat_backup_settings_updated_at
-        before update on chat_backup_settings
-        for each row execute function set_updated_at()
-      `);
-        await client.query(`
         create index if not exists idx_sync_secrets_user_updated
         on sync_secrets(user_id, updated_at desc)
       `);
@@ -819,6 +733,46 @@ export async function ensureSyncStorageSchema() {
   }
 
   await globalThis.__nextchatSyncStorageSchemaReady;
+}
+
+declare global {
+  var __nextchatLegacyBackupTablesCleaned: boolean | undefined;
+}
+
+// 主业务库中已迁移到独立备份库（backup-postgres.ts）的旧备份表，
+// 保留会造成数据孤儿。下一次自动备份触发时调用本函数一次性清理。
+const LEGACY_MAIN_DB_BACKUP_TABLES = [
+  "chat_backup_conversation_snapshots",
+  "chat_backup_runs",
+  "chat_backup_settings",
+  "api_config_backups",
+  "api_config_backup_settings",
+];
+
+/**
+ * 一次性清理主业务库里已迁移到独立备份库的旧备份表。
+ * 进程内用全局标记只执行一次，drop 语句自带 if exists，重复调用安全；
+ * 只删除固定白名单里的旧备份表，不触碰其它数据，失败只记录日志不抛出。
+ */
+export async function cleanupLegacyMainDbBackupTables() {
+  if (globalThis.__nextchatLegacyBackupTablesCleaned) return;
+  try {
+    await ensureSyncStorageSchema();
+    for (const table of LEGACY_MAIN_DB_BACKUP_TABLES) {
+      // 表名来自固定常量白名单，非用户输入，无注入风险
+      await pgQuery(`drop table if exists ${table} cascade`);
+    }
+    globalThis.__nextchatLegacyBackupTablesCleaned = true;
+    console.log(
+      "[Backup Cleanup] 已清理主业务库遗留的旧备份表",
+      LEGACY_MAIN_DB_BACKUP_TABLES,
+    );
+  } catch (error) {
+    console.error(
+      "[Backup Cleanup] 清理主业务库遗留旧备份表失败",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export type PgResult<T extends QueryResultRow = QueryResultRow> =

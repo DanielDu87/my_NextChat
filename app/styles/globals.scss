@@ -754,7 +754,7 @@ button[data-close-button="true"] svg path {
 
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not(.chat-export-action):not(:disabled):not([disabled]) {
+  ):not([class*="chat-export-action"]):not(:disabled):not([disabled]) {
   border-color: var(--close-button-idle-border-color) !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
@@ -765,13 +765,13 @@ button[data-close-button="true"] svg path {
 
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not(.chat-export-action):not(:disabled):hover,
+  ):not([class*="chat-export-action"]):not(:disabled):hover,
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not(.chat-export-action):not(:disabled):focus-visible,
+  ):not([class*="chat-export-action"]):not(:disabled):focus-visible,
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not(.chat-export-action):not(:disabled):active {
+  ):not([class*="chat-export-action"]):not(:disabled):active {
   border-color: var(--primary) !important;
   background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
@@ -786,9 +786,9 @@ button[data-close-button="true"] svg path {
 :global(body.dark) .window-header .window-actions button.chat-export-action:disabled,
 :global(body.dark) .window-header .window-actions button.chat-export-action[disabled] {
   opacity: 1 !important;
-  color: #ffffff !important;
-  background-color: rgba(100, 116, 139, 0.24) !important;
-  border-color: rgba(100, 116, 139, 0.24) !important;
+  color: rgba(148, 163, 184, 0.88) !important;
+  background-color: rgba(71, 85, 105, 0.24) !important;
+  border-color: rgba(71, 85, 105, 0.3) !important;
   box-shadow: none !important;
   pointer-events: none !important;
   border-style: solid !important;
@@ -810,8 +810,8 @@ button[data-close-button="true"] svg path {
 }
 
 /* 亮色模式窗口按钮禁用态（排除 export 按钮） */
-.window-header .window-actions button:disabled:not(.chat-export-action),
-.window-header .window-actions button[disabled]:not(.chat-export-action) {
+.window-header .window-actions button:disabled:not([class*="chat-export-action"]),
+.window-header .window-actions button[disabled]:not([class*="chat-export-action"]) {
   opacity: 1 !important;
   color: #ffffff !important;
   background-color: rgba(100, 116, 139, 0.24) !important;

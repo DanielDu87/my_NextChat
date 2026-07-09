@@ -154,6 +154,7 @@ app/
 主要文件：
 
 - `app/utils/server/postgres.ts`
+- `app/utils/server/backup-postgres.ts`
 - `app/utils/server/auth.ts`
 - `app/utils/server/chat-conversation-repository.ts`
 - `app/utils/server/provider-config-repository.ts`
@@ -168,7 +169,6 @@ app/
 - `app_settings`：前端 store 快照和同步状态。
 - `conversations`：聊天会话元数据。
 - `messages`：聊天消息内容。
-- `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`：按用户区分的对话增量备份和会话快照。
 - `provider_configs`：供应商配置。
 - `provider_api_keys`：API Key 密文与分组。
 - `provider_balance_configs`：供应商余额快照、查询时间戳和管理 API Key 密文。
@@ -177,9 +177,13 @@ app/
 - `user_draw_stores`：绘画任务历史快照。
 - `user_draw_images`：绘画生成图片原图与缩略图（bytea，按 md5 去重）。
 - `cache_file_blobs` / `user_cache_files`：上传文件二进制去重与用户文件记录。
-- `api_config_backup_settings` / `api_config_backups`：API 配置自动/手动备份。
 
-对话记录当前已经规范化拆分到 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份使用独立的 `chat_backup_settings` / `chat_backup_runs` / `chat_backup_conversation_snapshots`，按用户隔离；页面点击「立即备份」会为所有用户逐个创建增量备份，并可切换用户查看对应备份。每次增量只收录上次备份后变更过的会话，但每个会话保存完整消息快照，包含软删除会话，便于在线展开查看。单会话恢复会把备份会话恢复为可见，并按备份快照覆盖同 ID 会话的消息内容；恢复写入会刷新会话更新时间，避免本地旧缓存或后续同步再次覆盖恢复结果。页面支持删除整次备份记录，或删除某次备份中的单个会话快照。生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准。
+备份数据库由 `BACKUP_DATABASE_URL` 或 `BACKUP_PGHOST` / `BACKUP_PGDATABASE` / `BACKUP_PGUSER` / `BACKUP_PGPASSWORD` 指向，运行时 owner 是 `app/utils/server/backup-postgres.ts`。核心表：
+
+- `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`：按用户区分的对话增量备份和会话快照。
+- `backup_api_config_settings` / `backup_api_config_snapshots`：API 配置自动/手动备份。
+
+对话记录当前已经规范化拆分到 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份写入独立备份数据库的 `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`，按用户隔离；页面点击「立即备份」会为所有用户逐个创建增量备份，并可切换用户查看对应备份。每次增量只收录上次备份后变更过的会话，但每个会话保存完整消息快照，包含软删除会话，便于在线展开查看。单会话恢复会从备份数据库读取快照，再写回主业务库并恢复为可见；恢复写入会刷新会话更新时间，避免本地旧缓存或后续同步再次覆盖恢复结果。页面支持删除整次备份记录，或删除某次备份中的单个会话快照。生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准，主库和备份库都需要纳入备份范围。
 
 ### 模型同步实现
 

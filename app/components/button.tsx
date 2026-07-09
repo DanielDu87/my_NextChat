@@ -34,8 +34,9 @@ export function IconButton(props: {
           "nextchat-close-button": props.close,
           /* 用户 className 已经包含 nextchat-action-button 时，
              不再自动加 nextchat-default-button，避免类名重复。
-             chat-input-send 也是同理：聊天发送/停止按钮是 chat.module.scss 自己
-             完整控制的特殊按钮（圆形绝对定位），不依赖任何公共类样式。 */
+             chat-input-send / chat-export-action 也是同理：聊天发送按钮（圆形绝对定位）
+             和导出/分享按钮的视觉与窗口其他按钮略有差异，所有状态都由 chat.module.scss
+             完整控制，不依赖任何公共类样式。 */
           "nextchat-default-button":
             !props.close &&
             !props.type &&
@@ -43,7 +44,8 @@ export function IconButton(props: {
             !props.className?.includes("nextchat-primary-button") &&
             !props.className?.includes("nextchat-danger-button") &&
             !props.className?.includes("nextchat-green-button") &&
-            !props.className?.includes("chat-input-send"),
+            !props.className?.includes("chat-input-send") &&
+            !props.className?.includes("chat-export-action"),
           "nextchat-primary-button": props.type === "primary",
           "nextchat-danger-button": props.type === "danger",
           "nextchat-green-button": props.type === "green",
@@ -67,10 +69,13 @@ export function IconButton(props: {
           aria-label={props.aria || props.title}
           className={clsx(styles["icon-button-icon"], {
             /* type=primary 时 no-dark 用于排除暗色模式 div:not(.no-dark) > svg 的
-               invert(0.5) 滤镜。chat-input-send 同样不依赖公共类，也需要排除。 */
+               invert(0.5) 滤镜。chat-input-send 同样不依赖公共类，也需要排除。
+               chat-export-action（分享/导出按钮）的禁用态背景是写死浅灰，
+               被 invert 后图标会和背景糊在一起，所以也加 no-dark。 */
             "no-dark":
               props.type === "primary" ||
-              props.className?.includes("chat-input-send"),
+              props.className?.includes("chat-input-send") ||
+              props.className?.includes("chat-export-action"),
           })}
         >
           {props.icon}
