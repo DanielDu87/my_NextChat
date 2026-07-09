@@ -1606,6 +1606,36 @@ export class ChatGPTApi implements LLMApi {
       return videoFailureMessage;
     }
 
+    // 服务端 /api/proxy 在上游对所有候选 baseURL 都返回 HTML 时，
+    // 会返回 502 + proxy_baseurl_adaptation_failed，这里优先展示中文友好提示
+    if (
+      typeof res?.error === "string" &&
+      res.error === "proxy_baseurl_adaptation_failed" &&
+      typeof res?.message === "string"
+    ) {
+      const tried = Array.isArray(res.tried)
+        ? res.tried
+            .map(
+              (item: any) =>
+                `  - \`${item?.baseUrl || ""}/${item?.subpath || ""}\`（${
+                  item?.reason || ""
+                }）`,
+            )
+            .join("\n")
+        : "";
+      return [
+        "⚠️ API 地址无法自动适配",
+        "",
+        res.message,
+        "",
+        tried ? `服务端已尝试的候选地址：\n${tried}` : "",
+        "",
+        "请打开「API 配置」页面，把「基础地址」改成上面任意一个可用的地址（通常是带 `/api/v1` 的那个），保存后重新发送对话。",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
     if (res.error) {
       return "```\n" + JSON.stringify(res, null, 4) + "\n```";
     }
@@ -2211,8 +2241,20 @@ export class ChatGPTApi implements LLMApi {
         const initialNextPath = rememberedChatEndpoint?.path
           ? rememberedChatEndpoint.path
           : nextPath;
+        // 自定义（OpenAI 兼容）供应商若配置的是绝对 http(s) 上游地址，
+        // 必须经由 /api/proxy + x-base-url 头走服务端代理，否则浏览器直连会被 CORS 拒绝。
+        const isAbsoluteCrossOriginBaseUrl =
+          !!currentBaseUrlForRequest &&
+          /^https?:\/\//i.test(currentBaseUrlForRequest) &&
+          !currentBaseUrlForRequest.startsWith(ApiPath.OpenAI) &&
+          (typeof window === "undefined" ||
+            !currentBaseUrlForRequest.startsWith(window.location.origin));
+        const shouldProxyCustomChat =
+          !shouldUseImageEndpoint &&
+          modelConfig.providerName === ServiceProvider.Custom &&
+          isAbsoluteCrossOriginBaseUrl;
         if (
-          shouldUseImageEndpoint &&
+          (shouldUseImageEndpoint || shouldProxyCustomChat) &&
           modelConfig.providerName === ServiceProvider.Custom &&
           currentBaseUrlForRequest
         ) {
@@ -2247,7 +2289,12 @@ export class ChatGPTApi implements LLMApi {
       );
       const buildChatPathForCandidate = (candidatePath: string) =>
         appendAuthQueryParam(
-          this.path(normalizeCandidatePath(candidatePath), modelConfig),
+          proxyBaseUrl
+            ? buildProxyPathForBaseUrl(
+                proxyBaseUrl,
+                normalizeCandidatePath(candidatePath),
+              ).chatPath
+            : this.path(normalizeCandidatePath(candidatePath), modelConfig),
           (requestHeaders as any).Authorization ||
             (requestHeaders as any)["x-api-key"] ||
             (requestHeaders as any)["api-key"] ||

@@ -116,6 +116,50 @@
       grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
       gap: 8px;
       margin-bottom: 16px;
+
+      /* 移动端侧边栏为全宽，顶部入口（MCP / 插件 / 画图 / 视频）空间充足，
+         应稳定显示「图标 + 文字」。通用 .icon-button 在 max-width:600px 会
+         强制 36x36 并隐藏文字，而侧边栏移动端断点是 max-width:650px（含横屏
+         粗指针规则），两者不一致会导致 600~650px 或横屏设备上文字时隐时现。
+         这里统一覆盖为横向「图标+文字」布局，保证文字始终显示。 */
+      > div > button {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: auto !important;
+        min-height: 40px !important;
+        padding: 0 8px !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
+      > div > button > :global([class*="icon-button-icon"]) {
+        width: 18px !important;
+        height: 18px !important;
+        margin: 0 !important;
+        flex: 0 0 auto;
+
+        > svg {
+          width: 18px !important;
+          height: 18px !important;
+
+          > g {
+            transform: none !important;
+          }
+        }
+      }
+
+      > div > button > :global([class*="icon-button-text"]) {
+        display: block !important;
+        flex: 0 1 auto;
+        min-width: 0;
+        margin-left: 5px !important;
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
   }
 
@@ -129,10 +173,6 @@
 
   .mobile {
     display: block;
-  }
-
-  .sidebar-tail > div:first-child > div:nth-child(3) {
-    display: none !important;
   }
 
   .chat-list-panel {
@@ -653,16 +693,28 @@
   border: 0;
   background: transparent;
   box-shadow: none;
+
+  > :global(button.nextchat-primary-button) {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 12px !important;
+    box-sizing: border-box;
+    justify-content: center !important;
+  }
+
+  > :global(button.nextchat-primary-button [class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center;
+    min-width: 0;
+    margin-left: 0 !important;
+    white-space: nowrap;
+  }
 }
 
 .sidebar-action:not(:last-child) {
   margin-right: 15px;
-}
-
-.sidebar-action-disabled {
-  opacity: 0.62;
-  pointer-events: none;
-  cursor: default !important;
 }
 
 // 主题选择器
@@ -693,76 +745,6 @@
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
-  }
-}
-
-.theme-option {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background-color 0.2s ease;
-  font-size: 13px;
-  color: var(--black);
-  text-align: center;
-  white-space: nowrap;
-
-  svg {
-    display: block;
-    width: 18px;
-    height: 18px;
-    flex-shrink: 0;
-    transform: translateY(1px);
-  }
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    line-height: 18px;
-  }
-
-  &:not(.theme-option-active):hover {
-    background: color-mix(in srgb, var(--primary) 15%, transparent);
-  }
-}
-
-.theme-option-active {
-  color: var(--primary);
-  font-weight: 600;
-
-  svg {
-    filter: none !important;
-  }
-
-  svg [style*="stroke"] {
-    stroke: var(--primary) !important;
-    stroke-opacity: 1 !important;
-  }
-
-  svg [style*="fill"] {
-    fill: var(--primary) !important;
-    fill-opacity: 1 !important;
-  }
-}
-
-:global(.dark) .theme-option-active,
-:global(body.dark) .theme-option-active {
-  svg {
-    filter: none !important;
-  }
-
-  svg [style*="stroke"] {
-    stroke: var(--primary) !important;
-  }
-
-  svg [style*="fill"] {
-    fill: var(--primary) !important;
   }
 }
 

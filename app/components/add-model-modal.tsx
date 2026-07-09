@@ -15,7 +15,6 @@ import ConfirmIcon from "../icons/confirm.svg";
 import BotIconDefault from "../icons/llm-icons/default.svg";
 import { getProviderIcon } from "../config/provider-icons";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
-import styles from "./chat.module.scss";
 import clsx from "clsx";
 
 // 模块级缓存：页面刷新即清空，同页面内切换供应商不重复获取。
@@ -623,14 +622,16 @@ export function AddModelSelector(props: {
 
   return (
     <Selector
+      className="model-selector-panel"
       title={
         loading ? (
           <>
-            正在获取 <span style={{ color: "#2563eb" }}>{displayName}</span>
+            正在获取 
+            <span style={{ color: "var(--primary)" }}>{displayName}</span>
              模型
           </>
         ) : fetchError ? (
-          <span style={{ color: "#ef4444" }}>
+          <span style={{ color: "var(--danger-color)" }}>
             获取 {displayName} 模型失败：{fetchError}
           </span>
         ) : (
@@ -650,21 +651,19 @@ export function AddModelSelector(props: {
       enableVirtualization={true}
       virtualizationThreshold={50}
       headerHint={
-        <div className={styles["model-selector-hint"]}>
-          <span className={styles["model-selector-hint-label"]}>
-            当前供应商
-          </span>
+        <div className={"model-selector-hint"}>
+          <span className={"model-selector-hint-label"}>当前供应商</span>
           <button
             type="button"
             className={clsx(
-              styles["model-selector-hint-provider-button"],
-              providerDropdownOpen && styles["model-selector-provider-open"],
+              "model-selector-hint-provider-button",
+              providerDropdownOpen && "model-selector-provider-open",
             )}
             onClick={() => setProviderDropdownOpen(!providerDropdownOpen)}
           >
             <span>
               {displayName}
-              <span className={styles["model-selector-hint-count-inline"]}>
+              <span className={"model-selector-hint-count-inline"}>
                 （
                 {loading
                   ? "获取中"
@@ -680,15 +679,15 @@ export function AddModelSelector(props: {
             <button
               type="button"
               className={clsx(
-                styles["model-selector-hint-count"],
-                styles["model-selector-hint-fetch"],
+                "model-selector-hint-count",
+                "model-selector-hint-fetch",
               )}
               onClick={fetchRemoteModels}
             >
               暂无缓存模型，可手动获取
             </button>
           ) : (
-            <span className={styles["model-selector-hint-count"]}>
+            <span className={"model-selector-hint-count"}>
               {loading
                 ? "正在获取模型..."
                 : fetchError
@@ -697,7 +696,7 @@ export function AddModelSelector(props: {
             </span>
           )}
           {providerDropdownOpen && (
-            <div className={styles["model-selector-provider-menu"]}>
+            <div className={"model-selector-provider-menu"}>
               {profiles.map((p) => {
                 const pid = resolveProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
@@ -709,9 +708,8 @@ export function AddModelSelector(props: {
                     type="button"
                     key={p.id}
                     className={clsx(
-                      styles["model-selector-provider-option"],
-                      isActive &&
-                        styles["model-selector-provider-option-active"],
+                      "model-selector-provider-option",
+                      isActive && "model-selector-provider-option-active",
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -721,21 +719,13 @@ export function AddModelSelector(props: {
                       setSelectorResetKey((k) => k + 1);
                     }}
                   >
-                    <span
-                      className={
-                        styles["model-selector-provider-option-leading"]
-                      }
-                    >
+                    <span className={"model-selector-provider-option-leading"}>
                       {providerIcon ? (
-                        <span
-                          className={styles["model-selector-option-icon-frame"]}
-                        >
+                        <span className={"model-selector-option-icon-frame"}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             alt={`${pName} icon`}
-                            className={
-                              styles["model-selector-option-icon-image"]
-                            }
+                            className={"model-selector-option-icon-image"}
                             src={providerIcon}
                           />
                         </span>
@@ -761,20 +751,20 @@ export function AddModelSelector(props: {
       footer={
         <>
           {showCustomInput ? (
-            <div className={styles["add-modal-custom-popover"]}>
+            <div className="nextchat-modal-custom-popover">
               <form
-                className={styles["add-modal-custom-form"]}
+                className="nextchat-modal-custom-form"
                 onSubmit={(event) => {
                   event.preventDefault();
                   addCustomModel();
                 }}
               >
-                <div className={styles["add-modal-custom-title"]}>
+                <div className="nextchat-modal-custom-title">
                   添加自定义模型到 {displayName}
                 </div>
-                <div className={styles["add-modal-custom-row"]}>
+                <div className="nextchat-modal-custom-row">
                   <input
-                    className={styles["add-modal-custom-input"]}
+                    className="nextchat-input-control"
                     value={customModelName}
                     onChange={(event) => {
                       setCustomModelName(event.currentTarget.value);
@@ -785,13 +775,19 @@ export function AddModelSelector(props: {
                   />
                   <button
                     type="submit"
-                    className={styles["add-modal-btn-confirm"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-green-button",
+                    )}
                   >
                     添加
                   </button>
                   <button
                     type="button"
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                     onClick={() => {
                       setShowCustomInput(false);
                       setCustomModelError("");
@@ -801,21 +797,24 @@ export function AddModelSelector(props: {
                   </button>
                 </div>
                 {customModelError ? (
-                  <div className={styles["add-modal-custom-error"]}>
+                  <div className="nextchat-modal-custom-error">
                     {customModelError}
                   </div>
                 ) : null}
               </form>
             </div>
           ) : null}
-          <div className={styles["add-modal-footer"]}>
+          <div className="nextchat-modal-footer">
             {showAdded ? (
               <>
-                <div className={styles["add-modal-footer-group"]}>
+                <div className="nextchat-modal-footer-group">
                   <button
                     type="button"
                     onClick={() => setShowAdded(false)}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     浏览模型
                   </button>
@@ -823,16 +822,22 @@ export function AddModelSelector(props: {
                     type="button"
                     onClick={removeAll}
                     disabled={addedModelsList.length === 0}
-                    className={styles["add-modal-btn-danger"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-danger-button",
+                    )}
                   >
                     全部删除
                   </button>
                 </div>
-                <div className={styles["add-modal-footer-group"]}>
+                <div className="nextchat-modal-footer-group">
                   <button
                     type="button"
                     onClick={onClose}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     关闭
                   </button>
@@ -840,11 +845,14 @@ export function AddModelSelector(props: {
               </>
             ) : (
               <>
-                <div className={styles["add-modal-footer-group"]}>
+                <div className="nextchat-modal-footer-group">
                   <button
                     type="button"
                     onClick={() => setShowAdded(true)}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     已添加 ({addedModelsList.length})
                   </button>
@@ -854,22 +862,28 @@ export function AddModelSelector(props: {
                       setShowCustomInput((visible) => !visible);
                       setCustomModelError("");
                     }}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     自定义模型
                   </button>
                   {pendingSelection.length > 0 && (
-                    <span className={styles["add-modal-count"]}>
+                    <span className="nextchat-modal-count">
                       已选 {pendingSelection.length} 个
                     </span>
                   )}
                 </div>
-                <div className={styles["add-modal-footer-group"]}>
+                <div className="nextchat-modal-footer-group">
                   <button
                     type="button"
                     onClick={fetchRemoteModels}
                     disabled={loading}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     {loading
                       ? "获取中"
@@ -881,14 +895,20 @@ export function AddModelSelector(props: {
                     type="button"
                     disabled={confirmDisabled}
                     onClick={handleConfirm}
-                    className={styles["add-modal-btn-confirm"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-green-button",
+                    )}
                   >
                     确认添加
                   </button>
                   <button
                     type="button"
                     onClick={onClose}
-                    className={styles["add-modal-btn"]}
+                    className={clsx(
+                      "nextchat-pill-button",
+                      "nextchat-default-button",
+                    )}
                   >
                     关闭
                   </button>

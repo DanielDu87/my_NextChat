@@ -5,6 +5,63 @@ import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
 
+// 进程内缓存：用户配置的 baseURL -> 自动适配后实际可用的 baseURL。
+// 例如把 https://openrouter.ai 自适应成 https://openrouter.ai/api/v1。
+// 仅在响应被识别为 text/html 时才会写入；命中后下次同 baseURL 直接走适配后的地址。
+const globalBaseUrlAdaptCache = new Map<string, string>();
+
+function looksLikeHtmlResponse(res: Response) {
+  const contentType = String(
+    res.headers.get("content-type") || "",
+  ).toLowerCase();
+  return contentType.includes("text/html");
+}
+
+function buildBaseUrlCandidates(
+  baseUrl: string,
+  subpath: string,
+): Array<{ baseUrl: string; subpath: string; reason: string }> {
+  const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
+  // path 中可能含 v1/、api/、api/v1/ 前缀，适配时把这段挪到 baseURL 上
+  const strippedSubpath = subpath
+    .replace(/^v1\//, "")
+    .replace(/^api\/v1\//, "")
+    .replace(/^api\//, "");
+
+  const candidates: Array<{
+    baseUrl: string;
+    subpath: string;
+    reason: string;
+  }> = [];
+  const seen = new Set<string>();
+  const push = (b: string, s: string, reason: string) => {
+    const key = `${b}::${s}`;
+    if (!seen.has(key) && b && s) {
+      seen.add(key);
+      candidates.push({ baseUrl: b, subpath: s, reason });
+    }
+  };
+
+  // 1) 给 baseURL 追加常见 API 前缀，同时把 path 里多余的 v1 段剥掉
+  for (const apiPrefix of ["/api/v1", "/api", "/v1"]) {
+    push(
+      `${trimmedBaseUrl}${apiPrefix}`,
+      strippedSubpath,
+      `baseURL+${apiPrefix}`,
+    );
+  }
+  // 2) 如果 baseURL 已经包含某个前缀，尝试剥掉它再走原 path
+  for (const apiPrefix of ["/api/v1", "/api", "/v1"]) {
+    if (trimmedBaseUrl.toLowerCase().endsWith(apiPrefix)) {
+      const stripped = trimmedBaseUrl
+        .slice(0, trimmedBaseUrl.length - apiPrefix.length)
+        .replace(/\/+$/, "");
+      if (stripped) push(stripped, subpath, `strip ${apiPrefix}`);
+    }
+  }
+  return candidates;
+}
+
 function isContainerRuntime() {
   try {
     return fs.existsSync("/.dockerenv");
@@ -153,6 +210,156 @@ async function nativeRequest(
   });
 }
 
+type BaseUrlAdaptationOutcome = {
+  response: Response;
+  resolvedBaseUrl: string;
+  adapted: boolean;
+};
+
+/**
+ * 发起上游请求，并在响应被识别为 HTML（即上游把请求当成了网站路径）时，
+ * 自动尝试给 baseURL 加 /api/v1、/api、/v1 等常见前缀，同时把 path 中
+ * 多余的 v1/ 段剥掉再次尝试。命中后把成功的 baseURL 缓存到进程内 Map。
+ */
+async function fetchWithBaseUrlAdaptation(opts: {
+  baseUrl: string;
+  subpath: string;
+  queryString: string;
+  req: NextRequest;
+  fetchOptions: RequestInit;
+  shouldUseNative: boolean;
+  headers: Headers;
+}): Promise<BaseUrlAdaptationOutcome> {
+  const {
+    baseUrl,
+    subpath,
+    queryString,
+    req,
+    fetchOptions,
+    shouldUseNative,
+    headers,
+  } = opts;
+
+  const buildUrl = (b: string, s: string) =>
+    `${b}/${s}${queryString ? "?" + queryString : ""}`;
+
+  const doFetch = async (url: string) => {
+    const normalized = normalizeLoopbackUrlForContainer(url);
+    if (shouldUseNative) {
+      return nativeRequest(normalized, req.method, headers);
+    }
+    return fetch(normalized, { ...fetchOptions, signal: req.signal });
+  };
+
+  const consumeBody = async (res: Response) => {
+    try {
+      await res.text();
+    } catch {
+      // 某些场景 body 已读完或流被中断，忽略即可
+    }
+  };
+
+  // 0. 命中缓存：上次已成功适配过该 baseURL，直接走适配后的地址
+  const cachedAdapted = globalBaseUrlAdaptCache.get(baseUrl);
+  if (cachedAdapted && cachedAdapted !== baseUrl) {
+    try {
+      const cachedRes = await doFetch(buildUrl(cachedAdapted, subpath));
+      if (!looksLikeHtmlResponse(cachedRes)) {
+        return {
+          response: cachedRes,
+          resolvedBaseUrl: cachedAdapted,
+          adapted: true,
+        };
+      }
+      await consumeBody(cachedRes);
+      // 缓存命中但又返回 HTML，视为上游变动，清掉缓存回退到探测流程
+      globalBaseUrlAdaptCache.delete(baseUrl);
+    } catch {
+      globalBaseUrlAdaptCache.delete(baseUrl);
+    }
+  }
+
+  // 1. 用原始 baseURL 先试一次
+  let res: Response;
+  try {
+    res = await doFetch(buildUrl(baseUrl, subpath));
+  } catch (error) {
+    // 原始请求直接抛错（如 DNS 失败、连接拒绝），让上层按 proxy_fetch_failed 处理
+    throw error;
+  }
+
+  if (!looksLikeHtmlResponse(res)) {
+    return { response: res, resolvedBaseUrl: baseUrl, adapted: false };
+  }
+
+  // 2. 检测到 HTML 响应，开始自适应探测
+  await consumeBody(res);
+  console.log("[Proxy Route] 检测到上游返回 HTML，自动尝试适配 baseURL", {
+    baseUrl,
+    subpath,
+    status: res.status,
+  });
+
+  const candidates = buildBaseUrlCandidates(baseUrl, subpath);
+  for (const candidate of candidates) {
+    if (req.signal.aborted) break;
+    try {
+      const candidateRes = await doFetch(
+        buildUrl(candidate.baseUrl, candidate.subpath),
+      );
+      if (!looksLikeHtmlResponse(candidateRes)) {
+        console.log("[Proxy Route] ✨ 自动适配 baseURL 成功", {
+          original: { baseUrl, subpath },
+          resolved: candidate,
+          status: candidateRes.status,
+          contentType: candidateRes.headers.get("content-type") || "",
+        });
+        globalBaseUrlAdaptCache.set(baseUrl, candidate.baseUrl);
+        return {
+          response: candidateRes,
+          resolvedBaseUrl: candidate.baseUrl,
+          adapted: true,
+        };
+      }
+      await consumeBody(candidateRes);
+    } catch (error) {
+      console.warn("[Proxy Route] baseURL 候选请求失败", {
+        candidate,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // 3. 所有候选都返回 HTML，返回 502 + 明确错误信息
+  console.warn("[Proxy Route] ❌ baseURL 自适配全部失败", {
+    baseUrl,
+    subpath,
+    triedCount: candidates.length,
+  });
+  return {
+    response: new Response(
+      JSON.stringify({
+        error: "proxy_baseurl_adaptation_failed",
+        message:
+          "上游对所有候选 baseURL 都返回了 HTML（看起来是网站页面而不是 API），请检查 API 配置页中填写的「基础地址」是否正确。",
+        originalBaseUrl: baseUrl,
+        subpath,
+        tried: candidates.map((c) => ({
+          baseUrl: c.baseUrl,
+          subpath: c.subpath,
+          reason: c.reason,
+        })),
+      }),
+      {
+        status: 502,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      },
+    ),
+    resolvedBaseUrl: baseUrl,
+    adapted: false,
+  };
+}
+
 export async function handle(
   req: NextRequest,
   { params }: { params: { path: string[] } },
@@ -271,9 +478,36 @@ export async function handle(
   );
 
   try {
-    const res = shouldUseNativeRequest(normalizedFetchUrl, req.method)
-      ? await nativeRequest(normalizedFetchUrl, req.method, headers)
-      : await fetch(normalizedFetchUrl, fetchOptions);
+    // 当上游不是 pricing API 时，自动适配 baseURL：
+    // 检测到 HTML 响应时尝试 /api/v1 等常见前缀并缓存命中结果。
+    const adaptationResult = isPricingApi
+      ? {
+          response: shouldUseNativeRequest(normalizedFetchUrl, req.method)
+            ? await nativeRequest(normalizedFetchUrl, req.method, headers)
+            : await fetch(normalizedFetchUrl, fetchOptions),
+          resolvedBaseUrl: normalizedBaseUrl || "",
+          adapted: false,
+        }
+      : await fetchWithBaseUrlAdaptation({
+          baseUrl: normalizedBaseUrl || "",
+          subpath,
+          queryString: req.nextUrl.searchParams.toString(),
+          req,
+          fetchOptions,
+          shouldUseNative: shouldUseNativeRequest(
+            normalizedFetchUrl,
+            req.method,
+          ),
+          headers,
+        });
+    const res = adaptationResult.response;
+    if (adaptationResult.adapted) {
+      console.log("[Proxy Route] 🔁 本次请求走的是自适应后的 baseURL", {
+        originalBaseUrl: normalizedBaseUrl,
+        resolvedBaseUrl: adaptationResult.resolvedBaseUrl,
+        subpath,
+      });
+    }
     // to prevent browser prompt for credentials
     const newHeaders = new Headers(res.headers);
     newHeaders.delete("www-authenticate");

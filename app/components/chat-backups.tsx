@@ -13,6 +13,7 @@ import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import TrashIcon from "../icons/trash.svg";
 import UploadIcon from "../icons/upload.svg";
+import DownIcon from "../icons/down.svg";
 import { Path } from "../constant";
 import { useAuthStore } from "../store/auth";
 import {
@@ -28,7 +29,6 @@ import { getMessageTextContent } from "../utils";
 import { IconButton } from "./button";
 import { List, ListItem, showConfirm, showToast } from "./ui-lib";
 import styles from "./chat-backups.module.scss";
-import apiConfigStyles from "./api-config.module.scss";
 
 type ChatBackupRun = {
   id: string;
@@ -337,6 +337,8 @@ export function ChatBackupsPage() {
   const [searchText, setSearchText] = useState("");
   const [settingsSyncStatus, setSettingsSyncStatus] =
     useState("正在读取服务器设置...");
+  const [userSelectOpen, setUserSelectOpen] = useState(false);
+  const userSelectRef = useRef<HTMLDivElement | null>(null);
   const settingsReadyRef = useRef(false);
   const syncedSettingsRef = useRef("");
 
@@ -514,6 +516,7 @@ export function ChatBackupsPage() {
     setDetail(null);
     setExpandedSessionId("");
     setLoading(true);
+    setUserSelectOpen(false);
   };
 
   const createBackup = async () => {
@@ -811,23 +814,40 @@ export function ChatBackupsPage() {
             role: "user" as const,
             isActive: true,
           }));
-    if (
-      effectiveUser?.id &&
-      !resolved.some((user) => user.id === effectiveUser.id)
-    ) {
-      return [
-        {
-          id: effectiveUser.id,
-          username: effectiveUser.username,
-          displayName: effectiveUser.displayName,
-          role: effectiveUser.role,
-          isActive: true,
-        },
-        ...resolved,
-      ];
-    }
-    return resolved;
+
+    return [
+      {
+        id: "",
+        username: "所有用户",
+        displayName: "所有用户",
+        role: "user" as const,
+        isActive: true,
+      },
+      ...resolved,
+    ];
   })();
+
+  const selectedUserOption =
+    selectableUsers.find((user) => user.id === selectedUserId) ||
+    selectableUsers[0];
+  const selectedUserLabel =
+    selectedUserOption.displayName &&
+    selectedUserOption.displayName !== selectedUserOption.username
+      ? `${selectedUserOption.displayName}（${selectedUserOption.username}）`
+      : selectedUserOption.username || selectedUserOption.displayName;
+
+  useEffect(() => {
+    if (!userSelectOpen) return;
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (!userSelectRef.current?.contains(event.target as Node)) {
+        setUserSelectOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [userSelectOpen]);
 
   return (
     <div className={styles.page} data-top-notice-anchor="true">
@@ -912,21 +932,71 @@ export function ChatBackupsPage() {
                 onPointerMove={updateHoverPosition}
               >
                 <div className={styles.summaryLabel}>查看用户</div>
-                <select
-                  value={selectedUserId}
-                  onChange={(event) =>
-                    handleUserChange(event.currentTarget.value)
-                  }
+                <div
+                  className={`nextchat-select ${
+                    userSelectOpen ? "nextchat-select-open" : ""
+                  }`}
+                  ref={userSelectRef}
                 >
-                  <option value="">所有用户</option>
-                  {selectableUsers.map((user) => (
-                    <option value={user.id} key={user.id}>
-                      {user.displayName && user.displayName !== user.username
-                        ? `${user.displayName}（${user.username}）`
-                        : user.username || user.displayName}
-                    </option>
-                  ))}
-                </select>
+                  <button
+                    aria-controls={
+                      userSelectOpen ? "chat-backup-user-select" : undefined
+                    }
+                    aria-expanded={userSelectOpen}
+                    aria-haspopup="listbox"
+                    aria-label="查看用户"
+                    className="nextchat-select-trigger nextchat-control-surface"
+                    onClick={() => setUserSelectOpen((open) => !open)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setUserSelectOpen(false);
+                      }
+                      if (event.key === "ArrowDown" || event.key === "Enter") {
+                        event.preventDefault();
+                        setUserSelectOpen(true);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <span className="nextchat-select-text">
+                      {selectedUserLabel}
+                    </span>
+                    <DownIcon className="nextchat-select-icon" />
+                  </button>
+                  {userSelectOpen && (
+                    <div
+                      className="nextchat-select-menu"
+                      id="chat-backup-user-select"
+                      role="listbox"
+                    >
+                      {selectableUsers.map((user) => {
+                        const label =
+                          user.displayName && user.displayName !== user.username
+                            ? `${user.displayName}（${user.username}）`
+                            : user.username || user.displayName;
+                        const selected = user.id === selectedUserId;
+
+                        return (
+                          <button
+                            aria-selected={selected}
+                            className={`nextchat-select-option ${
+                              selected ? "nextchat-select-option-active" : ""
+                            }`}
+                            key={user.id || "all"}
+                            onClick={() => handleUserChange(user.id)}
+                            role="option"
+                            type="button"
+                          >
+                            <span className="nextchat-select-check" />
+                            <span className="nextchat-select-option-text">
+                              {label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div
@@ -983,7 +1053,7 @@ export function ChatBackupsPage() {
               <label>
                 备份间隔（分钟）
                 <input
-                  className={apiConfigStyles.textInput}
+                  className="nextchat-input-control"
                   type="number"
                   min={1}
                   max={525600}
@@ -1002,7 +1072,7 @@ export function ChatBackupsPage() {
               <label>
                 最大保留数量
                 <input
-                  className={apiConfigStyles.textInput}
+                  className="nextchat-input-control"
                   type="number"
                   min={1}
                   max={100}
@@ -1050,14 +1120,17 @@ export function ChatBackupsPage() {
           >
             <div className={styles.searchBar}>
               <input
-                className="nextchat-input-surface"
+                className="nextchat-input-control"
                 value={searchText}
                 onChange={(event) => setSearchText(event.currentTarget.value)}
                 placeholder="搜索全部备份：用户、来源、时间、数量或备份 ID"
               />
             </div>
             {loading ? (
-              <div className={styles.empty}>正在读取备份...</div>
+              <div className={`${styles.empty} ${styles.loadingEmpty}`}>
+                <LoadingIcon />
+                正在读取备份...
+              </div>
             ) : backups.length === 0 && !searchText.trim() ? (
               <div className={styles.empty}>暂无对话备份</div>
             ) : backups.length === 0 ? (
@@ -1110,7 +1183,7 @@ export function ChatBackupsPage() {
                           icon={<TrashIcon />}
                           text="删除"
                           type="danger"
-                          className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
+                          className="nextchat-danger-button-filled nextchat-api-config-danger-action"
                           disabled={!!working}
                           onClick={() => void removeBackup(backup)}
                         />
@@ -1185,7 +1258,7 @@ export function ChatBackupsPage() {
                                       }
                                       text="删除"
                                       type="danger"
-                                      className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
+                                      className="nextchat-danger-button-filled nextchat-api-config-danger-action"
                                       disabled={!!working}
                                       onClick={() =>
                                         void removeBackupSession(session)

@@ -779,7 +779,6 @@ export function Draw() {
                   <IconButton
                     icon={<DeleteIcon />}
                     text="清除全部"
-                    className={styles["draw-clear-all-btn"]}
                     onClick={() => {
                       showConfirm("确认清除所有画图记录？").then((res) => {
                         if (res) clearAllDraw();
@@ -850,11 +849,17 @@ export function Draw() {
                             )}
                           </div>
                         )}
-                        <div className={styles["draw-card-actions"]}>
+                        <div
+                          className={clsx(
+                            styles["draw-card-actions"],
+                            chatStyles["chat-action-always-show-text"],
+                          )}
+                        >
                           {item.status === "success" && (
                             <ChatAction
                               text="下载"
                               icon={<DownloadIcon />}
+                              className="nextchat-action-button"
                               onClick={() =>
                                 downloadImage(item.img_data, item.id)
                               }
@@ -863,6 +868,7 @@ export function Draw() {
                           <ChatAction
                             text="复制"
                             icon={<CopyIcon />}
+                            className="nextchat-action-button"
                             onClick={() =>
                               handleCopyPrompt(
                                 getMessageTextContent({

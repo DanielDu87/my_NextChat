@@ -145,6 +145,7 @@
     display: block;
     width: 100%;
     box-sizing: border-box;
+    margin: 0;
   }
 
   pre > code {
@@ -193,23 +194,7 @@
     height: 44px;
     margin-right: 0;
     flex: 0 0 44px;
-    border-radius: var(--input-control-radius);
-    border: 1px solid var(--input-control-border-color);
-    background-color: var(--white);
-    color: var(--black);
-    transition:
-      border-color 0.3s ease,
-      background-color 0.3s ease,
-      color 0.3s ease;
-  }
-
-  :global(.password-input-container .password-eye:hover),
-  :global(.password-input-container .password-eye:focus) {
-    border-color: var(--input-control-hover-border-color);
-    background-color: var(--input-control-hover-bg);
-    box-shadow: var(--input-control-hover-shadow);
-    color: var(--primary);
-    outline: none;
+    padding: 0;
   }
 }
 
@@ -224,6 +209,9 @@
   input {
     width: min(420px, 100%);
     min-width: 0;
+    height: 40px;
+    min-height: 40px;
+    box-sizing: border-box;
     margin-right: 0;
     text-align: left;
   }
@@ -488,6 +476,47 @@
 
       /* hover/focus 由 globals.scss 中的全局 input 选择器统一接管 */
     }
+
+    /* 新建按钮：同样需要显式覆盖 width，否则被 max-width:600px 的
+       .icon-button{width:36px !important} 压成 36px 方块并裁掉「新建」文字。 */
+    > button {
+      grid-row: 2;
+      order: 2;
+      width: calc(100% - 8px) !important;
+      max-width: calc(100% - 8px) !important;
+      min-width: 0 !important;
+      height: 40px !important;
+      min-height: 40px !important;
+      padding: 0 12px !important;
+      justify-self: center;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 6px;
+      box-sizing: border-box;
+    }
+
+    > button :global([class*="icon-button-icon"]) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+
+      > svg {
+        width: 16px !important;
+        height: 16px !important;
+
+        > g {
+          transform: none !important;
+        }
+      }
+    }
+
+    > button :global([class*="icon-button-text"]) {
+      display: inline-flex !important;
+      margin-left: 0 !important;
+      font-size: 16px !important;
+      line-height: 1 !important;
+    }
   }
 
   .plugin-page .plugin-list {
@@ -559,6 +588,11 @@
     padding-top: 0 !important;
 
     > button {
+      /* 必须显式覆盖 width：button.module.scss 在 max-width:600px 会把
+         .icon-button 强制成 width:36px !important，压过这里只设了 min-width
+         的规则，导致按钮变成 36px 方块、图标居中、文字被 overflow 裁掉。
+         这里补上 width:100% !important 让按钮撑满 grid 单元，文字才会显示。 */
+      width: 100% !important;
       min-width: 0 !important;
       height: 40px !important;
       min-height: 40px !important;
@@ -721,4 +755,3 @@
     box-shadow: none !important;
   }
 }
-

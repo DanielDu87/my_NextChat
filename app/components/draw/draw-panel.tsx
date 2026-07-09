@@ -7,6 +7,7 @@ import { AddModelSelector } from "@/app/components/add-model-modal";
 import Locale from "@/app/locales";
 import { useDrawStore } from "@/app/store/draw";
 import { useAccessStore } from "@/app/store";
+import { useMobileScreen } from "@/app/utils";
 import EditIcon from "@/app/icons/edit.svg";
 import DownIcon from "@/app/icons/down.svg";
 import clsx from "clsx";
@@ -412,12 +413,17 @@ export function DrawSelect(props: {
   value: string;
   options: DrawSelectOption[];
   disabled?: boolean;
+  openOnHover?: boolean;
   shrinkLongText?: boolean;
   onChange: (value: string) => void;
 }) {
   const selectId = React.useId();
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const hoverCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [open, setOpen] = React.useState(false);
+  const isMobileScreen = useMobileScreen();
   const selectedOption =
     props.options.find((option) => option.value === props.value) ||
     props.options[0];
@@ -427,6 +433,26 @@ export function DrawSelect(props: {
   const shouldShrinkDisplayName =
     props.shrinkLongText &&
     shouldShrinkDrawSelectText(displayName, selectedOption?.value);
+
+  const clearHoverCloseTimer = () => {
+    if (!hoverCloseTimerRef.current) return;
+    clearTimeout(hoverCloseTimerRef.current);
+    hoverCloseTimerRef.current = null;
+  };
+
+  const openSelectOnHover = () => {
+    if (props.disabled || !props.openOnHover || isMobileScreen) return;
+    clearHoverCloseTimer();
+    setOpen(true);
+  };
+
+  const closeSelectAfterHover = () => {
+    if (!props.openOnHover || isMobileScreen) return;
+    clearHoverCloseTimer();
+    hoverCloseTimerRef.current = setTimeout(() => {
+      setOpen(false);
+    }, 120);
+  };
 
   React.useEffect(() => {
     if (!open) return;
@@ -441,6 +467,10 @@ export function DrawSelect(props: {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
+  React.useEffect(() => {
+    return () => clearHoverCloseTimer();
+  }, []);
+
   const commitValue = (value: string) => {
     if (props.disabled) return;
     props.onChange(value);
@@ -454,6 +484,8 @@ export function DrawSelect(props: {
         "nextchat-select-disabled": props.disabled,
       })}
       ref={rootRef}
+      onMouseEnter={openSelectOnHover}
+      onMouseLeave={closeSelectAfterHover}
     >
       <button
         aria-controls={open ? selectId : undefined}
@@ -461,7 +493,7 @@ export function DrawSelect(props: {
         aria-haspopup="listbox"
         aria-label={props.ariaLabel}
         aria-disabled={props.disabled}
-        className="nextchat-select-trigger"
+        className="nextchat-select-trigger nextchat-control-surface"
         disabled={props.disabled}
         onClick={() => {
           if (props.disabled) return;
@@ -489,7 +521,13 @@ export function DrawSelect(props: {
         <DownIcon className="nextchat-select-icon" />
       </button>
       {open && !props.disabled && (
-        <div className="nextchat-select-menu" id={selectId} role="listbox">
+        <div
+          className="nextchat-select-menu"
+          id={selectId}
+          role="listbox"
+          onMouseEnter={openSelectOnHover}
+          onMouseLeave={closeSelectAfterHover}
+        >
           {props.options.map((option) => {
             const selected = option.value === props.value;
             const shouldShrinkOptionName =
@@ -670,7 +708,7 @@ export function ControlParam(props: {
                 disabled={disabled}
               >
                 <textarea
-                  className={clsx({
+                  className={clsx("nextchat-input-control", {
                     [styles["draw-prompt-textarea"]]: item.value === "prompt",
                   })}
                   disabled={disabled}
@@ -716,6 +754,7 @@ export function ControlParam(props: {
                 disabled={disabled}
               >
                 <input
+                  className="nextchat-input-control"
                   aria-label={item.name}
                   disabled={disabled}
                   type="text"
@@ -787,6 +826,7 @@ export function ControlParam(props: {
                 disabled={disabled}
               >
                 <input
+                  className="nextchat-input-control"
                   aria-label={item.name}
                   disabled={disabled}
                   type="text"
@@ -926,6 +966,7 @@ function showDrawModelEditor(initialState: { models: string[] }) {
               subTitle="每行一个模型，自动去重；列表首项为默认选中。"
             >
               <textarea
+                className="nextchat-input-control"
                 rows={Math.max(8, initialState.models.length)}
                 value={modelsInput}
                 placeholder="每行输入一个模型"
@@ -1252,24 +1293,28 @@ export function DrawPanel() {
     setSelectedProvider,
   ]);
 
+  const hasRequestLog = Boolean(drawStore.lastRequestLog);
+  const hasResponseLog = Boolean(drawStore.lastResponseLog);
+
   return (
     <div className={styles["draw-panel"]}>
       <section className={styles["draw-panel-section"]}>
         <div className={styles["draw-panel-section-title-row"]}>
-          <div className={styles["draw-panel-section-title"]}>
+          <div
+            className={clsx(
+              styles["ctrl-param-item-title"],
+              styles["draw-panel-section-label"],
+            )}
+          >
             {Locale.DrawPanel.ModelVersion}
           </div>
-          <button
-            type="button"
-            className={styles["draw-model-edit-button"]}
+          <IconButton
+            icon={<EditIcon />}
+            text="编辑"
+            className={styles["draw-model-edit-action"]}
             onClick={handleEditModels}
-            aria-label="编辑模型"
-          >
-            <span className={styles["draw-model-edit-icon"]}>
-              <EditIcon />
-            </span>
-            <span className={styles["draw-model-edit-text"]}>编辑</span>
-          </button>
+            aria="编辑模型"
+          />
         </div>
         <div className={styles["draw-model-picker-stack"]}>
           <ControlParamItem
@@ -1280,6 +1325,7 @@ export function DrawPanel() {
               ariaLabel="模型供应商"
               value={selectedProvider}
               options={providerOptions}
+              openOnHover
               onChange={handleProviderChange}
             />
           </ControlParamItem>
@@ -1288,6 +1334,7 @@ export function DrawPanel() {
               ariaLabel="模型"
               value={currentModel.value}
               shrinkLongText
+              openOnHover
               options={filteredDrawModels.map((model) => ({
                 name: getDrawModelDisplayName(model),
                 value: model,
@@ -1363,14 +1410,31 @@ export function DrawPanel() {
       })()}
 
       <section className={styles["draw-panel-section"]}>
-        <div className={styles["draw-panel-section-title"]}>请求日志</div>
+        <div
+          className={clsx(
+            styles["ctrl-param-item-title"],
+            styles["draw-panel-section-label"],
+          )}
+        >
+          请求日志
+        </div>
         <ControlParamItem
           title="发送请求"
           subTitle="显示最近一次发送的 URL 和参数。"
           className={styles["draw-log-item"]}
         >
-          <pre className={styles["draw-log-textarea"]} aria-label="发送请求">
-            {drawStore.lastRequestLog || "发送请求后会显示在这里"}
+          <pre
+            className={clsx(
+              "nextchat-input-surface",
+              "nextchat-input-surface-readonly",
+              styles["draw-log-textarea"],
+              !hasRequestLog && styles["draw-log-textarea-empty"],
+            )}
+            aria-label="发送请求"
+          >
+            {hasRequestLog
+              ? drawStore.lastRequestLog
+              : "发送请求后会显示在这里"}
           </pre>
         </ControlParamItem>
         <ControlParamItem
@@ -1378,8 +1442,18 @@ export function DrawPanel() {
           subTitle="显示最近一次接口返回的原始文本内容。"
           className={styles["draw-log-item"]}
         >
-          <pre className={styles["draw-log-textarea"]} aria-label="返回内容">
-            {drawStore.lastResponseLog || "收到返回后会显示在这里"}
+          <pre
+            className={clsx(
+              "nextchat-input-surface",
+              "nextchat-input-surface-readonly",
+              styles["draw-log-textarea"],
+              !hasResponseLog && styles["draw-log-textarea-empty"],
+            )}
+            aria-label="返回内容"
+          >
+            {hasResponseLog
+              ? drawStore.lastResponseLog
+              : "收到返回后会显示在这里"}
           </pre>
         </ControlParamItem>
       </section>

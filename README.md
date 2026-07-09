@@ -31,6 +31,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持消息复制、重发、编辑、语音朗读。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
 - 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照覆盖恢复或删除某个对话快照，也可删除整次备份记录。
+- API 配置页关闭时，如果存在未同步修改，会弹出仅含「保存 / 不保存」的确认框；点击「不保存」直接退出，避免误留在页面。
 - 移动端优化：
   - 新空对话默认显示用户状态与切换入口；发送消息后自动收起，进入已有消息的历史对话时默认保持收起，可通过头部用户按钮手动切换显示状态。
   - 流式输出期间，点击或滑动不会中断模型请求；“回到底部”只定位到点击瞬间已有内容的底部，不持续跟随后续增量。
@@ -51,7 +52,8 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
-- 支持自定义 Base URL 和 OpenAI 兼容接口。
+- 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
+- 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
 - 内置「余额查询」页面（`/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；新备份统一写入单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
@@ -59,7 +61,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 ### 数据与同步
 
 - PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、对话备份、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
-- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、临时草稿、全局模型选择和少量启动标记。
+- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、主题、临时草稿、全局模型选择和少量启动标记，其中主题只保存在当前设备、不参与云同步。
 - 支持数据库同步与本地优先合并策略。
 - 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
 
@@ -85,9 +87,15 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - `Next.js 14`：应用框架与 API Routes。
 - `React 18`：UI 组件和交互逻辑。
 - `TypeScript`：类型约束。
-- `SCSS Modules`：组件级样式隔离。
+- `SCSS Modules`：组件级样式隔离，全局通用样式优先复用 `app/styles/globals.scss` 的 `nextchat-*` 公共类（详见 `CLAUDE.md` 「公共类约束」）。
 - `Zustand`：全局状态管理。
 - `React Router BrowserRouter`：客户端页面路由，当前统一使用普通路径 URL。
+
+公共输入类约定：
+
+- `nextchat-input-control`：用于原生 `input`、`textarea`、`select`、`contentEditable` 等可输入本体，负责尺寸、内边距、排版和统一交互反馈。
+- `nextchat-input-surface`：用于自定义外壳、只读展示块、伪输入框等表面容器，负责统一边框、背景和焦点视觉。
+- 不要在同一层可交互输入上同时叠加 `nextchat-input-control` 和 `nextchat-input-surface`，否则容易出现双边框和双焦点反馈。
 
 核心目录：
 

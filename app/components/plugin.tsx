@@ -401,7 +401,7 @@ export function PluginPage() {
                     name="plugin-auth-header"
                     autoComplete="new-password"
                     aria-autocomplete="none"
-                    className="nextchat-input-surface"
+                    className="nextchat-input-control"
                     value={editingPlugin?.authHeader ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
@@ -419,7 +419,7 @@ export function PluginPage() {
                     name="plugin-auth-token"
                     autoComplete="new-password"
                     aria-autocomplete="none"
-                    className="nextchat-input-surface"
+                    className="nextchat-input-control"
                     value={editingPlugin?.authToken ?? ""}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
@@ -441,7 +441,7 @@ export function PluginPage() {
                     value={loadUrl}
                     className={clsx(
                       pluginStyles["plugin-schema-input"],
-                      "nextchat-input-surface",
+                      "nextchat-input-control",
                     )}
                     onInput={(e) => setLoadUrl(e.currentTarget.value)}
                   ></input>
@@ -456,16 +456,10 @@ export function PluginPage() {
               <ListItem
                 vertical
                 subTitle={
-                  <div
-                    className={clsx(
-                      "markdown-body",
-                      pluginStyles["plugin-content"],
-                    )}
-                    dir="auto"
-                  >
+                  <div className={pluginStyles["plugin-content"]} dir="auto">
                     <pre>
                       <code
-                        className="nextchat-input-surface"
+                        className="nextchat-input-control nextchat-no-hover-motion"
                         contentEditable={true}
                         dangerouslySetInnerHTML={{
                           __html: editingPlugin.content,

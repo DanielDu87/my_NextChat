@@ -140,10 +140,10 @@ const PromptManagerPage = dynamic(
 );
 
 function resolvePreloadTheme(): "dark" | "light" {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   return (window as any).__NEXTCHAT_PRELOAD_THEME__ === "light"
     ? "light"
-    : "dark";
+    : "light";
 }
 
 function resolveEffectiveTheme(

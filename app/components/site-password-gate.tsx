@@ -75,7 +75,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         <div className={styles.usernameInput}>
           <div className={styles.inputBox}>
             <input
-              className={styles.inputField}
+              className="nextchat-input-control"
               aria-label="用户名"
               value={username}
               placeholder="请输入用户名"
@@ -93,7 +93,7 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         <div className={styles.passwordInput}>
           <div className={styles.passwordBox}>
             <input
-              className={styles.passwordField}
+              className="nextchat-input-control"
               aria-label="登录密码"
               value={password}
               placeholder="请输入密码"
@@ -119,8 +119,8 @@ export default function SitePasswordGate(props: { initialError?: string }) {
         <div className={styles.actions}>
           <button
             type="submit"
-            className={styles.submitButton}
-            aria-disabled={submitting}
+            className="nextchat-primary-button"
+            disabled={submitting}
           >
             <span className={styles.actionText}>
               {submitting ? "登录中..." : "进入系统"}

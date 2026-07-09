@@ -60,7 +60,7 @@ const localStorage = safeLocalStorage();
 const THEME_KEY = "appConfig.theme";
 const TIGHT_BORDER_KEY = "appConfig.tightBorder";
 const SIDEBAR_WIDTH_KEY = "sidebarWidth";
-const DEFAULT_THEME = Theme.Auto;
+const DEFAULT_THEME = Theme.Light;
 const DEFAULT_TIGHT_BORDER = true;
 
 function readThemeFromLocalStorage() {
@@ -134,56 +134,6 @@ function buildModelProviderKey(name: unknown, providerId: unknown) {
 
 function hydrateModelsForStore(models: LLMModel[]) {
   return hydrateModelsWithAiHubMixMetadata(models);
-}
-
-let uiPreferenceSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function getUiPreferenceSummary() {
-  const state = useAppConfig.getState();
-  return `主题=${state.theme}，侧边栏宽度=${state.sidebarWidth}px`;
-}
-
-function scheduleUiPreferenceSync(reason: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  if (uiPreferenceSyncTimer) {
-    clearTimeout(uiPreferenceSyncTimer);
-  }
-
-  uiPreferenceSyncTimer = setTimeout(() => {
-    uiPreferenceSyncTimer = null;
-    void import("./sync")
-      .then(async ({ useSyncStore }) => {
-        const syncStore = useSyncStore.getState();
-        if (!syncStore.cloudSync()) {
-          console.log(
-            `[Config] ⏭️ 界面偏好未同步: 云同步未启用（${getUiPreferenceSummary()}）`,
-          );
-          return false;
-        }
-
-        console.log(
-          `[Config] ☁️ 自动同步界面偏好: ${reason}（${getUiPreferenceSummary()}）`,
-        );
-        await syncStore.sync([StoreKey.Config], {
-          isolateQueue: true,
-          silentSummary: true,
-        });
-        return true;
-      })
-      .then((synced) => {
-        if (synced) {
-          console.log(
-            `[Config] ✅ 界面偏好已同步（${getUiPreferenceSummary()}）`,
-          );
-        }
-      })
-      .catch((error: unknown) => {
-        console.error("[Config] ❌ 界面偏好同步失败:", error);
-      });
-  }, 500);
 }
 
 const BUILTIN_CHAT_MODELS = DEFAULT_MODELS.filter(
@@ -666,7 +616,6 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
     setTheme(theme: Theme) {
       localStorage.setItem(THEME_KEY, theme);
       set({ theme, lastUpdateTime: Date.now() });
-      scheduleUiPreferenceSync("主题");
     },
   }),
   {

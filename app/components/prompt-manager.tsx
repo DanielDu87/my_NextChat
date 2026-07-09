@@ -345,13 +345,15 @@ export function PromptManagerPage() {
           <IconButton
             icon={<EyeIcon />}
             text="查看并编辑"
+            className="nextchat-action-button"
             onClick={() => openEditModal(prompt)}
           />
           <IconButton
-            icon={<TrashIcon className={styles.profileDeleteIcon} />}
+            icon={<TrashIcon />}
             text="删除"
             type="danger"
-            className={`${styles.dangerButton} ${styles.profileDeleteButton}`}
+            // nextchat-danger-button 提供边框/背景/hover；本地 .dangerButton 仅保留图标尺寸约束
+            className={`nextchat-danger-button ${styles.dangerButton}`}
             onClick={() => deletePrompt(prompt)}
           />
         </div>
@@ -414,14 +416,15 @@ export function PromptManagerPage() {
                     placeholder="搜索提示词标题或内容..."
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
-                    className={styles.searchInput}
+                    className={`${styles.searchInput} nextchat-input-control`}
                     aria-label="搜索提示词"
                   />
                 </div>
                 <IconButton
                   icon={<AddIcon />}
                   text="新增提示词"
-                  className={styles.addPromptButton}
+                  // nextchat-default-button 提供边框/背景/hover；本地 .addPromptButton 保留高度/padding/暗色适配
+                  className={`${styles.addPromptButton} nextchat-default-button`}
                   onClick={openCreateModal}
                 />
               </div>
@@ -477,7 +480,7 @@ export function PromptManagerPage() {
                     type="text"
                     defaultValue={editingPrompt.title}
                     placeholder="输入提示词标题"
-                    className={styles.input}
+                    className={`${styles.input} nextchat-input-control`}
                     maxLength={120}
                   />
                 </div>
@@ -488,7 +491,7 @@ export function PromptManagerPage() {
                     ref={promptContentInputRef}
                     defaultValue={editingPrompt.content}
                     placeholder="输入提示词内容，支持多行..."
-                    className={styles.textarea}
+                    className={`${styles.textarea} nextchat-input-control`}
                     onChange={(e) => setDraftContent(e.target.value)}
                   />
                   <div className={styles.textareaMeta}>
@@ -504,12 +507,14 @@ export function PromptManagerPage() {
                   <IconButton
                     icon={<CloseIcon />}
                     text="取消"
+                    className="nextchat-default-button"
                     onClick={closeModal}
                   />
                   <IconButton
                     icon={<ConfirmIcon />}
                     text={promptModalMode === "edit" ? "保存" : "添加"}
                     type="primary"
+                    className="nextchat-primary-button"
                     onClick={savePrompt}
                   />
                 </div>

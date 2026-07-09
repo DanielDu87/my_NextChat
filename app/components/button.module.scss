@@ -26,38 +26,10 @@
     }
   }
 
-  &.primary {
-    background-color: var(--primary);
-    color: white;
-
-    &:not(:global([class*="chat-input-send"])) {
-      border: 2px solid var(--primary);
-      background-color: color-mix(in srgb, var(--primary) 75%, white);
-      box-sizing: border-box;
-      transform: none;
-      filter: none;
-      transition:
-        background-color 0.2s ease,
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
-
-      &:not([disabled]):hover,
-      &:not([disabled]):focus-visible,
-      &:not([disabled]):active {
-        background-color: var(--primary);
-        border-color: var(--primary);
-        box-shadow: none;
-        transform: none;
-        filter: none;
-      }
-    }
-
-    svg,
-    path,
-    circle {
-      fill: white !important;
-    }
-  }
+  /* .icon-button 的 primary / danger 变体不再在这里处理：
+     IconButton 实际通过 props.type 加上的是全局类 nextchat-primary-button / nextchat-danger-button，
+     全部颜色、边框、hover、图标 fill/stroke 规则都已统一在 globals.scss 的同名块中维护。
+     这里避免重复声明导致优先级互相覆盖。 */
 
   &.danger {
     color: rgba($color: red, $alpha: 0.8);

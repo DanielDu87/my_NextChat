@@ -714,6 +714,7 @@ export function ChatList() {
     <div
       className={clsx(styles["chat-list-panel"], {
         [styles["chat-list-disabled"]]: isChatListDisabled,
+        "nextchat-restricted-disabled": isChatListDisabled,
       })}
     >
       {multiDeleteMode && !isChatListDisabled && (
@@ -737,7 +738,7 @@ export function ChatList() {
           type="text"
           className={clsx(
             styles["chat-list-filter-input"],
-            "nextchat-input-surface",
+            "nextchat-input-control",
           )}
           placeholder={Locale.SearchChat.Page.Search}
           value={filterText}

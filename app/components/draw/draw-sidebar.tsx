@@ -200,6 +200,7 @@ export function SideBar(props: {
           <IconButton
             icon={<ReturnIcon />}
             text={Locale.Draw.Actions.ReturnHome}
+            className={styles["draw-sidebar-action-button"]}
             onClick={() => void handleReturnHome()}
           />
           <div
@@ -211,13 +212,17 @@ export function SideBar(props: {
             <IconButton
               icon={<currentThemeOption.Icon />}
               text="主题切换"
+              className={styles["draw-sidebar-action-button"]}
               onClick={() => {
                 setThemeMenuOpen((value) => (isMobileScreen ? !value : true));
               }}
             />
             {themeMenuOpen && (
               <div
-                className={styles["draw-theme-menu"]}
+                className={clsx(
+                  "nextchat-select-menu",
+                  styles["draw-theme-menu"],
+                )}
                 role="menu"
                 onMouseEnter={showThemeMenuOnDesktopHover}
                 onMouseLeave={hideThemeMenuOnDesktopHover}
@@ -225,8 +230,8 @@ export function SideBar(props: {
                 {DRAW_THEME_OPTIONS.map((option) => (
                   <button
                     key={option.value}
-                    className={clsx(styles["draw-theme-option"], {
-                      [styles["draw-theme-option-active"]]:
+                    className={clsx("nextchat-menu-option", {
+                      "nextchat-menu-option-active":
                         option.value === props.drawTheme,
                     })}
                     onClick={() => {
@@ -245,6 +250,7 @@ export function SideBar(props: {
             <IconButton
               icon={<HistoryIcon />}
               text="生成记录"
+              className={styles["draw-sidebar-action-button"]}
               onClick={() => navigate(Path.DrawHistory)}
             />
           )}
@@ -260,7 +266,6 @@ export function SideBar(props: {
           <IconButton
             text={Locale.DrawPanel.Submit}
             type="primary"
-            className={styles["draw-submit-button"]}
             onClick={handleSubmit}
           ></IconButton>
         }

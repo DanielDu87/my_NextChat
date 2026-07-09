@@ -957,7 +957,8 @@ const MergeStates: StateMerger = {
   [StoreKey.Config]: (localState, remoteState) => {
     // 策略：
     // - models 数组是本地临时数据，不参与数据库同步
-    // - theme / tightBorder 跟随较新的配置同步
+    // - theme 仅保留本地 localStorage，不参与云同步
+    // - tightBorder 跟随较新的配置同步
     // - customModels / autoModelSeries / modelConfig.model+providerName
     //   各自按字段级时间戳独立判定胜方，互不干扰
     // - modelConfig 其他字段（temperature/top_p/max_tokens 等）保留"远端补全本地缺失"
@@ -1046,7 +1047,7 @@ const MergeStates: StateMerger = {
     const mergedState = {
       ...(preferRemoteOnBootstrap ? localState : remoteState),
       ...(preferRemoteOnBootstrap ? remoteState : localState),
-      theme: preferredConfig.theme ?? currentConfig.theme,
+      theme: currentConfig.theme,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       tightBorder: preferredConfig.tightBorder ?? currentConfig.tightBorder,
       // 供应商全量模型是本地临时数据，不从数据库恢复或合并。

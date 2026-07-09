@@ -259,6 +259,9 @@ yarn prompts
 
 - `[provider]/[...path]` - **AI 提供商代理**（核心聊天/补全/图像转发）
 - `proxy/[...path]` - 通用代理
+  - 处理跨域 + 浏览器直连被 CORS 拦截：所有自定义 (Custom) 上游绝对地址的请求都经由此处，由 `x-base-url` header 决定最终目标。
+  - **baseURL 自适应**：若上游对原始 URL 返回 `text/html`（说明上游把请求当成了网站路径，常见于 OpenRouter 这类 API 入口在 `/api/v1` 下的服务），会自动尝试在 baseURL 末尾追加 `/api/v1`、`/api`、`/v1` 等常见前缀，同时把 path 中可能多余的 `v1/` 段剥掉再试。命中后写入进程内 Map 缓存 `原始 baseURL → 适配后 baseURL`，避免每次都探测。命中失败会返回 502 + `proxy_baseurl_adaptation_failed` JSON，客户端会展示中文提示和已尝试的候选列表。
+  - 实现位置：`app/api/proxy.ts`（`fetchWithBaseUrlAdaptation` + `buildBaseUrlCandidates` + `globalBaseUrlAdaptCache`）。
 - `db/` - 数据库同步接口
   - `sync/[key]` - 通用键值同步（对话/配置等），access-control 写入会触发 API 配置自动备份
   - `chat-sync`（含 `sessions`）、`chat-updated-at` - 对话同步
@@ -433,6 +436,27 @@ yarn prompts
 - **SCSS** - 使用 `sass` 包
 - **CSS Modules** - `.module.scss` 文件
 - **全局样式** - `app/styles/` 目录
+
+### 公共类约束（优先复用 globals.scss）
+
+`app/styles/globals.scss` 维护了一套 `nextchat-*` 公共类，用于统一按钮 / 输入框 / 关闭按钮的边框、背景、hover、focus 与暗色适配。新增或修改页面样式时必须**优先复用**这些公共类，不允许在组件级 `.module.scss` 里重复实现：
+
+- `.nextchat-input-control`：输入框 / 文本域 idle / hover / focus 的边框、背景、阴影、暗色适配。
+- `.nextchat-default-button`：默认描边按钮（次要操作，如"取消"、"新增"）。
+- `.nextchat-primary-button`：主操作实心按钮（如"保存"、"添加"）。
+- `.nextchat-action-button`：列表行内可点击操作按钮（如"查看并编辑"）。
+- `.nextchat-danger-button`：危险描边按钮（如"删除"）。
+- `.nextchat-close-button`：38×38 关闭按钮（`IconButton` 设 `close` 时自动应用）。
+
+约定：
+
+1. **TSX**：`IconButton` / `input` / `textarea` 上直接拼接公共类，例如
+   `className={`${styles.addPromptButton} nextchat-default-button`}`。
+2. **SCSS**：组件级 `.module.scss` 只保留**布局与尺寸约束**（宽高、padding、grid、flex、暗色图标颜色），**禁止**重新声明边框 / 背景 / hover / focus / SVG `stroke` / `currentcolor` 等已被公共类覆盖的属性。重复声明既会与公共类冲突产生视觉回归，也违反"视觉统一化"原则。
+3. **新公共类**：如果多个组件都需要同一组样式，先在 `globals.scss` 增加 `nextchat-*` 类，再让各组件复用；不要新增只服务一个组件的全局类。
+4. **暗色适配**：公共类已统一处理暗色模式；除非是图标颜色等公共类未覆盖的属性，不要在组件级再写 `:global(body.dark) ...`。
+
+改造示例见 [`app/components/prompt-manager.tsx`](./app/components/prompt-manager.tsx) 与 [`app/components/prompt-manager.module.scss`](./app/components/prompt-manager.module.scss)（2026-07-08 已按本约定重构）。
 
 ## 工具函数
 

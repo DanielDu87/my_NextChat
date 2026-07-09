@@ -12,7 +12,6 @@ import { unwrapPersistedStoreState } from "../utils/sync-store-keys";
 import { IconButton } from "./button";
 import { List, ListItem, showConfirm, showToast } from "./ui-lib";
 import styles from "./api-config-backups.module.scss";
-import apiConfigStyles from "./api-config.module.scss";
 
 type Settings = {
   enabled: boolean;
@@ -239,7 +238,7 @@ export function ApiConfigBackupsPage() {
       <div className={styles.content}>
         <List>
           <ListItem
-            className={styles.hoverCard}
+            className="nextchat-hover-card"
             onPointerMove={updateHoverPosition}
             title="自动备份设置"
             subTitle="备份间隔按分钟计算，可自定义保留数量。"
@@ -262,7 +261,7 @@ export function ApiConfigBackupsPage() {
               <label>
                 备份间隔（分钟）
                 <input
-                  className={apiConfigStyles.textInput}
+                  className="nextchat-input-control"
                   type="number"
                   min={1}
                   max={525600}
@@ -281,7 +280,7 @@ export function ApiConfigBackupsPage() {
               <label>
                 最大保留数量
                 <input
-                  className={apiConfigStyles.textInput}
+                  className="nextchat-input-control"
                   type="number"
                   min={1}
                   max={100}
@@ -304,7 +303,7 @@ export function ApiConfigBackupsPage() {
             </div>
           </ListItem>
           <ListItem
-            className={styles.hoverCard}
+            className="nextchat-hover-card"
             onPointerMove={updateHoverPosition}
             title={
               <div className={styles.historyHeader}>
@@ -318,8 +317,8 @@ export function ApiConfigBackupsPage() {
                 <IconButton
                   icon={working === "backup" ? <LoadingIcon /> : <UploadIcon />}
                   text={working === "backup" ? "备份中..." : "立即备份"}
-                  type="primary"
-                  className={styles.createBackupButton}
+                  type="green"
+                  className="nextchat-api-config-backup-create-button"
                   disabled={!!working}
                   onClick={() => void createBackup()}
                 />
@@ -328,17 +327,16 @@ export function ApiConfigBackupsPage() {
             vertical
           >
             {loading ? (
-              <div className={styles.empty}>正在读取备份...</div>
+              <div className={`${styles.empty} ${styles.loadingEmpty}`}>
+                <LoadingIcon />
+                正在读取备份...
+              </div>
             ) : backups.length === 0 ? (
               <div className={styles.empty}>暂无备份</div>
             ) : (
               <div className={styles.backups}>
                 {backups.map((backup) => (
-                  <div
-                    className={`${styles.backup} ${styles.hoverCard}`}
-                    key={backup.id}
-                    onPointerMove={updateHoverPosition}
-                  >
+                  <div className={styles.backup} key={backup.id}>
                     <div>
                       <div className={styles.backupTitle}>
                         {SOURCE_LABEL[backup.source]}
@@ -366,7 +364,7 @@ export function ApiConfigBackupsPage() {
                         icon={<TrashIcon />}
                         text="删除"
                         type="danger"
-                        className={`${apiConfigStyles.dangerButton} ${apiConfigStyles.profileDeleteButton}`}
+                        className="nextchat-danger-button-filled nextchat-api-config-danger-action"
                         disabled={!!working}
                         onClick={() => void remove(backup)}
                       />

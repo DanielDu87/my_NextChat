@@ -30,6 +30,18 @@ type QueryStatus =
   | { type: "success"; text: string }
   | { type: "error"; text: string };
 
+function updateHoverPosition(event: PointerEvent<HTMLElement>) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty(
+    "--hover-x",
+    `${event.clientX - rect.left}px`,
+  );
+  event.currentTarget.style.setProperty(
+    "--hover-y",
+    `${event.clientY - rect.top}px`,
+  );
+}
+
 function mergeProfiles(
   localProfiles: ProviderBalanceProfile[],
   remoteProfiles: ProviderBalanceProfile[],
@@ -100,18 +112,6 @@ export function ProviderBalancesPage() {
     [drafts, profiles],
   );
   const isSaving = working.startsWith("save:");
-
-  const updateHoverPosition = (event: PointerEvent<HTMLElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.style.setProperty(
-      "--hover-x",
-      `${event.clientX - rect.left}px`,
-    );
-    event.currentTarget.style.setProperty(
-      "--hover-y",
-      `${event.clientY - rect.top}px`,
-    );
-  };
 
   useEffect(() => {
     console.clear();
@@ -398,11 +398,14 @@ export function ProviderBalancesPage() {
             </div>
           </div>
           <div className="window-actions">
-            <div className="window-action-button">
+            <div
+              className={`window-action-button ${styles.desktopBatchAction}`}
+            >
               <IconButton
                 icon={<ReloadIcon />}
                 text="全部查询"
-                className={styles.headerQueryButton}
+                type="green"
+                className={styles.actionButton}
                 disabled={
                   working === "all" ||
                   savingProfileIds.length > 0 ||
@@ -438,25 +441,39 @@ export function ProviderBalancesPage() {
             tabIndex={-1}
           />
         </div>
+        <div className={styles.mobileBatchAction}>
+          <IconButton
+            icon={<ReloadIcon />}
+            text="全部查询"
+            type="green"
+            className={styles.actionButton}
+            disabled={
+              working === "all" ||
+              savingProfileIds.length > 0 ||
+              (profiles.length > 0 &&
+                queryingProfileIds.length === profiles.length)
+            }
+            onClick={() => void queryAll()}
+          />
+        </div>
         <div className={styles.list}>
           {profiles.length === 0 ? (
             <div className={styles.empty}>暂无 API 配置</div>
           ) : (
             profiles.map((profile) => (
               <div
-                className={`${styles.card} ${styles.hoverCard}`}
+                className={`${styles.card} ${styles.desktopHoverCard}`}
                 key={profile.profileId}
                 onPointerMove={updateHoverPosition}
               >
                 <div className={styles.header}>
                   <span className={styles.name}>{profile.profileName}</span>
                   <span
-                    className={styles.balance}
-                    style={
+                    className={`${styles.balance} ${
                       recentlyUpdatedIds.has(profile.profileId)
-                        ? { color: "#2ecc71", fontWeight: "bold" }
-                        : {}
-                    }
+                        ? styles.balanceUpdated
+                        : ""
+                    }`}
                   >
                     余额：
                     {profile.balance
@@ -468,13 +485,12 @@ export function ProviderBalancesPage() {
                 </div>
                 <div className={styles.row}>
                   <input
-                    className={`${styles.input} nextchat-input-control`}
+                    className="nextchat-input-control"
                     type="text"
                     autoComplete="one-time-code"
                     autoCorrect="off"
                     autoCapitalize="off"
                     spellCheck={false}
-                    readOnly
                     data-lpignore="true"
                     data-1p-ignore="true"
                     data-bwignore="true"
@@ -488,12 +504,6 @@ export function ProviderBalancesPage() {
                         ? drafts[profile.profileId]
                         : profile.managementKey || ""
                     }
-                    onFocus={(event) => {
-                      event.currentTarget.readOnly = false;
-                    }}
-                    onBlur={(event) => {
-                      event.currentTarget.readOnly = true;
-                    }}
                     onChange={(event) =>
                       setDrafts((value) => ({
                         ...value,
@@ -509,6 +519,8 @@ export function ProviderBalancesPage() {
                   />
                   <IconButton
                     icon={<ConfirmIcon />}
+                    type="primary"
+                    className={styles.actionButton}
                     text={
                       savingProfileIds.includes(profile.profileId)
                         ? "保存中..."
@@ -523,6 +535,8 @@ export function ProviderBalancesPage() {
                   />
                   <IconButton
                     icon={<ReloadIcon />}
+                    type="green"
+                    className={styles.actionButton}
                     text={
                       queryingProfileIds.includes(profile.profileId)
                         ? "获取中..."
@@ -538,10 +552,7 @@ export function ProviderBalancesPage() {
                 </div>
                 {(profile.profileName.toLowerCase().includes("yuto") ||
                   profile.profileName.toLowerCase().includes("gptapi")) && (
-                  <div
-                    className={styles.hint}
-                    style={{ marginTop: "8px", fontSize: "12px" }}
-                  >
+                  <div className={styles.hint}>
                     💡 Yuto 配置提示：请使用格式 <code>API_Key|User_ID</code>
                     ，例如 <code>your_api_key|your_user_id</code>
                   </div>

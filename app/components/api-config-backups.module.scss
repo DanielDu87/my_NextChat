@@ -3,66 +3,25 @@
   display: flex;
   flex-direction: column;
 }
-.page :global([class*="list-item"]),
-.page :global([class*="list-item"] *) {
-  cursor: default !important;
-}
-.page :global(button),
-.page :global(button *) {
-  cursor: pointer !important;
-}
-.page :global(button:disabled),
-.page :global(button:disabled *) {
-  cursor: not-allowed !important;
-}
-.page input[type="number"] {
+
+.page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
   cursor: text !important;
 }
+
+.page select,
+.page :global(.nextchat-select),
+.page :global(.nextchat-select *),
 .page input[type="checkbox"],
-.page input[type="checkbox"] + span,
-.page label:has(input[type="checkbox"]) {
+.page input[type="checkbox"] + span {
   cursor: pointer !important;
 }
+
 .content {
   padding: 20px;
   overflow: auto;
 }
 
-.page :global(button[class*="icon-button"][class*="primary"]) {
-  height: 40px !important;
-  min-height: 40px !important;
-  border: 2px solid var(--primary) !important;
-  border-radius: 10px !important;
-  color: white !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-  box-shadow: none !important;
-  box-sizing: border-box !important;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease;
-}
-
-.page :global(button[class*="icon-button"][class*="primary"]):not(
-    :disabled
-  ):hover,
-.page :global(button[class*="icon-button"][class*="primary"]):not(
-    :disabled
-  ):focus-visible,
-.page :global(button[class*="icon-button"][class*="primary"]):not(
-    :disabled
-  ):active {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  color: white !important;
-  background-color: var(--primary) !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
-}
+/* 按钮基础样式由 globals.scss 中的公共类统一接管，本文件只保留页面布局微调。*/
 
 .content > :global([class*="list"]) {
   display: flex;
@@ -73,7 +32,7 @@
   background: transparent;
 }
 
-.content > :global([class*="list"]) > :global([class*="list-item"]).hoverCard {
+.content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
   border: var(--border-in-light);
   border-radius: 8px;
 }
@@ -103,10 +62,12 @@
 .syncStatus {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-height: 38px;
   color: var(--black-2);
   font-size: 12px;
+  text-align: center;
 }
 .syncStatus svg {
   width: 18px;
@@ -133,87 +94,11 @@
   font-weight: normal;
   line-height: 1.5;
 }
-.createBackupButton {
-  --backup-green: #22a06b;
-
-  align-self: center;
-  width: 145px;
-  min-width: 145px;
-  height: 40px !important;
-  min-height: 40px !important;
-  margin-right: 15px;
-  justify-content: center;
-  color: white !important;
-  background-color: color-mix(
-    in srgb,
-    var(--backup-green) 75%,
-    white
-  ) !important;
-  border-width: 2px !important;
-  border-color: var(--backup-green) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
-
-  &:not(:disabled) {
-    cursor: pointer !important;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    color: white !important;
-    background-color: var(--backup-green) !important;
-    border-width: 2px !important;
-    border-color: var(--backup-green) !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
-
-  &:disabled {
-    cursor: not-allowed !important;
-  }
-}
 .backups {
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.hoverCard {
-  --hover-x: 50%;
-  --hover-y: 50%;
-
-  position: relative;
-  box-sizing: border-box;
-  overflow: hidden;
-  background: radial-gradient(
-      220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 12%, transparent),
-      transparent 62%
-    ),
-    var(--white);
-  background-repeat: no-repeat;
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
-}
-.hoverCard:hover,
-.hoverCard:focus-within {
-  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
-    0 8px 20px rgba(0, 0, 0, 0.035);
-}
-:global(.dark) .hoverCard:hover,
-:global(.dark) .hoverCard:focus-within {
-  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
-    0 8px 22px rgba(0, 0, 0, 0.28);
 }
 .backup {
   display: flex;
@@ -233,15 +118,26 @@
   color: var(--black-2);
   font-size: 12px;
 }
+.empty {
+  width: 100%;
+  text-align: center;
+}
+
+.loadingEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.loadingEmpty svg {
+  width: 18px;
+  height: 18px;
+}
 .backupActions {
   display: flex;
   gap: 8px;
-}
-.createBackupButton:not(:disabled),
-.createBackupButton:not(:disabled) *,
-.backupActions button:not(:disabled),
-.backupActions button:not(:disabled) * {
-  cursor: pointer !important;
 }
 @media (max-width: 700px) {
   .page :global(.window-header) {
@@ -289,6 +185,22 @@
     padding: 12px;
   }
 
+  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
+    background-image: none !important;
+  }
+
+  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
+    transition: none !important;
+  }
+
+  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:hover),
+  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:focus-within),
+  .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card:active) {
+    border: var(--border-in-light) !important;
+    box-shadow: none !important;
+  }
+
+
   .settings {
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
@@ -307,8 +219,7 @@
     padding-bottom: 0;
   }
 
-  .settings input[type="number"],
-  .settings :global(.textInput) {
+  .settings input[type="number"] {
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
@@ -320,9 +231,12 @@
 
   .syncStatus {
     grid-column: span 2;
+    justify-self: stretch;
+    justify-content: center;
     margin-top: 2px;
     min-height: 28px;
     font-size: 11px;
+    text-align: center;
   }
 
   .syncStatus svg {
@@ -349,31 +263,6 @@
     margin-top: 4px;
     font-size: 12px;
     line-height: 1.5;
-  }
-
-  .createBackupButton {
-    align-self: stretch;
-    width: 100% !important;
-    min-width: 0 !important;
-    margin-right: 0;
-    min-height: 42px !important;
-    height: 42px !important;
-    padding: 0 12px !important;
-    font-size: 14px !important;
-    font-weight: 600;
-    border-radius: 9px;
-  }
-
-  .createBackupButton :global([class*="icon-button-text"]) {
-    display: inline-flex !important;
-    margin-left: 6px;
-    white-space: nowrap;
-  }
-
-  .createBackupButton :global([class*="icon-button-icon"]) {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
   }
 
   .backups {

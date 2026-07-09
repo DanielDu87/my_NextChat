@@ -48,7 +48,6 @@ export function IconButton(props: {
           "nextchat-danger-button": props.type === "danger",
           "nextchat-green-button": props.type === "green",
         },
-        styles[props.type ?? ""],
         props.className,
       )}
       onClick={props.onClick}

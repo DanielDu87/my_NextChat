@@ -10,21 +10,20 @@
   gap: 10px;
 }
 
-.draw-panel-section-title {
-  color: var(--black);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 20px;
-}
-
 .draw-panel-section-title-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 4px 2px 2px;
+  width: calc(100% + 2px);
+  padding: 4px 0 2px;
   margin: 0;
   overflow: visible;
+}
+
+.draw-panel-section-label {
+  font-size: 16px;
+  line-height: 22px;
 }
 
 .draw-model-picker-stack {
@@ -53,43 +52,47 @@
   }
 }
 
-.draw-model-edit-button {
-  position: relative;
-  z-index: 1;
+.draw-model-edit-action {
   display: inline-flex;
+  width: 100%;
+  min-width: 0;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 32px;
-  min-height: 32px;
-  margin: 0;
-  padding: 0 13px;
-  border: var(--border-in-light);
-  border-radius: 10px;
-  background: var(--white);
-  box-shadow: var(--card-shadow);
-  color: var(--black);
-  cursor: pointer;
-  font-family: inherit;
+  gap: 10px;
+  min-height: 36px;
+  padding: 10px;
+  box-sizing: border-box;
   font-size: 13px;
   line-height: 16px;
   white-space: nowrap;
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
 
-  &:hover,
-  &:focus-visible {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white));
-    border-color: var(--primary);
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow);
-    outline: none;
+  :global([class*="button_icon-button-icon"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 16px;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+    line-height: 0;
+
+    > svg {
+      width: 16px !important;
+      height: 16px !important;
+      flex-shrink: 0;
+    }
+  }
+
+  :global([class*="button_icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    max-width: calc(100% - 26px);
+    margin-left: 0 !important;
+    line-height: 16px;
   }
 }
 
@@ -143,19 +146,6 @@
     min-width: 96px;
     justify-content: center;
   }
-
-  :global(.modal-footer > div > div:nth-child(2) button[class*="icon-button"]) {
-    transition:
-      border-color 0.2s ease,
-      box-shadow 0.2s ease,
-      background-color 0.2s ease;
-  }
-
-  :global(.modal-footer > div > div:nth-child(2) button[class*="icon-button"]:hover),
-  :global(.modal-footer > div > div:nth-child(2) button[class*="icon-button"]:focus-visible) {
-    border-color: color-mix(in srgb, var(--primary) 60%, transparent) !important;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
-  }
 }
 
 .draw-prompt-textarea {
@@ -192,25 +182,29 @@
   max-width: 100%;
   min-height: 110px;
   max-height: 220px;
-  box-sizing: border-box;
   overflow: auto;
   margin: 0;
-  padding: 10px 12px;
-  border: var(--border-in-light);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--white) 82%, #94a3b8);
-  color: color-mix(in srgb, var(--black) 72%, transparent);
+  /* 与参数框 disabled 态对齐（globals.scss 的 --chat-input-disabled-bg），
+     深色模式由下方 draw 专属覆盖为 #2b2b2b，与参数框 disabled 态保持一致。 */
+  background: var(--chat-input-disabled-bg);
+  color: var(--chat-input-disabled-placeholder);
   cursor: default;
   font-family:
     ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas,
     Liberation Mono, Courier New, monospace;
   font-size: 12px;
   line-height: 18px;
-  outline: none;
   user-select: text;
   white-space: pre-wrap;
   word-break: break-word;
   -webkit-overflow-scrolling: touch;
+}
+
+.draw-log-textarea-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .draw-param-grid {
@@ -237,6 +231,27 @@
   grid-column: 1 / -1;
 }
 
+.ctrl-param-item-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--black);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.ctrl-param-item-sub-title {
+  color: var(--black);
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 18px;
+  opacity: 0.66;
+}
+
+/* 表单单元（label + 控件）：尺寸/排版相关样式。
+   hover/focus/disabled 由 globals.scss 接管。 */
 .ctrl-param-item {
   display: flex;
   flex-direction: column;
@@ -250,71 +265,15 @@
     min-height: 20px;
   }
 
-  .ctrl-param-item-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    color: var(--black);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 18px;
-  }
-
-  .ctrl-param-item-sub-title {
-    color: var(--black);
-    font-size: 12px;
-    font-weight: normal;
-    line-height: 18px;
-    opacity: 0.66;
-  }
 
   textarea,
   input {
     width: 100%;
     max-width: 100%;
     min-height: 40px;
-    box-sizing: border-box;
-    border: var(--border-in-light);
-    border-radius: 10px;
-    background: var(--white);
-    box-shadow: var(--card-shadow);
-    color: var(--black);
     font-family: inherit;
     font-size: 13px;
     line-height: 20px;
-    outline: none;
-    transition:
-      border-color 0.2s ease,
-      box-shadow 0.2s ease,
-      background-color 0.2s ease,
-      color 0.2s ease;
-  }
-
-  textarea:hover,
-  input:hover {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-    transition: none;
-  }
-
-  textarea:focus,
-  input:focus {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-  }
-
-  textarea:disabled,
-  input:disabled {
-    cursor: not-allowed;
-    pointer-events: none;
-    opacity: 1;
-    background: color-mix(in srgb, var(--white) 82%, #94a3b8);
-    color: color-mix(in srgb, var(--black) 56%, transparent);
-    border-color: rgba(203, 213, 225, 0.7);
-    box-shadow: none !important;
   }
 
   textarea {
@@ -334,425 +293,30 @@
   }
 }
 
-/* draw-select 相关样式已统一到 globals.scss 中的 .nextchat-select-* 系列。
-   如需页面特定微调（如尺寸、宽度），在此处使用 :global(.nextchat-select) 选择器并配合 !important 覆盖。 */
-
-:global(.dark) .ctrl-param-item,
-:global(body.dark) .ctrl-param-item {
-  textarea,
-  input {
-    background: var(--white);
-    color: var(--black);
-    border: var(--border-in-light);
-    box-shadow: var(--card-shadow);
-  }
-
-  textarea:hover,
-  input:hover {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-    transition: none;
-  }
-
-  textarea:focus,
-  input:focus {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-  }
-
+/* 暗色主题下保留 draw 的"加重"禁用样式（globals 默认较淡，draw 想要更显眼的 #2b2b2b）。
+   同时复盖 input/select 的浅色边框，避免 html[data-draw-theme=dark] 时仍保留浅色 border。 */
+:global(html.dark) .ctrl-param-item,
+:global(html[data-draw-theme="dark"]) .ctrl-param-item,
+:global(body:not(.light)) .ctrl-param-item {
   textarea:disabled,
   input:disabled {
     pointer-events: none;
-    background: #2b2b2b;
-    color: rgba(245, 245, 245, 0.56);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: #2b2b2b !important;
+    color: rgba(245, 245, 245, 0.56) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
     box-shadow: none !important;
   }
 }
 
-:global(.dark) .draw-select-disabled .draw-select-button,
-:global(body.dark) .draw-select-disabled .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled .draw-select-button {
-  pointer-events: none;
-  background: #2b2b2b !important;
-  color: rgba(245, 245, 245, 0.56) !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: none !important;
-}
-
-
-:global(.dark) .draw-log-textarea,
-:global(body.dark) .draw-log-textarea,
-:global(body[data-draw-theme="dark"]) .draw-log-textarea {
+:global(html.dark) .draw-log-textarea,
+:global(html[data-draw-theme="dark"]) .draw-log-textarea,
+:global(body:not(.light)) .draw-log-textarea {
   background: #2b2b2b;
   color: rgba(245, 245, 245, 0.56);
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-@mixin draw-select-dark-control {
-  background: var(--white) !important;
-  color: var(--black) !important;
-  border: var(--border-in-light) !important;
-  box-shadow: var(--card-shadow);
-}
-
-@mixin draw-select-dark-control-hover {
-  border-color: var(--primary) !important;
-  box-shadow: 0 0 0 1px var(--primary);
-  transition: none;
-}
-
-@mixin draw-select-dark-control-focus {
-  border-color: var(--primary) !important;
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-:global(.dark) .draw-select select,
-:global(.dark) .draw-select :global(.select-with-icon-select),
-:global(.dark) .draw-select-button,
-:global(body.dark) .draw-select select,
-:global(body.dark) .draw-select :global(.select-with-icon-select),
-:global(body.dark) .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select select,
-:global(body[data-draw-theme="dark"]) .draw-select :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select-button {
-  @include draw-select-dark-control;
-}
-
-:global(.dark) .draw-select :global(.select-with-icon-icon),
-:global(.dark) .draw-select-icon,
-:global(body.dark) .draw-select :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select-icon {
-  color: #b8b8b8;
-}
-
-:global(.dark) .draw-select select option,
-:global(.dark) .draw-select :global(.select-with-icon-select) option,
-:global(body.dark) .draw-select select option,
-:global(body.dark) .draw-select :global(.select-with-icon-select) option {
-  background: #2b2b2b !important;
-  color: #ededed !important;
-}
-
-:global(.dark) .draw-select:hover select,
-:global(.dark) .draw-select:hover :global(.select-with-icon-select),
-:global(.dark) .draw-select:hover .draw-select-button,
-:global(body.dark) .draw-select:hover select,
-:global(body.dark) .draw-select:hover :global(.select-with-icon-select),
-:global(body.dark) .draw-select:hover .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select:hover select,
-:global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-button {
-  @include draw-select-dark-control-hover;
-}
-
-:global(.dark) .draw-select:hover :global(.select-with-icon-icon),
-:global(.dark) .draw-select:hover .draw-select-icon,
-:global(body.dark) .draw-select:hover :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-icon {
-  color: #b8b8b8;
-}
-
-:global(.dark) .draw-select:focus-within select,
-:global(.dark) .draw-select:focus-within :global(.select-with-icon-select),
-:global(.dark) .draw-select:focus-within .draw-select-button,
-:global(body.dark) .draw-select:focus-within select,
-:global(body.dark) .draw-select:focus-within :global(.select-with-icon-select),
-:global(body.dark) .draw-select:focus-within .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within select,
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-button {
-  @include draw-select-dark-control-focus;
-}
-
-:global(.dark) .draw-select:focus-within :global(.select-with-icon-icon),
-:global(.dark) .draw-select:focus-within .draw-select-icon,
-:global(body.dark) .draw-select:focus-within :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-icon),
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-icon {
-  color: #b8b8b8;
-}
-
-:global(.dark) .draw-select-menu,
-:global(body.dark) .draw-select-menu,
-:global(body[data-draw-theme="dark"]) .draw-select-menu {
-  border-color: rgba(71, 85, 105, 0.6) !important;
-  background: #1f1f1f;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
-}
-
-:global(.dark) .draw-select-option,
-:global(body.dark) .draw-select-option {
-  color: #ededed;
-}
-
-:global(.dark) .draw-select-option:hover,
-:global(.dark) .draw-select-option:focus-visible,
-:global(body.dark) .draw-select-option:hover,
-:global(body.dark) .draw-select-option:focus-visible {
-  background: #343434;
-}
-
-:global(.dark) .draw-select-option-active,
-:global(body.dark) .draw-select-option-active {
-  color: #f5f5f5;
-}
-
-:global(.dark) .draw-select-disabled .draw-select-button,
-:global(.dark) .draw-select-disabled:hover .draw-select-button,
-:global(.dark) .draw-select-disabled:focus-within .draw-select-button,
-:global(body.dark) .draw-select-disabled .draw-select-button,
-:global(body.dark) .draw-select-disabled:hover .draw-select-button,
-:global(body.dark) .draw-select-disabled:focus-within .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled:hover .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled:focus-within .draw-select-button {
-  pointer-events: none;
-  background: #2b2b2b !important;
-  color: rgba(245, 245, 245, 0.56) !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: none !important;
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light)) .ctrl-param-item {
-    textarea:disabled,
-    input:disabled {
-      pointer-events: none;
-      background: #2b2b2b;
-      color: rgba(245, 245, 245, 0.56);
-      border-color: rgba(255, 255, 255, 0.12);
-      box-shadow: none !important;
-    }
-  }
-
-  :global(body:not(.light)) .draw-select-disabled .draw-select-button {
-    pointer-events: none;
-    background: #2b2b2b !important;
-    color: rgba(245, 245, 245, 0.56) !important;
-    border-color: rgba(255, 255, 255, 0.12) !important;
-    box-shadow: none !important;
-  }
-
-  :global(body:not(.light)) .draw-select select,
-  :global(body:not(.light)) .draw-select :global(.select-with-icon-select),
-  :global(body:not(.light)) .draw-select-button {
-    @include draw-select-dark-control;
-  }
-
-  :global(body:not(.light)) .draw-select :global(.select-with-icon-icon),
-  :global(body:not(.light)) .draw-select-icon {
-    color: #b8b8b8;
-  }
-
-  :global(body:not(.light)) .draw-select select option,
-  :global(body:not(.light)) .draw-select :global(.select-with-icon-select) option {
-    background: #2b2b2b !important;
-    color: #ededed !important;
-  }
-
-  :global(body:not(.light)) .draw-select:hover select,
-  :global(body:not(.light)) .draw-select:hover :global(.select-with-icon-select),
-  :global(body:not(.light)) .draw-select:hover .draw-select-button {
-    @include draw-select-dark-control-hover;
-  }
-
-  :global(body:not(.light)) .draw-select:hover :global(.select-with-icon-icon),
-  :global(body:not(.light)) .draw-select:hover .draw-select-icon,
-  :global(body:not(.light)) .draw-select:focus-within .draw-select-icon,
-  :global(body:not(.light)) .draw-select:focus-within :global(.select-with-icon-icon) {
-    color: #b8b8b8;
-  }
-
-  :global(body:not(.light)) .draw-select:focus-within select,
-  :global(body:not(.light)) .draw-select:focus-within :global(.select-with-icon-select),
-  :global(body:not(.light)) .draw-select:focus-within .draw-select-button {
-    @include draw-select-dark-control-focus;
-  }
-
-  :global(body:not(.light)) .draw-select-disabled .draw-select-button,
-  :global(body:not(.light)) .draw-select-disabled:hover .draw-select-button,
-  :global(body:not(.light)) .draw-select-disabled:focus-within .draw-select-button {
-    pointer-events: none;
-    background: #2b2b2b !important;
-    color: rgba(245, 245, 245, 0.56) !important;
-    border-color: rgba(255, 255, 255, 0.12) !important;
-    box-shadow: none !important;
-  }
-
-  :global(body:not(.light)) .draw-select-menu {
-    border-color: rgba(71, 85, 105, 0.6) !important;
-    background: #1f1f1f;
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
-  }
-
-  :global(body:not(.light)) .draw-select-option {
-    color: #ededed;
-  }
-
-  :global(body:not(.light)) .draw-select-option:hover,
-  :global(body:not(.light)) .draw-select-option:focus-visible {
-    background: #343434;
-  }
-
-  :global(body:not(.light)) .draw-select-option-active {
-    color: #f5f5f5;
-  }
-}
-
-
-// Draw 独立暗色主题下强制覆盖选择框边框，避免浅色 border shorthand 残留。
-:global(body[data-draw-theme="dark"]) .draw-select select,
-:global(body[data-draw-theme="dark"]) .draw-select :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select-button {
-  border: var(--border-in-light) !important;
-}
-
-:global(body[data-draw-theme="dark"]) .ctrl-param-item {
-  textarea,
-  input {
-    background: var(--white);
-    color: var(--black);
-    border: 1px solid rgba(71, 85, 105, 0.72);
-    box-shadow: var(--card-shadow);
-  }
-
-  textarea:hover,
-  input:hover {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-    transition: none;
-  }
-
-  textarea:focus,
-  input:focus {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-  }
-
-  textarea:disabled,
-  input:disabled {
-    pointer-events: none;
-    background: #2b2b2b !important;
-    color: rgba(245, 245, 245, 0.56) !important;
-    border-color: rgba(255, 255, 255, 0.12) !important;
-    box-shadow: none !important;
-  }
-}
-
-:global(body[data-draw-theme="dark"]) .draw-select:hover select,
-:global(body[data-draw-theme="dark"]) .draw-select:hover :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select:hover .draw-select-button {
-  border-color: var(--primary) !important;
-  box-shadow: 0 0 0 1px var(--primary) !important;
-  transition: none;
-}
-
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within select,
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within :global(.select-with-icon-select),
-:global(body[data-draw-theme="dark"]) .draw-select:focus-within .draw-select-button {
-  border-color: var(--primary) !important;
-  box-shadow: 0 0 0 1px var(--primary) !important;
-}
-
-:global(.dark) .draw-select-disabled .draw-select-button,
-:global(.dark) .draw-select-disabled:hover .draw-select-button,
-:global(.dark) .draw-select-disabled:focus-within .draw-select-button,
-:global(body.dark) .draw-select-disabled .draw-select-button,
-:global(body.dark) .draw-select-disabled:hover .draw-select-button,
-:global(body.dark) .draw-select-disabled:focus-within .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled:hover .draw-select-button,
-:global(body[data-draw-theme="dark"]) .draw-select-disabled:focus-within .draw-select-button {
-  pointer-events: none;
-  background: #2b2b2b !important;
-  color: rgba(245, 245, 245, 0.56) !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: none !important;
-}
-
-:global(body[data-draw-theme="light"]) .ctrl-param-item {
-  textarea,
-  input {
-    background: var(--white);
-    color: var(--black);
-    border: var(--border-in-light);
-    box-shadow: var(--card-shadow);
-  }
-
-  textarea:hover,
-  input:hover,
-  textarea:focus,
-  input:focus {
-    background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-  }
-
-  textarea:disabled,
-  input:disabled {
-    pointer-events: none;
-    background: color-mix(in srgb, var(--white) 82%, #94a3b8);
-    color: color-mix(in srgb, var(--black) 56%, transparent);
-    border-color: rgba(203, 213, 225, 0.7);
-    box-shadow: none !important;
-  }
-}
-
-:global(body[data-draw-theme="light"]) .draw-log-textarea {
-  background: color-mix(in srgb, var(--white) 82%, #94a3b8);
-  color: color-mix(in srgb, var(--black) 72%, transparent);
-  border-color: rgba(203, 213, 225, 0.7);
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-button {
-  background: var(--white) !important;
-  color: var(--black) !important;
-  border: var(--border-in-light) !important;
-  box-shadow: var(--card-shadow);
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-icon {
-  color: #64748b;
-}
-
-:global(body[data-draw-theme="light"]) .draw-select:not(.draw-select-disabled):hover,
-:global(body[data-draw-theme="light"]) .draw-select:not(.draw-select-disabled):focus-within {
-  select,
-  :global(.select-with-icon-select),
-  .draw-select-button {
-    border-color: var(--primary) !important;
-    box-shadow: 0 0 0 1px var(--primary) !important;
-    transition: none;
-  }
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-menu {
-  border-color: rgba(203, 213, 225, 0.9) !important;
-  background: var(--white);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-option {
-  color: var(--black);
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-option:hover,
-:global(body[data-draw-theme="light"]) .draw-select-option:focus-visible {
-  background: color-mix(in srgb, var(--primary) 9%, transparent);
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-option-active {
-  color: var(--black);
-}
-
-:global(body[data-draw-theme="dark"]) .draw-model-edit-icon {
+:global(html[data-draw-theme="dark"]) .draw-model-edit-icon {
   svg {
     filter: none !important;
   }
@@ -768,7 +332,7 @@
   }
 }
 
-:global(body[data-draw-theme="light"]) .draw-model-edit-icon {
+:global(html[data-draw-theme="light"]) .draw-model-edit-icon {
   svg [style*="stroke"] {
     stroke: var(--black) !important;
     stroke-opacity: 0.86 !important;
@@ -778,16 +342,6 @@
     fill: var(--black) !important;
     fill-opacity: 0.86 !important;
   }
-}
-
-:global(body[data-draw-theme="light"]) .draw-select-disabled .draw-select-button,
-:global(body[data-draw-theme="light"]) .draw-select-disabled:hover .draw-select-button,
-:global(body[data-draw-theme="light"]) .draw-select-disabled:focus-within .draw-select-button {
-  pointer-events: none;
-  background: color-mix(in srgb, var(--white) 82%, #94a3b8) !important;
-  color: color-mix(in srgb, var(--black) 56%, transparent) !important;
-  border-color: rgba(203, 213, 225, 0.7) !important;
-  box-shadow: none !important;
 }
 
 @media only screen and (max-width: 600px) {
@@ -803,22 +357,69 @@
     gap: 10px;
   }
 
-  .draw-model-edit-button {
-    width: auto;
+  .draw-panel-section-title-row
+    .draw-model-edit-action:global(button[class*="button_icon-button"]) {
+    display: grid !important;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    place-content: center;
+    column-gap: 10px;
+    width: 100%;
     min-width: 0;
     max-width: none;
-    height: 30px !important;
-    min-height: 30px !important;
-    padding: 0 13px;
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    padding: 7px 8px !important;
     flex: 0 0 auto;
-    gap: 4px;
-    font-size: 13px;
+    gap: 10px;
+    border-radius: 12px !important;
+    box-sizing: border-box;
+    font-size: 12px;
   }
 
-  .draw-model-edit-icon,
-  .draw-model-edit-icon svg {
-    width: 16px;
-    height: 16px;
+  .draw-model-edit-action {
+    :global([class*="button_icon-button-icon"]) {
+      flex: 0 0 16px;
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+
+      > svg {
+        display: block !important;
+        width: 16px !important;
+        height: 16px !important;
+
+        > g {
+          transform: none !important;
+        }
+      }
+    }
+
+    :global([class*="button_icon-button-text"]) {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex: 0 0 auto !important;
+      min-width: 0;
+      width: max-content !important;
+      max-width: none;
+      margin-left: 0 !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    :global(
+      button[class*="draw-model-edit-action"]
+        > [class*="button_icon-button-text"]
+    ) {
+      display: inline-flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
   }
 
   .draw-param-grid {
@@ -828,13 +429,15 @@
   }
 
   .draw-panel-section-title-row {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     align-items: center;
+    padding-inline: 0;
   }
 
-  .draw-panel-section-title {
-    font-size: 13px;
-    line-height: 18px;
+  .draw-panel-section-label {
+    grid-column: 1 / 3;
   }
 
   .ctrl-param-item {
@@ -886,21 +489,5 @@
     padding: 4px 0 0;
     font-size: 12px;
     line-height: 18px;
-  }
-
-  .draw-select-button {
-    min-height: 42px;
-    padding: 0 34px 0 12px;
-    border-radius: 10px;
-    font-size: 14px;
-  }
-
-  .draw-select-menu {
-    max-height: min(280px, 48vh);
-  }
-
-  .draw-select-option {
-    min-height: 40px;
-    font-size: 14px;
   }
 }

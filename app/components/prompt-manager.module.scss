@@ -46,6 +46,11 @@
   cursor: pointer !important;
 }
 
+// 禁用按钮：透明度降级 / pointer-events / transition 已统一在 globals.scss 的
+// .nextchat-default-button:disabled / .nextchat-action-button:disabled /
+// .nextchat-primary-button:disabled / .nextchat-danger-button:disabled 中接管，
+// 这里不再重复声明。PromptRow 内的非公共类 button（标题按钮等）通过
+// .page :global(button:disabled) 兜底 cursor: not-allowed，避免启用态与禁用态混淆。
 .page :global(button:disabled),
 .page :global(button:disabled *),
 .page :global([class*="list-item"] button:disabled),
@@ -53,38 +58,38 @@
   cursor: not-allowed !important;
 }
 
+// 在 .page 作用域内覆盖 globals 的 .nextchat-default-button / .nextchat-action-button
+// hover 颜色，避免 dark 模式下 var(--primary) 的青绿色边框显得偏蓝。
+.page
+  :global(button[class*="nextchat-default-button"]:not(:disabled):hover),
+.page
+  :global(
+    button[class*="nextchat-action-button"]:not(:disabled):hover
+  ) {
+  border-color: var(--close-button-idle-border-color) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
+.page
+  :global(
+    button[class*="nextchat-default-button"]:not(:disabled):focus-visible
+  ),
+.page
+  :global(
+    button[class*="nextchat-action-button"]:not(:disabled):focus-visible
+  ) {
+  border-color: var(--close-button-idle-border-color) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
 .page input:not([type="checkbox"]),
 .page textarea {
   cursor: text !important;
 }
 
-// 与聊天记录搜索框保持一致，不影响聊天页输入框。
-.page
-  :is(
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    textarea,
-    select
-  ):not(:disabled):not(:read-only) {
-  &:hover {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: color-mix(in srgb, var(--primary) 4%, var(--white));
-    box-shadow: none;
-  }
-
-  &:focus,
-  &:focus-visible {
-    border-width: 2px;
-    border-color: var(--primary);
-    background-color: var(--white);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
-    outline: none;
-  }
-}
-
-// 提示词编辑弹层使用与模型选择器相同的遮罩明度。
+// 提示词编辑弹层遮罩：使用中性黑色透明，避免 dark 模式叠加出现蓝调。
 .page :global(.modal-mask) {
-  background-color: rgba(15, 23, 42, 0.24);
+  background-color: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
 }
 
@@ -147,162 +152,37 @@
   pointer-events: none;
 }
 
-.searchInput,
-.input,
-.textarea {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  min-height: 48px;
-  box-sizing: border-box;
-  border: 1px solid rgba(148, 163, 184, 0.42);
-  border-radius: 12px;
-  background: var(--white);
-  color: var(--black);
-  padding: 12px 14px;
-  outline: none;
-  font: inherit;
-  line-height: 1.5;
-  cursor: text;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
-
-  &::placeholder {
-    color: var(--black);
-    opacity: 0.45;
-  }
-
-  &:hover {
-    border-color: color-mix(in srgb, var(--primary) 60%, transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
-  }
-
-  &:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 60%, transparent);
-  }
-
-  &:read-only {
-    cursor: default !important;
-    color: var(--black);
-    background-color: color-mix(in srgb, var(--white) 92%, var(--gray));
-    border-color: rgba(148, 163, 184, 0.42) !important;
-    box-shadow: none !important;
-    opacity: 0.85;
-  }
+// 搜索框：左侧 padding 给图标留位置，其他 idle/hover/focus 由 globals 的
+// .nextchat-input-control 统一接管（边框/背景/颜色/box-shadow）。
+.searchInput {
+  padding-left: 40px;
 }
 
-.page .searchBar :global(button[class*="icon-button"]).addPromptButton {
-  width: auto !important;
-  min-width: 128px !important;
+// 弹窗标题/内容输入框的高度约束，globals 提供 idle/hover/focus。
+.textarea {
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+  resize: none;
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
+// 新增按钮高度/最小宽度约束，globals 的 .nextchat-default-button 提供边框/背景/hover。
+.addPromptButton {
+  min-width: 128px;
   min-height: 38px;
-  padding: 8px 14px !important;
   flex: 0 0 auto;
   white-space: nowrap;
-  border-width: 2px !important;
-  border-color: #000 !important;
-  border-radius: 10px !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  box-sizing: border-box;
-  color: var(--black) !important;
-  transform: none !important;
-  filter: none !important;
-  transition: none !important;
-
-  :global(svg),
-  :global(svg path),
-  :global(svg circle),
-  :global(svg rect) {
-    color: var(--black) !important;
-    stroke: var(--black) !important;
-    stroke-opacity: 1 !important;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    border-width: 2px !important;
-    border-color: var(--primary) !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
-    color: var(--black) !important;
-    outline: none !important;
-  }
-
-  :global([class*="icon-button-text"]) {
-    display: inline-flex !important;
-    color: inherit !important;
-    white-space: nowrap;
-  }
-}
-
-.searchInputWrap .searchInput {
-  height: 38px;
-  min-height: 38px;
-  padding: 8px 14px 8px 40px;
-  border-radius: 10px;
 }
 
 :global(body.dark) .searchInputIcon {
   color: #e5e7eb;
 }
 
-:global(body.dark)
-  .page
-  .searchBar
-  :global(button[class*="icon-button"]).addPromptButton {
-  border-color: rgba(71, 85, 105, 0.7) !important;
-  background-color: transparent !important;
-  color: #e5e7eb !important;
-
-  :global(svg),
-  :global(svg path),
-  :global(svg circle),
-  :global(svg rect) {
-    color: #e5e7eb !important;
-    stroke: #e5e7eb !important;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    border-color: var(--primary) !important;
-    background-color: transparent !important;
-    color: #e5e7eb !important;
-  }
-}
-
 @media (prefers-color-scheme: dark) {
   :global(body:not(.light):not(.dark)) .searchInputIcon {
     color: #e5e7eb;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .page
-    .searchBar
-    :global(button[class*="icon-button"]).addPromptButton {
-    border-color: rgba(71, 85, 105, 0.7) !important;
-    background-color: transparent !important;
-    color: #e5e7eb !important;
-
-    :global(svg),
-    :global(svg path),
-    :global(svg circle),
-    :global(svg rect) {
-      color: #e5e7eb !important;
-      stroke: #e5e7eb !important;
-    }
-
-    &:not(:disabled):hover,
-    &:not(:disabled):focus-visible,
-    &:not(:disabled):active {
-      border-color: var(--primary) !important;
-      background-color: transparent !important;
-      color: #e5e7eb !important;
-    }
   }
 }
 
@@ -396,7 +276,9 @@
 
   &:hover,
   &:focus-visible {
-    color: var(--primary);
+    // dark 模式下不切到 var(--primary) 的青绿色，避免在深色背景上显得偏蓝
+    text-decoration: underline;
+    text-underline-offset: 3px;
     outline: none;
   }
 }
@@ -426,6 +308,7 @@
   white-space: nowrap;
 }
 
+// 操作按钮容器：flex 布局。按钮的边框/背景/hover 由 globals 接管。
 .actions {
   display: flex;
   width: 100%;
@@ -441,26 +324,6 @@
     min-height: 36px !important;
     padding: 8px 10px !important;
   }
-
-  :global(
-      button[class*="icon-button"][class*="border"]:not([class*="danger"])
-    ) {
-    border-width: 1px;
-    transform: none !important;
-    filter: none !important;
-
-    &:hover,
-    &:focus-visible,
-    &:active {
-      border-width: 1px !important;
-      border-color: var(--primary) !important;
-      box-shadow:
-        0 0 0 1px var(--primary),
-        var(--card-shadow) !important;
-      transform: none !important;
-      filter: none !important;
-    }
-  }
 }
 
 /* 边框/背景/hover 由 globals.scss 中的 .nextchat-danger-button 统一接管。
@@ -473,92 +336,6 @@
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
-  transform: none !important;
-  filter: none !important;
-  line-height: 16px !important;
-
-  :global([class*="icon-button-icon"]),
-  :global([class*="icon-button-text"]) {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    line-height: 16px !important;
-  }
-
-  :global([class*="icon-button-icon"]) {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
-  }
-
-  :global([class*="icon-button-text"]) {
-    margin-left: 0 !important;
-  }
-
-  :global(svg),
-  :global(svg path),
-  :global(svg circle),
-  :global(svg rect) {
-    width: 16px !important;
-    height: 16px !important;
-    flex-shrink: 0 !important;
-  }
-}
-
-.profileDeleteIcon,
-.profileDeleteIcon path {
-  color: white !important;
-  fill: white !important;
-}
-
-.dangerButton.profileDeleteButton:global([class*="danger"]) {
-  border-style: solid !important;
-  color: white !important;
-  background-color: rgba(255, 77, 79, 0.28) !important;
-  border-color: rgba(255, 77, 79, 0.35) !important;
-
-  &:hover,
-  &:focus,
-  &:active {
-    border-style: solid !important;
-    background-color: #ff4d4f !important;
-    border-color: #ff4d4f !important;
-  }
-}
-
-.promptColActions .dangerButton {
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  padding: 8px 10px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-}
-
-.promptColActions .dangerButton > div:last-child {
-  display: block !important;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: visible !important;
-  text-overflow: clip !important;
-}
-
-.promptColActions .dangerButton > div:first-child {
-  width: 16px !important;
-  height: 16px !important;
-  margin: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-.promptColActions .dangerButton > div:first-child > svg {
-  width: 16px !important;
-  height: 16px !important;
 }
 
 .modalContent {
@@ -591,125 +368,20 @@
   overflow-y: auto;
 }
 
+.textarea {
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+  resize: none;
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
 .modalActions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   padding-top: 8px;
-}
-
-.page
-  :global(
-    .window-header
-      .window-actions
-      button[class*="icon-button"]:not([data-close-button="true"])
-  ) {
-  --prompt-manager-button-idle-border: rgba(100, 116, 139, 0.24);
-
-  min-height: 38px !important;
-  align-self: center;
-  border: 1px solid var(--prompt-manager-button-idle-border) !important;
-  border-radius: 10px !important;
-  background-color: var(--white) !important;
-  box-shadow: var(--card-shadow);
-  box-sizing: border-box;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    border-color: var(--primary) !important;
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow) !important;
-    outline: none !important;
-  }
-}
-
-.page
-  :global(
-    button[class*="icon-button"]:not([data-close-button="true"]):not(
-        [class*="primary"]
-      ):not([class*="danger"])
-  ) {
-  --prompt-manager-button-idle-border: rgba(100, 116, 139, 0.24);
-
-  border: 1px solid var(--prompt-manager-button-idle-border) !important;
-  border-radius: 10px !important;
-  background-color: var(--white) !important;
-  box-shadow: var(--card-shadow) !important;
-  box-sizing: border-box;
-  color: var(--black);
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    border-width: 1px !important;
-    border-color: var(--primary) !important;
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow) !important;
-    outline: none !important;
-  }
-
-  &:not(:disabled):active {
-    background-color: color-mix(
-      in srgb,
-      var(--primary) 4%,
-      var(--white)
-    ) !important;
-    border-width: 1px !important;
-    border-color: var(--primary) !important;
-    box-shadow:
-      0 0 0 1px var(--primary),
-      var(--card-shadow) !important;
-    opacity: 1 !important;
-  }
-}
-
-.page :global(button[class*="icon-button"][class*="primary"]) {
-  box-sizing: border-box !important;
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 75%, white) !important;
-  box-shadow: none !important;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible,
-  &:not(:disabled):active {
-    border-width: 2px !important;
-    border-color: var(--primary) !important;
-    background-color: var(--primary) !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
 }
 
 @media screen and (max-width: 900px) {
@@ -743,6 +415,7 @@
     align-items: stretch;
   }
 
+  // 移动端新增按钮：占满整行；globals 的 .nextchat-default-button 接管边框/背景/hover。
   .addPromptButton {
     width: 100% !important;
     min-width: 0 !important;
@@ -754,108 +427,6 @@
     justify-content: center;
     gap: 8px !important;
     line-height: 1 !important;
-
-    :global([class*="icon-button-icon"]) {
-      width: 18px !important;
-      height: 18px !important;
-      margin: 0 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      box-sizing: border-box;
-      color: inherit;
-    }
-
-    :global([class*="icon-button-icon"] svg) {
-      width: 18px !important;
-      height: 18px !important;
-      display: block !important;
-      color: inherit !important;
-      transform: none !important;
-    }
-
-    :global([class*="icon-button-icon"] svg path),
-    :global([class*="icon-button-icon"] svg circle),
-    :global([class*="icon-button-icon"] svg rect) {
-      stroke: currentcolor !important;
-      stroke-opacity: 1 !important;
-    }
-
-    :global([class*="icon-button-text"]) {
-      display: inline-flex !important;
-      align-items: center;
-      justify-content: center;
-      margin-left: 0 !important;
-      font-size: 14px;
-      font-weight: 400;
-      line-height: 1;
-      letter-spacing: 0;
-      color: inherit;
-      overflow: visible !important;
-      text-overflow: clip !important;
-    }
-
-  }
-
-  .page :global(button[class*="icon-button"]).addPromptButton {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    flex: 0 0 auto !important;
-    height: 44px !important;
-    min-height: 44px !important;
-    padding: 0 16px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 8px !important;
-  }
-
-  .page
-    :global(button[class*="icon-button"]).addPromptButton
-    :global([class*="icon-button-icon"]) {
-    flex: 0 0 18px !important;
-  }
-
-  .page
-    :global(button[class*="icon-button"]).addPromptButton
-    :global([class*="icon-button-text"]) {
-    display: inline-flex !important;
-    width: auto !important;
-    min-width: 0 !important;
-    height: auto !important;
-    margin-left: 0 !important;
-    align-items: center !important;
-    justify-content: center !important;
-    color: inherit !important;
-    font-size: 14px !important;
-    font-weight: 400 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
-  }
-
-  .page
-    .searchBar
-    :global(button[class*="icon-button"]).addPromptButton
-    :global([class*="icon-button-icon"]),
-  .page
-    .searchBar
-    :global(button[class*="icon-button"]).addPromptButton
-    :global([class*="icon-button-text"]) {
-    flex: 0 0 auto !important;
-  }
-
-  .page
-    .searchBar
-    :global(button[class*="icon-button"]).addPromptButton
-    :global([class*="icon-button-text"]) {
-    display: inline-flex !important;
-    width: auto !important;
-    max-width: none !important;
-    visibility: visible !important;
-    opacity: 1 !important;
   }
 
   .searchInput,
@@ -953,6 +524,7 @@
     line-height: 1.65;
   }
 
+  // 移动端操作按钮容器：每个按钮占一半宽度。边框/背景/hover 由 globals 接管。
   .actions {
     width: 100%;
     justify-content: flex-end;
@@ -968,45 +540,6 @@
       align-items: center !important;
       justify-content: center;
       gap: 6px !important;
-    }
-
-    :global([class*="icon-button-text"]) {
-      display: inline-flex !important;
-      margin-left: 0 !important;
-      overflow: visible !important;
-      text-overflow: clip !important;
-      font-size: 13px;
-    }
-
-    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
-      display: inline-flex !important;
-      width: auto !important;
-      max-width: none !important;
-      height: auto !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      margin-left: 0 !important;
-      align-items: center !important;
-      justify-content: center !important;
-      color: inherit !important;
-      font-size: 13px !important;
-      font-weight: 400 !important;
-      line-height: 1 !important;
-      white-space: nowrap !important;
-      overflow: visible !important;
-      text-overflow: clip !important;
-    }
-
-    :global([class*="icon-button-icon"]) {
-      width: 16px !important;
-      height: 16px !important;
-      margin: 0 !important;
-      flex: 0 0 16px !important;
-    }
-
-    :global([class*="icon-button-icon"] svg) {
-      width: 16px !important;
-      height: 16px !important;
     }
   }
 
@@ -1046,12 +579,6 @@
     gap: 10px;
     padding-top: 10px;
 
-    &,
-    * {
-      animation: none !important;
-      transition: none !important;
-    }
-
     :global(button[class*="icon-button"]) {
       width: calc((100% - 10px) / 2) !important;
       min-width: 0 !important;
@@ -1060,106 +587,8 @@
       height: 40px !important;
       min-height: 40px !important;
       padding: 0 12px !important;
-      display: inline-grid !important;
-      grid-template-columns: 16px auto;
-      column-gap: 6px !important;
-      align-items: center !important;
-      justify-content: center !important;
-      justify-items: center !important;
-      line-height: 1 !important;
-      vertical-align: middle !important;
-      transition: none !important;
-      animation: none !important;
-      transform: none !important;
-    }
-
-    :global([class*="icon-button-icon"]) {
-      width: 16px !important;
-      height: 16px !important;
-      margin: 0 !important;
-      display: inline-grid !important;
-      grid-column: 1;
-      place-items: center !important;
-      line-height: 0 !important;
-      transition: none !important;
-      animation: none !important;
-      transform: none !important;
-    }
-
-    :global([class*="icon-button-icon"] svg) {
-      width: 16px !important;
-      height: 16px !important;
-      display: block !important;
-      transform: none !important;
-      transform-origin: center center !important;
-      transition: none !important;
-      animation: none !important;
-    }
-
-    :global([class*="icon-button-icon"] svg > g) {
-      transform: none !important;
-    }
-
-    :global([class*="icon-button-icon"] svg path) {
-      stroke: currentcolor !important;
-      stroke-opacity: 1 !important;
-    }
-
-    :global(button[class*="primary"] [class*="icon-button-icon"] svg) {
-      width: 14px !important;
-      height: 14px !important;
-      opacity: 0.88;
-      transform: none !important;
-      transform-origin: center center !important;
-      animation: none !important;
-      transition: none !important;
-    }
-
-    :global(button[class*="primary"] [class*="icon-button-icon"] svg path) {
-      fill: currentcolor !important;
-      stroke: none !important;
-    }
-
-    :global([class*="icon-button-text"]) {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      grid-column: 2;
-      margin-left: 0 !important;
-      color: inherit !important;
-      font-size: 13px !important;
-      font-weight: 400 !important;
-      line-height: 1 !important;
-      vertical-align: middle !important;
-      white-space: nowrap !important;
-      overflow: visible !important;
-      text-overflow: clip !important;
-      transition: none !important;
-    }
-
-    :global(button[class*="icon-button"] [class*="icon-button-text"]) {
-      display: inline-flex !important;
-      width: auto !important;
-      max-width: none !important;
-      height: auto !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      margin-left: 0 !important;
-      align-items: center !important;
-      justify-content: center !important;
-      grid-column: 2;
-      color: inherit !important;
-      font-size: 13px !important;
-      font-weight: 400 !important;
-      line-height: 1 !important;
-      vertical-align: middle !important;
-      white-space: nowrap !important;
-      overflow: visible !important;
-      text-overflow: clip !important;
-      transition: none !important;
     }
   }
-
   .page :global(.window-header) {
     align-items: center;
     justify-content: center;

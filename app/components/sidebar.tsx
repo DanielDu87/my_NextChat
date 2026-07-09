@@ -489,7 +489,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
           {mcpEnabled && (
             <div
               className={clsx({
-                [styles["sidebar-action-disabled"]]: disableHeaderActions,
+                "nextchat-restricted-disabled": disableHeaderActions,
               })}
             >
               <IconButton
@@ -507,7 +507,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
             <div
               key={item.path ?? item.name}
               className={clsx({
-                [styles["sidebar-action-disabled"]]: disableHeaderActions,
+                "nextchat-restricted-disabled": disableHeaderActions,
               })}
             >
               <IconButton
@@ -562,7 +562,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
           <>
             <div
               className={clsx(styles["sidebar-action"], {
-                [styles["sidebar-action-disabled"]]: disableBottomActions,
+                "nextchat-restricted-disabled": disableBottomActions,
               })}
             >
               <IconButton
@@ -577,7 +577,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
             </div>
             <div
               className={clsx(styles["sidebar-action"], {
-                [styles["sidebar-action-disabled"]]: disableBottomActions,
+                "nextchat-restricted-disabled": disableBottomActions,
               })}
             >
               <div
@@ -606,8 +606,8 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                     onMouseLeave={handleMouseLeave}
                   >
                     <div
-                      className={clsx(styles["theme-option"], {
-                        [styles["theme-option-active"]]:
+                      className={clsx("nextchat-menu-option", {
+                        "nextchat-menu-option-active":
                           config.theme === Theme.Dark,
                       })}
                       onClick={() => {
@@ -619,8 +619,8 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                       <span>Dark</span>
                     </div>
                     <div
-                      className={clsx(styles["theme-option"], {
-                        [styles["theme-option-active"]]:
+                      className={clsx("nextchat-menu-option", {
+                        "nextchat-menu-option-active":
                           config.theme === Theme.Light,
                       })}
                       onClick={() => {
@@ -632,8 +632,8 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                       <span>Light</span>
                     </div>
                     <div
-                      className={clsx(styles["theme-option"], {
-                        [styles["theme-option-active"]]:
+                      className={clsx("nextchat-menu-option", {
+                        "nextchat-menu-option-active":
                           config.theme === Theme.Auto,
                       })}
                       onClick={() => {
@@ -654,7 +654,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
           <>
             <div
               className={clsx(styles["sidebar-action"], styles.mobile, {
-                [styles["sidebar-action-disabled"]]: disableDeleteAction,
+                "nextchat-restricted-disabled": disableDeleteAction,
               })}
             >
               <IconButton

@@ -2483,13 +2483,15 @@ function PromptPickerModal(props: {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="搜索提示词..."
-            className={styles["prompt-picker-search"]}
+            // nextchat-input-control 提供 idle/hover/focus/dark 适配；本地 .prompt-picker-search 仅保留尺寸约束。
+            className={`${styles["prompt-picker-search"]} nextchat-input-control`}
             autoFocus={!isMobileScreen}
           />
           <IconButton
             icon={<PromptIcon />}
             text="管理提示词"
-            className={styles["prompt-picker-manage"]}
+            // nextchat-default-button 提供 idle/hover/focus/dark 适配；本地 .prompt-picker-manage 仅保留尺寸约束。
+            className={`${styles["prompt-picker-manage"]} nextchat-default-button`}
             onClick={props.onManage}
           />
         </div>
@@ -2572,6 +2574,7 @@ export function ChatAction(props: {
   icon: JSX.Element;
   onClick: () => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const iconRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -2593,9 +2596,14 @@ export function ChatAction(props: {
 
   return (
     <div
-      className={clsx(styles["chat-input-action"], "clickable", {
-        [styles["chat-input-action-disabled"]]: props.disabled,
-      })}
+      className={clsx(
+        styles["chat-input-action"],
+        "clickable",
+        props.className,
+        {
+          [styles["chat-input-action-disabled"]]: props.disabled,
+        },
+      )}
       onClick={() => {
         if (props.disabled) return;
         props.onClick();
@@ -2610,10 +2618,16 @@ export function ChatAction(props: {
         } as React.CSSProperties
       }
     >
-      <div ref={iconRef} className={styles["icon"]}>
+      <div
+        ref={iconRef}
+        className={clsx(styles["icon"], "nextchat-action-button-icon")}
+      >
         {props.icon}
       </div>
-      <div className={styles["text"]} ref={textRef}>
+      <div
+        className={clsx(styles["text"], "nextchat-action-button-text")}
+        ref={textRef}
+      >
         {props.text}
       </div>
     </div>
@@ -2647,6 +2661,19 @@ function MobileClearIcon() {
     </svg>
   );
 }
+
+const MOBILE_INPUT_ACTION_BUTTON_STYLE = {
+  width: 44,
+  height: 44,
+  minWidth: 44,
+  minHeight: 44,
+  maxWidth: 44,
+  maxHeight: 44,
+  padding: 0,
+  borderRadius: "50%",
+  flex: "0 0 44px",
+  alignSelf: "flex-end",
+} as const;
 
 function useScrollToBottom(
   scrollRef: RefObject<HTMLDivElement>,
@@ -4264,29 +4291,6 @@ function _Chat() {
     },
     [],
   );
-  const matchesModelCategory = (
-    item: {
-      title: string;
-      meta?: ModelCategoryMetadata;
-    },
-    category: "image" | "video" | "web" | "thinking",
-  ) => matchModelCategory(category, item);
-  const isImageGenerationModel = useCallback(
-    (item: any) => matchesModelCategory(item, "image"),
-    [],
-  );
-  const isVideoGenerationModel = useCallback(
-    (item: any) => matchesModelCategory(item, "video"),
-    [],
-  );
-  const isWebSearchModel = useCallback(
-    (item: any) => matchesModelCategory(item, "web"),
-    [],
-  );
-  const isThinkingModel = useCallback(
-    (item: any) => matchesModelCategory(item, "thinking"),
-    [],
-  );
   const models = useMemo(() => {
     // 只显示用户手动添加的模型（customModels 中 + 前缀的条目）
     const customModels = String(config.customModels || "");
@@ -4776,37 +4780,6 @@ function _Chat() {
 
     return true;
   }, [allModels, apiProfiles, modelCacheProfiles]);
-
-  const modelSelectorQuickFilters = useMemo(
-    () => [
-      {
-        key: "image",
-        label: "图片模型",
-        match: (item: any) => isImageGenerationModel(item),
-      },
-      {
-        key: "video",
-        label: "视频模型",
-        match: (item: any) => isVideoGenerationModel(item),
-      },
-      {
-        key: "web-search",
-        label: "联网模型",
-        match: (item: any) => isWebSearchModel(item),
-      },
-      {
-        key: "thinking",
-        label: "思考模型",
-        match: (item: any) => isThinkingModel(item),
-      },
-    ],
-    [
-      isImageGenerationModel,
-      isThinkingModel,
-      isVideoGenerationModel,
-      isWebSearchModel,
-    ],
-  );
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -9858,6 +9831,7 @@ function _Chat() {
             >
               <IconButton
                 icon={<ExportIcon />}
+                className={styles["chat-export-action"]}
                 text={
                   useHeaderIconOnly ? undefined : Locale.Chat.Actions.Export
                 }
@@ -11010,6 +10984,7 @@ function _Chat() {
                               styles["chat-input-mobile-add"],
                               styles["chat-edit-mode-exit"],
                             )}
+                            style={MOBILE_INPUT_ACTION_BUTTON_STYLE}
                             title="退出编辑"
                             aria="退出编辑模式"
                             disabled={isChatUnavailableForSync}
@@ -11022,6 +10997,7 @@ function _Chat() {
                           <IconButton
                             icon={<MobileClearIcon />}
                             className={styles["chat-input-mobile-add"]}
+                            style={MOBILE_INPUT_ACTION_BUTTON_STYLE}
                             title="清空输入"
                             aria="清空输入"
                             disabled={isChatUnavailableForSync}
@@ -11054,6 +11030,7 @@ function _Chat() {
                         <IconButton
                           icon={<MobileAddIcon />}
                           className={styles["chat-input-mobile-add"]}
+                          style={MOBILE_INPUT_ACTION_BUTTON_STYLE}
                           title="添加照片"
                           aria="添加照片"
                           disabled={isChatUnavailableForSync || uploading}
@@ -11430,8 +11407,8 @@ function _Chat() {
 
       {showModelSelector && (
         <Selector
-          className={clsx({
-            [styles["model-selector-auto-mode-enabled"]]: autoModeEnabled,
+          className={clsx("model-selector-panel", {
+            ["model-selector-auto-mode-enabled"]: autoModeEnabled,
           })}
           dataAutoModelEnabled={autoModeEnabled}
           resetKey={modelSelectorResetKey}
@@ -11442,23 +11419,17 @@ function _Chat() {
           headerHint={
             <>
               {modelSelectorNotice ? (
-                <div className={styles["model-selector-notice"]}>
+                <div className={"model-selector-notice"}>
                   <NoticePill content={modelSelectorNotice} />
                 </div>
               ) : null}
-              <div className={styles["model-selector-hint"]}>
-                <span className={styles["model-selector-hint-label"]}>
-                  当前供应商
-                </span>
+              <div className={"model-selector-hint"}>
+                <span className={"model-selector-hint-label"}>当前供应商</span>
                 <button
                   type="button"
-                  className={clsx(
-                    styles["model-selector-hint-provider-button"],
-                    {
-                      [styles["model-selector-provider-open"]]:
-                        isProviderSelectorOpen,
-                    },
-                  )}
+                  className={clsx("model-selector-hint-provider-button", {
+                    ["model-selector-provider-open"]: isProviderSelectorOpen,
+                  })}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     if (manualModelSelectionDisabled) {
@@ -11476,32 +11447,23 @@ function _Chat() {
                 >
                   <span>
                     {activeModelSelectorProviderDisplayName}
-                    <span
-                      className={styles["model-selector-hint-count-inline"]}
-                    >
+                    <span className={"model-selector-hint-count-inline"}>
                       （共 {models.length} 个模型）
                     </span>
                   </span>
                   <DownIcon />
                 </button>
-                <span className={styles["model-selector-hint-count"]}>
+                <span className={"model-selector-hint-count"}>
                   共 {models.length} 个模型可用
                 </span>
               </div>
               {isProviderSelectorOpen && (
                 <div
                   data-provider-selector-root="true"
-                  className={styles["model-selector-provider-menu"]}
+                  className={"model-selector-provider-menu"}
                 >
                   {availableProviders.length === 0 ? (
-                    <div
-                      style={{
-                        gridColumn: "1 / -1",
-                        textAlign: "center",
-                        padding: "20px",
-                        color: "#999",
-                      }}
-                    >
+                    <div className="model-selector-provider-empty">
                       没有可用的供应商配置
                     </div>
                   ) : (
@@ -11519,13 +11481,9 @@ function _Chat() {
                         <button
                           type="button"
                           key={providerOption.label}
-                          className={clsx(
-                            styles["model-selector-provider-option"],
-                            {
-                              [styles["model-selector-provider-option-active"]]:
-                                isActive,
-                            },
-                          )}
+                          className={clsx("model-selector-provider-option", {
+                            ["model-selector-provider-option-active"]: isActive,
+                          })}
                           onClick={(e) => {
                             e.stopPropagation();
                             const providerLabel = providerOption.label;
@@ -11538,22 +11496,16 @@ function _Chat() {
                           }}
                         >
                           <span
-                            className={
-                              styles["model-selector-provider-option-leading"]
-                            }
+                            className={"model-selector-provider-option-leading"}
                           >
                             {providerIcon ? (
                               <span
-                                className={
-                                  styles["model-selector-option-icon-frame"]
-                                }
+                                className={"model-selector-option-icon-frame"}
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   alt={`${providerOption.label} icon`}
-                                  className={
-                                    styles["model-selector-option-icon-image"]
-                                  }
+                                  className={"model-selector-option-icon-image"}
                                   src={providerIcon}
                                 />
                               </span>
@@ -11618,7 +11570,6 @@ function _Chat() {
               <span>管理模型</span>
             </button>
           )}
-          quickFilters={modelSelectorQuickFilters}
           showSearch={true}
           onGroupChange={(group) => {
             setModelSelectorDefaultGroup(group);

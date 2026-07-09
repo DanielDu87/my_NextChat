@@ -218,6 +218,7 @@ interface ModalProps {
   leftActions?: React.ReactNode[];
   defaultMax?: boolean;
   hideMaxToggle?: boolean;
+  hideCloseButton?: boolean;
   isSmall?: boolean;
   footer?: React.ReactNode;
   onClose?: () => void;
@@ -255,33 +256,35 @@ export function Modal(props: ModalProps) {
         <div className={styles["modal-title"]}>{props.title}</div>
 
         <div className={styles["modal-header-actions"]}>
-          <button
-            type="button"
-            aria-label={Locale.UI.Close}
-            data-close-button="true"
-            className="nextchat-close-button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (closeTouchHandledRef.current) {
-                closeTouchHandledRef.current = false;
-                return;
-              }
-              props.onClose?.();
-            }}
-            onTouchStart={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onTouchEnd={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              closeTouchHandledRef.current = true;
-              props.onClose?.();
-            }}
-          >
-            <CloseIcon />
-          </button>
+          {!props.hideCloseButton && (
+            <button
+              type="button"
+              aria-label={Locale.UI.Close}
+              data-close-button="true"
+              className="nextchat-close-button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (closeTouchHandledRef.current) {
+                  closeTouchHandledRef.current = false;
+                  return;
+                }
+                props.onClose?.();
+              }}
+              onTouchStart={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onTouchEnd={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                closeTouchHandledRef.current = true;
+                props.onClose?.();
+              }}
+            >
+              <CloseIcon />
+            </button>
+          )}
         </div>
       </div>
 
@@ -574,7 +577,7 @@ export function PasswordInput(
         aria-label={aria}
         onClick={changeVisibility}
         tabIndex={-1}
-        className={clsx("clickable", "password-eye")}
+        className={clsx("clickable", "password-eye", "nextchat-default-button")}
       >
         {visible ? <EyeIcon /> : <EyeOffIcon />}
       </button>
@@ -609,7 +612,14 @@ export function Select(
   );
 }
 
-export function showConfirm(content: any) {
+type ShowConfirmOptions = {
+  title?: string;
+  cancelText?: string;
+  confirmText?: string;
+  hideCloseButton?: boolean;
+};
+
+export function showConfirm(content: any, options?: ShowConfirmOptions) {
   const div = document.createElement("div");
   div.className = "modal-mask modal-mask-small";
   document.body.appendChild(div);
@@ -623,12 +633,13 @@ export function showConfirm(content: any) {
   return new Promise<boolean>((resolve) => {
     root.render(
       <Modal
-        title={Locale.UI.Confirm}
+        title={options?.title ?? Locale.UI.Confirm}
         isSmall={true}
+        hideCloseButton={options?.hideCloseButton}
         actions={[
           <IconButton
             key="cancel"
-            text={Locale.UI.Cancel}
+            text={options?.cancelText ?? Locale.UI.Cancel}
             onClick={() => {
               resolve(false);
               closeModal();
@@ -638,7 +649,7 @@ export function showConfirm(content: any) {
           ></IconButton>,
           <IconButton
             key="confirm"
-            text={Locale.UI.Confirm}
+            text={options?.confirmText ?? Locale.UI.Confirm}
             type="primary"
             onClick={() => {
               resolve(true);
@@ -1424,6 +1435,7 @@ export function Selector<T>(props: {
               type="button"
               ref={groupFilterButtonRef}
               className={clsx(
+                "nextchat-selector-group-filter",
                 styles["selector-group-filter"],
                 {
                   [styles["selector-group-filter-open"]]: isGroupFilterOpen,

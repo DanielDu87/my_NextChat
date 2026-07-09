@@ -9,6 +9,9 @@
   --black: rgb(48, 48, 48);
   --gray: rgb(250, 250, 250);
   --primary: rgb(29, 147, 171);
+  --primary-button-border: var(--primary);
+  --primary-button-bg: color-mix(in srgb, var(--primary) 75%, white);
+  --primary-button-hover-bg: var(--primary);
   --second: rgb(231, 248, 255);
   --hover-color: #f3f3f3;
   --bar-color: rgba(0, 0, 0, 0.1);
@@ -43,6 +46,9 @@
   --black: rgb(187, 187, 187);
   --gray: rgb(21, 21, 21);
   --primary: rgb(29, 147, 171);
+  --primary-button-border: #0f5f6f;
+  --primary-button-bg: color-mix(in srgb, var(--primary-button-border) 22%, transparent);
+  --primary-button-hover-bg: var(--primary-button-border);
   --second: rgb(27 38 42);
   --hover-color: #323232;
   --sidebar-search-placeholder: rgba(235, 235, 245, 0.52);
@@ -88,7 +94,7 @@
   --input-control-radius: 10px;
   --input-control-hover-bg: color-mix(
     in srgb,
-    var(--primary) 4%,
+    var(--primary) 10%,
     var(--white)
   );
   --input-control-hover-border-color: color-mix(
@@ -98,14 +104,14 @@
   );
   --input-control-hover-shadow: 0 0 0 1px
     color-mix(in srgb, var(--primary) 14%, transparent);
-  --input-control-focus-shadow: 0 0 0 2px
+  --input-control-focus-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--primary) 32%, transparent);
 
   /* 危险色 / 备份绿：主按钮和危险按钮的语义颜色 */
   --danger-color: #ff4d4f;
   --danger-color-bg: rgba(255, 77, 79, 0.12);
   --backup-green: #22a06b;
-  --primary-75-bg: color-mix(in srgb, var(--primary) 75%, white);
+  --primary-75-bg: var(--primary-button-bg);
   --danger-75-bg: color-mix(in srgb, var(--danger-color) 75%, white);
   --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 75%, white);
 }
@@ -147,8 +153,20 @@ html[data-draw-theme="light"] {
   @include light;
 }
 
+html[data-draw-theme="light"] body {
+  @include light;
+  background-color: var(--gray) !important;
+  color-scheme: light;
+}
+
 html[data-draw-theme="dark"] {
   @include dark;
+}
+
+html[data-draw-theme="dark"] body {
+  @include dark;
+  background-color: var(--gray) !important;
+  color-scheme: dark;
 }
 
 .mask {
@@ -213,6 +231,10 @@ body {
   }
 }
 
+/* 输入类职责约定：
+   - nextchat-input-control：挂在原生 input / textarea / select / contentEditable 等“可输入本体”上；
+   - nextchat-input-surface：挂在自定义外壳、只读展示块、伪输入框等“表面容器”上；
+   - 不要在同一层可交互输入上同时叠加两者，否则容易出现双边框和双焦点反馈。 */
 .nextchat-input-control,
 .nextchat-input-surface {
   box-sizing: border-box;
@@ -223,14 +245,86 @@ body {
   background-color: var(--white);
   color: var(--black);
   outline: none;
-  cursor: text;
+  cursor: text !important;
 }
 
+.nextchat-input-surface-readonly {
+  cursor: default !important;
+}
+
+/* nextchat-input-control 额外提供原生输入控件所需的尺寸、内边距和排版。 */
 .nextchat-input-control {
+  display: block;
   width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 10px 12px;
   font: inherit;
+}
+
+.nextchat-no-hover-motion,
+.nextchat-no-hover-motion:hover,
+.nextchat-no-hover-motion:focus,
+.nextchat-no-hover-motion:focus-visible,
+.nextchat-no-hover-motion:active {
+  transform: none !important;
+}
+
+.nextchat-menu-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+
+  svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    transform: translateY(1px);
+  }
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    line-height: 18px;
+  }
+}
+
+.nextchat-menu-option:not(.nextchat-menu-option-active):hover,
+.nextchat-menu-option:not(.nextchat-menu-option-active):focus-visible {
+  background-color: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
+  outline: none;
+}
+
+.nextchat-menu-option-active {
+  background-color: color-mix(in srgb, var(--primary) 16%, var(--white)) !important;
+  color: var(--primary);
+  font-weight: 600;
+
+  svg {
+    filter: none !important;
+  }
+
+  svg [style*="stroke"] {
+    stroke: var(--primary) !important;
+    stroke-opacity: 1 !important;
+  }
+
+  svg [style*="fill"] {
+    fill: var(--primary) !important;
+    fill-opacity: 1 !important;
+  }
 }
 
 /* ===========================================================================
@@ -290,10 +384,12 @@ body {
   gap: 10px;
   box-sizing: border-box;
   padding: 0 38px 0 14px;
-  border: var(--border-in-light);
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: var(--close-button-idle-border-color) !important;
   border-radius: 10px;
-  background: var(--white);
-  box-shadow: var(--card-shadow);
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
   color: var(--black);
   cursor: pointer;
   font-family: inherit;
@@ -303,20 +399,48 @@ body {
   outline: none;
   position: relative;
   text-align: center;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease;
+  transform: none !important;
+  filter: none !important;
+  transition: none !important;
 }
 
-.nextchat-select:not(.nextchat-select-disabled):hover {
+html[data-draw-theme="dark"] .nextchat-control-surface,
+html.dark .nextchat-control-surface,
+body.dark .nextchat-control-surface {
+  border-color: rgba(148, 163, 184, 0.26) !important;
+}
+
+html[data-draw-theme="dark"] .nextchat-control-surface:not(:disabled):hover,
+html[data-draw-theme="dark"] .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+html[data-draw-theme="dark"]
+  .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface,
+html.dark .nextchat-control-surface:not(:disabled):hover,
+html.dark .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+html.dark .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface,
+body.dark .nextchat-control-surface:not(:disabled):hover,
+body.dark .nextchat-select:not(.nextchat-select-disabled):hover
+  .nextchat-control-surface,
+body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within
+  .nextchat-control-surface {
+  border-color: var(--primary) !important;
+  background-color: var(--input-control-hover-bg) !important;
+  box-shadow: var(--input-control-hover-shadow) !important;
+}
+
+.nextchat-select:not(.nextchat-select-disabled):hover,
+.nextchat-select:not(.nextchat-select-disabled):focus-within {
   select,
   .select-with-icon-select,
   .nextchat-select-trigger {
+    border-style: solid !important;
+    border-width: 2px !important;
     border-color: var(--primary) !important;
-    background-color: color-mix(in srgb, var(--primary) 9%, transparent) !important;
-    box-shadow: 0 0 0 1px var(--primary) !important;
+    background-color: var(--input-control-hover-bg) !important;
+    box-shadow: var(--input-control-hover-shadow) !important;
     transition: none;
   }
 }
@@ -408,10 +532,13 @@ body {
   line-height: 1.2;
   text-align: left;
 
-  &:hover,
-  &:focus-visible {
-    background: color-mix(in srgb, var(--primary) 9%, transparent);
-  }
+}
+
+.nextchat-select-option:not(.nextchat-select-option-active):hover,
+.nextchat-select-option:not(.nextchat-select-option-active):focus-visible {
+  background-color: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
+  color: var(--primary);
+  outline: none;
 }
 
 .nextchat-select-option-text {
@@ -432,7 +559,7 @@ body {
 .nextchat-select-check {
   position: absolute;
   top: 50%;
-  right: 4px;
+  right: 10px;
   display: flex;
   width: 18px;
   align-items: center;
@@ -446,13 +573,50 @@ body {
   display: block;
   width: 4px;
   height: 11px;
-  border-right: 2px solid #2f7ffb;
-  border-bottom: 2px solid #2f7ffb;
-  transform: rotate(45deg);
+  border-right: 2px solid var(--primary);
+  border-bottom: 2px solid var(--primary);
+  transform: translateY(-1px) rotate(45deg);
 }
 
 .nextchat-select-option-active {
-  color: var(--black);
+  background-color: color-mix(in srgb, var(--primary) 16%, var(--white)) !important;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+html[data-draw-theme="dark"] .nextchat-select-menu,
+html.dark .nextchat-select-menu,
+body.dark .nextchat-select-menu {
+  border-color: rgba(71, 85, 105, 0.78);
+  background: color-mix(in srgb, var(--white) 96%, #020617);
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.52),
+    0 0 0 1px rgba(148, 163, 184, 0.08);
+}
+
+html[data-draw-theme="dark"] .nextchat-select-option,
+html.dark .nextchat-select-option,
+body.dark .nextchat-select-option {
+  color: #dbe6f3;
+}
+
+html[data-draw-theme="dark"]
+  .nextchat-select-option:not(.nextchat-select-option-active):hover,
+html[data-draw-theme="dark"]
+  .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
+html.dark .nextchat-select-option:not(.nextchat-select-option-active):hover,
+html.dark .nextchat-select-option:not(.nextchat-select-option-active):focus-visible,
+body.dark .nextchat-select-option:not(.nextchat-select-option-active):hover,
+body.dark .nextchat-select-option:not(.nextchat-select-option-active):focus-visible {
+  background-color: color-mix(in srgb, var(--primary) 18%, var(--white)) !important;
+  color: #8bd5e4;
+}
+
+html[data-draw-theme="dark"] .nextchat-select-option-active,
+html.dark .nextchat-select-option-active,
+body.dark .nextchat-select-option-active {
+  background-color: color-mix(in srgb, var(--primary) 24%, var(--white)) !important;
+  color: #9ee4ef;
 }
 
 /* 关闭按钮：统一接管 38x38 尺寸 + 外观（边框/背景/hover/阴影）+ SVG 颜色控制。
@@ -496,7 +660,7 @@ button[data-close-button="true"]:not(:disabled):focus-visible,
 button[data-close-button="true"]:not(:disabled):active {
   border-width: 2px !important;
   border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  background-color: var(--input-control-hover-bg) !important;
   box-shadow: none !important;
   color: var(--black) !important;
   outline: none;
@@ -550,6 +714,7 @@ button[data-close-button="true"] svg path {
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
   color: var(--black);
+  cursor: pointer !important;
   outline: none;
   transform: none !important;
   filter: none !important;
@@ -564,7 +729,7 @@ button[data-close-button="true"] svg path {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
   color: var(--black) !important;
   outline: none !important;
@@ -572,9 +737,24 @@ button[data-close-button="true"] svg path {
   filter: none !important;
 }
 
+.nextchat-default-button:not(:disabled):hover *,
+.nextchat-default-button:not(:disabled):focus-visible *,
+.nextchat-default-button:not(:disabled):active * {
+  cursor: pointer !important;
+}
+
+.nextchat-default-button:disabled,
+.nextchat-default-button:disabled * {
+  cursor: not-allowed !important;
+  // 与 .nextchat-restricted-disabled 一致的视觉降级，避免组件级重复声明。
+  opacity: 0.62;
+  pointer-events: none;
+  transition: none !important;
+}
+
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]) {
+  ):not(.chat-export-action):not(:disabled):not([disabled]) {
   border-color: var(--close-button-idle-border-color) !important;
   background-color: var(--white) !important;
   box-shadow: var(--card-shadow) !important;
@@ -585,20 +765,71 @@ button[data-close-button="true"] svg path {
 
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):hover,
+  ):not(.chat-export-action):not(:disabled):hover,
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):focus-visible,
+  ):not(.chat-export-action):not(:disabled):focus-visible,
 .window-header .window-actions button.nextchat-default-button:not(
     [data-close-button="true"]
-  ):not([class*="primary"]):not([class*="danger"]):not(:disabled):active {
+  ):not(.chat-export-action):not(:disabled):active {
   border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
   color: var(--black) !important;
   outline: none !important;
   transform: none !important;
   filter: none !important;
+}
+
+/* 导出按钮禁用态 - 高优先级覆盖 */
+/* 暗色模式窗口按钮禁用态 - export 按钮 */
+:global(body.dark) .window-header .window-actions button.chat-export-action:disabled,
+:global(body.dark) .window-header .window-actions button.chat-export-action[disabled] {
+  opacity: 1 !important;
+  color: #ffffff !important;
+  background-color: rgba(100, 116, 139, 0.24) !important;
+  border-color: rgba(100, 116, 139, 0.24) !important;
+  box-shadow: none !important;
+  pointer-events: none !important;
+  border-style: solid !important;
+
+  * {
+    opacity: 1 !important;
+  }
+
+  svg path,
+  svg circle,
+  svg rect {
+    stroke: #4b5563 !important;
+    fill: none !important;
+  }
+
+  svg {
+    filter: none !important;
+  }
+}
+
+/* 亮色模式窗口按钮禁用态（排除 export 按钮） */
+.window-header .window-actions button:disabled:not(.chat-export-action),
+.window-header .window-actions button[disabled]:not(.chat-export-action) {
+  opacity: 1 !important;
+  color: #ffffff !important;
+  background-color: rgba(100, 116, 139, 0.24) !important;
+  border-color: rgba(100, 116, 139, 0.24) !important;
+  box-shadow: none !important;
+  pointer-events: none !important;
+  border-style: solid !important;
+
+  * {
+    opacity: 1 !important;
+  }
+
+  svg path,
+  svg circle,
+  svg rect {
+    stroke: #ffffff !important;
+    fill: none !important;
+  }
 }
 
 .nextchat-action-button {
@@ -612,6 +843,7 @@ button[data-close-button="true"] svg path {
   color: var(--black);
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -623,7 +855,7 @@ button[data-close-button="true"] svg path {
 .nextchat-action-button:not(:disabled):active {
   border-style: solid !important;
   border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
   color: var(--black) !important;
   outline: none !important;
@@ -632,7 +864,8 @@ button[data-close-button="true"] svg path {
 }
 
 .nextchat-action-button [class*="icon-button-icon"],
-.nextchat-action-button [class*="button_icon-button-icon"] {
+.nextchat-action-button [class*="button_icon-button-icon"],
+.nextchat-action-button .nextchat-action-button-icon {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -641,7 +874,8 @@ button[data-close-button="true"] svg path {
 }
 
 .nextchat-action-button [class*="icon-button-text"],
-.nextchat-action-button [class*="button_icon-button-text"] {
+.nextchat-action-button [class*="button_icon-button-text"],
+.nextchat-action-button .nextchat-action-button-text {
   display: inline-flex !important;
   align-items: center !important;
   min-width: 0;
@@ -656,13 +890,14 @@ button[class*="icon-button"][class*="primary"] {
   box-sizing: border-box !important;
   border-width: 2px !important;
   border-style: solid !important;
-  border-color: var(--primary) !important;
+  border-color: var(--primary-button-border) !important;
   border-radius: 10px !important;
   color: white !important;
-  background-color: var(--primary-75-bg) !important;
+  background-color: var(--primary-button-bg) !important;
   box-shadow: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -681,29 +916,52 @@ button[class*="icon-button"][class*="primary"]:not(:disabled):focus-visible,
 button[class*="icon-button"][class*="primary"]:not(:disabled):active {
   border-style: solid !important;
   border-width: 2px !important;
-  border-color: var(--primary) !important;
+  border-color: var(--primary-button-hover-bg) !important;
   color: white !important;
-  background-color: var(--primary) !important;
+  background-color: var(--primary-button-hover-bg) !important;
   box-shadow: none !important;
   outline: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
 }
 
-/* 描边型图标（path 上带 inline style="stroke:..."，例如 add.svg）才走"白描边 + 不填充"路径，
-   让 .button-primary 的 fill:white 不至于把闭合外圈 path 填成实心白圆覆盖 + 号。
-   填充型图标（ConfirmIcon/StopIcon/SendUpIcon/UploadIcon/LoadingIcon 等 path style 只有 fill:#333）
-   不匹配本规则，继续由 button.module.scss 的 .icon-button.primary 规则（fill: white !important）控制。
-   选择器特意带 [style*="stroke"] 子串匹配，特异性 0,3,1 严格高于 .icon-button.primary 的 0,2,1，
-   不依赖 CSS 加载顺序的脆弱性。
+.nextchat-primary-button:not(:disabled):hover *,
+.nextchat-primary-button:not(:disabled):focus-visible *,
+.nextchat-primary-button:not(:disabled):active *,
+button.nextchat-primary-button:not(:disabled):hover *,
+button.nextchat-primary-button:not(:disabled):focus-visible *,
+button.nextchat-primary-button:not(:disabled):active *,
+button[class*="icon-button"][class*="primary"]:not(:disabled):hover *,
+button[class*="icon-button"][class*="primary"]:not(:disabled):focus-visible *,
+button[class*="icon-button"][class*="primary"]:not(:disabled):active * {
+  cursor: pointer !important;
+}
+
+/* 主按钮（nextchat-primary-button）的图标颜色与文字颜色（color: white）保持一致：
+   - 描边型图标（path 上带 inline style="stroke:..."，例如 add.svg）：白描边 + 不填充，
+     避免把闭合外圈 path 填成实心白圆覆盖 + 号。
+   - 填充型图标（ConfirmIcon/StopIcon/SendUpIcon/UploadIcon/LoadingIcon 等 path style 只有 fill:#333）：
+     用 currentColor 直接继承按钮的文字颜色（白），保证图标与文字永远同色。
+   两组规则都用 [style*="..."] 子串匹配以保证特异性 0,3,1，高于任何不依赖 class 的图标规则。
    排除 chat-input-send（聊天发送/停止按钮，圆形绝对定位的特例）以免任何图标规则影响其特殊布局。 */
 .nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
 button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"],
 button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] path[style*="stroke"] {
   fill: none !important;
-  stroke: white !important;
+  stroke: currentColor !important;
   stroke-opacity: 1 !important;
   filter: none !important;
+}
+
+.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
+.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle,
+button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
+button.nextchat-primary-button:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle,
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] path:not([style*="stroke"]),
+button[class*="icon-button"][class*="primary"]:not([class*="chat-input-send"]) [class*="icon-button-icon"] circle {
+  fill: currentColor !important;
+  stroke: none !important;
 }
 
 /* 暗色模式下全局 .dark 块里有 `div:not(.no-dark) > svg { filter: invert(0.5) }`，
@@ -730,6 +988,7 @@ button[class*="icon-button"][class*="danger"] {
   box-shadow: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -755,6 +1014,19 @@ button[class*="icon-button"][class*="danger"]:not(:disabled):active {
   outline: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
+}
+
+.nextchat-danger-button:not(:disabled):hover *,
+.nextchat-danger-button:not(:disabled):focus-visible *,
+.nextchat-danger-button:not(:disabled):active *,
+button.nextchat-danger-button:not(:disabled):hover *,
+button.nextchat-danger-button:not(:disabled):focus-visible *,
+button.nextchat-danger-button:not(:disabled):active *,
+button[class*="icon-button"][class*="danger"]:not(:disabled):hover *,
+button[class*="icon-button"][class*="danger"]:not(:disabled):focus-visible *,
+button[class*="icon-button"][class*="danger"]:not(:disabled):active * {
+  cursor: pointer !important;
 }
 
 /* 危险按钮的「实色」变体：默认就是实色红 + 白字，用于删除等强操作场景。
@@ -764,6 +1036,7 @@ button.nextchat-danger-button-filled {
   color: white !important;
   background-color: var(--danger-75-bg) !important;
   border-color: var(--danger-color) !important;
+  cursor: pointer !important;
 }
 
 .nextchat-danger-button-filled:not(:disabled):hover,
@@ -776,12 +1049,21 @@ button.nextchat-danger-button-filled:not(:disabled):active {
   color: white !important;
   background-color: var(--danger-color) !important;
   border-color: var(--danger-color) !important;
+  cursor: pointer !important;
+}
+
+.nextchat-danger-button-filled:not(:disabled):hover *,
+.nextchat-danger-button-filled:not(:disabled):focus-visible *,
+.nextchat-danger-button-filled:not(:disabled):active *,
+button.nextchat-danger-button-filled:not(:disabled):hover *,
+button.nextchat-danger-button-filled:not(:disabled):focus-visible *,
+button.nextchat-danger-button-filled:not(:disabled):active * {
+  cursor: pointer !important;
 }
 
 /* ---------- 备份绿按钮（green）---------- */
 .nextchat-green-button,
 button.nextchat-green-button {
-  --backup-green: var(--backup-green);
   box-sizing: border-box !important;
   border-width: 2px !important;
   border-style: solid !important;
@@ -792,6 +1074,7 @@ button.nextchat-green-button {
   box-shadow: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -813,6 +1096,199 @@ button.nextchat-green-button:not(:disabled):active {
   outline: none !important;
   transform: none !important;
   filter: none !important;
+  cursor: pointer !important;
+}
+
+.nextchat-green-button:not(:disabled):hover *,
+.nextchat-green-button:not(:disabled):focus-visible *,
+.nextchat-green-button:not(:disabled):active *,
+button.nextchat-green-button:not(:disabled):hover *,
+button.nextchat-green-button:not(:disabled):focus-visible *,
+button.nextchat-green-button:not(:disabled):active * {
+  cursor: pointer !important;
+}
+
+.nextchat-green-button [class*="icon-button-icon"] > svg,
+button.nextchat-green-button [class*="icon-button-icon"] > svg {
+  filter: none !important;
+}
+
+.nextchat-green-button [class*="icon-button-icon"] svg path,
+button.nextchat-green-button [class*="icon-button-icon"] svg path,
+.nextchat-green-button [class*="icon-button-icon"] svg circle,
+button.nextchat-green-button [class*="icon-button-icon"] svg circle {
+  fill: currentColor !important;
+}
+
+
+.nextchat-primary-button:disabled,
+.nextchat-primary-button:disabled *,
+button.nextchat-primary-button:disabled,
+button.nextchat-primary-button:disabled *,
+.nextchat-danger-button:disabled,
+.nextchat-danger-button:disabled *,
+button.nextchat-danger-button:disabled,
+button.nextchat-danger-button:disabled *,
+.nextchat-danger-button-filled:disabled,
+.nextchat-danger-button-filled:disabled *,
+button.nextchat-danger-button-filled:disabled,
+button.nextchat-danger-button-filled:disabled *,
+.nextchat-green-button:disabled,
+.nextchat-green-button:disabled *,
+button.nextchat-green-button:disabled,
+button.nextchat-green-button:disabled * {
+  cursor: not-allowed !important;
+  // 与 .nextchat-restricted-disabled 一致的视觉降级，避免组件级重复声明。
+  opacity: 0.62;
+  pointer-events: none;
+  transition: none !important;
+}
+
+
+/* ---------- API 配置页公共类 ---------- */
+.nextchat-api-config-add-button {
+  min-height: 38px;
+  padding: 8px 14px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nextchat-api-config-add-button svg {
+  width: 16px;
+  height: 16px;
+  filter: none !important;
+}
+
+.nextchat-api-config-add-button [class*="icon-button-icon"] > svg {
+  filter: none !important;
+}
+
+.nextchat-api-config-add-button [class*="icon-button-icon"] svg path[style*="stroke"] {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-opacity: 1 !important;
+  filter: none !important;
+}
+
+.nextchat-api-config-add-button [class*="icon-button-icon"] svg path:not([style*="stroke"]),
+.nextchat-api-config-add-button [class*="icon-button-icon"] svg circle {
+  fill: currentColor !important;
+  stroke: none !important;
+}
+
+.nextchat-api-config-backup-create-button {
+  align-self: center;
+  width: 145px;
+  min-width: 145px;
+  height: 40px !important;
+  min-height: 40px !important;
+  margin-right: 15px;
+  justify-content: center;
+}
+
+.nextchat-api-config-backup-create-button:not(:disabled):hover,
+.nextchat-api-config-backup-create-button:not(:disabled):focus-visible,
+.nextchat-api-config-backup-create-button:not(:disabled):active {
+  color: white !important;
+  background-color: var(--backup-green) !important;
+  border-color: var(--backup-green) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--backup-green) 28%, transparent),
+    0 8px 18px color-mix(in srgb, var(--backup-green) 18%, transparent) !important;
+  transform: translateY(-1px) !important;
+}
+
+
+@media (max-width: 700px) {
+  button.nextchat-api-config-backup-create-button.nextchat-green-button {
+    align-self: stretch;
+    display: inline-flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin-right: 0;
+    min-height: 44px !important;
+    height: 44px !important;
+    padding: 0 14px !important;
+    gap: 6px !important;
+    font-size: 14px !important;
+    font-weight: 600;
+    border-radius: 9px;
+  }
+
+  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-text"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    margin-left: 0 !important;
+    white-space: nowrap;
+    line-height: 18px !important;
+  }
+
+  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-icon"] {
+    display: inline-flex !important;
+    flex: 0 0 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  button.nextchat-api-config-backup-create-button.nextchat-green-button [class*="icon-button-icon"] > svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+}
+
+.nextchat-api-config-key-button {
+  min-height: 38px;
+  padding: 6px 8px;
+  text-align: center;
+  cursor: pointer !important;
+}
+
+.nextchat-api-config-danger-action {
+  height: 40px !important;
+  min-height: 40px !important;
+  margin-left: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  line-height: 16px !important;
+}
+
+.nextchat-api-config-danger-action [class*="icon-button-icon"],
+.nextchat-api-config-danger-action [class*="icon-button-text"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 16px !important;
+  margin: 0 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+.nextchat-api-config-danger-action [class*="icon-button-icon"] {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.nextchat-api-config-danger-action svg,
+.nextchat-api-config-danger-action svg path,
+.nextchat-api-config-danger-action svg circle,
+.nextchat-api-config-danger-action svg rect {
+  width: 16px !important;
+  height: 16px !important;
+  flex-shrink: 0 !important;
+  fill: currentColor !important;
+  color: inherit !important;
+  filter: none !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+.nextchat-api-config-danger-action svg path {
+  stroke: none !important;
 }
 
 /* ---------- hover-card（鼠标位置高亮卡片）---------- */
@@ -853,6 +1329,8 @@ button.nextchat-green-button:not(:disabled):active {
     0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
+/* 统一 input / textarea / select / 公共输入类的 hover / focus 反馈。
+   这里同时覆盖 control 和 surface，是为了让输入本体与自定义外壳共享同一套交互视觉。 */
 :is(
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
         [type="file"]
@@ -862,7 +1340,7 @@ button.nextchat-green-button:not(:disabled):active {
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
-    .nextchat-input-surface:not(:disabled):not(:read-only)
+    .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)
   ) {
   transition:
     border-color 0.2s ease,
@@ -879,12 +1357,12 @@ button.nextchat-green-button:not(:disabled):active {
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
-    .nextchat-input-surface:not(:disabled):not(:read-only)
+    .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)
   ):hover {
   border-style: solid !important;
   border-width: 2px !important;
   border-color: var(--primary) !important;
-  background-color: color-mix(in srgb, var(--primary) 8%, var(--white)) !important;
+  background-color: var(--input-control-hover-bg) !important;
   box-shadow: var(--input-control-hover-shadow) !important;
   outline: none !important;
 }
@@ -898,7 +1376,7 @@ button.nextchat-green-button:not(:disabled):active {
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
-    .nextchat-input-surface:not(:disabled):not(:read-only)
+    .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)
   ):focus,
 :is(
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
@@ -909,7 +1387,7 @@ button.nextchat-green-button:not(:disabled):active {
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
-    .nextchat-input-surface:not(:disabled):not(:read-only)
+    .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)
   ):focus-visible {
   border-style: solid !important;
   border-width: 2px !important;
@@ -1314,4 +1792,1108 @@ pre {
 
 .copyable {
   user-select: text;
+}
+
+/* 公共模型选择器样式：供聊天页与添加模型弹层复用，并跟随主题变量适配浅色 / 深色主题。 */
+.model-selector-panel {
+  background-color: rgba(15, 23, 42, 0.24);
+}
+
+.model-selector-panel [data-selector-content="true"] {
+  width: min(680px, calc(100vw - 48px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  max-height: 78vh !important;
+  gap: 14px !important;
+  padding: 20px !important;
+  border-radius: 18px !important;
+  border: none !important;
+  background: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  margin: 0 auto 12px !important;
+}
+
+.model-selector-panel [class*="selector-title"] {
+  justify-content: flex-start !important;
+  min-height: 30px !important;
+  padding-bottom: 14px !important;
+  border-bottom: var(--border-in-light) !important;
+  color: var(--black) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  text-align: left !important;
+}
+
+.model-selector-panel [class*="selector-header-hint"] {
+  gap: 12px !important;
+  margin-bottom: 0 !important;
+}
+
+.model-selector-panel [class*="selector-search-wrap"] {
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  flex-basis: 40px !important;
+  margin-top: 0 !important;
+  padding: 0 14px !important;
+  border-width: 1px !important;
+  border-color: var(--input-control-border-color) !important;
+  border-radius: 12px !important;
+  background: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.model-selector-panel [class*="selector-search-wrap"]:hover {
+  /* 保持 border-width: 1px 不变，避免 1→2px 切换造成内容区被"挤进 1px"的多余内边框观感。
+     注意：ui-lib.module.scss 中 .selector .selector-search-wrap:hover 也会设 border-width: 2px，
+     两者特异性都是 (0,2,1)，CSS Module 加载晚于 globals 会覆盖本规则，因此这里必须显式
+     !important 锁住 1px。视觉反馈改用外圈 1px box-shadow 表达。 */
+  border-width: 1px !important;
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+  box-shadow: 0 0 0 1px var(--primary) !important;
+}
+
+.model-selector-panel [class*="selector-search-wrap"]:focus-within {
+  /* 与 hover 同理：必须显式 !important 锁住 1px，避免 ui-lib.module.scss 的同名规则覆盖。
+     focus 视觉反馈由 2px 外圈 box-shadow 表达。 */
+  border-width: 1px !important;
+  border-color: var(--primary) !important;
+  background: var(--white) !important;
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--primary) 18%, transparent) !important;
+}
+
+.model-selector-panel [class*="selector-search-wrap"] input {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  text-align: left !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.model-selector-panel
+  [class*="selector-search-wrap"]
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="file"]
+  ):not([type="color"]):not(:disabled):not(:read-only),
+.model-selector-panel
+  [class*="selector-search-wrap"]
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="file"]
+  ):not([type="color"]):not(:disabled):not(:read-only):hover,
+.model-selector-panel
+  [class*="selector-search-wrap"]
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="file"]
+  ):not([type="color"]):not(:disabled):not(:read-only):focus,
+.model-selector-panel
+  [class*="selector-search-wrap"]
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="file"]
+  ):not([type="color"]):not(:disabled):not(:read-only):focus-visible {
+  border-width: 0 !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.model-selector-panel [data-selector-group-filter-root="true"] {
+  gap: 12px !important;
+}
+
+.model-selector-panel .nextchat-selector-group-filter {
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 8px 14px !important;
+  border-width: 1px !important;
+  border-color: var(--input-control-border-color) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  font-size: 14px !important;
+  letter-spacing: 0 !important;
+}
+
+.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):hover,
+.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):focus,
+.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
+.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):active,
+.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel [class*="selector-group-filter-menu"],
+.model-selector-panel .model-selector-provider-menu {
+  border-radius: 14px !important;
+  border-color: var(--input-control-border-color) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--black) 8%, transparent),
+    var(--card-shadow) !important;
+}
+
+.model-selector-panel [class*="selector-group-filter-option"],
+.model-selector-panel .model-selector-provider-option {
+  border-width: 1px !important;
+  border-color: var(--border-in-light) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel [class*="selector-group-filter-option"]:hover,
+.model-selector-panel [class*="selector-group-filter-option"]:focus,
+.model-selector-panel .model-selector-provider-option:hover,
+.model-selector-panel .model-selector-provider-option:focus,
+.model-selector-panel [class*="selector-group-filter-option-active"],
+.model-selector-panel .model-selector-provider-option-active {
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 6%, var(--white)) !important;
+  color: var(--primary) !important;
+}
+
+.model-selector-panel [class*="_list__"] {
+  height: min(58vh, 520px) !important;
+  max-height: min(58vh, 520px) !important;
+  border: 1px solid
+    color-mix(in srgb, var(--black) 18%, var(--input-control-border-color)) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--black) 6%, transparent),
+    var(--card-shadow) !important;
+  background: var(--white) !important;
+}
+
+.model-selector-panel [class*="list-item"] {
+  min-height: 64px !important;
+  padding: 10px 14px !important;
+  background: var(--white) !important;
+  border-bottom: var(--border-in-light) !important;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.model-selector-panel [class*="list-item"] [class*="list-icon"] {
+  margin-right: 12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  color: var(--primary);
+  transition: color 0.2s ease;
+}
+
+.model-selector-panel [class*="list-item"] [class*="list-item-title"] {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+
+  > div {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.model-selector-panel
+  [class*="list-item"]
+  [class*="list-item-sub-title"] {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  opacity: 0.68;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-selector-panel
+  [class*="list-item"]:hover
+  [class*="list-icon"],
+.model-selector-panel
+  [class*="list-item"]:focus-within
+  [class*="list-icon"],
+.model-selector-panel
+  [class*="selector-item-active"]
+  [class*="list-icon"] {
+  color: var(--primary);
+}
+
+.model-selector-panel [class*="list-item"]:nth-child(even) {
+  background: color-mix(in srgb, #d1d5db 46%, var(--white)) !important;
+}
+
+.model-selector-panel [class*="list-item"]:hover,
+.model-selector-panel [class*="list-item"]:focus-within,
+.model-selector-panel [class*="selector-item-active"] {
+  background: color-mix(in srgb, var(--primary) 6%, var(--white)) !important;
+  color: var(--primary) !important;
+}
+
+.model-selector-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-right: 8px;
+}
+
+.model-selector-hint-label {
+  color: var(--black);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+}
+
+.model-selector-hint-provider-button,
+.model-selector-hint-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, var(--white));
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.model-selector-hint-provider-button {
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.model-selector-hint-provider-button svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor !important;
+}
+
+.model-selector-hint-provider-button svg path {
+  stroke: currentColor !important;
+}
+
+.model-selector-hint-provider-button:hover,
+.model-selector-hint-provider-button:focus-visible,
+.model-selector-hint-fetch:hover,
+.model-selector-hint-fetch:focus-visible {
+  border-color: var(--primary);
+}
+
+.model-selector-hint-provider-button-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.model-selector-provider-open svg:last-child {
+  transform: rotate(180deg);
+}
+
+.nextchat-selector-group-filter {
+  border-style: solid !important;
+  border-width: 2px !important;
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent) !important;
+  background: var(--white) !important;
+  background-color: var(--white) !important;
+  color: var(--black) !important;
+  box-shadow: var(--card-shadow) !important;
+  transform: none !important;
+  filter: none !important;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.nextchat-selector-group-filter:not(.selector-control-disabled):hover,
+.nextchat-selector-group-filter:not(.selector-control-disabled):focus,
+.nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
+.nextchat-selector-group-filter:not(.selector-control-disabled):active,
+.nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+  background-color: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
+  color: var(--black) !important;
+  box-shadow:
+    0 0 0 1px var(--primary),
+    var(--card-shadow) !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+.nextchat-selector-group-filter > svg:last-child,
+.nextchat-selector-group-filter > svg:last-child path {
+  stroke: currentColor !important;
+}
+
+.nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.model-selector-provider-menu {
+  display: grid;
+  position: relative;
+  z-index: 99999999999999;
+  pointer-events: auto;
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  background: var(--white);
+  box-shadow: 0 18px 36px color-mix(in srgb, var(--black) 12%, transparent);
+}
+
+.model-selector-provider-empty {
+  grid-column: 1 / -1;
+  padding: 20px;
+  color: var(--black);
+  text-align: center;
+  opacity: 0.56;
+}
+
+.model-selector-provider-option {
+  position: relative;
+  z-index: 99999999999999;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 2px solid var(--border-in-light);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--black);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--black) 4%, transparent);
+}
+
+.model-selector-provider-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-selector-provider-option svg {
+  width: 16px;
+  height: 16px;
+}
+
+.model-selector-provider-option:hover,
+.model-selector-provider-option:focus,
+.model-selector-provider-option-active {
+  border-color: color-mix(in srgb, var(--primary) 36%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, var(--white));
+  color: var(--primary);
+}
+
+.model-selector-provider-option-active {
+  font-weight: 700;
+}
+
+.model-selector-provider-option-active > svg,
+.model-selector-provider-option-active > svg path {
+  stroke: var(--primary) !important;
+  fill: var(--primary) !important;
+}
+
+.model-selector-provider-option-leading,
+.model-selector-option-icon-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.model-selector-option-icon-frame {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--border-in-light);
+  border-radius: 10px;
+  background: var(--white);
+}
+
+.model-selector-option-icon-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.model-selector-option-icon-image-inset {
+  width: 32px;
+  height: 32px;
+  background-size: contain;
+}
+
+.model-selector-hint-count {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.model-selector-hint-fetch {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.model-selector-hint-count-inline {
+  display: none;
+  margin-left: 6px;
+  color: inherit;
+  font: inherit;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+.model-selector-notice {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  animation: model-selector-slide-down 0.2s ease-out;
+}
+
+.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled,
+.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:hover,
+.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:focus,
+.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:active,
+.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:focus-within,
+.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled,
+.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:hover,
+.model-selector-auto-mode-enabled .selector-group-filter-wrap:hover .selector-group-filter.selector-control-disabled,
+.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:focus,
+.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:active,
+.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:focus-within {
+  border-color: var(--border-in-light) !important;
+  background: var(--second) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+@media only screen and (max-width: 768px) {
+  .model-selector-panel [data-selector-content="true"] {
+    max-width: 100% !important;
+    max-height: 75vh !important;
+    gap: 10px !important;
+    padding: 12px !important;
+    border-radius: 16px !important;
+    margin: auto 8px !important;
+  }
+
+  .model-selector-panel [class*="selector-title"] {
+    min-height: 28px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .model-selector-panel [class*="selector-search-wrap"],
+  .model-selector-panel .nextchat-selector-group-filter {
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    border-radius: 10px !important;
+  }
+
+  .model-selector-hint {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 8px;
+    width: 100%;
+    padding-right: 0;
+  }
+
+  .model-selector-hint-label,
+  .model-selector-hint-count {
+    display: none;
+  }
+
+  .model-selector-hint-provider-button {
+    position: relative;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    min-height: 34px;
+    max-height: 34px;
+    padding: 0 40px 0 14px;
+    border-radius: 12px;
+    font-size: 15px;
+  }
+
+  .model-selector-hint-provider-button span,
+  .model-selector-provider-option span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .model-selector-hint-provider-button > svg:last-child {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+  }
+
+  .model-selector-provider-open > svg:last-child {
+    transform: translateY(-50%) rotate(180deg);
+  }
+
+  .model-selector-hint-count-inline {
+    display: inline;
+  }
+
+  .model-selector-provider-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 100%;
+    gap: 8px;
+    margin-top: 0;
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .model-selector-provider-option {
+    position: relative;
+    justify-content: center;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0 28px 0 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    gap: 6px;
+  }
+
+  .model-selector-provider-option > svg {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+  }
+
+  .model-selector-option-icon-frame,
+  .model-selector-option-icon-image-inset {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 9px;
+  }
+}
+
+@keyframes model-selector-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 与 chat_prompt-picker-panel 一致的暗色模式适配：仅作用于 model-selector-panel 作用域内。 */
+:global(body.dark) .model-selector-panel {
+  background-color: rgba(15, 23, 42, 0.45);
+}
+
+:global(body.dark) .model-selector-panel [data-selector-content="true"] {
+  background: #111827 !important;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
+  border: 1px solid rgba(71, 85, 105, 0.6) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-title"] {
+  color: var(--black) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-search-wrap"] {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-search-wrap"]:hover {
+  border-color: #60a5fa !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-search-wrap"]:focus-within {
+  border-color: #60a5fa !important;
+  background: #1e293b !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-search-wrap"] input {
+  color: #e5e7eb !important;
+}
+
+:global(body.dark) .model-selector-panel .nextchat-selector-group-filter {
+  background: #1e293b !important;
+  background-color: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  color: #e5e7eb !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  .nextchat-selector-group-filter:not(.selector-control-disabled):hover,
+:global(body.dark)
+  .model-selector-panel
+  .nextchat-selector-group-filter:not(.selector-control-disabled):focus,
+:global(body.dark)
+  .model-selector-panel
+  .nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
+:global(body.dark)
+  .model-selector-panel
+  .nextchat-selector-group-filter:not(.selector-control-disabled):active,
+:global(body.dark)
+  .model-selector-panel
+  .nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
+  background: rgba(59, 130, 246, 0.15) !important;
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  border-color: #60a5fa !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3), var(--card-shadow) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="_list__"] {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  box-shadow:
+    0 0 0 1px rgba(30, 64, 175, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="list-item"] {
+  background: #1e293b !important;
+  border-bottom-color: rgba(55, 65, 81, 0.8) !important;
+  color: #e5e7eb !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]:nth-child(even) {
+  background: rgba(51, 65, 85, 0.72) !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]:hover,
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]:focus-within,
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-item-active"] {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]
+  [class*="list-icon"] {
+  color: #60a5fa !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]:hover
+  [class*="list-icon"],
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]:focus-within
+  [class*="list-icon"],
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-item-active"]
+  [class*="list-icon"] {
+  color: #60a5fa !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="list-item"]
+  [class*="list-item-sub-title"] {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-group-filter-menu"],
+:global(body.dark) .model-selector-panel .model-selector-provider-menu {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  box-shadow:
+    0 0 0 1px rgba(30, 64, 175, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+:global(body.dark) .model-selector-panel [class*="selector-group-filter-option"],
+:global(body.dark) .model-selector-panel .model-selector-provider-option {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  color: #e5e7eb !important;
+}
+
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-group-filter-option"]:hover,
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-group-filter-option"]:focus,
+:global(body.dark)
+  .model-selector-panel
+  .model-selector-provider-option:hover,
+:global(body.dark)
+  .model-selector-panel
+  .model-selector-provider-option:focus,
+:global(body.dark)
+  .model-selector-panel
+  [class*="selector-group-filter-option-active"],
+:global(body.dark)
+  .model-selector-panel
+  .model-selector-provider-option-active {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: #60a5fa !important;
+  color: #60a5fa !important;
+}
+
+:global(body.dark) .model-selector-hint-count,
+:global(body.dark) .model-selector-hint-provider-button {
+  background: rgba(37, 99, 235, 0.16) !important;
+  border-color: rgba(96, 165, 250, 0.42) !important;
+  color: var(--primary) !important;
+}
+
+:global(body.dark) .model-selector-option-icon-frame {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.7) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .model-selector-panel {
+    background-color: rgba(15, 23, 42, 0.45);
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [data-selector-content="true"] {
+    background: #111827 !important;
+    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
+    border: 1px solid rgba(71, 85, 105, 0.6) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="selector-search-wrap"] {
+    background: #1e293b !important;
+    border-color: rgba(71, 85, 105, 0.7) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="selector-search-wrap"]:hover {
+    border-color: #60a5fa !important;
+    background: rgba(59, 130, 246, 0.1) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="selector-search-wrap"]:focus-within {
+    border-color: #60a5fa !important;
+    background: #1e293b !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="selector-search-wrap"]
+    input {
+    color: #e5e7eb !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    .nextchat-selector-group-filter {
+    background: #1e293b !important;
+    background-color: #1e293b !important;
+    border-color: rgba(71, 85, 105, 0.7) !important;
+    color: #e5e7eb !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="_list__"] {
+    background: #1e293b !important;
+    border-color: rgba(71, 85, 105, 0.7) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"] {
+    background: #1e293b !important;
+    border-bottom-color: rgba(55, 65, 81, 0.8) !important;
+    color: #e5e7eb !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"]:nth-child(even) {
+    background: rgba(51, 65, 85, 0.72) !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"]:hover,
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"]:focus-within,
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="selector-item-active"] {
+    background: rgba(59, 130, 246, 0.15) !important;
+    color: #60a5fa !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"]
+    [class*="list-icon"] {
+    color: #60a5fa !important;
+  }
+
+  :global(body:not(.light):not(.dark))
+    .model-selector-panel
+    [class*="list-item"]
+    [class*="list-item-sub-title"] {
+    color: #9ca3af !important;
+    opacity: 1 !important;
+  }
+}
+
+/* ===========================================================================
+   Selector footer / 自定义输入卡 / pill 按钮 / 计数徽章 等通用工具类。
+   用于模型选择器（AddModelSelector）等场景，所有 modal 共享同一套外观。
+   =========================================================================== */
+
+/* pill 按钮：30px 高、999px 圆角、14px 字体、字号权重 700。
+   配合 nextchat-default-button / nextchat-green-button / nextchat-danger-button
+   使用以获得颜色与边框语义。顺序在颜色类之后以便覆盖 border-radius。 */
+.nextchat-pill-button {
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  flex: 0 0 auto !important;
+  padding: 0 12px !important;
+  box-sizing: border-box !important;
+  border-radius: 999px !important;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none !important;
+    transform: none !important;
+    pointer-events: none;
+  }
+}
+
+/* Selector 底部 footer：左右两组按钮，中间自动伸缩。 */
+.nextchat-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: var(--border-in-light);
+  gap: 8px;
+}
+
+.nextchat-modal-footer-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 自定义输入卡：外层 popover + 内层 form。popover 带顶部边线与主题色淡背景。 */
+.nextchat-modal-custom-popover {
+  padding: 12px 16px 0;
+  border-top: var(--border-in-light);
+  background: color-mix(in srgb, var(--primary) 6%, var(--white));
+}
+
+.nextchat-modal-custom-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  background: color-mix(in srgb, var(--white) 92%, transparent);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 10%, transparent);
+}
+
+.nextchat-modal-custom-title {
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.nextchat-modal-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nextchat-modal-custom-error {
+  color: var(--danger-color);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 已选数量徽章：与 pill 按钮同高，主题色淡背景 + 边框。 */
+.nextchat-modal-count {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 10%, var(--white));
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 自定义输入卡在暗色主题下保持卡片悬浮感。 */
+:global(body.dark) .nextchat-modal-custom-popover {
+  background: color-mix(in srgb, var(--primary) 6%, var(--white));
+}
+
+:global(body.dark) .nextchat-modal-custom-form {
+  border-color: var(--border-in-light);
+  background: color-mix(in srgb, var(--white) 92%, transparent);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 14%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(body:not(.light):not(.dark)) .nextchat-modal-custom-popover {
+    background: color-mix(in srgb, var(--primary) 6%, var(--white));
+  }
+
+  :global(body:not(.light):not(.dark)) .nextchat-modal-custom-form {
+    border-color: var(--border-in-light);
+    background: color-mix(in srgb, var(--white) 92%, transparent);
+    box-shadow: 0 14px 28px color-mix(in srgb, var(--black) 14%, transparent);
+  }
+}
+
+/* 移动端 footer / 自定义输入行改为纵向堆叠 + 100% 宽度输入。 */
+@media only screen and (max-width: 650px),
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  .nextchat-modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .nextchat-modal-footer-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nextchat-modal-footer-group .nextchat-pill-button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .nextchat-modal-count {
+    flex: 0 0 100%;
+    text-align: center;
+  }
+
+  .nextchat-modal-custom-row {
+    flex-wrap: wrap;
+  }
+
+  .nextchat-modal-custom-row .nextchat-input-control {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}
+
+/* ---------- 侧边栏受限页统一禁用态（全局共用） ----------
+   用于 ChatBackups、ApiConfig、Plugins、PromptManager 等侧边栏受限页打开时，
+   侧边栏的 ChatList / sidebar-action / 任意 .nextchat-restricted-disabled 容器，
+   统一降透明度 + 关闭交互 + 禁用滚动，与 home.module.scss 中
+   .chat-list-disabled / .chat-item-disabled / .sidebar-action-disabled 的视觉保持一致。 */
+.nextchat-restricted-disabled {
+  opacity: 0.62;
+  pointer-events: none;
+  cursor: default !important;
+  user-select: none !important;
+  transition: none !important;
+  // 关闭容器内的滚动：overflow 阻止滚动条与滚动，
+  // touch-action 阻止触摸 / 鼠标滚轮继续滚动子内容
+  overflow: hidden !important;
+  touch-action: none !important;
 }

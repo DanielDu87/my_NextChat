@@ -55,7 +55,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        {/* 首帧先跟随系统主题，随后由本地保存的主题在 head 阶段立即接管。 */}
+        {/* 首帧默认浅色，随后由本地保存的主题在 head 阶段立即接管。 */}
         <style>{`
           html,body{background-color:#fafafa;color-scheme:light}
           #${THEME_BOOT_SCREEN_ID}{position:fixed;inset:0;z-index:2147483647;background:#fafafa;color-scheme:light;pointer-events:none}
@@ -89,7 +89,7 @@ export default function RootLayout({
                   var html = document.documentElement;
                   var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                   var hasStoredTheme = theme === 'dark' || theme === 'light' || theme === 'auto';
-                  var isDark = theme === 'dark' || (theme === 'auto' && systemDark) || (!hasStoredTheme && systemDark);
+                  var isDark = theme === 'dark' || (theme === 'auto' && systemDark);
                   var preloadDark = isDark;
                   var bgColor = preloadDark ? '#151515' : '#fafafa';
                   window.__NEXTCHAT_PRELOAD_THEME__ = preloadDark ? 'dark' : 'light';
@@ -122,7 +122,7 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  var theme = window.__NEXTCHAT_PRELOAD_THEME__ || 'dark';
+                  var theme = window.__NEXTCHAT_PRELOAD_THEME__ || 'light';
                   var isDark = theme !== 'light';
                   var bgColor = isDark ? '#151515' : '#fafafa';
                   document.body.classList.remove('light', 'dark');

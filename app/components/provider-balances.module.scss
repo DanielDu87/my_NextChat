@@ -16,6 +16,10 @@
   gap: 16px;
 }
 
+.mobileBatchAction {
+  display: none;
+}
+
 .autofillTrap {
   position: fixed;
   top: -10000px;
@@ -34,42 +38,6 @@
   margin: 0 auto;
 }
 
-.hoverCard {
-  --hover-x: 50%;
-  --hover-y: 50%;
-
-  position: relative;
-  box-sizing: border-box;
-  overflow: hidden;
-  background: radial-gradient(
-      220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 12%, transparent),
-      transparent 62%
-    ),
-    var(--white);
-  background-repeat: no-repeat;
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
-}
-
-.hoverCard:hover,
-.hoverCard:focus-within {
-  border-color: color-mix(in srgb, var(--primary) 76%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
-    0 8px 20px rgba(0, 0, 0, 0.035);
-}
-
-:global(.dark) .hoverCard:hover,
-:global(.dark) .hoverCard:focus-within {
-  border-color: color-mix(in srgb, var(--primary) 82%, transparent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
-    0 8px 22px rgba(0, 0, 0, 0.28);
-}
-
 .card {
   padding: 16px;
   border: var(--border-in-light);
@@ -78,14 +46,44 @@
   box-shadow: var(--card-shadow);
 }
 
-.card.hoverCard {
-  background: radial-gradient(
-      220px circle at var(--hover-x) var(--hover-y),
-      color-mix(in srgb, var(--primary) 12%, transparent),
-      transparent 62%
-    ),
-    var(--white);
-  background-repeat: no-repeat;
+@media (hover: hover) and (pointer: fine) {
+  .desktopHoverCard {
+    --hover-x: 50%;
+    --hover-y: 50%;
+
+    position: relative;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: radial-gradient(
+        220px circle at var(--hover-x) var(--hover-y),
+        color-mix(in srgb, var(--primary) 12%, transparent),
+        transparent 62%
+      ),
+      var(--white);
+    background-repeat: no-repeat;
+    transition:
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      background 0.16s ease;
+  }
+
+  .desktopHoverCard:hover,
+  .desktopHoverCard:focus-within {
+    border-color: color-mix(in srgb, var(--primary) 76%, transparent);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--primary) 44%, transparent),
+      0 8px 20px rgba(0, 0, 0, 0.035);
+  }
+
+  :global(.dark) .desktopHoverCard:hover,
+  :global(.dark) .desktopHoverCard:focus-within,
+  :global(body.dark) .desktopHoverCard:hover,
+  :global(body.dark) .desktopHoverCard:focus-within {
+    border-color: color-mix(in srgb, var(--primary) 82%, transparent);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--primary) 52%, transparent),
+      0 8px 22px rgba(0, 0, 0, 0.28);
+  }
 }
 
 .header {
@@ -105,25 +103,67 @@
   font-weight: 700;
 }
 
+.balanceUpdated {
+  color: var(--primary-button-bg);
+}
+
 .row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button / .nextchat-default-button 统一接管。
-   本文件只保留页面特定的高度/宽度微调。*/
-.row :global(button[class*="icon-button"]) {
-  height: 40px !important;
-  min-height: 40px !important;
+
+.row :global(.nextchat-input-control) {
+  flex: 1;
 }
 
-/* 输入框基础样式（边框/背景/hover/focus）由 globals.scss 中的 .nextchat-input-control 统一接管。
-   本类只保留 flex 布局相关微调。*/
-.input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
+.actionButton.actionButton.actionButton {
+  width: auto !important;
+  min-width: max-content !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 12px !important;
+  justify-content: center !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+}
+
+.actionButton.actionButton.actionButton :global([class*="icon-button-text"]) {
+  display: inline-flex !important;
+  margin-left: 6px !important;
+  white-space: nowrap;
+}
+
+.actionButton.actionButton.actionButton :global([class*="icon-button-icon"]) {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+}
+
+.actionButton.actionButton.actionButton :global(svg) {
+  width: 16px !important;
+  height: 16px !important;
+  transform: none !important;
+}
+
+.actionButton.actionButton.actionButton :global(svg > g) {
+  transform: none !important;
+}
+
+.actionButton.actionButton.actionButton
+  :global([class*="icon-button-icon"] path[style*="stroke"]) {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-opacity: 1 !important;
+}
+
+.actionButton.actionButton.actionButton
+  :global([class*="icon-button-icon"] path:not([style*="stroke"])),
+.actionButton.actionButton.actionButton
+  :global([class*="icon-button-icon"] circle) {
+  fill: currentColor !important;
+  stroke: none !important;
 }
 
 .hint {
@@ -152,82 +192,28 @@
   text-align: center;
 }
 
-/* 按钮基础样式由 globals.scss 中的 .nextchat-primary-button 统一接管。
-   本类只保留页面特殊微调：宽度/高度/字号/SVG。*/
-.headerQueryButton.headerQueryButton.headerQueryButton {
-  width: auto !important;
-  min-width: max-content !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  padding: 0 12px !important;
-  box-sizing: border-box !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.headerQueryButton.headerQueryButton.headerQueryButton
-  :global([class*="icon-button-text"]) {
-  display: inline-flex !important;
-  margin-left: 6px;
-  white-space: nowrap;
-}
-
-.headerQueryButton.headerQueryButton.headerQueryButton
-  :global([class*="icon-button-icon"]) {
-  width: 16px !important;
-  height: 16px !important;
-  margin: 0 !important;
-}
-
-.headerQueryButton.headerQueryButton.headerQueryButton :global(svg) {
-  width: 16px !important;
-  height: 16px !important;
-  transform: none !important;
-}
-
-.headerQueryButton.headerQueryButton.headerQueryButton :global(svg > g) {
-  transform: none !important;
-}
-
 @media (max-width: 700px) {
   .headerInner {
     gap: 8px;
   }
 
-  .headerQueryButton.headerQueryButton.headerQueryButton {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
-    padding: 0 !important;
-    border: 2px solid var(--primary) !important;
-  }
-
-  .headerInner :global(button[data-close-button="true"]) {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
-    border-width: 2px !important;
-  }
-
-  .headerQueryButton.headerQueryButton.headerQueryButton
-    :global([class*="icon-button-text"]) {
-    display: none !important;
-    margin-left: 0;
-  }
-
-  .headerQueryButton.headerQueryButton.headerQueryButton
-    :global([class*="icon-button-icon"]) {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
-  }
-
   .content {
     padding: 12px;
+  }
+
+  .desktopBatchAction {
+    display: none !important;
+  }
+
+  .mobileBatchAction {
+    display: block;
+    max-width: 980px;
+    margin: 0 auto 12px;
+  }
+
+  .mobileBatchAction .actionButton.actionButton.actionButton {
+    width: 100% !important;
+    min-width: 0 !important;
   }
 
   .list {
@@ -270,43 +256,24 @@
     gap: 10px;
   }
 
-  .input {
+  .row :global(.nextchat-input-control) {
     flex: 1 1 100%;
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 44px;
-    height: 44px;
-    padding: 0 12px;
-    font-size: 14px;
   }
 
-  .row :global(button[class*="icon-button"]) {
+
+
+  .row .actionButton.actionButton.actionButton {
     flex: 1 1 0;
-    width: auto;
-    min-width: 0;
-    justify-content: center;
-    min-height: 40px !important;
+    min-width: 0 !important;
     height: 40px !important;
+    min-height: 40px !important;
     padding: 0 10px !important;
-    border-radius: 9px !important;
     font-size: 13px !important;
   }
 
-  .row :global(button[class*="icon-button"] [class*="icon-button-text"]) {
-    display: inline-flex !important;
-    margin-left: 6px;
-    white-space: nowrap;
-  }
-
-  .row :global(button[class*="icon-button"] [class*="icon-button-icon"]) {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
-  }
-
-  .row :global(button[class*="icon-button"] svg) {
-    width: 16px;
-    height: 16px;
+  .headerInner .actionButton.actionButton.actionButton {
+    flex: 0 0 auto;
+    min-width: max-content !important;
   }
 
   .hint,

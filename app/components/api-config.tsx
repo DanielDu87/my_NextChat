@@ -1,4 +1,12 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  useId,
+} from "react";
+import type { PointerEvent } from "react";
 
 import styles from "./api-config.module.scss";
 
@@ -7,12 +15,12 @@ import ConfirmIcon from "../icons/confirm.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import AddIcon from "../icons/add.svg";
 import TrashIcon from "../icons/trash.svg";
+import DownIcon from "../icons/down.svg";
 
 import { IconButton } from "./button";
 import {
   List,
   ListItem,
-  Select,
   showToast,
   showConfirm,
   showTopNotice,
@@ -50,6 +58,7 @@ import { ProviderType } from "../utils/cloud";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import { getLocalAppState } from "../utils/sync";
 import {
+  buildPersistedStoreState,
   parseStoreStatePayload,
   type SyncStoreKey,
 } from "../utils/sync-store-keys";
@@ -121,6 +130,18 @@ function createVisibleApiConfigProfile(): AccessState["apiProfiles"][number] {
   };
 }
 
+function updateHoverPosition(event: PointerEvent<HTMLElement>) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty(
+    "--hover-x",
+    `${event.clientX - rect.left}px`,
+  );
+  event.currentTarget.style.setProperty(
+    "--hover-y",
+    `${event.clientY - rect.top}px`,
+  );
+}
+
 function isOcoolProfile(profile: { name: string; baseUrl: string }) {
   return isOcoolProfileLike(profile);
 }
@@ -170,6 +191,39 @@ const BUILTIN_PROVIDER_IDS = new Set([
   "302ai",
 ]);
 const ENCRYPTED_SECRET_PLACEHOLDER = "__encrypted__";
+function stableJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function buildApiConfigComparePayload(
+  state: ReturnType<typeof getLocalAppState>,
+) {
+  const accessState = state[StoreKey.Access];
+  const configState = state[StoreKey.Config] as Record<string, unknown>;
+
+  return {
+    [StoreKey.Access]: buildPersistedStoreState(StoreKey.Access, accessState),
+    [StoreKey.Config]: buildPersistedStoreState(StoreKey.Config, {
+      customModels: configState.customModels,
+      customModelsUpdatedAt: configState.customModelsUpdatedAt,
+      modelConfig: configState.modelConfig,
+      modelSelectionUpdatedAt: configState.modelSelectionUpdatedAt,
+    }),
+  };
+}
+
 const ACCESS_SECRET_FIELD_KEYS = [
   "apiKey",
   "modelFetchApiKey",
@@ -518,6 +572,85 @@ const PROVIDER_OPTIONS = [
   ServiceProvider["302.AI"],
   ServiceProvider.Local,
 ] as const;
+
+function ProviderSelect(props: {
+  value: ServiceProvider;
+  onChange: (provider: ServiceProvider) => void;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  const commitValue = (provider: ServiceProvider) => {
+    props.onChange(provider);
+    setOpen(false);
+  };
+
+  return (
+    <div
+      className={`nextchat-select ${open ? "nextchat-select-open" : ""}`}
+      ref={rootRef}
+    >
+      <button
+        aria-controls={open ? selectId : undefined}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={props.ariaLabel || "选择平台"}
+        className="nextchat-select-trigger nextchat-control-surface"
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+          if (event.key === "ArrowDown" || event.key === "Enter") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        type="button"
+      >
+        <span className="nextchat-select-text">{props.value}</span>
+        <DownIcon className="nextchat-select-icon" />
+      </button>
+      {open && (
+        <div className="nextchat-select-menu" id={selectId} role="listbox">
+          {PROVIDER_OPTIONS.map((provider) => {
+            const selected = provider === props.value;
+            return (
+              <button
+                aria-selected={selected}
+                className={`nextchat-select-option ${
+                  selected ? "nextchat-select-option-active" : ""
+                }`}
+                key={provider}
+                onClick={() => commitValue(provider)}
+                role="option"
+                type="button"
+              >
+                <span className="nextchat-select-check" />
+                <span className="nextchat-select-option-text">{provider}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const PROVIDER_FIELDS: Record<ServiceProvider, ProviderField[]> = {
   [ServiceProvider.OpenAI]: [
@@ -982,9 +1115,9 @@ export function ApiConfigPage() {
       style.id = styleId;
       style.textContent = `
         .modal-mask .modal-container {
-          width: 550px !important;
-          max-width: unset !important;
-          min-width: unset !important;
+          width: min(550px, calc(100vw - 24px)) !important;
+          max-width: calc(100vw - 24px) !important;
+          min-width: 0 !important;
           margin: 0 auto !important;
         }
       `;
@@ -1010,9 +1143,10 @@ export function ApiConfigPage() {
 
   const getApiConfigSnapshot = useCallback(() => {
     const state = getLocalAppState();
+    const comparePayload = buildApiConfigComparePayload(state);
     return {
-      [StoreKey.Access]: JSON.stringify(state[StoreKey.Access]),
-      [StoreKey.Config]: JSON.stringify(state[StoreKey.Config]),
+      [StoreKey.Access]: stableJsonStringify(comparePayload[StoreKey.Access]),
+      [StoreKey.Config]: stableJsonStringify(comparePayload[StoreKey.Config]),
     };
   }, []);
 
@@ -1214,6 +1348,10 @@ export function ApiConfigPage() {
           } else {
             console.log("[API Config] ℹ️ 当前未启用数据库同步");
           }
+
+          window.setTimeout(() => {
+            syncedApiConfigSnapshotRef.current = getApiConfigSnapshot();
+          }, 0);
         }
       }, 200);
 
@@ -1222,7 +1360,7 @@ export function ApiConfigPage() {
     };
 
     logLocalCacheOnLoad();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [getApiConfigSnapshot]);
 
   useEffect(() => {
     writeAccessSnapshot({
@@ -1833,10 +1971,16 @@ export function ApiConfigPage() {
     if (hasUnsyncedChanges) {
       console.warn("[API Config] ⚠️ 关闭页面时检测到未同步的配置修改");
       const shouldSync = await showConfirm(
-        "API 配置已修改但尚未同步。是否保存并同步后退出？",
+        "API 配置已修改但尚未同步，是否保存后退出？",
+        {
+          cancelText: "不保存",
+          confirmText: "保存",
+          hideCloseButton: true,
+        },
       );
-      if (!shouldSync) return;
-      if (!(await syncToDatabase())) return;
+      if (shouldSync) {
+        if (!(await syncToDatabase())) return;
+      }
     }
     navigate(Path.Chat);
   };
@@ -1881,6 +2025,26 @@ export function ApiConfigPage() {
     }
   };
 
+  const addVisibleProfile = () => {
+    accessStore.update((access) => {
+      access.lastUpdateTime = Date.now();
+      access.apiProfiles = [
+        ...access.apiProfiles,
+        createVisibleApiConfigProfile(),
+      ];
+    });
+    const latestAccessState = useAccessStore.getState();
+    writeAccessSnapshot({
+      useCustomConfig: latestAccessState.useCustomConfig,
+      provider: latestAccessState.provider,
+      apiProfiles: latestAccessState.apiProfiles,
+      customModels: latestAccessState.customModels,
+      customUrl: latestAccessState.customUrl,
+      customApiKey: latestAccessState.customApiKey,
+      customOpenAICompatible: latestAccessState.customOpenAICompatible,
+    });
+  };
+
   return (
     <div className={styles.page} data-top-notice-anchor="true">
       <div className="window-header" data-tauri-drag-region>
@@ -1905,8 +2069,10 @@ export function ApiConfigPage() {
       </div>
 
       <div className={styles.content}>
-        <List>
+        <List className={styles.sectionList}>
           <ListItem
+            className={`${styles.sectionCard} ${styles.statusCard}`}
+            onPointerMove={updateHoverPosition}
             title="当前状态"
             subTitle={
               <div>
@@ -1927,39 +2093,29 @@ export function ApiConfigPage() {
           />
 
           <ListItem
-            title="配置条目"
-            subTitle="所有对话和模型获取都优先使用当前配置条目的 Base URL、API Key、OpenAI 兼容与多 key 设置"
-            vertical
-          >
-            <div className={styles.profileList}>
-              <div className={styles.profileListActions}>
+            className={styles.sectionCard}
+            onPointerMove={updateHoverPosition}
+            title={
+              <div className={styles.profileSectionTitle}>
+                <div className={styles.profileSectionTitleText}>
+                  <div className={styles.profileSectionTitleMain}>配置条目</div>
+                  <div className={styles.profileSectionTitleSub}>
+                    所有对话和模型获取都优先使用当前配置条目的 Base URL、API
+                    Key、OpenAI 兼容与多 key 设置
+                  </div>
+                </div>
                 <IconButton
                   icon={<AddIcon />}
                   text="新增配置"
                   type="green"
-                  className={styles.addProfileButton}
-                  onClick={() => {
-                    accessStore.update((access) => {
-                      access.lastUpdateTime = Date.now();
-                      access.apiProfiles = [
-                        ...access.apiProfiles,
-                        createVisibleApiConfigProfile(),
-                      ];
-                    });
-                    const latestAccessState = useAccessStore.getState();
-                    writeAccessSnapshot({
-                      useCustomConfig: latestAccessState.useCustomConfig,
-                      provider: latestAccessState.provider,
-                      apiProfiles: latestAccessState.apiProfiles,
-                      customModels: latestAccessState.customModels,
-                      customUrl: latestAccessState.customUrl,
-                      customApiKey: latestAccessState.customApiKey,
-                      customOpenAICompatible:
-                        latestAccessState.customOpenAICompatible,
-                    });
-                  }}
+                  className="nextchat-api-config-add-button"
+                  onClick={addVisibleProfile}
                 />
               </div>
+            }
+            vertical
+          >
+            <div className={styles.profileList}>
               <div className={styles.profileTable}>
                 <div className={styles.profileTableHeader}>
                   <div className={styles.profileColProvider}>平台</div>
@@ -1980,11 +2136,10 @@ export function ApiConfigPage() {
                         <div className={styles.profileCellLabel}>
                           平台 / 名称
                         </div>
-                        <Select
+                        <ProviderSelect
+                          ariaLabel="选择平台"
                           value={profile.provider}
-                          onChange={(e) => {
-                            const provider = e.currentTarget
-                              .value as ServiceProvider;
+                          onChange={(provider) => {
                             accessStore.update((access) => {
                               const nextAccess = access as AccessState;
                               access.apiProfiles = access.apiProfiles.map(
@@ -2014,13 +2169,7 @@ export function ApiConfigPage() {
                               syncProfileToAccess(profile.id);
                             }
                           }}
-                        >
-                          {PROVIDER_OPTIONS.map((provider) => (
-                            <option key={provider} value={provider}>
-                              {provider}
-                            </option>
-                          ))}
-                        </Select>
+                        />
                       </div>
                     ) : (
                       <>
@@ -2028,11 +2177,10 @@ export function ApiConfigPage() {
                           className={`${styles.profileCell} ${styles.profileColProvider}`}
                         >
                           <div className={styles.profileCellLabel}>平台</div>
-                          <Select
+                          <ProviderSelect
+                            ariaLabel="选择平台"
                             value={profile.provider}
-                            onChange={(e) => {
-                              const provider = e.currentTarget
-                                .value as ServiceProvider;
+                            onChange={(provider) => {
                               accessStore.update((access) => {
                                 const nextAccess = access as AccessState;
                                 access.apiProfiles = access.apiProfiles.map(
@@ -2066,13 +2214,7 @@ export function ApiConfigPage() {
                                 syncProfileToAccess(profile.id);
                               }
                             }}
-                          >
-                            {PROVIDER_OPTIONS.map((provider) => (
-                              <option key={provider} value={provider}>
-                                {provider}
-                              </option>
-                            ))}
-                          </Select>
+                          />
                         </div>
 
                         <div
@@ -2080,7 +2222,7 @@ export function ApiConfigPage() {
                         >
                           <div className={styles.profileCellLabel}>名称</div>
                           <input
-                            className={`${styles.textInput} nextchat-input-surface`}
+                            className={"nextchat-input-control"}
                             type="text"
                             placeholder={`${profile.provider} #${index + 1}`}
                             value={profile.name}
@@ -2104,11 +2246,9 @@ export function ApiConfigPage() {
                     >
                       <div className={styles.profileCellLabel}>Base URL</div>
                       <input
-                        className={`${
-                          styles.textInput
-                        } nextchat-input-surface ${
+                        className={`nextchat-input-control ${
                           isOfficialProviderBaseUrlLocked(profile.provider)
-                            ? styles.officialBaseUrlInputDisabled
+                            ? "nextchat-input-surface-readonly"
                             : ""
                         }`}
                         type="text"
@@ -2156,7 +2296,9 @@ export function ApiConfigPage() {
                         <div className={styles.profileApiKeyEditor}>
                           <button
                             type="button"
-                            className={`${styles.textInput} ${styles.profileApiKeyButton}`}
+                            className={
+                              "nextchat-input-control nextchat-api-config-key-button"
+                            }
                             onClick={() => setEditingYutoProfileId(profile.id)}
                           >
                             点击编辑分组
@@ -2164,7 +2306,7 @@ export function ApiConfigPage() {
                         </div>
                       ) : (
                         <input
-                          className={`${styles.textInput} nextchat-input-surface`}
+                          className={"nextchat-input-control"}
                           type="text"
                           placeholder="API Key"
                           value={profile.apiKey}
@@ -2282,12 +2424,12 @@ export function ApiConfigPage() {
                       <div className={styles.profileCellLabel}>操作</div>
                       <div className={styles.profileRowActions}>
                         <IconButton
-                          icon={
-                            <TrashIcon className={styles.profileDeleteIcon} />
-                          }
+                          icon={<TrashIcon />}
                           text="删除"
                           type="danger"
-                          className={`${styles.dangerButton} ${styles.profileDeleteButton} nextchat-danger-button-filled`}
+                          className={
+                            "nextchat-danger-button-filled nextchat-api-config-danger-action"
+                          }
                           onClick={async () => {
                             const confirmed = await showConfirm(
                               `确定要删除配置"${profile.name}"吗？`,
@@ -2388,7 +2530,7 @@ export function ApiConfigPage() {
                                     </div>
                                     <div className={styles.profileYutoInputRow}>
                                       <input
-                                        className={`${styles.textInput} nextchat-input-surface`}
+                                        className={"nextchat-input-control"}
                                         type="text"
                                         placeholder="留空则不尝试请求"
                                         value={apiKeyGroups[group] ?? ""}
@@ -2471,11 +2613,16 @@ export function ApiConfigPage() {
             ) : (
               <></>
             )}
-          </ListItem>
-
-          {extraFields.length > 0 && (
-            <ListItem title="附加配置" subTitle="当前平台的额外字段" vertical>
+            {extraFields.length > 0 && (
               <div className={styles.fieldGroup}>
+                <div className={styles.embeddedSectionTitle}>
+                  <div className={styles.embeddedSectionTitleMain}>
+                    附加配置
+                  </div>
+                  <div className={styles.embeddedSectionTitleSub}>
+                    当前平台的额外字段
+                  </div>
+                </div>
                 {extraFields.map((field) => {
                   const value = String(accessStore[field.key] ?? "");
 
@@ -2488,7 +2635,7 @@ export function ApiConfigPage() {
                         </div>
                       )}
                       <input
-                        className={`${styles.textInput} nextchat-input-surface`}
+                        className={"nextchat-input-control"}
                         aria-label={field.label}
                         type="text"
                         placeholder={field.placeholder}
@@ -2503,11 +2650,12 @@ export function ApiConfigPage() {
                   );
                 })}
               </div>
-            </ListItem>
-          )}
+            )}
+          </ListItem>
 
           <ListItem
-            className={styles.syncCard}
+            className={`${styles.sectionCard} ${styles.syncCard}`}
+            onPointerMove={updateHoverPosition}
             title={
               <div className={styles.syncCardTitle}>
                 <div className={styles.syncCardTitleMain}>数据库同步</div>
@@ -2544,8 +2692,9 @@ export function ApiConfigPage() {
                 <IconButton
                   icon={<TrashIcon />}
                   text="清空已添加模型"
-                  type="danger"
-                  className={`${styles.dangerButton} ${styles.clearModelsButton} nextchat-danger-button-filled`}
+                  className={
+                    "nextchat-danger-button-filled nextchat-api-config-danger-action"
+                  }
                   onClick={() => {
                     void clearLocalAndCloudModels();
                   }}
