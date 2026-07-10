@@ -396,7 +396,9 @@ export function ChatBackupsPage() {
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "load_failed");
       }
-      const nextBackups = Array.isArray(data.backups) ? data.backups : [];
+      const nextBackups: ChatBackupRun[] = Array.isArray(data.backups)
+        ? data.backups
+        : [];
       if (data.settings) {
         setSettings(data.settings);
         syncedSettingsRef.current = JSON.stringify(data.settings);
