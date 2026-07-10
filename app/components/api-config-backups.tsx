@@ -76,7 +76,7 @@ export function ApiConfigBackupsPage() {
       setSettingsSyncStatus(
         data.degraded ? "服务器暂不可用，显示默认设置" : "已与服务器同步",
       );
-      const list = Array.isArray(data.backups) ? data.backups : [];
+      const list: Backup[] = Array.isArray(data.backups) ? data.backups : [];
       const backupLogSignature = JSON.stringify({
         degraded: Boolean(data.degraded),
         backups: list,
