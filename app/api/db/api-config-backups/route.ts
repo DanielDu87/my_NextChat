@@ -11,6 +11,7 @@ import {
   readBalanceEntriesFromPayload,
   saveApiConfigBackupSettings,
   writeApiConfigBalanceEntries,
+  normalizeApiConfigBackupState,
 } from "@/app/utils/server/api-config-backup-repository";
 import {
   getStoreSnapshot,
@@ -118,10 +119,9 @@ export async function POST(req: NextRequest) {
         );
         await createApiConfigBackup(userId, currentPayload, "pre_restore");
       }
-      const state =
-        payload && typeof payload === "object" && (payload as any).state
-          ? (payload as any).state
-          : payload;
+      // 兼容 V1（双层 {state:{state:{apiProfiles:...}}}）和 V2（单层 {state:{apiProfiles:...}}）
+      // 的备份格式：使用 normalizeApiConfigBackupState 统一剥壳，去除 V1 的双层 state。
+      const state = normalizeApiConfigBackupState(payload);
       await setStoreSnapshot(StoreKey.Access, state, userId);
       const balanceEntries = readBalanceEntriesFromPayload(payload);
       if (balanceEntries.length > 0) {

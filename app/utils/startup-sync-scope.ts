@@ -6,7 +6,6 @@ import type { AutoSyncScope } from "./sync-store-keys";
 function normalizeSyncPath(path: string) {
   return path.replace(/\/+$/, "") || Path.Home;
 }
-
 export function getCurrentHashPath() {
   if (typeof window === "undefined") {
     return Path.Home;
@@ -49,4 +48,15 @@ export function getCurrentAutoSyncScope(): AutoSyncScope {
   }
 
   return "app";
+}
+
+export function isHomepageOrChatPage() {
+  const path = getCurrentHashPath();
+  return (
+    path === Path.Home ||
+    path === Path.Chat ||
+    path === Path.NewChat ||
+    path === Path.SearchChat ||
+    /^\/chat\/[^/]+$/.test(path)
+  );
 }

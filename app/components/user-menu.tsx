@@ -365,6 +365,7 @@ export function UserMenu(props?: {
     void queryProviderBalanceProfile(props.balanceProfileId, {
       source: "chat-page-auto-refresh",
       providerName: props.balanceProviderName,
+      logSuccess: false,
     })
       .then(({ balance }) => {
         cacheProviderBalance(balanceUserId, props.balanceProfileId!, balance);

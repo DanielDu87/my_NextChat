@@ -16,6 +16,10 @@ type PostgresEnv = {
   max?: number;
   idleTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
+  // 单条 SQL 超时（毫秒）。防止长查询占满连接池导致整站雪崩。
+  statementTimeoutMs?: number;
+  // 事务挂起超时（毫秒）。防止事务被遗忘导致连接被长期占用。
+  idleInTxTimeoutMs?: number;
 };
 
 declare global {
@@ -24,7 +28,13 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-06-chat-backups";
+// 2026-07-09-force-reapply-conversations-deleted-at：旧容器可能在 deleted_at 列
+// 加入迁移之前已经跑过 ensureSyncStorageSchema 并把缓存锁住，导致 ALTER TABLE …
+// ADD COLUMN IF NOT EXISTS deleted_at 一直没有跑。bump 这个版本号会清掉
+// globalThis.__nextchatSyncStorageSchemaReady，让下一次请求重新走一遍迁移；
+// ADD COLUMN IF NOT EXISTS 幂等，旧库会补上缺失列，已有库是 no-op。
+const SYNC_STORAGE_SCHEMA_VERSION =
+  "2026-07-09-force-reapply-conversations-deleted-at";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -78,6 +88,15 @@ export async function withRetryablePostgresOperation<T>(
   operation: () => Promise<T>,
 ) {
   const maxRetries = Math.max(0, Number(process.env.PG_RETRY_COUNT ?? "3"));
+  // 重试退避默认上限 5s（覆盖 PG 重启、容器漂移场景），并加入 ±20% jitter 防止惊群
+  const baseDelayMs = Math.max(
+    500,
+    Number(process.env.PG_RETRY_BASE_DELAY_MS ?? "500"),
+  );
+  const maxDelayMs = Math.max(
+    baseDelayMs,
+    Number(process.env.PG_RETRY_MAX_DELAY_MS ?? "5000"),
+  );
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -92,13 +111,20 @@ export async function withRetryablePostgresOperation<T>(
         throw error;
       }
 
+      const jitter = 0.8 + Math.random() * 0.4;
+      const delay = Math.min(
+        maxDelayMs,
+        Math.round(baseDelayMs * (attempt + 1) * (attempt + 1) * jitter),
+      );
+
       console.warn(
-        "[Postgres] retry operation after reconnect",
+        `[Postgres] retry attempt=${
+          attempt + 1
+        }/${maxRetries} after ${delay}ms`,
         error instanceof Error ? error.message : String(error),
       );
 
       await closePostgresPool().catch(() => {});
-      const delay = Math.min(1000, 150 * (attempt + 1) * (attempt + 1));
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -118,6 +144,13 @@ export function getPostgresEnv(): PostgresEnv {
   const connectionTimeoutMillis = Number(
     process.env.PG_CONNECT_TIMEOUT_MS ?? "10000",
   );
+  // 单条 SQL 默认 30s 上限；事务挂起默认 60s 上限。均可通过环境变量覆盖。
+  const statementTimeoutMs = Number(
+    process.env.PG_STATEMENT_TIMEOUT_MS ?? "30000",
+  );
+  const idleInTxTimeoutMs = Number(
+    process.env.PG_IDLE_IN_TX_TIMEOUT_MS ?? "60000",
+  );
 
   return {
     connectionString: process.env.DATABASE_URL,
@@ -134,6 +167,12 @@ export function getPostgresEnv(): PostgresEnv {
     connectionTimeoutMillis: Number.isFinite(connectionTimeoutMillis)
       ? connectionTimeoutMillis
       : 10000,
+    statementTimeoutMs: Number.isFinite(statementTimeoutMs)
+      ? statementTimeoutMs
+      : 30000,
+    idleInTxTimeoutMs: Number.isFinite(idleInTxTimeoutMs)
+      ? idleInTxTimeoutMs
+      : 60000,
   };
 }
 
@@ -161,7 +200,18 @@ export function getPostgresPool() {
       max: env.max,
       idleTimeoutMillis: env.idleTimeoutMillis,
       connectionTimeoutMillis: env.connectionTimeoutMillis,
-      ssl: env.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: env.ssl
+        ? // 默认校验证书以避免中间人攻击；仅当显式设置 PGSSL_REJECT_UNAUTHORIZED=false 时
+          // 才关闭证书校验（用于 SSH 隧道等场景；CLAUDE.md 中本项目默认走 SSH 隧道连远程 PG）
+          process.env.PGSSL_REJECT_UNAUTHORIZED === "false"
+          ? { rejectUnauthorized: false }
+          : { rejectUnauthorized: true }
+        : undefined,
+      // 全局应用 statement_timeout / idle_in_transaction_session_timeout，
+      // 防止单条长查询占满连接池导致整站雪崩。
+      statement_timeout: env.statementTimeoutMs,
+      query_timeout: env.statementTimeoutMs,
+      idle_in_transaction_session_timeout: env.idleInTxTimeoutMs,
     });
 
     pool.on("error", (error) => {
@@ -246,10 +296,19 @@ export async function pgHealthcheck() {
 }
 
 export async function closePostgresPool() {
-  if (!globalThis.__nextchatPostgresPool) return;
   const pool = globalThis.__nextchatPostgresPool;
+  if (!pool) return;
+  // 先清空全局引用再 end()，避免 end() 期间并发请求基于「全局为空」判断
+  // 错误地创建第二个池导致连接翻倍。
   globalThis.__nextchatPostgresPool = undefined;
-  await pool.end();
+  try {
+    await pool.end();
+  } catch (error) {
+    console.warn(
+      "[Postgres] pool.end() 失败",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export async function ensureSyncStorageSchema() {
@@ -269,7 +328,7 @@ export async function ensureSyncStorageSchema() {
         declare
           raw text;
         begin
-          raw := md5(random()::text || clock_timestamp()::text || txid_current()::text);
+          raw := md5(random()::text || clock_timestamp()::text || pg_current_xact_id()::text);
           return (
             substr(raw, 1, 8) || '-' ||
             substr(raw, 9, 4) || '-' ||
@@ -535,6 +594,25 @@ export async function ensureSyncStorageSchema() {
         create index if not exists idx_user_cache_files_blob_id
         on user_cache_files(blob_id)
       `);
+        // 缓存文件引用追踪表：替代 LIKE 全表扫 messages.content_json/metadata_json
+        // 写入消息时按 cache_file_id upsert；删除缓存文件前查此表判断是否仍被引用。
+        await client.query(`
+        create table if not exists cache_file_references (
+          cache_file_id uuid not null references user_cache_files(id) on delete cascade,
+          user_id uuid not null references app_users(id) on delete cascade,
+          message_id uuid references messages(id) on delete cascade,
+          last_seen_at timestamptz not null default now(),
+          primary key (cache_file_id, message_id)
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_cache_file_references_cache_file_id
+        on cache_file_references(cache_file_id)
+      `);
+        await client.query(`
+        create index if not exists idx_cache_file_references_user_id
+        on cache_file_references(user_id)
+      `);
         await client.query(`
         create index if not exists idx_cache_file_blobs_content_md5
         on cache_file_blobs(content_type, content_md5)
@@ -583,6 +661,16 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         alter table conversations
         add column if not exists external_session_id text
+      `);
+        // 软删除专用时间戳：与 is_deleted 配对使用，便于增量备份识别最近被删除的会话
+        await client.query(`
+        alter table conversations
+        add column if not exists deleted_at timestamptz
+      `);
+        await client.query(`
+        create index if not exists idx_conversations_user_deleted_at
+        on conversations(user_id, deleted_at)
+        where is_deleted = true
       `);
         await client.query(`
         create unique index if not exists idx_conversations_user_external_session_id

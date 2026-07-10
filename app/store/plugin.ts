@@ -609,26 +609,16 @@ export const usePluginStore = createPersistStore(
             })
             .finally(() => {
               if (getCurrentAutoSyncScope() === "draw") {
-                console.log(
-                  "[Plugin] ⏭️ 当前为 draw 页面，跳过页面初始化插件同步",
-                );
                 return;
               }
-              console.log("[Plugin] 🔄 页面初始化后同步插件状态到数据库", {
-                pluginStates: Object.fromEntries(
-                  Object.entries(state.plugins || {}).map(([id, plugin]) => [
-                    id,
-                    plugin?.enabled !== false,
-                  ]),
-                ),
-              });
+              // 不再打印任何「页面初始化后同步插件状态」相关日志：
+              // 同步结果由 sync.ts 的 logOverallSyncSummary 统一输出（已同步插件: N 个），
+              // 这里属于「启动」阶段，再加提示会污染页面打开数据汇总。
+              // 失败路径走 console.error 兜底即可。
               import("./sync")
                 .then(({ useSyncStore }) =>
                   useSyncStore.getState().sync([StoreKey.Plugin]),
                 )
-                .then(() => {
-                  console.log("[Plugin] ✅ 页面初始化插件状态同步完成");
-                })
                 .catch((error) => {
                   console.error(
                     "[Plugin] ❌ 页面初始化插件状态同步失败",

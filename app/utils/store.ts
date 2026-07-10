@@ -38,15 +38,6 @@ const IMMEDIATE_SYNC_STORE_KEYS = new Set<SyncStoreKey>([
   StoreKey.Plugin,
 ]);
 
-const IMMEDIATE_SYNC_STORE_DISPLAY_NAMES: Partial<
-  Record<SyncStoreKey, string>
-> = {
-  [StoreKey.Access]: "API配置",
-  [StoreKey.Config]: "模型与设置",
-  [StoreKey.DrawList]: "绘图记录",
-  [StoreKey.Plugin]: "插件",
-};
-
 let immediateStoreSyncPauseCount = 0;
 
 // 同步队列，避免并发同步导致 409 冲突
@@ -103,7 +94,6 @@ async function processSyncQueue() {
   }
 
   isSyncQueueProcessing = false;
-  console.debug("✅ 同步队列处理完成");
   resolveSyncQueueIdle();
 }
 
@@ -156,52 +146,16 @@ function triggerImmediateStoreSync(storeName?: string) {
     return;
   }
 
-  const displayName =
-    IMMEDIATE_SYNC_STORE_DISPLAY_NAMES[syncStoreKey] || syncStoreKey;
-  const isDebugImmediateSync =
-    typeof window !== "undefined" &&
-    window.localStorage?.getItem("debug-sync-logs") === "1";
-  const shouldLogSync =
-    syncStoreKey === StoreKey.Access ||
-    syncStoreKey === StoreKey.Plugin ||
-    (syncStoreKey === StoreKey.DrawList && isDebugImmediateSync);
-  if (shouldLogSync) {
-    console.log(`[Immediate Sync] 🕒 ${displayName}已加入数据库同步队列`, {
-      storeKey: syncStoreKey,
-      queuedAt: new Date().toISOString(),
-    });
-  }
-
   // 将同步任务加入队列，而不是立即执行
   const syncTask = () =>
     import("../store/sync")
       .then(({ useSyncStore }) => {
-        if (shouldLogSync) {
-          console.log(`[Immediate Sync] 🚀 开始同步${displayName}到数据库`, {
-            storeKey: syncStoreKey,
-            startedAt: new Date().toISOString(),
-          });
-        }
         return useSyncStore
           .getState()
           .sync([syncStoreKey])
-          .then(() => {
-            if (shouldLogSync) {
-              console.log(`[Immediate Sync] ✅ ${displayName}数据库同步完成`, {
-                storeKey: syncStoreKey,
-                finishedAt: new Date().toISOString(),
-              });
-            }
-          });
+          .then(() => undefined);
       })
       .catch((error) => {
-        if (shouldLogSync) {
-          console.error(`[Immediate Sync] ❌ ${displayName}数据库同步失败`, {
-            storeKey: syncStoreKey,
-            failedAt: new Date().toISOString(),
-            error,
-          });
-        }
         logger.store.error(`❌ ${storeName} 立即同步失败:`, error);
       });
 

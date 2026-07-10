@@ -46,6 +46,7 @@ export function ApiConfigBackupsPage() {
     useState("正在读取服务器设置...");
   const settingsReadyRef = useRef(false);
   const syncedSettingsRef = useRef("");
+  const backupLogSignatureRef = useRef("");
 
   const updateHoverPosition = (event: PointerEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -60,8 +61,6 @@ export function ApiConfigBackupsPage() {
   };
 
   const load = useCallback(async () => {
-    console.log("===== 📚 API配置备份列表 =====");
-    console.log("[API Config] 🔄 正在读取备份设置和历史记录...");
     setLoading(true);
     try {
       const response = await fetch("/api/db/api-config-backups", {
@@ -77,16 +76,34 @@ export function ApiConfigBackupsPage() {
       setSettingsSyncStatus(
         data.degraded ? "服务器暂不可用，显示默认设置" : "已与服务器同步",
       );
-      console.log("[API Config] ✅ 备份设置和历史记录读取完成", {
-        备份数量: data.backups.length,
-        自动备份: data.settings.enabled,
-        备份间隔分钟: data.settings.intervalMinutes,
-        最大保留数量: data.settings.maxBackups,
-        降级读取: Boolean(data.degraded),
+      const list = Array.isArray(data.backups) ? data.backups : [];
+      const backupLogSignature = JSON.stringify({
+        degraded: Boolean(data.degraded),
+        backups: list,
       });
-      console.log("===== ✅ API配置备份列表读取完成 =====");
+      if (backupLogSignatureRef.current === backupLogSignature) return;
+      backupLogSignatureRef.current = backupLogSignature;
+      console.log(
+        `[API Config Backup] 📋 已读取 API 配置备份（${list.length} 条${
+          data.degraded ? "，降级返回" : ""
+        }）：`,
+      );
+      if (list.length) {
+        list.forEach((backup) => {
+          console.log(
+            `  - ${SOURCE_LABEL[backup.source]}：${new Date(
+              backup.createdAt,
+            ).toLocaleString()}（${backup.profileCount} 条配置）`,
+          );
+        });
+      } else {
+        console.log("  - 暂无备份");
+      }
     } catch (error) {
-      console.error("[API Config] ❌ 读取备份列表失败", error);
+      console.error(
+        "[API Config Backup] ❌ 读取备份列表失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("读取 API 配置备份失败");
     } finally {
       setLoading(false);
@@ -103,8 +120,6 @@ export function ApiConfigBackupsPage() {
     if (settingsSnapshot === syncedSettingsRef.current) return;
     setSettingsSyncStatus("等待同步...");
     const timer = window.setTimeout(async () => {
-      console.log("===== ⚙️ API配置备份设置同步 =====");
-      console.log("[API Config] 📤 正在同步备份设置到服务器...", settings);
       setWorking("settings");
       setSettingsSyncStatus("正在同步到服务器...");
       try {
@@ -118,10 +133,14 @@ export function ApiConfigBackupsPage() {
           throw new Error(data.error || "save_failed");
         syncedSettingsRef.current = JSON.stringify(data.settings);
         setSettingsSyncStatus("已与服务器同步");
-        console.log("[API Config] ✅ 备份设置已同步到服务器");
-        console.log("===== ✅ API配置备份设置同步完成 =====");
+        console.log(
+          `[API Config Backup] ✅ 自动备份设置已同步（启用=${data.settings.enabled}，间隔=${data.settings.intervalMinutes} 分钟，保留=${data.settings.maxBackups}）`,
+        );
       } catch (error) {
-        console.error("[API Config] ❌ 备份设置同步失败", error);
+        console.error(
+          "[API Config Backup] ❌ 备份设置同步失败",
+          error instanceof Error ? error.message : error,
+        );
         setSettingsSyncStatus("同步失败，请修改后重试");
         showToast("自动备份设置同步失败");
       } finally {
@@ -144,17 +163,23 @@ export function ApiConfigBackupsPage() {
   };
 
   const createBackup = async () => {
-    console.log("===== 💾 手动创建API配置备份 =====");
-    console.log("[API Config] 🚀 开始创建手动备份...");
+    console.log("[API Config Backup] 🔄 开始手动创建备份");
     setWorking("backup");
     try {
       const data = await request({ action: "backup" });
-      console.log("[API Config] ✅ 手动备份创建成功", data.result);
-      console.log("===== ✅ 手动创建API配置备份完成 =====");
+      const result = data.result || {};
+      console.log(
+        `[API Config Backup] ✅ 手动备份已创建（${
+          SOURCE_LABEL[result.source as keyof typeof SOURCE_LABEL] || "未知来源"
+        }，${result.profileCount || 0} 条配置）`,
+      );
       showToast("API 配置备份已创建");
       await load();
     } catch (error) {
-      console.error("[API Config] ❌ 手动备份创建失败", error);
+      console.error(
+        "[API Config Backup] ❌ 手动备份创建失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("创建 API 配置备份失败");
     } finally {
       setWorking("");
@@ -168,24 +193,26 @@ export function ApiConfigBackupsPage() {
       ))
     )
       return;
+    console.log(
+      `[API Config Backup] 🔄 开始恢复备份（${SOURCE_LABEL[backup.source]}，${
+        backup.profileCount
+      } 条配置）`,
+    );
     setWorking(backup.id);
-    console.log("===== ♻️ 恢复API配置备份 =====");
-    console.log("[API Config] 🚀 开始恢复备份", {
-      备份ID: backup.id,
-      来源: backup.source,
-      配置数量: backup.profileCount,
-      创建时间: backup.createdAt,
-    });
     try {
       const data = await request({ action: "restore", id: backup.id });
       const restoredState = unwrapPersistedStoreState(data.payload);
       accessStore.update((state) => Object.assign(state, restoredState));
-      console.log("[API Config] ✅ 服务器和本地配置均已恢复");
-      console.log("===== ✅ 恢复API配置备份完成 =====");
+      console.log(
+        `[API Config Backup] ✅ 备份已恢复（${backup.profileCount} 条配置）`,
+      );
       showToast("API 配置已恢复");
       await load();
     } catch (error) {
-      console.error("[API Config] ❌ 恢复备份失败", error);
+      console.error(
+        "[API Config Backup] ❌ 恢复备份失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("恢复 API 配置失败");
     } finally {
       setWorking("");
@@ -194,9 +221,10 @@ export function ApiConfigBackupsPage() {
 
   const remove = async (backup: Backup) => {
     if (!(await showConfirm("确定删除这份备份？删除后无法恢复。"))) return;
+    console.log(
+      `[API Config Backup] 🔄 开始删除备份（${SOURCE_LABEL[backup.source]}）`,
+    );
     setWorking(backup.id);
-    console.log("===== 🗑️ 删除API配置备份 =====");
-    console.log("[API Config] 🚀 开始删除备份", { 备份ID: backup.id });
     try {
       const response = await fetch(
         `/api/db/api-config-backups?id=${encodeURIComponent(backup.id)}`,
@@ -205,12 +233,14 @@ export function ApiConfigBackupsPage() {
       const data = await response.json();
       if (!response.ok || !data.ok)
         throw new Error(data.error || "delete_failed");
-      console.log("[API Config] ✅ 备份已删除", { 备份ID: backup.id });
-      console.log("===== ✅ 删除API配置备份完成 =====");
+      console.log("[API Config Backup] ✅ 备份已删除");
       showToast("备份已删除");
       await load();
     } catch (error) {
-      console.error("[API Config] ❌ 删除备份失败", error);
+      console.error(
+        "[API Config Backup] ❌ 删除备份失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("删除备份失败");
     } finally {
       setWorking("");

@@ -24,7 +24,6 @@ import {
   stringifyPersistedStoreState,
   SYNC_STORE_KEYS,
 } from "../utils/sync-store-keys";
-import { getCurrentAutoSyncScope } from "../utils/startup-sync-scope";
 import {
   buildChatIndexPayload,
   buildChatStateFromIndex,
@@ -59,6 +58,7 @@ import {
 } from "./chat";
 import { logger } from "../utils/logger";
 import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
+import { isHomepageOrChatPage } from "../utils/startup-sync-scope";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import {
   AUTO_SYNC_CHANNEL_NAME,
@@ -123,9 +123,6 @@ const LOG_SEPARATOR = "=".repeat(5);
 let syncInFlight: Promise<void> | null = null;
 let queuedSyncKeys = new Set<SyncStoreKey>();
 let syncInFlightManual = false;
-let lastKnownChatSessionSnapshot = new Map<string, string>();
-let lastKnownCustomModelsSnapshot = "";
-let lastAdminConversationSummaryAt = 0;
 const RETRYABLE_DB_SYNC_ERROR = /\[DB Sync\] (404|408|5\d{2})\b/;
 // 网络级错误（连接关闭、超时、DNS 失败等），这些也应该触发重试
 const RETRYABLE_NETWORK_ERROR =
@@ -175,6 +172,11 @@ function syncConsole(
   message: string,
   payload?: unknown,
 ) {
+  // 首页的数据汇总由 usage-summary-log 统一输出，底层同步过程日志不再打印。
+  if (level !== "warn" && level !== "error") {
+    return;
+  }
+
   const dedupKey = `${level}|${message}|${
     payload === undefined ? "" : JSON.stringify(payload)
   }`;
@@ -193,8 +195,10 @@ function syncConsole(
   console[level](prefixedMessage, payload);
 }
 
-function logSyncSectionTitle(title: string) {
-  syncConsole("log", `===== 💾 ${title} =====`);
+function logHomepageSync(message: string, ...args: any[]) {
+  if (isHomepageOrChatPage()) {
+    console.log(message, ...args);
+  }
 }
 
 function shouldStopAutoSyncForManualSync(
@@ -492,6 +496,19 @@ const SYNC_DEBOUNCE_KEY = "nextchat_sync_debounce";
 const CHAT_SYNC_COOLDOWN_MS = 500;
 let lastChatSyncCompletedAt = 0;
 
+// 全局 flag：路由离开主页后，所有正在进行 / 后续发起的「整体同步汇总」一律静默。
+// 由 auto-sync.tsx 在路由切换时调用 setSyncSummarySuppressed(true)，
+// 切回主页时恢复 false（默认 false）。
+let suppressOverallSyncSummary = false;
+
+export function setSyncSummarySuppressed(suppressed: boolean) {
+  suppressOverallSyncSummary = suppressed;
+}
+
+export function isSyncSummarySuppressed() {
+  return suppressOverallSyncSummary;
+}
+
 type PendingDebounceSyncTask = {
   keys: SyncStoreKey[];
   scheduledAt: number;
@@ -552,34 +569,8 @@ function countNonEmptyGroupKeys(groups: unknown) {
 }
 
 function logAccessProfileSyncSummary(state: any) {
-  const profiles = Array.isArray(state?.apiProfiles) ? state.apiProfiles : [];
-
-  console.log(`[Sync] ✅ 已同步API配置: ${profiles.length} 个`);
-
-  profiles.forEach((profile: any) => {
-    const normalizedGroups = normalizeMultiKeyGroups(
-      profile?.apiKeyGroups,
-      profile,
-    );
-    const multiKeyEnabled = shouldAutoEnableMultiKey({
-      ...profile,
-      apiKeyGroups: normalizedGroups,
-    });
-    const normalKeyCount = countNonEmptyString(profile?.apiKey);
-    const groupKeyCount = multiKeyEnabled
-      ? countNonEmptyGroupKeys(normalizedGroups)
-      : 0;
-    const requestKeyCount = multiKeyEnabled
-      ? groupKeyCount + normalKeyCount
-      : normalKeyCount;
-    const profileName = String(profile?.name || profile?.id || "未命名配置");
-
-    console.log(
-      `[Sync]   ${profileName}: ${requestKeyCount}个key${
-        multiKeyEnabled ? "（多key）" : ""
-      }`,
-    );
-  });
+  // API 配置的模型数由 usage-summary-log 按配置统一输出，这里不再打印 key 数。
+  void state;
 }
 
 function getChatStoreSummary(state: any) {
@@ -765,7 +756,7 @@ function syncModelSelectionToLocalStorage(state: any) {
   const selectionChanged =
     prevSelection !== nextSelection || prevProvider !== providerDisplayName;
   if (selectionChanged) {
-    console.log(
+    logHomepageSync(
       `[Sync] 🔄 模型选择本地缓存已同步：模型 ${
         prevSelection || "空"
       } → ${nextSelection}；供应商 ${
@@ -822,234 +813,15 @@ function logOverallSyncSummary(
     status: "downloaded" | "uploaded" | "merged" | "skipped";
     remoteSummary?: string;
     modelDiffs?: ModelSyncPlatformDiff[];
+    metrics?: any;
   }>,
 ) {
-  const summaryKeys = [StoreKey.Access, StoreKey.Config, StoreKey.Chat];
-  const preferredResults = summaryKeys
-    .map((key) => results.find((item) => item.key === key))
-    .filter(Boolean) as typeof results;
-  const summaryResults =
-    preferredResults.length > 0 ? preferredResults : results;
-
-  if (summaryResults.length === 0) {
-    return;
-  }
-
-  const hasChatResult = summaryResults.some(
-    (item) => item.key === StoreKey.Chat,
-  );
-
-  summaryResults.forEach((item) => {
-    const local = parseSyncCount(item.key, item.summary);
-    const remote = parseSyncCount(item.key, item.remoteSummary ?? item.summary);
-    if (item.key === StoreKey.Config) {
-      const currentCustomModels =
-        (useAppConfig.getState() as any).customModels || "";
-      const afterEntries = currentCustomModels
-        .split(",")
-        .map((m: string) => m.trim())
-        .filter((m: string) => m.startsWith("+"))
-        .map((m: string) => m.slice(1));
-      const afterCount = afterEntries.length;
-
-      // 按供应商统计
-      const providerCounts = new Map<string, number>();
-      afterEntries.forEach((m: string) => {
-        const atIdx = m.lastIndexOf("@");
-        const prov =
-          atIdx > 0
-            ? m.substring(atIdx + 1).replace(/^custom_/, "")
-            : "unknown";
-        providerCounts.set(prov, (providerCounts.get(prov) || 0) + 1);
-      });
-
-      if (lastKnownCustomModelsSnapshot === "") {
-        lastKnownCustomModelsSnapshot = currentCustomModels;
-        console.log(`[Sync] ✅ 已同步模型: ${afterCount} 个`);
-        if (afterCount > 0) {
-          Array.from(providerCounts.entries())
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .forEach(([p, c]) => {
-              console.log(`[Sync]   ${p}: ${c}个`);
-            });
-        }
-        return;
-      }
-
-      const beforeEntries = lastKnownCustomModelsSnapshot
-        .split(",")
-        .map((m: string) => m.trim())
-        .filter((m: string) => m.startsWith("+"))
-        .map((m: string) => m.slice(1));
-      const beforeSet = new Set<string>(beforeEntries);
-      const afterSet = new Set<string>(afterEntries);
-      const added = afterEntries.filter((n: string) => !beforeSet.has(n));
-      const deleted = beforeEntries.filter((n: string) => !afterSet.has(n));
-
-      // 输出新增的模型
-      added.forEach((m: string) => {
-        const atIdx = m.lastIndexOf("@");
-        const name = atIdx > 0 ? m.substring(0, atIdx) : m;
-        const provider =
-          atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
-        console.log(`[Sync] ➕ ${name}@${provider}`);
-      });
-      // 输出删除的模型
-      deleted.forEach((m: string) => {
-        const atIdx = m.lastIndexOf("@");
-        const name = atIdx > 0 ? m.substring(0, atIdx) : m;
-        const provider =
-          atIdx > 0 ? m.substring(atIdx + 1).replace(/^custom_/, "") : "";
-        console.log(`[Sync] ➖ ${name}@${provider}`);
-      });
-
-      if (added.length > 0 || deleted.length > 0) {
-        console.log(
-          `[Sync] ✅ 已同步模型: 新增 ${added.length} 个，删除 ${deleted.length} 个，当前共 ${afterCount} 个`,
-        );
-      } else {
-        console.log(`[Sync] ✅ 已同步模型: 无变化，当前共 ${afterCount} 个`);
-      }
-      // 分行显示各供应商
-      if (afterCount > 0) {
-        Array.from(providerCounts.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .forEach(([p, c]) => {
-            console.log(`[Sync]   ${p}: ${c}个`);
-          });
-      }
-
-      lastKnownCustomModelsSnapshot = currentCustomModels;
-      return;
-    }
-    if (item.key === StoreKey.Chat) {
-      // 计算会话的 diff（新增/删除）
-      const currentSessionSnapshot = buildChatSessionLogSnapshot();
-      if (lastKnownChatSessionSnapshot.size === 0) {
-        lastKnownChatSessionSnapshot = currentSessionSnapshot;
-        console.log(
-          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
-        );
-        return;
-      }
-      const beforeIds = new Set(lastKnownChatSessionSnapshot.keys());
-      const afterIds = new Set(currentSessionSnapshot.keys());
-      const added = [...afterIds].filter((id) => !beforeIds.has(id));
-      const deleted = [...beforeIds].filter((id) => !afterIds.has(id));
-      const addedLabels = added.map(
-        (id) => currentSessionSnapshot.get(id) || formatSyncedSessionLabel(id),
-      );
-      const deletedLabels = deleted.map(
-        (id) =>
-          lastKnownChatSessionSnapshot.get(id) || formatSyncedSessionLabel(id),
-      );
-
-      if (added.length > 0 || deleted.length > 0) {
-        console.log(
-          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，本次新增 ${added.length} 个，删除 ${deleted.length} 个`,
-        );
-        if (added.length > 0) {
-          console.log(
-            `[Sync] ➕ 新增会话: ${formatLimitedSessionLabels(addedLabels)}`,
-          );
-        }
-        if (deleted.length > 0) {
-          console.log(
-            `[Sync] ➖ 删除会话: ${formatLimitedSessionLabels(deletedLabels)}`,
-          );
-        }
-      } else {
-        console.log(
-          `[Sync] ✅ 已同步会话: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
-        );
-      }
-      // 更新快照
-      lastKnownChatSessionSnapshot = currentSessionSnapshot;
-      return;
-    }
-    console.log(
-      `[Sync] ✅ 已同步${item.name}: 本地 ${local.total} 个，远端 ${remote.total} 个，已同步 ${local.synced} 个`,
-    );
-  });
-
-  // 在模型统计后显示每个用户的对话数量
-  const authState = useAuthStore.getState();
-  const shouldLogAdminConversationSummary =
-    authState.user?.role === "admin" &&
-    (hasChatResult || getCurrentAutoSyncScope() === "chat");
-  if (!shouldLogAdminConversationSummary) {
-    return;
-  }
-  const now = Date.now();
-  if (!hasChatResult && now - lastAdminConversationSummaryAt < 10000) {
-    return;
-  }
-  lastAdminConversationSummaryAt = now;
-  fetch("/api/admin/users", {
-    method: "GET",
-    cache: "no-store",
-    credentials: "include",
-  })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((payload) => {
-      if (payload?.ok && Array.isArray(payload.users)) {
-        const usersWithChats = payload.users.filter(
-          (u: any) => (u.conversationCount ?? 0) > 0,
-        );
-        if (usersWithChats.length > 0) {
-          const total = usersWithChats.reduce(
-            (sum: number, u: any) => sum + (u.conversationCount ?? 0),
-            0,
-          );
-          console.log(`[Sync] ✅ 已同步对话: ${total} 个`);
-          usersWithChats
-            .sort((a: any, b: any) =>
-              (a.displayName || a.username).localeCompare(
-                b.displayName || b.username,
-              ),
-            )
-            .forEach((u: any) => {
-              console.log(
-                `[Sync]   ${u.displayName || u.username}: ${
-                  u.conversationCount
-                }个`,
-              );
-            });
-        }
-      }
-    })
-    .catch(() => {});
+  // 首页用 usage-summary-log 输出汇总日志，不再在此处独立输出对话同步行。
 }
 
 function formatSyncedSessionLabel(sessionId: string, topic?: unknown) {
   const normalizedTopic = String(topic || "").trim() || "未命名对话";
   return `${normalizedTopic}（ID: ${sessionId}）`;
-}
-
-function buildChatSessionLogSnapshot() {
-  const chatState = useChatStore.getState() as any;
-  const summaries = Array.isArray(chatState?.sessionSummaries)
-    ? chatState.sessionSummaries
-    : [];
-  const summaryMap = new Map<string, any>(
-    summaries
-      .filter((summary: any) => summary?.id)
-      .map((summary: any) => [String(summary.id), summary]),
-  );
-  const sessions = Array.isArray(chatState?.sessions) ? chatState.sessions : [];
-
-  return new Map<string, string>(
-    sessions
-      .filter((session: any) => session?.id)
-      .map((session: any) => {
-        const sessionId = String(session.id);
-        const summary = summaryMap.get(sessionId);
-        return [
-          sessionId,
-          formatSyncedSessionLabel(sessionId, session.topic || summary?.topic),
-        ];
-      }),
-  );
 }
 
 function formatLimitedSessionLabels(labels: string[]) {
@@ -3015,6 +2787,7 @@ export const useSyncStore = createPersistStore(
         excludeKeys?: SyncStoreKey[];
         includeKeys?: SyncStoreKey[];
         abortSignal?: AbortSignal;
+        silentSummary?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过恢复未完成同步");
@@ -3065,6 +2838,7 @@ export const useSyncStore = createPersistStore(
         try {
           await this.sync(resumedKeys, {
             abortSignal: options?.abortSignal,
+            silentSummary: options?.silentSummary,
           });
           if (options?.abortSignal?.aborted) {
             writePendingDebounceTask({
@@ -3396,7 +3170,7 @@ export const useSyncStore = createPersistStore(
                     throw new Error(`[Sync] ${displayName}远端数据为空`);
                   }
                   if (key === StoreKey.Config) {
-                    console.log(
+                    logHomepageSync(
                       `[Sync] 🔍 Config远端为空，上传本地状态` +
                         ` | hasMeta=${!!currentMeta}` +
                         ` | localModel=${(localAppStateCache[key] as any)
@@ -3731,6 +3505,7 @@ export const useSyncStore = createPersistStore(
                 summary: string;
                 status: "downloaded" | "uploaded" | "merged" | "skipped";
                 remoteSummary?: string;
+                metrics?: any;
               }> = [];
               const failedKeys: Array<{
                 key: SyncStoreKey;
@@ -3769,22 +3544,9 @@ export const useSyncStore = createPersistStore(
                     );
                     continue;
                   }
-                  logSyncSectionTitle(`${displayName}同步`);
-                  if (key === StoreKey.Config) {
-                    syncConsole(
-                      "log",
-                      `[Sync] 📋 [${stepLabel}] 正在同步模型...`,
-                    );
-                    syncConsole(
-                      "log",
-                      `[Sync] 📋 [${stepLabel}] 正在同步设置...`,
-                    );
-                  } else {
-                    syncConsole(
-                      "log",
-                      `[Sync] 📋 [${stepLabel}] 正在同步${displayName}...`,
-                    );
-                  }
+                  // 不再打印「正在同步...」进度日志，syncConsole 自带 1.5s 去重，
+                  // 但还是会把单次同步拆成多条 console.log；最终结果（✅ 已同步xxx: N 个）
+                  // 仍由 provider-model-sync / syncResults 汇总输出。
                   const localStoreState = localAppStateCache[key];
 
                   const skipByChecksum =
@@ -3797,10 +3559,8 @@ export const useSyncStore = createPersistStore(
                       lastSyncTime: get().lastSyncTime,
                     });
                   if (skipByChecksum) {
-                    syncConsole(
-                      "log",
-                      `[Sync] ⏭️ [${stepLabel}] ${displayName}跳过: 远端元数据未变化，跳过同步`,
-                    );
+                    // 跳过时不打印中间日志：最终统一由 logOverallSyncSummary 输出
+                    // [Sync] ✅ 已同步xxx: N 个 / [Sync] ⏭️ xxx: 跳过原因。
                     syncResults.push({
                       key,
                       name: displayName,
@@ -3828,10 +3588,7 @@ export const useSyncStore = createPersistStore(
                       localStoreState,
                     );
                     if (localChecksum === currentMeta.checksum) {
-                      syncConsole(
-                        "log",
-                        `[Sync] ⏭️ [${stepLabel}] ${displayName}跳过: 本地与远端内容一致，跳过写入`,
-                      );
+                      // 跳过时不打印中间日志，统一由 logOverallSyncSummary 输出
                       syncResults.push({
                         key,
                         name: displayName,
@@ -3862,10 +3619,9 @@ export const useSyncStore = createPersistStore(
                         remoteIndex: preFetchedChatIndex,
                       },
                     );
-                    syncConsole(
-                      "log",
-                      `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${chatResult.remoteSummary}`,
-                    );
+                    // 不再输出 [Sync] ✅ [1/N] xxx同步完成: ... 中间日志，
+                    // 会话最终结果由 logOverallSyncSummary 统一输出
+                    // [Sync] ✅ 已同步会话: 本地 N 个，远端 N 个，已同步 N 个。
 
                     const appliedChatState = rebaseChatSyncResultOnLiveState(
                       chatResult.mergedStoreState,
@@ -3877,6 +3633,7 @@ export const useSyncStore = createPersistStore(
                       summary: getStoreSummary(StoreKey.Chat, appliedChatState),
                       status: chatResult.status,
                       remoteSummary: chatResult.remoteSummary,
+                      metrics: chatResult.metrics,
                     });
 
                     if (options?.downloadOnlyChat !== true) {
@@ -3967,41 +3724,16 @@ export const useSyncStore = createPersistStore(
                     stepLabel,
                   );
                   if (regularResult.status === "merged") {
-                    if (key === StoreKey.Config) {
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] 模型同步完成: 远端 ${regularResult.remoteSummary}`,
-                      );
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] 设置同步完成`,
-                      );
-                    } else if (key === StoreKey.Access) {
+                    // 不再输出 [Sync] ✅ [1/N] xxx同步完成: ... 中间日志，
+                    // 模型 / API 配置 / 其他键的最终结果由 logOverallSyncSummary 统一输出
+                    // （包括 [Sync] ✅ 已同步模型: N 个 / 已同步API配置: N 个）。
+                    if (key === StoreKey.Access) {
                       logAccessProfileSyncSummary(localAppStateCache[key]);
-                    } else {
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: 远端 ${regularResult.remoteSummary}`,
-                      );
                     }
                     logSyncDebug(LOG_SEPARATOR);
                   } else {
-                    if (key === StoreKey.Config) {
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] 模型同步完成: ${regularResult.summary}`,
-                      );
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] 设置同步完成`,
-                      );
-                    } else if (key === StoreKey.Access) {
+                    if (key === StoreKey.Access) {
                       logAccessProfileSyncSummary(localAppStateCache[key]);
-                    } else {
-                      syncConsole(
-                        "log",
-                        `[Sync] ✅ [${stepLabel}] ${displayName}同步完成: ${regularResult.summary}`,
-                      );
                     }
                   }
                   syncResults.push({
@@ -4059,7 +3791,8 @@ export const useSyncStore = createPersistStore(
               syncResults.forEach((item) => {
                 logSyncDebug(`[Sync] - ${item.name}: ${item.summary}`);
               });
-              const shouldLogOverallSummary = !options?.silentSummary;
+              const shouldLogOverallSummary =
+                !options?.silentSummary && !suppressOverallSyncSummary;
               if (shouldLogOverallSummary) {
                 logOverallSyncSummary(syncResults);
               }
@@ -4090,14 +3823,14 @@ export const useSyncStore = createPersistStore(
                 currentStoreKeys.length > 0
               ) {
                 try {
-                  logSyncSectionTitle("刷新同步元数据");
+                  // 不再打印「刷新同步元数据」section title 和「✅ 同步元数据刷新完成」，
+                  // 这两条对用户没有信息量，会污染最终汇总输出。
                   const latestMetas = await client.getMeta(currentStoreKeys, {
                     timeoutMs: 60000,
                     retries: 1,
                     signal: abortSignal,
                   });
                   this.updateDatabaseMeta(latestMetas);
-                  syncConsole("log", "[Sync] ✅ 同步元数据刷新完成");
                 } catch (metaError) {
                   if (isSyncAbortError(metaError)) {
                     logSyncDebug("[Sync] ⏹️ 同步元数据刷新已取消");
@@ -4155,6 +3888,7 @@ export const useSyncStore = createPersistStore(
         scope?: AutoSyncScope;
         includeChat?: boolean;
         abortSignal?: AbortSignal;
+        silentSummary?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过自动同步");
@@ -4168,17 +3902,20 @@ export const useSyncStore = createPersistStore(
         await this.autoSyncCritical({
           scope: options?.scope,
           abortSignal: options?.abortSignal,
+          silentSummary: options?.silentSummary,
         });
         await this.autoSyncDeferred({
           scope: options?.scope,
           includeChat: options?.includeChat,
           abortSignal: options?.abortSignal,
+          silentSummary: options?.silentSummary,
         });
       },
 
       async autoSyncCritical(options?: {
         scope?: AutoSyncScope;
         abortSignal?: AbortSignal;
+        silentSummary?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过关键自动同步");
@@ -4213,6 +3950,7 @@ export const useSyncStore = createPersistStore(
               force: true,
               broadcastChatHint: false,
               abortSignal: options?.abortSignal,
+              silentSummary: options?.silentSummary,
             });
             warnMissingRecoveredApiKey();
           } catch (error) {
@@ -4236,6 +3974,7 @@ export const useSyncStore = createPersistStore(
               isolateQueue: true,
               broadcastChatHint: false,
               abortSignal: options?.abortSignal,
+              silentSummary: options?.silentSummary,
             });
           }
           warnMissingRecoveredApiKey();
@@ -4259,6 +3998,7 @@ export const useSyncStore = createPersistStore(
         source?: string;
         abortSignal?: AbortSignal;
         bootstrapIfMissing?: boolean;
+        silentSummary?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，尝试 downloadOnly 拉取");
@@ -4268,6 +4008,7 @@ export const useSyncStore = createPersistStore(
               force: true,
               downloadOnlyChat: true,
               abortSignal: options?.abortSignal,
+              silentSummary: options?.silentSummary,
             });
           } catch {
             return false;
@@ -4342,6 +4083,7 @@ export const useSyncStore = createPersistStore(
               force: true,
               broadcastChatHint: false,
               abortSignal: options?.abortSignal,
+              silentSummary: options?.silentSummary,
             });
             return true;
           }
@@ -4386,6 +4128,7 @@ export const useSyncStore = createPersistStore(
                 broadcastChatHint: false,
                 downloadOnlyChat: true,
                 abortSignal: options?.abortSignal,
+                silentSummary: options?.silentSummary,
               }),
             {
               retries: 2,
@@ -4417,6 +4160,7 @@ export const useSyncStore = createPersistStore(
         minIntervalMs?: number;
         source?: string;
         abortSignal?: AbortSignal;
+        silentSummary?: boolean;
       }) {
         if (startupChatSyncInFlight) {
           return startupChatSyncInFlight;
@@ -4438,6 +4182,7 @@ export const useSyncStore = createPersistStore(
           const resumed = await this.resumePendingDebounceSync({
             includeKeys: [StoreKey.Chat],
             abortSignal: options?.abortSignal,
+            silentSummary: options?.silentSummary,
           });
           if (options?.abortSignal?.aborted) {
             return resumed;
@@ -4448,6 +4193,7 @@ export const useSyncStore = createPersistStore(
             minIntervalMs: 0,
             abortSignal: options?.abortSignal,
             bootstrapIfMissing: !resumed,
+            silentSummary: options?.silentSummary,
           });
           if (!options?.abortSignal?.aborted) {
             lastStartupChatSyncCompletedAt = Date.now();
@@ -4467,6 +4213,7 @@ export const useSyncStore = createPersistStore(
         includeChat?: boolean;
         scope?: AutoSyncScope;
         abortSignal?: AbortSignal;
+        silentSummary?: boolean;
       }) {
         if (useAuthStore.getState().readOnly) {
           logSyncDebug("[Sync] 🔕 当前为只读查看模式，跳过延后自动同步");
@@ -4487,6 +4234,7 @@ export const useSyncStore = createPersistStore(
           await this.sync(remainingKeys, {
             isolateQueue: true,
             abortSignal: options?.abortSignal,
+            silentSummary: options?.silentSummary,
           });
         }
       },
@@ -4508,7 +4256,7 @@ export const useSyncStore = createPersistStore(
           const beforeCustomModels = String(configState.customModels || "");
           const beforeCount = countCustomModelEntries(beforeCustomModels);
 
-          console.log(
+          logHomepageSync(
             `[Sync] 🧩 模型同步开始: 当前 ${beforeModel}@${beforeProviderId.replace(
               /^custom_/,
               "",
@@ -4528,7 +4276,7 @@ export const useSyncStore = createPersistStore(
           const modelChanged =
             beforeModel !== afterModel || beforeProviderId !== afterProviderId;
           if (modelChanged) {
-            console.log(
+            logHomepageSync(
               `[Sync] 📥 模型选择已从远端同步: ${beforeModel}@${beforeProviderId.replace(
                 /^custom_/,
                 "",
@@ -4551,7 +4299,7 @@ export const useSyncStore = createPersistStore(
           const added = afterEntries.filter((n) => !beforeSet.has(n));
           const deleted = beforeEntries.filter((n) => !afterSet.has(n));
 
-          console.log(
+          logHomepageSync(
             `[Sync] ✅ 模型同步完成: ${
               modelChanged ? "模型已变更" : "模型无变化"
             }, customModels: 新增${added.length} 删除${

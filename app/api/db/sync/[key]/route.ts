@@ -21,9 +21,20 @@ import {
 } from "@/app/utils/server/api-config-backup-repository";
 import { StoreKey } from "@/app/constant";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+function sanitizeErrorMessage(error: unknown): string {
+  // 仅返回稳定的错误码，不透传 error.message（可能含表名/UUID/IP 等敏感信息）
+  if (error instanceof AuthError) {
+    return error.message;
+  }
+  if (isPostgresTemporarilyUnavailableError(error)) {
+    return "postgres_temporarily_unavailable";
+  }
+  return "internal_error";
+}
+
+// 防止单次 PUT 请求占用过多内存/数据库。Access（含 apiProfiles）+ Prompt 等
+// 大 store 单条 backup 可能 30+MB，限制 16MB 既能容纳正常备份又能挡住 DoS。
+const MAX_PUT_BODY_BYTES = 16 * 1024 * 1024;
 
 type Params = {
   params: {
@@ -91,9 +102,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
     }
 
     const rawBody = await req.text();
+    const bodyBytes = Buffer.byteLength(rawBody, "utf8");
+    if (bodyBytes > MAX_PUT_BODY_BYTES) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `payload_too_large_${bodyBytes}_max_${MAX_PUT_BODY_BYTES}`,
+        },
+        { status: 413 },
+      );
+    }
     console.log("[DB Sync PUT] start", {
       key: params.key,
-      bytes: Buffer.byteLength(rawBody, "utf8"),
+      bytes: bodyBytes,
     });
     const payload = JSON.parse(rawBody);
     const userId = await requireWritableStoreSyncUserId(params.key, req);
@@ -161,7 +182,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "unknown_error",
+        error: sanitizeErrorMessage(error),
       },
       { status },
     );

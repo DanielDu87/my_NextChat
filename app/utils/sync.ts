@@ -261,7 +261,7 @@ function normalizeImportedConfigState<T>(state: T): T {
 
 function resetPluginToolCache() {
   FunctionToolService.tools = {};
-  console.log("[Sync] 🔌 插件工具缓存已刷新");
+  logSyncDebug("[Sync] 🔌 插件工具缓存已刷新");
 }
 
 function getPluginConfigUpdatedAt(plugin: any) {
@@ -920,7 +920,7 @@ const MergeStates: StateMerger = {
     Object.values(localState.plugins || {}).forEach((plugin: any) => {
       applyBuiltinPluginDefaults(plugin);
     });
-    console.log("[Sync] 🔌 插件配置与启用状态合并", {
+    logSyncDebug("[Sync] 🔌 插件配置与启用状态合并", {
       local: Object.fromEntries(
         Object.entries(localState.plugins || {}).map(([id, plugin]: any) => [
           id,
@@ -1022,7 +1022,7 @@ const MergeStates: StateMerger = {
       ? false
       : remoteHasMeaningfulModel && !localHasMeaningfulModel;
 
-    console.debug(
+    logSyncDebug(
       `[Sync] 🔍 Config合并: model=${
         useRemoteModelSelection ? "远端" : "本地"
       }(${
@@ -1358,7 +1358,7 @@ const MergeStates: StateMerger = {
         : sourceDraw;
 
     const sourceLabel = sourceState === remoteState ? "远端" : "本地";
-    console.log(
+    logSyncDebug(
       `${formatSyncLogTimestamp()} [Sync] 🔀 合并绘图记录\n` +
         `  - 本地: ${localCount} 条，更新于 ${formatSyncUpdatedAt(
           localUpdateTime,

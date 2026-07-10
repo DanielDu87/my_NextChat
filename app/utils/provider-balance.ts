@@ -35,22 +35,14 @@ function createBalanceRequestContext(action: string, profileId?: string) {
 
 function logBalanceAttempts(attempts: ProviderBalanceAttempt[]) {
   if (attempts.length === 0) {
-    console.log("[Provider Balance Request] 上游请求记录：无");
     return;
   }
-  console.log("[Provider Balance Request] 上游请求路径与结果", {
-    attemptCount: attempts.length,
-  });
-  console.table(
-    attempts.map((attempt) => ({
-      ...attempt,
-      requestUrl:
-        attempt.baseUrl && attempt.path
-          ? `${String(attempt.baseUrl).replace(/\/$/, "")}/${String(
-              attempt.path,
-            ).replace(/^\//, "")}`
-          : "",
-    })),
+  // 不再打 console.table 完整 per-key 调试信息（噪音大、与最终结果重复），
+  // 只在调用方需要时输出聚合行；当前 query 流程已由 logProviderBalanceResult 替代。
+  const okCount = attempts.filter((a) => a?.ok === true).length;
+  const failCount = attempts.length - okCount;
+  console.log(
+    `[Provider Balance] 上游尝试 ${attempts.length} 次：成功 ${okCount}，失败 ${failCount}`,
   );
 }
 
@@ -144,13 +136,12 @@ async function readResponsePayload(response: Response) {
 
 export async function loadProviderBalanceProfiles() {
   const context = createBalanceRequestContext("load-profiles");
-  console.log("[Provider Balance Request] 开始读取余额配置", context);
   const response = await fetch(PROVIDER_BALANCE_API_PATH, {
     cache: "no-store",
   });
   const payload = await readResponsePayload(response);
   if (!response.ok || payload?.ok !== true) {
-    console.error("[Provider Balance Request] 读取余额配置失败", {
+    console.error("[Provider Balance] 读取余额配置失败", {
       ...context,
       durationMs: Date.now() - context.startedAt,
       httpStatus: response.status,
@@ -161,18 +152,6 @@ export async function loadProviderBalanceProfiles() {
   const profiles = (
     Array.isArray(payload.profiles) ? payload.profiles : []
   ) as ProviderBalanceProfile[];
-  console.log("[Provider Balance Request] 余额配置读取完成", {
-    ...context,
-    durationMs: Date.now() - context.startedAt,
-    httpStatus: response.status,
-    result: profiles.map((profile) => ({
-      profileId: profile.profileId,
-      profileName: profile.profileName,
-      hasManagementKey: profile.hasManagementKey,
-      balance: profile.balance,
-      lastError: profile.lastError,
-    })),
-  });
   return profiles;
 }
 
@@ -181,10 +160,6 @@ export async function saveProviderManagementKey(
   managementKey: string,
 ) {
   const context = createBalanceRequestContext("save-management-key", profileId);
-  console.log("[Provider Balance Request] 开始保存管理 API Key", {
-    ...context,
-    hasManagementKey: Boolean(managementKey.trim()),
-  });
   const response = await fetch(PROVIDER_BALANCE_API_PATH, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -192,7 +167,7 @@ export async function saveProviderManagementKey(
   });
   const payload = await readResponsePayload(response);
   if (!response.ok || payload?.ok !== true) {
-    console.error("[Provider Balance Request] 管理 API Key 保存失败", {
+    console.error("[Provider Balance] 管理 API Key 保存失败", {
       ...context,
       durationMs: Date.now() - context.startedAt,
       httpStatus: response.status,
@@ -200,24 +175,22 @@ export async function saveProviderManagementKey(
     });
     throw new Error(payload?.error || "save_failed");
   }
-  console.log("[Provider Balance Request] 管理 API Key 保存完成", {
-    ...context,
-    durationMs: Date.now() - context.startedAt,
-    httpStatus: response.status,
-    response: payload,
-  });
 }
 
 export async function queryProviderBalanceProfile(
   profileId: string,
-  options?: { signal?: AbortSignal; source?: string; providerName?: string },
+  options?: {
+    signal?: AbortSignal;
+    source?: string;
+    providerName?: string;
+    logSuccess?: boolean;
+  },
 ) {
   const context = {
     ...createBalanceRequestContext("query-balance", profileId),
     source: options?.source || "unknown",
     providerName: options?.providerName || profileId,
   };
-  console.log("[Provider Balance Request] 开始更新余额", context);
   let response: Response;
   try {
     response = await fetch(PROVIDER_BALANCE_API_PATH, {
@@ -227,7 +200,7 @@ export async function queryProviderBalanceProfile(
       signal: options?.signal,
     });
   } catch (error) {
-    console.error("[Provider Balance Request] 余额请求未完成", {
+    console.error("[Provider Balance] 余额请求未完成", {
       ...context,
       durationMs: Date.now() - context.startedAt,
       error: error instanceof Error ? error.message : String(error),
@@ -237,12 +210,11 @@ export async function queryProviderBalanceProfile(
   const payload = await readResponsePayload(response);
   const attempts = Array.isArray(payload?.attempts) ? payload.attempts : [];
   if (!response.ok || payload?.ok !== true) {
-    console.error("[Provider Balance Request] 余额更新失败", {
-      ...context,
-      durationMs: Date.now() - context.startedAt,
-      httpStatus: response.status,
-      response: payload,
-    });
+    console.error(
+      `[Provider Balance] ❌ 供应商 ${context.providerName} 余额查询失败：${
+        payload?.error || "query_failed"
+      }`,
+    );
     logBalanceAttempts(attempts);
     // 从响应中提取可能的余额数据
     let fallbackBalance: ProviderBalanceSnapshot | undefined;
@@ -257,30 +229,19 @@ export async function queryProviderBalanceProfile(
   }
   const balance = payload.balance as ProviderBalanceSnapshot;
   if (!Number.isFinite(balance?.value)) {
-    console.error("[Provider Balance Request] 返回结果缺少有效余额", {
-      ...context,
-      durationMs: Date.now() - context.startedAt,
-      httpStatus: response.status,
-      response: payload,
-    });
+    console.error(
+      `[Provider Balance] ❌ 供应商 ${context.providerName} 返回结果缺少有效余额`,
+    );
     logBalanceAttempts(attempts);
     throw new ProviderBalanceRequestError("query_failed", attempts);
   }
-  const formattedBalance =
-    balance.value === -1 ? "无限" : `$${balance.value.toFixed(2)}`;
-  console.log(
-    `[Provider Balance] ✅ 最终结果：供应商 ${context.providerName}，余额 ${formattedBalance}`,
-  );
-  console.log("[Provider Balance Request] 余额更新完成", {
-    ...context,
-    durationMs: Date.now() - context.startedAt,
-    httpStatus: response.status,
-    providerName: context.providerName,
-    balance: formattedBalance,
-    currency: balance.currency,
-    result: balance,
-    response: payload,
-  });
-  logBalanceAttempts(attempts);
+  if (options?.logSuccess !== false) {
+    const formattedBalance =
+      balance.value === -1 ? "无限" : `$${balance.value.toFixed(2)}`;
+    const durationMs = Date.now() - context.startedAt;
+    console.log(
+      `[Provider Balance] ✅ 供应商 ${context.providerName}：${formattedBalance}（${durationMs}ms）`,
+    );
+  }
   return { balance, attempts };
 }

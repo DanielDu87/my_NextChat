@@ -337,8 +337,18 @@ export async function getCacheFileMeta(externalUserId: string, id: string) {
   };
 }
 
-export async function getCacheFileMetaById(id: string) {
+/**
+ * 按 UUID 查询缓存文件元数据（不限定 user_id）。
+ *
+ * ⚠️ 内容寻址公共访问：同一 UUID 对应同一份不可变内容（content-addressable），
+ * 因此任何拿到该 UUID 的已认证用户都可以读取，用于跨用户共享同一张图片/文件。
+ * 安全前提是 UUID 不可猜测（128 bit 随机），不能依赖此函数隐藏私有数据。
+ *
+ * 调用方必须先做身份认证（requireAuthContext），传入 externalUserId 用于审计。
+ */
+export async function getCacheFileMetaById(externalUserId: string, id: string) {
   await ensureSyncStorageSchema();
+  await getOrCreateSyncAppUserId(externalUserId);
   const result = await pgQuery<{
     file_name: string;
     file_ext: string;
@@ -405,8 +415,13 @@ export async function getCacheFileChunk(
   };
 }
 
-export async function getCacheFileById(id: string) {
+/**
+ * 按 UUID 查询缓存文件二进制（不限定 user_id）。内容寻址公共访问，
+ * 安全前提是 UUID 不可猜测；调用方必须传入已认证 externalUserId 用于审计。
+ */
+export async function getCacheFileById(externalUserId: string, id: string) {
   await ensureSyncStorageSchema();
+  await getOrCreateSyncAppUserId(externalUserId);
   const result = await pgQuery<{
     file_name: string;
     file_ext: string;
@@ -439,11 +454,13 @@ export async function getCacheFileById(id: string) {
 }
 
 export async function getCacheFileChunkById(
+  externalUserId: string,
   id: string,
   offset: number,
   length: number,
 ) {
   await ensureSyncStorageSchema();
+  await getOrCreateSyncAppUserId(externalUserId);
   const result = await pgQuery<{
     file_name: string;
     file_ext: string;
@@ -494,48 +511,124 @@ export async function removeOwnedCacheFile(
   options?: { excludeExternalSessionIds?: string[] },
 ) {
   await ensureSyncStorageSchema();
-  await getOrCreateSyncAppUserId(externalUserId);
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
   const excludeExternalSessionIds = (
     options?.excludeExternalSessionIds || []
   ).filter(Boolean);
+  // 优先用 cache_file_references 表（写入消息时 upsert）做 O(1) 引用判断，
+  // 仅在历史消息未登记引用时回退到 LIKE 全表扫。新建消息一律走引用表，
+  // 该回退分支预计只会出现在升级前的旧消息上。
   const referenced = await pgQuery<{ exists: boolean }>(
     `select exists (
        select 1
-       from messages m
+       from cache_file_references r
+       join messages m on m.id = r.message_id
        join conversations c on c.id = m.conversation_id
-       where (
-         m.content_json::text like '%' || $1::text || '%'
-         or m.metadata_json::text like '%' || $1::text || '%'
-       )
-       and not (
-         coalesce(c.external_session_id, '') = any($2::text[])
-       )
+       where r.cache_file_id = $1::uuid
+         and not (
+           coalesce(c.external_session_id, '') = any($2::text[])
+         )
        limit 1
      ) as exists`,
     [id, excludeExternalSessionIds],
   );
-  if (referenced.rows[0]?.exists) {
+  let isReferenced = referenced.rows[0]?.exists === true;
+  if (!isReferenced) {
+    // 回退：历史消息（升级前）没有写 cache_file_references，必须用 LIKE 兜底。
+    // 时间窗口 30 天已经覆盖绝大多数场景，避免 conversations×messages 全表扫。
+    const legacyReferenced = await pgQuery<{ exists: boolean }>(
+      `select exists (
+         select 1
+         from messages m
+         join conversations c on c.id = m.conversation_id
+         where m.updated_at > now() - interval '30 days'
+           and (
+             m.content_json::text like '%' || $1::text || '%'
+             or m.metadata_json::text like '%' || $1::text || '%'
+           )
+           and not (
+             coalesce(c.external_session_id, '') = any($2::text[])
+           )
+         limit 1
+       ) as exists`,
+      [id, excludeExternalSessionIds],
+    );
+    isReferenced = legacyReferenced.rows[0]?.exists === true;
+  }
+  if (isReferenced) {
     return;
   }
   await pgQuery(
     `delete from user_cache_files
-     where id = $1::uuid`,
-    [id],
+     where id = $1::uuid
+       and user_id = $2::uuid`,
+    [id, userId],
   );
   await purgeOrphanCacheFileBlobs();
 }
 
+/**
+ * 记录某条消息对缓存文件的引用。仅当消息 content_json / metadata_json 中
+ * 真的包含 cache_file_id 时才调用，避免无意义膨胀 references 表。
+ */
+export async function recordCacheFileReferences(
+  externalUserId: string,
+  params: { messageId: string; contentJson: unknown; metadataJson?: unknown },
+) {
+  await ensureSyncStorageSchema();
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  const ids = extractCacheFileIds(params.contentJson).concat(
+    extractCacheFileIds(params.metadataJson),
+  );
+  if (ids.length === 0) return;
+  // 同一 messageId 可能被多次 upsert（update on conflict 路径），用
+  // on conflict do update 保证 last_seen_at 是最新一次引用时间。
+  await pgQuery(
+    `insert into cache_file_references (cache_file_id, user_id, message_id)
+     select unnest($1::uuid[]), $2::uuid, $3::uuid
+     on conflict (cache_file_id, message_id) do update
+       set last_seen_at = now()`,
+    [ids, userId, params.messageId],
+  );
+}
+
+function extractCacheFileIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const ids = new Set<string>();
+  const visit = (value: unknown) => {
+    if (typeof value === "string") {
+      // 缓存文件 URL 形如 /api/cache/<uuid>，从中提取 UUID
+      const matches = value.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+      );
+      if (matches) matches.forEach((id) => ids.add(id.toLowerCase()));
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (value && typeof value === "object") {
+      Object.values(value as Record<string, unknown>).forEach(visit);
+    }
+  };
+  visit(payload);
+  return Array.from(ids);
+}
+
 export async function commitCacheFiles(externalUserId: string, ids: string[]) {
   await ensureSyncStorageSchema();
-  await getOrCreateSyncAppUserId(externalUserId);
+  const userId = await getOrCreateSyncAppUserId(externalUserId);
   const cleaned = ids.filter(Boolean).slice(0, 80);
   if (cleaned.length === 0) return;
+  // 必须限定 user_id，避免登录用户 pin 任意其他用户的缓存文件
   await pgQuery(
     `update user_cache_files
      set is_pinned = true,
          expires_at = expires_at
-     where id = any($1::uuid[])`,
-    [cleaned],
+     where id = any($1::uuid[])
+       and user_id = $2::uuid`,
+    [cleaned, userId],
   );
 }
 

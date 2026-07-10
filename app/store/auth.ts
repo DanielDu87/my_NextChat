@@ -3,8 +3,6 @@ import { clearUserScopedPersistedStateStorage } from "@/app/utils/indexeddb-stat
 import { Path, StoreKey } from "@/app/constant";
 import { publishStartupChatSyncStatus } from "@/app/utils/chat-startup-loading";
 import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
-import { sanitizeModelConfigForCapability } from "@/app/client/model-parameter-rules";
-import { readStoredGlobalModelConfig } from "@/app/utils/global-model-config";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
@@ -282,50 +280,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       readOnly: false,
     });
 
+    // 持久化登录态：刷新后能从 localStorage 恢复正确 effectiveUser / isImpersonating，
+    // 避免先回到旧用户（ccc）再被 fetchMe 纠正时短暂闪旧数据。
+    saveAuthState({
+      user: get().user,
+      effectiveUser,
+      isImpersonating: true,
+      readOnly: false,
+    });
+
     // 再次确认 cache marker 设置正确
     setCacheMarker(String(effectiveUser?.id || ""));
 
     const { useSyncStore } = await import("./sync");
-    // 再次确认目标用户缓存已加载（远端同步仍在后台执行）。
+    // 目标用户已有缓存时，优先从该用户自己的持久化 index 完整恢复会话列表，
+    // 而不是仅依赖当前已水合到内存的少量 sessions（那会导致「只剩一个对话」）。
     if (targetUserCachedChat) {
       await (chatStore as any).persist?.rehydrate?.();
-    }
-    // 然后初始化新页面，显示新空会话或加载新用户的已有会话
-    chatStore.getState().initializeForNewPage?.();
-    useChatIndexStore.getState().syncFromChatStore();
-
-    // 切换用户后恢复全局模型选择（从 localStorage），确保 Config store
-    // 中的 modelConfig 在跨用户切换时不回退到各用户的独立配置。
-    try {
-      const globalConfig = readStoredGlobalModelConfig();
-      if (globalConfig) {
-        const { useAppConfig } = await import("./config");
-        useAppConfig.getState().update((config) => {
-          const globalModelConfig = globalConfig as Partial<
-            typeof config.modelConfig
-          >;
-          config.modelConfig = sanitizeModelConfigForCapability({
-            ...config.modelConfig,
-            ...globalModelConfig,
-          });
-          (config.modelConfig as any).providerId = String(
-            globalConfig.providerId ||
-              (config.modelConfig as any).providerId ||
-              "",
-          );
-          (config.modelConfig as any).profileId = String(
-            globalConfig.profileId ||
-              (config.modelConfig as any).profileId ||
-              "",
-          );
-          (config as any).modelSelectionUpdatedAt = Math.max(
-            Number((config as any).modelSelectionUpdatedAt) || 0,
-            Number(globalConfig.modelSelectionUpdatedAt) || 0,
-          );
-        });
-      }
-    } catch {
-      // 恢复失败不影响主流程
+      await useChatIndexStore.getState().initialize();
+    } else {
+      // 空态场景才走 syncFromChatStore（基于空内存 sessions 初始化 index）
+      chatStore.getState().initializeForNewPage?.();
+      useChatIndexStore.getState().syncFromChatStore();
     }
 
     // 最后同步新用户的远端对话。这里必须等待完成后再返回，
@@ -335,6 +311,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isolateQueue: true,
         downloadOnlyChat: true,
       });
+      // 远端同步完成后再重建一次 chat-index，避免 syncChatStore 写回分片 index 后
+      // sidebar 又被少量内存 session 覆盖（重显「只剩一个对话」）。
+      if (targetUserCachedChat) {
+        await useChatIndexStore.getState().initialize();
+      }
       publishStartupChatSyncStatus("done");
     } catch (error) {
       publishStartupChatSyncStatus("error");

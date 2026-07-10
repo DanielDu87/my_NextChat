@@ -91,3 +91,26 @@ env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u AL
 详细的域名切换、DockerSite、普通站点兼容记录、SSL 证书数据库、缓存开关重复 listen 修复步骤见：
 
 - [docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
+
+## 独立备份数据库（BACKUP_*）
+
+自 2026-07-09 起，对话备份和 API 配置备份迁移到独立备份库，与主业务库物理隔离，避免
+单点事故波及备份。生产部署必须显式配置以下环境变量（`.env.baota` 已包含示例）：
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `BACKUP_DATABASE_URL` | 优先 | 备份库完整连接字符串，覆盖其他 `BACKUP_PG*` |
+| `BACKUP_PGHOST` | 是 | 备份库主机（未设置 `BACKUP_DATABASE_URL` 时使用） |
+| `BACKUP_PGPORT` | 否 | 备份库端口，默认 `5432` |
+| `BACKUP_PGDATABASE` | 是 | 备份库名（建议 `nextchat_backup`） |
+| `BACKUP_PGUSER` | 是 | 备份库用户名 |
+| `BACKUP_PGPASSWORD` | 是 | 备份库密码 |
+| `BACKUP_PGSSL` | 否 | 是否启用 SSL（true/1/yes/on） |
+| `BACKUP_PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验证书，SSH 隧道场景下 `false` |
+| `BACKUP_PGPOOL_MAX` | 否 | 连接池上限，默认 `5` |
+| `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否 | 连接超时，默认 `10000` |
+| `BACKUP_PG_IDLE_TIMEOUT_MS` | 否 | 空闲超时，默认 `30000` |
+| `BACKUP_PG_RETRY_COUNT` | 否 | 重试次数，默认 `3` |
+
+未配置 `BACKUP_*` 时站内备份功能会**静默不可用**（调度器 try/catch 兜底）。生产灾备
+仍以 PostgreSQL `pg_dump` / 宝塔计划任务为准，**主库和备份库都要纳入备份范围**。

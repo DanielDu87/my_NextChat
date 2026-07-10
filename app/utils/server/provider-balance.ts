@@ -154,10 +154,6 @@ const BALANCE_QUERY_BATCH_SIZE = 4;
 const BALANCE_MAX_ATTEMPTS_PER_KEY = 240;
 const BALANCE_QUERY_MAX_ROUNDS = 3;
 const BALANCE_QUERY_RETRY_DELAYS_MS = [800, 2_000] as const;
-const AIHUBMIX_MANAGEMENT_BASE_URLS = [
-  "https://api.aihubmix.com",
-  "https://aihubmix.com",
-] as const;
 
 const YUTO_BASE_URLS = [
   "https://cn.gptapi.asia",
@@ -373,12 +369,11 @@ function buildBalanceAuthTypes(
 }
 
 function buildBalanceBaseUrls(baseUrl: string, rootBaseUrl: string) {
-  const isAiHubMixProfile = isAiHubMixBalanceBaseUrl(baseUrl);
-  return [
-    ...(isAiHubMixProfile ? [...AIHUBMIX_MANAGEMENT_BASE_URLS] : []),
-    rootBaseUrl,
-    baseUrl,
-  ].filter((url, index, all) => url && all.indexOf(url) === index);
+  // aihubmix 的候选 URL 在 queryProviderBalance 中根据用户 baseUrl 动态构建，
+  // 不再依赖硬编码 AIHUBMIX_MANAGEMENT_BASE_URLS（70366030 修复后已废弃）。
+  return [rootBaseUrl, baseUrl].filter(
+    (url, index, all) => url && all.indexOf(url) === index,
+  );
 }
 
 async function runBalanceCandidateQueue(

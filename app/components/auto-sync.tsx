@@ -2,26 +2,20 @@
 
 import { useEffect } from "react";
 import { ChatControllerPool } from "../client/controller";
-import { StoreKey } from "../constant";
+import { StoreKey, Path } from "../constant";
 import { useAppConfig } from "../store/config";
 import { useAccessStore } from "../store/access";
 import { useModelCacheStore } from "../store/model-cache";
 import { useChatStore } from "../store/chat";
 import { useDrawStore } from "../store/draw";
-import { useSyncStore } from "../store/sync";
+import { useSyncStore, setSyncSummarySuppressed } from "../store/sync";
 import { useAuthStore } from "../store/auth";
 import { showToast } from "./ui-lib";
 import {
   hasMeaningfulAccessState,
   hasMeaningfulDrawState,
 } from "../utils/sync";
-import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { readAccessSnapshot } from "../utils/access-snapshot";
-import {
-  ensureProviderModelsReady,
-  getDefaultBootstrapProfile,
-  getProfileProviderId,
-} from "../utils/provider-sync";
 import {
   AUTO_SYNC_CHANNEL_NAME,
   AUTO_SYNC_LOCK_KEY,
@@ -51,35 +45,22 @@ import {
   getCurrentHashPath,
 } from "../utils/startup-sync-scope";
 import {
+  markRouteSyncBootstrap,
   markRouteSyncStart,
   prepareRouteEntryForSync,
   ROUTE_SYNC_ENTRY_EVENT,
   shouldAutoStartRouteSync,
+  shouldSkipAutoSyncByRecentBootstrap,
 } from "../utils/route-sync-entry";
 
 let autoSyncEffectActive = false;
-let lastAutoSyncBootstrapAt = 0;
-const LOG_SEPARATOR = "=".repeat(5);
 const autoSyncLogQueue: Array<{
-  level: "log" | "info" | "warn" | "error";
+  level: "log" | "info" | "warn" | "error" | "debug";
   message: string;
   payload?: unknown;
 }> = [];
 let autoSyncLogFlushScheduled = false;
 const autoSyncLogDedupMap = new Map<string, number>();
-
-function getScopeCriticalBannerDetail(scope: AutoSyncScope) {
-  switch (scope) {
-    case "draw":
-      return "绘画数据优先";
-    case "home":
-    case "chat":
-      return "模型选择优先";
-    case "app":
-    default:
-      return "模型选择优先";
-  }
-}
 
 function getScopeReadyMessage(scope: AutoSyncScope) {
   switch (scope) {
@@ -91,32 +72,6 @@ function getScopeReadyMessage(scope: AutoSyncScope) {
     case "app":
     default:
       return "[AutoSync] ✅ 关键同步完成，页面已可直接对话";
-  }
-}
-
-function getScopeDeferredBanner(scope: AutoSyncScope) {
-  switch (scope) {
-    case "draw":
-      return `${LOG_SEPARATOR} 💾 绘画后台同步 ${LOG_SEPARATOR}`;
-    case "home":
-    case "chat":
-      return `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`;
-    case "app":
-    default:
-      return `${LOG_SEPARATOR} 💾 对话与设置后台同步 ${LOG_SEPARATOR}`;
-  }
-}
-
-function getScopeDeferredDoneBanner(scope: AutoSyncScope) {
-  switch (scope) {
-    case "draw":
-      return `${LOG_SEPARATOR} 💾 绘画后台同步完成 ${LOG_SEPARATOR}`;
-    case "home":
-    case "chat":
-      return `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`;
-    case "app":
-    default:
-      return `${LOG_SEPARATOR} 💾 对话与设置后台同步完成 ${LOG_SEPARATOR}`;
   }
 }
 
@@ -134,7 +89,7 @@ function getScopeDeferredDoneMessage(scope: AutoSyncScope) {
 }
 
 function isChatLikeScope(scope: AutoSyncScope) {
-  return scope === "home" || scope === "chat";
+  return true;
 }
 
 function flushAutoSyncLogs() {
@@ -181,10 +136,16 @@ function formatAutoSyncLogTimestamp(date = new Date()) {
 }
 
 function autoSyncConsole(
-  level: "log" | "info" | "warn" | "error",
+  level: "log" | "info" | "warn" | "error" | "debug",
   message: string,
   payload?: unknown,
 ) {
+  // 首页控制台只保留数据汇总（[Sync]）；AutoSync 过程日志不再打印。
+  // warn/error 仍保留，避免真正同步失败被静默。
+  if (level !== "warn" && level !== "error") {
+    return;
+  }
+
   const dedupKey = `${level}|${message}|${
     payload === undefined ? "" : JSON.stringify(payload)
   }`;
@@ -214,41 +175,8 @@ function autoSyncConsole(
 }
 
 function autoSyncDebug(message: string, payload?: unknown) {
-  const prefixedMessage = `${formatAutoSyncLogTimestamp()} ${message}`;
-  if (payload === undefined) {
-    console.debug(prefixedMessage);
-    return;
-  }
-  console.debug(prefixedMessage, payload);
-}
-
-function logCriticalStartupSyncBanner(
-  phase: "start" | "complete",
-  detail?: string,
-) {
-  const title = phase === "start" ? "🔄 同步检查" : "✅ 同步检查完成";
-  autoSyncConsole(
-    "info",
-    detail
-      ? `${LOG_SEPARATOR} ${title} | ${detail} ${LOG_SEPARATOR}`
-      : `${LOG_SEPARATOR} ${title} ${LOG_SEPARATOR}`,
-  );
-}
-
-function scheduleIdleTask(task: () => void, timeout = 800) {
-  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-    (
-      window as typeof window & {
-        requestIdleCallback: (
-          callback: () => void,
-          options?: { timeout?: number },
-        ) => number;
-      }
-    ).requestIdleCallback(task, { timeout });
-    return;
-  }
-
-  setTimeout(task, 0);
+  void message;
+  void payload;
 }
 
 function scheduleDeferredSyncTask(
@@ -273,7 +201,7 @@ export default function AutoSync() {
 
   const ensureRemoteBootstrapState = async (
     scope: AutoSyncScope,
-    abortSignal?: AbortSignal,
+    options?: { abortSignal?: AbortSignal; silentSummary?: boolean },
   ) => {
     const syncStore = useSyncStore.getState();
     const client = syncStore.getClient() as any;
@@ -288,7 +216,7 @@ export default function AutoSync() {
       metas = await client.getMeta(bootstrapKeys, {
         timeoutMs: 60000,
         retries: 1,
-        signal: abortSignal,
+        signal: options?.abortSignal,
       });
     } catch (error) {
       if (
@@ -359,7 +287,8 @@ export default function AutoSync() {
       await syncStore.sync(uploadableMissingStoreKeys, {
         isolateQueue: true,
         force: true,
-        abortSignal,
+        abortSignal: options?.abortSignal,
+        silentSummary: options?.silentSummary,
       });
       showToast(
         `检测到云端缺少初始化配置，已自动上传本地数据：${missingStoreKeys.join(
@@ -395,20 +324,17 @@ export default function AutoSync() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let hasCompletedAutoSync = false;
     let autoSyncInProgress = false;
-    let hasBootstrappedProviderModels = false;
-    let hasDeferredRemoteBootstrap = false;
-    let bootstrapProviderModelsPromise: Promise<any> | null = null;
     let lastForegroundSyncAt = 0;
     let lastExternalChatHintAt = 0;
     let hasRestoredModelsFromHydratedCache = false;
-    let pendingBootstrapProfileId = "";
-    let pendingBootstrapProfileName = "";
     let chatMetaPollTimer: ReturnType<typeof setInterval> | null = null;
+    let chatMetaPollIdleCallbackId: number | null = null;
     let deferredFallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelDeferredSyncTask: (() => void) | null = null;
     let autoSyncCancelledByManualSync = false;
+    // 路由变化不再 abort 同步（参见 handleRouteChangeRestart 注释），
+    // 保留变量仅为不影响 shouldCancelAutoSync / getAutoSyncCancelMessage 既有签名。
     let autoSyncCancelledByRouteChange = false;
-    let routeChangeCancelLogged = false;
     let activeRoutePath = getCurrentHashPath();
     let syncAbortController: AbortController | null = null;
     let startAutoSync = () => {};
@@ -428,24 +354,34 @@ export default function AutoSync() {
     };
 
     const normalizePath = (p: string) => p.replace(/\/+$/, "") || "/";
+    // 桌面端首页是 `/`，移动端首页会立即进入 `/chat`。两者以及其他聊天入口
+    // 都属于首开同步汇总页，否则移动端会清空并静默掉模型、用户和对话输出。
+    const shouldShowStartupSummary = (path: string) => {
+      const normalizedPath = normalizePath(path);
+      return (
+        normalizedPath === Path.Home ||
+        normalizedPath === Path.Chat ||
+        normalizedPath === Path.NewChat ||
+        normalizedPath === Path.SearchChat ||
+        /^\/chat\/[^/]+$/.test(normalizedPath)
+      );
+    };
+    // 不再因页面切换打断同步：路由变化时让当前 sync 自然完成即可，
+    // 由 handleRouteChangeRestart 在新路径上重新调度。保留该函数是为了
+    // 让 shouldCancelAutoSync 调用点继续按原签名工作，避免大范围改动。
     const shouldCancelForRouteChange = (expectedPath: string) => {
       const actualPath = normalizePath(getCurrentHashPath());
       const normalizedExpectedPath = normalizePath(expectedPath);
       if (actualPath === normalizedExpectedPath) {
         return false;
       }
-      autoSyncCancelledByRouteChange = true;
-      hasCompletedAutoSync = true;
-      syncAbortController?.abort();
-      syncAbortController = null;
-      if (!routeChangeCancelLogged) {
-        routeChangeCancelLogged = true;
-        autoSyncConsole(
-          "log",
-          `[AutoSync] ⏹️ 检测到页面切换（期望路径: ${normalizedExpectedPath}, 实际路径: ${actualPath}），当前页面同步终止`,
-        );
-      }
-      return true;
+      // 路径不匹配的「保持当前同步继续」属于常规信息，不再每次切路径都打一遍。
+      // 想观察时打开 Verbose 即可看到。
+      autoSyncConsole(
+        "debug",
+        `[AutoSync] ℹ️ 检测到页面切换（期望路径: ${normalizedExpectedPath}, 实际路径: ${actualPath}），保持当前同步继续`,
+      );
+      return false;
     };
 
     const shouldCancelAutoSync = (expectedPath: string) =>
@@ -570,6 +506,7 @@ export default function AutoSync() {
           () =>
             syncStore.resumePendingDebounceSync?.({
               excludeKeys: [StoreKey.Config],
+              silentSummary: !shouldShowStartupSummary(activeRoutePath),
             }),
         )
         .then(() => {
@@ -582,6 +519,7 @@ export default function AutoSync() {
             syncStore.syncChatIfRemoteChanged?.({
               source,
               minIntervalMs: 0,
+              silentSummary: !shouldShowStartupSummary(activeRoutePath),
             }),
         )
         .catch((error: unknown) => {
@@ -591,6 +529,32 @@ export default function AutoSync() {
             error,
           );
         });
+    };
+
+    const scheduleChatMetaPollSync = () => {
+      if (chatMetaPollIdleCallbackId !== null) {
+        return;
+      }
+
+      const run = () => {
+        chatMetaPollIdleCallbackId = null;
+        triggerExternalChatSync(
+          document.hidden ? "poll-hidden" : "poll-visible",
+        );
+      };
+
+      if ("requestIdleCallback" in window) {
+        chatMetaPollIdleCallbackId = (
+          window as typeof window & {
+            requestIdleCallback: (callback: () => void) => number;
+          }
+        ).requestIdleCallback(run);
+        return;
+      }
+
+      // 不支持 requestIdleCallback 的浏览器也不能在 interval 回调中直接进入
+      // 同步链；先让当前任务结束，避免 DevTools 报告长时间 interval handler。
+      queueMicrotask(run);
     };
 
     const scheduleRetry = (attemptAutoSync: () => void) => {
@@ -607,7 +571,6 @@ export default function AutoSync() {
       }, AUTO_SYNC_LOCK_TTL_MS + 500);
     };
 
-    console.debug("[AutoSync] 📍 组件已挂载");
     // 移除挂载时立即调用的 rebuildManagedModelsFromCache()
     // hydration 完成后（scheduleStart）会调用，数据更完整
 
@@ -678,87 +641,6 @@ export default function AutoSync() {
       });
     };
 
-    const restoreLocalModelCacheState = () => {
-      const restoreStartedAt = nowMs();
-      useModelCacheStore.getState().migrateFromAccessProfiles?.();
-      const bootstrapProfile = getDefaultBootstrapProfile();
-      if (bootstrapProfile?.id) {
-        rebuildManagedModelsFromCache({
-          force: true,
-          providerIds: [getProfileProviderId(bootstrapProfile)],
-        });
-      } else {
-        rebuildManagedModelsFromCache({ force: true });
-      }
-      const hasBootstrapCache = Boolean(
-        bootstrapProfile?.id &&
-          (useModelCacheStore.getState() as any).profiles?.[bootstrapProfile.id]
-            ?.cachedModels,
-      );
-      if (bootstrapProfile?.id) {
-        pendingBootstrapProfileId = bootstrapProfile.id;
-        pendingBootstrapProfileName = bootstrapProfile.name;
-        autoSyncConsole(
-          "info",
-          `${LOG_SEPARATOR} 🗂️ Provider 模型就绪检查 | ${bootstrapProfile.name} ${LOG_SEPARATOR}`,
-        );
-      }
-      if (hasBootstrapCache) {
-        autoSyncConsole(
-          "info",
-          `${LOG_SEPARATOR} 📦 本地模型缓存恢复完成 | [AutoSync] 已在首开同步前恢复本地模型缓存 ${LOG_SEPARATOR}`,
-        );
-      } else {
-        autoSyncConsole(
-          "info",
-          `${LOG_SEPARATOR} 📦 本地模型缓存检查完成 | [AutoSync] 当前没有可用缓存，将走首次同步 ${LOG_SEPARATOR}`,
-        );
-      }
-      logPerfSummary("StartupSync", {
-        localModelRestoreDurationMs: Number(
-          (nowMs() - restoreStartedAt).toFixed(2),
-        ),
-      });
-    };
-
-    const bootstrapProviderModels = (options?: { remoteRefresh?: boolean }) => {
-      restoreLocalModelCacheState();
-      if (!pendingBootstrapProfileId) {
-        bootstrapProviderModelsPromise = Promise.resolve();
-        return bootstrapProviderModelsPromise;
-      }
-
-      const shouldRemoteRefresh = Boolean(options?.remoteRefresh);
-
-      if (!shouldRemoteRefresh) {
-        if (hasBootstrappedProviderModels) {
-          return bootstrapProviderModelsPromise ?? Promise.resolve();
-        }
-        hasBootstrappedProviderModels = true;
-      } else {
-        if (hasDeferredRemoteBootstrap) {
-          return bootstrapProviderModelsPromise ?? Promise.resolve();
-        }
-        hasDeferredRemoteBootstrap = true;
-      }
-
-      bootstrapProviderModelsPromise = ensureProviderModelsReady(
-        pendingBootstrapProfileId,
-        {
-          background: shouldRemoteRefresh,
-          silent: false,
-          reason: shouldRemoteRefresh ? "bootstrap" : "background",
-        },
-      ).catch((error) => {
-        autoSyncConsole(
-          "error",
-          `[AutoSync] 默认 provider 模型校验失败: ${pendingBootstrapProfileName}`,
-          error,
-        );
-      });
-
-      return bootstrapProviderModelsPromise;
-    };
     const waitForCriticalStoreHydration = async () => {
       if (!isPerfFeatureEnabled("PERF_ENABLE_LIGHT_STARTUP_SYNC")) {
         return {
@@ -858,6 +740,25 @@ export default function AutoSync() {
         return;
       }
 
+      // 只在非首页/聊天页直接打开时清空控制台。
+      const currentPath =
+        typeof window !== "undefined"
+          ? window.location.hash.replace(/^#/, "").split("?")[0] ||
+            window.location.pathname
+          : "";
+      const normalizedCurrentPath =
+        normalizePath(currentPath) || normalizePath(activeRoutePath);
+      const showStartupSummary = shouldShowStartupSummary(
+        normalizedCurrentPath,
+      );
+      if (!showStartupSummary) {
+        // 同步动作的后台日志一律静默。
+        setSyncSummarySuppressed(true);
+      } else {
+        // 首页/聊天页：恢复允许打印汇总。
+        setSyncSummarySuppressed(false);
+      }
+
       const attemptAutoSync = () => {
         if (hasCompletedAutoSync || autoSyncInProgress) {
           return;
@@ -867,11 +768,10 @@ export default function AutoSync() {
           return;
         }
 
-        if (Date.now() - lastAutoSyncBootstrapAt < 5000) {
-          console.debug("[AutoSync] ℹ️ 检测到重复首开同步触发，已跳过");
+        if (shouldSkipAutoSyncByRecentBootstrap()) {
           return;
         }
-        lastAutoSyncBootstrapAt = Date.now();
+        markRouteSyncBootstrap("auto-sync");
 
         // 迁移模型缓存
         modelCacheStore.migrateFromAccessProfiles?.();
@@ -897,20 +797,25 @@ export default function AutoSync() {
           Math.max(1000, AUTO_SYNC_LOCK_TTL_MS / 3),
         );
         markRouteSyncStart(syncPath, "auto-sync");
-        autoSyncConsole(
-          "info",
-          `${LOG_SEPARATOR} 🚀 AutoSync 启动流程开始 ${LOG_SEPARATOR}`,
-        );
-        logCriticalStartupSyncBanner(
-          "start",
-          getScopeCriticalBannerDetail(scope),
-        );
+        // 不再打印「===== 🚀 AutoSync 启动流程开始 =====」和
+        // 「===== 🔄 同步检查 | xxx =====」section 标题，
+        // 启动阶段没有信息量，污染同步汇总。ready / 错误仍由后续 log 输出。
 
         Promise.resolve()
           .then(
             () =>
-              syncStore.autoSyncCritical?.({ scope, abortSignal }) ||
-              syncStore.autoSync?.({ scope, abortSignal }),
+              // 首页与聊天入口输出整体同步汇总；其他页面仍完成同步，
+              // 但日志静默，不污染各自页面控制台。
+              syncStore.autoSyncCritical?.({
+                scope,
+                abortSignal,
+                silentSummary: !shouldShowStartupSummary(activeRoutePath),
+              }) ||
+              syncStore.autoSync?.({
+                scope,
+                abortSignal,
+                silentSummary: !shouldShowStartupSummary(activeRoutePath),
+              }),
           )
           .catch((error: unknown) => {
             if (isAbortError(error)) {
@@ -931,14 +836,11 @@ export default function AutoSync() {
             // void bootstrapProviderModels();
             hasCompletedAutoSync = true;
             const elapsedMs = nowMs() - criticalSyncStartedAt;
-            const elapsedSeconds = (elapsedMs / 1000).toFixed(2);
             logPerfSummary("StartupSync", {
               autoSyncCriticalDurationMs: Number(elapsedMs.toFixed(2)),
             });
-            logCriticalStartupSyncBanner(
-              "complete",
-              `用时 ${elapsedSeconds} 秒`,
-            );
+            // 不再打印「===== ✅ 同步检查完成 | 用时 X 秒 =====」section 标题，
+            // perf 摘要已经记录耗时。ready 行保留，作为给前端「页面已可直接对话 / 绘画」的可观察锚点。
             autoSyncConsole("log", getScopeReadyMessage(scope));
 
             let deferredSyncExecuted = false;
@@ -965,14 +867,14 @@ export default function AutoSync() {
                 if (isChatLikeScope(deferredScope) || deferredScope === "app") {
                   publishStartupChatSyncStatus("syncing", channel);
                   try {
-                    autoSyncConsole(
-                      "log",
-                      "[AutoSync] 🔄 后台检查本地与远端会话...",
-                    );
+                    // 不再打印「[AutoSync] 🔄 后台检查本地与远端会话...」，
+                    // 「后台同步」阶段启动没有信息量，最终结果由
+                    // getScopeDeferredDoneMessage 在尾部输出。
                     await syncStore.syncChatOnStartup?.({
                       source: "auto-sync-deferred",
                       minIntervalMs: 60_000,
                       abortSignal,
+                      silentSummary: !shouldShowStartupSummary(activeRoutePath),
                     });
                     if (shouldCancelAutoSync(syncPath)) {
                       return;
@@ -1004,6 +906,7 @@ export default function AutoSync() {
                     ...(deferredScope === "draw"
                       ? { includeKeys: allowedPendingKeys }
                       : { excludeKeys: [StoreKey.Config] }),
+                    silentSummary: !shouldShowStartupSummary(activeRoutePath),
                   });
                   if (resumed) {
                     autoSyncConsole(
@@ -1042,12 +945,14 @@ export default function AutoSync() {
                   );
                   return;
                 }
-                autoSyncConsole("info", getScopeDeferredBanner(deferredScope));
+                // 不再打印「===== 💾 对话与设置后台同步 =====」/「===== 💾 后台同步完成 =====」
+                // section 标题，ready 由 getScopeDeferredDoneMessage 单行输出。
                 try {
                   await (syncStore.autoSyncDeferred?.({
                     includeChat: false,
                     scope: deferredScope,
                     abortSignal,
+                    silentSummary: !shouldShowStartupSummary(activeRoutePath),
                   }) ?? Promise.resolve());
                   if (shouldCancelAutoSync(syncPath)) {
                     return;
@@ -1055,10 +960,6 @@ export default function AutoSync() {
                   autoSyncConsole(
                     "log",
                     getScopeDeferredDoneMessage(deferredScope),
-                  );
-                  autoSyncConsole(
-                    "info",
-                    getScopeDeferredDoneBanner(deferredScope),
                   );
                 } catch (error) {
                   if (isAbortError(error)) {
@@ -1080,7 +981,10 @@ export default function AutoSync() {
                 return;
               }
               const ensureRemoteBootstrapStartedAt = nowMs();
-              void ensureRemoteBootstrapState(deferredScope, abortSignal)
+              void ensureRemoteBootstrapState(deferredScope, {
+                abortSignal,
+                silentSummary: !shouldShowStartupSummary(activeRoutePath),
+              })
                 .then(() => {
                   logPerfSummary("StartupSync", {
                     ensureRemoteBootstrapStateDurationMs: Number(
@@ -1153,7 +1057,10 @@ export default function AutoSync() {
           if (!shouldCancelAutoSync(activeRoutePath)) {
             const syncStore = useSyncStore.getState() as any;
             syncStore
-              .sync?.([StoreKey.Config], { force: true })
+              .sync?.([StoreKey.Config], {
+                force: true,
+                silentSummary: !shouldShowStartupSummary(activeRoutePath),
+              })
               .catch(() => {});
           }
           return;
@@ -1217,39 +1124,30 @@ export default function AutoSync() {
       }
 
       const previousPath = activeRoutePath;
-      autoSyncCancelledByRouteChange = true;
-      hasCompletedAutoSync = true;
-      routeChangeCancelLogged = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
+      // 通用页面切换处理：取消上一页未消费的排队自动同步。
+      // 进入首页/聊天入口时必须保留控制台，只有其他页面才清空旧汇总。
+      // 进行中的同步（已发出的请求）不在此处中止，仍由各 store 自身的 abortSignal
+      // 处理；这里只处理排队中、未真正开始的任务。
+      try {
+        useSyncStore.getState().cancelQueuedAutoSync();
+      } catch {
+        // 路由切换快路径下 useSyncStore 可能尚未 hydrate，吞掉错误不影响后续步骤。
       }
-      if (deferredFallbackTimer) {
-        clearTimeout(deferredFallbackTimer);
-        deferredFallbackTimer = null;
-      }
-      if (cancelDeferredSyncTask) {
-        cancelDeferredSyncTask();
-        cancelDeferredSyncTask = null;
-      }
-      syncAbortController?.abort();
-      syncAbortController = null;
-      clearRetryTimer();
-      releaseLock();
+      // 移除控制台清除操作，避免清空其他页面已打印的正常日志
 
       activeRoutePath = nextPath;
-      autoSyncConsole("log", "[AutoSync] ⏹️ 页面切换，已关闭旧页面自动同步", {
-        from: previousPath,
-        to: nextPath,
-      });
-      autoSyncCancelledByManualSync = false;
-      autoSyncCancelledByRouteChange = false;
-      routeChangeCancelLogged = false;
-      hasCompletedAutoSync = false;
-      autoSyncInProgress = false;
-      lastForegroundSyncAt = 0;
-      lastExternalChatHintAt = 0;
-      lastAutoSyncBootstrapAt = 0;
+      // 路由切换后立即翻转 suppress：离开主页一律静默，
+      // 进入主页时恢复。这样可以截断「在主页发起的同步 → 路由切走 → 同步完成仍打印汇总」的尾巴。
+      setSyncSummarySuppressed(!shouldShowStartupSummary(nextPath));
+      // 降级为 debug：每跳一次页面都打一遍会污染汇总；想观察路径切换时打开 console 的 Verbose 即可。
+      autoSyncConsole(
+        "debug",
+        "[AutoSync] 🔄 页面切换，已在新路径重新调度自动同步",
+        {
+          from: previousPath,
+          to: nextPath,
+        },
+      );
 
       if (!shouldStartNextSync) {
         hasCompletedAutoSync = true;
@@ -1297,6 +1195,7 @@ export default function AutoSync() {
           }
           return syncStore.resumePendingDebounceSync?.({
             excludeKeys: [StoreKey.Config],
+            silentSummary: !shouldShowStartupSummary(activeRoutePath),
           });
         })
         .then(
@@ -1304,6 +1203,7 @@ export default function AutoSync() {
             (syncStore as any).syncChatIfRemoteChanged?.({
               source: "foreground",
               minIntervalMs: 0,
+              silentSummary: !shouldShowStartupSummary(activeRoutePath),
             }),
         )
         .catch((error: unknown) => {
@@ -1344,7 +1244,10 @@ export default function AutoSync() {
           ) {
             const syncStore = useSyncStore.getState() as any;
             syncStore
-              .sync?.([StoreKey.Config], { force: true })
+              .sync?.([StoreKey.Config], {
+                force: true,
+                silentSummary: !shouldShowStartupSummary(activeRoutePath),
+              })
               .catch(() => {});
           }
         }
@@ -1378,11 +1281,10 @@ export default function AutoSync() {
         return;
       }
 
-      triggerExternalChatSync(document.hidden ? "poll-hidden" : "poll-visible");
+      scheduleChatMetaPollSync();
     }, 15000);
 
     return () => {
-      console.debug("[AutoSync] 🧹 组件卸载");
       autoSyncEffectActive = false;
       if (timer) {
         clearTimeout(timer);
@@ -1396,6 +1298,13 @@ export default function AutoSync() {
       }
       if (chatMetaPollTimer) {
         clearInterval(chatMetaPollTimer);
+      }
+      if (
+        chatMetaPollIdleCallbackId !== null &&
+        "cancelIdleCallback" in window
+      ) {
+        window.cancelIdleCallback(chatMetaPollIdleCallbackId);
+        chatMetaPollIdleCallbackId = null;
       }
       syncAbortController?.abort();
       syncAbortController = null;

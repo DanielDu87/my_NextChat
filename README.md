@@ -63,6 +63,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、对话备份、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
 - IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、主题、临时草稿、全局模型选择和少量启动标记，其中主题只保存在当前设备、不参与云同步。
 - 支持数据库同步与本地优先合并策略。
+- 首页及聊天入口完成首开同步后，控制台只输出每个 API 供应商的模型数、分用户对话数、绘画数、插件数，以及当前用户的对话同步结果；移动端进入 `/chat` 时不会清空或静默这组输出。
 - 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
 
 ### 访问控制与部署
@@ -237,8 +238,6 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 ### 开发相关
 
 - 开发指南：[docs/development.md](docs/development.md)
-- Docker 部署与开发：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)
-- 本地开发快速入口：[docs/local-dev-guide.md](docs/local-dev-guide.md)
 
 ### 部署相关
 
@@ -258,6 +257,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 模型刷新说明：[docs/db/provider-model-auto-refresh.md](docs/db/provider-model-auto-refresh.md)
 - 余额查询 / Yuto 集成：[docs/yuto-balance-query.md](docs/yuto-balance-query.md)
 - 质量与部署后验证：[docs/quality-checklist.md](docs/quality-checklist.md)
+- 数据库代码审查与修复记录（2026-07-09）：[docs/code-review-db-2026-07-09.md](docs/code-review-db-2026-07-09.md)
 
 ## 当前约定
 

@@ -2,6 +2,18 @@
 
 本文件供 Gemini CLI/兼容 AI 代理读取，规则需与 `AGENTS.md`、`CLAUDE.md` 保持一致。
 
+> **全局规则入口**：除本文件约定外，本项目所有任务同时遵守 `/Users/dyx/ai_coding_rules/` 下规则；冲突时按"用户当前明确指令 > 当前项目规则（CLAUDE.md / AGENTS.md / GEMINI.md）> 用户长期偏好 > 专项规则 > 全局规则 > 项目已有代码风格 > 通用最佳实践"处理。
+>
+> - 规则总索引：`/Users/dyx/ai_coding_rules/README.md`
+> - 用户偏好：`/Users/dyx/ai_coding_rules/user-preferences.md`
+> - 核心全局规则：`/Users/dyx/ai_coding_rules/coding-global.md`
+> - 部署专项：`/Users/dyx/ai_coding_rules/coding-deploy.md`
+> - 数据库专项：`/Users/dyx/ai_coding_rules/coding-database.md`
+> - 前端专项：`/Users/dyx/ai_coding_rules/coding-frontend.md`
+> - Git 专项：`/Users/dyx/ai_coding_rules/coding-git.md`
+> - HANDOFF 专项：`/Users/dyx/ai_coding_rules/coding-handoff.md`
+> - 命令分类总入口：`/Users/dyx/ai_coding_rules/coding-commands.md`（含 8 个分类文件）
+
 ## 项目概览
 
 NextChat 是基于 Next.js 14、React、TypeScript、Zustand、PostgreSQL 和 SCSS Modules 的跨平台 AI 聊天应用，支持 Web/PWA 与 Tauri 桌面端。内置聊天、AI 绘画（Draw）、实时语音、MCP 工具、插件、Artifacts 等功能，支持 18 个模型供应商与多 API Key 轮询。云端数据持久化在 PostgreSQL，本地业务数据在 IndexedDB。更完整的架构导航见 [CLAUDE.md](./CLAUDE.md)。
@@ -73,7 +85,7 @@ npx tsc --noEmit --pretty false
 - **容器 / 镜像 / 卷 / 网络**：`docker rm / rm -f`、`docker image rm`、`docker volume rm`、`docker network rm`、`docker system prune`；**禁止全局 prune**。
 - **构建产物 / 缓存**：`rm -rf .next / dist / build / node_modules`、`yarn cache clean`、`docker builder prune`。
 - **Git stash / branch / tag / reflog**：`git stash drop`、`git branch -D`、`git tag -d`、`git reflog expire --expire=now --all`、`git filter-branch / filter-repo`。
-- **远程推送 / 强推**：`git push`、`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>`；一律禁止。
+- **远程推送 / 强推**：`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>` 一律禁止；普通 `git push` 仅在用户明确执行“提交/commit”或“推送/push”时允许。
 - **宝塔数据库 / 配置 / 证书**：docker.db / site.db / ssl_data.db 的 DELETE / UPDATE / INSERT、Nginx vhost、证书目录。
 
 执行要求：删除前必须先备份（`cp -a <path> /root/<path>.bak-<TS>` 或 `git mv` 到暂存区）；最终交付摘要逐行列出已删除对象；用户单字确认「是 / 好 / 继续」**只对当下那一个具体项有效**。

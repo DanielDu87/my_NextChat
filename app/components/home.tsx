@@ -13,7 +13,7 @@ import {
 } from "../utils";
 
 import dynamic from "next/dynamic";
-import { Path, SlotID } from "../constant";
+import { Path, SlotID, StoreKey } from "../constant";
 import { ErrorBoundary } from "./error";
 
 import { getISOLang, getLang } from "../locales";
@@ -46,6 +46,7 @@ import { LoadingView } from "./loading-view";
 import {
   getCurrentAutoSyncScope,
   getCurrentHashPath,
+  isHomepageOrChatPage,
 } from "../utils/startup-sync-scope";
 import {
   markRouteSyncStart,
@@ -57,6 +58,7 @@ import {
   useStartupChatSyncStatus,
 } from "../utils/chat-startup-loading";
 import { isChatSessionRoutePath } from "../utils/sidebar-route-state";
+import { logPageOpenUsageSummary } from "../utils/usage-summary-log";
 
 export function Loading(props: { noLogo?: boolean; splash?: boolean }) {
   // 最早期就同步设置主题，确保背景色正确
@@ -311,7 +313,7 @@ function isEmptyHistoryPlaceholderMessage(message: any) {
 }
 
 const CHAT_BOOTSTRAP_READY_KEY = "nextchat_chat_bootstrap_ready";
-const CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS = 6000;
+const CHAT_BOOTSTRAP_SYNC_TIMEOUT_MS = 20000;
 const SCROLLBAR_VISIBLE_CLASS = "scrollbar-visible";
 const SCROLLBAR_HIDE_DELAY_MS = 700;
 
@@ -326,6 +328,20 @@ export function WindowContent(props: { children: React.ReactNode }) {
 function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const prevPathRef = useRef(location.pathname);
+  useLayoutEffect(() => {
+    if (prevPathRef.current !== location.pathname) {
+      prevPathRef.current = location.pathname;
+      if (
+        typeof console !== "undefined" &&
+        typeof console.clear === "function"
+      ) {
+        console.clear();
+      }
+    }
+  }, [location.pathname]);
+
   const switchingUser = useAuthStore((state) => state.switchingUser);
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
@@ -639,6 +655,7 @@ export function Home() {
   const authInitialized = useAuthStore((state) => state.initialized);
   const authUser = useAuthStore((state) => state.user);
   const [chatBootstrapped, setChatBootstrapped] = useState(false);
+  const pageOpenSummaryLoggedRef = useRef(false);
   const bootStartedAtRef = useRef(nowMs());
   const bootLongTaskCountRef = useRef(0);
   const bootPerfObserverRef = useRef<PerformanceObserver | null>(null);
@@ -709,6 +726,9 @@ export function Home() {
       window.sessionStorage.setItem(CHAT_BOOTSTRAP_READY_KEY, "0");
     } catch {}
 
+    // 首页汇总必须在全部关联 store 同步完成后才读取，不能在聊天首屏就绪时
+    // 抢先读取本地缓存，否则 API 配置会只显示已水合的一部分。
+
     const markChatBootstrapped = () => {
       if (!cancelled) {
         setChatBootstrapped(true);
@@ -731,8 +751,8 @@ export function Home() {
         markChatBootstrapped();
 
         // 远端变更同步放到首屏之后执行，避免弱网或超时拖慢首页打开。
-        const scope = getCurrentAutoSyncScope();
-        if (scope === "chat" || scope === "home") {
+        // 确保主页的同步进程在直接打开其他页面时也保持运行
+        if (true) {
           try {
             const { useSyncStore } = await import("../store/sync");
             markRouteSyncStart(entryPath, "home-bootstrap");
@@ -745,10 +765,21 @@ export function Home() {
                 source: "page-init",
                 minIntervalMs: 0,
                 abortSignal: bootstrapSyncController.signal,
+                // Home bootstrap 静默：当前页面是主页或对话页时仍打印汇总，其他子路由打开或切换后静默
+                silentSummary: !isHomepageOrChatPage(),
               });
               if (!bootstrapSyncController.signal.aborted) {
                 publishStartupChatSyncStatus("done");
               }
+
+              // 汇总涉及 API 配置、模型和插件；与聊天同步一起完成后才允许打印。
+              await useSyncStore
+                .getState()
+                .sync?.([StoreKey.Access, StoreKey.Config, StoreKey.Plugin], {
+                  force: true,
+                  abortSignal: bootstrapSyncController.signal,
+                  silentSummary: true,
+                });
             } catch (error) {
               if (!bootstrapSyncController.signal.aborted) {
                 publishStartupChatSyncStatus("error");
@@ -758,16 +789,24 @@ export function Home() {
               window.clearTimeout(timeoutId);
             }
           } catch (error) {
+            console.log("[Home] sync catch block caught error:", error);
             if (
               error instanceof Error &&
               /^\[(DB Sync|Sync)\] aborted\b/.test(error.message)
             ) {
+              console.log("[Home] sync aborted, returning early");
               return;
             }
             console.error("[Home] 远端变更同步失败:", error);
           }
           if (!cancelled) {
             useChatIndexStore.getState().syncFromChatStore();
+          }
+
+          const isCurrentlyChat = isHomepageOrChatPage();
+          if (isCurrentlyChat && !pageOpenSummaryLoggedRef.current) {
+            pageOpenSummaryLoggedRef.current = true;
+            void logPageOpenUsageSummary();
           }
         }
       } finally {
@@ -778,8 +817,11 @@ export function Home() {
     void bootstrapChat();
 
     return () => {
+      // 不再 abort bootstrapSyncController：useEffect 依赖 [authInitialized, hasHydrated] 在
+      // 切换用户（auth 状态翻转）时会重跑，旧的 abort 会掐断目标用户的首次同步，
+      // 导致「切换用户后看不到新对话」「同步状态卡在 syncing」等问题。
+      // 这里仅保留 React 状态保护 `cancelled`，让 bootstrapChat 自身的早返逻辑生效。
       cancelled = true;
-      bootstrapSyncController.abort();
     };
   }, [authInitialized, hasHydrated]);
 
@@ -791,7 +833,9 @@ export function Home() {
     const controller = new AbortController();
     let idleCallbackId: number | null = null;
     const preload = () => {
-      console.log("[ManagedUsers] 页面启动后自动更新用户数据");
+      // 不再打印「[ManagedUsers] 页面启动后自动更新用户数据 / 完成」两条启动日志，
+      // 它们与「页面打开数据汇总」段落重复，且每跳页 / 切用户都打一遍。
+      // managedUsers 自身已有 inFlight / 失败 / abort 状态输出，错误路径保留。
       void import("../utils/managed-users")
         .then(
           ({ bootstrapManagedUsers }) =>
@@ -800,9 +844,6 @@ export function Home() {
               signal: controller.signal,
             }).revalidatePromise,
         )
-        .then(() => {
-          console.log("[ManagedUsers] 页面启动用户数据更新完成");
-        })
         .catch((error) => {
           if (
             controller.signal.aborted ||

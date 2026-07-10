@@ -22,8 +22,6 @@ import {
   type ChatSession,
   useChatStore,
 } from "../store/chat";
-import { useSyncStore } from "../store/sync";
-import { StoreKey } from "../constant";
 import { useChatIndexStore } from "../store/chat-index";
 import { getMessageTextContent } from "../utils";
 import { IconButton } from "./button";
@@ -132,8 +130,6 @@ function normalizeRestoredSession(
   rawSession: any,
   restoredAt: number,
 ): ChatSession {
-  console.log("[Chat Backup] 开始规范化会话数据:", rawSession);
-
   // 创建一个符合 ChatSession 类型的完整会话
   const emptySession = createEmptySession();
 
@@ -172,12 +168,6 @@ function normalizeRestoredSession(
     ...(typeof msg === "object" ? msg : {}),
   }));
 
-  console.log("[Chat Backup] 规范化后的会话:", {
-    id: normalized.id,
-    topic: normalized.topic,
-    messageCount: normalized.messages.length,
-  });
-
   return normalized;
 }
 
@@ -205,12 +195,6 @@ function applyRestoredSessionToStores(
     ...buildSessionSummary(nextSession),
     displayTime: restoredAt,
   };
-
-  console.log("[Chat Backup] 应用会话到 store:", {
-    sessionId,
-    topic: nextSession.topic,
-    messageCount: nextSession.messages.length,
-  });
 
   useChatStore.setState((state) => {
     const remainingSessions = state.sessions.filter(
@@ -267,8 +251,6 @@ function applyRestoredSessionToStores(
       deletedSessionTimestamps: remainingDeletedTimestamps,
     };
   });
-
-  console.log("[Chat Backup] 会话已应用到所有 store");
 }
 
 async function showRestoredSessionNow(
@@ -288,29 +270,64 @@ async function showRestoredSessionNow(
     lastUpdate: restoredAt,
   };
 
-  console.log("[Chat Backup] 保存会话到持久化存储:", {
-    sessionId: nextSession.id,
-    topic: nextSession.topic,
-  });
-
   await useChatStore
     .getState()
     .saveSessionToPersistedStorage(nextSession)
     .catch((error) => {
-      console.error("[Chat Backup] 写入本地恢复会话失败", error);
+      console.error(
+        "[Chat Backup] ❌ 写入本地恢复会话失败",
+        error instanceof Error ? error.message : error,
+      );
     });
 
-  // 立即应用
+  // 立即应用一次，然后轮询直到 store 中存在该会话。
+  // 取代旧实现里 300ms / 1200ms 两次硬编码 setTimeout，避免在快机器上空转、
+  // 在慢机器上又覆盖不到的竞态。指数退避 + 显式上限，不会无限延后。
   applyRestoredSessionToStores(nextSession, restoredAt);
+  await waitForSessionInStore(sessionId);
+}
 
-  // 延迟再次应用确保状态同步
-  window.setTimeout(
-    () => applyRestoredSessionToStores(nextSession, restoredAt),
-    300,
+// 轮询 store 直到指定 sessionId 出现在 chat store 中。最多 6 次，间隔
+// 50/100/200/400/800/1200ms（指数退避），总耗时约 2.75s，已能覆盖正常
+// Zustand persist + chatIndexStore 同步链路。命中后立即 resolve。
+async function waitForSessionInStore(sessionId: string) {
+  const delays = [50, 100, 200, 400, 800, 1200];
+  for (let i = 0; i < delays.length; i++) {
+    const delay = delays[i];
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    const present = useChatStore
+      .getState()
+      .sessions.some((item) => item.id === sessionId);
+    if (present) {
+      // 命中后再 apply 一次，把 index store 的 orderedIds 同步进来
+      // （index store 的同步逻辑在 applyRestoredSessionToStores 内部完成）
+      const target = useChatStore
+        .getState()
+        .sessions.find((item) => item.id === sessionId);
+      if (target) {
+        applyRestoredSessionToStores(target, Date.now());
+      }
+      return;
+    }
+  }
+  console.warn(
+    `[Chat Backup] ⚠️ 轮询结束仍未在 store 中看到会话：${sessionId}（当前 store 共 ${
+      useChatStore.getState().sessions.length
+    } 个会话）`,
   );
-  window.setTimeout(
-    () => applyRestoredSessionToStores(nextSession, restoredAt),
-    1200,
+}
+
+// 轮询 chat index store 的初始化标志，最多 maxAttempts 次（每次 100ms）。
+// 用于切换用户后等待目标用户的会话列表加载完成，取代硬编码 1.5s 等待。
+async function waitForChatIndexInitialized(maxAttempts = 30) {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (useChatIndexStore.getState().initialized) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  console.warn(
+    `[Chat Backup] ⚠️ chat index store 初始化超时（${maxAttempts} 次）`,
   );
 }
 
@@ -341,6 +358,7 @@ export function ChatBackupsPage() {
   const userSelectRef = useRef<HTMLDivElement | null>(null);
   const settingsReadyRef = useRef(false);
   const syncedSettingsRef = useRef("");
+  const backupLogSignatureRef = useRef("");
 
   const loadUsers = useCallback(async () => {
     try {
@@ -353,13 +371,14 @@ export function ChatBackupsPage() {
       }
       setUsers(Array.isArray(data.users) ? data.users : []);
     } catch (error) {
-      console.error("[Chat Backup] 读取用户列表失败", error);
+      console.error(
+        "[Chat Backup] ❌ 读取用户列表失败",
+        error instanceof Error ? error.message : error,
+      );
     }
   }, []);
 
   const load = useCallback(async (targetUserId: string, keyword = "") => {
-    console.log("===== 📚 对话备份列表 =====");
-    console.log("[Chat Backup] 🔄 正在读取备份设置和历史记录...");
     setLoading(true);
     try {
       const query = new URLSearchParams();
@@ -390,6 +409,36 @@ export function ChatBackupsPage() {
       setSummary(
         data.summary && typeof data.summary === "object" ? data.summary : null,
       );
+      const summaryText =
+        data.summary && typeof data.summary === "object" ? data.summary : null;
+      const backupLogSignature = JSON.stringify({
+        targetUserId,
+        keyword,
+        degraded: Boolean(data.degraded),
+        backups: nextBackups,
+        summary: summaryText,
+      });
+      if (backupLogSignatureRef.current !== backupLogSignature) {
+        backupLogSignatureRef.current = backupLogSignature;
+        console.log(
+          `[Chat Backup] 📋 已读取对话备份（${nextBackups.length} 次${
+            data.degraded ? "，降级返回" : ""
+          }）：`,
+        );
+        if (nextBackups.length) {
+          nextBackups.forEach((backup) => {
+            console.log(
+              `  - ${new Date(backup.createdAt).toLocaleString()}（${
+                backup.source
+              }/${backup.mode}，${backup.sessionCount} 个会话 / ${
+                backup.messageCount
+              } 条消息，归属 ${backup.username || backup.externalId || "?"}）`,
+            );
+          });
+        } else {
+          console.log("  - 暂无备份");
+        }
+      }
       setSelectedId((current) => {
         if (keyword.trim()) {
           return nextBackups[0]?.id || "";
@@ -400,16 +449,11 @@ export function ChatBackupsPage() {
           : "";
       });
       setExpandedSessionId("");
-      console.log("[Chat Backup] ✅ 备份设置和历史记录读取完成", {
-        备份数量: nextBackups.length,
-        自动备份: data.settings?.enabled,
-        备份间隔分钟: data.settings?.intervalMinutes,
-        最大保留数量: data.settings?.maxBackups,
-        降级读取: Boolean(data.degraded),
-      });
-      console.log("===== ✅ 对话备份列表读取完成 =====");
     } catch (error) {
-      console.error("[Chat Backup] ❌ 读取备份列表失败", error);
+      console.error(
+        "[Chat Backup] ❌ 读取备份列表失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("读取对话备份失败");
     } finally {
       setLoading(false);
@@ -447,7 +491,10 @@ export function ChatBackupsPage() {
           keyword.trim() ? sessions[0]?.externalSessionId || "" : "",
         );
       } catch (error) {
-        console.error("[Chat Backup] 读取备份内容失败", error);
+        console.error(
+          "[Chat Backup] ❌ 读取备份内容失败",
+          error instanceof Error ? error.message : error,
+        );
         showToast("读取对话备份内容失败");
       } finally {
         setDetailLoading(false);
@@ -477,8 +524,6 @@ export function ChatBackupsPage() {
     if (settingsSnapshot === syncedSettingsRef.current) return;
     setSettingsSyncStatus("等待同步...");
     const timer = window.setTimeout(async () => {
-      console.log("===== ⚙️ 对话备份设置同步 =====");
-      console.log("[Chat Backup] 📤 正在同步备份设置到服务器...", settings);
       setWorking("settings");
       setSettingsSyncStatus("正在同步到服务器...");
       try {
@@ -496,10 +541,14 @@ export function ChatBackupsPage() {
           throw new Error(data.error || "save_failed");
         syncedSettingsRef.current = JSON.stringify(data.settings);
         setSettingsSyncStatus("已与服务器同步");
-        console.log("[Chat Backup] ✅ 备份设置已同步到服务器");
-        console.log("===== ✅ 对话备份设置同步完成 =====");
+        console.log(
+          `[Chat Backup] ✅ 自动备份设置已同步（启用=${data.settings.enabled}，间隔=${data.settings.intervalMinutes} 分钟，保留=${data.settings.maxBackups}）`,
+        );
       } catch (error) {
-        console.error("[Chat Backup] ❌ 备份设置同步失败", error);
+        console.error(
+          "[Chat Backup] ❌ 备份设置同步失败",
+          error instanceof Error ? error.message : error,
+        );
         setSettingsSyncStatus("同步失败，请修改后重试");
         showToast("自动备份设置同步失败");
       } finally {
@@ -520,6 +569,7 @@ export function ChatBackupsPage() {
   };
 
   const createBackup = async () => {
+    console.log("[Chat Backup] 🔄 开始为所有用户创建增量备份");
     setWorking("backup");
     try {
       const response = await fetch("/api/db/chat-backups", {
@@ -532,12 +582,23 @@ export function ChatBackupsPage() {
         throw new Error(data.error || "backup_failed");
       }
       const results = Array.isArray(data.results) ? data.results : [];
+      const successCount = results.filter((r: any) => r.created).length;
+      const sessionTotal = results.reduce(
+        (sum: number, r: any) => sum + (r.sessionCount || 0),
+        0,
+      );
+      console.log(
+        `[Chat Backup] ✅ 增量备份已创建（${successCount}/${results.length} 个用户，共 ${sessionTotal} 个会话）`,
+      );
       showToast(`已为 ${results.length} 个用户创建增量备份`);
       setSearchText("");
       await load(selectedUserId, "");
       setSelectedId("");
     } catch (error) {
-      console.error("[Chat Backup] 创建备份失败", error);
+      console.error(
+        "[Chat Backup] ❌ 创建备份失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("创建对话备份失败");
     } finally {
       setWorking("");
@@ -558,14 +619,10 @@ export function ChatBackupsPage() {
     ) {
       return;
     }
+    const sessionTitle = session.title || "未命名对话";
+    console.log(`[Chat Backup] 🔄 开始恢复会话：${sessionTitle}`);
     setWorking(session.externalSessionId);
     try {
-      console.log("[Chat Backup] 开始恢复会话:", {
-        backupId: selectedId,
-        externalSessionId: session.externalSessionId,
-        targetUserId: selectedUserId,
-      });
-
       const response = await fetch("/api/db/chat-backups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -579,11 +636,6 @@ export function ChatBackupsPage() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(
-          "[Chat Backup] 服务器响应失败:",
-          response.status,
-          errorText,
-        );
         throw new Error(
           `服务器错误 (${response.status}): ${errorText || "未知错误"}`,
         );
@@ -591,7 +643,6 @@ export function ChatBackupsPage() {
 
       const data = await response.json();
       if (!data.ok) {
-        console.error("[Chat Backup] 恢复失败，返回数据:", data);
         throw new Error(data.error || "restore_failed");
       }
 
@@ -602,22 +653,11 @@ export function ChatBackupsPage() {
         data.result?.sessionAlreadyExistsAndSame,
       );
 
-      console.log("[Chat Backup] 恢复会话数据:", {
-        hasSession: !!restoredSession,
-        sessionId: restoredSession?.id,
-        restoredUserId,
-        effectiveUserId: effectiveUser?.id,
-        sessionAlreadyExistsAndSame,
-        result: data.result,
-      });
-
       if (restoredSession?.id) {
         // 检查会话是否已存在且内容相同
         if (sessionAlreadyExistsAndSame) {
           const shouldContinue = await showConfirm(
-            `该对话「${
-              session.title || "未命名对话"
-            }」已存在且内容相同，是否仍要恢复？`,
+            `该对话「${sessionTitle}」已存在且内容相同，是否仍要恢复？`,
           );
           if (!shouldContinue) {
             // 如果用户选择不继续，则直接跳转到该会话
@@ -636,7 +676,8 @@ export function ChatBackupsPage() {
                 username: String(data.result?.username || ""),
                 displayName: String(data.result?.displayName || ""),
               });
-              await new Promise((resolve) => setTimeout(resolve, 1000));
+              // 等目标用户的 index store 初始化好再跳转，取代硬编码 1s 等待
+              await waitForChatIndexInitialized(20);
               navigate(
                 `${Path.Chat}/${encodeURIComponent(restoredSession.id)}`,
               );
@@ -652,63 +693,37 @@ export function ChatBackupsPage() {
           restoredUserId !== effectiveUser.id;
 
         if (needsSwitchUser) {
-          console.log("[Chat Backup] 需要切换用户到:", restoredUserId);
           // 如果需要切换用户，先切换用户
           await switchUser(restoredUserId, {
             username: String(data.result?.username || ""),
             displayName: String(data.result?.displayName || ""),
           });
-          // 等待足够长的时间确保初始化同步完成
-          console.log("[Chat Backup] 等待初始化同步完成...");
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        } else {
-          // 恢复自己账号的会话时，先取消正在进行的同步任务
-          console.log("[Chat Backup] 恢复自己账号的会话，先取消同步任务...");
-          try {
-            const { useSyncStore } = await import("../store/sync");
-            useSyncStore.getState().cancelQueuedAutoSync?.();
-          } catch (e) {
-            console.warn("[Chat Backup] 取消同步任务失败:", e);
-          }
+          // 等待目标用户的 chat index store 初始化完成（取代硬编码 1.5s）。
+          // 轮询最多 30 次（每次 100ms，约 3s），命中 initialized=true 即继续。
+          await waitForChatIndexInitialized(30);
         }
 
-        // 确保恢复会话 - 多次应用防止被覆盖
-        console.log("[Chat Backup] 开始应用恢复的会话...");
+        // 写入 store 并通过轮询确认会话可见（取代 7 个硬编码 setTimeout）
         await showRestoredSessionNow(restoredSession, restoredAt);
-
-        // 定义一个函数多次应用恢复的会话
-        const applyManyTimes = () => {
-          const applyIntervals = [100, 300, 500, 800, 1200, 1800, 2500];
-          applyIntervals.forEach((delay, index) => {
-            setTimeout(() => {
-              console.log(
-                `[Chat Backup] 第 ${
-                  index + 1
-                } 次延迟应用恢复的会话 (${delay}ms)...`,
-              );
-              applyRestoredSessionToStores(restoredSession, restoredAt);
-            }, delay);
-          });
-        };
-
-        // 开始多次应用
-        applyManyTimes();
 
         showToast("对话已恢复");
 
-        // 延迟导航，确保状态更新完成
-        setTimeout(() => {
-          navigate(`${Path.Chat}/${encodeURIComponent(restoredSession.id)}`);
-        }, 300);
+        console.log(
+          `[Chat Backup] ✅ 恢复流程完成：${sessionTitle}${
+            needsSwitchUser ? `（已切换到 ${restoredUserId}）` : ""
+          }`,
+        );
+        navigate(`${Path.Chat}/${encodeURIComponent(restoredSession.id)}`);
       } else {
         console.warn("[Chat Backup] 没有返回会话数据，刷新页面");
         showToast("对话已恢复，正在刷新对话列表...");
-        window.setTimeout(() => {
-          window.location.reload();
-        }, 350);
+        window.location.reload();
       }
     } catch (error) {
-      console.error("[Chat Backup] 恢复对话失败", error);
+      console.error(
+        `[Chat Backup] ❌ ${sessionTitle} 恢复失败`,
+        error instanceof Error ? error.message : error,
+      );
 
       // 显示更友好的错误信息
       let errorMessage = "恢复对话失败";
@@ -732,6 +747,7 @@ export function ChatBackupsPage() {
     if (!(await showConfirm("确定删除这次对话备份？删除后无法恢复。"))) {
       return;
     }
+    console.log(`[Chat Backup] 🔄 开始删除备份（${backup.id}）`);
     setWorking(`delete:${backup.id}`);
     try {
       const query = new URLSearchParams({ id: backup.id });
@@ -745,12 +761,16 @@ export function ChatBackupsPage() {
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "delete_failed");
       }
+      console.log("[Chat Backup] ✅ 备份已删除");
       showToast("对话备份已删除");
       setSelectedId("");
       setDetail(null);
       await load(selectedUserId, searchText);
     } catch (error) {
-      console.error("[Chat Backup] 删除备份失败", error);
+      console.error(
+        "[Chat Backup] ❌ 删除备份失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("删除对话备份失败");
     } finally {
       setWorking("");
@@ -767,6 +787,11 @@ export function ChatBackupsPage() {
     ) {
       return;
     }
+    console.log(
+      `[Chat Backup] 🔄 开始删除备份内的会话快照：${
+        session.title || "未命名对话"
+      }`,
+    );
     setWorking(`delete-session:${session.externalSessionId}`);
     try {
       const query = new URLSearchParams({
@@ -783,6 +808,7 @@ export function ChatBackupsPage() {
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "delete_snapshot_failed");
       }
+      console.log("[Chat Backup] ✅ 备份会话快照已删除");
       showToast("备份内容已删除");
       setExpandedSessionId("");
       await Promise.all([
@@ -790,7 +816,10 @@ export function ChatBackupsPage() {
         loadDetail(selectedId, selectedUserId, searchText),
       ]);
     } catch (error) {
-      console.error("[Chat Backup] 删除备份内容失败", error);
+      console.error(
+        "[Chat Backup] ❌ 删除备份内容失败",
+        error instanceof Error ? error.message : error,
+      );
       showToast("删除备份内容失败");
     } finally {
       setWorking("");

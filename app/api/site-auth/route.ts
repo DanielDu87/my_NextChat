@@ -7,7 +7,11 @@ import {
   verifySitePassword,
 } from "@/app/utils/server/site-password";
 
-const DEFAULT_SITE_PASSWORD = "dyxchat123";
+// 站点访问密码默认从环境变量读取，不硬编码到代码。
+// 生产部署必须显式设置 NEXTCHAT_SITE_PASSWORD；仅在本地开发且未设置环境变量时
+// 才使用占位符 "change-me-please"（启动日志会强提示），避免被部署到生产时静默使用弱口令。
+const DEFAULT_SITE_PASSWORD =
+  process.env.NEXTCHAT_SITE_PASSWORD?.trim() || "change-me-please";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -40,7 +40,6 @@ export async function saveChatBackupSettings(
   externalUserId: string,
   settings: { enabled: boolean; intervalMinutes: number; maxBackups: number },
 ) {
-  console.log("[Chat Backup] ⚙️ 开始保存自动备份设置", settings);
   await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
   await backupPgQuery(
@@ -60,7 +59,9 @@ export async function saveChatBackupSettings(
     ],
   );
   await pruneChatBackups(externalUserId, settings.maxBackups);
-  console.log("[Chat Backup] ✅ 自动备份设置已保存");
+  console.log(
+    `[Chat Backup] ✅ 自动备份设置已保存（启用=${settings.enabled}，间隔=${settings.intervalMinutes} 分钟，保留=${settings.maxBackups}）`,
+  );
   return settings;
 }
 
@@ -74,10 +75,9 @@ export async function pruneChatBackups(externalUserId: string, max: number) {
     [userId, max],
   );
   if ((result.rowCount ?? 0) > 0) {
-    console.log("[Chat Backup] 🧹 已清理超出保留数量的旧备份", {
-      删除数量: result.rowCount,
-      最大保留数量: max,
-    });
+    console.log(
+      `[Chat Backup] 🧹 已清理 ${result.rowCount} 条超出保留数量（${max}）的旧备份`,
+    );
   }
 }
 
@@ -106,29 +106,6 @@ async function getAppUserInfoByIds(userIds: string[]) {
     [normalizedUserIds],
   );
   return new Map(result.rows.map((row) => [row.userId, row]));
-}
-
-async function getConversationCountsByUserIds(userIds: string[]) {
-  const normalizedUserIds = Array.from(new Set(userIds.filter(Boolean)));
-  if (normalizedUserIds.length === 0) return new Map<string, number>();
-  await ensureSyncStorageSchema();
-  const result = await pgQuery<{
-    user_id: string;
-    conversation_count: string;
-  }>(
-    `select user_id::text,
-            count(*)::text as conversation_count
-       from conversations
-      where user_id = any($1::uuid[])
-      group by user_id`,
-    [normalizedUserIds],
-  );
-  return new Map(
-    result.rows.map((row) => [
-      row.user_id,
-      Number(row.conversation_count || 0) || 0,
-    ]),
-  );
 }
 
 function checksum(payload: unknown) {
@@ -214,13 +191,18 @@ async function getChangedSessionIds(
 ) {
   await ensureSyncStorageSchema();
   const params: unknown[] = [appUserId];
+  // 包含 `is_deleted = true` 的会话：用户「删除」会话走的是软删除（见
+  // chat-conversation-repository.syncNormalizedChatSessions），删除事件本身需要被备份，
+  // 实现 CLAUDE.md 承诺的「能恢复已删除对话」。`is_deleted = false` 的会话走常规变更过滤。
+  // 使用 `>=` 而非 `>`：防止 watermark 时刻恰好等值的更新被漏掉。
   const changedFilter = fromWatermark
     ? `and (
-         c.updated_at > $2::timestamptz
+         c.updated_at >= $2::timestamptz
+         or c.is_deleted = true
          or exists (
            select 1 from messages m
             where m.conversation_id = c.id
-              and m.updated_at > $2::timestamptz
+              and m.updated_at >= $2::timestamptz
          )
        )`
     : "";
@@ -230,7 +212,10 @@ async function getChangedSessionIds(
     `select c.external_session_id
       from conversations c
      where c.user_id = $1::uuid
-        and exists (select 1 from messages m where m.conversation_id = c.id)
+        and (
+          exists (select 1 from messages m where m.conversation_id = c.id)
+          or c.is_deleted = true
+        )
         ${changedFilter}
      order by c.updated_at desc`,
     params,
@@ -288,9 +273,14 @@ async function getSessionSnapshots(appUserId: string, sessionIds: string[]) {
       ...(row.metadata_json || {}),
       id: row.external_session_id,
       messages: messageMap.get(row.id) || [],
+      // 内部水印仅用于 backup_chat_runs 的 updated_at_snapshot 列，
+      // 不写入 session_payload JSONB（用户可消费/前端展示的字段）
       _backupConversationUpdatedAt: row.updated_at,
-    };
-    return sanitizeJsonPayload(payload) as JsonObject;
+    } as JsonObject;
+    // 写入 DB 前剥离内部字段，避免恢复时泄漏到前端
+    const sanitized = sanitizeJsonPayload(payload) as JsonObject;
+    delete sanitized._backupConversationUpdatedAt;
+    return sanitized;
   });
 }
 
@@ -304,7 +294,7 @@ export async function createChatBackup(
 
   if (source === "auto") {
     if (!settings.enabled) {
-      console.log("[Chat Backup] ⏭️ 自动备份已关闭，跳过本次备份");
+      console.log("[Chat Backup] ℹ️ 自动备份已关闭，跳过本次备份");
       return { created: false, reason: "disabled" };
     }
     const latest = await backupPgQuery<{ created_at: string }>(
@@ -318,9 +308,9 @@ export async function createChatBackup(
       Date.now() - new Date(row.created_at).getTime() <
         settings.intervalMinutes * 60_000
     ) {
-      console.log("[Chat Backup] ⏭️ 未达到自动备份间隔，跳过本次备份", {
-        备份间隔分钟: settings.intervalMinutes,
-      });
+      console.log(
+        `[Chat Backup] ℹ️ 未达到自动备份间隔（${settings.intervalMinutes} 分钟），跳过本次备份`,
+      );
       return { created: false, reason: "interval" };
     }
   }
@@ -336,7 +326,7 @@ export async function createChatBackup(
 
   // 如果是自动备份且没有变化的会话，也跳过
   if (source === "auto" && sessions.length === 0) {
-    console.log("[Chat Backup] ⏭️ 无变化的会话，跳过本次自动备份");
+    console.log("[Chat Backup] ℹ️ 无变化的会话，跳过本次自动备份");
     return { created: false, reason: "no_changes" };
   }
 
@@ -354,6 +344,19 @@ export async function createChatBackup(
   });
 
   const backupId = await withBackupPgTransaction(async (client) => {
+    // 同一 externalUserId 的并发备份串行化：避免 scheduler + 手动 + pre_restore
+    // 同时跑同一用户造成 watermark 竞争、checksum 错位。lockkey 由 hashtext 派生，
+    // 落在 bigint 范围内；事务结束自动释放，无需显式 unlock。
+    const lockKeyResult = await client.query<{ lock_key: string }>(
+      `select hashtext($1)::bigint as lock_key`,
+      [externalUserId],
+    );
+    const lockKey = lockKeyResult.rows[0]?.lock_key;
+    if (!lockKey) {
+      throw new Error("chat_backup_lock_failed");
+    }
+    await client.query(`select pg_advisory_xact_lock($1::bigint)`, [lockKey]);
+
     const runResult = await client.query<{ id: string }>(
       `insert into backup_chat_runs (
          user_id,
@@ -419,12 +422,9 @@ export async function createChatBackup(
 
   await pruneChatBackups(externalUserId, settings.maxBackups);
 
-  console.log("[Chat Backup] ✅ 对话备份已创建", {
-    备份ID: backupId,
-    来源: source,
-    会话数量: sessions.length,
-    消息数量: messageCount,
-  });
+  console.log(
+    `[Chat Backup] ✅ 对话备份已创建（来源: ${source}，模式: ${mode}，会话数: ${sessions.length}，消息数: ${messageCount}）`,
+  );
 
   return {
     created: true,
@@ -804,19 +804,19 @@ export async function deleteChatBackupConversationSnapshot(params: {
     );
     if (!deleteResult.rows[0]?.id) return false;
 
+    // 不再篡改 backup_chat_runs 的 session_count/message_count（保留不可变快照语义）。
+    // 仅更新 checksum 和 metadata 标记本次发生过 snapshot 删除，便于审计追踪。
     await client.query(
       `update backup_chat_runs r
-          set session_count = coalesce(s.session_count, 0),
-              message_count = coalesce(s.message_count, 0),
-              checksum = $3
-         from (
-           select
-             count(*)::int as session_count,
-             coalesce(sum(message_count), 0)::int as message_count
-           from backup_chat_conversation_snapshots
-           where backup_id = $1::uuid
-             and user_id = $2::uuid
-         ) s
+          set checksum = $3,
+              metadata = metadata || jsonb_build_object(
+                'deletedSnapshots',
+                coalesce(metadata->'deletedSnapshots', '[]'::jsonb) ||
+                jsonb_build_array(jsonb_build_object(
+                  'externalSessionId', $4::text,
+                  'deletedAt', $5::text
+                ))
+              )
         where r.id = $1::uuid
           and r.user_id = $2::uuid`,
       [
@@ -827,6 +827,8 @@ export async function deleteChatBackupConversationSnapshot(params: {
           deletedSessionId: params.externalSessionId,
           deletedAt: new Date().toISOString(),
         }),
+        params.externalSessionId,
+        new Date().toISOString(),
       ],
     );
 

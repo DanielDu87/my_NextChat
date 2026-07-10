@@ -100,7 +100,13 @@ export function PromptManagerPage() {
   const promptContentInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    // 进入 /prompt-manager 时先清空控制台，避免上一页（如 /chat）的同步汇总混进本页日志。
+    if (typeof console !== "undefined" && typeof console.clear === "function") {
+      console.clear();
+    }
+
     const abortController = new AbortController();
+    let cancelled = false;
 
     const loadPromptsFromDatabase = async () => {
       const loadingStartedAt = Date.now();
@@ -131,17 +137,38 @@ export function PromptManagerPage() {
             window.setTimeout(resolve, remainingLoadingTime),
           );
         }
-        if (!abortController.signal.aborted) {
-          setIsLoadingPrompts(false);
-          if (loadSucceeded && !hasCachedPromptsRef.current) {
-            showTopNotice("提示词已从数据库更新");
+        if (cancelled || abortController.signal.aborted) {
+          return;
+        }
+        setIsLoadingPrompts(false);
+        if (loadSucceeded && !hasCachedPromptsRef.current) {
+          showTopNotice("提示词已从数据库更新");
+        }
+        if (loadSucceeded) {
+          // 等当前同步队列空闲，避免「已开始汇总」但还没入库的提示词被算漏；
+          // 给出 8s 上限，超时即按已有数据打印，不阻塞首屏。
+          try {
+            const { waitForSyncIdleSafely } = await import("../store/sync");
+            await waitForSyncIdleSafely({ timeoutMs: 8000 });
+          } catch (error) {
+            console.warn("[PromptManager] 等待同步空闲失败，跳过:", error);
           }
+          if (cancelled) {
+            return;
+          }
+          const totalCount = usePromptStore.getState().getUserPrompts().length;
+          console.log(`[PromptManager] ✅ 已同步提示词: ${totalCount} 个`);
         }
       }
     };
 
     void loadPromptsFromDatabase();
-    return () => abortController.abort();
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      // 离开页面的「取消排队同步 + 清空控制台」由 auto-sync 的 handleRouteChangeRestart
+      // 统一处理，避免每个页面重复实现。
+    };
   }, []);
 
   useEffect(() => {
@@ -157,7 +184,9 @@ export function PromptManagerPage() {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!promptSyncingRef.current) return;
 
-      console.warn("[PromptManager] ⚠️ 页面刷新或关闭时提示词仍在同步中");
+      console.warn(
+        "[PromptManager] ⚠️ 页面刷新或关闭时提示词仍在同步中（同步中的修改可能未保存）",
+      );
       event.preventDefault();
       event.returnValue = "";
     };
@@ -195,7 +224,7 @@ export function PromptManagerPage() {
     promptSyncingRef.current = true;
 
     showTopNotice(`正在${action}提示词并同步...`);
-    console.log(`[PromptManager] 🚀 开始${action}提示词并同步到 PostgreSQL`);
+    console.log(`[PromptManager] 🔄 开始${action}提示词并同步到 PostgreSQL`);
     try {
       const { useSyncStore } = await import("../store/sync");
       await useSyncStore.getState().sync([StoreKey.Prompt], {
@@ -206,7 +235,10 @@ export function PromptManagerPage() {
       console.log(`[PromptManager] ✅ 提示词${action}并同步成功`);
       showTopNotice(`提示词${action}并同步成功`);
     } catch (error) {
-      console.error(`[PromptManager] ❌ 提示词${action}同步失败:`, error);
+      console.error(
+        `[PromptManager] ❌ 提示词${action}同步失败`,
+        error instanceof Error ? error.message : error,
+      );
       showTopNotice(`提示词${action}同步失败，请稍后重试`);
       showToast(`提示词${action}同步失败，请检查数据库连接`);
     } finally {
@@ -222,7 +254,9 @@ export function PromptManagerPage() {
 
   const closePromptManagerPage = async () => {
     if (promptSyncingRef.current) {
-      console.warn("[PromptManager] ⚠️ 关闭页面时提示词仍在同步中");
+      console.warn(
+        "[PromptManager] ⚠️ 关闭页面时提示词仍在同步中（同步中的修改可能在下次打开前丢失）",
+      );
       const confirmed = await showConfirm(
         "提示词正在同步中，离开页面可能导致同步未完成。确定要离开吗？",
       );

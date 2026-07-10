@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { buildChatIndexPayload, type ChatIndexPayload } from "../chat-sync";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 import { ensureSyncStorageSchema, pgQuery } from "./postgres";
+import { recordCacheFileReferences } from "./cache-file-repository";
 
 type JsonObject = Record<string, unknown>;
 
@@ -181,6 +182,7 @@ async function upsertConversation(
 
 async function replaceConversationMessages(
   client: PoolClient,
+  externalUserId: string,
   conversationId: string,
   session: ChatSessionRecord,
   options?: {
@@ -188,50 +190,61 @@ async function replaceConversationMessages(
   },
 ) {
   const messages = getSessionMessages(session);
-  for (let index = 0; index < messages.length; index += 1) {
-    const rawMessage = sanitizeJsonPayload(messages[index]) as JsonObject;
-    await client.query(
-      `insert into messages (
-         conversation_id,
-         external_message_id,
-         seq,
-         role,
-         content_text,
-         content_json,
-         reasoning_text,
-         tool_calls,
-         metadata_json
-       ) values (
-         $1::uuid,
-         $2,
-         $3,
-         $4,
-         $5,
-         $6::jsonb,
-         $7,
-         $8::jsonb,
-         '{}'::jsonb
-       )
-       on conflict (conversation_id, seq) do update set
-         external_message_id = excluded.external_message_id,
-         role = excluded.role,
-         content_text = excluded.content_text,
-         content_json = excluded.content_json,
-         reasoning_text = excluded.reasoning_text,
-         tool_calls = excluded.tool_calls,
-         metadata_json = excluded.metadata_json,
-         updated_at = now()`,
-      [
-        conversationId,
-        getExternalMessageId(rawMessage),
-        index,
-        normalizeMessageRole(rawMessage.role),
-        getMessageContentText(rawMessage),
-        JSON.stringify(rawMessage),
-        getMessageReasoningText(rawMessage),
-        JSON.stringify(getMessageToolCalls(rawMessage)),
-      ],
-    );
+  // 批量插入避免 N+1：长会话（>200 条消息）会显著减少事务窗口和连接占用
+  if (messages.length > 0) {
+    const BATCH_SIZE = 100;
+    for (
+      let batchStart = 0;
+      batchStart < messages.length;
+      batchStart += BATCH_SIZE
+    ) {
+      const batch = messages.slice(batchStart, batchStart + BATCH_SIZE);
+      const values: string[] = [];
+      const params: unknown[] = [];
+      batch.forEach((rawMsg, offset) => {
+        const rawMessage = sanitizeJsonPayload(rawMsg) as JsonObject;
+        const base = batchStart + offset;
+        const idx = params.length;
+        values.push(
+          `($${idx + 1}::uuid, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${
+            idx + 5
+          }, $${idx + 6}::jsonb, $${idx + 7}, $${idx + 8}::jsonb, '{}'::jsonb)`,
+        );
+        params.push(
+          conversationId,
+          getExternalMessageId(rawMessage),
+          base,
+          normalizeMessageRole(rawMessage.role),
+          getMessageContentText(rawMessage),
+          JSON.stringify(rawMessage),
+          getMessageReasoningText(rawMessage),
+          JSON.stringify(getMessageToolCalls(rawMessage)),
+        );
+      });
+      await client.query(
+        `insert into messages (
+           conversation_id,
+           external_message_id,
+           seq,
+           role,
+           content_text,
+           content_json,
+           reasoning_text,
+           tool_calls,
+           metadata_json
+         ) values ${values.join(", ")}
+         on conflict (conversation_id, seq) do update set
+           external_message_id = excluded.external_message_id,
+           role = excluded.role,
+           content_text = excluded.content_text,
+           content_json = excluded.content_json,
+           reasoning_text = excluded.reasoning_text,
+           tool_calls = excluded.tool_calls,
+           metadata_json = excluded.metadata_json,
+           updated_at = now()`,
+        params,
+      );
+    }
   }
 
   if (options?.pruneExtraMessages !== false) {
@@ -241,6 +254,29 @@ async function replaceConversationMessages(
          and seq >= $2`,
       [conversationId, messages.length],
     );
+  }
+
+  // 把新插入消息中引用的缓存文件登记到 cache_file_references，便于
+  // removeOwnedCacheFile 用引用表做 O(1) 判断，不再依赖 LIKE 全表扫。
+  // 单条消息引用多个文件已在 repository 内部 unnest 处理，这里仅传 UUID 列表。
+  const messageIdRows = await client.query<{
+    seq: number;
+    id: string;
+    content_json: JsonObject;
+  }>(
+    `select seq, id::text as id, content_json
+     from messages
+     where conversation_id = $1::uuid
+       and seq < $2`,
+    [conversationId, messages.length],
+  );
+  for (const row of messageIdRows.rows) {
+    // recordCacheFileReferences 会扫描 content_json 提取 UUID 后 upsert，
+    // 没有引用时不写入新行；message_id 不存在时也无副作用。
+    void recordCacheFileReferences(externalUserId, {
+      messageId: row.id,
+      contentJson: row.content_json,
+    });
   }
 }
 
@@ -284,9 +320,15 @@ export async function syncNormalizedChatSessions(
 
     // 只有上传的 session 包含消息时才替换远端消息，避免占位符（空 messages）覆盖远端完整数据
     if (getSessionMessages(session).length > 0) {
-      await replaceConversationMessages(client, conversationId, session, {
-        pruneExtraMessages: params.pruneExtraMessages,
-      });
+      await replaceConversationMessages(
+        client,
+        params.externalUserId,
+        conversationId,
+        session,
+        {
+          pruneExtraMessages: params.pruneExtraMessages,
+        },
+      );
     }
   }
 
@@ -302,10 +344,16 @@ export async function syncNormalizedChatSessions(
     new Set((params.deleteSessionIds || []).filter(Boolean)),
   );
   if (deleteSessionIds.length > 0) {
+    // 软删除：保留行 + is_deleted=true + deleted_at 标记，便于增量备份记录「被删除会话」，
+    // 实现 CLAUDE.md 承诺的「可恢复已删除对话」。原有的 `where is_deleted = false`
+    // 过滤会自动从正常查询/UI 中隐藏这些会话；备份链路（getChangedSessionIds）需特别处理。
     await client.query(
-      `delete from conversations
-       where user_id = $1::uuid
-         and external_session_id = any($2::text[])`,
+      `update conversations
+          set is_deleted = true,
+              deleted_at = now(),
+              updated_at = now()
+        where user_id = $1::uuid
+          and external_session_id = any($2::text[])`,
       [appUserId, deleteSessionIds],
     );
   }

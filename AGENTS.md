@@ -1,5 +1,17 @@
 # NextChat 仓库约定
 
+> **全局规则入口**：除本文件约定外，本项目所有任务同时遵守 `/Users/dyx/ai_coding_rules/` 下规则；冲突时按"用户当前明确指令 > 当前项目规则（CLAUDE.md / AGENTS.md / GEMINI.md）> 用户长期偏好 > 专项规则 > 全局规则 > 项目已有代码风格 > 通用最佳实践"处理。
+>
+> - 规则总索引：`/Users/dyx/ai_coding_rules/README.md`
+> - 用户偏好：`/Users/dyx/ai_coding_rules/user-preferences.md`
+> - 核心全局规则：`/Users/dyx/ai_coding_rules/coding-global.md`
+> - 部署专项：`/Users/dyx/ai_coding_rules/coding-deploy.md`
+> - 数据库专项：`/Users/dyx/ai_coding_rules/coding-database.md`
+> - 前端专项：`/Users/dyx/ai_coding_rules/coding-frontend.md`
+> - Git 专项：`/Users/dyx/ai_coding_rules/coding-git.md`
+> - HANDOFF 专项：`/Users/dyx/ai_coding_rules/coding-handoff.md`
+> - 命令分类总入口：`/Users/dyx/ai_coding_rules/coding-commands.md`（含 8 个分类文件）
+
 ## 本地 Docker 开发
 
 - 本项目本地 Docker 开发统一使用 `dev` profile
@@ -9,6 +21,7 @@
 - 本地热加载测试默认免登录：启动或重建 `nextchat-dev` 时必须用命令行临时覆盖 `NEXTCHAT_DISABLE_AUTH=true`
 - 本地免登录模式默认就是 `ccc` 用户，读写和操作都按 `ccc` 处理；用户切换等功能应保持正常
 - 本地热加载读取远端聊天记录时，使用项目内 `postgres-ssh-tunnel` 容器连接服务器 PostgreSQL；本地用 SSH key 免密，不输入密码，`nextchat-dev` 用 `PGHOST=postgres-ssh-tunnel PGPORT=5432` 连接隧道服务
+- 同理，独立备份库（`BACKUP_PGHOST`）也必须命令行覆盖为 `postgres-ssh-tunnel`，否则 `.env.docker` 默认的 `42.193.15.117` 是远程 PG 的公网 IP（PG 不监听公网，只监听 127.0.0.1 / Docker bridge），会导致 `/backup/api_config` 一直显示「暂无备份」且 `/backup/chat` 直接 500
 - 远程部署、宝塔部署、生产环境必须恢复密码鉴权，不要把 `NEXTCHAT_DISABLE_AUTH=true` 写入 `.env.baota` 或生产环境变量
 - 远程部署、宝塔部署、生产环境默认仍按正常鉴权进入 `admin`
 - 启动命令：
@@ -17,7 +30,7 @@
 cp .env.docker.example .env.docker
 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
-NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel BACKUP_PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
 ```
 
 - 查看日志：
@@ -139,13 +152,13 @@ PY'
 ## Git 提交规则
 
 - 不允许自动提交。只有用户明确单独说出"提交"或"commit"时才能执行提交。
-- 不允许自动推送。只有用户明确单独说出"推送"或"push"时才能推送。
-- 用户在其他语境中提到"提交""推送"等词（如"我说提交时，就..."）不视为执行命令。
+- 用户明确单独说出"提交"或"commit"时，默认表示**提交并推送**；如果用户只说"推送"或"push"，表示推送当前已提交内容。
+- 用户在其他语境中提到"提交""推送"等词（如"我说提交时，就..."）不视为执行命令；只有明确下达执行指令时才执行。
 - 本仓库同时使用 GitHub 和 Gitee。执行推送时必须检查远程配置，并将当前分支分别推送到 GitHub（`origin`）和 Gitee（`gitee`），不能只依赖单个远程的默认 push 行为。
 - 执行拉取或部署前，必须分别获取并检查 GitHub 与 Gitee 的目标分支；确认两端目标提交一致后，才允许继续构建或部署。
 - 生产服务器的 `origin` 当前指向 Gitee。部署前必须先确认 Gitee 已包含本地待部署提交，并在服务器 `git pull --ff-only` 后核对 `HEAD` 与待部署提交一致。
 - 每次工作完成后必须检查并清理本地仓库与生产服务器仓库的全部 Git stash，不保留 `lint-staged automatic backup`、部署备份或其他 stash；清理后确认两端 `git stash list` 均为空。
-- 每次工作完成后必须核对本地、GitHub、Gitee与生产服务器的目标分支提交；在用户已授权推送或部署的范围内，将各端更新到同一最新提交并确认工作区干净。未获得推送或部署授权时，只报告差异，不擅自推送或部署。
+- 每次工作完成后必须核对本地、GitHub、Gitee与生产服务器的目标分支提交；在用户已授权的提交/推送或部署范围内，将各端更新到同一最新提交并确认工作区干净。未获得相关授权时，只报告差异，不擅自推送或部署。
 
 ## 部署执行规则
 
@@ -171,7 +184,7 @@ PY'
 - **容器 / 镜像 / 卷 / 网络**：`docker rm / rm -f`、`docker image rm`、`docker volume rm`、`docker network rm`、`docker system prune`；删除前必须列出每个具体名称；**禁止全局 prune**。
 - **构建产物 / 缓存**：`rm -rf .next / dist / build / node_modules`、`yarn cache clean`、`docker builder prune`。
 - **Git stash / branch / tag / reflog**：`git stash drop`、`git branch -D`、`git tag -d`、`git reflog expire --expire=now --all`、`git filter-branch / filter-repo`。
-- **远程推送 / 强推**：`git push`、`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>`；一律禁止，需逐项单独授权。
+- **远程推送 / 强推**：`git push --force`、`git push --force-with-lease`、`git push origin --delete <branch>` 一律禁止，需逐项单独授权；普通 `git push` 仅在用户明确执行"提交"/"commit"或"推送"/"push"时允许。
 - **宝塔数据库 / 配置 / 证书**：docker.db / site.db / ssl_data.db 的 DELETE / UPDATE / INSERT、Nginx vhost、证书目录。
 
 唯一例外：在用户明确授权的 NextChat 生产部署中，容器健康后自动执行
@@ -192,8 +205,11 @@ PY'
 ## 文档同步规则（每完成一个功能立即更新文档 + 删除多余文档）
 
 - 任何新增 / 修改 / 删除的功能、页面、API、数据库表、配置项，都必须在**同一轮 commit 内**同步**更新文档**，不允许只改代码留下一份过期文档留给下次清理。
-- **更新文档**优先列表：`README.md`、`docs/development.md`、`docs/db/data-storage-sync-matrix.md`、`docs/db/nextchat-postgres-schema.sql`、`docs/db/local-first-sync-rules.md`、`docs/local-dev-guide.md`、`docs/sync-usage-guide.md`、`docs/user-manual-cn.md`、`docs/yuto-balance-query.md`、各专题 Runbook；新增或重命名的文档必须在 `README.md` 的「文档入口」登记。
+- **更新文档**优先列表：`README.md`、`docs/development.md`、`docs/db/data-storage-sync-matrix.md`、`docs/db/nextchat-postgres-schema.sql`、`docs/db/local-first-sync-rules.md`、`docs/sync-usage-guide.md`、`docs/user-manual-cn.md`、`docs/yuto-balance-query.md`、各专题 Runbook；新增或重命名的文档必须在 `README.md` 的「文档入口」登记。
 - **删除多余 / 过期文档**：删除 / 重命名页面或文档时，必须彻底移除对应文件并从所有 README / 文档入口清除死链，不保留为「历史背景」。过期 / 临时 / 历史修复总结类文档（fix-*.md、*-summary.md、current-database-audit-*.md 等）如果已经没有参考价值，直接删除；如必须保留作历史参考，须在文档顶部明确标注「⚠️ 已过时，以 *最新文档* 为准」并指向权威文档链接。
 - schema 版本、表结构、字段、数据矩阵和顶部「以代码为准」日期必须与代码同步更新；新增 DDL 时同步修改 `docs/db/nextchat-postgres-schema.sql`。
 - 提交或部署前必须自检：所有新增 / 修改的功能点是否都有对应文档段落；README 文档入口是否仍然完整；是否存在可以删除的过期文档。
 - 不为了凑文档而堆模板；只写仍然准确、能帮助未来 AI / 工程师快速理解的内容。
+
+每次完成代码修改后都解决lint问题
+每次完成代码修改后都确保容器是最新代码

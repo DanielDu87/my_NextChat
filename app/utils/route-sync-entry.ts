@@ -18,27 +18,40 @@ declare global {
 
 let lastPreparedRoute = "";
 
-function getRouteSyncLogName(path: string) {
-  switch (path) {
-    case Path.Home:
-      return "首页";
-    case Path.ApiConfig:
-      return "API 配置页";
-    case Path.ProviderBalances:
-      return "余额查询页";
-    case Path.Draw:
-      return "绘画页";
-    case Path.DrawHistory:
-      return "绘画历史页";
-    default:
-      return path;
+// 跨模块共享的首开同步节流窗口：home-bootstrap 和 auto-sync 启动都会更新这个时间戳，
+// 双方在判断「是否要跳过重复同步」时统一读这个值，避免 /chat 等路由进入时
+// home-bootstrap 跑完 Chat 拉取后又紧跟着被 auto-sync 重复触发一次。
+let lastAutoSyncBootstrapAt = 0;
+
+const AUTO_SYNC_BOOTSTRAP_DEDUP_MS = 5000;
+
+export function markRouteSyncBootstrap(source: string) {
+  lastAutoSyncBootstrapAt = Date.now();
+  if (typeof window !== "undefined") {
+    appendRouteSyncTrace(
+      "sync-start",
+      getCurrentRoutePath(),
+      source || "unknown",
+    );
   }
 }
 
-function formatRouteEnterPrefix(path: string) {
-  const routeName = getRouteSyncLogName(path);
+export function shouldSkipAutoSyncByRecentBootstrap() {
+  if (lastAutoSyncBootstrapAt === 0) {
+    return false;
+  }
+  return Date.now() - lastAutoSyncBootstrapAt < AUTO_SYNC_BOOTSTRAP_DEDUP_MS;
+}
 
-  return routeName.startsWith("/") ? `进入 ${routeName}` : `进入 ${routeName}`;
+export function resetRouteSyncBootstrap() {
+  lastAutoSyncBootstrapAt = 0;
+}
+
+function getCurrentRoutePath() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return normalizeRouteSyncPath(window.location?.pathname || "");
 }
 
 function normalizeRouteSyncPath(path: string) {
@@ -77,33 +90,11 @@ function appendRouteSyncTrace(
 }
 
 export function shouldPrepareRouteEntryForSync(path: string) {
-  const normalizedPath = normalizeRouteSyncPath(path);
-
-  return (
-    normalizedPath === Path.Home ||
-    normalizedPath === Path.Chat ||
-    normalizedPath === Path.NewChat ||
-    normalizedPath === Path.SearchChat ||
-    normalizedPath === Path.Draw ||
-    normalizedPath === Path.DrawHistory ||
-    /^\/chat\/[^/]+$/.test(normalizedPath) ||
-    normalizedPath === Path.ApiConfig ||
-    normalizedPath === Path.ProviderBalances
-  );
+  return true;
 }
 
 export function shouldAutoStartRouteSync(path: string) {
-  const normalizedPath = normalizeRouteSyncPath(path);
-
-  return (
-    normalizedPath === Path.Home ||
-    normalizedPath === Path.Chat ||
-    normalizedPath === Path.NewChat ||
-    normalizedPath === Path.SearchChat ||
-    normalizedPath === Path.Draw ||
-    normalizedPath === Path.DrawHistory ||
-    /^\/chat\/[^/]+$/.test(normalizedPath)
-  );
+  return true;
 }
 
 export function prepareRouteEntryForSync(
@@ -131,17 +122,9 @@ export function prepareRouteEntryForSync(
     options?.source ?? "unknown",
   );
   const canAutoStart = shouldAutoStartRouteSync(normalizedPath);
-  console.info(
-    canAutoStart
-      ? `[RouteSync] ${formatRouteEnterPrefix(
-          normalizedPath,
-        )}，准备启动自动同步`
-      : `[RouteSync] ${formatRouteEnterPrefix(normalizedPath)}，自动同步已关闭`,
-    {
-      path: normalizedPath,
-      source: options?.source ?? "unknown",
-    },
-  );
+  // 不再打印「[RouteSync] 进入/启动」启动日志：每跳页都打一遍，污染同步汇总。
+  // 路由同步准备 / 启动 / 跳过由 appendRouteSyncTrace 内部记 trace，调试时
+  // 通过「自动同步」页面的诊断面板或 window.__routeSyncTrace 查看。
   notifyRouteSyncEntry(normalizedPath, options?.source ?? "unknown", {
     autoStart: canAutoStart,
   });
@@ -159,13 +142,7 @@ export function markRouteSyncStart(path: string, source: string) {
   }
 
   appendRouteSyncTrace("sync-start", normalizedPath, source);
-  console.info(
-    `[RouteSync] ${getRouteSyncLogName(normalizedPath)}自动同步已启动`,
-    {
-      path: normalizedPath,
-      source,
-    },
-  );
+  // 不再打印「[RouteSync] xxx自动同步已启动」：单跳页会重复输出，留 trace 即可。
 }
 
 export function notifyRouteSyncEntry(

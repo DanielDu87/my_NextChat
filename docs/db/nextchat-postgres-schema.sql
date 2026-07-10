@@ -1,6 +1,11 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-09 (同步 schema 2026-07-09-backup-database：备份表改名并迁入独立备份数据库)
+-- 最后更新: 2026-07-10 (同步 schema 2026-07-09-force-reapply-conversations-deleted-at：补 conversations.deleted_at + cache_file_references 表)
+-- 当前运行时 schema 版本：
+--   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-09-force-reapply-conversations-deleted-at"
+--   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-09-backup-database"
+-- 一旦 ALTER / CREATE 新增必须同步 bump 版本号，避免旧容器在缓存锁住时跳迁移。
+-- 历史变更: 2026-07-09-force-reapply-conversations-deleted-at（conversations.deleted_at + cache_file_references 引用追踪表 + 索引，旧容器因 SYNC_STORAGE_SCHEMA_VERSION 缓存未跑迁移需 bump 强制重跑）
 -- 历史变更: 2026-07-09 backup-database（备份表改为 backup_* 命名，由 BACKUP_DATABASE_URL / BACKUP_PG* 指向独立数据库）
 -- 历史变更: 2026-07-06 chat-backups（新增按用户区分的对话增量备份）
 -- 历史变更: 2026-07-06 deployment-metadata（新增成功部署版本记录）
@@ -148,6 +153,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_cache_files_user_content_data
 ON user_cache_files(user_id, content_type, md5(data))
 WHERE blob_id IS NULL AND data IS NOT NULL;
 
+-- 缓存文件引用追踪：写入消息时 upsert，删除文件前查此表判断是否仍被消息引用
+CREATE TABLE IF NOT EXISTS cache_file_references (
+  cache_file_id uuid NOT NULL REFERENCES user_cache_files(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  message_id uuid REFERENCES messages(id) ON DELETE CASCADE,
+  last_seen_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (cache_file_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cache_file_references_cache_file_id
+ON cache_file_references(cache_file_id);
+
+CREATE INDEX IF NOT EXISTS idx_cache_file_references_user_id
+ON cache_file_references(user_id);
+
 CREATE TABLE IF NOT EXISTS site_access_settings (
   setting_key text PRIMARY KEY,
   password_hash text NOT NULL,
@@ -215,6 +235,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   is_archived boolean NOT NULL DEFAULT false,
   is_pinned boolean NOT NULL DEFAULT false,
   is_deleted boolean NOT NULL DEFAULT false,
+  deleted_at timestamptz,
   metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
@@ -226,6 +247,11 @@ WHERE external_session_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
 ON conversations(user_id, updated_at DESC);
+
+-- 软删除会话的 partial 索引：与 is_deleted=true 配对，按 deleted_at 增量备份识别最近被删除的会话
+CREATE INDEX IF NOT EXISTS idx_conversations_user_deleted_at
+ON conversations(user_id, deleted_at)
+WHERE is_deleted = true;
 
 CREATE TABLE IF NOT EXISTS messages (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),

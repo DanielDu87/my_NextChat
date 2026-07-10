@@ -12,15 +12,43 @@ const EFFECTIVE_USER_COOKIE_NAME = "nextchat_effective_user";
 const AUTH_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ADMIN_USERNAME =
   process.env.NEXTCHAT_ADMIN_USERNAME?.trim() || "admin";
-const DEFAULT_ADMIN_PASSWORD =
-  process.env.NEXTCHAT_ADMIN_PASSWORD?.trim() || "admin123";
+
+/**
+ * 解析默认 admin 密码。生产环境必须显式设置 NEXTCHAT_ADMIN_PASSWORD；
+ * 仅在 NODE_ENV !== "production" 且未配置时回退到强生成的临时密码（不会持久化到 DB），
+ * 并打印强警告。这是为了避免 dev/seed 流程被强制打断，但生产部署必须配齐。
+ */
+function resolveAdminPassword() {
+  const password = process.env.NEXTCHAT_ADMIN_PASSWORD?.trim();
+  if (password) {
+    if (password === "admin123" || password.length < 8) {
+      throw new Error(
+        "[Auth] NEXTCHAT_ADMIN_PASSWORD 过于简单（少于 8 位或等于默认弱口令），拒绝 seed 默认管理员。请设置更复杂的强密码后重启。",
+      );
+    }
+    return password;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "[Auth] 生产环境必须显式设置 NEXTCHAT_ADMIN_PASSWORD（至少 8 位强密码），禁止回退到默认口令。",
+    );
+  }
+  // 开发环境：生成一次性临时密码并强警告，不持久化弱默认值
+  const generated = `dev-${randomBytes(8).toString("hex")}`;
+  console.warn(
+    `[Auth] ⚠️ NEXTCHAT_ADMIN_PASSWORD 未配置；dev 环境已生成临时 admin 密码：${generated}（仅本次进程有效，重启后会变化，请尽快显式设置）`,
+  );
+  return generated;
+}
 const AUTH_BYPASS_ENABLED =
   process.env.NEXTCHAT_DISABLE_AUTH === "1" ||
   process.env.NEXTCHAT_DISABLE_AUTH === "true";
 const LOCAL_AUTH_BYPASS_USERNAME =
   process.env.NEXTCHAT_LOCAL_BYPASS_USER?.trim() || "ccc";
 const LOCAL_AUTH_BYPASS_USER: AuthUser = {
-  id: "00000000-0000-0000-0000-000000000ccc",
+  // 必须是合法 UUID（末段 12 个 hex 字符），否则 `where id = $1::uuid` 会抛
+  // `invalid input syntax for type uuid` 触发 500。0x0c = 12（hex "c" 替换为 "0c"）
+  id: "00000000-0000-0000-0000-000000000c0c",
   externalId: normalizeExternalId(LOCAL_AUTH_BYPASS_USERNAME),
   username: LOCAL_AUTH_BYPASS_USERNAME,
   displayName: LOCAL_AUTH_BYPASS_USERNAME,
@@ -211,29 +239,6 @@ async function getUserById(userId: string) {
   return row ? buildAuthUser(row) : null;
 }
 
-async function getDefaultAdminUser() {
-  await ensureAuthSchemaAndSeed();
-
-  const result = await pgQuery<AuthUserRow>(
-    `select
-       id::text as id,
-       external_id,
-       username,
-       display_name,
-       role,
-       is_active,
-        last_chat_at::text as last_chat_at
-      from app_users
-      where lower(username) = $1
-        and is_active = true
-     limit 1`,
-    [DEFAULT_ADMIN_USERNAME.toLowerCase()],
-  );
-
-  const row = result.rows[0];
-  return row ? buildAuthUser(row) : null;
-}
-
 async function getSessionUser(sessionToken: string) {
   if (!sessionToken) {
     return null;
@@ -310,7 +315,7 @@ async function ensureDefaultAdminSeeded() {
     [
       normalizeExternalId(normalizedUsername),
       normalizedUsername,
-      hashPassword(DEFAULT_ADMIN_PASSWORD),
+      hashPassword(resolveAdminPassword()),
       "管理员",
     ],
   );
@@ -564,6 +569,7 @@ export async function listManagedUsers() {
       created_at: string | null;
       conversation_count: string;
       last_conversation_at: string | null;
+      drawing_count: string;
     }
   >(
     `select
@@ -576,7 +582,8 @@ export async function listManagedUsers() {
         u.last_chat_at::text as last_chat_at,
         u.created_at::text as created_at,
        coalesce(c.conversation_count, 0)::text as conversation_count,
-       c.last_conversation_at::text as last_conversation_at
+       c.last_conversation_at::text as last_conversation_at,
+       coalesce(d.drawing_count, 0)::text as drawing_count
      from app_users u
      left join (
        select
@@ -587,6 +594,13 @@ export async function listManagedUsers() {
        where is_deleted = false
        group by user_id
      ) c on c.user_id = u.id
+     left join (
+       select
+         user_id,
+         count(*) as drawing_count
+       from user_draw_images
+       group by user_id
+     ) d on d.user_id = u.id
      where u.username is not null
      order by lower(u.username) asc`,
   );
@@ -596,6 +610,7 @@ export async function listManagedUsers() {
     createdAt: row.created_at,
     conversationCount: parseInt(row.conversation_count, 10) || 0,
     lastConversationAt: row.last_conversation_at,
+    drawingCount: parseInt(row.drawing_count, 10) || 0,
   }));
 }
 

@@ -11,7 +11,8 @@ type QueryFn = (text: string, params?: unknown[]) => Promise<unknown>;
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-let hasWarnedSecretFallback = false;
+// 注意：未来需要支持加密格式升级时，应在 base64 编码前添加 4-6 byte 的 magic/version
+// 字节，并在 decrypt 中先校验；当前为不破坏现有加密数据，先保持向后兼容。
 
 function concatUint8Arrays(arrays: readonly Uint8Array[]) {
   const output = new Uint8Array(
@@ -25,41 +26,20 @@ function concatUint8Arrays(arrays: readonly Uint8Array[]) {
   return output;
 }
 
-function getFallbackSecretSource() {
-  const fallback =
-    process.env.DATABASE_URL ||
-    process.env.PGPASSWORD ||
-    [
-      process.env.PGHOST,
-      process.env.PGPORT,
-      process.env.PGDATABASE,
-      process.env.PGUSER,
-    ]
-      .filter(Boolean)
-      .join(":");
-
-  if (!fallback) {
-    throw new Error(
-      "[SyncSecrets] 缺少 APP_SECRET / NEXTAUTH_SECRET / NEXTCHAT_SYNC_SECRET，且无法从数据库配置派生加密密钥",
-    );
-  }
-
-  if (!hasWarnedSecretFallback) {
-    hasWarnedSecretFallback = true;
-    console.warn(
-      "[SyncSecrets] 未配置 APP_SECRET / NEXTAUTH_SECRET / NEXTCHAT_SYNC_SECRET，已回退为基于数据库配置的派生密钥；建议尽快显式配置 APP_SECRET",
-    );
-  }
-
-  return fallback;
-}
-
 function getSecretMaterial() {
+  // 强制要求显式配置 APP_SECRET，禁止回退到 DATABASE_URL / PGPASSWORD 等数据库连接信息，
+  // 否则任何能读 .env 文件（包括备份 dump）的人都能复算密钥，所有 sync_secrets 加密的
+  // management key 等敏感数据等同于明文存储。
   const secret =
     process.env.APP_SECRET ||
     process.env.NEXTAUTH_SECRET ||
-    process.env.NEXTCHAT_SYNC_SECRET ||
-    getFallbackSecretSource();
+    process.env.NEXTCHAT_SYNC_SECRET;
+
+  if (!secret) {
+    throw new Error(
+      "[SyncSecrets] 必须显式配置 APP_SECRET（或 NEXTAUTH_SECRET / NEXTCHAT_SYNC_SECRET）后才能加解密 sync_secrets 数据；拒绝回退到数据库连接信息作为密钥派生源",
+    );
+  }
 
   return Uint8Array.from(createHash("sha256").update(secret).digest());
 }

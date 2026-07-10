@@ -17,11 +17,6 @@ export const revalidate = 0;
 
 const DRAW_THUMB_MAX_SIZE = 80 * 1024;
 
-async function compressImageToThumb(buffer: Buffer): Promise<string> {
-  const { data } = await compressImageToThumbWithBuffer(buffer);
-  return data;
-}
-
 async function compressImageToThumbWithBuffer(buffer: Buffer): Promise<{
   data: string;
   raw: Buffer;
@@ -78,6 +73,63 @@ function parseDataUrl(dataUrl: string) {
     return null;
   }
   return { contentType, data };
+}
+
+// 仅允许 http/https scheme，并拒绝私有 IP 段、loopback、链路本地地址、云元数据，
+// 防止外部 URL 触发 SSRF 攻击内网 PostgreSQL / 169.254.169.254 等敏感端点。
+function isSafeExternalImageUrl(rawUrl: string): {
+  ok: boolean;
+  reason?: string;
+} {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "invalid_url" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, reason: "scheme_not_allowed" };
+  }
+  const hostname = url.hostname.toLowerCase();
+  // 显式拒名单：loopback / 私有网段 / 链路本地 / 云元数据 / 多播 / 未指定
+  const deniedHosts = new Set([
+    "localhost",
+    "metadata.google.internal",
+    "metadata",
+  ]);
+  if (deniedHosts.has(hostname)) {
+    return { ok: false, reason: "host_denied" };
+  }
+  // IPv4 字面量检查
+  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
+    hostname,
+  );
+  if (ipv4Match) {
+    const a = Number(ipv4Match[1]);
+    const b = Number(ipv4Match[2]);
+    const isPrivate =
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a === 0 ||
+      a >= 224;
+    if (isPrivate) {
+      return { ok: false, reason: "private_ip_denied" };
+    }
+  }
+  // IPv6 字面量或 ::1、fc00::/7、fe80::/10
+  if (hostname === "::1" || hostname === "[::1]") {
+    return { ok: false, reason: "loopback_denied" };
+  }
+  if (
+    /^fc[0-9a-f]{2}:/i.test(hostname) ||
+    /^fe[89ab][0-9a-f]:/i.test(hostname)
+  ) {
+    return { ok: false, reason: "private_ip_denied" };
+  }
+  return { ok: true };
 }
 
 export async function POST(req: NextRequest) {
@@ -152,8 +204,17 @@ export async function POST(req: NextRequest) {
     // 方式二：从外部 URL 下载并存储
     const externalUrl = String(payload?.url || "");
     if (externalUrl) {
+      // SSRF 防护：拒绝 loopback / 私网 / 云元数据
+      const ssrfCheck = isSafeExternalImageUrl(externalUrl);
+      if (!ssrfCheck.ok) {
+        return NextResponse.json(
+          { ok: false, error: `unsafe_url_${ssrfCheck.reason}` },
+          { status: 400 },
+        );
+      }
       const response = await fetch(externalUrl, {
         signal: AbortSignal.timeout(30_000),
+        redirect: "follow",
       });
       if (!response.ok) {
         return NextResponse.json(

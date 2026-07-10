@@ -76,8 +76,18 @@ async function resolveVisibleBackupUserId(
   const context = await requireAuthContext(req);
   const targetUserId = requestedUserId.trim();
 
-  if (!targetUserId || targetUserId === context.effective.id) {
-    return targetUserId ? context.effective.externalId : undefined;
+  // 不传 userId 时只能看自己的备份；管理员或 bypass 模式下显式传 userId 才能看他人备份
+  if (!targetUserId) {
+    return context.effective.externalId;
+  }
+
+  if (targetUserId === context.effective.id) {
+    return context.effective.externalId;
+  }
+
+  // 看他人备份需要管理员角色（生产）或 bypass 模式
+  if (!isAuthBypassEnabled() && context.actor.role !== "admin") {
+    throw new AuthError("forbidden", 403);
   }
 
   const users = await listManagedUsers();
@@ -90,7 +100,15 @@ async function resolveVisibleBackupUserId(
 }
 
 async function getVisibleBackupSummary(req: NextRequest) {
-  await requireAuthContext(req);
+  const context = await requireAuthContext(req);
+  // 管理员或 bypass 模式才能看全用户汇总；普通用户只看自己
+  if (
+    !isAuthBypassEnabled() &&
+    context.actor.role !== "admin" &&
+    context.actor.id === context.effective.id
+  ) {
+    return listChatBackupSummaries([context.effective.externalId]);
+  }
   return listChatBackupSummaries();
 }
 

@@ -122,13 +122,11 @@ function rememberApiKeyGroupIfNeeded(
   }
   const providerName = options?.config?.providerName || "API";
 
-  console.log(`[MultiKey] ${providerName} ✅ 分组请求成功`, {
-    currentGroup,
-    attempt: currentKeyIndex + 1,
-    totalGroups: fallbackApiKeyGroups.length,
-    modelName: options?.config?.model,
-    willSaveToLocalStorage: true,
-  });
+  console.log(
+    `[MultiKey] ✅ ${providerName} 分组请求成功（${currentGroup}，第 ${
+      currentKeyIndex + 1
+    }/${fallbackApiKeyGroups.length} 组）`,
+  );
 
   rememberSuccessfulCustomModelApiKeyGroup({
     modelName: options?.config?.model,
@@ -161,20 +159,17 @@ function logApiKeyGroupStart(
     rememberedGroup === currentGroup;
 
   if (isRememberedGroup) {
-    console.log(`[MultiKey] ${providerName} 命中已记忆分组，正在尝试`, {
-      currentGroup,
-      attempt: currentKeyIndex + 1,
-      totalGroups: fallbackApiKeyGroups.length,
-      loadedFromLocalStorage: true,
-    });
+    console.debug(
+      `[MultiKey] ${providerName} 命中已记忆分组（${currentGroup}），从 LocalStorage 加载`,
+    );
     return;
   }
 
-  console.log(`[MultiKey] ${providerName} 正在尝试分组`, {
-    currentGroup,
-    attempt: currentKeyIndex + 1,
-    totalGroups: fallbackApiKeyGroups.length,
-  });
+  console.debug(
+    `[MultiKey] ${providerName} 正在尝试分组 ${currentGroup}（${
+      currentKeyIndex + 1
+    }/${fallbackApiKeyGroups.length}）`,
+  );
 }
 
 function getSafeRetryReason(reason: string, maxLength = 200) {
@@ -200,18 +195,15 @@ function createApiKeyGroupRetryContext(params: {
     fallbackApiKeys.length > 0 && fallbackApiKeyGroups.length > 0;
 
   if (isMultiKeyRequest) {
-    console.log(`[MultiKey] ${providerName} 当前请求启用多 key`, {
-      fallbackKeysCount: fallbackApiKeys.length,
-      groupOrder: fallbackApiKeyGroups,
-      rememberedGroup: headers["x-remembered-api-key-group"] || "",
-      chatPath: chatPath.substring(0, 80),
-    });
+    console.debug(
+      `[MultiKey] ${providerName} 启用多 key（${
+        fallbackApiKeys.length
+      } 个，分组: ${fallbackApiKeyGroups.join(" → ")}）`,
+    );
   } else {
-    console.log(`[MultiKey] ${providerName} 当前请求未启用多 key`, {
-      fallbackKeysCount: fallbackApiKeys.length,
-      fallbackGroupsCount: fallbackApiKeyGroups.length,
-      chatPath: chatPath.substring(0, 80),
-    });
+    console.debug(
+      `[MultiKey] ${providerName} 未启用多 key（${fallbackApiKeys.length} keys, ${fallbackApiKeyGroups.length} groups）`,
+    );
   }
 
   const getCurrentGroup = () =>
@@ -244,12 +236,11 @@ function createApiKeyGroupRetryContext(params: {
         headers,
         options,
       );
-      console.log(`[MultiKey] ${providerName} 分组请求开始`, {
-        currentGroup: getCurrentGroup(),
-        attempt: currentKeyIndex + 1,
-        totalGroups: fallbackApiKeys.length,
-        requestPath: chatPath.substring(0, 80),
-      });
+      console.debug(
+        `[MultiKey] ${providerName} 分组请求开始：${getCurrentGroup()}（${
+          currentKeyIndex + 1
+        }/${fallbackApiKeys.length}）`,
+      );
     },
     resetLastError() {
       lastErrorText = "";
@@ -277,11 +268,12 @@ function createApiKeyGroupRetryContext(params: {
         currentKeyIndex >= fallbackApiKeys.length - 1
       ) {
         lastErrorText = formatApiKeyGroupFailureMessage(currentGroup, reason);
-        console.log(`[MultiKey Retry] ${providerName} ❌ 所有分组重试失败`, {
-          currentGroup,
-          reason: getSafeRetryReason(reason, 100),
-          totalGroups: fallbackApiKeys.length,
-        });
+        console.error(
+          `[MultiKey Retry] ❌ ${providerName} 所有分组重试失败（最后尝试: ${currentGroup}，原因: ${getSafeRetryReason(
+            reason,
+            100,
+          )}）`,
+        );
         return false;
       }
 
@@ -290,29 +282,19 @@ function createApiKeyGroupRetryContext(params: {
         currentKeyIndex + 1,
       );
 
-      console.log(`[MultiKey Retry] ${providerName} ❌ 分组尝试失败`, {
-        currentGroup,
-        attempt: currentKeyIndex + 1,
-        totalGroups: fallbackApiKeys.length,
-        reason: reasonSummary,
-        nextGroup,
-      });
+      console.warn(
+        `[MultiKey Retry] ${providerName} 分组 ${currentGroup} 失败（${
+          currentKeyIndex + 1
+        }/${fallbackApiKeys.length}）：${reasonSummary}，切换到 ${nextGroup}`,
+      );
 
       if (headers["x-remembered-api-key-group"] === currentGroup) {
-        console.log(
-          `[MultiKey Retry] ${providerName} 已记忆分组失败，将继续尝试全部剩余分组`,
-          {
-            rememberedGroup: currentGroup,
-            remainingGroups: fallbackApiKeyGroups.slice(currentKeyIndex + 1),
-          },
+        console.warn(
+          `[MultiKey Retry] ${providerName} 已记忆分组 ${currentGroup} 失败，将继续尝试全部剩余分组（${fallbackApiKeyGroups
+            .slice(currentKeyIndex + 1)
+            .join(", ")}）`,
         );
       }
-
-      console.log(
-        `[MultiKey Retry] ${providerName} 🔄 切换分组 (${currentKeyIndex + 1}/${
-          fallbackApiKeys.length
-        }): ${currentGroup} → ${nextGroup}`,
-      );
 
       currentKeyIndex++;
       lastErrorText = reason;

@@ -61,7 +61,7 @@ function profileCount(payload: unknown) {
     : 0;
 }
 
-function normalizeApiConfigBackupState(payload: unknown) {
+export function normalizeApiConfigBackupState(payload: unknown) {
   const state = unwrapState(payload);
   if (!isObjectPayload(state)) return state;
 
@@ -166,9 +166,21 @@ export async function writeApiConfigBalanceEntries(
               return encryptSyncSecretPayload(
                 decryptSyncSecretPayload(entry.encryptedManagementKey),
               );
-            } catch {
-              // 历史脏数据：原密文已损坏时直接落空，避免恢复阻塞
-              return null;
+            } catch (decryptError) {
+              // 跨环境恢复（APP_SECRET 不同）或历史脏数据：原密文无法解密时，
+              // 保留原密文（不要清空），让用户回到原环境后再尝试解密。
+              // 同时记录警告，便于追踪跨环境恢复失败的管理 Key。
+              console.warn(
+                "[API Config Backup] 管理 Key 重加密失败，保留原密文（可能是跨环境恢复）",
+                {
+                  providerCode: entry.providerCode,
+                  reason:
+                    decryptError instanceof Error
+                      ? decryptError.message
+                      : String(decryptError),
+                },
+              );
+              return entry.encryptedManagementKey;
             }
           })()
         : null;
@@ -227,7 +239,6 @@ export async function saveApiConfigBackupSettings(
   externalUserId: string,
   settings: { enabled: boolean; intervalMinutes: number; maxBackups: number },
 ) {
-  console.log("[API Config] ⚙️ 开始保存自动备份设置", settings);
   await ensureBackupStorageSchema();
   const userId = await getOrCreateSyncAppUserId(externalUserId);
   await backupPgQuery(
@@ -247,7 +258,9 @@ export async function saveApiConfigBackupSettings(
     ],
   );
   await pruneApiConfigBackups(externalUserId, settings.maxBackups);
-  console.log("[API Config] ✅ 自动备份设置已保存");
+  console.log(
+    `[API Config] ✅ 自动备份设置已保存（启用=${settings.enabled}，间隔=${settings.intervalMinutes} 分钟，保留=${settings.maxBackups}）`,
+  );
   return settings;
 }
 
@@ -295,13 +308,9 @@ export async function createApiConfigBackup(
   const settings = await getApiConfigBackupSettings(externalUserId);
   const digest = checksum(payload);
   const count = profileCount(payload);
-  console.log("[API Config] 💾 准备创建配置备份", {
-    来源: source,
-    配置数量: count,
-  });
   if (source === "auto") {
     if (!settings.enabled) {
-      console.log("[API Config] ⏭️ 自动备份已关闭，跳过本次备份");
+      console.log("[API Config Backup] ℹ️ 自动备份已关闭，跳过本次备份");
       return { created: false, reason: "disabled" };
     }
     const latest = await backupPgQuery<{
@@ -314,7 +323,7 @@ export async function createApiConfigBackup(
     );
     const row = latest.rows[0];
     if (row?.checksum === digest) {
-      console.log("[API Config] ⏭️ API配置未变化，跳过重复备份");
+      console.log("[API Config Backup] ℹ️ API 配置未变化，跳过重复备份");
       return { created: false, reason: "unchanged" };
     }
     if (
@@ -322,9 +331,9 @@ export async function createApiConfigBackup(
       Date.now() - new Date(row.created_at).getTime() <
         settings.intervalMinutes * 60_000
     ) {
-      console.log("[API Config] ⏭️ 未达到自动备份间隔，跳过本次备份", {
-        备份间隔分钟: settings.intervalMinutes,
-      });
+      console.log(
+        `[API Config Backup] ℹ️ 未达到自动备份间隔（${settings.intervalMinutes} 分钟），跳过本次备份`,
+      );
       return { created: false, reason: "interval" };
     }
   }
@@ -335,11 +344,9 @@ export async function createApiConfigBackup(
     [userId, externalUserId, source, JSON.stringify(payload), digest, count],
   );
   await pruneApiConfigBackups(externalUserId, settings.maxBackups);
-  console.log("[API Config] ✅ 配置备份已写入PostgreSQL", {
-    备份ID: result.rows[0].id,
-    来源: source,
-    配置数量: count,
-  });
+  console.log(
+    `[API Config Backup] ✅ 配置备份已写入（来源: ${source}，配置数: ${count}）`,
+  );
   return { created: true, id: result.rows[0].id };
 }
 
@@ -356,10 +363,9 @@ export async function pruneApiConfigBackups(
     [userId, max],
   );
   if ((result.rowCount ?? 0) > 0) {
-    console.log("[API Config] 🧹 已清理超出保留数量的旧备份", {
-      删除数量: result.rowCount,
-      最大保留数量: max,
-    });
+    console.log(
+      `[API Config Backup] 🧹 已清理 ${result.rowCount} 条超出保留数量（${max}）的旧备份`,
+    );
   }
 }
 
@@ -373,11 +379,13 @@ export async function deleteApiConfigBackup(
     `delete from backup_api_config_snapshots where id = $1::uuid and user_id = $2::uuid`,
     [id, userId],
   );
-  console.log("[API Config] 🗑️ 删除配置备份结果", {
-    备份ID: id,
-    已删除: (result.rowCount ?? 0) > 0,
-  });
-  return (result.rowCount ?? 0) > 0;
+  const deleted = (result.rowCount ?? 0) > 0;
+  console.log(
+    `[API Config Backup] ${deleted ? "✅" : "ℹ️"} 配置备份${
+      deleted ? "已删除" : "未命中"
+    }：${id}`,
+  );
+  return deleted;
 }
 
 export async function getApiConfigBackupPayload(

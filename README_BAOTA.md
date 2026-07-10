@@ -118,6 +118,31 @@ REMOTE
 ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-container-id.sh'
 ```
 
+### 3.1 `.env.baota` 必备变量（首次部署 / 大改前必检）
+
+`docker-compose.baota.yml` 通过 `env_file: /www/dk_project/my_NextChat/.env.baota` 注入所有环境变量。除了 `DATABASE_URL` / `PG*` 主库连接之外，**当前线上必须额外配置以下 12 个 `BACKUP_*` 变量 + PG 超时 + 站点密码**，否则站内对话备份 / API 配置备份静默不可用：
+
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `BACKUP_DATABASE_URL` | 优先 | 备份库完整连接字符串，覆盖其他 `BACKUP_PG*` |
+| `BACKUP_PGHOST` | 是 | 备份库主机（未设 `BACKUP_DATABASE_URL` 时使用） |
+| `BACKUP_PGPORT` | 否 | 备份库端口，默认 `5432` |
+| `BACKUP_PGDATABASE` | 是 | 备份库名（建议 `nextchat_backup`，与主库分离） |
+| `BACKUP_PGUSER` | 是 | 备份库用户名 |
+| `BACKUP_PGPASSWORD` | 是 | 备份库密码 |
+| `BACKUP_PGSSL` | 否 | 是否启用 SSL（`true`/`1`/`yes`/`on`） |
+| `BACKUP_PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验证书；SSH 隧道场景下 `false` |
+| `BACKUP_PGPOOL_MAX` | 否 | 连接池上限，默认 `5` |
+| `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否 | 连接超时，默认 `10000` |
+| `BACKUP_PG_IDLE_TIMEOUT_MS` | 否 | 空闲超时，默认 `30000` |
+| `BACKUP_PG_RETRY_COUNT` | 否 | 重试次数，默认 `3` |
+| `PG_STATEMENT_TIMEOUT_MS` | 是 | 单语句超时；防止备份 / 增量同步被长事务拖死 |
+| `PG_IDLE_IN_TX_SESSION_TIMEOUT_MS` | 是 | 空闲事务超时；防止误锁 |
+| `PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验主库证书 |
+| `NEXTCHAT_SITE_PASSWORD` | 是 | 站点访问密码（开启站点访问密码门禁时） |
+
+主库和独立备份库**都要**纳入宝塔 `pg_dump` 计划任务范围。完整字段定义与默认值见 [DEPLOY.md](./DEPLOY.md)。
+
 ## 4. 日常部署 / 重启 / 清理快捷命令
 
 | 场景 | 命令 |

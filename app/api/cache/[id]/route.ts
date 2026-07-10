@@ -148,7 +148,9 @@ async function resolveCacheFileMetaForRequest(
     (await withRetryablePostgresOperation(() =>
       getCacheFileMeta(externalUserId, uuid),
     )) ||
-    (await withRetryablePostgresOperation(() => getCacheFileMetaById(uuid)))
+    (await withRetryablePostgresOperation(() =>
+      getCacheFileMetaById(externalUserId, uuid),
+    ))
   );
 }
 
@@ -163,7 +165,7 @@ async function resolveCacheFileChunkForRequest(
       getCacheFileChunk(externalUserId, uuid, offset, length),
     )) ||
     (await withRetryablePostgresOperation(() =>
-      getCacheFileChunkById(uuid, offset, length),
+      getCacheFileChunkById(externalUserId, uuid, offset, length),
     ))
   );
 }
@@ -251,7 +253,9 @@ export async function GET(
         (await withRetryablePostgresOperation(() =>
           getCacheFile(externalUserId, uuid),
         )) ||
-        (await withRetryablePostgresOperation(() => getCacheFileById(uuid)));
+        (await withRetryablePostgresOperation(() =>
+          getCacheFileById(externalUserId, uuid),
+        ));
       if (!file) {
         return NextResponse.json(
           { code: 1, msg: "not_found" },
