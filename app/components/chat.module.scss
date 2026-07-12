@@ -3656,7 +3656,9 @@
   height: 100vh;
   padding: 75px 20px 32px;
   box-sizing: border-box;
-  background-color: rgba(15, 23, 42, 0.24);
+  background-color: var(--nextchat-picker-overlay-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   touch-action: pan-y;
   overscroll-behavior-x: contain;
 }
@@ -3671,8 +3673,11 @@
   padding: 20px;
   box-sizing: border-box;
   border-radius: 18px;
-  background: var(--white);
-  box-shadow: var(--card-shadow);
+  border: 1px solid var(--nextchat-picker-surface-border);
+  background: var(--nextchat-picker-surface-bg);
+  box-shadow: var(--nextchat-picker-surface-shadow);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   margin: 0 auto 12px;
 }
 
@@ -3821,6 +3826,7 @@
   justify-content: center;
   border-radius: 11px;
   border: var(--border-in-light);
+  border-width: 2px;
   box-shadow: var(--card-shadow);
   background: var(--white);
   box-sizing: border-box;
@@ -3946,15 +3952,13 @@
 
 // prompt-picker 深色模式样式
 :global(body.dark) .prompt-picker-mask {
-  // 使用中性黑色透明，避免 slate-900 在深色背景上叠加出现蓝调
-  background-color: rgba(0, 0, 0, 0.55);
+  background-color: var(--nextchat-picker-overlay-bg);
 }
 
 :global(body.dark) .prompt-picker-panel {
-  // dark 模式使用中性 slate 黑灰色调，避免主题色叠加产生蓝调
-  background: rgb(17, 24, 39) !important; // slate-900
-  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
-  border: 1px solid rgba(71, 85, 105, 0.6) !important; // slate-600 透明
+  background: var(--nextchat-picker-surface-bg) !important;
+  box-shadow: var(--nextchat-picker-surface-shadow) !important;
+  border-color: var(--nextchat-picker-surface-border) !important;
 }
 
 :global(body.dark) .prompt-picker-header {
@@ -3970,33 +3974,7 @@
   opacity: 1;
 }
 
-:global(body.dark) .prompt-picker-toolbar {
-  // .prompt-picker-search 由 globals 的 .nextchat-input-control 接管 dark 适配
-  // "管理提示词"按钮的 background/border/hover 由 globals 的 .nextchat-default-button 接管，
-  // 不在这里强制覆盖。仅修正 SVG 颜色：
-  //   - 去除 dark 模式下全局 div:not(.no-dark) > svg { filter: invert(0.5) } 的反相
-  //   - 强制 SVG 描边/填充为 #e5e7eb（dark 下浅灰，对比度足够，图标不再"发黑"）
 
-  > button.prompt-picker-manage {
-    [class*="icon-button-icon"] > svg,
-    > svg,
-    :global(svg) {
-      filter: none !important;
-    }
-
-    [class*="icon-button-icon"] svg path,
-    [class*="icon-button-icon"] svg circle,
-    [class*="icon-button-icon"] svg rect,
-    > svg path,
-    > svg circle,
-    > svg rect {
-      stroke: #e5e7eb !important;
-      stroke-opacity: 1 !important;
-      fill: #e5e7eb !important;
-      fill-opacity: 1 !important;
-    }
-  }
-}
 
 :global(body.dark) .prompt-picker-list {
   // dark 模式使用中性 slate 黑灰色调，比 panel 略亮
@@ -4128,14 +4106,13 @@
   }
 
   :global(body:not(.light):not(.dark)) .prompt-picker-mask {
-    background-color: rgba(15, 23, 42, 0.45);
+    background-color: var(--nextchat-picker-overlay-bg);
   }
 
   :global(body:not(.light):not(.dark)) .prompt-picker-panel {
-    // 镜像块：dark 模式使用中性 slate 黑灰色调
-    background: rgb(17, 24, 39) !important; // slate-900
-    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
-    border: 1px solid rgba(71, 85, 105, 0.6) !important; // slate-600 透明
+    background: var(--nextchat-picker-surface-bg) !important;
+    box-shadow: var(--nextchat-picker-surface-shadow) !important;
+    border-color: var(--nextchat-picker-surface-border) !important;
   }
 
   :global(body:not(.light):not(.dark)) .prompt-picker-header {
@@ -4153,27 +4130,7 @@
 
   // .prompt-picker-search 由 globals 的 .nextchat-input-control 接管 dark 适配
 
-  // "管理提示词"按钮（镜像块）：不强制背景色，由 globals 的 .nextchat-default-button 接管
-  // 仅修正 SVG 颜色，与 dark 主块行为一致
-  .prompt-picker-toolbar > button.prompt-picker-manage {
-    [class*="icon-button-icon"] > svg,
-    > svg,
-    :global(svg) {
-      filter: none !important;
-    }
 
-    [class*="icon-button-icon"] svg path,
-    [class*="icon-button-icon"] svg circle,
-    [class*="icon-button-icon"] svg rect,
-    > svg path,
-    > svg circle,
-    > svg rect {
-      stroke: #e5e7eb !important;
-      stroke-opacity: 1 !important;
-      fill: #e5e7eb !important;
-      fill-opacity: 1 !important;
-    }
-  }
 
   :global(body:not(.light):not(.dark)) .prompt-picker-list {
     // 镜像块：dark 模式使用中性 slate 黑灰色调

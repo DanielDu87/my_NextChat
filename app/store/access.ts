@@ -471,6 +471,7 @@ export const useAccessStore = createPersistStore(
       if (fetchState > 0 || getClientConfig()?.buildMode === "export") return;
       if (!get()._hasHydrated) {
         // 等持久化状态恢复后再拉服务端配置，避免用默认值覆盖本地已保存的自定义模型。
+        // 使用闭包捕获 fetchState 值，避免竞态条件
         setTimeout(() => {
           if (fetchState === 0) {
             (get() as any).fetch();

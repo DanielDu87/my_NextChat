@@ -28,8 +28,10 @@ import {
 import { getEffectiveProviderBaseUrl } from "./provider-url";
 import {
   getRememberedModelListPath,
+  getRememberedModelListApiKey,
   rememberModelListPath,
 } from "./api-path-memory";
+import { isYutoProfileLike, isOcoolProfileLike } from "./multi-key";
 
 export {
   getAiHubMixLookupKeys,
@@ -43,15 +45,19 @@ const { ServiceProvider } = constants;
 type ServiceProviderValue =
   (typeof ServiceProvider)[keyof typeof ServiceProvider];
 const { applyModelPublishedAt } = modelPublishedAtUtils;
-let aihubmixCatalogMetadataMapPromise: Promise<
-  Map<
-    string,
-    { rank: number; vendor?: { id: number; name: string; icon?: string } }
+const aihubmixCatalogMetadataMapPromises = new Map<
+  string,
+  Promise<
+    Map<
+      string,
+      { rank: number; vendor?: { id: number; name: string; icon?: string } }
+    >
   >
-> | null = null;
-let aihubmixClassificationMapPromise: Promise<
-  Map<string, { features?: string[]; types?: string[] }>
-> | null = null;
+>();
+const aihubmixClassificationMapPromises = new Map<
+  string,
+  Promise<Map<string, { features?: string[]; types?: string[] }>>
+>();
 
 function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
   const normalizedGroup = String(groupName || "default")
@@ -350,34 +356,15 @@ export function getProviderDisplayName(
 /**
  * 检测是否为 YutoAPI (cn.gptapi.asia)
  */
-function isYutoApiUrl(baseUrl?: string) {
-  if (!baseUrl) return false;
-
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return hostname === "cn.gptapi.asia" || hostname === "gptapi.asia";
-  } catch {
-    return false;
-  }
+function isYutoApiUrl(baseUrl?: string, profileName?: string) {
+  return isYutoProfileLike({ name: profileName, baseUrl });
 }
 
 /**
  * 检测是否为 Ocoolai (one.ocoolai.com)
  */
-function isOcoolaiUrl(baseUrl?: string) {
-  if (!baseUrl) return false;
-
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return (
-      hostname === "api.ocoolai.com" ||
-      hostname === "one.ocoolai.com" ||
-      hostname === "ocoolai.com" ||
-      hostname === "one.ooo.cool"
-    );
-  } catch {
-    return false;
-  }
+function isOcoolaiUrl(baseUrl?: string, profileName?: string) {
+  return isOcoolProfileLike({ name: profileName, baseUrl });
 }
 
 function isToApisUrl(baseUrl?: string) {
@@ -402,67 +389,7 @@ function normalizeModelItems(items: any[]) {
     .filter((item) => Boolean(getRawModelName(item)));
 }
 
-function extractOcoolaiAvailableModels(data: any): any[] {
-  if (data?.success === true && Array.isArray(data?.data)) {
-    return normalizeModelItems(data.data);
-  }
-
-  if (Array.isArray(data)) {
-    return normalizeModelItems(data);
-  }
-
-  if (Array.isArray(data?.items)) {
-    return normalizeModelItems(data.items);
-  }
-
-  if (Array.isArray(data?.data)) {
-    return normalizeModelItems(data.data);
-  }
-
-  if (data?.data && typeof data.data === "object") {
-    return normalizeModelItems(Object.values(data.data));
-  }
-
-  if (Array.isArray(data?.models)) {
-    return normalizeModelItems(data.models);
-  }
-
-  if (Array.isArray(data?.data?.models)) {
-    return normalizeModelItems(data.data.models);
-  }
-
-  if (Array.isArray(data?.data?.Models)) {
-    return normalizeModelItems(data.data.Models);
-  }
-
-  if (Array.isArray(data?.data?.groups)) {
-    return normalizeModelItems(
-      data.data.groups.flatMap((group: any) =>
-        Array.isArray(group?.models)
-          ? group.models
-          : Array.isArray(group?.items)
-          ? group.items
-          : [],
-      ),
-    );
-  }
-
-  if (Array.isArray(data?.groups)) {
-    return normalizeModelItems(
-      data.groups.flatMap((group: any) =>
-        Array.isArray(group?.models)
-          ? group.models
-          : Array.isArray(group?.items)
-          ? group.items
-          : [],
-      ),
-    );
-  }
-
-  return [];
-}
-
-function extractModelListFromResponse(data: any, baseUrl?: string): any[] {
+function extractModelListFromResponse(data: any, _baseUrl?: string): any[] {
   if (
     data?.vendors &&
     Array.isArray(data.vendors) &&
@@ -471,52 +398,88 @@ function extractModelListFromResponse(data: any, baseUrl?: string): any[] {
     return normalizeModelItems(data.data);
   }
 
-  if (isOcoolaiUrl(baseUrl)) {
-    return extractOcoolaiAvailableModels(data);
+  // 递归收集所有可能的模型列表容器
+  const containers: any[] = [];
+
+  const visit = (item: unknown, depth: number) => {
+    if (!item || typeof item !== "object" || depth > 3) return;
+    if (Array.isArray(item)) {
+      // 如果是数组且包含模型对象，收集它
+      if (item.length > 0) {
+        const first = item[0];
+        if (
+          first &&
+          typeof first === "object" &&
+          (first.id || first.name || first.model)
+        ) {
+          containers.push(item);
+        }
+      }
+      return;
+    }
+    const obj = item as Record<string, unknown>;
+    // 常见字段名
+    const modelFields = [
+      "data",
+      "models",
+      "items",
+      "result",
+      "payload",
+      "groups",
+      "data.models",
+      "data.items",
+      "data.Models",
+      "data.groups",
+      "result.models",
+      "result.data",
+    ];
+    for (const field of modelFields) {
+      let value: unknown;
+      if (field.includes(".")) {
+        // 处理嵌套路径如 "data.models"
+        value = field.split(".").reduce((o: unknown, k: string) => {
+          if (o && typeof o === "object") {
+            return (o as Record<string, unknown>)[k];
+          }
+          return undefined;
+        }, obj);
+      } else {
+        value = obj[field];
+      }
+      if (value !== undefined) {
+        visit(value, depth + 1);
+      }
+    }
+  };
+
+  visit(data, 0);
+
+  // 尝试从每个容器中提取模型
+  for (const container of containers) {
+    const normalized = normalizeModelItems(container);
+    if (normalized.length > 0) return normalized;
   }
 
-  const candidates = [
-    data?.data,
-    data?.models,
-    data?.items,
-    data?.data?.models,
-    data?.data?.Models,
-    data?.data?.items,
-    data?.result,
-    data?.result?.models,
-    data?.result?.data,
-    data?.payload?.models,
-    data?.payload?.data,
-  ];
+  // 尝试从对象值中提取
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const value of Object.values(data)) {
+      if (Array.isArray(value)) {
+        const normalized = normalizeModelItems(value);
+        if (normalized.length > 0) return normalized;
+      }
+    }
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      const normalized = normalizeModelItems(candidate);
+    // 处理 groups 结构（Ocoolai 等）
+    const groups = data.groups || data.data?.groups;
+    if (Array.isArray(groups)) {
+      const models = groups.flatMap((group: any) => {
+        if (Array.isArray(group?.models)) return group.models;
+        if (Array.isArray(group?.items)) return group.items;
+        return [];
+      });
+      const normalized = normalizeModelItems(models);
       if (normalized.length > 0) return normalized;
     }
-  }
-
-  const objectCandidates = [
-    data?.data,
-    data?.models,
-    data?.result,
-    data?.payload,
-  ];
-  for (const candidate of objectCandidates) {
-    if (
-      candidate &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate)
-    ) {
-      const values = Object.values(candidate);
-      if (values.length === 0) continue;
-      const normalizedValues = normalizeModelItems(values);
-      if (normalizedValues.length > 0) return normalizedValues;
-    }
-  }
-
-  if (Array.isArray(data?.data?.groups) || Array.isArray(data?.groups)) {
-    return extractOcoolaiAvailableModels(data);
   }
 
   return [];
@@ -822,10 +785,10 @@ async function fetchAiHubMixClassificationMap(baseUrl: string) {
 }
 
 async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
-  if (!aihubmixCatalogMetadataMapPromise) {
-    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap(
-      baseUrl,
-    ).catch((error) => {
+  const normalized = normalizeBaseUrl(baseUrl);
+  let promise = aihubmixCatalogMetadataMapPromises.get(normalized);
+  if (!promise) {
+    promise = fetchAiHubMixCatalogMetadataMap(baseUrl).catch((error) => {
       const cachedMetadataMap = readAiHubMixCatalogMetadataCache();
       if (cachedMetadataMap.size > 0) {
         console.warn(
@@ -834,19 +797,20 @@ async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
         );
         return cachedMetadataMap;
       }
-      aihubmixCatalogMetadataMapPromise = null;
+      aihubmixCatalogMetadataMapPromises.delete(normalized);
       throw error;
     });
+    aihubmixCatalogMetadataMapPromises.set(normalized, promise);
   }
 
-  return aihubmixCatalogMetadataMapPromise;
+  return promise;
 }
 
 async function getAiHubMixClassificationMap(baseUrl: string) {
-  if (!aihubmixClassificationMapPromise) {
-    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap(
-      baseUrl,
-    ).catch((error) => {
+  const normalized = normalizeBaseUrl(baseUrl);
+  let promise = aihubmixClassificationMapPromises.get(normalized);
+  if (!promise) {
+    promise = fetchAiHubMixClassificationMap(baseUrl).catch((error) => {
       const cachedClassificationMap = readAiHubMixClassificationCache();
       if (cachedClassificationMap.size > 0) {
         console.warn(
@@ -855,12 +819,13 @@ async function getAiHubMixClassificationMap(baseUrl: string) {
         );
         return cachedClassificationMap;
       }
-      aihubmixClassificationMapPromise = null;
+      aihubmixClassificationMapPromises.delete(normalized);
       throw error;
     });
+    aihubmixClassificationMapPromises.set(normalized, promise);
   }
 
-  return aihubmixClassificationMapPromise;
+  return promise;
 }
 
 /**
@@ -936,6 +901,7 @@ type FetchCandidate =
     };
 
 type FetchJsonOptions = {
+  signal?: AbortSignal;
   logSuccess?: boolean;
   logAttempt?: boolean;
   logLabel?: string;
@@ -950,6 +916,10 @@ type FetchJsonOptions = {
   onSuccessCandidate?: (candidate: FetchCandidate) => void;
   authQueryParam?: string;
   authorizationHeaderName?: string;
+  outerIndex?: number;
+  outerTotal?: number;
+  keyIndex?: number;
+  keyTotal?: number;
 };
 
 const preferredAuthorizationCache = new Map<string, string>();
@@ -1028,14 +998,24 @@ async function fetchJsonWithCandidates(
       } else if (authorizationHeaderName) {
         delete requestHeaders[authorizationHeaderName];
       }
+      const progressIndex =
+        options?.outerIndex !== undefined ? options.outerIndex + 1 : i + 1;
+      const progressTotal =
+        options?.outerTotal !== undefined ? options.outerTotal : urls.length;
+      const keyIndex =
+        options?.keyIndex !== undefined ? options.keyIndex : authIndex + 1;
+      const keyTotal =
+        options?.keyTotal !== undefined
+          ? options.keyTotal
+          : orderedAuthCandidates.length;
+      const keySuffix =
+        keyTotal > 1 ? `，第 ${keyIndex}/${keyTotal} 个 key` : "";
+      const progressPrefix = `${progressIndex}/${progressTotal}${keySuffix}`;
       const logPayload = {
         url: display,
         keyIndex: authIndex + 1,
         keyTotal: orderedAuthCandidates.length,
       };
-      const progressPrefix = `第 ${i + 1}/${urls.length} 个接口，第 ${
-        authIndex + 1
-      }/${orderedAuthCandidates.length} 个 key`;
       const recordAttempt = (result: string) => {
         attempts.push({
           index: i + 1,
@@ -1050,8 +1030,7 @@ async function fetchJsonWithCandidates(
       try {
         if (logAttempt) {
           logFetchModels(
-            `[Fetch Models] 🔁 正在尝试${logLabel}：${progressPrefix} ${interfaceLabel}`,
-            logPayload,
+            `[Fetch Models] 🔁 正在尝试${logLabel}：${progressPrefix}`,
           );
         }
         const controller = new AbortController();
@@ -1062,31 +1041,18 @@ async function fetchJsonWithCandidates(
           options?.authType,
           options?.authQueryParam,
         );
+        const signal = options?.signal
+          ? AbortSignal.any([controller.signal, options.signal])
+          : controller.signal;
         const response = await fetchModelCandidate(
           requestUrl,
           requestHeaders,
-          controller.signal,
+          signal,
         ).finally(() => clearTimeout(timeoutId));
 
         if (!response.ok) {
           lastError = new Error(`${response.status} ${response.statusText}`);
           recordAttempt(`${response.status} ${response.statusText}`.trim());
-          if (logAttempt && response.status === 404) {
-            logFetchModels(
-              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：404 不存在`,
-              logPayload,
-            );
-          } else if (logAttempt && suppressStatusCodes.has(response.status)) {
-            logFetchModels(
-              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${response.status} ${response.statusText}`.trim(),
-              logPayload,
-            );
-          } else if (logAttempt) {
-            logFetchModels(
-              `[Fetch Models] ⚠️ ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${response.status} ${response.statusText}`.trim(),
-              logPayload,
-            );
-          }
           continue;
         }
 
@@ -1094,12 +1060,6 @@ async function fetchJsonWithCandidates(
         if (contentType && !contentType.toLowerCase().includes("json")) {
           lastError = new Error(`响应不是 JSON (${contentType})`);
           recordAttempt(`非 JSON (${contentType})`);
-          if (logAttempt) {
-            logFetchModels(
-              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：返回非 JSON (${contentType})`,
-              logPayload,
-            );
-          }
           continue;
         }
 
@@ -1110,27 +1070,10 @@ async function fetchJsonWithCandidates(
           lastError =
             error instanceof Error ? error : new Error("响应 JSON 解析失败");
           recordAttempt("JSON 解析失败");
-          if (logAttempt && options?.suppressNonJsonResponse !== false) {
-            logFetchModels(
-              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：JSON 解析失败`,
-              logPayload,
-            );
-          } else if (logAttempt && !options?.suppressCandidateErrors) {
-            logFetchModels(
-              `[Fetch Models] ⚠️ 第 ${i + 1} 个 URL 响应 JSON 解析失败`,
-              error,
-            );
-          }
           continue;
         }
         if (options?.validateJson && !options.validateJson(data)) {
           recordAttempt("内容无有效模型列表");
-          if (logAttempt) {
-            logFetchModels(
-              `[Fetch Models] 💡 ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：内容无有效模型列表`,
-              logPayload,
-            );
-          }
           lastError = new Error("响应内容无效");
           continue;
         }
@@ -1140,7 +1083,7 @@ async function fetchJsonWithCandidates(
           typeof modelCount === "number" ? `，获取到 ${modelCount} 个模型` : "";
         if (options?.logSuccess !== false) {
           logFetchModels(
-            `[Fetch Models] ✅ ${logLabel}获取成功：${progressPrefix} ${interfaceLabel}${modelCountText}`,
+            `[Fetch Models] ✅ ${logLabel}获取成功：${progressPrefix}${modelCountText}`,
             {
               success: attempts[attempts.length - 1],
               totalModels: modelCount,
@@ -1160,12 +1103,6 @@ async function fetchJsonWithCandidates(
           lastError = error instanceof Error ? error : new Error("请求失败");
         }
         recordAttempt(lastError.message || "请求失败");
-        if (logAttempt && !options?.suppressCandidateErrors) {
-          logFetchModels(
-            `[Fetch Models] ⚠️ ${logLabel}尝试失败：${progressPrefix} ${interfaceLabel}，原因：${lastError.message}`,
-            error,
-          );
-        }
       }
     }
   }
@@ -1183,8 +1120,7 @@ async function fetchAllJsonWithCandidates(
   baseUrl?: string,
   options?: FetchJsonOptions,
 ) {
-  const results: Array<{ data: any; candidate: FetchCandidate }> = [];
-
+  let idx = 0;
   for (const candidate of urls) {
     try {
       const data = await fetchJsonWithCandidates(
@@ -1194,19 +1130,22 @@ async function fetchAllJsonWithCandidates(
         {
           ...options,
           logSuccess: false,
+          outerIndex:
+            options?.outerIndex !== undefined ? options.outerIndex : idx,
+          outerTotal:
+            options?.outerTotal !== undefined
+              ? options.outerTotal
+              : urls.length,
         },
       );
-      results.push({ data, candidate });
+      return [{ data, candidate }];
     } catch {
       // 单个路径失败不影响后续全路径尝试。
     }
+    idx++;
   }
 
-  if (results.length === 0) {
-    throw new Error("未找到可用的模型接口");
-  }
-
-  return results;
+  throw new Error("未找到可用的模型接口");
 }
 
 /**
@@ -1221,6 +1160,7 @@ export async function fetchModelsFromProvider(
   multiKeyGroupOrder?: string[],
   openAICompatible?: boolean,
   fetchOptions?: {
+    signal?: AbortSignal;
     authType?: string;
     authQueryParam?: string;
     extraHeaders?: string;
@@ -1370,6 +1310,8 @@ export async function fetchModelsFromProvider(
     };
     const rememberedModelListPath =
       getRememberedModelListPath(pathMemoryParams);
+    const rememberedModelListApiKey =
+      getRememberedModelListApiKey(pathMemoryParams);
     const headers: Record<string, string> = {
       ...parseExtraHeaders(
         fetchOptions?.extraHeaders || matchedProviderProfile?.extraHeaders,
@@ -1424,6 +1366,15 @@ export async function fetchModelsFromProvider(
         (entry, index, all) =>
           all.findIndex((item) => item.apiKey === entry.apiKey) === index,
       );
+    if (rememberedModelListApiKey) {
+      modelFetchKeyEntries.sort((left, right) =>
+        left.apiKey === rememberedModelListApiKey
+          ? -1
+          : right.apiKey === rememberedModelListApiKey
+          ? 1
+          : 0,
+      );
+    }
     const payloadResults: Array<{
       data: any;
       groupName?: string;
@@ -1436,58 +1387,164 @@ export async function fetchModelsFromProvider(
       requestBaseUrl?: string,
       authCachePrefix?: string,
     ) => {
-      const entries =
-        modelFetchKeyEntries.length > 0
+      // 缓存命中时只尝试缓存 key（1 次）；未命中或缓存失败时尝试全部 key
+      const hasCachedKey = Boolean(rememberedModelListApiKey);
+      let useCacheKeyOnly = Boolean(rememberedModelListPath && hasCachedKey);
+      const cacheKeyEntry = hasCachedKey
+        ? {
+            groupName: undefined as string | undefined,
+            apiKey: rememberedModelListApiKey,
+          }
+        : null;
+      let entries =
+        useCacheKeyOnly && cacheKeyEntry
+          ? [cacheKeyEntry]
+          : modelFetchKeyEntries.length > 0
           ? modelFetchKeyEntries
           : [{ groupName: undefined, apiKey: modelFetchApiKeyCandidates[0] }];
 
-      for (const entry of entries) {
-        if (!entry.apiKey) continue;
-        const nextHeaders = {
-          ...requestHeaders,
-          ...buildAuthHeaders(entry.apiKey, authType),
-        };
-        const results = await fetchAllJsonWithCandidates(
-          candidateUrls,
-          nextHeaders,
-          requestBaseUrl,
-          {
-            authorizationCandidates: getAuthorizationCandidates(
-              [entry.apiKey],
-              authType,
-            ),
-            authorizationHeaderName:
-              Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
-            authType,
-            authQueryParam,
-            authCacheKey: authCachePrefix
-              ? `${authCachePrefix}:${entry.groupName || "default"}`
-              : undefined,
-            suppressStatusCodes: [404],
-            suppressCandidateErrors: true,
-            logSuccess: false,
-            getModelCount: (payload) =>
-              extractModelListFromResponse(payload, requestBaseUrl).length,
-            validateJson: (payload) =>
-              extractModelListFromResponse(payload, requestBaseUrl).length > 0,
-          },
-        ).catch((error) => {
-          console.warn(
-            `[Fetch Models] key ${
-              entry.groupName || "default"
-            } 全路径尝试失败，继续尝试其他 key`,
-            error instanceof Error ? error.message : String(error),
-          );
-          return [];
-        });
+      for (
+        let candidateIndex = 0;
+        candidateIndex < candidateUrls.length;
+        candidateIndex += 1
+      ) {
+        const candidate = candidateUrls[candidateIndex];
+        for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+          const entry = entries[entryIndex];
+          if (!entry.apiKey) continue;
 
-        results.forEach((result) => {
-          payloadResults.push({
-            data: result.data,
-            groupName: entry.groupName,
-            candidate: result.candidate,
+          // 缓存直连时先提示再请求
+          if (useCacheKeyOnly && candidateIndex === 0 && entryIndex === 0) {
+            console.log(
+              `[Fetch Models] 🗃️ 已直接复用缓存成功路径 ${candidateUrls[0]}`,
+            );
+          }
+
+          const nextHeaders = {
+            ...requestHeaders,
+            ...buildAuthHeaders(entry.apiKey, authType),
+          };
+
+          let results: any[] = [];
+          let fetchError: Error | undefined;
+          try {
+            results = await fetchAllJsonWithCandidates(
+              [candidate],
+              nextHeaders,
+              requestBaseUrl,
+              {
+                authorizationCandidates: getAuthorizationCandidates(
+                  [entry.apiKey],
+                  authType,
+                ),
+                authorizationHeaderName:
+                  Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+                authType,
+                authQueryParam,
+                authCacheKey: authCachePrefix
+                  ? `${authCachePrefix}:${entry.groupName || "default"}`
+                  : undefined,
+                suppressStatusCodes: [404],
+                suppressCandidateErrors: true,
+                logAttempt: !useCacheKeyOnly, // 缓存直连时禁用进度日志
+                logSuccess: false,
+                getModelCount: (payload) =>
+                  extractModelListFromResponse(payload, requestBaseUrl).length,
+                validateJson: (payload) =>
+                  extractModelListFromResponse(payload, requestBaseUrl).length >
+                  0,
+                outerIndex: candidateIndex,
+                outerTotal: candidateUrls.length,
+                keyIndex: entryIndex + 1,
+                keyTotal: entries.length,
+              },
+            );
+          } catch (error) {
+            fetchError =
+              error instanceof Error ? error : new Error(String(error));
+          }
+
+          // 缓存 key 失败后，切换到完整探测模式
+          if (
+            fetchError &&
+            useCacheKeyOnly &&
+            cacheKeyEntry &&
+            entryIndex === 0
+          ) {
+            console.warn(
+              `[Fetch Models] ⚠️ 缓存 key 失败，切换到完整探测模式`,
+              fetchError.message,
+            );
+            useCacheKeyOnly = false;
+            entries =
+              modelFetchKeyEntries.length > 0
+                ? modelFetchKeyEntries
+                : [
+                    {
+                      groupName: undefined,
+                      apiKey: modelFetchApiKeyCandidates[0],
+                    },
+                  ];
+            // 重置 entryIndex，从第一个 key 重新尝试
+            entryIndex = -1;
+            continue;
+          }
+
+          if (fetchError) {
+            if (!useCacheKeyOnly) {
+              console.warn(
+                `[Fetch Models] ⚠️ 路径 ${candidateIndex + 1}/${
+                  candidateUrls.length
+                } 使用 key ${entryIndex + 1}/${entries.length}（${
+                  entry.groupName || "default"
+                }）失败`,
+                fetchError.message,
+              );
+            }
+            continue;
+          }
+
+          results.forEach((result) => {
+            payloadResults.push({
+              data: result.data,
+              groupName: entry.groupName,
+              candidate: result.candidate,
+            });
           });
-        });
+          if (results.length > 0) {
+            const successfulPath =
+              typeof candidate === "string"
+                ? candidate
+                : candidate.upstreamPath || candidate.url;
+            console.log("[Fetch Models] ✅ 当前路径与 Key 查询模型成功", {
+              path: successfulPath,
+              key: `${entryIndex + 1}/${entries.length}（${
+                entry.groupName || "default"
+              }）`,
+              modelCount: extractModelListFromResponse(
+                results[0].data,
+                requestBaseUrl,
+              ).length,
+            });
+            // 只有非缓存直连模式成功时才缓存（复用失败重试成功才缓存）
+            if (!useCacheKeyOnly) {
+              rememberModelListPath(
+                pathMemoryParams,
+                successfulPath,
+                entry.apiKey,
+              );
+              console.log("[Fetch Models] 💾 已缓存成功模型路径", {
+                path: successfulPath,
+              });
+            }
+            if (rememberedModelListPath && candidateIndex === 0) {
+              console.log("[Fetch Models] 🗃️ 已直接复用缓存成功路径", {
+                path: successfulPath,
+              });
+            }
+            return;
+          }
+        }
       }
     };
 
@@ -1503,23 +1560,24 @@ export async function fetchModelsFromProvider(
       headers["x-base-url"] =
         provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
 
-      logFetchModels(`[Fetch Models] 🔍 检测 baseUrl:`, {
-        baseUrl,
-        normalizedBaseUrl: effectiveNormalizedBaseUrl,
-        isServerSide: isServerSide(),
-        hasApiKey: !!apiKey,
-        apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + "..." : "none",
-      });
-
       // 按兼容性顺序依次尝试所有候选模型接口
-      const candidateUrls: FetchCandidate[] = buildProxyModelFetchCandidates(
+      const allCandidateUrls: FetchCandidate[] = buildProxyModelFetchCandidates(
         baseUrl,
         rememberedModelListPath,
       );
+      const candidateUrls = rememberedModelListPath
+        ? allCandidateUrls.slice(0, 1)
+        : allCandidateUrls;
 
-      logFetchModels(
-        `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个模型接口`,
-      );
+      if (rememberedModelListPath) {
+        logFetchModels(
+          `[Fetch Models] 🗃️ 缓存直连：仅尝试 ${rememberedModelListPath}`,
+        );
+      } else {
+        logFetchModels(
+          `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个模型接口`,
+        );
+      }
 
       await collectAllModelPayloads(
         candidateUrls,
@@ -1528,11 +1586,34 @@ export async function fetchModelsFromProvider(
         normalizedBaseUrl ? `model-fetch:${normalizedBaseUrl}` : undefined,
       );
       data = payloadResults[0]?.data;
+
+      // 如果缓存直连失败，清除缓存并尝试全量 fallback 探测
+      if (!data && rememberedModelListPath) {
+        console.warn(
+          `[Fetch Models] ⚠️ 缓存直连失败 (${rememberedModelListPath})，清除缓存并重新尝试全量探测...`,
+        );
+        rememberModelListPath(pathMemoryParams, undefined, undefined);
+        const fallbackUrls = allCandidateUrls.filter(
+          (c) =>
+            (typeof c === "string" ? c : c.upstreamPath || c.url) !==
+            rememberedModelListPath,
+        );
+        payloadResults.length = 0;
+        await collectAllModelPayloads(
+          fallbackUrls,
+          headers,
+          baseUrl,
+          normalizedBaseUrl ? `model-fetch:${normalizedBaseUrl}` : undefined,
+        );
+        data = payloadResults[0]?.data;
+      }
     } else {
       const normalizedProviderBaseUrl = baseUrl
         ? normalizeBaseUrl(baseUrl)
         : "";
-      const candidateUrls = isLocalModelProxyBaseUrl(normalizedProviderBaseUrl)
+      const allCandidateUrls = isLocalModelProxyBaseUrl(
+        normalizedProviderBaseUrl,
+      )
         ? [apiPath]
         : normalizedProviderBaseUrl && profileOpenAICompatible
         ? buildProxyModelFetchCandidates(
@@ -1540,6 +1621,9 @@ export async function fetchModelsFromProvider(
             rememberedModelListPath,
           )
         : [apiPath];
+      const candidateUrls = rememberedModelListPath
+        ? allCandidateUrls.slice(0, 1)
+        : allCandidateUrls;
 
       const nextHeaders = { ...headers };
       if (
@@ -1552,9 +1636,15 @@ export async function fetchModelsFromProvider(
         );
       }
 
-      logFetchModels(
-        `[Fetch Models] 📋 ${provider} 将依次尝试 ${candidateUrls.length} 个模型接口`,
-      );
+      if (rememberedModelListPath) {
+        logFetchModels(
+          `[Fetch Models] 🗃️ ${provider} 缓存直连：仅尝试 ${rememberedModelListPath}`,
+        );
+      } else {
+        logFetchModels(
+          `[Fetch Models] 📋 ${provider} 将依次尝试 ${candidateUrls.length} 个模型接口`,
+        );
+      }
 
       try {
         await collectAllModelPayloads(
@@ -1566,6 +1656,29 @@ export async function fetchModelsFromProvider(
             : undefined,
         );
         data = payloadResults[0]?.data;
+
+        // 如果缓存直连失败，清除缓存并尝试全量 fallback 探测
+        if (!data && rememberedModelListPath) {
+          console.warn(
+            `[Fetch Models] ⚠️ ${provider} 缓存直连失败 (${rememberedModelListPath})，清除缓存并重新尝试全量探测...`,
+          );
+          rememberModelListPath(pathMemoryParams, undefined, undefined);
+          const fallbackUrls = allCandidateUrls.filter(
+            (c) =>
+              (typeof c === "string" ? c : c.upstreamPath || c.url) !==
+              rememberedModelListPath,
+          );
+          payloadResults.length = 0;
+          await collectAllModelPayloads(
+            fallbackUrls,
+            nextHeaders,
+            nextHeaders["x-base-url"] || normalizedProviderBaseUrl,
+            normalizedProviderBaseUrl
+              ? `model-fetch:${provider}:${normalizedProviderBaseUrl}`
+              : undefined,
+          );
+          data = payloadResults[0]?.data;
+        }
       } catch (error) {
         console.warn(
           `[Fetch Models] ⚠️ 从 ${provider} 获取模型失败:`,
@@ -1671,7 +1784,7 @@ export async function fetchModelsFromProvider(
       };
     }
 
-    if (isYutoApiUrl(baseUrl)) {
+    if (isYutoApiUrl(baseUrl, profileName || matchedProviderProfile?.name)) {
       const normalizedBaseUrl = normalizeBaseUrl(baseUrl!);
       const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
       const candidateUrls = isServerSide()
@@ -1772,7 +1885,7 @@ export async function fetchModelsFromProvider(
     }
 
     if (
-      isOcoolaiUrl(baseUrl) &&
+      isOcoolaiUrl(baseUrl, profileName || matchedProviderProfile?.name) &&
       apiKeyGroups &&
       Object.keys(apiKeyGroups).length > 0
     ) {
@@ -1991,7 +2104,7 @@ export async function fetchModelsFromProvider(
       };
     }
 
-    if (isOcoolaiUrl(baseUrl)) {
+    if (isOcoolaiUrl(baseUrl, profileName || matchedProviderProfile?.name)) {
       const mappedModels = mapModels(
         models,
         providerId,

@@ -124,3 +124,13 @@ export async function getEncryptedSyncSecret<T = unknown>(params: {
     return null;
   }
 }
+
+export async function deleteEncryptedSyncSecret(params: {
+  userId: string;
+  secretKey: string;
+}) {
+  await pgQuery(
+    `delete from sync_secrets where user_id = $1 and secret_key = $2`,
+    [params.userId, params.secretKey],
+  );
+}

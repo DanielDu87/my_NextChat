@@ -2016,6 +2016,7 @@ export const useSyncStore = createPersistStore(
               materializedLocalChatState,
             ),
             status: "merged" as const,
+            expectedRemoteSessionCount: localIndex.sessions.length,
             metrics: {
               downloadedSessionCount: 0,
               downloadedBytes: 0,
@@ -2053,6 +2054,7 @@ export const useSyncStore = createPersistStore(
             materializedLocalChatState,
           ),
           status: uploadOrMergeStatus,
+          expectedRemoteSessionCount: localIndex.sessions.length,
           metrics: {
             downloadedSessionCount: 0,
             downloadedBytes: 0,
@@ -2106,6 +2108,7 @@ export const useSyncStore = createPersistStore(
           mergedStoreState: normalizeMergedChatState(localChatState),
           mergedSummary: getStoreSummary(StoreKey.Chat, localChatState),
           status: uploadOrMergeStatus,
+          expectedRemoteSessionCount: localIndex.sessions.length,
           metrics: {
             downloadedSessionCount: 0,
             downloadedBytes: 0,
@@ -2259,6 +2262,7 @@ export const useSyncStore = createPersistStore(
             normalizedMergedStoreState,
           ),
           status: "merged" as const,
+          expectedRemoteSessionCount: mergedIndex.sessions.length,
           metrics: {
             downloadedSessionCount: remoteSessionIdsToFetch.length,
             downloadedBytes,
@@ -2382,6 +2386,7 @@ export const useSyncStore = createPersistStore(
             normalizedMergedStoreState,
           ),
           status: "merged" as const,
+          expectedRemoteSessionCount: mergedIndex.sessions.length,
           metrics: {
             downloadedSessionCount: remoteSessionIdsToFetch.length,
             downloadedBytes,
@@ -2597,6 +2602,7 @@ export const useSyncStore = createPersistStore(
           normalizedMergedStoreState,
         ),
         status: "merged" as const,
+        expectedRemoteSessionCount: mergedIndex.sessions.length,
         metrics: {
           downloadedSessionCount: remoteSessionIdsToFetch.length,
           downloadedBytes,
@@ -3642,19 +3648,23 @@ export const useSyncStore = createPersistStore(
                           client.getChatIndex,
                           [],
                         )) as any;
-                        const localSyncableCount = buildChatIndexPayload(
-                          chatResult.mergedStoreState as any,
-                        ).sessions.length;
+                        const expectedRemoteSessionCount =
+                          chatResult.expectedRemoteSessionCount ??
+                          buildChatIndexPayload(
+                            chatResult.mergedStoreState as any,
+                          ).sessions.length;
                         const remoteSyncableCount = Array.isArray(
                           latestRemoteIndex?.sessions,
                         )
                           ? latestRemoteIndex.sessions.length
                           : 0;
 
-                        if (localSyncableCount !== remoteSyncableCount) {
+                        if (
+                          expectedRemoteSessionCount !== remoteSyncableCount
+                        ) {
                           syncConsole(
                             "warn",
-                            `[Sync] ⚠️ 会话上传后复核不一致: 本地可同步 ${localSyncableCount} 个，远端 ${remoteSyncableCount} 个`,
+                            `[Sync] ⚠️ 会话上传后复核不一致: 本地可同步 ${expectedRemoteSessionCount} 个，远端 ${remoteSyncableCount} 个`,
                           );
                         }
                       } catch (verifyError) {

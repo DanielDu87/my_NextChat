@@ -624,19 +624,11 @@ export function AddModelSelector(props: {
     <Selector
       className="model-selector-panel"
       title={
-        loading ? (
-          <>
-            正在获取 
-            <span style={{ color: "var(--primary)" }}>{displayName}</span>
-             模型
-          </>
-        ) : fetchError ? (
+        fetchError ? (
           <span style={{ color: "var(--danger-color)" }}>
             获取 {displayName} 模型失败：{fetchError}
           </span>
-        ) : (
-          "管理模型"
-        )
+        ) : null
       }
       items={selectorItems}
       multiple={true}
@@ -645,6 +637,7 @@ export function AddModelSelector(props: {
       hiddenGroupFilterOptions={["已添加", "Custom"]}
       itemsArePreSorted={true}
       disableOpenAnimation={true}
+      disableHoverAnimation={true}
       onSelection={handleSelectionChange}
       onClose={handleClose}
       resetKey={selectorResetKey}
@@ -657,6 +650,9 @@ export function AddModelSelector(props: {
             type="button"
             className={clsx(
               "model-selector-hint-provider-button",
+              "nextchat-default-button",
+              "nextchat-pill-button",
+              "nextchat-no-hover-motion",
               providerDropdownOpen && "model-selector-provider-open",
             )}
             onClick={() => setProviderDropdownOpen(!providerDropdownOpen)}
@@ -681,10 +677,13 @@ export function AddModelSelector(props: {
               className={clsx(
                 "model-selector-hint-count",
                 "model-selector-hint-fetch",
+                "nextchat-default-button",
+                "nextchat-pill-button",
+                "nextchat-no-hover-motion",
               )}
               onClick={fetchRemoteModels}
             >
-              暂无缓存模型，可手动获取
+              点击获取模型
             </button>
           ) : (
             <span className={"model-selector-hint-count"}>
@@ -696,7 +695,13 @@ export function AddModelSelector(props: {
             </span>
           )}
           {providerDropdownOpen && (
-            <div className={"model-selector-provider-menu"}>
+            <div
+              className={clsx(
+                "model-selector-provider-menu",
+                "nextchat-selector-menu",
+                "nextchat-no-hover-motion",
+              )}
+            >
               {profiles.map((p) => {
                 const pid = resolveProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
@@ -709,7 +714,13 @@ export function AddModelSelector(props: {
                     key={p.id}
                     className={clsx(
                       "model-selector-provider-option",
+                      "nextchat-menu-option",
+                      "nextchat-menu-option-bordered",
+                      "nextchat-no-hover-motion",
+                      "nextchat-selector-menu-option",
                       isActive && "model-selector-provider-option-active",
+                      isActive && "nextchat-menu-option-active",
+                      isActive && "nextchat-selector-menu-option-active",
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -719,20 +730,36 @@ export function AddModelSelector(props: {
                       setSelectorResetKey((k) => k + 1);
                     }}
                   >
-                    <span className={"model-selector-provider-option-leading"}>
+                    <span
+                      className={clsx(
+                        "model-selector-provider-option-leading",
+                        "nextchat-selector-menu-option-leading",
+                      )}
+                    >
                       {providerIcon ? (
-                        <span className={"model-selector-option-icon-frame"}>
+                        <span
+                          className={clsx(
+                            "model-selector-option-icon-frame",
+                            "nextchat-selector-menu-icon-frame",
+                          )}
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             alt={`${pName} icon`}
-                            className={"model-selector-option-icon-image"}
+                            className={clsx(
+                              "model-selector-option-icon-image",
+                              "nextchat-selector-menu-icon-image",
+                            )}
                             src={providerIcon}
                           />
                         </span>
                       ) : (
                         <div className="no-dark">
                           <BotIconDefault
-                            className="user-avatar"
+                            className={clsx(
+                              "user-avatar",
+                              "nextchat-selector-menu-icon-image",
+                            )}
                             width={16}
                             height={16}
                           />

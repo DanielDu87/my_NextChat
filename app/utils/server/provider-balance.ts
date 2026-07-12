@@ -4,7 +4,29 @@ import {
   parseExtraHeaders,
   type ApiProfileAuthType,
 } from "@/app/utils/model-fetch-common";
-import { isAiHubMixUrl } from "@/app/utils/aihubmix";
+
+// YutoAPI 检测（cn.gptapi.asia / gptapi.asia）
+function isYutoApiUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname === "cn.gptapi.asia" || hostname === "gptapi.asia";
+  } catch {
+    return false;
+  }
+}
+
+// 解析 YutoAPI 格式的 Key（API_Key|User_ID）
+function parseYutoApiKey(apiKey: string) {
+  const parts = apiKey.split("|");
+  if (parts.length >= 2) {
+    return {
+      token: parts[0],
+      userId: parts[1],
+    };
+  }
+  return { token: apiKey, userId: "" };
+}
 
 type BalanceProfile = {
   baseUrl?: string;
@@ -14,6 +36,12 @@ type BalanceProfile = {
   authType?: string;
   authQueryParam?: string;
   extraHeaders?: string;
+  // 缓存的成功路径（上次查询成功的路径）
+  cachedPath?: string;
+  cachedBaseUrl?: string;
+  cachedAuthType?: string;
+  // 自定义 URL 专用：只查询此路径，不再探测其他路径
+  customUrlOnly?: boolean;
 };
 
 export type ProviderBalanceResult = {
@@ -21,10 +49,14 @@ export type ProviderBalanceResult = {
   currency: string;
   queriedAt: number;
   attempts?: ProviderBalanceAttempt[];
+  cachedPath?: string;
+  cachedBaseUrl?: string;
+  cachedAuthType?: string;
 };
 
 export type ProviderBalanceAttempt = {
   keyIndex: number;
+  keyTotal: number;
   authType: string;
   baseUrl: string;
   path: string;
@@ -43,88 +75,88 @@ export class ProviderBalanceQueryError extends Error {
   }
 }
 
-const BALANCE_PATH_PREFIXES = [
-  "",
-  "api",
-  "v1",
-  "api/v1",
-  "v1/api",
-  "auth",
-  "api/auth",
-  "v1/auth",
-  "api/v1/auth",
-] as const;
-
-const BALANCE_PRIORITY_PATHS = [
-  "api/user/self",
-  "api/v1/user/self",
-  "api/user/token",
-  "api/v1/user/token",
-  "api/user/dashboard",
-  "api/v1/user/dashboard",
-  "api/token",
-  "api/v1/token",
-  "v1/token/quota",
-  "api/v1/token/quota",
-  "token/quota",
-  "api/token/quota",
-  "v1/user/balance",
-  "api/v1/user/balance",
-  "user/balance",
+const BALANCE_PATHS = [
+  // YutoAPI (cn.gptapi.asia) 特定路径（优先尝试）
+  "api/pricing",
+  "api/user/info",
+  "api/balance",
   "api/user/balance",
-  "v1/user/credits",
-  "api/v1/user/credits",
-  "v1/user/quota",
-  "api/v1/user/quota",
-] as const;
-
-const BALANCE_PATH_RESOURCES = [
-  "pricing",
-  "prices",
-  "price",
-  "credits",
-  "credit",
-  "credit_grants",
-  "balance",
-  "balances",
-  "billing",
-  "billing/usage",
-  "billing/subscription",
-  "billing/credit_grants",
-  "dashboard/billing/usage",
-  "dashboard/billing/subscription",
-  "dashboard/billing/credit_grants",
-  "subscription",
-  "subscriptions",
-  "usage",
-  "quota",
-  "quotas",
-  "token",
-  "tokens",
-  "token/summary",
-  "token/credit_summary",
-  "token/balance",
+  "api/quota",
+  // 第一组：最常见的路径（不带 api 前缀）
+  "user/self",
+  "v1/user/self",
+  "user/me",
+  "v1/user/me",
   "token/quota",
-  "token/quotas",
-  "token/usage",
+  "v1/token/quota",
+  "token/balance",
+  "v1/token/balance",
+  "balance",
+  "v1/balance",
+  "user/balance",
+  "v1/user/balance",
+  "credits",
+  "v1/credits",
+  "user/credits",
+  "v1/user/credits",
+  "quota",
+  "v1/quota",
+  "user/quota",
+  "v1/user/quota",
   "self",
   "me",
-  "profile",
   "account",
-  "account/info",
   "account/balance",
+  "user",
+  "pricing",
+  "billing",
+  "usage",
+  // 补充：通用的 user/info 路径（部分 OpenAI 兼容服务使用）
+  "info",
+  "v1/info",
+  "user/info",
+  "v1/user/info",
+  // 第二组：带 api 前缀
+  "api/user/self",
+  "api/v1/user/self",
+  "api/user/me",
+  "api/v1/user/me",
+  "api/token/quota",
+  "api/v1/token/quota",
+  "api/token/balance",
+  "api/v1/token/balance",
+  "api/balance",
+  "api/v1/balance",
+  "api/user/balance",
+  "api/v1/user/balance",
+  "api/credits",
+  "api/v1/credits",
+  "api/user/credits",
+  "api/v1/user/credits",
+  "api/quota",
+  "api/v1/quota",
+  "api/user/quota",
+  "api/v1/user/quota",
+  "api/self",
+  "api/me",
+  "api/account",
+  "api/account/balance",
+  "api/user",
+  "api/pricing",
+  "api/billing",
+  "api/usage",
+  // 第三组：子路径组合
+  "account/info",
   "account/balances",
   "account/credit",
   "account/credits",
   "account/quota",
   "account/usage",
-  "user",
-  "user/self",
-  "user/me",
+  "account/subscription",
+  "account/subscription/status",
   "user/info",
   "user/profile",
   "user/account",
-  "user/balance",
   "user/balances",
   "user/credit",
   "user/credits",
@@ -133,41 +165,79 @@ const BALANCE_PATH_RESOURCES = [
   "user/token",
   "user/dashboard",
   "user/models",
-  "user/self/groups",
   "user/subscription",
+  "user/subscription/status",
+  "api/account/info",
+  "api/account/balances",
+  "api/account/credit",
+  "api/account/credits",
+  "api/account/quota",
+  "api/account/usage",
+  "api/account/subscription",
+  "api/account/subscription/status",
+  "api/user/info",
+  "api/user/profile",
+  "api/user/account",
+  "api/user/balances",
+  "api/user/credit",
+  "api/user/credits",
+  "api/user/quota",
+  "api/user/usage",
+  "api/user/token",
+  "api/user/dashboard",
+  "api/user/models",
+  "api/user/subscription",
+  "api/user/subscription/status",
+  // 第四组：特殊路径
+  "token",
+  "tokens",
+  "token/summary",
+  "token/credit_summary",
+  "token/quotas",
+  "token/usage",
+  "subscription",
+  "subscriptions",
+  "subscription/status",
+  "pricing",
+  "prices",
+  "price",
+  "credit",
+  "credit_grants",
+  "billing/usage",
+  "billing/subscription",
+  "billing/credit_grants",
+  "billing/invoice",
+  "billing/summary",
+  "dashboard",
+  "dashboard/billing/usage",
+  "dashboard/billing/subscription",
+  "dashboard/billing/credit_grants",
+  "portal/info",
+  "portal/balance",
+  "portal/credits",
+  "wallet",
+  "wallet/balance",
+  "wallet/credits",
+  "funds",
+  "funds/balance",
+  "money",
+  "money/balance",
+  "key/info",
+  "key/balance",
+  "apikey/info",
+  "api_key/info",
   "organization/credits",
   "organizations/credits",
-] as const;
+  "organization/balance",
+  "organizations/balance",
+  "user/self/groups",
+  "api/user/self/groups",
+];
 
-function buildBalancePaths() {
-  const paths = BALANCE_PATH_PREFIXES.flatMap((prefix) =>
-    BALANCE_PATH_RESOURCES.map((resource) =>
-      [prefix, resource].filter(Boolean).join("/"),
-    ),
-  );
-
-  return [...new Set([...BALANCE_PRIORITY_PATHS, ...paths])];
-}
-
-const BALANCE_PATHS = buildBalancePaths();
-const BALANCE_QUERY_BATCH_SIZE = 4;
+const BALANCE_QUERY_BATCH_SIZE = 8;
 const BALANCE_MAX_ATTEMPTS_PER_KEY = 240;
 const BALANCE_QUERY_MAX_ROUNDS = 3;
-const BALANCE_QUERY_RETRY_DELAYS_MS = [800, 2_000] as const;
-
-const YUTO_BASE_URLS = [
-  "https://cn.gptapi.asia",
-  "https://gptapi.asia",
-  "https://api.yutoai.net",
-  "https://yutoai.net",
-] as const;
-
-const TOAPIS_BASE_URLS = [
-  "https://toapis.com",
-  "https://www.toapis.com",
-] as const;
-
-const QINGCHEN_HOSTNAMES = ["gpt.qt.cool"] as const;
+const BALANCE_QUERY_RETRY_DELAYS_MS = [500, 1_000] as const;
 
 type BalanceAuthType = ApiProfileAuthType | "authorization-raw";
 type BalanceCandidate = {
@@ -175,154 +245,6 @@ type BalanceCandidate = {
   path: string;
   authType: BalanceAuthType;
 };
-
-function getBaseUrlHostname(baseUrl: string) {
-  try {
-    return new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isAiHubMixBalanceBaseUrl(baseUrl: string) {
-  return isAiHubMixUrl(baseUrl);
-}
-
-function isYutoBalanceBaseUrl(baseUrl: string) {
-  try {
-    const hostname = new URL(baseUrl).hostname.toLowerCase();
-    return YUTO_BASE_URLS.some(
-      (yutoUrl) => new URL(yutoUrl).hostname.toLowerCase() === hostname,
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isToApisBalanceBaseUrl(baseUrl: string) {
-  try {
-    const hostname = new URL(baseUrl).hostname.toLowerCase();
-    return TOAPIS_BASE_URLS.some(
-      (toapisUrl) => new URL(toapisUrl).hostname.toLowerCase() === hostname,
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isQingchenBalanceBaseUrl(baseUrl: string) {
-  const hostname = getBaseUrlHostname(baseUrl);
-  return QINGCHEN_HOSTNAMES.some(
-    (candidate) => hostname === candidate || hostname.endsWith(`.${candidate}`),
-  );
-}
-
-function getResponseCookies(response: Response) {
-  const headers = response.headers as Headers & {
-    getSetCookie?: () => string[];
-  };
-  const setCookies = headers.getSetCookie?.() || [
-    headers.get("set-cookie") || "",
-  ];
-  return setCookies
-    .flatMap((value) => value.split(/,(?=[^;,]+=)/))
-    .map((value) => value.split(";", 1)[0]?.trim())
-    .filter(Boolean)
-    .join("; ");
-}
-
-async function queryQingchenBalance(
-  baseUrl: string,
-  apiKey: string,
-  keyIndex: number,
-  attempts: ProviderBalanceAttempt[],
-) {
-  const portalBaseUrl = `${new URL(baseUrl).origin}`;
-  const loginPath = "portal/login";
-  const loginResponse = await fetch(`${portalBaseUrl}/${loginPath}`, {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ key: apiKey }),
-    signal: AbortSignal.timeout(5_000),
-    cache: "no-store",
-  });
-  const loginBody = (await loginResponse.json().catch(() => null)) as Record<
-    string,
-    unknown
-  > | null;
-  const loginOk = loginResponse.ok && Number(loginBody?.code) === 0;
-  attempts.push({
-    keyIndex,
-    authType: "portal-session",
-    baseUrl: portalBaseUrl,
-    path: loginPath,
-    status: loginResponse.status,
-    ok: loginOk,
-    reason: loginOk ? undefined : "portal_login_failed",
-  });
-  if (!loginOk) return null;
-
-  const cookie = getResponseCookies(loginResponse);
-  if (!cookie) return null;
-  const portalQueries = [
-    {
-      path: "portal/models",
-      parse: (data: Record<string, unknown>) => Number(data.remainingBalance),
-    },
-    {
-      path: "portal/info",
-      parse: (data: Record<string, unknown>) => {
-        const total = Number(data.balanceUsd);
-        const used = Number(data.usedBalanceUsd);
-        return Number.isFinite(total)
-          ? Math.max(total - (Number.isFinite(used) ? used : 0), 0)
-          : Number.NaN;
-      },
-    },
-  ] as const;
-  const values = await Promise.all(
-    portalQueries.map(async ({ path, parse }) => {
-      try {
-        const response = await fetch(`${portalBaseUrl}/${path}`, {
-          headers: { Accept: "application/json", Cookie: cookie },
-          signal: AbortSignal.timeout(5_000),
-          cache: "no-store",
-        });
-        const body = (await response.json().catch(() => null)) as Record<
-          string,
-          unknown
-        > | null;
-        const data =
-          body && typeof body.data === "object" && body.data
-            ? (body.data as Record<string, unknown>)
-            : body;
-        const value = data ? parse(data) : Number.NaN;
-        const hasBalance = response.ok && Number.isFinite(value);
-        attempts.push({
-          keyIndex,
-          authType: "portal-session",
-          baseUrl: portalBaseUrl,
-          path,
-          status: response.status,
-          ok: hasBalance,
-          reason: hasBalance ? undefined : "balance_field_missing",
-        });
-        return hasBalance ? value : null;
-      } catch (error) {
-        attempts.push({
-          keyIndex,
-          authType: "portal-session",
-          baseUrl: portalBaseUrl,
-          path,
-          ok: false,
-          reason: error instanceof Error ? error.message : "request_failed",
-        });
-        return null;
-      }
-    }),
-  );
-  return values.find((value): value is number => value !== null) ?? null;
-}
 
 function buildBalanceAuthHeaders(apiKey: string, authType: BalanceAuthType) {
   if (authType === "authorization-raw") {
@@ -344,23 +266,16 @@ function appendBalanceAuthQueryParam(
 
 function buildBalanceAuthTypes(
   configuredAuthType: ApiProfileAuthType | undefined,
-  preferRawAuthorization: boolean,
 ) {
-  const fallbackAuthTypes = preferRawAuthorization
-    ? ([
-        "authorization-raw",
-        "bearer",
-        "x-api-key",
-        "api-key",
-        "query-key",
-      ] as const)
-    : ([
-        "bearer",
-        "authorization-raw",
-        "x-api-key",
-        "api-key",
-        "query-key",
-      ] as const);
+  // 调整认证类型顺序：优先尝试最可能成功的类型
+  // sk-user- 格式的 key 通常需要直接传递（authorization-raw），不是 Bearer token
+  const fallbackAuthTypes: BalanceAuthType[] = [
+    "api-key", // 优先尝试 x-api-key 方式
+    "authorization-raw", // sk-user- 格式的 key 通常直接传递
+    "x-api-key",
+    "bearer",
+    "query-key",
+  ];
 
   return [configuredAuthType, ...fallbackAuthTypes].filter(
     (type, index, all): type is BalanceAuthType =>
@@ -369,8 +284,6 @@ function buildBalanceAuthTypes(
 }
 
 function buildBalanceBaseUrls(baseUrl: string, rootBaseUrl: string) {
-  // aihubmix 的候选 URL 在 queryProviderBalance 中根据用户 baseUrl 动态构建，
-  // 不再依赖硬编码 AIHUBMIX_MANAGEMENT_BASE_URLS（70366030 修复后已废弃）。
   return [rootBaseUrl, baseUrl].filter(
     (url, index, all) => url && all.indexOf(url) === index,
   );
@@ -425,6 +338,12 @@ function normalizeQuotaBalance(value: number) {
 export function parseProviderBalanceValue(value: unknown): number | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
+
+  // YutoAPI 特殊格式：需要检查 success 字段
+  if ("success" in record && record.success !== true) {
+    return null;
+  }
+
   const containers: Record<string, unknown>[] = [];
   const visit = (item: unknown, depth: number) => {
     if (!item || typeof item !== "object" || depth > 4) {
@@ -450,7 +369,7 @@ export function parseProviderBalanceValue(value: unknown): number | null {
   visit(record, 0);
 
   for (const container of containers) {
-    // 处理 ToAPIs 无限额度的特殊情况
+    // 处理无限额度的特殊情况
     if (container.unlimited_quota === true) {
       // 使用一个特殊的大数表示无限额度，避免 Infinity 序列化问题
       return -1;
@@ -470,10 +389,8 @@ export function parseProviderBalanceValue(value: unknown): number | null {
     }
 
     const remaining = findFirstFiniteNumber(container, [
-      // ToAPIs 特有字段
       "remain_balance",
       "remain_credits",
-      // 通用字段
       "balance",
       "remaining_balance",
       "remainingBalance",
@@ -498,6 +415,25 @@ export function parseProviderBalanceValue(value: unknown): number | null {
       "availableCredit",
       "cash_balance",
       "cashBalance",
+      // 添加更多常见字段
+      "money",
+      "fund",
+      "funds",
+      "allowance",
+      "wallet_balance",
+      "walletBalance",
+      "account_balance",
+      "accountBalance",
+      "user_balance",
+      "userBalance",
+      "total_money",
+      "totalMoney",
+      "current_balance",
+      "currentBalance",
+      "left_quota",
+      "leftQuota",
+      "left_balance",
+      "leftBalance",
     ]);
     if (remaining !== null) {
       return remaining;
@@ -518,17 +454,25 @@ export function parseProviderBalanceValue(value: unknown): number | null {
           "monthly_limit_usd",
           "weekly_limit_usd",
           "daily_limit_usd",
+          "hard_limit",
+          "monthly_limit",
         ],
         [
           "total_usage",
           "monthly_usage_usd",
           "weekly_usage_usd",
           "daily_usage_usd",
+          "usage",
         ],
       ],
       [
         ["limit", "quota_limit", "quotaLimit", "total_quota", "totalQuota"],
         ["usage", "used", "quota_used", "quotaUsed", "used_quota", "usedQuota"],
+      ],
+      // 添加 money/balance - used 计算方式
+      [
+        ["money", "fund", "funds", "balance", "total_money", "totalMoney"],
+        ["used", "used_money", "usedMoney", "spent", "cost"],
       ],
     ] as const;
 
@@ -545,130 +489,363 @@ export function parseProviderBalanceValue(value: unknown): number | null {
 
 export async function queryProviderBalance(
   profile: BalanceProfile,
-): Promise<ProviderBalanceResult> {
+): Promise<
+  ProviderBalanceResult & {
+    cachedPath?: string;
+    cachedBaseUrl?: string;
+    cachedAuthType?: string;
+  }
+> {
   const attempts: ProviderBalanceAttempt[] = [];
-  let yutoUpstreamError = "";
   const baseUrl = String(profile.baseUrl || "")
     .trim()
     .replace(/\/+$/, "");
   const rootBaseUrl = baseUrl.replace(/\/v1$/i, "");
   const groups = profile.apiKeyGroups || {};
-  const isYuto = isYutoBalanceBaseUrl(baseUrl);
-  const isQingchen = isQingchenBalanceBaseUrl(baseUrl);
   const orderedGroups = [
     ...(profile.multiKeyGroupOrder || []),
     ...Object.keys(groups),
   ].filter((group, index, all) => group && all.indexOf(group) === index);
-  let apiKeys = [profile.apiKey, ...orderedGroups.map((group) => groups[group])]
+  const apiKeys = [
+    profile.apiKey,
+    ...orderedGroups.map((group) => groups[group]),
+  ]
     .map((key) => String(key || "").trim())
     .filter((key, index, all) => key && all.indexOf(key) === index);
-
-  // Yuto 必须使用页面保存的管理 Key 格式：apiKey|userId
-  if (isYuto) {
-    // 只保留符合 yuto 格式的 key
-    apiKeys = apiKeys.filter((key) => key.includes("|"));
-    if (apiKeys.length === 0) {
-      throw new ProviderBalanceQueryError(
-        "Yuto 管理 API Key 格式不正确，请使用 API_Key|User_ID",
-        attempts,
-      );
-    }
-  }
 
   if (!/^https?:\/\//i.test(baseUrl) || apiKeys.length === 0) {
     throw new ProviderBalanceQueryError("balance_profile_incomplete", attempts);
   }
 
-  // 通用供应商查询逻辑
   const configuredAuthType = profile.authType as ApiProfileAuthType | undefined;
-  const isAiHubMixProfile = isAiHubMixBalanceBaseUrl(baseUrl);
-  const authTypes = buildBalanceAuthTypes(
-    configuredAuthType,
-    isAiHubMixProfile,
-  );
+  const authTypes = buildBalanceAuthTypes(configuredAuthType);
   const baseUrls = buildBalanceBaseUrls(baseUrl, rootBaseUrl);
 
-  for (const [keyIndex, apiKeyRaw] of apiKeys.entries()) {
-    // 解析 yuto 的特殊格式：apiKey|userId
-    let apiKey = apiKeyRaw;
-    let yutoUserId: string | null = null;
-    const isAiHubMix = isAiHubMixBalanceBaseUrl(baseUrl);
+  for (const [keyIndex, apiKey] of apiKeys.entries()) {
+    console.log(
+      `[Provider Balance] 🔍 正在尝试第 ${keyIndex + 1}/${
+        apiKeys.length
+      } 个 key 的余额查询`,
+    );
 
-    if (isYuto && apiKeyRaw.includes("|")) {
-      const parts = apiKeyRaw.split("|");
-      apiKey = parts[0].trim();
-      yutoUserId = parts.slice(1).join("|").trim();
-    }
-
-    if (isQingchen) {
-      try {
-        const value = await queryQingchenBalance(
-          baseUrl,
-          apiKey,
-          keyIndex,
-          attempts,
-        );
-        if (value !== null) {
-          return { value, currency: "USD", queriedAt: Date.now(), attempts };
-        }
-      } catch (error) {
-        attempts.push({
-          keyIndex,
-          authType: "portal-session",
-          baseUrl: new URL(baseUrl).origin,
-          path: "portal/info",
-          ok: false,
-          reason: error instanceof Error ? error.message : "request_failed",
-        });
-      }
-      continue;
-    }
-
-    // 对于已知的服务提供商，使用固定路径，避免盲目尝试触发限流
-    let candidates: BalanceCandidate[];
-    const isToApis = isToApisBalanceBaseUrl(baseUrl);
-    if (isYuto) {
-      // Yuto: 只使用最可能的配置，减少请求次数
-      // 使用用户配置的 baseUrl，只尝试 bearer token 方式
-      candidates = [
-        {
-          candidateBaseUrl: baseUrl,
-          path: "api/user/self",
-          authType: "bearer" as const,
-        },
-      ];
-    } else if (isAiHubMix) {
-      // AiHubMix 系列（含 api.inferera.com 等镜像）使用 Manage Key + Bearer 访问 api/user/self。
-      // 必须基于用户配置的 baseUrl 查询：镜像站点的 Manage Key 与官方域名不互通，
-      // 且部分部署环境（如本服务器）无法访问 aihubmix.com 官方域名，只能访问镜像。
-      // 官方域名不强制注入，用户若配置官方域名则 baseUrl 本身即覆盖。
-      const aihubmixBaseUrls = [rootBaseUrl, baseUrl].filter(
+    // YutoAPI 特殊处理：使用 New-API-User Header
+    if (isYutoApiUrl(baseUrl)) {
+      const yutoKey = parseYutoApiKey(apiKey);
+      const yutoBaseUrls = [rootBaseUrl, baseUrl].filter(
         (url, index, all) => url && all.indexOf(url) === index,
       );
-      candidates = aihubmixBaseUrls.flatMap((candidateBaseUrl) =>
-        (["bearer", "authorization-raw"] as const).map((authType) => ({
-          candidateBaseUrl,
-          path: "api/user/self",
-          authType,
-        })),
+
+      for (const yutoBaseUrl of yutoBaseUrls) {
+        const yutoPath = "api/user/self";
+        console.log(
+          `[Provider Balance] 💡 YutoAPI 模式：${yutoBaseUrl}/${yutoPath}`,
+        );
+        try {
+          const headers: Record<string, string> = {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...(yutoKey.userId ? { "New-API-User": yutoKey.userId } : {}),
+            Authorization: `Bearer ${yutoKey.token}`,
+          };
+          const response = await fetch(`${yutoBaseUrl}/${yutoPath}`, {
+            headers,
+            signal: AbortSignal.timeout(5_000),
+            cache: "no-store",
+          });
+          attempts.push({
+            keyIndex,
+            keyTotal: apiKeys.length,
+            authType: "yuto-api",
+            baseUrl: yutoBaseUrl,
+            path: yutoPath,
+            status: response.status,
+            ok: response.ok,
+            reason: !response.ok ? "http_error" : undefined,
+          });
+          if (response.ok) {
+            const responseBody = await response.json();
+            const value = parseProviderBalanceValue(responseBody);
+            if (value !== null) {
+              console.log(
+                `[Provider Balance] ✅ YutoAPI 查询成功: ${yutoBaseUrl}/${yutoPath}`,
+              );
+              return {
+                value,
+                currency: "USD",
+                queriedAt: Date.now(),
+                attempts,
+                cachedPath: yutoPath,
+                cachedBaseUrl: yutoBaseUrl,
+                cachedAuthType: "yuto-api",
+              };
+            }
+          }
+        } catch (error) {
+          attempts.push({
+            keyIndex,
+            keyTotal: apiKeys.length,
+            authType: "yuto-api",
+            baseUrl: yutoBaseUrl,
+            path: yutoPath,
+            ok: false,
+            reason: error instanceof Error ? error.message : "request_failed",
+          });
+        }
+      }
+    }
+
+    // 自定义 URL 专用模式：只查询用户填写的路径，但尝试多种 baseUrl 和认证方式组合
+    if (profile.customUrlOnly && profile.cachedPath) {
+      const cachedPath = profile.cachedPath;
+      console.log(
+        `[Provider Balance] 💡 自定义 URL 模式：仅查询 ${cachedPath}`,
       );
-    } else if (isToApis) {
-      // ToAPIs: 只使用文档中明确的路径
-      candidates = TOAPIS_BASE_URLS.flatMap((toapisUrl) => [
-        {
-          candidateBaseUrl: toapisUrl,
-          path: "v1/user/balance",
-          authType: "bearer" as const,
+      // 自定义 URL 模式下尝试多种 baseUrl 组合和认证类型
+      const customBaseUrls = buildBalanceBaseUrls(
+        profile.cachedBaseUrl || baseUrl,
+        profile.cachedBaseUrl
+          ? profile.cachedBaseUrl.replace(/\/v1$/i, "")
+          : baseUrl.replace(/\/v1$/i, ""),
+      );
+      const customAuthTypes: BalanceAuthType[] = [
+        "api-key",
+        "authorization-raw",
+        "bearer",
+        "x-api-key",
+      ];
+      const customCandidates: BalanceCandidate[] = customBaseUrls.flatMap(
+        (candidateBaseUrl) =>
+          customAuthTypes.map((authType) => ({
+            candidateBaseUrl,
+            path: cachedPath.startsWith("/") ? cachedPath.slice(1) : cachedPath,
+            authType,
+          })),
+      );
+
+      const customValue = await runBalanceCandidateQueue(
+        customCandidates,
+        async ({ candidateBaseUrl, path, authType }) => {
+          const headers: Record<string, string> = {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...parseExtraHeaders(profile.extraHeaders),
+            ...buildBalanceAuthHeaders(apiKey, authType),
+          };
+          const attemptBaseUrl = (() => {
+            try {
+              const url = new URL(candidateBaseUrl);
+              return `${url.protocol}//${url.host}`;
+            } catch {
+              return candidateBaseUrl;
+            }
+          })();
+          const url = appendBalanceAuthQueryParam(
+            `${candidateBaseUrl}/${path}`,
+            apiKey,
+            authType,
+            profile.authQueryParam,
+          );
+          try {
+            const response = await fetch(url, {
+              headers,
+              signal: AbortSignal.timeout(5_000),
+              cache: "no-store",
+            });
+            if (!response.ok) {
+              attempts.push({
+                keyIndex,
+                keyTotal: apiKeys.length,
+                authType,
+                baseUrl: attemptBaseUrl,
+                path,
+                status: response.status,
+                ok: false,
+                reason: "http_error",
+              });
+              return null;
+            }
+            const responseBody = await response.json();
+            const value = parseProviderBalanceValue(responseBody);
+            if (value !== null) {
+              attempts.push({
+                keyIndex,
+                keyTotal: apiKeys.length,
+                authType,
+                baseUrl: attemptBaseUrl,
+                path,
+                status: response.status,
+                ok: true,
+              });
+              return value;
+            }
+            attempts.push({
+              keyIndex,
+              keyTotal: apiKeys.length,
+              authType,
+              baseUrl: attemptBaseUrl,
+              path,
+              status: response.status,
+              ok: false,
+              reason: "balance_field_missing",
+            });
+          } catch (error) {
+            attempts.push({
+              keyIndex,
+              keyTotal: apiKeys.length,
+              authType,
+              baseUrl: attemptBaseUrl,
+              path,
+              ok: false,
+              reason: error instanceof Error ? error.message : "request_failed",
+            });
+          }
+          return null;
         },
+      );
+
+      if (customValue !== null) {
+        const usedPath = cachedPath.startsWith("/")
+          ? cachedPath
+          : `/${cachedPath}`;
+        console.log(
+          `[Provider Balance] ✅ 自定义 URL 查询成功: ${
+            profile.cachedBaseUrl || baseUrl
+          }${usedPath}`,
+        );
+        return {
+          value: customValue,
+          currency: "USD",
+          queriedAt: Date.now(),
+          attempts,
+          cachedPath: cachedPath,
+          cachedBaseUrl: profile.cachedBaseUrl || baseUrl,
+          cachedAuthType: profile.cachedAuthType,
+        };
+      }
+      console.log(`[Provider Balance] ⚠️ 自定义 URL 查询失败`);
+      // 自定义 URL 模式不继续探测其他路径，直接返回失败
+      throw new ProviderBalanceQueryError("balance_not_supported", attempts);
+    }
+
+    // 如果有缓存路径，优先尝试缓存的路径
+    let candidates = buildBalanceCandidates(baseUrls, authTypes);
+
+    // 尝试缓存路径（如果有）
+    if (profile.cachedPath && profile.cachedBaseUrl && profile.cachedAuthType) {
+      const cachedPath = profile.cachedPath.startsWith("/")
+        ? profile.cachedPath
+        : `/${profile.cachedPath}`;
+      console.log(
+        `[Provider Balance] 💡 优先尝试上次成功的缓存路径: ${profile.cachedBaseUrl}${cachedPath} (auth: ${profile.cachedAuthType})`,
+      );
+      const cachedCandidates: BalanceCandidate[] = [
         {
-          candidateBaseUrl: toapisUrl,
-          path: "user/balance",
-          authType: "bearer" as const,
+          candidateBaseUrl: profile.cachedBaseUrl,
+          path: profile.cachedPath,
+          authType: profile.cachedAuthType as BalanceAuthType,
         },
-      ]);
-    } else {
-      // 其他服务提供商使用常规的候选路径
-      candidates = buildBalanceCandidates(baseUrls, authTypes);
+      ];
+
+      // 先尝试缓存路径
+      const cachedValue = await runBalanceCandidateQueue(
+        cachedCandidates,
+        async ({ candidateBaseUrl, path, authType }) => {
+          const headers: Record<string, string> = {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...parseExtraHeaders(profile.extraHeaders),
+            ...buildBalanceAuthHeaders(apiKey, authType),
+          };
+          const attemptBaseUrl = (() => {
+            try {
+              const url = new URL(candidateBaseUrl);
+              return `${url.protocol}//${url.host}`;
+            } catch {
+              return candidateBaseUrl;
+            }
+          })();
+          const url = appendBalanceAuthQueryParam(
+            `${candidateBaseUrl}/${path}`,
+            apiKey,
+            authType,
+            profile.authQueryParam,
+          );
+          try {
+            const response = await fetch(url, {
+              headers,
+              signal: AbortSignal.timeout(5_000),
+              cache: "no-store",
+            });
+            if (!response.ok) {
+              attempts.push({
+                keyIndex,
+                keyTotal: apiKeys.length,
+                authType,
+                baseUrl: attemptBaseUrl,
+                path,
+                status: response.status,
+                ok: false,
+                reason: "http_error",
+              });
+              return null;
+            }
+            const responseBody = await response.json();
+            const value = parseProviderBalanceValue(responseBody);
+            if (value !== null) {
+              attempts.push({
+                keyIndex,
+                keyTotal: apiKeys.length,
+                authType,
+                baseUrl: attemptBaseUrl,
+                path,
+                status: response.status,
+                ok: true,
+              });
+              return value;
+            }
+            attempts.push({
+              keyIndex,
+              keyTotal: apiKeys.length,
+              authType,
+              baseUrl: attemptBaseUrl,
+              path,
+              status: response.status,
+              ok: false,
+              reason: "balance_field_missing",
+            });
+          } catch (error) {
+            attempts.push({
+              keyIndex,
+              keyTotal: apiKeys.length,
+              authType,
+              baseUrl: attemptBaseUrl,
+              path,
+              ok: false,
+              reason: error instanceof Error ? error.message : "request_failed",
+            });
+          }
+          return null;
+        },
+      );
+
+      if (cachedValue !== null) {
+        const cachedPath = profile.cachedPath.startsWith("/")
+          ? profile.cachedPath
+          : `/${profile.cachedPath}`;
+        console.log(
+          `[Provider Balance] ✅ 缓存路径查询成功: ${profile.cachedBaseUrl}${cachedPath}`,
+        );
+        return {
+          value: cachedValue,
+          currency: "USD",
+          queriedAt: Date.now(),
+          attempts,
+          cachedPath: profile.cachedPath,
+          cachedBaseUrl: profile.cachedBaseUrl,
+          cachedAuthType: profile.cachedAuthType,
+        };
+      }
+      console.log(`[Provider Balance] ⚠️ 缓存路径查询失败，继续全量探测`);
     }
 
     const value = await runBalanceCandidateQueue(
@@ -680,11 +857,6 @@ export async function queryProviderBalance(
           ...parseExtraHeaders(profile.extraHeaders),
           ...buildBalanceAuthHeaders(apiKey, authType),
         };
-
-        // 添加 yuto 特殊的 Header
-        if (isYuto && yutoUserId) {
-          headers["New-API-User"] = yutoUserId;
-        }
 
         const attemptBaseUrl = (() => {
           try {
@@ -709,6 +881,7 @@ export async function queryProviderBalance(
           if (!response.ok) {
             attempts.push({
               keyIndex,
+              keyTotal: apiKeys.length,
               authType,
               baseUrl: attemptBaseUrl,
               path,
@@ -719,21 +892,11 @@ export async function queryProviderBalance(
             return null;
           }
           const responseBody = await response.json();
-          if (
-            isYuto &&
-            responseBody &&
-            typeof responseBody === "object" &&
-            (responseBody as Record<string, unknown>).success === false
-          ) {
-            yutoUpstreamError = String(
-              (responseBody as Record<string, unknown>).message ||
-                "Yuto 余额查询失败",
-            );
-          }
           const value = parseProviderBalanceValue(responseBody);
           if (value !== null) {
             attempts.push({
               keyIndex,
+              keyTotal: apiKeys.length,
               authType,
               baseUrl: attemptBaseUrl,
               path,
@@ -744,6 +907,7 @@ export async function queryProviderBalance(
           }
           attempts.push({
             keyIndex,
+            keyTotal: apiKeys.length,
             authType,
             baseUrl: attemptBaseUrl,
             path,
@@ -754,28 +918,45 @@ export async function queryProviderBalance(
         } catch (error) {
           attempts.push({
             keyIndex,
+            keyTotal: apiKeys.length,
             authType,
             baseUrl: attemptBaseUrl,
             path,
             ok: false,
             reason: error instanceof Error ? error.message : "request_failed",
           });
-          // 单条链路失败时继续尝试其他路径、认证方式和 API Key。
         }
         return null;
       },
     );
     if (value !== null) {
-      return { value, currency: "USD", queriedAt: Date.now(), attempts };
+      // 从 attempts 中找到当前 key 的成功记录
+      const successAttempt = attempts.find(
+        (a) => a.keyIndex === keyIndex && a.ok === true,
+      );
+      const successPath = successAttempt?.path;
+      const successBaseUrl = successAttempt?.baseUrl;
+      // path 可能不带前导 /，需要确保正确拼接
+      const fullPath = successPath?.startsWith("/")
+        ? successPath
+        : `/${successPath}`;
+      console.log(
+        `[Provider Balance] ✅ 全量探测成功: ${successBaseUrl}${fullPath}`,
+      );
+      return {
+        value,
+        currency: "USD",
+        queriedAt: Date.now(),
+        attempts,
+        cachedPath: successPath,
+        cachedBaseUrl: successBaseUrl,
+        cachedAuthType: successAttempt?.authType,
+      };
     }
   }
 
   if (attempts.some((attempt) => attempt.status === 429)) {
     throw new ProviderBalanceQueryError("balance_rate_limited", attempts);
-  }
-
-  if (yutoUpstreamError) {
-    throw new ProviderBalanceQueryError(yutoUpstreamError, attempts);
   }
 
   const hasReadableResponse = attempts.some(

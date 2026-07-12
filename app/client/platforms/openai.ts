@@ -25,7 +25,10 @@ import {
   getRequestCompatibilityState,
   rememberRequestCompatibilityState,
 } from "@/app/utils/request-compat-memory";
-import { appendAuthQueryParam } from "@/app/utils/model-fetch-common";
+import {
+  appendAuthQueryParam,
+  replaceUrlQueryParam,
+} from "@/app/utils/model-fetch-common";
 import {
   getRememberedChatEndpoint,
   rememberChatEndpoint,
@@ -2732,6 +2735,14 @@ export class ChatGPTApi implements LLMApi {
           );
           if (authType === "query-key") {
             (requestHeaders as any)["x-api-key-query-value"] = nextApiKey;
+            const queryParamName = String(
+              (requestHeaders as any)["x-api-key-auth-query-param"] || "key",
+            ).trim();
+            chatPath = replaceUrlQueryParam(
+              chatPath,
+              queryParamName,
+              nextApiKey,
+            );
           } else if (authHeader) {
             (requestHeaders as any)[authHeader] =
               authType === "bearer" ? `Bearer ${nextApiKey}` : nextApiKey;

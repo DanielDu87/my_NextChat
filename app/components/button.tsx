@@ -69,13 +69,13 @@ export function IconButton(props: {
           aria-label={props.aria || props.title}
           className={clsx(styles["icon-button-icon"], {
             /* type=primary 时 no-dark 用于排除暗色模式 div:not(.no-dark) > svg 的
-               invert(0.5) 滤镜。chat-input-send 同样不依赖公共类，也需要排除。
-               chat-export-action（分享/导出按钮）的禁用态背景是写死浅灰，
-               被 invert 后图标会和背景糊在一起，所以也加 no-dark。 */
+               invert(0.5) 滤镜。chat-input-send / chat-export-action / prompt-picker-manage
+               也是同理：需要阻止全局反相滤镜覆盖图标颜色。 */
             "no-dark":
               props.type === "primary" ||
               props.className?.includes("chat-input-send") ||
-              props.className?.includes("chat-export-action"),
+              props.className?.includes("chat-export-action") ||
+              props.className?.includes("prompt-picker-manage"),
           })}
         >
           {props.icon}

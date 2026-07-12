@@ -12,6 +12,7 @@ import {
 import * as FormatModule from "./format";
 import * as StreamModule from "./stream";
 import * as ModelApiKeyMemoryModule from "./model-api-key-memory";
+import { replaceUrlQueryParam } from "./model-fetch-common";
 
 const Locale = (LocaleModule as any).default ?? LocaleModule;
 const prettyObject = FormatModule.prettyObject;
@@ -899,6 +900,14 @@ export function streamWithThink(
     onRetry: () => {
       pendingRetry = true;
       setTimeout(() => {
+        const authType = String(headers["x-api-key-auth-type"] || "bearer");
+        if (authType === "query-key") {
+          const nextApiKey = headers["x-api-key-query-value"] || "";
+          const queryParamName = String(
+            headers["x-api-key-auth-query-param"] || "key",
+          ).trim();
+          chatPath = replaceUrlQueryParam(chatPath, queryParamName, nextApiKey);
+        }
         chatApi(chatPath, headers, requestPayload, tools);
       }, 0);
     },

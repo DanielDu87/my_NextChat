@@ -11,6 +11,7 @@ import { resolveSharedSyncUserId } from "@/app/utils/server/sync-user";
 import { getOrCreateSyncAppUserId } from "@/app/utils/server/sync-app-user";
 import {
   getProviderManagementKey,
+  getProviderBalanceCachedPath,
   listProviderBalanceConfigs,
   saveProviderBalanceResult,
   saveProviderManagementKey,
@@ -55,6 +56,7 @@ export async function PUT(req: NextRequest) {
     const payload = (await req.json()) as {
       profileId?: string;
       managementKey?: string;
+      customBalanceUrl?: string;
     };
     const profileId = String(payload.profileId || "").trim();
     if (!profileId)
@@ -68,11 +70,28 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: "provider_not_found" },
         { status: 404 },
       );
-    await saveProviderManagementKey(
-      sharedUserId,
-      profileId,
-      String(payload.managementKey || ""),
-    );
+
+    // 保存管理 Key
+    if (payload.managementKey !== undefined) {
+      await saveProviderManagementKey(
+        sharedUserId,
+        profileId,
+        String(payload.managementKey || ""),
+      );
+    }
+
+    // 保存自定义 URL
+    if (payload.customBalanceUrl !== undefined) {
+      const { saveProviderBalanceCustomUrl } = await import(
+        "@/app/utils/server/provider-balance-repository"
+      );
+      await saveProviderBalanceCustomUrl(
+        sharedUserId,
+        profileId,
+        String(payload.customBalanceUrl || ""),
+      );
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
@@ -88,8 +107,12 @@ export async function PUT(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const payload = (await req.json()) as { profileId?: string };
+    const payload = (await req.json()) as {
+      profileId?: string;
+      customBalanceUrl?: string;
+    };
     const profileId = String(payload.profileId || "").trim();
+    const customBalanceUrl = payload.customBalanceUrl?.trim();
     if (!profileId) {
       return NextResponse.json(
         { ok: false, error: "missing_profile_id" },
@@ -110,30 +133,104 @@ export async function POST(req: NextRequest) {
       sharedUserId,
       profileId,
     );
-    try {
-      // 对于 Yuto，必须使用页面配置的管理密钥
-      const isYuto =
-        profile.baseUrl &&
-        (profile.baseUrl.includes("gptapi.asia") ||
-          profile.baseUrl.includes("yutoai.net"));
 
-      if (isYuto && !managementKey) {
-        throw new Error(
-          "Yuto 尚未配置管理 API Key，请使用 API_Key|User_ID 格式保存",
+    // 获取缓存的路径信息
+    const cachedPathInfo = await getProviderBalanceCachedPath(
+      sharedUserId,
+      profileId,
+    );
+
+    try {
+      // 合并 profile 和缓存路径，优先使用余额查询页面配置的管理密钥
+      let customBaseUrl: string | undefined;
+      let customPath: string | undefined;
+
+      // 如果有自定义 URL，解析是完整 URL 还是路径
+      if (customBalanceUrl) {
+        if (
+          customBalanceUrl.startsWith("http://") ||
+          customBalanceUrl.startsWith("https://")
+        ) {
+          // 完整 URL，提取 baseUrl 和 path
+          try {
+            const url = new URL(customBalanceUrl);
+            customBaseUrl = `${url.protocol}//${url.host}`;
+            customPath = url.pathname.replace(/^\//, ""); // 移除前导斜杠
+          } catch {
+            // URL 解析失败，当作路径处理
+            customPath = customBalanceUrl.replace(/^\//, "");
+          }
+        } else {
+          // 只是路径，使用 profile 的 baseUrl
+          customPath = customBalanceUrl.replace(/^\//, "");
+        }
+      }
+
+      const queryProfile = {
+        ...profile,
+        apiKey: managementKey || profile.apiKey,
+        apiKeyGroups: {},
+        // 如果有自定义 URL，优先使用；否则使用缓存路径
+        ...(customBalanceUrl
+          ? {
+              // 自定义 URL：直接使用，只查询此路径
+              cachedPath: customPath,
+              cachedBaseUrl: customBaseUrl || profile.baseUrl,
+              cachedAuthType: undefined,
+              customUrlOnly: true,
+            }
+          : cachedPathInfo?.cachedPath
+          ? {
+              cachedPath: cachedPathInfo.cachedPath,
+              cachedBaseUrl: cachedPathInfo.cachedBaseUrl,
+              cachedAuthType: cachedPathInfo.cachedAuthType,
+            }
+          : {}),
+      };
+
+      console.log(
+        `[Provider Balance] 查询配置: baseUrl=${
+          profile.baseUrl
+        }, 自定义URL=${!!customBalanceUrl}, 仅自定义=${!!customBalanceUrl}, 有缓存路径=${!!cachedPathInfo?.cachedPath}`,
+      );
+
+      const balance = await queryProviderBalanceWithRetry(queryProfile);
+      const {
+        attempts,
+        cachedPath,
+        cachedBaseUrl,
+        cachedAuthType,
+        ...balanceSnapshot
+      } = balance;
+
+      // 保存余额结果和缓存路径（只有非自定义URL时才更新缓存）
+      if (!customBalanceUrl) {
+        await saveProviderBalanceResult(
+          sharedUserId,
+          profileId,
+          balanceSnapshot,
+          "",
+          {
+            cachedPath,
+            cachedBaseUrl,
+            cachedAuthType,
+          },
+        );
+      } else {
+        await saveProviderBalanceResult(
+          sharedUserId,
+          profileId,
+          balanceSnapshot,
+          "",
         );
       }
 
-      // 优先使用余额查询页面配置的管理密钥，如果没有才使用对话密钥
-      const queryProfile = managementKey
-        ? { ...profile, apiKey: managementKey, apiKeyGroups: {} }
-        : profile;
-      const balance = await queryProviderBalanceWithRetry(queryProfile);
-      const { attempts, ...balanceSnapshot } = balance;
-      await saveProviderBalanceResult(sharedUserId, profileId, balanceSnapshot);
       return NextResponse.json({
         ok: true,
         balance: balanceSnapshot,
         attempts: attempts || [],
+        cachedPath,
+        cachedBaseUrl,
       });
     } catch (error) {
       const errorMessage = getProviderBalanceErrorMessage(error);

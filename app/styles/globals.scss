@@ -28,6 +28,48 @@
   --user-avatar-bg: #f3f4f6;
   --user-avatar-color: #6b7280;
   --user-avatar-border: rgba(31, 35, 40, 0.08);
+  --model-selector-border-color: rgba(100, 116, 139, 0.38);
+  --model-selector-list-bg: var(--white);
+  --model-selector-group-bg: color-mix(
+    in srgb,
+    var(--black) 5%,
+    var(--white)
+  );
+  --model-selector-hover-bg: color-mix(
+    in srgb,
+    var(--primary) 8%,
+    var(--white)
+  );
+  --model-selector-selected-bg: color-mix(
+    in srgb,
+    var(--primary) 13%,
+    var(--white)
+  );
+  --model-selector-count-bg: color-mix(
+    in srgb,
+    var(--black) 9%,
+    var(--white)
+  );
+  --model-selector-overlay-bg: rgba(0, 0, 0, 0.18);
+  --model-selector-panel-bg: color-mix(
+    in srgb,
+    var(--primary) 10%,
+    var(--white)
+  );
+  --model-selector-panel-border: color-mix(
+    in srgb,
+    var(--black) 10%,
+    transparent
+  );
+  --model-selector-panel-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.14);
+  --nextchat-picker-overlay-bg: rgba(0, 0, 0, 0.18);
+  --nextchat-picker-surface-bg: var(--model-selector-panel-bg);
+  --nextchat-picker-surface-border: color-mix(
+    in srgb,
+    var(--black) 10%,
+    transparent
+  );
+  --nextchat-picker-surface-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.14);
   --theme-color: var(--gray);
 
   /* shadow */
@@ -64,6 +106,44 @@
   --user-avatar-bg: #252932;
   --user-avatar-color: #c9d1d9;
   --user-avatar-border: rgba(240, 246, 252, 0.12);
+  --model-selector-border-color: color-mix(
+    in srgb,
+    var(--black) 12%,
+    transparent
+  );
+  --model-selector-list-bg: var(--white);
+  --model-selector-group-bg: var(--gray);
+  --model-selector-hover-bg: color-mix(
+    in srgb,
+    var(--black) 3%,
+    var(--white)
+  );
+  --model-selector-selected-bg: color-mix(
+    in srgb,
+    var(--black) 5%,
+    var(--white)
+  );
+  --model-selector-count-bg: color-mix(
+    in srgb,
+    var(--black) 8%,
+    var(--gray)
+  );
+  --model-selector-overlay-bg: rgba(0, 0, 0, 0.52);
+  --model-selector-panel-bg: rgb(45, 45, 45);
+  --model-selector-panel-border: color-mix(
+    in srgb,
+    var(--black) 20%,
+    transparent
+  );
+  --model-selector-panel-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.46);
+  --nextchat-picker-overlay-bg: rgba(0, 0, 0, 0.52);
+  --nextchat-picker-surface-bg: rgb(45, 45, 45);
+  --nextchat-picker-surface-border: color-mix(
+    in srgb,
+    var(--black) 16%,
+    transparent
+  );
+  --nextchat-picker-surface-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.46);
 
   --bar-color: rgba(255, 255, 255, 0.1);
 
@@ -278,7 +358,7 @@ body {
   padding: 10px 12px;
   border: 0;
   border-radius: 8px;
-  background: transparent;
+  background: var(--white);
   color: var(--black);
   cursor: pointer;
   font-family: inherit;
@@ -325,6 +405,36 @@ body {
     fill: var(--primary) !important;
     fill-opacity: 1 !important;
   }
+}
+
+/* 带边框的菜单选项：由主题变量提供颜色，适用于模型商、供应商等展开列表。 */
+.nextchat-menu-option-bordered {
+  border: var(--nextchat-menu-option-border-width, 2px) solid
+    var(--nextchat-menu-option-border-color, var(--close-button-idle-border-color)) !important;
+  border-radius: var(--nextchat-menu-option-radius, 12px) !important;
+  background: var(--nextchat-menu-option-background, var(--white)) !important;
+  box-shadow: none !important;
+  font-weight: 550;
+}
+
+.nextchat-menu-option-bordered:not(.nextchat-menu-option-active):hover,
+.nextchat-menu-option-bordered:not(.nextchat-menu-option-active):focus-visible {
+  border-width: var(--nextchat-menu-option-border-width, 2px) !important;
+  border-color: var(--nextchat-menu-option-hover-border-color, var(--primary)) !important;
+  background: var(
+    --nextchat-menu-option-hover-background,
+    var(--input-control-hover-bg)
+  ) !important;
+  color: var(--nextchat-menu-option-hover-color, var(--primary)) !important;
+}
+
+.nextchat-menu-option-bordered.nextchat-menu-option-active {
+  border-width: var(--nextchat-menu-option-border-width, 2px) !important;
+  border-color: var(--nextchat-menu-option-active-border-color, var(--primary)) !important;
+  background: var(
+    --nextchat-menu-option-active-background,
+    color-mix(in srgb, var(--primary) 16%, var(--white))
+  ) !important;
 }
 
 /* ===========================================================================
@@ -523,7 +633,7 @@ body.dark .nextchat-select:not(.nextchat-select-disabled):focus-within
   padding: 0 14px;
   border: 0;
   border-radius: 7px;
-  background: transparent;
+  background: var(--white) !important;
   color: var(--black);
   cursor: pointer;
   font-family: inherit;
@@ -1336,7 +1446,7 @@ button.nextchat-green-button:disabled * {
         [type="file"]
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
-      ):not(:disabled):not(:read-only),
+      ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
@@ -1353,7 +1463,7 @@ button.nextchat-green-button:disabled * {
         [type="file"]
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
-      ):not(:disabled):not(:read-only),
+      ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
@@ -1372,7 +1482,7 @@ button.nextchat-green-button:disabled * {
         [type="file"]
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
-      ):not(:disabled):not(:read-only),
+      ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
@@ -1383,7 +1493,7 @@ button.nextchat-green-button:disabled * {
         [type="file"]
       ):not([type="color"]):not([type="button"]):not([type="submit"]):not(
         [type="reset"]
-      ):not(:disabled):not(:read-only),
+      ):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
     textarea:not(:disabled):not(:read-only):not(#chat-input),
     select:not(:disabled),
     .nextchat-input-control:not(:disabled):not(:read-only),
@@ -1794,121 +1904,108 @@ pre {
   user-select: text;
 }
 
-/* 公共模型选择器样式：供聊天页与添加模型弹层复用，并跟随主题变量适配浅色 / 深色主题。 */
 .model-selector-panel {
-  background-color: rgba(15, 23, 42, 0.24);
+  --selector-control-border-width: 1px;
+  --selector-control-border-color: var(--model-selector-border-color);
+  --selector-control-shadow: none;
+  --selector-control-hover-shadow: none;
+  --selector-control-focus-shadow: none;
+  --selector-control-hover-border-color: color-mix(
+    in srgb,
+    var(--primary) 56%,
+    transparent
+  );
+  --selector-control-focus-border-color: var(--primary);
+  --model-selector-dark-border: var(--model-selector-border-color);
+  --model-selector-dark-selected-bg: var(--model-selector-selected-bg);
+  --nextchat-menu-option-border-color: var(--model-selector-border-color);
+  --nextchat-menu-option-background: var(--model-selector-list-bg);
+  --nextchat-menu-option-hover-border-color: color-mix(
+    in srgb,
+    var(--primary) 56%,
+    transparent
+  );
+  --nextchat-menu-option-hover-background: var(--model-selector-hover-bg);
+  --nextchat-menu-option-active-border-color: var(--primary);
+  --nextchat-menu-option-active-background: var(--model-selector-selected-bg);
+  background-color: var(--model-selector-overlay-bg) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
 }
 
-.model-selector-panel [data-selector-content="true"] {
-  width: min(680px, calc(100vw - 48px)) !important;
+/* 与提示词选择面板保持相同的桌面端顶边和安全留白。 */
+@media only screen and (min-width: 769px) {
+  .model-selector-panel {
+    align-items: flex-start !important;
+    padding: 75px 20px 32px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+.model-selector-panel .nextchat-selector-content {
+  width: min(520px, calc(100vw - 48px)) !important;
   max-width: calc(100vw - 32px) !important;
   max-height: 78vh !important;
-  gap: 14px !important;
-  padding: 20px !important;
-  border-radius: 18px !important;
-  border: none !important;
-  background: var(--white) !important;
-  box-shadow: var(--card-shadow) !important;
+  gap: 16px !important;
+  padding: 24px !important;
+  border-radius: 24px !important;
+  border: 1px solid var(--model-selector-panel-border) !important;
+  background: var(--model-selector-panel-bg) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  box-shadow:
+    var(--model-selector-panel-shadow),
+    inset 0 1px 1px color-mix(in srgb, var(--white) 50%, transparent) !important;
   margin: 0 auto 12px !important;
 }
 
-.model-selector-panel [class*="selector-title"] {
-  justify-content: flex-start !important;
+.model-selector-panel .nextchat-selector-title {
+  width: 100% !important;
+  justify-content: center !important;
   min-height: 30px !important;
   padding-bottom: 14px !important;
-  border-bottom: var(--border-in-light) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--black) 6%, transparent) !important;
   color: var(--black) !important;
   font-size: 16px !important;
   font-weight: 800 !important;
-  letter-spacing: 0 !important;
-  text-align: left !important;
+  letter-spacing: 0.02em !important;
+  text-align: center !important;
 }
 
-.model-selector-panel [class*="selector-header-hint"] {
+.model-selector-panel .nextchat-selector-header {
   gap: 12px !important;
-  margin-bottom: 0 !important;
+  margin-bottom: 4px !important;
 }
 
-.model-selector-panel [class*="selector-search-wrap"] {
+.model-selector-panel .nextchat-selector-search-surface {
   height: 40px !important;
   min-height: 40px !important;
   max-height: 40px !important;
   flex-basis: 40px !important;
   margin-top: 0 !important;
-  padding: 0 14px !important;
-  border-width: 1px !important;
-  border-color: var(--input-control-border-color) !important;
-  border-radius: 12px !important;
-  background: var(--white) !important;
-  box-shadow: var(--card-shadow) !important;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.model-selector-panel [class*="selector-search-wrap"]:hover {
-  /* 保持 border-width: 1px 不变，避免 1→2px 切换造成内容区被"挤进 1px"的多余内边框观感。
-     注意：ui-lib.module.scss 中 .selector .selector-search-wrap:hover 也会设 border-width: 2px，
-     两者特异性都是 (0,2,1)，CSS Module 加载晚于 globals 会覆盖本规则，因此这里必须显式
-     !important 锁住 1px。视觉反馈改用外圈 1px box-shadow 表达。 */
-  border-width: 1px !important;
-  border-color: var(--primary) !important;
-  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-  box-shadow: 0 0 0 1px var(--primary) !important;
-}
-
-.model-selector-panel [class*="selector-search-wrap"]:focus-within {
-  /* 与 hover 同理：必须显式 !important 锁住 1px，避免 ui-lib.module.scss 的同名规则覆盖。
-     focus 视觉反馈由 2px 外圈 box-shadow 表达。 */
-  border-width: 1px !important;
-  border-color: var(--primary) !important;
-  background: var(--white) !important;
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--primary) 18%, transparent) !important;
-}
-
-.model-selector-panel [class*="selector-search-wrap"] input {
-  font-size: 14px !important;
+.model-selector-panel .nextchat-selector-search-input {
+  width: 100% !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 16px !important;
+  border-radius: 14px !important;
+  font-size: 15px !important;
   font-weight: 600 !important;
-  text-align: left !important;
-  border-width: 0 !important;
-  border-style: none !important;
-  border-color: transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
+  text-align: center !important;
 }
 
-.model-selector-panel
-  [class*="selector-search-wrap"]
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
-    [type="file"]
-  ):not([type="color"]):not(:disabled):not(:read-only),
-.model-selector-panel
-  [class*="selector-search-wrap"]
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
-    [type="file"]
-  ):not([type="color"]):not(:disabled):not(:read-only):hover,
-.model-selector-panel
-  [class*="selector-search-wrap"]
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
-    [type="file"]
-  ):not([type="color"]):not(:disabled):not(:read-only):focus,
-.model-selector-panel
-  [class*="selector-search-wrap"]
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
-    [type="file"]
-  ):not([type="color"]):not(:disabled):not(:read-only):focus-visible {
-  border-width: 0 !important;
-  border-style: none !important;
-  border-color: transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
+.model-selector-panel .nextchat-selector-search-input::placeholder {
+  font-weight: 400 !important;
 }
 
-.model-selector-panel [data-selector-group-filter-root="true"] {
+.model-selector-panel .nextchat-selector-content {
   gap: 12px !important;
 }
 
@@ -1916,92 +2013,98 @@ pre {
   height: 40px !important;
   min-height: 40px !important;
   max-height: 40px !important;
-  padding: 8px 14px !important;
-  border-width: 1px !important;
-  border-color: var(--input-control-border-color) !important;
-  border-radius: 12px !important;
-  box-shadow: none !important;
-  font-size: 14px !important;
-  letter-spacing: 0 !important;
-}
-
-.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):hover,
-.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):focus,
-.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
-.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled):active,
-.model-selector-panel .nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-  box-shadow: none !important;
-}
-
-.model-selector-panel [class*="selector-group-filter-menu"],
-.model-selector-panel .model-selector-provider-menu {
+  padding: 8px 16px !important;
   border-radius: 14px !important;
-  border-color: var(--input-control-border-color) !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--black) 8%, transparent),
-    var(--card-shadow) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
 }
 
-.model-selector-panel [class*="selector-group-filter-option"],
-.model-selector-panel .model-selector-provider-option {
-  border-width: 1px !important;
-  border-color: var(--border-in-light) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
+.model-selector-panel .nextchat-selector-menu,
+.model-selector-panel .model-selector-provider-menu {
+  border-radius: 18px !important;
+  background: var(--model-selector-list-bg) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: var(--selector-control-border-width, 1px) solid
+    var(--selector-control-border-color, var(--model-selector-border-color)) !important;
+  box-shadow:
+    0 12px 28px -8px color-mix(in srgb, var(--black) 12%, transparent),
+    inset 0 1px 1px color-mix(in srgb, var(--white) 50%, transparent) !important;
+  padding: 8px !important;
 }
 
-.model-selector-panel [class*="selector-group-filter-option"]:hover,
-.model-selector-panel [class*="selector-group-filter-option"]:focus,
-.model-selector-panel .model-selector-provider-option:hover,
-.model-selector-panel .model-selector-provider-option:focus,
-.model-selector-panel [class*="selector-group-filter-option-active"],
-.model-selector-panel .model-selector-provider-option-active {
-  border-color: var(--primary) !important;
-  background: color-mix(in srgb, var(--primary) 6%, var(--white)) !important;
-  color: var(--primary) !important;
-}
-
-.model-selector-panel [class*="_list__"] {
+.model-selector-panel .nextchat-selector-list {
   height: min(58vh, 520px) !important;
   max-height: min(58vh, 520px) !important;
-  border: 1px solid
-    color-mix(in srgb, var(--black) 18%, var(--input-control-border-color)) !important;
-  border-radius: 14px !important;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--black) 6%, transparent),
-    var(--card-shadow) !important;
+  border: var(--border-in-light) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--card-shadow) !important;
   background: var(--white) !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
 }
 
-.model-selector-panel [class*="list-item"] {
-  min-height: 64px !important;
-  padding: 10px 14px !important;
-  background: var(--white) !important;
-  border-bottom: var(--border-in-light) !important;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+/* 供应商菜单、模型商筛选菜单与模型列表父容器使用一致的加粗外框。 */
+.model-selector-panel .nextchat-selector-menu,
+.model-selector-panel .nextchat-selector-list {
+  border-width: 2px !important;
 }
 
-.model-selector-panel [class*="list-item"] [class*="list-icon"] {
-  margin-right: 12px;
-  padding: 0;
-  display: inline-flex;
+.model-selector-panel .nextchat-selector-list::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}
+.model-selector-panel .nextchat-selector-list::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.model-selector-panel .nextchat-selector-list:has(.nextchat-selector-empty) {
+  display: flex !important;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  box-shadow: none;
-  border: 0;
-  color: var(--primary);
-  transition: color 0.2s ease;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.model-selector-panel [class*="list-item"] [class*="list-item-title"] {
-  font-size: 14px;
-  font-weight: 700;
+.model-selector-panel .nextchat-selector-virtual-row {
+  position: absolute !important;
+}
+
+.model-selector-panel .nextchat-selector-list-item {
+  min-height: 44px !important;
+  padding: 12px 16px !important;
+  box-sizing: border-box !important;
+  background: var(--white) !important;
+  color: var(--black) !important;
+  border: 0 !important;
+  border-bottom: var(--border-in-light) !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.model-selector-panel
+  .nextchat-selector-list-item
+  .nextchat-list-icon {
+  margin-right: 10px !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel
+  .nextchat-selector-list-item:last-child {
+  border-bottom: 0 !important;
+}
+
+.model-selector-panel
+  .nextchat-selector-list-item
+  .nextchat-list-item-title {
+  font-size: 14px !important;
+  font-weight: bolder !important;
   line-height: 1.45;
+  color: var(--black) !important;
 
   > div {
     overflow: hidden;
@@ -2011,11 +2114,12 @@ pre {
 }
 
 .model-selector-panel
-  [class*="list-item"]
-  [class*="list-item-sub-title"] {
-  font-size: 12px;
-  font-weight: 400;
+  .nextchat-selector-list-item
+  .nextchat-list-item-sub-title {
+  font-size: 12px !important;
+  font-weight: normal !important;
   line-height: 1.5;
+  color: var(--black) !important;
   opacity: 0.68;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2023,26 +2127,92 @@ pre {
 }
 
 .model-selector-panel
-  [class*="list-item"]:hover
-  [class*="list-icon"],
+  .nextchat-selector-list-item:hover,
 .model-selector-panel
-  [class*="list-item"]:focus-within
-  [class*="list-icon"],
-.model-selector-panel
-  [class*="selector-item-active"]
-  [class*="list-icon"] {
-  color: var(--primary);
-}
-
-.model-selector-panel [class*="list-item"]:nth-child(even) {
-  background: color-mix(in srgb, #d1d5db 46%, var(--white)) !important;
-}
-
-.model-selector-panel [class*="list-item"]:hover,
-.model-selector-panel [class*="list-item"]:focus-within,
-.model-selector-panel [class*="selector-item-active"] {
+  .nextchat-selector-list-item:focus-within {
   background: color-mix(in srgb, var(--primary) 6%, var(--white)) !important;
   color: var(--primary) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel
+  .nextchat-selector-list-item:hover
+  .nextchat-list-item-title,
+.model-selector-panel
+  .nextchat-selector-list-item:focus-within
+  .nextchat-list-item-title,
+.model-selector-panel
+  .nextchat-selector-list-item-active
+  .nextchat-list-item-title {
+  color: var(--primary) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel .nextchat-list-item-title > div {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+.model-selector-panel .nextchat-selector-list-item-active {
+  background: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
+  color: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-item-selected {
+  position: static !important;
+  inset: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  flex: 0 0 20px !important;
+  margin-right: 20px !important;
+  background: transparent !important;
+  color: var(--primary) !important;
+  transition: none !important;
+  transform: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-item-selected svg {
+  width: 20px !important;
+  height: 20px !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-item-selected path {
+  stroke: var(--primary) !important;
+  stroke-width: 2.4px !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-item-selected-hidden {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  transform: none !important;
+}
+
+/* 无 hover 动效规则不能覆盖右侧删除操作的静态垂直定位。 */
+.model-selector-panel .nextchat-selector-item-action {
+  transform: translateY(-50%) !important;
 }
 
 .model-selector-hint {
@@ -2056,30 +2226,32 @@ pre {
 
 .model-selector-hint-label {
   color: var(--black);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
-.model-selector-hint-provider-button,
 .model-selector-hint-count {
   display: inline-flex;
   align-items: center;
   min-height: 30px;
   box-sizing: border-box;
   border-radius: 999px;
-  border: 2px solid color-mix(in srgb, var(--primary) 32%, transparent);
-  background: color-mix(in srgb, var(--primary) 10%, var(--white));
+  border: 2px solid
+    var(--selector-control-border-color, var(--input-control-border-color));
+  background: var(--white) !important;
   color: var(--primary);
-  font-weight: 700;
+  font-weight: 600;
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .model-selector-hint-provider-button {
   gap: 6px;
   height: 30px;
-  padding: 0 12px;
-  font-size: 15px;
+  padding: 0 14px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -2093,53 +2265,14 @@ pre {
   stroke: currentColor !important;
 }
 
-.model-selector-hint-provider-button:hover,
-.model-selector-hint-provider-button:focus-visible,
-.model-selector-hint-fetch:hover,
-.model-selector-hint-fetch:focus-visible {
-  border-color: var(--primary);
-}
-
 .model-selector-hint-provider-button-disabled {
   cursor: not-allowed;
   opacity: 0.55;
-  transform: none;
+  transform: none !important;
 }
 
 .model-selector-provider-open svg:last-child {
   transform: rotate(180deg);
-}
-
-.nextchat-selector-group-filter {
-  border-style: solid !important;
-  border-width: 2px !important;
-  border-color: color-mix(in srgb, var(--primary) 32%, transparent) !important;
-  background: var(--white) !important;
-  background-color: var(--white) !important;
-  color: var(--black) !important;
-  box-shadow: var(--card-shadow) !important;
-  transform: none !important;
-  filter: none !important;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.nextchat-selector-group-filter:not(.selector-control-disabled):hover,
-.nextchat-selector-group-filter:not(.selector-control-disabled):focus,
-.nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
-.nextchat-selector-group-filter:not(.selector-control-disabled):active,
-.nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
-  border-color: var(--primary) !important;
-  background: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-  background-color: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-  color: var(--black) !important;
-  box-shadow:
-    0 0 0 1px var(--primary),
-    var(--card-shadow) !important;
-  transform: none !important;
-  filter: none !important;
 }
 
 .nextchat-selector-group-filter > svg:last-child,
@@ -2147,7 +2280,7 @@ pre {
   stroke: currentColor !important;
 }
 
-.nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] > svg:last-child {
+.nextchat-selector-group-filter-open > svg:last-child {
   transform: rotate(180deg);
 }
 
@@ -2164,9 +2297,6 @@ pre {
   gap: 10px;
   padding: 12px;
   border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
-  background: var(--white);
-  box-shadow: 0 18px 36px color-mix(in srgb, var(--black) 12%, transparent);
 }
 
 .model-selector-provider-empty {
@@ -2190,14 +2320,7 @@ pre {
   min-height: 52px;
   box-sizing: border-box;
   padding: 0 16px;
-  border: 2px solid var(--border-in-light);
-  border-radius: 12px;
-  background: var(--white);
-  color: var(--black);
   font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--black) 4%, transparent);
 }
 
 .model-selector-provider-option span {
@@ -2212,22 +2335,29 @@ pre {
   height: 16px;
 }
 
-.model-selector-provider-option:hover,
-.model-selector-provider-option:focus,
-.model-selector-provider-option-active {
-  border-color: color-mix(in srgb, var(--primary) 36%, transparent);
-  background: color-mix(in srgb, var(--primary) 12%, var(--white));
+.model-selector-provider-option-selected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  flex: 0 0 20px;
+  margin-left: auto;
   color: var(--primary);
 }
 
-.model-selector-provider-option-active {
-  font-weight: 700;
+.model-selector-provider-option-selected svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: currentColor;
 }
 
-.model-selector-provider-option-active > svg,
-.model-selector-provider-option-active > svg path {
-  stroke: var(--primary) !important;
-  fill: var(--primary) !important;
+.model-selector-provider-option-selected path {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2.4px;
 }
 
 .model-selector-provider-option-leading,
@@ -2238,6 +2368,34 @@ pre {
   flex: 0 0 auto;
 }
 
+.model-selector-provider-option-leading > .no-dark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+  line-height: 0;
+}
+
+.model-selector-provider-option-leading > .no-dark > svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.model-selector-provider-option-leading
+  > .no-dark
+  > .model-selector-provider-default-icon {
+  display: block !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  flex: 0 0 30px !important;
+}
+
 .model-selector-option-icon-frame {
   width: 32px;
   height: 32px;
@@ -2245,9 +2403,10 @@ pre {
   min-height: 32px;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid var(--border-in-light);
+  border: 1px solid color-mix(in srgb, var(--black) 8%, transparent) !important;
   border-radius: 10px;
   background: var(--white);
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--black) 4%, transparent) !important;
 }
 
 .model-selector-option-icon-image {
@@ -2267,13 +2426,19 @@ pre {
 
 .model-selector-hint-count {
   height: 30px;
-  padding: 0 12px;
+  padding: 0 14px;
   font-size: 14px;
 }
 
 .model-selector-hint-fetch {
   font-family: inherit;
   cursor: pointer;
+}
+
+.model-selector-hint-fetch:not(:disabled):hover,
+.model-selector-hint-fetch:not(:disabled):focus-visible,
+.model-selector-hint-fetch:not(:disabled):active {
+  color: var(--primary) !important;
 }
 
 .model-selector-hint-count-inline {
@@ -2292,44 +2457,176 @@ pre {
   animation: model-selector-slide-down 0.2s ease-out;
 }
 
-.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled,
-.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:hover,
-.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:focus,
-.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:active,
-.model-selector-auto-mode-enabled .selector-search-wrap.selector-control-disabled:focus-within,
-.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled,
-.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:hover,
-.model-selector-auto-mode-enabled .selector-group-filter-wrap:hover .selector-group-filter.selector-control-disabled,
-.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:focus,
-.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:active,
-.model-selector-auto-mode-enabled .selector-group-filter.selector-control-disabled:focus-within {
+.model-selector-panel [data-selector-empty="true"] {
+  border: var(--selector-control-border-width, 1px) solid
+    var(--selector-control-border-color, var(--input-control-border-color)) !important;
+  background: var(--white) !important;
+  color: var(--black) !important;
+  box-shadow: none !important;
+  opacity: 0.68 !important;
+}
+
+.model-selector-panel .nextchat-modal-footer {
+  border-top: var(--selector-control-border-width, 1px) solid
+    var(--selector-control-border-color, var(--input-control-border-color));
+}
+
+.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled,
+.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled:hover,
+.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled:focus,
+.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled,
+.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:hover,
+.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:focus,
+.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:active {
   border-color: var(--border-in-light) !important;
   background: var(--second) !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
+.model-selector-panel
+  .nextchat-selector-group:not(.nextchat-selector-virtual-row) {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  min-height: 0 !important;
+  padding: 10px 16px !important;
+  background: var(--white) !important;
+  color: var(--black) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom: var(--border-in-light) !important;
+  margin: 0 !important;
+}
+
+.model-selector-panel
+  .nextchat-selector-group
+  + .nextchat-selector-list-item {
+  margin-top: -1px !important;
+}
+
+.model-selector-panel .nextchat-selector-group-label {
+  color: var(--black) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.model-selector-panel .nextchat-selector-group-count {
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  background: var(--gray) !important;
+  color: var(--black) !important;
+  border: var(--border-in-light) !important;
+  border-radius: 999px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+/* 模型列表公共主题配色。使用 #selector-list 提高优先级，稳定覆盖 CSS Modules
+   中的历史固定色，同时由 light / dark 主题变量提供实际颜色。 */
+.model-selector-panel #selector-list {
+  background: var(--model-selector-list-bg) !important;
+  border-color: var(--model-selector-border-color) !important;
+  box-shadow: none !important;
+  overflow-y: auto !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item {
+  background: var(--model-selector-list-bg) !important;
+  border-bottom-color: var(--model-selector-border-color) !important;
+  color: var(--black) !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item:hover,
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item:focus-within {
+  background: var(--model-selector-hover-bg) !important;
+  color: var(--primary) !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item-active {
+  background: var(--model-selector-selected-bg) !important;
+  border-bottom-color: var(--model-selector-border-color) !important;
+  color: var(--primary) !important;
+  box-shadow: none !important;
+}
+
+.model-selector-panel .model-selector-provider-option-active {
+  border-width: 2px !important;
+  border-color: var(--primary) !important;
+}
+
+/* 已选中的模型保持选中态背景，hover / focus 不切换为普通悬浮色。 */
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item-active:hover,
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-list-item-active:focus-within {
+  background: var(--model-selector-selected-bg) !important;
+}
+
+.model-selector-panel #selector-list .nextchat-selector-group {
+  background: var(--model-selector-group-bg) !important;
+  border-bottom-color: var(--model-selector-border-color) !important;
+  color: var(--black) !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-group-label {
+  color: var(--black) !important;
+}
+
+.model-selector-panel
+  #selector-list
+  .nextchat-selector-group-count {
+  background: var(--model-selector-count-bg) !important;
+  border-color: var(--model-selector-border-color) !important;
+  color: var(--black) !important;
+}
+
 @media only screen and (max-width: 768px) {
-  .model-selector-panel [data-selector-content="true"] {
+  .model-selector-panel .nextchat-selector-content {
     max-width: 100% !important;
     max-height: 75vh !important;
     gap: 10px !important;
-    padding: 12px !important;
-    border-radius: 16px !important;
+    padding: 16px !important;
+    border-radius: 20px !important;
     margin: auto 8px !important;
   }
 
-  .model-selector-panel [class*="selector-title"] {
+  .model-selector-panel .nextchat-selector-title {
     min-height: 28px !important;
     padding-bottom: 10px !important;
   }
 
-  .model-selector-panel [class*="selector-search-wrap"],
+  .model-selector-panel .nextchat-selector-search-surface,
   .model-selector-panel .nextchat-selector-group-filter {
-    height: 36px !important;
-    min-height: 36px !important;
-    max-height: 36px !important;
-    border-radius: 10px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    border-radius: 12px !important;
+  }
+
+  .model-selector-panel .nextchat-selector-search-input {
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 12px !important;
+    border-radius: 12px !important;
   }
 
   .model-selector-hint {
@@ -2405,12 +2702,10 @@ pre {
     gap: 6px;
   }
 
-  .model-selector-provider-option > svg {
+  .model-selector-provider-option-selected {
     position: absolute;
     top: 50%;
     right: 10px;
-    width: 14px;
-    height: 14px;
     transform: translateY(-50%);
   }
 
@@ -2421,6 +2716,24 @@ pre {
     min-width: 28px;
     min-height: 28px;
     border-radius: 9px;
+  }
+
+  .model-selector-provider-option-leading > .no-dark {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    flex-basis: 28px;
+  }
+
+  .model-selector-provider-option-leading
+    > .no-dark
+    > .model-selector-provider-default-icon {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+    flex-basis: 28px !important;
   }
 }
 
@@ -2435,285 +2748,35 @@ pre {
   }
 }
 
-/* 与 chat_prompt-picker-panel 一致的暗色模式适配：仅作用于 model-selector-panel 作用域内。 */
-:global(body.dark) .model-selector-panel {
-  background-color: rgba(15, 23, 42, 0.45);
+/* Selector hover 状态保留颜色和边框反馈，但公共无动效类统一关闭
+   按钮、输入、菜单项、模型项及其图标文字的过渡和位移动画。 */
+.nextchat-selector.nextchat-no-hover-motion
+  :is(
+    button,
+    button *,
+    input,
+    .nextchat-selector-list-item,
+    .nextchat-selector-list-item *
+  ) {
+  transition: none !important;
+  animation: none !important;
 }
 
-:global(body.dark) .model-selector-panel [data-selector-content="true"] {
-  background: #111827 !important;
-  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
-  border: 1px solid rgba(71, 85, 105, 0.6) !important;
+.nextchat-selector.nextchat-no-hover-motion
+  :is(button, input, .nextchat-selector-list-item):not(.nextchat-selector-item-action) {
+  transform: none !important;
 }
 
-:global(body.dark) .model-selector-panel [class*="selector-title"] {
-  color: var(--black) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="selector-search-wrap"] {
-  background: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="selector-search-wrap"]:hover {
-  border-color: #60a5fa !important;
-  background: rgba(59, 130, 246, 0.1) !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-search-wrap"]:focus-within {
-  border-color: #60a5fa !important;
-  background: #1e293b !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="selector-search-wrap"] input {
-  color: #e5e7eb !important;
-}
-
-:global(body.dark) .model-selector-panel .nextchat-selector-group-filter {
-  background: #1e293b !important;
-  background-color: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-  color: #e5e7eb !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  .nextchat-selector-group-filter:not(.selector-control-disabled):hover,
-:global(body.dark)
-  .model-selector-panel
-  .nextchat-selector-group-filter:not(.selector-control-disabled):focus,
-:global(body.dark)
-  .model-selector-panel
-  .nextchat-selector-group-filter:not(.selector-control-disabled):focus-visible,
-:global(body.dark)
-  .model-selector-panel
-  .nextchat-selector-group-filter:not(.selector-control-disabled):active,
-:global(body.dark)
-  .model-selector-panel
-  .nextchat-selector-group-filter:not(.selector-control-disabled)[class*="selector-group-filter-open"] {
-  background: rgba(59, 130, 246, 0.15) !important;
-  background-color: rgba(59, 130, 246, 0.15) !important;
-  border-color: #60a5fa !important;
-  color: #e5e7eb !important;
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3), var(--card-shadow) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="_list__"] {
-  background: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-  box-shadow:
-    0 0 0 1px rgba(30, 64, 175, 0.12),
-    0 4px 12px rgba(0, 0, 0, 0.15) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="list-item"] {
-  background: #1e293b !important;
-  border-bottom-color: rgba(55, 65, 81, 0.8) !important;
-  color: #e5e7eb !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]:nth-child(even) {
-  background: rgba(51, 65, 85, 0.72) !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]:hover,
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]:focus-within,
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-item-active"] {
-  background: rgba(59, 130, 246, 0.15) !important;
-  color: #60a5fa !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]
-  [class*="list-icon"] {
-  color: #60a5fa !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]:hover
-  [class*="list-icon"],
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]:focus-within
-  [class*="list-icon"],
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-item-active"]
-  [class*="list-icon"] {
-  color: #60a5fa !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="list-item"]
-  [class*="list-item-sub-title"] {
-  color: #9ca3af !important;
-  opacity: 1 !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="selector-group-filter-menu"],
-:global(body.dark) .model-selector-panel .model-selector-provider-menu {
-  background: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-  box-shadow:
-    0 0 0 1px rgba(30, 64, 175, 0.12),
-    0 4px 12px rgba(0, 0, 0, 0.15) !important;
-}
-
-:global(body.dark) .model-selector-panel [class*="selector-group-filter-option"],
-:global(body.dark) .model-selector-panel .model-selector-provider-option {
-  background: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-  color: #e5e7eb !important;
-}
-
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-group-filter-option"]:hover,
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-group-filter-option"]:focus,
-:global(body.dark)
-  .model-selector-panel
-  .model-selector-provider-option:hover,
-:global(body.dark)
-  .model-selector-panel
-  .model-selector-provider-option:focus,
-:global(body.dark)
-  .model-selector-panel
-  [class*="selector-group-filter-option-active"],
-:global(body.dark)
-  .model-selector-panel
-  .model-selector-provider-option-active {
-  background: rgba(59, 130, 246, 0.15) !important;
-  border-color: #60a5fa !important;
-  color: #60a5fa !important;
-}
-
-:global(body.dark) .model-selector-hint-count,
-:global(body.dark) .model-selector-hint-provider-button {
-  background: rgba(37, 99, 235, 0.16) !important;
-  border-color: rgba(96, 165, 250, 0.42) !important;
-  color: var(--primary) !important;
-}
-
-:global(body.dark) .model-selector-option-icon-frame {
-  background: #1e293b !important;
-  border-color: rgba(71, 85, 105, 0.7) !important;
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .model-selector-panel {
-    background-color: rgba(15, 23, 42, 0.45);
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [data-selector-content="true"] {
-    background: #111827 !important;
-    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.3) !important;
-    border: 1px solid rgba(71, 85, 105, 0.6) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="selector-search-wrap"] {
-    background: #1e293b !important;
-    border-color: rgba(71, 85, 105, 0.7) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="selector-search-wrap"]:hover {
-    border-color: #60a5fa !important;
-    background: rgba(59, 130, 246, 0.1) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="selector-search-wrap"]:focus-within {
-    border-color: #60a5fa !important;
-    background: #1e293b !important;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="selector-search-wrap"]
-    input {
-    color: #e5e7eb !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    .nextchat-selector-group-filter {
-    background: #1e293b !important;
-    background-color: #1e293b !important;
-    border-color: rgba(71, 85, 105, 0.7) !important;
-    color: #e5e7eb !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="_list__"] {
-    background: #1e293b !important;
-    border-color: rgba(71, 85, 105, 0.7) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"] {
-    background: #1e293b !important;
-    border-bottom-color: rgba(55, 65, 81, 0.8) !important;
-    color: #e5e7eb !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"]:nth-child(even) {
-    background: rgba(51, 65, 85, 0.72) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"]:hover,
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"]:focus-within,
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="selector-item-active"] {
-    background: rgba(59, 130, 246, 0.15) !important;
-    color: #60a5fa !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"]
-    [class*="list-icon"] {
-    color: #60a5fa !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .model-selector-panel
-    [class*="list-item"]
-    [class*="list-item-sub-title"] {
-    color: #9ca3af !important;
-    opacity: 1 !important;
-  }
+/* 确保删除操作在任何无动效或悬浮状态（hover/focus/active）下都保持垂直居中，不被 transform: none !important 覆盖 */
+.nextchat-no-hover-motion.nextchat-selector-item-action,
+.nextchat-no-hover-motion.nextchat-selector-item-action:hover,
+.nextchat-no-hover-motion.nextchat-selector-item-action:focus,
+.nextchat-no-hover-motion.nextchat-selector-item-action:active,
+.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action,
+.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:hover,
+.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:focus,
+.nextchat-selector.nextchat-no-hover-motion .nextchat-selector-item-action:active {
+  transform: translateY(-50%) !important;
 }
 
 /* ===========================================================================
@@ -2724,7 +2787,8 @@ pre {
 /* pill 按钮：30px 高、999px 圆角、14px 字体、字号权重 700。
    配合 nextchat-default-button / nextchat-green-button / nextchat-danger-button
    使用以获得颜色与边框语义。顺序在颜色类之后以便覆盖 border-radius。 */
-.nextchat-pill-button {
+.nextchat-pill-button,
+button.nextchat-pill-button {
   appearance: none;
   -webkit-tap-highlight-color: transparent;
   display: inline-flex !important;
@@ -2805,7 +2869,7 @@ pre {
   font-weight: 700;
 }
 
-/* 已选数量徽章：与 pill 按钮同高，主题色淡背景 + 边框。 */
+/* 已选数量徽章：白色背景 + 2px 边框。 */
 .nextchat-modal-count {
   display: inline-flex;
   align-items: center;
@@ -2814,8 +2878,8 @@ pre {
   padding: 0 12px;
   box-sizing: border-box;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--primary) 10%, var(--white));
-  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  background: var(--white);
+  border: 2px solid color-mix(in srgb, var(--primary) 60%, transparent);
   color: var(--primary);
   font-size: 14px;
   font-weight: 700;
@@ -2859,6 +2923,7 @@ pre {
     justify-content: center;
   }
 
+  .nextchat-modal-footer-group button,
   .nextchat-modal-footer-group .nextchat-pill-button {
     flex: 1 1 0;
     min-width: 0;

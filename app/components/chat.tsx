@@ -26,6 +26,7 @@ import ResetIcon from "../icons/reload.svg";
 import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
+import SelectorCheckIcon from "../icons/selector-check.svg";
 import ConfigIcon from "../icons/config.svg";
 import ConnectionIcon from "../icons/connection.svg";
 import DownloadIcon from "../icons/download.svg";
@@ -2498,6 +2499,30 @@ export function PromptHints(props: {
   );
 }
 
+function PromptPickerManageIcon() {
+  return (
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
+      <defs>
+        <path id="prompt-picker-manage-mask" d="M0 0h16v16H0z" />
+      </defs>
+      <g>
+        <mask id="prompt-picker-manage-mask-fill" fill="#fff">
+          <use href="#prompt-picker-manage-mask" />
+        </mask>
+        <g
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeDasharray="0 0"
+          mask="url(#prompt-picker-manage-mask-fill)"
+        >
+          <path d="m6.7 2.7 1.41 1.41M10 1.333v2m0 0v-2M13.296 2.7l-1.41 1.41m0 0 1.41-1.41m1.37 3.3h-2m0 0h2m-1.37 3.296-1.41-1.41m0 0 1.41 1.41M10 10.666v-2m0 0v2m-3.3-1.37 1.41-1.41m0 0L6.7 9.296M5.333 6h2m0 0h-2M9.858 6.138l-8.01 8.01" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
 function PromptPickerModal(props: {
   prompts: RenderPrompt[];
   isLoading: boolean;
@@ -2549,7 +2574,7 @@ function PromptPickerModal(props: {
             autoFocus={!isMobileScreen}
           />
           <IconButton
-            icon={<PromptIcon />}
+            icon={<PromptPickerManageIcon />}
             text="管理提示词"
             // nextchat-default-button 提供 idle/hover/focus/dark 适配；本地 .prompt-picker-manage 仅保留尺寸约束。
             className={`${styles["prompt-picker-manage"]} nextchat-default-button`}
@@ -4501,13 +4526,17 @@ function _Chat() {
   }, [manualModelSelectionDisabled, providerModelSelectorItems]);
   const isModelSelectorSyncing =
     isModelSelectionSyncing || isActiveProfileModelSyncing;
+  const hasActiveProviderModels = models.length > 0;
   const currentModelName = useMemo(() => {
     if (isModelSelectorSyncing && !currentModel) {
       return "同步中...";
     }
-
+    // 当前供应商没有可选模型时，不显示会话中遗留的模型名称。
+    if (!currentModel || !hasActiveProviderModels) {
+      return "";
+    }
     return currentModel;
-  }, [currentModel, isModelSelectorSyncing]);
+  }, [currentModel, hasActiveProviderModels, isModelSelectorSyncing]);
   const isPendingSessionModelSelection = useMemo(() => {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
       return false;
@@ -4560,22 +4589,25 @@ function _Chat() {
       <span className={styles["provider-button-name"]}>
         {activeModelSelectorProviderDisplayName}
       </span>{" "}
-      {isModelSelectorSyncing ? (
-        <span className={styles["provider-button-model-syncing"]}>
-          {currentModelName}
-        </span>
-      ) : (
-        <span className={styles["provider-button-model"]}>
-          {currentModelName}
-        </span>
-      )}
+      {currentModelName &&
+        (isModelSelectorSyncing ? (
+          <span className={styles["provider-button-model-syncing"]}>
+            {currentModelName}
+          </span>
+        ) : (
+          <span className={styles["provider-button-model"]}>
+            {currentModelName}
+          </span>
+        ))}
     </>
   );
   const modelSelectorButtonTitle = autoModeEnabled
     ? autoModeButtonText
     : isModelSelectorSyncing
     ? currentModelName
-    : `${activeModelSelectorProviderDisplayName} ${currentModelName}`;
+    : currentModelName
+    ? `${activeModelSelectorProviderDisplayName} ${currentModelName}`
+    : activeModelSelectorProviderDisplayName;
   const currentDisplaySelectorValue = `${currentRawModel}@${
     activeModelSelectorProviderId || String(currentProviderName).toLowerCase()
   }`;
@@ -11531,6 +11563,7 @@ function _Chat() {
             ["model-selector-auto-mode-enabled"]: autoModeEnabled,
           })}
           dataAutoModelEnabled={autoModeEnabled}
+          disableHoverAnimation={true}
           resetKey={modelSelectorResetKey}
           defaultSelectedValue={
             modelSelectorDefaultValue ?? currentDisplaySelectorValue
@@ -11547,9 +11580,13 @@ function _Chat() {
                 <span className={"model-selector-hint-label"}>当前供应商</span>
                 <button
                   type="button"
-                  className={clsx("model-selector-hint-provider-button", {
-                    ["model-selector-provider-open"]: isProviderSelectorOpen,
-                  })}
+                  className={clsx(
+                    "model-selector-hint-provider-button",
+                    "nextchat-default-button",
+                    "nextchat-pill-button",
+                    "nextchat-no-hover-motion",
+                    isProviderSelectorOpen && "model-selector-provider-open",
+                  )}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     if (manualModelSelectionDisabled) {
@@ -11568,22 +11605,33 @@ function _Chat() {
                   <span>
                     {activeModelSelectorProviderDisplayName}
                     <span className={"model-selector-hint-count-inline"}>
-                      （共 {models.length} 个模型）
+                      {models.length > 0
+                        ? `（共 ${models.length} 个模型）`
+                        : "（无模型）"}
                     </span>
                   </span>
                   <DownIcon />
                 </button>
                 <span className={"model-selector-hint-count"}>
-                  共 {models.length} 个模型可用
+                  {models.length > 0 ? `${models.length} 个模型可用` : "无模型"}
                 </span>
               </div>
               {isProviderSelectorOpen && (
                 <div
                   data-provider-selector-root="true"
-                  className={"model-selector-provider-menu"}
+                  className={clsx(
+                    "model-selector-provider-menu",
+                    "nextchat-selector-menu",
+                    "nextchat-no-hover-motion",
+                  )}
                 >
                   {availableProviders.length === 0 ? (
-                    <div className="model-selector-provider-empty">
+                    <div
+                      className={clsx(
+                        "model-selector-provider-empty",
+                        "nextchat-selector-empty",
+                      )}
+                    >
                       没有可用的供应商配置
                     </div>
                   ) : (
@@ -11601,9 +11649,16 @@ function _Chat() {
                         <button
                           type="button"
                           key={providerOption.label}
-                          className={clsx("model-selector-provider-option", {
-                            ["model-selector-provider-option-active"]: isActive,
-                          })}
+                          className={clsx(
+                            "model-selector-provider-option",
+                            "nextchat-menu-option",
+                            "nextchat-menu-option-bordered",
+                            "nextchat-no-hover-motion",
+                            "nextchat-selector-menu-option",
+                            isActive && "model-selector-provider-option-active",
+                            isActive && "nextchat-menu-option-active",
+                            isActive && "nextchat-selector-menu-option-active",
+                          )}
                           onClick={(e) => {
                             e.stopPropagation();
                             const providerLabel = providerOption.label;
@@ -11616,31 +11671,58 @@ function _Chat() {
                           }}
                         >
                           <span
-                            className={"model-selector-provider-option-leading"}
+                            className={clsx(
+                              "model-selector-provider-option-leading",
+                              "nextchat-selector-menu-option-leading",
+                            )}
                           >
                             {providerIcon ? (
                               <span
-                                className={"model-selector-option-icon-frame"}
+                                className={clsx(
+                                  "model-selector-option-icon-frame",
+                                  "nextchat-selector-menu-icon-frame",
+                                )}
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   alt={`${providerOption.label} icon`}
-                                  className={"model-selector-option-icon-image"}
+                                  className={clsx(
+                                    "model-selector-option-icon-image",
+                                    "nextchat-selector-menu-icon-image",
+                                  )}
                                   src={providerIcon}
                                 />
                               </span>
                             ) : (
                               <div className="no-dark">
                                 <BotIconDefault
-                                  className="user-avatar"
+                                  className={clsx(
+                                    "model-selector-provider-default-icon",
+                                    "nextchat-selector-menu-icon-image",
+                                  )}
                                   width={16}
                                   height={16}
+                                  viewBox="0 0 30 30"
+                                  preserveAspectRatio="xMidYMid meet"
                                 />
                               </div>
                             )}
                           </span>
                           <span>{providerOption.label}</span>
-                          {isActive ? <ConfirmIcon /> : null}
+                          {isActive ? (
+                            <div
+                              className="model-selector-provider-option-selected"
+                              style={{ color: "var(--primary)" }}
+                            >
+                              <SelectorCheckIcon
+                                style={{
+                                  color: "var(--primary)",
+                                  stroke: "var(--primary)",
+                                  filter: "none",
+                                }}
+                              />
+                            </div>
+                          ) : null}
                         </button>
                       );
                     })
@@ -11666,30 +11748,38 @@ function _Chat() {
           perfScope="ModelSelector"
           perfStartedAt={modelSelectorOpenStartedAtRef.current || undefined}
           showGroupFilter={true}
-          groupFilterAction={({ buttonClassName }) => (
-            <button
-              type="button"
-              className={buttonClassName}
-              style={{
-                flex: "0 0 auto",
-                width: "auto",
-                minWidth: 0,
-                paddingLeft: 14,
-                paddingRight: 14,
-              }}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                e.stopPropagation();
-                setAddModelProfile({
-                  profiles: apiProfiles,
-                  currentProviderId: activeModelSelectorProviderId,
-                });
-                setShowAddModelModal(true);
-              }}
-            >
-              <span>管理模型</span>
-            </button>
-          )}
+          groupFilterAction={
+            isProviderSelectorOpen
+              ? undefined
+              : ({ buttonClassName }) => (
+                  <button
+                    type="button"
+                    className={clsx(
+                      buttonClassName,
+                      "nextchat-selector-manage-button",
+                      "nextchat-no-hover-motion",
+                    )}
+                    style={{
+                      flex: "0 0 auto",
+                      width: "auto",
+                      minWidth: 0,
+                      paddingLeft: 14,
+                      paddingRight: 14,
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddModelProfile({
+                        profiles: apiProfiles,
+                        currentProviderId: activeModelSelectorProviderId,
+                      });
+                      setShowAddModelModal(true);
+                    }}
+                  >
+                    <span>管理模型</span>
+                  </button>
+                )
+          }
           showSearch={true}
           onGroupChange={(group) => {
             setModelSelectorDefaultGroup(group);

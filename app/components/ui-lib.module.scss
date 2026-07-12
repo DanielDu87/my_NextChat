@@ -562,7 +562,7 @@
     }
 
     .select-with-icon-icon {
-      color: #2563eb;
+      color: var(--primary);
       transform: translateY(-50%) rotate(180deg);
     }
   }
@@ -897,45 +897,18 @@
       height: 100%;
       min-height: 100%;
       max-height: 100%;
-      padding: 0;
-      border: none;
-      border-radius: 0;
-      outline: none;
       font-size: 15px;
       font-weight: 700;
       line-height: normal;
       letter-spacing: 0.01em;
-      background-color: transparent;
-      color: var(--black);
       box-sizing: border-box;
       font-family: inherit;
       text-align: center;
-      box-shadow: none;
-      transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
 
       &::placeholder {
         color: #94a3b8;
         opacity: 1;
       }
-
-      &:focus {
-        border-color: transparent;
-        box-shadow: none;
-      }
-    }
-
-    input.selector-search {
-      height: 100% !important;
-      min-height: 100% !important;
-      max-height: 100% !important;
-      padding: 0 !important;
-      border: none !important;
-      border-radius: 0 !important;
-      max-width: none !important;
-      line-height: normal !important;
-      box-sizing: border-box !important;
     }
 
     :global(body.light) input.selector-search {
@@ -960,25 +933,31 @@
       flex: 0 0 44px;
       margin-top: 4px;
       padding: 0 18px;
-      border: 2px solid color-mix(in srgb, var(--primary) 32%, transparent);
+      border: var(--selector-control-border-width, 2px) solid
+        var(
+          --selector-control-border-color,
+          color-mix(in srgb, var(--primary) 32%, transparent)
+        );
       border-radius: 16px;
       background: var(--white);
       box-sizing: border-box;
-      box-shadow: var(--card-shadow);
+      box-shadow: var(--selector-control-shadow, var(--card-shadow));
       transition: none;
 
       &:hover {
-        border-width: 2px;
-        border-color: var(--primary);
-        box-shadow: none;
+        border-width: var(--selector-control-border-width, 2px);
+        border-color: var(--selector-control-hover-border-color, var(--primary));
+        box-shadow: var(--selector-control-hover-shadow, none);
         transform: none;
       }
 
       &:focus-within {
-        border-width: 2px;
-        border-color: var(--primary);
-        box-shadow:
-          var(--input-control-hover-shadow);
+        border-width: var(--selector-control-border-width, 2px);
+        border-color: var(--selector-control-focus-border-color, var(--primary));
+        box-shadow: var(
+          --selector-control-focus-shadow,
+          var(--input-control-hover-shadow)
+        );
         transform: none;
         transition: none;
       }
@@ -999,8 +978,10 @@
         &:hover,
         &:focus-within {
           transform: none !important;
-          box-shadow:
-            var(--input-control-hover-shadow) !important;
+          box-shadow: var(
+            --selector-control-focus-shadow,
+            var(--input-control-hover-shadow)
+          ) !important;
         }
       }
     }
@@ -1051,7 +1032,11 @@
       min-height: 44px;
       max-height: 44px;
       padding: 8px 18px;
-      border: 2px solid color-mix(in srgb, var(--primary) 32%, transparent);
+      border: var(--selector-control-border-width, 2px) solid
+        var(
+          --selector-control-border-color,
+          color-mix(in srgb, var(--primary) 32%, transparent)
+        );
       border-radius: 16px;
       outline: none;
       font-size: 15px;
@@ -1061,7 +1046,7 @@
       color: var(--black);
       box-sizing: border-box;
       font-family: inherit;
-      box-shadow: var(--card-shadow);
+      box-shadow: var(--selector-control-shadow, var(--card-shadow));
       transition: none;
       cursor: pointer;
       text-align: center;
@@ -1435,12 +1420,7 @@
       min-height: 220px;
       max-height: 520px;
       padding: 40px 20px;
-      color: var(--black);
-      opacity: 0.5;
-      background-color: var(--white);
       border-radius: 10px;
-      box-shadow: var(--card-shadow);
-      border: 1px solid var(--border-in-light);
       box-sizing: border-box;
       position: relative;
       z-index: 99999999999999;
@@ -1661,38 +1641,9 @@
       min-width: 48px;
       height: 28px;
       padding: 0 10px;
-      border-radius: 6px;
-      background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%) !important;
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      color: #ef4444 !important;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition:
-        background 0.2s ease,
-        border-color 0.2s ease,
-        transform 0.15s ease,
-        box-shadow 0.2s ease;
-
-      &:hover {
-        background: #fee2e2 !important;
-        border-color: #f87171;
-        color: #ef4444 !important;
-        transform: translateY(calc(-50% - 1px));
-        box-shadow:
-          0 0 0 3px rgba(239, 68, 68, 0.18),
-          0 8px 16px rgba(15, 23, 42, 0.1);
-      }
-
-      &:active {
-        background: #fecaca !important;
-        border-color: #ef4444;
-        color: #dc2626 !important;
-        transform: translateY(-50%);
-        box-shadow:
-          0 0 0 2px rgba(239, 68, 68, 0.14),
-          0 4px 8px rgba(15, 23, 42, 0.08);
-      }
     }
 
     .selector-footer {
@@ -1711,805 +1662,6 @@
         border-bottom: none !important;
       }
     }
-  }
-}
-
-:global(.dark) .selector,
-:global(body.dark) .selector {
-  background-color: rgba(2, 6, 23, 0.58);
-}
-
-:global(.dark) .selector-content,
-:global(body.dark) .selector-content {
-  background: var(--white);
-  border-color: var(--border-in-light);
-  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
-}
-
-:global(.dark) .selector-header-hint,
-:global(body.dark) .selector-header-hint {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-
-:global(.dark) .selector-search,
-:global(body.dark) .selector-search,
-:global(.dark) .selector-group-filter,
-:global(.dark) .selector-title,
-:global(body.dark) .selector-title,
-:global(body.dark) .selector-header-hint {
-  color: var(--black);
-}
-
-:global(.dark) .selector-search-wrap,
-:global(body.dark) .selector-search-wrap {
-  background: var(--white) !important;
-  background-color: var(--white) !important;
-  border-width: 2px !important;
-  border-color: var(--border-in-light) !important;
-  box-shadow: var(--card-shadow) !important;
-}
-
-:global(.dark) .selector-search-wrap:hover,
-:global(body.dark) .selector-search-wrap:hover {
-  border-width: 2px;
-  border-color: var(--primary) !important;
-  box-shadow: none !important;
-  transform: none;
-}
-
-:global(.dark) .selector-search-wrap:focus-within,
-:global(body.dark) .selector-search-wrap:focus-within {
-  border-color: rgba(96, 165, 250, 0.95) !important;
-  box-shadow:
-    var(--input-control-focus-shadow) !important;
-  transform: none;
-}
-
-:global(.dark) input.selector-search,
-:global(body.dark) input.selector-search {
-  background: transparent !important;
-  background-color: transparent !important;
-  color: var(--black) !important;
-}
-
-:global(.dark) .selector-group-filter,
-:global(body.dark) .selector-group-filter {
-  background: var(--white) !important;
-  background-color: var(--white) !important;
-  border-width: 2px !important;
-  border-color: var(--border-in-light) !important;
-  box-shadow: var(--card-shadow) !important;
-}
-
-:global(.dark) .selector-group-filter:hover,
-:global(.dark) .selector-group-filter:focus,
-:global(.dark) .selector-group-filter-open,
-:global(body.dark) .selector-group-filter:hover,
-:global(body.dark) .selector-group-filter:focus,
-:global(body.dark) .selector-group-filter-open {
-  color: var(--black) !important;
-  border-width: 2px !important;
-}
-
-:global(.dark) .selector-group-filter:hover > span,
-:global(.dark) .selector-group-filter:focus > span,
-:global(.dark) .selector-group-filter-open > span,
-:global(body.dark) .selector-group-filter:hover > span,
-:global(body.dark) .selector-group-filter:focus > span,
-:global(body.dark) .selector-group-filter-open > span {
-  color: var(--black) !important;
-}
-
-:global(.dark) .selector-group-filter-arrow,
-:global(body.dark) .selector-group-filter-arrow {
-  color: var(--black);
-  opacity: 1;
-  filter: none;
-}
-
-:global(.dark) .selector-group-filter :global(svg:last-child),
-:global(body.dark) .selector-group-filter :global(svg:last-child) {
-  stroke: currentColor !important;
-  path {
-    stroke: currentColor !important;
-  }
-}
-
-// Dark 模式下图标保持原始样式
-:global(.dark) .selector-group-filter-leading,
-:global(body.dark) .selector-group-filter-leading {
-  filter: none;
-}
-
-:global(.dark) .selector-group-filter-icon-image,
-:global(body.dark) .selector-group-filter-icon-image {
-  filter: none;
-}
-
-// 打开状态使用主题色，不再按 dark 写死色值。
-:global(.dark) .selector-group-filter-open,
-:global(body.dark) .selector-group-filter-open {
-  background: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
-  border-color: var(--primary) !important;
-  box-shadow: var(--input-control-hover-shadow) !important;
-}
-
-:global(.dark) .selector-group-filter-open:hover,
-:global(body.dark) .selector-group-filter-open:hover {
-  border-color: var(--primary) !important;
-}
-
-:global(.dark) .selector-group-filter-open :global(svg:last-child),
-:global(body.dark) .selector-group-filter-open :global(svg:last-child) {
-  stroke: var(--primary) !important;
-  path {
-    stroke: var(--primary) !important;
-  }
-  filter: none;
-}
-
-:global(.dark) .selector-group-filter-open:hover :global(svg:last-child),
-:global(body.dark) .selector-group-filter-open:hover :global(svg:last-child) {
-  stroke: var(--primary) !important;
-  path {
-    stroke: var(--primary) !important;
-  }
-  filter: none;
-}
-
-:global(.dark) .selector-search::placeholder,
-:global(body.dark) .selector-search::placeholder {
-  color: #94a3b8;
-}
-
-:global(.dark) .selector-search:focus::placeholder,
-:global(body.dark) .selector-search:focus::placeholder {
-  opacity: 0;
-}
-
-:global(.dark) .selector-group-filter:hover,
-:global(body.dark) .selector-group-filter:hover {
-  background: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
-  color: var(--primary) !important;
-  border-width: 2px !important;
-  border-color: var(--primary) !important;
-  box-shadow: var(--input-control-hover-shadow) !important;
-  transform: none;
-
-  :global(svg:last-child) {
-    stroke: var(--primary) !important;
-    path {
-      stroke: var(--primary) !important;
-    }
-    filter: none;
-  }
-}
-
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap.selector-control-disabled:hover,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled):hover,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap.selector-control-disabled:hover,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled):hover,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled {
-  background: var(--white) !important;
-  background-color: var(--white) !important;
-  color: #64748b !important;
-  border-width: 2px !important;
-  border-color: var(--border-in-light) !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover
-  > span,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled
-  > span,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled {
-  color: #64748b !important;
-
-  > :global(svg:last-child) {
-    stroke: currentColor !important;
-
-    path {
-      stroke: currentColor !important;
-    }
-  }
-}
-
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter.selector-control-disabled:hover
-  > span,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-group-filter-wrap:hover
-  .selector-group-filter.selector-control-disabled
-  > span {
-  color: #64748b !important;
-}
-
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled)
-  .selector-search,
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled):hover
-  .selector-search,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled)
-  .selector-search,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .selector-search-wrap:has(.selector-search:disabled):hover
-  .selector-search {
-  color: var(--black) !important;
-}
-
-:global(.dark) .selector-group-filter:focus,
-:global(body.dark) .selector-group-filter:focus {
-  border-color: var(--primary);
-  box-shadow:
-    var(--input-control-focus-shadow);
-}
-
-:global(.dark) .selector-quick-filter,
-:global(body.dark) .selector-quick-filter {
-  background: var(--white);
-  border-color: var(--border-in-light);
-  color: var(--black);
-}
-
-:global(.dark) .selector-quick-filter:hover,
-:global(.dark) .selector-quick-filter:focus,
-:global(body.dark) .selector-quick-filter:hover,
-:global(body.dark) .selector-quick-filter:focus {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-:global(.dark) .selector-quick-filter-active,
-:global(body.dark) .selector-quick-filter-active {
-  background: color-mix(in srgb, var(--primary) 12%, var(--white));
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-:global(.dark) .selector-group-filter-menu,
-:global(body.dark) .selector-group-filter-menu {
-  background: var(--white);
-  border-color: var(--border-in-light);
-  box-shadow: 0 18px 36px color-mix(in srgb, var(--black) 18%, transparent);
-}
-
-:global(.dark) .selector-group-filter-option,
-:global(body.dark) .selector-group-filter-option {
-  background: var(--second);
-  border-color: var(--border-in-light);
-  color: var(--black);
-}
-
-:global(.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
-:global(.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):focus,
-:global(body.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
-:global(body.dark) .selector-group-filter-option:not(.selector-group-filter-option-active):focus {
-  background: color-mix(in srgb, var(--primary) 16%, var(--white));
-  border-color: var(--primary);
-  color: var(--primary);
-  transform: translateY(-1px);
-}
-
-:global(.dark) .selector-group-filter-option-active,
-:global(body.dark) .selector-group-filter-option-active {
-  background: color-mix(in srgb, var(--primary) 18%, var(--white));
-  border-color: var(--primary);
-  color: var(--primary);
-  font-weight: 600;
-
-  // 钩图标颜色
-  > :global(svg) {
-    color: var(--primary) !important;
-    stroke: var(--primary) !important;
-
-    path {
-      fill: currentColor !important;
-      stroke: currentColor !important;
-    }
-  }
-}
-
-:global(.dark) .selector .list .selector-group-count,
-:global(body.dark) .selector .list .selector-group-count {
-  background: #111827 !important;
-  border-color: rgba(71, 85, 105, 0.9) !important;
-  color: var(--black) !important;
-}
-
-:global(.dark) .selector .list,
-:global(body.dark) .selector .list {
-  background: linear-gradient(180deg, #162033 0%, #111827 100%) !important;
-  border-color: rgba(51, 65, 85, 0.95) !important;
-  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32) !important;
-}
-
-:global(.dark) .selector .list .selector-group,
-:global(body.dark) .selector .list .selector-group {
-  background: #162033 !important;
-  color: var(--black) !important;
-  border-bottom-color: rgba(51, 65, 85, 0.95) !important;
-}
-
-:global(.dark) .selector .list .selector-group::after,
-:global(body.dark) .selector .list .selector-group::after {
-  background: rgba(71, 85, 105, 0.9) !important;
-}
-
-:global(.dark) .selector .list .list-item,
-:global(body.dark) .selector .list .list-item {
-  background-color: transparent !important;
-  border-bottom-color: rgba(71, 85, 105, 0.82) !important;
-  color: #e2e8f0 !important;
-}
-
-:global(.dark) .selector .list .list-item:not(.selector-item-active):hover,
-:global(.dark) .selector .list .list-item:not(.selector-item-active):focus-within,
-:global(body.dark) .selector .list .list-item:not(.selector-item-active):hover {
-  background-color: rgba(37, 99, 235, 0.16) !important;
-  color: rgb(147, 197, 253) !important;
-  border-bottom-color: rgba(96, 165, 250, 0.4) !important;
-}
-
-:global(.dark) .selector[data-auto-model-enabled="true"] .list .list-item:hover,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .list
-  .list-item:hover {
-  background-color: transparent !important;
-  color: inherit !important;
-  border-bottom-color: rgba(71, 85, 105, 0.82) !important;
-}
-
-:global(.dark) .selector .list .list-item:not(.selector-item-active):active,
-:global(body.dark) .selector .list .list-item:not(.selector-item-active):active {
-  background-color: rgba(59, 130, 246, 0.4) !important;
-  border-bottom-color: rgba(59, 130, 246, 0.5) !important;
-}
-
-:global(.dark) .selector .list .selector-item-active,
-:global(body.dark) .selector .list .selector-item-active {
-  background: rgba(59, 130, 246, 0.25) !important;
-  color: var(--primary) !important;
-  border-bottom-color: rgba(59, 130, 246, 0.6) !important;
-  box-shadow:
-    inset 0 0 0 1px rgba(59, 130, 246, 0.5),
-    0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-:global(.dark) .selector .list .selector-item-active .list-item-title > div,
-:global(body.dark)
-  .selector
-  .list
-  .selector-item-active
-  .list-item-title
-  > div {
-  color: #38bdf8 !important;
-  font-weight: 600;
-}
-
-:global(.dark) .selector .list .list-item:not(.selector-item-active):hover .list-item-title > div,
-:global(.dark) .selector .list .list-item:not(.selector-item-active):focus-within .list-item-title > div,
-:global(body.dark) .selector .list .list-item:not(.selector-item-active):hover .list-item-title > div,
-:global(body.dark)
-  .selector
-  .list
-  .list-item:not(.selector-item-active):focus-within
-  .list-item-title
-  > div {
-  color: rgb(147, 197, 253) !important;
-}
-
-:global(.dark)
-  .selector[data-auto-model-enabled="true"]
-  .list
-  .list-item:hover
-  .list-item-title
-  > div,
-:global(body.dark)
-  .selector[data-auto-model-enabled="true"]
-  .list
-  .list-item:hover
-  .list-item-title
-  > div {
-  color: #e2e8f0 !important;
-}
-
-:global(.dark) .selector-content-centered .list .list-item,
-:global(body.dark) .selector-content-centered .list .list-item {
-  border-bottom: 1px solid rgba(71, 85, 105, 0.82) !important;
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .selector {
-    background-color: rgba(2, 6, 23, 0.58);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-content {
-    background: var(--white);
-    border-color: var(--border-in-light);
-    box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-search-wrap,
-  :global(body:not(.light):not(.dark)) .selector-group-filter {
-    background: var(--white) !important;
-    background-color: var(--white) !important;
-    border-color: var(--border-in-light) !important;
-    box-shadow: var(--card-shadow) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-search-wrap:focus-within {
-    border-color: rgba(96, 165, 250, 0.95) !important;
-    box-shadow:
-      var(--input-control-focus-shadow) !important;
-    transform: none;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter:hover,
-  :global(body:not(.light):not(.dark)) .selector-group-filter:focus,
-  :global(body:not(.light):not(.dark)) .selector-group-filter-open {
-    color: var(--black) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter:hover > span,
-  :global(body:not(.light):not(.dark)) .selector-group-filter:focus > span,
-  :global(body:not(.light):not(.dark)) .selector-group-filter-open > span {
-    color: var(--black) !important;
-  }
-
-
-  :global(body:not(.light):not(.dark)) .selector-search,
-  :global(body:not(.light):not(.dark)) .selector-group-filter,
-  :global(body:not(.light):not(.dark)) .selector-title {
-    color: var(--black);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-arrow {
-    color: var(--black);
-    opacity: 1;
-    filter: none;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector-group-filter
-    :global(svg:last-child) {
-    stroke: currentColor !important;
-    path {
-      stroke: currentColor !important;
-    }
-  }
-
-  // 系统级 Dark 模式下图标保持原始样式
-  :global(body:not(.light):not(.dark)) .selector-group-filter-leading {
-    filter: none;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-icon-image {
-    filter: none;
-  }
-
-  // 系统级 dark 打开状态使用主题色，不再写死色值。
-  :global(body:not(.light):not(.dark)) .selector-group-filter-open {
-    background: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
-    border-color: var(--primary) !important;
-    box-shadow: var(--input-control-hover-shadow) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-open:hover {
-    border-color: var(--primary) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector-group-filter-open
-    :global(svg:last-child) {
-    stroke: var(--primary) !important;
-    path {
-      stroke: var(--primary) !important;
-    }
-    filter: none;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector-group-filter-open:hover
-    :global(svg:last-child) {
-    stroke: var(--primary) !important;
-    path {
-      stroke: var(--primary) !important;
-    }
-    filter: none;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-search::placeholder {
-    color: #94a3b8;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-search:focus::placeholder {
-    opacity: 0;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter:hover {
-    background: color-mix(in srgb, var(--primary) 12%, var(--white)) !important;
-    color: var(--primary) !important;
-    border-color: var(--primary) !important;
-    box-shadow: var(--input-control-hover-shadow) !important;
-    transform: none;
-
-    :global(svg:last-child) {
-      stroke: var(--primary) !important;
-      path {
-        stroke: var(--primary) !important;
-      }
-      filter: none;
-    }
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter:focus {
-    border-color: var(--primary);
-    box-shadow:
-      var(--input-control-focus-shadow);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-quick-filter {
-    background: var(--white);
-    border-color: var(--border-in-light);
-    color: var(--black);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-quick-filter:hover,
-  :global(body:not(.light):not(.dark)) .selector-quick-filter:focus {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-quick-filter-active {
-    background: color-mix(in srgb, var(--primary) 12%, var(--white));
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .list-item {
-    background-color: transparent !important;
-    border-bottom-color: rgba(71, 85, 105, 0.82) !important;
-    color: #e2e8f0 !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):hover,
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):focus-within {
-    background-color: rgba(37, 99, 235, 0.16) !important;
-    color: rgb(147, 197, 253) !important;
-    border-bottom-color: rgba(96, 165, 250, 0.4) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector[data-auto-model-enabled="true"]
-    .list
-    .list-item:hover {
-    background-color: transparent !important;
-    color: inherit !important;
-    border-bottom-color: rgba(71, 85, 105, 0.82) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .list-item:not(.selector-item-active):hover
-    .list-item-title
-    > div,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .list-item:not(.selector-item-active):focus-within
-    .list-item-title
-    > div {
-    color: rgb(147, 197, 253) !important;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector[data-auto-model-enabled="true"]
-    .list
-    .list-item:hover
-    .list-item-title
-    > div {
-    color: #e2e8f0 !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .selector-item-active {
-    background: rgba(59, 130, 246, 0.25) !important;
-    color: var(--primary) !important;
-    border-bottom-color: rgba(59, 130, 246, 0.6) !important;
-    box-shadow:
-      inset 0 0 0 1px rgba(59, 130, 246, 0.5),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active
-    .list-item-title
-    > div {
-    color: #38bdf8 !important;
-    font-weight: 600;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-menu {
-    background: var(--white);
-    border-color: var(--border-in-light);
-    box-shadow: 0 18px 36px color-mix(in srgb, var(--black) 18%, transparent);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option {
-    background: var(--second);
-    border-color: var(--border-in-light);
-    color: var(--black);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option:not(.selector-group-filter-option-active):hover,
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option:not(.selector-group-filter-option-active):focus {
-    background: color-mix(in srgb, var(--primary) 16%, var(--white));
-    border-color: var(--primary);
-    color: var(--primary);
-    transform: translateY(-1px);
-  }
-
-  :global(body:not(.light):not(.dark)) .selector-group-filter-option-active {
-    background: color-mix(in srgb, var(--primary) 18%, var(--white));
-    border-color: var(--primary);
-    color: var(--primary);
-    font-weight: 600;
-
-    // 钩图标颜色
-    > :global(svg) {
-      color: var(--primary) !important;
-      stroke: var(--primary) !important;
-
-      path {
-        fill: currentColor !important;
-        stroke: currentColor !important;
-      }
-    }
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .selector-group-count {
-    background: #111827 !important;
-    border-color: rgba(71, 85, 105, 0.9) !important;
-    color: var(--black) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list {
-    background: linear-gradient(180deg, #162033 0%, #111827 100%) !important;
-    border-color: rgba(51, 65, 85, 0.95) !important;
-    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .selector-group {
-    background: #162033 !important;
-    color: var(--black) !important;
-    border-bottom-color: rgba(51, 65, 85, 0.95) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .selector-group::after {
-    background: rgba(71, 85, 105, 0.9) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .list-item {
-    background-color: transparent !important;
-    border-bottom-color: rgba(71, 85, 105, 0.82) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):hover {
-    background-color: rgba(30, 41, 59, 0.72) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .list-item:not(.selector-item-active):active {
-    background-color: rgba(37, 99, 235, 0.16) !important;
-  }
-
-  :global(body:not(.light):not(.dark)) .selector .list .selector-item-active,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:hover,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:focus-within,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:active {
-    background: rgba(59, 130, 246, 0.25) !important;
-    color: var(--primary) !important;
-    border-bottom-color: rgba(59, 130, 246, 0.6) !important;
-    box-shadow:
-      inset 0 0 0 1px rgba(59, 130, 246, 0.5),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active
-    .list-item-title
-    > div,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:hover
-    .list-item-title
-    > div,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:focus-within
-    .list-item-title
-    > div,
-  :global(body:not(.light):not(.dark))
-    .selector
-    .list
-    .selector-item-active:active
-    .list-item-title
-    > div {
-    color: #38bdf8 !important;
-    font-weight: 600;
-  }
-
-  :global(body:not(.light):not(.dark))
-    .selector-content-centered
-    .list
-    .list-item {
-    border-bottom: 1px solid rgba(71, 85, 105, 0.82) !important;
   }
 }
 

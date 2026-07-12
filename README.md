@@ -50,6 +50,8 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 - 支持多 Provider / 多 Profile 管理，Profile 保存时自动落库到 `provider_configs` + `provider_api_keys`。
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
+- 每个供应商成功获取模型后，会将成功接口路径与对应 API Key 的密文保存到数据库；下次优先复用该组合，同时保留多 key、全路径探测和模型合并。
+- 获取的模型按发布日期由新到旧排列；日期相同或未知时按字母排序，并让数字更大的版本优先。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。

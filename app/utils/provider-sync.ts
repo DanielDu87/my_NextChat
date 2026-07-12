@@ -186,6 +186,16 @@ export async function syncProfileModels(
     return existingSync;
   }
 
+  // 竞态条件修复：先创建占位 Promise 再执行，避免并发调用重复创建
+  let resolveSyncPromise!: (value: FetchModelsResult) => void;
+  let rejectSyncPromise!: (reason: unknown) => void;
+  const pendingPromise = new Promise<FetchModelsResult>((resolve, reject) => {
+    resolveSyncPromise = resolve;
+    rejectSyncPromise = reject;
+  });
+  // 立即设置占位 Promise，确保后续并发调用能复用
+  providerSyncInFlight.set(profileId, pendingPromise);
+
   const syncPromise = (async () => {
     if (!options?.silent) {
       logger.providerSync.banner(
@@ -299,12 +309,18 @@ export async function syncProfileModels(
       ...result,
       models: sortedModels,
     };
-  })().finally(() => {
-    providerSyncInFlight.delete(profileId);
-  });
+  })();
 
-  providerSyncInFlight.set(profileId, syncPromise);
-  return syncPromise;
+  // 将 syncPromise 的结果传递给 pendingPromise
+  syncPromise
+    .then(resolveSyncPromise)
+    .catch(rejectSyncPromise)
+    .finally(() => {
+      providerSyncInFlight.delete(profileId);
+    });
+
+  // 返回 pendingPromise 给调用方，确保返回类型一致
+  return pendingPromise;
 }
 
 export async function ensureProviderModelsReady(

@@ -12,6 +12,11 @@ import {
   type ApiProfileAuthType,
 } from "@/app/utils/model-fetch-common";
 import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
+import {
+  getProviderModelCachedPath,
+  saveProviderModelCachedPath,
+} from "./provider-model-repository";
+import { isYutoProfileLike, isOcoolProfileLike } from "@/app/utils/multi-key";
 
 export type SyncedLLMModel = {
   name: string;
@@ -49,6 +54,11 @@ export type SyncedLLMModel = {
 export type ServerFetchModelsResult = {
   models: SyncedLLMModel[];
   total: number;
+  // 成功获取的接口路径（用于缓存）
+  cachedPath?: string;
+  cachedBaseUrl?: string;
+  cachedAuthType?: string;
+  cachedApiKey?: string;
 };
 
 type ProviderFetchPreset = {
@@ -92,15 +102,19 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   31: { name: "Xiaomi", icon: "Xiaomi" },
 };
 
-let aihubmixCatalogMetadataMapPromise: Promise<
-  Map<
-    string,
-    { rank: number; vendor?: { id: number; name: string; icon?: string } }
+const aihubmixCatalogMetadataMapPromises = new Map<
+  string,
+  Promise<
+    Map<
+      string,
+      { rank: number; vendor?: { id: number; name: string; icon?: string } }
+    >
   >
-> | null = null;
-let aihubmixClassificationMapPromise: Promise<
-  Map<string, { features?: string[]; types?: string[] }>
-> | null = null;
+>();
+const aihubmixClassificationMapPromises = new Map<
+  string,
+  Promise<Map<string, { features?: string[]; types?: string[] }>>
+>();
 const TRAILING_RELEASE_DATE_PATTERN =
   /(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|1[0-2])[-_.](?:0[1-9]|[12]\d|3[01])))$/i;
 
@@ -125,6 +139,31 @@ function getAiHubMixLookupKeys(name: string) {
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function getCachedModelPath(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
+function buildCachedModelUrl(baseUrl: string, path?: string) {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath) return "";
+  if (/^https?:\/\//i.test(normalizedPath)) return normalizedPath;
+  return `${normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "")}${
+    normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`
+  }`;
+}
+
+function maskCachedApiKey(apiKey?: string) {
+  const value = String(apiKey || "").trim();
+  if (!value) return "未缓存";
+  if (value.length <= 8) return `${value.slice(0, 2)}***`;
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
 }
 
 const PROVIDER_FETCH_PRESETS: Partial<
@@ -295,29 +334,12 @@ function isAiHubMixUrl(baseUrl?: string) {
   }
 }
 
-function isYutoApiUrl(baseUrl?: string) {
-  if (!baseUrl) return false;
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return hostname === "cn.gptapi.asia" || hostname === "gptapi.asia";
-  } catch {
-    return false;
-  }
+function isYutoApiUrl(baseUrl?: string, profileName?: string) {
+  return isYutoProfileLike({ name: profileName, baseUrl });
 }
 
-function isOcoolaiUrl(baseUrl?: string) {
-  if (!baseUrl) return false;
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return (
-      hostname === "api.ocoolai.com" ||
-      hostname === "one.ocoolai.com" ||
-      hostname === "ocoolai.com" ||
-      hostname === "one.ooo.cool"
-    );
-  } catch {
-    return false;
-  }
+function isOcoolaiUrl(baseUrl?: string, profileName?: string) {
+  return isOcoolProfileLike({ name: profileName, baseUrl });
 }
 
 function inferVendorFromModelName(
@@ -449,58 +471,87 @@ function extractModelListFromResponse(data: any): any[] {
     return normalizeModelItems(data.data);
   }
 
-  const candidates = [
-    data?.data,
-    data?.models,
-    data?.items,
-    data?.data?.models,
-    data?.data?.Models,
-    data?.data?.items,
-    data?.result,
-    data?.result?.models,
-    data?.result?.data,
-    data?.payload?.models,
-    data?.payload?.data,
-  ];
+  // 递归收集所有可能的模型列表容器
+  const containers: any[] = [];
 
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      const normalized = normalizeModelItems(candidate);
-      if (normalized.length > 0) return normalized;
+  const visit = (item: unknown, depth: number) => {
+    if (!item || typeof item !== "object" || depth > 3) return;
+    if (Array.isArray(item)) {
+      // 如果是数组且包含模型对象，收集它
+      if (item.length > 0) {
+        const first = item[0];
+        if (
+          first &&
+          typeof first === "object" &&
+          (first.id || first.name || first.model)
+        ) {
+          containers.push(item);
+        }
+      }
+      return;
     }
-  }
+    const obj = item as Record<string, unknown>;
+    // 常见字段名
+    const modelFields = [
+      "data",
+      "models",
+      "items",
+      "result",
+      "payload",
+      "groups",
+      "data.models",
+      "data.items",
+      "data.Models",
+      "data.groups",
+      "result.models",
+      "result.data",
+    ];
+    for (const field of modelFields) {
+      let value: unknown;
+      if (field.includes(".")) {
+        // 处理嵌套路径如 "data.models"
+        value = field.split(".").reduce((o: unknown, k: string) => {
+          if (o && typeof o === "object") {
+            return (o as Record<string, unknown>)[k];
+          }
+          return undefined;
+        }, obj);
+      } else {
+        value = obj[field];
+      }
+      if (value !== undefined) {
+        visit(value, depth + 1);
+      }
+    }
+  };
 
-  const groupContainers = [data?.data?.groups, data?.groups];
-  for (const groups of groupContainers) {
-    if (!Array.isArray(groups)) continue;
-    const normalized = normalizeModelItems(
-      groups.flatMap((group: any) =>
-        Array.isArray(group?.models)
-          ? group.models
-          : Array.isArray(group?.items)
-          ? group.items
-          : [],
-      ),
-    );
+  visit(data, 0);
+
+  // 尝试从每个容器中提取模型
+  for (const container of containers) {
+    const normalized = normalizeModelItems(container);
     if (normalized.length > 0) return normalized;
   }
 
-  const objectCandidates = [
-    data?.data,
-    data?.models,
-    data?.result,
-    data?.payload,
-  ];
-  for (const candidate of objectCandidates) {
-    if (
-      candidate &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate)
-    ) {
-      const values = Object.values(candidate);
-      if (values.length === 0) continue;
-      const normalizedValues = normalizeModelItems(values);
-      if (normalizedValues.length > 0) return normalizedValues;
+  // 尝试从对象值中提取
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const value of Object.values(data)) {
+      if (Array.isArray(value)) {
+        const normalized = normalizeModelItems(value);
+        if (normalized.length > 0) return normalized;
+      }
+    }
+
+    // 处理 groups 结构（Ocoolai 等）
+    const groups = data.groups || data.data?.groups;
+    if (Array.isArray(groups)) {
+      const models = groups.flatMap((group: any) => {
+        if (Array.isArray(group?.models)) return group.models;
+        if (Array.isArray(group?.items)) return group.items;
+        return [];
+      });
+      const normalized = normalizeModelItems(models);
+      if (normalized.length > 0) return normalized;
     }
   }
 
@@ -807,27 +858,29 @@ async function fetchAiHubMixClassificationMap(baseUrl: string) {
 }
 
 async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
-  if (!aihubmixCatalogMetadataMapPromise) {
-    aihubmixCatalogMetadataMapPromise = fetchAiHubMixCatalogMetadataMap(
-      baseUrl,
-    ).catch((error) => {
-      aihubmixCatalogMetadataMapPromise = null;
+  const normalized = normalizeBaseUrl(baseUrl);
+  let promise = aihubmixCatalogMetadataMapPromises.get(normalized);
+  if (!promise) {
+    promise = fetchAiHubMixCatalogMetadataMap(baseUrl).catch((error) => {
+      aihubmixCatalogMetadataMapPromises.delete(normalized);
       throw error;
     });
+    aihubmixCatalogMetadataMapPromises.set(normalized, promise);
   }
-  return aihubmixCatalogMetadataMapPromise;
+  return promise;
 }
 
 async function getAiHubMixClassificationMap(baseUrl: string) {
-  if (!aihubmixClassificationMapPromise) {
-    aihubmixClassificationMapPromise = fetchAiHubMixClassificationMap(
-      baseUrl,
-    ).catch((error) => {
-      aihubmixClassificationMapPromise = null;
+  const normalized = normalizeBaseUrl(baseUrl);
+  let promise = aihubmixClassificationMapPromises.get(normalized);
+  if (!promise) {
+    promise = fetchAiHubMixClassificationMap(baseUrl).catch((error) => {
+      aihubmixClassificationMapPromises.delete(normalized);
       throw error;
     });
+    aihubmixClassificationMapPromises.set(normalized, promise);
   }
-  return aihubmixClassificationMapPromise;
+  return promise;
 }
 
 async function fetchJsonWithCandidates(
@@ -840,6 +893,10 @@ async function fetchJsonWithCandidates(
     authType?: ApiProfileAuthType;
     authQueryParam?: string;
     authorizationHeaderName?: string;
+    outerIndex?: number;
+    outerTotal?: number;
+    keyIndex?: number;
+    keyTotal?: number;
   },
 ) {
   let lastError: Error | null = null;
@@ -862,9 +919,17 @@ async function fetchJsonWithCandidates(
     const url = urls[index];
     for (let authIndex = 0; authIndex < authCandidates.length; authIndex++) {
       const authorization = authCandidates[authIndex];
-      const progressPrefix = `第 ${index + 1}/${urls.length} 个接口，第 ${
-        authIndex + 1
-      }/${authCandidates.length} 个 key`;
+      const progressIndex =
+        options?.outerIndex !== undefined ? options.outerIndex + 1 : index + 1;
+      const progressTotal =
+        options?.outerTotal !== undefined ? options.outerTotal : urls.length;
+      const keyIndex =
+        options?.keyIndex !== undefined ? options.keyIndex : authIndex + 1;
+      const keyTotal =
+        options?.keyTotal !== undefined
+          ? options.keyTotal
+          : authCandidates.length;
+      const progressPrefix = `第 ${progressIndex}/${progressTotal} 个接口，第 ${keyIndex}/${keyTotal} 个 key`;
       const recordAttempt = (result: string) => {
         attempts.push({
           index: index + 1,
@@ -988,9 +1053,8 @@ async function fetchAllJsonWithCandidates(
     authorizationHeaderName?: string;
   },
 ) {
-  const results: Array<{ data: any; url: string; keyIndex: number }> = [];
-
-  for (const url of urls) {
+  for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+    const url = urls[urlIndex];
     const authCandidates =
       authorizationCandidates && authorizationCandidates.length > 0
         ? authorizationCandidates
@@ -1006,20 +1070,22 @@ async function fetchAllJsonWithCandidates(
           [authCandidates[index]].filter(Boolean) as string[],
           validateJson,
           getModelCount,
-          options,
+          {
+            ...options,
+            outerIndex: urlIndex,
+            outerTotal: urls.length,
+            keyIndex: index + 1,
+            keyTotal: authCandidates.length,
+          },
         );
-        results.push({ data, url, keyIndex: index + 1 });
+        return [{ data, url, keyIndex: index + 1 }];
       } catch {
         // 单个路径或 key 失败不影响后续全量尝试。
       }
     }
   }
 
-  if (results.length === 0) {
-    throw new Error("未找到可用的模型接口");
-  }
-
-  return results;
+  throw new Error("未找到可用的模型接口");
 }
 
 function getYutoApiKeyGroupPriority(modelName: string, groupName?: string) {
@@ -1104,6 +1170,8 @@ export async function fetchModelsFromProviderForServer(
     authType?: string;
     authQueryParam?: string;
     extraHeaders?: string;
+    userId?: string;
+    profileId?: string;
   },
 ): Promise<ServerFetchModelsResult> {
   const profileOpenAICompatible =
@@ -1147,9 +1215,35 @@ export async function fetchModelsFromProviderForServer(
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
 
+  // 获取缓存的模型接口路径
+  let cachedPath: string | undefined;
+  let cachedBaseUrl: string | undefined;
+  let cachedAuthType: string | undefined;
+  let cachedApiKey: string | undefined;
+  if (fetchOptions?.userId && fetchOptions?.profileId) {
+    try {
+      const cachedInfo = await getProviderModelCachedPath(
+        fetchOptions.userId,
+        fetchOptions.profileId,
+      );
+      if (cachedInfo?.cachedModelPath) {
+        cachedPath = cachedInfo.cachedModelPath;
+        cachedBaseUrl = cachedInfo.cachedModelBaseUrl;
+        cachedAuthType = cachedInfo.cachedModelAuthType;
+        cachedApiKey = cachedInfo.cachedModelApiKey;
+      }
+    } catch (e) {
+      // 忽略缓存读取错误
+    }
+  }
+
   const candidateUrls = profileOpenAICompatible
     ? buildModelFetchCandidateUrls(baseUrl)
     : [normalizedBaseUrl];
+  const cachedCandidateUrl = buildCachedModelUrl(
+    cachedBaseUrl || normalizedBaseUrl,
+    cachedPath,
+  );
   console.log(
     `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个服务端模型接口`,
   );
@@ -1178,43 +1272,102 @@ export async function fetchModelsFromProviderForServer(
     url: string;
   }> = [];
 
-  for (const entry of uniqueKeyEntries.length > 0
-    ? uniqueKeyEntries
-    : [{ groupName: undefined, apiKey: modelFetchApiKeyCandidates[0] || "" }]) {
-    const entryHeaders = {
-      ...headers,
-      ...buildAuthHeaders(entry.apiKey, authType),
-    };
-    const entryResults = await fetchAllJsonWithCandidates(
-      candidateUrls,
-      entryHeaders,
-      getAuthorizationCandidates([entry.apiKey], authType),
-      (payload) => extractModelListFromResponse(payload).length > 0,
-      (payload) => extractModelListFromResponse(payload).length,
-      {
-        authType,
-        authQueryParam,
-        authorizationHeaderName:
-          Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
-      },
-    ).catch((error) => {
-      console.warn(
-        `[Fetch Models] key ${
-          entry.groupName || "default"
-        } 全路径尝试失败，继续尝试其他 key`,
-        error instanceof Error ? error.message : String(error),
-      );
-      return [];
+  const entries = (
+    uniqueKeyEntries.length > 0
+      ? uniqueKeyEntries
+      : [{ groupName: undefined, apiKey: modelFetchApiKeyCandidates[0] || "" }]
+  ).sort((left, right) => {
+    if (!cachedApiKey || left.apiKey === right.apiKey) return 0;
+    return left.apiKey === cachedApiKey
+      ? -1
+      : right.apiKey === cachedApiKey
+      ? 1
+      : 0;
+  });
+  const cachedKeyIsConfigured = Boolean(
+    cachedApiKey && entries.some((entry) => entry.apiKey === cachedApiKey),
+  );
+  console.log("[Fetch Models] 🗃️ 模型获取缓存状态", {
+    cached: Boolean(cachedCandidateUrl && cachedKeyIsConfigured),
+    url: cachedCandidateUrl || "未缓存",
+    authType: cachedAuthType || "未缓存",
+    apiKey: maskCachedApiKey(cachedApiKey),
+    keyIsConfigured: cachedKeyIsConfigured,
+  });
+  let successfulPath: string | undefined;
+  let successfulBaseUrl: string | undefined;
+  let successfulAuthType: string | undefined;
+  let successfulApiKey: string | undefined;
+  let successfulFetchPersisted = false;
+  const persistSuccessfulFetch = async (url: string, key: string) => {
+    if (successfulFetchPersisted) return;
+    successfulFetchPersisted = true;
+
+    successfulPath = getCachedModelPath(url);
+    successfulBaseUrl = normalizedBaseUrl;
+    successfulAuthType = authType;
+    successfulApiKey = key;
+    console.log("[Fetch Models] 💾 本轮成功模型获取组合", {
+      url: `${successfulBaseUrl}${successfulPath}`,
+      authType: successfulAuthType,
+      apiKey: maskCachedApiKey(successfulApiKey),
     });
 
-    entryResults.forEach((result) => {
-      payloadResults.push({
-        data: result.data,
-        groupName: entry.groupName,
-        url: result.url,
-      });
-    });
+    if (!fetchOptions?.userId || !fetchOptions?.profileId) return;
+    try {
+      await saveProviderModelCachedPath(
+        fetchOptions.userId,
+        fetchOptions.profileId,
+        {
+          cachedModelPath: successfulPath,
+          cachedModelBaseUrl: successfulBaseUrl,
+          cachedModelAuthType: successfulAuthType,
+          cachedModelApiKey: successfulApiKey,
+        },
+      );
+      console.log("[Fetch Models] 💾 已立即保存模型获取缓存");
+    } catch (error) {
+      console.warn(
+        "[Fetch Models] ⚠️ 立即保存模型获取缓存失败",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
+
+  const orderedUrls = cachedCandidateUrl
+    ? [
+        cachedCandidateUrl,
+        ...candidateUrls.filter((url) => url !== cachedCandidateUrl),
+      ]
+    : candidateUrls;
+  const entryResults = await fetchAllJsonWithCandidates(
+    orderedUrls,
+    headers,
+    getAuthorizationCandidates(
+      entries.map((entry) => entry.apiKey),
+      authType,
+    ),
+    (payload) => extractModelListFromResponse(payload).length > 0,
+    (payload) => extractModelListFromResponse(payload).length,
+    {
+      authType,
+      authQueryParam,
+      authorizationHeaderName:
+        Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+    },
+  ).catch(() => []);
+
+  if (entryResults[0]) {
+    const entry = entries[entryResults[0].keyIndex - 1];
+    if (entry) await persistSuccessfulFetch(entryResults[0].url, entry.apiKey);
   }
+  entryResults.forEach((result) => {
+    payloadResults.push({
+      data: result.data,
+      groupName: entries[result.keyIndex - 1]?.groupName,
+      url: result.url,
+    });
+  });
 
   const data = payloadResults[0]?.data;
 
@@ -1300,10 +1453,14 @@ export async function fetchModelsFromProviderForServer(
     return {
       models: mappedModels,
       total: mappedModels.length,
+      cachedPath: successfulPath || cachedPath,
+      cachedBaseUrl: successfulBaseUrl || cachedBaseUrl,
+      cachedAuthType: successfulAuthType || cachedAuthType,
+      cachedApiKey: successfulApiKey || cachedApiKey,
     };
   }
 
-  if (isYutoApiUrl(baseUrl)) {
+  if (isYutoApiUrl(baseUrl, profileName)) {
     const orderedGroupNames = [
       ...(multiKeyGroupOrder || []),
       ...Object.keys(apiKeyGroups || {}),
@@ -1340,6 +1497,9 @@ export async function fetchModelsFromProviderForServer(
           Array.isArray(groupedData.data)
             ? groupedData.data
             : [];
+        if (groupedModels.length > 0) {
+          await persistSuccessfulFetch(result.url, groupApiKey);
+        }
         const groupedVendorsMap: Record<
           number,
           { name: string; icon?: string }
@@ -1389,12 +1549,16 @@ export async function fetchModelsFromProviderForServer(
     return {
       models: mappedModels,
       total: mappedModels.length,
+      cachedPath: successfulPath || cachedPath,
+      cachedBaseUrl: successfulBaseUrl || cachedBaseUrl,
+      cachedAuthType: successfulAuthType || cachedAuthType,
+      cachedApiKey: successfulApiKey || cachedApiKey,
     };
   }
 
   // Ocoolai 分组模型获取
   if (
-    isOcoolaiUrl(baseUrl) &&
+    isOcoolaiUrl(baseUrl, profileName) &&
     apiKeyGroups &&
     Object.keys(apiKeyGroups).length > 0
   ) {
@@ -1447,6 +1611,9 @@ export async function fetchModelsFromProviderForServer(
         );
         for (const result of groupedResults) {
           const groupModels = extractModelListFromResponse(result.data);
+          if (groupModels.length > 0) {
+            await persistSuccessfulFetch(result.url, groupApiKey);
+          }
 
           mapModels(
             groupModels,
@@ -1509,6 +1676,10 @@ export async function fetchModelsFromProviderForServer(
       groupsData.data?.groups &&
       Array.isArray(groupsData.data.groups)
     ) {
+      successfulPath ||= "/api/user/available_models_by_groups";
+      successfulBaseUrl ||= normalizedBaseUrl;
+      successfulAuthType ||= authType;
+      successfulApiKey ||= modelFetchApiKeyCandidates[0];
       const groups = groupsData.data.groups;
 
       for (const group of groups) {
@@ -1563,6 +1734,10 @@ export async function fetchModelsFromProviderForServer(
       return {
         models: mappedModels,
         total: mappedModels.length,
+        cachedPath: successfulPath || cachedPath,
+        cachedBaseUrl: successfulBaseUrl || cachedBaseUrl,
+        cachedAuthType: successfulAuthType || cachedAuthType,
+        cachedApiKey: successfulApiKey || cachedApiKey,
       };
     }
   }

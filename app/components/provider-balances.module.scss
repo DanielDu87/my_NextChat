@@ -39,9 +39,9 @@
 }
 
 .card {
-  padding: 16px;
+  padding: 14px 16px;
   border: var(--border-in-light);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--white);
   box-shadow: var(--card-shadow);
 }
@@ -104,24 +104,47 @@
 }
 
 .balanceUpdated {
-  color: var(--primary-button-bg);
+  color: var(--backup-green);
 }
 
 .row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
+  margin-bottom: 8px;
 }
-
 
 .row :global(.nextchat-input-control) {
   flex: 1;
+  align-self: stretch;
+  font-size: 14px;
+}
+
+.row :global(.nextchat-input-control)::placeholder {
+  opacity: 1;
+}
+
+.row :global(.nextchat-input-control):focus::placeholder {
+  opacity: 0;
+}
+
+.row :global(.nextchat-default-button),
+.row :global(.nextchat-primary-button),
+.row :global(.nextchat-action-button) {
+  flex: 0 0 auto;
+  width: auto !important;
+  min-width: max-content !important;
+  height: auto !important;
+  min-height: 40px !important;
+  padding: 0 12px !important;
+  justify-content: center !important;
+  align-items: center !important;
 }
 
 .actionButton.actionButton.actionButton {
   width: auto !important;
   min-width: max-content !important;
-  height: 40px !important;
+  height: auto !important;
   min-height: 40px !important;
   padding: 0 12px !important;
   justify-content: center !important;
@@ -184,6 +207,102 @@
   color: #d14343;
   font-size: 12px;
   font-weight: 700;
+}
+
+.attemptsLog {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: left;
+}
+
+.attemptsSummary {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.attemptsDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+}
+
+:global(.dark) .attemptsDetail {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.attemptItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.attemptOk {
+  color: #0f8a3b;
+  background: rgba(15, 138, 59, 0.08);
+}
+
+.attemptFail {
+  color: #666;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:global(.dark) .attemptOk {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
+}
+
+:global(.dark) .attemptFail {
+  color: #aaa;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.attemptStatus {
+  flex-shrink: 0;
+  width: 14px;
+}
+
+.attemptPath {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attemptAuth {
+  flex-shrink: 0;
+  color: #888;
+}
+
+:global(.dark) .attemptAuth {
+  color: #888;
+}
+
+.attemptStatusCode {
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.attemptReason {
+  flex-shrink: 0;
+  color: #e07020;
+  font-style: italic;
+}
+
+:global(.dark) .attemptReason {
+  color: #fbbf24;
 }
 
 .empty {
@@ -260,15 +379,33 @@
     flex: 1 1 100%;
   }
 
+  .customUrlRow {
+    flex-wrap: wrap;
+  }
 
+  .customUrlRow :global(.nextchat-input-control) {
+    flex: 1 1 100%;
+  }
 
   .row .actionButton.actionButton.actionButton {
     flex: 1 1 0;
     min-width: 0 !important;
-    height: 40px !important;
+    height: auto !important;
     min-height: 40px !important;
     padding: 0 10px !important;
     font-size: 13px !important;
+  }
+
+  .buttonCol {
+    flex: 0 0 auto;
+  }
+
+  .buttonCol :global(.nextchat-default-button),
+  .buttonCol :global(.nextchat-primary-button),
+  .buttonCol :global(.nextchat-action-button) {
+    flex: 0 0 auto !important;
+    height: 40px !important;
+    min-height: 40px !important;
   }
 
   .headerInner .actionButton.actionButton.actionButton {

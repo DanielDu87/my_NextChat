@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nextchat-dev",
+      "runtimeExecutable": "open",
+      "runtimeArgs": ["http://localhost:3000/chat"],
+      "autoPort": true,
+      "port": 3000
+    }
+  ]
+}

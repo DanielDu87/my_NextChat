@@ -74,21 +74,27 @@ export function isToApisModelBaseUrl(baseUrl?: string) {
 }
 
 export const MODEL_FETCH_UPSTREAM_PATHS = [
-  // OpenAI 官方和大多数 OpenAI-compatible 网关
-  "/api/v1/models",
-  "/models",
+  // OpenAI 官方和兼容网关（优先尝试）
   "/v1/models",
+  "/models",
+  "/api/v1/models",
   "/api/models",
-  // Anthropic / Cohere / Google 等原生模型列表常见路径
+  // 带查询参数的模型列表
   "/v1/models?limit=1000",
   "/v1/models?page_size=1000",
+  "/v1/models?limit=500",
+  "/v1/models?limit=100",
   "/v1beta/models",
   "/v1/models:list",
-  // OpenRouter endpoint 详情和聚合商/计费型网关常见接口
+  "/v2/models",
+  "/api/v2/models",
+  // OpenRouter / 聚合商
   "/api/v1/endpoints",
   "/api/pricing",
   "/pricing",
-  // Ocoolai / OneAPI 派生接口
+  "/v1/providers",
+  "/api/v1/providers",
+  // OneAPI / Ocoolai / 兼容接口
   "/api/user/available_model",
   "/api/user/available_models",
   "/api/user/available_models_by_groups",
@@ -96,26 +102,44 @@ export const MODEL_FETCH_UPSTREAM_PATHS = [
   "/api/user/available-models",
   "/available_model",
   "/available_models",
-  // 本地和开源 OpenAI-compatible 服务
+  // 本地模型服务
   "/api/tags",
   "/v1/internal/model/list",
   "/internal/model/list",
-  // 常见网关/面板命名
+  "/v1/models/list",
+  "/api/v1/models/list",
+  "/models/list",
+  "/api/models/list",
+  // 常见网关/面板
   "/api/v1/model/list",
   "/v1/model/list",
   "/api/model/list",
   "/model/list",
-  "/api/v1/models/list",
-  "/v1/models/list",
-  "/api/models/list",
-  "/models/list",
-  "/api/v1/model/info",
-  "/v1/model/info",
-  "/api/model/info",
-  "/model/info",
-  // Azure / VMware 等兼容层
+  "/api/models/info",
+  "/v1/models/info",
+  "/v1/models/openai",
+  // Azure / VMware
   "/openai/models",
   "/api/v1/compatibility/openai/v1/models",
+  // 其他常见路径
+  "/api/v1/llms",
+  "/v1/llms",
+  "/api/llms",
+  "/llms",
+  "/v1/chat/models",
+  "/api/v1/chat/models",
+  "/chat/models",
+  "/api/chat/models",
+  // Claude / Anthropic 兼容
+  "/v1/models?type=chat",
+  "/v1/models?type=text",
+  // 本地部署 / Ollama / LM Studio
+  "/api/models?limit=999",
+  "/v1/models?expand[]=name",
+  "/v1/models?detail=true",
+  // 兼容格式
+  "/api/v1/models/openai",
+  "/v1/openai/models",
 ] as const;
 
 export function parseListConfig(value?: string | string[]) {
@@ -295,4 +319,25 @@ export function buildProxyModelFetchCandidateUrls(
   return buildProxyModelFetchCandidates(baseUrl, customPaths).map(
     (candidate) => candidate.url,
   );
+}
+
+export function replaceUrlQueryParam(
+  url: string,
+  paramName: string,
+  paramValue: string,
+) {
+  if (!url) return url;
+  try {
+    const isAbsolute = /^https?:\/\//i.test(url);
+    const dummyBase = "http://dummy-base.local";
+    const parsed = new URL(url, dummyBase);
+    parsed.searchParams.set(paramName, paramValue);
+    if (isAbsolute) {
+      return parsed.toString();
+    } else {
+      return parsed.pathname + parsed.search;
+    }
+  } catch {
+    return url;
+  }
 }

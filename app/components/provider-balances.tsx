@@ -13,21 +13,39 @@ import {
   queryProviderBalanceProfile,
   readCachedProviderBalance,
   saveProviderManagementKey,
+  saveProviderCustomUrl,
   type ProviderBalanceProfile,
+  type ProviderBalanceAttempt,
 } from "../utils/provider-balance";
 import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
+import { isYutoProfileLike } from "../utils/multi-key";
 import { IconButton } from "./button";
 import { showConfirm, showToast } from "./ui-lib";
 import apiConfigStyles from "./api-config.module.scss";
 import styles from "./provider-balances.module.scss";
 
-const BATCH_QUERY_CONCURRENCY = 2;
 const profileMemoryCache = new Map<string, ProviderBalanceProfile[]>();
 
 type QueryStatus =
-  | { type: "querying"; text: string }
-  | { type: "success"; text: string }
-  | { type: "error"; text: string };
+  | {
+      type: "querying";
+      text: string;
+      attempts?: never;
+      mode?: "custom" | "auto";
+    }
+  | {
+      type: "querying-with-log";
+      text: string;
+      attempts: ProviderBalanceAttempt[];
+      mode?: "custom" | "auto";
+    }
+  | { type: "success"; text: string; mode?: "custom" | "auto" }
+  | {
+      type: "error";
+      text: string;
+      attempts: ProviderBalanceAttempt[];
+      mode?: "custom" | "auto";
+    };
 
 function updateHoverPosition(event: PointerEvent<HTMLElement>) {
   const rect = event.currentTarget.getBoundingClientRect();
@@ -55,6 +73,7 @@ function mergeProfiles(
           ...profile,
           ...remote,
           balance: remote.balance || profile.balance,
+          customBalanceUrl: remote.customBalanceUrl || profile.customBalanceUrl,
         }
       : profile;
   });
@@ -85,6 +104,7 @@ export function ProviderBalancesPage() {
           managementKey: cachedProfile?.managementKey || "",
           balance: cachedBalance,
           lastError: "",
+          customBalanceUrl: cachedProfile?.customBalanceUrl || "",
         };
       })
       .sort((a, b) =>
@@ -96,6 +116,7 @@ export function ProviderBalancesPage() {
   const [profiles, setProfiles] =
     useState<ProviderBalanceProfile[]>(localProfiles);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [customUrls, setCustomUrls] = useState<Record<string, string>>({});
   const [queryStatusMap, setQueryStatusMap] = useState<
     Record<string, QueryStatus>
   >({});
@@ -105,6 +126,7 @@ export function ProviderBalancesPage() {
   const [recentlyUpdatedIds, setRecentlyUpdatedIds] = useState<Set<string>>(
     new Set(),
   );
+  const [isLoading, setIsLoading] = useState(true);
   const balanceLogSignatureRef = useRef("");
   const hasUnsavedDrafts = useMemo(
     () =>
@@ -125,39 +147,48 @@ export function ProviderBalancesPage() {
   }, []);
 
   const load = useCallback(async () => {
-    const remoteProfiles = await loadProviderBalanceProfiles();
-    const mergedProfiles = mergeProfiles(localProfiles, remoteProfiles).sort(
-      (a, b) =>
-        a.profileName.localeCompare(b.profileName, "en", {
-          sensitivity: "base",
-        }),
-    );
-    profileMemoryCache.set(profileCacheKey, mergedProfiles);
-    setProfiles(mergedProfiles);
-    const named = mergedProfiles
-      .map((p) => p?.profileName || p?.profileId || "(未命名)")
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
-    const withKey = mergedProfiles.filter((p) => p?.hasManagementKey).length;
-    const withBalance = mergedProfiles.filter(
-      (p) => p?.balance?.value != null,
-    ).length;
-    const balanceLogSignature = JSON.stringify({
-      profiles: mergedProfiles,
-      withKey,
-      withBalance,
-    });
-    if (balanceLogSignatureRef.current === balanceLogSignature) return;
-    balanceLogSignatureRef.current = balanceLogSignature;
-    console.log(
-      `[Provider Balance] 📋 已读取余额配置（${mergedProfiles.length} 个；已存管理 Key ${withKey} 个，已查过余额 ${withBalance} 个）：`,
-    );
-    if (named.length) {
-      named.forEach((n) => {
-        console.log(`  - ${n}`);
+    setIsLoading(true);
+    try {
+      const remoteProfiles = await loadProviderBalanceProfiles();
+      const mergedProfiles = mergeProfiles(localProfiles, remoteProfiles).sort(
+        (a, b) =>
+          a.profileName.localeCompare(b.profileName, "en", {
+            sensitivity: "base",
+          }),
+      );
+      profileMemoryCache.set(profileCacheKey, mergedProfiles);
+      setProfiles(mergedProfiles);
+      const named = mergedProfiles
+        .map((p) => p?.profileName || p?.profileId || "(未命名)")
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+      const withKey = mergedProfiles.filter((p) => p?.hasManagementKey).length;
+      const withBalance = mergedProfiles.filter(
+        (p) => p?.balance?.value != null,
+      ).length;
+      const withCustomUrl = mergedProfiles.filter(
+        (p) => p?.customBalanceUrl?.trim(),
+      ).length;
+      const balanceLogSignature = JSON.stringify({
+        profiles: mergedProfiles,
+        withKey,
+        withBalance,
+        withCustomUrl,
       });
-    } else {
-      console.log("  - 无");
+      if (balanceLogSignatureRef.current === balanceLogSignature) return;
+      balanceLogSignatureRef.current = balanceLogSignature;
+      console.log(
+        `[Provider Balance] 📋 已读取余额配置（${mergedProfiles.length} 个；已存管理 Key ${withKey} 个，已查过余额 ${withBalance} 个，已配自定义 URL ${withCustomUrl} 个）：`,
+      );
+      if (named.length) {
+        named.forEach((n) => {
+          console.log(`  - ${n}`);
+        });
+      } else {
+        console.log("  - 无");
+      }
+    } finally {
+      setIsLoading(false);
     }
   }, [localProfiles, profileCacheKey]);
 
@@ -185,10 +216,21 @@ export function ProviderBalancesPage() {
   const queryOne = async (profileId: string, options?: { batch?: boolean }) => {
     const profile = profiles.find((item) => item.profileId === profileId);
     const profileName = profile?.profileName || profileId;
-    if (!getManagementInputValue(profileId).trim()) {
+    const managementKeyValue = getManagementInputValue(profileId);
+    const customBalanceUrl = getCustomUrlInputValue(profileId);
+    const queryMode: "custom" | "auto" = customBalanceUrl.trim()
+      ? "custom"
+      : "auto";
+
+    if (!managementKeyValue.trim()) {
       setQueryStatusMap((value) => ({
         ...value,
-        [profileId]: { type: "error", text: "未设置管理 API Key，已跳过查询" },
+        [profileId]: {
+          type: "error",
+          text: "未设置管理 API Key，已跳过查询",
+          attempts: [],
+          mode: queryMode,
+        },
       }));
       return;
     }
@@ -198,35 +240,66 @@ export function ProviderBalancesPage() {
     setQueryingProfileIds((ids) =>
       ids.includes(profileId) ? ids : [...ids, profileId],
     );
-    console.log(`[Provider Balance] 🔄 开始查询余额：${profileName}`);
+    console.log(
+      `[Provider Balance] 🔄 开始查询余额：${profileName}（模式：${
+        queryMode === "custom" ? "自定义路径" : "自动探测"
+      }）`,
+    );
     setQueryStatusMap((value) => ({
       ...value,
-      [profileId]: { type: "querying", text: "正在查询余额..." },
+      [profileId]: {
+        type: "querying-with-log",
+        text:
+          queryMode === "custom"
+            ? "正在使用自定义路径查询余额..."
+            : "正在查询余额...",
+        attempts: [],
+        mode: queryMode,
+      },
     }));
+    let attempts: ProviderBalanceAttempt[] = [];
     try {
-      const { balance } = await queryProviderBalanceProfile(profileId, {
+      const result = await queryProviderBalanceProfile(profileId, {
         source: options?.batch ? "balances-page-batch" : "balances-page-manual",
         providerName: profileName,
+        customBalanceUrl: customBalanceUrl || undefined,
       });
-      cacheProviderBalance(profileCacheKey, profileId, balance);
+      attempts = result.attempts;
+      cacheProviderBalance(profileCacheKey, profileId, result.balance);
       console.log(`[Provider Balance] ✅ ${profileName} 余额查询成功`);
+
+      // 自动模式成功后将成功路径保存到数据库
+      const successPath = (result as any).cachedPath;
+      const successBaseUrl = (result as any).cachedBaseUrl;
+      if (queryMode === "auto" && successPath) {
+        const fullPath = successBaseUrl
+          ? `${successBaseUrl.replace(/\/$/, "")}/${successPath}`
+          : successPath;
+        console.log(`[Provider Balance] 💾 保存成功路径：${fullPath}`);
+        // 保存到数据库
+        saveProviderCustomUrl(profileId, fullPath).catch(() => {});
+        // 更新本地状态
+        setCustomUrls((value) => ({
+          ...value,
+          [profileId]: fullPath,
+        }));
+      }
+
       setProfiles((value) =>
         value.map((profile) =>
           profile.profileId === profileId
-            ? { ...profile, balance, lastError: "" }
+            ? { ...profile, balance: result.balance, lastError: "" }
             : profile,
         ),
       );
       // 本次页面会话内查询成功后保持绿色，刷新页面时自然恢复。
       setRecentlyUpdatedIds((prev) => new Set(prev).add(profileId));
-      const updatedAt = new Date(
-        balance.queriedAt || Date.now(),
-      ).toLocaleString("zh-CN", { hour12: false });
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "success",
-          text: `查询成功，余额已更新 · 更新时间：${updatedAt}`,
+          text: queryMode === "custom" ? `查询成功（自定义路径）` : `查询成功`,
+          mode: queryMode,
         },
       }));
     } catch (error) {
@@ -239,6 +312,10 @@ export function ProviderBalancesPage() {
         if (balanceFromError && Number.isFinite(balanceFromError?.value)) {
           fallbackBalance = balanceFromError;
         }
+      }
+      // 从 error 对象中提取 attempts
+      if (error && typeof error === "object" && "attempts" in error) {
+        attempts = (error as any).attempts || [];
       }
       setProfiles((value) =>
         value.map((profile) =>
@@ -257,6 +334,8 @@ export function ProviderBalancesPage() {
         [profileId]: {
           type: "error",
           text: errorMessage,
+          attempts,
+          mode: queryMode,
         },
       }));
       showToast(errorMessage);
@@ -278,53 +357,71 @@ export function ProviderBalancesPage() {
     );
   };
 
+  const getCustomUrlInputValue = (profileId: string) => {
+    if (Object.prototype.hasOwnProperty.call(customUrls, profileId)) {
+      return customUrls[profileId] || "";
+    }
+    return (
+      profiles.find((profile) => profile.profileId === profileId)
+        ?.customBalanceUrl || ""
+    );
+  };
+
   const saveKey = async (profileId: string) => {
     const profileName =
       profiles.find((profile) => profile.profileId === profileId)
         ?.profileName || profileId;
     const managementKey = getManagementInputValue(profileId);
+    const customUrl = getCustomUrlInputValue(profileId);
     setWorking(`save:${profileId}`);
     setSavingProfileIds((ids) =>
       ids.includes(profileId) ? ids : [...ids, profileId],
     );
     setQueryStatusMap((value) => ({
       ...value,
-      [profileId]: { type: "querying", text: "正在保存管理 API Key..." },
+      [profileId]: { type: "querying", text: "正在保存..." },
     }));
-    console.log(`[Provider Balance] 🔄 开始保存管理 API Key：${profileName}`);
+    console.log(`[Provider Balance] 🔄 开始保存：${profileName}`);
     try {
-      await saveProviderManagementKey(profileId, managementKey);
+      // 同时保存 key 和自定义 URL
+      await Promise.all([
+        saveProviderManagementKey(profileId, managementKey),
+        saveProviderCustomUrl(profileId, customUrl),
+      ]);
       setDrafts((value) => {
         const nextValue = { ...value };
         delete nextValue[profileId];
         return nextValue;
       });
+      setCustomUrls((value) => {
+        const nextValue = { ...value };
+        delete nextValue[profileId];
+        return nextValue;
+      });
       await load();
-      console.log(
-        `[Provider Balance] ✅ ${profileName} 管理 API Key 已保存并刷新`,
-      );
+      console.log(`[Provider Balance] ✅ ${profileName} 保存成功`);
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "success",
-          text: "保存成功，管理 API Key 已更新",
+          text: "保存成功",
         },
       }));
-      showToast("管理 API Key 已保存");
+      showToast("保存成功");
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "保存管理 API Key 失败";
+      const errorMessage = error instanceof Error ? error.message : "保存失败";
       console.error(
-        `[Provider Balance] ❌ ${profileName} 管理 API Key 保存失败：${errorMessage}`,
+        `[Provider Balance] ❌ ${profileName} 保存失败：${errorMessage}`,
       );
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "error",
           text: errorMessage,
+          attempts: [],
         },
       }));
-      showToast("保存管理 API Key 失败");
+      showToast("保存失败");
     } finally {
       setWorking("");
       setSavingProfileIds((ids) => ids.filter((id) => id !== profileId));
@@ -336,7 +433,7 @@ export function ProviderBalancesPage() {
       getManagementInputValue(profile.profileId).trim(),
     );
     console.log(
-      `[Provider Balance] 🔄 开始批量查询余额（${queryableProfiles.length} 个配置，并发 ${BATCH_QUERY_CONCURRENCY}）`,
+      `[Provider Balance] 🔄 开始批量查询余额（${queryableProfiles.length} 个配置，全部并发执行）`,
     );
     setWorking("all");
     setQueryingProfileIds(
@@ -347,32 +444,70 @@ export function ProviderBalancesPage() {
       ...Object.fromEntries(
         queryableProfiles.map((profile) => [
           profile.profileId,
-          { type: "querying", text: "等待批量查询..." } as QueryStatus,
+          {
+            type: "querying-with-log",
+            text: "正在查询余额...",
+            attempts: [],
+          } as QueryStatus,
         ]),
       ),
     }));
 
+    // 添加超时处理
+    const TIMEOUT_MS = 30000; // 30秒超时
+
     try {
-      for (
-        let index = 0;
-        index < profiles.length;
-        index += BATCH_QUERY_CONCURRENCY
-      ) {
-        const batch = queryableProfiles.slice(
-          index,
-          index + BATCH_QUERY_CONCURRENCY,
+      // 所有查询同时发起，不等待
+      const queryPromises = queryableProfiles.map(async (profile) => {
+        const timeoutPromise = new Promise<"timeout">((resolve) =>
+          setTimeout(() => resolve("timeout"), TIMEOUT_MS),
         );
-        await Promise.all(
-          batch.map((profile) => queryOne(profile.profileId, { batch: true })),
-        );
-      }
+
+        const queryPromise = queryOne(profile.profileId, { batch: true });
+
+        const result = await Promise.race([queryPromise, timeoutPromise]);
+
+        if (result === "timeout") {
+          console.warn(
+            `[Provider Balance] ⚠️ ${profile.profileName} 余额查询超时（${
+              TIMEOUT_MS / 1000
+            }秒）`,
+          );
+          const errorMessage = `查询超时（${TIMEOUT_MS / 1000}秒）`;
+          setProfiles((value) =>
+            value.map((p) =>
+              p.profileId === profile.profileId
+                ? { ...p, lastError: errorMessage }
+                : p,
+            ),
+          );
+          setQueryStatusMap((value) => ({
+            ...value,
+            [profile.profileId]: {
+              type: "error",
+              text: errorMessage,
+              attempts: [],
+            },
+          }));
+          showToast(`${profile.profileName} 查询超时`);
+        }
+      });
+
+      await Promise.all(queryPromises);
       console.log(`[Provider Balance] ✅ 批量余额查询流程结束`);
     } finally {
       setWorking("");
+      setQueryingProfileIds([]);
     }
   };
 
   const closePage = async () => {
+    if (queryingProfileIds.length > 0) {
+      const confirmed = await showConfirm(
+        `余额查询正在执行中（还剩${queryingProfileIds.length}个），确认离开吗？`,
+      );
+      if (!confirmed) return;
+    }
     if (hasUnsavedDrafts || isSaving) {
       const confirmed = await showConfirm(
         isSaving
@@ -407,6 +542,7 @@ export function ProviderBalancesPage() {
                 type="green"
                 className={styles.actionButton}
                 disabled={
+                  isLoading ||
                   working === "all" ||
                   savingProfileIds.length > 0 ||
                   (profiles.length > 0 &&
@@ -452,6 +588,7 @@ export function ProviderBalancesPage() {
             type="green"
             className={styles.actionButton}
             disabled={
+              isLoading ||
               working === "all" ||
               savingProfileIds.length > 0 ||
               (profiles.length > 0 &&
@@ -520,33 +657,75 @@ export function ProviderBalancesPage() {
                         ? "Yuto 配置格式：API_Key|User_ID"
                         : "管理 API Key（与对话 Key 分离，可选）"
                     }
+                    disabled={isLoading}
                   />
                   <IconButton
                     icon={<ConfirmIcon />}
                     type="primary"
-                    className={styles.actionButton}
+                    className={`${styles.actionButton} nextchat-primary-button`}
                     text={
                       savingProfileIds.includes(profile.profileId)
                         ? "保存中..."
                         : "保存"
                     }
                     disabled={
+                      isLoading ||
+                      profiles.length === 0 ||
                       working === "all" ||
                       savingProfileIds.includes(profile.profileId) ||
                       queryingProfileIds.includes(profile.profileId)
                     }
                     onClick={() => void saveKey(profile.profileId)}
                   />
+                </div>
+                <div className={styles.row}>
+                  <input
+                    className="nextchat-input-control"
+                    type="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    data-form-type="other"
+                    name={`balance-custom-url-${profile.profileId}`}
+                    value={
+                      isYutoProfileLike({ name: profile.profileName })
+                        ? "/api/user/self"
+                        : Object.prototype.hasOwnProperty.call(
+                            customUrls,
+                            profile.profileId,
+                          )
+                        ? customUrls[profile.profileId]
+                        : profile.customBalanceUrl || ""
+                    }
+                    onChange={(event) =>
+                      !isYutoProfileLike({ name: profile.profileName }) &&
+                      setCustomUrls((value) => ({
+                        ...value,
+                        [profile.profileId]: event.target.value,
+                      }))
+                    }
+                    placeholder="自定义余额查询 URL（不填则自动尝试）"
+                    disabled={
+                      isLoading ||
+                      isYutoProfileLike({ name: profile.profileName })
+                    }
+                  />
                   <IconButton
                     icon={<ReloadIcon />}
                     type="green"
-                    className={styles.actionButton}
+                    className={`${styles.actionButton} nextchat-action-button`}
                     text={
                       queryingProfileIds.includes(profile.profileId)
                         ? "获取中..."
                         : "更新"
                     }
                     disabled={
+                      isLoading ||
+                      profiles.length === 0 ||
                       working === "all" ||
                       savingProfileIds.includes(profile.profileId) ||
                       queryingProfileIds.includes(profile.profileId)
@@ -569,12 +748,39 @@ export function ProviderBalancesPage() {
                         : styles.statusSuccess
                     }
                   >
-                    {queryStatusMap[profile.profileId].text}
+                    <div>{queryStatusMap[profile.profileId].text}</div>
+                    {queryStatusMap[profile.profileId].type === "error" &&
+                      (() => {
+                        const status = queryStatusMap[profile.profileId];
+                        const atts: ProviderBalanceAttempt[] =
+                          "attempts" in status && Array.isArray(status.attempts)
+                            ? status.attempts
+                            : [];
+                        if (atts.length === 0) return null;
+                        const okAtts = atts.filter((a) => a.ok);
+                        const failAtts = atts.filter((a) => !a.ok);
+                        const modeTag =
+                          status.mode === "custom"
+                            ? "（自定义路径）"
+                            : "（自动探测）";
+                        return (
+                          <div className={styles.attemptsLog}>
+                            <div className={styles.attemptsSummary}>
+                              上游尝试 {atts.length} 次：成功 {okAtts.length}
+                              ，失败 {failAtts.length} {modeTag}
+                            </div>
+                          </div>
+                        );
+                      })()}
                   </div>
                 ) : (
                   <div
                     className={
-                      profile.lastError ? styles.statusError : styles.hint
+                      profile.lastError
+                        ? styles.statusError
+                        : recentlyUpdatedIds.has(profile.profileId)
+                        ? styles.balanceUpdated
+                        : styles.hint
                     }
                   >
                     {profile.lastError

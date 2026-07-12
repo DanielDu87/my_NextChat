@@ -14,9 +14,19 @@ export type ProviderBalanceProfile = {
   managementKey: string;
   balance: ProviderBalanceSnapshot | null;
   lastError: string;
+  customBalanceUrl?: string;
 };
 
-export type ProviderBalanceAttempt = Record<string, unknown>;
+export type ProviderBalanceAttempt = {
+  keyIndex: number;
+  keyTotal: number;
+  authType: string;
+  baseUrl: string;
+  path: string;
+  status?: number;
+  ok: boolean;
+  reason?: string;
+};
 
 const PROVIDER_BALANCE_API_PATH = "/api/db/provider-balance";
 const PROVIDER_BALANCE_CACHE_SCOPE = "shared";
@@ -37,12 +47,29 @@ function logBalanceAttempts(attempts: ProviderBalanceAttempt[]) {
   if (attempts.length === 0) {
     return;
   }
-  // 不再打 console.table 完整 per-key 调试信息（噪音大、与最终结果重复），
-  // 只在调用方需要时输出聚合行；当前 query 流程已由 logProviderBalanceResult 替代。
   const okCount = attempts.filter((a) => a?.ok === true).length;
   const failCount = attempts.length - okCount;
+  // 按 key 分组统计
+  const keyGroups = attempts.reduce(
+    (acc, a) => {
+      const keyLabel = `key ${(a.keyIndex || 0) + 1}/${a.keyTotal || 1}`;
+      if (!acc[keyLabel]) {
+        acc[keyLabel] = { ok: 0, fail: 0 };
+      }
+      if (a.ok) {
+        acc[keyLabel].ok++;
+      } else {
+        acc[keyLabel].fail++;
+      }
+      return acc;
+    },
+    {} as Record<string, { ok: number; fail: number }>,
+  );
+  const keySummary = Object.entries(keyGroups)
+    .map(([key, { ok, fail }]) => `${key}: 成功${ok} 失败${fail}`)
+    .join(", ");
   console.log(
-    `[Provider Balance] 上游尝试 ${attempts.length} 次：成功 ${okCount}，失败 ${failCount}`,
+    `[Provider Balance] 上游尝试 ${attempts.length} 次：成功 ${okCount}，失败 ${failCount}（${keySummary}）`,
   );
 }
 
@@ -177,6 +204,28 @@ export async function saveProviderManagementKey(
   }
 }
 
+export async function saveProviderCustomUrl(
+  profileId: string,
+  customBalanceUrl: string,
+) {
+  const context = createBalanceRequestContext("save-custom-url", profileId);
+  const response = await fetch(PROVIDER_BALANCE_API_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profileId, customBalanceUrl }),
+  });
+  const payload = await readResponsePayload(response);
+  if (!response.ok || payload?.ok !== true) {
+    console.error("[Provider Balance] 自定义 URL 保存失败", {
+      ...context,
+      durationMs: Date.now() - context.startedAt,
+      httpStatus: response.status,
+      response: payload,
+    });
+    throw new Error(payload?.error || "save_failed");
+  }
+}
+
 export async function queryProviderBalanceProfile(
   profileId: string,
   options?: {
@@ -184,6 +233,7 @@ export async function queryProviderBalanceProfile(
     source?: string;
     providerName?: string;
     logSuccess?: boolean;
+    customBalanceUrl?: string;
   },
 ) {
   const context = {
@@ -196,7 +246,10 @@ export async function queryProviderBalanceProfile(
     response = await fetch(PROVIDER_BALANCE_API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ profileId }),
+      body: JSON.stringify({
+        profileId,
+        customBalanceUrl: options?.customBalanceUrl,
+      }),
       signal: options?.signal,
     });
   } catch (error) {
@@ -243,5 +296,10 @@ export async function queryProviderBalanceProfile(
       `[Provider Balance] ✅ 供应商 ${context.providerName}：${formattedBalance}（${durationMs}ms）`,
     );
   }
-  return { balance, attempts };
+  return {
+    balance,
+    attempts,
+    cachedPath: (payload as any).cachedPath,
+    cachedBaseUrl: (payload as any).cachedBaseUrl,
+  };
 }

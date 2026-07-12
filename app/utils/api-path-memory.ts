@@ -8,6 +8,7 @@ export type RememberedChatEndpoint = {
 
 type ApiPathMemoryRecord = {
   modelListPath?: string;
+  modelListApiKey?: string;
   chatPath?: string;
   chatEndpoint?: RememberedChatEndpoint;
   updatedAt?: number;
@@ -88,6 +89,15 @@ export function getRememberedModelListPath(params: {
   return readMemory()[getMemoryKey(params)]?.modelListPath || "";
 }
 
+export function getRememberedModelListApiKey(params: {
+  provider?: string;
+  profileId?: string;
+  profileName?: string;
+  baseUrl?: string;
+}) {
+  return readMemory()[getMemoryKey(params)]?.modelListApiKey || "";
+}
+
 export function rememberModelListPath(
   params: {
     provider?: string;
@@ -96,14 +106,24 @@ export function rememberModelListPath(
     baseUrl?: string;
   },
   path?: string,
+  apiKey?: string,
 ) {
-  const normalizedPath = normalizePath(path);
-  if (!normalizedPath) return;
   const memory = readMemory();
   const key = getMemoryKey(params);
+  if (!path) {
+    if (memory[key]) {
+      delete memory[key].modelListPath;
+      delete memory[key].modelListApiKey;
+      writeMemory(memory);
+    }
+    return;
+  }
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return;
   memory[key] = {
     ...(memory[key] || {}),
     modelListPath: `/${normalizedPath}`,
+    modelListApiKey: String(apiKey || "").trim() || undefined,
     updatedAt: Date.now(),
   };
   writeMemory(memory);

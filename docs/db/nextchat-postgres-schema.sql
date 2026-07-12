@@ -1,8 +1,8 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-10 (同步 schema 2026-07-09-force-reapply-conversations-deleted-at：补 conversations.deleted_at + cache_file_references 表)
+-- 最后更新: 2026-07-12 (同步 schema 2026-07-12-provider-model-fetch-cache：补供应商模型获取路径缓存)
 -- 当前运行时 schema 版本：
---   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-09-force-reapply-conversations-deleted-at"
+--   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-12-provider-model-fetch-cache"
 --   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-09-backup-database"
 -- 一旦 ALTER / CREATE 新增必须同步 bump 版本号，避免旧容器在缓存锁住时跳迁移。
 -- 历史变更: 2026-07-09-force-reapply-conversations-deleted-at（conversations.deleted_at + cache_file_references 引用追踪表 + 索引，旧容器因 SYNC_STORAGE_SCHEMA_VERSION 缓存未跑迁移需 bump 强制重跑）
@@ -192,6 +192,9 @@ CREATE TABLE IF NOT EXISTS provider_configs (
   base_url text,
   api_path text,
   api_format text,
+  cached_model_path text,
+  cached_model_base_url text,
+  cached_model_auth_type text,
   is_enabled boolean NOT NULL DEFAULT true,
   is_default boolean NOT NULL DEFAULT false,
   request_config jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -442,7 +445,7 @@ COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw
 COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';
 COMMENT ON TABLE cache_file_blobs IS '上传文件内容 blob（按 content_type + content_md5 去重）';
 COMMENT ON TABLE user_cache_files IS '用户上传/缓存文件记录（可过期或 pinned，引用 cache_file_blobs）';
-COMMENT ON TABLE provider_configs IS '模型供应商配置';
+COMMENT ON TABLE provider_configs IS '模型供应商配置；cached_model_* 保存最近成功的模型列表接口，匹配的 API Key 密文保存在 sync_secrets';
 COMMENT ON TABLE provider_api_keys IS '供应商 API 密钥和分组';
 COMMENT ON TABLE conversations IS '对话主表（删除走物理删除，is_deleted 仅作历史标记）';
 COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete）';

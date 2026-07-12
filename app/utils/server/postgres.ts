@@ -28,13 +28,13 @@ declare global {
   var __nextchatSyncStorageSchemaVersion: string | undefined;
 }
 
-// 2026-07-09-force-reapply-conversations-deleted-at：旧容器可能在 deleted_at 列
+// 2026-07-12-provider-model-fetch-cache：旧容器可能已缓存 schema 初始化结果，
+// 导致 provider_configs 的模型接口缓存列未被补齐；bump 版本后会重新执行幂等迁移。
 // 加入迁移之前已经跑过 ensureSyncStorageSchema 并把缓存锁住，导致 ALTER TABLE …
 // ADD COLUMN IF NOT EXISTS deleted_at 一直没有跑。bump 这个版本号会清掉
 // globalThis.__nextchatSyncStorageSchemaReady，让下一次请求重新走一遍迁移；
 // ADD COLUMN IF NOT EXISTS 幂等，旧库会补上缺失列，已有库是 no-op。
-const SYNC_STORAGE_SCHEMA_VERSION =
-  "2026-07-09-force-reapply-conversations-deleted-at";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-12-provider-model-fetch-cache";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -730,6 +730,19 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         alter table provider_configs
         add column if not exists api_format text
+      `);
+        // provider_configs 补齐模型接口缓存路径
+        await client.query(`
+        alter table provider_configs
+        add column if not exists cached_model_path text
+      `);
+        await client.query(`
+        alter table provider_configs
+        add column if not exists cached_model_base_url text
+      `);
+        await client.query(`
+        alter table provider_configs
+        add column if not exists cached_model_auth_type text
       `);
         // provider_api_keys 补齐历史预留列 last_verified_at（unify-user-id 脚本依赖）
         await client.query(`

@@ -1192,19 +1192,6 @@ function getSortableName(model?: SortableModelLike) {
   return normalizeSortableModelAlias(model?.name || model?.title || "");
 }
 
-function normalizeRank(value: unknown) {
-  const rank = Number(value);
-  return Number.isFinite(rank) ? rank : Number.MAX_SAFE_INTEGER;
-}
-
-function getRemoteRank(model?: SortableModelLike) {
-  return normalizeRank(model?.remoteRank ?? model?.catalogRank);
-}
-
-function getStableOrder(model?: SortableModelLike) {
-  return normalizeRank(model?.order ?? model?.sorted);
-}
-
 export function parseOpenAIModelSortKey(model?: SortableModelLike | string) {
   const name =
     typeof model === "string"
@@ -1240,66 +1227,53 @@ function getOpenAIVariantPriority(text: string) {
   return 6;
 }
 
-function compareVersionPartsDesc(left: number[], right: number[]) {
-  const maxLength = Math.max(left.length, right.length);
-  for (let index = 0; index < maxLength; index += 1) {
-    const diff = (right[index] ?? -1) - (left[index] ?? -1);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function compareNames(left?: SortableModelLike, right?: SortableModelLike) {
-  return getSortableName(left).localeCompare(
-    getSortableName(right),
-    undefined,
-    {
-      numeric: true,
-      sensitivity: "base",
-    },
+function getSortablePublishedAt(model?: SortableModelLike) {
+  return (
+    normalizePublishedAt(model?.publishedAt) ??
+    resolveModelPublishedAt({
+      name: model?.name || model?.title || "",
+    }).publishedAt ??
+    0
   );
 }
 
-function isGptAlias(model?: SortableModelLike) {
-  return /^gpt[-_.]/.test(getSortableName(model));
+function compareNames(left?: SortableModelLike, right?: SortableModelLike) {
+  const leftParts = getSortableName(left).match(/\d+|\D+/g) || [];
+  const rightParts = getSortableName(right).match(/\d+|\D+/g) || [];
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    if (leftPart === undefined || rightPart === undefined) {
+      // 相同字母前缀下，版本号更长的一方视为更新。
+      return leftPart === undefined ? 1 : -1;
+    }
+
+    const leftIsNumber = /^\d+$/.test(leftPart);
+    const rightIsNumber = /^\d+$/.test(rightPart);
+    if (leftIsNumber && rightIsNumber) {
+      const numericDiff = Number(rightPart) - Number(leftPart);
+      if (numericDiff !== 0) return numericDiff;
+      continue;
+    }
+
+    const alphabeticDiff = leftPart.localeCompare(rightPart, undefined, {
+      sensitivity: "base",
+    });
+    if (alphabeticDiff !== 0) return alphabeticDiff;
+  }
+
+  return 0;
 }
 
 export function compareModelsForDisplay(
   left?: SortableModelLike,
   right?: SortableModelLike,
 ) {
-  const leftOpenAI = parseOpenAIModelSortKey(left);
-  const rightOpenAI = parseOpenAIModelSortKey(right);
-
-  if (leftOpenAI && rightOpenAI) {
-    const versionDiff = compareVersionPartsDesc(
-      leftOpenAI.version,
-      rightOpenAI.version,
-    );
-    if (versionDiff !== 0) return versionDiff;
-
-    const variantDiff =
-      leftOpenAI.variantPriority - rightOpenAI.variantPriority;
-    if (variantDiff !== 0) return variantDiff;
-  }
-
-  if (leftOpenAI && !rightOpenAI && isGptAlias(right)) return -1;
-  if (!leftOpenAI && rightOpenAI && isGptAlias(left)) return 1;
-
-  const leftRemoteRank = getRemoteRank(left);
-  const rightRemoteRank = getRemoteRank(right);
-  if (leftRemoteRank !== rightRemoteRank) {
-    return leftRemoteRank - rightRemoteRank;
-  }
-
-  const leftOrder = getStableOrder(left);
-  const rightOrder = getStableOrder(right);
-  if (leftOrder !== rightOrder) {
-    return leftOrder - rightOrder;
-  }
-
-  if (leftOpenAI && !rightOpenAI) return -1;
-  if (!leftOpenAI && rightOpenAI) return 1;
+  const publishedAtDiff =
+    getSortablePublishedAt(right) - getSortablePublishedAt(left);
+  if (publishedAtDiff !== 0) return publishedAtDiff;
 
   return compareNames(left, right);
 }

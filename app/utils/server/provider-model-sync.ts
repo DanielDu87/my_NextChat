@@ -7,6 +7,9 @@ import { fetchModelsFromProviderForServer } from "@/app/utils/server/provider-mo
 import { ensureSyncStorageSchema } from "./postgres";
 import { getStoreSnapshot, setStoreSnapshot } from "./sync-store-repository";
 import { getDefaultSyncUserId } from "./sync-user";
+import { saveProviderModelCachedPath } from "./provider-model-repository";
+import { getProviderManagementKey } from "./provider-balance-repository";
+import { getOrCreateSyncAppUserId } from "./sync-app-user";
 
 type AccessProfile = {
   id: string;
@@ -14,6 +17,7 @@ type AccessProfile = {
   provider: ServiceProvider;
   baseUrl: string;
   apiKey: string;
+  modelFetchApiKey?: string;
   apiKeyGroups?: Record<string, string>;
   multiKeyGroupOrder?: string[];
   multiKeyEnabled?: boolean;
@@ -71,38 +75,88 @@ async function getCloudAccessState(userId: string) {
 
 function shouldSyncProfile(profile: AccessProfile) {
   return Boolean(
-    profile.id && profile.name && profile.baseUrl && profile.apiKey,
+    profile.id &&
+      profile.name &&
+      profile.baseUrl &&
+      (profile.modelFetchApiKey ||
+        profile.apiKey ||
+        Object.values(profile.apiKeyGroups || {}).some(Boolean)),
   );
 }
 
 export async function refreshConfiguredProviderModels(
   triggerSource = "manual",
   userId = getDefaultSyncUserId(),
+  profileId?: string,
 ): Promise<RefreshConfiguredProviderModelsResult> {
   await ensureSyncStorageSchema();
   void triggerSource;
 
   const accessState = await getCloudAccessState(userId);
-  const profiles = (accessState.apiProfiles || []).filter(shouldSyncProfile);
+  const appUserId = await getOrCreateSyncAppUserId(userId);
+  const profiles = (accessState.apiProfiles || []).filter(
+    (profile) =>
+      shouldSyncProfile(profile) && (!profileId || profile.id === profileId),
+  );
 
   const summaries: ProviderRefreshSummary[] = [];
 
   for (const profile of profiles) {
     const providerId = normalizeProviderId(profile);
+    const profileModelKey = profile.modelFetchApiKey || profile.apiKey;
+    const managementKey = await getProviderManagementKey(appUserId, profile.id);
+    const apiKeyGroups = { ...(profile.apiKeyGroups || {}) };
+    const primaryFallbackGroup = "__profile_model_key";
+    if (managementKey && profileModelKey && managementKey !== profileModelKey) {
+      apiKeyGroups[primaryFallbackGroup] = profileModelKey;
+    }
     const result = await fetchModelsFromProviderForServer(
       profile.provider,
       profile.baseUrl,
-      profile.apiKey,
+      managementKey || profileModelKey,
       profile.name,
-      profile.apiKeyGroups,
+      apiKeyGroups,
       profile.openAICompatible,
-      profile.multiKeyGroupOrder,
+      [
+        ...(managementKey &&
+        profileModelKey &&
+        managementKey !== profileModelKey
+          ? [primaryFallbackGroup]
+          : []),
+        ...(profile.multiKeyGroupOrder || []),
+      ],
       {
         authType: profile.authType,
         authQueryParam: profile.authQueryParam,
         extraHeaders: profile.extraHeaders,
+        userId: appUserId,
+        profileId: profile.id,
       },
     );
+
+    // 成功获取后保存模型接口路径
+    if (result.cachedPath && result.models.length > 0) {
+      try {
+        await saveProviderModelCachedPath(appUserId, profile.id, {
+          cachedModelPath: result.cachedPath,
+          cachedModelBaseUrl: result.cachedBaseUrl,
+          cachedModelAuthType: result.cachedAuthType,
+          cachedModelApiKey: result.cachedApiKey,
+        });
+        console.log("[Fetch Models] 💾 已保存模型获取缓存", {
+          profile: profile.name,
+          url: `${result.cachedBaseUrl || profile.baseUrl}${result.cachedPath}`,
+          authType: result.cachedAuthType || "unknown",
+          apiKey: result.cachedApiKey
+            ? `${result.cachedApiKey.slice(0, 4)}***${result.cachedApiKey.slice(
+                -4,
+              )}`
+            : "未缓存",
+        });
+      } catch (e) {
+        // 忽略保存失败
+      }
+    }
 
     summaries.push({
       profileId: profile.id,
@@ -116,20 +170,24 @@ export async function refreshConfiguredProviderModels(
     });
   }
 
-  const nextProfiles = (accessState.apiProfiles || []).map((profile) => {
-    const matched = summaries.find((item) => item.profileId === profile.id);
-    if (!matched) return profile;
-    return { ...profile };
-  });
+  // 手动获取单个供应商只保存模型路径/Key 缓存，禁止回写 Access 快照，
+  // 避免和首页原有聊天同步争用同一同步生命周期。
+  if (!profileId) {
+    const nextProfiles = (accessState.apiProfiles || []).map((profile) => {
+      const matched = summaries.find((item) => item.profileId === profile.id);
+      if (!matched) return profile;
+      return { ...profile };
+    });
 
-  await setStoreSnapshot(
-    StoreKey.Access,
-    buildPersistedStoreState(StoreKey.Access, {
-      ...accessState,
-      apiProfiles: nextProfiles,
-    }),
-    userId,
-  );
+    await setStoreSnapshot(
+      StoreKey.Access,
+      buildPersistedStoreState(StoreKey.Access, {
+        ...accessState,
+        apiProfiles: nextProfiles,
+      }),
+      userId,
+    );
+  }
 
   // 计算各平台数量相加的总数（不去重）
   const totalCount = summaries.reduce(

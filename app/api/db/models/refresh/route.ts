@@ -10,7 +10,7 @@ export const revalidate = 0;
 function isAuthorized(req: NextRequest) {
   const token = process.env.MODEL_SYNC_TOKEN;
   if (!token) {
-    return true;
+    return process.env.NEXTCHAT_DISABLE_AUTH === "true";
   }
 
   const authHeader = req.headers.get("authorization") || "";
@@ -26,9 +26,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const body = await req.json().catch(() => ({}));
+    const profileId =
+      typeof body?.profileId === "string" ? body.profileId.trim() : "";
     const result = await refreshConfiguredProviderModels(
       "api",
       await requireWritableSharedSyncUserId(req),
+      profileId || undefined,
     );
     return NextResponse.json(result, {
       headers: {

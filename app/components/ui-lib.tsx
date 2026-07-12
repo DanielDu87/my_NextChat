@@ -161,6 +161,7 @@ export function ListItem(props: {
   return (
     <div
       className={clsx(
+        "nextchat-list-item",
         styles["list-item"],
         {
           [styles["vertical"]]: props.vertical,
@@ -170,12 +171,26 @@ export function ListItem(props: {
       onClick={props.onClick}
       onPointerMove={props.onPointerMove}
     >
-      <div className={styles["list-header"]}>
-        {props.icon && <div className={styles["list-icon"]}>{props.icon}</div>}
-        <div className={styles["list-item-title"]}>
+      <div className={clsx("nextchat-list-header", styles["list-header"])}>
+        {props.icon && (
+          <div className={clsx("nextchat-list-icon", styles["list-icon"])}>
+            {props.icon}
+          </div>
+        )}
+        <div
+          className={clsx(
+            "nextchat-list-item-title",
+            styles["list-item-title"],
+          )}
+        >
           <div>{props.title}</div>
           {props.subTitle && (
-            <div className={styles["list-item-sub-title"]}>
+            <div
+              className={clsx(
+                "nextchat-list-item-sub-title",
+                styles["list-item-sub-title"],
+              )}
+            >
               {props.subTitle}
             </div>
           )}
@@ -196,7 +211,7 @@ export function List(props: {
 }) {
   return (
     <div
-      className={clsx(styles.list, props.className)}
+      className={clsx("nextchat-list", styles.list, props.className)}
       id={props.id}
       onScroll={props.onScroll}
       ref={props.listRef}
@@ -863,6 +878,7 @@ export function Selector<T>(props: {
   perfScope?: string;
   perfStartedAt?: number;
   disableOpenAnimation?: boolean;
+  disableHoverAnimation?: boolean;
   groupFilterAction?:
     | React.ReactNode
     | ((ctx: {
@@ -1162,9 +1178,15 @@ export function Selector<T>(props: {
       group === "Other"
     ) {
       return (
-        <span className={styles["selector-group-filter-icon-custom-wrap"]}>
+        <span
+          className={clsx(
+            "nextchat-selector-menu-icon-frame",
+            styles["selector-group-filter-icon-custom-wrap"],
+          )}
+        >
           <BotIconDefault
             className={clsx(
+              "nextchat-selector-menu-icon-image",
               styles["selector-group-filter-icon-image"],
               styles["selector-group-filter-icon-image-custom"],
             )}
@@ -1176,9 +1198,17 @@ export function Selector<T>(props: {
     const localIcon = localGroupIconMap[normalized];
     if (localIcon) {
       return (
-        <span className={styles["selector-group-filter-icon-frame"]}>
+        <span
+          className={clsx(
+            "nextchat-selector-menu-icon-frame",
+            styles["selector-group-filter-icon-frame"],
+          )}
+        >
           <img
-            className={styles["selector-group-filter-icon-image"]}
+            className={clsx(
+              "nextchat-selector-menu-icon-image",
+              styles["selector-group-filter-icon-image"],
+            )}
             src={localIcon}
             alt={`${group} icon`}
           />
@@ -1186,8 +1216,18 @@ export function Selector<T>(props: {
       );
     }
     return (
-      <span className={styles["selector-group-filter-icon-frame"]}>
-        <span className={styles["selector-group-filter-fallback-icon"]}>
+      <span
+        className={clsx(
+          "nextchat-selector-menu-icon-frame",
+          styles["selector-group-filter-icon-frame"],
+        )}
+      >
+        <span
+          className={clsx(
+            "nextchat-selector-menu-icon-fallback",
+            styles["selector-group-filter-fallback-icon"],
+          )}
+        >
           {getGroupBadgeText(group)}
         </span>
       </span>
@@ -1382,6 +1422,8 @@ export function Selector<T>(props: {
   const selectorNode = (
     <div
       className={clsx(
+        "nextchat-selector",
+        props.disableHoverAnimation && "nextchat-no-hover-motion",
         styles["selector"],
         props.disableOpenAnimation && styles["selector-fast-open"],
         props.className,
@@ -1411,17 +1453,33 @@ export function Selector<T>(props: {
       }}
     >
       <div
-        className={clsx(styles["selector-content"], {
-          [styles["selector-content-centered"]]: props.centerContent,
-        })}
+        className={clsx(
+          styles["selector-content"],
+          {
+            [styles["selector-content-centered"]]: props.centerContent,
+          },
+          "nextchat-selector-content",
+        )}
         data-selector-content="true"
         onClick={(e) => e.stopPropagation()}
       >
         {props.title ? (
-          <div className={styles["selector-title"]}>{props.title}</div>
+          <div
+            className={clsx(
+              "nextchat-selector-title",
+              styles["selector-title"],
+            )}
+          >
+            {props.title}
+          </div>
         ) : null}
         {props.headerHint ? (
-          <div className={styles["selector-header-hint"]}>
+          <div
+            className={clsx(
+              "nextchat-selector-header",
+              styles["selector-header-hint"],
+            )}
+          >
             {props.headerHint}
           </div>
         ) : null}
@@ -1429,17 +1487,25 @@ export function Selector<T>(props: {
           <div
             ref={groupFilterWrapRef}
             data-selector-group-filter-root="true"
-            className={styles["selector-group-filter-wrap"]}
+            className={clsx(
+              "nextchat-selector-toolbar",
+              styles["selector-group-filter-wrap"],
+            )}
           >
             <button
               type="button"
               ref={groupFilterButtonRef}
               className={clsx(
+                "nextchat-default-button",
+                "nextchat-no-hover-motion",
                 "nextchat-selector-group-filter",
                 styles["selector-group-filter"],
+                isGroupFilterOpen && "nextchat-selector-group-filter-open",
                 {
                   [styles["selector-group-filter-open"]]: isGroupFilterOpen,
                 },
+                (props.groupFilterDisabled || props.filterControlsDisabled) &&
+                  "nextchat-selector-control-disabled",
                 (props.groupFilterDisabled || props.filterControlsDisabled) &&
                   styles["selector-control-disabled"],
               )}
@@ -1459,7 +1525,12 @@ export function Selector<T>(props: {
               }}
             >
               {selectedGroup !== "All" ? (
-                <span className={styles["selector-group-filter-leading"]}>
+                <span
+                  className={clsx(
+                    "nextchat-selector-menu-option-leading",
+                    styles["selector-group-filter-leading"],
+                  )}
+                >
                   {renderGroupFilterIcon(selectedGroup)}
                 </span>
               ) : null}
@@ -1467,16 +1538,28 @@ export function Selector<T>(props: {
               <DownIcon />
             </button>
             {isGroupFilterOpen && (
-              <div className={styles["selector-group-filter-menu"]}>
+              <div
+                className={clsx(
+                  "nextchat-selector-menu",
+                  styles["selector-group-filter-menu"],
+                )}
+              >
                 {groupFilterOptions.map((group) => {
                   const active = selectedGroup === group;
                   return (
                     <button
                       type="button"
                       key={group}
-                      className={clsx(styles["selector-group-filter-option"], {
-                        [styles["selector-group-filter-option-active"]]: active,
-                      })}
+                      className={clsx(
+                        "nextchat-menu-option",
+                        "nextchat-menu-option-bordered",
+                        "nextchat-no-hover-motion",
+                        "nextchat-selector-menu-option",
+                        styles["selector-group-filter-option"],
+                        active && "nextchat-menu-option-active",
+                        active && "nextchat-selector-menu-option-active",
+                        active && styles["selector-group-filter-option-active"],
+                      )}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSelectedGroup(group);
@@ -1487,9 +1570,10 @@ export function Selector<T>(props: {
                     >
                       {group !== "All" ? (
                         <span
-                          className={
-                            styles["selector-group-filter-option-leading"]
-                          }
+                          className={clsx(
+                            "nextchat-selector-menu-option-leading",
+                            styles["selector-group-filter-option-leading"],
+                          )}
                         >
                           {renderGroupFilterIcon(group)}
                         </span>
@@ -1501,21 +1585,50 @@ export function Selector<T>(props: {
                 })}
               </div>
             )}
-            {props.groupFilterAction ? (
-              <div className={styles["selector-group-filter-extra"]}>
+            {props.groupFilterAction && !isGroupFilterOpen ? (
+              <div
+                className={clsx(
+                  "nextchat-selector-toolbar-action",
+                  styles["selector-group-filter-extra"],
+                )}
+                data-selector-group-filter-action="true"
+              >
                 {typeof props.groupFilterAction === "function"
                   ? props.groupFilterAction({
-                      buttonClassName: styles["selector-group-filter"],
-                      menuClassName: styles["selector-group-filter-menu"],
-                      optionClassName: styles["selector-group-filter-option"],
-                      optionActiveClassName:
+                      buttonClassName: clsx(
+                        "nextchat-default-button",
+                        "nextchat-no-hover-motion",
+                        "nextchat-selector-group-filter",
+                        styles["selector-group-filter"],
+                      ),
+                      menuClassName: clsx(
+                        "nextchat-selector-menu",
+                        styles["selector-group-filter-menu"],
+                      ),
+                      optionClassName: clsx(
+                        "nextchat-menu-option",
+                        "nextchat-menu-option-bordered",
+                        "nextchat-no-hover-motion",
+                        "nextchat-selector-menu-option",
+                        styles["selector-group-filter-option"],
+                      ),
+                      optionActiveClassName: clsx(
+                        "nextchat-menu-option-active",
+                        "nextchat-selector-menu-option-active",
                         styles["selector-group-filter-option-active"],
-                      optionLeadingClassName:
+                      ),
+                      optionLeadingClassName: clsx(
+                        "nextchat-selector-menu-option-leading",
                         styles["selector-group-filter-option-leading"],
-                      iconFrameClassName:
+                      ),
+                      iconFrameClassName: clsx(
+                        "nextchat-selector-menu-icon-frame",
                         styles["selector-group-filter-icon-frame"],
-                      iconImageClassName:
+                      ),
+                      iconImageClassName: clsx(
+                        "nextchat-selector-menu-icon-image",
                         styles["selector-group-filter-icon-image"],
+                      ),
                     })
                   : props.groupFilterAction}
               </div>
@@ -1524,8 +1637,12 @@ export function Selector<T>(props: {
         )}
         {props.showSearch && !isGroupFilterOpen && (
           <div
+            data-selector-search="true"
             className={clsx(
+              "nextchat-selector-search-surface",
               styles["selector-search-wrap"],
+              props.filterControlsDisabled &&
+                "nextchat-selector-control-disabled",
               props.filterControlsDisabled &&
                 styles["selector-control-disabled"],
             )}
@@ -1537,7 +1654,12 @@ export function Selector<T>(props: {
           >
             <input
               type="text"
-              className={styles["selector-search"]}
+              className={clsx(
+                "nextchat-input-control",
+                "nextchat-no-hover-motion",
+                "nextchat-selector-search-input",
+                styles["selector-search"],
+              )}
               placeholder="搜索模型..."
               value={searchInput}
               disabled={props.filterControlsDisabled}
@@ -1555,15 +1677,25 @@ export function Selector<T>(props: {
         {props.quickFilters &&
           props.quickFilters.length > 0 &&
           !isGroupFilterOpen && (
-            <div className={styles["selector-quick-filters"]}>
+            <div
+              className={clsx(
+                "nextchat-selector-quick-filters",
+                styles["selector-quick-filters"],
+              )}
+            >
               <button
                 type="button"
                 className={clsx(
+                  "nextchat-default-button",
+                  "nextchat-no-hover-motion",
+                  "nextchat-selector-quick-filter",
                   styles["selector-quick-filter"],
                   {
                     [styles["selector-quick-filter-active"]]:
                       selectedQuickFilter === "all",
                   },
+                  selectedQuickFilter === "all" &&
+                    "nextchat-selector-quick-filter-active",
                   props.filterControlsDisabled &&
                     styles["selector-control-disabled"],
                 )}
@@ -1582,11 +1714,16 @@ export function Selector<T>(props: {
                   type="button"
                   key={filter.key}
                   className={clsx(
+                    "nextchat-default-button",
+                    "nextchat-no-hover-motion",
+                    "nextchat-selector-quick-filter",
                     styles["selector-quick-filter"],
                     {
                       [styles["selector-quick-filter-active"]]:
                         selectedQuickFilter === filter.key,
                     },
+                    selectedQuickFilter === filter.key &&
+                      "nextchat-selector-quick-filter-active",
                     props.filterControlsDisabled &&
                       styles["selector-control-disabled"],
                   )}
@@ -1604,7 +1741,15 @@ export function Selector<T>(props: {
             </div>
           )}
         {!isGroupFilterOpen && filteredItems.length === 0 ? (
-          <div className={styles["selector-empty"]}>
+          <div
+            className={clsx(
+              "nextchat-input-surface",
+              "nextchat-input-surface-readonly",
+              "nextchat-selector-empty",
+              styles["selector-empty"],
+            )}
+            data-selector-empty="true"
+          >
             <div className={styles["selector-empty-icon"]}>🔍</div>
             <div className={styles["selector-empty-text"]}>
               没有找到匹配的模型
@@ -1613,11 +1758,11 @@ export function Selector<T>(props: {
         ) : !isGroupFilterOpen ? (
           <List
             id="selector-list"
-            className={
-              props.filterControlsDisabled
-                ? styles["selector-list-disabled"]
-                : undefined
-            }
+            className={clsx(
+              "nextchat-selector-list",
+              props.filterControlsDisabled && "nextchat-selector-list-disabled",
+              props.filterControlsDisabled && styles["selector-list-disabled"],
+            )}
             listRef={listRef}
             onScroll={(event) => {
               if (!shouldVirtualize) {
@@ -1630,11 +1775,28 @@ export function Selector<T>(props: {
               groupedItems.map((entry) => {
                 if (entry.type === "group") {
                   return (
-                    <div className={styles["selector-group"]} key={entry.key}>
-                      <span className={styles["selector-group-label"]}>
+                    <div
+                      className={clsx(
+                        "nextchat-selector-group",
+                        styles["selector-group"],
+                      )}
+                      data-selector-group="true"
+                      key={entry.key}
+                    >
+                      <span
+                        className={clsx(
+                          "nextchat-selector-group-label",
+                          styles["selector-group-label"],
+                        )}
+                      >
                         {entry.label}
                       </span>
-                      <span className={styles["selector-group-count"]}>
+                      <span
+                        className={clsx(
+                          "nextchat-selector-group-count",
+                          styles["selector-group-count"],
+                        )}
+                      >
                         共 {entry.count} 个
                       </span>
                     </div>
@@ -1646,10 +1808,14 @@ export function Selector<T>(props: {
 
                 return (
                   <ListItem
-                    className={clsx(styles["selector-item"], {
-                      [styles["selector-item-disabled"]]: item.disable,
-                      [styles["selector-item-active"]]: selected,
-                    })}
+                    className={clsx(
+                      "nextchat-selector-list-item",
+                      styles["selector-item"],
+                      item.disable && "nextchat-selector-list-item-disabled",
+                      item.disable && styles["selector-item-disabled"],
+                      selected && "nextchat-selector-list-item-active",
+                      selected && styles["selector-item-active"],
+                    )}
                     key={entry.key}
                     title={item.title}
                     subTitle={item.subTitle}
@@ -1665,19 +1831,42 @@ export function Selector<T>(props: {
                       }
                     }}
                   >
-                    <div className={styles["selector-item-actions"]}>
+                    <div
+                      className={clsx(
+                        "nextchat-selector-item-actions",
+                        styles["selector-item-actions"],
+                      )}
+                    >
                       <div
-                        className={clsx(styles["selector-item-selected"], {
-                          [styles["selector-item-selected-hidden"]]:
-                            !selected && !item.disable,
-                        })}
+                        className={clsx(
+                          "nextchat-selector-item-selected",
+                          styles["selector-item-selected"],
+                          !selected &&
+                            !item.disable &&
+                            "nextchat-selector-item-selected-hidden",
+                          !selected &&
+                            !item.disable &&
+                            styles["selector-item-selected-hidden"],
+                        )}
+                        style={{ color: "var(--primary)" }}
                       >
-                        <SelectorCheckIcon />
+                        <SelectorCheckIcon
+                          style={{
+                            color: "var(--primary)",
+                            stroke: "var(--primary)",
+                            filter: "none",
+                          }}
+                        />
                       </div>
                       {item.rightAction ? (
                         <button
                           type="button"
-                          className={styles["selector-item-action"]}
+                          className={clsx(
+                            "nextchat-danger-button",
+                            "nextchat-no-hover-motion",
+                            "nextchat-selector-item-action",
+                            styles["selector-item-action"],
+                          )}
                           onClick={(e) => {
                             e.stopPropagation();
                             item.rightAction?.onClick(item.value);
@@ -1692,7 +1881,10 @@ export function Selector<T>(props: {
               })
             ) : (
               <div
-                className={styles["selector-virtual-spacer"]}
+                className={clsx(
+                  "nextchat-selector-virtual-spacer",
+                  styles["selector-virtual-spacer"],
+                )}
                 style={{ height: virtualRows.totalHeight }}
               >
                 {visibleVirtualRows.map(({ entry, top, height }) => {
@@ -1702,14 +1894,27 @@ export function Selector<T>(props: {
                         className={clsx(
                           styles["selector-group"],
                           styles["selector-virtual-row"],
+                          "nextchat-selector-group",
+                          "nextchat-selector-virtual-row",
                         )}
+                        data-selector-group="true"
                         key={entry.key}
                         style={{ height, transform: `translateY(${top}px)` }}
                       >
-                        <span className={styles["selector-group-label"]}>
+                        <span
+                          className={clsx(
+                            "nextchat-selector-group-label",
+                            styles["selector-group-label"],
+                          )}
+                        >
                           {entry.label}
                         </span>
-                        <span className={styles["selector-group-count"]}>
+                        <span
+                          className={clsx(
+                            "nextchat-selector-group-count",
+                            styles["selector-group-count"],
+                          )}
+                        >
                           共 {entry.count} 个
                         </span>
                       </div>
@@ -1721,15 +1926,23 @@ export function Selector<T>(props: {
 
                   return (
                     <div
-                      className={styles["selector-virtual-row"]}
+                      className={clsx(
+                        "nextchat-selector-virtual-row",
+                        styles["selector-virtual-row"],
+                      )}
                       key={entry.key}
                       style={{ height, transform: `translateY(${top}px)` }}
                     >
                       <ListItem
-                        className={clsx(styles["selector-item"], {
-                          [styles["selector-item-disabled"]]: item.disable,
-                          [styles["selector-item-active"]]: selected,
-                        })}
+                        className={clsx(
+                          "nextchat-selector-list-item",
+                          styles["selector-item"],
+                          item.disable &&
+                            "nextchat-selector-list-item-disabled",
+                          item.disable && styles["selector-item-disabled"],
+                          selected && "nextchat-selector-list-item-active",
+                          selected && styles["selector-item-active"],
+                        )}
                         title={item.title}
                         subTitle={item.subTitle}
                         icon={
@@ -1746,16 +1959,38 @@ export function Selector<T>(props: {
                           }
                         }}
                       >
-                        <div className={styles["selector-item-actions"]}>
+                        <div
+                          className={clsx(
+                            "nextchat-selector-item-actions",
+                            styles["selector-item-actions"],
+                          )}
+                        >
                           {selected || item.disable ? (
-                            <div className={styles["selector-item-selected"]}>
-                              <SelectorCheckIcon />
+                            <div
+                              className={clsx(
+                                "nextchat-selector-item-selected",
+                                styles["selector-item-selected"],
+                              )}
+                              style={{ color: "var(--primary)" }}
+                            >
+                              <SelectorCheckIcon
+                                style={{
+                                  color: "var(--primary)",
+                                  stroke: "var(--primary)",
+                                  filter: "none",
+                                }}
+                              />
                             </div>
                           ) : null}
                           {item.rightAction ? (
                             <button
                               type="button"
-                              className={styles["selector-item-action"]}
+                              className={clsx(
+                                "nextchat-danger-button",
+                                "nextchat-no-hover-motion",
+                                "nextchat-selector-item-action",
+                                styles["selector-item-action"],
+                              )}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 item.rightAction?.onClick(item.value);
