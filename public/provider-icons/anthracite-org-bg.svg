@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Anthracite Org</title>
+  <rect width="30" height="30" rx="6" fill="#1C1917" />
+  <g transform="translate(3, 3)">
+    <!-- Coal/carbon crystal pattern -->
+    <polygon points="12,2 22,7 22,17 12,22 2,17 2,7" fill="#292524" stroke="#57534E" stroke-width="0.5"/>
+    <polygon points="12,5 19,8.5 19,15.5 12,19 5,15.5 5,8.5" fill="#44403C"/>
+    <polygon points="12,8 16,10 16,14 12,16 8,14 8,10" fill="#78716C"/>
+    <!-- M letter centered -->
+    <text x="12" y="15" font-family="system-ui, -apple-system, sans-serif" font-size="6" font-weight="800" fill="#E7E5E4" text-anchor="middle">M</text>
+  </g>
+</svg>

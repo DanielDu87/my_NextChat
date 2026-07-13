@@ -1,0 +1,13 @@
+<svg
+  width="32"
+  height="32"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>Kwaipilot</title>
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFFFFF" stroke="#F1F5F9" stroke-width="1" />
+  <g fill="#FF6000" transform="translate(3.5, 3.5) scale(0.95)">
+    <path clip-rule="evenodd" fill-rule="evenodd" d="M11.765.03C5.327.03.108 5.25.108 11.686c0 3.514 1.556 6.665 4.015 8.804L9.89 8.665h6.451L9.31 23.083c.807.173 1.63.26 2.455.26 6.438 0 11.657-5.22 11.657-11.658S18.202.028 11.765.028V.03z" />
+  </g>
+</svg>

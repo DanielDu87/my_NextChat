@@ -1,0 +1,28 @@
+<svg
+  width="32"
+  height="32"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>Deepcogito</title>
+  <rect width="30" height="30" rx="6" fill="#FEF3C7" />
+  <g transform="translate(3, 3)">
+    <!-- Brain/Cognition Icon -->
+    <g transform="translate(0, 0)">
+      <!-- Main brain shape -->
+      <path d="M12 2C8.5 2 6 4.5 6 7.5C6 9.5 7 11 8.5 12C7 13 6 14.5 6 16.5C6 19.5 8.5 22 12 22C15.5 22 18 19.5 18 16.5C18 14.5 17 13 15.5 12C17 11 18 9.5 18 7.5C18 4.5 15.5 2 12 2Z" fill="#D97706"/>
+      <!-- Inner neural connections -->
+      <circle cx="10" cy="8" r="1.5" fill="#FEF3C7"/>
+      <circle cx="14" cy="7" r="1.2" fill="#FEF3C7"/>
+      <circle cx="12" cy="11" r="1.5" fill="#FEF3C7"/>
+      <circle cx="9" cy="13" r="1" fill="#FEF3C7"/>
+      <circle cx="15" cy="13" r="1" fill="#FEF3C7"/>
+      <circle cx="12" cy="16" r="1.2" fill="#FEF3C7"/>
+      <!-- Neural lines -->
+      <path d="M10 8L12 11L14 7" stroke="#FEF3C7" stroke-width="0.5" fill="none"/>
+      <path d="M12 11L9 13M12 11L15 13" stroke="#FEF3C7" stroke-width="0.5" fill="none"/>
+      <path d="M9 13L12 16M15 13L12 16" stroke="#FEF3C7" stroke-width="0.5" fill="none"/>
+    </g>
+  </g>
+</svg>

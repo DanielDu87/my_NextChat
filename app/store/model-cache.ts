@@ -1,10 +1,12 @@
 import { StoreKey } from "../constant";
 import { createPersistStore } from "../utils/store";
 import { useAccessStore } from "./access";
+import type { LLMModel } from "../client/api";
 
 export type ProfileModelCache = {
   profileId: string;
   cachedModels: string;
+  models?: LLMModel[];
   modelCount: number;
   updatedAt: number;
   source?: "builtin" | "cache" | "remote" | "derived";
@@ -43,6 +45,7 @@ export const useModelCacheStore = createPersistStore(
           [profileId]: {
             profileId,
             cachedModels: payload.cachedModels,
+            models: payload.models ?? current?.models,
             modelCount: payload.modelCount,
             updatedAt: payload.updatedAt ?? Date.now(),
             source: payload.source ?? current?.source,
@@ -69,6 +72,7 @@ export const useModelCacheStore = createPersistStore(
           | "lastSyncAt"
           | "lastError"
           | "cachedModels"
+          | "models"
           | "modelCount"
         >
       >,
@@ -80,6 +84,7 @@ export const useModelCacheStore = createPersistStore(
           [profileId]: {
             profileId,
             cachedModels: payload.cachedModels ?? current?.cachedModels ?? "",
+            models: payload.models ?? current?.models,
             modelCount: payload.modelCount ?? current?.modelCount ?? 0,
             updatedAt: Date.now(),
             source: payload.source ?? current?.source,
@@ -98,10 +103,30 @@ export const useModelCacheStore = createPersistStore(
       const nextProfiles = { ...get().profiles };
       delete nextProfiles[profileId];
       set({ profiles: nextProfiles });
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem(`nextchat-fetched-models-${profileId}`);
+        } catch (e) {
+          console.error("[ModelCache] Failed to remove localStorage item", e);
+        }
+      }
     },
 
     clearProfileCaches() {
       set({ profiles: {} });
+      if (typeof window !== "undefined") {
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith("nextchat-fetched-models-")) {
+              localStorage.removeItem(key);
+              i--;
+            }
+          }
+        } catch (e) {
+          console.error("[ModelCache] Failed to clear localStorage items", e);
+        }
+      }
     },
 
     migrateFromAccessProfiles() {
@@ -119,6 +144,7 @@ export const useModelCacheStore = createPersistStore(
         nextProfiles[profile.id] = {
           profileId: profile.id,
           cachedModels: profile.cachedModels || "",
+          models: current?.models,
           modelCount: profile.modelCount || 0,
           updatedAt: current?.updatedAt ?? Date.now(),
           source: current?.source,
@@ -152,11 +178,11 @@ export const useModelCacheStore = createPersistStore(
   }),
   {
     name: StoreKey.ModelCache,
-    version: 1,
+    version: 2,
     partialize(state) {
       return {
         ...state,
-        profiles: {},
+        profiles: state.profiles,
       };
     },
   },

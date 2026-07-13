@@ -24,7 +24,7 @@ import {
   useCallback,
   ReactNode,
 } from "react";
-import { showConfirm } from "./ui-lib";
+import { showConfirm, showTopNoticeError } from "./ui-lib";
 import { formatChinaDateTime, useMobileScreen } from "../utils";
 import clsx from "clsx";
 import { ChatSessionSummary, DEFAULT_TOPIC } from "../store/chat";
@@ -275,6 +275,13 @@ export function ChatList() {
       exitMultiDeleteMode();
     }
   }, [exitMultiDeleteMode, isMobileScreen, multiDeleteMode]);
+
+  // 同步失败时显示红色顶部提示
+  useEffect(() => {
+    if (startupChatSyncStatus?.status === "error") {
+      showTopNoticeError("网络连接失败，可使用本地缓存的对话");
+    }
+  }, [startupChatSyncStatus?.status]);
 
   const triggerLoadMore = useCallback(() => {
     if (!hasMoreSessions) {
@@ -628,7 +635,9 @@ export function ChatList() {
     effectiveCurrentSessionId,
   ]);
 
-  if (isChatListLoading) {
+  const isSyncError = startupChatSyncStatus?.status === "error";
+
+  if (isChatListLoading && !isSyncError) {
     return (
       <div
         className={clsx(

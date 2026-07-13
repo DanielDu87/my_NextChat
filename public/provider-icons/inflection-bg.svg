@@ -1,0 +1,11 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Inflection</title>
+  <rect width="30" height="30" rx="6" fill="#F5F3FF" />
+  <g transform="translate(3, 3)">
+    <!-- Pi symbol (Inflection's product Pi) -->
+    <text x="12" y="22" font-family="Georgia, serif" font-size="20" font-weight="400" fill="#7C3AED" text-anchor="middle">π</text>
+    <!-- Soft glow accent -->
+    <circle cx="18" cy="6" r="2" fill="#A78BFA" opacity="0.6"/>
+    <circle cx="21" cy="9" r="1" fill="#C4B5FD" opacity="0.5"/>
+  </g>
+</svg>

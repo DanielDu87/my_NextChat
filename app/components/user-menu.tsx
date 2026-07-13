@@ -26,6 +26,7 @@ import { isAbortLikeError } from "../utils/stale-revalidate";
 import { getClientConfig } from "../config/client";
 import {
   cacheProviderBalance,
+  clearCachedProviderBalance,
   ProviderBalanceRequestError,
   queryProviderBalanceProfile,
   readCachedProviderBalance,
@@ -374,6 +375,11 @@ export function UserMenu(props?: {
         }
       })
       .catch((error) => {
+        if (active) {
+          // 清除缓存，下次刷新页面时不再显示旧值
+          clearCachedProviderBalance(balanceUserId, props.balanceProfileId!);
+          setProviderBalance(null);
+        }
         if (
           !isAbortLikeError(error) &&
           !(error instanceof ProviderBalanceRequestError)

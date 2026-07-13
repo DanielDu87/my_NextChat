@@ -5,7 +5,6 @@ import EyeIcon from "../icons/eye.svg";
 import EyeOffIcon from "../icons/eye-off.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
-import SelectorCheckIcon from "../icons/selector-check.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
@@ -208,6 +207,7 @@ export function List(props: {
   style?: CSSProperties;
   onScroll?: React.UIEventHandler<HTMLDivElement>;
   listRef?: React.Ref<HTMLDivElement>;
+  stickyHeader?: React.ReactNode;
 }) {
   return (
     <div
@@ -217,6 +217,7 @@ export function List(props: {
       ref={props.listRef}
       style={props.style}
     >
+      {props.stickyHeader}
       {props.children}
     </div>
   );
@@ -385,6 +386,7 @@ export type ToastProps = {
 type TopNoticeProps = {
   content: string;
   style?: CSSProperties;
+  variant?: "default" | "error";
 };
 
 let globalTopNoticeDiv: HTMLDivElement | null = null;
@@ -398,9 +400,14 @@ export function NoticePill(props: {
   children?: React.ReactNode;
   action?: ToastProps["action"];
   onClose?: () => void;
+  variant?: "default" | "error";
 }) {
   return (
-    <div className={styles["notice-pill"]}>
+    <div
+      className={`${styles["notice-pill"]}${
+        props.variant === "error" ? ` ${styles["notice-pill-error"]}` : ""
+      }`}
+    >
       <span className={styles["notice-pill-content"]}>
         {props.children ?? props.content}
       </span>
@@ -422,7 +429,7 @@ export function NoticePill(props: {
 export function TopNotice(props: TopNoticeProps) {
   return (
     <div className={styles["top-notice-host"]} style={props.style}>
-      <NoticePill content={props.content} />
+      <NoticePill content={props.content} variant={props.variant} />
     </div>
   );
 }
@@ -449,6 +456,18 @@ export function hideTopNotice() {
 }
 
 export function showTopNotice(content: string, delay = 2200) {
+  showTopNoticeWithVariant(content, "default", delay);
+}
+
+export function showTopNoticeError(content: string, delay = 4000) {
+  showTopNoticeWithVariant(content, "error", delay);
+}
+
+function showTopNoticeWithVariant(
+  content: string,
+  variant: "default" | "error",
+  delay: number,
+) {
   if (typeof document === "undefined") return;
 
   let hostStyle: CSSProperties | undefined;
@@ -490,7 +509,7 @@ export function showTopNotice(content: string, delay = 2200) {
     if (!globalTopNoticeDiv || !globalTopNoticeRoot) return;
     globalTopNoticeDiv.className = `${styles["top-notice-show"]}`;
     globalTopNoticeRoot.render(
-      <TopNotice content={content} style={hostStyle} />,
+      <TopNotice content={content} style={hostStyle} variant={variant} />,
     );
 
     globalTopNoticeCloseTimer = window.setTimeout(() => {
@@ -1335,7 +1354,11 @@ export function Selector<T>(props: {
     let top = 0;
     const rows = groupedItems.map((entry) => {
       const height =
-        entry.type === "group" ? estimatedGroupHeight : estimatedItemHeight;
+        entry.type === "group"
+          ? shouldVirtualize
+            ? 0
+            : estimatedGroupHeight
+          : estimatedItemHeight;
       const row = {
         entry,
         top,
@@ -1349,7 +1372,12 @@ export function Selector<T>(props: {
       rows,
       totalHeight: top,
     };
-  }, [estimatedGroupHeight, estimatedItemHeight, groupedItems]);
+  }, [
+    estimatedGroupHeight,
+    estimatedItemHeight,
+    groupedItems,
+    shouldVirtualize,
+  ]);
 
   const overscanPx = estimatedItemHeight * 6;
   const visibleVirtualRows = useMemo(() => {
@@ -1371,6 +1399,30 @@ export function Selector<T>(props: {
     viewportHeight,
     virtualRows.rows,
   ]);
+
+  // 计算当前可见的分组头（sticky header）
+  const visibleGroupHeader = useMemo(() => {
+    if (!shouldVirtualize) {
+      return null;
+    }
+    // 找到滚动位置上方最近的分组行，即最后一个 top <= scrollTop 的 group row
+    let currentGroup: (typeof virtualRows.rows)[number] | null = null;
+    let firstGroup: (typeof virtualRows.rows)[number] | null = null;
+
+    for (const row of virtualRows.rows) {
+      if (row.entry.type === "group") {
+        firstGroup ??= row;
+        if (row.top <= scrollTop) {
+          currentGroup = row;
+        } else {
+          break;
+        }
+      }
+    }
+
+    // 滚回列表起点时，仍保留第一个标题，不能让固定标题层消失。
+    return currentGroup ?? firstGroup;
+  }, [shouldVirtualize, scrollTop, virtualRows]);
 
   useEffect(() => {
     if (searchStartedAtRef.current <= 0 || !props.perfScope) {
@@ -1579,7 +1631,9 @@ export function Selector<T>(props: {
                         </span>
                       ) : null}
                       <span>{getGroupFilterLabel(group)}</span>
-                      {active ? <ConfirmIcon /> : null}
+                      {active ? (
+                        <ConfirmIcon className="nextchat-model-selector-check" />
+                      ) : null}
                     </button>
                   );
                 })}
@@ -1770,6 +1824,33 @@ export function Selector<T>(props: {
               }
               setScrollTop(event.currentTarget.scrollTop);
             }}
+            stickyHeader={
+              shouldVirtualize && visibleGroupHeader?.entry.type === "group" ? (
+                <div
+                  className={clsx(
+                    "nextchat-selector-sticky-header",
+                    styles["list-sticky-header"],
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      "nextchat-selector-sticky-header-label",
+                      styles["list-sticky-header-label"],
+                    )}
+                  >
+                    {visibleGroupHeader.entry.label}
+                  </span>
+                  <span
+                    className={clsx(
+                      "nextchat-selector-sticky-header-count",
+                      styles["list-sticky-header-count"],
+                    )}
+                  >
+                    共 {visibleGroupHeader.entry.count} 个
+                  </span>
+                </div>
+              ) : undefined
+            }
           >
             {!shouldVirtualize ? (
               groupedItems.map((entry) => {
@@ -1850,7 +1931,8 @@ export function Selector<T>(props: {
                         )}
                         style={{ color: "var(--primary)" }}
                       >
-                        <SelectorCheckIcon
+                        <ConfirmIcon
+                          className="nextchat-model-selector-check"
                           style={{
                             color: "var(--primary)",
                             stroke: "var(--primary)",
@@ -1887,123 +1969,99 @@ export function Selector<T>(props: {
                 )}
                 style={{ height: virtualRows.totalHeight }}
               >
-                {visibleVirtualRows.map(({ entry, top, height }) => {
-                  if (entry.type === "group") {
+                {visibleVirtualRows
+                  .filter(
+                    (
+                      row,
+                    ): row is (typeof virtualRows.rows)[number] & {
+                      entry: { type: "item" };
+                    } => row.entry.type === "item",
+                  )
+                  .map(({ entry, top, height }) => {
+                    const { item } = entry;
+                    const selected = selectedValues.includes(item.value);
+
                     return (
                       <div
                         className={clsx(
-                          styles["selector-group"],
-                          styles["selector-virtual-row"],
-                          "nextchat-selector-group",
                           "nextchat-selector-virtual-row",
+                          styles["selector-virtual-row"],
                         )}
-                        data-selector-group="true"
                         key={entry.key}
                         style={{ height, transform: `translateY(${top}px)` }}
                       >
-                        <span
+                        <ListItem
                           className={clsx(
-                            "nextchat-selector-group-label",
-                            styles["selector-group-label"],
+                            "nextchat-selector-list-item",
+                            styles["selector-item"],
+                            item.disable &&
+                              "nextchat-selector-list-item-disabled",
+                            item.disable && styles["selector-item-disabled"],
+                            selected && "nextchat-selector-list-item-active",
+                            selected && styles["selector-item-active"],
                           )}
+                          title={item.title}
+                          subTitle={item.subTitle}
+                          icon={
+                            <Avatar
+                              model={(item.group || item.value) as string}
+                            />
+                          }
+                          onClick={(e) => {
+                            if (item.disable) {
+                              e.stopPropagation();
+                              props.onDisabledItemClick?.();
+                            } else {
+                              handleSelection(e, item.value);
+                            }
+                          }}
                         >
-                          {entry.label}
-                        </span>
-                        <span
-                          className={clsx(
-                            "nextchat-selector-group-count",
-                            styles["selector-group-count"],
-                          )}
-                        >
-                          共 {entry.count} 个
-                        </span>
+                          <div
+                            className={clsx(
+                              "nextchat-selector-item-actions",
+                              styles["selector-item-actions"],
+                            )}
+                          >
+                            {selected || item.disable ? (
+                              <div
+                                className={clsx(
+                                  "nextchat-selector-item-selected",
+                                  styles["selector-item-selected"],
+                                )}
+                                style={{ color: "var(--primary)" }}
+                              >
+                                <ConfirmIcon
+                                  className="nextchat-model-selector-check"
+                                  style={{
+                                    color: "var(--primary)",
+                                    stroke: "var(--primary)",
+                                    filter: "none",
+                                  }}
+                                />
+                              </div>
+                            ) : null}
+                            {item.rightAction ? (
+                              <button
+                                type="button"
+                                className={clsx(
+                                  "nextchat-danger-button",
+                                  "nextchat-no-hover-motion",
+                                  "nextchat-selector-item-action",
+                                  styles["selector-item-action"],
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  item.rightAction?.onClick(item.value);
+                                }}
+                              >
+                                {item.rightAction.text}
+                              </button>
+                            ) : null}
+                          </div>
+                        </ListItem>
                       </div>
                     );
-                  }
-
-                  const { item } = entry;
-                  const selected = selectedValues.includes(item.value);
-
-                  return (
-                    <div
-                      className={clsx(
-                        "nextchat-selector-virtual-row",
-                        styles["selector-virtual-row"],
-                      )}
-                      key={entry.key}
-                      style={{ height, transform: `translateY(${top}px)` }}
-                    >
-                      <ListItem
-                        className={clsx(
-                          "nextchat-selector-list-item",
-                          styles["selector-item"],
-                          item.disable &&
-                            "nextchat-selector-list-item-disabled",
-                          item.disable && styles["selector-item-disabled"],
-                          selected && "nextchat-selector-list-item-active",
-                          selected && styles["selector-item-active"],
-                        )}
-                        title={item.title}
-                        subTitle={item.subTitle}
-                        icon={
-                          <Avatar
-                            model={(item.group || item.value) as string}
-                          />
-                        }
-                        onClick={(e) => {
-                          if (item.disable) {
-                            e.stopPropagation();
-                            props.onDisabledItemClick?.();
-                          } else {
-                            handleSelection(e, item.value);
-                          }
-                        }}
-                      >
-                        <div
-                          className={clsx(
-                            "nextchat-selector-item-actions",
-                            styles["selector-item-actions"],
-                          )}
-                        >
-                          {selected || item.disable ? (
-                            <div
-                              className={clsx(
-                                "nextchat-selector-item-selected",
-                                styles["selector-item-selected"],
-                              )}
-                              style={{ color: "var(--primary)" }}
-                            >
-                              <SelectorCheckIcon
-                                style={{
-                                  color: "var(--primary)",
-                                  stroke: "var(--primary)",
-                                  filter: "none",
-                                }}
-                              />
-                            </div>
-                          ) : null}
-                          {item.rightAction ? (
-                            <button
-                              type="button"
-                              className={clsx(
-                                "nextchat-danger-button",
-                                "nextchat-no-hover-motion",
-                                "nextchat-selector-item-action",
-                                styles["selector-item-action"],
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                item.rightAction?.onClick(item.value);
-                              }}
-                            >
-                              {item.rightAction.text}
-                            </button>
-                          ) : null}
-                        </div>
-                      </ListItem>
-                    </div>
-                  );
-                })}
+                  })}
               </div>
             )}
           </List>

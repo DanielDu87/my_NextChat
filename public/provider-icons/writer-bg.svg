@@ -1,0 +1,10 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Writer</title>
+  <rect width="30" height="30" rx="6" fill="#FDF4FF" />
+  <g transform="translate(3, 3)">
+    <!-- Pen/Writing icon -->
+    <path d="M16 4L20 8L8 20L4 20L4 16L16 4Z" fill="#A855F7"/>
+    <path d="M16 4L18 6L8 16L6 18L4 20L6 18L8 16L16 4Z" fill="#C084FC"/>
+    <rect x="4" y="18" width="6" height="2" rx="1" fill="#7E22CE"/>
+  </g>
+</svg>

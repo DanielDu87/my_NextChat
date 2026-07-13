@@ -1,0 +1,27 @@
+<svg
+  width="32"
+  height="32"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>Gryphe</title>
+  <rect width="30" height="30" rx="6" fill="#FDF4FF" />
+  <g transform="translate(3, 3)">
+    <!-- Phoenix/Griffin Icon -->
+    <g transform="translate(0, 0)">
+      <!-- Wing -->
+      <path d="M20 4C16 6 12 8 8 8C6 8 4 9 3 11L6 12C8 11 10 10 13 10C17 10 19 8 20 4Z" fill="#A855F7"/>
+      <!-- Body -->
+      <path d="M8 8C6 8 4 9 3 11C2 13 3 15 5 16C7 17 10 16 12 15C14 14 16 13 17 12C18 11 18 10 18 10C18 10 16 8 14 8C12 8 10 8 8 8Z" fill="#C084FC"/>
+      <!-- Head -->
+      <circle cx="5" cy="9" r="3" fill="#A855F7"/>
+      <!-- Beak -->
+      <path d="M2 9L4 10L2 11Z" fill="#F59E0B"/>
+      <!-- Eye -->
+      <circle cx="5" cy="8.5" r="0.8" fill="#FDF4FF"/>
+      <!-- Tail feathers -->
+      <path d="M12 15L14 20L11 18L10 21L9 18L6 20L10 16Z" fill="#A855F7"/>
+    </g>
+  </g>
+</svg>

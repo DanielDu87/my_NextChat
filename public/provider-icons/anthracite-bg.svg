@@ -1,0 +1,19 @@
+<svg
+  width="32"
+  height="32"
+  viewBox="0 0 30 30"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>Anthracite</title>
+  <rect width="30" height="30" rx="6" fill="#F1F5F9" />
+  <g transform="translate(3, 3)">
+    <!-- Diamond/Triangle Icon -->
+    <g transform="translate(0, 1)">
+      <path d="M13 1L22 8L13 15L4 8L13 1Z" fill="#475569"/>
+      <path d="M13 15L4 8L13 8L22 8L13 15Z" fill="#334155"/>
+    </g>
+  </g>
+  <!-- Text: Anthracite -->
+  <text x="3" y="27" font-family="system-ui, -apple-system, sans-serif" font-size="5" font-weight="600" fill="#475569">Anthracite</text>
+</svg>

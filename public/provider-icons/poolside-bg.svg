@@ -1,0 +1,10 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Poolside</title>
+  <rect width="30" height="30" rx="6" fill="#FDF4FF" />
+  <g transform="translate(3, 3)">
+    <!-- Pool/layers icon -->
+    <ellipse cx="12" cy="8" rx="8" ry="3" fill="#A855F7"/>
+    <ellipse cx="12" cy="14" rx="6" ry="2.5" fill="#C084FC"/>
+    <ellipse cx="12" cy="19" rx="4" ry="2" fill="#E9D5FF"/>
+  </g>
+</svg>

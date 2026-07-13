@@ -2,10 +2,33 @@ import { create } from "zustand";
 import { clearUserScopedPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
 import { Path, StoreKey } from "@/app/constant";
 import { publishStartupChatSyncStatus } from "@/app/utils/chat-startup-loading";
-import { chatPersistStorage } from "@/app/utils/chat-persist-storage";
+import { isPerfDebugEnabled } from "@/app/utils/perf";
+import { hasPersistedChatCache } from "@/app/utils/chat-persist-storage";
 
 const AUTH_CACHE_MARKER_KEY = "nextchat_auth_cache_marker";
 const AUTH_STATE_KEY = "nextchat_auth_state";
+let activeSwitchGeneration = 0;
+let activeSwitchAbortController: AbortController | null = null;
+
+function beginUserSwitch() {
+  activeSwitchAbortController?.abort();
+  activeSwitchAbortController = new AbortController();
+  activeSwitchGeneration += 1;
+  return {
+    generation: activeSwitchGeneration,
+    signal: activeSwitchAbortController.signal,
+  };
+}
+
+function isCurrentUserSwitch(generation: number) {
+  return generation === activeSwitchGeneration;
+}
+
+function logSwitchPerf(message: string) {
+  if (isPerfDebugEnabled()) {
+    console.info(message);
+  }
+}
 type AuthUserInfo = {
   id: string;
   username: string;
@@ -92,6 +115,13 @@ async function resetClientCache(nextUserId = "", clearPersistedState = true) {
 
 // 启动时从 localStorage 恢复登录状态
 const cachedAuthState = loadAuthState();
+const cachedEffectiveUserId = String(cachedAuthState?.effectiveUser?.id || "");
+
+// Chat Store 会在页面启动时立即水合。先让 marker 与已缓存的登录态一致，
+// 防止 cookie 尚未复核前短暂读取上一个用户的聊天缓存。
+if (cachedEffectiveUserId && getCacheMarker() !== cachedEffectiveUserId) {
+  setCacheMarker(cachedEffectiveUserId);
+}
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: cachedAuthState?.user || null,
@@ -159,9 +189,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await resetClientCache(effectiveUserId, false);
       try {
         const { useChatStore } = await import("./chat");
-        await useChatStore.getState().resetForUserSwitch({ sync: false });
-        await (useChatStore as any).persist?.rehydrate?.();
-      } catch {}
+        const { useChatIndexStore } = await import("./chat-index");
+        const hasCache = await hasPersistedChatCache(effectiveUserId);
+        if (hasCache) {
+          await (useChatStore as any).persist?.rehydrate?.();
+        } else {
+          await useChatStore.getState().resetForUserSwitch({ sync: false });
+        }
+        // 同步初始化 chat-index，确保侧边栏显示正确的会话列表
+        await useChatIndexStore
+          .getState()
+          .initialize({ forceFromIndexedDB: true });
+      } catch (error) {
+        console.error(
+          "[Auth] fetchMe 用户切换时初始化 chat-index 失败:",
+          error,
+        );
+      }
     }
 
     if (effectiveUserId && !cacheMarker) {
@@ -198,6 +242,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     userId: string,
     userPreview?: { username?: string; displayName?: string },
   ) {
+    const { generation, signal } = beginUserSwitch();
+    const isCurrent = () => isCurrentUserSwitch(generation);
+
     // 必须在任何异步导入和缓存读取之前发布，立即遮住原用户的聊天内容。
     set({ switchingUser: true });
     publishStartupChatSyncStatus("syncing");
@@ -224,6 +271,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const chatIndexModule = import("./chat-index");
     const { useChatStore: chatStore } = await chatStoreModule;
     const { useChatIndexStore } = await chatIndexModule;
+    if (!isCurrent()) return;
 
     // 先进入无会话 ID 的聊天壳并显示同步状态。这里不能提前进入 /new-chat：
     // 目标缓存尚未恢复时，新对话页面会基于原用户内存创建会话，并可能写入
@@ -234,28 +282,63 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {}
 
     // 先确认目标用户是否已有独立缓存，避免空状态覆盖其历史缓存。
-    const targetUserCachedChat = await chatPersistStorage.getItem(
-      StoreKey.Chat,
+    const switchStartAt = Date.now();
+    logSwitchPerf(`[Auth] switchUser 开始 | hasCache: 加载中...`);
+    const hasCache = await hasPersistedChatCache(userId);
+    if (!isCurrent()) return;
+    logSwitchPerf(
+      `[Auth] switchUser hasCache 检查完成 | hasCache: ${hasCache} | 耗时: ${
+        Date.now() - switchStartAt
+      }ms`,
     );
 
     // 立即切换到目标用户缓存；无缓存时才创建空状态，绝不沿用旧用户数据。
-    if (targetUserCachedChat) {
+    const rehydrateStartAt = Date.now();
+    if (hasCache) {
       await (chatStore as any).persist?.rehydrate?.();
+      if (!isCurrent()) return;
+      logSwitchPerf(
+        `[Auth] switchUser rehydrate 完成 | 耗时: ${
+          Date.now() - rehydrateStartAt
+        }ms`,
+      );
     } else {
       await chatStore.getState().resetForUserSwitch({ sync: false });
+      if (!isCurrent()) return;
+      logSwitchPerf(
+        `[Auth] switchUser resetForUserSwitch 完成 | 耗时: ${
+          Date.now() - rehydrateStartAt
+        }ms`,
+      );
     }
 
-    // 立即同步 index store 到新状态
-    useChatIndexStore.getState().syncFromChatStore();
+    // 有缓存时，chat store 刚 rehydrate，只有部分会话占位符。
+    // syncFromChatStore 会用不完整的内存状态覆盖 index，导致旧会话丢失。
+    // 所以有缓存时跳过 syncFromChatStore，交给后续 initialize() 从 IndexedDB 读取完整 index。
+    if (!hasCache) {
+      useChatIndexStore.getState().syncFromChatStore();
+    }
 
-    const response = await fetch("/api/admin/switch-user", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify({ userId }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/admin/switch-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify({ userId }),
+        signal,
+      });
+    } catch (error) {
+      if (isCurrent() && (error as Error)?.name !== "AbortError") {
+        console.error("[Auth] 切换用户请求失败", error);
+        set({ switchingUser: false });
+        publishStartupChatSyncStatus("error");
+      }
+      return;
+    }
     const payload = await response.json().catch(() => null);
+    if (!isCurrent()) return;
     if (!response.ok || payload?.ok !== true) {
       // API 失败，刷新页面恢复到切换前状态
       window.location.reload();
@@ -293,35 +376,69 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     setCacheMarker(String(effectiveUser?.id || ""));
 
     const { useSyncStore } = await import("./sync");
+    if (!isCurrent()) return;
+
     // 目标用户已有缓存时，优先从该用户自己的持久化 index 完整恢复会话列表，
     // 而不是仅依赖当前已水合到内存的少量 sessions（那会导致「只剩一个对话」）。
-    if (targetUserCachedChat) {
-      await (chatStore as any).persist?.rehydrate?.();
-      await useChatIndexStore.getState().initialize();
+    const initStartAt = Date.now();
+    if (hasCache) {
+      await useChatIndexStore
+        .getState()
+        .initialize({ forceFromIndexedDB: true });
+      if (!isCurrent()) return;
+      logSwitchPerf(
+        `[Auth] switchUser initialize 完成 | 耗时: ${
+          Date.now() - initStartAt
+        }ms | 总耗时: ${Date.now() - switchStartAt}ms`,
+      );
+
+      // 本地缓存就绪后立即解锁 UI，不需要等待慢速网络同步，实现极速响应。
+      set({ switchingUser: false });
+      publishStartupChatSyncStatus("done");
+
+      // 远端同步作为后台任务执行，不阻塞返回，实现真正的秒级响应。
+      void (async () => {
+        try {
+          await useSyncStore.getState().sync([StoreKey.Chat], {
+            isolateQueue: true,
+            downloadOnlyChat: true,
+          });
+          if (!isCurrent()) return;
+          logSwitchPerf(`[Auth] 后台同步完成`);
+          // 同步完成后再次初始化，确保 index 与远端最新状态一致
+          await useChatIndexStore
+            .getState()
+            .initialize({ forceFromIndexedDB: true });
+        } catch (error) {
+          if (isCurrent() && (error as Error)?.name !== "AbortError") {
+            console.error("[Auth] 后台同步失败", error);
+            publishStartupChatSyncStatus("error");
+          }
+        }
+      })();
     } else {
-      // 空态场景才走 syncFromChatStore（基于空内存 sessions 初始化 index）
+      // 空态场景：初始化空状态后立即解锁 UI
       chatStore.getState().initializeForNewPage?.();
       useChatIndexStore.getState().syncFromChatStore();
-    }
-
-    // 最后同步新用户的远端对话。这里必须等待完成后再返回，
-    // 调用方可能会在切换后立即打开某个会话；提前返回会被后台下载同步覆盖。
-    try {
-      await useSyncStore.getState().sync([StoreKey.Chat], {
-        isolateQueue: true,
-        downloadOnlyChat: true,
-      });
-      // 远端同步完成后再重建一次 chat-index，避免 syncChatStore 写回分片 index 后
-      // sidebar 又被少量内存 session 覆盖（重显「只剩一个对话」）。
-      if (targetUserCachedChat) {
-        await useChatIndexStore.getState().initialize();
-      }
-      publishStartupChatSyncStatus("done");
-    } catch (error) {
-      publishStartupChatSyncStatus("error");
-      console.error("[Auth] 切换用户后同步对话失败:", error);
-    } finally {
       set({ switchingUser: false });
+      publishStartupChatSyncStatus("done");
+
+      // 远端同步作为后台任务执行
+      void (async () => {
+        try {
+          await useSyncStore.getState().sync([StoreKey.Chat], {
+            isolateQueue: true,
+            downloadOnlyChat: true,
+          });
+          if (!isCurrent()) return;
+          useChatIndexStore.getState().syncFromChatStore();
+        } catch (error) {
+          if (isCurrent() && (error as Error)?.name !== "AbortError") {
+            console.error("[Auth] 后台同步失败", error);
+            publishStartupChatSyncStatus("error");
+          }
+        }
+      })();
     }
   },
   async exitSwitch() {

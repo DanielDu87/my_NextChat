@@ -2,17 +2,24 @@ import { create } from "zustand";
 import { StoreKey } from "../constant";
 import {
   ChatPersistSplitIndex,
+  getActiveChatStoreScopeUserId,
   getChatIndexStorageKey,
   getScopedChatStoreKey,
 } from "../utils/chat-persist-storage";
 import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
-import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import {
+  isPerfDebugEnabled,
+  isPerfFeatureEnabled,
+  logPerfSummary,
+  nowMs,
+} from "../utils/perf";
 import { parseStoreStatePayload } from "../utils/sync-store-keys";
 import { ChatSessionSummary, createEmptySession, useChatStore } from "./chat";
 import { DEFAULT_TOPIC } from "./chat-defaults";
 import { logger } from "../utils/logger";
 
-const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 20;
+// 每个用户首开/切换先展示最近 50 个会话；继续下滑时再按页加载更早历史。
+const INITIAL_VISIBLE_SESSION_TITLE_COUNT = 50;
 const LOAD_MORE_SESSION_TITLE_COUNT = 10;
 const INITIAL_PRELOAD_SESSION_BODY_COUNT = 5;
 
@@ -25,7 +32,7 @@ type ChatIndexState = {
   deletedSessionTimestamps: Record<string, number>;
   visibleCount: number;
   initialized: boolean;
-  initialize: () => Promise<void>;
+  initialize: (options?: { forceFromIndexedDB?: boolean }) => Promise<void>;
   syncFromChatStore: () => void;
   loadMore: () => void;
 };
@@ -504,32 +511,44 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
   deletedSessionTimestamps: {},
   visibleCount: INITIAL_VISIBLE_SESSION_TITLE_COUNT,
   initialized: false,
-  async initialize() {
+  async initialize(options?: { forceFromIndexedDB?: boolean }) {
     const startedAt = nowMs();
     bindChatStoreSubscription();
+    const expectedUserId = getActiveChatStoreScopeUserId();
 
-    // 优先从 chatStore 内存构建，避免重复 IndexedDB 读取
+    // 优先从 chatStore 内存构建，避免重复 IndexedDB 读取。
+    // 但切换用户且有缓存时，内存状态不完整（只有前 20 个会话占位符），
+    // 必须强制从 IndexedDB 读取完整 index，否则侧边栏会漏掉旧会话。
     const chatStoreState = useChatStore.getState();
     const hasChatStoreHydrated = Boolean((chatStoreState as any)._hasHydrated);
+    const shouldForceFromIndexedDB = options?.forceFromIndexedDB === true;
+    const sourceFromMemory =
+      !shouldForceFromIndexedDB &&
+      hasChatStoreHydrated &&
+      Array.isArray(chatStoreState.sessions) &&
+      chatStoreState.sessions.length > 0;
 
     let nextSnapshot: ChatIndexSnapshot;
 
-    if (
-      hasChatStoreHydrated &&
-      Array.isArray(chatStoreState.sessions) &&
-      chatStoreState.sessions.length > 0
-    ) {
+    if (sourceFromMemory) {
       nextSnapshot = buildSnapshotFromChatStore();
     } else {
       const indexText = await indexedDbStateStorage.getRawItem(
         getChatIndexStorageKey(getScopedChatStoreKey(StoreKey.Chat)),
       );
+      if (getActiveChatStoreScopeUserId() !== expectedUserId) {
+        return;
+      }
       const snapshot = indexText
         ? buildSnapshotFromPersistedIndex(
             parseStoreStatePayload<ChatPersistSplitIndex>(indexText),
           )
         : null;
       nextSnapshot = snapshot ?? buildSnapshotFromChatStore();
+    }
+
+    if (getActiveChatStoreScopeUserId() !== expectedUserId) {
+      return;
     }
 
     set(() => ({
@@ -545,8 +564,21 @@ export const useChatIndexStore = create<ChatIndexState>((set) => ({
       ),
     );
 
+    const durationMs = Number((nowMs() - startedAt).toFixed(2));
+    if (isPerfDebugEnabled()) {
+      logger.chatIndex.log(
+        `[ChatIndex.initialize] 完成 | 来源: ${
+          sourceFromMemory ? "内存" : "IndexedDB"
+        } | ` +
+          `forceFromIndexedDB: ${shouldForceFromIndexedDB} | ` +
+          `会话数: ${nextSnapshot.allOrderedSessionIds.length} | ` +
+          `当前会话: ${nextSnapshot.currentSessionId || "(空)"} | ` +
+          `耗时: ${durationMs}ms`,
+      );
+    }
+
     recordChatIndexPerf({
-      chatIndexInitDurationMs: Number((nowMs() - startedAt).toFixed(2)),
+      chatIndexInitDurationMs: durationMs,
       sessionCount: nextSnapshot.allOrderedSessionIds.length,
       hydratedSessionCount: getInitialPreloadSessionIds(
         nextSnapshot.orderedSessionIds,

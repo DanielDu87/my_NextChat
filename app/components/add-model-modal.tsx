@@ -13,11 +13,12 @@ import { LLMModel } from "../client/api";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import BotIconDefault from "../icons/llm-icons/default.svg";
-import { getProviderIcon } from "../config/provider-icons";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 import clsx from "clsx";
 
-// 模块级缓存：页面刷新即清空，同页面内切换供应商不重复获取。
+// 移除文字自适应缩放功能，改用 CSS overflow: hidden + hover 滚动
+
+// 模块级缓存用于本次页面生命周期；跨刷新由 model-cache-store 持久化。
 const modelCache = new Map<string, { models: LLMModel[]; total: number }>();
 
 function normalizeModelAlias(name: unknown) {
@@ -131,6 +132,8 @@ export function AddModelSelector(props: {
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [selectorResetKey, setSelectorResetKey] = useState(0);
   const fetchCancelRef = useRef(false);
+  const customModelPopoverRef = useRef<HTMLDivElement>(null);
+  const customModelTriggerRef = useRef<HTMLButtonElement>(null);
   const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
 
   const handleClose = useCallback(() => {
@@ -189,7 +192,46 @@ export function AddModelSelector(props: {
       return true;
     }
 
+    if (typeof window !== "undefined") {
+      try {
+        const localData = localStorage.getItem(
+          `nextchat-fetched-models-${activeProfile.id}`,
+        );
+        if (localData) {
+          const parsed = JSON.parse(localData);
+          if (
+            parsed &&
+            Array.isArray(parsed.models) &&
+            parsed.models.length > 0
+          ) {
+            const sorted = sortModelsForSelector(parsed.models);
+            const total = Number(parsed.total || 0) || sorted.length;
+            modelCache.set(selectedProviderId, { models: sorted, total });
+            setFetchedModels(sorted);
+            setFetchedTotal(total);
+            setLoading(false);
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error(
+          "[ModelManager] Failed to load models from localStorage",
+          e,
+        );
+      }
+    }
+
     const profileCache = modelCacheProfiles?.[activeProfile.id];
+    if (profileCache?.models && profileCache.models.length > 0) {
+      const sorted = sortModelsForSelector(profileCache.models);
+      const total = Number(profileCache.modelCount || 0) || sorted.length;
+      modelCache.set(selectedProviderId, { models: sorted, total });
+      setFetchedModels(sorted);
+      setFetchedTotal(total);
+      setLoading(false);
+      return true;
+    }
+
     const sourceRuntimeModels = runtimeModels || config.models || [];
     const providerModels = sourceRuntimeModels.filter(
       (model) =>
@@ -239,27 +281,23 @@ export function AddModelSelector(props: {
     selectedProviderId,
   ]);
 
-  // 切换供应商时不读取大模型缓存，只重置管理器列表。
+  // 打开或切换供应商时优先显示本地缓存；没有缓存才显示空列表。
   useEffect(() => {
     if (!activeProfile) return;
     fetchCancelRef.current = false;
     setFetchError("");
-    setFetchedModels([]);
-    setFetchedTotal(0);
     setLoading(false);
-  }, [activeProfile, selectedProviderId]);
+    if (!loadCachedModels()) {
+      setFetchedModels([]);
+      setFetchedTotal(0);
+    }
+  }, [activeProfile, loadCachedModels, selectedProviderId]);
 
   const fetchRemoteModels = useCallback(() => {
     if (!activeProfile) return;
     fetchCancelRef.current = false;
     setFetchError("");
     setLoading(true);
-    setFetchedModels([]);
-    setFetchedTotal(0);
-
-    if (loadCachedModels()) {
-      return;
-    }
 
     const p = activeProfile as any;
     const modelFetchKey =
@@ -302,6 +340,7 @@ export function AddModelSelector(props: {
           });
           useModelCacheStore.getState().upsertProfileCache?.(activeProfile.id, {
             cachedModels: modelsToCustomModelsString(result.models),
+            models: sorted,
             modelCount: result.total || sorted.length,
             source: "remote",
             syncStatus: "ready",
@@ -310,6 +349,22 @@ export function AddModelSelector(props: {
             lastSyncAt: Date.now(),
             lastError: undefined,
           });
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(
+                `nextchat-fetched-models-${activeProfile.id}`,
+                JSON.stringify({
+                  models: sorted,
+                  total: result.total || sorted.length,
+                }),
+              );
+            } catch (e) {
+              console.error(
+                "[ModelManager] Failed to save models to localStorage",
+                e,
+              );
+            }
+          }
           setFetchedModels(sorted);
           setFetchedTotal(result.total || sorted.length);
         }
@@ -320,17 +375,38 @@ export function AddModelSelector(props: {
         const msg =
           err instanceof Error ? err.message : String(err || "未知错误");
         setFetchError(msg);
-        setFetchedModels([]);
-        setFetchedTotal(0);
         setLoading(false);
       });
-  }, [activeProfile, loadCachedModels, selectedProviderId]);
+  }, [activeProfile, selectedProviderId]);
 
   useEffect(() => {
     return () => {
       fetchCancelRef.current = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showCustomInput) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        customModelPopoverRef.current?.contains(target) ||
+        customModelTriggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowCustomInput(false);
+      setCustomModelError("");
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [showCustomInput]);
 
   const removeModel = useCallback(
     (key: string) => {
@@ -694,6 +770,20 @@ export function AddModelSelector(props: {
                 : `共 ${displayTotal} 个模型可用`}
             </span>
           )}
+          {!loading && (displayTotal > 0 || fetchError) ? (
+            <button
+              type="button"
+              onClick={fetchRemoteModels}
+              className={clsx(
+                "model-selector-hint-fetch",
+                "nextchat-default-button",
+                "nextchat-pill-button",
+                "nextchat-no-hover-motion",
+              )}
+            >
+              重新获取
+            </button>
+          ) : null}
           {providerDropdownOpen && (
             <div
               className={clsx(
@@ -706,8 +796,6 @@ export function AddModelSelector(props: {
                 const pid = resolveProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
                 const isActive = pid === selectedProviderId;
-                const providerIcon =
-                  getProviderIcon(p.provider) || getProviderIcon(pName);
                 return (
                   <button
                     type="button"
@@ -736,38 +824,25 @@ export function AddModelSelector(props: {
                         "nextchat-selector-menu-option-leading",
                       )}
                     >
-                      {providerIcon ? (
-                        <span
+                      <div className="no-dark">
+                        <BotIconDefault
                           className={clsx(
-                            "model-selector-option-icon-frame",
-                            "nextchat-selector-menu-icon-frame",
+                            "model-selector-provider-default-icon",
+                            "nextchat-selector-menu-icon-image",
                           )}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            alt={`${pName} icon`}
-                            className={clsx(
-                              "model-selector-option-icon-image",
-                              "nextchat-selector-menu-icon-image",
-                            )}
-                            src={providerIcon}
-                          />
-                        </span>
-                      ) : (
-                        <div className="no-dark">
-                          <BotIconDefault
-                            className={clsx(
-                              "user-avatar",
-                              "nextchat-selector-menu-icon-image",
-                            )}
-                            width={16}
-                            height={16}
-                          />
-                        </div>
-                      )}
+                          width={16}
+                          height={16}
+                          viewBox="0 0 30 30"
+                          preserveAspectRatio="xMidYMid meet"
+                        />
+                      </div>
                     </span>
-                    <span>{pName}</span>
-                    {isActive ? <ConfirmIcon /> : null}
+                    <span className="model-selector-provider-option-text">
+                      {pName}
+                    </span>
+                    {isActive ? (
+                      <ConfirmIcon className="nextchat-model-selector-check" />
+                    ) : null}
                   </button>
                 );
               })}
@@ -778,9 +853,13 @@ export function AddModelSelector(props: {
       footer={
         <>
           {showCustomInput ? (
-            <div className="nextchat-modal-custom-popover">
+            <div
+              className="nextchat-modal-custom-popover"
+              ref={customModelPopoverRef}
+            >
               <form
                 className="nextchat-modal-custom-form"
+                autoComplete="off"
                 onSubmit={(event) => {
                   event.preventDefault();
                   addCustomModel();
@@ -791,7 +870,11 @@ export function AddModelSelector(props: {
                 </div>
                 <div className="nextchat-modal-custom-row">
                   <input
-                    className="nextchat-input-control"
+                    className="nextchat-input-control model-selector-custom-input"
+                    name="custom-model-name"
+                    autoComplete="new-password"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
                     value={customModelName}
                     onChange={(event) => {
                       setCustomModelName(event.currentTarget.value);
@@ -831,7 +914,11 @@ export function AddModelSelector(props: {
               </form>
             </div>
           ) : null}
-          <div className="nextchat-modal-footer">
+          <div
+            className={clsx("nextchat-modal-footer", {
+              "nextchat-modal-footer-show-added": showAdded,
+            })}
+          >
             {showAdded ? (
               <>
                 <div className="nextchat-modal-footer-group">
@@ -885,6 +972,7 @@ export function AddModelSelector(props: {
                   </button>
                   <button
                     type="button"
+                    ref={customModelTriggerRef}
                     onClick={() => {
                       setShowCustomInput((visible) => !visible);
                       setCustomModelError("");
@@ -896,28 +984,13 @@ export function AddModelSelector(props: {
                   >
                     自定义模型
                   </button>
+                </div>
+                <div className="nextchat-modal-footer-group">
                   {pendingSelection.length > 0 && (
                     <span className="nextchat-modal-count">
                       已选 {pendingSelection.length} 个
                     </span>
                   )}
-                </div>
-                <div className="nextchat-modal-footer-group">
-                  <button
-                    type="button"
-                    onClick={fetchRemoteModels}
-                    disabled={loading}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    {loading
-                      ? "获取中"
-                      : fetchedModels.length > 0 || fetchError
-                      ? "重新获取"
-                      : "获取模型"}
-                  </button>
                   <button
                     type="button"
                     disabled={confirmDisabled}

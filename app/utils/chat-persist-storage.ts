@@ -28,8 +28,9 @@ const localStorage = (() => {
 })();
 
 export type ChatPersistSplitIndex = {
-  version: 1;
+  version: 2;
   persistVersion: number;
+  ownerId: string;
   state: Record<string, unknown> & {
     sessionIds: string[];
   };
@@ -40,7 +41,8 @@ const CHAT_SESSION_SUFFIX = "::session::";
 const CHAT_STORE_KEY = "chat-next-web-store";
 const CHAT_STORE_SCOPE_SUFFIX = "::user::";
 export const INITIAL_HYDRATED_RECENT_SESSION_LIMIT = 3;
-export const INITIAL_RETAINED_SESSION_LIMIT = 20;
+// 每个用户先保留最近 50 个会话壳，正文仍按需读取，避免一次水合全部历史消息。
+export const INITIAL_RETAINED_SESSION_LIMIT = 50;
 
 export function getChatIndexStorageKey(name: string) {
   return `${name}${CHAT_INDEX_SUFFIX}`;
@@ -50,7 +52,7 @@ export function getChatSessionStorageKey(name: string, sessionId: string) {
   return `${name}${CHAT_SESSION_SUFFIX}${sessionId}`;
 }
 
-function getActiveChatStoreScopeUserId() {
+export function getActiveChatStoreScopeUserId() {
   return String(localStorage?.getItem(AUTH_CACHE_MARKER_KEY) || "").trim();
 }
 
@@ -59,6 +61,17 @@ export function getScopedChatStoreKey(name: string, userId?: string) {
     typeof userId === "string" ? userId : getActiveChatStoreScopeUserId(),
   ).trim();
   return `${name}${CHAT_STORE_SCOPE_SUFFIX}${scopedUserId || "anonymous"}`;
+}
+
+function isScopedChatStoreKeyActive(scopedName: string) {
+  return getScopedChatOwnerId(scopedName) === getActiveChatStoreScopeUserId();
+}
+
+function getScopedChatOwnerId(scopedName: string) {
+  const separatorIndex = scopedName.lastIndexOf(CHAT_STORE_SCOPE_SUFFIX);
+  return separatorIndex >= 0
+    ? scopedName.slice(separatorIndex + CHAT_STORE_SCOPE_SUFFIX.length)
+    : "";
 }
 
 function parseJson<T>(text: string | null | undefined): T | null {
@@ -108,8 +121,11 @@ export function splitChatPersistedState(text: string) {
 
   return {
     index: {
-      version: 1 as const,
+      version: 2 as const,
       persistVersion: Number(payload?.version ?? 0),
+      // 缓存键和 payload 都绑定同一个用户。双重校验可以阻止旧版无归属
+      // 缓存或错误迁移的缓存被另一个用户直接展示。
+      ownerId: getActiveChatStoreScopeUserId() || "anonymous",
       state: {
         ...restState,
         sessionIds,
@@ -288,6 +304,17 @@ class ChatPersistStorage implements StateStorage {
   private hydrated = new Set<string>();
   private hydrating = new Set<string>();
   private pendingWrites = new Map<string, string>();
+  private lastHydratedUserId: string =
+    typeof window !== "undefined" ? getActiveChatStoreScopeUserId() : "";
+  private hasWarnedAboutStorageQuota = false;
+
+  public setLastHydratedUserId(userId: string) {
+    this.lastHydratedUserId = String(userId || "").trim();
+  }
+
+  public getLastHydratedUserId() {
+    return this.lastHydratedUserId;
+  }
 
   private isAvailable() {
     return typeof window !== "undefined";
@@ -300,6 +327,7 @@ class ChatPersistStorage implements StateStorage {
   ) {
     const startedAt = nowMs();
     const nextPayload = splitChatPersistedState(value);
+    nextPayload.index.ownerId = getScopedChatOwnerId(scopedName);
     const summaryMap = createSessionSummaryMap(nextPayload.index);
     const nextIndexKey = getChatIndexStorageKey(scopedName);
     const previousIndexText =
@@ -361,6 +389,8 @@ class ChatPersistStorage implements StateStorage {
       ],
     });
 
+    void this.warnWhenStorageQuotaIsLow();
+
     if (isPerfDebugEnabled()) {
       const sessionBytes = nextPayload.sessionEntries.reduce(
         (total, entry) => total + measureBytes(entry.value),
@@ -381,6 +411,30 @@ class ChatPersistStorage implements StateStorage {
         staleSessionCount: staleSessionIds.length,
         durationMs: Number((nowMs() - startedAt).toFixed(2)),
       });
+    }
+  }
+
+  private async warnWhenStorageQuotaIsLow() {
+    if (
+      this.hasWarnedAboutStorageQuota ||
+      typeof navigator === "undefined" ||
+      typeof navigator.storage?.estimate !== "function"
+    ) {
+      return;
+    }
+
+    try {
+      const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+      if (quota > 0 && usage / quota >= 0.8) {
+        this.hasWarnedAboutStorageQuota = true;
+        logger.chatPersist.warn("浏览器本地缓存空间接近上限", {
+          usage,
+          quota,
+          ratio: Number((usage / quota).toFixed(3)),
+        });
+      }
+    } catch {
+      // 存储配额 API 在部分浏览器不可用，不影响正常缓存读写。
     }
   }
 
@@ -415,6 +469,7 @@ class ChatPersistStorage implements StateStorage {
     if (!this.isAvailable() || name !== CHAT_STORE_KEY) return null;
 
     const scopedName = getScopedChatStoreKey(name);
+    const expectedOwnerId = getScopedChatOwnerId(scopedName);
 
     try {
       this.hydrating.add(scopedName);
@@ -423,9 +478,15 @@ class ChatPersistStorage implements StateStorage {
         getChatIndexStorageKey(scopedName),
       );
 
+      if (!isScopedChatStoreKeyActive(scopedName)) {
+        return null;
+      }
+
       if (indexText) {
         const index = parseJson<ChatPersistSplitIndex>(indexText);
-        if (index) {
+        const isOwnedByActiveUser =
+          index?.version === 2 && index.ownerId === expectedOwnerId;
+        if (index && isOwnedByActiveUser) {
           const startedAt = nowMs();
           const summaryMap = createSessionSummaryMap(index);
           const retainedSessionIds = new Set(
@@ -437,6 +498,9 @@ class ChatPersistStorage implements StateStorage {
               getChatSessionStorageKey(scopedName, sessionId),
             ),
           );
+          if (!isScopedChatStoreKeyActive(scopedName)) {
+            return null;
+          }
           const placeholderStartedAt = nowMs();
           const sessionPayloads = index.state.sessionIds.map((sessionId) => {
             if (!retainedSessionIds.has(sessionId)) {
@@ -464,6 +528,7 @@ class ChatPersistStorage implements StateStorage {
             localValue,
           );
           if (resolvedValue === null) {
+            this.lastHydratedUserId = expectedOwnerId;
             return null;
           }
           if (pendingValue) {
@@ -471,6 +536,7 @@ class ChatPersistStorage implements StateStorage {
           }
           this.cache.set(scopedName, resolvedValue);
           this.hydrated.add(scopedName);
+          this.lastHydratedUserId = expectedOwnerId;
           if (isPerfDebugEnabled()) {
             const sessionBytes = sessionPayloads.reduce(
               (total, payloadText) =>
@@ -500,56 +566,35 @@ class ChatPersistStorage implements StateStorage {
           }
           return resolvedValue;
         }
-      }
 
-      const legacyIndexKey = getChatIndexStorageKey(name);
-      const legacyIndexText =
-        await indexedDbStateStorage.getRawItem(legacyIndexKey);
-      if (legacyIndexText) {
-        const legacySessionIds = getSessionIdsFromIndexText(legacyIndexText);
-        const legacySessionKeys = legacySessionIds.map((sessionId) =>
-          getChatSessionStorageKey(name, sessionId),
-        );
-        const legacyPayloadMap =
-          await indexedDbStateStorage.getRawItems(legacySessionKeys);
-        const nextSessionEntries = Object.fromEntries(
-          legacySessionIds
-            .map((sessionId) => {
-              const legacyKey = getChatSessionStorageKey(name, sessionId);
-              const value = legacyPayloadMap[legacyKey];
-              if (!value) {
-                return null;
-              }
-              return [getChatSessionStorageKey(scopedName, sessionId), value];
-            })
-            .filter(Boolean) as Array<[string, string]>,
-        );
-        await indexedDbStateStorage.applyRawChanges({
-          set: {
-            [getChatIndexStorageKey(scopedName)]: legacyIndexText,
-            ...nextSessionEntries,
-          },
-          remove: [legacyIndexKey, name, ...legacySessionKeys],
-        });
-        return await this.getItem(name);
-      }
-
-      const legacyStoreText = await indexedDbStateStorage.getRawItem(name);
-      if (legacyStoreText) {
-        await this.writeSplitValue(name, scopedName, legacyStoreText);
-        await indexedDbStateStorage.removeRawItem(name);
-        return await this.getItem(name);
+        if (index) {
+          // v1 缓存没有 ownerId，无法证明它没有从旧的全局缓存迁移而来；
+          // 本次不展示也不删除，留给当前用户的 download-only 同步安全重建。
+          logger.chatPersist.warn("跳过无归属或归属不匹配的聊天缓存", {
+            scopedName,
+            expectedOwnerId,
+            cachedOwnerId: index.ownerId || "",
+            cacheVersion: index.version,
+          });
+          this.hydrated.add(scopedName);
+          this.lastHydratedUserId = expectedOwnerId;
+          return null;
+        }
       }
 
       this.hydrated.add(scopedName);
       if (pendingValue) {
         await this.flushPendingWrite(name, scopedName);
       }
-      return (
-        this.pendingWrites.get(scopedName) ?? this.cache.get(scopedName) ?? null
-      );
+      const resolvedValue =
+        this.pendingWrites.get(scopedName) ??
+        this.cache.get(scopedName) ??
+        null;
+      this.lastHydratedUserId = expectedOwnerId;
+      return resolvedValue;
     } catch (error) {
       logger.chatPersist.error(`读取 ${name} 失败`, error);
+      this.lastHydratedUserId = expectedOwnerId;
       return (
         this.pendingWrites.get(scopedName) ?? this.cache.get(scopedName) ?? null
       );
@@ -562,6 +607,20 @@ class ChatPersistStorage implements StateStorage {
     if (!this.isAvailable() || name !== CHAT_STORE_KEY) return;
 
     const scopedName = getScopedChatStoreKey(name);
+    const activeUserId = getScopedChatOwnerId(scopedName);
+
+    // 关键校验：如果当前 activeUserId 与内存水合的 lastHydratedUserId 不一致，
+    // 说明内存仍为旧用户数据（或正处于切换空窗期），拒绝写入，避免旧数据污染新用户。
+    if (this.lastHydratedUserId && activeUserId !== this.lastHydratedUserId) {
+      logger.chatPersist.warn(
+        `[chatPersistStorage] 拦截到跨用户数据写入尝试，已拒绝。`,
+        {
+          activeUserId,
+          lastHydratedUserId: this.lastHydratedUserId,
+        },
+      );
+      return;
+    }
 
     if (!this.hydrated.has(scopedName) || this.hydrating.has(scopedName)) {
       this.pendingWrites.set(scopedName, value);
@@ -570,6 +629,9 @@ class ChatPersistStorage implements StateStorage {
     }
 
     await this.writeSplitValue(name, scopedName, value);
+    if (!isScopedChatStoreKeyActive(scopedName)) {
+      return;
+    }
     this.cache.set(scopedName, value);
     this.pendingWrites.delete(scopedName);
   }
@@ -596,36 +658,29 @@ export async function getPersistedChatSession<T = Record<string, unknown>>(
   }
 
   const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
+  const activeUserId = getScopedChatOwnerId(scopedName);
+
+  // 切换用户时，旧用户尚未结束的懒加载任务不能借由新 marker 读取目标用户分片。
+  if (
+    chatPersistStorage.getLastHydratedUserId() &&
+    activeUserId !== chatPersistStorage.getLastHydratedUserId()
+  ) {
+    return null;
+  }
+
   const sessionText = await indexedDbStateStorage.getRawItem(
     getChatSessionStorageKey(scopedName, sessionId),
   );
+  if (!isScopedChatStoreKeyActive(scopedName)) {
+    return null;
+  }
   const splitSession = parseJson<T>(sessionText);
   if (splitSession) {
     return splitSession;
   }
 
-  const legacySplitText = await indexedDbStateStorage.getRawItem(
-    getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
-  );
-  const legacySplitSession = parseJson<T>(legacySplitText);
-  if (legacySplitText && legacySplitSession) {
-    await indexedDbStateStorage.setRawItem(
-      getChatSessionStorageKey(scopedName, sessionId),
-      legacySplitText,
-    );
-    await indexedDbStateStorage.removeRawItem(
-      getChatSessionStorageKey(CHAT_STORE_KEY, sessionId),
-    );
-    return legacySplitSession;
-  }
-
-  const legacyStoreText =
-    await indexedDbStateStorage.getRawItem(CHAT_STORE_KEY);
-  const legacySession = getSessionsFromPersistedEnvelope(legacyStoreText).find(
-    (session) => String(session?.id || "") === sessionId,
-  );
-
-  return (legacySession as T | undefined) ?? null;
+  // 无 owner 的旧分片不能再回填到当前用户缓存，否则会重新引入跨用户串线。
+  return null;
 }
 
 export async function setPersistedChatSession(
@@ -637,6 +692,22 @@ export async function setPersistedChatSession(
   }
 
   const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
+  const activeUserId = getScopedChatOwnerId(scopedName);
+
+  if (
+    chatPersistStorage.getLastHydratedUserId() &&
+    activeUserId !== chatPersistStorage.getLastHydratedUserId()
+  ) {
+    logger.chatPersist.warn(
+      `[setPersistedChatSession] 拦截到跨用户数据写入尝试，已拒绝。`,
+      {
+        activeUserId,
+        lastHydratedUserId: chatPersistStorage.getLastHydratedUserId(),
+      },
+    );
+    return;
+  }
+
   await indexedDbStateStorage.setRawItem(
     getChatSessionStorageKey(scopedName, sessionId),
     JSON.stringify(value),
@@ -649,7 +720,38 @@ export async function removePersistedChatSession(sessionId: string) {
   }
 
   const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY);
+  const activeUserId = getScopedChatOwnerId(scopedName);
+
+  // 删除也必须受同一隔离锁保护：旧用户延迟完成的删除不能删掉目标用户缓存。
+  if (
+    chatPersistStorage.getLastHydratedUserId() &&
+    activeUserId !== chatPersistStorage.getLastHydratedUserId()
+  ) {
+    logger.chatPersist.warn(
+      "[removePersistedChatSession] 拦截到跨用户缓存删除尝试，已拒绝。",
+      {
+        activeUserId,
+        lastHydratedUserId: chatPersistStorage.getLastHydratedUserId(),
+      },
+    );
+    return;
+  }
+
   await indexedDbStateStorage.removeRawItem(
     getChatSessionStorageKey(scopedName, sessionId),
   );
+}
+
+export async function hasPersistedChatCache(userId: string): Promise<boolean> {
+  if (typeof window === "undefined" || !userId) {
+    return false;
+  }
+  const scopedName = getScopedChatStoreKey(CHAT_STORE_KEY, userId);
+  const indexKey = getChatIndexStorageKey(scopedName);
+  const indexText = await indexedDbStateStorage.getRawItem(indexKey);
+  if (!indexText) {
+    return false;
+  }
+  const parsed = parseJson<ChatPersistSplitIndex>(indexText);
+  return !!(parsed && parsed.version === 2 && parsed.ownerId === userId);
 }

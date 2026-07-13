@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Nousresearch</title>
+  <rect width="30" height="30" rx="6" fill="#1E3A5F" />
+  <g transform="translate(3, 3)">
+    <!-- Brain/Nous icon inspired by their logo -->
+    <circle cx="12" cy="10" r="6" fill="#2563EB" opacity="0.3"/>
+    <circle cx="12" cy="10" r="4" fill="#3B82F6"/>
+    <circle cx="12" cy="10" r="2" fill="#93C5FD"/>
+    <!-- Eye of knowledge -->
+    <circle cx="12" cy="10" r="1" fill="#FFFFFF"/>
+  </g>
+</svg>

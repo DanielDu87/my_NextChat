@@ -274,6 +274,23 @@ export async function syncProfileModels(
         lastSyncAt: Date.now(),
         lastError: undefined,
       });
+
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `nextchat-fetched-models-${profileId}`,
+            JSON.stringify({
+              models: sortedModels,
+              total: result.total || sortedModels.length,
+            }),
+          );
+        } catch (e) {
+          console.error(
+            "[Provider Sync] Failed to save models to localStorage",
+            e,
+          );
+        }
+      }
     });
 
     // 计算合并后的模型 diff

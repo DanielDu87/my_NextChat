@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Morph</title>
+  <rect width="30" height="30" rx="6" fill="#0F172A" />
+  <g transform="translate(3, 3)">
+    <!-- Transform/morph shapes -->
+    <circle cx="9" cy="10" r="5" fill="#3B82F6" opacity="0.8"/>
+    <circle cx="15" cy="10" r="4" fill="#8B5CF6" opacity="0.8"/>
+    <circle cx="12" cy="15" r="4" fill="#06B6D4" opacity="0.8"/>
+    <!-- Connection lines -->
+    <path d="M9 14L12 12M15 13L13 14" stroke="#94A3B8" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
+</svg>

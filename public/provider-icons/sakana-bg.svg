@@ -1,0 +1,9 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Sakana</title>
+  <rect width="30" height="30" rx="6" fill="#ECFDF5" />
+  <g transform="translate(3, 3)">
+    <!-- Koi fish stylized -->
+    <path d="M18 8C14 8 10 10 8 12C6 14 6 16 8 16C10 16 14 14 18 14C20 14 22 15 22 15L20 12L22 9C22 9 20 8 18 8Z" fill="#059669"/>
+    <circle cx="10" cy="12" r="1.5" fill="#ECFDF5"/>
+  </g>
+</svg>

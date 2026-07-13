@@ -1,0 +1,9 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Undi95</title>
+  <rect width="30" height="30" rx="6" fill="#1E1B4B" />
+  <g transform="translate(3, 3)">
+    <!-- U stylized -->
+    <text x="12" y="19" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#C7D2FE" text-anchor="middle">U</text>
+    <rect x="5" y="20" width="14" height="2" rx="1" fill="#6366F1"/>
+  </g>
+</svg>

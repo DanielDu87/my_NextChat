@@ -1,0 +1,9 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Liquid</title>
+  <rect width="30" height="30" rx="6" fill="#F8FAFC" />
+  <g transform="translate(3, 3)">
+    <!-- Liquid drop icon -->
+    <path d="M12 2C12 2 6 10 6 14C6 17.5 8.7 20 12 20C15.3 20 18 17.5 18 14C18 10 12 2 12 2Z" fill="#0EA5E9"/>
+    <ellipse cx="10" cy="13" rx="2" ry="2.5" fill="#7DD3FC" opacity="0.6"/>
+  </g>
+</svg>

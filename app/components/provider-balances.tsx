@@ -304,15 +304,6 @@ export function ProviderBalancesPage() {
       }));
     } catch (error) {
       const errorMessage = getProviderBalanceErrorMessage(error);
-      // 如果错误对象中包含 balance 数据（来自服务端的返回），使用它
-      let fallbackBalance = null;
-      if (error && typeof error === "object" && "balance" in error) {
-        const balanceFromError = (error as any).balance;
-        // 只有当余额数据有效时才使用
-        if (balanceFromError && Number.isFinite(balanceFromError?.value)) {
-          fallbackBalance = balanceFromError;
-        }
-      }
       // 从 error 对象中提取 attempts
       if (error && typeof error === "object" && "attempts" in error) {
         attempts = (error as any).attempts || [];
@@ -323,8 +314,7 @@ export function ProviderBalancesPage() {
             ? {
                 ...profile,
                 lastError: errorMessage,
-                // 如果有返回的余额数据就使用，否则保持原有的余额
-                balance: fallbackBalance || profile.balance,
+                balance: null,
               }
             : profile,
         ),

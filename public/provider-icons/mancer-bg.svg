@@ -1,0 +1,9 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Mancer</title>
+  <rect width="30" height="30" rx="6" fill="#18181B" />
+  <g transform="translate(3, 3)">
+    <!-- M shape stylized -->
+    <text x="12" y="19" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="700" fill="#FAFAFA" text-anchor="middle">M</text>
+    <rect x="4" y="20" width="16" height="2" rx="1" fill="#71717A"/>
+  </g>
+</svg>

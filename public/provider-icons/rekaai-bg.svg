@@ -1,0 +1,9 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Rekaai</title>
+  <rect width="30" height="30" rx="6" fill="#DCFCE7" />
+  <g transform="translate(3, 3)">
+    <!-- R letter stylized -->
+    <text x="12" y="19" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#16A34A" text-anchor="middle">R</text>
+    <circle cx="17" cy="7" r="3" fill="#22C55E"/>
+  </g>
+</svg>

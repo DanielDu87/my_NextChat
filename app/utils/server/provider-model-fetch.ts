@@ -423,32 +423,69 @@ function isGenericVendorName(vendorName?: string) {
   return !normalized || ["custom", "other", "unknown"].includes(normalized);
 }
 
+function formatNamespacedVendorName(prefix: string) {
+  return prefix
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((part) =>
+      part.toLowerCase() === "ai"
+        ? "AI"
+        : `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`,
+    )
+    .join(" ");
+}
+
 function inferVendorFromOcoolaiModel(
   modelName: string,
 ): { name: string; icon?: string } | null {
-  const [prefix] = modelName.split("/", 1);
+  // OpenRouter 会在部分模型 ID 前加 `~` 标记；它不是厂商名的一部分。
+  const normalizedModelName = modelName.trim().replace(/^~+/, "");
+  const [prefix] = normalizedModelName.split("/", 1);
   const normalizedPrefix = prefix.trim().toLowerCase();
 
   const prefixVendorMap: Record<string, { name: string; icon?: string }> = {
     "01-ai": { name: "01.AI", icon: "Yi" },
     ascend: { name: "Ascend", icon: "Box" },
+    anthropic: { name: "Anthropic", icon: "Claude.Color" },
+    amazon: { name: "Amazon", icon: "Box" },
+    "amazon-nova": { name: "Amazon", icon: "Box" },
     azure: { name: "Microsoft", icon: "Azure" },
     baai: { name: "BAAI", icon: "Box" },
+    baidu: { name: "Baidu", icon: "Ernie.Color" },
+    cohere: { name: "Cohere", icon: "Box" },
     "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
+    google: { name: "Google", icon: "Gemini.Color" },
+    "google-ai": { name: "Google", icon: "Gemini.Color" },
     "ibm-granite": { name: "IBM", icon: "Box" },
     "meta-llama": { name: "Meta", icon: "Ollama" },
     meta: { name: "Meta", icon: "Ollama" },
+    microsoft: { name: "Microsoft", icon: "Azure" },
     mistralai: { name: "Mistral", icon: "Mistral.Color" },
+    moonshotai: { name: "Moonshot", icon: "Moonshot" },
+    nvidia: { name: "Nvidia", icon: "Box" },
     ocoolai: { name: "Ocoolai", icon: "Box" },
+    openai: { name: "OpenAI", icon: "OpenAI" },
+    openrouter: { name: "OpenRouter", icon: "Box" },
+    perplexity: { name: "Perplexity", icon: "Box" },
     qwen: { name: "Alibaba", icon: "Qwen.Color" },
+    tencent: { name: "Tencent", icon: "Hunyuan.Color" },
     web: { name: "Web", icon: "Globe" },
+    "x-ai": { name: "xAI", icon: "XAI" },
+    xai: { name: "xAI", icon: "XAI" },
+    "z-ai": { name: "Zhipu", icon: "Zhipu.Color" },
+    zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
   };
 
-  if (modelName.includes("/") && prefixVendorMap[normalizedPrefix]) {
-    return prefixVendorMap[normalizedPrefix];
+  if (normalizedModelName.includes("/") && normalizedPrefix) {
+    return (
+      prefixVendorMap[normalizedPrefix] ?? {
+        name: formatNamespacedVendorName(normalizedPrefix),
+        icon: "Box",
+      }
+    );
   }
 
-  return inferVendorFromModelName(modelName);
+  return inferVendorFromModelName(normalizedModelName);
 }
 
 function getRawModelName(model: any) {

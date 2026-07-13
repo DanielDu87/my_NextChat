@@ -8,6 +8,12 @@
  */
 
 export const PROVIDER_ICONS: Record<string, string> = {
+  // AI21
+  ai21: "/provider-icons/ai21-bg.svg",
+  "ai21 labs": "/provider-icons/ai21-bg.svg",
+  "ai21-labs": "/provider-icons/ai21-bg.svg",
+  jamba: "/provider-icons/ai21-bg.svg",
+
   // OpenAI
   openai: "/provider-icons/openai.png",
   gpt: "/provider-icons/openai.png",
@@ -94,6 +100,19 @@ export const PROVIDER_ICONS: Record<string, string> = {
   // Microsoft
   microsoft: "/provider-icons/microsoft-alt.png",
 
+  // IBM / Granite
+  ibm: "/provider-icons/ibm-bg.svg",
+  "ibm granite": "/provider-icons/ibm-bg.svg",
+  "ibm-granite": "/provider-icons/ibm-bg.svg",
+  granite: "/provider-icons/ibm-bg.svg",
+
+  // Amazon / Bedrock
+  amazon: "/provider-icons/amazon-bg.svg",
+  aws: "/provider-icons/amazon-bg.svg",
+  bedrock: "/provider-icons/amazon-bg.svg",
+  "amazon bedrock": "/provider-icons/amazon-bg.svg",
+  "amazon-bedrock": "/provider-icons/amazon-bg.svg",
+
   // Nvidia
   nvidia: "/provider-icons/nvidia-bg.svg",
 
@@ -138,12 +157,14 @@ export const PROVIDER_ICONS: Record<string, string> = {
   // Kuaishou
   kuaishou: "/provider-icons/kuaishou.png",
   快手: "/provider-icons/kuaishou.png",
+  kwaipilot: "/provider-icons/kwaipilot-bg.svg",
+  "kwaipilot ai": "/provider-icons/kwaipilot-bg.svg",
 
   // Midjourney
   midjourney: "/provider-icons/midjourney.png",
 
   // OpenRouter
-  openrouter: "/provider-icons/openrouter.png",
+  openrouter: "/provider-icons/openrouter-bg.svg",
 
   // Pika
   pika: "/provider-icons/pika.png",
@@ -185,13 +206,101 @@ export const PROVIDER_ICONS: Record<string, string> = {
   together: "/provider-icons/together-official.png",
 
   // Upstage
-  upstage: "/provider-icons/upstage-official.png",
+  upstage: "/provider-icons/upstage-bg.svg",
 
   // Yuto
   yuto: "/provider-icons/yuto-official.png",
 
   // Aihubmix
   aihubmix: "/provider-icons/aihubmix-bg.svg",
+
+  // TheDrummer / Thedrumn
+  thedrummer: "/provider-icons/thedrummer-bg.svg",
+  thedrumn: "/provider-icons/thedrummer-bg.svg",
+  drummer: "/provider-icons/thedrummer-bg.svg",
+  drumn: "/provider-icons/thedrummer-bg.svg",
+
+  // Aion Labs
+  aionlabs: "/provider-icons/aionlabs-bg.svg",
+  "aion labs": "/provider-icons/aionlabs-bg.svg",
+
+  // Allen Institute for AI
+  allenai: "/provider-icons/allenai-bg.svg",
+  "allen ai": "/provider-icons/allenai-bg.svg",
+  "allen institute": "/provider-icons/allenai-bg.svg",
+
+  // Anthracite / Anthracite Org (HuggingFace community)
+  anthracite: "/provider-icons/anthracite-bg.svg",
+  "anthracite org": "/provider-icons/anthracite-org-bg.svg",
+  "anthracite-org": "/provider-icons/anthracite-org-bg.svg",
+  magnum: "/provider-icons/anthracite-org-bg.svg",
+
+  // Arcee AI
+  arcee: "/provider-icons/arcee-bg.svg",
+  "arcee ai": "/provider-icons/arcee-bg.svg",
+
+  // Cognitive Computations
+  cognitivecom: "/provider-icons/cognitivecom-bg.svg",
+  cognitivecomputations: "/provider-icons/cognitivecom-bg.svg",
+
+  // Deepcogito
+  deepcogito: "/provider-icons/deepcogito-bg.svg",
+
+  // Gryphe
+  gryphe: "/provider-icons/gryphe-bg.svg",
+
+  // ByteDance Seed (merged with general Doubao)
+  "bytedance seed": "/provider-icons/doubao-bg.svg",
+  seed: "/provider-icons/doubao-bg.svg",
+
+  // Inception
+  inception: "/provider-icons/inception-bg.svg",
+
+  // Inflection
+  inflection: "/provider-icons/inflection-bg.svg",
+
+  // Liquid
+  liquid: "/provider-icons/liquid-bg.svg",
+
+  // Mancer
+  mancer: "/provider-icons/mancer-bg.svg",
+
+  // Morph
+  morph: "/provider-icons/morph-bg.svg",
+
+  // Nex Agi
+  "nex agi": "/provider-icons/nexagi-bg.svg",
+  nexagi: "/provider-icons/nexagi-bg.svg",
+
+  // Nousresearch
+  nousresearch: "/provider-icons/nousresearch-bg.svg",
+  nous: "/provider-icons/nousresearch-bg.svg",
+
+  // Perceptron
+  perceptron: "/provider-icons/perceptron-bg.svg",
+
+  // Poolside
+  poolside: "/provider-icons/poolside-bg.svg",
+
+  // Rekaai
+  rekaai: "/provider-icons/rekaai-bg.svg",
+
+  // Relace
+  relace: "/provider-icons/relace-bg.svg",
+
+  // Sakana
+  sakana: "/provider-icons/sakana-bg.svg",
+  "sakana ai": "/provider-icons/sakana-bg.svg",
+
+  // Sao10k
+  sao10k: "/provider-icons/sao10k-bg.svg",
+  "sao 10k": "/provider-icons/sao10k-bg.svg",
+
+  // Undi95
+  undi95: "/provider-icons/undi95-bg.svg",
+
+  // Writer
+  writer: "/provider-icons/writer-bg.svg",
 
   // 其他/未分类
   other: "/provider-icons/openai.png",

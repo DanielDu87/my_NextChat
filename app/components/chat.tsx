@@ -2,6 +2,7 @@ import { useDebouncedCallback } from "use-debounce";
 import React, {
   Fragment,
   RefObject,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -100,16 +101,11 @@ import {
   buildAutoModelCandidates,
   getAutoModelSeriesLabel,
 } from "../utils/auto-model";
-import {
-  matchModelCategory,
-  ModelCategoryMetadata,
-} from "../utils/model-category-rules";
 import { resolveModelProviderId } from "../utils/model";
 import { getPreferredDefaultChatModel } from "../utils/model";
 import { applyAutoModeModelConfig } from "../utils/chat-session-model";
 import { convertHeicImage } from "../utils/chat";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
-import { rebuildManagedModelsFromCache } from "../utils/managed-model-rebuild";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
 import {
   getActiveModelSelectorProviderId,
@@ -205,9 +201,10 @@ import {
   saveManualSessionModelSelection,
 } from "../utils/manual-model-selection";
 import { ExportMessageModal } from "./exporter";
-import { getProviderIcon } from "../config/provider-icons";
 import { ClientApi, MultimodalContent } from "../client/api";
 import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
+
+// 移除文字自适应缩放功能，改用 CSS overflow: hidden + hover 滚动
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 import {
@@ -2963,14 +2960,6 @@ export function ChatActions(props: {
     },
     [],
   );
-  const matchesModelCategory = (
-    item: {
-      title: string;
-      meta?: ModelCategoryMetadata;
-    },
-    category: "image" | "video" | "web" | "thinking",
-  ) => matchModelCategory(category, item);
-
   // switch model
   const currentModel = normalizeReservedDisplayModelName(
     session?.mask?.modelConfig?.model || "",
@@ -4456,18 +4445,47 @@ function _Chat() {
     currentProviderName,
   ]);
   const providerModelSelectorItems = useMemo(() => {
-    return models
-      .map((model) => ({
-        title: `${model.displayName}`,
+    const len = models.length;
+    if (len === 0) return [];
+
+    // 预分配数组以减少 GC 压力
+    const result = new Array(len);
+    let resultLen = 0;
+
+    for (let i = 0; i < len; i++) {
+      const model = models[i];
+      if (!model) continue;
+
+      // 使用 flatMap 一次性收集所有搜索关键词，避免多次 filter(Boolean)
+      const caps = model.capabilities;
+      const feats = model.features;
+      const types = model.types;
+      const categs = model.categories;
+
+      const searchParts: string[] = [];
+      if (caps?.length) searchParts.push(...caps);
+      if (feats?.length) searchParts.push(...feats);
+      if (types?.length) searchParts.push(...types);
+      if (categs?.length) searchParts.push(...categs);
+
+      const customKey = `${model.name}@${model?.provider?.providerName}`;
+      const group = globalCustomModelValueSet.has(customKey)
+        ? "自定义模型"
+        : getModelGroup(
+            model.name,
+            model?.provider?.providerName,
+            model?.vendor?.name,
+            model.displayName,
+          );
+
+      result[resultLen++] = {
+        title: model.displayName,
         searchText: [
           model.name,
           model.displayName,
           model.provider?.providerName,
           model.vendor?.name,
-          ...(model.capabilities || []),
-          ...(model.features || []),
-          ...(model.types || []),
-          ...(model.categories || []),
+          ...searchParts,
         ]
           .filter(Boolean)
           .join(" ")
@@ -4483,16 +4501,7 @@ function _Chat() {
         catalogRank: model.catalogRank,
         remoteRank: model.remoteRank,
         remoteRankSource: model.remoteRankSource,
-        group: globalCustomModelValueSet.has(
-          `${model.name}@${model?.provider?.providerName}`,
-        )
-          ? "自定义模型"
-          : getModelGroup(
-              model.name,
-              model?.provider?.providerName,
-              model?.vendor?.name,
-              model.displayName,
-            ),
+        group,
         meta: {
           category: model.category,
           categorySource: model.categorySource,
@@ -4503,8 +4512,11 @@ function _Chat() {
           categories: model.categories,
           vendorName: model.vendor?.name,
         },
-      }))
-      .filter(Boolean);
+      };
+    }
+
+    // 裁剪到实际长度
+    return resultLen < len ? result.slice(0, resultLen) : result;
   }, [
     globalCustomModelValueSet,
     getModelGroup,
@@ -8674,10 +8686,8 @@ function _Chat() {
           return;
         }
 
-        rebuildManagedModelsFromCache({
-          force: true,
-          providerIds: [selectedProviderId],
-        });
+        // 移除 rebuildManagedModelsFromCache 调用 - 它会导致卡顿，且不影响供应商切换功能
+        // 模型选择器数据来源于 useAppConfig().models，不需要额外处理
         if (modelSelectorItemsCacheRef.current[selectedProviderId]) {
           const next = { ...modelSelectorItemsCacheRef.current };
           delete next[selectedProviderId];
@@ -8694,15 +8704,20 @@ function _Chat() {
           providerModels: typeof initialProviderModels,
         ) => {
           const switchStartedAt = nowMs();
-          setIsProviderSelectorOpen(false);
-          setModelSelectorProviderId(selectedProviderId);
-          modelSelectorRequiresSelectionRef.current = true;
-          resetModelSelectorGroupToAll();
-          setModelSelectorResetKey((key) => key + 1);
-          setModelSelectorDefaultValue("");
 
-          // 切换供应商只切换选择器列表，不自动选择/写入模型。
-          // 只有用户手动点选模型后，才会更新当前会话和全局默认模型。
+          // 供应商选中态不依赖后续模型选择，立即反映到顶部按钮和菜单勾选。
+          setModelSelectorProviderId(selectedProviderId);
+
+          // 使用 startTransition 批量处理非紧急状态更新，减少重渲染次数
+          startTransition(() => {
+            setIsProviderSelectorOpen(false);
+            modelSelectorRequiresSelectionRef.current = true;
+            resetModelSelectorGroupToAll();
+            setModelSelectorResetKey((key) => key + 1);
+            setModelSelectorDefaultValue("");
+          });
+
+          // 紧急更新单独同步执行
           localStorage.setItem(
             MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
             profileName,
@@ -10308,9 +10323,20 @@ function _Chat() {
                                           <MaskAvatar
                                             avatar={sessionMask.avatar}
                                             model={
-                                              message.modelIcon ||
-                                              message.model ||
-                                              sessionMask.modelConfig.model
+                                              getModelGroup(
+                                                message.model || "",
+                                                message.providerName,
+                                                allModels.find(
+                                                  (model) =>
+                                                    model.name ===
+                                                    message.model,
+                                                )?.vendor?.name,
+                                                message.modelDisplay,
+                                              ) === "Minimax"
+                                                ? "Minimax"
+                                                : message.modelIcon ||
+                                                  message.model ||
+                                                  sessionMask.modelConfig.model
                                             }
                                           />
                                         )}
@@ -11598,8 +11624,13 @@ function _Chat() {
                       handleManualModelSelectionDisabled();
                       return;
                     }
-                    setModelSelectorProviderId(currentProviderId);
-                    setIsProviderSelectorOpen(!isProviderSelectorOpen);
+                    setIsProviderSelectorOpen((isOpen) => {
+                      const willOpen = !isOpen;
+                      if (willOpen && !modelSelectorProviderId) {
+                        setModelSelectorProviderId(currentProviderId);
+                      }
+                      return willOpen;
+                    });
                   }}
                 >
                   <span>
@@ -11642,9 +11673,6 @@ function _Chat() {
                       } as any).toLowerCase();
                       const isActive =
                         optionProviderId === activeModelSelectorProviderId;
-                      const providerIcon =
-                        getProviderIcon(providerOption.provider) ||
-                        getProviderIcon(providerOption.label);
                       return (
                         <button
                           type="button"
@@ -11659,6 +11687,23 @@ function _Chat() {
                             isActive && "nextchat-menu-option-active",
                             isActive && "nextchat-selector-menu-option-active",
                           )}
+                          data-full-label={providerOption.label}
+                          onMouseEnter={(event) => {
+                            const text = event.currentTarget.querySelector(
+                              ".model-selector-provider-option-text",
+                            );
+                            if (text && text.scrollWidth > text.clientWidth) {
+                              event.currentTarget.setAttribute(
+                                "data-show-full-label",
+                                "true",
+                              );
+                            }
+                          }}
+                          onMouseLeave={(event) => {
+                            event.currentTarget.removeAttribute(
+                              "data-show-full-label",
+                            );
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
                             const providerLabel = providerOption.label;
@@ -11676,39 +11721,26 @@ function _Chat() {
                               "nextchat-selector-menu-option-leading",
                             )}
                           >
-                            {providerIcon ? (
-                              <span
+                            <div className="no-dark">
+                              <BotIconDefault
                                 className={clsx(
-                                  "model-selector-option-icon-frame",
-                                  "nextchat-selector-menu-icon-frame",
+                                  "model-selector-provider-default-icon",
+                                  "nextchat-selector-menu-icon-image",
                                 )}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  alt={`${providerOption.label} icon`}
-                                  className={clsx(
-                                    "model-selector-option-icon-image",
-                                    "nextchat-selector-menu-icon-image",
-                                  )}
-                                  src={providerIcon}
-                                />
-                              </span>
-                            ) : (
-                              <div className="no-dark">
-                                <BotIconDefault
-                                  className={clsx(
-                                    "model-selector-provider-default-icon",
-                                    "nextchat-selector-menu-icon-image",
-                                  )}
-                                  width={16}
-                                  height={16}
-                                  viewBox="0 0 30 30"
-                                  preserveAspectRatio="xMidYMid meet"
-                                />
-                              </div>
-                            )}
+                                width={16}
+                                height={16}
+                                viewBox="0 0 30 30"
+                                preserveAspectRatio="xMidYMid meet"
+                              />
+                            </div>
                           </span>
-                          <span>{providerOption.label}</span>
+                          <span
+                            className={clsx(
+                              "model-selector-provider-option-text",
+                            )}
+                          >
+                            {providerOption.label}
+                          </span>
                           {isActive ? (
                             <div
                               className="model-selector-provider-option-selected"

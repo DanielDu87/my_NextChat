@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Relace</title>
+  <rect width="30" height="30" rx="6" fill="#F8FAFC" />
+  <g transform="translate(3, 3)">
+    <!-- Replace/swap icon -->
+    <circle cx="6" cy="10" r="4" stroke="#0F172A" stroke-width="2" fill="none"/>
+    <circle cx="18" cy="10" r="4" stroke="#0F172A" stroke-width="2" fill="none"/>
+    <path d="M10 10L14 10" stroke="#0F172A" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="12" cy="17" r="4" stroke="#6366F1" stroke-width="2" fill="none"/>
+    <path d="M8 17L16 17" stroke="#6366F1" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

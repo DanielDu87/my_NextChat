@@ -66,3 +66,7 @@
 `app/utils/route-sync-entry.ts` 提供 `markRouteSyncBootstrap()` / `shouldSkipAutoSyncByRecentBootstrap()` / `resetRouteSyncBootstrap()` 共享去重窗口（默认 5 秒）。`home.tsx` 的 home-bootstrap 在调用 `syncChatOnStartup` 前调 `markRouteSyncBootstrap("home-bootstrap")`；`auto-sync.tsx` 的 `attemptAutoSync` 用 `shouldSkipAutoSyncByRecentBootstrap()` 判定，命中即跳过；路由切换时 `resetRouteSyncBootstrap()` 清空窗口。
 
 切换用户与路由切换时**不再** abort sync（`shouldCancelForRouteChange` 已返回 `false`、home.tsx 的 useEffect cleanup 只设 `cancelled`），避免把目标用户的首次同步掐断造成「新用户看不到对话」。
+
+## 对话本地缓存与用户切换
+
+聊天列表与最近会话正文保存在浏览器 IndexedDB，缓存键和索引 payload 都绑定当前有效用户 ID。每个用户首开或切换时先展示最近 50 个会话；继续下滑时按页展开更早历史，会话正文仍按需读取。切换用户时先恢复该用户已经验证归属的本地缓存，再以 `downloadOnlyChat` 静默拉取该用户远端增量。缓存读、写和分片删除都受当前内存已水合用户锁保护，旧用户遗留的异步任务不能访问或修改目标用户分片；切换代次会丢弃较早异步任务的结果，避免快速连续切换回写旧状态。远端增量完成后始终从 IndexedDB 重建侧边栏索引，确保新会话即时可见。旧版没有用户归属标记的缓存不会再迁移或直接展示，以免把任一账号的历史会话混入另一个账号；它会在该用户下一次同步后以带归属的新缓存格式重建。浏览器缓存用量达到可用配额的 80% 时仅记录一次预警，不自动删除任何本地历史。

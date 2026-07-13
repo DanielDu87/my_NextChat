@@ -58,6 +58,7 @@ export function rebuildManagedModelsFromCache(options?: {
   force?: boolean;
   providerIds?: string[];
 }) {
+  const t0 = Date.now();
   const accessStore = useAccessStore.getState();
   const appConfig = useAppConfig.getState();
   const modelCacheStore = useModelCacheStore.getState();
@@ -72,10 +73,21 @@ export function rebuildManagedModelsFromCache(options?: {
     modelCacheStore.profiles,
     options?.providerIds,
   );
+  const t1 = Date.now();
   if (!options?.force && currentHash === lastProfilesHash) {
+    console.debug("[rebuildManagedModelsFromCache] 跳过：数据未变化", {
+      elapsedMs: t1 - t0,
+      providerIds: options?.providerIds,
+    });
     return;
   }
   lastProfilesHash = currentHash;
+  console.debug("[rebuildManagedModelsFromCache] 开始重建模型缓存", {
+    elapsedMs: t1 - t0,
+    providerIds: options?.providerIds,
+    force: options?.force,
+    profileCount: profiles.length,
+  });
 
   const rebuiltModels: LLMModel[] = [];
   const managedProviderIds = profiles.map((profile) =>
@@ -242,5 +254,10 @@ export function rebuildManagedModelsFromCache(options?: {
     skipMarkUpdate: true,
     allowedProviderIds,
     diffBaseModels: appConfig.models || [],
+  });
+  console.debug("[rebuildManagedModelsFromCache] 完成", {
+    totalMs: Date.now() - t0,
+    rebuiltModelCount: sortedHydratedModels.length,
+    unmanagedModelCount: unmanagedModels.length,
   });
 }

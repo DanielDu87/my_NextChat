@@ -1,0 +1,12 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Perceptron</title>
+  <rect width="30" height="30" rx="6" fill="#FEF3C7" />
+  <g transform="translate(3, 3)">
+    <!-- Neural network node -->
+    <circle cx="12" cy="10" r="5" fill="#D97706"/>
+    <circle cx="5" cy="16" r="2.5" fill="#F59E0B"/>
+    <circle cx="19" cy="16" r="2.5" fill="#F59E0B"/>
+    <line x1="10" y1="13" x2="6" y2="14.5" stroke="#D97706" stroke-width="1.5"/>
+    <line x1="14" y1="13" x2="18" y2="14.5" stroke="#D97706" stroke-width="1.5"/>
+  </g>
+</svg>

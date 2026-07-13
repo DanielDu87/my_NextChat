@@ -7,6 +7,7 @@ import {
   getPersistedChatSession,
   removePersistedChatSession,
   setPersistedChatSession,
+  getActiveChatStoreScopeUserId,
 } from "@/app/utils/chat-persist-storage";
 import { nanoid } from "nanoid";
 import { createJSONStorage } from "zustand/middleware";
@@ -2255,6 +2256,11 @@ export const useChatStore = createPersistStore(
       },
 
       async resetForUserSwitch(options?: { sync?: boolean }) {
+        // 在触发任何 Zustand 状态变更（即 set）之前，先对齐 lastHydratedUserId 允许写入
+        chatPersistStorage.setLastHydratedUserId(
+          getActiveChatStoreScopeUserId(),
+        );
+
         const newSessions = [createEmptySession()];
         set(() => ({
           sessions: newSessions,
@@ -2737,6 +2743,7 @@ export const useChatStore = createPersistStore(
         }
 
         const hydrateStartedAt = nowMs();
+        const expectedUserId = getActiveChatStoreScopeUserId();
 
         const summary = get().sessionSummaries.find(
           (session) => session.id === sessionId,
@@ -2747,7 +2754,10 @@ export const useChatStore = createPersistStore(
           const persistedSession = normalizeSession(
             await get().loadSessionById(sessionId),
           );
-          if (!persistedSession) {
+          if (
+            !persistedSession ||
+            getActiveChatStoreScopeUserId() !== expectedUserId
+          ) {
             return undefined;
           }
 

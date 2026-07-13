@@ -1,0 +1,13 @@
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Sao10k</title>
+  <rect width="30" height="30" rx="6" fill="#18181B" />
+  <g transform="translate(3, 3)">
+    <!-- 10K stylized with chart/metrics -->
+    <text x="12" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="800" fill="#F97316" text-anchor="middle">10K</text>
+    <!-- Rising bars -->
+    <rect x="5" y="18" width="3" height="4" rx="0.5" fill="#71717A"/>
+    <rect x="10" y="16" width="3" height="6" rx="0.5" fill="#A1A1AA"/>
+    <rect x="15" y="14" width="3" height="8" rx="0.5" fill="#D4D4D8"/>
+    <rect x="20" y="17" width="3" height="5" rx="0.5" fill="#F97316"/>
+  </g>
+</svg>

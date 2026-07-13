@@ -19,11 +19,13 @@
   right: 0;
   top: calc(100% + 10px);
 }
+
 @media screen and (max-width: 600px) {
   .popover-content {
     width: auto;
   }
 }
+
 .popover-mask {
   position: fixed;
   top: 0;
@@ -63,7 +65,7 @@
       min-width: 0;
       flex: 1;
 
-      > div {
+      >div {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -82,11 +84,14 @@
   &.vertical {
     flex-direction: column;
     align-items: start;
+
     .list-header {
       width: 100%;
+
       .list-item-title {
         margin-bottom: 5px;
       }
+
       .list-item-sub-title {
         margin-bottom: 2px;
       }
@@ -111,6 +116,50 @@
 .list :global(#selector-list *) {
   cursor: pointer !important;
 }
+
+.list-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 16px;
+  background: var(--white);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: var(--border-in-light);
+  margin: 0;
+}
+
+.list-sticky-header-label {
+  flex: 0 0 auto;
+  color: var(--black);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.list-sticky-header-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  min-height: 30px;
+  padding: 0 12px;
+  background: var(--gray);
+  color: var(--black);
+  border: var(--border-in-light);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 
 .modal-container {
   box-shadow: var(--card-shadow);
@@ -162,7 +211,7 @@
       /* 关闭按钮的边框/背景/hover/SVG 颜色由 globals.scss 中的
          .nextchat-close-button 统一接管。本类只保留多个按钮时的
          间距控制。 */
-      > *:not(:last-child) {
+      >*:not(:last-child) {
         margin-right: 20px;
       }
     }
@@ -236,29 +285,14 @@
       margin-right: auto;
     }
 
-    :global(
-        .modal-footer-action
-          button[class*="icon-button"]:not([class*="primary"]):not(
-            [class*="danger"]
-          )
-      ) {
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"])) {
       background-color: var(--chat-input-disabled-bg);
       border: var(--border-in-light);
       color: var(--black);
     }
 
-    :global(
-        .modal-footer-action
-          button[class*="icon-button"]:not([class*="primary"]):not(
-            [class*="danger"]
-          ):hover
-      ),
-    :global(
-        .modal-footer-action
-          button[class*="icon-button"]:not([class*="primary"]):not(
-            [class*="danger"]
-          ):focus
-      ) {
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"]):hover),
+    :global(.modal-footer-action button[class*="icon-button"]:not([class*="primary"]):not([class*="danger"]):focus) {
       border-color: var(--primary);
       background-color: var(--hover-color);
     }
@@ -488,6 +522,15 @@
   box-shadow: none;
 }
 
+// 红色危险变体 - light mode
+:global(body.light) .notice-pill.notice-pill-error,
+:global(.light) .notice-pill.notice-pill-error {
+  background: rgba(254, 242, 242, 0.96);
+  color: #b91c1c !important;
+  border: 1px solid rgba(252, 165, 165, 0.8);
+  box-shadow: none;
+}
+
 :global(body.dark) .notice-pill,
 :global(.dark) .notice-pill {
   background: rgba(51, 65, 85, 0.82);
@@ -498,12 +541,30 @@
     0 0 10px rgba(125, 211, 252, 0.12);
 }
 
+// 红色危险变体 - dark mode
+:global(body.dark) .notice-pill.notice-pill-error,
+:global(.dark) .notice-pill.notice-pill-error {
+  background: rgba(127, 29, 29, 0.82);
+  color: #fca5a5 !important;
+  border: 1px solid rgba(252, 165, 165, 0.22);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.32),
+    0 0 10px rgba(252, 165, 165, 0.12);
+}
+
 @media (prefers-color-scheme: dark) {
   :global(body:not(.light):not(.dark)) .notice-pill {
     background: rgba(96, 165, 250, 0.9);
     color: #ffffff !important;
     border: none;
     box-shadow: 0 8px 24px rgba(96, 165, 250, 0.3);
+  }
+
+  :global(body:not(.light):not(.dark)) .notice-pill.notice-pill-error {
+    background: rgba(220, 38, 38, 0.9);
+    color: #ffffff !important;
+    border: none;
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.3);
   }
 }
 
@@ -651,11 +712,9 @@
 
 :global(.dark) .select-with-icon .select-with-icon-select,
 :global(body.dark) .select-with-icon .select-with-icon-select {
-  background: linear-gradient(
-    180deg,
-    rgba(30, 41, 59, 0.96) 0%,
-    rgba(15, 23, 42, 0.96) 100%
-  );
+  background: linear-gradient(180deg,
+      rgba(30, 41, 59, 0.96) 0%,
+      rgba(15, 23, 42, 0.96) 100%);
   color: #e5edf7;
   border-color: rgba(71, 85, 105, 0.92);
   box-shadow:
@@ -667,11 +726,9 @@
 :global(.dark) .select-with-icon .select-with-icon-select:hover,
 :global(body.dark) .select-with-icon:hover .select-with-icon-select,
 :global(body.dark) .select-with-icon .select-with-icon-select:hover {
-  background: linear-gradient(
-    180deg,
-    rgba(37, 99, 235, 0.18) 0%,
-    rgba(15, 23, 42, 0.96) 100%
-  );
+  background: linear-gradient(180deg,
+      rgba(37, 99, 235, 0.18) 0%,
+      rgba(15, 23, 42, 0.96) 100%);
   border-color: rgba(96, 165, 250, 0.85);
   box-shadow:
     inset 0 1px 0 rgba(191, 219, 254, 0.12),
@@ -680,11 +737,9 @@
 
 :global(.dark) .select-with-icon:focus-within .select-with-icon-select,
 :global(body.dark) .select-with-icon:focus-within .select-with-icon-select {
-  background: linear-gradient(
-    180deg,
-    rgba(37, 99, 235, 0.22) 0%,
-    rgba(15, 23, 42, 0.96) 100%
-  );
+  background: linear-gradient(180deg,
+      rgba(37, 99, 235, 0.22) 0%,
+      rgba(15, 23, 42, 0.96) 100%);
   color: #f8fbff;
   border-color: rgba(96, 165, 250, 0.92);
   box-shadow:
@@ -781,6 +836,7 @@
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -870,6 +926,7 @@
         opacity: 0;
         transform: translateY(20px) scale(0.98);
       }
+
       to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -933,11 +990,8 @@
       flex: 0 0 44px;
       margin-top: 4px;
       padding: 0 18px;
-      border: var(--selector-control-border-width, 2px) solid
-        var(
-          --selector-control-border-color,
-          color-mix(in srgb, var(--primary) 32%, transparent)
-        );
+      border: var(--selector-control-border-width, 2px) solid var(--selector-control-border-color,
+          color-mix(in srgb, var(--primary) 32%, transparent));
       border-radius: 16px;
       background: var(--white);
       box-sizing: border-box;
@@ -954,10 +1008,8 @@
       &:focus-within {
         border-width: var(--selector-control-border-width, 2px);
         border-color: var(--selector-control-focus-border-color, var(--primary));
-        box-shadow: var(
-          --selector-control-focus-shadow,
-          var(--input-control-hover-shadow)
-        );
+        box-shadow: var(--selector-control-focus-shadow,
+            var(--input-control-hover-shadow));
         transform: none;
         transition: none;
       }
@@ -978,10 +1030,8 @@
         &:hover,
         &:focus-within {
           transform: none !important;
-          box-shadow: var(
-            --selector-control-focus-shadow,
-            var(--input-control-hover-shadow)
-          ) !important;
+          box-shadow: var(--selector-control-focus-shadow,
+              var(--input-control-hover-shadow)) !important;
         }
       }
     }
@@ -998,7 +1048,7 @@
       gap: 8px;
 
       // 主按钮（全部模型商）占剩余空间
-      > .selector-group-filter {
+      >.selector-group-filter {
         flex: 1;
         min-width: 0;
         width: auto;
@@ -1013,7 +1063,7 @@
       margin-bottom: 0;
 
       // extra 里的按钮样式继承 selector-group-filter
-      > .selector-group-filter {
+      >.selector-group-filter {
         width: auto;
         min-width: 0;
         padding-left: 14px;
@@ -1032,11 +1082,8 @@
       min-height: 44px;
       max-height: 44px;
       padding: 8px 18px;
-      border: var(--selector-control-border-width, 2px) solid
-        var(
-          --selector-control-border-color,
-          color-mix(in srgb, var(--primary) 32%, transparent)
-        );
+      border: var(--selector-control-border-width, 2px) solid var(--selector-control-border-color,
+          color-mix(in srgb, var(--primary) 32%, transparent));
       border-radius: 16px;
       outline: none;
       font-size: 15px;
@@ -1265,10 +1312,10 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      gap: 8px;
+      gap: 6px;
       width: 100%;
       min-height: 52px;
-      padding: 0 28px 0 26px;
+      padding: 0 22px 0 10px;
       border: var(--border-in-light);
       border-radius: 16px;
       background: var(--white);
@@ -1321,7 +1368,7 @@
       // 钩图标颜色
       > :global(svg) {
         position: absolute;
-        right: 18px;
+        right: 6px;
         top: 50%;
         width: 16px;
         height: 16px;
@@ -1451,12 +1498,12 @@
         cursor: pointer;
       }
 
-      > div {
+      >div {
         position: relative;
         cursor: pointer;
       }
 
-      > div:first-child {
+      >div:first-child {
         cursor: pointer;
 
         * {
@@ -1578,7 +1625,7 @@
         color: #0ea5e9 !important;
         box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.22);
 
-        .list-item-title > div {
+        .list-item-title>div {
           color: #0ea5e9 !important;
           font-weight: 600;
         }
@@ -1691,11 +1738,11 @@
     box-sizing: border-box !important;
   }
 
-  .selector-content > .selector-header-hint,
-  .selector-content > .selector-group-filter-wrap,
-  .selector-content > .selector-quick-filter-wrap,
-  .selector-content > .selector-search-wrap,
-  .selector-content > .list {
+  .selector-content>.selector-header-hint,
+  .selector-content>.selector-group-filter-wrap,
+  .selector-content>.selector-quick-filter-wrap,
+  .selector-content>.selector-search-wrap,
+  .selector-content>.list {
     margin-top: 0 !important;
     margin-bottom: 0 !important;
   }
@@ -1729,9 +1776,7 @@
     height: 34px !important;
     font-size: 16px !important;
     font-weight: 600 !important;
-    transform: scale(0.875);
-    transform-origin: center;
-    width: 114.2857143%;
+    width: 100% !important;
   }
 
   .selector-group-filter {
@@ -1823,10 +1868,10 @@
     height: 44px !important;
     min-height: 44px !important;
     max-height: 44px !important;
-    padding: 0 28px 0 12px !important;
+    padding: 0 22px 0 8px !important;
     border-radius: 12px !important;
-    font-size: 14px !important;
-    gap: 6px !important;
+    font-size: 12px !important;
+    gap: 5px !important;
 
     span {
       min-width: 0;
@@ -1835,7 +1880,7 @@
 
     > :global(svg) {
       position: absolute;
-      right: 10px;
+      right: 6px;
       top: 50%;
       width: 14px !important;
       height: 14px !important;
@@ -1844,14 +1889,14 @@
   }
 
   .selector-group-filter-option-active {
-    font-size: 14px !important;
+    font-size: 12px !important;
 
     span {
       text-align: center;
     }
 
     > :global(svg) {
-      right: 10px !important;
+      right: 6px !important;
       top: 50% !important;
       width: 14px !important;
       height: 14px !important;

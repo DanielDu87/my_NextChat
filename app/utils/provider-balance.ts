@@ -131,6 +131,13 @@ export function cacheProviderBalance(
   );
 }
 
+export function clearCachedProviderBalance(userId: string, profileId: string) {
+  safeLocalStorage().removeItem(getProviderBalanceCacheKey(userId, profileId));
+  safeLocalStorage().removeItem(
+    getLegacyProviderBalanceCacheKey(userId, profileId),
+  );
+}
+
 export class ProviderBalanceRequestError extends Error {
   attempts: ProviderBalanceAttempt[];
   balance?: ProviderBalanceSnapshot | null;
