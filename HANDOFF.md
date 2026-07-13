@@ -4,7 +4,7 @@
 
 ============================================================
 
-## 59. 【2026-07-13 11:28】- 进一步优化移动端整体对话框垂直居中规则优先级
+## 59. 【2026-07-13 11:32】- 进一步优化移动端整体对话框居中优先级与 AI 目录忽略
 
 ### 修改内容
 
@@ -13,6 +13,7 @@
 - 将移动端模型添加面板的底部操作按钮从 3 行缩减/合并为 2 行，并使得自定义模型弹出行按钮能在折行后水平居中。
 - 优化移动端已添加模型列表中“删除”按钮的右侧定位（调整为 `right: 20px`），并增设列表项右边距，防止长模型文本与删除按钮发生重叠遮挡。
 - 优化已添加模型页面下方的 3 个操作按钮，使其在移动端强制为单行并排显示，且将危险按钮“全部删除”排在最左侧。
+- 配置项目 Git 忽略规则，确保 AI 编程的各种局部配置目录及缓存碎片不再被意外加入版本库提交。
 
 ### 实现方式
 
@@ -23,6 +24,7 @@
 - `app/styles/globals.scss`：对移动端 `.model-selector-panel .nextchat-selector-item-action` 重写 `right: 20px !important`。
 - `app/styles/globals.scss`：为移动端 `.model-selector-panel .nextchat-selector-list-item` 增加 `padding-right: 80px !important` 避让区，确保长模型名字能自动截断。
 - `app/styles/globals.scss`：为移动端 `.nextchat-modal-footer-show-added` 开启 flex row + contents，并给 `.nextchat-danger-button` 设定 `order: -1 !important` 使得它排序到单行最左侧。
+- `.gitignore`：追加 `.agents/`、`.cursor/`、`.claude/`、`.gemini/` 以及 `.system_generated/` 忽略条目。
 
 ### 验证
 

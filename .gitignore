@@ -55,3 +55,10 @@ masks.json
 
 # mcp config
 app/mcp/mcp_config.json
+
+# AI coding agents configs and caches
+.agents/
+.cursor/
+.claude/
+.gemini/
+.system_generated/
