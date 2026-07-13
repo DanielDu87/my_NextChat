@@ -20,6 +20,7 @@
 - `app/components/user-menu.tsx` 与 `app/utils/provider-balance.ts`：对话页按 Profile 读取数据库余额，使用操作序号阻止慢读取覆盖新查询；失败时显示数据库旧余额，数据库暂时不可用时保留当前内存值。
 - `app/components/provider-balances.tsx`：以数据库返回列表为主集合，完整显示 8 个供应商；自动适配、缓存恢复和 New-API-User 默认路径均转换为完整 URL，保持输入框可编辑，保存后使用用户填写值；已有固定 URL 的输入框统一使用绿色文字标识；查询成功后余额替换为新数字并显示绿色，失败时保留旧数字并显示红色。
 - `app/utils/server/provider-balance.ts`：自定义 URL 优先于供应商默认适配；YutoAPI、CherryIN、OpenRouter、DeepSeek、AihubMix、Ocoolai、ToAPI 与晴辰云均通过真实数据库 Key 查询。
+- `app/utils/server/provider-model-sync.ts`：模型路径缓存继续按正式仓库接口传入 `appUserId` 与 Profile ID，避免本地未提交接口变更掩盖生产构建错误。
 - `app/utils/server/api-config-backup-repository.ts`：全局配置模式下备份并恢复余额 Key、快照、完整 URL、缓存路径、认证方式与 New-API-User 字段，旧备份缺失字段时保留当前值。
 - 同步更新 `README.md`、`docs/provider-balance.md` 与 `docs/db/nextchat-postgres-schema.sql`。
 
@@ -30,6 +31,7 @@
 - 8 项余额配置逐项完成 PUT 保存与 GET 回读，Key、URL、New-API-User 字段全部一致；备份构建与同值恢复后 8 项路径字段一致。
 - 浏览器实测 `/balances` 展示 8 个完整 URL，全部输入框 `disabled=false`、`readOnly=false`；页面首开只读取数据库余额，不自动发起查询。
 - 竞态回归确认旧请求写入被忽略、旧余额与缓存路径保留；自动路径完成临时自定义、成功查询和恢复自动模式往返验证。
+- 生产 Docker 构建复验确认 Next.js 编译与类型检查通过后再切换容器。
 
 ### 潜在或遗留问题
 

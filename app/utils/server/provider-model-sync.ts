@@ -138,7 +138,7 @@ export async function refreshConfiguredProviderModels(
     // 成功获取后保存模型接口路径
     if (result.cachedPath && result.models.length > 0) {
       try {
-        await saveProviderModelCachedPath(profile.id, {
+        await saveProviderModelCachedPath(appUserId, profile.id, {
           cachedModelPath: result.cachedPath,
           cachedModelBaseUrl: result.cachedBaseUrl,
           cachedModelAuthType: result.cachedAuthType,
