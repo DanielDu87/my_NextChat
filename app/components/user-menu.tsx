@@ -25,11 +25,9 @@ import {
 import { isAbortLikeError } from "../utils/stale-revalidate";
 import { getClientConfig } from "../config/client";
 import {
-  cacheProviderBalance,
-  clearCachedProviderBalance,
+  loadProviderBalance,
   ProviderBalanceRequestError,
   queryProviderBalanceProfile,
-  readCachedProviderBalance,
   type ProviderBalanceSnapshot,
 } from "../utils/provider-balance";
 
@@ -343,18 +341,32 @@ export function UserMenu(props?: {
   const currentEffectiveUserId = effectiveUser?.id ?? "";
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
-  const balanceUserId = effectiveUser?.id || "unknown";
   const [providerBalance, setProviderBalance] =
-    useState<ProviderBalanceSnapshot | null>(() =>
-      readCachedProviderBalance(balanceUserId, props?.balanceProfileId || ""),
-    );
+    useState<ProviderBalanceSnapshot | null>(null);
   const previousRefreshSignalRef = useRef("");
+  const balanceOperationRef = useRef(0);
 
   useEffect(() => {
-    setProviderBalance(
-      readCachedProviderBalance(balanceUserId, props?.balanceProfileId || ""),
-    );
-  }, [balanceUserId, props?.balanceProfileId]);
+    const profileId = props?.balanceProfileId || "";
+    const operationId = ++balanceOperationRef.current;
+    const controller = new AbortController();
+    setProviderBalance(null);
+    if (!profileId) return () => controller.abort();
+
+    void loadProviderBalance(profileId, controller.signal)
+      .then((balance) => {
+        if (operationId === balanceOperationRef.current) {
+          setProviderBalance(balance);
+        }
+      })
+      .catch((error) => {
+        if (!isAbortLikeError(error)) {
+          console.warn("[UserMenu] 数据库余额读取失败");
+        }
+      });
+
+    return () => controller.abort();
+  }, [props?.balanceProfileId]);
 
   useEffect(() => {
     const signal = props?.balanceRefreshSignal || "";
@@ -363,22 +375,36 @@ export function UserMenu(props?: {
     if (!props?.balanceProfileId) return;
 
     let active = true;
+    const operationId = ++balanceOperationRef.current;
     void queryProviderBalanceProfile(props.balanceProfileId, {
       source: "chat-page-auto-refresh",
       providerName: props.balanceProviderName,
       logSuccess: false,
     })
       .then(({ balance }) => {
-        cacheProviderBalance(balanceUserId, props.balanceProfileId!, balance);
-        if (active) {
+        if (active && operationId === balanceOperationRef.current) {
           setProviderBalance(balance);
         }
       })
-      .catch((error) => {
-        if (active) {
-          // 清除缓存，下次刷新页面时不再显示旧值
-          clearCachedProviderBalance(balanceUserId, props.balanceProfileId!);
-          setProviderBalance(null);
+      .catch(async (error) => {
+        const responseContainsDatabaseBalance =
+          error instanceof ProviderBalanceRequestError &&
+          error.balance !== undefined;
+        let previousBalance = responseContainsDatabaseBalance
+          ? error.balance || null
+          : null;
+        if (!responseContainsDatabaseBalance) {
+          try {
+            previousBalance = await loadProviderBalance(
+              props.balanceProfileId!,
+            );
+          } catch {
+            // 数据库也暂时不可用时保留当前页面值，不把读取失败误判为无余额。
+            return;
+          }
+        }
+        if (active && operationId === balanceOperationRef.current) {
+          setProviderBalance(previousBalance);
         }
         if (
           !isAbortLikeError(error) &&
@@ -392,7 +418,6 @@ export function UserMenu(props?: {
       active = false;
     };
   }, [
-    balanceUserId,
     props?.balanceProfileId,
     props?.balanceProviderName,
     props?.balanceRefreshSignal,

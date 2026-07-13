@@ -5,25 +5,18 @@ import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ReloadIcon from "../icons/reload.svg";
 import { Path } from "../constant";
-import { useAccessStore } from "../store";
 import {
-  cacheProviderBalance,
   getProviderBalanceErrorMessage,
   loadProviderBalanceProfiles,
   queryProviderBalanceProfile,
-  readCachedProviderBalance,
-  saveProviderManagementKey,
-  saveProviderCustomUrl,
+  saveProviderBalanceConfig,
   type ProviderBalanceProfile,
   type ProviderBalanceAttempt,
 } from "../utils/provider-balance";
 import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
-import { isYutoProfileLike } from "../utils/multi-key";
 import { IconButton } from "./button";
 import { showConfirm, showToast } from "./ui-lib";
 import styles from "./provider-balances.module.scss";
-
-const profileMemoryCache = new Map<string, ProviderBalanceProfile[]>();
 
 type QueryStatus =
   | {
@@ -46,6 +39,20 @@ type QueryStatus =
       mode?: "custom" | "auto";
     };
 
+function toFullBalanceUrl(baseUrl: string, path: string) {
+  const trimmedPath = path.trim();
+  if (!trimmedPath) return "";
+  if (/^https?:\/\//i.test(trimmedPath)) return trimmedPath;
+  if (!baseUrl.trim()) return trimmedPath;
+  try {
+    return new URL(trimmedPath, `${baseUrl.replace(/\/+$/, "")}/`)
+      .toString()
+      .replace(/\/$/, "");
+  } catch {
+    return `${baseUrl.replace(/\/+$/, "")}/${trimmedPath.replace(/^\/+/, "")}`;
+  }
+}
+
 function updateHoverPosition(event: PointerEvent<HTMLElement>) {
   const rect = event.currentTarget.getBoundingClientRect();
   event.currentTarget.style.setProperty(
@@ -62,60 +69,47 @@ function mergeProfiles(
   localProfiles: ProviderBalanceProfile[],
   remoteProfiles: ProviderBalanceProfile[],
 ) {
-  const remoteMap = new Map(
-    remoteProfiles.map((profile) => [profile.profileId, profile]),
+  const localMap = new Map(
+    localProfiles.map((profile) => [profile.profileId, profile]),
   );
-  return localProfiles.map((profile) => {
-    const remote = remoteMap.get(profile.profileId);
-    return remote
-      ? {
-          ...profile,
-          ...remote,
-          balance: remote.balance || profile.balance,
-          customBalanceUrl: remote.customBalanceUrl || profile.customBalanceUrl,
-        }
-      : profile;
+  return remoteProfiles.map((remote) => {
+    const profile = localMap.get(remote.profileId);
+
+    const rawKey = remote.managementKey || profile?.managementKey || "";
+    const useNewApiUser =
+      remote.useNewApiUserFormat ?? profile?.useNewApiUserFormat ?? false;
+    const newApiUserId = remote.newApiUserId ?? profile?.newApiUserId ?? "";
+    const cleanKey =
+      useNewApiUser && newApiUserId && rawKey.endsWith(`|${newApiUserId}`)
+        ? rawKey.slice(0, -(newApiUserId.length + 1))
+        : rawKey;
+
+    return {
+      ...(profile || {}),
+      ...remote,
+      managementKey: cleanKey,
+      baseUrl: remote.baseUrl || profile?.baseUrl || "",
+      balance: remote.balance || profile?.balance || null,
+      customBalanceUrl: remote.customBalanceUrl || "",
+      cachedPath: remote.cachedPath || "",
+      cachedBaseUrl: remote.cachedBaseUrl || "",
+      useNewApiUserFormat: useNewApiUser,
+      newApiUserId: newApiUserId,
+    };
   });
 }
 
 export function ProviderBalancesPage() {
   const navigate = useNavigate();
-  const apiProfiles = useAccessStore((state) => state.apiProfiles || []);
-  const profileCacheKey = "shared";
-  const localProfiles = useMemo(() => {
-    const cachedProfiles = profileMemoryCache.get(profileCacheKey) || [];
-    const cachedProfileMap = new Map(
-      cachedProfiles.map((profile) => [profile.profileId, profile]),
-    );
-    return apiProfiles
-      .filter((profile) => Boolean(profile?.id))
-      .map((profile) => {
-        const cachedBalance = readCachedProviderBalance(
-          profileCacheKey,
-          profile.id,
-        );
-        const cachedProfile = cachedProfileMap.get(profile.id);
-        return {
-          profileId: profile.id,
-          profileName: profile.name || profile.provider || profile.id,
-          hasManagementKey: cachedProfile?.hasManagementKey || false,
-          maskedManagementKey: cachedProfile?.maskedManagementKey || "",
-          managementKey: cachedProfile?.managementKey || "",
-          balance: cachedBalance,
-          lastError: "",
-          customBalanceUrl: cachedProfile?.customBalanceUrl || "",
-        };
-      })
-      .sort((a, b) =>
-        a.profileName.localeCompare(b.profileName, "en", {
-          sensitivity: "base",
-        }),
-      );
-  }, [apiProfiles, profileCacheKey]);
-  const [profiles, setProfiles] =
-    useState<ProviderBalanceProfile[]>(localProfiles);
+  const [profiles, setProfiles] = useState<ProviderBalanceProfile[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [customUrls, setCustomUrls] = useState<Record<string, string>>({});
+  const [newApiUserIds, setNewApiUserIds] = useState<Record<string, string>>(
+    {},
+  );
+  const [newApiUserFormats, setNewApiUserFormats] = useState<
+    Record<string, boolean>
+  >({});
   const [queryStatusMap, setQueryStatusMap] = useState<
     Record<string, QueryStatus>
   >({});
@@ -127,16 +121,35 @@ export function ProviderBalancesPage() {
   );
   const [isLoading, setIsLoading] = useState(true);
   const balanceLogSignatureRef = useRef("");
-  const hasUnsavedDrafts = useMemo(
-    () =>
-      Object.entries(drafts).some(([profileId, value]) => {
-        const savedValue =
+  const hasUnsavedDrafts = useMemo(() => {
+    const keyChanged = Object.entries(drafts).some(([profileId, value]) => {
+      const savedValue =
+        profiles.find((profile) => profile.profileId === profileId)
+          ?.managementKey || "";
+      return value !== savedValue;
+    });
+    const urlChanged = Object.entries(customUrls).some(
+      ([profileId, value]) =>
+        value !==
+        (profiles.find((profile) => profile.profileId === profileId)
+          ?.customBalanceUrl || ""),
+    );
+    const userIdChanged = Object.entries(newApiUserIds).some(
+      ([profileId, value]) =>
+        value !==
+        (profiles.find((profile) => profile.profileId === profileId)
+          ?.newApiUserId || ""),
+    );
+    const formatChanged = Object.entries(newApiUserFormats).some(
+      ([profileId, value]) =>
+        value !==
+        Boolean(
           profiles.find((profile) => profile.profileId === profileId)
-            ?.managementKey || "";
-        return value !== savedValue;
-      }),
-    [drafts, profiles],
-  );
+            ?.useNewApiUserFormat,
+        ),
+    );
+    return keyChanged || urlChanged || userIdChanged || formatChanged;
+  }, [customUrls, drafts, newApiUserFormats, newApiUserIds, profiles]);
   const isSaving = working.startsWith("save:");
 
   useEffect(() => {
@@ -149,13 +162,11 @@ export function ProviderBalancesPage() {
     setIsLoading(true);
     try {
       const remoteProfiles = await loadProviderBalanceProfiles();
-      const mergedProfiles = mergeProfiles(localProfiles, remoteProfiles).sort(
-        (a, b) =>
-          a.profileName.localeCompare(b.profileName, "en", {
-            sensitivity: "base",
-          }),
+      const mergedProfiles = mergeProfiles([], remoteProfiles).sort((a, b) =>
+        a.profileName.localeCompare(b.profileName, "en", {
+          sensitivity: "base",
+        }),
       );
-      profileMemoryCache.set(profileCacheKey, mergedProfiles);
       setProfiles(mergedProfiles);
       const named = mergedProfiles
         .map((p) => p?.profileName || p?.profileId || "(未命名)")
@@ -189,11 +200,7 @@ export function ProviderBalancesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [localProfiles, profileCacheKey]);
-
-  useEffect(() => {
-    setProfiles((current) => mergeProfiles(localProfiles, current));
-  }, [localProfiles]);
+  }, []);
 
   useEffect(() => {
     void load().catch(() => showToast("读取余额配置失败"));
@@ -212,16 +219,69 @@ export function ProviderBalancesPage() {
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [hasUnsavedDrafts, isSaving]);
 
-  const queryOne = async (profileId: string, options?: { batch?: boolean }) => {
+  const getNewApiUserIdInputValue = (profileId: string) => {
+    if (Object.prototype.hasOwnProperty.call(newApiUserIds, profileId)) {
+      return newApiUserIds[profileId] || "";
+    }
+    return (
+      profiles.find((profile) => profile.profileId === profileId)
+        ?.newApiUserId || ""
+    );
+  };
+
+  const getNewApiUserFormatValue = (profileId: string) => {
+    if (Object.prototype.hasOwnProperty.call(newApiUserFormats, profileId)) {
+      return Boolean(newApiUserFormats[profileId]);
+    }
+    return Boolean(
+      profiles.find((profile) => profile.profileId === profileId)
+        ?.useNewApiUserFormat,
+    );
+  };
+
+  const profileHasUnsavedChanges = (profileId: string) => {
+    const profile = profiles.find((item) => item.profileId === profileId);
+    if (!profile) return false;
+    return (
+      (Object.prototype.hasOwnProperty.call(drafts, profileId) &&
+        getManagementInputValue(profileId) !== (profile.managementKey || "")) ||
+      (Object.prototype.hasOwnProperty.call(customUrls, profileId) &&
+        getCustomUrlInputValue(profileId) !==
+          (profile.customBalanceUrl || "")) ||
+      (Object.prototype.hasOwnProperty.call(newApiUserIds, profileId) &&
+        getNewApiUserIdInputValue(profileId) !==
+          (profile.newApiUserId || "")) ||
+      (Object.prototype.hasOwnProperty.call(newApiUserFormats, profileId) &&
+        getNewApiUserFormatValue(profileId) !==
+          Boolean(profile.useNewApiUserFormat))
+    );
+  };
+
+  const queryOne = async (
+    profileId: string,
+    options?: { batch?: boolean; signal?: AbortSignal },
+  ) => {
     const profile = profiles.find((item) => item.profileId === profileId);
     const profileName = profile?.profileName || profileId;
-    const managementKeyValue = getManagementInputValue(profileId);
-    const customBalanceUrl = getCustomUrlInputValue(profileId);
-    const queryMode: "custom" | "auto" = customBalanceUrl.trim()
-      ? "custom"
-      : "auto";
+    const useNewApiUser = getNewApiUserFormatValue(profileId);
+    const queryMode: "custom" | "auto" =
+      profile?.customBalanceUrl?.trim() || useNewApiUser ? "custom" : "auto";
 
-    if (!managementKeyValue.trim()) {
+    if (profileHasUnsavedChanges(profileId)) {
+      setQueryStatusMap((value) => ({
+        ...value,
+        [profileId]: {
+          type: "error",
+          text: "配置尚未保存，请先保存后再查询",
+          attempts: [],
+          mode: queryMode,
+        },
+      }));
+      if (!options?.batch) showToast("配置尚未保存，请先保存后再查询");
+      return;
+    }
+
+    if (!profile?.hasManagementKey) {
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
@@ -233,6 +293,7 @@ export function ProviderBalancesPage() {
       }));
       return;
     }
+
     if (!options?.batch) {
       setWorking(`query:${profileId}`);
     }
@@ -261,33 +322,21 @@ export function ProviderBalancesPage() {
       const result = await queryProviderBalanceProfile(profileId, {
         source: options?.batch ? "balances-page-batch" : "balances-page-manual",
         providerName: profileName,
-        customBalanceUrl: customBalanceUrl || undefined,
+        signal: options?.signal,
       });
       attempts = result.attempts;
-      cacheProviderBalance(profileCacheKey, profileId, result.balance);
       console.log(`[Provider Balance] ✅ ${profileName} 余额查询成功`);
-
-      // 自动模式成功后将成功路径保存到数据库
-      const successPath = (result as any).cachedPath;
-      const successBaseUrl = (result as any).cachedBaseUrl;
-      if (queryMode === "auto" && successPath) {
-        const fullPath = successBaseUrl
-          ? `${successBaseUrl.replace(/\/$/, "")}/${successPath}`
-          : successPath;
-        console.log(`[Provider Balance] 💾 保存成功路径：${fullPath}`);
-        // 保存到数据库
-        saveProviderCustomUrl(profileId, fullPath).catch(() => {});
-        // 更新本地状态
-        setCustomUrls((value) => ({
-          ...value,
-          [profileId]: fullPath,
-        }));
-      }
 
       setProfiles((value) =>
         value.map((profile) =>
           profile.profileId === profileId
-            ? { ...profile, balance: result.balance, lastError: "" }
+            ? {
+                ...profile,
+                balance: result.balance,
+                lastError: "",
+                cachedPath: result.cachedPath || profile.cachedPath,
+                cachedBaseUrl: result.cachedBaseUrl || profile.cachedBaseUrl,
+              }
             : profile,
         ),
       );
@@ -297,11 +346,19 @@ export function ProviderBalancesPage() {
         ...value,
         [profileId]: {
           type: "success",
-          text: queryMode === "custom" ? `查询成功（自定义路径）` : `查询成功`,
+          text: `${
+            queryMode === "custom" ? "查询成功（自定义路径）" : "查询成功"
+          } · ${toFullBalanceUrl(
+            result.cachedBaseUrl || profile?.baseUrl || "",
+            result.cachedPath || profile?.customBalanceUrl || "",
+          )}`,
           mode: queryMode,
         },
       }));
     } catch (error) {
+      if (options?.signal?.aborted) {
+        throw error;
+      }
       const errorMessage = getProviderBalanceErrorMessage(error);
       // 从 error 对象中提取 attempts
       if (error && typeof error === "object" && "attempts" in error) {
@@ -313,7 +370,6 @@ export function ProviderBalancesPage() {
             ? {
                 ...profile,
                 lastError: errorMessage,
-                balance: null,
               }
             : profile,
         ),
@@ -357,11 +413,23 @@ export function ProviderBalancesPage() {
   };
 
   const saveKey = async (profileId: string) => {
-    const profileName =
-      profiles.find((profile) => profile.profileId === profileId)
-        ?.profileName || profileId;
+    const profile = profiles.find((profile) => profile.profileId === profileId);
+    const profileName = profile?.profileName || profileId;
     const managementKey = getManagementInputValue(profileId);
     const customUrl = getCustomUrlInputValue(profileId);
+    const newApiUserId = getNewApiUserIdInputValue(profileId);
+    const useNewApiUser = getNewApiUserFormatValue(profileId);
+    const customBalanceUrl = customUrl.trim()
+      ? toFullBalanceUrl(profile?.baseUrl || "", customUrl)
+      : useNewApiUser
+      ? toFullBalanceUrl(profile?.baseUrl || "", "/api/user/self")
+      : "";
+
+    if (useNewApiUser && !newApiUserId.trim()) {
+      showToast("请填写 User ID");
+      return;
+    }
+
     setWorking(`save:${profileId}`);
     setSavingProfileIds((ids) =>
       ids.includes(profileId) ? ids : [...ids, profileId],
@@ -372,17 +440,29 @@ export function ProviderBalancesPage() {
     }));
     console.log(`[Provider Balance] 🔄 开始保存：${profileName}`);
     try {
-      // 同时保存 key 和自定义 URL
-      await Promise.all([
-        saveProviderManagementKey(profileId, managementKey),
-        saveProviderCustomUrl(profileId, customUrl),
-      ]);
+      // 一次性保存所有余额配置字段
+      await saveProviderBalanceConfig(profileId, {
+        managementKey: managementKey.trim(),
+        customBalanceUrl,
+        useNewApiUserFormat: useNewApiUser,
+        newApiUserId: newApiUserId,
+      });
       setDrafts((value) => {
         const nextValue = { ...value };
         delete nextValue[profileId];
         return nextValue;
       });
       setCustomUrls((value) => {
+        const nextValue = { ...value };
+        delete nextValue[profileId];
+        return nextValue;
+      });
+      setNewApiUserIds((value) => {
+        const nextValue = { ...value };
+        delete nextValue[profileId];
+        return nextValue;
+      });
+      setNewApiUserFormats((value) => {
         const nextValue = { ...value };
         delete nextValue[profileId];
         return nextValue;
@@ -418,8 +498,10 @@ export function ProviderBalancesPage() {
   };
 
   const queryAll = async () => {
-    const queryableProfiles = profiles.filter((profile) =>
-      getManagementInputValue(profile.profileId).trim(),
+    const queryableProfiles = profiles.filter(
+      (profile) =>
+        profile.hasManagementKey &&
+        !profileHasUnsavedChanges(profile.profileId),
     );
     console.log(
       `[Provider Balance] 🔄 开始批量查询余额（${queryableProfiles.length} 个配置，全部并发执行）`,
@@ -448,15 +530,18 @@ export function ProviderBalancesPage() {
     try {
       // 所有查询同时发起，不等待
       const queryPromises = queryableProfiles.map(async (profile) => {
-        const timeoutPromise = new Promise<"timeout">((resolve) =>
-          setTimeout(() => resolve("timeout"), TIMEOUT_MS),
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(
+          () => controller.abort("balance_query_timeout"),
+          TIMEOUT_MS,
         );
-
-        const queryPromise = queryOne(profile.profileId, { batch: true });
-
-        const result = await Promise.race([queryPromise, timeoutPromise]);
-
-        if (result === "timeout") {
+        try {
+          await queryOne(profile.profileId, {
+            batch: true,
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (!controller.signal.aborted) throw error;
           console.warn(
             `[Provider Balance] ⚠️ ${profile.profileName} 余额查询超时（${
               TIMEOUT_MS / 1000
@@ -479,6 +564,8 @@ export function ProviderBalancesPage() {
             },
           }));
           showToast(`${profile.profileName} 查询超时`);
+        } finally {
+          window.clearTimeout(timeoutId);
         }
       });
 
@@ -489,7 +576,6 @@ export function ProviderBalancesPage() {
       setQueryingProfileIds([]);
     }
   };
-
   const closePage = async () => {
     if (queryingProfileIds.length > 0) {
       const confirmed = await showConfirm(
@@ -591,58 +677,120 @@ export function ProviderBalancesPage() {
                 key={profile.profileId}
                 onPointerMove={updateHoverPosition}
               >
-                <div className={styles.header}>
-                  <span className={styles.name}>{profile.profileName}</span>
-                  <span
-                    className={`${styles.balance} ${
-                      recentlyUpdatedIds.has(profile.profileId)
-                        ? styles.balanceUpdated
-                        : ""
-                    }`}
-                  >
-                    余额：
-                    {profile.balance
-                      ? profile.balance.value === -1
-                        ? "无限"
-                        : `$${profile.balance.value.toFixed(2)}`
-                      : "无"}
-                  </span>
+                <div className={styles.headerRow}>
+                  <div className={styles.headerLeft}>
+                    <span className={styles.name}>{profile.profileName}</span>
+                    <label className={styles.newApiUserToggle}>
+                      <input
+                        type="checkbox"
+                        checked={getNewApiUserFormatValue(profile.profileId)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          setNewApiUserFormats((value) => ({
+                            ...value,
+                            [profile.profileId]: newValue,
+                          }));
+                          if (
+                            newValue &&
+                            !Object.prototype.hasOwnProperty.call(
+                              customUrls,
+                              profile.profileId,
+                            ) &&
+                            !profile.customBalanceUrl
+                          ) {
+                            setCustomUrls((value) => ({
+                              ...value,
+                              [profile.profileId]: toFullBalanceUrl(
+                                profile.baseUrl,
+                                "/api/user/self",
+                              ),
+                            }));
+                          }
+                        }}
+                      />
+                      <span>New-API-User</span>
+                    </label>
+                  </div>
+                  <div className={styles.headerRight}>
+                    <span
+                      className={`${styles.balance} ${
+                        queryStatusMap[profile.profileId]?.type === "error" ||
+                        profile.lastError
+                          ? styles.balanceError
+                          : recentlyUpdatedIds.has(profile.profileId)
+                          ? styles.balanceUpdated
+                          : ""
+                      }`}
+                    >
+                      余额：
+                      {profile.balance
+                        ? profile.balance.value === -1
+                          ? "无限"
+                          : `$${profile.balance.value.toFixed(2)}`
+                        : "无"}
+                    </span>
+                  </div>
                 </div>
                 <div className={styles.row}>
-                  <input
-                    className="nextchat-input-control"
-                    type="text"
-                    autoComplete="one-time-code"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    data-lpignore="true"
-                    data-1p-ignore="true"
-                    data-bwignore="true"
-                    data-form-type="other"
-                    name={`balance-management-key-${profile.profileId}`}
-                    value={
-                      Object.prototype.hasOwnProperty.call(
-                        drafts,
-                        profile.profileId,
-                      )
-                        ? drafts[profile.profileId]
-                        : profile.managementKey || ""
-                    }
-                    onChange={(event) =>
-                      setDrafts((value) => ({
-                        ...value,
-                        [profile.profileId]: event.target.value,
-                      }))
-                    }
-                    placeholder={
-                      profile.profileName.toLowerCase().includes("yuto") ||
-                      profile.profileName.toLowerCase().includes("gptapi")
-                        ? "Yuto 配置格式：API_Key|User_ID"
-                        : "管理 API Key（与对话 Key 分离，可选）"
-                    }
-                    disabled={isLoading}
-                  />
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>API Key</span>
+                    <input
+                      className="nextchat-input-control"
+                      type="text"
+                      autoComplete="one-time-code"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-bwignore="true"
+                      data-form-type="other"
+                      name={`balance-management-key-${profile.profileId}`}
+                      value={
+                        Object.prototype.hasOwnProperty.call(
+                          drafts,
+                          profile.profileId,
+                        )
+                          ? drafts[profile.profileId]
+                          : profile.managementKey || ""
+                      }
+                      onChange={(event) =>
+                        setDrafts((value) => ({
+                          ...value,
+                          [profile.profileId]: event.target.value,
+                        }))
+                      }
+                      placeholder="API Key"
+                      disabled={isLoading}
+                    />
+                    {getNewApiUserFormatValue(profile.profileId) && (
+                      <>
+                        <span className={styles.inputLabel}>User ID</span>
+                        <input
+                          className={`nextchat-input-control ${styles.newApiUserInput}`}
+                          type="text"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          data-lpignore="true"
+                          data-1p-ignore="true"
+                          data-bwignore="true"
+                          data-form-type="other"
+                          name={`balance-new-api-user-${profile.profileId}`}
+                          value={getNewApiUserIdInputValue(profile.profileId)}
+                          onChange={(event) =>
+                            setNewApiUserIds((value) => ({
+                              ...value,
+                              [profile.profileId]: event.target.value,
+                            }))
+                          }
+                          placeholder="用户ID"
+                          disabled={isLoading}
+                        />
+                      </>
+                    )}
+                  </div>
                   <IconButton
                     icon={<ConfirmIcon />}
                     type="primary"
@@ -663,41 +811,70 @@ export function ProviderBalancesPage() {
                   />
                 </div>
                 <div className={styles.row}>
-                  <input
-                    className="nextchat-input-control"
-                    type="text"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    data-lpignore="true"
-                    data-1p-ignore="true"
-                    data-bwignore="true"
-                    data-form-type="other"
-                    name={`balance-custom-url-${profile.profileId}`}
-                    value={
-                      isYutoProfileLike({ name: profile.profileName })
-                        ? "/api/user/self"
-                        : Object.prototype.hasOwnProperty.call(
-                            customUrls,
-                            profile.profileId,
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>查询 URL</span>
+                    {(() => {
+                      const isAutoFixed =
+                        !getNewApiUserFormatValue(profile.profileId) &&
+                        !Object.prototype.hasOwnProperty.call(
+                          customUrls,
+                          profile.profileId,
+                        ) &&
+                        !profile.customBalanceUrl &&
+                        !!profile.cachedPath;
+
+                      const autoFixedDisplayUrl = isAutoFixed
+                        ? toFullBalanceUrl(
+                            profile.cachedBaseUrl || profile.baseUrl,
+                            profile.cachedPath || "",
                           )
+                        : "";
+
+                      const hasCustomUrlDraft =
+                        Object.prototype.hasOwnProperty.call(
+                          customUrls,
+                          profile.profileId,
+                        );
+                      const displayUrlValue = hasCustomUrlDraft
                         ? customUrls[profile.profileId]
-                        : profile.customBalanceUrl || ""
-                    }
-                    onChange={(event) =>
-                      !isYutoProfileLike({ name: profile.profileName }) &&
-                      setCustomUrls((value) => ({
-                        ...value,
-                        [profile.profileId]: event.target.value,
-                      }))
-                    }
-                    placeholder="自定义余额查询 URL（不填则自动尝试）"
-                    disabled={
-                      isLoading ||
-                      isYutoProfileLike({ name: profile.profileName })
-                    }
-                  />
+                        : profile.customBalanceUrl
+                        ? toFullBalanceUrl(
+                            profile.baseUrl,
+                            profile.customBalanceUrl,
+                          )
+                        : getNewApiUserFormatValue(profile.profileId)
+                        ? toFullBalanceUrl(profile.baseUrl, "/api/user/self")
+                        : autoFixedDisplayUrl;
+                      const hasFixedUrl = !!displayUrlValue.trim();
+
+                      return (
+                        <input
+                          className={`nextchat-input-control ${
+                            hasFixedUrl ? styles.fixedUrlInput : ""
+                          }`}
+                          type="text"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          data-lpignore="true"
+                          data-1p-ignore="true"
+                          data-bwignore="true"
+                          data-form-type="other"
+                          name={`balance-custom-url-${profile.profileId}`}
+                          value={displayUrlValue}
+                          onChange={(event) =>
+                            setCustomUrls((value) => ({
+                              ...value,
+                              [profile.profileId]: event.target.value,
+                            }))
+                          }
+                          placeholder={isAutoFixed ? "" : "自定义余额查询 URL"}
+                          disabled={isLoading}
+                        />
+                      );
+                    })()}
+                  </div>
                   <IconButton
                     icon={<ReloadIcon />}
                     type="green"
@@ -716,13 +893,6 @@ export function ProviderBalancesPage() {
                     onClick={() => void queryOne(profile.profileId)}
                   />
                 </div>
-                {(profile.profileName.toLowerCase().includes("yuto") ||
-                  profile.profileName.toLowerCase().includes("gptapi")) && (
-                  <div className={styles.hint}>
-                    💡 Yuto 配置提示：请使用格式 <code>API_Key|User_ID</code>
-                    ，例如 <code>your_api_key|your_user_id</code>
-                  </div>
-                )}
                 {queryStatusMap[profile.profileId] ? (
                   <div
                     className={
@@ -752,6 +922,18 @@ export function ProviderBalancesPage() {
                               上游尝试 {atts.length} 次：成功 {okAtts.length}
                               ，失败 {failAtts.length} {modeTag}
                             </div>
+                            {[
+                              ...new Set(
+                                atts.map((attempt) =>
+                                  toFullBalanceUrl(
+                                    attempt.baseUrl,
+                                    attempt.path,
+                                  ),
+                                ),
+                              ),
+                            ].map((url) => (
+                              <div key={url}>{url}</div>
+                            ))}
                           </div>
                         );
                       })()}

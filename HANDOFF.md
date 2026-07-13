@@ -4,6 +4,70 @@
 
 ============================================================
 
+## 67. 【2026-07-13 22:39】- 完整修复余额页数据库保存读取查询与自动路径恢复链路
+
+### 修改内容
+
+- 将余额页列表、管理 Key、查询 URL、New-API-User、余额快照、成功路径和错误状态统一收敛到 PostgreSQL 数据；查询接口只接收 Profile ID，服务端重新读取数据库配置。
+- 将余额配置保存改为单请求、单 SQL 原子写入，并补齐完整 URL、可编辑自动路径、New-API-User User ID、查询路径缓存和备份恢复字段。
+- 恢复晴辰云 portal 会话查询，增加 OpenRouter `/api/v1/credits` 与 CherryIN 查询适配，并把上游超时调整到适合当前真实网络链路的 15 秒。
+- 修复自动探测被错误拦截、失败清空旧余额、批量超时不取消、数据库记录被本地列表过滤、旧慢请求覆盖新结果等问题；按最终交互要求移除页面首开自动查询，仅保留手动单项与批量更新。
+- 移除余额页和对话页的浏览器持久化余额缓存，统一从数据库读取；对话页查询失败时采用接口返回的数据库旧余额，并与余额页共用同一 Profile 的固定 URL、成功路径和自动探测配置。
+
+### 实现方式
+
+- `app/api/db/provider-balance/route.ts` 与 `app/utils/server/provider-balance-repository.ts`：以 `getProviderBalanceConfig` / `saveProviderBalanceConfig` 作为统一配置 owner；使用 `query_started_at` 阻止过期请求覆盖最新查询。
+- `app/components/user-menu.tsx` 与 `app/utils/provider-balance.ts`：对话页按 Profile 读取数据库余额，使用操作序号阻止慢读取覆盖新查询；失败时显示数据库旧余额，数据库暂时不可用时保留当前内存值。
+- `app/components/provider-balances.tsx`：以数据库返回列表为主集合，完整显示 8 个供应商；自动适配、缓存恢复和 New-API-User 默认路径均转换为完整 URL，保持输入框可编辑，保存后使用用户填写值；已有固定 URL 的输入框统一使用绿色文字标识；查询成功后余额替换为新数字并显示绿色，失败时保留旧数字并显示红色。
+- `app/utils/server/provider-balance.ts`：自定义 URL 优先于供应商默认适配；YutoAPI、CherryIN、OpenRouter、DeepSeek、AihubMix、Ocoolai、ToAPI 与晴辰云均通过真实数据库 Key 查询。
+- `app/utils/server/api-config-backup-repository.ts`：全局配置模式下备份并恢复余额 Key、快照、完整 URL、缓存路径、认证方式与 New-API-User 字段，旧备份缺失字段时保留当前值。
+- 同步更新 `README.md`、`docs/provider-balance.md` 与 `docs/db/nextchat-postgres-schema.sql`。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint 警告或错误；`npx tsc --noEmit --pretty false` 通过。
+- 本地 `nextchat-dev` 确认挂载当前工作区；通过正式 API 使用数据库现有 8 个供应商配置查询，8 项全部成功并落库。
+- 8 项余额配置逐项完成 PUT 保存与 GET 回读，Key、URL、New-API-User 字段全部一致；备份构建与同值恢复后 8 项路径字段一致。
+- 浏览器实测 `/balances` 展示 8 个完整 URL，全部输入框 `disabled=false`、`readOnly=false`；页面首开只读取数据库余额，不自动发起查询。
+- 竞态回归确认旧请求写入被忽略、旧余额与缓存路径保留；自动路径完成临时自定义、成功查询和恢复自动模式往返验证。
+
+### 潜在或遗留问题
+
+- 未提交、未推送、未部署；等待用户明确指令。
+
+============================================================
+
+## 66. 【2026-07-13 22:05】- 修复余额查询页 New-API-User 模式下 User ID 保存与探测等一系列逻辑缺陷
+
+### 修改内容
+
+- 修复在余额查询页启用 New-API-User 模式并保存时，User ID 被错误地保存到 `cached_path` 字段而不是 `new_api_user_id` 字段的问题。
+- 修复因 `cached_path` 被 User ID 覆盖导致后续自动/探测余额查询失败的问题。
+- 修复刷新页面后 User ID 输入框无法回显（因为 `new_api_user_id` 始终为 null）专用的问题。
+- 优化前端保存机制：将保存 API 配置时进行的 4 个并发 HTTP PUT 接口请求，合并重构为单个统一接口调用 `saveProviderBalanceConfig`，消除并发数据库冲突和多余网络往返。
+- 增强余额探测健壮性：支持任意提供商在 New-API-User 格式下的余额查询，自动拆分 `KEY|USER_ID` 并附带 `New-API-User` 头部，防止通用代理接口因直接透传拼接 Key 报 401。
+
+### 实现方式
+
+- `app/utils/server/provider-balance-repository.ts`：在 `saveProviderNewApiUserId` 中，将 SQL 的插入与更新字段从 `cached_path` 修正为 `new_api_user_id`。
+- `app/utils/provider-balance.ts`：新增 `saveProviderBalanceConfig` 一体化保存接口。
+- `app/components/provider-balances.tsx`：引入并重构 `saveKey` 为单次调用 `saveProviderBalanceConfig` 提交全部表单数据。
+- `app/utils/server/provider-balance.ts`：对 `customUrlOnly`、`cachedPath` 和全量 candidates 探测分支中所有 fetch 请求自动识别 `KEY|USER_ID`，提取实际 API Key 并附带 `New-API-User` 头部。
+- 数据库清理：在 Postgres 数据库中执行了订正 SQL，将受影响记录的 `cached_path`（包含 User ID）移动 to `new_api_user_id` 列，并重置 `cached_path` 为 null，以防止对后续余额查询的干扰。
+
+### 验证
+
+- 本地执行 `yarn lint` 通过。
+- 本地执行 `npx tsc --noEmit --pretty false` 编译通过。
+- 本地执行 `yarn build` 构建通过。
+- 对 PostgreSQL 数据库执行了 `select * from provider_balance_configs` 查询，确认受影响记录已成功订正（`new_api_user_id` 已恢复为 `"606"`，`cached_path` 已归空）。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
 ## 65. 【2026-07-13 15:29】- 修复移动端余额查询批量按钮未撑满容器
 
 ### 修改内容
@@ -220,61 +284,3 @@
 ### 潜在或遗留问题
 
 - 无。
-
-============================================================
-
-## 57. 【2026-07-13 10:05】- 优化有缓存用户的切换交互为即时显示
-
-### 修改内容
-
-- 优化有本地缓存用户在切换过程中的 UI 呈现逻辑：一旦本地缓存（包括会话列表与对话内容）水合装载完成，立即解除界面上的同步遮罩并支持操作，而不用强行等待慢速远端网络同步结束，真正实现“秒级显示”。
-- 为延迟完成的会话正文懒加载与删除补齐相同的用户隔离锁，避免切换空窗期错误读取或删除目标用户分片。
-- 每个用户首开或切换时展示最近 50 个会话；继续下滑才分页展开更早历史，正文仍保持按需水合。
-- 快速连续切换用户时，较早任务会被中止并丢弃结果；远端增量同步后从 IndexedDB 重建索引，保证侧边栏包含新会话。
-- 仅在无本地缓存的新用户场景下保持同步遮罩的阻塞等待。
-- 云端同步逻辑仍会在后台静默正常进行，并在完成后通过三方变基算法（rebase）安全合并新增对话，保障前台交互流畅及数据合规。
-
-### 实现方式
-
-- `app/store/auth.ts`：在 `switchUser` 判定 `hasCache` 为真并完成 rehydrate 和侧边栏索引 initialize 之后，立即设置 `switchingUser = false` 及发布 `done` 状态。
-- `app/store/auth.ts`：后台的 `sync` 同步逻辑照常进行，但在异常捕获 and 最终状态设置时，仅对 `!hasCache` 情况进行弹窗报警和状态更新，防止后台重试时二次污染用户操作态。
-- `app/utils/chat-persist-storage.ts`：在读取和删除会话分片入口复用 `lastHydratedUserId` 校验，与既有写入保护形成完整闭环。
-- `app/store/chat-index.ts` / `app/store/chat.ts`：为 IndexedDB 索引 and 正文懒加载加入作用域复核，避免旧异步任务在后续切换后写回内存。
-- `app/store/auth.ts`：使用切换代次与 `AbortController` 收敛并发请求，移除重复 rehydrate，并在后台同步后强制从 IndexedDB 刷新索引。
-- `app/utils/chat-persist-storage.ts`：最近保留会话扩展为 50，并在存储配额达到 80% 时仅告警、不自动清理数据。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `npx tsc --noEmit` 编译通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 56. 【2026-07-13 10:04】- 引入内存隔离锁修复切换用户缓存污染漏洞
-
-### 修改内容
-
-- 引入 `lastHydratedUserId` 内存锁定机制，并在 `setItem` 与 `setPersistedChatSession` 写入时校验当前活跃用户与内存用户是否一致。
-- 拒绝在切换用户空窗期（即已更改 Cache Marker 但尚未重置或重水合新用户内存前）写入 any 旧用户数据，彻底阻断跨用户缓存泄漏与混淆漏洞。
-- 在 `switchUser` 中引入 `hasPersistedChatCache` 代替 `getItem` 预检，避免过早执行 `getItem` 造成隔离锁泄露，并提升切换性能。
-
-### 实现方式
-
-- `app/utils/chat-persist-storage.ts`：增加 `lastHydratedUserId` 安全校验与动态对齐，并在 setItem/setPersistedChatSession 拦截不一致 of 跨用户写入。
-- `app/store/chat.ts`：在 `resetForUserSwitch` 状态重置（set 调用）前，提前调用 `setLastHydratedUserId` 解锁目标用户写入。
-- `app/store/auth.ts`：引入并使用 `hasPersistedChatCache` 预检，移除 `getItem` 的提前解锁风险。
-
-### 验证
-
-- `yarn lint` 通过，无 any ESLint 警告与错误。
-- `npx tsc --noEmit` 编译通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================

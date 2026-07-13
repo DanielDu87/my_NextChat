@@ -10,11 +10,10 @@ import { resolveSyncUserId } from "@/app/utils/server/sync-user";
 import { resolveSharedSyncUserId } from "@/app/utils/server/sync-user";
 import { getOrCreateSyncAppUserId } from "@/app/utils/server/sync-app-user";
 import {
-  getProviderManagementKey,
-  getProviderBalanceCachedPath,
+  getProviderBalanceConfig,
   listProviderBalanceConfigs,
+  saveProviderBalanceConfig,
   saveProviderBalanceResult,
-  saveProviderManagementKey,
 } from "@/app/utils/server/provider-balance-repository";
 
 export const runtime = "nodejs";
@@ -34,10 +33,30 @@ async function getContext(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const { sharedUserId } = await getContext(req);
+    const { sharedUserId, profiles } = await getContext(req);
+    const profileId = String(
+      req.nextUrl.searchParams.get("profileId") || "",
+    ).trim();
+    const balanceProfiles = await listProviderBalanceConfigs(sharedUserId);
+    if (profileId) {
+      if (!profiles.some((item) => item.id === profileId)) {
+        return NextResponse.json(
+          { ok: false, error: "provider_not_found" },
+          { status: 404 },
+        );
+      }
+      const profile = balanceProfiles.find(
+        (item) => item.profileId === profileId,
+      );
+      return NextResponse.json({
+        ok: true,
+        balance: profile?.balance || null,
+        lastError: profile?.lastError || "",
+      });
+    }
     return NextResponse.json({
       ok: true,
-      profiles: await listProviderBalanceConfigs(sharedUserId),
+      profiles: balanceProfiles,
     });
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 500;
@@ -57,6 +76,8 @@ export async function PUT(req: NextRequest) {
       profileId?: string;
       managementKey?: string;
       customBalanceUrl?: string;
+      useNewApiUserFormat?: boolean;
+      newApiUserId?: string;
     };
     const profileId = String(payload.profileId || "").trim();
     if (!profileId)
@@ -64,33 +85,41 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: "missing_profile_id" },
         { status: 400 },
       );
-    const { sharedUserId, profiles } = await getContext(req);
+    const { profiles } = await getContext(req);
     if (!profiles.some((item) => item.id === profileId))
       return NextResponse.json(
         { ok: false, error: "provider_not_found" },
         { status: 404 },
       );
 
-    // 保存管理 Key
-    if (payload.managementKey !== undefined) {
-      await saveProviderManagementKey(
-        sharedUserId,
-        profileId,
-        String(payload.managementKey || ""),
+    const current = await getProviderBalanceConfig(profileId);
+    if (!current) {
+      return NextResponse.json(
+        { ok: false, error: "provider_not_found" },
+        { status: 404 },
       );
     }
 
-    // 保存自定义 URL
-    if (payload.customBalanceUrl !== undefined) {
-      const { saveProviderBalanceCustomUrl } = await import(
-        "@/app/utils/server/provider-balance-repository"
-      );
-      await saveProviderBalanceCustomUrl(
-        sharedUserId,
-        profileId,
-        String(payload.customBalanceUrl || ""),
+    const useNewApiUserFormat =
+      payload.useNewApiUserFormat ?? current.useNewApiUserFormat;
+    const newApiUserId = String(
+      payload.newApiUserId ?? current.newApiUserId,
+    ).trim();
+    if (useNewApiUserFormat && !newApiUserId) {
+      return NextResponse.json(
+        { ok: false, error: "missing_new_api_user_id" },
+        { status: 400 },
       );
     }
+
+    await saveProviderBalanceConfig(profileId, {
+      managementKey: String(payload.managementKey ?? current.managementKey),
+      customBalanceUrl: String(
+        payload.customBalanceUrl ?? current.customBalanceUrl,
+      ),
+      useNewApiUserFormat,
+      newApiUserId,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -106,13 +135,12 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const queryStartedAt = Date.now();
   try {
     const payload = (await req.json()) as {
       profileId?: string;
-      customBalanceUrl?: string;
     };
     const profileId = String(payload.profileId || "").trim();
-    const customBalanceUrl = payload.customBalanceUrl?.trim();
     if (!profileId) {
       return NextResponse.json(
         { ok: false, error: "missing_profile_id" },
@@ -129,16 +157,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const managementKey = await getProviderManagementKey(
-      sharedUserId,
-      profileId,
-    );
-
-    // 获取缓存的路径信息
-    const cachedPathInfo = await getProviderBalanceCachedPath(
-      sharedUserId,
-      profileId,
-    );
+    const balanceConfig = await getProviderBalanceConfig(profileId);
+    const managementKey = balanceConfig?.managementKey || "";
+    const customBalanceUrl = balanceConfig?.customBalanceUrl || "";
+    const effectiveManagementKey =
+      balanceConfig?.useNewApiUserFormat && balanceConfig.newApiUserId
+        ? `${managementKey}|${balanceConfig.newApiUserId}`
+        : managementKey;
 
     try {
       // 合并 profile 和缓存路径，优先使用余额查询页面配置的管理密钥
@@ -168,8 +193,9 @@ export async function POST(req: NextRequest) {
 
       const queryProfile = {
         ...profile,
-        apiKey: managementKey || profile.apiKey,
+        apiKey: effectiveManagementKey || profile.apiKey,
         apiKeyGroups: {},
+        signal: req.signal,
         // 如果有自定义 URL，优先使用；否则使用缓存路径
         ...(customBalanceUrl
           ? {
@@ -179,11 +205,11 @@ export async function POST(req: NextRequest) {
               cachedAuthType: undefined,
               customUrlOnly: true,
             }
-          : cachedPathInfo?.cachedPath
+          : balanceConfig?.cachedPath
           ? {
-              cachedPath: cachedPathInfo.cachedPath,
-              cachedBaseUrl: cachedPathInfo.cachedBaseUrl,
-              cachedAuthType: cachedPathInfo.cachedAuthType,
+              cachedPath: balanceConfig.cachedPath,
+              cachedBaseUrl: balanceConfig.cachedBaseUrl,
+              cachedAuthType: balanceConfig.cachedAuthType,
             }
           : {}),
       };
@@ -191,7 +217,7 @@ export async function POST(req: NextRequest) {
       console.log(
         `[Provider Balance] 查询配置: baseUrl=${
           profile.baseUrl
-        }, 自定义URL=${!!customBalanceUrl}, 仅自定义=${!!customBalanceUrl}, 有缓存路径=${!!cachedPathInfo?.cachedPath}`,
+        }, 自定义URL=${!!customBalanceUrl}, 仅自定义=${!!customBalanceUrl}, 有缓存路径=${!!balanceConfig?.cachedPath}`,
       );
 
       const balance = await queryProviderBalanceWithRetry(queryProfile);
@@ -214,6 +240,7 @@ export async function POST(req: NextRequest) {
             cachedPath,
             cachedBaseUrl,
             cachedAuthType,
+            queryStartedAt,
           },
         );
       } else {
@@ -222,6 +249,7 @@ export async function POST(req: NextRequest) {
           profileId,
           balanceSnapshot,
           "",
+          { queryStartedAt },
         );
       }
 
@@ -239,7 +267,7 @@ export async function POST(req: NextRequest) {
         profileId,
         null,
         errorMessage,
-        { keepExistingBalance: true },
+        { keepExistingBalance: true, queryStartedAt },
       );
       // 读取当前的余额配置来返回给前端
       const currentConfigs = await listProviderBalanceConfigs(sharedUserId);

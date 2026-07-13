@@ -9,7 +9,7 @@
 -- 历史变更: 2026-07-09 backup-database（备份表改为 backup_* 命名，由 BACKUP_DATABASE_URL / BACKUP_PG* 指向独立数据库）
 -- 历史变更: 2026-07-06 chat-backups（新增按用户区分的对话增量备份）
 -- 历史变更: 2026-07-06 deployment-metadata（新增成功部署版本记录）
--- 历史变更: 2026-07-04 补供应商余额表 provider_balance_configs
+-- 历史变更: 2026-07-13 补齐供应商余额查询路径与 New-API-User 配置字段
 -- 历史变更: 2026-06-28 api-config-backup-counts（补文件缓存和 API 配置备份表）
 -- 历史变更: 2026-06-22 draw-thumb-v1（user_draw_images.thumb_data + md5 唯一索引）
 -- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
@@ -376,6 +376,13 @@ CREATE TABLE IF NOT EXISTS provider_balance_configs (
   balance_snapshot jsonb,
   last_error text,
   queried_at timestamptz,
+  query_started_at timestamptz,
+  cached_path text,
+  cached_base_url text,
+  cached_auth_type text,
+  custom_balance_url text,
+  use_new_api_user_format boolean NOT NULL DEFAULT false,
+  new_api_user_id text,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );

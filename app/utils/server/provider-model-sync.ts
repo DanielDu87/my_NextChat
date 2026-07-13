@@ -8,7 +8,7 @@ import { ensureSyncStorageSchema } from "./postgres";
 import { getStoreSnapshot, setStoreSnapshot } from "./sync-store-repository";
 import { getDefaultSyncUserId } from "./sync-user";
 import { saveProviderModelCachedPath } from "./provider-model-repository";
-import { getProviderManagementKey } from "./provider-balance-repository";
+import { getProviderBalanceConfig } from "./provider-balance-repository";
 import { getOrCreateSyncAppUserId } from "./sync-app-user";
 
 type AccessProfile = {
@@ -104,7 +104,8 @@ export async function refreshConfiguredProviderModels(
   for (const profile of profiles) {
     const providerId = normalizeProviderId(profile);
     const profileModelKey = profile.modelFetchApiKey || profile.apiKey;
-    const managementKey = await getProviderManagementKey(appUserId, profile.id);
+    const managementKey =
+      (await getProviderBalanceConfig(profile.id))?.managementKey || "";
     const apiKeyGroups = { ...(profile.apiKeyGroups || {}) };
     const primaryFallbackGroup = "__profile_model_key";
     if (managementKey && profileModelKey && managementKey !== profileModelKey) {
@@ -137,7 +138,7 @@ export async function refreshConfiguredProviderModels(
     // 成功获取后保存模型接口路径
     if (result.cachedPath && result.models.length > 0) {
       try {
-        await saveProviderModelCachedPath(appUserId, profile.id, {
+        await saveProviderModelCachedPath(profile.id, {
           cachedModelPath: result.cachedPath,
           cachedModelBaseUrl: result.cachedBaseUrl,
           cachedModelAuthType: result.cachedAuthType,

@@ -22,6 +22,12 @@ export type ApiConfigBalanceEntry = {
   balanceSnapshot: unknown;
   lastError: string | null;
   queriedAt: string | null;
+  cachedPath?: string | null;
+  cachedBaseUrl?: string | null;
+  cachedAuthType?: string | null;
+  customBalanceUrl?: string | null;
+  useNewApiUserFormat?: boolean;
+  newApiUserId?: string | null;
 };
 
 export type ApiConfigBackupPayloadV2 = {
@@ -92,10 +98,9 @@ export function readBalanceEntriesFromPayload(
 }
 
 async function loadProviderBalanceEntries(
-  externalUserId: string,
+  _externalUserId: string,
 ): Promise<ApiConfigBalanceEntry[]> {
   await ensureSyncStorageSchema();
-  const userId = await getOrCreateSyncAppUserId(externalUserId);
   const result = await pgQuery<{
     provider_code: string;
     encrypted_management_key: string | null;
@@ -103,18 +108,25 @@ async function loadProviderBalanceEntries(
     balance_snapshot: unknown;
     last_error: string | null;
     queried_at: string | null;
+    cached_path: string | null;
+    cached_base_url: string | null;
+    cached_auth_type: string | null;
+    custom_balance_url: string | null;
+    use_new_api_user_format: boolean;
+    new_api_user_id: string | null;
   }>(
     `select pc.provider_code,
             pbc.encrypted_management_key,
             pbc.masked_management_key,
             pbc.balance_snapshot,
             pbc.last_error,
-            pbc.queried_at::text as queried_at
+            pbc.queried_at::text as queried_at,
+            pbc.cached_path, pbc.cached_base_url, pbc.cached_auth_type,
+            pbc.custom_balance_url, pbc.use_new_api_user_format,
+            pbc.new_api_user_id
        from provider_configs pc
        left join provider_balance_configs pbc on pbc.provider_config_id = pc.id
-      where pc.user_id = $1::uuid
       order by pc.provider_code`,
-    [userId],
   );
   return result.rows.map((row) => ({
     providerCode: row.provider_code,
@@ -123,6 +135,12 @@ async function loadProviderBalanceEntries(
     balanceSnapshot: row.balance_snapshot ?? null,
     lastError: row.last_error ?? null,
     queriedAt: row.queried_at ?? null,
+    cachedPath: row.cached_path ?? null,
+    cachedBaseUrl: row.cached_base_url ?? null,
+    cachedAuthType: row.cached_auth_type ?? null,
+    customBalanceUrl: row.custom_balance_url ?? null,
+    useNewApiUserFormat: Boolean(row.use_new_api_user_format),
+    newApiUserId: row.new_api_user_id ?? null,
   }));
 }
 
@@ -143,14 +161,14 @@ export async function writeApiConfigBalanceEntries(
 ) {
   if (!Array.isArray(entries) || entries.length === 0) return;
   await ensureSyncStorageSchema();
-  const userId = await getOrCreateSyncAppUserId(externalUserId);
+  void externalUserId;
   await withPgTransaction(async (client) => {
     for (const entry of entries) {
       if (!entry?.providerCode) continue;
       const target = await client.query<{ id: string }>(
         `select id::text as id from provider_configs
-          where user_id = $1::uuid and provider_code = $2 limit 1`,
-        [userId, entry.providerCode],
+          where provider_code = $1 limit 1`,
+        [entry.providerCode],
       );
       const providerConfigId = target.rows[0]?.id;
       if (!providerConfigId) {
@@ -191,14 +209,32 @@ export async function writeApiConfigBalanceEntries(
            masked_management_key,
            balance_snapshot,
            last_error,
-           queried_at
-         ) values ($1::uuid, $2, $3, $4::jsonb, $5, $6::timestamptz)
+           queried_at,
+           cached_path,
+           cached_base_url,
+           cached_auth_type,
+           custom_balance_url,
+           use_new_api_user_format,
+           new_api_user_id
+         ) values (
+           $1::uuid, $2, $3, $4::jsonb, $5, $6::timestamptz,
+           $7, $8, $9, $10, coalesce($11::boolean, false), $12
+         )
          on conflict (provider_config_id) do update set
            encrypted_management_key = excluded.encrypted_management_key,
            masked_management_key = excluded.masked_management_key,
            balance_snapshot = excluded.balance_snapshot,
            last_error = excluded.last_error,
            queried_at = excluded.queried_at,
+           cached_path = coalesce(excluded.cached_path, provider_balance_configs.cached_path),
+           cached_base_url = coalesce(excluded.cached_base_url, provider_balance_configs.cached_base_url),
+           cached_auth_type = coalesce(excluded.cached_auth_type, provider_balance_configs.cached_auth_type),
+           custom_balance_url = coalesce(excluded.custom_balance_url, provider_balance_configs.custom_balance_url),
+           use_new_api_user_format = case
+             when $11::boolean is null then provider_balance_configs.use_new_api_user_format
+             else excluded.use_new_api_user_format
+           end,
+           new_api_user_id = coalesce(excluded.new_api_user_id, provider_balance_configs.new_api_user_id),
            updated_at = now()`,
         [
           providerConfigId,
@@ -209,6 +245,12 @@ export async function writeApiConfigBalanceEntries(
             : JSON.stringify(entry.balanceSnapshot),
           entry.lastError ?? null,
           entry.queriedAt ?? null,
+          entry.cachedPath ?? null,
+          entry.cachedBaseUrl ?? null,
+          entry.cachedAuthType ?? null,
+          entry.customBalanceUrl ?? null,
+          entry.useNewApiUserFormat ?? null,
+          entry.newApiUserId ?? null,
         ],
       );
     }

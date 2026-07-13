@@ -56,7 +56,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
 - 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
-- 内置「余额查询」页面（`/balances`）：自动遍历当前用户的 API Profile，按多路径、多前缀顺序探测上游余额接口；可单独保存管理密钥（AihubMix 需使用 Manage Key，Yuto 使用 `API_Key|User_ID`），密文写入 `provider_balance_configs.encrypted_management_key`。
+- 内置「余额查询」页面（`/balances`）：从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置，页面首开不自动查询；仅在手动单项更新或批量更新时，由服务端使用数据库中的管理 Key、查询 URL 和 New-API-User 配置发起请求。管理 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；新备份统一写入单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
 
@@ -174,7 +174,7 @@ app/
 - `messages`：聊天消息内容。
 - `provider_configs`：供应商配置。
 - `provider_api_keys`：API Key 密文与分组。
-- `provider_balance_configs`：供应商余额快照、查询时间戳和管理 API Key 密文。
+- `provider_balance_configs`：供应商余额快照、查询时间戳、管理 API Key 密文、成功路径、自定义 URL 与 New-API-User 配置。
 - `sync_secrets`：同步敏感 payload 密文。
 - `site_access_settings`：站点访问密码哈希。
 - `user_draw_stores`：绘画任务历史快照。
@@ -208,7 +208,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
-- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（列出当前用户所有 Profile 与最近余额快照）、`PUT`（保存某个 Profile 的管理 API Key）、`POST`（对单个 Profile 发起余额查询）；AihubMix 固定请求 `/api/user/self`，优先使用 Bearer Manage Key 并兼容旧式 Authorization，且始终基于用户配置的 `baseUrl`（含 `api.inferera.com` 等镜像）查询——镜像站点的 Manage Key 与官方域名 `aihubmix.com` 不互通，部分部署环境也无法访问官方域名，因此不强制改写为官方域名；其他通用供应商按前缀 × 资源组合探测。超时、网络错误、`5xx`/`429` 或成功响应暂时缺少余额字段时，服务端会沿用原候选路径最多查询 3 轮，最终结果才落库；明确的配置、鉴权和稳定 `4xx` 错误不重试。服务端保留每轮探测的 `attempts`，前端日志可直接观察路径与状态码。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（读取数据库中的 Profile、配置与最近余额，也支持按 Profile 读取对话页余额）、`PUT`（原子保存某个 Profile 的完整余额配置）、`POST`（只接收 Profile ID，服务端从数据库读取 Key、URL、New-API-User 与缓存路径后查询并落库）。余额页与对话页均以数据库为唯一余额数据源，不使用浏览器持久化余额缓存；两页查询共用固定 URL、成功路径和自动探测逻辑。OpenRouter 默认适配 `/api/v1/credits`，晴辰云默认适配 portal 登录与会话接口，Yuto/CherryIN 默认填充 `/api/user/self` + `New-API-User`；所有自动适配或恢复的路径都显示完整 URL并允许编辑，保存后以用户填写值为准。失败时保留旧余额，只更新错误与查询时间。
 
 ### 部署实现
 
@@ -257,7 +257,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 同步功能使用指南：[docs/sync-usage-guide.md](docs/sync-usage-guide.md)
 - 数据库存储矩阵：[docs/db/data-storage-sync-matrix.md](docs/db/data-storage-sync-matrix.md)
 - 模型刷新说明：[docs/db/provider-model-auto-refresh.md](docs/db/provider-model-auto-refresh.md)
-- 余额查询 / Yuto 集成：[docs/yuto-balance-query.md](docs/yuto-balance-query.md)
+- 余额查询：[docs/provider-balance.md](docs/provider-balance.md)
 - 质量与部署后验证：[docs/quality-checklist.md](docs/quality-checklist.md)
 - 数据库代码审查与修复记录（2026-07-09）：[docs/code-review-db-2026-07-09.md](docs/code-review-db-2026-07-09.md)
 

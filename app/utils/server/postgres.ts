@@ -34,7 +34,7 @@ declare global {
 // ADD COLUMN IF NOT EXISTS deleted_at 一直没有跑。bump 这个版本号会清掉
 // globalThis.__nextchatSyncStorageSchemaReady，让下一次请求重新走一遍迁移；
 // ADD COLUMN IF NOT EXISTS 幂等，旧库会补上缺失列，已有库是 no-op。
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-12-provider-model-fetch-cache";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-13-global-api-config";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -371,8 +371,7 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         create table if not exists provider_configs (
           id uuid primary key default generate_uuid_v4(),
-          user_id uuid not null references app_users(id) on delete cascade,
-          provider_code text not null,
+          provider_code text not null unique,
           provider_name text not null,
           provider_type text not null,
           base_url text,
@@ -381,8 +380,7 @@ export async function ensureSyncStorageSchema() {
           request_config jsonb not null default '{}'::jsonb,
           raw_payload jsonb not null default '{}'::jsonb,
           created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          unique (user_id, provider_code)
+          updated_at timestamptz not null default now()
         )
       `);
         await client.query(`
@@ -757,9 +755,28 @@ export async function ensureSyncStorageSchema() {
           balance_snapshot jsonb,
           last_error text,
           queried_at timestamptz,
+          query_started_at timestamptz,
+          cached_path text,
+          cached_base_url text,
+          cached_auth_type text,
+          custom_balance_url text,
+          use_new_api_user_format boolean not null default false,
+          new_api_user_id text,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         )
+      `);
+        await client.query(`
+        alter table provider_balance_configs
+        add column if not exists use_new_api_user_format boolean not null default false
+      `);
+        await client.query(`
+        alter table provider_balance_configs
+        add column if not exists new_api_user_id text
+      `);
+        await client.query(`
+        alter table provider_balance_configs
+        add column if not exists query_started_at timestamptz
       `);
         await client.query(`
         create index if not exists idx_conversations_user_updated

@@ -16,6 +16,36 @@ function isYutoApiUrl(baseUrl?: string) {
   }
 }
 
+// CherryIN 检测（open.cherryin.net）
+function isCherryINUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname === "open.cherryin.net" || hostname === "cherryin.net";
+  } catch {
+    return false;
+  }
+}
+
+function isOpenRouterUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+  try {
+    return new URL(baseUrl).hostname === "openrouter.ai";
+  } catch {
+    return false;
+  }
+}
+
+function isQingchenUrl(baseUrl?: string) {
+  if (!baseUrl) return false;
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname === "gpt.qt.cool" || hostname.endsWith(".gpt.qt.cool");
+  } catch {
+    return false;
+  }
+}
+
 // 解析 YutoAPI 格式的 Key（API_Key|User_ID）
 function parseYutoApiKey(apiKey: string) {
   const parts = apiKey.split("|");
@@ -42,6 +72,7 @@ type BalanceProfile = {
   cachedAuthType?: string;
   // 自定义 URL 专用：只查询此路径，不再探测其他路径
   customUrlOnly?: boolean;
+  signal?: AbortSignal;
 };
 
 export type ProviderBalanceResult = {
@@ -82,6 +113,10 @@ const BALANCE_PATHS = [
   "api/balance",
   "api/user/balance",
   "api/quota",
+  // OpenRouter 特定路径
+  "api/v1/users/me",
+  "v1/users/me",
+  "users/me",
   // 第一组：最常见的路径（不带 api 前缀）
   "user/self",
   "v1/user/self",
@@ -238,6 +273,7 @@ const BALANCE_QUERY_BATCH_SIZE = 8;
 const BALANCE_MAX_ATTEMPTS_PER_KEY = 240;
 const BALANCE_QUERY_MAX_ROUNDS = 3;
 const BALANCE_QUERY_RETRY_DELAYS_MS = [500, 1_000] as const;
+const BALANCE_UPSTREAM_TIMEOUT_MS = 15_000;
 
 type BalanceAuthType = ApiProfileAuthType | "authorization-raw";
 type BalanceCandidate = {
@@ -245,6 +281,129 @@ type BalanceCandidate = {
   path: string;
   authType: BalanceAuthType;
 };
+
+function getBalanceRequestSignal(signal?: AbortSignal) {
+  const timeoutSignal = AbortSignal.timeout(BALANCE_UPSTREAM_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
+
+function getResponseCookies(response: Response) {
+  const headers = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  const setCookies = headers.getSetCookie?.() || [
+    headers.get("set-cookie") || "",
+  ];
+  return setCookies
+    .flatMap((value) => value.split(/,(?=[^;,]+=)/))
+    .map((value) => value.split(";", 1)[0]?.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function queryQingchenBalance(
+  baseUrl: string,
+  apiKey: string,
+  keyIndex: number,
+  keyTotal: number,
+  attempts: ProviderBalanceAttempt[],
+  signal?: AbortSignal,
+  preferredPath?: string,
+) {
+  const portalBaseUrl = new URL(baseUrl).origin;
+  const loginPath = "portal/login";
+  const loginResponse = await fetch(`${portalBaseUrl}/${loginPath}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ key: apiKey }),
+    signal: getBalanceRequestSignal(signal),
+    cache: "no-store",
+  });
+  const loginBody = (await loginResponse.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const loginOk = loginResponse.ok && Number(loginBody?.code) === 0;
+  attempts.push({
+    keyIndex,
+    keyTotal,
+    authType: "portal-session",
+    baseUrl: portalBaseUrl,
+    path: loginPath,
+    status: loginResponse.status,
+    ok: loginOk,
+    reason: loginOk ? undefined : "portal_login_failed",
+  });
+  if (!loginOk) return null;
+
+  const cookie = getResponseCookies(loginResponse);
+  if (!cookie) return null;
+  const allPortalQueries = [
+    {
+      path: "portal/models",
+      parse: (data: Record<string, unknown>) => Number(data.remainingBalance),
+    },
+    {
+      path: "portal/info",
+      parse: (data: Record<string, unknown>) => {
+        const total = Number(data.balanceUsd);
+        const used = Number(data.usedBalanceUsd);
+        return Number.isFinite(total)
+          ? Math.max(total - (Number.isFinite(used) ? used : 0), 0)
+          : Number.NaN;
+      },
+    },
+  ] as const;
+  const normalizedPreferredPath = preferredPath?.replace(/^\/+/, "");
+  const portalQueries = normalizedPreferredPath
+    ? allPortalQueries.filter((query) => query.path === normalizedPreferredPath)
+    : allPortalQueries;
+  if (portalQueries.length === 0) return null;
+  const values = await Promise.all(
+    portalQueries.map(async ({ path, parse }) => {
+      try {
+        const response = await fetch(`${portalBaseUrl}/${path}`, {
+          headers: { Accept: "application/json", Cookie: cookie },
+          signal: getBalanceRequestSignal(signal),
+          cache: "no-store",
+        });
+        const body = (await response.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        const data =
+          body && typeof body.data === "object" && body.data
+            ? (body.data as Record<string, unknown>)
+            : body;
+        const value = data ? parse(data) : Number.NaN;
+        const hasBalance = response.ok && Number.isFinite(value);
+        attempts.push({
+          keyIndex,
+          keyTotal,
+          authType: "portal-session",
+          baseUrl: portalBaseUrl,
+          path,
+          status: response.status,
+          ok: hasBalance,
+          reason: hasBalance ? undefined : "balance_field_missing",
+        });
+        return hasBalance ? value : null;
+      } catch (error) {
+        attempts.push({
+          keyIndex,
+          keyTotal,
+          authType: "portal-session",
+          baseUrl: portalBaseUrl,
+          path,
+          ok: false,
+          reason: error instanceof Error ? error.message : "request_failed",
+        });
+        return null;
+      }
+    }),
+  );
+  return values.find((value): value is number => value !== null) ?? null;
+}
 
 function buildBalanceAuthHeaders(apiKey: string, authType: BalanceAuthType) {
   if (authType === "authorization-raw") {
@@ -335,9 +494,24 @@ function normalizeQuotaBalance(value: number) {
   return Math.abs(value) >= 100_000 ? value / 500_000 : value;
 }
 
-export function parseProviderBalanceValue(value: unknown): number | null {
+export function parseProviderBalanceValue(
+  value: unknown,
+  balanceField?: string,
+): number | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
+
+  // CherryIN 特殊格式：检查 quota 字段（需要优先检查，避免被 success 检查拦截）
+  if (balanceField === "quota") {
+    if (typeof record.quota === "number") {
+      return normalizeQuotaBalance(record.quota);
+    }
+    // CherryIN 可能有嵌套结构
+    if (record.data && typeof (record.data as any).quota === "number") {
+      return normalizeQuotaBalance((record.data as any).quota);
+    }
+    return null;
+  }
 
   // YutoAPI 特殊格式：需要检查 success 字段
   if ("success" in record && record.success !== true) {
@@ -487,9 +661,7 @@ export function parseProviderBalanceValue(value: unknown): number | null {
   return null;
 }
 
-export async function queryProviderBalance(
-  profile: BalanceProfile,
-): Promise<
+export async function queryProviderBalance(profile: BalanceProfile): Promise<
   ProviderBalanceResult & {
     cachedPath?: string;
     cachedBaseUrl?: string;
@@ -528,8 +700,103 @@ export async function queryProviderBalance(
       } 个 key 的余额查询`,
     );
 
+    if (
+      isQingchenUrl(baseUrl) &&
+      (!profile.customUrlOnly || profile.cachedPath?.startsWith("portal/"))
+    ) {
+      try {
+        const value = await queryQingchenBalance(
+          baseUrl,
+          apiKey,
+          keyIndex,
+          apiKeys.length,
+          attempts,
+          profile.signal,
+          profile.cachedPath,
+        );
+        if (value !== null) {
+          return {
+            value,
+            currency: "USD",
+            queriedAt: Date.now(),
+            attempts,
+            cachedPath: "portal/info",
+            cachedBaseUrl: new URL(baseUrl).origin,
+            cachedAuthType: "portal-session",
+          };
+        }
+      } catch (error) {
+        attempts.push({
+          keyIndex,
+          keyTotal: apiKeys.length,
+          authType: "portal-session",
+          baseUrl: new URL(baseUrl).origin,
+          path: "portal/login",
+          ok: false,
+          reason: error instanceof Error ? error.message : "request_failed",
+        });
+      }
+      continue;
+    }
+
+    if (!profile.customUrlOnly && isOpenRouterUrl(baseUrl)) {
+      const openRouterBaseUrl = new URL(baseUrl).origin;
+      const openRouterPath = "api/v1/credits";
+      try {
+        const response = await fetch(`${openRouterBaseUrl}/${openRouterPath}`, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          signal: getBalanceRequestSignal(profile.signal),
+          cache: "no-store",
+        });
+        const responseBody = await response.json().catch(() => null);
+        const value = response.ok
+          ? parseProviderBalanceValue(responseBody)
+          : null;
+        attempts.push({
+          keyIndex,
+          keyTotal: apiKeys.length,
+          authType: "bearer",
+          baseUrl: openRouterBaseUrl,
+          path: openRouterPath,
+          status: response.status,
+          ok: value !== null,
+          reason:
+            value !== null
+              ? undefined
+              : response.ok
+              ? "balance_field_missing"
+              : "http_error",
+        });
+        if (value !== null) {
+          return {
+            value,
+            currency: "USD",
+            queriedAt: Date.now(),
+            attempts,
+            cachedPath: openRouterPath,
+            cachedBaseUrl: openRouterBaseUrl,
+            cachedAuthType: "bearer",
+          };
+        }
+      } catch (error) {
+        attempts.push({
+          keyIndex,
+          keyTotal: apiKeys.length,
+          authType: "bearer",
+          baseUrl: openRouterBaseUrl,
+          path: openRouterPath,
+          ok: false,
+          reason: error instanceof Error ? error.message : "request_failed",
+        });
+      }
+      continue;
+    }
+
     // YutoAPI 特殊处理：使用 New-API-User Header
-    if (isYutoApiUrl(baseUrl)) {
+    if (!profile.customUrlOnly && isYutoApiUrl(baseUrl)) {
       const yutoKey = parseYutoApiKey(apiKey);
       const yutoBaseUrls = [rootBaseUrl, baseUrl].filter(
         (url, index, all) => url && all.indexOf(url) === index,
@@ -549,7 +816,7 @@ export async function queryProviderBalance(
           };
           const response = await fetch(`${yutoBaseUrl}/${yutoPath}`, {
             headers,
-            signal: AbortSignal.timeout(5_000),
+            signal: getBalanceRequestSignal(profile.signal),
             cache: "no-store",
           });
           attempts.push({
@@ -594,6 +861,73 @@ export async function queryProviderBalance(
       }
     }
 
+    // CherryIN 特殊处理：使用 New-API-User Header（格式同 YutoAPI）
+    if (!profile.customUrlOnly && isCherryINUrl(baseUrl)) {
+      const yutoKey = parseYutoApiKey(apiKey);
+      const cherryBaseUrls = [rootBaseUrl, baseUrl].filter(
+        (url, index, all) => url && all.indexOf(url) === index,
+      );
+
+      for (const cherryBaseUrl of cherryBaseUrls) {
+        const cherryPath = "api/user/self";
+        console.log(
+          `[Provider Balance] 💡 CherryIN 模式：${cherryBaseUrl}/${cherryPath}`,
+        );
+        try {
+          const headers: Record<string, string> = {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...(yutoKey.userId ? { "New-API-User": yutoKey.userId } : {}),
+            Authorization: `Bearer ${yutoKey.token}`,
+          };
+          const response = await fetch(`${cherryBaseUrl}/${cherryPath}`, {
+            headers,
+            signal: getBalanceRequestSignal(profile.signal),
+            cache: "no-store",
+          });
+          attempts.push({
+            keyIndex,
+            keyTotal: apiKeys.length,
+            authType: "cherryin-api",
+            baseUrl: cherryBaseUrl,
+            path: cherryPath,
+            status: response.status,
+            ok: response.ok,
+            reason: !response.ok ? "http_error" : undefined,
+          });
+          if (response.ok) {
+            const responseBody = await response.json();
+            // CherryIN 使用 quota 字段作为余额
+            const value = parseProviderBalanceValue(responseBody, "quota");
+            if (value !== null) {
+              console.log(
+                `[Provider Balance] ✅ CherryIN 查询成功: ${cherryBaseUrl}/${cherryPath}`,
+              );
+              return {
+                value,
+                currency: "USD",
+                queriedAt: Date.now(),
+                attempts,
+                cachedPath: cherryPath,
+                cachedBaseUrl: cherryBaseUrl,
+                cachedAuthType: "cherryin-api",
+              };
+            }
+          }
+        } catch (error) {
+          attempts.push({
+            keyIndex,
+            keyTotal: apiKeys.length,
+            authType: "cherryin-api",
+            baseUrl: cherryBaseUrl,
+            path: cherryPath,
+            ok: false,
+            reason: error instanceof Error ? error.message : "request_failed",
+          });
+        }
+      }
+    }
+
     // 自定义 URL 专用模式：只查询用户填写的路径，但尝试多种 baseUrl 和认证方式组合
     if (profile.customUrlOnly && profile.cachedPath) {
       const cachedPath = profile.cachedPath;
@@ -625,11 +959,16 @@ export async function queryProviderBalance(
       const customValue = await runBalanceCandidateQueue(
         customCandidates,
         async ({ candidateBaseUrl, path, authType }) => {
+          const keyParts = apiKey.split("|");
+          const actualKey = keyParts[0];
+          const newApiUserId = keyParts[1];
+
           const headers: Record<string, string> = {
             Accept: "application/json",
             "Content-Type": "application/json",
             ...parseExtraHeaders(profile.extraHeaders),
-            ...buildBalanceAuthHeaders(apiKey, authType),
+            ...buildBalanceAuthHeaders(actualKey, authType),
+            ...(newApiUserId ? { "New-API-User": newApiUserId } : {}),
           };
           const attemptBaseUrl = (() => {
             try {
@@ -641,14 +980,14 @@ export async function queryProviderBalance(
           })();
           const url = appendBalanceAuthQueryParam(
             `${candidateBaseUrl}/${path}`,
-            apiKey,
+            actualKey,
             authType,
             profile.authQueryParam,
           );
           try {
             const response = await fetch(url, {
               headers,
-              signal: AbortSignal.timeout(5_000),
+              signal: getBalanceRequestSignal(profile.signal),
               cache: "no-store",
             });
             if (!response.ok) {
@@ -750,11 +1089,16 @@ export async function queryProviderBalance(
       const cachedValue = await runBalanceCandidateQueue(
         cachedCandidates,
         async ({ candidateBaseUrl, path, authType }) => {
+          const keyParts = apiKey.split("|");
+          const actualKey = keyParts[0];
+          const newApiUserId = keyParts[1];
+
           const headers: Record<string, string> = {
             Accept: "application/json",
             "Content-Type": "application/json",
             ...parseExtraHeaders(profile.extraHeaders),
-            ...buildBalanceAuthHeaders(apiKey, authType),
+            ...buildBalanceAuthHeaders(actualKey, authType),
+            ...(newApiUserId ? { "New-API-User": newApiUserId } : {}),
           };
           const attemptBaseUrl = (() => {
             try {
@@ -766,14 +1110,14 @@ export async function queryProviderBalance(
           })();
           const url = appendBalanceAuthQueryParam(
             `${candidateBaseUrl}/${path}`,
-            apiKey,
+            actualKey,
             authType,
             profile.authQueryParam,
           );
           try {
             const response = await fetch(url, {
               headers,
-              signal: AbortSignal.timeout(5_000),
+              signal: getBalanceRequestSignal(profile.signal),
               cache: "no-store",
             });
             if (!response.ok) {
@@ -851,11 +1195,16 @@ export async function queryProviderBalance(
     const value = await runBalanceCandidateQueue(
       candidates,
       async ({ candidateBaseUrl, path, authType }) => {
+        const keyParts = apiKey.split("|");
+        const actualKey = keyParts[0];
+        const newApiUserId = keyParts[1];
+
         const headers: Record<string, string> = {
           Accept: "application/json",
           "Content-Type": "application/json",
           ...parseExtraHeaders(profile.extraHeaders),
-          ...buildBalanceAuthHeaders(apiKey, authType),
+          ...buildBalanceAuthHeaders(actualKey, authType),
+          ...(newApiUserId ? { "New-API-User": newApiUserId } : {}),
         };
 
         const attemptBaseUrl = (() => {
@@ -868,14 +1217,14 @@ export async function queryProviderBalance(
         })();
         const url = appendBalanceAuthQueryParam(
           `${candidateBaseUrl}/${path}`,
-          apiKey,
+          actualKey,
           authType,
           profile.authQueryParam,
         );
         try {
           const response = await fetch(url, {
             headers,
-            signal: AbortSignal.timeout(5_000),
+            signal: getBalanceRequestSignal(profile.signal),
             cache: "no-store",
           });
           if (!response.ok) {

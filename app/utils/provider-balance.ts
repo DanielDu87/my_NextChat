@@ -1,5 +1,3 @@
-import { safeLocalStorage } from "./safe-local-storage";
-
 export type ProviderBalanceSnapshot = {
   value: number;
   currency: string;
@@ -9,12 +7,18 @@ export type ProviderBalanceSnapshot = {
 export type ProviderBalanceProfile = {
   profileId: string;
   profileName: string;
+  baseUrl: string;
   hasManagementKey: boolean;
   maskedManagementKey: string;
   managementKey: string;
   balance: ProviderBalanceSnapshot | null;
   lastError: string;
   customBalanceUrl?: string;
+  cachedPath?: string;
+  cachedBaseUrl?: string;
+  // New-API-User 格式支持
+  useNewApiUserFormat?: boolean;
+  newApiUserId?: string;
 };
 
 export type ProviderBalanceAttempt = {
@@ -29,7 +33,6 @@ export type ProviderBalanceAttempt = {
 };
 
 const PROVIDER_BALANCE_API_PATH = "/api/db/provider-balance";
-const PROVIDER_BALANCE_CACHE_SCOPE = "shared";
 let balanceRequestSequence = 0;
 
 function createBalanceRequestContext(action: string, profileId?: string) {
@@ -81,6 +84,7 @@ const BALANCE_ERROR_MESSAGES: Record<string, string> = {
   balance_not_supported:
     "未找到可用的余额查询路径，请确认该供应商支持余额接口或填写管理 API Key",
   missing_profile_id: "缺少配置 ID",
+  missing_new_api_user_id: "New-API-User 模式需要填写 User ID",
   provider_not_found: "未找到对应 API 配置",
   query_failed: "余额查询失败",
 };
@@ -91,51 +95,6 @@ export function getProviderBalanceErrorMessage(
 ) {
   const message = error instanceof Error ? error.message : String(error || "");
   return BALANCE_ERROR_MESSAGES[message] || message || fallback;
-}
-
-export function getProviderBalanceCacheKey(userId: string, profileId: string) {
-  void userId;
-  return `nextchat:provider-balance:${PROVIDER_BALANCE_CACHE_SCOPE}:${profileId}`;
-}
-
-function getLegacyProviderBalanceCacheKey(userId: string, profileId: string) {
-  return `nextchat:provider-balance:${userId || "unknown"}:${profileId}`;
-}
-
-export function readCachedProviderBalance(
-  userId: string,
-  profileId: string,
-): ProviderBalanceSnapshot | null {
-  if (!profileId) return null;
-  try {
-    const storage = safeLocalStorage();
-    const value = JSON.parse(
-      storage.getItem(getProviderBalanceCacheKey(userId, profileId)) ||
-        storage.getItem(getLegacyProviderBalanceCacheKey(userId, profileId)) ||
-        "null",
-    );
-    return Number.isFinite(value?.value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-export function cacheProviderBalance(
-  userId: string,
-  profileId: string,
-  balance: ProviderBalanceSnapshot,
-) {
-  safeLocalStorage().setItem(
-    getProviderBalanceCacheKey(userId, profileId),
-    JSON.stringify(balance),
-  );
-}
-
-export function clearCachedProviderBalance(userId: string, profileId: string) {
-  safeLocalStorage().removeItem(getProviderBalanceCacheKey(userId, profileId));
-  safeLocalStorage().removeItem(
-    getLegacyProviderBalanceCacheKey(userId, profileId),
-  );
 }
 
 export class ProviderBalanceRequestError extends Error {
@@ -189,47 +148,54 @@ export async function loadProviderBalanceProfiles() {
   return profiles;
 }
 
-export async function saveProviderManagementKey(
+export async function loadProviderBalance(
   profileId: string,
-  managementKey: string,
+  signal?: AbortSignal,
 ) {
-  const context = createBalanceRequestContext("save-management-key", profileId);
-  const response = await fetch(PROVIDER_BALANCE_API_PATH, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileId, managementKey }),
-  });
+  if (!profileId) return null;
+  const context = createBalanceRequestContext("load-balance", profileId);
+  const response = await fetch(
+    `${PROVIDER_BALANCE_API_PATH}?profileId=${encodeURIComponent(profileId)}`,
+    { cache: "no-store", signal },
+  );
   const payload = await readResponsePayload(response);
   if (!response.ok || payload?.ok !== true) {
-    console.error("[Provider Balance] 管理 API Key 保存失败", {
+    console.error("[Provider Balance] 读取数据库余额失败", {
       ...context,
       durationMs: Date.now() - context.startedAt,
       httpStatus: response.status,
       response: payload,
     });
-    throw new Error(payload?.error || "save_failed");
+    throw new Error(payload?.error || "load_failed");
   }
+  const balance = payload.balance as ProviderBalanceSnapshot | null;
+  return Number.isFinite(balance?.value) ? balance : null;
 }
 
-export async function saveProviderCustomUrl(
+export async function saveProviderBalanceConfig(
   profileId: string,
-  customBalanceUrl: string,
+  payload: {
+    managementKey?: string;
+    customBalanceUrl?: string;
+    useNewApiUserFormat?: boolean;
+    newApiUserId?: string;
+  },
 ) {
-  const context = createBalanceRequestContext("save-custom-url", profileId);
+  const context = createBalanceRequestContext("save-balance-config", profileId);
   const response = await fetch(PROVIDER_BALANCE_API_PATH, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileId, customBalanceUrl }),
+    body: JSON.stringify({ profileId, ...payload }),
   });
-  const payload = await readResponsePayload(response);
-  if (!response.ok || payload?.ok !== true) {
-    console.error("[Provider Balance] 自定义 URL 保存失败", {
+  const resPayload = await readResponsePayload(response);
+  if (!response.ok || resPayload?.ok !== true) {
+    console.error("[Provider Balance] 余额配置保存失败", {
       ...context,
       durationMs: Date.now() - context.startedAt,
       httpStatus: response.status,
-      response: payload,
+      response: resPayload,
     });
-    throw new Error(payload?.error || "save_failed");
+    throw new Error(resPayload?.error || "save_failed");
   }
 }
 
@@ -240,7 +206,6 @@ export async function queryProviderBalanceProfile(
     source?: string;
     providerName?: string;
     logSuccess?: boolean;
-    customBalanceUrl?: string;
   },
 ) {
   const context = {
@@ -255,7 +220,6 @@ export async function queryProviderBalanceProfile(
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({
         profileId,
-        customBalanceUrl: options?.customBalanceUrl,
       }),
       signal: options?.signal,
     });
