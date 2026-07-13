@@ -1,23 +1,44 @@
-.content {
-  padding: 20px;
-  overflow: auto;
-}
-
-.pageHeader {
-  justify-content: center;
-}
-
-.headerInner {
+.page {
+  height: 100%;
   display: flex;
-  width: 100%;
+  flex-direction: column;
+}
+
+.page :global(.window-header) {
+  position: relative;
+}
+
+.batchActionBar {
+  display: flex;
   max-width: 980px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  margin: 10px auto 0;
+  width: 100%;
+  padding: 0 20px;
+}
+
+.headerBatchAction {
+  margin-left: auto;
+}
+
+.actionButton:disabled,
+.actionButton:disabled * {
+  opacity: 0.85 !important;
+}
+
+.headerBatchAction :global(.icon-button) {
+  min-width: max-content !important;
+  min-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 .mobileBatchAction {
   display: none;
+}
+
+.content {
+  padding: 10px 20px 20px;
+  overflow: auto;
 }
 
 .autofillTrap {
@@ -312,30 +333,36 @@
 }
 
 @media (max-width: 700px) {
-  .headerInner {
-    gap: 8px;
-  }
-
-  .content {
-    padding: 12px;
-  }
-
-  .desktopBatchAction {
-    display: none !important;
+  .batchActionBar {
+    display: none;
   }
 
   .mobileBatchAction {
-    display: block;
+    display: flex;
     max-width: 980px;
-    margin: 0 auto 12px;
+    margin: 10px auto 0;
+    padding: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
 
-  .mobileBatchAction .actionButton.actionButton.actionButton {
+  .mobileBatchAction :global(.nextchat-green-button) {
     width: 100% !important;
     min-width: 0 !important;
   }
 
+  .mobileBatchAction .actionButton.actionButton.actionButton {
+    flex: 1 1 100%;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .content {
+    padding: 10px 12px 12px;
+  }
+
   .list {
+    margin-top: 10px;
     gap: 14px;
   }
 
@@ -394,23 +421,6 @@
     min-height: 40px !important;
     padding: 0 10px !important;
     font-size: 13px !important;
-  }
-
-  .buttonCol {
-    flex: 0 0 auto;
-  }
-
-  .buttonCol :global(.nextchat-default-button),
-  .buttonCol :global(.nextchat-primary-button),
-  .buttonCol :global(.nextchat-action-button) {
-    flex: 0 0 auto !important;
-    height: 40px !important;
-    min-height: 40px !important;
-  }
-
-  .headerInner .actionButton.actionButton.actionButton {
-    flex: 0 0 auto;
-    min-width: max-content !important;
   }
 
   .hint,
