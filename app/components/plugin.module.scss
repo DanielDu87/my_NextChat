@@ -691,6 +691,10 @@
     height: 16px !important;
   }
 
+  .plugin-schema-load :global([class*="button_icon-button-icon"] > svg > g) {
+    transform: none !important;
+  }
+
   .plugin-schema-load :global([class*="button_icon-button-text"]) {
     display: block !important;
     margin-left: 0 !important;

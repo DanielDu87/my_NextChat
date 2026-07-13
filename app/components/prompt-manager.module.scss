@@ -156,6 +156,19 @@
 // .nextchat-input-control 统一接管（边框/背景/颜色/box-shadow）。
 .searchInput {
   padding-left: 40px;
+  padding-right: 40px;
+  text-align: center;
+
+  &::placeholder {
+    color: #94a3b8;
+    opacity: 1;
+    text-align: center;
+    transition: opacity 0.15s ease;
+  }
+
+  &:focus::placeholder {
+    opacity: 0;
+  }
 }
 
 // 弹窗标题/内容输入框的高度约束，globals 提供 idle/hover/focus。
@@ -166,6 +179,16 @@
   resize: none;
   line-height: 1.6;
   overflow-y: auto;
+}
+
+.textareaMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--black);
+  opacity: 0.5;
 }
 
 // 新增按钮高度/最小宽度约束，globals 的 .nextchat-default-button 提供边框/背景/hover。
@@ -416,7 +439,7 @@
   }
 
   // 移动端新增按钮：占满整行；globals 的 .nextchat-default-button 接管边框/背景/hover。
-  .addPromptButton {
+  button.addPromptButton {
     width: 100% !important;
     min-width: 0 !important;
     height: 44px !important;
@@ -424,9 +447,38 @@
     padding: 0 16px !important;
     display: inline-flex !important;
     align-items: center !important;
-    justify-content: center;
+    justify-content: center !important;
     gap: 8px !important;
     line-height: 1 !important;
+
+    :global([class*="icon-button-text"]) {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      width: auto;
+      min-width: 0;
+      margin: 0;
+      font-size: 14px;
+      font-weight: normal;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    :global([class*="icon-button-icon"]) {
+      width: 18px !important;
+      height: 18px !important;
+      margin: 0 !important;
+      flex: 0 0 18px;
+    }
+
+    :global([class*="icon-button-icon"] svg) {
+      width: 18px !important;
+      height: 18px !important;
+    }
+
+    :global([class*="icon-button-icon"] svg > g) {
+      transform: none !important;
+    }
   }
 
   .searchInput,
@@ -442,13 +494,19 @@
     height: 44px;
     min-height: 44px;
     padding-left: 40px;
-    text-align: left;
+    padding-right: 40px;
+    text-align: center;
     font-size: 16px;
 
     &::placeholder {
-      font-size: 16px;
-      opacity: 0.38;
+      color: #94a3b8;
+      opacity: 1;
       text-align: center;
+      transition: opacity 0.15s ease;
+    }
+
+    &:focus::placeholder {
+      opacity: 0;
     }
   }
 
@@ -538,8 +596,37 @@
       padding: 0 12px !important;
       display: inline-flex !important;
       align-items: center !important;
-      justify-content: center;
+      justify-content: center !important;
       gap: 6px !important;
+
+      :global([class*="icon-button-text"]) {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        min-width: 0;
+        margin: 0;
+        font-size: 13px;
+        font-weight: normal;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      :global([class*="icon-button-icon"]) {
+        width: 16px !important;
+        height: 16px !important;
+        margin: 0 !important;
+        flex: 0 0 16px;
+      }
+
+      :global([class*="icon-button-icon"] svg) {
+        width: 16px !important;
+        height: 16px !important;
+      }
+
+      :global([class*="icon-button-icon"] svg > g) {
+        transform: none !important;
+      }
     }
   }
 
@@ -573,6 +660,10 @@
     max-height: 120px;
   }
 
+  .textareaMeta {
+    display: none !important;
+  }
+
   .modalActions {
     width: 100%;
     justify-content: stretch;
@@ -587,6 +678,39 @@
       height: 40px !important;
       min-height: 40px !important;
       padding: 0 12px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 6px !important;
+
+      :global([class*="icon-button-text"]) {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        min-width: 0;
+        margin: 0;
+        font-size: 13px;
+        font-weight: normal;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      :global([class*="icon-button-icon"]) {
+        width: 16px !important;
+        height: 16px !important;
+        margin: 0 !important;
+        flex: 0 0 16px;
+      }
+
+      :global([class*="icon-button-icon"] svg) {
+        width: 16px !important;
+        height: 16px !important;
+      }
+
+      :global([class*="icon-button-icon"] svg > g) {
+        transform: none !important;
+      }
     }
   }
   .page :global(.window-header) {

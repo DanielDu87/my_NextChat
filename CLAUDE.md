@@ -26,24 +26,36 @@ NextChat 是一个基于 Next.js 14 的跨平台 AI 聊天应用（当前版本 
 
 ### 连接方式
 
-应用通过 SSH 隧道连接远程数据库（42.193.15.117）：
+本地开发通过 Docker 容器内的 SSH 隧道连接远程数据库（42.193.15.117）：
 
 ```
-本地应用 → host.docker.internal:15432 → SSH 隧道 → 远程数据库:5432
+本地 Docker 容器 → postgres-ssh-tunnel 服务名 → SSH 隧道 → 远程数据库:5432
 ```
 
 ### 数据库规范
 
-- ✅ **本地开发**：通过 SSH 隧道连接远程数据库
+- ✅ **本地开发**：通过 Docker SSH 隧道容器连接远程数据库（`PGHOST=postgres-ssh-tunnel`，备份库同理 `BACKUP_PGHOST=postgres-ssh-tunnel`）
 - ❌ **禁止使用**：本地 Docker PostgreSQL 容器（`--profile local-db`）
-- ✅ **远程服务器部署**：直接连接本地数据库（localhost:5432）
+- ✅ **远程服务器部署**：直接连接本地数据库（`PGHOST=172.20.0.1` / `BACKUP_PGHOST=172.20.0.1`）
 
-### 开发前必须操作
+### 备份数据库
 
-启动应用前，必须先建立 SSH 隧道：
+对话备份和 API 配置备份存储在独立数据库 `nextchat_backup`：
+
+- 表结构由 `app/utils/server/backup-postgres.ts` 的 `ensureBackupStorageSchema()` 自动创建
+- 本地开发：`BACKUP_PGHOST=postgres-ssh-tunnel`（走 SSH 隧道）
+- 生产部署：`BACKUP_PGHOST=172.20.0.1`（Docker 网桥）
+- 环境变量缺失时备份功能不可用（不会报错，只是跳过）
+
+### 开发启动命令
 
 ```bash
-ssh -f -N -L 15432:127.0.0.1:5432 root@42.193.15.117 -p 222
+# 使用 Docker compose 启动（自动创建 SSH 隧道容器）
+SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 \
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
+
+# 查看日志
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
 ```
 
 详细说明请参考 [docs/development.md](./docs/development.md)

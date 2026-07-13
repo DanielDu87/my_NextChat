@@ -339,6 +339,17 @@
   min-width: 0;
   height: 40px;
   padding: 0 12px;
+  font-size: 14px;
+}
+
+.searchBar input::placeholder {
+  color: var(--sidebar-search-placeholder);
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+.searchBar input:focus::placeholder {
+  opacity: 0;
 }
 
 :global(.dark) .searchBar input:focus {
@@ -729,6 +740,22 @@
     height: 16px !important;
     flex: 0 0 16px !important;
     margin: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .createBackupButton :global([class*="icon-button-icon"]) svg {
+    width: 16px !important;
+    height: 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+  }
+
+  .createBackupButton :global([class*="icon-button-icon"]) svg path {
+    transform: none !important;
   }
 
   /* 搜索栏优化 */

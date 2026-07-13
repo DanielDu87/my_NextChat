@@ -646,11 +646,76 @@ function useTransientScrollbars() {
   }, []);
 }
 
+function useWindowHeaderScrollToTop() {
+  useEffect(() => {
+    const handleHeaderClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const header = target.closest(".window-header");
+      if (!header) return;
+
+      // Ignore interactive element clicks
+      if (
+        target.closest("button") ||
+        target.closest("a") ||
+        target.closest("input") ||
+        target.closest("select") ||
+        target.closest("[role='button']")
+      ) {
+        return;
+      }
+
+      let pageContainer: HTMLElement | null = header.parentElement;
+      while (pageContainer && pageContainer !== document.body) {
+        if (
+          pageContainer.classList.contains("window") ||
+          pageContainer.classList.contains("modal-mask") ||
+          pageContainer.classList.contains("modal") ||
+          pageContainer.getAttribute("id") === "app-body"
+        ) {
+          break;
+        }
+        pageContainer = pageContainer.parentElement;
+      }
+      if (!pageContainer) {
+        pageContainer = header.parentElement || document.body;
+      }
+
+      const elements = pageContainer.querySelectorAll("*");
+      let scrollableEl: HTMLElement | null = null;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i] as HTMLElement;
+        if (header.contains(el)) continue;
+
+        const style = window.getComputedStyle(el);
+        if (style.overflowY === "auto" || style.overflowY === "scroll") {
+          if (el.scrollHeight > el.clientHeight || el.offsetHeight > 0) {
+            scrollableEl = el;
+            break;
+          }
+        }
+      }
+
+      if (scrollableEl) {
+        scrollableEl.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      }
+    };
+
+    window.addEventListener("click", handleHeaderClick, { capture: true });
+    return () => {
+      window.removeEventListener("click", handleHeaderClick, { capture: true });
+    };
+  }, []);
+}
+
 export function Home() {
   useSwitchTheme();
   useLoadData();
   useHtmlLang();
   useTransientScrollbars();
+  useWindowHeaderScrollToTop();
   const hasHydrated = useHasHydrated();
   const authInitialized = useAuthStore((state) => state.initialized);
   const authUser = useAuthStore((state) => state.user);

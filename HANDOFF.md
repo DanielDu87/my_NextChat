@@ -4,6 +4,148 @@
 
 ============================================================
 
+## 64. 【2026-07-13 14:50】- 优化对话备份页搜索框与移动端按钮图标居中
+
+### 修改内容
+
+- 优化对话备份页搜索输入框：聚焦时提示文字淡出消失，字体大小统一为 14px，颜色与侧边栏搜索框风格一致。
+- 修复移动端"立即备份"按钮图标未上下左右居中的问题，覆盖通用 IconButton 移动端样式中的 SVG display: block 覆盖。
+
+### 实现方式
+
+- `app/components/chat-backups.module.scss`：为 `.searchBar input` 添加 `font-size: 14px`、提示文字颜色变量和聚焦隐藏效果；为移动端 `.createBackupButton :global([class*="icon-button-icon"])` 覆盖 `display: flex` 和 SVG 居中样式。
+
+### 验证
+
+- `yarn lint` 通过。
+- `git diff --check` 通过。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 62. 【2026-07-13 13:27】- 修复聊天窗口头部操作图标居中
+
+### 修改内容
+
+- 修复移动端聊天窗口头部的模型、提示词、用户状态、配置、新聊天与导出操作图标未视觉居中的问题。
+
+### 实现方式
+
+- `app/components/chat.module.scss`：在最末窄屏规则内，仅为 `.chat-window-action-button` 的直属图标建立高优先级 16px flex 居中，覆盖通用 `IconButton` 的自动外边距；导出按钮同步移除残留的水平位移。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint 警告或错误。
+- `git diff --check` 通过。
+- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 63. 【2026-07-13 14:30】- 修复本地开发环境备份数据库连接配置
+
+### 修改内容
+
+- 修复 `.env.docker` 中 `BACKUP_PGHOST=42.193.15.117` 直接连远程 PostgreSQL 公网 IP 失败的问题。
+- 将 `BACKUP_PGHOST` 改为 `postgres-ssh-tunnel`，通过 SSH 隧道连接远程备份数据库。
+- 同时将 `PGHOST` 也改为 `postgres-ssh-tunnel`（原值 `42.193.15.117` 同样无法直连）。
+
+### 实现方式
+
+- `.env.docker`：将 `PGHOST` 和 `BACKUP_PGHOST` 从 `42.193.15.117` 改为 `postgres-ssh-tunnel`。
+- 远程 PostgreSQL 只监听 `127.0.0.1` 和 Docker 网桥（`172.20.0.1`），不开公网监听，本地开发必须走 SSH 隧道。
+
+### 验证
+
+- Docker 容器重启后确认 `BACKUP_PGHOST=postgres-ssh-tunnel`。
+- 容器内直接连接 `nextchat_backup` 数据库成功（10 条 API 配置备份）。
+- `GET /api/db/api-config-backups` 返回 10 条备份。
+- `GET /api/db/chat-backups` 返回 18 条备份（admin 7 + ccc 6 + dyx 5）。
+
+### 潜在或遗留问题
+
+- 无。
+
+### 修改内容
+
+- 修复移动端聊天窗口头部的模型、提示词、用户状态、配置、新聊天与导出操作图标未视觉居中的问题。
+
+### 实现方式
+
+- `app/components/chat.module.scss`：在最末窄屏规则内，仅为 `.chat-window-action-button` 的直属图标建立高优先级 16px flex 居中，覆盖通用 `IconButton` 的自动外边距；导出按钮同步移除残留的水平位移。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint 警告或错误。
+- `git diff --check` 通过。
+- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 61. 【2026-07-13 13:08】- 修复移动端添加图标偏移
+
+### 修改内容
+
+- 修复移动端共用添加图标在按钮内偏向左上角的问题，使其水平、垂直居中。
+- 将 API 配置页“新增配置”按钮的加号保持为原生 16px 尺寸，避免被放大后产生视觉上的上下偏移。
+
+### 实现方式
+
+- `app/components/button.module.scss`：移除移动端共享 `IconButton` 对 SVG 顶层 `g` 的 `translate(2px, 2px)` 偏移，保留图标容器的 flex 居中作为唯一定位来源。
+- `app/components/api-config.module.scss`：为“新增配置”按钮的图标容器及 SVG 保留原生 `16px` 尺寸，并沿用 flex 居中。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint 警告或错误。
+- `git diff --check` 通过。
+- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 60. 【2026-07-13 12:51】- 优化移动端提示词管理、插件与全局头部的一系列 UI 居中与文字显示交互
+
+### 修改内容
+
+- 修复插件编辑弹窗中的重新加载图标在移动端显示不居中的偏移问题。
+- 修复提示词选择和提示词管理面板中的主要操作按钮（“管理提示词”、“新增提示词”、“查看并编辑”、“删除”、“取消”、“保存”）在移动端隐藏了文字的问题。
+- 修复上述所有在移动端恢复显示的按钮文字字重偏粗的问题，统一将其字重修正为正常（`normal`）显示。
+- 隐藏提示词新建/编辑对话框内容输入框下方的快捷键提示与字符数统计信息行（`按 Ctrl/⌘ + Enter 保存，Esc 关闭...`）在移动端的展示。
+- 修复提示词选择面板头部在移动端的标题与关闭按钮未垂直居中对齐的问题。
+- 修复提示词选择和提示词管理搜索输入框的占位符配色及文字大小，并支持输入光标、占位符、键入文本的水平居中以及聚焦时自动隐藏占位符。
+- 引入全局点击窗口头部（`.window-header` 拖拽或空白区域）自动将对应页面的主要滚动容器平滑滚动到顶部的便捷交互。
+
+### 实现方式
+
+- `app/components/plugin.module.scss`：为移动端 `.plugin-schema-load` 下的 `svg > g` 元素重置 `transform` 为 `none !important` 以移除 2px 偏移。
+- `app/components/chat.module.scss`：增加移动端下操作按钮 `button.prompt-picker-manage` 的特异性，复写 `button.module.scss` 强加的隐藏和大小限制，并将其文字 `font-weight` 设为 `normal`；将 `.prompt-picker-header` 的 `align-items` 改为 `center` 以垂直居中；并为 `.prompt-picker-search` 的占位符和输入文本设置 `text-align: center` 样式及聚焦时 `opacity: 0`。
+- `app/components/prompt-manager.module.scss`：增加移动端下 `button.addPromptButton` 和弹窗底部 `button` 的特异性，复写默认按钮样式并重置字重为 `normal`，重置 `svg > g` 为 `none !important`；同时为 `.searchInput` 设置 `text-align: center`、对称的 `padding-right: 40px` 以实现输入与光标水平居中，并在聚焦时隐藏占位符；并且更新了列表 `.actions` 和弹窗 `.modalActions` 容器下所有 `button` 的字重为 `normal`、显示文字并修正偏移；此外，为 `.textareaMeta` 提供桌面基础样式且在移动端设置为 `display: none !important`。
+- `app/components/home.tsx`：引入全局点击捕获钩子 `useWindowHeaderScrollToTop`，排除交互式按钮后寻找当前页面/模态框内 `overflow-y` 为 `auto` / `scroll` 且高度有效的滚动容器，平滑滚动至顶部。
+
+### 验证
+
+- `yarn lint` 通过。
+- `npx tsc --noEmit` 编译通过。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
 ## 59. 【2026-07-13 11:32】- 进一步优化移动端整体对话框居中优先级与 AI 目录忽略
 
 ### 修改内容
@@ -184,68 +326,5 @@
 ### 潜在或遗留问题
 
 - 无。
-
-============================================================
-
-## 52. 【2026-07-13 09:39】- 修复供应商图标容器异常撑宽
-
-### 修改内容
-
-- 修复供应商图标右侧出现大块空白的问题；图标容器不再占据文字可用宽度。
-
-### 实现方式
-
-- `app/styles/globals.scss`：移除误作用于所有供应商项 span 的 flex 规则，仅让供应商文字节点参与 flex 伸缩和截断。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint warning 或 error。
-- `git diff --check` 通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 51. 【2026-07-13 09:38】- 强制清除供应商图标与文字间隙
-
-### 修改内容
-
-- 清除供应商菜单图标与文字之间由共享菜单样式引入的横向 flex gap。
-
-### 实现方式
-
-- `app/styles/globals.scss`：对供应商菜单内的选项使用更具体的选择器和 `gap: 0 !important`，覆盖共享 `.nextchat-menu-option` 的 10px gap。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint warning 或 error。
-- `git diff --check` 通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 50. 【2026-07-13 09:36】- 收紧供应商项水平内边距
-
-### 修改内容
-
-- 进一步减少供应商菜单项的内部水平空白；移动端仍为勾选图标保留右侧安全空间。
-
-### 实现方式
-
-- `app/styles/globals.scss`：桌面端水平 padding 从 16px 降至 8px，移动端左侧 padding 从 12px 降至 8px。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint warning 或 error。
-- `git diff --check` 通过。
-
-### 潜在或遗留问题
-
-- 无.
 
 ============================================================

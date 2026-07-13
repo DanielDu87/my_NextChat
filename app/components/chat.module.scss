@@ -3744,6 +3744,18 @@
   height: 38px;
   min-height: 38px;
   padding: 8px 14px;
+  text-align: center;
+
+  &::placeholder {
+    color: #94a3b8;
+    opacity: 1;
+    text-align: center;
+    transition: opacity 0.15s ease;
+  }
+
+  &:focus::placeholder {
+    opacity: 0;
+  }
 }
 
 // 工具栏"管理提示词"按钮：仅保留尺寸约束；边框/背景/hover/focus/dark 由
@@ -4285,7 +4297,7 @@
   }
 
   .prompt-picker-header {
-    align-items: flex-start;
+    align-items: center;
     padding-bottom: 10px;
   }
 
@@ -4304,9 +4316,21 @@
     height: 38px;
     min-height: 38px;
     padding: 8px 12px;
+    text-align: center;
+
+    &::placeholder {
+      color: #94a3b8;
+      opacity: 1;
+      text-align: center;
+      transition: opacity 0.15s ease;
+    }
+
+    &:focus::placeholder {
+      opacity: 0;
+    }
   }
 
-  .prompt-picker-manage {
+  button.prompt-picker-manage {
     width: 100% !important;
     min-width: 0 !important;
     height: 40px !important;
@@ -4339,7 +4363,7 @@
       min-width: 0;
       margin: 0;
       font-size: 14px;
-      font-weight: 700;
+      font-weight: normal;
       line-height: 1;
       white-space: nowrap;
     }
@@ -6250,6 +6274,17 @@
     justify-content: center;
     width: 36px;
     height: 36px;
+
+    :global([class*="icon-button-icon"]) {
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+    }
+
+    :global([class*="icon-button-icon"] > svg) {
+      width: 16px !important;
+      height: 16px !important;
+    }
   }
 }
 
@@ -6276,6 +6311,31 @@
 
 @media only screen and (max-width: 650px),
   only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  .chat-window-action-button :global(button[class*="icon-button"]) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+
+    > :global([class*="icon-button-icon"]) {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex: 0 0 16px !important;
+      width: 16px !important;
+      height: 16px !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    > :global([class*="icon-button-icon"] > svg) {
+      display: block !important;
+      width: 16px !important;
+      height: 16px !important;
+      transform: none !important;
+    }
+  }
+
   /* 边框/背景/hover 由 globals.scss 统一提供，此处只覆盖尺寸。*/
   button.chat-export-action[class*="chat-export-action"] {
     width: 36px !important;
@@ -6289,21 +6349,21 @@
     justify-content: center !important;
 
     :global([class*="icon-button-icon"]) {
-      width: 15px !important;
-      height: 15px !important;
+      width: 16px !important;
+      height: 16px !important;
       margin: 0 !important;
       padding: 0 !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      flex: 0 0 15px !important;
+      flex: 0 0 16px !important;
     }
 
     :global([class*="icon-button-icon"] > svg) {
-      width: 15px !important;
-      height: 15px !important;
+      width: 16px !important;
+      height: 16px !important;
       display: block !important;
-      transform: translate(1px, 0px) !important;
+      transform: none !important;
     }
 
     // 重置 button.module.scss 移动端给 svg > g 加的 translate(2px,2px)，

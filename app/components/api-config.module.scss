@@ -1277,13 +1277,13 @@
     border-radius: 9px !important;
     font-size: 14px !important;
     font-weight: 600;
-    line-height: 1 !important;
     overflow: visible !important;
 
     :global([class*="icon-button-icon"]) {
-      display: inline-flex !important;
+      display: flex !important;
       width: 16px !important;
       height: 16px !important;
+      flex: 0 0 auto !important;
       margin: 0 !important;
       align-items: center !important;
       justify-content: center !important;
@@ -1300,7 +1300,7 @@
     svg {
       width: 16px !important;
       height: 16px !important;
-      display: block !important;
+      display: flex !important;
       transform: none !important;
       overflow: visible !important;
     }
@@ -1694,7 +1694,6 @@
     border-radius: 9px !important;
     font-size: 14px !important;
     font-weight: 600;
-    line-height: 1 !important;
   }
 
   .page
@@ -1704,11 +1703,13 @@
     margin-left: 6px;
     white-space: nowrap;
     font-weight: 600;
+    font-size: 14px !important;
   }
 
   .page
     :global(button[class*="icon-button"].nextchat-api-config-add-button)
     :global([class*="icon-button-icon"]) {
+    flex: 0 0 auto !important;
     width: 16px !important;
     height: 16px !important;
     margin: 0 !important;
