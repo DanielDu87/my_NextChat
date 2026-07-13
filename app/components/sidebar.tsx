@@ -472,8 +472,12 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
     setShowThemeSelector(true);
   };
 
-  const { disableHeaderActions, disableBottomActions, disableDeleteAction } =
-    getSidebarRouteState(location.pathname);
+  const {
+    disableHeaderActions,
+    disableBottomActions,
+    disableDeleteAction,
+    disableChatList,
+  } = getSidebarRouteState(location.pathname);
 
   return (
     <SideBarContainer {...props}>
@@ -532,7 +536,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
       </SideBarHeader>
       <SideBarBody
         onClick={(e) => {
-          if (e.target === e.currentTarget) {
+          if (e.target === e.currentTarget && !disableChatList) {
             navigate(Path.Home);
           }
         }}
