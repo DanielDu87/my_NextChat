@@ -114,3 +114,22 @@ env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u AL
 
 未配置 `BACKUP_*` 时站内备份功能会**静默不可用**（调度器 try/catch 兜底）。生产灾备
 仍以 PostgreSQL `pg_dump` / 宝塔计划任务为准，**主库和备份库都要纳入备份范围**。
+
+### ⚠️ 部署检查清单（避免备份库连接失败）
+
+**1. 密码必须一致**
+- `BACKUP_PGPASSWORD` 必须与 PostgreSQL 中该用户对备份库的密码一致
+- 如果备份库和主库是同一个 PostgreSQL 实例，`BACKUP_PGPASSWORD` 应与 `PGPASSWORD` 相同
+
+**2. pg_hba.conf 必须允许容器 IP**
+- Docker 容器使用网桥 IP（如 `172.17.0.x`）连接宿主机 PostgreSQL
+- 必须在 `/www/server/pgsql/data/pg_hba.conf` 中添加对应网段规则：
+  ```
+  host    nextchat         dyx    172.17.0.0/16    md5
+  host    nextchat_backup  dyx    172.17.0.0/16    md5
+  ```
+- 修改后执行 `su - postgres -c "/www/server/pgsql/bin/pg_ctl reload -D /www/server/pgsql/data"` 重载配置
+
+**3. 环境变量变更需要重建容器**
+- `docker restart` 不会重新读取 `.env` 文件
+- 修改 `.env.baota` 后必须 `docker rm -f nextchat` 销毁旧容器，再用 `docker run` 或 `docker-compose up -d --force-recreate` 创建新容器

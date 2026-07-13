@@ -32,7 +32,9 @@
 | `已读取 API 配置备份（0 条，暂无备份）`    | 该用户在 `nextchat_backup` 库无备份 | 检查 `BACKUP_PG*` 环境变量、SSH 隧道；`degraded: true` 表示备份库连接失败              |
 | `已读取对话备份（0 次）`                   | 该用户没有对话备份                  | 同上；admin 用户可看 `全站 X 次 / Y 个会话` 字段确认全站情况                           |
 | `已读取余额配置（0 个）`                   | 没有 profile 可查                   | 先打开 `/api_config` 确认 `apiProfiles` 不为空；`provider-balance` API 是否可达        |
-| 日志中 `降级返回`                          | 备份库临时不可达                    | 检查 `BACKUP_PGHOST/PORT/USER/PASSWORD`、`postgres-ssh-tunnel` 容器健康度              |
+| 日志中 `降级返回`                          | 备份库临时不可达                    | 检查 `BACKUP_PGHOST/PORT/USER/PASSWORD`、SSH 隧道；`postgres-ssh-tunnel` 容器健康度   |
+| `password authentication failed`            | 备份库密码错误                      | 检查 `.env.baota` 中 `BACKUP_PGPASSWORD` 与备份库实际密码是否一致                        |
+| `no pg_hba.conf entry for host "172.x.x.x"` | PostgreSQL 不允许该 IP 连接          | 检查服务器 `/www/server/pgsql/data/pg_hba.conf`，必须包含容器 IP 网段的 `md5` 规则      |
 | 日志中 `已存管理 Key X 个` 比 profile 数少 | 部分 profile 缺管理 Key             | `/balances` 页面为对应 profile 补填即可，不影响 API 调用                               |
 
 ## Schema 版本与迁移

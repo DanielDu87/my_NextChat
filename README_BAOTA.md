@@ -143,6 +143,39 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 
 主库和独立备份库**都要**纳入宝塔 `pg_dump` 计划任务范围。完整字段定义与默认值见 [DEPLOY.md](./DEPLOY.md)。
 
+### ⚠️ 备份数据库连接检查清单
+
+**首次部署或修改环境变量后必须检查：**
+
+1. **pg_hba.conf 必须允许容器 IP**
+   - Docker 容器使用网桥 IP（如 `172.17.0.x`）连接宿主机 PostgreSQL
+   - 必须在 `/www/server/pgsql/data/pg_hba.conf` 中添加：
+     ```
+     host    nextchat         dyx    172.17.0.0/16    md5
+     host    nextchat_backup  dyx    172.17.0.0/16    md5
+     ```
+   - 修改后重载配置：
+     ```bash
+     ssh ss 'su - postgres -c "/www/server/pgsql/bin/pg_ctl reload -D /www/server/pgsql/data"'
+     ```
+
+2. **环境变量变更需要重建容器**
+   - `docker restart` **不会**重新读取 `.env` 文件
+   - 修改 `.env.baota` 后必须销毁并重建容器：
+     ```bash
+     ssh ss 'cd /www/dk_project/my_NextChat && docker rm -f nextchat && docker run -d \
+       --name nextchat --restart unless-stopped \
+       --env-file .env.baota \
+       -p 127.0.0.1:3000:3000 \
+       -v nextchat-data:/app/data \
+       nextchat-baota:latest'
+     ```
+
+3. **验证备份数据库连接**
+   ```bash
+   ssh ss 'docker exec nextchat node -e "const{Pool}=require(\"pg\");new Pool({host:\"172.20.0.1\",port:5432,database:\"nextchat_backup\",user:\"dyx\",password:process.env.BACKUP_PGPASSWORD,max:2}).query(\"SELECT 1\").then(r=>{console.log(\"OK\");process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})"'
+   ```
+
 ## 4. 日常部署 / 重启 / 清理快捷命令
 
 | 场景 | 命令 |
