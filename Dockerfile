@@ -62,7 +62,7 @@ RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
     apk add --no-cache libc6-compat git && \
     corepack enable && \
-    COREPACK_NPM_REGISTRY="${NPM_REGISTRY%/}" corepack prepare yarn@1.22.22 --activate && \
+    COREPACK_NPM_REGISTRY="${NPM_REGISTRY%/}" corepack prepare yarn@1.22.19 --activate && \
     npm config set registry "${NPM_REGISTRY}" && \
     yarn config set registry "${NPM_REGISTRY}" && \
     yarn config set network-timeout 600000 -g && \
