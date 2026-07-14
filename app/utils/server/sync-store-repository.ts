@@ -467,12 +467,9 @@ export async function getStoreSnapshotMetas(
            union all
            select updated_at
            from provider_configs
-           where user_id = (select id from app_users where external_id = $1 limit 1)
            union all
            select pak.updated_at
            from provider_api_keys pak
-           join provider_configs pc on pc.id = pak.provider_config_id
-           where pc.user_id = (select id from app_users where external_id = $1 limit 1)
            union all
            select updated_at
            from sync_secrets

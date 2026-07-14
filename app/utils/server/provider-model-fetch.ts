@@ -1260,7 +1260,6 @@ export async function fetchModelsFromProviderForServer(
   if (fetchOptions?.userId && fetchOptions?.profileId) {
     try {
       const cachedInfo = await getProviderModelCachedPath(
-        fetchOptions.userId,
         fetchOptions.profileId,
       );
       if (cachedInfo?.cachedModelPath) {
@@ -1352,16 +1351,12 @@ export async function fetchModelsFromProviderForServer(
 
     if (!fetchOptions?.userId || !fetchOptions?.profileId) return;
     try {
-      await saveProviderModelCachedPath(
-        fetchOptions.userId,
-        fetchOptions.profileId,
-        {
-          cachedModelPath: successfulPath,
-          cachedModelBaseUrl: successfulBaseUrl,
-          cachedModelAuthType: successfulAuthType,
-          cachedModelApiKey: successfulApiKey,
-        },
-      );
+      await saveProviderModelCachedPath(fetchOptions.profileId, {
+        cachedModelPath: successfulPath,
+        cachedModelBaseUrl: successfulBaseUrl,
+        cachedModelAuthType: successfulAuthType,
+        cachedModelApiKey: successfulApiKey,
+      });
       console.log("[Fetch Models] 💾 已立即保存模型获取缓存");
     } catch (error) {
       console.warn(

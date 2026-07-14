@@ -1,3 +1,5 @@
+import { safeLocalStorage } from "./safe-local-storage";
+
 export type ProviderBalanceSnapshot = {
   value: number;
   currency: string;
@@ -33,7 +35,200 @@ export type ProviderBalanceAttempt = {
 };
 
 const PROVIDER_BALANCE_API_PATH = "/api/db/provider-balance";
+const PROVIDER_BALANCE_PROFILES_CACHE_KEY =
+  "nextchat:provider-balance-profiles:v1";
 let balanceRequestSequence = 0;
+
+export function hasExplicitProviderBalancePath(value?: string) {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) return false;
+  try {
+    const url = new URL(trimmedValue);
+    return Boolean(url.pathname.replace(/^\/+|\/+$/g, ""));
+  } catch {
+    return Boolean(trimmedValue.split(/[?#]/, 1)[0].replace(/^\/+|\/+$/g, ""));
+  }
+}
+
+export function resolveProviderBalanceQueryTarget(
+  value: string,
+  fallbackBaseUrl: string,
+) {
+  const trimmedValue = String(value || "").trim();
+  if (!trimmedValue) {
+    return {
+      baseUrl: fallbackBaseUrl,
+      path: "",
+      hasExplicitPath: false,
+    };
+  }
+  if (/^https?:\/\//i.test(trimmedValue)) {
+    try {
+      const url = new URL(trimmedValue);
+      const path = `${url.pathname.replace(/^\//, "")}${url.search}`;
+      return {
+        baseUrl: url.origin,
+        path,
+        hasExplicitPath: hasExplicitProviderBalancePath(path),
+      };
+    } catch {
+      // 交给相对路径分支，以数据库 Base URL 继续校验和查询。
+    }
+  }
+  const path = trimmedValue.replace(/^\//, "");
+  return {
+    baseUrl: fallbackBaseUrl,
+    path,
+    hasExplicitPath: hasExplicitProviderBalancePath(path),
+  };
+}
+
+type CachedProviderBalanceProfile = Pick<
+  ProviderBalanceProfile,
+  "profileId" | "profileName" | "baseUrl" | "hasManagementKey" | "balance"
+>;
+
+function normalizeCachedBalance(
+  value: unknown,
+): ProviderBalanceSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const balance = value as Partial<ProviderBalanceSnapshot>;
+  if (!Number.isFinite(balance.value) || !Number.isFinite(balance.queriedAt)) {
+    return null;
+  }
+  return {
+    value: Number(balance.value),
+    currency: typeof balance.currency === "string" ? balance.currency : "USD",
+    queriedAt: Number(balance.queriedAt),
+  };
+}
+
+function toCachedProfile(
+  profile: ProviderBalanceProfile,
+): CachedProviderBalanceProfile {
+  return {
+    profileId: profile.profileId,
+    profileName: profile.profileName,
+    baseUrl: profile.baseUrl,
+    hasManagementKey: profile.hasManagementKey,
+    balance: normalizeCachedBalance(profile.balance),
+  };
+}
+
+function fromCachedProfile(value: unknown): ProviderBalanceProfile | null {
+  if (!value || typeof value !== "object") return null;
+  const profile = value as Partial<CachedProviderBalanceProfile>;
+  if (!profile.profileId || typeof profile.profileId !== "string") return null;
+  return {
+    profileId: profile.profileId,
+    profileName:
+      typeof profile.profileName === "string" && profile.profileName
+        ? profile.profileName
+        : profile.profileId,
+    baseUrl: typeof profile.baseUrl === "string" ? profile.baseUrl : "",
+    hasManagementKey: profile.hasManagementKey === true,
+    maskedManagementKey: "",
+    managementKey: "",
+    balance: normalizeCachedBalance(profile.balance),
+    lastError: "",
+    customBalanceUrl: "",
+    cachedPath: "",
+    cachedBaseUrl: "",
+    useNewApiUserFormat: false,
+    newApiUserId: "",
+  };
+}
+
+export function readCachedProviderBalanceProfiles(): ProviderBalanceProfile[] {
+  try {
+    const raw = safeLocalStorage().getItem(PROVIDER_BALANCE_PROFILES_CACHE_KEY);
+    const values = raw ? JSON.parse(raw) : [];
+    return Array.isArray(values)
+      ? values
+          .map(fromCachedProfile)
+          .filter((profile): profile is ProviderBalanceProfile =>
+            Boolean(profile),
+          )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function cacheProviderBalanceProfiles(
+  profiles: ProviderBalanceProfile[],
+) {
+  const sanitizedProfiles = profiles
+    .filter((profile) => Boolean(profile.profileId))
+    .map(toCachedProfile);
+  safeLocalStorage().setItem(
+    PROVIDER_BALANCE_PROFILES_CACHE_KEY,
+    JSON.stringify(sanitizedProfiles),
+  );
+}
+
+export function readCachedProviderBalance(
+  profileId: string,
+  providerName?: string,
+) {
+  const profiles = readCachedProviderBalanceProfiles();
+  const exact = profiles.find((profile) => profile.profileId === profileId);
+  if (exact) return exact.balance;
+  const normalizedName = String(providerName || "")
+    .trim()
+    .toLocaleLowerCase();
+  if (normalizedName) {
+    const namedBalance = profiles.find(
+      (profile) =>
+        profile.profileName.trim().toLocaleLowerCase() === normalizedName,
+    )?.balance;
+    if (namedBalance) return namedBalance;
+  }
+  if (!profileId) return null;
+  try {
+    const legacyValue = JSON.parse(
+      safeLocalStorage().getItem(
+        `nextchat:provider-balance:shared:${profileId}`,
+      ) || "null",
+    );
+    return normalizeCachedBalance(legacyValue);
+  } catch {
+    return null;
+  }
+}
+
+export function cacheProviderBalance(
+  profileId: string,
+  balance: ProviderBalanceSnapshot | null,
+  providerName?: string,
+) {
+  if (!profileId) return;
+  const profiles = readCachedProviderBalanceProfiles();
+  const existingIndex = profiles.findIndex(
+    (profile) => profile.profileId === profileId,
+  );
+  const existing = existingIndex >= 0 ? profiles[existingIndex] : null;
+  const nextProfile: ProviderBalanceProfile = {
+    ...(existing || {
+      profileId,
+      profileName: providerName || profileId,
+      baseUrl: "",
+      hasManagementKey: false,
+      maskedManagementKey: "",
+      managementKey: "",
+      lastError: "",
+    }),
+    profileId,
+    profileName: providerName || existing?.profileName || profileId,
+    balance: normalizeCachedBalance(balance),
+  };
+  if (existingIndex >= 0) {
+    profiles[existingIndex] = nextProfile;
+  } else {
+    profiles.push(nextProfile);
+  }
+  cacheProviderBalanceProfiles(profiles);
+}
 
 function createBalanceRequestContext(action: string, profileId?: string) {
   balanceRequestSequence += 1;
@@ -127,10 +322,11 @@ async function readResponsePayload(response: Response) {
     .catch(() => null) as Promise<ProviderBalanceApiPayload | null>;
 }
 
-export async function loadProviderBalanceProfiles() {
+export async function loadProviderBalanceProfiles(signal?: AbortSignal) {
   const context = createBalanceRequestContext("load-profiles");
   const response = await fetch(PROVIDER_BALANCE_API_PATH, {
     cache: "no-store",
+    signal,
   });
   const payload = await readResponsePayload(response);
   if (!response.ok || payload?.ok !== true) {
@@ -146,6 +342,34 @@ export async function loadProviderBalanceProfiles() {
     Array.isArray(payload.profiles) ? payload.profiles : []
   ) as ProviderBalanceProfile[];
   return profiles;
+}
+
+export async function resolveProviderBalanceProfileId(
+  profileId: string,
+  providerName?: string,
+  signal?: AbortSignal,
+) {
+  if (!profileId && !providerName) return "";
+
+  const profiles = await loadProviderBalanceProfiles(signal);
+  const exactProfile = profiles.find(
+    (profile) => profile.profileId === profileId,
+  );
+  if (exactProfile) return exactProfile.profileId;
+
+  const normalizedProviderName = String(providerName || "")
+    .trim()
+    .toLocaleLowerCase();
+  if (!normalizedProviderName) return "";
+
+  return (
+    profiles.find(
+      (profile) =>
+        String(profile.profileName || "")
+          .trim()
+          .toLocaleLowerCase() === normalizedProviderName,
+    )?.profileId || ""
+  );
 }
 
 export async function loadProviderBalance(

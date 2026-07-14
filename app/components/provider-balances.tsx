@@ -5,10 +5,15 @@ import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ReloadIcon from "../icons/reload.svg";
 import { Path } from "../constant";
+import { useAccessStore } from "../store";
 import {
+  cacheProviderBalanceProfiles,
   getProviderBalanceErrorMessage,
+  hasExplicitProviderBalancePath,
   loadProviderBalanceProfiles,
   queryProviderBalanceProfile,
+  readCachedProviderBalance,
+  readCachedProviderBalanceProfiles,
   saveProviderBalanceConfig,
   type ProviderBalanceProfile,
   type ProviderBalanceAttempt,
@@ -89,7 +94,7 @@ function mergeProfiles(
       ...remote,
       managementKey: cleanKey,
       baseUrl: remote.baseUrl || profile?.baseUrl || "",
-      balance: remote.balance || profile?.balance || null,
+      balance: remote.balance,
       customBalanceUrl: remote.customBalanceUrl || "",
       cachedPath: remote.cachedPath || "",
       cachedBaseUrl: remote.cachedBaseUrl || "",
@@ -101,7 +106,39 @@ function mergeProfiles(
 
 export function ProviderBalancesPage() {
   const navigate = useNavigate();
-  const [profiles, setProfiles] = useState<ProviderBalanceProfile[]>([]);
+  const apiProfiles = useAccessStore((state) => state.apiProfiles || []);
+  const cachedProfiles = useMemo(() => {
+    const profiles = readCachedProviderBalanceProfiles();
+    const cachedIds = new Set(profiles.map((profile) => profile.profileId));
+    for (const apiProfile of apiProfiles) {
+      if (!apiProfile?.id || cachedIds.has(apiProfile.id)) continue;
+      profiles.push({
+        profileId: apiProfile.id,
+        profileName: apiProfile.name || apiProfile.provider || apiProfile.id,
+        baseUrl: apiProfile.baseUrl || "",
+        hasManagementKey: false,
+        maskedManagementKey: "",
+        managementKey: "",
+        balance: readCachedProviderBalance(
+          apiProfile.id,
+          apiProfile.name || apiProfile.provider,
+        ),
+        lastError: "",
+        customBalanceUrl: "",
+        cachedPath: "",
+        cachedBaseUrl: "",
+        useNewApiUserFormat: false,
+        newApiUserId: "",
+      });
+    }
+    return profiles.sort((a, b) =>
+      a.profileName.localeCompare(b.profileName, "en", {
+        sensitivity: "base",
+      }),
+    );
+  }, [apiProfiles]);
+  const [profiles, setProfiles] =
+    useState<ProviderBalanceProfile[]>(cachedProfiles);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [customUrls, setCustomUrls] = useState<Record<string, string>>({});
   const [newApiUserIds, setNewApiUserIds] = useState<Record<string, string>>(
@@ -162,11 +199,13 @@ export function ProviderBalancesPage() {
     setIsLoading(true);
     try {
       const remoteProfiles = await loadProviderBalanceProfiles();
-      const mergedProfiles = mergeProfiles([], remoteProfiles).sort((a, b) =>
-        a.profileName.localeCompare(b.profileName, "en", {
-          sensitivity: "base",
-        }),
+      const mergedProfiles = mergeProfiles(cachedProfiles, remoteProfiles).sort(
+        (a, b) =>
+          a.profileName.localeCompare(b.profileName, "en", {
+            sensitivity: "base",
+          }),
       );
+      cacheProviderBalanceProfiles(mergedProfiles);
       setProfiles(mergedProfiles);
       const named = mergedProfiles
         .map((p) => p?.profileName || p?.profileId || "(未命名)")
@@ -200,7 +239,7 @@ export function ProviderBalancesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [cachedProfiles]);
 
   useEffect(() => {
     void load().catch(() => showToast("读取余额配置失败"));
@@ -265,7 +304,9 @@ export function ProviderBalancesPage() {
     const profileName = profile?.profileName || profileId;
     const useNewApiUser = getNewApiUserFormatValue(profileId);
     const queryMode: "custom" | "auto" =
-      profile?.customBalanceUrl?.trim() || useNewApiUser ? "custom" : "auto";
+      hasExplicitProviderBalancePath(profile?.customBalanceUrl) || useNewApiUser
+        ? "custom"
+        : "auto";
 
     if (profileHasUnsavedChanges(profileId)) {
       setQueryStatusMap((value) => ({
@@ -309,10 +350,7 @@ export function ProviderBalancesPage() {
       ...value,
       [profileId]: {
         type: "querying-with-log",
-        text:
-          queryMode === "custom"
-            ? "正在使用自定义路径查询余额..."
-            : "正在查询余额...",
+        text: "正在查询余额...",
         attempts: [],
         mode: queryMode,
       },
@@ -327,8 +365,8 @@ export function ProviderBalancesPage() {
       attempts = result.attempts;
       console.log(`[Provider Balance] ✅ ${profileName} 余额查询成功`);
 
-      setProfiles((value) =>
-        value.map((profile) =>
+      setProfiles((value) => {
+        const nextProfiles = value.map((profile) =>
           profile.profileId === profileId
             ? {
                 ...profile,
@@ -338,17 +376,17 @@ export function ProviderBalancesPage() {
                 cachedBaseUrl: result.cachedBaseUrl || profile.cachedBaseUrl,
               }
             : profile,
-        ),
-      );
+        );
+        cacheProviderBalanceProfiles(nextProfiles);
+        return nextProfiles;
+      });
       // 本次页面会话内查询成功后保持绿色，刷新页面时自然恢复。
       setRecentlyUpdatedIds((prev) => new Set(prev).add(profileId));
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "success",
-          text: `${
-            queryMode === "custom" ? "查询成功（自定义路径）" : "查询成功"
-          } · ${toFullBalanceUrl(
+          text: `查询成功：${toFullBalanceUrl(
             result.cachedBaseUrl || profile?.baseUrl || "",
             result.cachedPath || profile?.customBalanceUrl || "",
           )}`,
@@ -524,48 +562,19 @@ export function ProviderBalancesPage() {
       ),
     }));
 
-    // 添加超时处理
-    const TIMEOUT_MS = 30000; // 30秒超时
-
     try {
-      // 所有查询同时发起，不等待
+      // 所有供应商并发查询；单个上游请求和重试由服务端统一限时，
+      // 前端不再用 30 秒总超时截断尚未走完的自动探测队列。
       const queryPromises = queryableProfiles.map(async (profile) => {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(
-          () => controller.abort("balance_query_timeout"),
-          TIMEOUT_MS,
-        );
         try {
           await queryOne(profile.profileId, {
             batch: true,
-            signal: controller.signal,
           });
         } catch (error) {
-          if (!controller.signal.aborted) throw error;
-          console.warn(
-            `[Provider Balance] ⚠️ ${profile.profileName} 余额查询超时（${
-              TIMEOUT_MS / 1000
-            }秒）`,
+          console.error(
+            `[Provider Balance] ❌ ${profile.profileName} 批量查询异常`,
+            error instanceof Error ? error.message : String(error),
           );
-          const errorMessage = `查询超时（${TIMEOUT_MS / 1000}秒）`;
-          setProfiles((value) =>
-            value.map((p) =>
-              p.profileId === profile.profileId
-                ? { ...p, lastError: errorMessage }
-                : p,
-            ),
-          );
-          setQueryStatusMap((value) => ({
-            ...value,
-            [profile.profileId]: {
-              type: "error",
-              text: errorMessage,
-              attempts: [],
-            },
-          }));
-          showToast(`${profile.profileName} 查询超时`);
-        } finally {
-          window.clearTimeout(timeoutId);
         }
       });
 
@@ -722,6 +731,36 @@ export function ProviderBalancesPage() {
                           : ""
                       }`}
                     >
+                      {(queryStatusMap[profile.profileId]?.type === "error" ||
+                        profile.lastError) && (
+                        <span
+                          className={styles.balanceStatusIcon}
+                          aria-hidden="true"
+                        >
+                          ×
+                        </span>
+                      )}
+                      {!queryStatusMap[profile.profileId]?.type?.includes(
+                        "error",
+                      ) &&
+                        !profile.lastError &&
+                        recentlyUpdatedIds.has(profile.profileId) && (
+                          <svg
+                            className={`${styles.balanceStatusIcon} ${styles.balanceSuccessIcon}`}
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path
+                              d="M3 8.25 6.5 11.5 13 4.75"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
                       余额：
                       {profile.balance
                         ? profile.balance.value === -1
@@ -814,18 +853,23 @@ export function ProviderBalancesPage() {
                   <div className={styles.inputWithLabel}>
                     <span className={styles.inputLabel}>查询 URL</span>
                     {(() => {
+                      const savedCustomUrl = profile.customBalanceUrl || "";
+                      const savedCustomUrlHasPath =
+                        hasExplicitProviderBalancePath(savedCustomUrl);
                       const isAutoFixed =
                         !getNewApiUserFormatValue(profile.profileId) &&
                         !Object.prototype.hasOwnProperty.call(
                           customUrls,
                           profile.profileId,
                         ) &&
-                        !profile.customBalanceUrl &&
+                        !savedCustomUrlHasPath &&
                         !!profile.cachedPath;
 
                       const autoFixedDisplayUrl = isAutoFixed
                         ? toFullBalanceUrl(
-                            profile.cachedBaseUrl || profile.baseUrl,
+                            profile.cachedBaseUrl ||
+                              savedCustomUrl ||
+                              profile.baseUrl,
                             profile.cachedPath || "",
                           )
                         : "";
@@ -837,14 +881,12 @@ export function ProviderBalancesPage() {
                         );
                       const displayUrlValue = hasCustomUrlDraft
                         ? customUrls[profile.profileId]
-                        : profile.customBalanceUrl
-                        ? toFullBalanceUrl(
-                            profile.baseUrl,
-                            profile.customBalanceUrl,
-                          )
+                        : savedCustomUrlHasPath
+                        ? toFullBalanceUrl(profile.baseUrl, savedCustomUrl)
                         : getNewApiUserFormatValue(profile.profileId)
                         ? toFullBalanceUrl(profile.baseUrl, "/api/user/self")
-                        : autoFixedDisplayUrl;
+                        : autoFixedDisplayUrl ||
+                          toFullBalanceUrl(profile.baseUrl, savedCustomUrl);
                       const hasFixedUrl = !!displayUrlValue.trim();
 
                       return (

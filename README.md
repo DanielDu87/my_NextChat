@@ -48,22 +48,22 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 ### 模型与供应商
 
-- 支持多 Provider / 多 Profile 管理，Profile 保存时自动落库到 `provider_configs` + `provider_api_keys`。
+- 支持多 Provider / 多 Profile 管理；所有账号共用以 `provider_code` 唯一标识的全局 Profile，保存时自动落库到 `provider_configs` + `provider_api_keys`，access-control 同步不再按 `user_id` 分裂配置。
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
-- 每个供应商成功获取模型后，会将成功接口路径与对应 API Key 的密文保存到数据库；下次优先复用该组合，同时保留多 key、全路径探测和模型合并。
+- 每个供应商成功获取模型后，会按全局 `provider_code` 将成功接口路径与对应 API Key 的密文保存到数据库；下次优先复用该组合，同时保留多 key、全路径探测和模型合并。
 - 获取的模型按发布日期由新到旧排列；日期相同或未知时按字母排序，并让数字更大的版本优先。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
 - 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
-- 内置「余额查询」页面（`/balances`）：从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置，页面首开不自动查询；仅在手动单项更新或批量更新时，由服务端使用数据库中的管理 Key、查询 URL 和 New-API-User 配置发起请求。管理 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
+- 内置「余额查询」页面（`/balances`）：先从浏览器非敏感缓存立即显示余额，再在后台从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置并校准缓存/UI，页面首开不自动请求上游余额；仅在手动单项更新或批量更新时，由服务端使用数据库中的管理 Key、查询 URL 和 New-API-User 配置发起请求。管理 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
 - API 配置自动 / 手动 / 恢复前备份都会把 `provider_balance_configs` 一并打包进 `payload_json.balanceEntries`（payload schema = 2），恢复时按 `provider_code` 解析回 `provider_configs.id` 后写回；新备份统一写入单层 `payload_json.state.apiProfiles`，历史双层 `payload_json.state.state.apiProfiles` 仍保持计数和恢复兼容。
 - 默认构建时优先使用仓库内置 `vendor/rt-client-0.5.0.tgz`，减少外网依赖。
 
 ### 数据与同步
 
 - PostgreSQL 存储核心业务数据：用户、认证 session、聊天索引、会话、消息、对话备份、供应商配置、API Key 密文、模型缓存、绘图图片、上传文件缓存、API 配置备份和供应商余额快照 / 管理密钥。
-- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、主题、临时草稿、全局模型选择和少量启动标记，其中主题只保存在当前设备、不参与云同步。
+- IndexedDB 保存浏览器本地业务工作副本；localStorage 仅保存设备级偏好、主题、临时草稿、全局模型选择、非敏感余额快照和少量启动标记，其中主题与余额快照只保存在当前设备、不参与云同步。
 - 支持数据库同步与本地优先合并策略。
 - 首页及聊天入口完成首开同步后，控制台只输出每个 API 供应商的模型数、分用户对话数、绘画数、插件数，以及当前用户的对话同步结果；移动端进入 `/chat` 时不会清空或静默这组输出。
 - 提供数据库审计、迁移、清理、模型同步、余额查询等维护脚本。
@@ -208,7 +208,7 @@ app/
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
-- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（读取数据库中的 Profile、配置与最近余额，也支持按 Profile 读取对话页余额）、`PUT`（原子保存某个 Profile 的完整余额配置）、`POST`（只接收 Profile ID，服务端从数据库读取 Key、URL、New-API-User 与缓存路径后查询并落库）。余额页与对话页均以数据库为唯一余额数据源，不使用浏览器持久化余额缓存；两页查询共用固定 URL、成功路径和自动探测逻辑。OpenRouter 默认适配 `/api/v1/credits`，晴辰云默认适配 portal 登录与会话接口，Yuto/CherryIN 默认填充 `/api/user/self` + `New-API-User`；所有自动适配或恢复的路径都显示完整 URL并允许编辑，保存后以用户填写值为准。失败时保留旧余额，只更新错误与查询时间。
+- 余额查询是供应商模型的旁路能力：`/api/db/provider-balance` 提供 `GET`（读取数据库中的 Profile、配置与最近余额，也支持按 Profile 读取对话页余额）、`PUT`（原子保存某个 Profile 的完整余额配置）、`POST`（只接收 Profile ID，服务端从数据库读取 Key、URL、New-API-User 与缓存路径后查询并落库）。余额页与对话页先读取浏览器中的非敏感余额快照以立即渲染，再后台读取数据库校准并更新缓存/UI；管理 Key、User ID 和查询配置不进入本地缓存。完整 URL 含路径时固定查询并保留查询参数，只填写域名时在该域名自动探测；固定路径、根地址探测和普通自动探测成功后都保存真实路径、Base URL 与认证方式，下次优先直查缓存。OpenRouter 默认适配 `/api/v1/credits`，晴辰云默认适配 portal 登录与会话接口并保存真实成功端点，Yuto/CherryIN 默认填充 `/api/user/self` + `New-API-User`；所有自动适配或恢复的路径都显示完整 URL并允许编辑，保存后以用户填写值为准。失败时保留旧余额，只更新错误与查询时间。
 
 ### 部署实现
 

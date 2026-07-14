@@ -8,8 +8,6 @@ import {
   decryptSyncSecretPayload,
   encryptSyncSecretPayload,
 } from "./sync-secrets";
-import { getOrCreateSyncAppUserId } from "./sync-app-user";
-import { getDefaultSyncUserId } from "./sync-user";
 import { dedupeAccessProfiles } from "../access-profiles";
 import {
   MULTI_KEY_GROUP_IDS,
@@ -155,10 +153,6 @@ function normalizeProfilesWithFallbackSecrets(state: AccessState) {
     };
   });
 }
-async function getSharedProviderConfigUserId() {
-  return getOrCreateSyncAppUserId(getDefaultSyncUserId());
-}
-
 function maskSecret(secret: string) {
   if (!secret) return "";
   if (secret.length <= 8) {
@@ -208,7 +202,6 @@ function sanitizeProviderProfile(profile: AccessProfile) {
 function safeDecryptProviderSecret(
   encryptedSecret: string | null,
   context: {
-    externalUserId: string;
     providerCode: string;
     keyName: string | null;
   },
@@ -222,9 +215,9 @@ function safeDecryptProviderSecret(
     return typeof decrypted === "string" ? decrypted : "";
   } catch (error) {
     console.error(
-      `[ProviderConfigRepo] 解密 provider key 失败，已忽略 user=${
-        context.externalUserId
-      } provider=${context.providerCode} key=${context.keyName || "unknown"}`,
+      `[ProviderConfigRepo] 解密 provider key 失败，已忽略 provider=${
+        context.providerCode
+      } key=${context.keyName || "unknown"}`,
       error instanceof Error ? error.message : String(error),
     );
     return "";
@@ -285,12 +278,11 @@ function toPrimaryKeyRows(providerConfigId: string, profile: AccessProfile) {
 }
 
 export async function syncProviderConfigsFromAccessState(
-  externalUserId: string,
+  _externalUserId: string,
   payload: unknown,
   existingClient?: QueryClient,
 ) {
   await ensureSyncStorageSchema();
-  const userId = await getSharedProviderConfigUserId();
   const state = unwrapState(payload);
   const profiles = normalizeProfilesWithFallbackSecrets(state);
 
@@ -300,21 +292,16 @@ export async function syncProviderConfigsFromAccessState(
     if (keptProviderCodes.length > 0) {
       await client.query(
         `delete from provider_configs
-         where user_id = $1::uuid
-           and provider_code <> all($2::text[])`,
-        [userId, keptProviderCodes],
+         where provider_code <> all($1::text[])`,
+        [keptProviderCodes],
       );
     } else {
-      await client.query(
-        `delete from provider_configs where user_id = $1::uuid`,
-        [userId],
-      );
+      await client.query(`delete from provider_configs`);
     }
 
     for (const profile of profiles) {
       const configResult = (await client.query(
         `insert into provider_configs (
-           user_id,
            provider_code,
            provider_name,
            provider_type,
@@ -323,9 +310,9 @@ export async function syncProviderConfigsFromAccessState(
            request_config,
            raw_payload
          ) values (
-           $1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb
+           $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb
          )
-         on conflict (user_id, provider_code) do update set
+         on conflict (provider_code) do update set
            provider_name = excluded.provider_name,
            provider_type = excluded.provider_type,
            base_url = excluded.base_url,
@@ -335,7 +322,6 @@ export async function syncProviderConfigsFromAccessState(
            updated_at = now()
          returning id::text as id`,
         [
-          userId,
           profile.id,
           profile.name,
           String(profile.provider || ServiceProvider.Custom),
@@ -415,10 +401,9 @@ export async function syncProviderConfigsFromAccessState(
 }
 
 export async function getProviderProfilesForAccessState(
-  externalUserId: string,
+  _externalUserId: string,
 ) {
   await ensureSyncStorageSchema();
-  const userId = await getSharedProviderConfigUserId();
   const result = await pgQuery<{
     provider_code: string;
     provider_name: string;
@@ -443,9 +428,7 @@ export async function getProviderProfilesForAccessState(
      from provider_configs pc
      left join provider_api_keys pak
        on pak.provider_config_id = pc.id
-     where pc.user_id = $1::uuid
      order by pc.provider_code, pak.key_name nulls last`,
-    [userId],
   );
 
   const profileMap = new Map<string, AccessProfile>();
@@ -487,7 +470,6 @@ export async function getProviderProfilesForAccessState(
       existing.extraHeaders = requestConfig.extraHeaders;
     }
     const secretValue = safeDecryptProviderSecret(row.encrypted_secret, {
-      externalUserId,
       providerCode: row.provider_code,
       keyName: row.key_name,
     });

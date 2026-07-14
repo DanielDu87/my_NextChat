@@ -185,8 +185,7 @@ CREATE TABLE IF NOT EXISTS deployment_metadata (
 
 CREATE TABLE IF NOT EXISTS provider_configs (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
-  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-  provider_code text NOT NULL,
+  provider_code text NOT NULL UNIQUE,
   provider_name text NOT NULL,
   provider_type text NOT NULL,
   base_url text,
@@ -200,12 +199,10 @@ CREATE TABLE IF NOT EXISTS provider_configs (
   request_config jsonb NOT NULL DEFAULT '{}'::jsonb,
   raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT NOW(),
-  updated_at timestamptz NOT NULL DEFAULT NOW(),
-  UNIQUE (user_id, provider_code)
+  updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
--- 已删除 idx_provider_configs_user_id（与上面 unique(user_id, provider_code) 前缀冗余）
--- 由复合 unique 索引前缀自动满足 where user_id = $1 查询
+-- provider_configs 按 provider_code 全局共享，不再维护 user_id 索引
 
 CREATE TABLE IF NOT EXISTS provider_api_keys (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
@@ -452,7 +449,7 @@ COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw
 COMMENT ON TABLE user_draw_images IS '绘画生成图片二进制（data=原图 bytea，thumb_data=缩略图 bytea，按 md5 去重）';
 COMMENT ON TABLE cache_file_blobs IS '上传文件内容 blob（按 content_type + content_md5 去重）';
 COMMENT ON TABLE user_cache_files IS '用户上传/缓存文件记录（可过期或 pinned，引用 cache_file_blobs）';
-COMMENT ON TABLE provider_configs IS '模型供应商配置；cached_model_* 保存最近成功的模型列表接口，匹配的 API Key 密文保存在 sync_secrets';
+COMMENT ON TABLE provider_configs IS '全局模型供应商配置，以 provider_code 唯一；cached_model_* 保存最近成功的模型列表接口，匹配的 API Key 密文保存在 sync_secrets';
 COMMENT ON TABLE provider_api_keys IS '供应商 API 密钥和分组';
 COMMENT ON TABLE conversations IS '对话主表（删除走物理删除，is_deleted 仅作历史标记）';
 COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete）';

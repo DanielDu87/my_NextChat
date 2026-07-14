@@ -711,8 +711,7 @@ export async function ensureSyncStorageSchema() {
         await client.query(`
         drop index if exists idx_messages_conversation_seq
       `);
-        // 删除与 provider_configs.unique (user_id, provider_code) 前缀冗余的旧索引
-        // 复合 unique 已可被 where user_id = $1 命中
+        // provider_configs 已改为按 provider_code 全局共享，旧 user_id 索引不再使用
         await client.query(`
         drop index if exists idx_provider_configs_user_id
       `);

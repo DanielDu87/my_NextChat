@@ -10,8 +10,9 @@
   --gray: rgb(250, 250, 250);
   --primary: rgb(29, 147, 171);
   --primary-button-border: var(--primary);
-  --primary-button-bg: color-mix(in srgb, var(--primary) 75%, white);
+  --primary-button-bg: color-mix(in srgb, var(--primary-button-border) 70%, white);
   --primary-button-hover-bg: var(--primary);
+  --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 70%, white);
   --second: rgb(231, 248, 255);
   --hover-color: #f3f3f3;
   --bar-color: rgba(0, 0, 0, 0.1);
@@ -161,7 +162,7 @@
   --backup-green: #22a06b;
   --primary-75-bg: var(--primary-button-bg);
   --danger-75-bg: color-mix(in srgb, var(--danger-color) 75%, white);
-  --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 75%, white);
+  --backup-green-75-bg: color-mix(in srgb, var(--backup-green) 22%, transparent);
 }
 
 /* 只跟随网页设置的主题，优先级最高 */
@@ -1166,14 +1167,63 @@ button.nextchat-green-button:not(:disabled):active * {
 }
 
 .nextchat-green-button [class*="icon-button-icon"]>svg,
-button.nextchat-green-button [class*="icon-button-icon"]>svg {
+button.nextchat-green-button [class*="icon-button-icon"]>svg,
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg {
   filter: none !important;
+}
+
+body.dark .nextchat-green-button:not(:disabled):hover,
+body.dark button.nextchat-green-button:not(:disabled):hover,
+body.dark button[class*="icon-button"][class*="green"]:not(:disabled):hover,
+.dark .nextchat-green-button:not(:disabled):hover,
+.dark button.nextchat-green-button:not(:disabled):hover,
+.dark button[class*="icon-button"][class*="green"]:not(:disabled):hover {
+  background-color: var(--backup-green) !important;
+  border-color: var(--backup-green) !important;
+}
+
+body.dark .nextchat-green-button,
+body.dark button.nextchat-green-button,
+body.dark button[class*="icon-button"][class*="green"],
+.dark .nextchat-green-button,
+.dark button.nextchat-green-button,
+.dark button[class*="icon-button"][class*="green"] {
+  background-color: var(--backup-green-75-bg) !important;
+}
+
+body.dark .nextchat-green-button [class*="icon-button-icon"]>svg,
+.dark .nextchat-green-button [class*="icon-button-icon"]>svg,
+body.dark button.nextchat-green-button [class*="icon-button-icon"]>svg,
+.dark button.nextchat-green-button [class*="icon-button-icon"]>svg,
+body.dark button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg,
+.dark button[class*="icon-button"][class*="green"] [class*="icon-button-icon"]>svg {
+  filter: none !important;
+}
+
+.nextchat-green-button [class*="icon-button-icon"] path[style*="stroke"],
+button.nextchat-green-button [class*="icon-button-icon"] path[style*="stroke"],
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] path[style*="stroke"] {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-opacity: 1 !important;
+}
+
+.nextchat-green-button [class*="icon-button-icon"] path:not([style*="stroke"]),
+button.nextchat-green-button [class*="icon-button-icon"] path:not([style*="stroke"]),
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] path:not([style*="stroke"]),
+.nextchat-green-button [class*="icon-button-icon"] circle,
+button.nextchat-green-button [class*="icon-button-icon"] circle,
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] circle {
+  fill: currentColor !important;
+  stroke: none !important;
 }
 
 .nextchat-green-button [class*="icon-button-icon"] svg path,
 button.nextchat-green-button [class*="icon-button-icon"] svg path,
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] svg path,
 .nextchat-green-button [class*="icon-button-icon"] svg circle,
-button.nextchat-green-button [class*="icon-button-icon"] svg circle {
+button.nextchat-green-button [class*="icon-button-icon"] svg circle,
+button[class*="icon-button"][class*="green"] [class*="icon-button-icon"] svg circle {
   fill: currentColor !important;
 }
 

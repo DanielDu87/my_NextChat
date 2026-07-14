@@ -133,6 +133,18 @@
   color: #d14343;
 }
 
+.balanceStatusIcon {
+  display: inline-block;
+  margin-right: 4px;
+  font-weight: 800;
+}
+
+.balanceSuccessIcon {
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+}
+
 .row {
   display: flex;
   align-items: stretch;
@@ -373,6 +385,55 @@
 }
 
 @media (max-width: 700px) {
+  .page :global(.window-header) {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-header-title) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 96px);
+    max-width: calc(100% - 96px);
+    margin: 0;
+    text-align: center;
+  }
+
+  .page :global(.window-header-main-title),
+  .page :global(.window-header-sub-title) {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .page :global(.window-actions) {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-action-button) {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .page :global(.window-actions button[data-close-button="true"]) {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    border-width: 2px !important;
+  }
+
   .batchActionBar {
     display: none;
   }
@@ -395,6 +456,35 @@
     flex: 1 1 100%;
     width: 100% !important;
     min-width: 0 !important;
+    min-height: 44px !important;
+    padding: 0 14px !important;
+    justify-content: center !important;
+  }
+
+  .mobileBatchAction .actionButton
+    :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center;
+    margin-left: 6px !important;
+  }
+
+  .mobileBatchAction .actionButton
+    :global([class*="icon-button-icon"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .mobileBatchAction .actionButton
+    :global([class*="icon-button-icon"] > svg) {
+    display: block !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
   }
 
   .content {
@@ -403,7 +493,7 @@
 
   .list {
     margin-top: 10px;
-    gap: 14px;
+    gap: 12px;
   }
 
   .card {
@@ -411,16 +501,24 @@
     border-radius: 12px;
   }
 
-  .header {
-    align-items: center;
-    flex-direction: row;
-    justify-content: space-between;
-    gap: 6px;
-    margin-bottom: 10px;
+  .headerRow {
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .headerLeft {
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 6px;
+  }
+
+  .headerRight {
+    flex: 0 0 auto;
   }
 
   .name {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     font-size: 14px;
     line-height: 1.4;
@@ -429,21 +527,43 @@
 
   .balance {
     flex: 0 0 auto;
-    max-width: 48%;
+    max-width: none;
     text-align: right;
     font-size: 13px;
     line-height: 1.4;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
   }
 
   .row {
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .inputWithLabel {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
     align-items: stretch;
-    flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .inputLabel {
+    min-height: 42px;
+    padding: 0 10px;
+    margin-right: 0;
+    flex-basis: auto;
   }
 
   .row :global(.nextchat-input-control) {
-    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .newApiUserInput {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: initial !important;
   }
 
   .customUrlRow {
@@ -455,18 +575,44 @@
   }
 
   .row .actionButton.actionButton.actionButton {
-    flex: 1 1 0;
+    flex: none;
+    width: 100% !important;
     min-width: 0 !important;
-    height: auto !important;
-    min-height: 40px !important;
-    padding: 0 10px !important;
-    font-size: 13px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 0 14px !important;
+    justify-content: center !important;
+    font-size: 14px !important;
+  }
+
+  .row .actionButton :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center;
+    margin-left: 6px !important;
+  }
+
+  .row .actionButton :global([class*="icon-button-icon"]) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .row .actionButton :global([class*="icon-button-icon"] > svg) {
+    display: block !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
   }
 
   .hint,
   .statusSuccess,
   .statusError {
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.6;
+    overflow-wrap: anywhere;
   }
 }

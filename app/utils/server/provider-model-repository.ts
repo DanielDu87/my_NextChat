@@ -17,15 +17,14 @@ function getModelFetchSecretKey(profileId: string) {
 }
 
 export async function getProviderModelCachedPath(
-  userId: string,
   profileId: string,
 ): Promise<ProviderModelCachedPath | null> {
   await ensureSyncStorageSchema();
   const result = await pgQuery<any>(
     `select cached_model_path, cached_model_base_url, cached_model_auth_type
        from provider_configs
-      where user_id = $1::uuid and provider_code = $2 limit 1`,
-    [userId, profileId],
+      where provider_code = $1 limit 1`,
+    [profileId],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -33,7 +32,7 @@ export async function getProviderModelCachedPath(
   const cachedSecret = await getEncryptedSyncSecret<{
     apiKey?: string;
   }>({
-    userId,
+    userId: "global",
     secretKey: getModelFetchSecretKey(profileId),
   });
 
@@ -46,20 +45,18 @@ export async function getProviderModelCachedPath(
 }
 
 export async function saveProviderModelCachedPath(
-  userId: string,
   profileId: string,
   options: ProviderModelCachedPath,
 ) {
   await ensureSyncStorageSchema();
   await pgQuery(
     `update provider_configs
-        set cached_model_path = $3,
-            cached_model_base_url = $4,
-            cached_model_auth_type = $5,
+        set cached_model_path = $2,
+            cached_model_base_url = $3,
+            cached_model_auth_type = $4,
             updated_at = now()
-      where user_id = $1::uuid and provider_code = $2`,
+      where provider_code = $1`,
     [
-      userId,
       profileId,
       options.cachedModelPath || null,
       options.cachedModelBaseUrl || null,
@@ -70,13 +67,13 @@ export async function saveProviderModelCachedPath(
   const apiKey = String(options.cachedModelApiKey || "").trim();
   if (apiKey) {
     await setEncryptedSyncSecret({
-      userId,
+      userId: "global",
       secretKey: getModelFetchSecretKey(profileId),
       payload: { apiKey },
     });
   } else {
     await deleteEncryptedSyncSecret({
-      userId,
+      userId: "global",
       secretKey: getModelFetchSecretKey(profileId),
     });
   }

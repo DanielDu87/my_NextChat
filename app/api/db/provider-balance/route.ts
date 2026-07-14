@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProviderBalanceErrorMessage } from "@/app/utils/provider-balance";
+import {
+  getProviderBalanceErrorMessage,
+  resolveProviderBalanceQueryTarget,
+} from "@/app/utils/provider-balance";
 import { AuthError } from "@/app/utils/server/auth";
 import {
   ProviderBalanceQueryError,
@@ -31,23 +34,31 @@ async function getContext(req: NextRequest) {
   };
 }
 
+function getUrlOrigin(value?: string) {
+  try {
+    return value ? new URL(value).origin : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const { sharedUserId, profiles } = await getContext(req);
+    const { sharedUserId } = await getContext(req);
     const profileId = String(
       req.nextUrl.searchParams.get("profileId") || "",
     ).trim();
     const balanceProfiles = await listProviderBalanceConfigs(sharedUserId);
     if (profileId) {
-      if (!profiles.some((item) => item.id === profileId)) {
+      const profile = balanceProfiles.find(
+        (item) => item.profileId === profileId,
+      );
+      if (!profile) {
         return NextResponse.json(
           { ok: false, error: "provider_not_found" },
           { status: 404 },
         );
       }
-      const profile = balanceProfiles.find(
-        (item) => item.profileId === profileId,
-      );
       return NextResponse.json({
         ok: true,
         balance: profile?.balance || null,
@@ -85,12 +96,7 @@ export async function PUT(req: NextRequest) {
         { ok: false, error: "missing_profile_id" },
         { status: 400 },
       );
-    const { profiles } = await getContext(req);
-    if (!profiles.some((item) => item.id === profileId))
-      return NextResponse.json(
-        { ok: false, error: "provider_not_found" },
-        { status: 404 },
-      );
+    await getContext(req);
 
     const current = await getProviderBalanceConfig(profileId);
     if (!current) {
@@ -149,15 +155,27 @@ export async function POST(req: NextRequest) {
     }
 
     const { sharedUserId, profiles } = await getContext(req);
-    const profile = profiles.find((item) => item.id === profileId);
-    if (!profile) {
+    const balanceProfiles = await listProviderBalanceConfigs(sharedUserId);
+    const balanceConfig = balanceProfiles.find(
+      (item) => item.profileId === profileId,
+    );
+    if (!balanceConfig) {
       return NextResponse.json(
         { ok: false, error: "provider_not_found" },
         { status: 404 },
       );
     }
 
-    const balanceConfig = await getProviderBalanceConfig(profileId);
+    // 余额配置是全局数据库数据；访问态中没有同 ID Profile 时，仍使用
+    // provider_configs 的名称和 Base URL 构造查询配置，避免 GET/POST 数据源分裂。
+    const profile = profiles.find((item) => item.id === profileId) || {
+      id: balanceConfig.profileId,
+      name: balanceConfig.profileName,
+      provider: "Custom",
+      baseUrl: balanceConfig.baseUrl,
+      apiKey: "",
+      enabled: true,
+    };
     const managementKey = balanceConfig?.managementKey || "";
     const customBalanceUrl = balanceConfig?.customBalanceUrl || "";
     const effectiveManagementKey =
@@ -167,45 +185,35 @@ export async function POST(req: NextRequest) {
 
     try {
       // 合并 profile 和缓存路径，优先使用余额查询页面配置的管理密钥
-      let customBaseUrl: string | undefined;
-      let customPath: string | undefined;
-
-      // 如果有自定义 URL，解析是完整 URL 还是路径
-      if (customBalanceUrl) {
-        if (
-          customBalanceUrl.startsWith("http://") ||
-          customBalanceUrl.startsWith("https://")
-        ) {
-          // 完整 URL，提取 baseUrl 和 path
-          try {
-            const url = new URL(customBalanceUrl);
-            customBaseUrl = `${url.protocol}//${url.host}`;
-            customPath = url.pathname.replace(/^\//, ""); // 移除前导斜杠
-          } catch {
-            // URL 解析失败，当作路径处理
-            customPath = customBalanceUrl.replace(/^\//, "");
-          }
-        } else {
-          // 只是路径，使用 profile 的 baseUrl
-          customPath = customBalanceUrl.replace(/^\//, "");
-        }
-      }
-
+      const customTarget = resolveProviderBalanceQueryTarget(
+        customBalanceUrl,
+        profile.baseUrl,
+      );
+      const customBaseUrl = customBalanceUrl ? customTarget.baseUrl : undefined;
+      const customPath = customBalanceUrl ? customTarget.path : undefined;
+      const hasFixedCustomPath = customTarget.hasExplicitPath;
+      const canReuseCachedPath =
+        Boolean(balanceConfig?.cachedPath) &&
+        (!customBaseUrl ||
+          !balanceConfig?.cachedBaseUrl ||
+          getUrlOrigin(customBaseUrl) ===
+            getUrlOrigin(balanceConfig.cachedBaseUrl));
       const queryProfile = {
         ...profile,
+        baseUrl: customBaseUrl || profile.baseUrl,
         apiKey: effectiveManagementKey || profile.apiKey,
         apiKeyGroups: {},
         signal: req.signal,
         // 如果有自定义 URL，优先使用；否则使用缓存路径
-        ...(customBalanceUrl
+        ...(hasFixedCustomPath
           ? {
               // 自定义 URL：直接使用，只查询此路径
               cachedPath: customPath,
               cachedBaseUrl: customBaseUrl || profile.baseUrl,
-              cachedAuthType: undefined,
+              cachedAuthType: balanceConfig.cachedAuthType,
               customUrlOnly: true,
             }
-          : balanceConfig?.cachedPath
+          : canReuseCachedPath
           ? {
               cachedPath: balanceConfig.cachedPath,
               cachedBaseUrl: balanceConfig.cachedBaseUrl,
@@ -216,8 +224,8 @@ export async function POST(req: NextRequest) {
 
       console.log(
         `[Provider Balance] 查询配置: baseUrl=${
-          profile.baseUrl
-        }, 自定义URL=${!!customBalanceUrl}, 仅自定义=${!!customBalanceUrl}, 有缓存路径=${!!balanceConfig?.cachedPath}`,
+          queryProfile.baseUrl
+        }, 自定义URL=${!!customBalanceUrl}, 固定路径=${hasFixedCustomPath}, 有缓存路径=${!!balanceConfig?.cachedPath}`,
       );
 
       const balance = await queryProviderBalanceWithRetry(queryProfile);
@@ -229,29 +237,19 @@ export async function POST(req: NextRequest) {
         ...balanceSnapshot
       } = balance;
 
-      // 保存余额结果和缓存路径（只有非自定义URL时才更新缓存）
-      if (!customBalanceUrl) {
-        await saveProviderBalanceResult(
-          sharedUserId,
-          profileId,
-          balanceSnapshot,
-          "",
-          {
-            cachedPath,
-            cachedBaseUrl,
-            cachedAuthType,
-            queryStartedAt,
-          },
-        );
-      } else {
-        await saveProviderBalanceResult(
-          sharedUserId,
-          profileId,
-          balanceSnapshot,
-          "",
-          { queryStartedAt },
-        );
-      }
+      // 所有成功模式都保存真实路径、Base URL 与认证方式，下次优先直查。
+      await saveProviderBalanceResult(
+        sharedUserId,
+        profileId,
+        balanceSnapshot,
+        "",
+        {
+          cachedPath,
+          cachedBaseUrl,
+          cachedAuthType,
+          queryStartedAt,
+        },
+      );
 
       return NextResponse.json({
         ok: true,

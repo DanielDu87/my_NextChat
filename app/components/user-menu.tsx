@@ -25,9 +25,12 @@ import {
 import { isAbortLikeError } from "../utils/stale-revalidate";
 import { getClientConfig } from "../config/client";
 import {
+  cacheProviderBalance,
   loadProviderBalance,
   ProviderBalanceRequestError,
   queryProviderBalanceProfile,
+  readCachedProviderBalance,
+  resolveProviderBalanceProfileId,
   type ProviderBalanceSnapshot,
 } from "../utils/provider-balance";
 
@@ -342,21 +345,46 @@ export function UserMenu(props?: {
   const effectiveUserDisplayName = effectiveUser?.displayName ?? "";
   const effectiveUserUsername = effectiveUser?.username ?? "";
   const [providerBalance, setProviderBalance] =
-    useState<ProviderBalanceSnapshot | null>(null);
+    useState<ProviderBalanceSnapshot | null>(() =>
+      readCachedProviderBalance(
+        props?.balanceProfileId || "",
+        props?.balanceProviderName,
+      ),
+    );
+  const [resolvedBalanceProfileId, setResolvedBalanceProfileId] = useState("");
   const previousRefreshSignalRef = useRef("");
   const balanceOperationRef = useRef(0);
 
   useEffect(() => {
     const profileId = props?.balanceProfileId || "";
+    const providerName = props?.balanceProviderName || "";
     const operationId = ++balanceOperationRef.current;
     const controller = new AbortController();
-    setProviderBalance(null);
-    if (!profileId) return () => controller.abort();
+    setProviderBalance(readCachedProviderBalance(profileId, providerName));
+    setResolvedBalanceProfileId("");
+    if (!profileId && !providerName) return () => controller.abort();
 
-    void loadProviderBalance(profileId, controller.signal)
-      .then((balance) => {
-        if (operationId === balanceOperationRef.current) {
-          setProviderBalance(balance);
+    void resolveProviderBalanceProfileId(
+      profileId,
+      providerName,
+      controller.signal,
+    )
+      .then(async (databaseProfileId) => {
+        if (operationId !== balanceOperationRef.current || !databaseProfileId) {
+          return null;
+        }
+        const balance = await loadProviderBalance(
+          databaseProfileId,
+          controller.signal,
+        );
+        cacheProviderBalance(databaseProfileId, balance, providerName);
+        return { databaseProfileId, balance };
+      })
+      .then((result) => {
+        if (result && operationId === balanceOperationRef.current) {
+          setProviderBalance(result.balance);
+          // 数据库旧值读取完成后再允许自动查询，避免查询竞态使两边都无法落到 UI。
+          setResolvedBalanceProfileId(result.databaseProfileId);
         }
       })
       .catch((error) => {
@@ -366,23 +394,31 @@ export function UserMenu(props?: {
       });
 
     return () => controller.abort();
-  }, [props?.balanceProfileId]);
+  }, [props?.balanceProfileId, props?.balanceProviderName]);
 
   useEffect(() => {
     const signal = props?.balanceRefreshSignal || "";
-    if (!signal || signal === previousRefreshSignalRef.current) return;
-    previousRefreshSignalRef.current = signal;
-    if (!props?.balanceProfileId) return;
+    if (!signal || !resolvedBalanceProfileId) return;
+    const refreshKey = `${resolvedBalanceProfileId}:${signal}`;
+    if (refreshKey === previousRefreshSignalRef.current) return;
+    previousRefreshSignalRef.current = refreshKey;
 
     let active = true;
+    const controller = new AbortController();
     const operationId = ++balanceOperationRef.current;
-    void queryProviderBalanceProfile(props.balanceProfileId, {
+    void queryProviderBalanceProfile(resolvedBalanceProfileId, {
+      signal: controller.signal,
       source: "chat-page-auto-refresh",
-      providerName: props.balanceProviderName,
+      providerName: props?.balanceProviderName,
       logSuccess: false,
     })
       .then(({ balance }) => {
         if (active && operationId === balanceOperationRef.current) {
+          cacheProviderBalance(
+            resolvedBalanceProfileId,
+            balance,
+            props?.balanceProviderName,
+          );
           setProviderBalance(balance);
         }
       })
@@ -396,7 +432,8 @@ export function UserMenu(props?: {
         if (!responseContainsDatabaseBalance) {
           try {
             previousBalance = await loadProviderBalance(
-              props.balanceProfileId!,
+              resolvedBalanceProfileId,
+              controller.signal,
             );
           } catch {
             // 数据库也暂时不可用时保留当前页面值，不把读取失败误判为无余额。
@@ -416,11 +453,12 @@ export function UserMenu(props?: {
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [
-    props?.balanceProfileId,
     props?.balanceProviderName,
     props?.balanceRefreshSignal,
+    resolvedBalanceProfileId,
   ]);
 
   const openManageModal = () => {

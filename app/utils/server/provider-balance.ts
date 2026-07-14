@@ -270,7 +270,7 @@ const BALANCE_PATHS = [
 ];
 
 const BALANCE_QUERY_BATCH_SIZE = 8;
-const BALANCE_MAX_ATTEMPTS_PER_KEY = 240;
+const BALANCE_MAX_ATTEMPTS_PER_KEY = 320;
 const BALANCE_QUERY_MAX_ROUNDS = 3;
 const BALANCE_QUERY_RETRY_DELAYS_MS = [500, 1_000] as const;
 const BALANCE_UPSTREAM_TIMEOUT_MS = 15_000;
@@ -341,20 +341,21 @@ async function queryQingchenBalance(
   const allPortalQueries = [
     {
       path: "portal/models",
-      parse: (data: Record<string, unknown>) => Number(data.remainingBalance),
+      parse: (data: Record<string, unknown>) =>
+        findFirstFiniteNumber(data, ["remainingBalance"]) ?? Number.NaN,
     },
     {
       path: "portal/info",
       parse: (data: Record<string, unknown>) => {
-        const total = Number(data.balanceUsd);
-        const used = Number(data.usedBalanceUsd);
-        return Number.isFinite(total)
-          ? Math.max(total - (Number.isFinite(used) ? used : 0), 0)
-          : Number.NaN;
+        const total = findFirstFiniteNumber(data, ["balanceUsd"]);
+        const used = findFirstFiniteNumber(data, ["usedBalanceUsd"]);
+        return total !== null ? Math.max(total - (used ?? 0), 0) : Number.NaN;
       },
     },
   ] as const;
-  const normalizedPreferredPath = preferredPath?.replace(/^\/+/, "");
+  const normalizedPreferredPath = preferredPath
+    ?.replace(/^\/+/, "")
+    .split(/[?#]/, 1)[0];
   const portalQueries = normalizedPreferredPath
     ? allPortalQueries.filter((query) => query.path === normalizedPreferredPath)
     : allPortalQueries;
@@ -402,7 +403,13 @@ async function queryQingchenBalance(
       }
     }),
   );
-  return values.find((value): value is number => value !== null) ?? null;
+  const successIndex = values.findIndex((value) => value !== null);
+  return successIndex >= 0
+    ? {
+        value: values[successIndex] as number,
+        path: portalQueries[successIndex].path,
+      }
+    : null;
 }
 
 function buildBalanceAuthHeaders(apiKey: string, authType: BalanceAuthType) {
@@ -424,7 +431,7 @@ function appendBalanceAuthQueryParam(
 }
 
 function buildBalanceAuthTypes(
-  configuredAuthType: ApiProfileAuthType | undefined,
+  configuredAuthType: BalanceAuthType | undefined,
 ) {
   // 调整认证类型顺序：优先尝试最可能成功的类型
   // sk-user- 格式的 key 通常需要直接传递（authorization-raw），不是 Bearer token
@@ -471,11 +478,46 @@ function buildBalanceCandidates(
   baseUrls: string[],
   authTypes: BalanceAuthType[],
 ) {
-  return BALANCE_PATHS.flatMap((path) =>
+  const uniquePaths = [...new Set(BALANCE_PATHS)];
+  const primaryBaseUrl = baseUrls[0];
+  const primaryAuthType = authTypes[0];
+  if (!primaryBaseUrl || !primaryAuthType) return [];
+  const priorityPaths = [
+    "api/user/self",
+    "user/self",
+    "v1/user/self",
+    "api/user/balance",
+    "user/balance",
+    "v1/user/balance",
+    "api/token/quota",
+    "token/quota",
+    "api/v1/credits",
+    "v1/credits",
+  ].filter((path) => uniquePaths.includes(path));
+  const priorityCandidates = priorityPaths.flatMap((path) =>
     baseUrls.flatMap((candidateBaseUrl) =>
       authTypes.map((authType) => ({ candidateBaseUrl, path, authType })),
     ),
-  ).slice(0, BALANCE_MAX_ATTEMPTS_PER_KEY);
+  );
+  const broadPathCoverage = uniquePaths.map((path) => ({
+    candidateBaseUrl: primaryBaseUrl,
+    path,
+    authType: primaryAuthType,
+  }));
+  const remainingCandidates = authTypes.flatMap((authType) =>
+    baseUrls.flatMap((candidateBaseUrl) =>
+      uniquePaths.map((path) => ({ candidateBaseUrl, path, authType })),
+    ),
+  );
+  const seen = new Set<string>();
+  return [...priorityCandidates, ...broadPathCoverage, ...remainingCandidates]
+    .filter((candidate) => {
+      const key = `${candidate.candidateBaseUrl}\n${candidate.path}\n${candidate.authType}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, BALANCE_MAX_ATTEMPTS_PER_KEY);
 }
 
 function findFirstFiniteNumber(
@@ -483,7 +525,16 @@ function findFirstFiniteNumber(
   keys: string[],
 ) {
   for (const key of keys) {
-    const value = Number(container[key]);
+    const candidate = container[key];
+    if (
+      candidate === null ||
+      candidate === undefined ||
+      typeof candidate === "boolean" ||
+      (typeof candidate === "string" && candidate.trim() === "")
+    ) {
+      continue;
+    }
+    const value = Number(candidate);
     if (Number.isFinite(value)) return value;
   }
   return null;
@@ -498,23 +549,38 @@ export function parseProviderBalanceValue(
   value: unknown,
   balanceField?: string,
 ): number | null {
+  if (
+    typeof value === "number" ||
+    (typeof value === "string" && value.trim() !== "")
+  ) {
+    const directValue = Number(value);
+    return Number.isFinite(directValue) ? directValue : null;
+  }
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
 
   // CherryIN 特殊格式：检查 quota 字段（需要优先检查，避免被 success 检查拦截）
   if (balanceField === "quota") {
-    if (typeof record.quota === "number") {
-      return normalizeQuotaBalance(record.quota);
-    }
+    const quota = findFirstFiniteNumber(record, ["quota"]);
+    if (quota !== null) return normalizeQuotaBalance(quota);
     // CherryIN 可能有嵌套结构
-    if (record.data && typeof (record.data as any).quota === "number") {
-      return normalizeQuotaBalance((record.data as any).quota);
+    if (record.data && typeof record.data === "object") {
+      const nestedQuota = findFirstFiniteNumber(
+        record.data as Record<string, unknown>,
+        ["quota"],
+      );
+      if (nestedQuota !== null) return normalizeQuotaBalance(nestedQuota);
     }
     return null;
   }
 
   // YutoAPI 特殊格式：需要检查 success 字段
-  if ("success" in record && record.success !== true) {
+  if (
+    "success" in record &&
+    (record.success === false ||
+      record.success === 0 ||
+      record.success === "false")
+  ) {
     return null;
   }
 
@@ -705,7 +771,7 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
       (!profile.customUrlOnly || profile.cachedPath?.startsWith("portal/"))
     ) {
       try {
-        const value = await queryQingchenBalance(
+        const result = await queryQingchenBalance(
           baseUrl,
           apiKey,
           keyIndex,
@@ -714,13 +780,13 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
           profile.signal,
           profile.cachedPath,
         );
-        if (value !== null) {
+        if (result !== null) {
           return {
-            value,
+            value: result.value,
             currency: "USD",
             queriedAt: Date.now(),
             attempts,
-            cachedPath: "portal/info",
+            cachedPath: result.path,
             cachedBaseUrl: new URL(baseUrl).origin,
             cachedAuthType: "portal-session",
           };
@@ -819,6 +885,12 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
             signal: getBalanceRequestSignal(profile.signal),
             cache: "no-store",
           });
+          const responseBody = response.ok
+            ? await response.json().catch(() => null)
+            : null;
+          const value = response.ok
+            ? parseProviderBalanceValue(responseBody)
+            : null;
           attempts.push({
             keyIndex,
             keyTotal: apiKeys.length,
@@ -826,26 +898,27 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
             baseUrl: yutoBaseUrl,
             path: yutoPath,
             status: response.status,
-            ok: response.ok,
-            reason: !response.ok ? "http_error" : undefined,
+            ok: value !== null,
+            reason:
+              value !== null
+                ? undefined
+                : response.ok
+                ? "balance_field_missing"
+                : "http_error",
           });
-          if (response.ok) {
-            const responseBody = await response.json();
-            const value = parseProviderBalanceValue(responseBody);
-            if (value !== null) {
-              console.log(
-                `[Provider Balance] ✅ YutoAPI 查询成功: ${yutoBaseUrl}/${yutoPath}`,
-              );
-              return {
-                value,
-                currency: "USD",
-                queriedAt: Date.now(),
-                attempts,
-                cachedPath: yutoPath,
-                cachedBaseUrl: yutoBaseUrl,
-                cachedAuthType: "yuto-api",
-              };
-            }
+          if (value !== null) {
+            console.log(
+              `[Provider Balance] ✅ YutoAPI 查询成功: ${yutoBaseUrl}/${yutoPath}`,
+            );
+            return {
+              value,
+              currency: "USD",
+              queriedAt: Date.now(),
+              attempts,
+              cachedPath: yutoPath,
+              cachedBaseUrl: yutoBaseUrl,
+              cachedAuthType: "yuto-api",
+            };
           }
         } catch (error) {
           attempts.push({
@@ -885,6 +958,12 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
             signal: getBalanceRequestSignal(profile.signal),
             cache: "no-store",
           });
+          const responseBody = response.ok
+            ? await response.json().catch(() => null)
+            : null;
+          const value = response.ok
+            ? parseProviderBalanceValue(responseBody, "quota")
+            : null;
           attempts.push({
             keyIndex,
             keyTotal: apiKeys.length,
@@ -892,27 +971,27 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
             baseUrl: cherryBaseUrl,
             path: cherryPath,
             status: response.status,
-            ok: response.ok,
-            reason: !response.ok ? "http_error" : undefined,
+            ok: value !== null,
+            reason:
+              value !== null
+                ? undefined
+                : response.ok
+                ? "balance_field_missing"
+                : "http_error",
           });
-          if (response.ok) {
-            const responseBody = await response.json();
-            // CherryIN 使用 quota 字段作为余额
-            const value = parseProviderBalanceValue(responseBody, "quota");
-            if (value !== null) {
-              console.log(
-                `[Provider Balance] ✅ CherryIN 查询成功: ${cherryBaseUrl}/${cherryPath}`,
-              );
-              return {
-                value,
-                currency: "USD",
-                queriedAt: Date.now(),
-                attempts,
-                cachedPath: cherryPath,
-                cachedBaseUrl: cherryBaseUrl,
-                cachedAuthType: "cherryin-api",
-              };
-            }
+          if (value !== null) {
+            console.log(
+              `[Provider Balance] ✅ CherryIN 查询成功: ${cherryBaseUrl}/${cherryPath}`,
+            );
+            return {
+              value,
+              currency: "USD",
+              queriedAt: Date.now(),
+              attempts,
+              cachedPath: cherryPath,
+              cachedBaseUrl: cherryBaseUrl,
+              cachedAuthType: "cherryin-api",
+            };
           }
         } catch (error) {
           attempts.push({
@@ -941,12 +1020,10 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
           ? profile.cachedBaseUrl.replace(/\/v1$/i, "")
           : baseUrl.replace(/\/v1$/i, ""),
       );
-      const customAuthTypes: BalanceAuthType[] = [
-        "api-key",
-        "authorization-raw",
-        "bearer",
-        "x-api-key",
-      ];
+      const customAuthTypes = buildBalanceAuthTypes(
+        (profile.cachedAuthType as BalanceAuthType | undefined) ||
+          configuredAuthType,
+      );
       const customCandidates: BalanceCandidate[] = customBaseUrls.flatMap(
         (candidateBaseUrl) =>
           customAuthTypes.map((authType) => ({
@@ -1043,6 +1120,9 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
       );
 
       if (customValue !== null) {
+        const successAttempt = attempts.find(
+          (attempt) => attempt.keyIndex === keyIndex && attempt.ok,
+        );
         const usedPath = cachedPath.startsWith("/")
           ? cachedPath
           : `/${cachedPath}`;
@@ -1058,7 +1138,7 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
           attempts,
           cachedPath: cachedPath,
           cachedBaseUrl: profile.cachedBaseUrl || baseUrl,
-          cachedAuthType: profile.cachedAuthType,
+          cachedAuthType: successAttempt?.authType,
         };
       }
       console.log(`[Provider Balance] ⚠️ 自定义 URL 查询失败`);
@@ -1349,6 +1429,9 @@ export async function queryProviderBalanceWithRetry(
   const accumulatedAttempts: ProviderBalanceAttempt[] = [];
 
   for (let round = 1; round <= BALANCE_QUERY_MAX_ROUNDS; round += 1) {
+    if (profile.signal?.aborted) {
+      throw new DOMException("The balance query was aborted", "AbortError");
+    }
     try {
       const result = await queryProviderBalance(profile);
       if (accumulatedAttempts.length > 0) {
@@ -1365,6 +1448,9 @@ export async function queryProviderBalanceWithRetry(
     } catch (error) {
       if (!(error instanceof ProviderBalanceQueryError)) {
         throw error;
+      }
+      if (profile.signal?.aborted) {
+        throw new DOMException("The balance query was aborted", "AbortError");
       }
 
       accumulatedAttempts.push(...error.attempts);
@@ -1383,7 +1469,19 @@ export async function queryProviderBalanceWithRetry(
         reason: error.message,
         roundAttemptCount: error.attempts.length,
       });
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+          reject(
+            new DOMException("The balance query was aborted", "AbortError"),
+          );
+        };
+        const timeoutId = setTimeout(() => {
+          profile.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delayMs);
+        profile.signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
   }
 

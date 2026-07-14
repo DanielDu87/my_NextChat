@@ -4,34 +4,229 @@
 
 ============================================================
 
-## 67. 【2026-07-13 22:39】- 完整修复余额页数据库保存读取查询与自动路径恢复链路
+## 77. 【2026-07-14 09:52】- 优化余额查询页移动端整体布局与对齐
 
 ### 修改内容
 
-- 将余额页列表、管理 Key、查询 URL、New-API-User、余额快照、成功路径和错误状态统一收敛到 PostgreSQL 数据；查询接口只接收 Profile ID，服务端重新读取数据库配置。
-- 将余额配置保存改为单请求、单 SQL 原子写入，并补齐完整 URL、可编辑自动路径、New-API-User User ID、查询路径缓存和备份恢复字段。
-- 恢复晴辰云 portal 会话查询，增加 OpenRouter `/api/v1/credits` 与 CherryIN 查询适配，并把上游超时调整到适合当前真实网络链路的 15 秒。
-- 修复自动探测被错误拦截、失败清空旧余额、批量超时不取消、数据库记录被本地列表过滤、旧慢请求覆盖新结果等问题；按最终交互要求移除页面首开自动查询，仅保留手动单项与批量更新。
-- 移除余额页和对话页的浏览器持久化余额缓存，统一从数据库读取；对话页查询失败时采用接口返回的数据库旧余额，并与余额页共用同一 Profile 的固定 URL、成功路径和自动探测配置。
+- 修复 `/balances` 移动端操作按钮只显示图标、标签与输入框被挤成窄列、余额文字在标题区逐字换行等问题。
+- 将 API Key、User ID 和查询 URL 收敛为固定标签列加自适应输入列，保存、更新和全部查询按钮恢复图标与文字并撑满卡片。
+- 按其他独立页面的移动端契约将主/副标题整体居中，关闭按钮固定在右上角；修复绿色操作按钮的文字偏右和刷新 SVG 视觉不居中。
 
 ### 实现方式
 
-- `app/api/db/provider-balance/route.ts` 与 `app/utils/server/provider-balance-repository.ts`：以 `getProviderBalanceConfig` / `saveProviderBalanceConfig` 作为统一配置 owner；使用 `query_started_at` 阻止过期请求覆盖最新查询。
-- `app/components/user-menu.tsx` 与 `app/utils/provider-balance.ts`：对话页按 Profile 读取数据库余额，使用操作序号阻止慢读取覆盖新查询；失败时显示数据库旧余额，数据库暂时不可用时保留当前内存值。
-- `app/components/provider-balances.tsx`：以数据库返回列表为主集合，完整显示 8 个供应商；自动适配、缓存恢复和 New-API-User 默认路径均转换为完整 URL，保持输入框可编辑，保存后使用用户填写值；已有固定 URL 的输入框统一使用绿色文字标识；查询成功后余额替换为新数字并显示绿色，失败时保留旧数字并显示红色。
-- `app/utils/server/provider-balance.ts`：自定义 URL 优先于供应商默认适配；YutoAPI、CherryIN、OpenRouter、DeepSeek、AihubMix、Ocoolai、ToAPI 与晴辰云均通过真实数据库 Key 查询。
-- `app/utils/server/provider-model-sync.ts`：模型路径缓存继续按正式仓库接口传入 `appUserId` 与 Profile ID，避免本地未提交接口变更掩盖生产构建错误。
-- `app/utils/server/api-config-backup-repository.ts`：全局配置模式下备份并恢复余额 Key、快照、完整 URL、缓存路径、认证方式与 New-API-User 字段，旧备份缺失字段时保留当前值。
-- 同步更新 `README.md`、`docs/provider-balance.md` 与 `docs/db/nextchat-postgres-schema.sql`。
+- `app/components/provider-balances.module.scss` 只在 `max-width: 700px` 断点内调整窗口标题与关闭按钮定位、卡片间距、标题换行、余额不换行、两列字段网格、User ID 独立行、全宽操作按钮和状态 URL 换行，桌面端规则不变。
+- 余额页移动端操作按钮将图标容器和 SVG 统一为 `16px`，清除通用手机按钮中的 `margin: auto`，使图标+文字内容组整体水平居中且 SVG 垂直中心与按钮一致。
+- `docs/provider-balance.md` 同步移动端布局契约。
 
 ### 验证
 
-- `yarn lint` 通过，无 ESLint 警告或错误；`npx tsc --noEmit --pretty false` 通过。
-- 本地 `nextchat-dev` 确认挂载当前工作区；通过正式 API 使用数据库现有 8 个供应商配置查询，8 项全部成功并落库。
-- 8 项余额配置逐项完成 PUT 保存与 GET 回读，Key、URL、New-API-User 字段全部一致；备份构建与同值恢复后 8 项路径字段一致。
-- 浏览器实测 `/balances` 展示 8 个完整 URL，全部输入框 `disabled=false`、`readOnly=false`；页面首开只读取数据库余额，不自动发起查询。
-- 竞态回归确认旧请求写入被忽略、旧余额与缓存路径保留；自动路径完成临时自定义、成功查询和恢复自动模式往返验证。
-- 生产 Docker 构建复验确认 Next.js 编译与类型检查通过后再切换容器。
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- 浏览器在 `390px` 和 `360px` 手机视口实测：`360px` 下页面 `scrollWidth=360`，无横向溢出；全部查询按钮为 `336 × 44px`，保存/更新按钮为 `310 × 42px`，文字正常显示。
+- `360px` 最终对齐数据：页面标题中心偏差 `0px`，关闭按钮右边距 `10px`；“全部查询”和“更新”的内容组水平中心偏差均为 `0px`，SVG 垂直中心偏差均为 `0px`；控制台无 error/warn。
+- 本地与 `nextchat-dev` 容器内目标文件 SHA-256 一致。
+
+### 潜在或遗留问题
+
+- 全局壳层对小于 `350px` 的超窄视口仍有 `min-width: 350px` 限制；本次不扩大到其他页面的全局壳层规则。
+
+============================================================
+
+## 76. 【2026-07-14 09:35】- 统一余额查询状态文案与路径分隔符
+
+### 修改内容
+
+- `/balances` 余额查询成功提示中，成功文案与完整路径之间改用中文全角冒号 `：` 分隔。
+- 自定义路径和自动路径的查询中提示统一为“正在查询余额...”。
+- 自定义路径和自动路径的成功提示统一为“查询成功：完整 URL”。
+
+### 实现方式
+
+- `app/components/provider-balances.tsx` 将查询成功状态文字中原有的中点分隔符替换为中文冒号，并收敛查询中与查询成功的自定义/自动路径文案；URL 构造和查询逻辑保持不变。
+- `docs/provider-balance.md` 同步查询中文案契约。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 75. 【2026-07-14 09:22】- 将余额查询成功勾替换为加大加粗 SVG
+
+### 修改内容
+
+- `/balances` 余额查询成功状态不再使用文字 `✓`，改为更大、更粗的 SVG 勾。
+- 失败红叉、成功绿色和主页/对话页的普通余额样式均保持不变。
+
+### 实现方式
+
+- `app/components/provider-balances.tsx` 使用内联 `16 × 16` viewBox 路径绘制勾，采用 `2` 线宽及圆角线帽/连接，并通过 `currentColor` 继承成功绿色。
+- `app/components/provider-balances.module.scss` 将 SVG 显示尺寸固定为 `18px`，与余额文字基线对齐；`docs/provider-balance.md` 同步图标形式。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 74. 【2026-07-14 09:15】- 限定余额状态颜色与勾叉仅用于余额查询页
+
+### 修改内容
+
+- `/balances` 余额查询页继续在查询成功时显示绿色余额和绿色勾，查询失败时显示红色余额和红色叉。
+- 主页/对话页浮动余额恢复普通默认样式，不再显示查询状态颜色或勾叉图标。
+
+### 实现方式
+
+- `app/components/user-menu.tsx` 移除主页/对话浮层专用的 `idle / success / error` 视觉状态，保留本地缓存首屏读取、数据库校准、后台刷新和失败保留旧值逻辑。
+- `app/components/user-menu.module.scss` 删除仅服务于主页状态颜色和勾叉的局部样式；`docs/provider-balance.md` 同步页面展示边界。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 73. 【2026-07-14 00:25】- 完整修复余额固定路径、自动探测与成功路径复用
+
+### 修改内容
+
+- 重新审计本地缓存、数据库配置、固定 URL、根地址自动探测、缓存路径直查、New-API-User、供应商专用逻辑、通用候选队列、成功落库和失败旧值保留全链路。
+- 修复后半段候选路径不可达、自定义 URL 查询参数丢失、认证方式覆盖不全、固定 URL 成功认证未缓存、晴辰云成功路径写错、空值误判为 0、取消后仍重试和批量 30 秒提前截断等问题。
+- 补齐“有路径固定查询、只填根地址自动探测、成功保存三元组并显示完整可编辑 URL”的统一契约。
+
+### 实现方式
+
+- `provider-balance.ts`（服务端）：候选队列改为高频路径全认证覆盖、全部 142 个声明路径可达、剩余组合补齐并去重，单 Key 上限 320；固定路径补齐 Query-Key 与缓存认证优先，解析器严格过滤空值和布尔值。
+- `provider-balance.ts`（客户端共享）：统一 URL 是否含路径及完整 URL 拆分逻辑，前端与 API route 使用同一判断。
+- `route.ts`：保留自定义 URL 查询参数；根地址改为在指定域名探测；固定、根地址和普通自动模式成功后都保存 `cached_path / cached_base_url / cached_auth_type`。
+- `provider-balances.tsx`：根地址探测成功后显示完整成功 URL；移除会截断完整服务端队列的前端 30 秒批量总超时。
+- 同步更新 `README.md` 与 `docs/provider-balance.md`。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 和 5 组共享 URL 构造测试均通过。
+- 无数据库写入的模拟上游测试通过：6 组解析边界、固定 URL 查询参数、New-API-User、缓存路径单请求短路、320 次上限、142 条唯一路径、5 种高频认证、晴辰云真实 `/portal/models` 路径和取消停止重试。
+- 只读数据库核验 8 个 Profile 均有管理 Key，旧记录中的缺失缓存三元组会在下一次成功查询自动补齐；未执行真实余额 POST。
+- 本地与 `nextchat-dev` 容器内 4 个核心文件 SHA-256 完全一致，最近运行日志无匹配错误。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 72. 【2026-07-14 00:09】- 恢复余额本地缓存优先与后台数据库校准
+
+### 修改内容
+
+- 余额页和对话页恢复本地余额缓存优先，页面打开时同步显示已有余额，后台再读取数据库并更新缓存与 UI。
+- 手动或既有自动余额查询成功后同步写入缓存；数据库返回无余额时清空对应旧快照，数据库失败时继续保留缓存显示。
+
+### 实现方式
+
+- `app/utils/provider-balance.ts` 新增全局 Profile 余额快照缓存，只持久化 Profile ID、名称、Base URL、是否存在管理 Key 和余额，不保存管理 Key、User ID 或完整查询配置。
+- `provider-balances.tsx` 以结构化缓存和旧版 `nextchat:provider-balance:shared:<profileId>` 为首屏来源，后台 GET 数据库后以数据库结果为准并回写新缓存；页面首开仍不请求上游余额接口。
+- `user-menu.tsx` 先按 Profile ID 或供应商名称显示缓存，再解析数据库标准 ID、读取数据库余额并允许既有刷新信号继续查询。
+- `README.md` 与 `docs/provider-balance.md` 同步缓存边界、数据顺序和敏感字段限制。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
+- 浏览器建立缓存后重新进入 `/balances`，React 基础挂载后约 131ms 显示 8 条余额；测试未点击查询按钮、未触发上游余额写入。
+- 本地与 `nextchat-dev` 容器内 3 个核心文件 SHA-256 完全一致，开发容器正在使用最新代码。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 71. 【2026-07-13 23:58】- 增加余额查询成功勾与失败叉状态反馈
+
+### 修改内容
+
+- 余额页查询成功后在绿色余额文字左侧显示绿色勾，查询失败后在红色余额文字左侧显示红色叉；默认数据库余额继续使用蓝色且不显示图标。
+- 对话页余额刷新同步使用相同反馈；失败时仍保留数据库旧余额，只把旧值和叉显示为红色。
+
+### 实现方式
+
+- `provider-balances.tsx` 与对应 CSS Module 根据本次查询状态渲染 `✓` / `×`，状态符号继承余额文字颜色，保持文字与图标一致。
+- `user-menu.tsx` 增加仅驻留当前页面的 `idle / success / error` 查询状态，对话页首次数据库读取保持默认蓝色，自动刷新完成后再切换成功或失败反馈。
+- `docs/provider-balance.md` 同步余额页和对话页的颜色、符号及旧值保留契约。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
+- 浏览器确认 `/balances` 首开不自动查询，8 个数据库余额正常显示，默认余额计算颜色为 `rgb(29, 147, 171)`；未擅自触发会写远程数据库的真实余额查询。
+- 本地与 `nextchat-dev` 容器内 4 个目标组件和样式文件 SHA-256 完全一致，容器正在使用最新代码。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 70. 【2026-07-13 23:53】- 恢复全局 API Profile 同步与模型缓存链路
+
+### 修改内容
+
+- 修复 `/api/db/sync/access-control` PUT 因旧 `ON CONFLICT (user_id, provider_code)` 与全局数据库唯一约束不一致而返回 500。
+- 恢复被清除 stash 中遗漏的全局 Profile 读写、模型成功路径缓存与全局缓存 Key 逻辑，并补齐 stash 当时未覆盖的同步元数据查询和 Schema 文档。
+- 修复对话页数据库旧余额读取与自动查询互相取消的竞态，固定先读取数据库旧值再启动刷新。
+
+### 实现方式
+
+- `provider-config-repository.ts`：以全局 `provider_code` 完成集合覆盖、upsert、API Key 写入和 Profile 读取，不再依赖 `provider_configs.user_id`。
+- `provider-model-fetch.ts`、`provider-model-repository.ts`、`provider-model-sync.ts`：模型成功路径按全局 Profile 读写，对应密钥统一保存到 `sync_secrets.user_id='global'`。
+- `sync-store-repository.ts`：access-control 版本时间读取全局供应商与 Key 更新时间；`postgres.ts`、Schema SQL、README 和余额文档同步全局数据契约。
+- `user-menu.tsx`：数据库标准 ID 解析并读取旧余额完成后才设置可查询 ID，消除初始读取与自动刷新竞态。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
+- 本地热加载后 access-control 自动 PUT 连续成功，服务端不再出现唯一约束或 500；数据库仍保留 8 个全局 Profile、17 条 API Key、8 份余额配置及 8 个全局模型缓存密钥。
+- 只读核验数据库唯一约束为 `UNIQUE (provider_code)`，8 个 Profile 均保留模型成功路径、余额、管理 Key 和完整余额 URL。
+- 与清除前悬空 stash `d23a207` 对比：恢复其 3 组遗漏的全局化代码，并额外修复同步元数据、Schema 文档和余额读取竞态。
+
+### 潜在或遗留问题
+
+- 浏览器新建标签因本地开发页持续后台请求多次触发导航超时；接口、服务端日志、数据库状态、Lint 和类型检查均已完成验证。未提交、未推送、未部署。
+
+============================================================
+
+## 69. 【2026-07-13 23:26】- 修复余额查询数据库 Profile 数据源分裂
+
+### 修改内容
+
+- 修复余额页“全部更新”和对话页自动刷新对数据库 Profile 返回 `provider_not_found` 的问题。
+- 统一余额配置读取、单项查询、批量查询和对话页余额刷新使用数据库中的标准 Profile ID 与查询配置。
+
+### 实现方式
+
+- `app/api/db/provider-balance/route.ts`：GET、PUT、POST 均以全局数据库余额配置校验 Profile；POST 在当前访问态不存在同 ID Profile 时，使用数据库名称、Base URL、管理 Key 和余额配置构造查询 Profile。
+- `app/utils/provider-balance.ts`、`app/components/user-menu.tsx`：对话页先精确匹配数据库 Profile ID，旧对话或本地 ID 不一致时按供应商名称解析标准 ID，解析成功后才读取和刷新余额。
+- `docs/provider-balance.md`：同步记录数据库标准 ID 解析与服务端全局数据库 Profile 回退逻辑。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
+- 本地接口使用 GET 返回的 8 个数据库 Profile 逐项 POST 查询全部成功，无 `provider_not_found`；YutoAPI、AihubMix、CherryIN、DeepSeek、Ocoolai、OpenRouter、ToAPI、晴辰云均返回新余额和完整成功路径。
+- 浏览器实测对话页显示数据库中的 YutoAPI 余额 `$84.35`；余额页点击“全部查询”后 8 个供应商均保留有效新余额且无失败状态；`nextchat-dev` 热加载当前工作区代码。
 
 ### 潜在或遗留问题
 
@@ -39,250 +234,25 @@
 
 ============================================================
 
-## 66. 【2026-07-13 22:05】- 修复余额查询页 New-API-User 模式下 User ID 保存与探测等一系列逻辑缺陷
+## 68. 【2026-07-13 23:17】- 恢复余额页更新按钮深色主题样式
 
 ### 修改内容
 
-- 修复在余额查询页启用 New-API-User 模式并保存时，User ID 被错误地保存到 `cached_path` 字段而不是 `new_api_user_id` 字段的问题。
-- 修复因 `cached_path` 被 User ID 覆盖导致后续自动/探测余额查询失败的问题。
-- 修复刷新页面后 User ID 输入框无法回显（因为 `new_api_user_id` 始终为 null）专用的问题。
-- 优化前端保存机制：将保存 API 配置时进行的 4 个并发 HTTP PUT 接口请求，合并重构为单个统一接口调用 `saveProviderBalanceConfig`，消除并发数据库冲突和多余网络往返。
-- 增强余额探测健壮性：支持任意提供商在 New-API-User 格式下的余额查询，自动拆分 `KEY|USER_ID` 并附带 `New-API-User` 头部，防止通用代理接口因直接透传拼接 Key 报 401。
+- 恢复余额页“更新”按钮此前已完成但被清除的 green 公共按钮主题适配。
+- 修复深色模式误用浅色绿色实底、刷新图标被全局暗色滤镜影响的问题。
 
 ### 实现方式
 
-- `app/utils/server/provider-balance-repository.ts`：在 `saveProviderNewApiUserId` 中，将 SQL 的插入与更新字段从 `cached_path` 修正为 `new_api_user_id`。
-- `app/utils/provider-balance.ts`：新增 `saveProviderBalanceConfig` 一体化保存接口。
-- `app/components/provider-balances.tsx`：引入并重构 `saveKey` 为单次调用 `saveProviderBalanceConfig` 提交全部表单数据。
-- `app/utils/server/provider-balance.ts`：对 `customUrlOnly`、`cachedPath` 和全量 candidates 探测分支中所有 fetch 请求自动识别 `KEY|USER_ID`，提取实际 API Key 并附带 `New-API-User` 头部。
-- 数据库清理：在 Postgres 数据库中执行了订正 SQL，将受影响记录的 `cached_path`（包含 User ID）移动 to `new_api_user_id` 列，并重置 `cached_path` 为 null，以防止对后续余额查询的干扰。
+- `app/styles/globals.scss`：恢复 light/dark 分离的 `--backup-green-75-bg`，深色模式使用 22% 透明绿；补齐 green 按钮深色 hover、图标滤镜及描边/填充规则。
+- `app/components/button.tsx`：为 `type="green"` 图标增加 `no-dark` 豁免，防止全局 SVG 反相滤镜覆盖白色刷新图标。
 
 ### 验证
 
-- 本地执行 `yarn lint` 通过。
-- 本地执行 `npx tsc --noEmit --pretty false` 编译通过。
-- 本地执行 `yarn build` 构建通过。
-- 对 PostgreSQL 数据库执行了 `select * from provider_balance_configs` 查询，确认受影响记录已成功订正（`new_api_user_id` 已恢复为 `"606"`，`cached_path` 已归空）。
+- 浏览器实测 `/balances` 的更新按钮在深色模式使用 22% 透明绿背景、绿色边框、白色文字与图标；SVG filter 为 `none`。
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过；`nextchat-dev` 确认挂载当前工作区并已热加载。
 
 ### 潜在或遗留问题
 
-- 无。
+- 未提交、未推送、未部署；等待用户明确指令。
 
 ============================================================
-
-## 65. 【2026-07-13 15:29】- 修复移动端余额查询批量按钮未撑满容器
-
-### 修改内容
-
-- 修复移动端余额查询页“全部查询”按钮被通用 `IconButton` 窄屏尺寸规则限制、未占满批量操作容器的问题。
-
-### 实现方式
-
-- `app/components/provider-balances.module.scss`：将移动端批量操作容器设为 flex，并让专用按钮以 `flex: 1 1 100%` 拉伸；同时移除容器重复的水平内边距，保留内容区既有的 12px 页面留白。改动仅作用于余额页的移动端。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `git diff --check` 通过。
-- `nextchat-dev` 已确认挂载当前工作区到 `/app`，样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 64. 【2026-07-13 14:50】- 优化对话备份页搜索框与移动端按钮图标居中
-
-### 修改内容
-
-- 优化对话备份页搜索输入框：聚焦时提示文字淡出消失，字体大小统一为 14px，颜色与侧边栏搜索框风格一致。
-- 修复移动端"立即备份"按钮图标未上下左右居中的问题，覆盖通用 IconButton 移动端样式中的 SVG display: block 覆盖。
-
-### 实现方式
-
-- `app/components/chat-backups.module.scss`：为 `.searchBar input` 添加 `font-size: 14px`、提示文字颜色变量和聚焦隐藏效果；为移动端 `.createBackupButton :global([class*="icon-button-icon"])` 覆盖 `display: flex` 和 SVG 居中样式。
-
-### 验证
-
-- `yarn lint` 通过。
-- `git diff --check` 通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 62. 【2026-07-13 13:27】- 修复聊天窗口头部操作图标居中
-
-### 修改内容
-
-- 修复移动端聊天窗口头部的模型、提示词、用户状态、配置、新聊天与导出操作图标未视觉居中的问题。
-
-### 实现方式
-
-- `app/components/chat.module.scss`：在最末窄屏规则内，仅为 `.chat-window-action-button` 的直属图标建立高优先级 16px flex 居中，覆盖通用 `IconButton` 的自动外边距；导出按钮同步移除残留的水平位移。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `git diff --check` 通过。
-- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 63. 【2026-07-13 14:30】- 修复本地开发环境备份数据库连接配置
-
-### 修改内容
-
-- 修复 `.env.docker` 中 `BACKUP_PGHOST=42.193.15.117` 直接连远程 PostgreSQL 公网 IP 失败的问题。
-- 将 `BACKUP_PGHOST` 改为 `postgres-ssh-tunnel`，通过 SSH 隧道连接远程备份数据库。
-- 同时将 `PGHOST` 也改为 `postgres-ssh-tunnel`（原值 `42.193.15.117` 同样无法直连）。
-
-### 实现方式
-
-- `.env.docker`：将 `PGHOST` 和 `BACKUP_PGHOST` 从 `42.193.15.117` 改为 `postgres-ssh-tunnel`。
-- 远程 PostgreSQL 只监听 `127.0.0.1` 和 Docker 网桥（`172.20.0.1`），不开公网监听，本地开发必须走 SSH 隧道。
-
-### 验证
-
-- Docker 容器重启后确认 `BACKUP_PGHOST=postgres-ssh-tunnel`。
-- 容器内直接连接 `nextchat_backup` 数据库成功（10 条 API 配置备份）。
-- `GET /api/db/api-config-backups` 返回 10 条备份。
-- `GET /api/db/chat-backups` 返回 18 条备份（admin 7 + ccc 6 + dyx 5）。
-
-### 潜在或遗留问题
-
-- 无。
-
-### 修改内容
-
-- 修复移动端聊天窗口头部的模型、提示词、用户状态、配置、新聊天与导出操作图标未视觉居中的问题。
-
-### 实现方式
-
-- `app/components/chat.module.scss`：在最末窄屏规则内，仅为 `.chat-window-action-button` 的直属图标建立高优先级 16px flex 居中，覆盖通用 `IconButton` 的自动外边距；导出按钮同步移除残留的水平位移。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `git diff --check` 通过。
-- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 61. 【2026-07-13 13:08】- 修复移动端添加图标偏移
-
-### 修改内容
-
-- 修复移动端共用添加图标在按钮内偏向左上角的问题，使其水平、垂直居中。
-- 将 API 配置页“新增配置”按钮的加号保持为原生 16px 尺寸，避免被放大后产生视觉上的上下偏移。
-
-### 实现方式
-
-- `app/components/button.module.scss`：移除移动端共享 `IconButton` 对 SVG 顶层 `g` 的 `translate(2px, 2px)` 偏移，保留图标容器的 flex 居中作为唯一定位来源。
-- `app/components/api-config.module.scss`：为“新增配置”按钮的图标容器及 SVG 保留原生 `16px` 尺寸，并沿用 flex 居中。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `git diff --check` 通过。
-- `nextchat-dev` 已确认将当前工作区挂载到 `/app`，样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 60. 【2026-07-13 12:51】- 优化移动端提示词管理、插件与全局头部的一系列 UI 居中与文字显示交互
-
-### 修改内容
-
-- 修复插件编辑弹窗中的重新加载图标在移动端显示不居中的偏移问题。
-- 修复提示词选择和提示词管理面板中的主要操作按钮（“管理提示词”、“新增提示词”、“查看并编辑”、“删除”、“取消”、“保存”）在移动端隐藏了文字的问题。
-- 修复上述所有在移动端恢复显示的按钮文字字重偏粗的问题，统一将其字重修正为正常（`normal`）显示。
-- 隐藏提示词新建/编辑对话框内容输入框下方的快捷键提示与字符数统计信息行（`按 Ctrl/⌘ + Enter 保存，Esc 关闭...`）在移动端的展示。
-- 修复提示词选择面板头部在移动端的标题与关闭按钮未垂直居中对齐的问题。
-- 修复提示词选择和提示词管理搜索输入框的占位符配色及文字大小，并支持输入光标、占位符、键入文本的水平居中以及聚焦时自动隐藏占位符。
-- 引入全局点击窗口头部（`.window-header` 拖拽或空白区域）自动将对应页面的主要滚动容器平滑滚动到顶部的便捷交互。
-
-### 实现方式
-
-- `app/components/plugin.module.scss`：为移动端 `.plugin-schema-load` 下的 `svg > g` 元素重置 `transform` 为 `none !important` 以移除 2px 偏移。
-- `app/components/chat.module.scss`：增加移动端下操作按钮 `button.prompt-picker-manage` 的特异性，复写 `button.module.scss` 强加的隐藏和大小限制，并将其文字 `font-weight` 设为 `normal`；将 `.prompt-picker-header` 的 `align-items` 改为 `center` 以垂直居中；并为 `.prompt-picker-search` 的占位符和输入文本设置 `text-align: center` 样式及聚焦时 `opacity: 0`。
-- `app/components/prompt-manager.module.scss`：增加移动端下 `button.addPromptButton` 和弹窗底部 `button` 的特异性，复写默认按钮样式并重置字重为 `normal`，重置 `svg > g` 为 `none !important`；同时为 `.searchInput` 设置 `text-align: center`、对称的 `padding-right: 40px` 以实现输入与光标水平居中，并在聚焦时隐藏占位符；并且更新了列表 `.actions` 和弹窗 `.modalActions` 容器下所有 `button` 的字重为 `normal`、显示文字并修正偏移；此外，为 `.textareaMeta` 提供桌面基础样式且在移动端设置为 `display: none !important`。
-- `app/components/home.tsx`：引入全局点击捕获钩子 `useWindowHeaderScrollToTop`，排除交互式按钮后寻找当前页面/模态框内 `overflow-y` 为 `auto` / `scroll` 且高度有效的滚动容器，平滑滚动至顶部。
-
-### 验证
-
-- `yarn lint` 通过。
-- `npx tsc --noEmit` 编译通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 59. 【2026-07-13 11:32】- 进一步优化移动端整体对话框居中优先级与 AI 目录忽略
-
-### 修改内容
-
-- 修复移动端模型选择器折叠搜索框高度偏矮、宽度偏窄的问题，并使用高权重规则使整个模型选择器容器在移动端屏幕完美垂直且水平居中。
-- 限制搜索框与上方所有操作按钮在移动端高度一致为 `38px`，并防止 iOS Safari 输入框聚焦时页面自动缩放放大。
-- 将移动端模型添加面板的底部操作按钮从 3 行缩减/合并为 2 行，并使得自定义模型弹出行按钮能在折行后水平居中。
-- 优化移动端已添加模型列表中“删除”按钮的右侧定位（调整为 `right: 20px`），并增设列表项右边距，防止长模型文本与删除按钮发生重叠遮挡。
-- 优化已添加模型页面下方的 3 个操作按钮，使其在移动端强制为单行并排显示，且将危险按钮“全部删除”排在最左侧。
-- 配置项目 Git 忽略规则，确保 AI 编程的各种局部配置目录及缓存碎片不再被意外加入版本库提交。
-
-### 实现方式
-
-- `app/components/add-model-modal.tsx`：将 `nextchat-modal-count` 元素从第一个 `nextchat-modal-footer-group` 移动到第二个 `nextchat-modal-footer-group` 中；并在 modal footer container 绑定 conditional class `nextchat-modal-footer-show-added`。
-- `app/styles/globals.scss`：使用 `body .model-selector-panel.nextchat-selector` 并补充 `justify-content: center` 与 `display: flex` 以 030 权重覆盖父容器，并将子元素 `.nextchat-selector-content` 重置为 `margin: auto !important`，以完全规避各浏览器环境下 flexbox 顶起的问题，达到完美垂直居中。
-- `app/styles/globals.scss`：移除了移动端 `.nextchat-modal-footer-group` 的 `flex-wrap`，使第一组按钮在一行显示，第二组按钮与徽章在第二行并排显示。
-- `app/styles/globals.scss`：为移动端 `.nextchat-modal-custom-row` 增加了 `justify-content: center` 与 `gap: 8px`，使得添加/取消按钮折行后能水平居中。
-- `app/styles/globals.scss`：对移动端 `.model-selector-panel .nextchat-selector-item-action` 重写 `right: 20px !important`。
-- `app/styles/globals.scss`：为移动端 `.model-selector-panel .nextchat-selector-list-item` 增加 `padding-right: 80px !important` 避让区，确保长模型名字能自动截断。
-- `app/styles/globals.scss`：为移动端 `.nextchat-modal-footer-show-added` 开启 flex row + contents，并给 `.nextchat-danger-button` 设定 `order: -1 !important` 使得它排序到单行最左侧。
-- `.gitignore`：追加 `.agents/`、`.cursor/`、`.claude/`、`.gemini/` 以及 `.system_generated/` 忽略条目。
-
-### 验证
-
-- `yarn lint` 检查完成（No ESLint warnings or errors）。
-- `nextchat-dev` 样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 58. 【2026-07-13 10:48】- 修复移动端模型搜索框宽度不一致
-
-### 修改内容
-
-- 根据实际 DOM 复核后，移除移动端搜索输入框自身的缩放补偿，使其视觉宽度与上方三个按钮一致。
-
-### 实现方式
-
-- `app/components/ui-lib.module.scss`：仅移除 `.selector-search` 的 `scale(0.875)` 缩放补偿并恢复原有 `width: 100%`。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint 警告或错误。
-- `git diff --check` 通过。
-- `nextchat-dev` 已确认以当前工作区 `/Users/dyx/Code/NextChat` 挂载到 `/app`，样式热加载生效。
-
-### 潜在或遗留问题
-
-- 无。
