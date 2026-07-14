@@ -8,12 +8,16 @@ import {
   modelsToCustomModelsString,
 } from "../utils/models";
 import { getProfileProviderId, ApiProfile } from "../utils/provider-sync";
-import { compareModelsForDisplay } from "../utils/model-published-at";
+import {
+  compareModelsBySeriesVersion,
+  compareProviderDisplayNames,
+} from "../utils/model-series-order";
 import { LLMModel } from "../client/api";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import BotIconDefault from "../icons/llm-icons/default.svg";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
+import { loadProviderBalanceProfiles } from "../utils/provider-balance";
 import clsx from "clsx";
 
 // 移除文字自适应缩放功能，改用 CSS overflow: hidden + hover 滚动
@@ -76,8 +80,22 @@ function createModelFromCachedName(
 }
 
 function sortModelsForSelector(models: LLMModel[]) {
-  return dedupeFetchedModels(models)
-    .sort((a, b) => compareModelsForDisplay(a, b))
+  const normalizedModels = models.map((model) => {
+    const inferredVendor = inferVendorFromModelName(model.name);
+    if (!inferredVendor) return model;
+
+    return {
+      ...model,
+      vendor: {
+        id: model.vendor?.id ?? -1,
+        name: inferredVendor.name,
+        icon: inferredVendor.icon,
+      },
+    };
+  });
+
+  return dedupeFetchedModels(normalizedModels)
+    .sort(compareModelsBySeriesVersion)
     .map((model, index) => ({ ...model, sorted: index }));
 }
 
@@ -95,7 +113,6 @@ export function AddModelSelector(props: {
   providerIdResolver?: (profile: ApiProfile) => string;
   managedModelKeys?: string[];
   runtimeModels?: LLMModel[];
-  filterModel?: (model: LLMModel) => boolean;
   onAddModels?: (keys: string[]) => void;
   onRemoveModel?: (keys: string[]) => void;
 }) {
@@ -107,7 +124,6 @@ export function AddModelSelector(props: {
     providerIdResolver,
     managedModelKeys,
     runtimeModels,
-    filterModel,
     onAddModels,
     onRemoveModel,
   } = props;
@@ -178,15 +194,31 @@ export function AddModelSelector(props: {
         const atIdx = key.lastIndexOf("@");
         const name = atIdx > 0 ? key.substring(0, atIdx) : key;
         return { key, name };
-      });
+      })
+      .sort(compareModelsBySeriesVersion);
   }, [addedModelKeys, selectedProviderId]);
+
+  const sortedProfiles = useMemo(
+    () =>
+      profiles
+        .slice()
+        .sort((left, right) =>
+          compareProviderDisplayNames(
+            left.name || String(left.provider),
+            right.name || String(right.provider),
+          ),
+        ),
+    [profiles],
+  );
 
   const loadCachedModels = useCallback(() => {
     if (!activeProfile) return false;
 
     const cached = modelCache.get(selectedProviderId);
     if (cached) {
-      setFetchedModels(cached.models);
+      const sorted = sortModelsForSelector(cached.models);
+      modelCache.set(selectedProviderId, { ...cached, models: sorted });
+      setFetchedModels(sorted);
       setFetchedTotal(cached.total);
       setLoading(false);
       return true;
@@ -293,15 +325,47 @@ export function AddModelSelector(props: {
     }
   }, [activeProfile, loadCachedModels, selectedProviderId]);
 
-  const fetchRemoteModels = useCallback(() => {
+  const fetchRemoteModels = useCallback(async () => {
     if (!activeProfile) return;
     fetchCancelRef.current = false;
     setFetchError("");
     setLoading(true);
+    console.log(
+      `[ModelManager] 🔄 正在获取 ${activeProfile.name} 平台的模型...`,
+    );
 
     const p = activeProfile as any;
     const modelFetchKey =
       p.modelFetchApiKey || p.apiKeyGroups?.default || p.apiKey;
+    const apiKeyGroups = { ...(p.apiKeyGroups || {}) };
+    const multiKeyGroupOrder = [...(p.multiKeyGroupOrder || [])];
+
+    // 余额查询密钥常与模型目录接口共用；它只作为本次请求的兜底，
+    // 不写回模型分组或访问态，避免把管理密钥误保存为业务分组密钥。
+    try {
+      const balanceProfile = (await loadProviderBalanceProfiles()).find(
+        (profile) => profile.profileId === activeProfile.id,
+      );
+      const balanceQueryKey = balanceProfile?.managementKey?.trim();
+      const configuredKeys = new Set([
+        modelFetchKey,
+        ...Object.values(apiKeyGroups),
+      ]);
+      if (balanceQueryKey && !configuredKeys.has(balanceQueryKey)) {
+        apiKeyGroups.__balance_query_key = balanceQueryKey;
+        multiKeyGroupOrder.unshift("__balance_query_key");
+        console.log(
+          `[ModelManager] 🔑 ${activeProfile.name} 模型获取已加入余额查询 Key 兜底`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `[ModelManager] ⚠️ ${activeProfile.name} 读取余额查询 Key 失败，将继续使用已配置模型 Key`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    if (fetchCancelRef.current) return;
 
     fetchModelsFromProvider(
       activeProfile.provider,
@@ -311,8 +375,8 @@ export function AddModelSelector(props: {
       ),
       modelFetchKey,
       activeProfile.name,
-      activeProfile.apiKeyGroups,
-      (activeProfile as any).multiKeyGroupOrder,
+      apiKeyGroups,
+      multiKeyGroupOrder,
       activeProfile.openAICompatible,
       {
         authType: p.authType,
@@ -332,8 +396,11 @@ export function AddModelSelector(props: {
             );
           }
           const sorted = uniqueModels
-            .sort((a, b) => compareModelsForDisplay(a, b))
+            .sort(compareModelsBySeriesVersion)
             .map((model, index) => ({ ...model, sorted: index }));
+          console.log(
+            `[ModelManager] ✅ 已获取到 ${activeProfile.name} 平台的模型 ${sorted.length} 个`,
+          );
           modelCache.set(selectedProviderId, {
             models: sorted,
             total: result.total || sorted.length,
@@ -484,14 +551,7 @@ export function AddModelSelector(props: {
     onRemoveModel?.(removed.map((model) => model.replace(/^[+-]/, "")));
   }, [config, managedModelKeys, onRemoveModel, selectedProviderId]);
 
-  const candidateFetchedModels = useMemo(() => {
-    if (!filterModel) {
-      return fetchedModels;
-    }
-
-    const filteredModels = fetchedModels.filter((model) => filterModel(model));
-    return filteredModels.length > 0 ? filteredModels : fetchedModels;
-  }, [fetchedModels, filterModel]);
+  const candidateFetchedModels = fetchedModels;
 
   const selectorItems = useMemo(() => {
     // 已添加模式：只显示已添加的模型，右边显示删除按钮
@@ -507,7 +567,7 @@ export function AddModelSelector(props: {
           group:
             fetchedModel?.vendor?.name ||
             fetchedModel?.provider?.providerName ||
-            "已添加",
+            "Added",
           disable: false,
           searchText: model.name,
           rightAction: {
@@ -710,7 +770,8 @@ export function AddModelSelector(props: {
       multiple={true}
       showSearch={true}
       showGroupFilter={true}
-      hiddenGroupFilterOptions={["已添加", "Custom"]}
+      sortGroupsAlphabetically={true}
+      hiddenGroupFilterOptions={["已添加", "Added"]}
       itemsArePreSorted={true}
       disableOpenAnimation={true}
       disableHoverAnimation={true}
@@ -792,7 +853,7 @@ export function AddModelSelector(props: {
                 "nextchat-no-hover-motion",
               )}
             >
-              {profiles.map((p) => {
+              {sortedProfiles.map((p) => {
                 const pid = resolveProviderId(p).toLowerCase();
                 const pName = p.name || String(p.provider);
                 const isActive = pid === selectedProviderId;

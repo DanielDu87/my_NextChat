@@ -34,7 +34,7 @@ declare global {
 // ADD COLUMN IF NOT EXISTS deleted_at 一直没有跑。bump 这个版本号会清掉
 // globalThis.__nextchatSyncStorageSchemaReady，让下一次请求重新走一遍迁移；
 // ADD COLUMN IF NOT EXISTS 幂等，旧库会补上缺失列，已有库是 no-op。
-const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-13-global-api-config";
+const SYNC_STORAGE_SCHEMA_VERSION = "2026-07-14-provider-model-key-route-cache";
 
 function getPostgresErrorCode(error: unknown) {
   if (!error || typeof error !== "object") return "";
@@ -763,6 +763,19 @@ export async function ensureSyncStorageSchema() {
           new_api_user_id text,
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists provider_model_key_routes (
+          provider_config_id uuid not null references provider_configs(id) on delete cascade,
+          key_fingerprint text not null,
+          cached_model_path text not null,
+          cached_model_base_url text,
+          cached_model_auth_type text,
+          model_count integer not null default 0,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          primary key (provider_config_id, key_fingerprint)
         )
       `);
         await client.query(`

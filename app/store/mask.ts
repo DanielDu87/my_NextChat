@@ -15,11 +15,6 @@ import {
   readStoredGlobalModelConfig,
   writeStoredGlobalModelConfig,
 } from "../utils/global-model-config";
-import {
-  buildAutoModelCandidates,
-  type AutoModelCandidate,
-} from "../utils/auto-model";
-import type { AutoModelSeriesKey } from "./config";
 import { BUILTIN_PLUGIN_IDS } from "./plugin";
 
 export type Mask = {
@@ -51,7 +46,6 @@ export const DEFAULT_MASK_AVATAR = "gpt-bot";
 const localStorage = safeLocalStorage();
 const LAST_MODEL_SELECTION_STORAGE_KEY = "nextchat:last-model-selection";
 const LAST_PROVIDER_STORAGE_KEY = "nextchat:model-selector-provider";
-let lastAutoModeBranchLogKey = "";
 const DEFAULT_MASK_PLUGINS = [...BUILTIN_PLUGIN_IDS];
 
 function parseStoredModelSelection(value: string) {
@@ -144,8 +138,6 @@ export const createEmptyMask = () => {
     accessStore.defaultModel,
   );
 
-  // 自动模式优先：autoModelSeries 已通过云端同步，直接选首个候选
-  const autoSeries = (appConfig.autoModelSeries || []) as AutoModelSeriesKey[];
   const syncedModel = appConfig.modelConfig.model;
   // 模型列表未加载时，直接信任已同步的 appConfig.modelConfig
   if (
@@ -183,61 +175,6 @@ export const createEmptyMask = () => {
       plugin: DEFAULT_MASK_PLUGINS,
     } as Mask;
   }
-  if (autoSeries.length > 0) {
-    const candidates: AutoModelCandidate[] = buildAutoModelCandidates(
-      allModels as any,
-      accessStore.apiProfiles || [],
-      autoSeries,
-    );
-    const autoCandidate = candidates[0];
-    const autoModeBranchLogKey = `${candidates.length}|${
-      autoCandidate
-        ? `${autoCandidate.model}@${autoCandidate.providerId}`
-        : "(无候选)"
-    }`;
-    if (autoModeBranchLogKey !== lastAutoModeBranchLogKey) {
-      lastAutoModeBranchLogKey = autoModeBranchLogKey;
-      console.debug(
-        `[Mask] 🆕 自动模式分支: 候选数=${candidates.length}` +
-          ` | 选中=${
-            autoCandidate
-              ? `${autoCandidate.model}@${autoCandidate.providerId}`
-              : "(无候选)"
-          }`,
-      );
-    }
-    if (autoCandidate) {
-      const autoModelConfig = sanitizeModelConfigForCapability({
-        ...appConfig.modelConfig,
-        model: autoCandidate.model as ModelType,
-        providerName: autoCandidate.providerName,
-      });
-      (autoModelConfig as any).providerId = autoCandidate.providerId;
-      const autoProfile = (accessStore.apiProfiles || []).find((profile) => {
-        const providerId =
-          profile.provider === ServiceProvider.Custom
-            ? `custom_${profile.name}`.toLowerCase()
-            : String(profile.provider || "").toLowerCase();
-        return providerId === autoCandidate.providerId;
-      });
-      if (autoProfile?.id) {
-        (autoModelConfig as any).profileId = autoProfile.id;
-      }
-      return {
-        id: nanoid(),
-        avatar: DEFAULT_MASK_AVATAR,
-        name: DEFAULT_TOPIC,
-        context: [],
-        syncGlobalConfig: true,
-        modelConfig: autoModelConfig,
-        lang: getLang(),
-        builtin: false,
-        createdAt: Date.now(),
-        plugin: DEFAULT_MASK_PLUGINS,
-      } as Mask;
-    }
-  }
-
   const storedSelection = parseStoredModelSelection(
     localStorage.getItem(LAST_MODEL_SELECTION_STORAGE_KEY) || "",
   );

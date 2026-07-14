@@ -4,96 +4,81 @@
 
 ============================================================
 
-## 79. 【2026-07-14 10:17】- 修复生产构建 Corepack 未使用 npm 镜像
+## 89. 【2026-07-14 22:19】- 全量修复模型商图标回退与失效映射
 
 ### 修改内容
 
-- 修复宝塔生产构建在 `corepack prepare yarn@1.22.22` 阶段绕过 `NPM_REGISTRY`、直接访问 npm 官方源并连续失败的问题。
-- 保留现有 `NPM_REGISTRY` 配置入口，不新增生产环境变量或独立镜像地址。
+- 审计全部模型商图标映射后，修复 ChatGLM、Fireworks、Groq、Together、Yuto 等历史失效资源路径；未知模型与无本地官方图标的模型商不再错误显示 OpenAI 图标。
+- `StepFun`、`StepFun AI`、`StepFun Al` 等全部变体统一显示为 StepFun，并使用同一个独立 StepFun 图标。
+- 全部模型商分组统一经共享入口归一：同一品牌的上游别名、旧缓存名称和图标资源不再拆成多个分组。
+- AiHubMix 模型获取由按 Key 权限返回 350 条的 `/v1/models` 改为官方完整目录 `/api/v1/models`，避免平台总数被错误截断。
+- 多路径模型探测改为合并全部成功响应，并自动缓存模型数量最多的路径。
+- 模型管理器和服务端同步均将余额查询管理 Key 作为模型获取兜底；Oc​​oolai 的 KAT 系列统一归入 Kwai Kolors。
+- 多 Key 模型获取改为同一路径下的 Key 并发请求，并按每个 Key 的独立成功路径写入数据库缓存。
+- 候选模型接口改用 5 秒超时；全部 Key 都命中独立缓存时只请求缓存路径，跳过 55 条通用回退。
 
 ### 实现方式
 
-- `Dockerfile` 在执行 `corepack prepare` 时将 `COREPACK_NPM_REGISTRY` 绑定到去除尾部 `/` 的 `NPM_REGISTRY`，并将预装版本对齐 `package.json` 的 `yarn@1.22.19`，避免双斜杠 URL 返回 404 或依赖安装阶段再次访问海外 Yarn 源。
-- `README.md` 同步生产构建镜像契约；未修改运行时鉴权、数据库、Compose、容器卷或宝塔站点配置。
+- ChatGLM 复用现有智谱官方图标；没有可用本地官方资源的 Fireworks、Groq、Together、Yuto、InternLM、Ocoolai 统一由共享 `Avatar` 渲染浅绿色默认图标。
+- 移除 4 条指向不存在文件的配置映射与 `Other` 的 OpenAI 映射；全量脚本确认剩余 `PROVIDER_ICONS` 资源路径均存在。StepFun 的上游别名、旧缓存显示和筛选键均在共享规范表中收敛为同一名称与图标。
+- `getCanonicalProviderKey()` 按本地资源确定稳定品牌键，`getModelVendorGroupName()` 供选择器、聊天菜单和设置下拉框统一使用；同一图标的别名与同一名称的图标均由静态审计双向校验。
+- 前端代理和服务端同步共用 AiHubMix 完整目录策略，并补齐 `model_id / model_name` 数组识别；浏览器侧模型探测仅放行该固定项目内部目录路由。
+- 前端和服务端都不再以首个成功接口作为唯一结果；模型按既有名称键去重合并，后续读取路径选择返回模型数最多的一条。
+- 余额查询 Key 仅在请求内临时插入到模型 Key 与业务分组 Key 之间，不写回访问态或模型分组。Ocoolai 实测其余额 Key 可访问授权分组接口，6 个授权分组合计返回 1068 条模型；KAT / Kat Coder / Kat Dev 的新旧名称均收敛到 Kwai Kolors 官方图标。
+- `provider_model_key_routes` 以供应商配置和 Key 的 SHA-256 指纹为唯一键保存路径、认证方式和模型数量；每次服务端同步先尝试这些路径。实测 Ocoolai 7 把 Key 并发请求约 8.1 秒，其中 4 把成功 Key 的 `/v1/models` 缓存均写入并成功读回。
+- AihubMix 正式完整目录实测返回 807 条（忽略大小写后 799 条），OpenRouter 正式归一主路径 `/api/v1/models` 返回 343 条；YutoAPI 全量多 Key、多路径合并 849 条（忽略大小写后 848 条）。
 
 ### 验证
 
-- `yarn lint` 与 `git diff --check` 通过，修改已执行 `git add -A`。
-- 生产服务器旧容器保持健康运行；新镜像构建与部署需在本修改提交并推送后继续验证。
+- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 均通过。
+- 图标路径全量审计输出 `ALL_PROVIDER_ICON_FILES_EXIST`；本地与 `nextchat-dev` 容器目标文件 SHA-256 一致。
+- 全量核对 `156` 条供应商图标别名与 `77` 组图标资源，双向确认不存在名称或图标冲突。
+- AiHubMix 浏览器模型探测和服务端完整目录读取均返回 `805` 个唯一模型；`/v1/models` 的 `350 → 349` 结果不再作为平台模型总数。
+- Ocoolai 多路径实测中，同一 `/v1/models` 对不同已配置 Key 分别返回 219、558、262、9 个模型，验证必须跨 Key 合并，不能以首个成功结果作为平台总数。
 
 ### 潜在或遗留问题
 
-- 当前部署尚未完成：服务器代码已是 `0a02f3a8`，运行容器仍是上一版本；等待本次 Dockerfile 修复获得提交授权后继续构建。
+- 无。
 
 ============================================================
 
-## 78. 【2026-07-14 09:59】- 收紧 stash 清理确认并统一修改后自动暂存
+## 88. 【2026-07-14 15:33】- 补齐 Kwai、SiliconFlow 与 StepFun 图标
 
 ### 修改内容
 
-- 将 stash 清理改为强制逐条、逐文件说明：执行 clear、drop 或 pop 前，必须用直白语言说明每个文件修改了什么，并取得用户针对本次具体清单的明确确认。
-- 统一每轮修改完成并通过必要验证后执行一次 `git add -A`，同时保留敏感信息、真实 `.env`、临时产物和无关改动的范围检查。
+- Kwai Kolors、SiliconFlow、StepFun AI 的模型商分组和模型行均显示对应官方品牌图标。
 
 ### 实现方式
 
-- 同步更新 `AGENTS.md`、`CLAUDE.md` 和 `GEMINI.md` 的 Git 授权边界；提交或任务完成不再构成 stash 删除预授权，自动暂存也不扩展为 commit、push 或部署授权。
-- 全局规则仓库、提交脚本、规则审计、工具入口和长期记忆同步采用相同边界。
-
-### 验证
-
-- 规则仓库执行 `bash -n scripts/git-commit-push.sh`、`bash -n scripts/rules-audit.sh`、`bash scripts/rules-audit.sh` 和 `git diff --check`。
-- NextChat 执行规则文本检查与 `git diff --check`；本次不改业务代码，不需要重启或重建开发容器。
-
-### 潜在或遗留问题
-
-- 当前本地仍保留 `stash@{0}: lint-staged automatic backup`，未执行 clear、drop 或 pop。
-
-============================================================
-
-## 77. 【2026-07-14 09:52】- 优化余额查询页移动端整体布局与对齐
-
-### 修改内容
-
-- 修复 `/balances` 移动端操作按钮只显示图标、标签与输入框被挤成窄列、余额文字在标题区逐字换行等问题。
-- 将 API Key、User ID 和查询 URL 收敛为固定标签列加自适应输入列，保存、更新和全部查询按钮恢复图标与文字并撑满卡片。
-- 按其他独立页面的移动端契约将主/副标题整体居中，关闭按钮固定在右上角；修复绿色操作按钮的文字偏右和刷新 SVG 视觉不居中。
-
-### 实现方式
-
-- `app/components/provider-balances.module.scss` 只在 `max-width: 700px` 断点内调整窗口标题与关闭按钮定位、卡片间距、标题换行、余额不换行、两列字段网格、User ID 独立行、全宽操作按钮和状态 URL 换行，桌面端规则不变。
-- 余额页移动端操作按钮将图标容器和 SVG 统一为 `16px`，清除通用手机按钮中的 `margin: auto`，使图标+文字内容组整体水平居中且 SVG 垂直中心与按钮一致。
-- `docs/provider-balance.md` 同步移动端布局契约。
+- Kwai Kolors 复用既有 Kwaipilot 官方图标，StepFun AI（兼容 `StepFun Al`）复用既有 StepFun 官方图标；新增 SiliconFlow 官方 favicon 封装的本地 SVG 图标。
+- 图标映射和模型商归一化同时覆盖英文、空格和中文别名，保证新获取模型与旧缓存都可命中；StepFun 变体沿用既有铺满图标框规则。
 
 ### 验证
 
 - `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
-- 浏览器在 `390px` 和 `360px` 手机视口实测：`360px` 下页面 `scrollWidth=360`，无横向溢出；全部查询按钮为 `336 × 44px`，保存/更新按钮为 `310 × 42px`，文字正常显示。
-- `360px` 最终对齐数据：页面标题中心偏差 `0px`，关闭按钮右边距 `10px`；“全部查询”和“更新”的内容组水平中心偏差均为 `0px`，SVG 垂直中心偏差均为 `0px`；控制台无 error/warn。
-- 本地与 `nextchat-dev` 容器内目标文件 SHA-256 一致。
+- `http://127.0.0.1:3000/provider-icons/siliconflow-bg.svg` 返回 200；本地与 `nextchat-dev` 容器目标文件 SHA-256 一致。
 
 ### 潜在或遗留问题
 
-- 全局壳层对小于 `350px` 的超窄视口仍有 `min-width: 350px` 限制；本次不扩大到其他页面的全局壳层规则。
+- 无。
 
 ============================================================
 
-## 76. 【2026-07-14 09:35】- 统一余额查询状态文案与路径分隔符
+## 87. 【2026-07-14 15:29】- 补充模型管理器获取状态日志
 
 ### 修改内容
 
-- `/balances` 余额查询成功提示中，成功文案与完整路径之间改用中文全角冒号 `：` 分隔。
-- 自定义路径和自动路径的查询中提示统一为“正在查询余额...”。
-- 自定义路径和自动路径的成功提示统一为“查询成功：完整 URL”。
+- 手动获取或重新获取模型时，控制台显示当前平台的开始状态与最终获取数量。
 
 ### 实现方式
 
-- `app/components/provider-balances.tsx` 将查询成功状态文字中原有的中点分隔符替换为中文冒号，并收敛查询中与查询成功的自定义/自动路径文案；URL 构造和查询逻辑保持不变。
-- `docs/provider-balance.md` 同步查询中文案契约。
+- `AddModelSelector` 在请求发起后输出 `[ModelManager] 🔄 正在获取 <平台> 平台的模型...`，取得并去重模型后输出 `[ModelManager] ✅ 已获取到 <平台> 平台的模型 <数量> 个`；不输出 API Key、请求地址或模型列表。
+- 开发指南同步模型管理器控制台日志契约。
 
 ### 验证
 
 - `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
-- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+- 本地与 `nextchat-dev` 容器内 `app/components/add-model-modal.tsx` SHA-256 一致，热加载已同步。
 
 ### 潜在或遗留问题
 
@@ -101,22 +86,21 @@
 
 ============================================================
 
-## 75. 【2026-07-14 09:22】- 将余额查询成功勾替换为加大加粗 SVG
+## 86. 【2026-07-14 15:23】- 统一无图标模型商的默认图标
 
 ### 修改内容
 
-- `/balances` 余额查询成功状态不再使用文字 `✓`，改为更大、更粗的 SVG 勾。
-- 失败红叉、成功绿色和主页/对话页的普通余额样式均保持不变。
+- CherryIN 返回的 `Agent` 等没有固定分组图标的模型商分组及其模型行，统一显示浅绿色默认图标，不再显示首字母占位。
 
 ### 实现方式
 
-- `app/components/provider-balances.tsx` 使用内联 `16 × 16` viewBox 路径绘制勾，采用 `2` 线宽及圆角线帽/连接，并通过 `currentColor` 继承成功绿色。
-- `app/components/provider-balances.module.scss` 将 SVG 显示尺寸固定为 `18px`，与余额文字基线对齐；`docs/provider-balance.md` 同步图标形式。
+- `Selector` 的未知分组图标分支复用既有 `Custom Models` 默认图标渲染；移除已经不会命中的首字母占位样式，不新增图标资源。
+- README 与开发指南同步“没有本地图标资源即使用默认图标”的图标契约。
 
 ### 验证
 
 - `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
-- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+- 本地与 `nextchat-dev` 容器内 `app/components/ui-lib.tsx`、`app/components/ui-lib.module.scss` SHA-256 一致，热加载已同步。
 
 ### 潜在或遗留问题
 
@@ -124,22 +108,93 @@
 
 ============================================================
 
-## 74. 【2026-07-14 09:15】- 限定余额状态颜色与勾叉仅用于余额查询页
+## 85. 【2026-07-14 15:12】- 修复虚拟模型列表首个供应商标题重复
 
 ### 修改内容
 
-- `/balances` 余额查询页继续在查询成功时显示绿色余额和绿色勾，查询失败时显示红色余额和红色叉。
-- 主页/对话页浮动余额恢复普通默认样式，不再显示查询状态颜色或勾叉图标。
+- 修复模型数量达到虚拟列表阈值时，首个供应商分组同时显示真实分组行和吸附标题层的问题。
 
 ### 实现方式
 
-- `app/components/user-menu.tsx` 移除主页/对话浮层专用的 `idle / success / error` 视觉状态，保留本地缓存首屏读取、数据库校准、后台刷新和失败保留旧值逻辑。
-- `app/components/user-menu.module.scss` 删除仅服务于主页状态颜色和勾叉的局部样式；`docs/provider-balance.md` 同步页面展示边界。
+- 固定标题层始终覆盖当前真实虚拟分组行，并使用与估算分组高度一致的负边距抵消占位；滚动过程不再在临界点插入或移除标题层。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 均通过。
+- 本地与 `nextchat-dev` 容器内 `app/components/ui-lib.tsx`、`app/styles/globals.scss` SHA-256 一致，热加载已同步。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 84. 【2026-07-14 14:16】- 全量核验已配置模型商的模型归属
+
+### 修改内容
+
+- 只读数据库中全部模型商配置并调用既有服务端模型获取逻辑：YutoAPI 829、AihubMix 350、CherryIN 159、ToAPI 115、OpenRouter 344、晴辰云 9 个模型均已核验；DeepSeek、Ocoolai 的当前接口不可用，未写入或变更其配置。
+- 合并上游 `vendor_id` 与声明厂商字段带来的同义分组：Alibaba/阿里巴巴、ByteDance/字节跳动、Zhipu/智谱、01.AI/零一万物、iFLYTEK Spark/讯飞、FLUX/Flux、MiniMax/Minimax、DeepSeek/Deepseek 均统一为标准厂商名。
+- 修复 Ocoolai 将完整模型 ID 写入 `owned_by` 时产生伪模型商的问题；无可识别厂商的自定义供应商模型统一回退至该配置模型商，而非 Custom。
+- 晴辰云等自定义模型商返回的 `auto`、`automatic`、`default`、`system` 与“自动/默认/系统”系统选择模型固定归入 Custom，以最高优先级覆盖 `vendor_id / developer_id / owned_by` 等上游字段和模型商兜底，并使用浅绿色默认图标。
+- 模型管理器不再隐藏 `CUSTOM` 筛选项，Auto 等系统选择模型可在“全部模型商”菜单中直接筛选；“已添加/Added”仍保持隐藏。
+- 修复大量模型触发虚拟列表后分组标题高度为 0 且未渲染的问题；列表中恢复真实供应商标题与数量，固定标题层继续随滚动显示当前分组。
+
+### 实现方式
+
+- 新增共享模型商归属器，前端获取、旧缓存归一化与服务端同步在读取模型商 ID、上游 `vendor / developer / owned_by / owner / organization` 声明后均走同一规范表；无声明的官方直连模型自动回退到其模型商。
+- 不过滤、不隐藏模型，不修改数据库配置或模型接口缓存；仅修正展示分组元数据与 MiniMax 官方大小写。
 
 ### 验证
 
 - `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
-- `nextchat-dev` 开发容器正常运行，已核对本地与容器内目标文件。
+- 实际获取结果中，YutoAPI 829 个模型归入 28 个标准模型商，AihubMix、CherryIN、OpenRouter、晴辰云也均无未归类模型；ToAPI 新增 Nano Banana、Veo、Sora、HappyHorse、Seedance 通用前缀后由 13 个未归类降为 0。Kimi 18 个均处于 Moonshot，DeepSeek 21 个均使用标准名称。
+- 使用生产容器的有效 Key 实测 Ocoolai 4 个有效分组共返回 609 个去重模型；声明值等于模型 ID 的断言已覆盖，避免生成按完整模型名拆分的伪分组。
+
+### 潜在或遗留问题
+
+- DeepSeek 返回“未找到可用的模型接口”，Ocoolai 现有密钥请求返回 401；两者待接口或密钥恢复后会自动使用同一套归一规则。
+
+============================================================
+
+## 83. 【2026-07-14 14:07】- 补全直连模型的供应商归属推断
+
+### 修改内容
+
+- 审计并补齐缺少上游 `vendor_id` 时容易落入 Custom 的直连模型 ID：Seed/Seedream、QVQ、Yi、Spark、Command、Baichuan、InternLM、Jamba、BGE、LongCat、Ling/Ring，以及精确 `o1/o3/o4/o5`。
+- 补齐常见命名空间前缀，避免 OpenRouter/OcoolAI 形式的 `author/model` 因作者别名产生伪模型商分组。
+
+### 实现方式
+
+- 前端模型获取与服务端模型同步维持逐条一致的官方归属规则；仅补充分组元数据，不过滤模型、不变更请求路由或模型数量。
+- 使用当前供应商官方资料核对 Kimi、豆包 Seed、GLM、Wan、MiniMax、ERNIE 等现行模型命名，并同步 README 与开发文档。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- 针对性静态脚本确认 13 类直连模型 ID 在前端和服务端获取路径都具备相同归属规则。
+
+### 潜在或遗留问题
+
+- 未调用真实上游模型列表接口，避免消耗额度或改变现有缓存；下次正常获取模型时会按新规则归属。
+
+============================================================
+
+## 82. 【2026-07-14 14:03】- 统一 Custom 模型的浅绿色默认图标
+
+### 修改内容
+
+- Custom 分组及其模型行（包括 Auto 等归入该分组的模型）统一使用项目内置的浅绿色 OpenAI 风格默认图标，不再在模型行显示字母占位。
+
+### 实现方式
+
+- `Selector` 复用既有 `app/icons/llm-icons/default.svg`，仅为 Custom / Other 这类通用分组增加模型行图标分支；其他缺少本地图标的模型商仍使用首字母占位。
+- README 与开发文档同步该例外，未新增或删除图标资源。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- 静态检查确认 Custom 模型行直接复用 `Custom Models` 的浅绿色默认图标渲染分支。
 
 ### 潜在或遗留问题
 
@@ -147,28 +202,21 @@
 
 ============================================================
 
-## 73. 【2026-07-14 00:25】- 完整修复余额固定路径、自动探测与成功路径复用
+## 81. 【2026-07-14 14:00】- 规范晴辰云 Kimi 模型的模型商归属
 
 ### 修改内容
 
-- 重新审计本地缓存、数据库配置、固定 URL、根地址自动探测、缓存路径直查、New-API-User、供应商专用逻辑、通用候选队列、成功落库和失败旧值保留全链路。
-- 修复后半段候选路径不可达、自定义 URL 查询参数丢失、认证方式覆盖不全、固定 URL 成功认证未缓存、晴辰云成功路径写错、空值误判为 0、取消后仍重试和批量 30 秒提前截断等问题。
-- 补齐“有路径固定查询、只填根地址自动探测、成功保存三元组并显示完整可编辑 URL”的统一契约。
+- 修复晴辰云获取的 `kimi-k2.5`、`kimi-k2.6` 被归入 Custom 分组的问题，统一显示在 Moonshot 分组。
 
 ### 实现方式
 
-- `provider-balance.ts`（服务端）：候选队列改为高频路径全认证覆盖、全部 142 个声明路径可达、剩余组合补齐并去重，单 Key 上限 320；固定路径补齐 Query-Key 与缓存认证优先，解析器严格过滤空值和布尔值。
-- `provider-balance.ts`（客户端共享）：统一 URL 是否含路径及完整 URL 拆分逻辑，前端与 API route 使用同一判断。
-- `route.ts`：保留自定义 URL 查询参数；根地址改为在指定域名探测；固定、根地址和普通自动模式成功后都保存 `cached_path / cached_base_url / cached_auth_type`。
-- `provider-balances.tsx`：根地址探测成功后显示完整成功 URL；移除会截断完整服务端队列的前端 30 秒批量总超时。
-- 同步更新 `README.md` 与 `docs/provider-balance.md`。
+- 前端模型获取和服务端模型同步的供应商推断规则均将 `kimi-` 前缀归属为 Moonshot，保证新获取结果、缓存规范与服务端同步一致。
+- README 与开发文档同步模型商归属契约，不改变模型数量、筛选逻辑或请求路由。
 
 ### 验证
 
-- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 和 5 组共享 URL 构造测试均通过。
-- 无数据库写入的模拟上游测试通过：6 组解析边界、固定 URL 查询参数、New-API-User、缓存路径单请求短路、320 次上限、142 条唯一路径、5 种高频认证、晴辰云真实 `/portal/models` 路径和取消停止重试。
-- 只读数据库核验 8 个 Profile 均有管理 Key，旧记录中的缺失缓存三元组会在下一次成功查询自动补齐；未执行真实余额 POST。
-- 本地与 `nextchat-dev` 容器内 4 个核心文件 SHA-256 完全一致，最近运行日志无匹配错误。
+- `yarn lint`、`npx tsc --noEmit --pretty false` 和 `git diff --check` 均通过。
+- 静态断言确认前端与服务端都包含 `kimi-` → Moonshot 规则；直接 Node 加载测试受项目 SCSS 模块链限制，未执行。
 
 ### 潜在或遗留问题
 
@@ -176,81 +224,66 @@
 
 ============================================================
 
-## 72. 【2026-07-14 00:09】- 恢复余额本地缓存优先与后台数据库校准
+## 80. 【2026-07-14 11:03】- 将旧自动模式替换为全局聊天故障转移
 
 ### 修改内容
 
-- 余额页和对话页恢复本地余额缓存优先，页面打开时同步显示已有余额，后台再读取数据库并更新缓存与 UI。
-- 手动或既有自动余额查询成功后同步写入缓存；数据库返回无余额时清空对应旧快照，数据库失败时继续保留缓存显示。
+- 删除 GPT、DeepSeek、豆包系列旧自动模式的开关、配置、同步字段和专用候选逻辑；自动故障转移改为所有聊天请求默认启用，不提供按钮或设置。
+- 首次请求失败后隐藏上游错误正文，先按模型名称尝试当前供应商的其他聊天模型，再按供应商名称、模型名称尝试其他供应商；每次尝试在消息区独占一行显示状态、供应商和模型。
+- 重试候选不再按名称、类别、能力或端点排除模型；所有名称有效且标记为可用的模型都可参与重试，候选成功后立即更新全局模型、当前会话和同步状态。
+- 控制台重试日志统一为 `🔄 / ✅ / ❌ / ⏹️`，合并重复的请求开始日志并精简错误原因；多 Key 候选失败和余额请求取消不再按控制台错误展开长调用栈。
+- 重试状态 UI 改为复用插件状态行：去掉卡片边框、背景和状态色，统一显示为灰色 `<对话尝试中> / <对话尝试失败> / <对话尝试成功> 供应商 / 模型`。
+- 候选顺序增加当前模型系列优先：同系列模型跨供应商按版本从新到旧尝试，相同版本的后缀名称按字母顺序排列；系列耗尽后再恢复当前供应商优先及供应商/模型字母顺序。
+- 模型选择器、模型管理器的浏览模式和“已添加”模式统一使用同一系列排序；API Profile 与模型商分组按显示名称首字母排列，例如 DeepSeek 在 OpenAI 之前。
+- 模型商筛选菜单改为按最终可见名称排序；保留“全部模型商”入口，旧中文分组和供应商品牌统一显示为 Qwen、Doubao、Z.ai、iFLYTEK Spark、Tencent Hunyuan、ERNIE、01.AI、Hailuo AI 等官方英文名称，并继续映射到原图标文件。
+- 修复 Yuto 缺失 `vendor_id` 时把斜杠前完整模型名当模型商的问题；客户端旧缓存与新获取结果都会把 Act Two/Aleph/Gen3/Gen4 归入 Runway、Eleven/Scribe/Dubbing 归入 ElevenLabs、Flux Tools 归入 Flux，并统一 Midjourney、Mureka、Luma、Suno、PixVerse、Viggle、Cursor、Xiaomi、MiniMax、Google、Alibaba、StepFun、Nvidia 等官方英文归属，不减少模型数量。
+- 修复 Yuto 的 Kling 模型在旧缓存中按版本拆成多个伪模型商的问题；54 个 `kling-* / kling_*` 模型统一归入官方英文分组 Kling AI，Yuto 原始 `vendor_id=33 / 快手` 同步规范为 Kling AI。
+- 修复 Yuto 的 Vidu 模型在旧缓存中按 `Viduq1 / Viduq2 / Viduq3` 等版本拆分的问题；26 个 `vidu2.0 / viduq*` 模型统一归入 Vidu。
+- 根据各模型官方资料复核最近新增的供应商映射；归属保持不变，显示名称修正为官方大小写 FLUX、NVIDIA。ElevenLabs、Mureka 等没有本地图标资源的模型行改用供应商首字母占位，不再错误显示 OpenAI 图标。
+- 为 ElevenLabs、Mureka 补充官方品牌图标并接入分组与模型行；StepFun、Suno 图标内容保持不变，仅调整为铺满父级圆角矩形。
+- 模型获取、缓存、模型管理器、聊天模型选择器和绘图模型管理器全部使用完整模型列表，不再按模型名称、类别、能力或端点隐藏模型，最终由用户自行选择。
+- 删除通用模型分类、独立绘图分类和自动过滤报告；AihubMix 不再请求或缓存分类元数据，发布时间维护脚本不再写入分类字段。请求发送阶段的接口路由判断继续保留，但不得参与列表过滤。
 
 ### 实现方式
 
-- `app/utils/provider-balance.ts` 新增全局 Profile 余额快照缓存，只持久化 Profile ID、名称、Base URL、是否存在管理 Key 和余额，不保存管理 Key、User ID 或完整查询配置。
-- `provider-balances.tsx` 以结构化缓存和旧版 `nextchat:provider-balance:shared:<profileId>` 为首屏来源，后台 GET 数据库后以数据库结果为准并回写新缓存；页面首开仍不请求上游余额接口。
-- `user-menu.tsx` 先按 Profile ID 或供应商名称显示缓存，再解析数据库标准 ID、读取数据库余额并允许既有刷新信号继续查询。
-- `README.md` 与 `docs/provider-balance.md` 同步缓存边界、数据顺序和敏感字段限制。
+- 新增 `app/utils/chat-failover.ts` 统一负责候选收集、同供应商优先和跨供应商字母排序；`app/store/chat.ts` 复用既有请求回调框架串行执行候选并记录精简重试状态。
+- `app/components/chat.tsx` 与对应样式新增重试状态列表；Config Store 升级到 4.7 并迁移删除旧字段。
+- 删除 `app/utils/auto-model.ts`、`app/utils/chat-session-model.ts`，同步更新 README、开发指南和代码导航文档。
+- 临时 API Profile 不再输出时序不准确的“请求结束”日志；多 Key 日志去掉重复的“正在尝试 / 请求开始”两行，并隐藏 Request ID。
+- 修复重试样式误嵌套在 `.chat-message-status` 内导致选择器无法命中的问题；重试行与插件行合并到同一个 `.chat-message-tools` 容器并统一复用 `.chat-message-tool`，消除两个独立容器造成的上下间距差异。
+- `chat-failover.ts` 新增无配置的系列识别与版本排序；只改变候选队列顺序，不恢复旧自动模式的开关、系列配置或同步字段。
+- 新增 `model-series-order.ts` 作为共享排序 owner；聊天选择器与模型管理器复用同一比较器，模型管理器的远端结果、持久缓存和内存缓存读取都会重新规范顺序；`Selector` 通过局部 `sortGroupsAlphabetically` 开关启用模型商字母排序，不改变其他选择器。
+- `Selector` 的模型商菜单改为先规范最终显示名称再排序，分组标题同样使用英文显示名；`PROVIDER_ICONS` 仅增加新英文名称到既有资源路径的别名，未修改任何图标文件。
+- Kling 归属同时接入前端模型获取、服务端模型同步和旧缓存读取归一化；`快手 / Kuaishou / Kling` 可见名称统一为 Kling AI，并继续复用既有 `/provider-icons/kuaishou.png`。
+- Vidu 系列名称归属同样接入前端获取、服务端同步和旧缓存读取归一化，继续复用既有 Vidu 图标映射。
+- `Selector` 模型行仅在供应商命中本地图标映射时渲染图片；未命中时复用分组首字母样式，虚拟列表与普通列表使用同一个图标决策函数。
+- `PROVIDER_ICONS` 新增 ElevenLabs、Mureka 映射；模型商筛选菜单只对 StepFun、Suno 增加局部铺满类，不改变其他供应商图标尺寸。
+- StepFun、Suno 的模型明细行不再走普通 `30px` Avatar，改为与模型商菜单复用同一个 `32px` 圆角图标框和铺满规则；其他模型行保持原尺寸。
+- 根据实际截图继续修正 StepFun、Suno 图标资源自带透明留白：只在既有圆角框内将图片放大 `1.14` 倍并居中裁切，使图形紧贴边框，不修改原图标文件。
+- 保留模型商总入口的内部哨兵值 `All`，避免它被英文名称归一逻辑转换成普通分组；“全部模型商”在顶部按钮和展开菜单中继续不显示图标。
+- `chat-failover.ts` 只负责候选排序和供应商切换，不再承担模型过滤；聊天与绘图模型管理器都不传入类别过滤器，浏览模式、“已添加”模式和删除操作均处理当前供应商完整模型列表。
+- 删除 `model-category-rules.ts`、`model-classification.ts`、`image-generation-model.ts` 和 `model-auto-filter-report.ts`；同步移除前后端端点分类补充、AihubMix 分类缓存及发布时间维护脚本的分类合并逻辑。
 
 ### 验证
 
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
-- 浏览器建立缓存后重新进入 `/balances`，React 基础挂载后约 131ms 显示 8 条余额；测试未点击查询按钮、未触发上游余额写入。
-- 本地与 `nextchat-dev` 容器内 3 个核心文件 SHA-256 完全一致，开发容器正在使用最新代码。
+- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 均通过。
+- 针对性脚本验证当前供应商优先、供应商/模型字母排序，以及所有名称有效且可用的模型均可进入候选队列。
+- 系列排序脚本验证 GPT 候选跨供应商按 5.7、5.6、5.5 从新到旧排列；同为 5.6 时按 alpha、luna、zeta 字母顺序排列，系列之后才进入非系列字母队列，Pro/Coder 仍被排除。
+- 共享排序脚本验证 API Profile 按 Anthropic、DeepSeek、OpenAI 排列；GPT 模型按 5.7、5.6-alpha、5.6-luna、5.6-zeta、5.5 排列，聊天选择器、模型管理器浏览模式与“已添加”模式均复用这一规则。
+- 英文名称与图标别名脚本验证 8 个中文旧分组映射正确，可见名称按 01.AI、Doubao、ERNIE、Hailuo AI、iFLYTEK Spark、Qwen、Tencent Hunyuan、Z.ai 排列，且全部继续指向修改前的图标路径；“全部模型商”保持不变。
+- 使用 Yuto 真实 `/api/pricing` 验证完整获取 829 个模型；模型管理器与各模型选择入口不再执行类别过滤，自动故障转移候选也不再排除媒体、视觉、语音或代码模型。
+- 对 Yuto 829 个真实模型中的 161 个缺失供应商记录做归属验证，全部归并到 17 个真实模型商，未留下 Act Two、Aleph2、Eleven Flash、Gen4 Image、Flux Tools 等伪模型商分组。
+- Yuto 真实接口核对 54 个 Kling 模型均为 `vendor_id=33`；名称归一化结果只有 Kling AI 一个分组，模型总数保持 54。
+- Yuto 真实接口核对 26 个 Vidu 模型均为 `vendor_id=35 / Vidu`；名称归一化结果只有 Vidu 一个分组，模型总数保持 26。
+- 结合各厂商官方文档与 Yuto 当前 829 个模型复核最近新增规则：Runway 12、ElevenLabs 16、Kling AI 54、FLUX 17、Mureka 25、Vidu 26、MiniMax 2、NVIDIA 1 等规则均只命中对应系列；普通列表和虚拟列表均不再为缺失本地图标的供应商渲染 OpenAI 图标。
+- ElevenLabs、Mureka 新图标与 StepFun、Suno 既有图标均通过开发服务返回 200；本地与 `nextchat-dev` 容器内图标映射、选择器样式及两个新增资源 SHA-256 一致，四图并排预览确认资源可正常渲染。
+- StepFun、Suno 的菜单与模型明细行静态核对均进入同一个图标框渲染分支；`yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 通过，容器内 `ui-lib.tsx`、`ui-lib.module.scss` 与本地一致。
+- StepFun、Suno 按 `1.14` 放大后的并排裁切预览确认白色间隙已消除且内部标志完整；开发首页返回 200，容器内 `ui-lib.module.scss` 与本地一致。
+- `nextchat-dev` 正常运行，宿主机与容器内共享排序、故障转移、聊天选择器和模型管理器等 5 个目标文件 SHA-256 一致，`http://127.0.0.1:3000/` 返回 200，热加载编译日志无错误。
+- 重试 UI 已核对直接复用 `.chat-message-tools .chat-message-tool`；本地与容器内 `chat.module.scss` SHA-256 一致。浏览器控制连接不可用，本轮未声称完成截图级视觉验证。
 
 ### 潜在或遗留问题
 
-- 无。
-
-============================================================
-
-## 71. 【2026-07-13 23:58】- 增加余额查询成功勾与失败叉状态反馈
-
-### 修改内容
-
-- 余额页查询成功后在绿色余额文字左侧显示绿色勾，查询失败后在红色余额文字左侧显示红色叉；默认数据库余额继续使用蓝色且不显示图标。
-- 对话页余额刷新同步使用相同反馈；失败时仍保留数据库旧余额，只把旧值和叉显示为红色。
-
-### 实现方式
-
-- `provider-balances.tsx` 与对应 CSS Module 根据本次查询状态渲染 `✓` / `×`，状态符号继承余额文字颜色，保持文字与图标一致。
-- `user-menu.tsx` 增加仅驻留当前页面的 `idle / success / error` 查询状态，对话页首次数据库读取保持默认蓝色，自动刷新完成后再切换成功或失败反馈。
-- `docs/provider-balance.md` 同步余额页和对话页的颜色、符号及旧值保留契约。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
-- 浏览器确认 `/balances` 首开不自动查询，8 个数据库余额正常显示，默认余额计算颜色为 `rgb(29, 147, 171)`；未擅自触发会写远程数据库的真实余额查询。
-- 本地与 `nextchat-dev` 容器内 4 个目标组件和样式文件 SHA-256 完全一致，容器正在使用最新代码。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 70. 【2026-07-13 23:53】- 恢复全局 API Profile 同步与模型缓存链路
-
-### 修改内容
-
-- 修复 `/api/db/sync/access-control` PUT 因旧 `ON CONFLICT (user_id, provider_code)` 与全局数据库唯一约束不一致而返回 500。
-- 恢复被清除 stash 中遗漏的全局 Profile 读写、模型成功路径缓存与全局缓存 Key 逻辑，并补齐 stash 当时未覆盖的同步元数据查询和 Schema 文档。
-- 修复对话页数据库旧余额读取与自动查询互相取消的竞态，固定先读取数据库旧值再启动刷新。
-
-### 实现方式
-
-- `provider-config-repository.ts`：以全局 `provider_code` 完成集合覆盖、upsert、API Key 写入和 Profile 读取，不再依赖 `provider_configs.user_id`。
-- `provider-model-fetch.ts`、`provider-model-repository.ts`、`provider-model-sync.ts`：模型成功路径按全局 Profile 读写，对应密钥统一保存到 `sync_secrets.user_id='global'`。
-- `sync-store-repository.ts`：access-control 版本时间读取全局供应商与 Key 更新时间；`postgres.ts`、Schema SQL、README 和余额文档同步全局数据契约。
-- `user-menu.tsx`：数据库标准 ID 解析并读取旧余额完成后才设置可查询 ID，消除初始读取与自动刷新竞态。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
-- 本地热加载后 access-control 自动 PUT 连续成功，服务端不再出现唯一约束或 500；数据库仍保留 8 个全局 Profile、17 条 API Key、8 份余额配置及 8 个全局模型缓存密钥。
-- 只读核验数据库唯一约束为 `UNIQUE (provider_code)`，8 个 Profile 均保留模型成功路径、余额、管理 Key 和完整余额 URL。
-- 与清除前悬空 stash `d23a207` 对比：恢复其 3 组遗漏的全局化代码，并额外修复同步元数据、Schema 文档和余额读取竞态。
-
-### 潜在或遗留问题
-
-- 浏览器新建标签因本地开发页持续后台请求多次触发导航超时；接口、服务端日志、数据库状态、Lint 和类型检查均已完成验证。未提交、未推送、未部署。
+- 未执行真实上游 API 故障注入，避免消耗或扰动现有供应商调用；请求回调、候选顺序和状态转换已通过静态与独立逻辑验证。
 
 ============================================================

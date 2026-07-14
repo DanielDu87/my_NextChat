@@ -448,6 +448,15 @@ export async function queryProviderBalanceProfile(
       signal: options?.signal,
     });
   } catch (error) {
+    const isAborted =
+      options?.signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError");
+    if (isAborted) {
+      console.debug(
+        `[Provider Balance] ⏹️ ${context.providerName} 余额请求已取消`,
+      );
+      throw error;
+    }
     console.error("[Provider Balance] 余额请求未完成", {
       ...context,
       durationMs: Date.now() - context.startedAt,

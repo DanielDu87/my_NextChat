@@ -1,10 +1,7 @@
 import type { LLMModel } from "../client/api";
-import { normalizeModelClassification } from "./model-classification";
 
 const AIHUBMIX_CATALOG_METADATA_STORAGE_KEY =
   "nextchat:aihubmix-catalog-metadata";
-const AIHUBMIX_CLASSIFICATION_STORAGE_KEY =
-  "nextchat:aihubmix-classification-metadata";
 
 const TRAILING_RELEASE_DATE_PATTERN =
   /(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|1[0-2])[-_.](?:0[1-9]|[12]\d|3[01])))$/i;
@@ -178,22 +175,6 @@ export function readAiHubMixCatalogMetadataCache() {
   }
 }
 
-export function readAiHubMixClassificationCache() {
-  if (typeof localStorage === "undefined") {
-    return new Map<string, { features?: string[]; types?: string[] }>();
-  }
-
-  try {
-    const raw = localStorage.getItem(AIHUBMIX_CLASSIFICATION_STORAGE_KEY);
-    const entries = raw ? JSON.parse(raw) : [];
-    return new Map<string, { features?: string[]; types?: string[] }>(
-      Array.isArray(entries) ? entries : [],
-    );
-  } catch {
-    return new Map();
-  }
-}
-
 export function persistAiHubMixCatalogMetadataCache(
   metadataMap: Map<
     string,
@@ -210,24 +191,9 @@ export function persistAiHubMixCatalogMetadataCache(
   );
 }
 
-export function persistAiHubMixClassificationCache(
-  classificationMap: Map<string, { features?: string[]; types?: string[] }>,
-) {
-  if (typeof localStorage === "undefined") {
-    return;
-  }
-
-  localStorage.setItem(
-    AIHUBMIX_CLASSIFICATION_STORAGE_KEY,
-    JSON.stringify([...classificationMap.entries()]),
-  );
-}
-
 export function seedAiHubMixMetadataCacheFromModels(models: LLMModel[]) {
   const catalogMetadataMap = readAiHubMixCatalogMetadataCache();
-  const classificationMap = readAiHubMixClassificationCache();
   let catalogChanged = false;
-  let classificationChanged = false;
 
   for (const model of models || []) {
     const name = String(model?.name || "").trim();
@@ -255,54 +221,17 @@ export function seedAiHubMixMetadataCacheFromModels(models: LLMModel[]) {
         catalogChanged = true;
       }
     }
-
-    const features =
-      Array.isArray(model.features) && model.features.length > 0
-        ? model.features
-        : undefined;
-    const types =
-      Array.isArray(model.types) && model.types.length > 0
-        ? model.types
-        : undefined;
-
-    if (!features && !types) {
-      continue;
-    }
-
-    for (const key of lookupKeys) {
-      if (classificationMap.has(key)) {
-        continue;
-      }
-      classificationMap.set(key, { features, types });
-      classificationChanged = true;
-    }
   }
 
   if (catalogChanged) {
     persistAiHubMixCatalogMetadataCache(catalogMetadataMap);
   }
-  if (classificationChanged) {
-    persistAiHubMixClassificationCache(classificationMap);
-  }
-}
-
-export function normalizeAiHubMixModelMetadata(model: any): {
-  category?: string;
-  categorySource?: 0 | 1;
-  type?: string;
-  types?: string[];
-  features?: string[];
-  capabilities?: string[];
-  categories?: string[];
-} {
-  return normalizeModelClassification(model);
 }
 
 export function hydrateModelsWithAiHubMixMetadata(models: LLMModel[]) {
   const catalogMetadataMap = readAiHubMixCatalogMetadataCache();
-  const classificationMap = readAiHubMixClassificationCache();
 
-  if (catalogMetadataMap.size === 0 && classificationMap.size === 0) {
+  if (catalogMetadataMap.size === 0) {
     return models;
   }
 
@@ -318,20 +247,7 @@ export function hydrateModelsWithAiHubMixMetadata(models: LLMModel[]) {
       normalizedName,
       catalogMetadataMap,
     );
-    const classificationMeta = resolveAiHubMixMetadataByName(
-      normalizedName,
-      classificationMap,
-    );
-    const normalizedClassification = classificationMeta
-      ? normalizeAiHubMixModelMetadata({
-          name: model.name,
-          features: classificationMeta.features,
-          types: classificationMeta.types,
-          type: classificationMeta.types?.[0],
-        })
-      : undefined;
-
-    if (!catalogMetadata && !normalizedClassification) {
+    if (!catalogMetadata) {
       return model;
     }
 
@@ -346,15 +262,6 @@ export function hydrateModelsWithAiHubMixMetadata(models: LLMModel[]) {
         ? "aihubmix_catalog"
         : (model as any).remoteRankSource,
       vendor: catalogMetadata?.vendor ?? model.vendor,
-      category: normalizedClassification?.category ?? model.category,
-      categorySource:
-        normalizedClassification?.categorySource ?? model.categorySource,
-      type: normalizedClassification?.type ?? model.type,
-      types: normalizedClassification?.types ?? model.types,
-      features: normalizedClassification?.features ?? model.features,
-      capabilities:
-        normalizedClassification?.capabilities ?? model.capabilities,
-      categories: normalizedClassification?.categories ?? model.categories,
     };
   });
 }

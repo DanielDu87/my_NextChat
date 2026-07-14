@@ -7,6 +7,7 @@ import EmojiPicker, {
 
 import { ModelType } from "../store";
 import { getProviderIcon } from "../config/provider-icons";
+import BotIconDefault from "../icons/llm-icons/default.svg";
 
 export const FIXED_USER_AVATAR = "__fixed_user_avatar__";
 
@@ -47,13 +48,17 @@ export function AvatarPicker(props: {
 }
 
 export function Avatar(props: { model?: ModelType; avatar?: string }) {
-  let localIcon: string | undefined;
-
   if (props.model) {
     const modelName = props.model.toLowerCase();
 
-    // 使用统一的供应商图标配置，未匹配时统一用 openai.png
-    localIcon = getProviderIcon(modelName) || "/provider-icons/openai.png";
+    const localIcon = getProviderIcon(modelName);
+    if (!localIcon) {
+      return (
+        <div className="no-dark">
+          <BotIconDefault className="user-avatar" />
+        </div>
+      );
+    }
 
     return (
       <div className="no-dark">

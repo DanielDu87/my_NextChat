@@ -60,12 +60,7 @@ import {
 import { selectChatSessionById } from "../store/chat-index";
 import { DEFAULT_TOPIC, getBotHelloContent } from "../store/chat-defaults";
 import { useAccessStore } from "../store/access";
-import {
-  AutoModelSeriesKey,
-  ModelType,
-  SubmitKey,
-  useAppConfig,
-} from "../store/config";
+import { ModelType, SubmitKey, useAppConfig } from "../store/config";
 import { useCurrentSession } from "../store/chat-session";
 import { useModelCacheStore } from "../store/model-cache";
 import { useUpdateStore } from "../store/update";
@@ -97,13 +92,12 @@ import { indexedDbStateStorage } from "../utils/indexeddb-state-storage";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
 
 import { useAllModels } from "../utils/hooks";
-import {
-  buildAutoModelCandidates,
-  getAutoModelSeriesLabel,
-} from "../utils/auto-model";
 import { resolveModelProviderId } from "../utils/model";
 import { getPreferredDefaultChatModel } from "../utils/model";
-import { applyAutoModeModelConfig } from "../utils/chat-session-model";
+import {
+  compareModelsBySeriesVersion,
+  compareProviderDisplayNames,
+} from "../utils/model-series-order";
 import { convertHeicImage } from "../utils/chat";
 import { ensureProviderModelsReady } from "../utils/provider-sync";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
@@ -112,6 +106,7 @@ import {
   getModelSelectorDefaultValue,
 } from "../utils/model-selector-provider";
 import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
+import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
 
 import dynamic from "next/dynamic";
 import { ChatControllerPool } from "../client/controller";
@@ -2884,7 +2879,7 @@ export function ChatActions(props: {
       }
 
       if (vendorName?.trim()) {
-        return vendorName.trim();
+        return getModelVendorGroupName(vendorName);
       }
 
       const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
@@ -2921,21 +2916,26 @@ export function ChatActions(props: {
         groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
         groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
         groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-        groupByKeywords("豆包", [
+        groupByKeywords("Doubao", [
           "doubao",
           "seed",
           "bytedance",
           "volc",
           "字节",
         ]) ||
-        groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+        groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
         groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-        groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-        groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+        groupByKeywords("iFLYTEK Spark", [
+          "iflytek",
+          "xfyun",
+          "spark",
+          "讯飞",
+        ]) ||
+        groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
         groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-        groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
-        groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-        groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+        groupByKeywords("Tencent Hunyuan", ["hunyuan", "tencent", "腾讯"]) ||
+        groupByKeywords("ERNIE", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+        groupByKeywords("Z.ai", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
         groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
         groupByKeywords("Cohere", ["cohere", "command-r"]) ||
         groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
@@ -3556,7 +3556,6 @@ function _Chat() {
   const config = useAppConfig();
   const fontSize = config.fontSize;
   const fontFamily = config.fontFamily;
-  const autoModelSeries = useAppConfig((state) => state.autoModelSeries);
 
   const [showExport, setShowExport] = useState(false);
   const [showBackupMenu, setShowBackupMenu] = useState(false);
@@ -4172,38 +4171,6 @@ function _Chat() {
     safeSession.id,
     sessionMessages,
   ]);
-  const autoModeEnabled = autoModelSeries.length > 0;
-  const latestAutoModeProviderMessage = useMemo(() => {
-    if (!autoModeEnabled) {
-      return null;
-    }
-
-    return (
-      [...sessionMessages]
-        .reverse()
-        .find(
-          (message) =>
-            message?.role === "assistant" &&
-            !message.isError &&
-            Boolean(
-              message.profileId ||
-                message.providerId ||
-                getMessageProviderDisplayName(message, apiProfiles),
-            ),
-        ) || null
-    );
-  }, [apiProfiles, autoModeEnabled, sessionMessages]);
-  const latestAutoModeProviderDisplayName = useMemo(() => {
-    if (!latestAutoModeProviderMessage) {
-      return "";
-    }
-
-    return getMessageProviderDisplayName(
-      latestAutoModeProviderMessage,
-      apiProfiles,
-    );
-  }, [apiProfiles, latestAutoModeProviderMessage]);
-
   useEffect(() => {
     if (!currentSessionHasMessages || !latestAssistantModelSelection) {
       return;
@@ -4249,24 +4216,6 @@ function _Chat() {
     sessionMask.modelConfig,
   ]);
 
-  const selectedAutoModelSeries = autoModelSeries[0];
-  const selectedAutoModelSeriesLabel = selectedAutoModelSeries
-    ? getAutoModelSeriesLabel(selectedAutoModelSeries)
-    : "";
-  const manualModelSelectionDisabled = autoModeEnabled;
-  const autoModeDefaultCandidate = useMemo(() => {
-    if (!autoModeEnabled) {
-      return null;
-    }
-
-    const candidates = buildAutoModelCandidates(
-      allModels,
-      apiProfiles,
-      autoModelSeries as AutoModelSeriesKey[],
-    );
-
-    return candidates[0] ?? null;
-  }, [allModels, apiProfiles, autoModeEnabled, autoModelSeries]);
   const globalCustomModelEntries = useMemo(
     () =>
       globalCustomModels
@@ -4305,7 +4254,7 @@ function _Chat() {
       }
 
       if (vendorName?.trim()) {
-        return vendorName.trim();
+        return getModelVendorGroupName(vendorName);
       }
 
       const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
@@ -4342,21 +4291,26 @@ function _Chat() {
         groupByKeywords("Meta", ["llama", "meta-llama", "meta "]) ||
         groupByKeywords("Mistral", ["mistral", "mixtral", "ministral"]) ||
         groupByKeywords("DeepSeek", ["deepseek", "deep-seek"]) ||
-        groupByKeywords("豆包", [
+        groupByKeywords("Doubao", [
           "doubao",
           "seed",
           "bytedance",
           "volc",
           "字节",
         ]) ||
-        groupByKeywords("千问", ["qwen", "alibaba", "tongyi", "阿里"]) ||
+        groupByKeywords("Qwen", ["qwen", "alibaba", "tongyi", "阿里"]) ||
         groupByKeywords("Xiaomi", ["xiaomi", "mimo", "mi-mo"]) ||
-        groupByKeywords("讯飞星火", ["iflytek", "xfyun", "spark", "讯飞"]) ||
-        groupByKeywords("万物", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
+        groupByKeywords("iFLYTEK Spark", [
+          "iflytek",
+          "xfyun",
+          "spark",
+          "讯飞",
+        ]) ||
+        groupByKeywords("01.AI", ["01-ai", "01.ai", "yi-", "lingyi", "万物"]) ||
         groupByKeywords("StepFun", ["stepfun", "step-", "阶跃"]) ||
-        groupByKeywords("混元", ["hunyuan", "tencent", "腾讯"]) ||
-        groupByKeywords("文心", ["baidu", "ernie", "wenxin", "qianfan"]) ||
-        groupByKeywords("智谱", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
+        groupByKeywords("Tencent Hunyuan", ["hunyuan", "tencent", "腾讯"]) ||
+        groupByKeywords("ERNIE", ["baidu", "ernie", "wenxin", "qianfan"]) ||
+        groupByKeywords("Z.ai", ["z.ai", "z-ai", "zhipu", "chatglm", "glm-"]) ||
         groupByKeywords("Kimi", ["moonshot", "kimi"]) ||
         groupByKeywords("Cohere", ["cohere", "command-r"]) ||
         groupByKeywords("Perplexity", ["perplexity", "sonar"]) ||
@@ -4436,7 +4390,8 @@ function _Chat() {
             sorted: 0,
           },
         };
-      });
+      })
+      .sort(compareModelsBySeriesVersion);
   }, [
     activeModelSelectorProfile?.provider,
     activeModelSelectorProviderId,
@@ -4470,7 +4425,7 @@ function _Chat() {
 
       const customKey = `${model.name}@${model?.provider?.providerName}`;
       const group = globalCustomModelValueSet.has(customKey)
-        ? "自定义模型"
+        ? "Custom Models"
         : getModelGroup(
             model.name,
             model?.provider?.providerName,
@@ -4494,7 +4449,7 @@ function _Chat() {
         value: `${model.name}@${String(
           model?.provider?.id || "",
         ).toLowerCase()}`,
-        disable: manualModelSelectionDisabled,
+        disable: false,
         order: model.sorted,
         publishedAt: model.publishedAt,
         publishedAtSource: model.publishedAtSource,
@@ -4517,25 +4472,9 @@ function _Chat() {
 
     // 裁剪到实际长度
     return resultLen < len ? result.slice(0, resultLen) : result;
-  }, [
-    globalCustomModelValueSet,
-    getModelGroup,
-    manualModelSelectionDisabled,
-    models,
-  ]);
+  }, [globalCustomModelValueSet, getModelGroup, models]);
 
-  const modelSelectorItems = useMemo(() => {
-    const effectiveProviderItems = providerModelSelectorItems;
-
-    if (!manualModelSelectionDisabled) {
-      return effectiveProviderItems;
-    }
-
-    return effectiveProviderItems.map((item) => ({
-      ...item,
-      disable: true,
-    }));
-  }, [manualModelSelectionDisabled, providerModelSelectorItems]);
+  const modelSelectorItems = providerModelSelectorItems;
   const isModelSelectorSyncing =
     isModelSelectionSyncing || isActiveProfileModelSyncing;
   const hasActiveProviderModels = models.length > 0;
@@ -4580,23 +4519,7 @@ function _Chat() {
     isModelConfigSyncConfirmed &&
     !sessionLoading &&
     !isPendingSessionModelSelection;
-  const modelSelectionDisabledToast = "自动模式已启用，模型选择禁用";
-  const handleManualModelSelectionDisabled = () => {
-    setModelSelectorNotice(modelSelectionDisabledToast);
-    if (modelSelectorNoticeTimerRef.current) {
-      clearTimeout(modelSelectorNoticeTimerRef.current);
-    }
-    modelSelectorNoticeTimerRef.current = setTimeout(() => {
-      setModelSelectorNotice("");
-      modelSelectorNoticeTimerRef.current = null;
-    }, 2200);
-  };
-  const autoModeButtonText = autoModeEnabled
-    ? `自动模式（${selectedAutoModelSeriesLabel}）`
-    : "自动模式（未开启）";
-  const modelSelectorButtonText = autoModeEnabled ? (
-    <>{autoModeButtonText}</>
-  ) : (
+  const modelSelectorButtonText = (
     <>
       <span className={styles["provider-button-name"]}>
         {activeModelSelectorProviderDisplayName}
@@ -4613,9 +4536,7 @@ function _Chat() {
         ))}
     </>
   );
-  const modelSelectorButtonTitle = autoModeEnabled
-    ? autoModeButtonText
-    : isModelSelectorSyncing
+  const modelSelectorButtonTitle = isModelSelectorSyncing
     ? currentModelName
     : currentModelName
     ? `${activeModelSelectorProviderDisplayName} ${currentModelName}`
@@ -4706,7 +4627,9 @@ function _Chat() {
       return list;
     }, []);
 
-    return providers.length > 0 ? providers : [];
+    return providers.sort((left, right) =>
+      compareProviderDisplayNames(left.label, right.label),
+    );
   }, [apiProfiles]);
 
   const collectProviderModelsForProfile = useCallback(
@@ -4801,11 +4724,6 @@ function _Chat() {
       setModelSelectorNotice("");
     }
   }, [modelSelectorItems.length, modelSelectorNotice, showModelSelector]);
-
-  useEffect(() => {
-    if (!autoModeEnabled) return;
-    setIsProviderSelectorOpen(false);
-  }, [autoModeEnabled]);
 
   useEffect(() => {
     return () => {
@@ -5488,7 +5406,6 @@ function _Chat() {
     const preferredRuntimeModelConfig =
       sessionMask.syncGlobalConfig &&
       !manualSessionModelSelection &&
-      !autoModeEnabled &&
       !currentSessionHasMessages
         ? getPreferredRuntimeModelConfig(
             allModels,
@@ -5500,7 +5417,6 @@ function _Chat() {
     const shouldApplySyncedGlobalModelSelection =
       !sessionMask.syncGlobalConfig &&
       !manualSessionModelSelection &&
-      !autoModeEnabled &&
       !currentSessionHasMessages &&
       Number((config as any).modelSelectionUpdatedAt || 0) > 0 &&
       !areModelConfigValuesEqual(
@@ -5533,18 +5449,7 @@ function _Chat() {
       !currentSessionHasMessages
     ) {
       nextModelConfig = { ...config.modelConfig };
-      if (
-        autoModeEnabled &&
-        autoModeDefaultCandidate &&
-        !currentSessionHasMessages
-      ) {
-        nextModelConfig = sanitizeModelConfigForCapability(
-          applyAutoModeModelConfig(nextModelConfig, {
-            model: autoModeDefaultCandidate.model as ModelType,
-            providerName: autoModeDefaultCandidate.providerName,
-          }),
-        );
-      } else if (!autoModeEnabled && !currentSessionHasMessages) {
+      if (!currentSessionHasMessages) {
         const preferredRuntimeModelConfig = getPreferredRuntimeModelConfig(
           allModels,
           nextModelConfig,
@@ -5600,7 +5505,6 @@ function _Chat() {
       sessionMask.syncGlobalConfig &&
       !manualSessionModelSelection &&
       !currentSessionHasMessages &&
-      !autoModeEnabled &&
       !areModelConfigValuesEqual(
         config.modelConfig as Record<string, unknown>,
         nextModelConfig as Record<string, unknown>,
@@ -5618,14 +5522,7 @@ function _Chat() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    autoModeDefaultCandidate,
-    autoModeEnabled,
-    config.modelConfig,
-    allModels,
-    apiProfiles,
-    currentSessionHasMessages,
-  ]);
+  }, [config.modelConfig, allModels, apiProfiles, currentSessionHasMessages]);
 
   // check if should send message
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -10367,32 +10264,64 @@ function _Chat() {
                                   )}
                                 </div>
 
-                                {/*@ts-ignore*/}
-                                {message?.tools?.length > 0 && (
-                                  <div className={styles["chat-message-tools"]}>
-                                    {Array.from(
-                                      new Map(
-                                        message.tools!.map((t) => [
-                                          t.function?.name,
-                                          t,
-                                        ]),
-                                      ).values(),
-                                    ).map((tool) => (
-                                      <div
-                                        key={tool.id}
-                                        title={tool?.errorMsg}
-                                        className={styles["chat-message-tool"]}
-                                      >
-                                        {tool.isError === true ? (
-                                          <CloseIcon />
-                                        ) : (
-                                          <span>&lt;插件&gt;</span>
-                                        )}
-                                        <span>{tool?.function?.name}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
+                                {!isUser &&
+                                  ((message.retryAttempts?.length || 0) > 0 ||
+                                    (message.tools?.length || 0) > 0) && (
+                                    <div
+                                      className={styles["chat-message-tools"]}
+                                      aria-live={
+                                        message.retrying ? "polite" : "off"
+                                      }
+                                    >
+                                      {message.retryAttempts?.map((attempt) => (
+                                        <div
+                                          key={`${attempt.attempt}-${attempt.providerId}-${attempt.model}`}
+                                          className={clsx(
+                                            styles["chat-message-tool"],
+                                            styles[
+                                              "chat-message-retry-attempt"
+                                            ],
+                                          )}
+                                        >
+                                          <span>
+                                            &lt;
+                                            {attempt.status === "trying"
+                                              ? "对话尝试中"
+                                              : attempt.status === "success"
+                                              ? "对话尝试成功"
+                                              : "对话尝试失败"}
+                                            &gt;
+                                          </span>
+                                          <span>
+                                            {attempt.provider} / {attempt.model}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      {Array.from(
+                                        new Map(
+                                          (message.tools || []).map((t) => [
+                                            t.function?.name,
+                                            t,
+                                          ]),
+                                        ).values(),
+                                      ).map((tool) => (
+                                        <div
+                                          key={tool.id}
+                                          title={tool?.errorMsg}
+                                          className={
+                                            styles["chat-message-tool"]
+                                          }
+                                        >
+                                          {tool.isError === true ? (
+                                            <CloseIcon />
+                                          ) : (
+                                            <span>&lt;插件&gt;</span>
+                                          )}
+                                          <span>{tool?.function?.name}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 <div
                                   className={clsx(
                                     styles["chat-message-content"],
@@ -11585,10 +11514,7 @@ function _Chat() {
 
       {showModelSelector && (
         <Selector
-          className={clsx("model-selector-panel", {
-            ["model-selector-auto-mode-enabled"]: autoModeEnabled,
-          })}
-          dataAutoModelEnabled={autoModeEnabled}
+          className="model-selector-panel"
           disableHoverAnimation={true}
           resetKey={modelSelectorResetKey}
           defaultSelectedValue={
@@ -11615,15 +11541,8 @@ function _Chat() {
                   )}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    if (manualModelSelectionDisabled) {
-                      return;
-                    }
                   }}
                   onClick={() => {
-                    if (manualModelSelectionDisabled) {
-                      handleManualModelSelectionDisabled();
-                      return;
-                    }
                     setIsProviderSelectorOpen((isOpen) => {
                       const willOpen = !isOpen;
                       if (willOpen && !modelSelectorProviderId) {
@@ -11764,11 +11683,6 @@ function _Chat() {
             </>
           }
           footer={null}
-          filterControlsDisabled={manualModelSelectionDisabled}
-          onFilterControlsDisabledClick={handleManualModelSelectionDisabled}
-          groupFilterDisabled={manualModelSelectionDisabled}
-          onGroupFilterDisabledClick={handleManualModelSelectionDisabled}
-          onDisabledItemClick={handleManualModelSelectionDisabled}
           items={modelSelectorItems}
           itemsArePreSorted={true}
           disableOpenAnimation={true}
@@ -11780,6 +11694,7 @@ function _Chat() {
           perfScope="ModelSelector"
           perfStartedAt={modelSelectorOpenStartedAtRef.current || undefined}
           showGroupFilter={true}
+          sortGroupsAlphabetically={true}
           groupFilterAction={
             isProviderSelectorOpen
               ? undefined
@@ -11831,7 +11746,7 @@ function _Chat() {
             setShowModelSelector(false);
           }}
           onSelection={async (s) => {
-            if (manualModelSelectionDisabled || s.length === 0) return;
+            if (s.length === 0) return;
 
             modelSelectorRequiresSelectionRef.current = false;
             setModelSelectorDefaultValue(s[0]);

@@ -6,6 +6,7 @@ import Locale from "../locales";
 import { InputRange } from "./input-range";
 import { ListItem, Select } from "./ui-lib";
 import { compareSelectorItems } from "./ui-lib";
+import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
 import { useUserModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
@@ -38,10 +39,10 @@ export function ModelConfigList(props: {
     (model) => {
       // 优先使用 vendor.name 分组
       if (model.vendor?.name) {
-        return model.vendor.name;
+        return getModelVendorGroupName(model.vendor.name);
       }
       // 降级使用 provider.providerName 分组
-      return model.provider?.providerName || "Unknown";
+      return getModelVendorGroupName(model.provider?.providerName);
     },
   );
 

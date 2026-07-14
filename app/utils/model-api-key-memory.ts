@@ -6,6 +6,7 @@ import {
   normalizeMultiKeyGroups,
   shouldAutoEnableMultiKey,
 } from "@/app/utils/multi-key";
+import { logger } from "@/app/utils/logger";
 
 const API_KEY_GROUP_MEMORY_STORAGE_KEY = "nextchat:api-key-group-memory";
 
@@ -316,10 +317,9 @@ export function rememberSuccessfulCustomModelApiKeyGroup(params: {
     groupName,
   });
 
-  console.log("[MultiKey] 成功分组已写入 localStorage，下次将优先使用", {
-    modelName,
-    groupName,
-    profileId: enabledCustomProfile.id,
-    savedToLocalStorage: true,
+  logger.chat.log("[MultiKey] ✅ 成功分组已记忆，下次优先使用", {
+    配置: enabledCustomProfile.name,
+    模型: modelName,
+    分组: groupName,
   });
 }

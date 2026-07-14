@@ -2458,18 +2458,6 @@ pre {
   opacity: 0.68 !important;
 }
 
-.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled,
-.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled:hover,
-.model-selector-auto-mode-enabled .nextchat-selector-search-input:disabled:focus,
-.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled,
-.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:hover,
-.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:focus,
-.model-selector-auto-mode-enabled .nextchat-selector-group-filter.nextchat-selector-control-disabled:active {
-  border-color: var(--border-in-light) !important;
-  background: var(--second) !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
 
 .model-selector-panel .nextchat-selector-group:not(.nextchat-selector-virtual-row) {
   position: sticky !important;
@@ -2489,8 +2477,8 @@ pre {
   margin: 0 !important;
 }
 
-/* 虚拟化时分组行不会持续挂在 DOM 中，因此使用独立标题层。强制保留
-   sticky 定位，向上滚回当前分组时也一直显示，直到遇到上一分组标题。 */
+/* 虚拟化时独立标题层覆盖当前真实分组行，并用负边距抵消自身占位。
+   这样滚动时不会在标题出现/消失的临界点改写列表高度而闪烁。 */
 .model-selector-panel #selector-list>.nextchat-selector-sticky-header {
   position: sticky !important;
   top: 0 !important;
@@ -2499,6 +2487,7 @@ pre {
   box-sizing: border-box !important;
   background: var(--model-selector-group-bg) !important;
   border-bottom-color: var(--model-selector-border-color) !important;
+  margin-bottom: calc(0px - var(--selector-virtual-group-height, 48px)) !important;
 }
 
 .model-selector-panel #selector-list>.nextchat-selector-sticky-header .nextchat-selector-sticky-header-label {

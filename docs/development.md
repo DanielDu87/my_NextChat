@@ -1,8 +1,44 @@
 # NextChat 开发指南
 
-> 本文档以当前代码为准（最后更新：2026-07-10）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
+> 本文档以当前代码为准（最后更新：2026-07-14）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
 >
 > 相关文档：[README.md](../README.md)、[AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md)、[docs/db/data-storage-sync-matrix.md](db/data-storage-sync-matrix.md)、[docs/db/nextchat-postgres-schema.sql](db/nextchat-postgres-schema.sql)。
+
+## 对话失败自动故障转移
+
+`app/store/chat.ts` 统一负责首次请求和后续候选请求；普通聊天不再区分“普通模式”和旧系列“自动模式”。请求遇到网络异常、非成功 HTTP、API 错误 payload 或空响应后，会清空失败正文并沿 `app/utils/chat-failover.ts` 生成的候选队列串行重试。当前模型之后，先跨供应商尝试同系列模型：主版本从新到旧，同一版本的完整模型名称按字母顺序排列；同系列耗尽后，尝试当前供应商的其余模型，再按供应商名称和模型名称排序尝试其他供应商。用户停止、页面中断或已经执行过工具调用时不继续跨模型重放。
+
+候选队列不读取 `type` / `types` / `features` / `capabilities` / `category` / `categories`，也不根据模型名称排除候选；所有名称有效且标记为可用的模型都可参与重试。助手消息的 `retryAttempts` 只持久化尝试序号、供应商、模型和 `trying` / `failed` / `success` 状态，不保存上游错误原因。
+
+模型获取、持久缓存和内存缓存必须保留供应商返回的完整模型列表，模型管理器浏览模式展示完整获取结果；“已添加”、聊天模型选择器和绘图模型选择器仅按用户主动添加结果展示，不再叠加模型名称、类别、能力或端点过滤。AihubMix 只补充目录顺序和供应商显示信息，不再请求、缓存或合并分类元数据；发布时间维护脚本也只维护发布时间，不再写入模型类别或能力字段。用户负责选择适合当前入口的模型。
+
+请求发送阶段允许保留图片、视频、语音等接口路由判断，因为它决定请求路径和参数格式；该判断不得用于模型获取、缓存、列表显示或故障转移候选过滤。
+
+系列识别覆盖 GPT、OpenAI o 系列、Claude、Gemini、DeepSeek、豆包、Qwen、Llama、Mistral、Mixtral、Command R、ERNIE、ChatGLM/GLM、Spark、Baichuan、InternLM、混元、Moonshot/Kimi、MiniMax，并为其他带稳定名称前缀的模型提供兜底识别。名称中能提取数字版本时按版本数组倒序，例如 5.6、5.5、5.4；版本相同则按完整模型名称的后缀字母顺序排列，模型名称完全相同才以当前供应商和供应商名称稳定排序。无法提取版本时回退到 `publishedAt` / 名称日期排序。
+
+`app/utils/model-series-order.ts` 是故障转移、聊天模型选择器和模型管理器共用的系列排序 owner。聊天选择器的 API Profile 菜单、模型管理器的 Profile 菜单，以及模型商分组均按显示名称首字母排序，例如 DeepSeek 位于 OpenAI 之前；每个分组内部调用 `compareModelsBySeriesVersion()`，浏览可添加模型和“已添加”模式不得分别维护另一套顺序。通用 `Selector` 仅在显式传入 `sortGroupsAlphabetically` 时启用该分组顺序，避免影响非模型选择器。
+
+模型商筛选菜单必须按 `getGroupFilterLabel()` 产生的最终可见名称排序，不能按后端原始分组键排序。`getModelVendorGroupName()` 是选择器、聊天模型菜单和设置模型下拉框共用的唯一分组名称入口：同一 `PROVIDER_ICONS` 本地图标资源的全部别名必须收敛到同一个可见名称，且同一个可见名称不得映射到不同图标。保留“全部模型商”入口；旧缓存或供应商元数据中的中文模型商品牌映射为 Qwen、Doubao、Z.ai、iFLYTEK Spark、Tencent Hunyuan、ERNIE、01.AI 等官方英文名称，并保留 FLUX、NVIDIA、MiniMax 等官方大小写。新名称只作为原图标路径的别名，不替换图标文件；没有本地图标资源的模型商在分组和模型行统一使用 `app/icons/llm-icons/default.svg` 的项目内置浅绿色默认图标，不得回退成 OpenAI 图标。
+
+ElevenLabs、Mureka 与 SiliconFlow 的分组和模型行使用 `public/provider-icons/elevenlabs.svg`、`public/provider-icons/mureka.png`、`public/provider-icons/siliconflow-bg.svg` 官方品牌资源；Kwai Kolors 复用既有 Kwaipilot 官方图标，ChatGLM 复用智谱官方图标。`StepFun`、`StepFun AI`、`StepFun Al`、`StepFun-AI`、`Step Fun` 与“阶跃”在新获取、旧缓存、分组显示和筛选中统一为 `StepFun`，并统一使用 `public/provider-icons/stepfun.png`；该图标与 Suno 在模型商筛选菜单和模型明细行复用 `selector-group-filter-icon-frame`。`selector-group-filter-icon-image-fill` 铺满 `32px` 父容器后再按 `1.14` 放大，由父容器圆角裁切资源自带的透明留白，使图形紧贴边框且不修改图标文件。任何没有本地官方资源或曾指向失效资源的模型商（当前包括 Fireworks、Groq、Together、Yuto、InternLM、Ocoolai）在模型管理器、选择器与会话头像中统一使用 `app/icons/llm-icons/default.svg` 浅绿色默认图标，禁止回退成 OpenAI 图标。
+
+AiHubMix 模型管理器与服务端同步必须使用官方完整目录 `/api/v1/models`，不得以按 API Key 权限过滤的 `/v1/models` 作为平台总模型数；目录响应使用 `model_id / model_name`，提取模型数组时必须识别这两个字段。完整目录经现有去重后写入模型缓存；`/v1/models` 仅可用于请求权限范围校验，不得覆盖平台目录数量。模型获取候选 Key 的顺序固定为模型获取 Key、默认业务 Key、余额查询管理 Key、业务分组 Key；余额查询 Key 只作为当次请求兜底，不得写回业务分组或访问态。每个 Key 的成功路径、认证方式和模型数量都按供应商配置与 Key 指纹独立保存在数据库中；后续优先复用全部已缓存路径。多路径探测必须保留全部成功结果并按模型名去重合并，同时以模型数最多的成功路径作为后续缓存路径，禁止按第一个成功响应决定数量或缓存。
+
+模型商归属不属于模型类别过滤。`app/utils/model-vendor-normalize.ts` 是前端获取、旧缓存归一化与服务端同步共用的厂商名称规范入口：先读取上游模型对象中的 `vendor / developer / owned_by / owner / organization` 等声明字段，并规范为现有模型商分组；声明值若与当前模型 ID 相同，说明上游误把模型名填进 `owned_by`，必须忽略并回退模型 ID 推断；这些字段为空或仅为 Custom、Unknown、System 等通用占位时，同样使用模型 ID 与命名空间推断；官方直连或自定义配置的模型仍无法识别时回退其配置的模型商。Yuto 缺失 `vendor_id` 的模型必须按已知官方模型系列补齐模型商，且客户端加载旧缓存时也要重新规范：Act Two、Aleph、Gen3/Gen4 → Runway，Eleven/Scribe/Dubbing → ElevenLabs，Flux Tools → FLUX，Kling 全系列 → Kling AI，`vidu2.0 / viduq*` 全系列 → Vidu，Moonshot/Kimi 全系列 → Moonshot；`Seed / Seedream / Seedance` → ByteDance，QVQ/Wan/HappyHorse → Alibaba，Yi → 01.AI，Spark → iFLYTEK Spark，Command → Cohere，Baichuan → Baichuan，InternLM → InternLM，Jamba → AI21，BGE → BAAI，LongCat → Meituan，Ling/Ring → InclusionAI。并覆盖 Midjourney、Mureka、Luma、Suno、PixVerse、Viggle、Cursor Composer、Xiaomi MiMo、MiniMax Image、Google Veo/Gemma/Nano Banana、Alibaba Wan、StepFun、Nvidia Nemotron。Yuto 当前返回的 Kling `vendor_id=33 / 快手` 统一显示为 Kling AI，Vidu 系列的 `vendor_id=35` 保持官方英文名称 Vidu；无法识别的命名空间才允许使用斜杠前缀兜底。补充归属不得删除或隐藏任何模型。
+
+模型名精确为 `auto`、`automatic`、`default`、`system` 或“自动/默认/系统”时属于系统自动选择，不代表上游模型商；必须在所有自定义模型商下固定归入 Custom，并以最高优先级覆盖上游返回的 `vendor_id / developer_id / owned_by` 等字段和配置模型商兜底规则。Custom 分组和模型行统一使用项目内置浅绿色默认图标。
+
+模型管理器“全部模型商”筛选必须展示 `CUSTOM`，便于筛选 Auto 等系统选择模型；仅“已添加/Added”作为状态分组继续隐藏。
+
+模型管理器手动获取或重新获取当前 API Profile 的模型时，控制台使用现有 `[ModelManager]` 格式输出两条状态日志：`🔄 正在获取 <平台> 平台的模型...`，成功后输出 `✅ 已获取到 <平台> 平台的模型 <数量> 个`。仅在取得至少一个模型后输出成功日志，不输出 API Key、请求地址或模型完整列表。
+
+模型选择器达到虚拟列表阈值后，分组行仍必须保留估算高度并渲染在模型列表中；固定标题层覆盖当前真实分组行，并抵消自身布局占位，避免首个或切换中的供应商标题重复或闪烁，固定标题层不能替代真实的供应商分组边界。
+
+重试状态 UI 与插件状态行共用同一个 `.chat-message-tools` 容器和 `.chat-message-tool` 行：使用相同的灰色 `12px` 文字、行高、上下间距、左侧缩进和移动端归零规则，不额外绘制卡片、边框或彩色状态。每个候选独占一行，格式为 `<对话尝试中> 供应商 / 模型`、`<对话尝试失败> 供应商 / 模型` 或 `<对话尝试成功> 供应商 / 模型`。
+
+候选成功后必须走全局模型的 localStorage-first 链路：先更新 `nextchat:global-model-config`、当前会话、Config Store 与 Access Store，再后台同步 `Config` / `Access` / `Chat`。因此页面顶部选择器、下一轮请求、后续新对话和跨用户默认模型都会立即使用成功候选。自动重试始终启用，不提供按钮、设置项或人工上限。
+
+控制台日志统一使用 `🔄 对话请求尝试`、`✅ 对话请求尝试成功`、`❌ 对话请求尝试失败`、`⏹️ 对话请求已停止`。预期中的模型和多 Key 分组故障转移使用普通日志级别，避免浏览器为每次候选失败展开告警调用栈；请求日志只保留尝试序号、供应商、模型和精简原因，不输出上游完整错误正文或 Request ID。临时 API Profile 只服务于同步生成请求参数，不再输出容易被误解为请求生命周期的“请求结束”日志。余额刷新被组件卸载或模型切换主动取消时按 `⏹️` 调试日志记录，不作为查询错误。
 
 ## 页面打开日志
 
@@ -27,7 +63,7 @@
 ### 故障对照表
 
 | 日志内容                                   | 含义                                | 排查方向                                                                               |
-| ------------------------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------- |
+| ------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------- |
 | `已读取 API 配置（0 个）`                  | 当前用户没有 apiProfiles            | 检查 `DEFAULT_SYNC_USER_ID`、登录账号；服务端 `/api/db/sync/access-control` 是否被覆盖 |
 | `已读取 API 配置备份（0 条，暂无备份）`    | 该用户在 `nextchat_backup` 库无备份 | 检查 `BACKUP_PG*` 环境变量、SSH 隧道；`degraded: true` 表示备份库连接失败              |
 | `已读取对话备份（0 次）`                   | 该用户没有对话备份                  | 同上；admin 用户可看 `全站 X 次 / Y 个会话` 字段确认全站情况                           |

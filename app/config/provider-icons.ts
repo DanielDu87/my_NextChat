@@ -52,6 +52,8 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Zhipu
   zhipu: "/provider-icons/zhipu-bg.svg",
+  "zhipu ai": "/provider-icons/zhipu-bg.svg",
+  "z.ai": "/provider-icons/zhipu-bg.svg",
   智谱: "/provider-icons/zhipu-bg.svg",
 
   // 01.AI / 零一万物
@@ -68,10 +70,12 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Minimax
   minimax: "/provider-icons/minimax-bg.svg",
+  "hailuo ai": "/provider-icons/minimax-bg.svg",
   海螺: "/provider-icons/minimax-bg.svg",
 
   // Tencent / 腾讯混元
   tencent: "/provider-icons/hunyuan-bg.svg",
+  "tencent hunyuan": "/provider-icons/hunyuan-bg.svg",
   腾讯: "/provider-icons/hunyuan-bg.svg",
   hunyuan: "/provider-icons/hunyuan-bg.svg",
   混元: "/provider-icons/hunyuan-bg.svg",
@@ -79,17 +83,22 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Baidu / 文心一言
   baidu: "/provider-icons/wenxin-bg.svg",
+  ernie: "/provider-icons/wenxin-bg.svg",
   文心: "/provider-icons/wenxin-bg.svg",
   文心一言: "/provider-icons/wenxin-bg.svg",
   wenxin: "/provider-icons/wenxin-bg.svg",
 
   // iFlytek
   iflytek: "/provider-icons/iflytek.png",
+  "iflytek spark": "/provider-icons/iflytek.png",
   讯飞星火: "/provider-icons/iflytek.png",
   讯飞: "/provider-icons/iflytek.png",
 
   // Cohere
   cohere: "/provider-icons/cohere-official.png",
+
+  // ElevenLabs
+  elevenlabs: "/provider-icons/elevenlabs.svg",
 
   // Mistral
   mistral: "/provider-icons/mistral-official.png",
@@ -120,7 +129,17 @@ export const PROVIDER_ICONS: Record<string, string> = {
   perplexity: "/provider-icons/perplexity-bg.svg",
 
   // StepFun
-  stepfun: "/provider-icons/stepfun-bg.svg",
+  stepfun: "/provider-icons/stepfun.png",
+  "stepfun ai": "/provider-icons/stepfun.png",
+  "stepfun al": "/provider-icons/stepfun.png",
+  "stepfun-ai": "/provider-icons/stepfun.png",
+  "step fun": "/provider-icons/stepfun.png",
+  阶跃: "/provider-icons/stepfun.png",
+
+  // SiliconFlow
+  siliconflow: "/provider-icons/siliconflow-bg.svg",
+  "silicon flow": "/provider-icons/siliconflow-bg.svg",
+  硅基流动: "/provider-icons/siliconflow-bg.svg",
 
   // Baai
   baai: "/provider-icons/baai-bg.svg",
@@ -154,11 +173,23 @@ export const PROVIDER_ICONS: Record<string, string> = {
   // Luma
   luma: "/provider-icons/luma.png",
 
+  // Mureka
+  mureka: "/provider-icons/mureka.png",
+
   // Kuaishou
   kuaishou: "/provider-icons/kuaishou.png",
   快手: "/provider-icons/kuaishou.png",
+  kling: "/provider-icons/kuaishou.png",
+  "kling ai": "/provider-icons/kuaishou.png",
   kwaipilot: "/provider-icons/kwaipilot-bg.svg",
   "kwaipilot ai": "/provider-icons/kwaipilot-bg.svg",
+  "kwai kolors": "/provider-icons/kwaipilot-bg.svg",
+  kolors: "/provider-icons/kwaipilot-bg.svg",
+  kat: "/provider-icons/kwaipilot-bg.svg",
+  "kat coder": "/provider-icons/kwaipilot-bg.svg",
+  "kat-coder": "/provider-icons/kwaipilot-bg.svg",
+  "kat dev": "/provider-icons/kwaipilot-bg.svg",
+  "kat-dev": "/provider-icons/kwaipilot-bg.svg",
 
   // Midjourney
   midjourney: "/provider-icons/midjourney.png",
@@ -194,22 +225,10 @@ export const PROVIDER_ICONS: Record<string, string> = {
   ascend: "/provider-icons/ascend-huawei.png",
 
   // ChatGLM
-  chatglm: "/provider-icons/chatglm.png",
-
-  // Fireworks
-  fireworks: "/provider-icons/fireworks-official.png",
-
-  // Groq
-  groq: "/provider-icons/groq-official.png",
-
-  // Together
-  together: "/provider-icons/together-official.png",
+  chatglm: "/provider-icons/zhipu-bg.svg",
 
   // Upstage
   upstage: "/provider-icons/upstage-bg.svg",
-
-  // Yuto
-  yuto: "/provider-icons/yuto-official.png",
 
   // Aihubmix
   aihubmix: "/provider-icons/aihubmix-bg.svg",
@@ -301,10 +320,26 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Writer
   writer: "/provider-icons/writer-bg.svg",
-
-  // 其他/未分类
-  other: "/provider-icons/openai.png",
 };
+
+const CANONICAL_PROVIDER_KEY_BY_ICON = Object.entries(PROVIDER_ICONS).reduce(
+  (canonicalKeys, [key, icon]) => {
+    if (!canonicalKeys.has(icon)) {
+      canonicalKeys.set(icon, key);
+    }
+    return canonicalKeys;
+  },
+  new Map<string, string>(),
+);
+
+/**
+ * 返回共享图标映射中同一品牌的稳定键。所有同图标别名都会得到相同结果，
+ * 供模型选择器等分组入口合并旧缓存和上游不同写法。
+ */
+export function getCanonicalProviderKey(provider: string): string | undefined {
+  const icon = getProviderIcon(provider);
+  return icon ? CANONICAL_PROVIDER_KEY_BY_ICON.get(icon) : undefined;
+}
 
 /**
  * 获取供应商图标路径

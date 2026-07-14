@@ -1,8 +1,4 @@
 import {
-  normalizeModelClassification,
-  type NormalizedModelClassification,
-} from "../app/utils/model-classification";
-import {
   normalizePublishedAt,
   resolvePublishedAtFromName,
   resolvePublishedAtFromRules,
@@ -29,13 +25,6 @@ type ModelRecord = {
     name?: string;
     icon?: string;
   };
-  category?: string;
-  categorySource?: 0 | 1;
-  type?: string;
-  types?: string[];
-  features?: string[];
-  capabilities?: string[];
-  categories?: string[];
   publishedAt?: number;
   publishedAtSource?: ModelPublishedAtSource;
   publishedAtUrl?: string;
@@ -131,7 +120,6 @@ const WEBDAV_USERNAME = process.env.WEBDAV_USERNAME || "";
 const WEBDAV_PASSWORD = process.env.WEBDAV_PASSWORD || "";
 const MODELS_DIR = "models";
 const MODELS_INDEX_FILE = `${MODELS_DIR}/index.json`;
-const MODELS_EXPLANATION_FILE = `${MODELS_DIR}/category-explanation.json`;
 const MODELS_CACHE_FILE = `${MODELS_DIR}/published-at-cache.json`;
 const MODELS_UNMATCHED_FILE = `${MODELS_DIR}/published-at-unmatched.json`;
 const REQUEST_RETRY_COUNT = 4;
@@ -512,153 +500,6 @@ function isOpenAIModel(model: ModelRecord) {
   );
 }
 
-function mergeUniqueValues(...groups: Array<string[] | undefined>) {
-  const values = new Set<string>();
-  groups.forEach((group) => group?.forEach((value) => values.add(value)));
-  return values.size > 0 ? [...values] : undefined;
-}
-
-function applyClassificationExtras(
-  base: ModelRecord,
-  extras: Partial<NormalizedModelClassification>,
-) {
-  const merged = {
-    ...base,
-    type: extras.type ?? base.type,
-    types: mergeUniqueValues(base.types, extras.types),
-    features: mergeUniqueValues(base.features, extras.features),
-    capabilities: mergeUniqueValues(base.capabilities, extras.capabilities),
-    categories: mergeUniqueValues(base.categories, extras.categories),
-    category: extras.category ?? base.category,
-    categorySource:
-      extras.category !== undefined
-        ? extras.categorySource ?? 0
-        : base.categorySource,
-  };
-
-  const normalized = normalizeModelClassification(merged);
-  return {
-    ...base,
-    ...normalized,
-  };
-}
-
-function modalityClassification(
-  modalities?: ModelModalities,
-): Partial<NormalizedModelClassification> {
-  if (!modalities) return {};
-
-  const types = new Set<string>();
-  const features = new Set<string>();
-  const capabilities = new Set<string>();
-  const categories = new Set<"image" | "video" | "web" | "thinking">();
-
-  if (modalities.reasoning) {
-    categories.add("thinking");
-    features.add("thinking");
-    capabilities.add("reasoning");
-  }
-
-  if (modalities.output.image) {
-    categories.add("image");
-    types.add("image");
-    types.add("image_generation");
-    capabilities.add("image");
-    capabilities.add("generate-image");
-  } else if (modalities.input.image) {
-    types.add("vision");
-    capabilities.add("vision");
-  }
-
-  if (modalities.output.video) {
-    categories.add("video");
-    types.add("video");
-    types.add("video_generation");
-    capabilities.add("video");
-    capabilities.add("generate-video");
-  }
-
-  if (modalities.input.audio || modalities.output.audio) {
-    types.add("audio");
-  }
-
-  const normalizedCategories = [...categories];
-  return {
-    category: normalizedCategories[0],
-    categorySource: normalizedCategories[0] ? 0 : undefined,
-    type:
-      normalizedCategories[0] === "image"
-        ? "image"
-        : normalizedCategories[0] === "video"
-        ? "video"
-        : undefined,
-    types: types.size > 0 ? [...types] : undefined,
-    features: features.size > 0 ? [...features] : undefined,
-    capabilities: capabilities.size > 0 ? [...capabilities] : undefined,
-    categories: normalizedCategories.length > 0 ? normalizedCategories : undefined,
-  };
-}
-
-function pipelineTagClassification(
-  pipelineTag?: string,
-): Partial<NormalizedModelClassification> {
-  const value = String(pipelineTag || "").toLowerCase().trim();
-  if (!value) return {};
-
-  if (["text-to-image", "image-to-image"].includes(value)) {
-    return {
-      category: "image",
-      categorySource: 0,
-      type: "image",
-      types: ["image", "image_generation"],
-      capabilities: ["image", "generate-image"],
-      categories: ["image"],
-    };
-  }
-
-  if (["text-to-video", "image-to-video"].includes(value)) {
-    return {
-      category: "video",
-      categorySource: 0,
-      type: "video",
-      types: ["video", "video_generation"],
-      capabilities: ["video", "generate-video"],
-      categories: ["video"],
-    };
-  }
-
-  if (["image-text-to-text", "visual-question-answering"].includes(value)) {
-    return {
-      types: ["vision"],
-      capabilities: ["vision"],
-    };
-  }
-
-  if (["automatic-speech-recognition", "audio-to-audio"].includes(value)) {
-    return {
-      types: ["audio"],
-      capabilities: ["audio"],
-    };
-  }
-
-  if (value === "text-to-speech") {
-    return {
-      types: ["audio"],
-      capabilities: ["audio", "generate-audio"],
-    };
-  }
-
-  if (["feature-extraction", "sentence-similarity"].includes(value)) {
-    return {
-      type: "embedding",
-      types: ["embedding"],
-      capabilities: ["embedding"],
-    };
-  }
-
-  return {};
-}
-
 function normalizeCacheInfo(record?: CacheRecord): PublishedAtInfo | undefined {
   if (!record) return undefined;
   if (
@@ -708,92 +549,6 @@ function preferPublishedAtInfo(
   if (nextPriority > currentPriority) return next;
   if (nextPriority < currentPriority) return current;
   return next.publishedAt > current.publishedAt ? next : current;
-}
-
-function buildExplanation() {
-  return {
-    title: "模型字段说明",
-    description:
-      "这个文件用于解释 WebDAV models 目录中每个模型对象里分类与发布时间字段的写法。供应商模型文件本身仍然只保存模型数据。",
-    fields: {
-      category: {
-        type: "string",
-        required: false,
-        description: "主分类字段。当前用于界面筛选和主分类判断。",
-        allowedValues: ["image", "video", "web", "thinking"],
-      },
-      categorySource: {
-        type: "number",
-        required: false,
-        description: "分类来源。0 表示自动分类，1 表示手动分类。",
-        allowedValues: {
-          0: "自动分类",
-          1: "手动分类",
-        },
-      },
-      categories: {
-        type: "string[]",
-        required: false,
-        description: "扩展分类列表。可同时保存多个分类标签。",
-      },
-      type: {
-        type: "string",
-        required: false,
-        description: "模型主类型。主要用于兼容旧逻辑和能力判断。",
-      },
-      types: {
-        type: "string[]",
-        required: false,
-        description: "模型类型列表。通常包含更细的类型信息。",
-      },
-      features: {
-        type: "string[]",
-        required: false,
-        description: "功能特征列表。常见值如 thinking、web、web_search。",
-      },
-      capabilities: {
-        type: "string[]",
-        required: false,
-        description: "能力列表。常见值如 generate-image、generate-video、reasoning、search。",
-      },
-      publishedAt: {
-        type: "number",
-        required: false,
-        description: "模型正式发布时间，固定使用 YYYYMMDD 整数格式。",
-      },
-      publishedAtSource: {
-        type: "string",
-        required: false,
-        description: "发布时间来源标记，用于区分字段是如何确认的。",
-        allowedValues: {
-          name: "直接从模型名里的完整日期解析得到",
-          official: "该模型名本身有独立官方发布时间",
-          family: "该条目没有独立官方日期，回退到官方模型家族发布日期",
-          manual: "手动维护或人工确认的发布时间",
-          openrouter: "来自 OpenRouter 模型 API 的 created 时间戳",
-          llm_stats: "来自 llm-stats.com 模型详情或更新时间线",
-          huggingface: "来自 huggingface.co 模型 API 或模型页元数据",
-          artificial_analysis: "来自 artificialanalysis.ai 模型页元数据",
-        },
-      },
-      publishedAtUrl: {
-        type: "string",
-        required: false,
-        description: "最终采用发布时间对应的来源链接。",
-      },
-      publishedAtNote: {
-        type: "string",
-        required: false,
-        description: "必要时补充简短说明，例如别名、包装名、二手源回填或家族回退原因。",
-      },
-    },
-    notes: [
-      "WebDAV 是模型数据唯一真源，本目录中的文件不在本地长期保存。",
-      "发布时间优先级固定为：模型名完整日期 -> 官方/缓存 -> OpenRouter -> llm-stats -> Artificial Analysis -> Hugging Face -> 家族回退 -> 未命中报告。",
-      "publishedAtSource=family 表示该条目没有独立官方日期，使用了家族发布日期。",
-      "未能可靠确认发布时间的模型不会伪造日期，而是写入 published-at-unmatched.json。",
-    ],
-  };
 }
 
 function modalitiesFromOpenRouter(
@@ -1018,14 +773,12 @@ async function fetchHuggingFaceModel(modelId: string) {
             tags?: string[];
           };
           const publishedAt = parseHumanDate(data.createdAt);
-          const classification = pipelineTagClassification(data.pipeline_tag);
           return publishedAt
             ? {
                 publishedAt,
                 publishedAtSource: "huggingface" as const,
                 publishedAtUrl: `https://huggingface.co/${modelId}`,
                 sourceName: "huggingface",
-                modalities: modalityClassificationToModalities(classification),
               }
             : undefined;
         } catch {
@@ -1053,29 +806,6 @@ function collectEmbeddedHuggingFaceIds(name: string) {
   }
 
   return [...values];
-}
-
-function modalityClassificationToModalities(
-  classification: Partial<NormalizedModelClassification>,
-): ModelModalities | undefined {
-  if (!classification.category && !classification.type && !classification.types) {
-    return undefined;
-  }
-
-  return {
-    input: {
-      text: true,
-      image:
-        classification.types?.includes("vision") ||
-        classification.capabilities?.includes("vision"),
-    },
-    output: {
-      text:
-        classification.category !== "image" && classification.category !== "video",
-      image: classification.category === "image",
-      video: classification.category === "video",
-    },
-  };
 }
 
 function pickBestSlugMatch(
@@ -1532,11 +1262,7 @@ async function main() {
             }
           }
 
-          const nextClassification = applyClassificationExtras(
-            model,
-            mergeClassificationSources(model, resolved),
-          );
-          const nextModel = applyPublishedAt(nextClassification, resolved || {});
+          const nextModel = applyPublishedAt(model, resolved || {});
 
           if (resolved?.publishedAt && resolved.publishedAtSource) {
             nextCacheRecords[cacheKey] = {
@@ -1611,7 +1337,6 @@ async function main() {
     entries: nextEntries,
     updatedAt: new Date().toISOString(),
   });
-  await writeWebDavJson(MODELS_EXPLANATION_FILE, buildExplanation());
   await writeWebDavJson(MODELS_CACHE_FILE, {
     updatedAt: new Date().toISOString(),
     records: nextCacheRecords,
@@ -1633,41 +1358,6 @@ async function main() {
   console.log(`家族回退: ${summary.familyResolved}`);
   console.log(`手动/缓存: ${summary.manualResolved}`);
   console.log(`未命中: ${summary.unmatched}`);
-}
-
-function mergeClassificationSources(
-  model: ModelRecord,
-  secondary?: SecondaryMatch,
-): Partial<NormalizedModelClassification> {
-  const lowerName = String(model.name || "").toLowerCase();
-  const extraTypes = new Set<string>();
-  const extraCapabilities = new Set<string>();
-
-  if (/embedding|rerank/.test(lowerName)) {
-    extraTypes.add("embedding");
-    extraCapabilities.add("embedding");
-  }
-  if (/tts|text-to-speech/.test(lowerName)) {
-    extraTypes.add("audio");
-    extraCapabilities.add("generate-audio");
-  }
-  if (/moderation/.test(lowerName)) {
-    extraCapabilities.add("moderation");
-  }
-
-  const modalityFields = modalityClassification(secondary?.modalities);
-
-  return {
-    ...modalityFields,
-    types: mergeUniqueValues(
-      modalityFields.types,
-      extraTypes.size > 0 ? [...extraTypes] : undefined,
-    ),
-    capabilities: mergeUniqueValues(
-      modalityFields.capabilities,
-      extraCapabilities.size > 0 ? [...extraCapabilities] : undefined,
-    ),
-  };
 }
 
 main().catch((error) => {

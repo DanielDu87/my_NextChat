@@ -391,7 +391,7 @@ yarn prompts
 围绕模型列表的获取、分类、能力判定、自动同步：
 
 - 缓存 store：`app/store/model-cache.ts`。
-- 工具：`app/utils/model*.ts`（`model.ts`、`models.ts`、`model-capabilities.ts`、`model-classification.ts`、`model-category-rules.ts`、`model-pool.ts`、`model-provider.ts`、`model-sync-diff.ts`、`model-selector-provider.ts`、`model-published-at.ts`、`auto-model.ts`、`managed-model-rebuild.ts`、`manual-model-selection.ts`、`manual-sync-guard.ts`、`useModelFetcher.ts`）。
+- 工具：`app/utils/model*.ts`（`model.ts`、`models.ts`、`model-capabilities.ts`、`model-pool.ts`、`model-provider.ts`、`model-sync-diff.ts`、`model-selector-provider.ts`、`model-published-at.ts`、`model-series-order.ts`、`chat-failover.ts`、`managed-model-rebuild.ts`、`manual-model-selection.ts`、`manual-sync-guard.ts`、`useModelFetcher.ts`）。
 - 聚合元数据服务：`aihubmix.ts`、`tencent.ts`、`baidu.ts`、`cloudflare.ts` 等。
 - 服务端同步：`app/utils/server/provider-model-sync.ts`。
 
@@ -499,7 +499,7 @@ yarn prompts
 `app/utils/` 关键模块：
 
 - **存储/同步**：`store.ts`、`database-state-storage.ts`、`indexeddb-state-storage.ts`、`sync.ts`、`chat-sync.ts`、`chat-sync-state.ts`、`chat-persist-storage.ts`、`sync-store-keys.ts`、`sync-user-client.ts`、`sync-tab-coordination.ts`
-- **聊天**：`chat.ts`、`chat-session-model.ts`、`chat-session-merge.ts`、`new-chat.ts`、`stream.ts`、`token.ts`、`clone.ts`、`merge.ts`
+- **聊天**：`chat.ts`、`chat-failover.ts`、`chat-session-merge.ts`、`new-chat.ts`、`stream.ts`、`token.ts`、`clone.ts`、`merge.ts`
 - **模型**：见上文「模型管理」
 - **绘画参数**：`draw-model-params.ts`
 - **访问/Key**：`access-profiles.ts`、`multi-key.ts`、`model-api-key-memory.ts`

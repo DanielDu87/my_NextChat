@@ -4,6 +4,7 @@ const ALLOWED_TARGET_PREFIXES = [
   "/api/proxy/",
   "/api/yuto/pricing",
   "/api/toapis/pricing",
+  "/api/aihubmix/models",
   "/api/ocoolai/available-model",
   "/api/ocoolai/available-models-by-groups",
 ];

@@ -1,7 +1,6 @@
 import { ServiceProvider } from "@/app/constant";
 import { requestUpstream } from "@/app/api/upstream";
 import { applyModelPublishedAt } from "@/app/utils/model-published-at";
-import { normalizeModelClassification } from "@/app/utils/model-classification";
 import {
   appendAuthQueryParam,
   buildAuthHeaders,
@@ -12,11 +11,20 @@ import {
   type ApiProfileAuthType,
 } from "@/app/utils/model-fetch-common";
 import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
+import { appendAihubmixHeaders } from "@/app/utils/aihubmix";
 import {
   getProviderModelCachedPath,
+  getProviderModelKeyCachedPath,
+  saveProviderModelKeyCachedPath,
   saveProviderModelCachedPath,
 } from "./provider-model-repository";
 import { isYutoProfileLike, isOcoolProfileLike } from "@/app/utils/multi-key";
+import {
+  getDeclaredModelVendor,
+  getProviderFallbackModelVendor,
+  isCustomAutoModelName,
+  normalizeModelVendorName,
+} from "@/app/utils/model-vendor-normalize";
 
 export type SyncedLLMModel = {
   name: string;
@@ -86,8 +94,8 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   14: { name: "01.AI", icon: "Yi" },
   15: { name: "Moonshot", icon: "Moonshot" },
   16: { name: "StepFun", icon: "StepFun" },
-  17: { name: "Nvidia", icon: "Nvidia" },
-  18: { name: "Minimax", icon: "Minimax.Color" },
+  17: { name: "NVIDIA", icon: "Nvidia" },
+  18: { name: "MiniMax", icon: "Minimax.Color" },
   19: { name: "Perplexity", icon: "Perplexity" },
   20: { name: "Baichuan", icon: "Baichuan" },
   21: { name: "Ideogram", icon: "Ideogram" },
@@ -95,7 +103,7 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   23: { name: "Stability", icon: "Stability" },
   24: { name: "Tencent", icon: "Hunyuan.Color" },
   25: { name: "Baidu", icon: "Ernie.Color" },
-  27: { name: "Flux", icon: "Flux" },
+  27: { name: "FLUX", icon: "Flux" },
   28: { name: "Meituan", icon: "Meituan" },
   29: { name: "InclusionAI", icon: "InclusionAI" },
   30: { name: "BAAI", icon: "BAAI" },
@@ -110,10 +118,6 @@ const aihubmixCatalogMetadataMapPromises = new Map<
       { rank: number; vendor?: { id: number; name: string; icon?: string } }
     >
   >
->();
-const aihubmixClassificationMapPromises = new Map<
-  string,
-  Promise<Map<string, { features?: string[]; types?: string[] }>>
 >();
 const TRAILING_RELEASE_DATE_PATTERN =
   /(?:[-_.](?:20\d{2}[-_.]?(?:0[1-9]|1[0-2])[-_.]?(?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|1[0-2])[-_.](?:0[1-9]|[12]\d|3[01])))$/i;
@@ -354,10 +358,20 @@ function inferVendorFromModelName(
   if (
     lowerName.startsWith("gpt-") ||
     lowerName.startsWith("chatgpt-") ||
+    lowerName.startsWith("chat-latest") ||
+    lowerName.startsWith("codex-") ||
+    lowerName.startsWith("computer-use-") ||
     lowerName.startsWith("dall-e-") ||
     lowerName.startsWith("dalle-") ||
+    lowerName.startsWith("omni-moderation-") ||
+    lowerName.startsWith("text-moderation-") ||
+    lowerName.startsWith("sora-") ||
     lowerName.startsWith("tts-") ||
     lowerName.startsWith("whisper-") ||
+    lowerName === "o1" ||
+    lowerName === "o3" ||
+    lowerName === "o4" ||
+    lowerName === "o5" ||
     lowerName.startsWith("o1-") ||
     lowerName.startsWith("o3-") ||
     lowerName.startsWith("o4-")
@@ -369,9 +383,16 @@ function inferVendorFromModelName(
   }
   if (
     lowerName.startsWith("gemini-") ||
+    lowerName.startsWith("gemma-") ||
     lowerName.startsWith("pregenie-") ||
+    lowerName.startsWith("text-embedding-004") ||
     lowerName.startsWith("veo-") ||
-    lowerName.startsWith("imagen-")
+    lowerName.startsWith("veo3") ||
+    lowerName.startsWith("veo/") ||
+    lowerName.startsWith("chirp-") ||
+    lowerName.startsWith("imagen-") ||
+    lowerName.startsWith("nano_banana") ||
+    lowerName.startsWith("gemini_omni_")
   ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
@@ -381,13 +402,31 @@ function inferVendorFromModelName(
   if (lowerName.startsWith("grok-")) {
     return { name: "xAI", icon: "XAI" };
   }
-  if (lowerName.startsWith("qwen-") || lowerName.startsWith("qwen3")) {
+  if (
+    lowerName.startsWith("qwen-") ||
+    lowerName.startsWith("qwen2") ||
+    lowerName.startsWith("qwen3") ||
+    lowerName.startsWith("qwq-") ||
+    lowerName.startsWith("qvq-") ||
+    lowerName.startsWith("wan2") ||
+    lowerName.startsWith("happyhorse-") ||
+    lowerName.startsWith("gte-") ||
+    lowerName.startsWith("paraformer-") ||
+    lowerName.startsWith("sambert-") ||
+    lowerName.startsWith("sensevoice")
+  ) {
     return { name: "Alibaba", icon: "Qwen.Color" };
   }
-  if (lowerName.startsWith("doubao-")) {
+  if (
+    lowerName.startsWith("doubao-") ||
+    lowerName.startsWith("seed-") ||
+    lowerName.startsWith("seedream-") ||
+    lowerName.startsWith("seedance-") ||
+    lowerName.startsWith("jimeng-")
+  ) {
     return { name: "ByteDance", icon: "Doubao.Color" };
   }
-  if (lowerName.startsWith("moonshot-")) {
+  if (lowerName.startsWith("moonshot-") || lowerName.startsWith("kimi-")) {
     return { name: "Moonshot", icon: "Moonshot" };
   }
   if (lowerName.startsWith("ernie-")) {
@@ -396,21 +435,128 @@ function inferVendorFromModelName(
   if (lowerName.startsWith("hunyuan-")) {
     return { name: "Tencent", icon: "Hunyuan.Color" };
   }
-  if (lowerName.startsWith("glm-")) {
+  if (lowerName.startsWith("glm-") || lowerName.startsWith("chatglm-")) {
     return { name: "Zhipu", icon: "Zhipu.Color" };
   }
-  if (
-    lowerName.startsWith("llama-") ||
-    lowerName.startsWith("llama3") ||
-    lowerName.startsWith("nemotron-")
-  ) {
+  if (lowerName.startsWith("llama-") || lowerName.startsWith("llama3")) {
     return { name: "Meta", icon: "Ollama" };
+  }
+  if (lowerName.startsWith("nemotron-")) {
+    return { name: "NVIDIA", icon: "Nvidia" };
   }
   if (lowerName.startsWith("mistral-") || lowerName.startsWith("mixtral-")) {
     return { name: "Mistral", icon: "Mistral.Color" };
   }
-  if (lowerName.startsWith("abab-") || lowerName.startsWith("minimax")) {
-    return { name: "Minimax", icon: "Minimax.Color" };
+  if (lowerName.startsWith("abab") || lowerName.startsWith("minimax")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("image-01")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("hailuo")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("mimo-")) {
+    return { name: "Xiaomi", icon: "Xiaomi" };
+  }
+  if (lowerName.startsWith("yi-")) {
+    return { name: "01.AI", icon: "Yi" };
+  }
+  if (lowerName.startsWith("spark-")) {
+    return { name: "iFLYTEK Spark", icon: "Box" };
+  }
+  if (lowerName.startsWith("step-")) {
+    return { name: "StepFun", icon: "StepFun" };
+  }
+  if (lowerName.startsWith("baichuan")) {
+    return { name: "Baichuan", icon: "Baichuan" };
+  }
+  if (lowerName.startsWith("internlm") || lowerName.startsWith("intern-lm")) {
+    return { name: "InternLM", icon: "Box" };
+  }
+  if (lowerName.startsWith("command-") || lowerName.startsWith("cohere-")) {
+    return { name: "Cohere", icon: "Box" };
+  }
+  if (lowerName.startsWith("jamba")) {
+    return { name: "AI21", icon: "Box" };
+  }
+  if (lowerName.startsWith("bge-")) {
+    return { name: "BAAI", icon: "BAAI" };
+  }
+  if (lowerName.startsWith("longcat")) {
+    return { name: "Meituan", icon: "Meituan" };
+  }
+  if (lowerName.startsWith("ling-") || lowerName.startsWith("ring-")) {
+    return { name: "InclusionAI", icon: "InclusionAI" };
+  }
+  if (lowerName.startsWith("composer-")) {
+    return { name: "Cursor", icon: "Box" };
+  }
+  if (
+    lowerName.startsWith("act_two/") ||
+    lowerName.startsWith("aleph2/") ||
+    lowerName.startsWith("gen3") ||
+    lowerName.startsWith("gen4") ||
+    lowerName.startsWith("runway_")
+  ) {
+    return { name: "Runway", icon: "Runway" };
+  }
+  if (lowerName.startsWith("kling-") || lowerName.startsWith("kling_")) {
+    return { name: "Kling AI", icon: "Kling.Color" };
+  }
+  if (lowerName.startsWith("kat-") || lowerName.startsWith("kat_")) {
+    return { name: "Kwai Kolors", icon: "Box" };
+  }
+  if (
+    lowerName.startsWith("eleven_") ||
+    lowerName.startsWith("scribe_") ||
+    lowerName === "dubbing"
+  ) {
+    return { name: "ElevenLabs", icon: "Box" };
+  }
+  if (
+    lowerName === "flux" ||
+    lowerName.startsWith("flux-") ||
+    lowerName.startsWith("flux_")
+  ) {
+    return { name: "FLUX", icon: "Flux" };
+  }
+  if (
+    lowerName.startsWith("mj_") ||
+    lowerName.startsWith("mj-") ||
+    lowerName.startsWith("midjourney")
+  ) {
+    return { name: "Midjourney", icon: "Midjourney" };
+  }
+  if (lowerName.startsWith("mureka")) {
+    return { name: "Mureka", icon: "Box" };
+  }
+  if (lowerName.startsWith("luma_") || lowerName.startsWith("luma-")) {
+    return { name: "Luma", icon: "Luma" };
+  }
+  if (lowerName === "suno" || lowerName.startsWith("suno_")) {
+    return { name: "Suno", icon: "Suno" };
+  }
+  if (lowerName.startsWith("pixverse/")) {
+    return { name: "PixVerse", icon: "Pixverse" };
+  }
+  if (lowerName.startsWith("viggle/")) {
+    return { name: "Viggle", icon: "Viggle" };
+  }
+  if (lowerName.startsWith("vidu")) {
+    return { name: "Vidu", icon: "Vidu" };
+  }
+  if (lowerName.startsWith("jina-")) {
+    return { name: "Jina AI", icon: "Jina" };
+  }
+  if (lowerName.startsWith("sparkdesk-")) {
+    return { name: "iFLYTEK Spark", icon: "Box" };
+  }
+  if (lowerName.startsWith("stable-diffusion")) {
+    return { name: "Stability", icon: "Stability" };
+  }
+  if (lowerName.startsWith("pika-")) {
+    return { name: "Pika", icon: "Box" };
   }
 
   return null;
@@ -420,7 +566,19 @@ function isGenericVendorName(vendorName?: string) {
   const normalized = String(vendorName || "")
     .trim()
     .toLowerCase();
-  return !normalized || ["custom", "other", "unknown"].includes(normalized);
+  return (
+    !normalized ||
+    [
+      "api",
+      "custom",
+      "default",
+      "model",
+      "models",
+      "other",
+      "system",
+      "unknown",
+    ].includes(normalized)
+  );
 }
 
 function formatNamespacedVendorName(prefix: string) {
@@ -442,9 +600,16 @@ function inferVendorFromOcoolaiModel(
   const normalizedModelName = modelName.trim().replace(/^~+/, "");
   const [prefix] = normalizedModelName.split("/", 1);
   const normalizedPrefix = prefix.trim().toLowerCase();
+  const inferredVendor = inferVendorFromModelName(normalizedModelName);
+
+  if (inferredVendor) {
+    return inferredVendor;
+  }
 
   const prefixVendorMap: Record<string, { name: string; icon?: string }> = {
     "01-ai": { name: "01.AI", icon: "Yi" },
+    "01ai": { name: "01.AI", icon: "Yi" },
+    ai21: { name: "AI21", icon: "Box" },
     ascend: { name: "Ascend", icon: "Box" },
     anthropic: { name: "Anthropic", icon: "Claude.Color" },
     amazon: { name: "Amazon", icon: "Box" },
@@ -452,8 +617,17 @@ function inferVendorFromOcoolaiModel(
     azure: { name: "Microsoft", icon: "Azure" },
     baai: { name: "BAAI", icon: "Box" },
     baidu: { name: "Baidu", icon: "Ernie.Color" },
+    baichuan: { name: "Baichuan", icon: "Baichuan" },
+    "baichuan-inc": { name: "Baichuan", icon: "Baichuan" },
+    bytedance: { name: "ByteDance", icon: "Doubao.Color" },
     cohere: { name: "Cohere", icon: "Box" },
     "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
+    iflytek: { name: "iFLYTEK Spark", icon: "Box" },
+    internlm: { name: "InternLM", icon: "Box" },
+    kat: { name: "Kwai Kolors", icon: "Box" },
+    "kat-coder": { name: "Kwai Kolors", icon: "Box" },
+    "kat-dev": { name: "Kwai Kolors", icon: "Box" },
+    kwaipilot: { name: "Kwai Kolors", icon: "Box" },
     google: { name: "Google", icon: "Gemini.Color" },
     "google-ai": { name: "Google", icon: "Gemini.Color" },
     "ibm-granite": { name: "IBM", icon: "Box" },
@@ -461,18 +635,22 @@ function inferVendorFromOcoolaiModel(
     meta: { name: "Meta", icon: "Ollama" },
     microsoft: { name: "Microsoft", icon: "Azure" },
     mistralai: { name: "Mistral", icon: "Mistral.Color" },
+    minimax: { name: "MiniMax", icon: "Minimax.Color" },
+    moonshot: { name: "Moonshot", icon: "Moonshot" },
     moonshotai: { name: "Moonshot", icon: "Moonshot" },
-    nvidia: { name: "Nvidia", icon: "Box" },
+    nvidia: { name: "NVIDIA", icon: "Box" },
     ocoolai: { name: "Ocoolai", icon: "Box" },
     openai: { name: "OpenAI", icon: "OpenAI" },
     openrouter: { name: "OpenRouter", icon: "Box" },
     perplexity: { name: "Perplexity", icon: "Box" },
     qwen: { name: "Alibaba", icon: "Qwen.Color" },
+    "zai-org": { name: "Zhipu", icon: "Zhipu.Color" },
     tencent: { name: "Tencent", icon: "Hunyuan.Color" },
     web: { name: "Web", icon: "Globe" },
     "x-ai": { name: "xAI", icon: "XAI" },
     xai: { name: "xAI", icon: "XAI" },
     "z-ai": { name: "Zhipu", icon: "Zhipu.Color" },
+    "zhipu-ai": { name: "Zhipu", icon: "Zhipu.Color" },
     zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
   };
 
@@ -485,7 +663,63 @@ function inferVendorFromOcoolaiModel(
     );
   }
 
-  return inferVendorFromModelName(normalizedModelName);
+  return null;
+}
+
+function inferVendorFromDeclaredModelOwner(
+  model: Record<string, unknown>,
+): { name: string; icon?: string } | null {
+  const commonVendor = getDeclaredModelVendor(model);
+  if (commonVendor) return commonVendor;
+  const declaredVendorAliases: Record<string, { name: string; icon?: string }> =
+    {
+      alibaba: { name: "Alibaba", icon: "Qwen.Color" },
+      阿里巴巴: { name: "Alibaba", icon: "Qwen.Color" },
+      bytedance: { name: "ByteDance", icon: "Doubao.Color" },
+      字节跳动: { name: "ByteDance", icon: "Doubao.Color" },
+      火山引擎: { name: "ByteDance", icon: "Doubao.Color" },
+      deepseek: { name: "DeepSeek", icon: "DeepSeek.Color" },
+      flux: { name: "FLUX", icon: "Flux" },
+      iflytek: { name: "iFLYTEK Spark", icon: "Box" },
+      讯飞: { name: "iFLYTEK Spark", icon: "Box" },
+      讯飞星火: { name: "iFLYTEK Spark", icon: "Box" },
+      minimax: { name: "MiniMax", icon: "Minimax.Color" },
+      "mini max": { name: "MiniMax", icon: "Minimax.Color" },
+      "01.ai": { name: "01.AI", icon: "Yi" },
+      "01-ai": { name: "01.AI", icon: "Yi" },
+      零一万物: { name: "01.AI", icon: "Yi" },
+      zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
+      "zhipu ai": { name: "Zhipu", icon: "Zhipu.Color" },
+      "z.ai": { name: "Zhipu", icon: "Zhipu.Color" },
+      智谱: { name: "Zhipu", icon: "Zhipu.Color" },
+    };
+  const ownerFields = [
+    "vendor",
+    "vendor_name",
+    "vendorName",
+    "developer",
+    "developer_name",
+    "developerName",
+    "owned_by",
+    "ownedBy",
+    "owner",
+    "organization",
+    "organization_name",
+    "organizationName",
+    "author",
+    "publisher",
+    "company",
+  ];
+
+  for (const field of ownerFields) {
+    const owner = model[field];
+    if (typeof owner !== "string" || isGenericVendorName(owner)) continue;
+    const declaredVendor = declaredVendorAliases[owner.trim().toLowerCase()];
+    if (declaredVendor) return declaredVendor;
+    return inferVendorFromOcoolaiModel(`${owner}/_`);
+  }
+
+  return null;
 }
 
 function getRawModelName(model: any) {
@@ -517,11 +751,7 @@ function extractModelListFromResponse(data: any): any[] {
       // 如果是数组且包含模型对象，收集它
       if (item.length > 0) {
         const first = item[0];
-        if (
-          first &&
-          typeof first === "object" &&
-          (first.id || first.name || first.model)
-        ) {
+        if (first && typeof first === "object" && getRawModelName(first)) {
           containers.push(item);
         }
       }
@@ -595,63 +825,6 @@ function extractModelListFromResponse(data: any): any[] {
   return [];
 }
 
-function inferEndpointCapabilities(model: any) {
-  const endpointTypes = Array.isArray(model?.supported_endpoint_types)
-    ? model.supported_endpoint_types
-    : Array.isArray(model?.supportedEndpointTypes)
-    ? model.supportedEndpointTypes
-    : Array.isArray(model?.endpoints)
-    ? model.endpoints
-    : [];
-  const normalizedEndpoints = endpointTypes
-    .map((item: unknown) => String(item || "").toLowerCase())
-    .filter(Boolean);
-  if (normalizedEndpoints.length === 0) {
-    return {};
-  }
-
-  const features = new Set<string>();
-  const types = new Set<string>();
-  if (normalizedEndpoints.some((item: string) => item.includes("chat"))) {
-    features.add("chat");
-    types.add("chat");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("response"))) {
-    features.add("responses");
-    types.add("chat");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("image"))) {
-    features.add("image");
-    types.add("image");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("video"))) {
-    features.add("video");
-    types.add("video");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("audio"))) {
-    features.add("audio");
-    types.add("audio");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("embedding"))) {
-    features.add("embedding");
-    types.add("embedding");
-  }
-
-  return {
-    features: [...features],
-    types: [...types],
-    type: types.values().next().value,
-    capabilities: [
-      ...(features.has("chat") || features.has("responses") ? ["chat"] : []),
-      ...(features.has("responses") ? ["responses"] : []),
-      ...(features.has("image") ? ["image"] : []),
-      ...(features.has("video") ? ["video"] : []),
-      ...(features.has("audio") ? ["audio"] : []),
-      ...(features.has("embedding") ? ["embedding"] : []),
-    ],
-  };
-}
-
 function mapModels(
   models: any[],
   providerId: string,
@@ -664,7 +837,6 @@ function mapModels(
     string,
     { rank: number; vendor?: { id: number; name: string; icon?: string } }
   >,
-  classificationMap?: Map<string, { features?: string[]; types?: string[] }>,
 ) {
   let seq = 1000;
   return models.map((model: any) => {
@@ -676,25 +848,18 @@ function mapModels(
       .map((key) => catalogMetadataMap?.get(key))
       .find(Boolean);
     const catalogRank = catalogMetadata?.rank ?? undefined;
-    const classificationMeta = lookupKeys
-      .map((key) => classificationMap?.get(key))
-      .find(Boolean);
-    const normalized = normalizeModelClassification(
-      classificationMeta
-        ? {
-            name: modelName,
-            features: classificationMeta.features,
-            types: classificationMeta.types,
-            type: classificationMeta.types?.[0],
-          }
-        : model,
-    );
     const isAiHubMixBrandedModel = String(modelName || "")
       .toLowerCase()
       .includes("aihubmix");
 
     let vendor: { id: number; name: string; icon?: string } | undefined;
-    if (model.vendor_id !== undefined && vendorsMap) {
+    // Auto/默认/系统是选择策略而非真实模型商，必须覆盖上游可能返回的
+    // vendor_id、owned_by 等字段，固定进入 Custom 分组。
+    if (isCustomAutoModelName(modelName)) {
+      vendor = { id: -5, name: "Custom", icon: "default" };
+    }
+
+    if (!vendor && model.vendor_id !== undefined && vendorsMap) {
       const vendorInfo = vendorsMap[model.vendor_id];
       if (vendorInfo) {
         vendor = {
@@ -703,7 +868,7 @@ function mapModels(
           icon: vendorInfo.icon,
         };
       }
-    } else if (model.developer_id !== undefined && vendorsMap) {
+    } else if (!vendor && model.developer_id !== undefined && vendorsMap) {
       const vendorInfo = vendorsMap[model.developer_id];
       if (vendorInfo) {
         vendor = {
@@ -712,7 +877,27 @@ function mapModels(
           icon: vendorInfo.icon,
         };
       }
-    } else {
+    }
+
+    if (vendor) {
+      const normalizedVendor = normalizeModelVendorName(vendor.name);
+      if (normalizedVendor) {
+        vendor = { ...vendor, ...normalizedVendor };
+      }
+    }
+
+    if (!vendor) {
+      const declaredVendor = inferVendorFromDeclaredModelOwner(model);
+      if (declaredVendor) {
+        vendor = {
+          id: -3,
+          name: declaredVendor.name,
+          icon: declaredVendor.icon,
+        };
+      }
+    }
+
+    if (!vendor) {
       const inferred = inferVendorFromOcoolaiModel(modelName);
       if (inferred) {
         vendor = {
@@ -722,13 +907,25 @@ function mapModels(
         };
       }
     }
+    if (!vendor) {
+      const providerVendor = getProviderFallbackModelVendor(
+        providerId,
+        providerName,
+      );
+      if (providerVendor) {
+        vendor = { id: -4, ...providerVendor };
+      }
+    }
 
     if (catalogMetadata?.vendor) {
       vendor = catalogMetadata.vendor;
     }
 
     const inferredVendor = inferVendorFromModelName(String(modelName || ""));
-    if (inferredVendor && isGenericVendorName(vendor?.name)) {
+    if (
+      inferredVendor &&
+      (isGenericVendorName(vendor?.name) || inferredVendor.name === "Kling AI")
+    ) {
       vendor = {
         id: -1,
         name: inferredVendor.name,
@@ -752,25 +949,6 @@ function mapModels(
       remoteRank: catalogRank ?? currentSeq,
       remoteRankSource:
         catalogRank !== undefined ? "aihubmix_catalog" : "provider_models",
-      category: normalized.category,
-      categorySource: normalized.categorySource,
-      type: inferEndpointCapabilities(model).type || normalized.type,
-      types: inferEndpointCapabilities(model).types?.length
-        ? inferEndpointCapabilities(model).types
-        : normalized.types,
-      features: [
-        ...new Set([
-          ...(normalized.features || []),
-          ...(inferEndpointCapabilities(model).features || []),
-        ]),
-      ],
-      capabilities: [
-        ...new Set([
-          ...(normalized.capabilities || []),
-          ...(inferEndpointCapabilities(model).capabilities || []),
-        ]),
-      ],
-      categories: normalized.categories,
       apiKeyGroup,
       provider: {
         id: providerId,
@@ -836,64 +1014,6 @@ async function fetchAiHubMixCatalogMetadataMap(baseUrl: string) {
   return metadataMap;
 }
 
-async function fetchAiHubMixClassificationMap(baseUrl: string) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
-  const response = await requestUpstream(
-    `${normalizedBaseUrl}/call/mdl_info_pagination?p=0&num=10000`,
-    {
-      method: "GET",
-      dnsServers: ["1.1.1.1", "8.8.8.8"],
-      headers: {
-        Accept: "application/json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `AihubMix 分类元数据请求失败: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const payload = await response.json();
-  const items = Array.isArray(payload?.data) ? payload.data : [];
-  const classificationMap = new Map<
-    string,
-    { features?: string[]; types?: string[] }
-  >();
-
-  items.forEach((item: any) => {
-    const modelName =
-      item?.model ||
-      item?.id ||
-      item?.name ||
-      item?.model_id ||
-      item?.model_name;
-    const normalizedName = String(modelName || "")
-      .trim()
-      .toLowerCase();
-    if (!normalizedName || classificationMap.has(normalizedName)) {
-      return;
-    }
-
-    const features = String(item?.features || "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-    const types = String(item?.modalities || "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-
-    classificationMap.set(normalizedName, {
-      features: features.length > 0 ? features : undefined,
-      types: types.length > 0 ? types : undefined,
-    });
-  });
-
-  return classificationMap;
-}
-
 async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
   const normalized = normalizeBaseUrl(baseUrl);
   let promise = aihubmixCatalogMetadataMapPromises.get(normalized);
@@ -903,19 +1023,6 @@ async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
       throw error;
     });
     aihubmixCatalogMetadataMapPromises.set(normalized, promise);
-  }
-  return promise;
-}
-
-async function getAiHubMixClassificationMap(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl);
-  let promise = aihubmixClassificationMapPromises.get(normalized);
-  if (!promise) {
-    promise = fetchAiHubMixClassificationMap(baseUrl).catch((error) => {
-      aihubmixClassificationMapPromises.delete(normalized);
-      throw error;
-    });
-    aihubmixClassificationMapPromises.set(normalized, promise);
   }
   return promise;
 }
@@ -1090,6 +1197,11 @@ async function fetchAllJsonWithCandidates(
     authorizationHeaderName?: string;
   },
 ) {
+  const successfulResults: Array<{
+    data: any;
+    url: string;
+    keyIndex: number;
+  }> = [];
   for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
     const url = urls[urlIndex];
     const authCandidates =
@@ -1099,27 +1211,42 @@ async function fetchAllJsonWithCandidates(
         ? [headers.Authorization]
         : [undefined];
 
-    for (let index = 0; index < authCandidates.length; index++) {
-      try {
-        const data = await fetchJsonWithCandidates(
-          [url],
-          headers,
-          [authCandidates[index]].filter(Boolean) as string[],
-          validateJson,
-          getModelCount,
-          {
-            ...options,
-            outerIndex: urlIndex,
-            outerTotal: urls.length,
-            keyIndex: index + 1,
-            keyTotal: authCandidates.length,
-          },
-        );
-        return [{ data, url, keyIndex: index + 1 }];
-      } catch {
-        // 单个路径或 key 失败不影响后续全量尝试。
-      }
-    }
+    // 同一路径上的所有 Key 同时探测：多 Key 不再被前一个 Key 的超时阻塞。
+    // 路径仍按既有顺序推进，避免首次获取向上游瞬时发出 Key × 全路径的洪峰。
+    const pathResults = await Promise.all(
+      authCandidates.map(async (authorization, index) => {
+        try {
+          const data = await fetchJsonWithCandidates(
+            [url],
+            headers,
+            [authorization].filter(Boolean) as string[],
+            validateJson,
+            getModelCount,
+            {
+              ...options,
+              outerIndex: urlIndex,
+              outerTotal: urls.length,
+              keyIndex: index + 1,
+              keyTotal: authCandidates.length,
+            },
+          );
+          return { data, url, keyIndex: index + 1 };
+        } catch {
+          // 单个路径或 Key 失败不影响后续全量尝试。
+          return null;
+        }
+      }),
+    );
+    successfulResults.push(
+      ...pathResults.filter(
+        (result): result is { data: any; url: string; keyIndex: number } =>
+          result !== null,
+      ),
+    );
+  }
+
+  if (successfulResults.length > 0) {
+    return successfulResults;
   }
 
   throw new Error("未找到可用的模型接口");
@@ -1248,9 +1375,11 @@ export async function fetchModelsFromProviderForServer(
     ...parseExtraHeaders(fetchOptions?.extraHeaders),
     ...buildAuthHeaders(modelFetchApiKeyCandidates[0], authType),
   };
+  appendAihubmixHeaders(headers, baseUrl);
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const baseWithoutV1 = normalizedBaseUrl.replace(/\/v1$/, "");
+  const useAiHubMixCatalog = isAiHubMixUrl(baseUrl);
 
   // 获取缓存的模型接口路径
   let cachedPath: string | undefined;
@@ -1273,13 +1402,14 @@ export async function fetchModelsFromProviderForServer(
     }
   }
 
-  const candidateUrls = profileOpenAICompatible
+  const candidateUrls = useAiHubMixCatalog
+    ? [`${baseWithoutV1}/api/v1/models`]
+    : profileOpenAICompatible
     ? buildModelFetchCandidateUrls(baseUrl)
     : [normalizedBaseUrl];
-  const cachedCandidateUrl = buildCachedModelUrl(
-    cachedBaseUrl || normalizedBaseUrl,
-    cachedPath,
-  );
+  const cachedCandidateUrl = useAiHubMixCatalog
+    ? undefined
+    : buildCachedModelUrl(cachedBaseUrl || normalizedBaseUrl, cachedPath);
   console.log(
     `[Fetch Models] 📋 将依次尝试 ${candidateUrls.length} 个服务端模型接口`,
   );
@@ -1366,12 +1496,45 @@ export async function fetchModelsFromProviderForServer(
     }
   };
 
-  const orderedUrls = cachedCandidateUrl
-    ? [
-        cachedCandidateUrl,
-        ...candidateUrls.filter((url) => url !== cachedCandidateUrl),
-      ]
-    : candidateUrls;
+  const keyCachedUrls = fetchOptions?.profileId
+    ? await Promise.all(
+        entries.map(async (entry) => {
+          const cached = await getProviderModelKeyCachedPath(
+            fetchOptions.profileId!,
+            entry.apiKey,
+          ).catch(() => null);
+          return cached?.cachedModelPath
+            ? buildCachedModelUrl(
+                cached.cachedModelBaseUrl || normalizedBaseUrl,
+                cached.cachedModelPath,
+              )
+            : undefined;
+        }),
+      )
+    : [];
+  const allKeysHaveCachedPath =
+    entries.length > 0 &&
+    keyCachedUrls.length === entries.length &&
+    keyCachedUrls.every((url): url is string => Boolean(url));
+  const orderedUrls = [
+    ...new Set(
+      [
+        ...keyCachedUrls.filter((url): url is string => Boolean(url)),
+        ...(allKeysHaveCachedPath
+          ? []
+          : [cachedCandidateUrl, ...candidateUrls]),
+      ].filter((url): url is string => Boolean(url)),
+    ),
+  ];
+  if (allKeysHaveCachedPath) {
+    console.log(
+      "[Fetch Models] ⚡ 全部 Key 命中独立缓存路径，跳过通用多路径回退",
+      {
+        keyCount: entries.length,
+        pathCount: orderedUrls.length,
+      },
+    );
+  }
   const entryResults = await fetchAllJsonWithCandidates(
     orderedUrls,
     headers,
@@ -1389,9 +1552,22 @@ export async function fetchModelsFromProviderForServer(
     },
   ).catch(() => []);
 
-  if (entryResults[0]) {
-    const entry = entries[entryResults[0].keyIndex - 1];
-    if (entry) await persistSuccessfulFetch(entryResults[0].url, entry.apiKey);
+  const bestEntryResult = entryResults.reduce<
+    (typeof entryResults)[number] | undefined
+  >((best, result) => {
+    const count = extractModelListFromResponse(result.data).length;
+    return !best || count > extractModelListFromResponse(best.data).length
+      ? result
+      : best;
+  }, undefined);
+  if (bestEntryResult) {
+    const entry = entries[bestEntryResult.keyIndex - 1];
+    if (entry) await persistSuccessfulFetch(bestEntryResult.url, entry.apiKey);
+    console.log("[Fetch Models] 📌 服务端已选择模型数量最多的成功路径", {
+      path: bestEntryResult.url,
+      modelCount: extractModelListFromResponse(bestEntryResult.data).length,
+      mergedPathCount: entryResults.length,
+    });
   }
   entryResults.forEach((result) => {
     payloadResults.push({
@@ -1400,6 +1576,24 @@ export async function fetchModelsFromProviderForServer(
       url: result.url,
     });
   });
+  if (fetchOptions?.profileId) {
+    await Promise.all(
+      entryResults.map(async (result) => {
+        const entry = entries[result.keyIndex - 1];
+        if (!entry?.apiKey) return;
+        await saveProviderModelKeyCachedPath(
+          fetchOptions.profileId!,
+          entry.apiKey,
+          {
+            cachedModelPath: getCachedModelPath(result.url),
+            cachedModelBaseUrl: normalizedBaseUrl,
+            cachedModelAuthType: authType,
+            modelCount: extractModelListFromResponse(result.data).length,
+          },
+        );
+      }),
+    );
+  }
 
   const data = payloadResults[0]?.data;
 
@@ -1411,24 +1605,12 @@ export async function fetchModelsFromProviderForServer(
         { rank: number; vendor?: { id: number; name: string; icon?: string } }
       >
     | undefined;
-  let classificationMap:
-    | Map<string, { features?: string[]; types?: string[] }>
-    | undefined;
-
   if (isAiHubMixUrl(baseUrl)) {
     try {
       catalogMetadataMap = await getAiHubMixCatalogMetadataMap(baseUrl);
     } catch (error) {
       console.warn(
         "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到本地兜底排序",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    try {
-      classificationMap = await getAiHubMixClassificationMap(baseUrl);
-    } catch (error) {
-      console.warn(
-        "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -1471,7 +1653,6 @@ export async function fetchModelsFromProviderForServer(
       payloadVendorsMap,
       result.groupName,
       catalogMetadataMap,
-      classificationMap,
     ).forEach((model) => {
       const key = `${model.name}@${model.provider?.id}`;
       if (!mergedModelMap.has(key)) {
@@ -1552,7 +1733,6 @@ export async function fetchModelsFromProviderForServer(
           groupedVendorsMap,
           groupName,
           catalogMetadataMap,
-          classificationMap,
         ).forEach((model) => {
           const key = `${model.name}@${model.provider?.id}`;
           const existing = mergedModelMap.get(key);
@@ -1613,7 +1793,6 @@ export async function fetchModelsFromProviderForServer(
         vendorsMap,
         undefined,
         catalogMetadataMap,
-        classificationMap,
       );
       return {
         models: mappedModels,
@@ -1656,7 +1835,6 @@ export async function fetchModelsFromProviderForServer(
             vendorsMap,
             groupName,
             catalogMetadataMap,
-            classificationMap,
           ).forEach((model) => {
             const key = `${model.name}@${model.provider?.id}`;
             const existing = mergedModelMap.get(key);
@@ -1735,7 +1913,6 @@ export async function fetchModelsFromProviderForServer(
           vendorsMap,
           groupName,
           catalogMetadataMap,
-          classificationMap,
         ).forEach((model) => {
           const key = `${model.name}@${model.provider?.id}`;
           const existing = mergedModelMap.get(key);
@@ -1787,7 +1964,6 @@ export async function fetchModelsFromProviderForServer(
     vendorsMap,
     undefined,
     catalogMetadataMap,
-    classificationMap,
   );
 
   return {

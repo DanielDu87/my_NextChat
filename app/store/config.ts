@@ -39,7 +39,6 @@ export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
 export type TTSModelType = (typeof DEFAULT_TTS_MODELS)[number];
 export type TTSVoiceType = (typeof DEFAULT_TTS_VOICES)[number];
 export type TTSEngineType = (typeof DEFAULT_TTS_ENGINES)[number];
-export type AutoModelSeriesKey = "gpt" | "deepseek" | "doubao";
 
 export enum SubmitKey {
   Enter = "Enter",
@@ -225,11 +224,9 @@ export const DEFAULT_CONFIG = {
 
   customModels: "",
   models: [] as LLMModel[],
-  autoModelSeries: [] as AutoModelSeriesKey[],
 
   // 字段级同步时间戳：跨浏览器同步时按字段独立判定胜方，避免相互覆盖
   customModelsUpdatedAt: 0,
-  autoModelSeriesUpdatedAt: 0,
   modelSelectionUpdatedAt: 0,
 
   modelConfig: {
@@ -620,7 +617,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
   }),
   {
     name: StoreKey.Config,
-    version: 4.6,
+    version: 4.7,
     partialize(state) {
       const { models, ...persistedState } = state as ChatConfig;
       void models;
@@ -727,10 +724,6 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
           DEFAULT_CONFIG.modelConfig.compressProviderName;
       }
 
-      if (version < 4.2) {
-        state.autoModelSeries = [];
-      }
-
       if (version < 4.3 && Array.isArray(state.models)) {
         state.models = state.models.map((model) => {
           if (normalizePublishedAt(model?.publishedAt)) {
@@ -753,12 +746,16 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
 
       if (version < 4.5) {
         (state as any).customModelsUpdatedAt = 0;
-        (state as any).autoModelSeriesUpdatedAt = 0;
         (state as any).modelSelectionUpdatedAt = 0;
       }
 
       if (version < 4.6) {
         state.modelConfig = applyOpenAIStandardModelConfig(state.modelConfig);
+      }
+
+      if (version < 4.7) {
+        delete (state as any).autoModelSeries;
+        delete (state as any).autoModelSeriesUpdatedAt;
       }
 
       state.modelConfig = sanitizeLegacyGeneratedCustomModelConfig(

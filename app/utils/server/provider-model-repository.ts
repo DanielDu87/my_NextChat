@@ -1,4 +1,5 @@
 import { ensureSyncStorageSchema, pgQuery } from "./postgres";
+import { createHash } from "crypto";
 import {
   getEncryptedSyncSecret,
   setEncryptedSyncSecret,
@@ -11,6 +12,77 @@ export type ProviderModelCachedPath = {
   cachedModelAuthType?: string;
   cachedModelApiKey?: string;
 };
+
+export type ProviderModelKeyCachedPath = Omit<
+  ProviderModelCachedPath,
+  "cachedModelApiKey"
+> & {
+  modelCount?: number;
+};
+
+function getApiKeyFingerprint(apiKey: string) {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+
+export async function getProviderModelKeyCachedPath(
+  profileId: string,
+  apiKey: string,
+): Promise<ProviderModelKeyCachedPath | null> {
+  const normalizedKey = String(apiKey || "").trim();
+  if (!normalizedKey) return null;
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<any>(
+    `select r.cached_model_path, r.cached_model_base_url,
+            r.cached_model_auth_type, r.model_count
+       from provider_model_key_routes r
+       join provider_configs pc on pc.id = r.provider_config_id
+      where pc.provider_code = $1 and r.key_fingerprint = $2
+      limit 1`,
+    [profileId, getApiKeyFingerprint(normalizedKey)],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        cachedModelPath: row.cached_model_path || undefined,
+        cachedModelBaseUrl: row.cached_model_base_url || undefined,
+        cachedModelAuthType: row.cached_model_auth_type || undefined,
+        modelCount: Number(row.model_count || 0),
+      }
+    : null;
+}
+
+export async function saveProviderModelKeyCachedPath(
+  profileId: string,
+  apiKey: string,
+  options: ProviderModelKeyCachedPath,
+) {
+  const normalizedKey = String(apiKey || "").trim();
+  const path = String(options.cachedModelPath || "").trim();
+  if (!normalizedKey || !path) return;
+  await ensureSyncStorageSchema();
+  await pgQuery(
+    `insert into provider_model_key_routes (
+       provider_config_id, key_fingerprint, cached_model_path,
+       cached_model_base_url, cached_model_auth_type, model_count
+     )
+     select id, $2, $3, $4, $5, $6 from provider_configs
+      where provider_code = $1
+     on conflict (provider_config_id, key_fingerprint) do update set
+       cached_model_path = excluded.cached_model_path,
+       cached_model_base_url = excluded.cached_model_base_url,
+       cached_model_auth_type = excluded.cached_model_auth_type,
+       model_count = excluded.model_count,
+       updated_at = now()`,
+    [
+      profileId,
+      getApiKeyFingerprint(normalizedKey),
+      path,
+      options.cachedModelBaseUrl || null,
+      options.cachedModelAuthType || null,
+      Math.max(0, Number(options.modelCount || 0)),
+    ],
+  );
+}
 
 function getModelFetchSecretKey(profileId: string) {
   return `provider-model-fetch:${profileId}`;

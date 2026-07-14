@@ -11,7 +11,7 @@ import MinIcon from "../icons/min.svg";
 import BotIconDefault from "../icons/llm-icons/default.svg";
 
 import Locale from "../locales";
-import { PROVIDER_ICONS } from "../config/provider-icons";
+import { getProviderIcon } from "../config/provider-icons";
 
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -32,7 +32,9 @@ import { Avatar } from "./emoji";
 import { LoadingView } from "./loading-view";
 import clsx from "clsx";
 import { compareModelsForDisplay } from "../utils/model-published-at";
+import { compareProviderDisplayNames } from "../utils/model-series-order";
 import { isPerfFeatureEnabled, logPerfSummary, nowMs } from "../utils/perf";
+import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
 
 type SelectorItemMeta = {
   category?: string;
@@ -83,8 +85,8 @@ const SELECTOR_PREFERRED_GROUP_ORDER = [
   "01.AI",
   "Moonshot",
   "StepFun",
-  "Nvidia",
-  "Minimax",
+  "NVIDIA",
+  "MiniMax",
   "Perplexity",
   "Baichuan",
   "Tencent",
@@ -92,13 +94,24 @@ const SELECTOR_PREFERRED_GROUP_ORDER = [
   "Ideogram",
   "Jina AI",
   "Stability",
-  "Flux",
+  "FLUX",
   "Meituan",
   "InclusionAI",
   "BAAI",
   "Xiaomi",
   "Other",
 ] as const;
+
+function getGroupFilterLabel(group: string) {
+  const normalized = group.trim().toLowerCase();
+  if (normalized === "__default__") return "__default__";
+  if (normalized === "all") return "全部模型商";
+  if (["已添加", "added"].includes(normalized)) return "Added";
+  if (["自定义模型", "custom models", "custom"].includes(normalized)) {
+    return "CUSTOM";
+  }
+  return getModelVendorGroupName(group);
+}
 
 export function compareSelectorItems<T>(
   left: SelectorItemBase<T>,
@@ -875,7 +888,6 @@ export function Selector<T>(props: {
   defaultGroup?: string;
   title?: React.ReactNode;
   className?: string;
-  dataAutoModelEnabled?: boolean;
   headerHint?: React.ReactNode;
   filterControlsDisabled?: boolean;
   onFilterControlsDisabledClick?: () => void;
@@ -889,6 +901,7 @@ export function Selector<T>(props: {
   resetKey?: number | string;
   onDisabledItemClick?: () => void;
   itemsArePreSorted?: boolean;
+  sortGroupsAlphabetically?: boolean;
   searchDebounceMs?: number;
   enableVirtualization?: boolean;
   virtualizationThreshold?: number;
@@ -956,9 +969,17 @@ export function Selector<T>(props: {
         ? [props.defaultSelectedValue]
         : [],
     );
-    setSelectedGroup(props.defaultGroup ?? "All");
+    const defaultGroup = props.defaultGroup ?? "All";
+    setSelectedGroup(
+      defaultGroup === "All" ? "All" : getGroupFilterLabel(defaultGroup),
+    );
     setScrollTop(0);
-  }, [props.defaultGroup, props.defaultSelectedValue, props.resetKey]);
+  }, [
+    props.defaultGroup,
+    props.defaultSelectedValue,
+    props.resetKey,
+    props.sortGroupsAlphabetically,
+  ]);
 
   useEffect(() => {
     const debounceDelay = props.searchDebounceMs ?? 120;
@@ -1030,20 +1051,28 @@ export function Selector<T>(props: {
         return "Alibaba";
       case "豆包":
       case "字节跳动":
+      case "Doubao":
         return "ByteDance";
       case "智谱":
+      case "Zhipu AI":
+      case "Z.ai":
         return "Zhipu";
       case "万物":
         return "01.AI";
       case "Kimi":
         return "Moonshot";
       case "海螺":
-        return "Minimax";
+      case "Minimax":
+        return "MiniMax";
       case "混元":
+      case "Hunyuan":
+      case "Tencent Hunyuan":
         return "Tencent";
       case "文心":
+      case "ERNIE":
         return "Baidu";
       case "讯飞星火":
+      case "iFLYTEK Spark":
         return "iFlytek";
       default:
         return group;
@@ -1109,10 +1138,18 @@ export function Selector<T>(props: {
 
   const availableGroups = useMemo(() => {
     const groups = Array.from(
-      new Set(props.items.map((item) => item.group?.trim()).filter(Boolean)),
+      new Set(
+        props.items
+          .map((item) => item.group?.trim())
+          .filter(Boolean)
+          .map((group) => getGroupFilterLabel(group as string)),
+      ),
     ) as string[];
     const mergedGroups = Array.from(
-      new Set([...groups, ...(props.extraGroups ?? [])]),
+      new Set([
+        ...groups,
+        ...(props.extraGroups ?? []).map((group) => getGroupFilterLabel(group)),
+      ]),
     );
 
     const deduplicatedGroups: string[] = [];
@@ -1130,7 +1167,7 @@ export function Selector<T>(props: {
       deduplicatedGroups.map((group) => normalizeGroupForOrder(group)),
     );
 
-    return [
+    const preferredOrder = [
       ...SELECTOR_PREFERRED_GROUP_ORDER.flatMap((group) =>
         orderedCanonicalGroups.has(group)
           ? deduplicatedGroups.filter(
@@ -1147,7 +1184,17 @@ export function Selector<T>(props: {
           ),
       ),
     ];
-  }, [props.extraGroups, props.items]);
+    return props.sortGroupsAlphabetically
+      ? deduplicatedGroups
+          .slice()
+          .sort((left, right) =>
+            compareProviderDisplayNames(
+              getGroupFilterLabel(left),
+              getGroupFilterLabel(right),
+            ),
+          )
+      : preferredOrder;
+  }, [props.extraGroups, props.items, props.sortGroupsAlphabetically]);
   const hiddenGroupFilterOptions = useMemo(
     () =>
       new Set(
@@ -1161,60 +1208,50 @@ export function Selector<T>(props: {
     if (group === "All") return true;
     return !hiddenGroupFilterOptions.has(group.trim().toLowerCase());
   });
-  const getGroupFilterLabel = (group: string) => {
-    if (group === "All") return "全部模型商";
-    if (group === "AihubMix") return "AihubMix";
-    if (group === "OpenAI" || group === "GPT") return "OpenAI";
-    if (group === "Anthropic" || group === "Claude") return "Claude";
-    if (group === "Google" || group === "Gemini") return "Gemini";
-    if (group === "xAI" || group === "Grok") return "Grok";
-    if (group === "Alibaba" || group === "阿里巴巴" || group === "Qwen")
-      return "千问";
-    if (group === "ByteDance" || group === "字节跳动") return "豆包";
-    if (group === "Tencent") return "Hunyuan";
-    if (group === "Baidu") return "Ernie";
-    if (group === "Zhipu") return "智谱";
-    if (group === "Minimax") return "Minimax";
-    if (group === "Moonshot") return "Kimi";
-    if (group === "01.AI") return "零一万物";
-    if (group === "iFlytek") return "讯飞星火";
-    return group;
-  };
-  // 使用统一的供应商图标配置
-  const localGroupIconMap = PROVIDER_ICONS;
+  const isCustomModelGroup = (group: string) =>
+    [
+      "自定义模型",
+      "Custom Models",
+      "Custom",
+      "CUSTOM",
+      "已添加",
+      "Other",
+    ].includes(group);
   const getGroupBadgeText = (group: string) => {
-    if (group === "自定义模型") return "自";
+    if (group === "自定义模型" || group === "Custom Models") return "C";
     if (/^[\u4e00-\u9fa5]/.test(group)) return group.slice(0, 2);
     const compact = group.replace(/[^a-zA-Z0-9]/g, "");
     return compact.slice(0, 1).toUpperCase() || group.slice(0, 1);
   };
+  const renderDefaultGroupIcon = () => (
+    <span
+      className={clsx(
+        "nextchat-selector-menu-icon-frame",
+        styles["selector-group-filter-icon-custom-wrap"],
+      )}
+    >
+      <BotIconDefault
+        className={clsx(
+          "nextchat-selector-menu-icon-image",
+          styles["selector-group-filter-icon-image"],
+          styles["selector-group-filter-icon-image-custom"],
+        )}
+      />
+    </span>
+  );
   const renderGroupFilterIcon = (group: string) => {
     if (group === "All") return null;
-    if (
-      group === "自定义模型" ||
-      group === "Custom" ||
-      group === "已添加" ||
-      group === "Other"
-    ) {
-      return (
-        <span
-          className={clsx(
-            "nextchat-selector-menu-icon-frame",
-            styles["selector-group-filter-icon-custom-wrap"],
-          )}
-        >
-          <BotIconDefault
-            className={clsx(
-              "nextchat-selector-menu-icon-image",
-              styles["selector-group-filter-icon-image"],
-              styles["selector-group-filter-icon-image-custom"],
-            )}
-          />
-        </span>
-      );
+    if (isCustomModelGroup(group)) {
+      return renderDefaultGroupIcon();
     }
     const normalized = group.toLowerCase();
-    const localIcon = localGroupIconMap[normalized];
+    const localIcon = getProviderIcon(normalized);
+    const shouldFillIconFrame = [
+      "stepfun",
+      "stepfun ai",
+      "stepfun al",
+      "suno",
+    ].includes(normalized);
     if (localIcon) {
       return (
         <span
@@ -1227,6 +1264,8 @@ export function Selector<T>(props: {
             className={clsx(
               "nextchat-selector-menu-icon-image",
               styles["selector-group-filter-icon-image"],
+              shouldFillIconFrame &&
+                styles["selector-group-filter-icon-image-fill"],
             )}
             src={localIcon}
             alt={`${group} icon`}
@@ -1234,23 +1273,30 @@ export function Selector<T>(props: {
         </span>
       );
     }
-    return (
-      <span
-        className={clsx(
-          "nextchat-selector-menu-icon-frame",
-          styles["selector-group-filter-icon-frame"],
-        )}
-      >
-        <span
-          className={clsx(
-            "nextchat-selector-menu-icon-fallback",
-            styles["selector-group-filter-fallback-icon"],
-          )}
-        >
-          {getGroupBadgeText(group)}
-        </span>
-      </span>
-    );
+    return renderDefaultGroupIcon();
+  };
+  const renderSelectorItemIcon = (item: SelectorItemBase<T>) => {
+    const rawGroup = item.group?.trim();
+    if (!rawGroup) {
+      return <Avatar model={String(item.value)} />;
+    }
+
+    const visibleGroup = getGroupFilterLabel(rawGroup);
+    if (isCustomModelGroup(rawGroup) || isCustomModelGroup(visibleGroup)) {
+      return renderGroupFilterIcon("Custom Models") ?? undefined;
+    }
+    if (
+      ["stepfun", "stepfun ai", "stepfun al", "suno"].includes(
+        visibleGroup.toLowerCase(),
+      )
+    ) {
+      return renderGroupFilterIcon(visibleGroup) ?? undefined;
+    }
+    if (getProviderIcon(visibleGroup)) {
+      return <Avatar model={visibleGroup} />;
+    }
+
+    return renderDefaultGroupIcon();
   };
   const stabilizeSelectorPosition = () => {
     requestAnimationFrame(() => {
@@ -1270,7 +1316,8 @@ export function Selector<T>(props: {
       const matchGroup =
         !props.showGroupFilter ||
         selectedGroup === "All" ||
-        (item.group?.trim() || "__default__") === selectedGroup;
+        getGroupFilterLabel(item.group?.trim() || "__default__") ===
+          selectedGroup;
       const matchQuickFilter = !quickFilter || quickFilter.match(item);
       const matchSearch =
         !deferredSearchText ||
@@ -1301,7 +1348,8 @@ export function Selector<T>(props: {
     > = [];
 
     filteredItems.forEach((item) => {
-      const groupKey = item.group?.trim() || "__default__";
+      const rawGroupKey = item.group?.trim() || "__default__";
+      const groupKey = getGroupFilterLabel(rawGroupKey);
       if (!buckets.has(groupKey)) {
         buckets.set(groupKey, []);
         groupOrder.push(groupKey);
@@ -1324,7 +1372,7 @@ export function Selector<T>(props: {
         entries.push({
           type: "group",
           key: groupKey,
-          label: groupLabel,
+          label: getGroupFilterLabel(groupLabel),
           count: items.length,
         });
       }
@@ -1354,11 +1402,7 @@ export function Selector<T>(props: {
     let top = 0;
     const rows = groupedItems.map((entry) => {
       const height =
-        entry.type === "group"
-          ? shouldVirtualize
-            ? 0
-            : estimatedGroupHeight
-          : estimatedItemHeight;
+        entry.type === "group" ? estimatedGroupHeight : estimatedItemHeight;
       const row = {
         entry,
         top,
@@ -1372,12 +1416,7 @@ export function Selector<T>(props: {
       rows,
       totalHeight: top,
     };
-  }, [
-    estimatedGroupHeight,
-    estimatedItemHeight,
-    groupedItems,
-    shouldVirtualize,
-  ]);
+  }, [estimatedGroupHeight, estimatedItemHeight, groupedItems]);
 
   const overscanPx = estimatedItemHeight * 6;
   const visibleVirtualRows = useMemo(() => {
@@ -1481,7 +1520,6 @@ export function Selector<T>(props: {
         props.className,
       )}
       data-selector-container="true"
-      data-auto-model-enabled={props.dataAutoModelEnabled ? "true" : undefined}
       onPointerDown={(e) => {
         if (e.target !== e.currentTarget) return;
         e.preventDefault();
@@ -1521,6 +1559,13 @@ export function Selector<T>(props: {
               "nextchat-selector-title",
               styles["selector-title"],
             )}
+            style={
+              shouldVirtualize
+                ? ({
+                    "--selector-virtual-group-height": `${estimatedGroupHeight}px`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             {props.title}
           </div>
@@ -1900,9 +1945,7 @@ export function Selector<T>(props: {
                     key={entry.key}
                     title={item.title}
                     subTitle={item.subTitle}
-                    icon={
-                      <Avatar model={(item.group || item.value) as string} />
-                    }
+                    icon={renderSelectorItemIcon(item)}
                     onClick={(e) => {
                       if (item.disable) {
                         e.stopPropagation();
@@ -1974,6 +2017,49 @@ export function Selector<T>(props: {
                     (
                       row,
                     ): row is (typeof virtualRows.rows)[number] & {
+                      entry: {
+                        type: "group";
+                        key: string;
+                        label: string;
+                        count: number;
+                      };
+                    } => row.entry.type === "group",
+                  )
+                  .map(({ entry, top, height }) => (
+                    <div
+                      className={clsx(
+                        "nextchat-selector-virtual-row",
+                        styles["selector-virtual-row"],
+                        "nextchat-selector-group",
+                        styles["selector-group"],
+                      )}
+                      data-selector-group="true"
+                      key={entry.key}
+                      style={{ height, transform: `translateY(${top}px)` }}
+                    >
+                      <span
+                        className={clsx(
+                          "nextchat-selector-group-label",
+                          styles["selector-group-label"],
+                        )}
+                      >
+                        {entry.label}
+                      </span>
+                      <span
+                        className={clsx(
+                          "nextchat-selector-group-count",
+                          styles["selector-group-count"],
+                        )}
+                      >
+                        共 {entry.count} 个
+                      </span>
+                    </div>
+                  ))}
+                {visibleVirtualRows
+                  .filter(
+                    (
+                      row,
+                    ): row is (typeof virtualRows.rows)[number] & {
                       entry: { type: "item" };
                     } => row.entry.type === "item",
                   )
@@ -2002,11 +2088,7 @@ export function Selector<T>(props: {
                           )}
                           title={item.title}
                           subTitle={item.subTitle}
-                          icon={
-                            <Avatar
-                              model={(item.group || item.value) as string}
-                            />
-                          }
+                          icon={renderSelectorItemIcon(item)}
                           onClick={(e) => {
                             if (item.disable) {
                               e.stopPropagation();

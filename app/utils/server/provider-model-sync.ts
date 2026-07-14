@@ -107,14 +107,14 @@ export async function refreshConfiguredProviderModels(
     const managementKey =
       (await getProviderBalanceConfig(profile.id))?.managementKey || "";
     const apiKeyGroups = { ...(profile.apiKeyGroups || {}) };
-    const primaryFallbackGroup = "__profile_model_key";
+    const balanceFallbackGroup = "__balance_query_key";
     if (managementKey && profileModelKey && managementKey !== profileModelKey) {
-      apiKeyGroups[primaryFallbackGroup] = profileModelKey;
+      apiKeyGroups[balanceFallbackGroup] = managementKey;
     }
     const result = await fetchModelsFromProviderForServer(
       profile.provider,
       profile.baseUrl,
-      managementKey || profileModelKey,
+      profileModelKey || managementKey,
       profile.name,
       apiKeyGroups,
       profile.openAICompatible,
@@ -122,7 +122,7 @@ export async function refreshConfiguredProviderModels(
         ...(managementKey &&
         profileModelKey &&
         managementKey !== profileModelKey
-          ? [primaryFallbackGroup]
+          ? [balanceFallbackGroup]
           : []),
         ...(profile.multiKeyGroupOrder || []),
       ],

@@ -33,6 +33,7 @@ import {
   parseExtraHeaders,
   type ApiProfileAuthType,
 } from "../utils/model-fetch-common";
+import { logger } from "../utils/logger";
 
 const { ACCESS_CODE_PREFIX, ModelProvider, ServiceProvider } = constants;
 type ModelProviderValue = (typeof ModelProvider)[keyof typeof ModelProvider];
@@ -646,13 +647,12 @@ export function getHeaders(
     (headers as any)["x-api-key-auth-header"] = authHeader;
     (headers as any)["x-api-key-auth-query-param"] =
       currentCustomProfile?.authQueryParam || "key";
-    console.log("[MultiKey] 已添加多 key fallback headers", {
-      profileId: currentCustomProfile?.id || "",
-      profileName: currentCustomProfile?.name || "",
-      modelName: modelConfig.model,
-      keysCount: fallbackApiKeys.length,
-      groupOrder: fallbackApiKeyGroups,
-      rememberedGroup: rememberedApiKeyGroup,
+    logger.chat.log("[MultiKey] 🔑 多 Key 请求配置已就绪", {
+      配置: currentCustomProfile?.name || "",
+      模型: modelConfig.model,
+      Key数量: fallbackApiKeys.length,
+      分组顺序: fallbackApiKeyGroups,
+      已记忆分组: rememberedApiKeyGroup || "无",
     });
 
     if (rememberedApiKeyGroup) {

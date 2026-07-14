@@ -483,8 +483,6 @@ export function hasMeaningfulConfigState(state: Record<string, any>) {
   return (
     Number(state?.lastUpdateTime || 0) > 0 ||
     hasNonEmptyString(state?.customModels) ||
-    (Array.isArray(state?.autoModelSeries) &&
-      state.autoModelSeries.length > 0) ||
     (hasNonEmptyString(state?.modelConfig?.model) &&
       state.modelConfig.model !== defaultModel) ||
     (hasNonEmptyString(state?.modelConfig?.providerName) &&
@@ -959,7 +957,7 @@ const MergeStates: StateMerger = {
     // - models 数组是本地临时数据，不参与数据库同步
     // - theme 仅保留本地 localStorage，不参与云同步
     // - tightBorder 跟随较新的配置同步
-    // - customModels / autoModelSeries / modelConfig.model+providerName
+    // - customModels / modelConfig.model+providerName
     //   各自按字段级时间戳独立判定胜方，互不干扰
     // - modelConfig 其他字段（temperature/top_p/max_tokens 等）保留"远端补全本地缺失"
     const currentConfig = useAppConfig.getState();
@@ -979,23 +977,6 @@ const MergeStates: StateMerger = {
     const remoteCustomModelsStr = pruneLegacyGeneratedCustomModels(
       remote.customModels,
     );
-
-    const localAutoSeriesAt = Number(local.autoModelSeriesUpdatedAt) || 0;
-    const remoteAutoSeriesAt = Number(remote.autoModelSeriesUpdatedAt) || 0;
-    const localAutoSeriesArr = Array.isArray(local.autoModelSeries)
-      ? local.autoModelSeries
-      : [];
-    const remoteAutoSeriesArr = Array.isArray(remote.autoModelSeries)
-      ? remote.autoModelSeries
-      : [];
-    // 时间戳相同（含双 0）时，倾向有内容的一边，避免空数组覆盖远端已选自动模式
-    const useRemoteAutoSeries = preferRemoteOnBootstrap
-      ? true
-      : remoteAutoSeriesAt > localAutoSeriesAt
-      ? true
-      : remoteAutoSeriesAt < localAutoSeriesAt
-      ? false
-      : remoteAutoSeriesArr.length > 0 && localAutoSeriesArr.length === 0;
 
     const localModelSelAt = Number(local.modelSelectionUpdatedAt) || 0;
     const remoteModelSelAt = Number(remote.modelSelectionUpdatedAt) || 0;
@@ -1029,9 +1010,7 @@ const MergeStates: StateMerger = {
         useRemoteModelSelection
           ? remote.modelConfig?.model
           : local.modelConfig?.model
-      }) | autoSeries=${
-        useRemoteAutoSeries ? "远端" : "本地"
-      } | models: local=${
+      }) | models: local=${
         Array.isArray(currentConfig.models) ? currentConfig.models.length : 0
       } remote=本地临时字段不参与数据库合并`,
     );
@@ -1065,14 +1044,6 @@ const MergeStates: StateMerger = {
         localCustomModelsAt,
         remoteCustomModelsAt,
       ),
-      autoModelSeries: useRemoteAutoSeries
-        ? Array.isArray(remote.autoModelSeries)
-          ? [...remote.autoModelSeries]
-          : []
-        : Array.isArray(local.autoModelSeries)
-        ? [...local.autoModelSeries]
-        : [],
-      autoModelSeriesUpdatedAt: Math.max(localAutoSeriesAt, remoteAutoSeriesAt),
       modelConfig: {
         ...((preferRemoteOnBootstrap ? localState : remoteState) as any)
           .modelConfig,
@@ -1105,6 +1076,10 @@ const MergeStates: StateMerger = {
       };
     }
 
+    delete (mergedState as any).autoModelSeries;
+    delete (mergedState as any).autoModelSeriesUpdatedAt;
+    delete (localState as any).autoModelSeries;
+    delete (localState as any).autoModelSeriesUpdatedAt;
     Object.assign(localState, mergedState);
     return localState;
   },

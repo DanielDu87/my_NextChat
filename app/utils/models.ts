@@ -6,11 +6,8 @@ import { appendAihubmixHeaders, isAiHubMixUrl } from "./aihubmix";
 import {
   getAiHubMixLookupKeys,
   hydrateModelsWithAiHubMixMetadata,
-  normalizeAiHubMixModelMetadata,
   persistAiHubMixCatalogMetadataCache,
-  persistAiHubMixClassificationCache,
   readAiHubMixCatalogMetadataCache,
-  readAiHubMixClassificationCache,
   resolveAiHubMixCatalogRank,
   resolveAiHubMixMetadataByName,
 } from "./aihubmix-model-metadata";
@@ -20,6 +17,7 @@ import {
   buildProxyModelFetchCandidates,
   getAuthorizationCandidates,
   getModelFetchApiKeyCandidates,
+  MODEL_FETCH_REQUEST_TIMEOUT_MS,
   isLocalModelProxyBaseUrl,
   parseExtraHeaders,
   appendAuthQueryParam,
@@ -32,11 +30,16 @@ import {
   rememberModelListPath,
 } from "./api-path-memory";
 import { isYutoProfileLike, isOcoolProfileLike } from "./multi-key";
+import {
+  getDeclaredModelVendor,
+  getProviderFallbackModelVendor,
+  isCustomAutoModelName,
+  normalizeModelVendorName,
+} from "./model-vendor-normalize";
 
 export {
   getAiHubMixLookupKeys,
   hydrateModelsWithAiHubMixMetadata,
-  normalizeAiHubMixModelMetadata,
   resolveAiHubMixCatalogRank,
   resolveAiHubMixMetadataByName,
 };
@@ -53,10 +56,6 @@ const aihubmixCatalogMetadataMapPromises = new Map<
       { rank: number; vendor?: { id: number; name: string; icon?: string } }
     >
   >
->();
-const aihubmixClassificationMapPromises = new Map<
-  string,
-  Promise<Map<string, { features?: string[]; types?: string[] }>>
 >();
 
 function getOcoolApiKeyGroupPriority(modelName: string, groupName?: string) {
@@ -112,8 +111,8 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   14: { name: "01.AI", icon: "Yi" },
   15: { name: "Moonshot", icon: "Moonshot" },
   16: { name: "StepFun", icon: "StepFun" },
-  17: { name: "Nvidia", icon: "Nvidia" },
-  18: { name: "Minimax", icon: "Minimax.Color" },
+  17: { name: "NVIDIA", icon: "Nvidia" },
+  18: { name: "MiniMax", icon: "Minimax.Color" },
   19: { name: "Perplexity", icon: "Perplexity" },
   20: { name: "Baichuan", icon: "Baichuan" },
   21: { name: "Ideogram", icon: "Ideogram" },
@@ -121,7 +120,7 @@ const AIHUBMIX_VENDOR_MAP: Record<number, { name: string; icon?: string }> = {
   23: { name: "Stability", icon: "Stability" },
   24: { name: "Tencent", icon: "Hunyuan.Color" },
   25: { name: "Baidu", icon: "Ernie.Color" },
-  27: { name: "Flux", icon: "Flux" },
+  27: { name: "FLUX", icon: "Flux" },
   28: { name: "Meituan", icon: "Meituan" },
   29: { name: "InclusionAI", icon: "InclusionAI" },
   30: { name: "BAAI", icon: "BAAI" },
@@ -144,10 +143,20 @@ export function inferVendorFromModelName(
   if (
     lowerName.startsWith("gpt-") ||
     lowerName.startsWith("chatgpt-") ||
+    lowerName.startsWith("chat-latest") ||
+    lowerName.startsWith("codex-") ||
+    lowerName.startsWith("computer-use-") ||
     lowerName.startsWith("dall-e-") ||
     lowerName.startsWith("dalle-") ||
+    lowerName.startsWith("omni-moderation-") ||
+    lowerName.startsWith("text-moderation-") ||
+    lowerName.startsWith("sora-") ||
     lowerName.startsWith("tts-") ||
     lowerName.startsWith("whisper-") ||
+    lowerName === "o1" ||
+    lowerName === "o3" ||
+    lowerName === "o4" ||
+    lowerName === "o5" ||
     lowerName.startsWith("o1-") ||
     lowerName.startsWith("o3-") ||
     lowerName.startsWith("o4-")
@@ -161,9 +170,16 @@ export function inferVendorFromModelName(
   // Google Gemini
   if (
     lowerName.startsWith("gemini-") ||
+    lowerName.startsWith("gemma-") ||
     lowerName.startsWith("pregenie-") ||
+    lowerName.startsWith("text-embedding-004") ||
     lowerName.startsWith("veo-") ||
-    lowerName.startsWith("imagen-")
+    lowerName.startsWith("veo3") ||
+    lowerName.startsWith("veo/") ||
+    lowerName.startsWith("chirp-") ||
+    lowerName.startsWith("imagen-") ||
+    lowerName.startsWith("nano_banana") ||
+    lowerName.startsWith("gemini_omni_")
   ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
@@ -176,15 +192,33 @@ export function inferVendorFromModelName(
     return { name: "xAI", icon: "XAI" };
   }
   // Alibaba Qwen
-  if (lowerName.startsWith("qwen-") || lowerName.startsWith("qwen3")) {
+  if (
+    lowerName.startsWith("qwen-") ||
+    lowerName.startsWith("qwen2") ||
+    lowerName.startsWith("qwen3") ||
+    lowerName.startsWith("qwq-") ||
+    lowerName.startsWith("qvq-") ||
+    lowerName.startsWith("wan2") ||
+    lowerName.startsWith("happyhorse-") ||
+    lowerName.startsWith("gte-") ||
+    lowerName.startsWith("paraformer-") ||
+    lowerName.startsWith("sambert-") ||
+    lowerName.startsWith("sensevoice")
+  ) {
     return { name: "Alibaba", icon: "Qwen.Color" };
   }
   // ByteDance Doubao
-  if (lowerName.startsWith("doubao-")) {
+  if (
+    lowerName.startsWith("doubao-") ||
+    lowerName.startsWith("seed-") ||
+    lowerName.startsWith("seedream-") ||
+    lowerName.startsWith("seedance-") ||
+    lowerName.startsWith("jimeng-")
+  ) {
     return { name: "ByteDance", icon: "Doubao.Color" };
   }
   // Moonshot
-  if (lowerName.startsWith("moonshot-")) {
+  if (lowerName.startsWith("moonshot-") || lowerName.startsWith("kimi-")) {
     return { name: "Moonshot", icon: "Moonshot" };
   }
   // Baidu Ernie
@@ -193,27 +227,134 @@ export function inferVendorFromModelName(
   }
   // Tencent Hunyuan
   if (lowerName.startsWith("hunyuan-")) {
-    return { name: "腾讯混元", icon: "Hunyuan.Color" };
+    return { name: "Tencent", icon: "Hunyuan.Color" };
   }
   // Zhipu GLM
-  if (lowerName.startsWith("glm-")) {
+  if (lowerName.startsWith("glm-") || lowerName.startsWith("chatglm-")) {
     return { name: "Zhipu", icon: "Zhipu.Color" };
   }
   // Meta Llama
-  if (
-    lowerName.startsWith("llama-") ||
-    lowerName.startsWith("llama3") ||
-    lowerName.startsWith("nemotron-")
-  ) {
+  if (lowerName.startsWith("llama-") || lowerName.startsWith("llama3")) {
     return { name: "Meta", icon: "Ollama" };
+  }
+  if (lowerName.startsWith("nemotron-")) {
+    return { name: "NVIDIA", icon: "Nvidia" };
   }
   // Mistral
   if (lowerName.startsWith("mistral-") || lowerName.startsWith("mixtral-")) {
     return { name: "Mistral", icon: "Mistral.Color" };
   }
   // Minimax
-  if (lowerName.startsWith("abab-") || lowerName.startsWith("minimax")) {
-    return { name: "Minimax", icon: "Minimax.Color" };
+  if (lowerName.startsWith("abab") || lowerName.startsWith("minimax")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("image-01")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("hailuo")) {
+    return { name: "MiniMax", icon: "Minimax.Color" };
+  }
+  if (lowerName.startsWith("mimo-")) {
+    return { name: "Xiaomi", icon: "Xiaomi" };
+  }
+  if (lowerName.startsWith("yi-")) {
+    return { name: "01.AI", icon: "Yi" };
+  }
+  if (lowerName.startsWith("spark-")) {
+    return { name: "iFLYTEK Spark", icon: "Box" };
+  }
+  if (lowerName.startsWith("step-")) {
+    return { name: "StepFun", icon: "StepFun" };
+  }
+  if (lowerName.startsWith("baichuan")) {
+    return { name: "Baichuan", icon: "Baichuan" };
+  }
+  if (lowerName.startsWith("internlm") || lowerName.startsWith("intern-lm")) {
+    return { name: "InternLM", icon: "Box" };
+  }
+  if (lowerName.startsWith("command-") || lowerName.startsWith("cohere-")) {
+    return { name: "Cohere", icon: "Box" };
+  }
+  if (lowerName.startsWith("jamba")) {
+    return { name: "AI21", icon: "Box" };
+  }
+  if (lowerName.startsWith("bge-")) {
+    return { name: "BAAI", icon: "BAAI" };
+  }
+  if (lowerName.startsWith("longcat")) {
+    return { name: "Meituan", icon: "Meituan" };
+  }
+  if (lowerName.startsWith("ling-") || lowerName.startsWith("ring-")) {
+    return { name: "InclusionAI", icon: "InclusionAI" };
+  }
+  if (lowerName.startsWith("composer-")) {
+    return { name: "Cursor", icon: "Box" };
+  }
+  if (
+    lowerName.startsWith("act_two/") ||
+    lowerName.startsWith("aleph2/") ||
+    lowerName.startsWith("gen3") ||
+    lowerName.startsWith("gen4") ||
+    lowerName.startsWith("runway_")
+  ) {
+    return { name: "Runway", icon: "Runway" };
+  }
+  if (lowerName.startsWith("kling-") || lowerName.startsWith("kling_")) {
+    return { name: "Kling AI", icon: "Kling.Color" };
+  }
+  if (lowerName.startsWith("kat-") || lowerName.startsWith("kat_")) {
+    return { name: "Kwai Kolors", icon: "Box" };
+  }
+  if (
+    lowerName.startsWith("eleven_") ||
+    lowerName.startsWith("scribe_") ||
+    lowerName === "dubbing"
+  ) {
+    return { name: "ElevenLabs", icon: "Box" };
+  }
+  if (
+    lowerName === "flux" ||
+    lowerName.startsWith("flux-") ||
+    lowerName.startsWith("flux_")
+  ) {
+    return { name: "FLUX", icon: "Flux" };
+  }
+  if (
+    lowerName.startsWith("mj_") ||
+    lowerName.startsWith("mj-") ||
+    lowerName.startsWith("midjourney")
+  ) {
+    return { name: "Midjourney", icon: "Midjourney" };
+  }
+  if (lowerName.startsWith("mureka")) {
+    return { name: "Mureka", icon: "Box" };
+  }
+  if (lowerName.startsWith("luma_") || lowerName.startsWith("luma-")) {
+    return { name: "Luma", icon: "Luma" };
+  }
+  if (lowerName === "suno" || lowerName.startsWith("suno_")) {
+    return { name: "Suno", icon: "Suno" };
+  }
+  if (lowerName.startsWith("pixverse/")) {
+    return { name: "PixVerse", icon: "Pixverse" };
+  }
+  if (lowerName.startsWith("viggle/")) {
+    return { name: "Viggle", icon: "Viggle" };
+  }
+  if (lowerName.startsWith("vidu")) {
+    return { name: "Vidu", icon: "Vidu" };
+  }
+  if (lowerName.startsWith("jina-")) {
+    return { name: "Jina AI", icon: "Jina" };
+  }
+  if (lowerName.startsWith("sparkdesk-")) {
+    return { name: "iFLYTEK Spark", icon: "Box" };
+  }
+  if (lowerName.startsWith("stable-diffusion")) {
+    return { name: "Stability", icon: "Stability" };
+  }
+  if (lowerName.startsWith("pika-")) {
+    return { name: "Pika", icon: "Box" };
   }
 
   return null;
@@ -223,7 +364,19 @@ function isGenericVendorName(vendorName?: string) {
   const normalized = String(vendorName || "")
     .trim()
     .toLowerCase();
-  return !normalized || ["custom", "other", "unknown"].includes(normalized);
+  return (
+    !normalized ||
+    [
+      "api",
+      "custom",
+      "default",
+      "model",
+      "models",
+      "other",
+      "system",
+      "unknown",
+    ].includes(normalized)
+  );
 }
 
 function formatNamespacedVendorName(prefix: string) {
@@ -245,9 +398,16 @@ function inferVendorFromOcoolaiModel(
   const normalizedModelName = modelName.trim().replace(/^~+/, "");
   const [prefix] = normalizedModelName.split("/", 1);
   const normalizedPrefix = prefix.trim().toLowerCase();
+  const inferredVendor = inferVendorFromModelName(normalizedModelName);
+
+  if (inferredVendor) {
+    return inferredVendor;
+  }
 
   const prefixVendorMap: Record<string, { name: string; icon?: string }> = {
     "01-ai": { name: "01.AI", icon: "Yi" },
+    "01ai": { name: "01.AI", icon: "Yi" },
+    ai21: { name: "AI21", icon: "Box" },
     ascend: { name: "Ascend", icon: "Box" },
     anthropic: { name: "Anthropic", icon: "Claude.Color" },
     amazon: { name: "Amazon", icon: "Box" },
@@ -255,8 +415,17 @@ function inferVendorFromOcoolaiModel(
     azure: { name: "Microsoft", icon: "Azure" },
     baai: { name: "BAAI", icon: "Box" },
     baidu: { name: "Baidu", icon: "Ernie.Color" },
+    baichuan: { name: "Baichuan", icon: "Baichuan" },
+    "baichuan-inc": { name: "Baichuan", icon: "Baichuan" },
+    bytedance: { name: "ByteDance", icon: "Doubao.Color" },
     cohere: { name: "Cohere", icon: "Box" },
     "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
+    iflytek: { name: "iFLYTEK Spark", icon: "Box" },
+    internlm: { name: "InternLM", icon: "Box" },
+    kat: { name: "Kwai Kolors", icon: "Box" },
+    "kat-coder": { name: "Kwai Kolors", icon: "Box" },
+    "kat-dev": { name: "Kwai Kolors", icon: "Box" },
+    kwaipilot: { name: "Kwai Kolors", icon: "Box" },
     google: { name: "Google", icon: "Gemini.Color" },
     "google-ai": { name: "Google", icon: "Gemini.Color" },
     "ibm-granite": { name: "IBM", icon: "Box" },
@@ -264,18 +433,22 @@ function inferVendorFromOcoolaiModel(
     meta: { name: "Meta", icon: "Ollama" },
     microsoft: { name: "Microsoft", icon: "Azure" },
     mistralai: { name: "Mistral", icon: "Mistral.Color" },
+    minimax: { name: "MiniMax", icon: "Minimax.Color" },
+    moonshot: { name: "Moonshot", icon: "Moonshot" },
     moonshotai: { name: "Moonshot", icon: "Moonshot" },
-    nvidia: { name: "Nvidia", icon: "Box" },
+    nvidia: { name: "NVIDIA", icon: "Box" },
     ocoolai: { name: "Ocoolai", icon: "Box" },
     openai: { name: "OpenAI", icon: "OpenAI" },
     openrouter: { name: "OpenRouter", icon: "Box" },
     perplexity: { name: "Perplexity", icon: "Box" },
     qwen: { name: "Alibaba", icon: "Qwen.Color" },
+    "zai-org": { name: "Zhipu", icon: "Zhipu.Color" },
     tencent: { name: "Tencent", icon: "Hunyuan.Color" },
     web: { name: "Web", icon: "Globe" },
     "x-ai": { name: "xAI", icon: "XAI" },
     xai: { name: "xAI", icon: "XAI" },
     "z-ai": { name: "Zhipu", icon: "Zhipu.Color" },
+    "zhipu-ai": { name: "Zhipu", icon: "Zhipu.Color" },
     zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
   };
 
@@ -288,7 +461,63 @@ function inferVendorFromOcoolaiModel(
     );
   }
 
-  return inferVendorFromModelName(normalizedModelName);
+  return null;
+}
+
+function inferVendorFromDeclaredModelOwner(
+  model: Record<string, unknown>,
+): { name: string; icon?: string } | null {
+  const commonVendor = getDeclaredModelVendor(model);
+  if (commonVendor) return commonVendor;
+  const declaredVendorAliases: Record<string, { name: string; icon?: string }> =
+    {
+      alibaba: { name: "Alibaba", icon: "Qwen.Color" },
+      阿里巴巴: { name: "Alibaba", icon: "Qwen.Color" },
+      bytedance: { name: "ByteDance", icon: "Doubao.Color" },
+      字节跳动: { name: "ByteDance", icon: "Doubao.Color" },
+      火山引擎: { name: "ByteDance", icon: "Doubao.Color" },
+      deepseek: { name: "DeepSeek", icon: "DeepSeek.Color" },
+      flux: { name: "FLUX", icon: "Flux" },
+      iflytek: { name: "iFLYTEK Spark", icon: "Box" },
+      讯飞: { name: "iFLYTEK Spark", icon: "Box" },
+      讯飞星火: { name: "iFLYTEK Spark", icon: "Box" },
+      minimax: { name: "MiniMax", icon: "Minimax.Color" },
+      "mini max": { name: "MiniMax", icon: "Minimax.Color" },
+      "01.ai": { name: "01.AI", icon: "Yi" },
+      "01-ai": { name: "01.AI", icon: "Yi" },
+      零一万物: { name: "01.AI", icon: "Yi" },
+      zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
+      "zhipu ai": { name: "Zhipu", icon: "Zhipu.Color" },
+      "z.ai": { name: "Zhipu", icon: "Zhipu.Color" },
+      智谱: { name: "Zhipu", icon: "Zhipu.Color" },
+    };
+  const ownerFields = [
+    "vendor",
+    "vendor_name",
+    "vendorName",
+    "developer",
+    "developer_name",
+    "developerName",
+    "owned_by",
+    "ownedBy",
+    "owner",
+    "organization",
+    "organization_name",
+    "organizationName",
+    "author",
+    "publisher",
+    "company",
+  ];
+
+  for (const field of ownerFields) {
+    const owner = model[field];
+    if (typeof owner !== "string" || isGenericVendorName(owner)) continue;
+    const declaredVendor = declaredVendorAliases[owner.trim().toLowerCase()];
+    if (declaredVendor) return declaredVendor;
+    return inferVendorFromOcoolaiModel(`${owner}/_`);
+  }
+
+  return null;
 }
 
 export type FetchModelsResult = {
@@ -444,11 +673,7 @@ function extractModelListFromResponse(data: any, _baseUrl?: string): any[] {
       // 如果是数组且包含模型对象，收集它
       if (item.length > 0) {
         const first = item[0];
-        if (
-          first &&
-          typeof first === "object" &&
-          (first.id || first.name || first.model)
-        ) {
+        if (first && typeof first === "object" && getRawModelName(first)) {
           containers.push(item);
         }
       }
@@ -522,63 +747,6 @@ function extractModelListFromResponse(data: any, _baseUrl?: string): any[] {
   return [];
 }
 
-function inferEndpointCapabilities(model: any) {
-  const endpointTypes = Array.isArray(model?.supported_endpoint_types)
-    ? model.supported_endpoint_types
-    : Array.isArray(model?.supportedEndpointTypes)
-    ? model.supportedEndpointTypes
-    : Array.isArray(model?.endpoints)
-    ? model.endpoints
-    : [];
-  const normalizedEndpoints = endpointTypes
-    .map((item: unknown) => String(item || "").toLowerCase())
-    .filter(Boolean);
-  if (normalizedEndpoints.length === 0) {
-    return {};
-  }
-
-  const features = new Set<string>();
-  const types = new Set<string>();
-  if (normalizedEndpoints.some((item: string) => item.includes("chat"))) {
-    features.add("chat");
-    types.add("chat");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("response"))) {
-    features.add("responses");
-    types.add("chat");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("image"))) {
-    features.add("image");
-    types.add("image");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("video"))) {
-    features.add("video");
-    types.add("video");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("audio"))) {
-    features.add("audio");
-    types.add("audio");
-  }
-  if (normalizedEndpoints.some((item: string) => item.includes("embedding"))) {
-    features.add("embedding");
-    types.add("embedding");
-  }
-
-  return {
-    features: [...features],
-    types: [...types],
-    type: types.values().next().value,
-    capabilities: [
-      ...(features.has("chat") || features.has("responses") ? ["chat"] : []),
-      ...(features.has("responses") ? ["responses"] : []),
-      ...(features.has("image") ? ["image"] : []),
-      ...(features.has("video") ? ["video"] : []),
-      ...(features.has("audio") ? ["audio"] : []),
-      ...(features.has("embedding") ? ["embedding"] : []),
-    ],
-  };
-}
-
 function mapModels(
   models: any[],
   providerId: string,
@@ -591,7 +759,6 @@ function mapModels(
     string,
     { rank: number; vendor?: { id: number; name: string; icon?: string } }
   >,
-  classificationMap?: Map<string, { features?: string[]; types?: string[] }>,
 ) {
   let seq = 1000;
   return models.map((m: any) => {
@@ -602,20 +769,6 @@ function mapModels(
       catalogMetadataMap,
     );
     const catalogRank = catalogMetadata?.rank ?? undefined;
-    const classificationMeta = resolveAiHubMixMetadataByName(
-      String(modelName || ""),
-      classificationMap,
-    );
-    const normalizedCapabilities = normalizeAiHubMixModelMetadata(
-      classificationMeta
-        ? {
-            name: modelName,
-            features: classificationMeta.features,
-            types: classificationMeta.types,
-            type: classificationMeta.types?.[0],
-          }
-        : m,
-    );
     const isAiHubMixBrandedModel = String(modelName || "")
       .toLowerCase()
       .includes("aihubmix");
@@ -623,8 +776,14 @@ function mapModels(
     // 提取供应商信息
     let vendor: { id: number; name: string; icon?: string } | undefined;
 
+    // Auto/默认/系统是选择策略而非真实模型商，必须覆盖上游可能返回的
+    // vendor_id、owned_by 等字段，固定进入 Custom 分组。
+    if (isCustomAutoModelName(modelName)) {
+      vendor = { id: -5, name: "Custom", icon: "default" };
+    }
+
     // YutoAPI: 有 vendor_id 和 vendors 数组
-    if (m.vendor_id !== undefined && vendorsMap) {
+    if (!vendor && m.vendor_id !== undefined && vendorsMap) {
       const vendorInfo = vendorsMap[m.vendor_id];
       if (vendorInfo) {
         vendor = {
@@ -635,7 +794,7 @@ function mapModels(
       }
     }
     // AiHubMix: 有 developer_id
-    else if (m.developer_id !== undefined && vendorsMap) {
+    else if (!vendor && m.developer_id !== undefined && vendorsMap) {
       const vendorInfo = vendorsMap[m.developer_id];
       if (vendorInfo) {
         vendor = {
@@ -645,8 +804,24 @@ function mapModels(
         };
       }
     }
-    // Ocoolai / 其他：优先按命名空间前缀分类，再降级到模型名前缀推断
-    else {
+    if (vendor) {
+      const normalizedVendor = normalizeModelVendorName(vendor.name);
+      if (normalizedVendor) {
+        vendor = { ...vendor, ...normalizedVendor };
+      }
+    }
+    if (!vendor) {
+      const declaredVendor = inferVendorFromDeclaredModelOwner(m);
+      if (declaredVendor) {
+        vendor = {
+          id: -3,
+          name: declaredVendor.name,
+          icon: declaredVendor.icon,
+        };
+      }
+    }
+    // Ocoolai / 其他：没有声明模型商时，优先按命名空间前缀分类，再降级到模型名前缀推断
+    if (!vendor) {
       const inferred = inferVendorFromOcoolaiModel(modelName);
       if (inferred) {
         vendor = {
@@ -656,13 +831,25 @@ function mapModels(
         };
       }
     }
+    if (!vendor) {
+      const providerVendor = getProviderFallbackModelVendor(
+        providerId,
+        providerName,
+      );
+      if (providerVendor) {
+        vendor = { id: -4, ...providerVendor };
+      }
+    }
 
     if (catalogMetadata?.vendor) {
       vendor = catalogMetadata.vendor;
     }
 
     const inferredVendor = inferVendorFromModelName(String(modelName || ""));
-    if (inferredVendor && isGenericVendorName(vendor?.name)) {
+    if (
+      inferredVendor &&
+      (isGenericVendorName(vendor?.name) || inferredVendor.name === "Kling AI")
+    ) {
       vendor = {
         id: -1,
         name: inferredVendor.name,
@@ -686,25 +873,6 @@ function mapModels(
       remoteRankSource:
         catalogRank !== undefined ? "aihubmix_catalog" : "provider_models",
       catalogRank,
-      category: normalizedCapabilities.category,
-      categorySource: normalizedCapabilities.categorySource,
-      type: inferEndpointCapabilities(m).type || normalizedCapabilities.type,
-      types: inferEndpointCapabilities(m).types?.length
-        ? inferEndpointCapabilities(m).types
-        : normalizedCapabilities.types,
-      features: [
-        ...new Set([
-          ...(normalizedCapabilities.features || []),
-          ...(inferEndpointCapabilities(m).features || []),
-        ]),
-      ],
-      capabilities: [
-        ...new Set([
-          ...(normalizedCapabilities.capabilities || []),
-          ...(inferEndpointCapabilities(m).capabilities || []),
-        ]),
-      ],
-      categories: normalizedCapabilities.categories,
       apiKeyGroup,
       provider: {
         id: providerId,
@@ -766,61 +934,6 @@ async function fetchAiHubMixCatalogMetadataMap(baseUrl: string) {
   return catalogMetadataMap;
 }
 
-async function fetchAiHubMixClassificationMap(baseUrl: string) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl).replace(/\/v1$/i, "");
-  const targetUrl = `/api/proxy/call/mdl_info_pagination?p=0&num=10000`;
-  const response = await fetch(targetUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      ...(normalizedBaseUrl ? { "x-base-url": normalizedBaseUrl } : {}),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`AihubMix classification ${response.status}`);
-  }
-
-  const payload = await response.json();
-  const models = Array.isArray(payload?.data) ? payload.data : [];
-  const classificationMap = new Map<
-    string,
-    { features?: string[]; types?: string[] }
-  >();
-
-  models.forEach((model: any) => {
-    const modelName =
-      model?.model ||
-      model?.id ||
-      model?.name ||
-      model?.model_id ||
-      model?.model_name;
-    const normalizedName = String(modelName || "")
-      .trim()
-      .toLowerCase();
-    if (!normalizedName || classificationMap.has(normalizedName)) {
-      return;
-    }
-
-    const features = String(model?.features || "")
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-    const types = String(model?.modalities || "")
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-
-    classificationMap.set(normalizedName, {
-      features: features.length > 0 ? features : undefined,
-      types: types.length > 0 ? types : undefined,
-    });
-  });
-
-  persistAiHubMixClassificationCache(classificationMap);
-  return classificationMap;
-}
-
 async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
   const normalized = normalizeBaseUrl(baseUrl);
   let promise = aihubmixCatalogMetadataMapPromises.get(normalized);
@@ -838,28 +951,6 @@ async function getAiHubMixCatalogMetadataMap(baseUrl: string) {
       throw error;
     });
     aihubmixCatalogMetadataMapPromises.set(normalized, promise);
-  }
-
-  return promise;
-}
-
-async function getAiHubMixClassificationMap(baseUrl: string) {
-  const normalized = normalizeBaseUrl(baseUrl);
-  let promise = aihubmixClassificationMapPromises.get(normalized);
-  if (!promise) {
-    promise = fetchAiHubMixClassificationMap(baseUrl).catch((error) => {
-      const cachedClassificationMap = readAiHubMixClassificationCache();
-      if (cachedClassificationMap.size > 0) {
-        console.warn(
-          "[Fetch Models] AihubMix 分类元数据拉取失败，回退到本地缓存",
-          error instanceof Error ? error.message : String(error),
-        );
-        return cachedClassificationMap;
-      }
-      aihubmixClassificationMapPromises.delete(normalized);
-      throw error;
-    });
-    aihubmixClassificationMapPromises.set(normalized, promise);
   }
 
   return promise;
@@ -1071,7 +1162,10 @@ async function fetchJsonWithCandidates(
           );
         }
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15_000);
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          MODEL_FETCH_REQUEST_TIMEOUT_MS,
+        );
         const requestUrl = appendAuthQueryParam(
           url,
           authorization,
@@ -1439,6 +1533,14 @@ export async function fetchModelsFromProvider(
           : modelFetchKeyEntries.length > 0
           ? modelFetchKeyEntries
           : [{ groupName: undefined, apiKey: modelFetchApiKeyCandidates[0] }];
+      let bestSuccessfulResult:
+        | {
+            path: string;
+            apiKey: string;
+            modelCount: number;
+            keyLabel: string;
+          }
+        | undefined;
 
       for (
         let candidateIndex = 0;
@@ -1553,35 +1655,51 @@ export async function fetchModelsFromProvider(
               typeof candidate === "string"
                 ? candidate
                 : candidate.upstreamPath || candidate.url;
+            const modelCount = extractModelListFromResponse(
+              results[0].data,
+              requestBaseUrl,
+            ).length;
+            const keyLabel = `${entryIndex + 1}/${entries.length}（${
+              entry.groupName || "default"
+            }）`;
             console.log("[Fetch Models] ✅ 当前路径与 Key 查询模型成功", {
               path: successfulPath,
-              key: `${entryIndex + 1}/${entries.length}（${
-                entry.groupName || "default"
-              }）`,
-              modelCount: extractModelListFromResponse(
-                results[0].data,
-                requestBaseUrl,
-              ).length,
+              key: keyLabel,
+              modelCount,
             });
-            // 只有非缓存直连模式成功时才缓存（复用失败重试成功才缓存）
-            if (!useCacheKeyOnly) {
-              rememberModelListPath(
-                pathMemoryParams,
-                successfulPath,
-                entry.apiKey,
-              );
-              console.log("[Fetch Models] 💾 已缓存成功模型路径", {
+            if (
+              !bestSuccessfulResult ||
+              modelCount > bestSuccessfulResult.modelCount
+            ) {
+              bestSuccessfulResult = {
                 path: successfulPath,
-              });
+                apiKey: entry.apiKey,
+                modelCount,
+                keyLabel,
+              };
             }
-            if (rememberedModelListPath && candidateIndex === 0) {
-              console.log("[Fetch Models] 🗃️ 已直接复用缓存成功路径", {
-                path: successfulPath,
-              });
-            }
-            return;
           }
         }
+      }
+
+      if (!bestSuccessfulResult) return;
+
+      console.log("[Fetch Models] 📌 已选择模型数量最多的成功路径", {
+        path: bestSuccessfulResult.path,
+        key: bestSuccessfulResult.keyLabel,
+        modelCount: bestSuccessfulResult.modelCount,
+        mergedPathCount: payloadResults.length,
+      });
+      // 仅缓存本轮模型数量最多的路径；所有成功路径的模型会在后续统一去重合并。
+      if (!useCacheKeyOnly) {
+        rememberModelListPath(
+          pathMemoryParams,
+          bestSuccessfulResult.path,
+          bestSuccessfulResult.apiKey,
+        );
+        console.log("[Fetch Models] 💾 已缓存模型数量最多的路径", {
+          path: bestSuccessfulResult.path,
+        });
       }
     };
 
@@ -1593,18 +1711,29 @@ export async function fetchModelsFromProvider(
       const effectiveNormalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl);
       const baseWithoutV1 = effectiveNormalizedBaseUrl.replace(/\/v1$/, "");
       const proxyBaseUrl = isServerSide() ? baseUrl : baseWithoutV1;
+      const useAiHubMixCatalog = isAiHubMixUrl(effectiveBaseUrl);
 
       headers["x-base-url"] =
         provider === ServiceProvider.Local ? baseWithoutV1 : proxyBaseUrl;
 
-      // 按兼容性顺序依次尝试所有候选模型接口
-      const allCandidateUrls: FetchCandidate[] = buildProxyModelFetchCandidates(
-        baseUrl,
-        rememberedModelListPath,
-      );
-      const candidateUrls = rememberedModelListPath
-        ? allCandidateUrls.slice(0, 1)
-        : allCandidateUrls;
+      // AiHubMix 的 `/v1/models` 按当前 Key 的权限范围返回，不能代表平台
+      // 官方完整目录。模型管理器需优先使用 `/api/v1/models` 的完整目录。
+      const allCandidateUrls: FetchCandidate[] = useAiHubMixCatalog
+        ? [
+            {
+              url: `/api/aihubmix/models?baseUrl=${encodeURIComponent(
+                baseWithoutV1,
+              )}`,
+              displayBaseUrl: baseWithoutV1,
+              upstreamPath: "/api/v1/models",
+              note: "AiHubMix 官方完整目录",
+            },
+          ]
+        : buildProxyModelFetchCandidates(baseUrl, rememberedModelListPath);
+      const candidateUrls =
+        rememberedModelListPath && !useAiHubMixCatalog
+          ? allCandidateUrls.slice(0, 1)
+          : allCandidateUrls;
 
       if (rememberedModelListPath) {
         logFetchModels(
@@ -1736,24 +1865,12 @@ export async function fetchModelsFromProvider(
           { rank: number; vendor?: { id: number; name: string; icon?: string } }
         >
       | undefined;
-    let classificationMap:
-      | Map<string, { features?: string[]; types?: string[] }>
-      | undefined;
-
     if (isAiHubMixUrl(baseUrl)) {
       try {
         catalogMetadataMap = await getAiHubMixCatalogMetadataMap(baseUrl!);
       } catch (error) {
         console.warn(
           "[Fetch Models] 获取 AihubMix 模型目录顺序失败，将回退到原始返回顺序",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-      try {
-        classificationMap = await getAiHubMixClassificationMap(baseUrl!);
-      } catch (error) {
-        console.warn(
-          "[Fetch Models] 获取 AihubMix 分类元数据失败，将回退到当前模型字段",
           error instanceof Error ? error.message : String(error),
         );
       }
@@ -1804,7 +1921,6 @@ export async function fetchModelsFromProvider(
         payloadVendorsMap,
         result.groupName,
         catalogMetadataMap,
-        classificationMap,
       ).forEach((model) => {
         const key = `${model.name}@${model.provider?.id}`;
         if (!mergedModelMap.has(key)) {
@@ -1879,7 +1995,6 @@ export async function fetchModelsFromProvider(
         vendorsMap,
         undefined,
         catalogMetadataMap,
-        classificationMap,
       ).map((model) => {
         const raw = pricingModels.find((m: any) => m.model_name === model.name);
         const enableGroups: string[] = raw?.enable_groups || [];
@@ -1913,7 +2028,6 @@ export async function fetchModelsFromProvider(
         vendorsMap,
         undefined,
         catalogMetadataMap,
-        classificationMap,
       );
       return {
         models: mappedModels,
@@ -1990,7 +2104,6 @@ export async function fetchModelsFromProvider(
               vendorsMap,
               groupName,
               catalogMetadataMap,
-              classificationMap,
             ).forEach((model) => {
               const key = `${model.name}@${model.provider?.id}`;
               const existing = mergedModelMap.get(key);
@@ -2085,7 +2198,6 @@ export async function fetchModelsFromProvider(
           vendorsMap,
           groupName,
           catalogMetadataMap,
-          classificationMap,
         ).forEach((model) => {
           const key = `${model.name}@${model.provider?.id}`;
           const existing = mergedModelMap.get(key);
@@ -2133,7 +2245,6 @@ export async function fetchModelsFromProvider(
         vendorsMap,
         undefined,
         catalogMetadataMap,
-        classificationMap,
       );
       return {
         models: mappedModels,
@@ -2151,7 +2262,6 @@ export async function fetchModelsFromProvider(
         vendorsMap,
         undefined,
         catalogMetadataMap,
-        classificationMap,
       );
       return {
         models: mappedModels,
@@ -2168,7 +2278,6 @@ export async function fetchModelsFromProvider(
       vendorsMap,
       undefined,
       catalogMetadataMap,
-      classificationMap,
     );
     return {
       models: mappedModels,

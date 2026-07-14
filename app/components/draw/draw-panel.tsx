@@ -12,7 +12,6 @@ import EditIcon from "@/app/icons/edit.svg";
 import DownIcon from "@/app/icons/down.svg";
 import clsx from "clsx";
 import { ServiceProvider } from "@/app/constant";
-import { matchModelCategory } from "@/app/utils/model-category-rules";
 import {
   DRAW_ASPECT_RATIO_OPTIONS,
   DRAW_DALLE_STYLE_OPTIONS,
@@ -1055,34 +1054,6 @@ export function DrawPanel() {
     () => (rawProviderModels || {}) as Record<string, string[]>,
     [rawProviderModels],
   );
-  const isDrawCandidateModel = React.useCallback((model: any) => {
-    return matchModelCategory("image", {
-      title: String(model?.displayName || model?.name || ""),
-      searchText: [
-        model?.name,
-        model?.displayName,
-        model?.provider?.providerName,
-        model?.vendor?.name,
-        ...(model?.capabilities || []),
-        ...(model?.features || []),
-        ...(model?.types || []),
-        ...(model?.categories || []),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase(),
-      meta: {
-        category: model?.category,
-        categorySource: model?.categorySource,
-        type: model?.type,
-        types: model?.types,
-        features: model?.features,
-        capabilities: model?.capabilities,
-        categories: model?.categories,
-      },
-    });
-  }, []);
-
   const drawProfiles = React.useMemo(() => {
     return (accessStore.apiProfiles || []).filter(isDrawProviderProfile);
   }, [accessStore.apiProfiles]);
@@ -1351,7 +1322,6 @@ export function DrawPanel() {
           initialProviderId={selectedProvider}
           providerIdResolver={(profile) => String(profile.id || "")}
           managedModelKeys={drawManagedModelKeys}
-          filterModel={isDrawCandidateModel}
           onAddModels={handleAddDrawModels}
           onRemoveModel={handleRemoveDrawModels}
         />

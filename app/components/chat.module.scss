@@ -2575,6 +2575,16 @@
   margin-top: 5px;
 }
 
+.chat-message-retry-attempt {
+  max-width: 100%;
+  min-width: 0;
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
 .chat-message-tools {
   font-size: 12px;
   color: #aaa;

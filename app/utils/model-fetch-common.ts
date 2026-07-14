@@ -13,6 +13,9 @@ export type ApiProfileAuthType =
   | "query-key"
   | "none";
 
+// 候选模型接口大量不存在；短超时让失败路径尽快让位给下一个候选。
+export const MODEL_FETCH_REQUEST_TIMEOUT_MS = 5_000;
+
 function normalizeSecret(value: unknown) {
   return String(value || "").trim();
 }

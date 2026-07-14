@@ -30,6 +30,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持文本、图片、多模态消息和生成媒体展示。
 - 支持消息复制、重发、编辑、语音朗读。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
+- API 对话默认启用自动故障转移：当前模型失败后先识别 GPT、Claude、Gemini、DeepSeek、Qwen 等模型系列，跨供应商按版本由新到旧尝试同系列的其他普通聊天模型，同版本的后缀名称按字母顺序排列；同系列全部失败后，再尝试当前供应商的其余模型，并按供应商名称和模型名称顺序尝试其他供应商。每次尝试在助手消息中独占一行，只显示状态、供应商和模型，不展示上游错误正文；成功后立即把实际成功模型保存为跨页面、跨用户的全局模型。
 - 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照覆盖恢复或删除某个对话快照，也可删除整次备份记录。
 - API 配置页关闭时，如果存在未同步修改，会弹出仅含「保存 / 不保存」的确认框；点击「不保存」直接退出，避免误留在页面。
 - 移动端优化：
@@ -54,6 +55,11 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 获取的模型按发布日期由新到旧排列；日期相同或未知时按字母排序，并让数字更大的版本优先。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
+- 聊天模型选择器和模型管理器统一按供应商名称首字母排列；供应商内部按模型系列名称排列，同系列版本从新到旧，同版本后缀按字母顺序。浏览可添加模型与查看已添加模型使用同一排序。
+- 模型商归属优先使用上游声明的 `vendor / developer / owned_by / owner / organization` 等模型商字段；仅在这些字段缺失或为 Custom、Unknown 等通用占位时，才按模型 ID 和命名空间推断。Yuto 等聚合供应商缺失 `vendor_id` 时只补充模型商归属，不过滤模型：Act Two、Aleph、Gen3/Gen4 统一归入 Runway，Eleven/Scribe/Dubbing 归入 ElevenLabs，Flux Tools 归入 Flux，Kling 全系列统一归入 Kling AI，`vidu2.0 / viduq*` 全系列统一归入 Vidu，Moonshot/Kimi 全系列统一归入 Moonshot；`Seed / Seedream / Seedance`、QVQ、Yi、Spark、Command、Baichuan、InternLM、Jamba、BGE、LongCat、Ling/Ring 等无 `vendor_id` 的直连模型同样归入其官方模型商。Midjourney、Mureka、Luma、Suno、PixVerse、Viggle、Cursor Composer、Xiaomi MiMo、MiniMax Image、Google Veo/Gemma/Nano Banana、Alibaba Wan/HappyHorse 等同样使用官方英文模型商名称，避免按斜杠前完整模型名生成伪分组。客户端加载旧缓存时也会重新规范这些归属。
+- 模型商筛选菜单按最终可见名称排序；除保留“全部模型商”入口外，中文分组和供应商品牌统一显示为官方英文名称，并通过别名继续使用原有图标资源。官方大小写保持为 FLUX、NVIDIA、MiniMax 等；没有本地图标资源的模型商与模型行统一使用项目内置的浅绿色默认图标，不得错误回退为 OpenAI 图标。
+- ElevenLabs 与 Mureka 使用各自官方品牌图标；StepFun 与 Suno 保持现有图标内容和视觉风格，仅让图标图片铺满父级圆角矩形。
+- 模型获取、缓存、模型管理器、聊天模型选择器和绘图模型管理器都不按名称、类别、能力或端点过滤模型；模型管理器的浏览列表展示当前供应商完整获取结果，“已添加”、聊天选择器和绘图选择器展示用户自行添加的模型。系统不再维护 Image、Video、Web、Thinking 或普通聊天模型分类，也不再额外拉取 AihubMix 分类元数据。自动故障转移使用用户已添加的全部可用模型，只保留候选排序、供应商切换和失败重试。请求真正发出时仍会根据用户已选模型选择对应 API 和参数，这属于请求路由，不用于隐藏模型。旧 GPT/DeepSeek/豆包系列“自动模式”及其开关、配置和同步字段已移除，失败重试无需设置且始终启用。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
 - 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
 - 内置「余额查询」页面（`/balances`）：先从浏览器非敏感缓存立即显示余额，再在后台从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置并校准缓存/UI，页面首开不自动请求上游余额；仅在手动单项更新或批量更新时，由服务端使用数据库中的管理 Key、查询 URL 和 New-API-User 配置发起请求。管理 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
@@ -204,7 +210,7 @@ app/
 
 实现方式：
 
-- 服务端按 Provider 拉取模型列表。
+- 服务端按 Provider 拉取完整模型列表；入口筛选不反向删除上游缓存。
 - 前端以 IndexedDB 本地缓存优先，必要时触发刷新。
 - 数据库存储供应商配置、API Key 密文和 `access-control` 快照。
 - 模型目录不再写入独立 `model_catalog` 等表，刷新结果回写 `access-control.apiProfiles[*].cachedModels`。
