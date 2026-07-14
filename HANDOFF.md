@@ -4,6 +4,29 @@
 
 ============================================================
 
+## 78. 【2026-07-14 09:59】- 收紧 stash 清理确认并统一修改后自动暂存
+
+### 修改内容
+
+- 将 stash 清理改为强制逐条、逐文件说明：执行 clear、drop 或 pop 前，必须用直白语言说明每个文件修改了什么，并取得用户针对本次具体清单的明确确认。
+- 统一每轮修改完成并通过必要验证后执行一次 `git add -A`，同时保留敏感信息、真实 `.env`、临时产物和无关改动的范围检查。
+
+### 实现方式
+
+- 同步更新 `AGENTS.md`、`CLAUDE.md` 和 `GEMINI.md` 的 Git 授权边界；提交或任务完成不再构成 stash 删除预授权，自动暂存也不扩展为 commit、push 或部署授权。
+- 全局规则仓库、提交脚本、规则审计、工具入口和长期记忆同步采用相同边界。
+
+### 验证
+
+- 规则仓库执行 `bash -n scripts/git-commit-push.sh`、`bash -n scripts/rules-audit.sh`、`bash scripts/rules-audit.sh` 和 `git diff --check`。
+- NextChat 执行规则文本检查与 `git diff --check`；本次不改业务代码，不需要重启或重建开发容器。
+
+### 潜在或遗留问题
+
+- 当前本地仍保留 `stash@{0}: lint-staged automatic backup`，未执行 clear、drop 或 pop。
+
+============================================================
+
 ## 77. 【2026-07-14 09:52】- 优化余额查询页移动端整体布局与对齐
 
 ### 修改内容
@@ -227,29 +250,6 @@
 - `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过。
 - 本地接口使用 GET 返回的 8 个数据库 Profile 逐项 POST 查询全部成功，无 `provider_not_found`；YutoAPI、AihubMix、CherryIN、DeepSeek、Ocoolai、OpenRouter、ToAPI、晴辰云均返回新余额和完整成功路径。
 - 浏览器实测对话页显示数据库中的 YutoAPI 余额 `$84.35`；余额页点击“全部查询”后 8 个供应商均保留有效新余额且无失败状态；`nextchat-dev` 热加载当前工作区代码。
-
-### 潜在或遗留问题
-
-- 未提交、未推送、未部署；等待用户明确指令。
-
-============================================================
-
-## 68. 【2026-07-13 23:17】- 恢复余额页更新按钮深色主题样式
-
-### 修改内容
-
-- 恢复余额页“更新”按钮此前已完成但被清除的 green 公共按钮主题适配。
-- 修复深色模式误用浅色绿色实底、刷新图标被全局暗色滤镜影响的问题。
-
-### 实现方式
-
-- `app/styles/globals.scss`：恢复 light/dark 分离的 `--backup-green-75-bg`，深色模式使用 22% 透明绿；补齐 green 按钮深色 hover、图标滤镜及描边/填充规则。
-- `app/components/button.tsx`：为 `type="green"` 图标增加 `no-dark` 豁免，防止全局 SVG 反相滤镜覆盖白色刷新图标。
-
-### 验证
-
-- 浏览器实测 `/balances` 的更新按钮在深色模式使用 22% 透明绿背景、绿色边框、白色文字与图标；SVG filter 为 `none`。
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 均通过；`nextchat-dev` 确认挂载当前工作区并已热加载。
 
 ### 潜在或遗留问题
 

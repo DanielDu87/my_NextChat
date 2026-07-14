@@ -71,6 +71,7 @@ SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNE
    - 每次完成代码修改后，**立即执行 `git add -A`**
    - 不等待用户明确指令，修改完成后自动暂存
    - 这是全局强制要求，适用于所有代码改动
+   - 暂存前后检查范围，不加入密钥、真实 `.env`、临时产物或明显无关内容；自动暂存不授权 commit、push 或部署
 
 2. **不主动提交**
 
@@ -109,6 +110,8 @@ EOF
 # 3. 推送到远程
 git push
 ```
+
+任何 `git stash clear`、`git stash drop` 或会删除 stash 的 `git stash pop`，都必须先逐条读取 stash，并用直白语言逐文件说明修改内容；只有用户针对本次具体清单明确确认后才能执行，提交或任务完成不构成预授权。
 
 ### 示例对话
 
