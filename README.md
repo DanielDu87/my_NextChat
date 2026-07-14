@@ -229,6 +229,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 环境变量：`.env.baota`
 - 域名：`chat.dyxcloud.com`
 - 上游：`http://127.0.0.1:3000`
+- Docker 构建阶段会将 `COREPACK_NPM_REGISTRY` 绑定到 `NPM_REGISTRY`，确保 Corepack 安装 Yarn 时同样使用配置的 npm 镜像。
 
 详细流程见：
 
