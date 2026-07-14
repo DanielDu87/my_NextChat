@@ -34,7 +34,6 @@ ARG all_proxy
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_OPTIONS=${NODE_OPTIONS} \
-    COREPACK_NPM_REGISTRY=${NPM_REGISTRY} \
     ENABLE_GOOGLE_FONTS=${ENABLE_GOOGLE_FONTS} \
     GITHUB_BASE_URL=${GITHUB_BASE_URL} \
     GITHUB_API_BASE_URL=${GITHUB_API_BASE_URL} \
@@ -63,7 +62,7 @@ RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
     apk add --no-cache libc6-compat git && \
     corepack enable && \
-    corepack prepare yarn@1.22.22 --activate && \
+    COREPACK_NPM_REGISTRY="${NPM_REGISTRY%/}" corepack prepare yarn@1.22.22 --activate && \
     npm config set registry "${NPM_REGISTRY}" && \
     yarn config set registry "${NPM_REGISTRY}" && \
     yarn config set network-timeout 600000 -g && \

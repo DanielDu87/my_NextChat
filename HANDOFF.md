@@ -13,7 +13,7 @@
 
 ### 实现方式
 
-- `Dockerfile` 在基础构建环境中将 `COREPACK_NPM_REGISTRY` 绑定到已有的 `NPM_REGISTRY`，让 Corepack、npm 和 Yarn 使用同一镜像配置。
+- `Dockerfile` 在执行 `corepack prepare` 时将 `COREPACK_NPM_REGISTRY` 绑定到去除尾部 `/` 的 `NPM_REGISTRY`，让 Corepack、npm 和 Yarn 使用同一镜像配置，并避免双斜杠 URL 返回 404。
 - `README.md` 同步生产构建镜像契约；未修改运行时鉴权、数据库、Compose、容器卷或宝塔站点配置。
 
 ### 验证
