@@ -16,14 +16,14 @@
 
 ## 项目概览
 
-NextChat 是基于 Next.js 14、React、TypeScript、Zustand、PostgreSQL 和 SCSS Modules 的跨平台 AI 聊天应用，支持 Web/PWA 与 Tauri 桌面端。内置聊天、AI 绘画（Draw）、实时语音、MCP 工具、插件、Artifacts 等功能，支持 18 个模型供应商与多 API Key 轮询。云端数据持久化在 PostgreSQL，本地业务数据在 IndexedDB。更完整的架构导航见 [CLAUDE.md](./CLAUDE.md)。
+NextChat 是基于 Next.js 14、React、TypeScript、Zustand、PostgreSQL 和 SCSS Modules 的跨平台 AI 聊天应用，支持 Web/PWA 与 Tauri 桌面端。内置聊天、AI 绘画（Draw）、实时语音、MCP 工具、插件、Artifacts 等功能，支持 18 个模型供应商与多 API Key 轮询。模型获取会按 Key 指纹缓存成功路径，模型商分组会修复 Ocoolai 等旧缓存中的伪 vendor。云端数据持久化在 PostgreSQL，本地业务数据在 IndexedDB。更完整的架构导航见 [CLAUDE.md](./CLAUDE.md)。
 
 ## 目录结构
 
 - `app/`：Next.js 应用核心代码。
 - `app/components/`：聊天界面、设置、绘画（`draw/`）、实时语音（`realtime-chat/`）等组件。
 - `app/store/`：Zustand 状态管理（chat、config、access、auth、draw、mask、sync 等）。
-- `app/client/`：各模型 Provider 客户端（`platforms/` 下 14 个实现）。
+- `app/client/`：各模型 Provider 客户端（`platforms/` 下当前有 15 个实现）。
 - `app/utils/server/`：服务端数据库 Repository 层（PostgreSQL 连接与各 `*-repository.ts`）。
 - `app/api/`：服务端 API 路由（提供商代理、`db/*` 同步、`auth/*` 认证等）。
 - `scripts/`：部署、数据库维护、模型同步等脚本。
@@ -70,7 +70,6 @@ npx tsc --noEmit --pretty false
 ## Git 与清理规则
 
 - 不要自动提交；只有用户明确要求“提交/commit”时才执行提交并推送。
-- 每轮修改完成并通过必要验证后默认执行一次 `git add -A`；暂存前后检查范围，不加入密钥、真实 `.env`、临时产物或明显无关内容。自动暂存不授权 commit、push 或部署。
 - 任何 stash 清空、drop 或 pop 前，必须逐条读取，并用直白语言逐文件说明每个 stash 修改了什么；只有用户针对本次具体清单明确确认后才能删除。
 - 提交信息格式：`YYYY-MM-DD HH:MM 内容`。
 - 不提交临时调试文件、历史 `.bak` 文件、空 `div*` 文件和一次性测试文件。

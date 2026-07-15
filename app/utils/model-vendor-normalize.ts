@@ -28,6 +28,7 @@ const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
   aws: { name: "Amazon", icon: "Box" },
   "amazon-nova": { name: "Amazon", icon: "Box" },
   anthropic: { name: "Anthropic", icon: "Claude.Color" },
+  claude: { name: "Anthropic", icon: "Claude.Color" },
   ascend: { name: "Ascend", icon: "Box" },
   azure: { name: "Microsoft", icon: "Azure" },
   baai: { name: "BAAI", icon: "BAAI" },
@@ -36,12 +37,16 @@ const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
   baidu: { name: "Baidu", icon: "Ernie.Color" },
   "gemini (anthropic format)": { name: "Google", icon: "Gemini.Color" },
   bytedance: { name: "ByteDance", icon: "Doubao.Color" },
+  doubao: { name: "ByteDance", icon: "Doubao.Color" },
   cohere: { name: "Cohere", icon: "Box" },
   deepseek: { name: "DeepSeek", icon: "DeepSeek.Color" },
   "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
   flux: { name: "FLUX", icon: "Flux" },
   google: { name: "Google", icon: "Gemini.Color" },
   "google-ai": { name: "Google", icon: "Gemini.Color" },
+  gemini: { name: "Google", icon: "Gemini.Color" },
+  gemma: { name: "Google", icon: "Gemini.Color" },
+  veo: { name: "Google", icon: "Gemini.Color" },
   iflytek: { name: "iFLYTEK Spark", icon: "Box" },
   "ibm-granite": { name: "IBM", icon: "Box" },
   internlm: { name: "InternLM", icon: "Box" },
@@ -61,6 +66,7 @@ const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
   mistralai: { name: "Mistral", icon: "Mistral.Color" },
   moonshot: { name: "Moonshot", icon: "Moonshot" },
   moonshotai: { name: "Moonshot", icon: "Moonshot" },
+  kimi: { name: "Moonshot", icon: "Moonshot" },
   nvidia: { name: "NVIDIA", icon: "Nvidia" },
   ocoolai: { name: "Ocoolai", icon: "Box" },
   openai: { name: "OpenAI", icon: "OpenAI" },
@@ -68,6 +74,7 @@ const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
   openrouter: { name: "OpenRouter", icon: "Box" },
   perplexity: { name: "Perplexity", icon: "Box" },
   qwen: { name: "Alibaba", icon: "Qwen.Color" },
+  wan: { name: "Alibaba", icon: "Qwen.Color" },
   siliconflow: { name: "SiliconFlow", icon: "Box" },
   "silicon flow": { name: "SiliconFlow", icon: "Box" },
   stepfun: { name: "StepFun", icon: "StepFun" },
@@ -76,11 +83,15 @@ const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
   "stepfun-ai": { name: "StepFun", icon: "StepFun" },
   "step fun": { name: "StepFun", icon: "StepFun" },
   tencent: { name: "Tencent", icon: "Hunyuan.Color" },
+  hunyuan: { name: "Tencent", icon: "Hunyuan.Color" },
   "z-ai": { name: "Zhipu", icon: "Zhipu.Color" },
   "zai-org": { name: "Zhipu", icon: "Zhipu.Color" },
   "zhipu-ai": { name: "Zhipu", icon: "Zhipu.Color" },
   xai: { name: "xAI", icon: "XAI" },
   "x-ai": { name: "xAI", icon: "XAI" },
+  grok: { name: "xAI", icon: "XAI" },
+  glm: { name: "Zhipu", icon: "Zhipu.Color" },
+  chatglm: { name: "Zhipu", icon: "Zhipu.Color" },
   zhipu: { name: "Zhipu", icon: "Zhipu.Color" },
   "zhipu ai": { name: "Zhipu", icon: "Zhipu.Color" },
   "z.ai": { name: "Zhipu", icon: "Zhipu.Color" },
@@ -100,25 +111,65 @@ const MODEL_VENDOR_GROUP_NAMES: Record<string, string> = {
   "01.ai": "01.AI",
   ai21: "AI21",
   aihubmix: "AihubMix",
-  alibaba: "Qwen",
-  anthropic: "Claude",
+  aionlabs: "Aion Labs",
+  allenai: "AllenAI",
+  alibaba: "Alibaba",
+  anthropic: "Anthropic",
   baai: "BAAI",
-  baidu: "ERNIE",
-  bytedance: "Doubao",
+  baidu: "Baidu",
+  bytedance: "ByteDance",
   custom: "CUSTOM",
+  cognitivecom: "Cognitive Computations",
+  deepcogito: "Deep Cogito",
+  deepseek: "DeepSeek",
+  elevenlabs: "ElevenLabs",
   flux: "FLUX",
-  google: "Gemini",
-  iflytek: "iFLYTEK Spark",
-  kuaishou: "Kling AI",
-  kwaipilot: "Kwai Kolors",
+  google: "Google",
+  iflytek: "iFLYTEK",
+  inclusionai: "InclusionAI",
+  ibm: "IBM",
+  kuaishou: "Kuaishou",
+  kwaipilot: "Kuaishou",
   minimax: "MiniMax",
-  moonshot: "Kimi",
+  moonshot: "Moonshot",
   nvidia: "NVIDIA",
+  nexagi: "Nex AGI",
+  "nex agi": "Nex AGI",
+  nousresearch: "Nous Research",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  pixverse: "PixVerse",
+  rekaai: "Reka AI",
+  sao10k: "Sao10K",
+  siliconflow: "SiliconFlow",
+  suno: "Suno",
+  "suno v3": "Suno",
   stepfun: "StepFun",
-  tencent: "Tencent Hunyuan",
-  xai: "Grok",
+  tencent: "Tencent",
+  thedrummer: "TheDrummer",
+  xai: "xAI",
   zhipu: "Z.ai",
 };
+
+const OCOOLAI_PROPRIETARY_MODEL_NAMES = new Set([
+  "concise",
+  "concise-scholar",
+  "detail",
+  "detail-scholar",
+  "ocoolai-deepresearch-v1pro",
+  "ocoolai-deepresearch-v2",
+  "ocoolai-deepsearch-v3",
+  "ocoolai-helper",
+  "parse-pdf",
+  "research",
+  "research-scholar",
+  "search-gpts-chat",
+  "speech-01-hd",
+  "speech-01-turbo",
+  "speech-02-hd",
+  "speech-02-turbo",
+  "url-analysis",
+]);
 
 const DECLARED_OWNER_FIELDS = [
   "vendor",
@@ -265,4 +316,80 @@ export function isCustomAutoModelName(value?: string) {
       .trim()
       .toLowerCase(),
   );
+}
+
+export function isOcoolaiProprietaryModelName(value?: string) {
+  return OCOOLAI_PROPRIETARY_MODEL_NAMES.has(
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^(?:net|network)[-_.]+/, ""),
+  );
+}
+
+function normalizeModelIdentifier(value?: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "");
+}
+
+/**
+ * Ocoolai 的旧缓存曾把完整模型 ID 写进 vendor.name。仅在该值与模型 ID
+ * 实质相同的情况下修正，避免覆盖上游提供的真实模型商声明。
+ */
+export function isModelIdentifierStoredAsVendor(
+  modelName?: string,
+  vendorName?: string,
+) {
+  const normalizedModelName = normalizeModelIdentifier(modelName);
+  const normalizedVendorName = normalizeModelIdentifier(vendorName);
+  return Boolean(
+    normalizedModelName &&
+      normalizedVendorName &&
+      normalizedModelName === normalizedVendorName,
+  );
+}
+
+export function inferVendorFromOcoolaiCachedModelName(value?: string) {
+  const modelName = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:net|network)[-_.]+/, "");
+
+  if (
+    modelName.startsWith("gpt-") ||
+    modelName.startsWith("chatgpt-") ||
+    /^o[1345](?:[-_.]|$)/.test(modelName)
+  ) {
+    return { name: "OpenAI", icon: "OpenAI" };
+  }
+  if (modelName.startsWith("glm-") || modelName.startsWith("chatglm-")) {
+    return { name: "Zhipu", icon: "Zhipu.Color" };
+  }
+  if (
+    modelName.startsWith("nano_banana") ||
+    modelName.startsWith("nano-banana")
+  ) {
+    return { name: "Google", icon: "Gemini.Color" };
+  }
+  if (modelName.startsWith("bce-")) {
+    return { name: "Baidu", icon: "Ernie.Color" };
+  }
+  if (modelName.startsWith("charglm-") || modelName.startsWith("codegeex-")) {
+    return { name: "Zhipu", icon: "Zhipu.Color" };
+  }
+  if (modelName.startsWith("luma-video")) {
+    return { name: "Luma", icon: "Luma" };
+  }
+  if (
+    modelName.startsWith("embedding-gecko") ||
+    modelName === "embedding-001"
+  ) {
+    return { name: "Google", icon: "Gemini.Color" };
+  }
+  if (modelName.startsWith("z-image")) {
+    return { name: "Alibaba", icon: "Qwen.Color" };
+  }
+  return null;
 }

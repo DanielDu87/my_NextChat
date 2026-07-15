@@ -98,6 +98,15 @@ export function getRememberedModelListApiKey(params: {
   return readMemory()[getMemoryKey(params)]?.modelListApiKey || "";
 }
 
+export function getRememberedModelListUpdatedAt(params: {
+  provider?: string;
+  profileId?: string;
+  profileName?: string;
+  baseUrl?: string;
+}) {
+  return Number(readMemory()[getMemoryKey(params)]?.updatedAt || 0);
+}
+
 export function rememberModelListPath(
   params: {
     provider?: string;

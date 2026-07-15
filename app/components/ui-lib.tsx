@@ -102,7 +102,7 @@ const SELECTOR_PREFERRED_GROUP_ORDER = [
   "Other",
 ] as const;
 
-function getGroupFilterLabel(group: string) {
+export function getGroupFilterLabel(group: string) {
   const normalized = group.trim().toLowerCase();
   if (normalized === "__default__") return "__default__";
   if (normalized === "all") return "全部模型商";

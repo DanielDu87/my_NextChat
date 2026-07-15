@@ -18,6 +18,10 @@ import { createPersistStore } from "../utils/store";
 import { safeLocalStorage } from "../utils/safe-local-storage";
 import { normalizePublishedAt } from "../utils/model-published-at";
 import { hydrateModelsWithAiHubMixMetadata } from "../utils/aihubmix-model-metadata";
+import {
+  inferVendorFromOcoolaiCachedModelName,
+  isModelIdentifierStoredAsVendor,
+} from "../utils/model-vendor-normalize";
 import { recordModelSyncDiff } from "../utils/model-sync-diff";
 import {
   isLegacyGeneratedCustomProviderId,
@@ -132,7 +136,24 @@ function buildModelProviderKey(name: unknown, providerId: unknown) {
 }
 
 function hydrateModelsForStore(models: LLMModel[]) {
-  return hydrateModelsWithAiHubMixMetadata(models);
+  return hydrateModelsWithAiHubMixMetadata(models).map((model) => {
+    const providerId = String(model.provider?.id || "").toLowerCase();
+    const isOcoolaiModel = providerId.includes("ocool");
+    if (
+      !isOcoolaiModel ||
+      !isModelIdentifierStoredAsVendor(model.name, model.vendor?.name)
+    ) {
+      return model;
+    }
+
+    const inferredVendor = inferVendorFromOcoolaiCachedModelName(model.name);
+    return {
+      ...model,
+      vendor: inferredVendor
+        ? { id: -1, ...inferredVendor }
+        : { id: -4, name: "Ocoolai", icon: "Box" },
+    };
+  });
 }
 
 const BUILTIN_CHAT_MODELS = DEFAULT_MODELS.filter(
@@ -449,11 +470,9 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
       for (const model of oldModels) {
         const pid = model?.provider?.id;
         const normalizedPid = normalizeModelProviderId(pid);
-        if (
-          allowedProviderIds &&
-          pid &&
-          !allowedProviderIds.has(normalizedPid)
-        ) {
+        // 定向刷新只替换指定供应商；其他供应商的既有模型必须原样保留。
+        if (allowedProviderIds && !allowedProviderIds.has(normalizedPid)) {
+          modelMap[buildModelProviderKey(model.name, pid)] = model;
           continue;
         }
         // 跳过即将被新模型替换的 provider 的旧模型

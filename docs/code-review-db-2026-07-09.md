@@ -1,5 +1,7 @@
 # 数据库代码审查与修复报告（2026-07-09）
 
+> ⚠️ 本文是 2026-07-09 的历史审查快照，不代表当前运行态。当前架构、Schema 版本和验证结果以 [开发指南](development.md)、[PostgreSQL Schema](db/nextchat-postgres-schema.sql) 与代码为准；文中提到的 `DEPLOY.md` 改动已合并进现有部署文档。2026-07-15 已重新执行 `yarn lint` 与 `npx tsc --noEmit --pretty false`，均通过；下文的旧 TypeScript 报错和“剩余待办”仅保留审计时点语义。
+
 > 本报告汇总 2026-07-09 一次全量数据库相关代码审查的发现与修复结果。
 > 覆盖范围：`app/utils/server/**` Repository、`app/api/db/**` 与 `app/api/cache/**` 路由、
 > `app/api/auth/**` 与 `app/api/admin/**`、`app/api/site-auth`、`app/api/draw-image`、

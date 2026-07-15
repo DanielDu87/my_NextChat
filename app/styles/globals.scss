@@ -2829,13 +2829,16 @@ button.nextchat-pill-button {
 
 .model-selector-panel .nextchat-modal-footer {
   border-top: 0 !important;
+  justify-content: center !important;
 }
 
 .nextchat-modal-footer-group {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 /* 自定义输入卡：外层 popover + 内层 form。popover 带顶部边线与主题色淡背景。 */
@@ -2960,6 +2963,7 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .nextchat-modal-footer-group {
     width: 100%;
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .nextchat-modal-footer-group button,
@@ -2988,19 +2992,10 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
     width: 100%;
   }
 
-  /* 移动端浏览模型/全部删除/关闭这三个按钮在一行展示 */
-  .nextchat-modal-footer-show-added {
+  /* 移动端 footer 所有按钮一行显示 */
+  .nextchat-modal-footer {
     flex-direction: row !important;
-    gap: 8px !important;
-
-    .nextchat-modal-footer-group {
-      display: contents !important;
-    }
-
-    /* 全部删除放到最左边 */
-    .nextchat-danger-button {
-      order: -1 !important;
-    }
+    align-items: center !important;
   }
 }
 

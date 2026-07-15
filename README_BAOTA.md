@@ -2,7 +2,7 @@
 
 本文档是 `chat.dyxcloud.com` 当前线上部署的权威说明，给后续 AI 或人工部署时直接执行使用。
 
-详细页面操作（建站 / 反代 / SSL / Compose 同步 / 清理 / 验证）见 [docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)；详细排障（域名切换 / 三套数据库 / 缓存开关）见 [docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)；PostgreSQL 操作（备份 / 还原 / 迁移）见 [docs/baota-postgres-guide.md](docs/baota-postgres-guide.md)。
+生产固定命令、DockerSite 路径、数据库与证书注意事项同时维护在 [AGENTS.md](AGENTS.md)；通用入口见 [DEPLOY.md](DEPLOY.md)。本文件保留宝塔部署的完整操作说明，不再依赖已移除的拆分 Runbook。
 
 ## 1. 当前固定环境
 
@@ -18,14 +18,14 @@
 | 宝塔 Compose 显示名 | `my_nextchat` |
 | 宝塔 Compose 实际 project | `03b890c97bdecc48c2294402d8768906`，即 `md5(my_nextchat)` |
 | Nginx 反代目标 | `http://127.0.0.1:3000` |
-| 数据库 | 远程 PostgreSQL，配置在服务器 `/www/dk_project/my_NextChat/.env.baota` |
+| 数据库 | 宿主机 PostgreSQL，配置在服务器 `/www/dk_project/my_NextChat/.env.baota` |
 | 数据库服务器 | 宝塔 PostgreSQL 16（监听 `127.0.0.1:5432` + `172.20.0.1:5432`） |
 | 默认管理员 | `user:admin`（`NEXTCHAT_DEFAULT_USER_ID` / `NEXT_PUBLIC_DEFAULT_SYNC_USER_ID`） |
 
 部署链路：
 
 ```text
-浏览器 -> 宝塔 Nginx 80/443 -> 127.0.0.1:3000 -> Docker 容器 nextchat -> 远程 PostgreSQL
+浏览器 -> 宝塔 Nginx 80/443 -> 127.0.0.1:3000 -> Docker 容器 nextchat -> 宿主机 PostgreSQL
 ```
 
 禁止：
@@ -42,7 +42,7 @@
 
 | 文件 | 用途 |
 |---|---|
-| `/www/dk_project/my_NextChat/docker-compose.baota.yml` | 宝塔专用 Compose 源文件，直连远程 PostgreSQL |
+| `/www/dk_project/my_NextChat/docker-compose.baota.yml` | 宝塔专用 Compose 源文件，通过 Docker 网桥直连宿主机 PostgreSQL |
 | `/www/dk_project/my_NextChat/.env.baota` | 线上真实环境变量，**必须保留现有数据库密码和 `APP_SECRET`** |
 | `/www/dk_project/my_NextChat/Dockerfile` | 镜像构建文件 |
 | `/www/dk_project/my_NextChat/scripts/baota-register-dockersite.py` | 调用宝塔官方内部接口注册 DockerSite |
@@ -131,13 +131,13 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 | `BACKUP_PGUSER` | 是 | 备份库用户名 |
 | `BACKUP_PGPASSWORD` | 是 | 备份库密码 |
 | `BACKUP_PGSSL` | 否 | 是否启用 SSL（`true`/`1`/`yes`/`on`） |
-| `BACKUP_PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验证书；SSH 隧道场景下 `false` |
+| `BACKUP_PGSSLMODE` | 否 | SSL 模式；`require` 启用 SSL，`disable` 关闭 |
 | `BACKUP_PGPOOL_MAX` | 否 | 连接池上限，默认 `5` |
 | `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否 | 连接超时，默认 `10000` |
 | `BACKUP_PG_IDLE_TIMEOUT_MS` | 否 | 空闲超时，默认 `30000` |
 | `BACKUP_PG_RETRY_COUNT` | 否 | 重试次数，默认 `3` |
 | `PG_STATEMENT_TIMEOUT_MS` | 是 | 单语句超时；防止备份 / 增量同步被长事务拖死 |
-| `PG_IDLE_IN_TX_SESSION_TIMEOUT_MS` | 是 | 空闲事务超时；防止误锁 |
+| `PG_IDLE_IN_TX_TIMEOUT_MS` | 是 | 空闲事务超时；防止误锁，代码默认 `60000` |
 | `PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验主库证书 |
 | `NEXTCHAT_SITE_PASSWORD` | 是 | 站点访问密码（开启站点访问密码门禁时） |
 
@@ -189,7 +189,7 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 
 ## 5. 同步宝塔 Compose 页面（首次或大改后）
 
-宝塔 Compose 页面不是直接读取仓库目录下的 `docker-compose.baota.yml`。需要把配置同步到宝塔目录，并使用绝对路径构建上下文。**Compose 文件内容、详细步骤见 [docs/baota-dockersite-guide.md §6](docs/baota-dockersite-guide.md)**。
+宝塔 Compose 页面不是直接读取仓库目录下的 `docker-compose.baota.yml`。需要把配置同步到宝塔目录，并使用绝对路径构建上下文；下方模板与 [AGENTS.md](AGENTS.md) 中记录的固定路径共同作为当前依据。
 
 最小可用模板：
 
@@ -199,9 +199,15 @@ services:
     build:
       context: /www/dk_project/my_NextChat
       dockerfile: Dockerfile
+      target: runner
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
         APK_MIRROR: ${APK_MIRROR:-}
+        ENABLE_GOOGLE_FONTS: ${ENABLE_GOOGLE_FONTS:-false}
+        ENABLE_SHAREGPT: ${ENABLE_SHAREGPT:-false}
+        NEXT_PUBLIC_DEFAULT_SYNC_USER_ID: ${NEXT_PUBLIC_DEFAULT_SYNC_USER_ID:-user:admin}
+        BUILD_COMMIT_DATE: ${BUILD_COMMIT_DATE:?请使用 scripts/docker-compose-safe.sh 注入提交时间}
+        BUILD_COMMIT_HASH: ${BUILD_COMMIT_HASH:?请使用 scripts/docker-compose-safe.sh 注入提交哈希}
     image: nextchat-baota:latest
     container_name: nextchat
     restart: unless-stopped
@@ -215,16 +221,16 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-https://chat.dyxcloud.com}
       BASE_URL: ${BASE_URL:-https://chat.dyxcloud.com}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/db/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/config || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 3
+      start_period: 60s
 ```
 
-写入宝塔 `docker.db` 的 `templates/stacks`：
+如需写入宝塔 `docker.db` 的 `templates/stacks`，以下属于生产数据库写操作：执行前必须备份 `docker.db`、展示将修改的记录并取得本次明确确认。日常部署不需要执行此段，标准部署只运行 `scripts/sync-baota-dockersite-container-id.sh` 的定向同步。
 
 ```bash
 ssh ss 'python3 - <<PY'
@@ -276,7 +282,7 @@ REMOTE
 ssh ss 'cd /www/dk_project/my_NextChat && /www/server/panel/pyenv/bin/python3 scripts/baota-register-dockersite.py'
 ```
 
-如果提示域名已存在，通常是 `site.db` 里有普通站点残留。先备份，再只清理 `chat.dyxcloud.com` 的普通站点残留：
+如果提示域名已存在，通常是 `site.db` 里有普通站点残留。下列命令会删除 `chat.dyxcloud.com` 对应的普通站点和域名记录，属于生产数据删除；不得直接执行，必须先查询并列出具体行、备份 `site.db` 与 `docker.db`，再取得用户针对本次记录的明确确认：
 
 ```bash
 ssh ss 'bash -s' <<'REMOTE'
@@ -300,13 +306,13 @@ REMOTE
 
 ## 7. SSL 证书（简要）
 
-宝塔页面操作（建站时已自动申请） + 手动续签 / 部署 / 修正 `use_for_site` 的完整步骤见 [docs/baota-dockersite-guide.md §4](docs/baota-dockersite-guide.md)。要点：
+宝塔页面操作、手动续签、部署和修正 `use_for_site` 的当前要点如下；固定数据库路径同时以 [AGENTS.md](AGENTS.md) 为准：
 
 - 证书文件路径：`/www/server/panel/vhost/cert/chat.dyxcloud.com/{fullchain.pem,privkey.pem}`
 - 证书库路径：`/www/server/panel/vhost/ssl_saved/<hash>/`
 - 宝塔证书数据库：`/www/server/panel/data/db/ssl_data.db`，**`use_for_site` 必须指向普通站点兼容 ID `16`（不是 DockerSite `13`）**。
 - Nginx vhost 中同一 `server {}` 只能有一条 `listen 443`，不要写 `http2 on;`（宝塔 Nginx 1.24 不支持）。
-- 续签失败 / 跨域访问证书错误时，按 runbook §8 检查证书文件。
+- 续签失败 / 跨域访问证书错误时，按下文标准验证命令检查证书文件、SNI 和 Nginx 配置。
 
 ## 8. 标准验证命令
 
@@ -400,14 +406,12 @@ echo "backup=$BACK"
 REMOTE
 ```
 
-PostgreSQL 数据本身的备份（`pg_dump` + 计划任务）见 [docs/baota-postgres-guide.md §5](docs/baota-postgres-guide.md)。
+PostgreSQL 数据本身继续使用 `pg_dump` + 宝塔计划任务备份，主业务库与独立备份库都必须覆盖。
 
 ## 相关文档
 
-- 详细页面操作：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
-- 详细排障 Runbook：[docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
-- PostgreSQL 操作：[docs/baota-postgres-guide.md](docs/baota-postgres-guide.md)
-- 多用户 / 登录 / 用户切换：[docs/user-admin-guide.md](docs/user-admin-guide.md)
-- 本地开发：[docs/local-dev-guide.md](docs/local-dev-guide.md)
-- 质量与部署后验证：[docs/quality-checklist.md](docs/quality-checklist.md)
+- 生产固定路径与验证：[AGENTS.md](AGENTS.md)
 - 部署入口：[DEPLOY.md](DEPLOY.md)
+- 应用架构与多用户实现：[CLAUDE.md](CLAUDE.md)
+- 本地开发：[docs/development.md](docs/development.md)
+- 项目与文档入口：[README.md](README.md)

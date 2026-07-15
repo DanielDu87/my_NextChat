@@ -66,12 +66,11 @@ SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNE
 
 ### 提交规则
 
-1. **每次修改后自动暂存**
+1. **不主动暂存或提交**
 
-   - 每次完成代码修改后，**立即执行 `git add -A`**
-   - 不等待用户明确指令，修改完成后自动暂存
-   - 这是全局强制要求，适用于所有代码改动
-   - 暂存前后检查范围，不加入密钥、真实 `.env`、临时产物或明显无关内容；自动暂存不授权 commit、push 或部署
+   - 修改完成后不自动执行 `git add`
+   - 只有用户明确说“暂存”或“提交/commit”时才暂存
+   - 暂存不授权 push 或部署
 
 2. **不主动提交**
 
@@ -220,13 +219,6 @@ yarn db:unify-user-id
 yarn db:seed-chat-performance     # 性能压测数据填充
 ```
 
-### 其他
-
-```bash
-# 获取 prompts
-yarn prompts
-```
-
 ## 架构概览
 
 ### 路由约定
@@ -263,7 +255,7 @@ yarn prompts
 1. **PostgreSQL** - 主要业务存储
    - 通过 `app/utils/server/postgres.ts` 的全局连接池（`global.__nextchatPostgresPool`）访问，含连接异常重试。
    - 存储对话、配置、Prompt、Mask、插件、模型同步快照、绘画任务与图片、用户与认证等核心数据。
-   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-07-06-chat-backups`）自动初始化/迁移。
+   - 表结构由代码按 Schema 版本（`SYNC_STORAGE_SCHEMA_VERSION`，当前 `2026-07-14-provider-model-key-route-cache`）自动初始化/迁移。
 
 2. **localStorage** - 纯本地偏好存储
    - 存储语言、页面宽度、横幅关闭状态、临时输入草稿等设备级状态。
@@ -394,6 +386,8 @@ yarn prompts
 - 工具：`app/utils/model*.ts`（`model.ts`、`models.ts`、`model-capabilities.ts`、`model-pool.ts`、`model-provider.ts`、`model-sync-diff.ts`、`model-selector-provider.ts`、`model-published-at.ts`、`model-series-order.ts`、`chat-failover.ts`、`managed-model-rebuild.ts`、`manual-model-selection.ts`、`manual-sync-guard.ts`、`useModelFetcher.ts`）。
 - 聚合元数据服务：`aihubmix.ts`、`tencent.ts`、`baidu.ts`、`cloudflare.ts` 等。
 - 服务端同步：`app/utils/server/provider-model-sync.ts`。
+- 模型商归属共享规范：`app/utils/model-vendor-normalize.ts`；上游真实声明优先，缺失时才按模型 ID 推断。Ocoolai 旧缓存中的 `net/network` 路由前缀和“完整模型 ID 被误存为 vendor”会在加载时修正，无法识别时回退到 Ocoolai。
+- 通用模型接口缓存写入 `provider_configs.cached_model_*`；每个 API Key 的成功路径按密钥指纹写入 `provider_model_key_routes`，不保存明文 Key。
 
 ### 多 API Key 管理
 
@@ -429,7 +423,7 @@ yarn prompts
 
 ### Tauri 桌面应用
 
-桌面相关代码在 `src-tauri/`，使用 Tauri 1.x API（`@tauri-apps/api` v2）。
+桌面相关代码在 `src-tauri/`。Rust crate、配置格式和 CLI 当前为 Tauri 1.x（`tauri` 1.5 / `@tauri-apps/cli` 1.5.11），`package.json` 中的 `@tauri-apps/api` 依赖为 2.x；修改桌面端前必须同时核对两侧兼容性，不能笼统视为纯 Tauri 2 项目。
 
 ## 当前聊天 UI 注意事项
 
@@ -447,11 +441,11 @@ yarn prompts
 
 ## 环境变量
 
-关键环境变量（见 `.env.template` / `.env.docker.example`，服务端类型定义在 `app/config/server.ts`）：
+关键环境变量（见 `.env.docker.example` / `.env.local.example`，服务端类型定义在 `app/config/server.ts`）：
 
 - **访问控制**：`CODE`（访问密码，逗号分隔多个）、`HIDE_USER_API_KEY`
 - **OpenAI**：`OPENAI_API_KEY`、`BASE_URL`、`OPENAI_ORG_ID`
-- **数据库（PostgreSQL）**：`DATABASE_URL` 或 `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSL`/`PGSSLMODE`，连接池/超时：`PGPOOL_MAX`、`PG_CONNECT_TIMEOUT_MS`、`PG_IDLE_TIMEOUT_MS`，重试：`PG_RETRY_COUNT`
+- **数据库（PostgreSQL）**：`DATABASE_URL` 或 `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD`/`PGSSL`/`PGSSLMODE`，连接池/超时：`PGPOOL_MAX`、`PG_CONNECT_TIMEOUT_MS`、`PG_IDLE_TIMEOUT_MS`、`PG_STATEMENT_TIMEOUT_MS`、`PG_IDLE_IN_TX_TIMEOUT_MS`，重试：`PG_RETRY_COUNT`、`PG_RETRY_BASE_DELAY_MS`、`PG_RETRY_MAX_DELAY_MS`
 - **各提供商密钥**：`ANTHROPIC_API_KEY`、`GOOGLE_API_KEY`、`AZURE_API_KEY`、`BAIDU_*`、`STABILITY_API_KEY` 等
 - **功能开关**：`ENABLE_MCP`（MCP）
 - **模型**：`CUSTOM_MODELS`、`DEFAULT_MODEL`、`VISION_MODELS`、`DISABLE_GPT4`
@@ -459,7 +453,7 @@ yarn prompts
 
 ## 部署
 
-线上默认使用宝塔 DockerSite（详见 [DEPLOY.md](./DEPLOY.md)、[README_BAOTA.md](./README_BAOTA.md)、[docs/baota-chat-dyxcloud-runbook.md](./docs/baota-chat-dyxcloud-runbook.md)）：
+线上默认使用宝塔 DockerSite（详见 [DEPLOY.md](./DEPLOY.md)、[README_BAOTA.md](./README_BAOTA.md) 和 [AGENTS.md](./AGENTS.md) 的生产部署章节）：
 
 - 部署路径：`/www/dk_project/my_NextChat`
 - Compose：`docker-compose.baota.yml`，环境变量：`.env.baota`
@@ -519,7 +513,7 @@ yarn prompts
 2. **修改数据库结构**：更新 `app/utils/server/postgres.ts` 的 `SYNC_STORAGE_SCHEMA_VERSION` 并保证迁移可重复执行；提供迁移/回滚脚本（`scripts/` 下）。
 3. **添加新平台 API**：在 `app/constant.ts` 的 `ServiceProvider` 添加枚举，在 `app/client/platforms/` 创建实现，在 `ClientApi` 构造函数添加 case。
 4. **新增数据库逻辑**：优先复用 `app/utils/server/` 的 Repository 封装，不直接写裸 SQL。
-5. **Mask 系统**：Masks 是 prompt 模板，存储在 `app/masks/` 目录。
+5. **Mask 系统**：Masks 是 prompt 模板，类型和默认状态由 `app/store/mask.ts` 管理，界面 owner 是 `app/components/mask.tsx`；仓库当前没有 `app/masks/` 目录。
 6. **国际化**：语言文件在 `app/locales/` 目录（`cn.ts` 为简体中文，`index.ts` 汇总）。
 7. **路由**：新增页面用普通路径（`react-router-dom`），不使用 hash 路由；服务端通过 `app/[...path]/page.tsx` catch-all 兜底。
 
@@ -527,23 +521,15 @@ yarn prompts
 
 新功能 / 行为变更 / 新页面 / 新增 API / 新增数据库表 / 新增配置项 / 删除 / 重命名，只要会改变使用者或后续 AI 的认知，都必须在「同一轮提交」内同步更新文档，**不允许**只改代码、留下一份过期文档留给下次清理。
 
-需要更新或审视的文档（按优先级）：
+需要更新或审视的现有文档（按优先级）：
 
 1. `README.md`：项目概述、功能概览、页面路由、数据库存储实现、API 路由、文档入口
 2. `README_BAOTA.md`、`DEPLOY.md`：仅当变更涉及部署 / 域名 / 路径 / 密钥 / 端口时
 3. `docs/development.md`：开发架构、目录结构、API 分层、数据表、注意事项
-4. `docs/quality-checklist.md`：质量检查、部署后验证清单
-5. `docs/user-admin-guide.md`：多用户 / 登录 / 站点访问 / 用户切换 / 密码
-6. `docs/baota-postgres-guide.md`：宝塔 PostgreSQL 安装 / 连接 / 备份 / 还原 / 迁移
-7. `docs/baota-dockersite-guide.md`：宝塔 DockerSite 页面操作（建站、反代、SSL、清理、验证）
-8. `docs/baota-chat-dyxcloud-runbook.md`、`docs/baota-dockersite-guide.md`、`docs/baota-postgres-guide.md`：宝塔专题 Runbook（域名切换、DockerSite 页面操作、PostgreSQL、SSL 数据库）
-10. `docs/db/data-storage-sync-matrix.md`：新增 / 变更数据表或字段必须更新；新增 schema 版本必须同步
-11. `docs/db/local-first-sync-rules.md`：存储分层和合并策略变化时
-12. `docs/db/postgres-docker-deploy.md`：直连 / 隧道部署与健康检查字段
-13. `docs/db/nextchat-postgres-schema.sql`：新增 / 变更表 DDL 必须同步
-14. `docs/db/provider-model-auto-refresh.md`：模型刷新链路与触发方式
-15. `docs/user-manual-cn.md`、`docs/sync-usage-guide.md`、`docs/yuto-balance-query.md`、`docs/draw-model-parameter-matrix.md` 等功能说明
-16. 任何新增或重命名的文档必须在 `README.md` 的「文档入口」中登记
+4. `docs/provider-balance.md`：余额查询接口、探测顺序、缓存与数据库字段
+5. `docs/db/nextchat-postgres-schema.sql`：新增 / 变更表 DDL 与 Schema 版本必须同步
+6. `AGENTS.md`：生产固定路径、危险操作边界和文档同步清单
+7. 任何新增或重命名的文档必须在 `README.md` 的「文档入口」中登记
 
 执行要求：
 

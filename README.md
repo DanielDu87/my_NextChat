@@ -11,7 +11,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 提供一个可私有部署的 AI 聊天入口。
 - 支持多个模型供应商和多个 API Profile。
 - 支持聊天记录、配置、模型缓存、绘图记录、上传文件和 API 配置备份等数据持久化到 PostgreSQL。
-- 对话记录支持按用户区分的会话级增量备份，可切换用户查看备份，在线展开某次备份中的会话内容，并按快照覆盖恢复或删除单个对话快照。
+- 对话记录支持按用户区分的会话级增量备份，可切换用户查看备份，在线展开某次备份中的会话内容，并按快照合并恢复或删除单个对话快照。
 - 在移动端提供接近原生聊天应用的输入、滚动和键盘体验。
 - 适配宝塔 DockerSite 生产环境，降低服务器维护成本。
 
@@ -31,7 +31,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 支持消息复制、重发、编辑、语音朗读。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
 - API 对话默认启用自动故障转移：当前模型失败后先识别 GPT、Claude、Gemini、DeepSeek、Qwen 等模型系列，跨供应商按版本由新到旧尝试同系列的其他普通聊天模型，同版本的后缀名称按字母顺序排列；同系列全部失败后，再尝试当前供应商的其余模型，并按供应商名称和模型名称顺序尝试其他供应商。每次尝试在助手消息中独占一行，只显示状态、供应商和模型，不展示上游错误正文；成功后立即把实际成功模型保存为跨页面、跨用户的全局模型。
-- 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照覆盖恢复或删除某个对话快照，也可删除整次备份记录。
+- 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照合并恢复或删除某个对话快照，也可删除整次备份记录。
 - API 配置页关闭时，如果存在未同步修改，会弹出仅含「保存 / 不保存」的确认框；点击「不保存」直接退出，避免误留在页面。
 - 移动端优化：
   - 新空对话默认显示用户状态与切换入口；发送消息后自动收起，进入已有消息的历史对话时默认保持收起，可通过头部用户按钮手动切换显示状态。
@@ -51,13 +51,13 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 - 支持多 Provider / 多 Profile 管理；所有账号共用以 `provider_code` 唯一标识的全局 Profile，保存时自动落库到 `provider_configs` + `provider_api_keys`，access-control 同步不再按 `user_id` 分裂配置。
 - 支持模型列表缓存、自动刷新、手动同步（`/api/db/models/refresh`、`yarn db:refresh-provider-models`）。
-- 每个供应商成功获取模型后，会按全局 `provider_code` 将成功接口路径与对应 API Key 的密文保存到数据库；下次优先复用该组合，同时保留多 key、全路径探测和模型合并。
+- 每个供应商成功获取模型后，会按全局 `provider_code` 保存通用成功路径，并按 API Key 指纹把成功接口路径、Base URL、鉴权方式、已知最大模型数和更新时间写入 `provider_model_key_routes`。网页和服务端都会读取这份每 Key 缓存，多 Key 会并发直连各自成功路径；没有独立缓存的 Key 先复用当前配置中模型数最多的已知成功路径。24小时内的缓存路径成功且达到历史最大值时立即完成，不再探测其他路径；缓存路径失败、数量缩水、新 Key 没有已知路径或缓存超过24小时时，才分批并发完整探测并保留模型数最多的结果。余额查询 Key 只在常规模型 Key 全部失败后作为后备尝试，不再与正常 Key 重复扫描。多候选失败路径使用5秒快速超时，唯一候选路径允许等待15秒，避免正常但响应较慢的完整目录被误判失败。
 - 获取的模型按发布日期由新到旧排列；日期相同或未知时按字母排序，并让数字更大的版本优先。
 - 支持按供应商、模型能力、发布时间等维度组织模型选择器。
 - 聊天页模型切换采用全局共享配置：所有账号共用同一套默认模型选择，用户切换不会重置当前全局模型。
 - 聊天模型选择器和模型管理器统一按供应商名称首字母排列；供应商内部按模型系列名称排列，同系列版本从新到旧，同版本后缀按字母顺序。浏览可添加模型与查看已添加模型使用同一排序。
-- 模型商归属优先使用上游声明的 `vendor / developer / owned_by / owner / organization` 等模型商字段；仅在这些字段缺失或为 Custom、Unknown 等通用占位时，才按模型 ID 和命名空间推断。Yuto 等聚合供应商缺失 `vendor_id` 时只补充模型商归属，不过滤模型：Act Two、Aleph、Gen3/Gen4 统一归入 Runway，Eleven/Scribe/Dubbing 归入 ElevenLabs，Flux Tools 归入 Flux，Kling 全系列统一归入 Kling AI，`vidu2.0 / viduq*` 全系列统一归入 Vidu，Moonshot/Kimi 全系列统一归入 Moonshot；`Seed / Seedream / Seedance`、QVQ、Yi、Spark、Command、Baichuan、InternLM、Jamba、BGE、LongCat、Ling/Ring 等无 `vendor_id` 的直连模型同样归入其官方模型商。Midjourney、Mureka、Luma、Suno、PixVerse、Viggle、Cursor Composer、Xiaomi MiMo、MiniMax Image、Google Veo/Gemma/Nano Banana、Alibaba Wan/HappyHorse 等同样使用官方英文模型商名称，避免按斜杠前完整模型名生成伪分组。客户端加载旧缓存时也会重新规范这些归属。
-- 模型商筛选菜单按最终可见名称排序；除保留“全部模型商”入口外，中文分组和供应商品牌统一显示为官方英文名称，并通过别名继续使用原有图标资源。官方大小写保持为 FLUX、NVIDIA、MiniMax 等；没有本地图标资源的模型商与模型行统一使用项目内置的浅绿色默认图标，不得错误回退为 OpenAI 图标。
+- 模型商归属优先使用上游声明的 `vendor / developer / owned_by / owner / organization` 等模型商字段；仅在这些字段缺失或为 Custom、Unknown 等通用占位时，才按模型 ID 和命名空间推断。Yuto 等聚合供应商缺失 `vendor_id` 时只补充模型商归属，不过滤模型：Act Two、Aleph、Gen3/Gen4 统一归入 Runway，Eleven/Scribe/Dubbing 归入 ElevenLabs，Flux Tools 归入 Flux，Kling 全系列统一归入 Kling AI，`vidu2.0 / viduq*` 全系列统一归入 Vidu，Moonshot/Kimi 全系列统一归入 Moonshot；`Seed / Seedream / Seedance`、QVQ、Yi、Spark、Command、Baichuan、InternLM、Jamba、BGE、LongCat、Ling/Ring 等无 `vendor_id` 的直连模型同样归入其官方模型商。Midjourney、Mureka、Luma、Suno、PixVerse、Viggle、Cursor Composer、Xiaomi MiMo、MiniMax Image、Google Veo/Gemma/Nano Banana、Alibaba Wan/HappyHorse 等同样使用官方英文模型商名称。Ocoolai 历史缓存中的 `net/network` 前缀会被忽略；完整模型 ID 被误存为模型商时，会按真实模型名重新推断，无法识别时统一回退到 Ocoolai，避免生成一模型一分组。客户端加载旧缓存时也会重新规范这些归属。
+- 模型商筛选菜单按最终可见名称排序；除保留“全部模型商”入口外，中文分组、模型家族别名和供应商品牌统一收敛为官方英文供应商名称。Claude、Gemini/Veo、GLM/ChatGLM、Qwen/Wan、Grok、Kimi 分别显示为 Anthropic、Google、Z.ai、Alibaba、xAI、Moonshot；官方大小写保持为 OpenAI、OpenRouter、DeepSeek、SiliconFlow、ElevenLabs、InclusionAI、FLUX、NVIDIA、MiniMax 等。没有本地图标资源的模型商与模型行统一使用项目内置的浅绿色默认图标，不得错误回退为 OpenAI 图标。
 - ElevenLabs 与 Mureka 使用各自官方品牌图标；StepFun 与 Suno 保持现有图标内容和视觉风格，仅让图标图片铺满父级圆角矩形。
 - 模型获取、缓存、模型管理器、聊天模型选择器和绘图模型管理器都不按名称、类别、能力或端点过滤模型；模型管理器的浏览列表展示当前供应商完整获取结果，“已添加”、聊天选择器和绘图选择器展示用户自行添加的模型。系统不再维护 Image、Video、Web、Thinking 或普通聊天模型分类，也不再额外拉取 AihubMix 分类元数据。自动故障转移使用用户已添加的全部可用模型，只保留候选排序、供应商切换和失败重试。请求真正发出时仍会根据用户已选模型选择对应 API 和参数，这属于请求路由，不用于隐藏模型。旧 GPT/DeepSeek/豆包系列“自动模式”及其开关、配置和同步字段已移除，失败重试无需设置且始终启用。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
@@ -152,6 +152,7 @@ app/
 - 绘图页：`http://localhost:3000/draw`
 - 绘图历史：`http://localhost:3000/draw/history`
 - API 配置：`http://localhost:3000/api_config`
+- 模型获取配置：`http://localhost:3000/model-fetch`（为每个供应商独立指定模型列表 URL 与 API Key，手动单个或全部并发获取）
 - API 配置备份：`http://localhost:3000/backup/api_config`
 - 余额查询：`http://localhost:3000/balances`
 - 线上对应：`https://chat.dyxcloud.com/...`（同样使用普通路径）
@@ -180,6 +181,7 @@ app/
 - `messages`：聊天消息内容。
 - `provider_configs`：供应商配置。
 - `provider_api_keys`：API Key 密文与分组。
+- `provider_model_key_routes`：按供应商与 API Key 指纹保存最近成功的模型列表接口。
 - `provider_balance_configs`：供应商余额快照、查询时间戳、管理 API Key 密文、成功路径、自定义 URL 与 New-API-User 配置。
 - `sync_secrets`：同步敏感 payload 密文。
 - `site_access_settings`：站点访问密码哈希。
@@ -192,7 +194,7 @@ app/
 - `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`：按用户区分的对话增量备份和会话快照。
 - `backup_api_config_settings` / `backup_api_config_snapshots`：API 配置自动/手动备份。
 
-对话记录当前已经规范化拆分到 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份写入独立备份数据库的 `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`，按用户隔离；页面点击「立即备份」会为所有用户逐个创建增量备份，并可切换用户查看对应备份。每次增量只收录上次备份后变更过的会话，但每个会话保存完整消息快照，包含软删除会话，便于在线展开查看。单会话恢复会从备份数据库读取快照，再写回主业务库并恢复为可见；恢复写入会刷新会话更新时间，避免本地旧缓存或后续同步再次覆盖恢复结果。页面支持删除整次备份记录，或删除某次备份中的单个会话快照。生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准，主库和备份库都需要纳入备份范围。
+对话记录当前已经规范化拆分到 `app_settings.chat_settings.__chat-index-state__`、`conversations` 和 `messages`。站内对话备份写入独立备份数据库的 `backup_chat_settings` / `backup_chat_runs` / `backup_chat_conversation_snapshots`，按用户隔离；页面点击「立即备份」会为所有用户逐个创建增量备份，并可切换用户查看对应备份。每次增量只收录上次备份后变更过的会话，但每个会话保存完整消息快照，包含软删除会话，便于在线展开查看。单会话恢复会从备份数据库读取快照，将该会话恢复为可见并合并写回，不裁剪数据库中已有的更多消息，也不影响其他会话；恢复写入会刷新会话更新时间，避免本地旧缓存或后续同步再次覆盖恢复结果。页面支持删除整次备份记录，或删除某次备份中的单个会话快照。生产灾备仍以 PostgreSQL `pg_dump` / 宝塔计划任务备份为准，主库和备份库都需要纳入备份范围。
 
 ### 模型同步实现
 
@@ -237,10 +239,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 上游：`http://127.0.0.1:3000`
 - Docker 构建阶段会让 `COREPACK_NPM_REGISTRY` 使用去除尾部 `/` 的 `NPM_REGISTRY`，并预装 `package.json` 声明的 Yarn 版本，确保依赖安装不会生成双斜杠 URL或再次访问海外 Yarn 源。
 
-详细流程见：
-
-- [README_BAOTA.md](README_BAOTA.md)
-- [docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
+详细流程见 [README_BAOTA.md](README_BAOTA.md)、[DEPLOY.md](DEPLOY.md) 和 [AGENTS.md](AGENTS.md) 的生产部署章节。
 
 ## 文档入口
 
@@ -252,21 +251,13 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 
 - 部署入口：[DEPLOY.md](DEPLOY.md)
 - 宝塔当前线上说明：[README_BAOTA.md](README_BAOTA.md)
-- 宝塔详细 Runbook：[docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
-- 宝塔 DockerSite 页面操作：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
-- 宝塔 PostgreSQL 操作：[docs/baota-postgres-guide.md](docs/baota-postgres-guide.md)
-- 宝塔 DockerSite 页面操作：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
+- 当前生产固定命令、DockerSite 路径、同步脚本和验证步骤：[AGENTS.md](AGENTS.md)
 
 ### 功能与维护
 
-- 用户手册：[docs/user-manual-cn.md](docs/user-manual-cn.md)
-- 多用户与登录：[docs/user-admin-guide.md](docs/user-admin-guide.md)
-- 同步功能使用指南：[docs/sync-usage-guide.md](docs/sync-usage-guide.md)
-- 数据库存储矩阵：[docs/db/data-storage-sync-matrix.md](docs/db/data-storage-sync-matrix.md)
-- 模型刷新说明：[docs/db/provider-model-auto-refresh.md](docs/db/provider-model-auto-refresh.md)
 - 余额查询：[docs/provider-balance.md](docs/provider-balance.md)
-- 质量与部署后验证：[docs/quality-checklist.md](docs/quality-checklist.md)
-- 数据库代码审查与修复记录（2026-07-09）：[docs/code-review-db-2026-07-09.md](docs/code-review-db-2026-07-09.md)
+- PostgreSQL Schema 镜像：[docs/db/nextchat-postgres-schema.sql](docs/db/nextchat-postgres-schema.sql)
+- 数据库代码审查与修复历史（2026-07-09，仅作时点记录）：[docs/code-review-db-2026-07-09.md](docs/code-review-db-2026-07-09.md)
 
 ## 当前约定
 
@@ -307,7 +298,7 @@ npx tsc --noEmit --pretty false
 
 ### 宝塔生产部署
 
-标准流程以 [README_BAOTA.md](README_BAOTA.md) 和 [docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md) 为准。
+标准流程以 [README_BAOTA.md](README_BAOTA.md)、[DEPLOY.md](DEPLOY.md) 和 [AGENTS.md](AGENTS.md) 的当前生产部署约定为准。
 
 ```bash
 ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && git pull --ff-only && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat && ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d nextchat 2>&1 | tee /tmp/nextchat-baota-deploy.log"'

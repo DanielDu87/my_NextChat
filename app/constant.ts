@@ -81,6 +81,7 @@ export enum Path {
   ApiConfigBackups = "/backup/api_config",
   LegacyApiConfigBackups = "/api-config/backups",
   ProviderBalances = "/balances",
+  ProviderModelFetch = "/model-fetch",
   LegacyProviderBalances = "/api-config/balances",
   NewChat = "/new-chat",
   Plugins = "/plugins",

@@ -2,6 +2,9 @@
 -- NextChat 数据库重构迁移脚本 v2
 -- 执行时间: 2026-05-15
 -- 备份目录: db-backup-20260514-165123
+-- ⚠️ 历史一次性迁移快照：当前运行时 Schema 已由 app/utils/server/postgres.ts 自动维护。
+-- 本脚本包含 DROP TABLE，且创建的部分 user_* 表已不属于当前 Schema；不得用于新环境初始化或重复执行。
+-- 当前完整结构以 docs/db/nextchat-postgres-schema.sql 与运行时代码为准。
 -- ============================================================
 
 BEGIN;

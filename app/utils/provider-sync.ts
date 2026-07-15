@@ -20,7 +20,8 @@ import { parseStoreStatePayload } from "./sync-store-keys";
 import { writeAccessSnapshot } from "./access-snapshot";
 import { rebuildManagedModelsFromCache } from "./managed-model-rebuild";
 import { logger } from "./logger";
-import { compareModelsForDisplay } from "./model-published-at";
+import { compareModelsBySeriesVersion } from "./model-series-order";
+import { pruneMissingAddedModelsWithDetails } from "./model-added-prune";
 
 export type ApiProfile = {
   id: string;
@@ -28,6 +29,8 @@ export type ApiProfile = {
   provider: ServiceProvider;
   baseUrl: string;
   apiKey: string;
+  modelFetchApiKey?: string;
+  modelFetchUrl?: string;
   apiKeyGroups?: Record<string, string>;
   multiKeyGroupOrder?: string[];
   multiKeyEnabled?: boolean;
@@ -69,7 +72,6 @@ type SyncAllProfilesResult = {
   }>;
 };
 
-const PROVIDER_MODEL_SYNC_TTL_MS = 5 * 60 * 1000;
 const providerSyncInFlight = new Map<string, Promise<FetchModelsResult>>();
 
 function getProfileModelKeySet(
@@ -216,11 +218,13 @@ export async function syncProfileModels(
         authType: profile.authType,
         authQueryParam: profile.authQueryParam,
         extraHeaders: profile.extraHeaders,
+        modelFetchUrl: profile.modelFetchUrl,
+        silentLogs: options?.silent,
       },
     );
 
     const sortedModels = [...result.models]
-      .sort((left, right) => compareModelsForDisplay(left, right))
+      .sort(compareModelsBySeriesVersion)
       .map((model, index) => ({
         ...model,
         sorted: index,
@@ -238,11 +242,36 @@ export async function syncProfileModels(
         .filter(Boolean),
     );
 
+    let prunedAddedModels = false;
+    let removedAddedModelNames: string[] = [];
     await runWithImmediateStoreSyncPaused(async () => {
       useAppConfig.getState().mergeModels(sortedModels, {
         silent: true,
         allowedProviderIds: [providerId],
       });
+
+      const currentCustomModels = String(
+        useAppConfig.getState().customModels || "",
+      );
+      const pruneResult = pruneMissingAddedModelsWithDetails(
+        currentCustomModels,
+        [
+          providerId,
+          profile.id,
+          `custom_${profile.name}`,
+          ...sortedModels.map((model) => String(model.provider?.id || "")),
+        ],
+        sortedModels.map((model) => model.name),
+      );
+      const nextCustomModels = pruneResult.customModels;
+      if (nextCustomModels !== currentCustomModels) {
+        prunedAddedModels = true;
+        removedAddedModelNames = pruneResult.removedModelNames;
+        useAppConfig.getState().update((state: any) => {
+          state.customModels = nextCustomModels;
+          state.customModelsUpdatedAt = Date.now();
+        });
+      }
 
       useAccessStore.getState().update((state: any) => {
         state.apiProfiles = (state.apiProfiles || []).map((item: ApiProfile) =>
@@ -293,6 +322,13 @@ export async function syncProfileModels(
       }
     });
 
+    if (prunedAddedModels) {
+      await useSyncStore.getState().sync([...MODEL_SYNC_STORE_KEYS], {
+        force: true,
+        isolateQueue: true,
+      });
+    }
+
     // 计算合并后的模型 diff
     const afterModels = useAppConfig.getState().models || [];
     const afterNames = new Set(
@@ -308,23 +344,26 @@ export async function syncProfileModels(
 
     persistAccessSnapshot();
 
-    console.log(
-      `[Provider Sync] ✅ ${displayName}: 新增 ${added.length} 个，删除 ${deleted.length} 个，本地可用 ${afterNames.size} 个模型`,
-    );
-    if (added.length > 0) {
+    if (!options?.silent) {
       console.log(
-        `[Provider Sync] ➕ ${displayName} 新增: ${added.join("、")}`,
+        `[Provider Sync] ✅ ${displayName}: 新增 ${added.length} 个，删除 ${deleted.length} 个，本地可用 ${afterNames.size} 个模型`,
       );
-    }
-    if (deleted.length > 0) {
-      console.log(
-        `[Provider Sync] ➖ ${displayName} 删除: ${deleted.join("、")}`,
-      );
+      if (added.length > 0) {
+        console.log(
+          `[Provider Sync] ➕ ${displayName} 新增: ${added.join("、")}`,
+        );
+      }
+      if (deleted.length > 0) {
+        console.log(
+          `[Provider Sync] ➖ ${displayName} 删除: ${deleted.join("、")}`,
+        );
+      }
     }
 
     return {
       ...result,
       models: sortedModels,
+      removedAddedModelNames,
     };
   })();
 
@@ -375,71 +414,22 @@ export async function ensureProviderModelsReady(
     });
   }
 
-  if (!hasCache) {
-    if (!options?.silent) {
-      logger.providerSync.log(`${displayName} | 首次同步模型`);
-    }
-    return syncProfileModels(profileId, {
-      silent: options?.silent,
-      reason: options?.reason || "bootstrap",
-    });
-  }
-
-  const shouldRefreshRemote =
-    options?.reason === "manual" || options?.reason === "bootstrap";
-
-  if (!shouldRefreshRemote) {
-    modelCacheStore.setProfileSyncState?.(profileId, {
-      syncStatus: "ready",
-      source: cache?.source || "cache",
-      hydrated: true,
-      hasRemoteChecked: Boolean(cache?.hasRemoteChecked),
-      lastError: undefined,
-    });
-    return {
-      models: [],
-      total: cache?.modelCount || profile.modelCount || 0,
-    } satisfies FetchModelsResult;
-  }
-
-  const lastSyncAt = Number(cache?.lastSyncAt || 0);
-  if (Date.now() - lastSyncAt < PROVIDER_MODEL_SYNC_TTL_MS) {
-    modelCacheStore.setProfileSyncState?.(profileId, {
-      syncStatus: "ready",
-      hydrated: true,
-    });
-    return {
-      models: [],
-      total: cache?.modelCount || 0,
-    } satisfies FetchModelsResult;
-  }
-
-  if (options?.background) {
-    if (!options?.silent) {
-      logger.providerSync.log(`${displayName} | 后台同步开始`);
-    }
-    void syncProfileModels(profileId, {
-      silent: options?.silent ?? true,
-      reason: options?.reason || "background",
-    }).catch((error) => {
-      modelCacheStore.setProfileSyncState?.(profileId, {
-        syncStatus: "error",
-        hydrated: true,
-        lastError: error instanceof Error ? error.message : "同步失败",
-      });
-      logger.providerSync.error("后台同步 provider 失败:", error);
-    });
-
-    return {
-      models: [],
-      total: cache?.modelCount || 0,
-    } satisfies FetchModelsResult;
-  }
-
-  return syncProfileModels(profileId, {
-    silent: options?.silent,
-    reason: options?.reason || "manual",
+  modelCacheStore.setProfileSyncState?.(profileId, {
+    syncStatus: "ready",
+    source: cache?.source || "cache",
+    hydrated: true,
+    hasRemoteChecked: Boolean(cache?.hasRemoteChecked),
+    lastError: undefined,
   });
+  if (!hasCache && !options?.silent) {
+    logger.providerSync.log(
+      `${displayName} | 尚无模型缓存，请前往模型获取页面手动获取`,
+    );
+  }
+  return {
+    models: [],
+    total: cache?.modelCount || profile.modelCount || 0,
+  } satisfies FetchModelsResult;
 }
 
 async function ensureProfilesLoadedFromDatabase() {

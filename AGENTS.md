@@ -146,12 +146,11 @@ PY'
 
 ## 宝塔详细 Runbook
 
-- 详细部署、数据库和证书到期提醒修复步骤见 `docs/baota-chat-dyxcloud-runbook.md`。
+- 详细部署、数据库和证书注意事项见 `README_BAOTA.md` 与 `DEPLOY.md`。
 - 特别注意：`ssl_data.db.ssl_info.use_for_site` 必须指向 `site.db.sites.id=16`，不是 DockerSite 的 `docker_sites.id=13`。
 
 ## Git 提交规则
 
-- 每轮修改完成并通过必要验证后，默认执行一次 `git add -A`；暂存前后检查范围，不加入密钥、真实 `.env`、临时产物或明显无关内容。自动暂存不授权 commit、push 或部署。
 - 不允许自动提交。只有用户明确单独说出"提交"或"commit"时才能执行提交。
 - 用户明确单独说出"提交"或"commit"时，默认表示**提交并推送**；如果用户只说"推送"或"push"，表示推送当前已提交内容。
 - 用户在其他语境中提到"提交""推送"等词（如"我说提交时，就..."）不视为执行命令；只有明确下达执行指令时才执行。
@@ -206,7 +205,7 @@ PY'
 ## 文档同步规则（每完成一个功能立即更新文档 + 删除多余文档）
 
 - 任何新增 / 修改 / 删除的功能、页面、API、数据库表、配置项，都必须在**同一轮 commit 内**同步**更新文档**，不允许只改代码留下一份过期文档留给下次清理。
-- **更新文档**优先列表：`README.md`、`docs/development.md`、`docs/db/data-storage-sync-matrix.md`、`docs/db/nextchat-postgres-schema.sql`、`docs/db/local-first-sync-rules.md`、`docs/sync-usage-guide.md`、`docs/user-manual-cn.md`、`docs/yuto-balance-query.md`、各专题 Runbook；新增或重命名的文档必须在 `README.md` 的「文档入口」登记。
+- **更新文档**优先列表：`README.md`、`CLAUDE.md`、`GEMINI.md`、`DEPLOY.md`、`README_BAOTA.md`、`docs/development.md`、`docs/provider-balance.md`、`docs/db/nextchat-postgres-schema.sql`；新增或重命名的文档必须在 `README.md` 的「文档入口」登记。
 - **删除多余 / 过期文档**：删除 / 重命名页面或文档时，必须彻底移除对应文件并从所有 README / 文档入口清除死链，不保留为「历史背景」。过期 / 临时 / 历史修复总结类文档（fix-*.md、*-summary.md、current-database-audit-*.md 等）如果已经没有参考价值，直接删除；如必须保留作历史参考，须在文档顶部明确标注「⚠️ 已过时，以 *最新文档* 为准」并指向权威文档链接。
 - schema 版本、表结构、字段、数据矩阵和顶部「以代码为准」日期必须与代码同步更新；新增 DDL 时同步修改 `docs/db/nextchat-postgres-schema.sql`。
 - 提交或部署前必须自检：所有新增 / 修改的功能点是否都有对应文档段落；README 文档入口是否仍然完整；是否存在可以删除的过期文档。

@@ -107,6 +107,7 @@ import {
 } from "../utils/model-selector-provider";
 import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
+import { getModelDisplayGroup } from "../utils/model-display-group";
 
 import dynamic from "next/dynamic";
 import { ChatControllerPool } from "../client/controller";
@@ -157,6 +158,7 @@ const CHAT_BACKUP_ENTRIES = [
   { name: "API 备份", path: Path.ApiConfigBackups, icon: <DownloadIcon /> },
   { name: "对话备份", path: Path.ChatBackups, icon: <HistoryIcon /> },
   { name: "余额查询", path: Path.ProviderBalances, icon: <MoneyIcon /> },
+  { name: "模型获取", path: Path.ProviderModelFetch, icon: <ReloadIcon /> },
 ];
 
 function syncModelSelectionNow(includeGlobalDefault: boolean) {
@@ -2879,7 +2881,12 @@ export function ChatActions(props: {
       }
 
       if (vendorName?.trim()) {
-        return getModelVendorGroupName(vendorName);
+        return getModelDisplayGroup({
+          modelName,
+          providerName,
+          vendorName,
+          displayName,
+        });
       }
 
       const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
@@ -4254,7 +4261,12 @@ function _Chat() {
       }
 
       if (vendorName?.trim()) {
-        return getModelVendorGroupName(vendorName);
+        return getModelDisplayGroup({
+          modelName,
+          providerName,
+          vendorName,
+          displayName,
+        });
       }
 
       const fullName = `${modelName} ${providerName ?? ""}`.toLowerCase();
@@ -11733,15 +11745,15 @@ function _Chat() {
             localStorage.setItem(MODEL_SELECTOR_GROUP_STORAGE_KEY, group);
           }}
           onClose={() => {
-            if (modelSelectorRequiresSelectionRef.current) {
-              setModelSelectorNotice(
-                "请先选择一个模型，切换供应商后不能直接关闭",
+            modelSelectorRequiresSelectionRef.current = false;
+            setModelSelectorProviderId(currentProviderId);
+            setModelSelectorDefaultValue(currentDisplaySelectorValue);
+            setModelSelectorNotice("");
+            if (currentProfile?.name) {
+              localStorage.setItem(
+                MODEL_SELECTOR_PROVIDER_STORAGE_KEY,
+                currentProfile.name,
               );
-              if (modelSelectorNoticeTimerRef.current) {
-                clearTimeout(modelSelectorNoticeTimerRef.current);
-                modelSelectorNoticeTimerRef.current = null;
-              }
-              return;
             }
             setShowModelSelector(false);
           }}

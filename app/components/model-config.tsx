@@ -6,7 +6,7 @@ import Locale from "../locales";
 import { InputRange } from "./input-range";
 import { ListItem, Select } from "./ui-lib";
 import { compareSelectorItems } from "./ui-lib";
-import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
+import { getModelDisplayGroup } from "../utils/model-display-group";
 import { useUserModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
@@ -37,12 +37,11 @@ export function ModelConfigList(props: {
   const groupModels = groupBy(
     allModels.filter((v) => v.available),
     (model) => {
-      // 优先使用 vendor.name 分组
-      if (model.vendor?.name) {
-        return getModelVendorGroupName(model.vendor.name);
-      }
-      // 降级使用 provider.providerName 分组
-      return getModelVendorGroupName(model.provider?.providerName);
+      return getModelDisplayGroup({
+        modelName: model.name,
+        vendorName: model.vendor?.name,
+        providerName: model.provider?.providerName,
+      });
     },
   );
 

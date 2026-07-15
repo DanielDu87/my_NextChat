@@ -267,6 +267,7 @@ const DEFAULT_ACCESS_STATE = {
     baseUrl: string;
     apiKey: string;
     modelFetchApiKey?: string;
+    modelFetchUrl?: string;
     apiKeyGroups?: Record<string, string>;
     multiKeyGroupOrder?: string[];
     multiKeyEnabled?: boolean;

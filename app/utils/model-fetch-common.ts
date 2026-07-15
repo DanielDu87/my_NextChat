@@ -15,6 +15,169 @@ export type ApiProfileAuthType =
 
 // 候选模型接口大量不存在；短超时让失败路径尽快让位给下一个候选。
 export const MODEL_FETCH_REQUEST_TIMEOUT_MS = 5_000;
+export const MODEL_FETCH_SINGLE_ROUTE_TIMEOUT_MS = 15_000;
+export const MODEL_FETCH_ROUTE_REVALIDATE_MS = 24 * 60 * 60_000;
+
+export type ModelFetchRouteEntry<TEntry, TCandidate> = {
+  entry: TEntry;
+  cachedCandidate?: TCandidate;
+};
+
+export type ModelFetchRouteResult<TEntry, TCandidate, TResult> = {
+  entry: TEntry;
+  candidate: TCandidate;
+  result: TResult;
+  fromCache: boolean;
+};
+
+/**
+ * 通用的模型路径探测调度器：每个凭据先复用自己的缓存路径，只有未命中的
+ * 凭据才按候选路径逐轮并发探测；单个凭据成功后立即退出后续轮次。
+ */
+export async function fetchModelRoutesFast<TEntry, TCandidate, TResult>(
+  routes: Array<ModelFetchRouteEntry<TEntry, TCandidate>>,
+  candidates: TCandidate[],
+  fetchCandidate: (
+    entry: TEntry,
+    candidate: TCandidate,
+    context: {
+      fromCache: boolean;
+      candidateIndex: number;
+      candidateTotal: number;
+    },
+  ) => Promise<TResult>,
+  getCandidateKey: (candidate: TCandidate) => string = (candidate) =>
+    String(candidate),
+  options?: {
+    getResultScore?: (result: TResult) => number;
+    acceptCachedResult?: (entry: TEntry, result: TResult) => boolean;
+    discoveryBatchSize?: number;
+  },
+) {
+  const results: Array<ModelFetchRouteResult<TEntry, TCandidate, TResult>> = [];
+  const cachedFailureReasons = new Map<string, number>();
+  let cachedRejectedResultCount = 0;
+  let unresolved = routes.map((route, index) => ({ ...route, index }));
+
+  const cachedAttempts = await Promise.all(
+    unresolved.map(async (route) => {
+      if (route.cachedCandidate === undefined) return null;
+      try {
+        const result = await fetchCandidate(
+          route.entry,
+          route.cachedCandidate,
+          {
+            fromCache: true,
+            candidateIndex: 0,
+            candidateTotal: 1,
+          },
+        );
+        if (
+          options?.acceptCachedResult &&
+          !options.acceptCachedResult(route.entry, result)
+        ) {
+          cachedRejectedResultCount += 1;
+          return null;
+        }
+        return { route, result };
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message : String(error || "未知错误");
+        cachedFailureReasons.set(
+          reason,
+          (cachedFailureReasons.get(reason) || 0) + 1,
+        );
+        return null;
+      }
+    }),
+  );
+  const cachedSuccessIndexes = new Set<number>();
+  cachedAttempts.forEach((attempt) => {
+    if (!attempt) return;
+    cachedSuccessIndexes.add(attempt.route.index);
+    results.push({
+      entry: attempt.route.entry,
+      candidate: attempt.route.cachedCandidate!,
+      result: attempt.result,
+      fromCache: true,
+    });
+  });
+  unresolved = unresolved.filter(
+    (route) => !cachedSuccessIndexes.has(route.index),
+  );
+
+  const fallbackCandidates = candidates.filter(
+    (candidate, index, all) =>
+      all.findIndex(
+        (item) => getCandidateKey(item) === getCandidateKey(candidate),
+      ) === index,
+  );
+
+  const bestFallbacks = new Map<
+    number,
+    ModelFetchRouteResult<TEntry, TCandidate, TResult>
+  >();
+  const batchSize = Math.max(1, options?.discoveryBatchSize || 8);
+  for (
+    let batchStart = 0;
+    batchStart < fallbackCandidates.length && unresolved.length > 0;
+    batchStart += batchSize
+  ) {
+    const batch = fallbackCandidates.slice(batchStart, batchStart + batchSize);
+    const wave = await Promise.all(
+      batch.flatMap((candidate, batchIndex) =>
+        unresolved.map(async (route) => {
+          if (
+            route.cachedCandidate !== undefined &&
+            getCandidateKey(route.cachedCandidate) ===
+              getCandidateKey(candidate)
+          ) {
+            return null;
+          }
+          try {
+            const result = await fetchCandidate(route.entry, candidate, {
+              fromCache: false,
+              candidateIndex: batchStart + batchIndex,
+              candidateTotal: fallbackCandidates.length,
+            });
+            return { route, candidate, result };
+          } catch {
+            return null;
+          }
+        }),
+      ),
+    );
+    wave.forEach((attempt) => {
+      if (!attempt) return;
+      const previous = bestFallbacks.get(attempt.route.index);
+      const score = options?.getResultScore?.(attempt.result) || 0;
+      const previousScore = previous
+        ? options?.getResultScore?.(previous.result) || 0
+        : -1;
+      if (!previous || score > previousScore) {
+        bestFallbacks.set(attempt.route.index, {
+          entry: attempt.route.entry,
+          candidate: attempt.candidate,
+          result: attempt.result,
+          fromCache: false,
+        });
+      }
+    });
+  }
+
+  results.push(...bestFallbacks.values());
+  unresolved = unresolved.filter((route) => !bestFallbacks.has(route.index));
+
+  return {
+    results,
+    unresolvedEntries: unresolved.map((route) => route.entry),
+    cachedFailureReasons: [...cachedFailureReasons].map(([reason, count]) => ({
+      reason,
+      count,
+    })),
+    cachedRejectedResultCount,
+  };
+}
 
 function normalizeSecret(value: unknown) {
   return String(value || "").trim();

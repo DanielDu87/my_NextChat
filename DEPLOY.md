@@ -1,9 +1,9 @@
 # NextChat 部署入口
 
-旧的部署说明已经废弃，当前仓库统一使用下面两份文档：
+当前仓库统一使用以下部署入口：
 
-- 中文部署文档：[docs/docker-deploy-cn.md](docs/docker-deploy-cn.md)
-- 宝塔专项文档：[docs/baota-dockersite-guide.md](docs/baota-dockersite-guide.md)
+- 宝塔专项文档：[README_BAOTA.md](README_BAOTA.md)
+- 生产固定路径、命令与验证：[AGENTS.md](AGENTS.md) 的“生产部署”章节
 - 仓库文档入口：[README.md](README.md)
 
 统一规则：
@@ -15,7 +15,7 @@
 - 非宝塔生产直连数据库可使用 `--profile no-proxy`
 - 通过跳板机访问数据库时叠加 `--profile ssh-tunnel`
 - 宝塔专用部署文档见 [README_BAOTA.md](README_BAOTA.md)
-- 页面 URL 统一使用普通路径，例如 `/draw`、`/api-config`；旧 `/#/...` 链接会自动迁移。
+- 页面 URL 统一使用普通路径，例如 `/draw`、`/api_config`；旧 `/api-config` 和 `/#/...` 链接会自动迁移。
 
 非宝塔 Docker 常用命令：
 
@@ -86,11 +86,9 @@ env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u AL
 - 如果无 SNI 直连 IP 正常、带 `-servername chat.dyxcloud.com` 立刻 reset，而服务器本机 SNI 正常，
   说明 reset 发生在外部链路，不在 NextChat 进程内部。
 
-## chat.dyxcloud.com 宝塔全流程 Runbook
+## chat.dyxcloud.com 宝塔运维入口
 
-详细的域名切换、DockerSite、普通站点兼容记录、SSL 证书数据库、缓存开关重复 listen 修复步骤见：
-
-- [docs/baota-chat-dyxcloud-runbook.md](docs/baota-chat-dyxcloud-runbook.md)
+域名、DockerSite、证书、数据库路径和当前验证步骤统一维护在 [README_BAOTA.md](README_BAOTA.md) 与 [AGENTS.md](AGENTS.md)，不再引用已移除的拆分 Runbook。
 
 ## 独立备份数据库（BACKUP_*）
 
@@ -106,7 +104,7 @@ env -u https_proxy -u http_proxy -u HTTPS_PROXY -u HTTP_PROXY -u all_proxy -u AL
 | `BACKUP_PGUSER` | 是 | 备份库用户名 |
 | `BACKUP_PGPASSWORD` | 是 | 备份库密码 |
 | `BACKUP_PGSSL` | 否 | 是否启用 SSL（true/1/yes/on） |
-| `BACKUP_PGSSL_REJECT_UNAUTHORIZED` | 否 | 是否校验证书，SSH 隧道场景下 `false` |
+| `BACKUP_PGSSLMODE` | 否 | SSL 模式；`require` 启用 SSL，`disable` 关闭 |
 | `BACKUP_PGPOOL_MAX` | 否 | 连接池上限，默认 `5` |
 | `BACKUP_PG_CONNECT_TIMEOUT_MS` | 否 | 连接超时，默认 `10000` |
 | `BACKUP_PG_IDLE_TIMEOUT_MS` | 否 | 空闲超时，默认 `30000` |

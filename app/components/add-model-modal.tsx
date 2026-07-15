@@ -12,13 +12,57 @@ import {
   compareModelsBySeriesVersion,
   compareProviderDisplayNames,
 } from "../utils/model-series-order";
+import { getModelDisplayGroup } from "../utils/model-display-group";
+import { pruneMissingAddedModelsWithDetails } from "../utils/model-added-prune";
 import { LLMModel } from "../client/api";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import BotIconDefault from "../icons/llm-icons/default.svg";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
-import { loadProviderBalanceProfiles } from "../utils/provider-balance";
+import {
+  isModelIdentifierStoredAsVendor,
+  isOcoolaiProprietaryModelName,
+} from "../utils/model-vendor-normalize";
 import clsx from "clsx";
+
+function logModelsByVendorGroup(models: LLMModel[]) {
+  const groups = new Map<string, LLMModel[]>();
+  models.forEach((model) => {
+    const vendor = getModelDisplayGroup({
+      modelName: model?.name,
+      displayName: model?.displayName,
+      vendorName: model?.vendor?.name,
+      providerName: model?.provider?.providerName,
+    });
+    const groupedModels = groups.get(vendor) || [];
+    groupedModels.push(model);
+    groups.set(vendor, groupedModels);
+  });
+  [...groups]
+    .sort(([left], [right]) => compareProviderDisplayNames(left, right))
+    .forEach(([vendor, groupedModels]) => {
+      const sortedModels = [...groupedModels].sort(
+        compareModelsBySeriesVersion,
+      );
+      console.groupCollapsed(
+        `【模型公司】${vendor}（${sortedModels.length} 个）`,
+      );
+      sortedModels.forEach((model) => console.log(model.name));
+      console.groupEnd();
+    });
+}
+
+function logCachedModelsLoad(
+  profileName: string,
+  source: string,
+  modelCount: number,
+) {
+  console.log(`【模型缓存】从 ${source} 加载 ${profileName}：${modelCount} 个`);
+}
+
+function logNoCachedModels(profileName: string) {
+  console.log(`【模型缓存】${profileName} 无本地缓存，需手动获取`);
+}
 
 // 移除文字自适应缩放功能，改用 CSS overflow: hidden + hover 滚动
 
@@ -81,17 +125,44 @@ function createModelFromCachedName(
 
 function sortModelsForSelector(models: LLMModel[]) {
   const normalizedModels = models.map((model) => {
-    const inferredVendor = inferVendorFromModelName(model.name);
-    if (!inferredVendor) return model;
+    if (
+      String(model.provider?.id || "")
+        .toLowerCase()
+        .includes("ocool") &&
+      isOcoolaiProprietaryModelName(model.name)
+    ) {
+      return {
+        ...model,
+        vendor: { id: -4, name: "Ocoolai", icon: "Box" },
+      };
+    }
 
-    return {
-      ...model,
-      vendor: {
-        id: model.vendor?.id ?? -1,
-        name: inferredVendor.name,
-        icon: inferredVendor.icon,
-      },
-    };
+    const inferredVendor = inferVendorFromModelName(model.name);
+    if (inferredVendor) {
+      return {
+        ...model,
+        vendor: {
+          id: model.vendor?.id ?? -1,
+          name: inferredVendor.name,
+          icon: inferredVendor.icon,
+        },
+      };
+    }
+
+    // 旧 Ocoolai 缓存会把完整模型 ID 写为 vendor，避免为每个模型生成一张伪分组卡。
+    if (
+      String(model.provider?.id || "")
+        .toLowerCase()
+        .includes("ocool") &&
+      isModelIdentifierStoredAsVendor(model.name, model.vendor?.name)
+    ) {
+      return {
+        ...model,
+        vendor: { id: -4, name: "Ocoolai", icon: "Box" },
+      };
+    }
+
+    return model;
   });
 
   return dedupeFetchedModels(normalizedModels)
@@ -142,14 +213,9 @@ export function AddModelSelector(props: {
   const [fetchError, setFetchError] = useState("");
   const [pendingSelection, setPendingSelection] = useState<string[]>([]);
   const [showAdded, setShowAdded] = useState(false);
-  const [showCustomInput, setShowCustomInput] = useState(false);
-  const [customModelName, setCustomModelName] = useState("");
-  const [customModelError, setCustomModelError] = useState("");
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [selectorResetKey, setSelectorResetKey] = useState(0);
   const fetchCancelRef = useRef(false);
-  const customModelPopoverRef = useRef<HTMLDivElement>(null);
-  const customModelTriggerRef = useRef<HTMLButtonElement>(null);
   const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
 
   const handleClose = useCallback(() => {
@@ -213,6 +279,7 @@ export function AddModelSelector(props: {
 
   const loadCachedModels = useCallback(() => {
     if (!activeProfile) return false;
+    const profileName = activeProfile.name || String(activeProfile.provider);
 
     const cached = modelCache.get(selectedProviderId);
     if (cached) {
@@ -221,6 +288,7 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(cached.total);
       setLoading(false);
+      logCachedModelsLoad(profileName, "内存缓存", sorted.length);
       return true;
     }
 
@@ -242,6 +310,7 @@ export function AddModelSelector(props: {
             setFetchedModels(sorted);
             setFetchedTotal(total);
             setLoading(false);
+            logCachedModelsLoad(profileName, "localStorage", sorted.length);
             return true;
           }
         }
@@ -261,6 +330,7 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(total);
       setLoading(false);
+      logCachedModelsLoad(profileName, "ModelCacheStore", sorted.length);
       return true;
     }
 
@@ -278,6 +348,7 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(total);
       setLoading(false);
+      logCachedModelsLoad(profileName, "运行时模型", sorted.length);
       return true;
     }
 
@@ -301,6 +372,7 @@ export function AddModelSelector(props: {
       setFetchedModels(sorted);
       setFetchedTotal(total);
       setLoading(false);
+      logCachedModelsLoad(profileName, "缓存模型名", sorted.length);
       return true;
     }
 
@@ -316,10 +388,12 @@ export function AddModelSelector(props: {
   // 打开或切换供应商时优先显示本地缓存；没有缓存才显示空列表。
   useEffect(() => {
     if (!activeProfile) return;
+    const profileName = activeProfile.name || String(activeProfile.provider);
     fetchCancelRef.current = false;
     setFetchError("");
     setLoading(false);
     if (!loadCachedModels()) {
+      logNoCachedModels(profileName);
       setFetchedModels([]);
       setFetchedTotal(0);
     }
@@ -330,39 +404,17 @@ export function AddModelSelector(props: {
     fetchCancelRef.current = false;
     setFetchError("");
     setLoading(true);
-    console.log(
-      `[ModelManager] 🔄 正在获取 ${activeProfile.name} 平台的模型...`,
-    );
+    console.clear();
 
     const p = activeProfile as any;
-    const modelFetchKey =
-      p.modelFetchApiKey || p.apiKeyGroups?.default || p.apiKey;
-    const apiKeyGroups = { ...(p.apiKeyGroups || {}) };
-    const multiKeyGroupOrder = [...(p.multiKeyGroupOrder || [])];
-
-    // 余额查询密钥常与模型目录接口共用；它只作为本次请求的兜底，
-    // 不写回模型分组或访问态，避免把管理密钥误保存为业务分组密钥。
-    try {
-      const balanceProfile = (await loadProviderBalanceProfiles()).find(
-        (profile) => profile.profileId === activeProfile.id,
-      );
-      const balanceQueryKey = balanceProfile?.managementKey?.trim();
-      const configuredKeys = new Set([
-        modelFetchKey,
-        ...Object.values(apiKeyGroups),
-      ]);
-      if (balanceQueryKey && !configuredKeys.has(balanceQueryKey)) {
-        apiKeyGroups.__balance_query_key = balanceQueryKey;
-        multiKeyGroupOrder.unshift("__balance_query_key");
-        console.log(
-          `[ModelManager] 🔑 ${activeProfile.name} 模型获取已加入余额查询 Key 兜底`,
-        );
-      }
-    } catch (error) {
-      console.warn(
-        `[ModelManager] ⚠️ ${activeProfile.name} 读取余额查询 Key 失败，将继续使用已配置模型 Key`,
-        error instanceof Error ? error.message : String(error),
-      );
+    const modelFetchKey = String(p.modelFetchApiKey || "").trim();
+    const modelFetchUrl = String(p.modelFetchUrl || "").trim();
+    console.log(`【正在获取】${activeProfile.name}`);
+    console.log(`【请求URL】${modelFetchUrl || "(默认)"}`);
+    if (!modelFetchKey || !modelFetchUrl) {
+      setLoading(false);
+      setFetchError("请先在模型获取配置页面填写 API Key 和获取 URL");
+      return;
     }
 
     if (fetchCancelRef.current) return;
@@ -375,13 +427,15 @@ export function AddModelSelector(props: {
       ),
       modelFetchKey,
       activeProfile.name,
-      apiKeyGroups,
-      multiKeyGroupOrder,
+      {},
+      [],
       activeProfile.openAICompatible,
       {
         authType: p.authType,
         authQueryParam: p.authQueryParam,
         extraHeaders: p.extraHeaders,
+        modelFetchUrl,
+        silentLogs: true,
       },
     )
       .then((result) => {
@@ -392,15 +446,43 @@ export function AddModelSelector(props: {
           const uniqueModels = dedupeFetchedModels(result.models);
           if (uniqueModels.length !== result.models.length) {
             console.log(
-              `[ModelManager] 模型去重：${result.models.length} -> ${uniqueModels.length}`,
+              `【模型去重】${result.models.length} -> ${uniqueModels.length}`,
             );
           }
           const sorted = uniqueModels
             .sort(compareModelsBySeriesVersion)
             .map((model, index) => ({ ...model, sorted: index }));
-          console.log(
-            `[ModelManager] ✅ 已获取到 ${activeProfile.name} 平台的模型 ${sorted.length} 个`,
+          console.log(`【模型总数】${sorted.length} 个`);
+          logModelsByVendorGroup(sorted);
+
+          // 清理不再提供的模型（仅检查当前供应商）
+          const currentCustomModels = String(
+            useAppConfig.getState().customModels || "",
           );
+          const providerId = String(
+            getProfileProviderId(activeProfile),
+          ).toLowerCase();
+          console.log(`【开始检查】${displayName} 的已添加模型`);
+          const pruneResult = pruneMissingAddedModelsWithDetails(
+            currentCustomModels,
+            [providerId],
+            sorted.map((m) => m.name),
+          );
+          if (pruneResult.customModels !== currentCustomModels) {
+            console.log(
+              `【模型清理】需要清理 ${pruneResult.removedModelNames.length} 个，已清理 ${pruneResult.removedModelNames.length} 个`,
+            );
+            pruneResult.removedModelNames.forEach((modelName) =>
+              console.log(`【清理模型】${modelName}`),
+            );
+            useAppConfig.getState().update((state: any) => {
+              state.customModels = pruneResult.customModels;
+              state.customModelsUpdatedAt = Date.now();
+            });
+          } else {
+            console.log(`【模型清理】无需清理（0 个）`);
+          }
+
           modelCache.set(selectedProviderId, {
             models: sorted,
             total: result.total || sorted.length,
@@ -441,6 +523,7 @@ export function AddModelSelector(props: {
         if (fetchCancelRef.current) return;
         const msg =
           err instanceof Error ? err.message : String(err || "未知错误");
+        console.log(`【模型获取】失败：${msg}`);
         setFetchError(msg);
         setLoading(false);
       });
@@ -451,29 +534,6 @@ export function AddModelSelector(props: {
       fetchCancelRef.current = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!showCustomInput) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        customModelPopoverRef.current?.contains(target) ||
-        customModelTriggerRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setShowCustomInput(false);
-      setCustomModelError("");
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [showCustomInput]);
 
   const removeModel = useCallback(
     (key: string) => {
@@ -562,14 +622,33 @@ export function AddModelSelector(props: {
           (m) => m.name === modelName,
         );
         return {
-          title: model.name,
+          title: fetchedModel?.displayName || model.name,
           value: model.key,
-          group:
-            fetchedModel?.vendor?.name ||
-            fetchedModel?.provider?.providerName ||
-            "Added",
+          group: getModelDisplayGroup({
+            modelName,
+            displayName: fetchedModel?.displayName,
+            vendorName: fetchedModel?.vendor?.name,
+            providerName: fetchedModel?.provider?.providerName,
+          }),
           disable: false,
-          searchText: model.name,
+          searchText: `${fetchedModel?.displayName || ""} ${model.name}`,
+          order: fetchedModel?.sorted,
+          publishedAt: fetchedModel?.publishedAt,
+          publishedAtSource: fetchedModel?.publishedAtSource,
+          catalogRank: fetchedModel?.catalogRank,
+          remoteRank: fetchedModel?.remoteRank,
+          remoteRankSource: fetchedModel?.remoteRankSource,
+          sortKey: modelName,
+          meta: {
+            category: fetchedModel?.category,
+            categorySource: fetchedModel?.categorySource,
+            type: fetchedModel?.type,
+            types: fetchedModel?.types,
+            features: fetchedModel?.features,
+            capabilities: fetchedModel?.capabilities,
+            categories: fetchedModel?.categories,
+            vendorName: fetchedModel?.vendor?.name,
+          },
           rightAction: {
             text: "删除",
             onClick: (value: string) => removeModel(value),
@@ -585,7 +664,12 @@ export function AddModelSelector(props: {
       return {
         title: model.displayName || model.name,
         value: modelKey,
-        group: model.vendor?.name || model.provider?.providerName || "Other",
+        group: getModelDisplayGroup({
+          modelName: model.name,
+          displayName: model.displayName,
+          vendorName: model.vendor?.name,
+          providerName: model.provider?.providerName,
+        }),
         disable: isAdded,
         searchText: `${model.displayName} ${model.name}`,
         order: model.sorted,
@@ -651,105 +735,6 @@ export function AddModelSelector(props: {
 
   const displayName =
     activeProfile?.name || String(activeProfile?.provider || "");
-
-  const addCustomModel = useCallback(() => {
-    if (!activeProfile) return;
-
-    const modelName = customModelName.trim();
-    if (!modelName) {
-      setCustomModelError("请输入模型名称");
-      return;
-    }
-
-    if (modelName.includes(",")) {
-      setCustomModelError("模型名称不能包含英文逗号");
-      return;
-    }
-
-    const modelKey = `${modelName}@${selectedProviderId}`;
-    if (addedModelKeys.has(modelKey)) {
-      setCustomModelError("这个模型已经添加过了");
-      return;
-    }
-
-    if (managedModelKeys) {
-      onAddModels?.([modelKey]);
-
-      const syntheticModel = createModelFromCachedName(
-        modelName,
-        activeProfile,
-        selectedProviderId,
-        fetchedModels.length,
-      );
-      const nextModels = sortModelsForSelector([
-        ...fetchedModels,
-        syntheticModel,
-      ]);
-      const nextTotal = Math.max(fetchedTotal, nextModels.length);
-
-      modelCache.set(selectedProviderId, {
-        models: nextModels,
-        total: nextTotal,
-      });
-      setFetchedModels(nextModels);
-      setFetchedTotal(nextTotal);
-      setPendingSelection((selected) =>
-        selected.filter((item) => item !== modelKey),
-      );
-      setCustomModelName("");
-      setCustomModelError("");
-      setShowCustomInput(false);
-      return;
-    }
-
-    const currentModels = (config.customModels || "")
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-    const after = Array.from(new Set([...currentModels, `+${modelKey}`])).join(
-      ",",
-    );
-
-    config.update((state) => {
-      state.customModels = after;
-      (state as any).customModelsUpdatedAt = Date.now();
-    });
-
-    const syntheticModel = createModelFromCachedName(
-      modelName,
-      activeProfile,
-      selectedProviderId,
-      fetchedModels.length,
-    );
-    const nextModels = sortModelsForSelector([
-      ...fetchedModels,
-      syntheticModel,
-    ]);
-    const nextTotal = Math.max(fetchedTotal, nextModels.length);
-
-    modelCache.set(selectedProviderId, {
-      models: nextModels,
-      total: nextTotal,
-    });
-    setFetchedModels(nextModels);
-    setFetchedTotal(nextTotal);
-    setPendingSelection((selected) =>
-      selected.filter((item) => item !== modelKey),
-    );
-    setCustomModelName("");
-    setCustomModelError("");
-    setShowCustomInput(false);
-  }, [
-    activeProfile,
-    addedModelKeys,
-    config,
-    customModelName,
-    fetchedModels,
-    fetchedTotal,
-    managedModelKeys,
-    onAddModels,
-    selectedProviderId,
-  ]);
 
   const displayTotal = showAdded
     ? addedModelsList.length
@@ -822,15 +807,11 @@ export function AddModelSelector(props: {
             >
               点击获取模型
             </button>
-          ) : (
+          ) : !fetchError ? (
             <span className={"model-selector-hint-count"}>
-              {loading
-                ? "正在获取模型..."
-                : fetchError
-                ? "获取失败，请检查网络或配置"
-                : `共 ${displayTotal} 个模型可用`}
+              {loading ? "正在获取模型..." : `共 ${displayTotal} 个模型可用`}
             </span>
-          )}
+          ) : null}
           {!loading && (displayTotal > 0 || fetchError) ? (
             <button
               type="button"
@@ -912,172 +893,86 @@ export function AddModelSelector(props: {
         </div>
       }
       footer={
-        <>
-          {showCustomInput ? (
-            <div
-              className="nextchat-modal-custom-popover"
-              ref={customModelPopoverRef}
-            >
-              <form
-                className="nextchat-modal-custom-form"
-                autoComplete="off"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  addCustomModel();
-                }}
+        <div
+          className={clsx("nextchat-modal-footer", {
+            "nextchat-modal-footer-show-added": showAdded,
+          })}
+        >
+          {showAdded ? (
+            <div className="nextchat-modal-footer-group">
+              <button
+                type="button"
+                onClick={() => setShowAdded(false)}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-default-button",
+                )}
               >
-                <div className="nextchat-modal-custom-title">
-                  添加自定义模型到 {displayName}
-                </div>
-                <div className="nextchat-modal-custom-row">
-                  <input
-                    className="nextchat-input-control model-selector-custom-input"
-                    name="custom-model-name"
-                    autoComplete="new-password"
-                    data-1p-ignore="true"
-                    data-lpignore="true"
-                    value={customModelName}
-                    onChange={(event) => {
-                      setCustomModelName(event.currentTarget.value);
-                      setCustomModelError("");
-                    }}
-                    autoFocus
-                    placeholder="输入模型名称，例如 gpt-4.1-custom"
-                  />
-                  <button
-                    type="submit"
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-green-button",
-                    )}
-                  >
-                    添加
-                  </button>
-                  <button
-                    type="button"
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                    onClick={() => {
-                      setShowCustomInput(false);
-                      setCustomModelError("");
-                    }}
-                  >
-                    取消
-                  </button>
-                </div>
-                {customModelError ? (
-                  <div className="nextchat-modal-custom-error">
-                    {customModelError}
-                  </div>
-                ) : null}
-              </form>
+                浏览模型
+              </button>
+              <button
+                type="button"
+                onClick={removeAll}
+                disabled={addedModelsList.length === 0}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-danger-button",
+                )}
+              >
+                全部删除
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-default-button",
+                )}
+              >
+                关闭
+              </button>
             </div>
-          ) : null}
-          <div
-            className={clsx("nextchat-modal-footer", {
-              "nextchat-modal-footer-show-added": showAdded,
-            })}
-          >
-            {showAdded ? (
-              <>
-                <div className="nextchat-modal-footer-group">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdded(false)}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    浏览模型
-                  </button>
-                  <button
-                    type="button"
-                    onClick={removeAll}
-                    disabled={addedModelsList.length === 0}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-danger-button",
-                    )}
-                  >
-                    全部删除
-                  </button>
-                </div>
-                <div className="nextchat-modal-footer-group">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    关闭
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="nextchat-modal-footer-group">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdded(true)}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    已添加 ({addedModelsList.length})
-                  </button>
-                  <button
-                    type="button"
-                    ref={customModelTriggerRef}
-                    onClick={() => {
-                      setShowCustomInput((visible) => !visible);
-                      setCustomModelError("");
-                    }}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    自定义模型
-                  </button>
-                </div>
-                <div className="nextchat-modal-footer-group">
-                  {pendingSelection.length > 0 && (
-                    <span className="nextchat-modal-count">
-                      已选 {pendingSelection.length} 个
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    disabled={confirmDisabled}
-                    onClick={handleConfirm}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-green-button",
-                    )}
-                  >
-                    确认添加
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className={clsx(
-                      "nextchat-pill-button",
-                      "nextchat-default-button",
-                    )}
-                  >
-                    关闭
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
+          ) : (
+            <div className="nextchat-modal-footer-group">
+              <button
+                type="button"
+                onClick={() => setShowAdded(true)}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-default-button",
+                )}
+              >
+                已添加 ({addedModelsList.length})
+              </button>
+              {pendingSelection.length > 0 && (
+                <span className="nextchat-modal-count">
+                  已选 {pendingSelection.length} 个
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={confirmDisabled}
+                onClick={handleConfirm}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-green-button",
+                )}
+              >
+                确认添加
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className={clsx(
+                  "nextchat-pill-button",
+                  "nextchat-default-button",
+                )}
+              >
+                关闭
+              </button>
+            </div>
+          )}
+        </div>
       }
     />
   );

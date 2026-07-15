@@ -5,7 +5,6 @@ import { getISOLang } from "../locales";
 import { ServiceProvider } from "../constant";
 import { useAccessStore } from "../store/access";
 import { useAppConfig } from "../store/config";
-import { useModelCacheStore } from "../store/model-cache";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { usePluginStore, BUILTIN_PLUGIN_ID_SET } from "../store/plugin";
@@ -49,13 +48,6 @@ function normalizeModelOwner(value: unknown) {
     .toLowerCase();
 }
 
-function countCachedModels(value: unknown) {
-  return String(value || "")
-    .split(",")
-    .map((model) => model.trim())
-    .filter(Boolean).length;
-}
-
 function buildApiConfigSummaries(): ApiConfigSummary[] {
   const accessState = useAccessStore.getState() as any;
   const allProfiles = Array.isArray(accessState?.apiProfiles)
@@ -64,19 +56,11 @@ function buildApiConfigSummaries(): ApiConfigSummary[] {
   // 与 api-config 页保持一致：只过滤有 id 的 profile，不过滤 enabled。
   const visibleProfiles = allProfiles.filter(isVisibleProfile);
 
-  const cachedProfiles = useModelCacheStore.getState().profiles || {};
-  const appModels = (useAppConfig.getState() as any).models || [];
   const customModels = String(
     (useAppConfig.getState() as any).customModels || "",
   );
   return visibleProfiles
     .map((profile: any): ApiConfigSummary => {
-      const profileId = String(profile.id || "");
-      const cachedProfile = cachedProfiles[profileId];
-      const cachedCount =
-        Number(cachedProfile?.modelCount || 0) ||
-        countCachedModels(cachedProfile?.cachedModels) ||
-        countCachedModels(profile.cachedModels);
       const providerId =
         profile.provider === ServiceProvider.Custom
           ? `custom_${String(profile.name || "")}`.toLowerCase()
@@ -88,18 +72,6 @@ function buildApiConfigSummaries(): ApiConfigSummary[] {
       const ownerNames = new Set(
         [profile.name, profile.provider, providerId].map(normalizeModelOwner),
       );
-      const liveCount = Array.isArray(appModels)
-        ? appModels.filter((model: any) => {
-            const modelProviderId = normalizeModelOwner(model?.provider?.id);
-            const modelProviderName = normalizeModelOwner(
-              model?.provider?.providerName,
-            );
-            return (
-              ownerNames.has(modelProviderId) ||
-              ownerNames.has(modelProviderName)
-            );
-          }).length
-        : 0;
       const customModelCount = customModels
         .split(",")
         .map((model) => model.trim())
@@ -113,11 +85,7 @@ function buildApiConfigSummaries(): ApiConfigSummary[] {
         }).length;
       return {
         name: String(profile.name || profile.id || "未命名"),
-        modelCount:
-          cachedCount ||
-          Number(profile.modelCount || 0) ||
-          liveCount ||
-          customModelCount,
+        modelCount: customModelCount,
       };
     })
     .sort((a: ApiConfigSummary, b: ApiConfigSummary) =>
@@ -173,7 +141,9 @@ export async function logPageOpenUsageSummary() {
 
   // 1. 每个 API 配置单独输出模型数量。
   const apiConfigs = buildApiConfigSummaries();
-  console.log(`${LOG_PREFIX} ✅ API配置模型数量: ${apiConfigs.length} 个配置`);
+  console.log(
+    `${LOG_PREFIX} ✅ API配置已添加模型数量: ${apiConfigs.length} 个配置`,
+  );
   apiConfigs.forEach((config) => {
     console.log(`${LOG_PREFIX}   ${config.name}: ${config.modelCount} 个模型`);
   });

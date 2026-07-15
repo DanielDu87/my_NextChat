@@ -25,6 +25,13 @@
   opacity: 0.85 !important;
 }
 
+// 余额页与模型获取页在暗色模式下共用同一套按钮。纯白文字对深色卡片
+// 对比过强，局部降为中性浅灰；图标仍沿用按钮类型的原有颜色规则。
+:global(body.dark) .actionButton :global([class*="icon-button-text"]),
+:global(.dark) .actionButton :global([class*="icon-button-text"]) {
+  color: #c8cbd2 !important;
+}
+
 .headerBatchAction :global(.icon-button) {
   min-width: max-content !important;
   min-height: 0 !important;
@@ -461,15 +468,13 @@
     justify-content: center !important;
   }
 
-  .mobileBatchAction .actionButton
-    :global([class*="icon-button-text"]) {
+  .mobileBatchAction .actionButton :global([class*="icon-button-text"]) {
     display: inline-flex !important;
     align-items: center;
     margin-left: 6px !important;
   }
 
-  .mobileBatchAction .actionButton
-    :global([class*="icon-button-icon"]) {
+  .mobileBatchAction .actionButton :global([class*="icon-button-icon"]) {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -479,8 +484,7 @@
     margin: 0 !important;
   }
 
-  .mobileBatchAction .actionButton
-    :global([class*="icon-button-icon"] > svg) {
+  .mobileBatchAction .actionButton :global([class*="icon-button-icon"] > svg) {
     display: block !important;
     width: 16px !important;
     height: 16px !important;

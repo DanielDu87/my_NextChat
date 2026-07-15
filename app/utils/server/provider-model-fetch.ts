@@ -5,8 +5,12 @@ import {
   appendAuthQueryParam,
   buildAuthHeaders,
   buildModelFetchCandidateUrls,
+  fetchModelRoutesFast,
   getAuthorizationCandidates,
   getModelFetchApiKeyCandidates,
+  MODEL_FETCH_REQUEST_TIMEOUT_MS,
+  MODEL_FETCH_ROUTE_REVALIDATE_MS,
+  MODEL_FETCH_SINGLE_ROUTE_TIMEOUT_MS,
   parseExtraHeaders,
   type ApiProfileAuthType,
 } from "@/app/utils/model-fetch-common";
@@ -23,6 +27,7 @@ import {
   getDeclaredModelVendor,
   getProviderFallbackModelVendor,
   isCustomAutoModelName,
+  isOcoolaiProprietaryModelName,
   normalizeModelVendorName,
 } from "@/app/utils/model-vendor-normalize";
 
@@ -349,10 +354,33 @@ function isOcoolaiUrl(baseUrl?: string, profileName?: string) {
 function inferVendorFromModelName(
   modelName: string,
 ): { name: string; icon?: string } | null {
-  const lowerName = modelName.toLowerCase();
+  const lowerName = modelName
+    .toLowerCase()
+    // Ocoolai 的历史模型名会加 net/network 前缀，它不属于真实模型商。
+    .replace(/^(?:net|network)[-_.]+/, "");
 
   if (lowerName.includes("aihubmix")) {
     return { name: "AihubMix", icon: "aihubmix" };
+  }
+
+  const namespace = lowerName.replace(/^~+/, "").split("/", 1)[0];
+  const namespaceVendors: Record<string, { name: string; icon?: string }> = {
+    anthropic: { name: "Anthropic", icon: "Claude.Color" },
+    baai: { name: "BAAI", icon: "BAAI" },
+    bytedance: { name: "ByteDance", icon: "Doubao.Color" },
+    deepseek: { name: "DeepSeek", icon: "DeepSeek.Color" },
+    "deepseek-ai": { name: "DeepSeek", icon: "DeepSeek.Color" },
+    google: { name: "Google", icon: "Gemini.Color" },
+    meta: { name: "Meta", icon: "Ollama" },
+    "meta-llama": { name: "Meta", icon: "Ollama" },
+    moonshotai: { name: "Moonshot", icon: "Moonshot" },
+    openai: { name: "OpenAI", icon: "OpenAI" },
+    qwen: { name: "Alibaba", icon: "Qwen.Color" },
+    "x-ai": { name: "xAI", icon: "XAI" },
+    "z-ai": { name: "Zhipu", icon: "Zhipu.Color" },
+  };
+  if (lowerName.includes("/") && namespaceVendors[namespace]) {
+    return namespaceVendors[namespace];
   }
 
   if (
@@ -368,6 +396,13 @@ function inferVendorFromModelName(
     lowerName.startsWith("sora-") ||
     lowerName.startsWith("tts-") ||
     lowerName.startsWith("whisper-") ||
+    lowerName.startsWith("text-ada-") ||
+    lowerName.startsWith("text-babbage-") ||
+    lowerName.startsWith("text-curie-") ||
+    lowerName.startsWith("text-davinci-") ||
+    lowerName.startsWith("text-embedding-") ||
+    lowerName === "babbage-002" ||
+    lowerName === "davinci-002" ||
     lowerName === "o1" ||
     lowerName === "o3" ||
     lowerName === "o4" ||
@@ -386,13 +421,18 @@ function inferVendorFromModelName(
     lowerName.startsWith("gemma-") ||
     lowerName.startsWith("pregenie-") ||
     lowerName.startsWith("text-embedding-004") ||
+    lowerName.startsWith("embedding-gecko-") ||
+    lowerName === "embedding-001" ||
     lowerName.startsWith("veo-") ||
     lowerName.startsWith("veo3") ||
     lowerName.startsWith("veo/") ||
     lowerName.startsWith("chirp-") ||
     lowerName.startsWith("imagen-") ||
     lowerName.startsWith("nano_banana") ||
-    lowerName.startsWith("gemini_omni_")
+    lowerName.startsWith("nano-banana") ||
+    lowerName === "gemini_omni" ||
+    lowerName.startsWith("gemini_omni_") ||
+    lowerName === "veo_query"
   ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
@@ -409,12 +449,16 @@ function inferVendorFromModelName(
     lowerName.startsWith("qwq-") ||
     lowerName.startsWith("qvq-") ||
     lowerName.startsWith("wan2") ||
+    lowerName.startsWith("wanx") ||
     lowerName.startsWith("happyhorse-") ||
     lowerName.startsWith("gte-") ||
     lowerName.startsWith("paraformer-") ||
     lowerName.startsWith("sambert-") ||
     lowerName.startsWith("sensevoice")
   ) {
+    return { name: "Alibaba", icon: "Qwen.Color" };
+  }
+  if (lowerName.startsWith("z-image")) {
     return { name: "Alibaba", icon: "Qwen.Color" };
   }
   if (
@@ -432,10 +476,21 @@ function inferVendorFromModelName(
   if (lowerName.startsWith("ernie-")) {
     return { name: "Baidu", icon: "Ernie.Color" };
   }
+  if (lowerName.startsWith("bce-")) {
+    return { name: "Baidu", icon: "Ernie.Color" };
+  }
   if (lowerName.startsWith("hunyuan-")) {
     return { name: "Tencent", icon: "Hunyuan.Color" };
   }
-  if (lowerName.startsWith("glm-") || lowerName.startsWith("chatglm-")) {
+  if (
+    lowerName.startsWith("glm-") ||
+    lowerName.startsWith("glm_") ||
+    lowerName.startsWith("chatglm-") ||
+    lowerName.startsWith("chatglm_")
+  ) {
+    return { name: "Zhipu", icon: "Zhipu.Color" };
+  }
+  if (lowerName.startsWith("charglm-") || lowerName.startsWith("codegeex-")) {
     return { name: "Zhipu", icon: "Zhipu.Color" };
   }
   if (lowerName.startsWith("llama-") || lowerName.startsWith("llama3")) {
@@ -531,10 +586,18 @@ function inferVendorFromModelName(
   if (lowerName.startsWith("mureka")) {
     return { name: "Mureka", icon: "Box" };
   }
-  if (lowerName.startsWith("luma_") || lowerName.startsWith("luma-")) {
+  if (
+    lowerName === "luma-video" ||
+    lowerName.startsWith("luma_") ||
+    lowerName.startsWith("luma-")
+  ) {
     return { name: "Luma", icon: "Luma" };
   }
-  if (lowerName === "suno" || lowerName.startsWith("suno_")) {
+  if (
+    lowerName === "suno" ||
+    lowerName.startsWith("suno_") ||
+    lowerName.startsWith("suno-")
+  ) {
     return { name: "Suno", icon: "Suno" };
   }
   if (lowerName.startsWith("pixverse/")) {
@@ -598,12 +661,26 @@ function inferVendorFromOcoolaiModel(
 ): { name: string; icon?: string } | null {
   // OpenRouter 会在部分模型 ID 前加 `~` 标记；它不是厂商名的一部分。
   const normalizedModelName = modelName.trim().replace(/^~+/, "");
+  if (isOcoolaiProprietaryModelName(normalizedModelName)) {
+    return { name: "Ocoolai", icon: "Box" };
+  }
   const [prefix] = normalizedModelName.split("/", 1);
   const normalizedPrefix = prefix.trim().toLowerCase();
   const inferredVendor = inferVendorFromModelName(normalizedModelName);
 
   if (inferredVendor) {
     return inferredVendor;
+  }
+
+  // Ocoolai 有时会把上游路由商放在命名空间前，例如 Ascend/DeepSeek-R1。
+  // 先识别斜杠后的真实模型 ID，避免把路由商误显示为模型商。
+  const namespacedModelVendor = normalizedModelName
+    .split("/")
+    .slice(1)
+    .map((segment) => inferVendorFromModelName(segment))
+    .find(Boolean);
+  if (namespacedModelVendor) {
+    return namespacedModelVendor;
   }
 
   const prefixVendorMap: Record<string, { name: string; icon?: string }> = {
@@ -917,7 +994,7 @@ function mapModels(
       }
     }
 
-    if (catalogMetadata?.vendor) {
+    if (catalogMetadata?.vendor && !isCustomAutoModelName(modelName)) {
       vendor = catalogMetadata.vendor;
     }
 
@@ -931,6 +1008,13 @@ function mapModels(
         name: inferredVendor.name,
         icon: inferredVendor.icon,
       };
+    }
+
+    if (
+      isOcoolProfileLike({ name: providerName || providerId }) &&
+      isOcoolaiProprietaryModelName(modelName)
+    ) {
+      vendor = { id: -4, name: "Ocoolai", icon: "Box" };
     }
 
     if (isAiHubMixBrandedModel) {
@@ -1041,6 +1125,7 @@ async function fetchJsonWithCandidates(
     outerTotal?: number;
     keyIndex?: number;
     keyTotal?: number;
+    requestTimeoutMs?: number;
   },
 ) {
   let lastError: Error | null = null;
@@ -1106,6 +1191,8 @@ async function fetchJsonWithCandidates(
         const response = await requestUpstream(requestUrl, {
           method: "GET",
           headers: requestHeaders,
+          timeoutMs:
+            options?.requestTimeoutMs || MODEL_FETCH_REQUEST_TIMEOUT_MS,
           dnsServers: [
             "aihubmix.com",
             "toapis.com",
@@ -1496,61 +1583,100 @@ export async function fetchModelsFromProviderForServer(
     }
   };
 
-  const keyCachedUrls = fetchOptions?.profileId
+  const keyCachedRoutes = fetchOptions?.profileId
     ? await Promise.all(
         entries.map(async (entry) => {
           const cached = await getProviderModelKeyCachedPath(
             fetchOptions.profileId!,
             entry.apiKey,
           ).catch(() => null);
-          return cached?.cachedModelPath
-            ? buildCachedModelUrl(
-                cached.cachedModelBaseUrl || normalizedBaseUrl,
-                cached.cachedModelPath,
-              )
-            : undefined;
+          return {
+            url: cached?.cachedModelPath
+              ? buildCachedModelUrl(
+                  cached.cachedModelBaseUrl || normalizedBaseUrl,
+                  cached.cachedModelPath,
+                )
+              : undefined,
+            modelCount: Math.max(0, Number(cached?.modelCount || 0)),
+            updatedAt: cached?.updatedAt,
+          };
         }),
       )
     : [];
-  const allKeysHaveCachedPath =
-    entries.length > 0 &&
-    keyCachedUrls.length === entries.length &&
-    keyCachedUrls.every((url): url is string => Boolean(url));
-  const orderedUrls = [
-    ...new Set(
-      [
-        ...keyCachedUrls.filter((url): url is string => Boolean(url)),
-        ...(allKeysHaveCachedPath
-          ? []
-          : [cachedCandidateUrl, ...candidateUrls]),
-      ].filter((url): url is string => Boolean(url)),
-    ),
-  ];
-  if (allKeysHaveCachedPath) {
-    console.log(
-      "[Fetch Models] ⚡ 全部 Key 命中独立缓存路径，跳过通用多路径回退",
-      {
-        keyCount: entries.length,
-        pathCount: orderedUrls.length,
+  const knownCachedUrls = keyCachedRoutes
+    .map((route) => route.url)
+    .filter((url): url is string => Boolean(url));
+  const fallbackUrls = [
+    ...knownCachedUrls,
+    cachedCandidateUrl,
+    ...candidateUrls,
+  ].filter((url): url is string => Boolean(url));
+  const routeFetch = await fetchModelRoutesFast(
+    entries.map((entry, index) => ({
+      entry: {
+        ...entry,
+        keyIndex: index + 1,
+        cachedModelCount: keyCachedRoutes[index]?.modelCount || 0,
       },
-    );
-  }
-  const entryResults = await fetchAllJsonWithCandidates(
-    orderedUrls,
-    headers,
-    getAuthorizationCandidates(
-      entries.map((entry) => entry.apiKey),
-      authType,
-    ),
-    (payload) => extractModelListFromResponse(payload).length > 0,
-    (payload) => extractModelListFromResponse(payload).length,
-    {
-      authType,
-      authQueryParam,
-      authorizationHeaderName:
-        Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+      cachedCandidate:
+        keyCachedRoutes[index]?.updatedAt &&
+        Date.now() - Date.parse(keyCachedRoutes[index].updatedAt!) <
+          MODEL_FETCH_ROUTE_REVALIDATE_MS
+          ? keyCachedRoutes[index]?.url
+          : undefined,
+    })),
+    fallbackUrls,
+    async (entry, url, context) => {
+      const authorization = getAuthorizationCandidates(
+        [entry.apiKey],
+        authType,
+      );
+      const data = await fetchJsonWithCandidates(
+        [url],
+        headers,
+        authorization,
+        (payload) => extractModelListFromResponse(payload).length > 0,
+        (payload) => extractModelListFromResponse(payload).length,
+        {
+          authType,
+          authQueryParam,
+          authorizationHeaderName:
+            Object.keys(buildAuthHeaders("__key__", authType))[0] || "",
+          outerIndex: context.candidateIndex,
+          outerTotal: context.candidateTotal,
+          keyIndex: entry.keyIndex,
+          keyTotal: entries.length,
+          requestTimeoutMs:
+            context.candidateTotal === 1
+              ? MODEL_FETCH_SINGLE_ROUTE_TIMEOUT_MS
+              : MODEL_FETCH_REQUEST_TIMEOUT_MS,
+        },
+      );
+      return data;
     },
-  ).catch(() => []);
+    (url) => url,
+    {
+      getResultScore: (payload) => extractModelListFromResponse(payload).length,
+      acceptCachedResult: (entry, payload) =>
+        extractModelListFromResponse(payload).length >= entry.cachedModelCount,
+      discoveryBatchSize: 8,
+    },
+  );
+  const entryResults = routeFetch.results.map((result) => ({
+    data: result.result,
+    url: result.candidate,
+    keyIndex: result.entry.keyIndex,
+  }));
+  console.log("[Fetch Models] ⚡ 快速路径探测完成", {
+    keyCount: entries.length,
+    resolvedKeyCount: routeFetch.results.length,
+    cacheHitKeyCount: routeFetch.results.filter((result) => result.fromCache)
+      .length,
+    discoverySuccessKeyCount: routeFetch.results.filter(
+      (result) => !result.fromCache,
+    ).length,
+    unresolvedKeyCount: routeFetch.unresolvedEntries.length,
+  });
 
   const bestEntryResult = entryResults.reduce<
     (typeof entryResults)[number] | undefined

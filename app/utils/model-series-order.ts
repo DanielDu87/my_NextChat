@@ -1,5 +1,3 @@
-import { compareModelsForDisplay } from "./model-published-at";
-
 export type ModelSeriesOrderLike = {
   name?: string;
   model?: string;
@@ -65,23 +63,56 @@ export function getModelDisplaySeries(model: ModelSeriesOrderLike) {
     : undefined;
 }
 
-function getModelSeriesVersion(modelName: string) {
-  const versionText = modelName.toLowerCase().match(/\d+(?:\.\d+)*/)?.[0];
-  return versionText
-    ? versionText.split(".").map((part) => Number(part) || 0)
-    : undefined;
+type ModelNameToken =
+  | { type: "number"; value: number }
+  | { type: "text"; value: string };
+
+function tokenizeModelName(modelName: string): ModelNameToken[] {
+  return Array.from(
+    modelName.toLowerCase().matchAll(/\d+|[\p{L}]+/gu),
+    ([value]) =>
+      /^\d+$/.test(value)
+        ? { type: "number" as const, value: Number(value) }
+        : { type: "text" as const, value },
+  );
 }
 
-function compareVersionPartsDescending(left?: number[], right?: number[]) {
-  if (!left || !right) {
-    return left ? -1 : right ? 1 : 0;
-  }
-  const length = Math.max(left.length, right.length);
+/**
+ * 模型名按自然分段逐项比较：文字逐字符升序，处于相同位置的数字降序。
+ * 因此 claude-3-7 会排在 claude-3-5 前，alpha 会排在 beta 前，
+ * 且第二段、第三段文字或数字都不会被第一段相同值掩盖。
+ */
+function compareTokenizedModelNames(leftName: string, rightName: string) {
+  const leftTokens = tokenizeModelName(leftName);
+  const rightTokens = tokenizeModelName(rightName);
+  const length = Math.max(leftTokens.length, rightTokens.length);
+
   for (let index = 0; index < length; index += 1) {
-    const diff = (right[index] || 0) - (left[index] || 0);
-    if (diff !== 0) return diff;
+    const left = leftTokens[index];
+    const right = rightTokens[index];
+    if (!left || !right) {
+      if (!left && right?.type === "number") return 1;
+      if (!right && left?.type === "number") return -1;
+      return left ? 1 : right ? -1 : 0;
+    }
+
+    if (left.type === "number" && right.type === "number") {
+      const numberDiff = right.value - left.value;
+      if (numberDiff !== 0) return numberDiff;
+      continue;
+    }
+
+    if (left.type === "text" && right.type === "text") {
+      const textDiff = modelNameCollator.compare(left.value, right.value);
+      if (textDiff !== 0) return textDiff;
+      continue;
+    }
+
+    // 同一文字前缀下，直接以版本号开始的标准模型排在附加文字系列之前。
+    return left.type === "number" ? -1 : 1;
   }
-  return 0;
+
+  return modelNameCollator.compare(leftName, rightName);
 }
 
 export function compareModelsWithinSeries(
@@ -90,20 +121,7 @@ export function compareModelsWithinSeries(
 ) {
   const leftName = getModelName(left);
   const rightName = getModelName(right);
-  const leftVersion = getModelSeriesVersion(leftName);
-  const rightVersion = getModelSeriesVersion(rightName);
-  const versionDiff = compareVersionPartsDescending(leftVersion, rightVersion);
-  if (versionDiff !== 0) return versionDiff;
-
-  if (leftVersion && rightVersion) {
-    return modelNameCollator.compare(leftName, rightName);
-  }
-
-  const publishedAtDiff = compareModelsForDisplay(
-    { name: leftName, publishedAt: left.publishedAt },
-    { name: rightName, publishedAt: right.publishedAt },
-  );
-  return publishedAtDiff || modelNameCollator.compare(leftName, rightName);
+  return compareTokenizedModelNames(leftName, rightName);
 }
 
 export function compareModelsBySeriesVersion(

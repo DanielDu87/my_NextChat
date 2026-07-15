@@ -1,8 +1,8 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-12 (同步 schema 2026-07-12-provider-model-fetch-cache：补供应商模型获取路径缓存)
+-- 最后更新: 2026-07-15 (同步 schema 2026-07-14-provider-model-key-route-cache：补每个 API Key 的模型获取路径缓存)
 -- 当前运行时 schema 版本：
---   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-12-provider-model-fetch-cache"
+--   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-14-provider-model-key-route-cache"
 --   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-09-backup-database"
 -- 一旦 ALTER / CREATE 新增必须同步 bump 版本号，避免旧容器在缓存锁住时跳迁移。
 -- 历史变更: 2026-07-09-force-reapply-conversations-deleted-at（conversations.deleted_at + cache_file_references 引用追踪表 + 索引，旧容器因 SYNC_STORAGE_SCHEMA_VERSION 缓存未跑迁移需 bump 强制重跑）
@@ -10,6 +10,7 @@
 -- 历史变更: 2026-07-06 chat-backups（新增按用户区分的对话增量备份）
 -- 历史变更: 2026-07-06 deployment-metadata（新增成功部署版本记录）
 -- 历史变更: 2026-07-13 补齐供应商余额查询路径与 New-API-User 配置字段
+-- 历史变更: 2026-07-14 provider-model-key-route-cache（新增 provider_model_key_routes，按 Key 指纹缓存模型接口）
 -- 历史变更: 2026-06-28 api-config-backup-counts（补文件缓存和 API 配置备份表）
 -- 历史变更: 2026-06-22 draw-thumb-v1（user_draw_images.thumb_data + md5 唯一索引）
 -- 历史变更: 2026-06-11 v4 优化（下线 4 张模型表 + 删除 3 个冗余索引 + 补 api_path/api_format/last_verified_at）
@@ -153,21 +154,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_cache_files_user_content_data
 ON user_cache_files(user_id, content_type, md5(data))
 WHERE blob_id IS NULL AND data IS NOT NULL;
 
--- 缓存文件引用追踪：写入消息时 upsert，删除文件前查此表判断是否仍被消息引用
-CREATE TABLE IF NOT EXISTS cache_file_references (
-  cache_file_id uuid NOT NULL REFERENCES user_cache_files(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-  message_id uuid REFERENCES messages(id) ON DELETE CASCADE,
-  last_seen_at timestamptz NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (cache_file_id, message_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cache_file_references_cache_file_id
-ON cache_file_references(cache_file_id);
-
-CREATE INDEX IF NOT EXISTS idx_cache_file_references_user_id
-ON cache_file_references(user_id);
-
 CREATE TABLE IF NOT EXISTS site_access_settings (
   setting_key text PRIMARY KEY,
   password_hash text NOT NULL,
@@ -221,6 +207,18 @@ CREATE TABLE IF NOT EXISTS provider_api_keys (
   UNIQUE (provider_config_id, key_name)
 );
 
+CREATE TABLE IF NOT EXISTS provider_model_key_routes (
+  provider_config_id uuid NOT NULL REFERENCES provider_configs(id) ON DELETE CASCADE,
+  key_fingerprint text NOT NULL,
+  cached_model_path text NOT NULL,
+  cached_model_base_url text,
+  cached_model_auth_type text,
+  model_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (provider_config_id, key_fingerprint)
+);
+
 -- 已删除 idx_provider_api_keys_provider_config_id（与上面 unique(provider_config_id, key_name) 前缀冗余）
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -269,6 +267,22 @@ CREATE TABLE IF NOT EXISTS messages (
   updated_at timestamptz NOT NULL DEFAULT NOW(),
   UNIQUE (conversation_id, seq)
 );
+
+-- 缓存文件引用追踪：写入消息时 upsert，删除文件前查此表判断是否仍被消息引用。
+-- 放在 messages 之后声明，确保本文件可在空数据库中按顺序执行外键 DDL。
+CREATE TABLE IF NOT EXISTS cache_file_references (
+  cache_file_id uuid NOT NULL REFERENCES user_cache_files(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  message_id uuid REFERENCES messages(id) ON DELETE CASCADE,
+  last_seen_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (cache_file_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cache_file_references_cache_file_id
+ON cache_file_references(cache_file_id);
+
+CREATE INDEX IF NOT EXISTS idx_cache_file_references_user_id
+ON cache_file_references(user_id);
 
 -- 已删除 idx_messages_conversation_seq（与上面 unique(conversation_id, seq) 完全重复）
 -- unique 约束自带等价的 B-tree 索引，升序/降序差异在 PG 11+ 双向扫描都支持
@@ -451,7 +465,8 @@ COMMENT ON TABLE cache_file_blobs IS '上传文件内容 blob（按 content_type
 COMMENT ON TABLE user_cache_files IS '用户上传/缓存文件记录（可过期或 pinned，引用 cache_file_blobs）';
 COMMENT ON TABLE provider_configs IS '全局模型供应商配置，以 provider_code 唯一；cached_model_* 保存最近成功的模型列表接口，匹配的 API Key 密文保存在 sync_secrets';
 COMMENT ON TABLE provider_api_keys IS '供应商 API 密钥和分组';
-COMMENT ON TABLE conversations IS '对话主表（删除走物理删除，is_deleted 仅作历史标记）';
+COMMENT ON TABLE provider_model_key_routes IS '按供应商与 API Key 指纹缓存最近成功的模型列表接口，不保存明文 Key';
+COMMENT ON TABLE conversations IS '对话主表（用户删除走软删除：is_deleted=true 并记录 deleted_at，便于增量备份和恢复）';
 COMMENT ON TABLE messages IS '消息表（关联 conversation，cascade delete）';
 COMMENT ON TABLE sync_secrets IS '同步用敏感数据密文存储';
 COMMENT ON TABLE backup_api_config_settings IS '备份数据库中的 API 配置自动备份设置';

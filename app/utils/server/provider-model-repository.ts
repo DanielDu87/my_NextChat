@@ -18,6 +18,7 @@ export type ProviderModelKeyCachedPath = Omit<
   "cachedModelApiKey"
 > & {
   modelCount?: number;
+  updatedAt?: string;
 };
 
 function getApiKeyFingerprint(apiKey: string) {
@@ -33,7 +34,7 @@ export async function getProviderModelKeyCachedPath(
   await ensureSyncStorageSchema();
   const result = await pgQuery<any>(
     `select r.cached_model_path, r.cached_model_base_url,
-            r.cached_model_auth_type, r.model_count
+            r.cached_model_auth_type, r.model_count, r.updated_at
        from provider_model_key_routes r
        join provider_configs pc on pc.id = r.provider_config_id
       where pc.provider_code = $1 and r.key_fingerprint = $2
@@ -47,8 +48,32 @@ export async function getProviderModelKeyCachedPath(
         cachedModelBaseUrl: row.cached_model_base_url || undefined,
         cachedModelAuthType: row.cached_model_auth_type || undefined,
         modelCount: Number(row.model_count || 0),
+        updatedAt: row.updated_at
+          ? new Date(row.updated_at).toISOString()
+          : undefined,
       }
     : null;
+}
+
+export async function listProviderModelKnownCachedPaths(profileId: string) {
+  await ensureSyncStorageSchema();
+  const result = await pgQuery<any>(
+    `select r.cached_model_path, max(r.model_count)::integer as model_count,
+            max(r.updated_at) as updated_at
+       from provider_model_key_routes r
+       join provider_configs pc on pc.id = r.provider_config_id
+      where pc.provider_code = $1
+      group by r.cached_model_path
+      order by max(r.model_count) desc, r.cached_model_path asc`,
+    [profileId],
+  );
+  return result.rows.map((row) => ({
+    cachedModelPath: String(row.cached_model_path || ""),
+    modelCount: Math.max(0, Number(row.model_count || 0)),
+    updatedAt: row.updated_at
+      ? new Date(row.updated_at).toISOString()
+      : undefined,
+  }));
 }
 
 export async function saveProviderModelKeyCachedPath(

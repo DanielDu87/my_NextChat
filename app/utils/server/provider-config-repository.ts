@@ -33,6 +33,7 @@ type AccessProfile = {
   cachedModels?: string;
   modelCount?: number;
   modelFetchApiKey?: string;
+  modelFetchUrl?: string;
   authType?: string;
   authQueryParam?: string;
   extraHeaders?: string;
@@ -177,6 +178,10 @@ function buildProfileRequestConfig(profile: AccessProfile) {
     modelFetchApiKey:
       typeof profile.modelFetchApiKey === "string" && profile.modelFetchApiKey
         ? "__encrypted__"
+        : undefined,
+    modelFetchUrl:
+      typeof profile.modelFetchUrl === "string"
+        ? profile.modelFetchUrl.trim()
         : undefined,
     authType:
       typeof profile.authType === "string" ? profile.authType : undefined,
@@ -468,6 +473,9 @@ export async function getProviderProfilesForAccessState(
     }
     if (typeof requestConfig.extraHeaders === "string") {
       existing.extraHeaders = requestConfig.extraHeaders;
+    }
+    if (typeof requestConfig.modelFetchUrl === "string") {
+      existing.modelFetchUrl = requestConfig.modelFetchUrl;
     }
     const secretValue = safeDecryptProviderSecret(row.encrypted_secret, {
       providerCode: row.provider_code,
