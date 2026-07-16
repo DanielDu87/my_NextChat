@@ -109,6 +109,10 @@ export class ClaudeApi implements LLMApi {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
+      ...options.config,
+      ...(options.config.outputTokenLimit
+        ? { max_tokens: options.config.outputTokenLimit }
+        : {}),
       ...{
         model: options.config.model,
       },

@@ -7,6 +7,10 @@
  * - emoji.tsx: Avatar 组件的模型头像
  */
 
+/**
+ * 供应商图标映射表（规范键 → 图标路径）
+ * 规范键为小写，与 getProviderIcon 的 toLowerCase 匹配
+ */
 export const PROVIDER_ICONS: Record<string, string> = {
   // AI21
   ai21: "/provider-icons/ai21-bg.svg",
@@ -63,6 +67,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   零一万物: "/provider-icons/lingyi-bg.svg",
   万物: "/provider-icons/lingyi-bg.svg",
   lingyi: "/provider-icons/lingyi-bg.svg",
+  "01ai": "/provider-icons/lingyi-bg.svg",
 
   // Moonshot
   moonshot: "/provider-icons/moonshot-bg.svg",
@@ -135,6 +140,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   "stepfun-ai": "/provider-icons/stepfun.png",
   "step fun": "/provider-icons/stepfun.png",
   阶跃: "/provider-icons/stepfun.png",
+  stepfunai: "/provider-icons/stepfun.png",
 
   // SiliconFlow
   siliconflow: "/provider-icons/siliconflow-bg.svg",
@@ -342,8 +348,44 @@ export function getCanonicalProviderKey(provider: string): string | undefined {
 }
 
 /**
+ * getModelGroup 返回值到规范键的映射
+ * 处理如 "Tencent Hunyuan" -> "tencent" 等格式
+ */
+const MODEL_GROUP_TO_CANONICAL_KEY: Record<string, string> = {
+  // 分组名（带空格/特殊字符）-> 规范小写键
+  "tencent hunyuan": "tencent",
+  "01.ai": "01ai",
+  "iflytek spark": "iflytek",
+  "01ai": "01ai",
+  stepfunai: "stepfun",
+};
+
+/**
  * 获取供应商图标路径
+ * 支持：
+ * 1. 直接小写匹配（如 "openai", "gpt", "deepseek"）
+ * 2. 带空格的分组名（如 "Tencent Hunyuan" -> "tencent"）
+ * 3. getModelGroup 返回值自动转换
  */
 export function getProviderIcon(provider: string): string | undefined {
-  return PROVIDER_ICONS[provider.toLowerCase()];
+  const normalized = provider.toLowerCase();
+
+  // 1. 直接匹配
+  if (PROVIDER_ICONS[normalized]) {
+    return PROVIDER_ICONS[normalized];
+  }
+
+  // 2. 通过分组映射转换后再匹配
+  const canonicalKey = MODEL_GROUP_TO_CANONICAL_KEY[normalized];
+  if (canonicalKey && PROVIDER_ICONS[canonicalKey]) {
+    return PROVIDER_ICONS[canonicalKey];
+  }
+
+  // 3. 尝试去除空格后匹配（如 "TencentHunyuan" -> "tencent"）
+  const noSpaces = normalized.replace(/\s+/g, "");
+  if (PROVIDER_ICONS[noSpaces]) {
+    return PROVIDER_ICONS[noSpaces];
+  }
+
+  return undefined;
 }

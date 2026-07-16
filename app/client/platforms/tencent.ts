@@ -111,6 +111,10 @@ export class HunyuanApi implements LLMApi {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
+      ...options.config,
+      ...(options.config.outputTokenLimit
+        ? { max_tokens: options.config.outputTokenLimit }
+        : {}),
       ...{
         model: options.config.model,
       },
@@ -123,6 +127,9 @@ export class HunyuanApi implements LLMApi {
         temperature: modelConfig.temperature,
         top_p: modelConfig.top_p,
         stream: options.config.stream,
+        ...(options.config.outputTokenLimit
+          ? { max_tokens: modelConfig.max_tokens }
+          : {}),
       }),
     );
 

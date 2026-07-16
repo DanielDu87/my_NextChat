@@ -1,8 +1,9 @@
 import type { LLMModel } from "../client/api";
 import { ServiceProvider } from "../constant";
+import { getModelDisplayGroup } from "./model-display-group";
 import {
-  compareModelsWithinSeries,
-  getModelDisplaySeries,
+  compareModelsBySeriesVersion,
+  compareProviderDisplayNames,
 } from "./model-series-order";
 
 type AccessProfileLike = {
@@ -27,6 +28,7 @@ type FailoverModel = Pick<
   | "features"
   | "capabilities"
   | "publishedAt"
+  | "vendor"
 > & {
   provider?: LLMModel["provider"];
 };
@@ -37,22 +39,35 @@ export type ChatFailoverCandidate = {
   providerName: ServiceProvider;
   providerId: string;
   providerDisplayName: string;
+  vendorGroup: string;
   publishedAt?: number;
   profile?: AccessProfileLike;
 };
 
-const nameCollator = new Intl.Collator("zh-CN-u-co-pinyin", {
-  usage: "sort",
-  sensitivity: "base",
-  numeric: true,
-});
+const PROVIDER_BALANCE_FAILURE_PATTERNS = [
+  /insufficient[_\s-]*(?:balance|quota|credit|funds?)/i,
+  /(?:balance|quota|credits?|funds?)[_\s-]*(?:is[_\s-]*)?(?:insufficient|exhausted|depleted|too low)/i,
+  /(?:out of|no)\s+(?:balance|quota|credits?|funds?)/i,
+  /(?:billing|payment)[_\s-]*(?:not[_\s-]*)?(?:active|required)/i,
+  /(?:余额|额度|配额|点数|积分)(?:不足|已用完|耗尽|不足以)/,
+  /(?:账户|账号).{0,8}(?:欠费|余额不足|额度不足)/,
+  /请.{0,6}(?:充值|续费)/,
+];
 
-export function getChatModelSeries(model: {
-  name?: string;
-  model?: string;
-  displayName?: string;
-}) {
-  return getModelDisplaySeries(model);
+export function isProviderBalanceFailure(
+  reason: unknown,
+  responseStatus?: number,
+) {
+  if (responseStatus === 402) {
+    return true;
+  }
+
+  const text = String(
+    reason instanceof Error ? reason.message : reason || "",
+  ).trim();
+  return PROVIDER_BALANCE_FAILURE_PATTERNS.some((pattern) =>
+    pattern.test(text),
+  );
 }
 
 function getProfileProviderId(profile: AccessProfileLike) {
@@ -70,6 +85,7 @@ export function buildChatFailoverCandidates(
   profiles: AccessProfileLike[],
   current: {
     model: string;
+    displayName?: string;
     providerName: ServiceProvider;
     providerId?: string;
     profileId?: string;
@@ -101,14 +117,15 @@ export function buildChatFailoverCandidates(
     const providerId = String(model.provider?.id || "")
       .trim()
       .toLowerCase();
-    const providerName = model.provider?.providerName as
+    const modelProviderName = model.provider?.providerName as
       | ServiceProvider
       | undefined;
-    if (!providerId || !providerName) continue;
+    if (!providerId || !modelProviderName) continue;
 
     const profile = profiles.find(
       (item) => getProfileProviderId(item) === providerId,
     );
+    const providerName = profile?.provider || modelProviderName;
     if (providerName === ServiceProvider.Custom && !profile?.baseUrl) {
       continue;
     }
@@ -122,6 +139,12 @@ export function buildChatFailoverCandidates(
       providerName,
       providerId,
       providerDisplayName: profile?.name || String(providerName),
+      vendorGroup: getModelDisplayGroup({
+        modelName: model.name,
+        displayName: model.displayName,
+        vendorName: model.vendor?.name,
+        providerName: profile?.name || String(providerName),
+      }),
       publishedAt: model.publishedAt,
       profile,
     });
@@ -131,17 +154,28 @@ export function buildChatFailoverCandidates(
     candidateByKey.get(`${currentProviderId}\u0000${current.model}`) ||
     ({
       model: current.model,
-      displayName: current.model,
+      // 优先使用用户选择的 displayName，保持与模型选择器一致
+      displayName: current.displayName || current.model,
       providerName: current.providerName,
       providerId: currentProviderId,
       providerDisplayName:
         current.providerDisplayName ||
         currentProfile?.name ||
         String(current.providerName),
+      vendorGroup: getModelDisplayGroup({
+        modelName: current.model,
+        displayName: current.displayName,
+        providerName:
+          current.providerDisplayName ||
+          currentProfile?.name ||
+          String(current.providerName),
+      }),
       profile: currentProfile,
     } satisfies ChatFailoverCandidate);
 
-  const grouped = new Map<string, ChatFailoverCandidate[]>();
+  const currentProviderCandidates: ChatFailoverCandidate[] = [];
+  const otherProviderCandidates: ChatFailoverCandidate[] = [];
+
   for (const candidate of candidateByKey.values()) {
     if (
       candidate.providerId === currentProviderId &&
@@ -149,64 +183,59 @@ export function buildChatFailoverCandidates(
     ) {
       continue;
     }
-    const group = grouped.get(candidate.providerId) || [];
+    if (candidate.providerId === currentProviderId) {
+      currentProviderCandidates.push(candidate);
+    } else {
+      otherProviderCandidates.push(candidate);
+    }
+  }
+
+  const sortModels = (candidates: ChatFailoverCandidate[]) =>
+    candidates.sort(compareModelsBySeriesVersion);
+  const groupByVendor = (candidates: ChatFailoverCandidate[]) => {
+    const groups = new Map<string, ChatFailoverCandidate[]>();
+    for (const candidate of candidates) {
+      const group = groups.get(candidate.vendorGroup) || [];
+      group.push(candidate);
+      groups.set(candidate.vendorGroup, group);
+    }
+    return groups;
+  };
+  const flattenVendorGroups = (candidates: ChatFailoverCandidate[]) => {
+    return [...groupByVendor(candidates)]
+      .sort(([left], [right]) => compareProviderDisplayNames(left, right))
+      .flatMap(([, models]) => sortModels(models));
+  };
+
+  const currentVendorCandidates: ChatFailoverCandidate[] = [];
+  const currentProviderOtherVendors: ChatFailoverCandidate[] = [];
+  for (const candidate of currentProviderCandidates) {
+    if (candidate.vendorGroup === currentModelCandidate.vendorGroup) {
+      currentVendorCandidates.push(candidate);
+    } else {
+      currentProviderOtherVendors.push(candidate);
+    }
+  }
+
+  const otherProviderGroups = new Map<string, ChatFailoverCandidate[]>();
+  for (const candidate of otherProviderCandidates) {
+    const group = otherProviderGroups.get(candidate.providerId) || [];
     group.push(candidate);
-    grouped.set(candidate.providerId, group);
+    otherProviderGroups.set(candidate.providerId, group);
   }
-
-  for (const group of grouped.values()) {
-    group.sort((left, right) => nameCollator.compare(left.model, right.model));
-  }
-
-  const currentSeries = getChatModelSeries(currentModelCandidate);
-  const sameSeriesCandidates = currentSeries
-    ? [...grouped.values()]
-        .flat()
-        .filter((candidate) => getChatModelSeries(candidate) === currentSeries)
-        .sort((left, right) => {
-          const versionDiff = compareModelsWithinSeries(left, right);
-          if (versionDiff !== 0) return versionDiff;
-          if (left.providerId === currentProviderId) return -1;
-          if (right.providerId === currentProviderId) return 1;
-          const providerDiff = nameCollator.compare(
-            left.providerDisplayName,
-            right.providerDisplayName,
-          );
-          return providerDiff || nameCollator.compare(left.model, right.model);
-        })
-    : [];
-  const sameSeriesKeys = new Set(
-    sameSeriesCandidates.map(
-      (candidate) => `${candidate.providerId}\u0000${candidate.model}`,
-    ),
-  );
-  for (const [providerId, group] of grouped) {
-    grouped.set(
-      providerId,
-      group.filter(
-        (candidate) =>
-          !sameSeriesKeys.has(
-            `${candidate.providerId}\u0000${candidate.model}`,
-          ),
-      ),
-    );
-  }
-
-  const currentProviderCandidates = grouped.get(currentProviderId) || [];
-  grouped.delete(currentProviderId);
-  const otherProviderCandidates = [...grouped.values()]
+  const otherProvidersSorted = [...otherProviderGroups.values()]
     .sort((left, right) =>
-      nameCollator.compare(
+      compareProviderDisplayNames(
         left[0]?.providerDisplayName || "",
         right[0]?.providerDisplayName || "",
       ),
     )
-    .flat();
+    .flatMap(flattenVendorGroups);
 
   return [
     currentModelCandidate,
-    ...sameSeriesCandidates,
-    ...currentProviderCandidates,
-    ...otherProviderCandidates,
+    ...sortModels(currentVendorCandidates),
+    ...flattenVendorGroups(currentProviderOtherVendors),
+    ...otherProvidersSorted,
   ];
 }

@@ -1437,7 +1437,7 @@ button.nextchat-green-button:disabled * {
 /* 统一 input / textarea / select / 公共输入类的 hover / focus 反馈。
    这里同时覆盖 control 和 surface，是为了让输入本体与自定义外壳共享同一套交互视觉。 */
 :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
   .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)) {
@@ -1448,7 +1448,7 @@ button.nextchat-green-button:disabled * {
 }
 
 :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
   .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):hover {
@@ -1461,12 +1461,12 @@ button.nextchat-green-button:disabled * {
 }
 
 :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
   .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):focus,
 :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(.nextchat-selector-search-input):not(:disabled):not(:read-only),
-  textarea:not(:disabled):not(:read-only):not(#chat-input),
+  textarea:not(:disabled):not(:read-only):not(#chat-input):not([class*="chat-message-edit-input"]),
   select:not(:disabled),
   .nextchat-input-control:not(:disabled):not(:read-only),
   .nextchat-input-surface:not(.nextchat-input-surface-readonly):not(:disabled):not(:read-only)):focus-visible {
@@ -2133,14 +2133,15 @@ pre {
   opacity: 1 !important;
 }
 
-.model-selector-panel #selector-list .nextchat-selector-item-selected svg {
+.model-selector-panel #selector-list .nextchat-model-selector-selected-check {
   width: 20px !important;
   height: 20px !important;
   fill: currentColor !important;
   stroke: currentColor !important;
 }
 
-.model-selector-panel #selector-list .nextchat-selector-item-selected path {
+.model-selector-panel #selector-list .nextchat-model-selector-selected-check path {
+  fill: none !important;
   stroke: var(--primary) !important;
   stroke-width: 2.4px !important;
 }

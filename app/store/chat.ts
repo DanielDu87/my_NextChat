@@ -30,7 +30,6 @@ import {
   MCP_TOOLS_TEMPLATE,
   ServiceProvider,
   StoreKey,
-  SUMMARIZE_MODEL,
 } from "../constant";
 import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
@@ -46,7 +45,10 @@ import {
 } from "../utils/token";
 import { logPerfSummary, nowMs } from "../utils/perf";
 import { logger } from "../utils/logger";
-import { readManualSessionModelSelection } from "../utils/manual-model-selection";
+import {
+  readManualSessionModelSelection,
+  saveManualSessionModelSelection,
+} from "../utils/manual-model-selection";
 import {
   DEFAULT_TOPIC,
   getBotHelloContent,
@@ -69,6 +71,7 @@ import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import {
   buildChatFailoverCandidates,
+  isProviderBalanceFailure,
   type ChatFailoverCandidate,
 } from "../utils/chat-failover";
 import { writeStoredGlobalModelConfig } from "../utils/global-model-config";
@@ -83,6 +86,7 @@ import { createSyncClient, ProviderType } from "../utils/cloud";
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
 const AUTO_TITLE_REFINEMENT_MAX_USER_MESSAGES = 3;
+const MEMORY_SUMMARY_MAX_TOKENS = 1000;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
 export const CHAT_DELETE_UI_GUARD_UNTIL_KEY =
@@ -811,6 +815,47 @@ function isSessionPayloadPlaceholder(
   );
 }
 
+function mergeHydratedSessionWithLiveChanges(
+  hydratedSession: ChatSession,
+  liveSession: ChatSession,
+  hydrateBaseLastUpdate: number,
+) {
+  if (Number(liveSession.lastUpdate || 0) <= hydrateBaseLastUpdate) {
+    return hydratedSession;
+  }
+
+  const liveMessagesById = new Map(
+    liveSession.messages
+      .filter((message) => Boolean(message.id))
+      .map((message) => [message.id, message]),
+  );
+  const hydratedMessageIds = new Set(
+    hydratedSession.messages
+      .map((message) => message.id)
+      .filter((messageId): messageId is string => Boolean(messageId)),
+  );
+  const mergedMessages = hydratedSession.messages.map(
+    (message) => liveMessagesById.get(message.id) ?? message,
+  );
+
+  for (const message of liveSession.messages) {
+    if (!message.id || !hydratedMessageIds.has(message.id)) {
+      mergedMessages.push(message);
+    }
+  }
+
+  return {
+    ...hydratedSession,
+    ...liveSession,
+    createdAt: Math.min(
+      getSessionCreatedAt(hydratedSession),
+      getSessionCreatedAt(liveSession),
+    ),
+    messages: mergedMessages,
+    mask: liveSession.mask,
+  };
+}
+
 function normalizeCacheAttachmentUrl(url: unknown) {
   const value = String(url || "").trim();
   if (!value.startsWith(CACHE_URL_PREFIX)) {
@@ -987,117 +1032,22 @@ function getActiveAccessProfile(
   );
 }
 
-function getPreferredRefreshTitleModelForProvider(
-  allModels: ReturnType<typeof collectModelsWithDefaultModel>,
-  providerId: string,
-) {
-  const scopedModels = allModels.filter(
-    (model) =>
-      model.available &&
-      String(model.provider?.id || "").toLowerCase() === providerId,
-  );
-
-  const candidates = scopedModels
-    .filter((model) => isLooseRefreshTitleModel(model.name))
-    .slice()
-    .sort((left, right) => {
-      const leftExact = normalizeModelKeyword(left.name) === "gpt4omini";
-      const rightExact = normalizeModelKeyword(right.name) === "gpt4omini";
-      if (leftExact !== rightExact) {
-        return leftExact ? -1 : 1;
-      }
-      return String(left.name || "").localeCompare(String(right.name || ""));
-    });
-
-  return candidates[0];
-}
-
 function getSummarizeTarget(targetSession?: ChatSession) {
-  const configStore = useAppConfig.getState();
-  const accessStore = useAccessStore.getState();
-  const allModel = collectModelsWithDefaultModel(
-    configStore.models,
-    configStore.customModels,
-    accessStore.defaultModel,
-  );
   const targetModelConfig = targetSession?.mask.modelConfig;
+  const targetProfile = targetModelConfig
+    ? getProfileForModelConfig(targetModelConfig)
+    : undefined;
   const sessionProviderName =
-    targetModelConfig?.providerName ?? ServiceProvider.Custom;
-  const activeProfile =
-    (targetModelConfig ? getProfileForModelConfig(targetModelConfig) : null) ??
-    getActiveAccessProfile(accessStore, sessionProviderName) ??
-    accessStore.apiProfiles.find((profile) => profile.enabled);
-  const targetProfile =
-    sessionProviderName === ServiceProvider.Custom
-      ? activeProfile
-      : accessStore.apiProfiles.find(
-          (profile) => profile.provider === sessionProviderName,
-        ) ?? activeProfile;
-  const targetProviderId =
-    targetProfile?.provider === ServiceProvider.Custom
-      ? `custom_${targetProfile.name}`
-      : String(
-          targetProfile?.provider || sessionProviderName || "",
-        ).toLowerCase();
-  const currentSupplierModel = allModel.find(
-    (m) =>
-      m.name === SUMMARIZE_MODEL &&
-      m.available &&
-      String(m.provider?.id || "").toLowerCase() ===
-        targetProviderId.toLowerCase(),
-  );
-  if (currentSupplierModel) {
-    return {
-      model: currentSupplierModel.name,
-      providerName: currentSupplierModel.provider
-        ?.providerName as ServiceProvider,
-      profile: targetProfile,
-    };
-  }
-
-  const aihubMixProfile = accessStore.apiProfiles.find(
-    (profile) => profile.name === "AihubMix",
-  );
-  const aihubMixModel = allModel.find(
-    (m) =>
-      m.name === SUMMARIZE_MODEL &&
-      m.available &&
-      String(m.provider?.id || "").toLowerCase() === "custom_aihubmix",
-  );
-  if (aihubMixProfile && aihubMixModel) {
-    return {
-      model: aihubMixModel.name,
-      providerName: ServiceProvider.Custom,
-      profile: aihubMixProfile,
-    };
-  }
+    targetModelConfig?.providerName ?? targetProfile?.provider;
 
   return {
-    model: targetModelConfig?.model || SUMMARIZE_MODEL,
-    providerName: activeProfile?.provider ?? ServiceProvider.Custom,
-    profile: activeProfile,
+    model: targetModelConfig?.model || "",
+    providerName: normalizeTitleCandidateProviderName(
+      sessionProviderName,
+      targetProfile,
+    ),
+    profile: targetProfile,
   };
-}
-
-function normalizeModelKeyword(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function isLooseRefreshTitleModel(name: string) {
-  const normalized = normalizeModelKeyword(name);
-  // 只匹配 gpt-4o-mini，不包括其他变体（如 transcribe、tts、search 等）
-  return (
-    normalized === "gpt4omini" ||
-    normalized === "gpt40mini" || // 4o 可能被识别为 40
-    (normalized.includes("gpt") &&
-      normalized.includes("4o") &&
-      normalized.includes("mini") &&
-      !normalized.includes("transcribe") &&
-      !normalized.includes("tts") &&
-      !normalized.includes("audio") &&
-      !normalized.includes("search") &&
-      !normalized.includes("realtime"))
-  );
 }
 
 function getProfileForModel(
@@ -1232,6 +1182,7 @@ function applyGeneratedSessionTitle(targetSession: ChatSession, title: string) {
 }
 
 const pendingTitleBackfillSessionIds = new Set<string>();
+const pendingMemorySummarySessionIds = new Set<string>();
 
 function isSessionFallbackTitle(session: ChatSession) {
   const currentTopic = String(session.topic || "").trim();
@@ -1278,13 +1229,6 @@ function scheduleSessionTitleBackfill(sessionId: string, delayMs = 1200) {
 }
 
 function getRefreshTitleCandidates(targetSession: ChatSession) {
-  const configStore = useAppConfig.getState();
-  const accessStore = useAccessStore.getState();
-  const allModels = collectModelsWithDefaultModel(
-    configStore.models,
-    configStore.customModels,
-    accessStore.defaultModel,
-  );
   const modelConfig = targetSession.mask.modelConfig;
   const currentProviderName =
     modelConfig.providerName ?? ServiceProvider.Custom;
@@ -1294,21 +1238,12 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
     : String((modelConfig as any).providerId || currentProviderName || "")
         .trim()
         .toLowerCase();
-  const currentRefreshModel = getPreferredRefreshTitleModelForProvider(
-    allModels,
-    currentProviderId,
-  );
+  if (!modelConfig.model || !currentProviderId) {
+    return [];
+  }
 
-  const candidates: Array<{
-    model: string;
-    providerName: ServiceProvider;
-    profile: any;
-    providerId: string;
-    score: number;
-  }> = [];
-
-  if (currentProfile && currentProviderId && modelConfig.model) {
-    candidates.push({
+  return [
+    {
       model: modelConfig.model,
       providerName: normalizeTitleCandidateProviderName(
         currentProviderName,
@@ -1316,164 +1251,6 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
       ),
       profile: currentProfile,
       providerId: currentProviderId,
-      score: 1000,
-    });
-  }
-
-  if (
-    currentProfile &&
-    currentRefreshModel &&
-    normalizeModelKeyword(currentRefreshModel.name) !==
-      normalizeModelKeyword(modelConfig.model || "")
-  ) {
-    candidates.push({
-      model: currentRefreshModel.name,
-      providerName: normalizeTitleCandidateProviderName(
-        currentRefreshModel.provider?.providerName || currentProviderName,
-        currentProfile,
-      ),
-      profile: currentProfile,
-      providerId: currentProviderId,
-      score: 900,
-    });
-  }
-
-  if (!currentRefreshModel && currentProfile && currentProviderId) {
-    candidates.push({
-      model: SUMMARIZE_MODEL,
-      providerName: normalizeTitleCandidateProviderName(
-        currentProviderName,
-        currentProfile,
-      ),
-      profile: currentProfile,
-      providerId: currentProviderId,
-      score: 800,
-    });
-  }
-
-  const aihubMixProfile = accessStore.apiProfiles.find(
-    (profile) =>
-      profile.provider === ServiceProvider.Custom &&
-      profile.name === "AihubMix",
-  );
-  const aihubMixProviderId = aihubMixProfile
-    ? getAccessProviderId(aihubMixProfile)
-    : "custom_aihubmix";
-  const aihubMixRefreshModel = getPreferredRefreshTitleModelForProvider(
-    allModels,
-    aihubMixProviderId,
-  );
-
-  if (
-    aihubMixProfile &&
-    aihubMixRefreshModel &&
-    aihubMixProviderId !== currentProviderId
-  ) {
-    candidates.push({
-      model: aihubMixRefreshModel.name,
-      providerName:
-        (aihubMixRefreshModel.provider?.providerName as ServiceProvider) ||
-        ServiceProvider.Custom,
-      profile: aihubMixProfile,
-      providerId: aihubMixProviderId,
-      score: 100,
-    });
-  }
-
-  const appendedProviderIds = new Set(
-    candidates.map((candidate) => candidate.providerId),
-  );
-  const fallbackProviderMap = new Map<
-    string,
-    {
-      model: string;
-      providerName: ServiceProvider;
-      profile: any;
-      providerId: string;
-      score: number;
-    }
-  >();
-
-  allModels.forEach((model) => {
-    if (!model.available || !isLooseRefreshTitleModel(model.name)) {
-      return;
-    }
-
-    const providerId = String(model.provider?.id || "").toLowerCase();
-    if (!providerId || appendedProviderIds.has(providerId)) {
-      return;
-    }
-
-    const providerName = model.provider?.providerName as
-      | ServiceProvider
-      | undefined;
-    const profile = getProfileForModel(model.provider?.id, providerName);
-    if (!profile) {
-      return;
-    }
-
-    const isExact = normalizeModelKeyword(model.name) === "gpt4omini";
-    const existing = fallbackProviderMap.get(providerId);
-    if (
-      !existing ||
-      (isExact && normalizeModelKeyword(existing.model) !== "gpt4omini")
-    ) {
-      fallbackProviderMap.set(providerId, {
-        model: model.name,
-        providerName: (providerName as ServiceProvider) || profile.provider,
-        profile,
-        providerId,
-        score: isExact ? 10 : 1,
-      });
-    }
-  });
-
-  candidates.push(
-    ...Array.from(fallbackProviderMap.values()).sort(
-      (left, right) => right.score - left.score,
-    ),
-  );
-
-  logger.chat.log(
-    "可用 API 配置:",
-    accessStore.apiProfiles.map((p) => ({
-      配置名称: p.name,
-      供应商类型: p.provider,
-      已启用: p.enabled,
-    })),
-  );
-  logger.chat.log("模型总数:", allModels.length);
-  logger.chat.log("当前供应商:", currentProviderId);
-
-  logger.chat.log(
-    "最终候选模型:",
-    candidates.map((c) => ({
-      模型: c.model,
-      供应商ID: c.providerId,
-      配置名称: c.profile?.name,
-      配置地址: c.profile?.baseUrl,
-      APIKey状态: c.profile?.apiKey ? "已配置" : "缺失",
-      评分: c.score,
-    })),
-  );
-
-  if (candidates.length > 0) {
-    return candidates;
-  }
-
-  const fallback = getSummarizeTarget(targetSession);
-  return [
-    {
-      model: fallback.model,
-      providerName: normalizeTitleCandidateProviderName(
-        fallback.providerName,
-        fallback.profile,
-      ),
-      profile: fallback.profile,
-      providerId: fallback.profile
-        ? getAccessProviderId(fallback.profile)
-        : String(fallback.providerName).toLowerCase(),
-      score: -1,
     },
   ];
 }
@@ -1594,15 +1371,25 @@ function isApiFailurePayload(message: unknown) {
     return false;
   }
 
+  const normalizedFailureText = failureText
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
   try {
-    const parsed = JSON.parse(failureText);
-    return Boolean(parsed?.error);
+    const parsed = JSON.parse(normalizedFailureText);
+    return (
+      Boolean(parsed?.error) ||
+      /empty response/i.test(String(parsed?.message || ""))
+    );
   } catch {
-    const lowerMessage = failureText.toLowerCase();
+    const lowerMessage = normalizedFailureText.toLowerCase();
     return (
       lowerMessage.includes("model_not_found") ||
       lowerMessage.includes("service unavailable") ||
-      lowerMessage.includes('"error"')
+      lowerMessage.includes("empty response") ||
+      /"error"\s*:\s*(?:true|\{)/i.test(normalizedFailureText)
     );
   }
 }
@@ -1663,14 +1450,20 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     return false;
   }
 
+  const titleSourceMessages = messages.filter(
+    (message) =>
+      !message.isError && Boolean(getMessageTextContent(message).trim()),
+  );
   const startIndex = Math.max(
     0,
-    messages.length - modelConfig.historyMessageCount,
+    titleSourceMessages.length - modelConfig.historyMessageCount,
   );
-  const topicMessages = messages
+  const topicMessages = titleSourceMessages
     .slice(
-      startIndex < messages.length ? startIndex : messages.length - 1,
-      messages.length,
+      startIndex < titleSourceMessages.length
+        ? startIndex
+        : titleSourceMessages.length - 1,
+      titleSourceMessages.length,
     )
     .concat(
       createMessage({
@@ -1697,6 +1490,7 @@ async function refreshSessionTitle(targetSession: ChatSession) {
         candidate.profile,
         async () => {
           let success = false;
+          let providerBalanceExhausted = false;
 
           await api.llm.chat({
             messages: topicMessages,
@@ -1709,31 +1503,41 @@ async function refreshSessionTitle(targetSession: ChatSession) {
               success =
                 responseRes?.status === 200 &&
                 Boolean(trimTopic(message || ""));
+              if (!success) {
+                providerBalanceExhausted = isProviderBalanceFailure(
+                  message,
+                  responseRes?.status,
+                );
+              }
 
               if (success) {
                 success = applyGeneratedSessionTitle(session, message);
               }
             },
             onError(err) {
+              providerBalanceExhausted = isProviderBalanceFailure(err);
               logger.chat.error("刷新标题出错:", err);
             },
           });
 
-          return success;
+          return { success, providerBalanceExhausted };
         },
       );
 
-      if (result) {
+      if (result.success) {
         return true;
+      }
+      if (result.providerBalanceExhausted) {
+        logger.chat.log("💳 当前对话模型余额或额度不足，标题生成停止:", {
+          当前供应商: candidate.profile?.name || candidate.providerName,
+        });
       }
     } catch (error) {
       logger.chat.error("刷新标题候选模型失败", candidate, error);
     }
   }
 
-  showToast(
-    "标题刷新失败：当前供应商和其他供应商都尝试过了，请检查模型或 API 配置",
-  );
+  showToast("标题刷新失败：当前对话模型不可用，请检查模型或 API 配置");
   return false;
 }
 
@@ -1796,6 +1600,10 @@ function applySuccessfulChatFailoverGlobally(
   (nextModelConfig as any).profileId = candidate.profile?.id || "";
   (nextModelConfig as any).modelSelectionUpdatedAt = selectedAt;
 
+  saveManualSessionModelSelection(
+    targetSession.id,
+    nextModelConfig as Record<string, unknown>,
+  );
   writeStoredGlobalModelConfig(nextModelConfig as Record<string, unknown>);
   localStorage.setItem(
     "nextchat:last-model-selection",
@@ -2807,6 +2615,9 @@ export const useChatStore = createPersistStore(
 
         const hydrateStartedAt = nowMs();
         const expectedUserId = getActiveChatStoreScopeUserId();
+        const hydrateBaseLastUpdate = Number(
+          get().getSessionById(sessionId)?.lastUpdate || 0,
+        );
 
         const summary = get().sessionSummaries.find(
           (session) => session.id === sessionId,
@@ -2833,7 +2644,12 @@ export const useChatStore = createPersistStore(
             }
 
             const nextSessions = state.sessions.slice();
-            nextSessions[targetIndex] = persistedSession;
+            const liveSession = state.sessions[targetIndex];
+            nextSessions[targetIndex] = mergeHydratedSessionWithLiveChanges(
+              persistedSession,
+              liveSession,
+              hydrateBaseLastUpdate,
+            );
             const keepSessionIds = new Set(
               state.hydratedSessionIds.filter(Boolean),
             );
@@ -3086,6 +2902,8 @@ export const useChatStore = createPersistStore(
           accessStore.apiProfiles,
           {
             model: initialModelConfig.model,
+            // 使用用户选择的模型名作为 displayName，保持与模型选择器一致
+            displayName: initialModelConfig.model,
             providerName: initialModelConfig.providerName,
             providerId: resolvedProviderId,
             profileId: resolvedProfile?.id,
@@ -3147,10 +2965,11 @@ export const useChatStore = createPersistStore(
           providerId: String((initialModelConfig as any).providerId || ""),
           profileId: String((initialModelConfig as any).profileId || ""),
           profileName: resolvedDisplayProviderName,
-          modelIcon: getMessageIconModel(
-            initialModelConfig.model,
-            initialModelConfig.providerName,
-          ),
+          modelIcon: (retryCandidates[0]?.vendorGroup ||
+            getMessageIconModel(
+              initialModelConfig.model,
+              initialModelConfig.providerName,
+            )) as ModelType,
         });
 
         const submittedMessageMeta = {
@@ -3164,7 +2983,9 @@ export const useChatStore = createPersistStore(
         const botMessageIndex =
           session.messages.length + (reusedUserMessage ? 0 : 1);
 
-        // Show the user's message immediately before any async context prep.
+        // Show both the submitted message and the assistant loading bubble before
+        // any async context preparation. The placeholder is filtered from the
+        // outbound context below, so it is visual state only.
         get().updateTargetSession(session, (session) => {
           session.mask.modelConfig = {
             ...session.mask.modelConfig,
@@ -3187,10 +3008,18 @@ export const useChatStore = createPersistStore(
             if (userIndex >= 0) {
               const nextMessages = session.messages.slice();
               nextMessages[userIndex] = savedUserMessage;
+              if (nextMessages[userIndex + 1]?.id !== botMessage.id) {
+                nextMessages.splice(userIndex + 1, 0, botMessage);
+              }
               session.messages = nextMessages;
+            } else {
+              session.messages = session.messages.concat([botMessage]);
             }
           } else {
-            session.messages = session.messages.concat([savedUserMessage]);
+            session.messages = session.messages.concat([
+              savedUserMessage,
+              botMessage,
+            ]);
           }
         });
 
@@ -3198,6 +3027,7 @@ export const useChatStore = createPersistStore(
         const recentMessages = (
           await get().getMessagesWithMemory(initialModelConfig)
         )
+          .filter((message) => message.id !== botMessage.id)
           .map(withAttachedFilesPromptText)
           .map(withAiSelectionPromptText);
         const sendMessages = recentMessages;
@@ -3245,30 +3075,63 @@ export const useChatStore = createPersistStore(
           totalMessages: sendMessages.length,
         });
 
-        get().updateTargetSession(session, (session) => {
-          if (reusedUserMessage) {
-            const userIndex = session.messages.findIndex(
-              (message) => message.id === reusedUserMessage.id,
-            );
-            if (userIndex >= 0) {
-              const nextMessages = session.messages.slice();
-              if (nextMessages[userIndex + 1]?.id !== botMessage.id) {
-                nextMessages.splice(userIndex + 1, 0, botMessage);
-              }
-              session.messages = nextMessages;
-            } else {
-              session.messages = session.messages.concat([botMessage]);
-            }
-          } else if (
-            session.messages[session.messages.length - 1]?.id !== botMessage.id
-          ) {
-            session.messages = session.messages.concat([botMessage]);
-          }
-        });
         const attemptChatWithCandidate = async (
           candidate: ChatFailoverCandidate,
           attemptIndex: number,
         ) => {
+          const syncBotMessageToCurrentSession = () => {
+            get().updateTargetSession(session, (currentSession) => {
+              const currentMessageIndex = currentSession.messages.findIndex(
+                (message) => message.id === botMessage.id,
+              );
+              if (currentMessageIndex < 0) {
+                return;
+              }
+              const nextMessages = currentSession.messages.slice();
+              nextMessages[currentMessageIndex] = {
+                ...botMessage,
+                retryAttempts: botMessage.retryAttempts?.map((attempt) => ({
+                  ...attempt,
+                })),
+                tools: botMessage.tools?.map((tool) => ({ ...tool })),
+              };
+              currentSession.messages = nextMessages;
+            });
+          };
+
+          // 动态检查模型可用性：非首个候选时重新确认模型当前可用
+          if (attemptIndex > 0) {
+            const currentModel = allModels.find(
+              (model) =>
+                model.name === candidate.model &&
+                String(model.provider?.id || "").toLowerCase() ===
+                  candidate.providerId,
+            );
+            if (currentModel && currentModel.available === false) {
+              logger.chat.log(
+                `[Chat Failover] 跳过不可用模型: ${
+                  candidate.displayName || candidate.model
+                }`,
+              );
+              // 内联 recordFailedAttempt 和 finalize("failed") 逻辑
+              const attempts = [...(botMessage.retryAttempts || [])];
+              attempts.push({
+                attempt: attemptIndex + 1,
+                provider: candidate.providerDisplayName,
+                providerId: candidate.providerId,
+                model: candidate.model,
+                status: "failed" as const,
+              });
+              botMessage.retryAttempts = attempts;
+              botMessage.retrying = true;
+              botMessage.content = "";
+              botMessage.reasoning_details = undefined;
+              botMessage.usage = undefined;
+              syncBotMessageToCurrentSession();
+              return "failed";
+            }
+          }
+
           const candidateProfile =
             candidate.profile ||
             getProfileForModel(candidate.providerId, candidate.providerName);
@@ -3302,10 +3165,7 @@ export const useChatStore = createPersistStore(
           botMessage.profileId = String(candidateProfile?.id || "");
           botMessage.profileName =
             candidateProfile?.name || candidate.providerDisplayName;
-          botMessage.modelIcon = getMessageIconModel(
-            candidate.model,
-            candidate.providerName,
-          );
+          botMessage.modelIcon = candidate.vendorGroup as ModelType;
           botMessage.content = "";
           botMessage.tools = [];
           botMessage.reasoning_details = undefined;
@@ -3314,256 +3174,298 @@ export const useChatStore = createPersistStore(
           botMessage.isError = false;
           userMessage.isError = false;
 
-          get().updateTargetSession(session, (session) => {
-            session.messages = session.messages.concat();
-          });
+          syncBotMessageToCurrentSession();
 
           const api: ClientApi = getClientApi(candidate.providerName);
           const attemptLabel = `${attemptIndex + 1}/${retryCandidates.length}`;
 
-          return new Promise<"success" | "failed" | "aborted" | "blocked">(
-            (resolve) => {
-              let settled = false;
-              let finishing = false;
+          return new Promise<
+            | "success"
+            | "failed"
+            | "provider-balance-exhausted"
+            | "aborted"
+            | "blocked"
+          >((resolve) => {
+            let settled = false;
+            let finishing = false;
 
-              const finalize = (
-                status: "success" | "failed" | "aborted" | "blocked",
-              ) => {
-                if (settled) return;
-                settled = true;
-                resolve(status);
+            const finalize = (
+              status:
+                | "success"
+                | "failed"
+                | "provider-balance-exhausted"
+                | "aborted"
+                | "blocked",
+            ) => {
+              if (settled) return;
+              settled = true;
+              resolve(status);
+            };
+
+            const recordFailedAttempt = () => {
+              const attempts = [...(botMessage.retryAttempts || [])];
+              const currentAttemptIndex = attempts.findIndex(
+                (attempt) => attempt.attempt === attemptIndex + 1,
+              );
+              const failedAttempt = {
+                attempt: attemptIndex + 1,
+                provider: candidate.providerDisplayName,
+                providerId: candidate.providerId,
+                model: candidate.model,
+                status: "failed" as const,
               };
+              if (currentAttemptIndex >= 0) {
+                attempts[currentAttemptIndex] = failedAttempt;
+              } else {
+                attempts.push(failedAttempt);
+              }
+              botMessage.retryAttempts = attempts;
+              botMessage.retrying = true;
+            };
 
-              const recordFailedAttempt = () => {
-                const attempts = [...(botMessage.retryAttempts || [])];
-                const currentAttemptIndex = attempts.findIndex(
-                  (attempt) => attempt.attempt === attemptIndex + 1,
-                );
-                const failedAttempt = {
-                  attempt: attemptIndex + 1,
-                  provider: candidate.providerDisplayName,
-                  providerId: candidate.providerId,
-                  model: candidate.model,
-                  status: "failed" as const,
-                };
-                if (currentAttemptIndex >= 0) {
-                  attempts[currentAttemptIndex] = failedAttempt;
-                } else {
-                  attempts.push(failedAttempt);
-                }
-                botMessage.retryAttempts = attempts;
-                botMessage.retrying = true;
-              };
-
-              withTemporaryCustomProfile(candidateProfile as any, () =>
-                api.llm.chat({
-                  messages: sendMessages,
-                  config: {
-                    ...candidateConfig,
+            withTemporaryCustomProfile(candidateProfile as any, () =>
+              api.llm.chat({
+                messages: sendMessages,
+                config: {
+                  ...candidateConfig,
+                  stream: candidateConfig.stream !== false,
+                },
+                onRequest(request: { chatPath: string; baseUrl: string }) {
+                  logRequestBanner("chat", {
+                    model: candidate.model,
+                    provider: String(candidate.providerName),
+                    baseUrl: request?.baseUrl,
+                    chatPath: request?.chatPath,
                     stream: candidateConfig.stream !== false,
-                  },
-                  onRequest(request: { chatPath: string; baseUrl: string }) {
-                    logRequestBanner("chat", {
-                      model: candidate.model,
-                      provider: String(candidate.providerName),
-                      baseUrl: request?.baseUrl,
-                      chatPath: request?.chatPath,
-                      stream: candidateConfig.stream !== false,
-                      profileName: candidateProfile?.name || null,
-                      attempt: attemptLabel,
-                    });
-                  },
-                  onUpdate(message) {
-                    if (botMessage.manualStopped) return;
-                    botMessage.streaming = true;
-                    if (message && !isApiFailurePayload(message)) {
-                      botMessage.content = message;
-                    }
-                    get().scheduleTargetSessionRefresh(session);
-                  },
-                  async onFinish(message, responseRes) {
-                    if (settled || finishing) return;
-                    get().flushTargetSessionRefresh(session);
-                    if (botMessage.manualStopped) {
-                      botMessage.streaming = false;
-                      botMessage.content = "";
-                      botMessage.retrying = false;
-                      finalize("aborted");
-                      return;
-                    }
+                    profileName: candidateProfile?.name || null,
+                    attempt: attemptLabel,
+                  });
+                },
+                onUpdate(message) {
+                  if (botMessage.manualStopped) return;
+                  botMessage.streaming = true;
+                  if (message && !isApiFailurePayload(message)) {
+                    botMessage.content = message;
+                  }
+                  syncBotMessageToCurrentSession();
+                  get().scheduleTargetSessionRefresh(session);
+                },
+                async onFinish(message, responseRes) {
+                  if (settled || finishing) return;
+                  get().flushTargetSessionRefresh(session);
+                  if (botMessage.manualStopped) {
                     botMessage.streaming = false;
-                    const finalMessage =
-                      message || getMessageTextContent(botMessage);
-
-                    if (!finalMessage) {
-                      recordFailedAttempt();
-                      logger.chat.log("❌ 对话请求尝试失败:", {
-                        尝试: attemptLabel,
-                        供应商: candidate.providerDisplayName,
-                        模型: candidate.model,
-                        原因: "空响应",
-                      });
-                      botMessage.content = "";
-                      botMessage.usage = undefined;
-                      ChatControllerPool.remove(
-                        session.id,
-                        botMessage.id ?? messageIndex,
-                      );
-                      finalize(botMessage.tools?.length ? "blocked" : "failed");
-                      return;
-                    }
-
-                    if (
-                      (responseRes && !responseRes.ok) ||
-                      isApiFailurePayload(finalMessage)
-                    ) {
-                      recordFailedAttempt();
-                      logger.chat.log("❌ 对话请求尝试失败:", {
-                        尝试: attemptLabel,
-                        供应商: candidate.providerDisplayName,
-                        模型: candidate.model,
-                        原因: responseRes?.status
-                          ? `HTTP ${responseRes.status}`
-                          : "API 返回错误",
-                      });
-                      botMessage.content = "";
-                      botMessage.reasoning_details = undefined;
-                      botMessage.usage = undefined;
-                      get().flushTargetSessionRefresh(session);
-                      ChatControllerPool.remove(
-                        session.id,
-                        botMessage.id ?? messageIndex,
-                      );
-                      finalize(botMessage.tools?.length ? "blocked" : "failed");
-                      return;
-                    }
-
-                    finishing = true;
-                    botMessage.content = finalMessage;
-                    botMessage.date = new Date().toISOString();
-                    botMessage.reasoning_details = (responseRes as any)
-                      ?.__reasoning_details;
-                    const [promptTokens, completionTokens, systemTokens] =
-                      await Promise.all([
-                        countPromptTokens(sendMessages, candidate.model),
-                        countCompletionTokens(finalMessage, candidate.model),
-                        countSystemTokens(sendMessages, candidate.model),
-                      ]);
-                    botMessage.usage = {
-                      promptTokens,
-                      completionTokens,
-                      totalTokens: promptTokens + completionTokens,
-                      systemTokens,
-                    };
-                    botMessage.isError = false;
+                    botMessage.content = "";
                     botMessage.retrying = false;
-                    if (attemptIndex > 0 && botMessage.retryAttempts) {
-                      botMessage.retryAttempts = botMessage.retryAttempts.map(
-                        (attempt) =>
-                          attempt.attempt === attemptIndex + 1
-                            ? { ...attempt, status: "success" }
-                            : attempt,
-                      );
-                    }
-                    userMessage.isError = false;
-                    get().onNewMessage(botMessage, session);
-                    logger.chat.log("✅ 对话请求尝试成功:", {
+                    syncBotMessageToCurrentSession();
+                    finalize("aborted");
+                    return;
+                  }
+                  botMessage.streaming = false;
+                  const finalMessage =
+                    message || getMessageTextContent(botMessage);
+
+                  if (!finalMessage) {
+                    recordFailedAttempt();
+                    logger.chat.log("❌ 对话请求尝试失败:", {
                       尝试: attemptLabel,
                       供应商: candidate.providerDisplayName,
                       模型: candidate.model,
+                      原因: "空响应",
                     });
+                    botMessage.content = "";
+                    botMessage.usage = undefined;
+                    syncBotMessageToCurrentSession();
                     ChatControllerPool.remove(
                       session.id,
                       botMessage.id ?? messageIndex,
                     );
-                    finalize("success");
-                  },
-                  onBeforeTool(tool: ChatMessageTool) {
-                    logger.chat.log("🔧 工具调用:", tool.function?.name);
-                    (botMessage.tools = botMessage?.tools || []).push(tool);
-                    get().flushTargetSessionRefresh(session);
-                  },
-                  onAfterTool(tool: ChatMessageTool) {
-                    botMessage?.tools?.forEach((t, i, tools) => {
-                      if (tool.id == t.id) {
-                        tools[i] = { ...tool };
-                      }
-                    });
-                    get().flushTargetSessionRefresh(session);
-                  },
-                  onError(error) {
-                    if (settled || finishing) return;
-                    get().flushTargetSessionRefresh(session);
-                    const isAborted =
-                      botMessage.manualStopped ||
-                      /abort(?:ed)?/i.test(String(error.message || ""));
-                    logger.chat.log(
-                      isAborted ? "⏹️ 对话请求已停止:" : "❌ 对话请求尝试失败:",
-                      {
-                        尝试: attemptLabel,
-                        供应商: candidate.providerDisplayName,
-                        模型: candidate.model,
-                        原因: isAborted
-                          ? "用户停止"
-                          : getChatFailureLogReason(error),
-                      },
+                    finalize(botMessage.tools?.length ? "blocked" : "failed");
+                    return;
+                  }
+
+                  if (
+                    (responseRes && !responseRes.ok) ||
+                    isApiFailurePayload(finalMessage)
+                  ) {
+                    const providerBalanceExhausted = isProviderBalanceFailure(
+                      finalMessage,
+                      responseRes?.status,
                     );
-                    botMessage.streaming = false;
+                    recordFailedAttempt();
+                    logger.chat.log("❌ 对话请求尝试失败:", {
+                      尝试: attemptLabel,
+                      供应商: candidate.providerDisplayName,
+                      模型: candidate.model,
+                      原因: responseRes?.status
+                        ? `HTTP ${responseRes.status}`
+                        : "API 返回错误",
+                    });
                     botMessage.content = "";
                     botMessage.reasoning_details = undefined;
                     botMessage.usage = undefined;
-                    if (!isAborted) {
-                      recordFailedAttempt();
-                    } else {
-                      botMessage.retrying = false;
-                    }
+                    syncBotMessageToCurrentSession();
                     get().flushTargetSessionRefresh(session);
                     ChatControllerPool.remove(
                       session.id,
                       botMessage.id ?? messageIndex,
                     );
-
-                    if (isAborted) {
-                      finalize("aborted");
-                      return;
-                    }
-
-                    finalize(botMessage.tools?.length ? "blocked" : "failed");
-                  },
-                  onController(controller) {
-                    ChatControllerPool.addController(
-                      session.id,
-                      botMessage.id ?? messageIndex,
-                      controller,
+                    finalize(
+                      botMessage.tools?.length
+                        ? "blocked"
+                        : providerBalanceExhausted
+                        ? "provider-balance-exhausted"
+                        : "failed",
                     );
-                  },
-                }),
-              ).catch((error) => {
-                if (settled) return;
-                const message =
-                  error instanceof Error ? error.message : String(error);
-                logger.chat.log("❌ 对话请求尝试失败:", {
-                  尝试: attemptLabel,
-                  供应商: candidate.providerDisplayName,
-                  模型: candidate.model,
-                  原因: getChatFailureLogReason(message),
-                });
-                recordFailedAttempt();
-                botMessage.streaming = false;
-                botMessage.content = "";
-                botMessage.usage = undefined;
-                get().flushTargetSessionRefresh(session);
-                ChatControllerPool.remove(
-                  session.id,
-                  botMessage.id ?? messageIndex,
-                );
-                finalize(botMessage.tools?.length ? "blocked" : "failed");
+                    return;
+                  }
+
+                  finishing = true;
+                  botMessage.content = finalMessage;
+                  botMessage.date = new Date().toISOString();
+                  botMessage.reasoning_details = (responseRes as any)
+                    ?.__reasoning_details;
+                  const [promptTokens, completionTokens, systemTokens] =
+                    await Promise.all([
+                      countPromptTokens(sendMessages, candidate.model),
+                      countCompletionTokens(finalMessage, candidate.model),
+                      countSystemTokens(sendMessages, candidate.model),
+                    ]);
+                  botMessage.usage = {
+                    promptTokens,
+                    completionTokens,
+                    totalTokens: promptTokens + completionTokens,
+                    systemTokens,
+                  };
+                  botMessage.isError = false;
+                  botMessage.retrying = false;
+                  if (attemptIndex > 0 && botMessage.retryAttempts) {
+                    botMessage.retryAttempts = botMessage.retryAttempts.map(
+                      (attempt) =>
+                        attempt.attempt === attemptIndex + 1
+                          ? { ...attempt, status: "success" }
+                          : attempt,
+                    );
+                  }
+                  userMessage.isError = false;
+                  syncBotMessageToCurrentSession();
+                  logger.chat.log("✅ 对话请求尝试成功:", {
+                    尝试: attemptLabel,
+                    供应商: candidate.providerDisplayName,
+                    模型: candidate.model,
+                  });
+                  ChatControllerPool.remove(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                  );
+                  finalize("success");
+                },
+                onBeforeTool(tool: ChatMessageTool) {
+                  logger.chat.log("🔧 工具调用:", tool.function?.name);
+                  (botMessage.tools = botMessage?.tools || []).push(tool);
+                  syncBotMessageToCurrentSession();
+                  get().flushTargetSessionRefresh(session);
+                },
+                onAfterTool(tool: ChatMessageTool) {
+                  botMessage?.tools?.forEach((t, i, tools) => {
+                    if (tool.id == t.id) {
+                      tools[i] = { ...tool };
+                    }
+                  });
+                  syncBotMessageToCurrentSession();
+                  get().flushTargetSessionRefresh(session);
+                },
+                onError(error) {
+                  if (settled || finishing) return;
+                  get().flushTargetSessionRefresh(session);
+                  const isAborted =
+                    botMessage.manualStopped ||
+                    /abort(?:ed)?/i.test(String(error.message || ""));
+                  logger.chat.log(
+                    isAborted ? "⏹️ 对话请求已停止:" : "❌ 对话请求尝试失败:",
+                    {
+                      尝试: attemptLabel,
+                      供应商: candidate.providerDisplayName,
+                      模型: candidate.model,
+                      原因: isAborted
+                        ? "用户停止"
+                        : getChatFailureLogReason(error),
+                    },
+                  );
+                  botMessage.streaming = false;
+                  botMessage.content = "";
+                  botMessage.reasoning_details = undefined;
+                  botMessage.usage = undefined;
+                  if (!isAborted) {
+                    recordFailedAttempt();
+                  } else {
+                    botMessage.retrying = false;
+                  }
+                  syncBotMessageToCurrentSession();
+                  get().flushTargetSessionRefresh(session);
+                  ChatControllerPool.remove(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                  );
+
+                  if (isAborted) {
+                    finalize("aborted");
+                    return;
+                  }
+
+                  finalize(
+                    botMessage.tools?.length
+                      ? "blocked"
+                      : isProviderBalanceFailure(error)
+                      ? "provider-balance-exhausted"
+                      : "failed",
+                  );
+                },
+                onController(controller) {
+                  ChatControllerPool.addController(
+                    session.id,
+                    botMessage.id ?? messageIndex,
+                    controller,
+                  );
+                },
+              }),
+            ).catch((error) => {
+              if (settled) return;
+              const message =
+                error instanceof Error ? error.message : String(error);
+              logger.chat.log("❌ 对话请求尝试失败:", {
+                尝试: attemptLabel,
+                供应商: candidate.providerDisplayName,
+                模型: candidate.model,
+                原因: getChatFailureLogReason(message),
               });
-            },
-          );
+              recordFailedAttempt();
+              botMessage.streaming = false;
+              botMessage.content = "";
+              botMessage.usage = undefined;
+              syncBotMessageToCurrentSession();
+              get().flushTargetSessionRefresh(session);
+              ChatControllerPool.remove(
+                session.id,
+                botMessage.id ?? messageIndex,
+              );
+              finalize(
+                botMessage.tools?.length
+                  ? "blocked"
+                  : isProviderBalanceFailure(error)
+                  ? "provider-balance-exhausted"
+                  : "failed",
+              );
+            });
+          });
         };
 
+        let blockedResult: "blocked" | null = null;
+        const exhaustedProviderIds = new Set<string>();
         for (const [attemptIndex, candidate] of retryCandidates.entries()) {
+          if (exhaustedProviderIds.has(candidate.providerId)) {
+            continue;
+          }
           const result = await attemptChatWithCandidate(
             candidate,
             attemptIndex,
@@ -3572,14 +3474,45 @@ export const useChatStore = createPersistStore(
             if (attemptIndex > 0) {
               applySuccessfulChatFailoverGlobally(session, candidate);
             }
+            get().onNewMessage(botMessage, session);
             return submittedMessageMeta;
           }
           if (result === "aborted") {
             return submittedMessageMeta;
           }
+          if (result === "provider-balance-exhausted") {
+            exhaustedProviderIds.add(candidate.providerId);
+            const nextProvider = retryCandidates
+              .slice(attemptIndex + 1)
+              .find(
+                (nextCandidate) =>
+                  nextCandidate.providerId !== candidate.providerId &&
+                  !exhaustedProviderIds.has(nextCandidate.providerId),
+              );
+            logger.chat.log("💳 API 余额或额度不足，跳过当前供应商剩余模型:", {
+              当前供应商: candidate.providerDisplayName,
+              下一供应商: nextProvider?.providerDisplayName || "无",
+            });
+            continue;
+          }
           if (result === "blocked") {
+            // 工具已经执行后禁止重放原始请求，避免具有副作用的工具被重复调用。
+            blockedResult = "blocked";
             break;
           }
+        }
+
+        // 所有候选都失败后，如果曾有 blocked 结果，使用它
+        if (blockedResult === "blocked") {
+          botMessage.streaming = false;
+          botMessage.retrying = false;
+          botMessage.isError = false;
+          // blocked 状态下保留 botMessage 的现有内容（工具调用列表等）
+          get().updateTargetSession(session, (session) => {
+            session.messages = session.messages.concat();
+          });
+          get().onNewMessage(botMessage, session);
+          return submittedMessageMeta;
         }
 
         botMessage.streaming = false;
@@ -3759,6 +3692,7 @@ export const useChatStore = createPersistStore(
         get().updateTargetSession(session, (session) => {
           session.messages = [];
           session.memoryPrompt = "";
+          session.lastSummarizeIndex = 0;
         });
 
         import("./sync").then(({ useSyncStore }) => {
@@ -3783,10 +3717,6 @@ export const useChatStore = createPersistStore(
           return;
         }
 
-        const summarizeTarget = getSummarizeTarget(session);
-        const { model, providerName } = summarizeTarget;
-        const api: ClientApi = getClientApi(providerName as ServiceProvider);
-
         // remove error messages if any
         const messages = session.messages;
 
@@ -3794,14 +3724,21 @@ export const useChatStore = createPersistStore(
           config.enableAutoGenerateTitle &&
           shouldAutoRefreshSessionTitle(session)
         ) {
+          const titleSourceMessages = messages.filter(
+            (message) =>
+              !message.isError &&
+              Boolean(getMessageTextContent(message).trim()),
+          );
           const startIndex = Math.max(
             0,
-            messages.length - modelConfig.historyMessageCount,
+            titleSourceMessages.length - modelConfig.historyMessageCount,
           );
-          const topicMessages = messages
+          const topicMessages = titleSourceMessages
             .slice(
-              startIndex < messages.length ? startIndex : messages.length - 1,
-              messages.length,
+              startIndex < titleSourceMessages.length
+                ? startIndex
+                : titleSourceMessages.length - 1,
+              titleSourceMessages.length,
             )
             .concat(
               createMessage({
@@ -3810,7 +3747,7 @@ export const useChatStore = createPersistStore(
               }),
             );
 
-          // 使用多供应商切换逻辑生成标题
+          // 标题只使用当前对话最终模型，不额外切换模型或供应商。
           const candidates = getRefreshTitleCandidates(session);
           logChatDebug(
             "[自动生成标题] 正在尝试",
@@ -3832,10 +3769,11 @@ export const useChatStore = createPersistStore(
             );
 
             try {
-              const success = await withTemporaryCustomProfile(
+              const result = await withTemporaryCustomProfile(
                 candidate.profile,
                 async () => {
                   let success = false;
+                  let providerBalanceExhausted = false;
 
                   await candidateApi.llm.chat({
                     messages: topicMessages,
@@ -3858,23 +3796,39 @@ export const useChatStore = createPersistStore(
                       success =
                         responseRes?.status === 200 &&
                         Boolean(trimTopic(message || ""));
+                      if (!success) {
+                        providerBalanceExhausted = isProviderBalanceFailure(
+                          message,
+                          responseRes?.status,
+                        );
+                      }
 
                       if (success) {
                         success = applyGeneratedSessionTitle(session, message);
                       }
                     },
                     onError(err) {
+                      providerBalanceExhausted = isProviderBalanceFailure(err);
                       logger.chat.error("自动生成标题出错:", err);
                     },
                   });
 
-                  return success;
+                  return { success, providerBalanceExhausted };
                 },
               );
 
-              if (success) {
+              if (result.success) {
                 logChatDebug("[自动生成标题] 标题生成成功");
                 break;
+              }
+              if (result.providerBalanceExhausted) {
+                logger.chat.log(
+                  "💳 当前对话模型余额或额度不足，自动标题生成停止:",
+                  {
+                    当前供应商:
+                      candidate.profile?.name || candidate.providerName,
+                  },
+                );
               }
             } catch (error) {
               logger.chat.error("自动生成标题候选模型失败", error);
@@ -3885,73 +3839,140 @@ export const useChatStore = createPersistStore(
           session.lastSummarizeIndex,
           session.clearContextIndex ?? 0,
         );
-        let toBeSummarizedMsgs = messages
-          .filter((msg) => !msg.isError)
-          .slice(summarizeIndex);
-
-        const historyMsgLength = countMessages(toBeSummarizedMsgs);
-
-        if (historyMsgLength > (modelConfig?.max_tokens || 4000)) {
-          const n = toBeSummarizedMsgs.length;
-          toBeSummarizedMsgs = toBeSummarizedMsgs.slice(
-            Math.max(0, n - modelConfig.historyMessageCount),
+        const summarySource = messages
+          .slice(summarizeIndex)
+          .map((message, offset) => ({
+            message,
+            messageIndex: summarizeIndex + offset,
+          }))
+          .filter(
+            ({ message }) =>
+              !message.isError &&
+              Boolean(getMessageTextContent(message).trim()),
           );
-        }
-        const memoryPrompt = get().getMemoryPrompt();
-        if (memoryPrompt) {
-          // add memory prompt
-          toBeSummarizedMsgs.unshift(memoryPrompt);
-        }
-
-        const lastSummarizeIndex = session.messages.length;
-
-        // console.log(
-        //   "[Chat History] ",
-        //   toBeSummarizedMsgs,
-        //   historyMsgLength,
-        //   modelConfig.compressMessageLengthThreshold,
-        // );
+        const historyMsgLength = countMessages(
+          summarySource.map(({ message }) => message),
+        );
 
         if (
           historyMsgLength > modelConfig.compressMessageLengthThreshold &&
-          modelConfig.sendMemory
+          modelConfig.sendMemory &&
+          summarySource.length > 0 &&
+          !pendingMemorySummarySessionIds.has(session.id)
         ) {
-          /** Destruct max_tokens while summarizing
-           * this param is just shit
-           **/
-          const { max_tokens, ...modelcfg } = modelConfig;
-          withTemporaryCustomProfile(summarizeTarget.profile, () =>
-            api.llm.chat({
-              messages: toBeSummarizedMsgs.concat(
-                createMessage({
-                  role: "system",
-                  content: Locale.Store.Prompt.Summarize,
-                  date: "",
-                }),
-              ),
-              config: {
-                ...modelcfg,
-                stream: modelConfig.stream !== false,
-                model,
-                providerName,
-              },
-              onUpdate(message) {
-                session.memoryPrompt = message;
-              },
-              onFinish(message, responseRes) {
-                if (responseRes?.status === 200) {
-                  logger.chat.log("[Memory] ", message);
-                  get().updateTargetSession(session, (session) => {
-                    session.lastSummarizeIndex = lastSummarizeIndex;
-                    session.memoryPrompt = message;
-                  });
-                }
-              },
-              onError(err) {
-                logger.chat.error("[Summarize] ", err);
-              },
-            }),
+          const maxInputTokens = Math.max(
+            1,
+            modelConfig.compressMessageLengthThreshold,
           );
+          const maxMessageCount = Math.max(1, modelConfig.historyMessageCount);
+          const selectedSource: typeof summarySource = [];
+          let selectedTokenCount = 0;
+
+          for (const source of summarySource) {
+            if (selectedSource.length >= maxMessageCount) {
+              break;
+            }
+            const messageTokenCount = countMessages([source.message]);
+            if (
+              selectedSource.length > 0 &&
+              selectedTokenCount + messageTokenCount > maxInputTokens
+            ) {
+              break;
+            }
+            selectedSource.push(source);
+            selectedTokenCount += messageTokenCount;
+          }
+
+          const lastSummarizeIndex =
+            selectedSource[selectedSource.length - 1].messageIndex + 1;
+          const lastSelectedMessageId =
+            selectedSource[selectedSource.length - 1].message.id;
+          const toBeSummarizedMsgs = selectedSource.map(
+            ({ message }) => message,
+          );
+          if (session.memoryPrompt.trim()) {
+            toBeSummarizedMsgs.unshift(
+              createMessage({
+                role: "system",
+                content: Locale.Store.Prompt.History(session.memoryPrompt),
+                date: "",
+              }),
+            );
+          }
+
+          const summarizeTarget = getSummarizeTarget(session);
+          const { model, providerName } = summarizeTarget;
+          if (!model) {
+            logger.chat.error("[Summarize] 当前对话没有可用模型");
+            return;
+          }
+          const api: ClientApi = getClientApi(providerName);
+          let pendingMemoryPrompt = "";
+
+          pendingMemorySummarySessionIds.add(session.id);
+          try {
+            await withTemporaryCustomProfile(summarizeTarget.profile, () =>
+              api.llm.chat({
+                messages: toBeSummarizedMsgs.concat(
+                  createMessage({
+                    role: "system",
+                    content: Locale.Store.Prompt.Summarize,
+                    date: "",
+                  }),
+                ),
+                config: {
+                  ...modelConfig,
+                  stream: false,
+                  outputTokenLimit: MEMORY_SUMMARY_MAX_TOKENS,
+                  reasoningEffort: "none",
+                  reasoningMaxTokens: 0,
+                  model,
+                  providerName,
+                },
+                onUpdate(message) {
+                  pendingMemoryPrompt = message;
+                },
+                onFinish(message, responseRes) {
+                  const completedMemoryPrompt = String(
+                    message || pendingMemoryPrompt,
+                  ).trim();
+                  if (
+                    responseRes?.status !== 200 ||
+                    !completedMemoryPrompt ||
+                    isApiFailurePayload(completedMemoryPrompt)
+                  ) {
+                    logger.chat.error("[Summarize] 摘要响应无效", {
+                      status: responseRes?.status,
+                    });
+                    return;
+                  }
+
+                  logger.chat.log("[Memory] ", completedMemoryPrompt);
+                  get().updateTargetSession(session, (targetSession) => {
+                    const currentLastSelectedMessage =
+                      targetSession.messages[lastSummarizeIndex - 1];
+                    if (
+                      targetSession.lastSummarizeIndex > summarizeIndex ||
+                      !currentLastSelectedMessage ||
+                      (lastSelectedMessageId &&
+                        currentLastSelectedMessage.id !== lastSelectedMessageId)
+                    ) {
+                      return;
+                    }
+                    targetSession.lastSummarizeIndex = lastSummarizeIndex;
+                    targetSession.memoryPrompt = completedMemoryPrompt;
+                  });
+                },
+                onError(err) {
+                  logger.chat.error("[Summarize] ", err);
+                },
+              }),
+            );
+          } catch (error) {
+            logger.chat.error("[Summarize] 摘要请求失败", error);
+          } finally {
+            pendingMemorySummarySessionIds.delete(session.id);
+          }
         }
       },
 

@@ -109,7 +109,6 @@ import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
 import { getModelDisplayGroup } from "../utils/model-display-group";
 
-import dynamic from "next/dynamic";
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
 import { bootstrapSharedPrompts } from "../utils/prompt-bootstrap";
@@ -119,6 +118,7 @@ import Locale from "../locales";
 import { IconButton } from "./button";
 import { LoadingPanel } from "./loading-panel";
 import { LoadingView } from "./loading-view";
+import { Markdown } from "./markdown";
 import styles from "./chat.module.scss";
 
 import {
@@ -161,6 +161,8 @@ const CHAT_BACKUP_ENTRIES = [
   { name: "模型获取", path: Path.ProviderModelFetch, icon: <ReloadIcon /> },
 ];
 
+const SEARCH_TOOL_NAME_PATTERN = /search|搜索/i;
+
 function syncModelSelectionNow(includeGlobalDefault: boolean) {
   const syncStore = useSyncStore.getState();
   if (!syncStore.cloudSync?.()) {
@@ -187,7 +189,7 @@ function syncModelSelectionNow(includeGlobalDefault: boolean) {
 }
 
 import { Avatar, FIXED_USER_AVATAR } from "./emoji";
-import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
+import { ContextPrompts, MaskConfig } from "./mask";
 import { saveGlobalModelConfig } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { runWithImmediateStoreSyncPausedSync } from "../utils/store";
@@ -2213,10 +2215,6 @@ function resolveMessageModelSelection(
 
 const ttsPlayer = createTTSPlayer();
 
-const Markdown = dynamic(async () => (await import("./markdown")).Markdown, {
-  loading: () => <LoadingIcon />,
-});
-
 const MCPAction = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -4030,6 +4028,27 @@ function _Chat() {
 
   // 模型选择器所需变量
   const allModels = useAllModels();
+  const messageModelLookup = useMemo(() => {
+    const byProviderAndName = new Map<string, (typeof allModels)[number]>();
+    const byName = new Map<string, (typeof allModels)[number]>();
+    for (const model of allModels) {
+      const normalizedName = String(model.name || "").toLowerCase();
+      const normalizedProviderId = String(
+        model.provider?.id || "",
+      ).toLowerCase();
+      if (!normalizedName) continue;
+      if (normalizedProviderId) {
+        byProviderAndName.set(
+          `${normalizedProviderId}\u0000${normalizedName}`,
+          model,
+        );
+      }
+      if (!byName.has(normalizedName)) {
+        byName.set(normalizedName, model);
+      }
+    }
+    return { byProviderAndName, byName };
+  }, [allModels]);
   const globalCustomModels = useAppConfig((state) => state.customModels);
   const apiProfiles = useAccessStore((state) => state.apiProfiles);
   const latestAssistantModelSelection = useMemo(() => {
@@ -10042,6 +10061,34 @@ function _Chat() {
                           msgRenderIndex + i,
                         );
                         const isUser = message.role === "user";
+                        const messageModelName = String(
+                          message.model || sessionMask.modelConfig.model || "",
+                        );
+                        const messageProviderId = String(
+                          message.providerId || "",
+                        ).toLowerCase();
+                        const messageRuntimeModel =
+                          messageModelLookup.byProviderAndName.get(
+                            `${messageProviderId}\u0000${messageModelName.toLowerCase()}`,
+                          ) ||
+                          messageModelLookup.byName.get(
+                            messageModelName.toLowerCase(),
+                          );
+                        const messageProviderDisplayName =
+                          getMessageProviderDisplayName(message, apiProfiles) ||
+                          currentProviderDisplayName;
+                        const messageModelGroup = getModelGroup(
+                          messageModelName,
+                          messageProviderDisplayName || message.providerName,
+                          messageRuntimeModel?.vendor?.name,
+                          message.modelDisplay,
+                        );
+                        const messageAvatarModel =
+                          messageModelGroup && messageModelGroup !== "Other"
+                            ? messageModelGroup
+                            : message.modelIcon ||
+                              messageProviderDisplayName ||
+                              messageModelName;
                         const isContext = i < context.length;
                         const messageTextContent =
                           getMessageTextContent(message);
@@ -10078,6 +10125,21 @@ function _Chat() {
                           messageImages.length === 0 &&
                           messageTextContent.trim().length > 0 &&
                           !shouldInlineMobileActions;
+                        const uniqueMessageTools = Array.from(
+                          new Map(
+                            (message.tools || []).map((tool) => [
+                              tool.function?.name,
+                              tool,
+                            ]),
+                          ).values(),
+                        );
+                        const showSearchToolLoading =
+                          Boolean(message.streaming) &&
+                          uniqueMessageTools.some((tool) =>
+                            SEARCH_TOOL_NAME_PATTERN.test(
+                              String(tool.function?.name || ""),
+                            ),
+                          );
                         const messageActions = showActions ? (
                           <div className={styles["chat-input-actions"]}>
                             {message.streaming ? (
@@ -10229,23 +10291,9 @@ function _Chat() {
                                         {["system"].includes(message.role) ? (
                                           <Avatar avatar="2699-fe0f" />
                                         ) : (
-                                          <MaskAvatar
-                                            avatar={sessionMask.avatar}
+                                          <Avatar
                                             model={
-                                              getModelGroup(
-                                                message.model || "",
-                                                message.providerName,
-                                                allModels.find(
-                                                  (model) =>
-                                                    model.name ===
-                                                    message.model,
-                                                )?.vendor?.name,
-                                                message.modelDisplay,
-                                              ) === "Minimax"
-                                                ? "Minimax"
-                                                : message.modelIcon ||
-                                                  message.model ||
-                                                  sessionMask.modelConfig.model
+                                              messageAvatarModel as ModelType
                                             }
                                           />
                                         )}
@@ -10257,10 +10305,7 @@ function _Chat() {
                                       {normalizeModelProviderDisplayLabel(
                                         message.model ||
                                           sessionMask.modelConfig.model,
-                                        getMessageProviderDisplayName(
-                                          message,
-                                          apiProfiles,
-                                        ) || currentProviderDisplayName,
+                                        messageProviderDisplayName,
                                       )}
                                     </div>
                                   )}
@@ -10282,7 +10327,11 @@ function _Chat() {
                                     <div
                                       className={styles["chat-message-tools"]}
                                       aria-live={
-                                        message.retrying ? "polite" : "off"
+                                        message.retrying ||
+                                        (message.streaming &&
+                                          uniqueMessageTools.length > 0)
+                                          ? "polite"
+                                          : "off"
                                       }
                                     >
                                       {message.retryAttempts?.map((attempt) => (
@@ -10309,14 +10358,7 @@ function _Chat() {
                                           </span>
                                         </div>
                                       ))}
-                                      {Array.from(
-                                        new Map(
-                                          (message.tools || []).map((t) => [
-                                            t.function?.name,
-                                            t,
-                                          ]),
-                                        ).values(),
-                                      ).map((tool) => (
+                                      {uniqueMessageTools.map((tool) => (
                                         <div
                                           key={tool.id}
                                           title={tool?.errorMsg}
@@ -10330,6 +10372,22 @@ function _Chat() {
                                             <span>&lt;插件&gt;</span>
                                           )}
                                           <span>{tool?.function?.name}</span>
+                                          {showSearchToolLoading &&
+                                            SEARCH_TOOL_NAME_PATTERN.test(
+                                              String(tool.function?.name || ""),
+                                            ) && (
+                                              <span
+                                                className={
+                                                  styles[
+                                                    "chat-message-search-loading"
+                                                  ]
+                                                }
+                                                role="status"
+                                                aria-label="搜索中"
+                                              >
+                                                <LoadingIcon />
+                                              </span>
+                                            )}
                                         </div>
                                       ))}
                                     </div>

@@ -15,6 +15,26 @@ import * as ModelApiKeyMemoryModule from "./model-api-key-memory";
 import { replaceUrlQueryParam } from "./model-fetch-common";
 import { logger } from "./logger";
 
+/**
+ * 检测响应是否为可重试的错误。
+ * 提取为公共函数，供流式和非流式路径共用。
+ */
+export function getRetryableErrorReason(payload: any): string {
+  const errorCode = String(payload?.error?.code || payload?.code || "").trim();
+  const errorMessage = String(
+    payload?.error?.message || payload?.message || "",
+  ).trim();
+  if (!errorCode && !errorMessage) return "";
+  if (
+    errorCode === "model_not_found" ||
+    errorMessage.includes("无可用渠道") ||
+    errorMessage.includes("no available distributor")
+  ) {
+    return errorMessage || errorCode;
+  }
+  return "";
+}
+
 const Locale = (LocaleModule as any).default ?? LocaleModule;
 const prettyObject = FormatModule.prettyObject;
 const tauriFetch = StreamModule.fetch;
@@ -194,6 +214,7 @@ function createApiKeyGroupRetryContext(params: {
     headers["x-fallback-api-key-groups"] || [];
   let currentKeyIndex = 0;
   let lastErrorText = "";
+  let retryAttempt = 0; // 重试次数计数，用于退避延迟
   const providerName = options.config?.providerName || "API";
   const isMultiKeyRequest =
     fallbackApiKeys.length > 0 && fallbackApiKeyGroups.length > 0;
@@ -243,6 +264,20 @@ function createApiKeyGroupRetryContext(params: {
     },
     resetLastError() {
       lastErrorText = "";
+    },
+    /**
+     * 获取重试延迟（毫秒），使用指数退避 + 随机 jitter
+     * 策略: delay = min(1000 * 2^attempt, 30000) * (0.8 ~ 1.2)
+     */
+    getRetryDelayMs(): number {
+      if (!isMultiKeyRequest) return 0;
+      const delay = Math.min(1000 * Math.pow(2, retryAttempt), 30000);
+      const jitter = 0.8 + Math.random() * 0.4;
+      retryAttempt++;
+      return Math.round(delay * jitter);
+    },
+    resetRetryAttempt() {
+      retryAttempt = 0;
     },
     rememberSuccess(finalText: string) {
       rememberApiKeyGroupIfNeeded(
@@ -514,6 +549,8 @@ export function stream(
   let pendingRetry = false;
   let activeRequestSeq = 0;
   let currentRequestAccepted = false;
+  let terminalErrorReported = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let runTools: any[] = [];
   let responseRes: Response;
   const apiKeyRetry = createApiKeyGroupRetryContext({
@@ -522,9 +559,14 @@ export function stream(
     options,
     onRetry: () => {
       pendingRetry = true;
-      setTimeout(() => {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (controller.signal.aborted) {
+          pendingRetry = false;
+          return;
+        }
         chatApi(chatPath, headers, requestPayload, tools);
-      }, 0);
+      }, apiKeyRetry.getRetryDelayMs());
     },
   });
 
@@ -543,14 +585,23 @@ export function stream(
     return true;
   };
 
+  const reportTerminalError = (reason: string) => {
+    if (terminalErrorReported) return;
+    terminalErrorReported = true;
+    finished = true;
+    options.onError?.(new Error(reason));
+  };
+
   // animate response to make it looks smooth
   function animateResponseText() {
     if (pendingRetry) {
-      requestAnimationFrame(animateResponseText);
+      // 重试期间使用 setTimeout 降低 CPU 消耗
+      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
       return;
     }
     if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
-      requestAnimationFrame(animateResponseText);
+      // 等待重试时也使用 setTimeout 避免持续空转
+      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
       return;
     }
     if (finished || controller.signal.aborted) {
@@ -563,7 +614,7 @@ export function stream(
           requestAnimationFrame(animateResponseText);
           return;
         }
-        options.onError?.(new Error(errorText));
+        reportTerminalError(errorText);
       }
       return;
     }
@@ -584,6 +635,13 @@ export function stream(
 
   const finish = () => {
     if (pendingRetry) {
+      return;
+    }
+    if (controller.signal.aborted) {
+      if (!finished) {
+        finished = true;
+        options.onFinish(responseText + remainText, responseRes);
+      }
       return;
     }
     if (!finished) {
@@ -692,8 +750,9 @@ export function stream(
         if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
-        responseText = errorText;
         apiKeyRetry.setLastErrorText(errorText);
+        reportTerminalError(errorText);
+        return;
       }
       logChatTrace("[ChatAPI] end");
       finished = true;
@@ -705,7 +764,14 @@ export function stream(
     }
   };
 
-  controller.signal.onabort = finish;
+  controller.signal.onabort = () => {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    pendingRetry = false;
+    finish();
+  };
 
   function chatApi(
     chatPath: string,
@@ -764,7 +830,25 @@ export function stream(
             extraInfo || `HTTP ${res.status} ${res.statusText || ""}`.trim();
           apiKeyRetry.setLastErrorText(requestErrorText);
 
+          // 优先尝试路径重试
           if (tryPathRetry(requestErrorText, res)) {
+            return;
+          }
+
+          // 解析 JSON 检测可重试错误（model_not_found 等）
+          let resJson: any = null;
+          try {
+            resJson = JSON.parse(extraInfo || "");
+          } catch {}
+          const retryableReason = resJson
+            ? getRetryableErrorReason(resJson)
+            : "";
+
+          // 如果是可重试错误，优先触发 Key 切换重试
+          if (
+            retryableReason &&
+            apiKeyRetry.tryFallbackRetry(retryableReason)
+          ) {
             return;
           }
 
@@ -772,15 +856,10 @@ export function stream(
             return; // 不调用 finish，继续重试
           }
 
-          const retryErrorText = apiKeyRetry.getLastErrorText();
-          if (retryErrorText) {
-            responseTexts.push(retryErrorText);
-          }
-
-          try {
-            const resJson = await res.clone().json();
+          // 复用已解析的 JSON 用于显示
+          if (resJson) {
             extraInfo = prettyObject(resJson);
-          } catch {}
+          }
 
           if (res.status === 401) {
             responseTexts.push(Locale.Error.Unauthorized);
@@ -825,6 +904,7 @@ export function stream(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
+        clearTimeout(requestTimeoutId);
         if (pendingRetry) {
           return;
         }
@@ -834,6 +914,7 @@ export function stream(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
+        clearTimeout(requestTimeoutId);
         const errorText =
           e?.message || e?.toString?.() || "stream connection failed";
         if (tryPathRetry(errorText)) {
@@ -886,6 +967,8 @@ export function streamWithThink(
   let pendingRetry = false;
   let activeRequestSeq = 0;
   let currentRequestAccepted = false;
+  let terminalErrorReported = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let runTools: any[] = [];
   let responseRes: Response;
   let isInThinkingMode = false;
@@ -897,7 +980,12 @@ export function streamWithThink(
     options,
     onRetry: () => {
       pendingRetry = true;
-      setTimeout(() => {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (controller.signal.aborted) {
+          pendingRetry = false;
+          return;
+        }
         const authType = String(headers["x-api-key-auth-type"] || "bearer");
         if (authType === "query-key") {
           const nextApiKey = headers["x-api-key-query-value"] || "";
@@ -907,7 +995,7 @@ export function streamWithThink(
           chatPath = replaceUrlQueryParam(chatPath, queryParamName, nextApiKey);
         }
         chatApi(chatPath, headers, requestPayload, tools);
-      }, 0);
+      }, apiKeyRetry.getRetryDelayMs());
     },
   });
 
@@ -926,14 +1014,23 @@ export function streamWithThink(
     return true;
   };
 
+  const reportTerminalError = (reason: string) => {
+    if (terminalErrorReported) return;
+    terminalErrorReported = true;
+    finished = true;
+    options.onError?.(new Error(reason));
+  };
+
   // animate response to make it looks smooth
   function animateResponseText() {
     if (pendingRetry) {
-      requestAnimationFrame(animateResponseText);
+      // 重试期间使用 setTimeout 降低 CPU 消耗
+      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
       return;
     }
     if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
-      requestAnimationFrame(animateResponseText);
+      // 等待重试时也使用 setTimeout 避免持续空转
+      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
       return;
     }
     if (finished || controller.signal.aborted) {
@@ -946,7 +1043,7 @@ export function streamWithThink(
           requestAnimationFrame(animateResponseText);
           return;
         }
-        options.onError?.(new Error(errorText));
+        reportTerminalError(errorText);
       }
       return;
     }
@@ -991,6 +1088,13 @@ export function streamWithThink(
 
   const finish = () => {
     if (pendingRetry) {
+      return;
+    }
+    if (controller.signal.aborted) {
+      if (!finished) {
+        finished = true;
+        options.onFinish(responseText + remainText, responseRes);
+      }
       return;
     }
     if (!finished) {
@@ -1099,8 +1203,9 @@ export function streamWithThink(
         if (apiKeyRetry.tryFallbackRetry(errorText)) {
           return;
         }
-        responseText = errorText;
         apiKeyRetry.setLastErrorText(errorText);
+        reportTerminalError(errorText);
+        return;
       }
       logChatTrace("[ChatAPI] end");
       finished = true;
@@ -1116,7 +1221,14 @@ export function streamWithThink(
     }
   };
 
-  controller.signal.onabort = finish;
+  controller.signal.onabort = () => {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    pendingRetry = false;
+    finish();
+  };
 
   function chatApi(
     chatPath: string,
@@ -1291,6 +1403,7 @@ export function streamWithThink(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
+        clearTimeout(requestTimeoutId);
         if (pendingRetry) {
           return;
         }
@@ -1300,6 +1413,7 @@ export function streamWithThink(
         if (requestSeq !== activeRequestSeq) {
           return;
         }
+        clearTimeout(requestTimeoutId);
         const errorText =
           e?.message || e?.toString?.() || "stream connection failed";
         if (tryPathRetry(errorText)) {

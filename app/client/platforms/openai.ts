@@ -16,6 +16,7 @@ import {
   base64Image2Blob,
   streamWithThink,
   stripInternalChatHeaders,
+  getRetryableErrorReason,
 } from "@/app/utils/chat";
 import { rememberSuccessfulCustomModelApiKeyGroup } from "@/app/utils/model-api-key-memory";
 import {
@@ -1325,24 +1326,8 @@ function formatAiHubMixVideoFailure(payload: any) {
 }
 
 function getGroupedApiKeyRetryableErrorMessage(payload: any) {
-  const errorCode = String(payload?.error?.code || payload?.code || "").trim();
-  const errorMessage = String(
-    payload?.error?.message || payload?.message || "",
-  ).trim();
-
-  if (!errorCode && !errorMessage) {
-    return "";
-  }
-
-  if (
-    errorCode === "model_not_found" ||
-    errorMessage.includes("无可用渠道") ||
-    errorMessage.includes("no available distributor")
-  ) {
-    return errorMessage || errorCode;
-  }
-
-  return "";
+  // 复用公共函数，保持向后兼容
+  return getRetryableErrorReason(payload);
 }
 
 function parseStructuredOutputSchema(schemaText: string) {
@@ -1843,6 +1828,10 @@ export class ChatGPTApi implements LLMApi {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
+      ...options.config,
+      ...(options.config.outputTokenLimit
+        ? { max_tokens: options.config.outputTokenLimit }
+        : {}),
       ...{
         model: requestedModel,
         providerName: normalizeServiceProvider(
@@ -2010,6 +1999,9 @@ export class ChatGPTApi implements LLMApi {
           ? modelConfig.frequency_penalty
           : 0,
         top_p: !isReasoningOpenAIModel ? modelConfig.top_p : 1,
+        ...(options.config.outputTokenLimit
+          ? { max_tokens: modelConfig.max_tokens }
+          : {}),
         // max_tokens: Math.max(modelConfig.max_tokens, 1024),
         // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
       };

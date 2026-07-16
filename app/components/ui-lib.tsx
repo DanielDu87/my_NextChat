@@ -5,6 +5,7 @@ import EyeIcon from "../icons/eye.svg";
 import EyeOffIcon from "../icons/eye-off.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
+import SelectorCheckIcon from "../icons/selector-check.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
@@ -1974,8 +1975,8 @@ export function Selector<T>(props: {
                         )}
                         style={{ color: "var(--primary)" }}
                       >
-                        <ConfirmIcon
-                          className="nextchat-model-selector-check"
+                        <SelectorCheckIcon
+                          className="nextchat-model-selector-selected-check"
                           style={{
                             color: "var(--primary)",
                             stroke: "var(--primary)",
@@ -2112,8 +2113,8 @@ export function Selector<T>(props: {
                                 )}
                                 style={{ color: "var(--primary)" }}
                               >
-                                <ConfirmIcon
-                                  className="nextchat-model-selector-check"
+                                <SelectorCheckIcon
+                                  className="nextchat-model-selector-selected-check"
                                   style={{
                                     color: "var(--primary)",
                                     stroke: "var(--primary)",

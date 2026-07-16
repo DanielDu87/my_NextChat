@@ -229,6 +229,8 @@ export function AddModelSelector(props: {
       ),
     [profiles, resolveProviderId, selectedProviderId],
   );
+  const displayName =
+    activeProfile?.name || String(activeProfile?.provider || "");
 
   const addedModelKeys = useMemo(() => {
     if (managedModelKeys) {
@@ -527,7 +529,7 @@ export function AddModelSelector(props: {
         setFetchError(msg);
         setLoading(false);
       });
-  }, [activeProfile, selectedProviderId]);
+  }, [activeProfile, displayName, selectedProviderId]);
 
   useEffect(() => {
     return () => {
@@ -732,9 +734,6 @@ export function AddModelSelector(props: {
     setPendingSelection([]);
     onClose();
   }, [config, managedModelKeys, onAddModels, onClose, pendingSelection]);
-
-  const displayName =
-    activeProfile?.name || String(activeProfile?.provider || "");
 
   const displayTotal = showAdded
     ? addedModelsList.length

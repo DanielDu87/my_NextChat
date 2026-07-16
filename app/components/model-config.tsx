@@ -14,7 +14,6 @@ import {
   getModelProvider,
   getPreferredDisplayModelConfig,
 } from "../utils/model";
-import { SUMMARIZE_MODEL } from "../constant";
 import { ModalConfigValidator } from "../store/config";
 import {
   getCapabilityHint,
@@ -598,7 +597,7 @@ export function ModelConfigList(props: {
               aria-label={Locale.Settings.CompressModel.Title}
               className={styles["select-compress-model"]}
               type="text"
-              value={`${SUMMARIZE_MODEL}（固定为当前供应商，若缺失则回退 AihubMix）`}
+              value={`${props.modelConfig.model}（跟随当前对话）`}
               disabled
               readOnly
             />

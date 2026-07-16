@@ -97,6 +97,10 @@ export class QwenApi implements LLMApi {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
+      ...options.config,
+      ...(options.config.outputTokenLimit
+        ? { max_tokens: options.config.outputTokenLimit }
+        : {}),
       ...{
         model: options.config.model,
       },
@@ -127,6 +131,9 @@ export class QwenApi implements LLMApi {
         result_format: "message",
         incremental_output: shouldStream,
         temperature: modelConfig.temperature,
+        ...(options.config.outputTokenLimit
+          ? { max_tokens: modelConfig.max_tokens }
+          : {}),
         // max_tokens: modelConfig.max_tokens,
         top_p: modelConfig.top_p === 1 ? 0.99 : modelConfig.top_p, // qwen top_p is should be < 1
       }),

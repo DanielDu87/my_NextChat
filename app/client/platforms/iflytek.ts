@@ -78,6 +78,10 @@ export class SparkApi implements LLMApi {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
+      ...options.config,
+      ...(options.config.outputTokenLimit
+        ? { max_tokens: options.config.outputTokenLimit }
+        : {}),
       ...{
         model: options.config.model,
         providerName: options.config.providerName,
@@ -94,6 +98,9 @@ export class SparkApi implements LLMApi {
         presence_penalty: modelConfig.presence_penalty,
         frequency_penalty: modelConfig.frequency_penalty,
         top_p: modelConfig.top_p,
+        ...(options.config.outputTokenLimit
+          ? { max_tokens: modelConfig.max_tokens }
+          : {}),
         // max_tokens: Math.max(modelConfig.max_tokens, 1024),
         // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
       },
