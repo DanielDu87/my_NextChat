@@ -1234,11 +1234,15 @@
     }
 
     .selector-group-filter-icon-image-custom {
-      width: 30px !important;
-      height: 30px !important;
+      width: 32px !important;
+      height: 32px !important;
       border-radius: 10px;
-      flex: 0 0 30px;
+      flex: 0 0 32px;
       display: block;
+    }
+
+    .selector-group-filter-icon-image-model-default {
+      object-fit: contain !important;
     }
 
     .selector-group-filter-icon-custom-wrap {
@@ -1258,13 +1262,17 @@
       overflow: hidden;
 
       :global(svg) {
-        width: 30px !important;
-        height: 30px !important;
-        min-width: 30px;
-        min-height: 30px;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px;
+        min-height: 32px;
         display: block;
-        flex: 0 0 30px;
+        flex: 0 0 32px;
       }
+    }
+
+    .selector-group-filter-icon-custom-wrap-model-default {
+      background: #e7f8ff !important;
     }
 
     .selector-group-filter-icon-frame {

@@ -8,16 +8,12 @@
   position: relative;
 }
 
-.batchActionBar {
+.batchAction {
   display: flex;
   max-width: 980px;
-  margin: 10px auto 0;
+  margin: 0 auto 10px;
   width: 100%;
-  padding: 0 20px;
-}
-
-.headerBatchAction {
-  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .actionButton:disabled,
@@ -32,15 +28,11 @@
   color: #c8cbd2 !important;
 }
 
-.headerBatchAction :global(.icon-button) {
+.batchAction :global(.icon-button) {
   min-width: max-content !important;
   min-height: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-}
-
-.mobileBatchAction {
-  display: none;
 }
 
 .content {
@@ -441,25 +433,18 @@
     border-width: 2px !important;
   }
 
-  .batchActionBar {
-    display: none;
-  }
-
-  .mobileBatchAction {
+  .batchAction {
     display: flex;
-    max-width: 980px;
-    margin: 10px auto 0;
-    padding: 0;
-    width: 100%;
-    box-sizing: border-box;
+    margin-bottom: 10px;
+    justify-content: stretch;
   }
 
-  .mobileBatchAction :global(.nextchat-green-button) {
+  .batchAction :global(.nextchat-green-button) {
     width: 100% !important;
     min-width: 0 !important;
   }
 
-  .mobileBatchAction .actionButton.actionButton.actionButton {
+  .batchAction .actionButton.actionButton.actionButton {
     flex: 1 1 100%;
     width: 100% !important;
     min-width: 0 !important;
@@ -468,13 +453,13 @@
     justify-content: center !important;
   }
 
-  .mobileBatchAction .actionButton :global([class*="icon-button-text"]) {
+  .batchAction .actionButton :global([class*="icon-button-text"]) {
     display: inline-flex !important;
     align-items: center;
     margin-left: 6px !important;
   }
 
-  .mobileBatchAction .actionButton :global([class*="icon-button-icon"]) {
+  .batchAction .actionButton :global([class*="icon-button-icon"]) {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -484,7 +469,7 @@
     margin: 0 !important;
   }
 
-  .mobileBatchAction .actionButton :global([class*="icon-button-icon"] > svg) {
+  .batchAction .actionButton :global([class*="icon-button-icon"] > svg) {
     display: block !important;
     width: 16px !important;
     height: 16px !important;

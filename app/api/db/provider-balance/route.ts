@@ -7,6 +7,7 @@ import { AuthError } from "@/app/utils/server/auth";
 import {
   ProviderBalanceQueryError,
   queryProviderBalanceWithRetry,
+  sanitizeBalancePath,
 } from "@/app/utils/server/provider-balance";
 import { getProviderProfilesForAccessState } from "@/app/utils/server/provider-config-repository";
 import { resolveSyncUserId } from "@/app/utils/server/sync-user";
@@ -210,6 +211,7 @@ export async function POST(req: NextRequest) {
       const hasFixedCustomPath = customTarget.hasExplicitPath;
       const useUuidQueryFormat = balanceConfig?.useUuidQueryFormat ?? false;
       const uuidQueryValue = balanceConfig?.uuidQueryValue ?? "";
+      // 旧配置未保存完整 URL 时，继续优先使用此前成功的缓存路径，避免回归为全量探测。
       const canReuseCachedPath =
         Boolean(balanceConfig?.cachedPath) &&
         (!customBaseUrl ||
@@ -224,15 +226,12 @@ export async function POST(req: NextRequest) {
         signal: req.signal,
         useUuidQueryFormat,
         uuidQueryValue,
-        // UUID 查询格式优先，不走 customUrlOnly 模式
-        // 其他自定义 URL 模式才设置 customUrlOnly
+        // UUID 格式有固定 POST body，必须优先走服务端 UUID 分支；
+        // 其他已保存完整 URL 才按原样直查，旧配置继续保留兼容路径。
         ...(useUuidQueryFormat
+          ? {}
+          : customBalanceUrl
           ? {
-              // UUID 查询：使用服务端内置逻辑
-            }
-          : hasFixedCustomPath
-          ? {
-              // 自定义 URL：直接使用，只查询此路径
               cachedPath: customPath,
               cachedBaseUrl: customBaseUrl || profile.baseUrl,
               cachedAuthType: balanceConfig.cachedAuthType,
@@ -248,9 +247,7 @@ export async function POST(req: NextRequest) {
       };
 
       console.log(
-        `[Provider Balance] 查询配置: baseUrl=${
-          queryProfile.baseUrl
-        }, 自定义URL=${!!customBalanceUrl}, 固定路径=${hasFixedCustomPath}, 有缓存路径=${!!balanceConfig?.cachedPath}`,
+        `[Provider Balance] 查询配置：指定 URL=${!!customBalanceUrl}，固定路径=${hasFixedCustomPath}，有缓存路径=${!!balanceConfig?.cachedPath}`,
       );
 
       const balance = await queryProviderBalanceWithRetry(queryProfile);
@@ -279,7 +276,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         balance: balanceSnapshot,
-        attempts: attempts || [],
+        attempts: (attempts || []).map((attempt) => ({
+          ...attempt,
+          path: sanitizeBalancePath(attempt.path),
+        })),
         cachedPath,
         cachedBaseUrl,
       });
@@ -303,7 +303,12 @@ export async function POST(req: NextRequest) {
           error: errorMessage,
           balance: currentConfig?.balance,
           attempts:
-            error instanceof ProviderBalanceQueryError ? error.attempts : [],
+            error instanceof ProviderBalanceQueryError
+              ? error.attempts.map((attempt) => ({
+                  ...attempt,
+                  path: sanitizeBalancePath(attempt.path),
+                }))
+              : [],
         },
         { status: 502 },
       );

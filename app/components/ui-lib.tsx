@@ -9,7 +9,6 @@ import SelectorCheckIcon from "../icons/selector-check.svg";
 import CancelIcon from "../icons/cancel.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
-import BotIconDefault from "../icons/llm-icons/default.svg";
 
 import Locale from "../locales";
 import { getProviderIcon } from "../config/provider-icons";
@@ -1218,25 +1217,25 @@ export function Selector<T>(props: {
       "已添加",
       "Other",
     ].includes(group);
-  const getGroupBadgeText = (group: string) => {
-    if (group === "自定义模型" || group === "Custom Models") return "C";
-    if (/^[\u4e00-\u9fa5]/.test(group)) return group.slice(0, 2);
-    const compact = group.replace(/[^a-zA-Z0-9]/g, "");
-    return compact.slice(0, 1).toUpperCase() || group.slice(0, 1);
-  };
-  const renderDefaultGroupIcon = () => (
+  const renderDefaultGroupIcon = (isModelItem = false) => (
     <span
       className={clsx(
         "nextchat-selector-menu-icon-frame",
         styles["selector-group-filter-icon-custom-wrap"],
+        isModelItem &&
+          styles["selector-group-filter-icon-custom-wrap-model-default"],
       )}
     >
-      <BotIconDefault
+      <img
         className={clsx(
           "nextchat-selector-menu-icon-image",
           styles["selector-group-filter-icon-image"],
           styles["selector-group-filter-icon-image-custom"],
+          isModelItem &&
+            styles["selector-group-filter-icon-image-model-default"],
         )}
+        src="/llm-icons/default.png"
+        alt="model icon"
       />
     </span>
   );
@@ -1279,12 +1278,12 @@ export function Selector<T>(props: {
   const renderSelectorItemIcon = (item: SelectorItemBase<T>) => {
     const rawGroup = item.group?.trim();
     if (!rawGroup) {
-      return <Avatar model={String(item.value)} />;
+      return renderDefaultGroupIcon(true);
     }
 
     const visibleGroup = getGroupFilterLabel(rawGroup);
     if (isCustomModelGroup(rawGroup) || isCustomModelGroup(visibleGroup)) {
-      return renderGroupFilterIcon("Custom Models") ?? undefined;
+      return renderDefaultGroupIcon(true);
     }
     if (
       ["stepfun", "stepfun ai", "stepfun al", "suno"].includes(
@@ -1297,7 +1296,7 @@ export function Selector<T>(props: {
       return <Avatar model={visibleGroup} />;
     }
 
-    return renderDefaultGroupIcon();
+    return renderDefaultGroupIcon(true);
   };
   const stabilizeSelectorPosition = () => {
     requestAnimationFrame(() => {

@@ -47,7 +47,9 @@ export function hasExplicitProviderBalancePath(value?: string) {
   if (!trimmedValue) return false;
   try {
     const url = new URL(trimmedValue);
-    return Boolean(url.pathname.replace(/^\/+|\/+$/g, ""));
+    // 保存的是完整请求 URL 时，根路径或仅带查询参数同样是用户指定端点，
+    // 不能因为没有额外 pathname 而错误进入“未配置 URL”提示。
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return Boolean(trimmedValue.split(/[?#]/, 1)[0].replace(/^\/+|\/+$/g, ""));
   }
@@ -72,7 +74,7 @@ export function resolveProviderBalanceQueryTarget(
       return {
         baseUrl: url.origin,
         path,
-        hasExplicitPath: hasExplicitProviderBalancePath(path),
+        hasExplicitPath: hasExplicitProviderBalancePath(trimmedValue),
       };
     } catch {
       // 交给相对路径分支，以数据库 Base URL 继续校验和查询。

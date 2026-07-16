@@ -1,4 +1,5 @@
 import React from "react";
+import NextImage from "next/image";
 import EmojiPicker, {
   Emoji,
   EmojiStyle,
@@ -7,7 +8,6 @@ import EmojiPicker, {
 
 import { ModelType } from "../store";
 import { getProviderIcon } from "../config/provider-icons";
-import BotIconDefault from "../icons/llm-icons/default.svg";
 
 export const FIXED_USER_AVATAR = "__fixed_user_avatar__";
 
@@ -55,7 +55,13 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
     if (!localIcon) {
       return (
         <div className="no-dark">
-          <BotIconDefault className="user-avatar" />
+          <NextImage
+            className="user-avatar"
+            src="/llm-icons/default.png"
+            alt="default avatar"
+            width={30}
+            height={30}
+          />
         </div>
       );
     }

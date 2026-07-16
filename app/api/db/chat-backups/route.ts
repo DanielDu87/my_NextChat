@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import {
   createChatBackup,
+  createChatBackupBatch,
   deleteChatBackup,
   deleteChatBackupConversationSnapshot,
   getChatBackupDetail,
@@ -9,6 +11,7 @@ import {
   listChatBackupSummaries,
   restoreChatBackupConversation,
   saveChatBackupSettings,
+  saveChatBackupBatchMember,
 } from "@/app/utils/server/chat-backup-repository";
 import {
   AuthError,
@@ -99,52 +102,72 @@ async function resolveVisibleBackupUserId(
   return target.externalId;
 }
 
-async function getVisibleBackupSummary(req: NextRequest) {
-  const context = await requireAuthContext(req);
-  // 管理员或 bypass 模式才能看全用户汇总；普通用户只看自己
-  if (
-    !isAuthBypassEnabled() &&
-    context.actor.role !== "admin" &&
-    context.actor.id === context.effective.id
-  ) {
-    return listChatBackupSummaries([context.effective.externalId]);
-  }
-  return listChatBackupSummaries();
-}
-
 async function createAllUsersChatBackups(req: NextRequest) {
-  const context = await requireWritableAuthContext(req);
-  if (!isAuthBypassEnabled() && context.actor.role !== "admin") {
-    throw new AuthError("forbidden", 403);
-  }
+  await requireWritableAuthContext(req);
 
   const users = (await listManagedUsers()).filter(
     (user) => user.isActive && user.externalId,
   );
-  const results = [];
+  const results: Array<Record<string, unknown>> = [];
+  const batchId = randomUUID();
+  await createChatBackupBatch(batchId, "manual");
   for (const user of users) {
-    const result = await createChatBackup(user.externalId, "manual");
-    results.push({
-      userId: user.id,
-      externalId: user.externalId,
-      username: user.username,
-      displayName: user.displayName,
-      ...result,
-    });
+    try {
+      const result = await createChatBackup(user.externalId, "manual", {
+        batchId,
+      });
+      const status = result.created ? "created" : "skipped";
+      await saveChatBackupBatchMember(batchId, {
+        userId: user.id,
+        externalUserId: user.externalId,
+        status,
+        reason: result.reason,
+        sessionCount: result.sessionCount,
+        messageCount: result.messageCount,
+      });
+      results.push({
+        userId: user.id,
+        externalId: user.externalId,
+        username: user.username,
+        displayName: user.displayName,
+        status,
+        ...result,
+      });
+    } catch (error) {
+      await saveChatBackupBatchMember(batchId, {
+        userId: user.id,
+        externalUserId: user.externalId,
+        status: "failed",
+        reason: "backup_failed",
+      });
+      results.push({
+        userId: user.id,
+        externalId: user.externalId,
+        username: user.username,
+        displayName: user.displayName,
+        status: "failed",
+        created: false,
+        reason: "backup_failed",
+      });
+      console.error(
+        "[Chat Backup] 单个用户手动备份失败",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
-  return results;
+  return { batchId, results };
 }
 
 export async function GET(req: NextRequest) {
   try {
     const searchParams = new URL(req.url).searchParams;
     const requestedUserId = searchParams.get("userId") || "";
-    const userId = await resolveVisibleBackupUserId(req, requestedUserId);
+    const context = await requireAuthContext(req);
     const id = searchParams.get("id") || "";
     if (id) {
       const backup = await getChatBackupDetail(
-        userId,
+        undefined,
         id,
         searchParams.get("search") || "",
       );
@@ -157,14 +180,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: true, backup });
     }
 
-    const effectiveUserId =
-      requestedUserId && userId
-        ? userId
-        : (await requireAuthContext(req)).effective.externalId;
+    const effectiveUserId = requestedUserId
+      ? await resolveRequestedBackupUserId(req, requestedUserId, false)
+      : context.effective.externalId;
     const [settings, backups, summary] = await Promise.all([
       getChatBackupSettings(effectiveUserId),
-      listChatBackups(userId, searchParams.get("search") || ""),
-      getVisibleBackupSummary(req),
+      // 备份历史是全局审计视图，进入页面的任何用户都看到所有备份批次。
+      listChatBackups(undefined, searchParams.get("search") || ""),
+      listChatBackupSummaries(),
     ]);
     return NextResponse.json({ ok: true, settings, backups, summary });
   } catch (error) {
@@ -174,15 +197,11 @@ export async function GET(req: NextRequest) {
         error instanceof Error ? error.message : String(error),
       );
       const searchParams = new URL(req.url).searchParams;
-      const requestedUserId = searchParams.get("userId") || "";
-      const userId = requestedUserId
-        ? await resolveVisibleBackupUserId(req, requestedUserId)
-        : undefined;
       const backups = await listChatBackups(
-        userId,
+        undefined,
         searchParams.get("search") || "",
       );
-      const summary = await getVisibleBackupSummary(req);
+      const summary = await listChatBackupSummaries();
       return NextResponse.json(
         {
           ok: true,
@@ -227,8 +246,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "backup-all") {
-      const results = await createAllUsersChatBackups(req);
-      return NextResponse.json({ ok: true, results });
+      const result = await createAllUsersChatBackups(req);
+      return NextResponse.json({ ok: true, ...result });
     }
 
     if (action === "restore-conversation") {
@@ -250,12 +269,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, result });
     }
 
-    const userId = requestedUserId
-      ? await resolveRequestedBackupUserId(req, requestedUserId, true)
-      : await resolveRequestedBackupUserId(req, "", true);
-
-    const result = await createChatBackup(userId, "manual");
-    return NextResponse.json({ ok: true, result });
+    // 兼容旧调用：未声明 action 的手动备份同样固定覆盖所有活动用户。
+    const result = await createAllUsersChatBackups(req);
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return errorResponse(error);
   }

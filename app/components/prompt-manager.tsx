@@ -379,7 +379,7 @@ export function PromptManagerPage() {
           <IconButton
             icon={<EyeIcon />}
             text="查看并编辑"
-            className="nextchat-action-button"
+            className={`${styles.editButton} nextchat-primary-button`}
             onClick={() => openEditModal(prompt)}
           />
           <IconButton
@@ -457,8 +457,7 @@ export function PromptManagerPage() {
                 <IconButton
                   icon={<AddIcon />}
                   text="新增提示词"
-                  // nextchat-default-button 提供边框/背景/hover；本地 .addPromptButton 保留高度/padding/暗色适配
-                  className={`${styles.addPromptButton} nextchat-default-button`}
+                  className={`${styles.addPromptButton} nextchat-api-config-add-button nextchat-green-button`}
                   onClick={openCreateModal}
                 />
               </div>

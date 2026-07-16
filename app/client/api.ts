@@ -660,7 +660,9 @@ export function getHeaders(
       (headers as any)["x-remembered-api-key-group"] = rememberedApiKeyGroup;
     }
   } else if (!isLocal) {
-    console.log("[API Headers] 没有 fallback keys，无法重试");
+    logger.chat.log(
+      "[MultiKey] 当前 API 未配置备用 Key；仍可继续模型和供应商故障转移",
+    );
   }
 
   if (isCustom) {

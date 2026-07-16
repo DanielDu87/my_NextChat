@@ -1,4 +1,5 @@
 import { useDebouncedCallback } from "use-debounce";
+import NextImage from "next/image";
 import React, {
   Fragment,
   RefObject,
@@ -46,7 +47,6 @@ import PlayIcon from "../icons/play.svg";
 import RobotIcon from "../icons/robot.svg";
 import SizeIcon from "../icons/size.svg";
 import QualityIcon from "../icons/hd.svg";
-import BotIconDefault from "../icons/llm-icons/default.svg";
 import McpToolIcon from "../icons/tool.svg";
 import {
   BOT_HELLO,
@@ -4063,6 +4063,24 @@ function _Chat() {
 
     return resolveMessageModelSelection(latestAssistantMessage, apiProfiles);
   }, [apiProfiles, sessionMessages]);
+  const latestSuccessfulRetrySelection = useMemo(() => {
+    const latestSuccessfulRetryMessage = [...sessionMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.streaming &&
+          !message.isError &&
+          message.retryAttempts?.some(
+            (attempt) => attempt.status === "success",
+          ),
+      );
+
+    return resolveMessageModelSelection(
+      latestSuccessfulRetryMessage,
+      apiProfiles,
+    );
+  }, [apiProfiles, sessionMessages]);
   const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
   const accessStore = useAccessStore() as any;
   const currentProviderId = useMemo(() => {
@@ -4083,6 +4101,10 @@ function _Chat() {
       }),
     [apiProfiles, currentProviderId],
   );
+  const activeSuccessfulRetrySelection =
+    latestSuccessfulRetrySelection?.providerId === currentProviderId
+      ? latestSuccessfulRetrySelection
+      : null;
   const currentActiveProviderProfile = useMemo(
     () =>
       getActiveAccessProfile(
@@ -4167,10 +4189,29 @@ function _Chat() {
   })();
   const activeModelSelectorProviderDisplayName =
     activeModelSelectorProfile?.name || currentProviderDisplayName;
+  const successfulRetryBalanceProfile = useMemo(
+    () =>
+      activeSuccessfulRetrySelection
+        ? apiProfiles.find(
+            (profile) =>
+              profile.id === activeSuccessfulRetrySelection.profileId ||
+              getProfileProviderId(profile).toLowerCase() ===
+                activeSuccessfulRetrySelection.providerId,
+          )
+        : undefined,
+    [activeSuccessfulRetrySelection, apiProfiles],
+  );
   const balanceProfileId =
+    successfulRetryBalanceProfile?.id ||
+    activeSuccessfulRetrySelection?.profileId ||
     currentProfile?.id ||
     String((sessionMask.modelConfig as any)?.profileId || "") ||
     String((currentActiveProviderProfile as any)?.id || "");
+  const balanceProviderDisplayName =
+    successfulRetryBalanceProfile?.name ||
+    (activeSuccessfulRetrySelection
+      ? String(activeSuccessfulRetrySelection.providerName)
+      : activeModelSelectorProviderDisplayName);
   const balanceRefreshSignal = useMemo(() => {
     const latestCompletedAssistant = [...sessionMessages]
       .reverse()
@@ -4188,11 +4229,14 @@ function _Chat() {
     const selectionUpdatedAt = Number(
       (safeSession.mask as any)?.modelSelectionUpdatedAt || 0,
     );
-    return `${safeSession.id}:${currentProviderId}:${balanceProfileId}:${selectionUpdatedAt}:${replySignal}`;
+    const balanceProviderId =
+      activeSuccessfulRetrySelection?.providerId || currentProviderId;
+    return `${safeSession.id}:${balanceProviderId}:${balanceProfileId}:${selectionUpdatedAt}:${replySignal}`;
   }, [
     balanceProfileId,
     currentProviderId,
     isModelConfigSyncConfirmed,
+    activeSuccessfulRetrySelection,
     safeSession.mask,
     safeSession.id,
     sessionMessages,
@@ -6230,11 +6274,32 @@ function _Chat() {
   ]);
 
   const refreshTouchTriggeredRef = useRef(false);
-  const handleSessionRefresh = useCallback(() => {
+  const [isRefreshingTitle, setIsRefreshingTitle] = useState(false);
+  const handleSessionRefresh = useCallback(async () => {
+    if (isRefreshingTitle || isAssistantStreaming) {
+      return;
+    }
     forceScrollToBottom();
     showTopNotice(Locale.Chat.Actions.RefreshToast);
-    chatStore.summarizeSession(true, session);
-  }, [chatStore, forceScrollToBottom, session, showTopNotice]);
+    setIsRefreshingTitle(true);
+    try {
+      const success = await chatStore.summarizeSession(true, session);
+      if (success) {
+        const latestTitle =
+          chatStore.getSessionById(session.id)?.topic || session.topic;
+        showTopNotice(`标题已更新：${latestTitle}`);
+      }
+    } finally {
+      setIsRefreshingTitle(false);
+    }
+  }, [
+    chatStore,
+    forceScrollToBottom,
+    isAssistantStreaming,
+    isRefreshingTitle,
+    session,
+    showTopNotice,
+  ]);
 
   const pauseStreamingAutoScrollForUser = useCallback(
     (durationMs = 6000, freezeCurrentPosition = true) => {
@@ -9101,7 +9166,7 @@ function _Chat() {
     },
     code: (text) => {
       if (accessStore.disableFastLink) return;
-      console.log("[Command] got code from url: ", text);
+      // URL 中的访问码属于敏感信息，不能写入浏览器控制台。
       showConfirm(Locale.URLCommand.Code + `code = ${text}`).then((res) => {
         if (res) {
           accessStore.update((access: any) => (access.accessCode = text));
@@ -9117,7 +9182,7 @@ function _Chat() {
           url?: string;
         };
 
-        console.log("[Command] got settings from url: ", payload);
+        // payload 可能包含 API Key；只在确认弹窗中展示，不记录到控制台。
 
         if (payload.key || payload.url) {
           showConfirm(
@@ -9141,7 +9206,7 @@ function _Chat() {
           });
         }
       } catch {
-        console.error("[Command] failed to get settings from url: ", text);
+        console.error("[Command] failed to parse settings from url");
       }
     },
   });
@@ -9849,6 +9914,7 @@ function _Chat() {
                 "window-action-button",
                 styles["chat-window-action-button"],
               )}
+              style={isMobileScreen ? undefined : { display: "none" }}
             >
               <IconButton
                 icon={isMobileScreen ? <AddIcon /> : <ReloadIcon />}
@@ -9857,6 +9923,8 @@ function _Chat() {
                     ? undefined
                     : isMobileScreen
                     ? Locale.Home.NewChat
+                    : isRefreshingTitle
+                    ? "刷新中"
                     : "刷新标题"
                 }
                 title={isMobileScreen ? Locale.Home.NewChat : "刷新标题"}
@@ -9879,7 +9947,12 @@ function _Chat() {
                   }
                   handleSessionRefresh();
                 }}
-                disabled={false}
+                disabled={
+                  !isMobileScreen &&
+                  (isRefreshingTitle ||
+                    isAssistantStreaming ||
+                    !currentSessionHasMessages)
+                }
               />
             </div>
             <div
@@ -9944,9 +10017,7 @@ function _Chat() {
                         <UserMenu
                           variant="chat-floating"
                           balanceProfileId={balanceProfileId}
-                          balanceProviderName={
-                            activeModelSelectorProviderDisplayName
-                          }
+                          balanceProviderName={balanceProviderDisplayName}
                           balanceRefreshSignal={balanceRefreshSignal}
                         />
                       </div>
@@ -9955,9 +10026,7 @@ function _Chat() {
                         <UserMenu
                           variant="chat-floating"
                           balanceProfileId={balanceProfileId}
-                          balanceProviderName={
-                            activeModelSelectorProviderDisplayName
-                          }
+                          balanceProviderName={balanceProviderDisplayName}
                           balanceRefreshSignal={balanceRefreshSignal}
                         />
                       </>
@@ -11711,15 +11780,15 @@ function _Chat() {
                             )}
                           >
                             <div className="no-dark">
-                              <BotIconDefault
+                              <NextImage
                                 className={clsx(
                                   "model-selector-provider-default-icon",
                                   "nextchat-selector-menu-icon-image",
                                 )}
-                                width={16}
-                                height={16}
-                                viewBox="0 0 30 30"
-                                preserveAspectRatio="xMidYMid meet"
+                                src="/llm-icons/default.png"
+                                alt="model icon"
+                                width={30}
+                                height={30}
                               />
                             </div>
                           </span>

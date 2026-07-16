@@ -44,6 +44,11 @@ export const ChatControllerPool = {
     return Boolean(this.controllers[key]);
   },
 
+  hasSession(sessionId: string) {
+    const prefix = `${sessionId},`;
+    return Object.keys(this.controllers).some((key) => key.startsWith(prefix));
+  },
+
   remove(sessionId: string, messageId: string) {
     const key = this.key(sessionId, messageId);
     delete this.controllers[key];

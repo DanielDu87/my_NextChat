@@ -1159,14 +1159,33 @@ function triggerTitleSync() {
   });
 }
 
-function applyGeneratedSessionTitle(targetSession: ChatSession, title: string) {
+function applyGeneratedSessionTitle(
+  targetSession: ChatSession,
+  title: string,
+  requestVersion?: string,
+) {
   const nextTitle = trimTopic(title);
   if (!nextTitle) {
     return false;
   }
 
-  useChatStore.getState().updateTargetSession(targetSession, (session) => {
+  const latestSession = useChatStore
+    .getState()
+    .getSessionById(targetSession.id);
+  if (
+    !latestSession ||
+    (requestVersion &&
+      getSessionTitleRequestVersion(latestSession) !== requestVersion)
+  ) {
+    logger.chat.log("⏭️ 标题结果已过期，跳过写回:", {
+      对话ID: targetSession.id,
+    });
+    return false;
+  }
+
+  useChatStore.getState().updateTargetSession(latestSession, (session) => {
     session.topic = nextTitle;
+    session.mask.name = nextTitle;
     session.titleGeneratedByAI = true;
     session.titleFallbackText = "";
     session.titleGeneratedMessageCount = session.messages.length;
@@ -1182,7 +1201,22 @@ function applyGeneratedSessionTitle(targetSession: ChatSession, title: string) {
 }
 
 const pendingTitleBackfillSessionIds = new Set<string>();
+const pendingTitleGenerationSessionIds = new Set<string>();
 const pendingMemorySummarySessionIds = new Set<string>();
+
+function getSessionTitleRequestVersion(session: ChatSession) {
+  const modelConfig = session.mask.modelConfig;
+  const lastMessage = session.messages.at(-1);
+  return [
+    session.messages.length,
+    lastMessage?.id || "",
+    lastMessage?.date || "",
+    modelConfig.model || "",
+    modelConfig.providerName || "",
+    String((modelConfig as any).providerId || ""),
+    String((modelConfig as any).profileId || ""),
+  ].join("\u0000");
+}
 
 function isSessionFallbackTitle(session: ChatSession) {
   const currentTopic = String(session.topic || "").trim();
@@ -1220,7 +1254,12 @@ function scheduleSessionTitleBackfill(sessionId: string, delayMs = 1200) {
 
     const store = useChatStore.getState();
     const session = store.getSessionById(sessionId);
-    if (!session || !shouldBackfillSessionTitle(session)) {
+    if (
+      !session ||
+      ChatControllerPool.hasSession(sessionId) ||
+      pendingTitleGenerationSessionIds.has(sessionId) ||
+      !shouldBackfillSessionTitle(session)
+    ) {
       return;
     }
 
@@ -1411,6 +1450,18 @@ function getChatFailureLogReason(reason: unknown) {
   );
 }
 
+function isTransientTitleRequestFailure(reason: unknown) {
+  const message = String(
+    reason instanceof Error ? reason.message : reason || "",
+  ).toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("network error") ||
+    message.includes("empty response") ||
+    message.includes("err_empty_response")
+  );
+}
+
 function logRequestBanner(
   kind: "chat" | "title",
   payload: {
@@ -1426,7 +1477,7 @@ function logRequestBanner(
   logger.chat.log(
     kind === "chat"
       ? `🔄 对话请求尝试 ${payload.attempt || ""}:`
-      : "🏷️ 标题请求开始:",
+      : `🏷️ 标题请求开始 ${payload.attempt || ""}:`,
     {
       尝试: payload.attempt,
       供应商: payload.profileName || payload.provider,
@@ -1441,104 +1492,176 @@ function logRequestBanner(
 async function refreshSessionTitle(targetSession: ChatSession) {
   const session =
     useChatStore.getState().getSessionById(targetSession.id) ?? targetSession;
-  const modelConfig = session.mask.modelConfig;
-  const messages = session.messages;
-  const candidates = getRefreshTitleCandidates(session);
-
-  if (messages.length === 0) {
-    showToast("没有可用于刷新标题的对话内容");
+  if (pendingTitleGenerationSessionIds.has(session.id)) {
+    logger.chat.log("⏭️ 标题请求已在进行，跳过重复刷新:", {
+      对话ID: session.id,
+    });
     return false;
   }
+  pendingTitleGenerationSessionIds.add(session.id);
+  try {
+    const modelConfig = session.mask.modelConfig;
+    const messages = session.messages;
+    const candidates = getRefreshTitleCandidates(session);
+    const requestVersion = getSessionTitleRequestVersion(session);
 
-  const titleSourceMessages = messages.filter(
-    (message) =>
-      !message.isError && Boolean(getMessageTextContent(message).trim()),
-  );
-  const startIndex = Math.max(
-    0,
-    titleSourceMessages.length - modelConfig.historyMessageCount,
-  );
-  const topicMessages = titleSourceMessages
-    .slice(
-      startIndex < titleSourceMessages.length
-        ? startIndex
-        : titleSourceMessages.length - 1,
-      titleSourceMessages.length,
-    )
-    .concat(
-      createMessage({
-        role: "user",
-        content: Locale.Store.Prompt.Topic,
-      }),
+    if (messages.length === 0) {
+      showToast("没有可用于刷新标题的对话内容");
+      return false;
+    }
+
+    const titleSourceMessages = messages.filter(
+      (message) =>
+        !message.isError && Boolean(getMessageTextContent(message).trim()),
     );
-
-  for (const candidate of candidates) {
-    logger.chat.log("正在尝试标题候选模型:", {
-      模型: candidate.model,
-      供应商ID: candidate.providerId,
-      配置名称: candidate.profile?.name,
-      配置地址: candidate.profile?.baseUrl,
-      是否有配置: !!candidate.profile,
-    });
-
-    const api: ClientApi = getClientApi(
-      candidate.providerName as ServiceProvider,
+    const startIndex = Math.max(
+      0,
+      titleSourceMessages.length - modelConfig.historyMessageCount,
     );
-
-    try {
-      const result = await withTemporaryCustomProfile(
-        candidate.profile,
-        async () => {
-          let success = false;
-          let providerBalanceExhausted = false;
-
-          await api.llm.chat({
-            messages: topicMessages,
-            config: {
-              model: candidate.model,
-              stream: false,
-              providerName: candidate.providerName,
-            },
-            onFinish(message, responseRes) {
-              success =
-                responseRes?.status === 200 &&
-                Boolean(trimTopic(message || ""));
-              if (!success) {
-                providerBalanceExhausted = isProviderBalanceFailure(
-                  message,
-                  responseRes?.status,
-                );
-              }
-
-              if (success) {
-                success = applyGeneratedSessionTitle(session, message);
-              }
-            },
-            onError(err) {
-              providerBalanceExhausted = isProviderBalanceFailure(err);
-              logger.chat.error("刷新标题出错:", err);
-            },
-          });
-
-          return { success, providerBalanceExhausted };
-        },
+    const topicMessages = titleSourceMessages
+      .slice(
+        startIndex < titleSourceMessages.length
+          ? startIndex
+          : titleSourceMessages.length - 1,
+        titleSourceMessages.length,
+      )
+      .concat(
+        createMessage({
+          role: "user",
+          content: Locale.Store.Prompt.Topic,
+        }),
       );
 
-      if (result.success) {
-        return true;
-      }
-      if (result.providerBalanceExhausted) {
-        logger.chat.log("💳 当前对话模型余额或额度不足，标题生成停止:", {
-          当前供应商: candidate.profile?.name || candidate.providerName,
-        });
-      }
-    } catch (error) {
-      logger.chat.error("刷新标题候选模型失败", candidate, error);
-    }
-  }
+    for (const candidate of candidates) {
+      logger.chat.log("正在尝试标题候选模型:", {
+        模型: candidate.model,
+        供应商ID: candidate.providerId,
+        配置名称: candidate.profile?.name,
+        配置地址: candidate.profile?.baseUrl,
+        是否有配置: !!candidate.profile,
+      });
 
-  showToast("标题刷新失败：当前对话模型不可用，请检查模型或 API 配置");
-  return false;
+      const api: ClientApi = getClientApi(
+        candidate.providerName as ServiceProvider,
+      );
+      const titleRequestConfig = {
+        ...modelConfig,
+        model: candidate.model as ModelType,
+        stream: false,
+        providerName: candidate.providerName,
+      };
+      (titleRequestConfig as any).providerId = candidate.providerId;
+      (titleRequestConfig as any).profileId = candidate.profile?.id || "";
+
+      try {
+        const result = await withTemporaryCustomProfile(
+          candidate.profile,
+          async () => {
+            let success = false;
+            let providerBalanceExhausted = false;
+            let finalError: unknown;
+
+            for (
+              let requestAttempt = 1;
+              requestAttempt <= 2;
+              requestAttempt++
+            ) {
+              let requestError: unknown;
+              try {
+                await api.llm.chat({
+                  messages: topicMessages,
+                  config: titleRequestConfig,
+                  onRequest(request) {
+                    logRequestBanner("title", {
+                      model: request.model,
+                      provider: request.provider,
+                      baseUrl: request.baseUrl,
+                      chatPath: request.chatPath,
+                      stream: request.stream,
+                      profileName: candidate.profile?.name || null,
+                      attempt: `${requestAttempt}/2（手动）`,
+                    });
+                  },
+                  onFinish(message, responseRes) {
+                    success =
+                      responseRes?.status === 200 &&
+                      Boolean(trimTopic(message || ""));
+                    if (!success) {
+                      providerBalanceExhausted = isProviderBalanceFailure(
+                        message,
+                        responseRes?.status,
+                      );
+                    }
+
+                    if (success) {
+                      success = applyGeneratedSessionTitle(
+                        session,
+                        message,
+                        requestVersion,
+                      );
+                    }
+                  },
+                  onError(err) {
+                    requestError = err;
+                    providerBalanceExhausted = isProviderBalanceFailure(err);
+                  },
+                });
+              } catch (error) {
+                requestError = error;
+              }
+
+              if (success || providerBalanceExhausted) {
+                break;
+              }
+              finalError = requestError;
+              if (
+                requestAttempt >= 2 ||
+                !isTransientTitleRequestFailure(requestError)
+              ) {
+                break;
+              }
+              logger.chat.log("🔄 手动标题网络请求失败，准备重试:", {
+                供应商: candidate.profile?.name || candidate.providerName,
+                模型: candidate.model,
+                原因: getChatFailureLogReason(requestError),
+              });
+              await new Promise((resolve) => setTimeout(resolve, 400));
+            }
+
+            if (!success && finalError) {
+              logger.chat.error("手动刷新标题出错:", finalError);
+            }
+
+            return { success, providerBalanceExhausted };
+          },
+        );
+
+        if (result.success) {
+          const latestTitle =
+            useChatStore.getState().getSessionById(session.id)?.topic ||
+            session.topic;
+          logger.chat.log("✅ 手动标题更新成功:", {
+            供应商: candidate.profile?.name || candidate.providerName,
+            模型: candidate.model,
+            标题: latestTitle,
+          });
+          return true;
+        }
+        if (result.providerBalanceExhausted) {
+          logger.chat.log("💳 当前对话模型余额或额度不足，标题生成停止:", {
+            当前供应商: candidate.profile?.name || candidate.providerName,
+          });
+        }
+      } catch (error) {
+        logger.chat.error("刷新标题候选模型失败", candidate, error);
+      }
+    }
+
+    showToast("标题刷新失败：当前对话模型不可用，请检查模型或 API 配置");
+    return false;
+  } finally {
+    pendingTitleGenerationSessionIds.delete(session.id);
+  }
 }
 
 function withTemporaryCustomProfile<T>(
@@ -3140,6 +3263,10 @@ export const useChatStore = createPersistStore(
             model: candidate.model as ModelType,
             providerName: candidate.providerName,
           });
+          (candidateConfig as any).providerId = candidate.providerId;
+          (candidateConfig as any).profileId = String(
+            candidateProfile?.id || "",
+          );
 
           if (attemptIndex > 0) {
             botMessage.retrying = true;
@@ -3713,8 +3840,7 @@ export const useChatStore = createPersistStore(
         }
 
         if (refreshTitle) {
-          void refreshSessionTitle(session);
-          return;
+          return refreshSessionTitle(session);
         }
 
         // remove error messages if any
@@ -3724,114 +3850,181 @@ export const useChatStore = createPersistStore(
           config.enableAutoGenerateTitle &&
           shouldAutoRefreshSessionTitle(session)
         ) {
-          const titleSourceMessages = messages.filter(
-            (message) =>
-              !message.isError &&
-              Boolean(getMessageTextContent(message).trim()),
-          );
-          const startIndex = Math.max(
-            0,
-            titleSourceMessages.length - modelConfig.historyMessageCount,
-          );
-          const topicMessages = titleSourceMessages
-            .slice(
-              startIndex < titleSourceMessages.length
-                ? startIndex
-                : titleSourceMessages.length - 1,
-              titleSourceMessages.length,
-            )
-            .concat(
-              createMessage({
-                role: "user",
-                content: Locale.Store.Prompt.Topic,
-              }),
-            );
-
-          // 标题只使用当前对话最终模型，不额外切换模型或供应商。
-          const candidates = getRefreshTitleCandidates(session);
-          logChatDebug(
-            "[自动生成标题] 正在尝试",
-            candidates.length,
-            "个候选模型",
-          );
-
-          for (const candidate of candidates) {
-            logChatDebug("[自动生成标题] 正在尝试候选模型:", {
-              模型: candidate.model,
-              供应商ID: candidate.providerId,
-              配置名称: candidate.profile?.name,
-              配置地址: candidate.profile?.baseUrl,
-              是否有配置: !!candidate.profile,
+          if (pendingTitleGenerationSessionIds.has(session.id)) {
+            logger.chat.log("⏭️ 标题请求已在进行，跳过重复自动生成:", {
+              对话ID: session.id,
             });
-
-            const candidateApi: ClientApi = getClientApi(
-              candidate.providerName as ServiceProvider,
-            );
-
+          } else {
+            pendingTitleGenerationSessionIds.add(session.id);
             try {
-              const result = await withTemporaryCustomProfile(
-                candidate.profile,
-                async () => {
-                  let success = false;
-                  let providerBalanceExhausted = false;
+              const requestVersion = getSessionTitleRequestVersion(session);
+              const titleSourceMessages = messages.filter(
+                (message) =>
+                  !message.isError &&
+                  Boolean(getMessageTextContent(message).trim()),
+              );
+              const startIndex = Math.max(
+                0,
+                titleSourceMessages.length - modelConfig.historyMessageCount,
+              );
+              const topicMessages = titleSourceMessages
+                .slice(
+                  startIndex < titleSourceMessages.length
+                    ? startIndex
+                    : titleSourceMessages.length - 1,
+                  titleSourceMessages.length,
+                )
+                .concat(
+                  createMessage({
+                    role: "user",
+                    content: Locale.Store.Prompt.Topic,
+                  }),
+                );
 
-                  await candidateApi.llm.chat({
-                    messages: topicMessages,
-                    config: {
-                      model: candidate.model,
-                      stream: false,
-                      providerName: candidate.providerName,
-                    },
-                    onRequest(request) {
-                      logRequestBanner("title", {
-                        model: request.model,
-                        provider: request.provider,
-                        baseUrl: request.baseUrl,
-                        chatPath: request.chatPath,
-                        stream: request.stream,
-                        profileName: candidate.profile?.name || null,
-                      });
-                    },
-                    onFinish(message, responseRes) {
-                      success =
-                        responseRes?.status === 200 &&
-                        Boolean(trimTopic(message || ""));
-                      if (!success) {
-                        providerBalanceExhausted = isProviderBalanceFailure(
-                          message,
-                          responseRes?.status,
+              // 标题只使用当前对话最终模型，不额外切换模型或供应商。
+              const candidates = getRefreshTitleCandidates(session);
+              logChatDebug(
+                "[自动生成标题] 正在尝试",
+                candidates.length,
+                "个候选模型",
+              );
+
+              for (const candidate of candidates) {
+                logChatDebug("[自动生成标题] 正在尝试候选模型:", {
+                  模型: candidate.model,
+                  供应商ID: candidate.providerId,
+                  配置名称: candidate.profile?.name,
+                  配置地址: candidate.profile?.baseUrl,
+                  是否有配置: !!candidate.profile,
+                });
+
+                const candidateApi: ClientApi = getClientApi(
+                  candidate.providerName as ServiceProvider,
+                );
+
+                try {
+                  const result = await withTemporaryCustomProfile(
+                    candidate.profile,
+                    async () => {
+                      let success = false;
+                      let providerBalanceExhausted = false;
+                      let finalError: unknown;
+                      const titleRequestConfig = {
+                        ...modelConfig,
+                        model: candidate.model as ModelType,
+                        stream: false,
+                        providerName: candidate.providerName,
+                      };
+                      (titleRequestConfig as any).providerId =
+                        candidate.providerId;
+                      (titleRequestConfig as any).profileId =
+                        candidate.profile?.id || "";
+
+                      for (
+                        let requestAttempt = 1;
+                        requestAttempt <= 2;
+                        requestAttempt++
+                      ) {
+                        let requestError: unknown;
+                        try {
+                          await candidateApi.llm.chat({
+                            messages: topicMessages,
+                            config: titleRequestConfig,
+                            onRequest(request) {
+                              logRequestBanner("title", {
+                                model: request.model,
+                                provider: request.provider,
+                                baseUrl: request.baseUrl,
+                                chatPath: request.chatPath,
+                                stream: request.stream,
+                                profileName: candidate.profile?.name || null,
+                                attempt: `${requestAttempt}/2`,
+                              });
+                            },
+                            onFinish(message, responseRes) {
+                              success =
+                                responseRes?.status === 200 &&
+                                Boolean(trimTopic(message || ""));
+                              if (!success) {
+                                providerBalanceExhausted =
+                                  isProviderBalanceFailure(
+                                    message,
+                                    responseRes?.status,
+                                  );
+                              }
+
+                              if (success) {
+                                success = applyGeneratedSessionTitle(
+                                  session,
+                                  message,
+                                  requestVersion,
+                                );
+                              }
+                            },
+                            onError(err) {
+                              requestError = err;
+                              providerBalanceExhausted =
+                                isProviderBalanceFailure(err);
+                            },
+                          });
+                        } catch (error) {
+                          requestError = error;
+                        }
+
+                        if (success || providerBalanceExhausted) {
+                          break;
+                        }
+                        finalError = requestError;
+                        if (
+                          requestAttempt >= 2 ||
+                          !isTransientTitleRequestFailure(requestError)
+                        ) {
+                          break;
+                        }
+                        logger.chat.log("🔄 自动标题网络请求失败，准备重试:", {
+                          供应商:
+                            candidate.profile?.name || candidate.providerName,
+                          模型: candidate.model,
+                          原因: getChatFailureLogReason(requestError),
+                        });
+                        await new Promise((resolve) =>
+                          setTimeout(resolve, 400),
                         );
                       }
 
-                      if (success) {
-                        success = applyGeneratedSessionTitle(session, message);
+                      if (!success && finalError) {
+                        logger.chat.error("自动生成标题出错:", finalError);
                       }
-                    },
-                    onError(err) {
-                      providerBalanceExhausted = isProviderBalanceFailure(err);
-                      logger.chat.error("自动生成标题出错:", err);
-                    },
-                  });
 
-                  return { success, providerBalanceExhausted };
-                },
-              );
+                      return { success, providerBalanceExhausted };
+                    },
+                  );
 
-              if (result.success) {
-                logChatDebug("[自动生成标题] 标题生成成功");
-                break;
+                  if (result.success) {
+                    const latestTitle =
+                      get().getSessionById(session.id)?.topic || session.topic;
+                    logger.chat.log("✅ 自动标题更新成功:", {
+                      供应商: candidate.profile?.name || candidate.providerName,
+                      模型: candidate.model,
+                      标题: latestTitle,
+                    });
+                    break;
+                  }
+                  if (result.providerBalanceExhausted) {
+                    logger.chat.log(
+                      "💳 当前对话模型余额或额度不足，自动标题生成停止:",
+                      {
+                        当前供应商:
+                          candidate.profile?.name || candidate.providerName,
+                      },
+                    );
+                  }
+                } catch (error) {
+                  logger.chat.error("自动生成标题候选模型失败", error);
+                }
               }
-              if (result.providerBalanceExhausted) {
-                logger.chat.log(
-                  "💳 当前对话模型余额或额度不足，自动标题生成停止:",
-                  {
-                    当前供应商:
-                      candidate.profile?.name || candidate.providerName,
-                  },
-                );
-              }
-            } catch (error) {
-              logger.chat.error("自动生成标题候选模型失败", error);
+            } finally {
+              pendingTitleGenerationSessionIds.delete(session.id);
             }
           }
         }

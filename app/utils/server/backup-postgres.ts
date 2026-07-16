@@ -23,7 +23,7 @@ declare global {
   var __nextchatBackupStorageSchemaVersion: string | undefined;
 }
 
-const BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-09-backup-database";
+const BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-16-chat-backup-batch-audit";
 
 function toBoolean(value?: string) {
   if (!value) return false;
@@ -271,6 +271,7 @@ export async function ensureBackupStorageSchema() {
         await client.query(`
         create table if not exists backup_chat_runs (
           id uuid primary key default generate_uuid_v4(),
+          batch_id uuid,
           user_id uuid not null,
           external_user_id text,
           source text not null check (source in ('manual', 'auto')),
@@ -283,9 +284,41 @@ export async function ensureBackupStorageSchema() {
           created_at timestamptz not null default now()
         )
       `);
+        // 同一轮全员备份共用 batch_id；历史行保持 null，避免把过去独立备份误合并。
+        await client.query(
+          "alter table backup_chat_runs add column if not exists batch_id uuid",
+        );
         await client.query(`
         create index if not exists idx_backup_chat_runs_user_created
         on backup_chat_runs(user_id, created_at desc)
+      `);
+        await client.query(`
+        create index if not exists idx_backup_chat_runs_batch_created
+        on backup_chat_runs(batch_id, created_at desc)
+      `);
+        await client.query(`
+        create table if not exists backup_chat_batches (
+          id uuid primary key,
+          source text not null check (source in ('manual', 'auto')),
+          created_at timestamptz not null default now()
+        )
+      `);
+        await client.query(`
+        create table if not exists backup_chat_batch_members (
+          batch_id uuid not null references backup_chat_batches(id) on delete cascade,
+          user_id uuid not null,
+          external_user_id text,
+          status text not null check (status in ('created', 'skipped', 'failed')),
+          reason text,
+          session_count integer not null default 0,
+          message_count integer not null default 0,
+          created_at timestamptz not null default now(),
+          primary key (batch_id, user_id)
+        )
+      `);
+        await client.query(`
+        create index if not exists idx_backup_chat_batch_members_batch
+        on backup_chat_batch_members(batch_id, created_at asc)
       `);
         await client.query(`
         create table if not exists backup_chat_conversation_snapshots (

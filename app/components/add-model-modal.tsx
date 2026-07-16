@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import NextImage from "next/image";
 import { useAppConfig } from "../store/config";
 import { useModelCacheStore } from "../store/model-cache";
 import { Selector } from "./ui-lib";
@@ -17,7 +18,6 @@ import { pruneMissingAddedModelsWithDetails } from "../utils/model-added-prune";
 import { LLMModel } from "../client/api";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
-import BotIconDefault from "../icons/llm-icons/default.svg";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 import {
   isModelIdentifierStoredAsVendor,
@@ -866,15 +866,15 @@ export function AddModelSelector(props: {
                       )}
                     >
                       <div className="no-dark">
-                        <BotIconDefault
+                        <NextImage
                           className={clsx(
                             "model-selector-provider-default-icon",
                             "nextchat-selector-menu-icon-image",
                           )}
-                          width={16}
-                          height={16}
-                          viewBox="0 0 30 30"
-                          preserveAspectRatio="xMidYMid meet"
+                          src="/llm-icons/default.png"
+                          alt="model icon"
+                          width={30}
+                          height={30}
                         />
                       </div>
                     </span>

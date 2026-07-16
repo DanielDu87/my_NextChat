@@ -1,6 +1,11 @@
 import { listManagedUsers } from "./auth";
-import { createChatBackup } from "./chat-backup-repository";
+import {
+  createChatBackup,
+  createChatBackupBatch,
+  saveChatBackupBatchMember,
+} from "./chat-backup-repository";
 import { cleanupLegacyMainDbBackupTables } from "./postgres";
+import { randomUUID } from "crypto";
 
 const SCHEDULER_TICK_MS = 60_000;
 
@@ -18,26 +23,103 @@ async function runChatBackupScheduler() {
     const users = (await listManagedUsers()).filter(
       (user) => user.isActive && user.externalId,
     );
-    let succeeded = 0;
-    let failed = 0;
+    const userResults: Array<{
+      name: string;
+      status:
+        | "created"
+        | "interval"
+        | "no_changes"
+        | "disabled"
+        | "other"
+        | "failed";
+      sessions?: number;
+      messages?: number;
+      error?: string;
+    }> = [];
+    // 一次扫描代表一个全员自动备份轮次，即使部分用户因间隔或无变更跳过也可追溯。
+    const batchId = randomUUID();
+    await createChatBackupBatch(batchId, "auto");
     for (const user of users) {
+      const userName =
+        user.displayName || user.username || user.externalId || "未知用户";
       try {
-        await createChatBackup(user.externalId, "auto");
-        succeeded += 1;
+        const result = await createChatBackup(user.externalId, "auto", {
+          batchId,
+        });
+        if (result.created) {
+          userResults.push({
+            name: userName,
+            status: "created",
+            sessions: result.sessionCount,
+            messages: result.messageCount,
+          });
+          await saveChatBackupBatchMember(batchId, {
+            userId: user.id,
+            externalUserId: user.externalId,
+            status: "created",
+            sessionCount: result.sessionCount,
+            messageCount: result.messageCount,
+          });
+        } else if (result.reason === "interval") {
+          userResults.push({ name: userName, status: "interval" });
+        } else if (result.reason === "no_changes") {
+          userResults.push({ name: userName, status: "no_changes" });
+        } else if (result.reason === "disabled") {
+          userResults.push({ name: userName, status: "disabled" });
+        } else {
+          userResults.push({ name: userName, status: "other" });
+        }
+        if (!result.created) {
+          await saveChatBackupBatchMember(batchId, {
+            userId: user.id,
+            externalUserId: user.externalId,
+            status: "skipped",
+            reason: result.reason || "other",
+          });
+        }
       } catch (userError) {
-        failed += 1;
-        console.error(
-          `[Chat Backup Scheduler] 用户 ${user.username}(${user.id}) 备份失败`,
-          userError instanceof Error
-            ? userError.stack || userError.message
-            : String(userError),
-        );
+        userResults.push({
+          name: userName,
+          status: "failed",
+          error:
+            userError instanceof Error ? userError.message : String(userError),
+        });
+        await saveChatBackupBatchMember(batchId, {
+          userId: user.id,
+          externalUserId: user.externalId,
+          status: "failed",
+          reason: "backup_failed",
+        });
       }
     }
     if (users.length > 0) {
+      const created = userResults.filter((r) => r.status === "created").length;
+      const skipped = userResults.filter((r) =>
+        ["interval", "no_changes", "disabled", "other"].includes(r.status),
+      ).length;
+      const failed = userResults.filter((r) => r.status === "failed").length;
       console.log(
-        `[Chat Backup Scheduler] 本轮备份完成：${succeeded} 成功 / ${failed} 失败 / 共 ${users.length} 用户`,
+        `[Chat Backup Scheduler] 本轮扫描完成（${created} 已创建 / ${skipped} 跳过 / ${failed} 失败 / 共 ${users.length} 用户）：`,
       );
+      userResults.forEach((r) => {
+        if (r.status === "created") {
+          console.log(
+            `  - ${r.name}：已创建（${r.sessions} 会话 / ${r.messages} 消息）`,
+          );
+        } else if (r.status === "failed") {
+          console.error(`  - ${r.name}：失败 - ${r.error}`);
+        } else {
+          const reasons: Record<string, string> = {
+            interval: "未到间隔",
+            no_changes: "无变更",
+            disabled: "已关闭",
+            other: "其他跳过",
+          };
+          console.log(
+            `  - ${r.name}：跳过（${reasons[r.status] || r.status}）`,
+          );
+        }
+      });
     }
     // 备份完成后顺带清理主业务库遗留的旧备份表（进程内只执行一次）
     await cleanupLegacyMainDbBackupTables();

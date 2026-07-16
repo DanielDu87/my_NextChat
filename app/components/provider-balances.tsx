@@ -382,7 +382,7 @@ export function ProviderBalancesPage() {
     );
     console.log(
       `[Provider Balance] 🔄 开始查询余额：${profileName}（模式：${
-        queryMode === "custom" ? "自定义路径" : "自动探测"
+        queryMode === "custom" ? "指定 URL" : "兼容已有配置"
       }）`,
     );
     setQueryStatusMap((value) => ({
@@ -624,7 +624,7 @@ export function ProviderBalancesPage() {
 
     try {
       // 所有供应商并发查询；单个上游请求和重试由服务端统一限时，
-      // 前端不再用 30 秒总超时截断尚未走完的自动探测队列。
+      // 前端不再用 30 秒总超时截断尚未走完的兼容查询队列。
       const queryPromises = queryableProfiles.map(async (profile) => {
         try {
           await queryOne(profile.profileId, {
@@ -683,24 +683,6 @@ export function ProviderBalancesPage() {
           </div>
         </div>
       </div>
-      <div className={styles.batchActionBar}>
-        <div className={styles.headerBatchAction}>
-          <IconButton
-            icon={<ReloadIcon />}
-            text="全部查询"
-            type="green"
-            className={styles.actionButton}
-            disabled={
-              isLoading ||
-              working === "all" ||
-              savingProfileIds.length > 0 ||
-              (profiles.length > 0 &&
-                queryingProfileIds.length === profiles.length)
-            }
-            onClick={() => void queryAll()}
-          />
-        </div>
-      </div>
       <div className={styles.content}>
         <form
           className={styles.autofillTrap}
@@ -720,7 +702,7 @@ export function ProviderBalancesPage() {
             tabIndex={-1}
           />
         </form>
-        <div className={styles.mobileBatchAction}>
+        <div className={styles.batchAction}>
           <IconButton
             icon={<ReloadIcon />}
             text="全部查询"
@@ -1073,8 +1055,8 @@ export function ProviderBalancesPage() {
                         const failAtts = atts.filter((a) => !a.ok);
                         const modeTag =
                           status.mode === "custom"
-                            ? "（自定义路径）"
-                            : "（自动探测）";
+                            ? "（指定 URL）"
+                            : "（兼容已有配置）";
                         return (
                           <div className={styles.attemptsLog}>
                             <div className={styles.attemptsSummary}>

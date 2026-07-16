@@ -396,13 +396,11 @@ export async function handle(
       }`;
   const normalizedFetchUrl = normalizeLoopbackUrlForContainer(fetchUrl);
 
-  // 调试日志
-  console.log(`[Proxy Route] 📤 代理请求:`, {
+  // URL 可能携带查询参数凭据；日志只保留不会泄露配置的请求元数据。
+  console.log("[Proxy Route] 📤 代理请求", {
     subpath,
-    baseUrl,
     isPricingApi,
-    fetchUrl,
-    normalizedFetchUrl,
+    method: req.method,
   });
 
   const skipHeaders = [
@@ -434,10 +432,9 @@ export async function handle(
     }),
   );
 
-  // 调试日志：检查是否有 Authorization header
+  // 仅记录认证头是否存在，绝不记录 token 或其前缀。
   console.log(`[Proxy Route] 🔑 Authorization header:`, {
     hasAuth: req.headers.has("authorization"),
-    authPrefix: req.headers.get("authorization")?.substring(0, 20) + "...",
     hasXApiKey: req.headers.has("x-api-key"),
     hasApiKey: req.headers.has("api-key"),
     hasGoogleApiKey: req.headers.has("x-goog-api-key"),
@@ -528,11 +525,9 @@ export async function handle(
     });
   } catch (error) {
     console.warn("[Proxy Route] ⚠️ 代理请求失败:", {
-      fetchUrl,
-      normalizedFetchUrl,
+      subpath,
       method: req.method,
       message: error instanceof Error ? error.message : String(error),
-      error,
     });
     return NextResponse.json(
       {

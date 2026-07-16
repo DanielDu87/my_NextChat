@@ -84,6 +84,56 @@ export async function pruneChatBackups(externalUserId: string, max: number) {
 type JsonObject = Record<string, unknown>;
 
 export type ChatBackupSource = "manual" | "auto";
+export type ChatBackupBatchMemberStatus = "created" | "skipped" | "failed";
+
+export type ChatBackupBatchMember = {
+  userId: string;
+  externalUserId: string;
+  status: ChatBackupBatchMemberStatus;
+  reason?: string;
+  sessionCount?: number;
+  messageCount?: number;
+};
+
+export async function createChatBackupBatch(
+  batchId: string,
+  source: ChatBackupSource,
+) {
+  await ensureBackupStorageSchema();
+  await backupPgQuery(
+    `insert into backup_chat_batches (id, source)
+     values ($1::uuid, $2)
+     on conflict (id) do nothing`,
+    [batchId, source],
+  );
+}
+
+export async function saveChatBackupBatchMember(
+  batchId: string,
+  member: ChatBackupBatchMember,
+) {
+  await ensureBackupStorageSchema();
+  await backupPgQuery(
+    `insert into backup_chat_batch_members (
+       batch_id, user_id, external_user_id, status, reason, session_count, message_count
+     ) values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+     on conflict (batch_id, user_id) do update set
+       external_user_id = excluded.external_user_id,
+       status = excluded.status,
+       reason = excluded.reason,
+       session_count = excluded.session_count,
+       message_count = excluded.message_count`,
+    [
+      batchId,
+      member.userId,
+      member.externalUserId,
+      member.status,
+      member.reason || null,
+      member.sessionCount || 0,
+      member.messageCount || 0,
+    ],
+  );
+}
 
 type AppUserInfo = {
   userId: string;
@@ -287,6 +337,7 @@ async function getSessionSnapshots(appUserId: string, sessionIds: string[]) {
 export async function createChatBackup(
   externalUserId: string,
   source: ChatBackupSource = "manual",
+  options?: { batchId?: string },
 ) {
   await ensureBackupStorageSchema();
   const appUserId = await getOrCreateSyncAppUserId(externalUserId);
@@ -360,6 +411,7 @@ export async function createChatBackup(
     const runResult = await client.query<{ id: string }>(
       `insert into backup_chat_runs (
          user_id,
+         batch_id,
          external_user_id,
          source,
          mode,
@@ -369,10 +421,11 @@ export async function createChatBackup(
          message_count,
          checksum
        ) values (
-         $1::uuid, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7, $8, $9
+         $1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8, $9, $10
        ) returning id::text`,
       [
         appUserId,
+        options?.batchId || null,
         externalUserId,
         source,
         mode,
@@ -423,12 +476,17 @@ export async function createChatBackup(
   await pruneChatBackups(externalUserId, settings.maxBackups);
 
   console.log(
-    `[Chat Backup] ✅ 对话备份已创建（来源: ${source}，模式: ${mode}，会话数: ${sessions.length}，消息数: ${messageCount}）`,
+    `[Chat Backup] ✅ 对话备份已创建（来源: ${source}，模式: ${mode}，会话数: ${
+      sessions.length
+    }，消息数: ${messageCount}${
+      options?.batchId ? "，已归入全员备份批次" : ""
+    }）`,
   );
 
   return {
     created: true,
     id: backupId,
+    batchId: options?.batchId || null,
     source,
     mode,
     fromWatermark,
@@ -478,6 +536,7 @@ export async function listChatBackups(
     filters.length > 0 ? `where ${filters.join(" and ")}` : "";
   const result = await backupPgQuery<{
     id: string;
+    batch_id: string | null;
     user_id: string;
     external_user_id: string | null;
     source: ChatBackupSource;
@@ -489,6 +548,7 @@ export async function listChatBackups(
     created_at: string;
   }>(
     `select r.id::text,
+            r.batch_id::text,
             r.user_id::text,
             r.external_user_id,
             r.source,
@@ -525,9 +585,11 @@ export async function listChatBackups(
     result.rows.map((row) => row.user_id),
   );
 
-  return result.rows.map((row) => ({
+  const backups = result.rows.map((row) => ({
     ...(userInfoMap.get(row.user_id) || {}),
     id: row.id,
+    batchId: row.batch_id || row.id,
+    isLegacyBatch: !row.batch_id,
     userId: row.user_id,
     externalId:
       userInfoMap.get(row.user_id)?.externalId || row.external_user_id,
@@ -540,6 +602,53 @@ export async function listChatBackups(
     sessionCount: row.session_count,
     messageCount: row.message_count,
     createdAt: row.created_at,
+  }));
+  const batchIds = Array.from(
+    new Set(backups.map((backup) => backup.batchId).filter(Boolean)),
+  );
+  const batchMemberResult =
+    batchIds.length > 0
+      ? await backupPgQuery<{
+          batch_id: string;
+          user_id: string;
+          external_user_id: string | null;
+          status: ChatBackupBatchMemberStatus;
+          reason: string | null;
+          session_count: number;
+          message_count: number;
+        }>(
+          `select batch_id::text, user_id::text, external_user_id, status, reason,
+                  session_count, message_count
+             from backup_chat_batch_members
+            where batch_id = any($1::uuid[])
+            order by created_at asc`,
+          [batchIds],
+        )
+      : { rows: [] };
+  const batchMembers = new Map<string, ChatBackupBatchMember[]>();
+  batchMemberResult.rows.forEach((row) => {
+    const members = batchMembers.get(row.batch_id) || [];
+    members.push({
+      userId: row.user_id,
+      externalUserId: row.external_user_id || "",
+      status: row.status,
+      reason: row.reason || undefined,
+      sessionCount: row.session_count,
+      messageCount: row.message_count,
+    });
+    batchMembers.set(row.batch_id, members);
+  });
+  const batchUsers = new Map<string, typeof backups>();
+  backups.forEach((backup) => {
+    const users = batchUsers.get(backup.batchId) || [];
+    users.push(backup);
+    batchUsers.set(backup.batchId, users);
+  });
+
+  return backups.map((backup) => ({
+    ...backup,
+    batchUsers: batchUsers.get(backup.batchId) || [backup],
+    batchMembers: batchMembers.get(backup.batchId) || [],
   }));
 }
 

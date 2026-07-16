@@ -1,12 +1,14 @@
 -- NextChat PostgreSQL schema
 -- 与运行时 ensureSyncStorageSchema() + ensureBackupStorageSchema() + ensureAuthSchemaAndSeed() + ensureSitePasswordConfigured() 保持一致
--- 最后更新: 2026-07-15 (同步 schema 2026-07-14-provider-model-key-route-cache：补每个 API Key 的模型获取路径缓存)
+-- 最后更新: 2026-07-16 (备份 schema 2026-07-16-chat-backup-batch-audit：全员备份批次审计)
 -- 当前运行时 schema 版本：
 --   主业务库 SYNC_STORAGE_SCHEMA_VERSION = "2026-07-14-provider-model-key-route-cache"
---   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-09-backup-database"
+--   独立备份库 BACKUP_STORAGE_SCHEMA_VERSION = "2026-07-16-chat-backup-batch-audit"
 -- 一旦 ALTER / CREATE 新增必须同步 bump 版本号，避免旧容器在缓存锁住时跳迁移。
 -- 历史变更: 2026-07-09-force-reapply-conversations-deleted-at（conversations.deleted_at + cache_file_references 引用追踪表 + 索引，旧容器因 SYNC_STORAGE_SCHEMA_VERSION 缓存未跑迁移需 bump 强制重跑）
 -- 历史变更: 2026-07-09 backup-database（备份表改为 backup_* 命名，由 BACKUP_DATABASE_URL / BACKUP_PG* 指向独立数据库）
+-- 历史变更: 2026-07-16 chat-backup-batch-audit（记录每个批次中创建、跳过和失败的用户）
+-- 历史变更: 2026-07-16 chat-backup-batches（backup_chat_runs.batch_id 聚合一次全员手动备份或自动扫描轮次）
 -- 历史变更: 2026-07-06 chat-backups（新增按用户区分的对话增量备份）
 -- 历史变更: 2026-07-06 deployment-metadata（新增成功部署版本记录）
 -- 历史变更: 2026-07-13 补齐供应商余额查询路径与 New-API-User 配置字段
@@ -344,6 +346,7 @@ CREATE TABLE IF NOT EXISTS backup_chat_settings (
 
 CREATE TABLE IF NOT EXISTS backup_chat_runs (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
+  batch_id uuid,
   user_id uuid NOT NULL,
   external_user_id text,
   source text NOT NULL CHECK (source IN ('manual', 'auto')),
@@ -358,6 +361,30 @@ CREATE TABLE IF NOT EXISTS backup_chat_runs (
 
 CREATE INDEX IF NOT EXISTS idx_backup_chat_runs_user_created
 ON backup_chat_runs(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_backup_chat_runs_batch_created
+ON backup_chat_runs(batch_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backup_chat_batches (
+  id uuid PRIMARY KEY,
+  source text NOT NULL CHECK (source IN ('manual', 'auto')),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS backup_chat_batch_members (
+  batch_id uuid NOT NULL REFERENCES backup_chat_batches(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL,
+  external_user_id text,
+  status text NOT NULL CHECK (status IN ('created', 'skipped', 'failed')),
+  reason text,
+  session_count integer NOT NULL DEFAULT 0,
+  message_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (batch_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_chat_batch_members_batch
+ON backup_chat_batch_members(batch_id, created_at ASC);
 
 CREATE TABLE IF NOT EXISTS backup_chat_conversation_snapshots (
   id uuid PRIMARY KEY DEFAULT generate_uuid_v4(),
@@ -473,6 +500,8 @@ COMMENT ON TABLE backup_api_config_settings IS '备份数据库中的 API 配置
 COMMENT ON TABLE backup_api_config_snapshots IS '备份数据库中的 API 配置备份快照';
 COMMENT ON TABLE backup_chat_settings IS '备份数据库中的对话增量备份设置';
 COMMENT ON TABLE backup_chat_runs IS '备份数据库中按用户区分的对话备份批次';
+COMMENT ON TABLE backup_chat_batches IS '全员手动备份或自动扫描的审计批次';
+COMMENT ON TABLE backup_chat_batch_members IS '审计批次中每位用户的创建、跳过或失败结果';
 COMMENT ON TABLE backup_chat_conversation_snapshots IS '备份数据库中对话备份批次的完整会话快照';
 COMMENT ON TABLE provider_balance_configs IS '供应商余额快照 + 加密存储的管理 API Key';
 

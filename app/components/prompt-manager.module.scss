@@ -160,6 +160,7 @@
   text-align: center;
 
   &::placeholder {
+    font-size: 14px;
     color: #94a3b8;
     opacity: 1;
     text-align: center;
@@ -169,6 +170,12 @@
   &:focus::placeholder {
     opacity: 0;
   }
+}
+
+// 查看并编辑按钮：蓝色背景
+.editButton {
+  background-color: var(--primary) !important;
+  border-color: var(--primary-button-border) !important;
 }
 
 // 弹窗标题/内容输入框的高度约束，globals 提供 idle/hover/focus。

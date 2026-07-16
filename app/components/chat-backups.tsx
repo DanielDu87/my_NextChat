@@ -30,6 +30,8 @@ import styles from "./chat-backups.module.scss";
 
 type ChatBackupRun = {
   id: string;
+  batchId?: string;
+  isLegacyBatch?: boolean;
   userId?: string;
   externalId?: string | null;
   username?: string | null;
@@ -41,6 +43,23 @@ type ChatBackupRun = {
   sessionCount: number;
   messageCount: number;
   createdAt: string;
+  batchUsers?: Array<{
+    id: string;
+    userId?: string;
+    externalId?: string | null;
+    username?: string | null;
+    displayName?: string | null;
+    sessionCount: number;
+    messageCount: number;
+  }>;
+  batchMembers?: Array<{
+    userId: string;
+    externalUserId: string;
+    status: "created" | "skipped" | "failed";
+    reason?: string;
+    sessionCount?: number;
+    messageCount?: number;
+  }>;
 };
 
 type ChatBackupSession = {
@@ -102,6 +121,16 @@ function formatBackupRange(backup: ChatBackupRun) {
   return `增量范围：${formatTime(backup.fromWatermark)} 至 ${formatTime(
     backup.toWatermark,
   )}`;
+}
+
+function getBackupUserLabel(backup: {
+  displayName?: string | null;
+  username?: string | null;
+  externalId?: string | null;
+}) {
+  return (
+    backup.displayName || backup.username || backup.externalId || "未知用户"
+  );
 }
 
 function getMessagePreview(message: Record<string, any>) {
@@ -378,13 +407,10 @@ export function ChatBackupsPage() {
     }
   }, []);
 
-  const load = useCallback(async (targetUserId: string, keyword = "") => {
+  const load = useCallback(async (_targetUserId: string, keyword = "") => {
     setLoading(true);
     try {
       const query = new URLSearchParams();
-      if (targetUserId) {
-        query.set("userId", targetUserId);
-      }
       if (keyword.trim()) {
         query.set("search", keyword.trim());
       }
@@ -414,31 +440,73 @@ export function ChatBackupsPage() {
       const summaryText =
         data.summary && typeof data.summary === "object" ? data.summary : null;
       const backupLogSignature = JSON.stringify({
-        targetUserId,
         keyword,
         degraded: Boolean(data.degraded),
-        backups: nextBackups,
+        batchCount: new Set(nextBackups.map((b) => b.batchId || b.id)).size,
         summary: summaryText,
       });
       if (backupLogSignatureRef.current !== backupLogSignature) {
         backupLogSignatureRef.current = backupLogSignature;
-        console.log(
-          `[Chat Backup] 📋 已读取对话备份（${nextBackups.length} 次${
-            data.degraded ? "，降级返回" : ""
-          }）：`,
+        const batchCount = new Set(
+          nextBackups.map((backup) => backup.batchId || backup.id),
+        ).size;
+        const totalSessions = nextBackups.reduce(
+          (total, backup) =>
+            total +
+            (backup.batchUsers || [backup]).reduce(
+              (uTotal, user) => uTotal + (user.sessionCount || 0),
+              0,
+            ),
+          0,
         );
-        if (nextBackups.length) {
-          nextBackups.forEach((backup) => {
-            console.log(
-              `  - ${new Date(backup.createdAt).toLocaleString()}（${
-                backup.source
-              }/${backup.mode}，${backup.sessionCount} 个会话 / ${
-                backup.messageCount
-              } 条消息，归属 ${backup.username || backup.externalId || "?"}）`,
-            );
-          });
-        } else {
-          console.log("  - 暂无备份");
+        const totalMessages = nextBackups.reduce(
+          (total, backup) =>
+            total +
+            (backup.batchUsers || [backup]).reduce(
+              (uTotal, user) => uTotal + (user.messageCount || 0),
+              0,
+            ),
+          0,
+        );
+        // 最新批次
+        const latestBatch =
+          nextBackups.length > 0
+            ? nextBackups.reduce((latest, backup) => {
+                const batchId = backup.batchId || backup.id;
+                const latestBatchId = latest.batchId || latest.id;
+                return batchId > latestBatchId ? backup : latest;
+              })
+            : null;
+        console.log(
+          `[Chat Backup] 📋 已读取对话备份（${batchCount} 个批次，${totalSessions} 会话/${totalMessages} 消息${
+            data.degraded ? "，降级" : ""
+          }）`,
+        );
+        if (latestBatch) {
+          const latestBatchUsers = latestBatch.batchUsers || [latestBatch];
+          const latestTotalSessions = latestBatchUsers.reduce(
+            (t, u) => t + (u.sessionCount || 0),
+            0,
+          );
+          const latestTotalMessages = latestBatchUsers.reduce(
+            (t, u) => t + (u.messageCount || 0),
+            0,
+          );
+          const latestUserStats = latestBatchUsers
+            .map((user) => {
+              const name = getBackupUserLabel(user);
+              const sessions = user.sessionCount || 0;
+              const messages = user.messageCount || 0;
+              return `${name}:${sessions}会话/${messages}消息`;
+            })
+            .join("，");
+          console.log(
+            `  最新：${new Date(latestBatch.createdAt).toLocaleString()}（${
+              latestBatch.source
+            }/${
+              latestBatch.mode
+            }，${latestTotalSessions}会话/${latestTotalMessages}消息，${latestUserStats}）`,
+          );
         }
       }
       setSelectedId((current) => {
@@ -463,7 +531,7 @@ export function ChatBackupsPage() {
   }, []);
 
   const loadDetail = useCallback(
-    async (id: string, targetUserId: string, keyword = "") => {
+    async (id: string, _targetUserId: string, keyword = "") => {
       if (!id) {
         setDetail(null);
         return;
@@ -471,9 +539,6 @@ export function ChatBackupsPage() {
       setDetailLoading(true);
       try {
         const query = new URLSearchParams({ id });
-        if (targetUserId) {
-          query.set("userId", targetUserId);
-        }
         if (keyword.trim()) {
           query.set("search", keyword.trim());
         }
@@ -584,15 +649,21 @@ export function ChatBackupsPage() {
         throw new Error(data.error || "backup_failed");
       }
       const results = Array.isArray(data.results) ? data.results : [];
-      const successCount = results.filter((r: any) => r.created).length;
+      const successResults = results.filter((r: any) => r.status === "created");
+      const skippedResults = results.filter((r: any) => r.status === "skipped");
+      const failedResults = results.filter((r: any) => r.status === "failed");
       const sessionTotal = results.reduce(
         (sum: number, r: any) => sum + (r.sessionCount || 0),
         0,
       );
       console.log(
-        `[Chat Backup] ✅ 增量备份已创建（${successCount}/${results.length} 个用户，共 ${sessionTotal} 个会话）`,
+        `[Chat Backup] 增量备份完成（${results.length} 用户，${successResults.length} 已创建，${skippedResults.length} 跳过，${failedResults.length} 失败，${sessionTotal} 会话）`,
       );
-      showToast(`已为 ${results.length} 个用户创建增量备份`);
+      showToast(
+        failedResults.length > 0
+          ? `备份完成：${successResults.length} 已创建，${failedResults.length} 失败`
+          : `备份完成：${successResults.length} 已创建，${skippedResults.length} 跳过`,
+      );
       setSearchText("");
       await load(selectedUserId, "");
       setSelectedId("");
@@ -866,6 +937,11 @@ export function ChatBackupsPage() {
     selectedUserOption.displayName !== selectedUserOption.username
       ? `${selectedUserOption.displayName}（${selectedUserOption.username}）`
       : selectedUserOption.username || selectedUserOption.displayName;
+  const backupBatches = Array.from(
+    new Map(
+      backups.map((backup) => [backup.batchId || backup.id, backup]),
+    ).values(),
+  );
 
   useEffect(() => {
     if (!userSelectOpen) return;
@@ -905,7 +981,7 @@ export function ChatBackupsPage() {
             className={styles.hoverCard}
             onPointerMove={updateHoverPosition}
             title="备份说明"
-            subTitle="备份方式为增量；切换用户后读取对应用户的备份，汇总展示所有用户的数据库对话总量。"
+            subTitle="任何用户进入都能查看全局备份批次；每个批次展示所有参与用户及各自会话数量。"
             vertical
           >
             <div className={styles.summaryContent}>
@@ -937,6 +1013,11 @@ export function ChatBackupsPage() {
                             <div className={styles.userSummaryName}>
                               {userName}
                             </div>
+                            {user.lastBackupAt && (
+                              <div className={styles.userSummaryMeta}>
+                                最近备份：{formatTime(user.lastBackupAt)}
+                              </div>
+                            )}
                           </div>
                           <div className={styles.userSummaryCount}>
                             {user.conversationCount}
@@ -1134,7 +1215,7 @@ export function ChatBackupsPage() {
                 <div className={styles.historyHeaderText}>
                   <div className={styles.historyTitle}>对话备份历史</div>
                   <div className={styles.historySubTitle}>
-                    立即备份会为所有用户创建增量备份；下方历史随查看用户切换。
+                    手动备份固定覆盖所有活动用户；下方按每次全员备份批次展示。
                   </div>
                 </div>
                 <IconButton
@@ -1162,14 +1243,27 @@ export function ChatBackupsPage() {
                 <LoadingIcon />
                 正在读取备份...
               </div>
-            ) : backups.length === 0 && !searchText.trim() ? (
+            ) : backupBatches.length === 0 && !searchText.trim() ? (
               <div className={styles.empty}>暂无对话备份</div>
-            ) : backups.length === 0 ? (
+            ) : backupBatches.length === 0 ? (
               <div className={styles.empty}>没有匹配的备份</div>
             ) : (
               <div className={styles.backups}>
-                {backups.map((backup) => {
+                {backupBatches.map((backup) => {
                   const active = backup.id === selectedId;
+                  const batchMembers = backup.batchMembers || [];
+                  const batchUserCount =
+                    batchMembers.length ||
+                    (backup.batchUsers || [backup]).length;
+                  const createdCount = batchMembers.filter(
+                    (member) => member.status === "created",
+                  ).length;
+                  const skippedCount = batchMembers.filter(
+                    (member) => member.status === "skipped",
+                  ).length;
+                  const failedCount = batchMembers.filter(
+                    (member) => member.status === "failed",
+                  ).length;
                   return (
                     <article
                       className={`${styles.backup} ${styles.hoverCard} ${
@@ -1185,19 +1279,40 @@ export function ChatBackupsPage() {
                           onClick={() => toggleBackup(backup.id)}
                         >
                           <div className={styles.backupTitle}>
-                            {backup.displayName ||
-                              backup.username ||
-                              backup.externalId ||
-                              "未知用户"}{" "}
-                            · {SOURCE_LABEL[backup.source] || backup.source}
+                            {SOURCE_LABEL[backup.source] || backup.source}
                             <span className={styles.modeBadge}>
                               {backup.mode === "full" ? "首次全量" : "增量"}
                             </span>
                           </div>
                           <div className={styles.backupMeta}>
-                            {formatTime(backup.createdAt)} ·{" "}
-                            {backup.sessionCount} 个会话 · {backup.messageCount}{" "}
+                            {formatTime(backup.createdAt)} · {batchUserCount}{" "}
+                            个用户 ·{" "}
+                            {(backup.batchUsers || [backup]).reduce(
+                              (total, user) => total + user.sessionCount,
+                              0,
+                            )}{" "}
+                            个会话 ·{" "}
+                            {(backup.batchUsers || [backup]).reduce(
+                              (total, user) => total + user.messageCount,
+                              0,
+                            )}{" "}
                             条消息
+                          </div>
+                          {batchMembers.length > 0 && (
+                            <div className={styles.backupMeta}>
+                              本轮结果：{createdCount} 已创建 · {skippedCount}{" "}
+                              跳过 · {failedCount} 失败
+                            </div>
+                          )}
+                          <div className={styles.backupMeta}>
+                            {(backup.batchUsers || [backup])
+                              .map(
+                                (user) =>
+                                  `${getBackupUserLabel(user)}：${
+                                    user.sessionCount
+                                  } 个会话 / ${user.messageCount} 条消息`,
+                              )
+                              .join("；")}
                           </div>
                           <div className={styles.backupMeta}>
                             {formatBackupRange(backup)}

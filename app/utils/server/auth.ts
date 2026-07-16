@@ -36,7 +36,7 @@ function resolveAdminPassword() {
   // 开发环境：生成一次性临时密码并强警告，不持久化弱默认值
   const generated = `dev-${randomBytes(8).toString("hex")}`;
   console.warn(
-    `[Auth] ⚠️ NEXTCHAT_ADMIN_PASSWORD 未配置；dev 环境已生成临时 admin 密码：${generated}（仅本次进程有效，重启后会变化，请尽快显式设置）`,
+    "[Auth] ⚠️ NEXTCHAT_ADMIN_PASSWORD 未配置；dev 环境已生成一次性临时 admin 密码（仅本次进程有效，请尽快显式设置）。",
   );
   return generated;
 }

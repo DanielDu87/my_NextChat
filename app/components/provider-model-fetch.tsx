@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import CloseIcon from "../icons/close.svg";
@@ -100,9 +100,12 @@ export function ProviderModelFetchPage() {
       ),
     [profiles],
   );
+  const hasLoggedPageEntryRef = useRef(false);
 
   // 初始化日志：页面打开时输出当前配置状态
   useEffect(() => {
+    if (hasLoggedPageEntryRef.current) return;
+    hasLoggedPageEntryRef.current = true;
     console.clear();
     const configured = sortedProfiles.filter(
       (p) =>
@@ -361,22 +364,8 @@ export function ProviderModelFetchPage() {
           </div>
         </div>
       </div>
-      <div className={styles.batchActionBar}>
-        <div className={styles.headerBatchAction}>
-          <IconButton
-            icon={<ReloadIcon />}
-            text="全部获取"
-            type="green"
-            className={styles.actionButton}
-            disabled={
-              fetchAllRunning || savingIds.length > 0 || fetchingIds.length > 0
-            }
-            onClick={() => void fetchAll()}
-          />
-        </div>
-      </div>
       <div className={styles.content}>
-        <div className={styles.mobileBatchAction}>
+        <div className={styles.batchAction}>
           <IconButton
             icon={<ReloadIcon />}
             text="全部获取"

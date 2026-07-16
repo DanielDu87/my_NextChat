@@ -33,11 +33,7 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
   const hashedCode = md5.hash(accessCode ?? "").trim();
 
   const serverConfig = getServerSideConfig();
-  console.log("[Auth] allowed hashed codes: ", [...serverConfig.codes]);
-  console.log("[Auth] got access code:", accessCode);
-  console.log("[Auth] hashed access code:", hashedCode);
-  console.log("[User IP] ", getIP(req));
-  console.log("[Time] ", new Date().toLocaleString());
+  // 访问码、其哈希值和来源 IP 都是敏感认证信息；认证分支不得记录它们。
 
   // 已禁用访问码检查，使用自定义API配置
   // if (serverConfig.needCode && !serverConfig.codes.has(hashedCode) && !apiKey) {

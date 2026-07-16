@@ -438,6 +438,12 @@ function appendBalanceAuthQueryParam(
     : url;
 }
 
+// 用户保存的余额端点可以含有查询凭据，日志只保留路径而不保留查询字符串。
+export function sanitizeBalancePath(path: string) {
+  const queryIndex = path.indexOf("?");
+  return queryIndex === -1 ? path : `${path.slice(0, queryIndex)}?[redacted]`;
+}
+
 function buildBalanceAuthTypes(
   configuredAuthType: BalanceAuthType | undefined,
 ) {
@@ -1106,27 +1112,21 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
     if (profile.customUrlOnly && profile.cachedPath) {
       const cachedPath = profile.cachedPath;
       console.log(
-        `[Provider Balance] 💡 自定义 URL 模式：仅查询 ${cachedPath}`,
+        `[Provider Balance] 💡 自定义 URL 模式：仅查询 ${sanitizeBalancePath(
+          cachedPath,
+        )}`,
       );
-      // 自定义 URL 模式下尝试多种 baseUrl 组合和认证类型
-      const customBaseUrls = buildBalanceBaseUrls(
-        profile.cachedBaseUrl || baseUrl,
-        profile.cachedBaseUrl
-          ? profile.cachedBaseUrl.replace(/\/v1$/i, "")
-          : baseUrl.replace(/\/v1$/i, ""),
-      );
-      const customAuthTypes = buildBalanceAuthTypes(
-        (profile.cachedAuthType as BalanceAuthType | undefined) ||
-          configuredAuthType,
-      );
-      const customCandidates: BalanceCandidate[] = customBaseUrls.flatMap(
-        (candidateBaseUrl) =>
-          customAuthTypes.map((authType) => ({
-            candidateBaseUrl,
-            path: cachedPath.startsWith("/") ? cachedPath.slice(1) : cachedPath,
-            authType,
-          })),
-      );
+      // 指定 URL 模式只请求用户保存的完整地址；旧配置的兼容候选不进入此分支。
+      const customCandidates: BalanceCandidate[] = [
+        {
+          candidateBaseUrl: profile.cachedBaseUrl || baseUrl,
+          path: cachedPath.startsWith("/") ? cachedPath.slice(1) : cachedPath,
+          authType:
+            (profile.cachedAuthType as BalanceAuthType | undefined) ||
+            configuredAuthType ||
+            "bearer",
+        },
+      ];
 
       const customValue = await runBalanceCandidateQueue(
         customCandidates,
@@ -1224,7 +1224,7 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
         console.log(
           `[Provider Balance] ✅ 自定义 URL 查询成功: ${
             profile.cachedBaseUrl || baseUrl
-          }${usedPath}`,
+          }${sanitizeBalancePath(usedPath)}`,
         );
         return {
           value: customValue,
@@ -1250,7 +1250,9 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
         ? profile.cachedPath
         : `/${profile.cachedPath}`;
       console.log(
-        `[Provider Balance] 💡 优先尝试上次成功的缓存路径: ${profile.cachedBaseUrl}${cachedPath} (auth: ${profile.cachedAuthType})`,
+        `[Provider Balance] 💡 优先尝试上次成功的缓存路径: ${
+          profile.cachedBaseUrl
+        }${sanitizeBalancePath(cachedPath)} (auth: ${profile.cachedAuthType})`,
       );
       const cachedCandidates: BalanceCandidate[] = [
         {
