@@ -51,6 +51,12 @@ async function ensureBalanceSchema() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'provider_balance_configs' AND column_name = 'query_started_at') THEN
           ALTER TABLE provider_balance_configs ADD COLUMN query_started_at timestamptz;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'provider_balance_configs' AND column_name = 'use_uuid_query_format') THEN
+          ALTER TABLE provider_balance_configs ADD COLUMN use_uuid_query_format boolean default false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'provider_balance_configs' AND column_name = 'uuid_query_value') THEN
+          ALTER TABLE provider_balance_configs ADD COLUMN uuid_query_value text;
+        END IF;
       END $$;
     `).then(() => {});
   });
@@ -72,6 +78,8 @@ export type ProviderBalanceConfig = {
   customBalanceUrl?: string;
   useNewApiUserFormat?: boolean;
   newApiUserId?: string;
+  useUuidQueryFormat?: boolean;
+  uuidQueryValue?: string;
 };
 
 function decryptManagementKey(value: string | null) {
@@ -98,7 +106,8 @@ export async function listProviderBalanceConfigs(_userId?: string) {
     `select pc.provider_code, pc.provider_name, pc.base_url, pbc.encrypted_management_key,
             pbc.masked_management_key, pbc.balance_snapshot, pbc.last_error,
             pbc.cached_path, pbc.cached_base_url, pbc.cached_auth_type,
-            pbc.custom_balance_url, pbc.use_new_api_user_format, pbc.new_api_user_id
+            pbc.custom_balance_url, pbc.use_new_api_user_format, pbc.new_api_user_id,
+            pbc.use_uuid_query_format, pbc.uuid_query_value
        from provider_configs pc
        left join provider_balance_configs pbc on pbc.provider_config_id = pc.id
        -- 全局共享模式：不再按 user_id 过滤
@@ -127,6 +136,8 @@ export async function listProviderBalanceConfigs(_userId?: string) {
       customBalanceUrl: row.custom_balance_url || undefined,
       useNewApiUserFormat: row.use_new_api_user_format || false,
       newApiUserId,
+      useUuidQueryFormat: row.use_uuid_query_format || false,
+      uuidQueryValue: row.uuid_query_value || undefined,
     };
   });
 }
@@ -136,7 +147,8 @@ export async function getProviderBalanceConfig(profileId: string) {
   const result = await pgQuery<any>(
     `select pbc.encrypted_management_key, pbc.custom_balance_url,
             pbc.use_new_api_user_format, pbc.new_api_user_id,
-            pbc.cached_path, pbc.cached_base_url, pbc.cached_auth_type
+            pbc.cached_path, pbc.cached_base_url, pbc.cached_auth_type,
+            pbc.use_uuid_query_format, pbc.uuid_query_value
        from provider_configs pc
        left join provider_balance_configs pbc on pbc.provider_config_id = pc.id
       where pc.provider_code = $1 limit 1`,
@@ -156,6 +168,8 @@ export async function getProviderBalanceConfig(profileId: string) {
     cachedPath: row.cached_path || undefined,
     cachedBaseUrl: row.cached_base_url || undefined,
     cachedAuthType: row.cached_auth_type || undefined,
+    useUuidQueryFormat: Boolean(row.use_uuid_query_format),
+    uuidQueryValue: String(row.uuid_query_value || "").trim(),
   };
 }
 
@@ -166,6 +180,8 @@ export async function saveProviderBalanceConfig(
     customBalanceUrl: string;
     useNewApiUserFormat: boolean;
     newApiUserId: string;
+    useUuidQueryFormat: boolean;
+    uuidQueryValue: string;
   },
 ) {
   await ensureBalanceSchema();
@@ -173,9 +189,10 @@ export async function saveProviderBalanceConfig(
   const result = await pgQuery(
     `insert into provider_balance_configs (
        provider_config_id, encrypted_management_key, masked_management_key,
-       custom_balance_url, use_new_api_user_format, new_api_user_id
+       custom_balance_url, use_new_api_user_format, new_api_user_id,
+       use_uuid_query_format, uuid_query_value
      )
-     select id, $2, $3, $4, $5, $6
+     select id, $2, $3, $4, $5, $6, $7, $8
        from provider_configs where provider_code = $1
      on conflict (provider_config_id) do update set
        encrypted_management_key = excluded.encrypted_management_key,
@@ -183,6 +200,8 @@ export async function saveProviderBalanceConfig(
        custom_balance_url = excluded.custom_balance_url,
        use_new_api_user_format = excluded.use_new_api_user_format,
        new_api_user_id = excluded.new_api_user_id,
+       use_uuid_query_format = excluded.use_uuid_query_format,
+       uuid_query_value = excluded.uuid_query_value,
        updated_at = now()
      returning provider_config_id`,
     [
@@ -192,6 +211,8 @@ export async function saveProviderBalanceConfig(
       config.customBalanceUrl.trim() || null,
       config.useNewApiUserFormat,
       config.newApiUserId.trim() || null,
+      config.useUuidQueryFormat,
+      config.uuidQueryValue.trim() || null,
     ],
   );
   if (result.rowCount !== 1) {

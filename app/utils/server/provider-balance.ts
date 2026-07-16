@@ -27,6 +27,11 @@ function isCherryINUrl(baseUrl?: string) {
   }
 }
 
+// UUID 查询格式检测（POST /v1/enterprise/account {"uuid": "..."}）
+function isUuidQueryFormat(profile: BalanceProfile) {
+  return profile.useUuidQueryFormat && profile.uuidQueryValue;
+}
+
 function isOpenRouterUrl(baseUrl?: string) {
   if (!baseUrl) return false;
   try {
@@ -73,6 +78,9 @@ type BalanceProfile = {
   // 自定义 URL 专用：只查询此路径，不再探测其他路径
   customUrlOnly?: boolean;
   signal?: AbortSignal;
+  // UUID 查询格式支持（POST /v1/enterprise/account {"uuid": "..."}）
+  useUuidQueryFormat?: boolean;
+  uuidQueryValue?: string;
 };
 
 export type ProviderBalanceResult = {
@@ -1004,6 +1012,93 @@ export async function queryProviderBalance(profile: BalanceProfile): Promise<
             reason: error instanceof Error ? error.message : "request_failed",
           });
         }
+      }
+    }
+
+    // UUID 查询格式：POST /v1/enterprise/account {"uuid": "..."}
+    if (!profile.customUrlOnly && isUuidQueryFormat(profile)) {
+      const uuidQueryPath = "v1/enterprise/account";
+      const uuidValue = profile.uuidQueryValue || "";
+      console.log(
+        `[Provider Balance] 💡 UUID 查询模式：${rootBaseUrl}/${uuidQueryPath}`,
+      );
+      try {
+        const headers: Record<string, string> = {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(apiKey ? buildBalanceAuthHeaders(apiKey, "bearer") : {}),
+        };
+        const response = await fetch(`${rootBaseUrl}/${uuidQueryPath}`, {
+          method: "POST",
+          headers,
+          signal: getBalanceRequestSignal(profile.signal),
+          cache: "no-store",
+          body: JSON.stringify({ uuid: uuidValue }),
+        });
+        const responseBody = response.ok
+          ? await response.json().catch(() => null)
+          : null;
+
+        // 解析响应：{"code": 0, "message": "请求成功", "data": {"account": "4.9974451"}}
+        let value: number | null = null;
+        if (response.ok && responseBody && typeof responseBody === "object") {
+          const data = (responseBody as Record<string, unknown>).data;
+          if (data && typeof data === "object") {
+            const dataObj = data as Record<string, unknown>;
+            const accountStr = dataObj.account;
+            if (typeof accountStr === "string") {
+              const parsed = parseFloat(accountStr);
+              if (Number.isFinite(parsed)) {
+                value = parsed;
+              }
+            } else if (
+              typeof accountStr === "number" &&
+              Number.isFinite(accountStr)
+            ) {
+              value = accountStr;
+            }
+          }
+        }
+
+        attempts.push({
+          keyIndex,
+          keyTotal: apiKeys.length,
+          authType: "uuid-query",
+          baseUrl: rootBaseUrl,
+          path: uuidQueryPath,
+          status: response.status,
+          ok: value !== null,
+          reason:
+            value !== null
+              ? undefined
+              : response.ok
+              ? "balance_field_missing"
+              : "http_error",
+        });
+        if (value !== null) {
+          console.log(
+            `[Provider Balance] ✅ UUID 查询成功: ${rootBaseUrl}/${uuidQueryPath}`,
+          );
+          return {
+            value,
+            currency: "USD",
+            queriedAt: Date.now(),
+            attempts,
+            cachedPath: uuidQueryPath,
+            cachedBaseUrl: rootBaseUrl,
+            cachedAuthType: "uuid-query",
+          };
+        }
+      } catch (error) {
+        attempts.push({
+          keyIndex,
+          keyTotal: apiKeys.length,
+          authType: "uuid-query",
+          baseUrl: rootBaseUrl,
+          path: uuidQueryPath,
+          ok: false,
+          reason: error instanceof Error ? error.message : "request_failed",
+        });
       }
     }
 

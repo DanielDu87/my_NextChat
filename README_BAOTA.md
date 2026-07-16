@@ -71,6 +71,8 @@
 宝塔生产 Compose 要求构建时必须注入 Git 提交哈希和时间；绕过
 `scripts/docker-compose-safe.sh` 会直接报错，不再生成界面版本为 `unknown` 的镜像。
 
+> ⚠️ **重要**：部署后必须执行 `fix-pg-hba.sh` 脚本修复数据库连接（详见 §3.1）。
+
 ```bash
 ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && bash -lc '\''
 set -euo pipefail
@@ -82,7 +84,30 @@ mkdir -p \"\$BUILDX_CONFIG\"
 (docker image rm nextchat:latest 2>/dev/null || true)
 ./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota up -d --force-recreate nextchat
 ./scripts/sync-baota-dockersite-container-id.sh
+# 修复数据库连接（自动适配容器网络）
+./scripts/fix-pg-hba.sh
 '\'' 2>&1 | tee /tmp/nextchat-baota-deploy.log"'
+```
+
+### 3.1 pg_hba.conf 网络适配（⚠️ 必须执行）
+
+容器可能使用 host 网络模式（IP 如 `10.0.x.x`）或 Docker 网桥（IP 如 `172.17.x.x`），
+`fix-pg-hba.sh` 脚本会自动检测容器网络并添加对应的 pg_hba.conf 规则：
+
+```bash
+# 独立执行（如标准部署已包含则无需单独运行）
+ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/fix-pg-hba.sh'
+```
+
+脚本功能：
+1. 检测 PostgreSQL 数据目录（支持宝塔 `/www/server/pgsql/data` 等）
+2. 自动检测容器网络 IP 和网段
+3. 在 pg_hba.conf 添加必要的 `host nextchat|nextchat_backup dyx x.x.x.0/xx md5` 规则
+4. 重载 PostgreSQL 配置
+
+如脚本无法自动重载，需手动重载：
+```bash
+ssh ss 'su - postgres -c "/www/server/pgsql/bin/pg_ctl reload -D /www/server/pgsql/data"'
 ```
 
 `scripts/sync-baota-dockersite-container-id.sh` 现在会先等待 `nextchat`
@@ -148,16 +173,12 @@ ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/sync-baota-dockersite-contai
 **首次部署或修改环境变量后必须检查：**
 
 1. **pg_hba.conf 必须允许容器 IP**
-   - Docker 容器使用网桥 IP（如 `172.17.0.x`）连接宿主机 PostgreSQL
-   - 必须在 `/www/server/pgsql/data/pg_hba.conf` 中添加：
-     ```
-     host    nextchat         dyx    172.17.0.0/16    md5
-     host    nextchat_backup  dyx    172.17.0.0/16    md5
-     ```
-   - 修改后重载配置：
+   - 容器可能使用 host 网络模式（IP 如 `10.0.0.x`）或 Docker 网桥（IP 如 `172.17.x.x`）
+   - 执行 `fix-pg-hba.sh` 自动检测并添加规则：
      ```bash
-     ssh ss 'su - postgres -c "/www/server/pgsql/bin/pg_ctl reload -D /www/server/pgsql/data"'
+     ssh ss 'cd /www/dk_project/my_NextChat && ./scripts/fix-pg-hba.sh'
      ```
+   - 脚本会自动处理 `172.17.0.0/16`、`172.20.0.0/16`、`10.0.0.0/24` 等常见网段
 
 2. **环境变量变更需要重建容器**
    - `docker restart` **不会**重新读取 `.env` 文件

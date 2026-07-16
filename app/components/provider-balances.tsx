@@ -100,6 +100,9 @@ function mergeProfiles(
       cachedBaseUrl: remote.cachedBaseUrl || "",
       useNewApiUserFormat: useNewApiUser,
       newApiUserId: newApiUserId,
+      useUuidQueryFormat:
+        remote.useUuidQueryFormat ?? profile?.useUuidQueryFormat ?? false,
+      uuidQueryValue: remote.uuidQueryValue ?? profile?.uuidQueryValue ?? "",
     };
   });
 }
@@ -129,6 +132,8 @@ export function ProviderBalancesPage() {
         cachedBaseUrl: "",
         useNewApiUserFormat: false,
         newApiUserId: "",
+        useUuidQueryFormat: false,
+        uuidQueryValue: "",
       });
     }
     return profiles.sort((a, b) =>
@@ -146,6 +151,12 @@ export function ProviderBalancesPage() {
   );
   const [newApiUserFormats, setNewApiUserFormats] = useState<
     Record<string, boolean>
+  >({});
+  const [uuidQueryFormats, setUuidQueryFormats] = useState<
+    Record<string, boolean>
+  >({});
+  const [uuidQueryValues, setUuidQueryValues] = useState<
+    Record<string, string>
   >({});
   const [queryStatusMap, setQueryStatusMap] = useState<
     Record<string, QueryStatus>
@@ -278,6 +289,26 @@ export function ProviderBalancesPage() {
     );
   };
 
+  const getUuidQueryFormatValue = (profileId: string) => {
+    if (Object.prototype.hasOwnProperty.call(uuidQueryFormats, profileId)) {
+      return Boolean(uuidQueryFormats[profileId]);
+    }
+    return Boolean(
+      profiles.find((profile) => profile.profileId === profileId)
+        ?.useUuidQueryFormat,
+    );
+  };
+
+  const getUuidQueryValue = (profileId: string) => {
+    if (Object.prototype.hasOwnProperty.call(uuidQueryValues, profileId)) {
+      return uuidQueryValues[profileId] || "";
+    }
+    return (
+      profiles.find((profile) => profile.profileId === profileId)
+        ?.uuidQueryValue || ""
+    );
+  };
+
   const profileHasUnsavedChanges = (profileId: string) => {
     const profile = profiles.find((item) => item.profileId === profileId);
     if (!profile) return false;
@@ -292,7 +323,12 @@ export function ProviderBalancesPage() {
           (profile.newApiUserId || "")) ||
       (Object.prototype.hasOwnProperty.call(newApiUserFormats, profileId) &&
         getNewApiUserFormatValue(profileId) !==
-          Boolean(profile.useNewApiUserFormat))
+          Boolean(profile.useNewApiUserFormat)) ||
+      (Object.prototype.hasOwnProperty.call(uuidQueryFormats, profileId) &&
+        getUuidQueryFormatValue(profileId) !==
+          Boolean(profile.useUuidQueryFormat)) ||
+      (Object.prototype.hasOwnProperty.call(uuidQueryValues, profileId) &&
+        getUuidQueryValue(profileId) !== (profile.uuidQueryValue || ""))
     );
   };
 
@@ -303,8 +339,11 @@ export function ProviderBalancesPage() {
     const profile = profiles.find((item) => item.profileId === profileId);
     const profileName = profile?.profileName || profileId;
     const useNewApiUser = getNewApiUserFormatValue(profileId);
+    const useUuidQuery = getUuidQueryFormatValue(profileId);
     const queryMode: "custom" | "auto" =
-      hasExplicitProviderBalancePath(profile?.customBalanceUrl) || useNewApiUser
+      hasExplicitProviderBalancePath(profile?.customBalanceUrl) ||
+      useNewApiUser ||
+      useUuidQuery
         ? "custom"
         : "auto";
 
@@ -457,14 +496,23 @@ export function ProviderBalancesPage() {
     const customUrl = getCustomUrlInputValue(profileId);
     const newApiUserId = getNewApiUserIdInputValue(profileId);
     const useNewApiUser = getNewApiUserFormatValue(profileId);
+    const useUuidQuery = getUuidQueryFormatValue(profileId);
+    const uuidValue = getUuidQueryValue(profileId);
     const customBalanceUrl = customUrl.trim()
       ? toFullBalanceUrl(profile?.baseUrl || "", customUrl)
       : useNewApiUser
       ? toFullBalanceUrl(profile?.baseUrl || "", "/api/user/self")
+      : useUuidQuery
+      ? toFullBalanceUrl(profile?.baseUrl || "", "/v1/enterprise/account")
       : "";
 
     if (useNewApiUser && !newApiUserId.trim()) {
       showToast("请填写 User ID");
+      return;
+    }
+
+    if (useUuidQuery && !uuidValue.trim()) {
+      showToast("请填写 UUID");
       return;
     }
 
@@ -484,6 +532,8 @@ export function ProviderBalancesPage() {
         customBalanceUrl,
         useNewApiUserFormat: useNewApiUser,
         newApiUserId: newApiUserId,
+        useUuidQueryFormat: useUuidQuery,
+        uuidQueryValue: uuidValue,
       });
       setDrafts((value) => {
         const nextValue = { ...value };
@@ -501,6 +551,16 @@ export function ProviderBalancesPage() {
         return nextValue;
       });
       setNewApiUserFormats((value) => {
+        const nextValue = { ...value };
+        delete nextValue[profileId];
+        return nextValue;
+      });
+      setUuidQueryFormats((value) => {
+        const nextValue = { ...value };
+        delete nextValue[profileId];
+        return nextValue;
+      });
+      setUuidQueryValues((value) => {
         const nextValue = { ...value };
         delete nextValue[profileId];
         return nextValue;
@@ -719,6 +779,36 @@ export function ProviderBalancesPage() {
                       />
                       <span>New-API-User</span>
                     </label>
+                    <label className={styles.newApiUserToggle}>
+                      <input
+                        type="checkbox"
+                        checked={getUuidQueryFormatValue(profile.profileId)}
+                        onChange={(e) => {
+                          const newValue = e.target.checked;
+                          setUuidQueryFormats((value) => ({
+                            ...value,
+                            [profile.profileId]: newValue,
+                          }));
+                          if (
+                            newValue &&
+                            !Object.prototype.hasOwnProperty.call(
+                              customUrls,
+                              profile.profileId,
+                            ) &&
+                            !profile.customBalanceUrl
+                          ) {
+                            setCustomUrls((value) => ({
+                              ...value,
+                              [profile.profileId]: toFullBalanceUrl(
+                                profile.baseUrl,
+                                "/v1/enterprise/account",
+                              ),
+                            }));
+                          }
+                        }}
+                      />
+                      <span>UUID 查询</span>
+                    </label>
                   </div>
                   <div className={styles.headerRight}>
                     <span
@@ -825,6 +915,33 @@ export function ProviderBalancesPage() {
                             }))
                           }
                           placeholder="用户ID"
+                          disabled={isLoading}
+                        />
+                      </>
+                    )}
+                    {getUuidQueryFormatValue(profile.profileId) && (
+                      <>
+                        <span className={styles.inputLabel}>UUID</span>
+                        <input
+                          className={`nextchat-input-control ${styles.newApiUserInput}`}
+                          type="text"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          data-lpignore="true"
+                          data-1p-ignore="true"
+                          data-bwignore="true"
+                          data-form-type="other"
+                          name={`balance-uuid-query-${profile.profileId}`}
+                          value={getUuidQueryValue(profile.profileId)}
+                          onChange={(event) =>
+                            setUuidQueryValues((value) => ({
+                              ...value,
+                              [profile.profileId]: event.target.value,
+                            }))
+                          }
+                          placeholder="账户UUID"
                           disabled={isLoading}
                         />
                       </>

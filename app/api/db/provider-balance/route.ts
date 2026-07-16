@@ -89,6 +89,8 @@ export async function PUT(req: NextRequest) {
       customBalanceUrl?: string;
       useNewApiUserFormat?: boolean;
       newApiUserId?: string;
+      useUuidQueryFormat?: boolean;
+      uuidQueryValue?: string;
     };
     const profileId = String(payload.profileId || "").trim();
     if (!profileId)
@@ -118,6 +120,18 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const useUuidQueryFormat =
+      payload.useUuidQueryFormat ?? current.useUuidQueryFormat;
+    const uuidQueryValue = String(
+      payload.uuidQueryValue ?? current.uuidQueryValue,
+    ).trim();
+    if (useUuidQueryFormat && !uuidQueryValue) {
+      return NextResponse.json(
+        { ok: false, error: "missing_uuid_query_value" },
+        { status: 400 },
+      );
+    }
+
     await saveProviderBalanceConfig(profileId, {
       managementKey: String(payload.managementKey ?? current.managementKey),
       customBalanceUrl: String(
@@ -125,6 +139,8 @@ export async function PUT(req: NextRequest) {
       ),
       useNewApiUserFormat,
       newApiUserId,
+      useUuidQueryFormat,
+      uuidQueryValue,
     });
 
     return NextResponse.json({ ok: true });
@@ -192,6 +208,8 @@ export async function POST(req: NextRequest) {
       const customBaseUrl = customBalanceUrl ? customTarget.baseUrl : undefined;
       const customPath = customBalanceUrl ? customTarget.path : undefined;
       const hasFixedCustomPath = customTarget.hasExplicitPath;
+      const useUuidQueryFormat = balanceConfig?.useUuidQueryFormat ?? false;
+      const uuidQueryValue = balanceConfig?.uuidQueryValue ?? "";
       const canReuseCachedPath =
         Boolean(balanceConfig?.cachedPath) &&
         (!customBaseUrl ||
@@ -204,8 +222,15 @@ export async function POST(req: NextRequest) {
         apiKey: effectiveManagementKey || profile.apiKey,
         apiKeyGroups: {},
         signal: req.signal,
-        // 如果有自定义 URL，优先使用；否则使用缓存路径
-        ...(hasFixedCustomPath
+        useUuidQueryFormat,
+        uuidQueryValue,
+        // UUID 查询格式优先，不走 customUrlOnly 模式
+        // 其他自定义 URL 模式才设置 customUrlOnly
+        ...(useUuidQueryFormat
+          ? {
+              // UUID 查询：使用服务端内置逻辑
+            }
+          : hasFixedCustomPath
           ? {
               // 自定义 URL：直接使用，只查询此路径
               cachedPath: customPath,

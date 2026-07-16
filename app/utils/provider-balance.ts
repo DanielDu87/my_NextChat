@@ -18,9 +18,12 @@ export type ProviderBalanceProfile = {
   customBalanceUrl?: string;
   cachedPath?: string;
   cachedBaseUrl?: string;
-  // New-API-User 格式支持
+  // New-API-User 格式支持（Header 方式）
   useNewApiUserFormat?: boolean;
   newApiUserId?: string;
+  // UUID 查询格式支持（Body 方式：POST /v1/enterprise/account {"uuid": "..."}）
+  useUuidQueryFormat?: boolean;
+  uuidQueryValue?: string;
 };
 
 export type ProviderBalanceAttempt = {
@@ -136,6 +139,8 @@ function fromCachedProfile(value: unknown): ProviderBalanceProfile | null {
     cachedBaseUrl: "",
     useNewApiUserFormat: false,
     newApiUserId: "",
+    useUuidQueryFormat: false,
+    uuidQueryValue: "",
   };
 }
 
@@ -280,6 +285,7 @@ const BALANCE_ERROR_MESSAGES: Record<string, string> = {
     "未找到可用的余额查询路径，请确认该供应商支持余额接口或填写管理 API Key",
   missing_profile_id: "缺少配置 ID",
   missing_new_api_user_id: "New-API-User 模式需要填写 User ID",
+  missing_uuid_query_value: "UUID 查询模式需要填写 UUID",
   provider_not_found: "未找到对应 API 配置",
   query_failed: "余额查询失败",
 };
@@ -403,6 +409,8 @@ export async function saveProviderBalanceConfig(
     customBalanceUrl?: string;
     useNewApiUserFormat?: boolean;
     newApiUserId?: string;
+    useUuidQueryFormat?: boolean;
+    uuidQueryValue?: string;
   },
 ) {
   const context = createBalanceRequestContext("save-balance-config", profileId);
