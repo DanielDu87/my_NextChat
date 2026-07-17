@@ -553,20 +553,31 @@ export function stream(
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let runTools: any[] = [];
   let responseRes: Response;
+  const scheduleChatRequest = (delayMs: number, beforeRequest?: () => void) => {
+    if (controller.signal.aborted || finished) {
+      pendingRetry = false;
+      return;
+    }
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+    }
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (controller.signal.aborted || finished) {
+        pendingRetry = false;
+        return;
+      }
+      beforeRequest?.();
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, delayMs);
+  };
   const apiKeyRetry = createApiKeyGroupRetryContext({
     chatPath,
     headers,
     options,
     onRetry: () => {
       pendingRetry = true;
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        if (controller.signal.aborted) {
-          pendingRetry = false;
-          return;
-        }
-        chatApi(chatPath, headers, requestPayload, tools);
-      }, apiKeyRetry.getRetryDelayMs());
+      scheduleChatRequest(apiKeyRetry.getRetryDelayMs());
     },
   });
 
@@ -579,9 +590,7 @@ export function stream(
     remainText = "";
     runTools = [];
     chatPath = nextPath;
-    setTimeout(() => {
-      chatApi(chatPath, headers, requestPayload, tools);
-    }, 0);
+    scheduleChatRequest(0);
     return true;
   };
 
@@ -594,28 +603,13 @@ export function stream(
 
   // animate response to make it looks smooth
   function animateResponseText() {
+    if (finished || controller.signal.aborted) {
+      responseText += remainText;
+      return;
+    }
     if (pendingRetry) {
       // 重试期间使用 setTimeout 降低 CPU 消耗
       setTimeout(() => requestAnimationFrame(animateResponseText), 100);
-      return;
-    }
-    if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
-      // 等待重试时也使用 setTimeout 避免持续空转
-      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
-      return;
-    }
-    if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      // console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
-        const errorText =
-          apiKeyRetry.getLastErrorText() || "empty response from server";
-        if (apiKeyRetry.tryFallbackRetry(errorText)) {
-          requestAnimationFrame(animateResponseText);
-          return;
-        }
-        reportTerminalError(errorText);
-      }
       return;
     }
 
@@ -634,14 +628,16 @@ export function stream(
   animateResponseText();
 
   const finish = () => {
-    if (pendingRetry) {
-      return;
-    }
+    // 即使有 pendingRetry，也要优先处理中止状态
     if (controller.signal.aborted) {
       if (!finished) {
         finished = true;
+        pendingRetry = false;
         options.onFinish(responseText + remainText, responseRes);
       }
+      return;
+    }
+    if (pendingRetry) {
       return;
     }
     if (!finished) {
@@ -732,12 +728,10 @@ export function stream(
           }),
         ).then((toolCallResult) => {
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
-          setTimeout(() => {
-            // call again
+          scheduleChatRequest(60, () => {
             logChatTrace("[ChatAPI] restart");
             running = false;
-            chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
-          }, 60);
+          });
         });
         return;
       }
@@ -974,18 +968,31 @@ export function streamWithThink(
   let isInThinkingMode = false;
   let lastIsThinking = false;
   let lastIsThinkingTagged = false; //between <think> and </think> tags
+  const scheduleChatRequest = (delayMs: number, beforeRequest?: () => void) => {
+    if (controller.signal.aborted || finished) {
+      pendingRetry = false;
+      return;
+    }
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+    }
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (controller.signal.aborted || finished) {
+        pendingRetry = false;
+        return;
+      }
+      beforeRequest?.();
+      chatApi(chatPath, headers, requestPayload, tools);
+    }, delayMs);
+  };
   const apiKeyRetry = createApiKeyGroupRetryContext({
     chatPath,
     headers,
     options,
     onRetry: () => {
       pendingRetry = true;
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        if (controller.signal.aborted) {
-          pendingRetry = false;
-          return;
-        }
+      scheduleChatRequest(apiKeyRetry.getRetryDelayMs(), () => {
         const authType = String(headers["x-api-key-auth-type"] || "bearer");
         if (authType === "query-key") {
           const nextApiKey = headers["x-api-key-query-value"] || "";
@@ -994,8 +1001,7 @@ export function streamWithThink(
           ).trim();
           chatPath = replaceUrlQueryParam(chatPath, queryParamName, nextApiKey);
         }
-        chatApi(chatPath, headers, requestPayload, tools);
-      }, apiKeyRetry.getRetryDelayMs());
+      });
     },
   });
 
@@ -1008,9 +1014,7 @@ export function streamWithThink(
     remainText = "";
     runTools = [];
     chatPath = nextPath;
-    setTimeout(() => {
-      chatApi(chatPath, headers, requestPayload, tools);
-    }, 0);
+    scheduleChatRequest(0);
     return true;
   };
 
@@ -1023,28 +1027,13 @@ export function streamWithThink(
 
   // animate response to make it looks smooth
   function animateResponseText() {
+    if (finished || controller.signal.aborted) {
+      responseText += remainText;
+      return;
+    }
     if (pendingRetry) {
       // 重试期间使用 setTimeout 降低 CPU 消耗
       setTimeout(() => requestAnimationFrame(animateResponseText), 100);
-      return;
-    }
-    if (controller.signal.aborted && apiKeyRetry.hasRemainingRetries()) {
-      // 等待重试时也使用 setTimeout 避免持续空转
-      setTimeout(() => requestAnimationFrame(animateResponseText), 100);
-      return;
-    }
-    if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      // console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
-        const errorText =
-          apiKeyRetry.getLastErrorText() || "empty response from server";
-        if (apiKeyRetry.tryFallbackRetry(errorText)) {
-          requestAnimationFrame(animateResponseText);
-          return;
-        }
-        reportTerminalError(errorText);
-      }
       return;
     }
 
@@ -1079,22 +1068,22 @@ export function streamWithThink(
     lastIsThinkingTagged = false;
     requestPayload = nextPayload;
 
-    setTimeout(() => {
-      chatApi(chatPath, headers, requestPayload, tools);
-    }, 0);
+    scheduleChatRequest(0);
 
     return true;
   };
 
   const finish = () => {
-    if (pendingRetry) {
-      return;
-    }
+    // 即使有 pendingRetry，也要优先处理中止状态
     if (controller.signal.aborted) {
       if (!finished) {
         finished = true;
+        pendingRetry = false;
         options.onFinish(responseText + remainText, responseRes);
       }
+      return;
+    }
+    if (pendingRetry) {
       return;
     }
     if (!finished) {
@@ -1185,12 +1174,10 @@ export function streamWithThink(
           }),
         ).then((toolCallResult) => {
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
-          setTimeout(() => {
-            // call again
+          scheduleChatRequest(60, () => {
             logChatTrace("[ChatAPI] restart");
             running = false;
-            chatApi(chatPath, headers, requestPayload, tools); // call fetchEventSource
-          }, 60);
+          });
         });
         return;
       }

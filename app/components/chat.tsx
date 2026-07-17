@@ -5357,7 +5357,7 @@ function _Chat() {
   const onStopAll = () => {
     chatStore.updateTargetSession(session, (session) => {
       for (const m of session.messages) {
-        if (m.role === "assistant" && m.streaming) {
+        if (m.role === "assistant" && (m.streaming || m.retrying)) {
           m.manualStopped = true;
           m.streaming = false;
           m.content = "";

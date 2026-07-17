@@ -3198,30 +3198,39 @@ export const useChatStore = createPersistStore(
           totalMessages: sendMessages.length,
         });
 
+        const syncBotMessageToCurrentSession = () => {
+          get().updateTargetSession(session, (currentSession) => {
+            const currentMessageIndex = currentSession.messages.findIndex(
+              (message) => message.id === botMessage.id,
+            );
+            if (currentMessageIndex < 0) {
+              return;
+            }
+            const nextMessages = currentSession.messages.slice();
+            nextMessages[currentMessageIndex] = {
+              ...botMessage,
+              retryAttempts: botMessage.retryAttempts?.map((attempt) => ({
+                ...attempt,
+              })),
+              tools: botMessage.tools?.map((tool) => ({ ...tool })),
+            };
+            currentSession.messages = nextMessages;
+          });
+        };
+        const isBotMessageManuallyStopped = () => {
+          if (botMessage.manualStopped) return true;
+          return Boolean(
+            get()
+              .getSessionById(session.id)
+              ?.messages.find((message) => message.id === botMessage.id)
+              ?.manualStopped,
+          );
+        };
+
         const attemptChatWithCandidate = async (
           candidate: ChatFailoverCandidate,
           attemptIndex: number,
         ) => {
-          const syncBotMessageToCurrentSession = () => {
-            get().updateTargetSession(session, (currentSession) => {
-              const currentMessageIndex = currentSession.messages.findIndex(
-                (message) => message.id === botMessage.id,
-              );
-              if (currentMessageIndex < 0) {
-                return;
-              }
-              const nextMessages = currentSession.messages.slice();
-              nextMessages[currentMessageIndex] = {
-                ...botMessage,
-                retryAttempts: botMessage.retryAttempts?.map((attempt) => ({
-                  ...attempt,
-                })),
-                tools: botMessage.tools?.map((tool) => ({ ...tool })),
-              };
-              currentSession.messages = nextMessages;
-            });
-          };
-
           // 动态检查模型可用性：非首个候选时重新确认模型当前可用
           if (attemptIndex > 0) {
             const currentModel = allModels.find(
@@ -3369,7 +3378,7 @@ export const useChatStore = createPersistStore(
                   });
                 },
                 onUpdate(message) {
-                  if (botMessage.manualStopped) return;
+                  if (isBotMessageManuallyStopped()) return;
                   botMessage.streaming = true;
                   if (message && !isApiFailurePayload(message)) {
                     botMessage.content = message;
@@ -3380,7 +3389,8 @@ export const useChatStore = createPersistStore(
                 async onFinish(message, responseRes) {
                   if (settled || finishing) return;
                   get().flushTargetSessionRefresh(session);
-                  if (botMessage.manualStopped) {
+                  if (isBotMessageManuallyStopped()) {
+                    botMessage.manualStopped = true;
                     botMessage.streaming = false;
                     botMessage.content = "";
                     botMessage.retrying = false;
@@ -3506,7 +3516,7 @@ export const useChatStore = createPersistStore(
                   if (settled || finishing) return;
                   get().flushTargetSessionRefresh(session);
                   const isAborted =
-                    botMessage.manualStopped ||
+                    isBotMessageManuallyStopped() ||
                     /abort(?:ed)?/i.test(String(error.message || ""));
                   logger.chat.log(
                     isAborted ? "⏹️ 对话请求已停止:" : "❌ 对话请求尝试失败:",
@@ -3590,6 +3600,13 @@ export const useChatStore = createPersistStore(
         let blockedResult: "blocked" | null = null;
         const exhaustedProviderIds = new Set<string>();
         for (const [attemptIndex, candidate] of retryCandidates.entries()) {
+          if (isBotMessageManuallyStopped()) {
+            botMessage.manualStopped = true;
+            logger.chat.log("⏹️ 检测到用户停止，终止所有重试");
+            botMessage.retrying = false;
+            syncBotMessageToCurrentSession();
+            return submittedMessageMeta;
+          }
           if (exhaustedProviderIds.has(candidate.providerId)) {
             continue;
           }
