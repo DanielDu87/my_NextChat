@@ -4,6 +4,27 @@
 
 ============================================================
 
+## 148. 【2026-07-17 13:39】- 移除公司筛选按钮悬停背景变化
+
+### 修改内容
+
+- 模型选择器顶部“全部模型商”按钮悬停时不再改变背景色或阴影，仅保留主色边框反馈。
+- 下方公司候选卡片、完整名称浮层、focus 与 active 状态均保持不变。
+
+### 实现方式
+
+- 在 `app/components/ui-lib.module.scss` 的 `.selector-group-filter:hover` 真实样式 owner 中显式恢复默认背景与默认阴影，继续使用 `var(--primary)` 边框。
+
+### 验证
+
+- `git diff --check` 通过；待合并主分支后通过现有热加载容器核对 hover 前后 computed style。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
 ## 147. 【2026-07-17 13:29】- 补全添加模型公司名称悬停展示
 
 ### 修改内容
@@ -189,27 +210,6 @@
 ### 验证
 
 - `xmllint --noout public/provider-icons/huggingface-bg.svg`、`yarn lint` 和 `git diff --check` 通过。
-
-### 潜在或遗留问题
-
-- 无。
-
-============================================================
-
-## 138. 【2026-07-17 12:34】- 更换 OpenRouter 官方新版 glyph
-
-### 修改内容
-
-- OpenRouter 改用官网新版紫色矢量 glyph，替代先前小尺寸 favicon。
-- 保持透明背景、图标路径、容器和共享边框样式不变。
-
-### 实现方式
-
-- 将官网 `openrouter-glyph-light.svg` 的路径与 `#7624F4` 品牌色写入既有 SVG，并恢复该 SVG 映射。
-
-### 验证
-
-- `xmllint --noout public/provider-icons/openrouter-bg.svg`、`yarn lint` 和 `git diff --check` 通过。
 
 ### 潜在或遗留问题
 

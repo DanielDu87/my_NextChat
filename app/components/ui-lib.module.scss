@@ -1118,12 +1118,11 @@
       }
 
       &:hover {
-        background: color-mix(in srgb, var(--primary) 12%, var(--white));
+        background: var(--white);
         color: var(--black);
         border-color: var(--primary);
         border-width: 2px;
-        box-shadow:
-          var(--input-control-hover-shadow);
+        box-shadow: var(--selector-control-shadow, var(--card-shadow));
         transform: none;
 
         > :global(svg) {
