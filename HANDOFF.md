@@ -17,7 +17,7 @@
 
 ### 验证
 
-- 使用开发容器内 ESLint 对当前 worktree 的 `app/components/ui-lib.tsx` 执行 stdin 检查通过，`git diff --check` 通过；待合并主分支后完成页面核验。
+- `yarn lint` 与 `git diff --check` 通过；浏览器 DOM 确认顶部“全部模型商”和展开菜单同名选项均加载 `/llm-icons/default.png`。
 
 ### 潜在或遗留问题
 
