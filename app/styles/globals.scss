@@ -1985,7 +1985,7 @@ pre {
 }
 
 .model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
-  background-color: var(--white) !important;
+  background-color: color-mix(in srgb, var(--white) 94%, #000) !important;
   box-shadow: var(--card-shadow) !important;
 }
 

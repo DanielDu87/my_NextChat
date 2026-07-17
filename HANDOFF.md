@@ -4,21 +4,22 @@
 
 ============================================================
 
-## 148. 【2026-07-17 13:45】- 移除公司筛选按钮悬停背景变化
+## 148. 【2026-07-17 13:51】- 调整公司筛选按钮悬停背景
 
 ### 修改内容
 
-- 模型选择器顶部“全部模型商”按钮悬停时不再改变背景色或阴影，仅保留主色边框反馈。
+- 模型选择器顶部“全部模型商”按钮悬停时保留背景色反馈，颜色调整为比按钮和选择器面板略深的中性背景。
+- hover 阴影保持默认，仅保留主色边框变化，不引入主色浅底。
 - 下方公司候选卡片、完整名称浮层、focus 与 active 状态均保持不变。
 
 ### 实现方式
 
-- 在 `app/styles/globals.scss` 中以按钮真实公共类组合精确覆盖带 `!important` 的 `.nextchat-default-button:hover`，显式恢复默认背景与默认阴影，继续沿用公共 `var(--primary)` 边框。
+- 在 `app/styles/globals.scss` 中以按钮真实公共类组合精确覆盖带 `!important` 的 `.nextchat-default-button:hover`，使用 `color-mix(in srgb, var(--white) 94%, #000)` 生成随主题变化的轻微加深背景，并继续沿用公共 `var(--primary)` 边框。
 - 撤回 `app/components/ui-lib.module.scss` 中会被公共 `!important` 规则覆盖的无效修改，避免保留冗余样式。
 
 ### 验证
 
-- `yarn lint` 与 `git diff --check` 通过；浏览器 computed style 确认 hover 前后背景色、阴影不变，仅边框由灰色变为 `var(--primary)`。
+- 待通过开发容器 lint、`git diff --check` 与浏览器 computed style 核验。
 
 ### 潜在或遗留问题
 
