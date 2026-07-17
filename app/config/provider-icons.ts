@@ -245,7 +245,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   chatglm: "/provider-icons/zhipu-bg.svg",
 
   // Upstage
-  upstage: "/provider-icons/upstage-bg.svg",
+  upstage: "/provider-icons/upstage-bg.png",
 
   // Aihubmix
   aihubmix: "/provider-icons/aihubmix-bg.svg",
@@ -267,9 +267,9 @@ export const PROVIDER_ICONS: Record<string, string> = {
 
   // Anthracite / Anthracite Org (HuggingFace community)
   anthracite: "/provider-icons/anthracite-bg.svg",
-  "anthracite org": "/provider-icons/anthracite-org-bg.svg",
-  "anthracite-org": "/provider-icons/anthracite-org-bg.svg",
-  magnum: "/provider-icons/anthracite-org-bg.svg",
+  "anthracite org": "/provider-icons/anthracite-org-bg.webp",
+  "anthracite-org": "/provider-icons/anthracite-org-bg.webp",
+  magnum: "/provider-icons/anthracite-org-bg.webp",
 
   // Arcee AI
   arcee: "/provider-icons/arcee-bg.svg",
@@ -293,7 +293,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   inception: "/provider-icons/inception-bg.svg",
 
   // Inflection
-  inflection: "/provider-icons/inflection-bg.svg",
+  inflection: "/provider-icons/inflection-bg.png",
 
   // Liquid
   liquid: "/provider-icons/liquid-bg.svg",
@@ -302,41 +302,45 @@ export const PROVIDER_ICONS: Record<string, string> = {
   mancer: "/provider-icons/mancer-bg.svg",
 
   // Morph
-  morph: "/provider-icons/morph-bg.svg",
+  morph: "/provider-icons/morph-bg.png",
 
   // Nex Agi
   "nex agi": "/provider-icons/nexagi-bg.svg",
   nexagi: "/provider-icons/nexagi-bg.svg",
 
   // Nousresearch
-  nousresearch: "/provider-icons/nousresearch-bg.svg",
-  nous: "/provider-icons/nousresearch-bg.svg",
+  nousresearch: "/provider-icons/nousresearch-bg.png",
+  nous: "/provider-icons/nousresearch-bg.png",
 
   // Perceptron
-  perceptron: "/provider-icons/perceptron-bg.svg",
+  perceptron: "/provider-icons/perceptron-bg.png",
 
   // Poolside
   poolside: "/provider-icons/poolside-bg.svg",
 
   // Rekaai
-  rekaai: "/provider-icons/rekaai-bg.svg",
+  rekaai: "/provider-icons/rekaai-bg.webp",
 
   // Relace
   relace: "/provider-icons/relace-bg.svg",
 
   // Sakana
-  sakana: "/provider-icons/sakana-bg.svg",
-  "sakana ai": "/provider-icons/sakana-bg.svg",
+  sakana: "/provider-icons/sakana-bg.ico",
+  "sakana ai": "/provider-icons/sakana-bg.ico",
 
   // Sao10k
-  sao10k: "/provider-icons/sao10k-bg.svg",
-  "sao 10k": "/provider-icons/sao10k-bg.svg",
+  sao10k: "/provider-icons/huggingface-bg.svg",
+  "sao 10k": "/provider-icons/huggingface-bg.svg",
+
+  // Hugging Face
+  huggingface: "/provider-icons/huggingface-bg.svg",
+  "hugging face": "/provider-icons/huggingface-bg.svg",
 
   // Undi95
-  undi95: "/provider-icons/undi95-bg.svg",
+  undi95: "/provider-icons/huggingface-bg.svg",
 
   // Writer
-  writer: "/provider-icons/writer-bg.svg",
+  writer: "/provider-icons/writer-bg.webp",
 };
 
 const CANONICAL_PROVIDER_KEY_BY_ICON = Object.entries(PROVIDER_ICONS).reduce(
@@ -349,11 +353,25 @@ const CANONICAL_PROVIDER_KEY_BY_ICON = Object.entries(PROVIDER_ICONS).reduce(
   new Map<string, string>(),
 );
 
+// These providers intentionally share the Hugging Face mark but remain separate
+// model-vendor groups, so their canonical key must not be inferred from the icon.
+const SHARED_HUGGING_FACE_ICON_KEYS: Record<string, string> = {
+  sao10k: "sao10k",
+  "sao 10k": "sao10k",
+  undi95: "undi95",
+  huggingface: "huggingface",
+  "hugging face": "huggingface",
+};
+
 /**
  * 返回共享图标映射中同一品牌的稳定键。所有同图标别名都会得到相同结果，
  * 供模型选择器等分组入口合并旧缓存和上游不同写法。
  */
 export function getCanonicalProviderKey(provider: string): string | undefined {
+  const normalized = provider.toLowerCase();
+  const explicitCanonicalKey = SHARED_HUGGING_FACE_ICON_KEYS[normalized];
+  if (explicitCanonicalKey) return explicitCanonicalKey;
+
   const icon = getProviderIcon(provider);
   return icon ? CANONICAL_PROVIDER_KEY_BY_ICON.get(icon) : undefined;
 }

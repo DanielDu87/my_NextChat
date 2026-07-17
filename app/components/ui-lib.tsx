@@ -1254,6 +1254,7 @@ export function Selector<T>(props: {
       "tencent",
       "tencent hunyuan",
       "hunyuan",
+      "writer",
     ].includes(normalized);
     if (localIcon) {
       return (
