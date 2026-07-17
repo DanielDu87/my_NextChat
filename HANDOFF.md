@@ -18,7 +18,7 @@
 
 ### 验证
 
-- `git diff --check` 通过；待合并主分支后通过现有热加载容器核对 hover 前后 computed style。
+- `yarn lint` 与 `git diff --check` 通过；浏览器 computed style 确认 hover 前后背景色、阴影不变，仅边框由灰色变为 `var(--primary)`。
 
 ### 潜在或遗留问题
 
