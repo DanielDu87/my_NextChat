@@ -1990,7 +1990,7 @@ pre {
 }
 
 body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
-  background-color: color-mix(in srgb, var(--white) 84%, #000) !important;
+  background-color: color-mix(in srgb, var(--white) 95%, var(--black)) !important;
 }
 
 .model-selector-panel .nextchat-selector-menu,
