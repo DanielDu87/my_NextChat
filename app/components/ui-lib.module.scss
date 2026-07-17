@@ -1312,7 +1312,7 @@
     .selector-group-filter-option {
       display: flex;
       position: relative;
-      z-index: 100000000000001;
+      z-index: 1;
       align-items: center;
       justify-content: center;
       cursor: pointer;
@@ -1334,7 +1334,7 @@
         transform 0.2s ease;
 
       &[data-show-full-label="true"] {
-        z-index: 100000000000003;
+        z-index: 3;
 
         &::after {
           content: attr(data-full-label);
@@ -1386,7 +1386,7 @@
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      z-index: 100000000000002;
+      z-index: 2;
 
       span {
         white-space: nowrap;
