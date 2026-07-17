@@ -1240,7 +1240,7 @@ export function Selector<T>(props: {
     </span>
   );
   const renderGroupFilterIcon = (group: string) => {
-    if (group === "All") return null;
+    if (group === "All") return renderDefaultGroupIcon();
     if (isCustomModelGroup(group)) {
       return renderDefaultGroupIcon();
     }
@@ -1631,16 +1631,14 @@ export function Selector<T>(props: {
                 setIsGroupFilterOpen(!isGroupFilterOpen);
               }}
             >
-              {selectedGroup !== "All" ? (
-                <span
-                  className={clsx(
-                    "nextchat-selector-menu-option-leading",
-                    styles["selector-group-filter-leading"],
-                  )}
-                >
-                  {renderGroupFilterIcon(selectedGroup)}
-                </span>
-              ) : null}
+              <span
+                className={clsx(
+                  "nextchat-selector-menu-option-leading",
+                  styles["selector-group-filter-leading"],
+                )}
+              >
+                {renderGroupFilterIcon(selectedGroup)}
+              </span>
               <span>{getGroupFilterLabel(selectedGroup)}</span>
               <DownIcon />
             </button>
@@ -1693,16 +1691,14 @@ export function Selector<T>(props: {
                         stabilizeSelectorPosition();
                       }}
                     >
-                      {group !== "All" ? (
-                        <span
-                          className={clsx(
-                            "nextchat-selector-menu-option-leading",
-                            styles["selector-group-filter-option-leading"],
-                          )}
-                        >
-                          {renderGroupFilterIcon(group)}
-                        </span>
-                      ) : null}
+                      <span
+                        className={clsx(
+                          "nextchat-selector-menu-option-leading",
+                          styles["selector-group-filter-option-leading"],
+                        )}
+                      >
+                        {renderGroupFilterIcon(group)}
+                      </span>
                       <span data-selector-group-filter-option-label="true">
                         {groupLabel}
                       </span>
