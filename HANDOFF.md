@@ -4,7 +4,7 @@
 
 ============================================================
 
-## 148. 【2026-07-17 13:39】- 移除公司筛选按钮悬停背景变化
+## 148. 【2026-07-17 13:45】- 移除公司筛选按钮悬停背景变化
 
 ### 修改内容
 
@@ -13,7 +13,8 @@
 
 ### 实现方式
 
-- 在 `app/components/ui-lib.module.scss` 的 `.selector-group-filter:hover` 真实样式 owner 中显式恢复默认背景与默认阴影，继续使用 `var(--primary)` 边框。
+- 在 `app/styles/globals.scss` 中以按钮真实公共类组合精确覆盖带 `!important` 的 `.nextchat-default-button:hover`，显式恢复默认背景与默认阴影，继续沿用公共 `var(--primary)` 边框。
+- 撤回 `app/components/ui-lib.module.scss` 中会被公共 `!important` 规则覆盖的无效修改，避免保留冗余样式。
 
 ### 验证
 

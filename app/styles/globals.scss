@@ -1984,6 +1984,11 @@ pre {
   letter-spacing: 0.01em !important;
 }
 
+.model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
+  background-color: var(--white) !important;
+  box-shadow: var(--card-shadow) !important;
+}
+
 .model-selector-panel .nextchat-selector-menu,
 .model-selector-panel .model-selector-provider-menu {
   border-radius: 18px !important;
