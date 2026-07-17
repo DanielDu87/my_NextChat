@@ -1989,6 +1989,10 @@ pre {
   box-shadow: var(--card-shadow) !important;
 }
 
+body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group-filter:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--white) 84%, #000) !important;
+}
+
 .model-selector-panel .nextchat-selector-menu,
 .model-selector-panel .model-selector-provider-menu {
   border-radius: 18px !important;
