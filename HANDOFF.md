@@ -4,7 +4,7 @@
 
 ============================================================
 
-## 148. 【2026-07-17 13:57】- 调整公司筛选按钮悬停背景
+## 148. 【2026-07-17 14:01】- 调整公司筛选按钮悬停背景
 
 ### 修改内容
 
@@ -14,12 +14,12 @@
 
 ### 实现方式
 
-- 在 `app/styles/globals.scss` 中以按钮真实公共类组合精确覆盖带 `!important` 的 `.nextchat-default-button:hover`：Light 使用 6% 黑色混合，`body.dark` 使用 5% 浅色文字 token 提亮，并继续沿用公共 `var(--primary)` 边框。
+- 在 `app/styles/globals.scss` 中以按钮真实公共类组合精确覆盖带 `!important` 的 `.nextchat-default-button:hover`：Light 使用 6% 黑色混合，`body.dark` 直接使用现有 `--hover-color`（`#323232`）提供清晰可见的提亮反馈，并继续沿用公共 `var(--primary)` 边框。
 - 撤回 `app/components/ui-lib.module.scss` 中会被公共 `!important` 规则覆盖的无效修改，避免保留冗余样式。
 
 ### 验证
 
-- `yarn lint` 与 `git diff --check` 通过；浏览器 computed style 确认 Dark 下按钮默认背景为 `rgb(30,30,30)`、hover 提亮至约 `rgb(37.9,37.9,37.9)`、面板背景为 `rgb(45,45,45)`，主色边框生效且阴影不变。
+- 待通过开发容器 lint、`git diff --check` 与浏览器 Dark computed style 核验。
 
 ### 潜在或遗留问题
 
