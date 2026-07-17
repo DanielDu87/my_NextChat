@@ -71,6 +71,18 @@
 宝塔生产 Compose 要求构建时必须注入 Git 提交哈希和时间；绕过
 `scripts/docker-compose-safe.sh` 会直接报错，不再生成界面版本为 `unknown` 的镜像。
 
+部署脚本会始终从服务器项目目录的当前 Git `HEAD` 重新计算并注入
+`BUILD_COMMIT_HASH` / `BUILD_COMMIT_DATE`，覆盖 shell 或面板残留的旧环境变量。
+部署完成后必须同时核对：
+
+```bash
+ssh ss 'docker exec nextchat printenv BUILD_COMMIT_HASH'
+ssh ss 'curl -sS http://127.0.0.1:3000/ | grep -o "commitHash[^,]*" | head -1'
+ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
+```
+
+三处哈希必须一致；如果不一致，说明构建使用了旧镜像或旧环境变量，不能继续把部署结果视为最新版本。
+
 > ⚠️ **重要**：部署后必须执行 `fix-pg-hba.sh` 脚本修复数据库连接（详见 §3.1）。
 
 ```bash

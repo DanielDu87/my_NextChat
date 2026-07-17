@@ -43,10 +43,16 @@ ssh ss 'tmux capture-pane -t nextchat-baota-deploy -p -S -120'
 
 构建注意事项：
 
+- `scripts/docker-compose-safe.sh` 会始终从当前仓库 `HEAD` 注入 `BUILD_COMMIT_HASH` 和 `BUILD_COMMIT_DATE`，覆盖服务器残留的同名环境变量；部署后必须核对容器环境、页面 meta 和 `deployment_metadata` 三处提交哈希一致，禁止只看镜像名 `latest`。
 - `.env.docker` 中的 `HTTP_PROXY=http://host.docker.internal:7890` 在 Docker 构建阶段
   可能无法解析，导致 `yarn install` 失败。构建时必须覆盖为空。
 - 如果 npmmirror 在构建阶段连接异常，可临时切换 NPM_REGISTRY 为 npmjs.org。
 - `yarn install` 阶段耗时较长（5~10 分钟），建议使用 `tmux` 或 `nohup` 避免 SSH 超时。
+
+模型探测与容器内回环：
+
+- 浏览器模型请求经过 `/api/model-probe` 和 `/api/proxy`；模型探测在容器内部回调应用时必须使用 `http://127.0.0.1:3000`，不能请求 `https://chat.dyxcloud.com`，避免宝塔/Nginx 公网 HTTPS hairpin 导致 `502 fetch failed`。
+- 线上模型获取失败时，先检查浏览器 `model-probe` 的 `bodyText`，再查容器日志中的 `[Proxy Route]`；配置保存接口返回 `{"ok":true}` 说明数据库保存链路正常，不要先清理数据库缓存。
 
 宝塔专用更新命令：
 
