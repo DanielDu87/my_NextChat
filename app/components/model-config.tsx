@@ -39,6 +39,7 @@ export function ModelConfigList(props: {
       return getModelDisplayGroup({
         modelName: model.name,
         vendorName: model.vendor?.name,
+        vendorId: model.vendor?.id,
         providerName: model.provider?.providerName,
       });
     },

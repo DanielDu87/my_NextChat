@@ -102,6 +102,17 @@ export const PROVIDER_ICONS: Record<string, string> = {
   // Cohere
   cohere: "/provider-icons/cohere-official.png",
 
+  // 360 Zhinao
+  "360": "/provider-icons/360-bg.png",
+  "360 ai": "/provider-icons/360-bg.png",
+  "360gpt": "/provider-icons/360-bg.png",
+  "360智脑": "/provider-icons/360-bg.png",
+
+  // Cursor / Composer
+  cursor: "/provider-icons/cursor-bg.svg",
+  "cursor ai": "/provider-icons/cursor-bg.svg",
+  "cursor composer": "/provider-icons/cursor-bg.svg",
+
   // ElevenLabs
   elevenlabs: "/provider-icons/elevenlabs.svg",
 
@@ -161,7 +172,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   "jina ai": "/provider-icons/jina-bg.svg",
 
   // Stability
-  stability: "/provider-icons/stability-bg.svg",
+  stability: "/provider-icons/stability-bg.png",
 
   // Flux
   flux: "/provider-icons/flux-official.png",
@@ -225,7 +236,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   viggle: "/provider-icons/viggle.png",
 
   // Xiaomi
-  xiaomi: "/provider-icons/xiaomi-bg.svg",
+  xiaomi: "/provider-icons/xiaomi.png",
 
   // Ascend Huawei
   ascend: "/provider-icons/ascend-huawei.png",

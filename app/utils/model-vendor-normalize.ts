@@ -18,6 +18,13 @@ const GENERIC_VENDOR_NAMES = new Set([
 ]);
 
 const KNOWN_VENDOR_ALIASES: Record<string, ModelVendorInfo> = {
+  "360": { name: "360", icon: "Box" },
+  "360 ai": { name: "360", icon: "Box" },
+  "360gpt": { name: "360", icon: "Box" },
+  "360智脑": { name: "360", icon: "Box" },
+  cursor: { name: "Cursor", icon: "Box" },
+  "cursor ai": { name: "Cursor", icon: "Box" },
+  "cursor composer": { name: "Cursor", icon: "Box" },
   "01-ai": { name: "01.AI", icon: "Yi" },
   "01.ai": { name: "01.AI", icon: "Yi" },
   "01ai": { name: "01.AI", icon: "Yi" },
@@ -284,22 +291,15 @@ export function getDeclaredModelVendor(
   return null;
 }
 
-export function getProviderFallbackModelVendor(
-  providerId: string,
-  providerName: string,
-) {
+export function getProviderFallbackModelVendor(providerName: string) {
   const normalizedProviderName = String(providerName || "").trim();
   if (
-    normalizedProviderName &&
-    !["custom", "local"].includes(normalizedProviderName.toLowerCase())
+    !normalizedProviderName ||
+    ["custom", "local"].includes(normalizedProviderName.toLowerCase())
   ) {
-    return normalizeModelVendorName(normalizedProviderName);
+    return null;
   }
-
-  const profileName = String(providerId || "")
-    .trim()
-    .replace(/^custom[_-]/i, "");
-  return profileName ? normalizeModelVendorName(profileName) : null;
+  return normalizeModelVendorName(normalizedProviderName);
 }
 
 export function isCustomAutoModelName(value?: string) {

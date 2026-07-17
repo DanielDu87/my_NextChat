@@ -985,10 +985,7 @@ function mapModels(
       }
     }
     if (!vendor) {
-      const providerVendor = getProviderFallbackModelVendor(
-        providerId,
-        providerName,
-      );
+      const providerVendor = getProviderFallbackModelVendor(providerName);
       if (providerVendor) {
         vendor = { id: -4, ...providerVendor };
       }

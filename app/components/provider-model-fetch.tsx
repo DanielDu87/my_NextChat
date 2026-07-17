@@ -42,6 +42,7 @@ function logModelsByWebVendorGroup(models: any[]) {
       modelName: model?.name,
       displayName: model?.displayName,
       vendorName: model?.vendor?.name,
+      vendorId: model?.vendor?.id,
       providerName: model?.provider?.providerName,
     });
     const groupedModels = groups.get(vendor) || [];

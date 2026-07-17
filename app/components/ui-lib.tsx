@@ -1251,6 +1251,9 @@ export function Selector<T>(props: {
       "stepfun ai",
       "stepfun al",
       "suno",
+      "tencent",
+      "tencent hunyuan",
+      "hunyuan",
     ].includes(normalized);
     if (localIcon) {
       return (
@@ -1286,9 +1289,15 @@ export function Selector<T>(props: {
       return renderDefaultGroupIcon(true);
     }
     if (
-      ["stepfun", "stepfun ai", "stepfun al", "suno"].includes(
-        visibleGroup.toLowerCase(),
-      )
+      [
+        "stepfun",
+        "stepfun ai",
+        "stepfun al",
+        "suno",
+        "tencent",
+        "tencent hunyuan",
+        "hunyuan",
+      ].includes(visibleGroup.toLowerCase())
     ) {
       return renderGroupFilterIcon(visibleGroup) ?? undefined;
     }

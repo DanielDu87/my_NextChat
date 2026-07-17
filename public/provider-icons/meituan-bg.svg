@@ -6,7 +6,7 @@
   xmlns="http://www.w3.org/2000/svg"
 >
   <title>Meituan</title>
-  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFD21E" stroke="#EAB308" stroke-width="1" />
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFD21E" />
   <path
     d="M8.1 9.2H10V13.3L12.5 9.2H14.6V20.8H12.7V12.9L10.1 17.1H8.1V9.2Z"
     fill="#111111"

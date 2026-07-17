@@ -143,6 +143,7 @@ export function buildChatFailoverCandidates(
         modelName: model.name,
         displayName: model.displayName,
         vendorName: model.vendor?.name,
+        vendorId: model.vendor?.id,
         providerName: profile?.name || String(providerName),
       }),
       publishedAt: model.publishedAt,

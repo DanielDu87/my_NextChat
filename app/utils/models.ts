@@ -223,8 +223,11 @@ export function inferVendorFromModelName(
   ) {
     return { name: "Google", icon: "Gemini.Color" };
   }
-  // DeepSeek
-  if (lowerName.startsWith("deepseek-")) {
+  // AGICTO 的 `high-` 前缀表示推理档位，不改变模型厂商。
+  if (
+    lowerName.startsWith("deepseek-") ||
+    lowerName.startsWith("high-deepseek-")
+  ) {
     return { name: "DeepSeek", icon: "DeepSeek.Color" };
   }
   // xAI Grok
@@ -295,8 +298,13 @@ export function inferVendorFromModelName(
   if (lowerName.startsWith("nemotron-")) {
     return { name: "NVIDIA", icon: "Nvidia" };
   }
-  // Mistral
-  if (lowerName.startsWith("mistral-") || lowerName.startsWith("mixtral-")) {
+  // Mistral 的 OpenAI-compatible 目录还会保留 `open-` 前缀。
+  if (
+    lowerName.startsWith("mistral-") ||
+    lowerName.startsWith("mixtral-") ||
+    lowerName.startsWith("open-mistral-") ||
+    lowerName.startsWith("open-mixtral-")
+  ) {
     return { name: "Mistral", icon: "Mistral.Color" };
   }
   // Minimax
@@ -327,8 +335,18 @@ export function inferVendorFromModelName(
   if (lowerName.startsWith("internlm") || lowerName.startsWith("intern-lm")) {
     return { name: "InternLM", icon: "Box" };
   }
-  if (lowerName.startsWith("command-") || lowerName.startsWith("cohere-")) {
+  if (
+    lowerName.startsWith("command-") ||
+    lowerName.startsWith("cohere-") ||
+    ["rerank-english-v3.0", "rerank-multilingual-v3.0", "rerank-v3.5"].includes(
+      lowerName,
+    )
+  ) {
     return { name: "Cohere", icon: "Box" };
+  }
+  // 360 智脑的公开 API 使用 360GPT 系列名称。
+  if (lowerName.startsWith("360gpt")) {
+    return { name: "360", icon: "Box" };
   }
   if (lowerName.startsWith("jamba")) {
     return { name: "AI21", icon: "Box" };
@@ -909,10 +927,7 @@ function mapModels(
       }
     }
     if (!vendor) {
-      const providerVendor = getProviderFallbackModelVendor(
-        providerId,
-        providerName,
-      );
+      const providerVendor = getProviderFallbackModelVendor(providerName);
       if (providerVendor) {
         vendor = { id: -4, ...providerVendor };
       }

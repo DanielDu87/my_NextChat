@@ -6,8 +6,14 @@
   xmlns="http://www.w3.org/2000/svg"
 >
   <title>BAAI</title>
-  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" />
-  <g stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="1.5" y="1.5" width="27" height="27" rx="9" fill="#FFFFFF" />
+  <g
+    transform="translate(-3 -3) scale(1.2)"
+    stroke="#111111"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <path d="M8.2 11.1L15 7L21.8 11.1V18.9L15 23L8.2 18.9V11.1Z" />
     <path d="M8.2 11.1L15 15.2L21.8 11.1" />
     <path d="M15 15.2V23" />

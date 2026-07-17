@@ -32,6 +32,7 @@ function logModelsByVendorGroup(models: LLMModel[]) {
       modelName: model?.name,
       displayName: model?.displayName,
       vendorName: model?.vendor?.name,
+      vendorId: model?.vendor?.id,
       providerName: model?.provider?.providerName,
     });
     const groupedModels = groups.get(vendor) || [];
@@ -630,6 +631,7 @@ export function AddModelSelector(props: {
             modelName,
             displayName: fetchedModel?.displayName,
             vendorName: fetchedModel?.vendor?.name,
+            vendorId: fetchedModel?.vendor?.id,
             providerName: fetchedModel?.provider?.providerName,
           }),
           disable: false,
@@ -670,6 +672,7 @@ export function AddModelSelector(props: {
           modelName: model.name,
           displayName: model.displayName,
           vendorName: model.vendor?.name,
+          vendorId: model.vendor?.id,
           providerName: model.provider?.providerName,
         }),
         disable: isAdded,
