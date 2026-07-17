@@ -1653,6 +1653,7 @@ export function Selector<T>(props: {
               >
                 {groupFilterOptions.map((group) => {
                   const active = selectedGroup === group;
+                  const groupLabel = getGroupFilterLabel(group);
                   return (
                     <button
                       type="button"
@@ -1667,6 +1668,23 @@ export function Selector<T>(props: {
                         active && "nextchat-selector-menu-option-active",
                         active && styles["selector-group-filter-option-active"],
                       )}
+                      data-full-label={groupLabel}
+                      onMouseEnter={(event) => {
+                        const label = event.currentTarget.querySelector(
+                          '[data-selector-group-filter-option-label="true"]',
+                        );
+                        if (label && label.scrollWidth > label.clientWidth) {
+                          event.currentTarget.setAttribute(
+                            "data-show-full-label",
+                            "true",
+                          );
+                        }
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.removeAttribute(
+                          "data-show-full-label",
+                        );
+                      }}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSelectedGroup(group);
@@ -1685,7 +1703,9 @@ export function Selector<T>(props: {
                           {renderGroupFilterIcon(group)}
                         </span>
                       ) : null}
-                      <span>{getGroupFilterLabel(group)}</span>
+                      <span data-selector-group-filter-option-label="true">
+                        {groupLabel}
+                      </span>
                       {active ? (
                         <ConfirmIcon className="nextchat-model-selector-check" />
                       ) : null}

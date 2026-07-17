@@ -854,23 +854,6 @@ export function AddModelSelector(props: {
                       isActive && "nextchat-menu-option-active",
                       isActive && "nextchat-selector-menu-option-active",
                     )}
-                    data-full-label={pName}
-                    onMouseEnter={(event) => {
-                      const text = event.currentTarget.querySelector(
-                        ".model-selector-provider-option-text",
-                      );
-                      if (text && text.scrollWidth > text.clientWidth) {
-                        event.currentTarget.setAttribute(
-                          "data-show-full-label",
-                          "true",
-                        );
-                      }
-                    }}
-                    onMouseLeave={(event) => {
-                      event.currentTarget.removeAttribute(
-                        "data-show-full-label",
-                      );
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedProviderId(pid);

@@ -4,24 +4,25 @@
 
 ============================================================
 
-## 147. 【2026-07-17 13:05】- 补全添加模型公司名称悬停展示
+## 147. 【2026-07-17 13:14】- 补全添加模型公司名称悬停展示
 
 ### 修改内容
 
-- 模型管理的“添加模型”公司候选项在名称被截断时，悬停整个选项可展示完整公司名称。
+- 模型管理的“添加模型”公司筛选候选项在名称被截断时，悬停整个选项可展示完整公司名称。
 - 保持候选项原有尺寸、间距、图标和省略文字不变。
 
 ### 实现方式
 
-- 在 `app/components/add-model-modal.tsx` 的真实候选按钮节点复用现有 `data-full-label` 浮层契约，仅在文字实际溢出时启用完整名称展示。
+- 在 `app/components/ui-lib.tsx` 的共享 `groupFilterOptions` 按钮节点检测标签溢出，并由 `app/components/ui-lib.module.scss` 的局部伪元素浮层展示完整名称。
+- 撤回此前误加在上层供应商配置菜单 `app/components/add-model-modal.tsx` 的悬停逻辑。
 
 ### 验证
 
-- 使用开发容器内 ESLint 对当前 worktree 的 `app/components/add-model-modal.tsx` 执行 stdin 检查通过，`git diff --check` 通过。
+- 使用开发容器内 ESLint 对当前 worktree 的 `app/components/ui-lib.tsx` 执行 stdin 检查通过，`git diff --check` 通过。
 
 ### 潜在或遗留问题
 
-- 当前 `nextchat-dev` 绑定 `/Users/dyx/Code/NextChat`，不是本 worktree；合并到主分支后由现有热加载容器读取最新代码。
+- 待合并主分支后通过现有热加载容器完成页面交互核验。
 
 ============================================================
 
