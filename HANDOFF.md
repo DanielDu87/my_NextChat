@@ -19,7 +19,7 @@
 
 ### 验证
 
-- 待通过开发容器 lint、`git diff --check` 与浏览器 computed style 核验。
+- `yarn lint` 与 `git diff --check` 通过；浏览器 computed style 确认深色主题下面板背景为 `rgb(45,45,45)`、按钮默认背景为 `rgb(30,30,30)`、hover 背景约为 `rgb(28.2,28.2,28.2)`，主色边框生效且阴影不变。
 
 ### 潜在或遗留问题
 
