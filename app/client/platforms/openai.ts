@@ -73,7 +73,6 @@ import {
 } from "@/app/utils/draw-model-params";
 
 const {
-  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
   ApiPath,
   OPENAI_BASE_URL,
   OpenaiPath,
@@ -2075,11 +2074,17 @@ export class ChatGPTApi implements LLMApi {
         };
       }
 
+      const globalSystemPrompt = String(
+        useAppConfig.getState().modelConfig.customSystemPrompt || "",
+      );
+
       if (isGpt5) {
-        (requestPayload as RequestPayload).messages.unshift({
-          role: "developer",
-          content: ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
-        });
+        if (globalSystemPrompt) {
+          (requestPayload as RequestPayload).messages.unshift({
+            role: "developer",
+            content: globalSystemPrompt,
+          });
+        }
         // Remove max_tokens if present
         delete requestPayload.max_tokens;
         // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
@@ -2090,7 +2095,9 @@ export class ChatGPTApi implements LLMApi {
         // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
         (requestPayload as RequestPayload).messages.unshift({
           role: "developer",
-          content: `${ALWAYS_USE_CHINESE_SYSTEM_PROMPT}\nFormatting re-enabled`,
+          content: [globalSystemPrompt, "Formatting re-enabled"]
+            .filter(Boolean)
+            .join("\n"),
         });
 
         // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)

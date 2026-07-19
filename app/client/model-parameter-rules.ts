@@ -367,6 +367,7 @@ export function sanitizeModelConfigForCapability<
   T extends {
     model: string;
     enableInjectSystemPrompts?: boolean;
+    customSystemPrompt?: string;
     sendMemory?: boolean;
     historyMessageCount?: number;
     webSearch?: boolean;

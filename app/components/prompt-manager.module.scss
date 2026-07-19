@@ -82,8 +82,8 @@
   box-shadow: var(--card-shadow) !important;
 }
 
-.page input:not([type="checkbox"]),
-.page textarea {
+.page :global([class*="list-item"]) input:not([type="checkbox"]),
+.page :global([class*="list-item"]) textarea {
   cursor: text !important;
 }
 
@@ -95,6 +95,13 @@
 
 .promptList {
   margin-bottom: 20px;
+}
+
+.globalSystemPromptActions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-top: 10px;
 }
 
 .toolbarItem {

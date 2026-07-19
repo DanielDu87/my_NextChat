@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "nextchat-dev",
-      "runtimeExecutable": "open",
+      "runtimeExecutable": "/usr/bin/open",
       "runtimeArgs": ["http://localhost:3000/chat"],
       "autoPort": true,
       "port": 3000

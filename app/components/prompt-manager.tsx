@@ -16,14 +16,17 @@ import EyeIcon from "../icons/eye.svg";
 import SearchIcon from "../icons/zoom.svg";
 import { useNavigate } from "react-router-dom";
 import { readPromptCache, usePromptStore, type Prompt } from "../store/prompt";
+import { useAppConfig } from "../store/config";
+import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { bootstrapSharedPrompts } from "../utils/prompt-bootstrap";
 import { isAbortLikeError } from "../utils/stale-revalidate";
-import { Path, StoreKey } from "../constant";
+import { DEFAULT_SYSTEM_TEMPLATE, Path, StoreKey } from "../constant";
 import { LoadingView } from "./loading-view";
 import styles from "./prompt-manager.module.scss";
 
 type PromptModalMode = "create" | "edit";
 const MIN_PROMPT_LOADING_DURATION_MS = 700;
+const DEFAULT_GLOBAL_SYSTEM_PROMPT = DEFAULT_SYSTEM_TEMPLATE.trim();
 
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -79,8 +82,19 @@ function getContentPreview(content: string, keyword: string, maxLength = 120) {
 export function PromptManagerPage() {
   const navigate = useNavigate();
   const promptStore = usePromptStore();
+  const savedGlobalSystemPrompt = useAppConfig(
+    (state) => state.modelConfig.customSystemPrompt ?? "",
+  );
+  const effectiveGlobalSystemPrompt =
+    savedGlobalSystemPrompt || DEFAULT_GLOBAL_SYSTEM_PROMPT;
 
   const [searchText, setSearchText] = useState("");
+  const [globalSystemPromptDraft, setGlobalSystemPromptDraft] = useState(
+    effectiveGlobalSystemPrompt,
+  );
+  const [isSavingGlobalSystemPrompt, setIsSavingGlobalSystemPrompt] =
+    useState(false);
+  const globalSystemPromptDirtyRef = useRef(false);
   const [editingPromptId, setEditingPromptId] = useState<string | undefined>();
   const [editingPrompt, setEditingPrompt] = useState<{
     title: string;
@@ -98,6 +112,12 @@ export function PromptManagerPage() {
   const promptSyncTaskCountRef = useRef(0);
   const promptTitleInputRef = useRef<HTMLInputElement>(null);
   const promptContentInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!globalSystemPromptDirtyRef.current) {
+      setGlobalSystemPromptDraft(effectiveGlobalSystemPrompt);
+    }
+  }, [effectiveGlobalSystemPrompt]);
 
   useEffect(() => {
     // 进入 /prompt-manager 时先清空控制台，避免上一页（如 /chat）的同步汇总混进本页日志。
@@ -242,6 +262,49 @@ export function PromptManagerPage() {
       showTopNotice(`提示词${action}同步失败，请稍后重试`);
       showToast(`提示词${action}同步失败，请检查数据库连接`);
     } finally {
+      promptSyncTaskCountRef.current = Math.max(
+        0,
+        promptSyncTaskCountRef.current - 1,
+      );
+      if (promptSyncTaskCountRef.current === 0) {
+        promptSyncingRef.current = false;
+      }
+    }
+  };
+
+  const saveGlobalSystemPrompt = async () => {
+    if (isSavingGlobalSystemPrompt) return;
+
+    setIsSavingGlobalSystemPrompt(true);
+    promptSyncTaskCountRef.current += 1;
+    promptSyncingRef.current = true;
+    showTopNotice("正在保存全局系统提示词...");
+
+    try {
+      await runWithImmediateStoreSyncPaused(async () => {
+        useAppConfig.getState().update((config) => {
+          config.modelConfig = {
+            ...config.modelConfig,
+            customSystemPrompt: globalSystemPromptDraft,
+          };
+        });
+
+        const { useSyncStore } = await import("../store/sync");
+        await useSyncStore.getState().sync([StoreKey.Config], {
+          force: true,
+          isolateQueue: true,
+          silentSummary: true,
+        });
+      });
+      globalSystemPromptDirtyRef.current = false;
+      showTopNotice("全局系统提示词已保存");
+      showToast("全局系统提示词已保存");
+    } catch (error) {
+      console.error("[PromptManager] 保存全局系统提示词失败:", error);
+      showTopNotice("全局系统提示词保存失败，请稍后重试");
+      showToast("全局系统提示词保存失败，请检查数据库连接");
+    } finally {
+      setIsSavingGlobalSystemPrompt(false);
       promptSyncTaskCountRef.current = Math.max(
         0,
         promptSyncTaskCountRef.current - 1,
@@ -429,6 +492,35 @@ export function PromptManagerPage() {
           </div>
         ) : (
           <List className={styles.promptList}>
+            <ListItem
+              title="全局系统提示词"
+              subTitle="优先读取数据库；当前为空时显示代码默认模板，点击保存后会同步写入数据库并用于所有对话请求"
+              vertical
+            >
+              <textarea
+                aria-label="全局系统提示词"
+                value={globalSystemPromptDraft}
+                rows={6}
+                className="nextchat-input-control"
+                onChange={(event) => {
+                  globalSystemPromptDirtyRef.current = true;
+                  setGlobalSystemPromptDraft(event.currentTarget.value);
+                }}
+              />
+              <div className={styles.globalSystemPromptActions}>
+                <IconButton
+                  icon={<ConfirmIcon />}
+                  text={
+                    isSavingGlobalSystemPrompt ? "保存中..." : "保存全局提示词"
+                  }
+                  type="primary"
+                  className="nextchat-primary-button"
+                  disabled={isSavingGlobalSystemPrompt}
+                  onClick={() => void saveGlobalSystemPrompt()}
+                />
+              </div>
+            </ListItem>
+
             <ListItem
               title="当前状态"
               subTitle={`当前共 ${totalPromptCount} 条提示词`}

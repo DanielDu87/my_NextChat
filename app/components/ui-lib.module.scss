@@ -50,10 +50,23 @@
     cursor: pointer;
   }
 
+  // Modal 内右侧控件统一定宽
+  > .select-with-icon,
+  > .input-range,
+  > input[type="number"],
+  > input[type="text"],
+  > input[type="checkbox"] {
+    flex-shrink: 0;
+    max-width: 180px;
+    width: 180px;
+  }
+
   .list-header {
     display: flex;
     align-items: center;
     min-width: 0;
+    flex-shrink: 0;
+    max-width: 70%;
 
     .list-icon {
       margin-right: 10px;
@@ -112,9 +125,90 @@
   border: 0;
 }
 
+// Keep boolean settings visually distinct from text and numeric inputs.
+.list-item > :global(input[type="checkbox"]) {
+  appearance: none;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 16px;
+  box-sizing: border-box;
+  position: relative;
+  border: var(--border-in-light);
+  border-radius: 5px;
+  background: var(--white);
+  transform: none !important;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 7px;
+    border-radius: 0;
+    border-right: 1.5px solid var(--white);
+    border-bottom: 1.5px solid var(--white);
+    background: transparent;
+    transform: translate(-50%, -58%) rotate(45deg) scale(0);
+    transform-origin: center;
+    transition: transform 0.16s ease;
+  }
+
+  &:checked {
+    border-color: var(--white);
+    background: var(--primary);
+
+    &::after {
+      transform: translate(-50%, -58%) rotate(45deg) scale(1);
+    }
+  }
+
+  &:not(:disabled):hover {
+    border-width: 2px;
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, var(--white));
+    transform: none !important;
+
+    &:checked {
+      border-color: var(--white);
+      background: color-mix(in srgb, var(--primary) 86%, var(--white));
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
 .list :global(#selector-list),
 .list :global(#selector-list *) {
   cursor: pointer !important;
+}
+
+.modal-container:global(.session-config-modal) {
+  --session-config-control-width: 260px;
+  --session-config-control-max-width: 45%;
+
+  .list-item {
+    > :global(input:not([type="checkbox"])),
+    > .select-with-icon,
+    > :global([class*="input-range_input-range"]) {
+      box-sizing: border-box;
+      flex: 0 1 var(--session-config-control-width);
+      width: var(--session-config-control-width);
+      max-width: 45%;
+    }
+  }
 }
 
 .list-sticky-header {
@@ -592,10 +686,12 @@
 
 .select-with-icon {
   position: relative;
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
   min-width: 148px;
-  max-width: min(100%, 220px);
+  max-width: 180px !important;
+  width: 180px !important;
+  flex-shrink: 0 !important;
   border-radius: 14px;
   transition:
     transform 0.2s ease,
@@ -629,8 +725,9 @@
   }
 
   .select-with-icon-select {
-    width: 100%;
+    width: 180px !important;
     min-height: 42px;
+    max-width: 180px;
     border: 1px solid rgba(203, 213, 225, 0.9);
     padding: 0 42px 0 14px;
     border-radius: 14px;

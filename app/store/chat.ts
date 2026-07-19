@@ -20,7 +20,6 @@ import { getClientApi } from "../client/api";
 import { ChatControllerPool } from "../client/controller";
 import { showToast } from "../components/ui-lib";
 import {
-  ALWAYS_USE_CHINESE_SYSTEM_PROMPT,
   CACHE_URL_PREFIX,
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
@@ -3703,36 +3702,46 @@ export const useChatStore = createPersistStore(
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
-        const globalSystemPrompt = ALWAYS_USE_CHINESE_SYSTEM_PROMPT;
+        const globalSystemPrompt = String(
+          useAppConfig.getState().modelConfig.customSystemPrompt || "",
+        );
+        const systemPromptTemplate =
+          globalSystemPrompt || DEFAULT_SYSTEM_TEMPLATE;
 
         var systemPrompts: ChatMessage[] = [];
 
         if (shouldInjectSystemPrompts) {
+          const defaultSystemContent =
+            fillTemplateWith("", {
+              ...modelConfig,
+              template: systemPromptTemplate,
+            }) + mcpSystemPrompt;
+
           systemPrompts = [
             createMessage({
               role: "system",
-              content:
-                fillTemplateWith("", {
-                  ...modelConfig,
-                  template: DEFAULT_SYSTEM_TEMPLATE,
-                }) +
-                "\n" +
-                globalSystemPrompt +
-                mcpSystemPrompt,
+              content: defaultSystemContent,
             }),
           ];
         } else if (mcpEnabled) {
           systemPrompts = [
             createMessage({
               role: "system",
-              content: `${globalSystemPrompt}${mcpSystemPrompt}`,
+              content:
+                fillTemplateWith("", {
+                  ...modelConfig,
+                  template: systemPromptTemplate,
+                }) + mcpSystemPrompt,
             }),
           ];
         } else {
           systemPrompts = [
             createMessage({
               role: "system",
-              content: globalSystemPrompt,
+              content: fillTemplateWith("", {
+                ...modelConfig,
+                template: systemPromptTemplate,
+              }),
             }),
           ];
         }

@@ -3,12 +3,7 @@ import DeleteIcon from "../icons/delete.svg";
 import DragIcon from "../icons/drag.svg";
 
 import { DEFAULT_MASK_AVATAR, Mask } from "../store/mask";
-import {
-  ChatMessage,
-  applyOpenAIStandardModelConfig,
-  ModelType,
-  useAppConfig,
-} from "../store";
+import { ChatMessage, ModelConfig, ModelType, useAppConfig } from "../store";
 import { MultimodalContent, ROLES } from "../client/api";
 import { Input, List, ListItem, Popover, Select } from "./ui-lib";
 import { Avatar, AvatarPicker } from "./emoji";
@@ -48,15 +43,24 @@ export function MaskConfig(props: {
   updateMask: Updater<Mask>;
   extraListItems?: JSX.Element;
   readonly?: boolean;
+  readonlyModel?: boolean;
   shouldSyncFromGlobal?: boolean;
   hideIdentitySettings?: boolean;
 }) {
   const [showPicker, setShowPicker] = useState(false);
 
+  const updateConfig = (updater: (config: ModelConfig) => void) => {
+    if (props.readonly) return;
+
+    const modelConfig = { ...props.mask.modelConfig };
+    updater(modelConfig);
+    props.updateMask((mask) => {
+      mask.modelConfig = modelConfig;
+      mask.syncGlobalConfig = false;
+    });
+  };
+
   const globalConfig = useAppConfig();
-  const readonlyModelConfig = applyOpenAIStandardModelConfig({
-    ...globalConfig.modelConfig,
-  });
 
   return (
     <>
@@ -68,6 +72,16 @@ export function MaskConfig(props: {
           props.updateMask((mask) => (mask.context = context));
         }}
       />
+
+      <List>
+        <ModelConfigList
+          modelConfig={props.mask.modelConfig}
+          updateConfig={updateConfig}
+          readonly={props.readonly}
+          readonlyModel={props.readonlyModel}
+          section="models"
+        />
+      </List>
 
       <List>
         {!props.hideIdentitySettings && (
@@ -112,6 +126,17 @@ export function MaskConfig(props: {
             </ListItem>
           </>
         )}
+        <ModelConfigList
+          modelConfig={props.mask.modelConfig}
+          updateConfig={updateConfig}
+          readonly={props.readonly}
+          readonlyModel={props.readonlyModel}
+          section="parameters"
+          parameterGroup="inputs"
+        />
+      </List>
+
+      <List>
         {/* 隐藏预设提示词选项已移除 */}
         {globalConfig.enableArtifacts && (
           <ListItem
@@ -147,13 +172,13 @@ export function MaskConfig(props: {
             ></input>
           </ListItem>
         )}
-      </List>
-
-      <List>
         <ModelConfigList
-          modelConfig={readonlyModelConfig}
-          updateConfig={() => {}}
-          readonly
+          modelConfig={props.mask.modelConfig}
+          updateConfig={updateConfig}
+          readonly={props.readonly}
+          readonlyModel={props.readonlyModel}
+          section="parameters"
+          parameterGroup="toggles"
         />
         {props.extraListItems}
       </List>

@@ -27,7 +27,7 @@ export function InputRange({
 }: InputRangeProps) {
   return (
     <div className={clsx(styles["input-range"], className)}>
-      {title || value}
+      <span className={styles["input-range-value"]}>{title || value}</span>
       <input
         aria-label={aria}
         type="range"

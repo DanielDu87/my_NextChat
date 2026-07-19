@@ -1,6 +1,6 @@
 .select-compress-model {
-  width: 60%;
-  max-width: 100%;
+  width: min(260px, 45%);
+  max-width: 45%;
   white-space: normal;
   background: var(--chat-input-disabled-bg) !important;
   background-color: var(--chat-input-disabled-bg) !important;
@@ -10,10 +10,58 @@
   cursor: not-allowed;
 }
 
+.model-config-range {
+  box-sizing: border-box;
+  flex: 0 1 260px !important;
+  width: min(260px, 45%) !important;
+  max-width: 45% !important;
+}
+
 .select-compress-model:disabled {
   opacity: 1;
   background: var(--chat-input-disabled-bg) !important;
   background-color: var(--chat-input-disabled-bg) !important;
   border: var(--border-in-light) !important;
   -webkit-text-fill-color: var(--chat-input-disabled-placeholder) !important;
+}
+
+:global(.session-config-modal) .readonly-model-select {
+  box-sizing: border-box;
+  flex: 0 1 260px !important;
+  width: min(260px, 45%) !important;
+  min-width: 0 !important;
+  max-width: 45% !important;
+  transform: none !important;
+  transition: none !important;
+  cursor: not-allowed !important;
+
+  &:hover,
+  &:focus-within {
+    transform: none !important;
+  }
+
+  select,
+  select:hover,
+  select:focus {
+    box-sizing: border-box;
+    width: 100% !important;
+    min-height: 36px;
+    max-width: 100% !important;
+    border: var(--border-in-light) !important;
+    border-radius: 10px;
+    padding: 0 10px;
+    background: var(--chat-input-disabled-bg) !important;
+    color: var(--chat-input-disabled-placeholder) !important;
+    font-weight: 400;
+    box-shadow: none !important;
+    cursor: not-allowed;
+    outline: none;
+    transform: none !important;
+    transition: none !important;
+    -webkit-text-fill-color: var(--chat-input-disabled-placeholder) !important;
+  }
+
+  svg {
+    display: none;
+  }
 }

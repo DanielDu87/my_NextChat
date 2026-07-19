@@ -2282,6 +2282,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
     <div className="modal-mask">
       <Modal
         title={Locale.Context.Edit}
+        className="session-config-modal"
         onClose={() => props.onClose()}
         actions={[
           <IconButton
@@ -2310,6 +2311,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
             );
           }}
           shouldSyncFromGlobal
+          readonlyModel
           hideIdentitySettings
           extraListItems={
             session.mask.modelConfig.sendMemory ? (
@@ -3275,6 +3277,7 @@ export function EditMessageModal(props: { onClose: () => void }) {
     >
       <Modal
         title={Locale.Chat.EditMessage.Title}
+        className="session-config-modal"
         onClose={props.onClose}
         hideMaxToggle
         actions={[
@@ -3300,6 +3303,7 @@ export function EditMessageModal(props: { onClose: () => void }) {
             );
           }}
           shouldSyncFromGlobal
+          readonlyModel
           hideIdentitySettings
           extraListItems={
             session.mask.modelConfig.sendMemory ? (
