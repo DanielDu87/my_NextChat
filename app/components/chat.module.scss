@@ -931,20 +931,18 @@
 }
 
 .docx-preview-root {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  overflow: auto;
+  // 内容区可滚动，但由父容器高度决定何时滚动
+  overflow-y: auto;
+  padding: 16px;
   background: #f8fafc;
-  border-top: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 24px;
+  // 确保内容不被压扁，但可以滚动
+  min-height: 200px;
+  max-height: 100%;
 }
 
 .docx-preview-root-loading {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  padding: 0;
 
   .docx-preview-container {
     position: absolute;
@@ -959,14 +957,13 @@
 }
 
 .docx-preview-container {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 18px;
   width: 100%;
-  min-width: 0;
+  max-width: 660px; // A4 宽度约 595pt，加上内边距
+  margin: 0 auto;
 
   :global(.docx-wrapper) {
     background: transparent;
@@ -974,13 +971,11 @@
   }
 
   :global(section.docx) {
-    height: auto !important;
-    min-height: 0 !important;
-    max-width: 100%;
+    // 移除固定高度限制，让内容自然撑开
+    width: 100%;
     border: 1px solid rgba(148, 163, 184, 0.34);
     border-radius: 2px;
     box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
-    margin: 0 auto;
   }
 }
 

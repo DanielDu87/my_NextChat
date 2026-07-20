@@ -46,39 +46,62 @@ export function MaskConfig(props: {
   readonlyModel?: boolean;
   shouldSyncFromGlobal?: boolean;
   hideIdentitySettings?: boolean;
+  onParameterBlur?: () => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
-
+  const globalConfig = useAppConfig();
+  const sharedModelConfig = {
+    ...globalConfig.modelConfig,
+    model: props.mask.modelConfig.model,
+    providerName: props.mask.modelConfig.providerName,
+    providerId: (props.mask.modelConfig as any).providerId,
+    profileId: (props.mask.modelConfig as any).profileId,
+    modelSelectionUpdatedAt: (props.mask.modelConfig as any)
+      .modelSelectionUpdatedAt,
+  } as ModelConfig;
   const updateConfig = (updater: (config: ModelConfig) => void) => {
     if (props.readonly) return;
 
-    const modelConfig = { ...props.mask.modelConfig };
-    updater(modelConfig);
-    props.updateMask((mask) => {
-      mask.modelConfig = modelConfig;
-      mask.syncGlobalConfig = false;
+    useAppConfig.getState().update((config) => {
+      const modelConfig = { ...config.modelConfig };
+      updater(modelConfig);
+      config.modelConfig = modelConfig;
     });
   };
 
-  const globalConfig = useAppConfig();
-
   return (
-    <>
+    <div
+      onBlurCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (
+          target.matches(
+            "input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button[aria-disabled='false']",
+          )
+        ) {
+          props.onParameterBlur?.();
+        }
+      }}
+    >
       <ContextPrompts
-        context={props.mask.context}
+        context={globalConfig.conversationContext as ChatMessage[]}
         updateContext={(updater) => {
-          const context = props.mask.context.slice();
-          updater(context);
-          props.updateMask((mask) => (mask.context = context));
+          useAppConfig.getState().update((config) => {
+            const context = (
+              config.conversationContext as ChatMessage[]
+            ).slice();
+            updater(context);
+            config.conversationContext = context;
+          });
         }}
       />
 
       <List>
         <ModelConfigList
-          modelConfig={props.mask.modelConfig}
+          modelConfig={sharedModelConfig}
           updateConfig={updateConfig}
           readonly={props.readonly}
           readonlyModel={props.readonlyModel}
+          showAllParameters
           section="models"
         />
       </List>
@@ -127,10 +150,11 @@ export function MaskConfig(props: {
           </>
         )}
         <ModelConfigList
-          modelConfig={props.mask.modelConfig}
+          modelConfig={sharedModelConfig}
           updateConfig={updateConfig}
           readonly={props.readonly}
           readonlyModel={props.readonlyModel}
+          showAllParameters
           section="parameters"
           parameterGroup="inputs"
         />
@@ -138,51 +162,60 @@ export function MaskConfig(props: {
 
       <List>
         {/* 隐藏预设提示词选项已移除 */}
-        {globalConfig.enableArtifacts && (
-          <ListItem
-            title={Locale.Mask.Config.Artifacts.Title}
-            subTitle={Locale.Mask.Config.Artifacts.SubTitle}
-          >
-            <input
-              aria-label={Locale.Mask.Config.Artifacts.Title}
-              type="checkbox"
-              checked={props.mask.enableArtifacts !== false}
-              onChange={(e) => {
-                props.updateMask((mask) => {
-                  mask.enableArtifacts = e.currentTarget.checked;
-                });
-              }}
-            ></input>
-          </ListItem>
-        )}
-        {globalConfig.enableCodeFold && (
-          <ListItem
-            title={Locale.Mask.Config.CodeFold.Title}
-            subTitle={Locale.Mask.Config.CodeFold.SubTitle}
-          >
-            <input
-              aria-label={Locale.Mask.Config.CodeFold.Title}
-              type="checkbox"
-              checked={props.mask.enableCodeFold !== false}
-              onChange={(e) => {
-                props.updateMask((mask) => {
-                  mask.enableCodeFold = e.currentTarget.checked;
-                });
-              }}
-            ></input>
-          </ListItem>
-        )}
+        <ListItem
+          title={Locale.Mask.Config.Artifacts.Title}
+          subTitle={Locale.Mask.Config.Artifacts.SubTitle}
+        >
+          <input
+            aria-label={Locale.Mask.Config.Artifacts.Title}
+            type="checkbox"
+            checked={globalConfig.enableArtifacts}
+            onChange={(e) => {
+              useAppConfig.getState().update((config) => {
+                config.enableArtifacts = e.currentTarget.checked;
+              });
+            }}
+          ></input>
+        </ListItem>
+        <ListItem
+          title={Locale.Mask.Config.CodeFold.Title}
+          subTitle={Locale.Mask.Config.CodeFold.SubTitle}
+        >
+          <input
+            aria-label={Locale.Mask.Config.CodeFold.Title}
+            type="checkbox"
+            checked={globalConfig.enableCodeFold}
+            onChange={(e) => {
+              useAppConfig.getState().update((config) => {
+                config.enableCodeFold = e.currentTarget.checked;
+              });
+            }}
+          ></input>
+        </ListItem>
         <ModelConfigList
-          modelConfig={props.mask.modelConfig}
+          modelConfig={sharedModelConfig}
           updateConfig={updateConfig}
           readonly={props.readonly}
           readonlyModel={props.readonlyModel}
+          showAllParameters
           section="parameters"
           parameterGroup="toggles"
         />
         {props.extraListItems}
       </List>
-    </>
+
+      <List>
+        <ModelConfigList
+          modelConfig={sharedModelConfig}
+          updateConfig={updateConfig}
+          readonly={props.readonly}
+          readonlyModel={props.readonlyModel}
+          showAllParameters
+          section="parameters"
+          parameterGroup="generation"
+        />
+      </List>
+    </div>
   );
 }
 

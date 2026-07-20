@@ -19,7 +19,13 @@ import { getTimeoutMSByModel } from "@/app/utils";
 import { preProcessImageContent } from "@/app/utils/chat";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
-import { applyModelSamplingRules } from "../model-parameter-rules";
+import {
+  applyModelSamplingRules,
+  getDefaultReasoningSettings,
+  getModelParameterSupport,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
+} from "../model-parameter-rules";
 import { joinUrlPath } from "@/app/utils/url";
 
 export class XAIApi implements LLMApi {
@@ -80,6 +86,7 @@ export class XAIApi implements LLMApi {
       },
     };
 
+    const parameterSupport = getModelParameterSupport(modelConfig.model);
     const requestPayload: RequestPayload = applyModelSamplingRules(
       modelConfig.model,
       {
@@ -90,11 +97,56 @@ export class XAIApi implements LLMApi {
         presence_penalty: modelConfig.presence_penalty,
         frequency_penalty: modelConfig.frequency_penalty,
         top_p: modelConfig.top_p,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
+        max_tokens: modelConfig.max_tokens,
       },
     );
+
+    const stopSequences = parseStopSequences(
+      modelConfig.stopSequences,
+      parameterSupport.stop_sequence_limit,
+    );
+    if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+      requestPayload.stop = stopSequences;
+    }
+    if (parameterSupport.tool_choice && options.config.stream) {
+      requestPayload.tool_choice = normalizeToolChoiceForModel(
+        modelConfig.model,
+        modelConfig.toolChoice,
+      );
+    }
+
+    const reasoningSettings = getDefaultReasoningSettings(
+      modelConfig.model,
+      modelConfig.max_tokens,
+      modelConfig.reasoningEffort,
+      modelConfig.reasoningMaxTokens,
+    );
+    if (reasoningSettings.reasoningEffort) {
+      requestPayload.reasoning_effort = reasoningSettings.reasoningEffort;
+    }
+
+    if (
+      parameterSupport.structured_output_mode === "json_schema" &&
+      modelConfig.structuredOutput &&
+      modelConfig.jsonSchema?.trim()
+    ) {
+      let schema: Record<string, unknown>;
+      try {
+        schema = JSON.parse(modelConfig.jsonSchema);
+      } catch {
+        options.onError?.(
+          new Error("JSON Schema 格式不正确，请检查结构化输出配置"),
+        );
+        return;
+      }
+      requestPayload.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: "nextchat_structured_output",
+          schema,
+        },
+      };
+    }
 
     console.log("[Request] xai payload: ", requestPayload);
 

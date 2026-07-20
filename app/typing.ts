@@ -26,15 +26,11 @@ export type DalleSize =
   | "2K"
   | "4K";
 export type DalleQuality =
-  | "standard"
-  | "hd"
-  | "auto"
-  | "low"
-  | "medium"
-  | "high";
+  "standard" | "hd" | "auto" | "low" | "medium" | "high";
 export type DalleStyle = "vivid" | "natural";
 
 export type ModelSize =
+  | "auto"
   | "1024x1024"
   | "1792x1024"
   | "1024x1792"
@@ -54,6 +50,9 @@ export type ModelSize =
   | "768x768"
   | "1536x1536"
   | "2048x2048"
+  | "2048x1152"
+  | "3840x2160"
+  | "2160x3840"
   | "1280x1280"
   | "1568x1056"
   | "1056x1568"
@@ -72,6 +71,8 @@ export type ModelSize =
   | "928x1664"
   | "1280x720"
   | "720x1280"
+  | "1080x1920"
+  | "1920x1080"
   | "1K"
   | "2K"
   | "4K";

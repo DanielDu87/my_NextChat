@@ -19,7 +19,6 @@ import {
   HTMLPreviewHandler,
 } from "./artifacts";
 import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
-import { useCurrentSession } from "../store";
 import { IconButton } from "./button";
 
 import { useAppConfig } from "../store/config";
@@ -96,7 +95,6 @@ export function PreCode(props: { children: any }) {
   const [htmlCode, setHtmlCode] = useState("");
   const [codeLang, setCodeLang] = useState("");
   const { height } = useWindowSize();
-  const { session } = useCurrentSession();
 
   const renderArtifacts = useDebouncedCallback(() => {
     if (!ref.current) return;
@@ -118,8 +116,7 @@ export function PreCode(props: { children: any }) {
   }, 600);
 
   const config = useAppConfig();
-  const enableArtifacts =
-    session?.mask?.enableArtifacts !== false && config.enableArtifacts;
+  const enableArtifacts = config.enableArtifacts;
 
   const handleCopyCode = async () => {
     if (!ref.current) return;
@@ -210,11 +207,46 @@ export function PreCode(props: { children: any }) {
 }
 
 function CustomCode(props: { children: any; className?: string }) {
-  const ref = useRef<HTMLPreElement>(null);
+  const config = useAppConfig();
+  const ref = useRef<HTMLElement>(null);
+  const [collapsed, setCollapsed] = useState(true);
+  const [showToggle, setShowToggle] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    setShowToggle(node.scrollHeight > 400);
+  }, [props.children]);
+
   return (
-    <code className={clsx(props?.className)} ref={ref}>
-      {props.children}
-    </code>
+    <>
+      <code
+        className={clsx(props?.className)}
+        ref={ref}
+        style={{
+          maxHeight: config.enableCodeFold && collapsed ? "400px" : "none",
+          overflowY: "hidden",
+        }}
+      >
+        {props.children}
+      </code>
+      {showToggle && config.enableCodeFold && (
+        <div
+          className={clsx("show-hide-button", {
+            collapsed,
+            expanded: !collapsed,
+          })}
+        >
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? Locale.NewChat.More : Locale.NewChat.Less}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -257,7 +289,7 @@ function tryWrapHtmlCode(text: string) {
     );
 }
 
-function _MarkDownContent(props: { content: string }) {
+function MarkdownContentInner(props: { content: string }) {
   const escapedContent = useMemo(() => {
     return tryWrapHtmlCode(escapeBrackets(props.content));
   }, [props.content]);
@@ -310,7 +342,7 @@ function _MarkDownContent(props: { content: string }) {
             );
           }
           const isInternal = /^\/(?!\/)/i.test(href);
-          const target = isInternal ? "_self" : aProps.target ?? "_blank";
+          const target = isInternal ? "_self" : (aProps.target ?? "_blank");
           return <a {...aProps} target={target} />;
         },
       }}
@@ -320,7 +352,7 @@ function _MarkDownContent(props: { content: string }) {
   );
 }
 
-export const MarkdownContent = React.memo(_MarkDownContent);
+export const MarkdownContent = React.memo(MarkdownContentInner);
 
 export function Markdown(
   props: {

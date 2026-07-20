@@ -113,24 +113,21 @@ export const createEmptyMask = () => {
   const defaultPlaceholder = DEFAULT_CONFIG.modelConfig.model;
   const accessStore = useAccessStore.getState();
 
-  // 全局模型配置持久化恢复：当 Config store 的 model 仍是默认值时，
-  // 从 localStorage 恢复用户/跨页面都生效的全局模型选择。
+  // 数据库 Config 尚未恢复时，localStorage 只用于当前空白会话的启动兜底。
+  // 这里不能反向 update Config，否则旧浏览器值会获得新的时间戳并覆盖共享数据库。
   const globalConfig = loadGlobalModelConfig();
-  const appConfigPrev = useAppConfig.getState();
-  if (
-    globalConfig &&
-    (!appConfigPrev.modelConfig.model ||
-      appConfigPrev.modelConfig.model === defaultPlaceholder)
-  ) {
-    useAppConfig.getState().update((config) => {
-      config.modelConfig = sanitizeModelConfigForCapability({
-        ...config.modelConfig,
-        ...globalConfig,
-      });
-    });
-  }
-  // 重新读取已恢复的 Config store
   const appConfig = useAppConfig.getState();
+  const syncedModelSelectionUpdatedAt = Math.max(
+    Number((appConfig as any).modelSelectionUpdatedAt) || 0,
+    Number((appConfig.modelConfig as any).modelSelectionUpdatedAt) || 0,
+  );
+  const startupModelConfig =
+    globalConfig && syncedModelSelectionUpdatedAt <= 0
+      ? sanitizeModelConfigForCapability({
+          ...appConfig.modelConfig,
+          ...globalConfig,
+        })
+      : appConfig.modelConfig;
 
   const allModels = collectModelsWithDefaultModel(
     appConfig.models,
@@ -139,12 +136,10 @@ export const createEmptyMask = () => {
   );
 
   const syncedModel = appConfig.modelConfig.model;
-  // 模型列表未加载时，直接信任已同步的 appConfig.modelConfig
-  if (
-    allModels.length === 0 &&
-    syncedModel &&
-    syncedModel !== defaultPlaceholder
-  ) {
+  // 只要共享 Config 已保存过模型选择，新对话就必须以数据库同步结果为准。
+  // 旧的 last-model-selection 仅用于数据库尚未恢复时的启动兜底，不能覆盖
+  // 用户后来主动保存的全局模型和参数。
+  if (syncedModelSelectionUpdatedAt > 0 && syncedModel) {
     const syncedModelConfig = sanitizeModelConfigForCapability({
       ...appConfig.modelConfig,
     });
@@ -198,13 +193,13 @@ export const createEmptyMask = () => {
   const startupProfile = storedProfile || enabledProfile;
   const startupProviderName =
     (startupProfile?.provider as ServiceProvider | undefined) ||
-    appConfig.modelConfig.providerName;
+    startupModelConfig.providerName;
   const startupProviderId =
     startupProfile?.provider === ServiceProvider.Custom
       ? `custom_${startupProfile.name}`.toLowerCase()
       : String(startupProfile?.provider || "").toLowerCase();
   const startupBaseModelConfig = {
-    ...appConfig.modelConfig,
+    ...startupModelConfig,
     providerName: startupProviderName,
   } as ModelConfig;
   delete (startupBaseModelConfig as any).providerId;
@@ -233,19 +228,19 @@ export const createEmptyMask = () => {
           providerName: storedModel.provider.providerName as ServiceProvider,
         }
       : fallbackProviderModel?.provider?.providerName
-      ? {
-          model: fallbackProviderModel.name as ModelType,
-          providerName: fallbackProviderModel.provider
-            .providerName as ServiceProvider,
-        }
-      : getPreferredDefaultChatModel(
-          allModels,
-          {
-            ...startupBaseModelConfig,
-            model: DEFAULT_CONFIG.modelConfig.model,
-          },
-          accessStore.apiProfiles,
-        );
+        ? {
+            model: fallbackProviderModel.name as ModelType,
+            providerName: fallbackProviderModel.provider
+              .providerName as ServiceProvider,
+          }
+        : getPreferredDefaultChatModel(
+            allModels,
+            {
+              ...startupBaseModelConfig,
+              model: DEFAULT_CONFIG.modelConfig.model,
+            },
+            accessStore.apiProfiles,
+          );
   const initialModelConfig = sanitizeModelConfigForCapability({
     ...startupBaseModelConfig,
     ...(preferredModelConfig || {}),
@@ -261,8 +256,8 @@ export const createEmptyMask = () => {
   const modelSource = storedModel
     ? "storedModel"
     : fallbackProviderModel
-    ? "fallbackProvider"
-    : "getPreferredDefault";
+      ? "fallbackProvider"
+      : "getPreferredDefault";
   void modelSource;
 
   return {

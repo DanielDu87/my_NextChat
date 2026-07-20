@@ -4,22 +4,49 @@
 
 ============================================================
 
-## 161. 【2026-07-19 13:04】- 会话设置输入框与开关分组展示
+## 185. 【2026-07-20 13:26】- 附件正文提取并注入模型上下文
 
 ### 修改内容
 
-- 保持两个模型项位于最前面的独立分组。
-- 将文本、数字和滑块输入项集中到第二组，所有开关/勾选项集中到第三组，避免两类控件交错。
+- PDF、DOCX、XLS/XLSX、CSV、TSV 附件提交或重发时，服务端提取正文并与用户问题一起发送给模型，不再只提供文件名、类型和大小。
+- 修复缓存文件信任上传 MIME 并同源 inline 渲染的安全风险；Excel 预览不再注入 HTML。
+- 合并现有 detached worktree 的已验证聊天、模型参数、同步和样式改动到主工作区。
 
 ### 实现方式
 
-- `ModelConfigList` 增加 `inputs` / `toggles` 参数分组过滤；未传入时仍按原顺序完整展示，不影响常规设置页。
-- `MaskConfig` 在会话弹窗中分别渲染输入参数和开关参数，Artifacts、代码折叠及历史摘要开关归入开关组。
+- 新增 `/api/cache/extract`，按当前鉴权用户读取缓存文件；PDF 最多 80 页，表格最多 10 个工作表、每表 1000 行，单文件正文限制 24000 字符、单条消息总量限制 60000 字符，并记录截断状态。
+- PDF.js worker 由服务端显式加载并注册，避免 Next.js 服务端分包后默认 fake worker 指向不存在的 `.next/server/vendor-chunks/pdf.worker.mjs`。
+- 缓存 MIME 只按文件名白名单确定，未知格式仅下载；Range 读取不再重复触发缓存清理，响应加 `nosniff`。
+- `ChatMessageAttachedFile` 持久化提取结果；聊天消息使用明确正文边界与文件内指令降权说明注入上下文。
 
 ### 验证
 
-- 浏览器 DOM 确认共三组：模型组为 `select + text`；输入组为 `number/text/range` 且 `checkboxes=0`；开关组包含 7 个 checkbox 且 `textInputs=0`。
-- `docker exec nextchat-dev sh -lc 'npx tsc --noEmit --pretty false'` 与 `git diff --check` 通过；端口 `3000` 热加载页面完成实测。
+- 主工作区 `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
+- 开发容器热加载后，真实缓存 PDF 经 `/api/cache/extract` 返回 `ready`、127 个字符，按 80 页上限标记截断；`docker exec nextchat-dev yarn lint` 通过。
+- 当前 `npx tsc --noEmit --pretty false` 仅余既有 `app/mcp/client.ts` 的 Zod 泛型报错，PDF worker 路由不再产生类型错误；`git diff --check` 仍仅报告本轮前已存在的 `HANDOFF.md` 文件末尾空行。
+
+### 潜在或遗留问题
+
+- 扫描版 PDF 没有内嵌文字层时不会自动 OCR，会提示为没有可提取文本；本次修复不增加 OCR。
+
+============================================================
+
+## 184. 【2026-07-20 11:58】- 修复 React 组件命名导致的全量 lint 失败
+
+### 修改内容
+
+- 修复 `chat.tsx` 与 `markdown.tsx` 中内部组件使用下划线开头名称，导致 React Hooks 规则将其识别为普通函数的问题。
+- 全量 `yarn lint` 现已无错误、无警告。
+
+### 实现方式
+
+- 将 `_Chat` 更名为 `ChatContent`，保留现有外层 `Chat` 的 URL/会话同步职责和基于会话 ID 的 remount 行为。
+- 将 `_MarkDownContent` 更名为 `MarkdownContentInner`，继续由既有的 `React.memo` 导出 `MarkdownContent`。
+
+### 验证
+
+- `docker exec nextchat-dev yarn lint` 通过。
+- `docker exec nextchat-dev npx tsc --noEmit --pretty false` 与 `git diff --check` 通过；主页返回 `HTTP 200`。
 
 ### 潜在或遗留问题
 
@@ -27,224 +54,188 @@
 
 ============================================================
 
-## 160. 【2026-07-19 12:57】- 会话模型选项置顶分组并统一只读样式
+## 183. 【2026-07-20 11:52】- 开发容器升级 Node 22 并重建最新依赖
 
 ### 修改内容
 
-- 将“模型 (model)”与“对话摘要模型”合并到弹窗最前面的独立列表，其余开关和参数统一放在下方列表。
-- 模型选择框继续自动同步顶部模型选择器且不可选择；禁用状态 hover 不再产生位移、缩放、边框、背景或阴影变化。
-- 模型选择框尺寸、样式与常规字体字重均对齐“对话摘要模型”只读输入框。
+- 将 Docker 开发与运行阶段的基础镜像统一升级为 `node:22.13.0-alpine3.20`，满足当前依赖的 Node 版本要求。
+- 重新生成 `yarn.lock`，并以最新锁文件完整重建本地 `nextchat-dev`。
 
 ### 实现方式
 
-- `ModelConfigList` 增加 `models` / `parameters` 分段渲染能力，默认设置页仍完整渲染全部项目；`MaskConfig` 仅在会话弹窗中先渲染模型列表，再渲染其他选项列表。
-- 为只读模型选择器增加会话弹窗局部样式，统一为相同宽度、`36px` 高度、`10px` 圆角、常规字重和禁用配色，并覆盖父容器及原生 select 的 hover/focus 动效。
+- 保留现有 Docker 镜像源、Yarn 与开发容器启动流程，仅调整两个 `NODE_IMAGE` 参数。
+- 通过 `docker-compose-safe.sh` 构建并强制重建 `nextchat-dev`；容器继续挂载 `/Users/dyx/Code/NextChat` 到 `/app`。
 
 ### 验证
 
-- 浏览器确认弹窗第一组仅包含“模型 (model)”和“对话摘要模型”，第二组从“启用Artifacts”等其他选项开始。
-- 浏览器计算样式确认两个只读控件均为 `245.156px × 36px`、`1px` 边框、`10px` 圆角；强制 `:hover` 后模型选择器与容器仍为 `transform: none`、`box-shadow: none`，尺寸、边框和背景均不变。
-- `docker exec nextchat-dev sh -lc 'yarn lint'`、`docker exec nextchat-dev sh -lc 'npx tsc --noEmit --pretty false'` 与 `git diff --check` 通过；端口 `3000` 热加载页面用于浏览器实测。
+- 镜像构建成功，容器内 `node --version` 为 `v22.13.0`，容器保持运行且主页返回 `HTTP 200`。
+- `git diff --check` 通过。
+- `yarn lint` 未通过：现有 `app/components/chat.tsx` 中 `_Chat` 函数触发大量 `react-hooks/rules-of-hooks` 错误，未在本次容器配置任务中修改该聊天实现。
 
 ### 潜在或遗留问题
 
-- 无。
+- 依赖安装期间 `canvas` 的可选原生编译因 Alpine 镜像未安装 Python 而报错，但 Yarn 安装完成且 Next.js 开发服务正常启动；只有实际使用依赖 `canvas` 的功能时才需补充其编译工具链。
 
 ============================================================
 
-## 159. 【2026-07-19 12:46】- 会话设置模型改为只读同步展示
+## 182. 【2026-07-20 10:35】- 修复缓存文件访问时意外清理问题
 
 ### 修改内容
 
-- 会话“编辑”弹窗中的模型下拉改为不可选择，只允许通过聊天页顶部模型选择器切换模型。
-- 温度、历史消息数等其他模型参数继续保持可编辑，不因模型只读而整体禁用。
+- 移除 `/api/cache/[id]/route.ts` 中 GET、HEAD、DELETE 请求时调用的 `purgeExpiredCacheFiles()`。
+- 原因：每次请求文件时都执行清理，会导致刚上传的文件被删除（如果过期或未 pin）。
+- 清理操作仅保留在上传文件时（`/api/cache/upload/route.ts`）执行。
 
-### 实现方式
+### 问题诊断
 
-- 在 `ModelConfigList` 中拆分 `readonlyModel` 与 `readonly`：前者仅禁用模型 `Select`，后者才禁用全部参数并控制完整参数展示。
-- `MaskConfig` 透传 `readonlyModel`，`SessionConfigModel` 与实际使用的 `EditMessageModal` 都明确启用；展示值继续直接读取当前会话 `mask.modelConfig`，因此与顶部模型选择器共享真实状态 owner。
+- 生产日志显示 `cache_file_references` 外键约束冲突错误。
+- 根因：文件查看请求触发 `purgeExpiredCacheFiles()`，删除文件后再插入引用记录时失败。
+- 用户反馈"聊天记录只有文字可以看到文件看不到"：文件可能被清理后无法访问。
 
 ### 验证
 
-- 浏览器确认设置弹窗模型下拉 `disabled=true`，显示 `gpt-5.6-luna`，与顶部模型选择器当前模型一致；“附带历史消息数”range 仍为 `disabled=false`。
-- `docker exec nextchat-dev sh -lc 'yarn lint'`、`docker exec nextchat-dev sh -lc 'npx tsc --noEmit --pretty false'` 与 `git diff --check` 通过；端口 `3000` 返回 `HTTP 200`，控制台无相关 warning/error。
+- 部署后检查文件下载 API 是否正常。
+- 验证消息中的文件 URL 能否正确访问。
 
 ### 潜在或遗留问题
 
-- 为避免验证过程改写共享模型选择，未实际切换到另一个模型再恢复；同步关系已按共同的 `mask.modelConfig` owner 和当前一致值核验。
+- 需要验证历史消息中的文件是否已恢复可访问状态。
+- 可能存在其他并发场景导致的外键约束问题。
 
 ============================================================
 
-## 158. 【2026-07-19 12:36】- 调整选项框悬停边框与勾选居中
+## 181. 【2026-07-20 10:10】- 提亮参数设置深色禁用态
 
 ### 修改内容
 
-- 会话设置中的直系选项框 hover 时边框由 `1px` 平滑加粗到 `2px`，外框保持 `20px` 不发生位移。
-- 缩小选中勾的尺寸与线宽，并确保勾在选项框内上下左右居中。
-- 取消选项框 hover 时的缩放和边框宽度过渡，仅保留边框加粗与颜色反馈。
+- 提高参数设置弹窗在 dark 模式下禁用控件的背景、边框和文字明度。
+- 同步提亮禁用滑块轨道与滑块，保留禁用语义、鼠标状态、弹窗外围颜色和原有尺寸布局。
 
 ### 实现方式
 
-- 在 `app/components/ui-lib.module.scss` 的局部 checkbox owner 上增加 `box-sizing: border-box` 与 `position: relative`，将勾改为以 `top/left: 50%` 绝对定位。
-- 勾使用 `4px × 7px`、`1.5px` 描边和中心变换；hover 仅改变边框宽度、颜色与已有背景反馈，不影响其他表单 checkbox。
-- 选项框本体在常态和 hover 都显式使用 `transform: none !important`，并从 transition 中移除 `border-width`，避免加粗过程产生视觉缩放。
+- 仅调整 `model-config.module.scss` 中参数弹窗的五个 dark 禁用态语义变量，不修改公共主题或其他页面。
+- 开发文档同步说明禁用控件的视觉层级和严格作用范围。
 
 ### 验证
 
-- 浏览器计算样式确认常态边框 `1px`、hover 边框 `2px`，控件始终为 `20px × 20px`；勾尺寸为 `4px × 7px`，中心坐标随内边界保持居中。
-- 浏览器 hover 计算样式确认 `transform: none`，控制台无相关 warning/error。
-- `docker exec nextchat-dev sh -lc 'yarn lint'` 与 `git diff --check` 通过；端口 `3000` 返回 `HTTP 200`，热加载容器正常。
+- 按用户要求，本轮只修改，不继续运行浏览器、lint、类型检查或构建验证。
 
 ### 潜在或遗留问题
 
-- 无。
+- 新配色尚未完成最终浏览器视觉确认，由用户在当前热加载页面直接检查。
 
 ============================================================
 
-## 157. 【2026-07-19 12:24】- 合并会话设置工作树并修复滑块写回
+## 180. 【2026-07-20 10:06】- 提示词管理读取与全局提示词保存日志
 
 ### 修改内容
 
-- 将 `7a2b` worktree 的会话编辑弹窗、勾选框、滑块和控件宽度改动合并到开发容器实际挂载的主工作区，同时保留主工作区已有的全局提示词与模型请求参数修改。
-- 修复“附带历史消息数”等滑块看似可用但数值始终不变的问题；会话参数现在可以写入当前会话并停止被全局默认值立即覆盖。
-- 保留端口 `3000` 的 `nextchat-dev` 热加载容器；按用户对精确对象清单的确认删除额外的 `nextchat-7a2b-dev` 容器。
+- 打开 `/prompt-manager` 并完成数据库读取后，控制台分别输出最终提示词数量和当前实际生效的完整全局提示词。
+- 点击“保存全局提示词”且 Config 同步成功后，控制台输出保存成功、实际生效内容及字符数；失败继续使用既有错误日志。
 
 ### 实现方式
 
-- `MaskConfig` 恢复独立的 `updateConfig`：复制当前会话 `modelConfig`、执行更新并将 `syncGlobalConfig` 设为 `false`，避免空白会话的全局配置 effect 在每次重渲染后覆盖手动参数。
-- `InputRange` 使用明确的数值节点、完整轨道、圆形拖动点、真实 pointer 命中和触摸横向交互；会话配置弹窗内的输入、选择器和滑块保持统一宽度。
-- 两个修改源的重叠文件逐项比对后合并到 `/Users/dyx/Code/NextChat`，未执行暂存、提交、推送、部署或 worktree 删除。
+- 页面读取完成后记录提示词数量，并由依赖当前 `effectiveGlobalSystemPrompt` 的副作用延迟 300ms 输出稳定快照，避免热加载或 Config 水合竞态打印旧默认值。
+- 保存日志位于 `runWithImmediateStoreSyncPaused()` 和强制 Config 同步成功之后；自定义值为空时按真实请求逻辑输出 `DEFAULT_SYSTEM_TEMPLATE`。
+- 开发文档同步补充 `/prompt-manager` 页面进入日志和保存日志契约。
 
 ### 验证
 
-- 端口 `3000` 页面热加载后，浏览器确认目标 range 为启用状态，`pointer-events: auto`、`touch-action: none`，且命中区域为真实 `input`。
-- 原生 `input` 状态链路验证通过：`12 -> 30 -> 12`，受控值、标题和值标签同步更新并已恢复原值；内置浏览器坐标拖动未产生鼠标事件，因此未将该工具结果作为实际鼠标拖动证据。
-- `docker exec nextchat-dev sh -lc 'yarn lint'`、`docker exec nextchat-dev sh -lc 'npx tsc --noEmit --pretty false'` 与 `git diff --check` 通过；容器与宿主机目标源码 SHA-256 一致。
-- 删除后仅保留 `nextchat-dev` 与其数据库连接所需的 `nextchat-postgres-ssh-tunnel`；`http://127.0.0.1:3000/` 返回 `200`，`nextchat-dev` 继续挂载 `/Users/dyx/Code/NextChat -> /app`。
+- 深色主题热加载页面直接打开 `/prompt-manager`，页面与控制台均确认 129 条提示词；页面文本框和控制台输出同一份 808 字中文全局提示词。
+- 页面无 warning/error；`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
 
 ### 潜在或遗留问题
 
-- 内置浏览器坐标拖动未产生原生鼠标事件；状态写回链路已用原生 `input` 事件完成 `12 -> 30 -> 12` 验证，页面真实鼠标拖动仍建议用户最终复验。
+- 为避免测试过程额外改写共享 PostgreSQL，本轮未点击保存按钮；保存日志位置和数据源已通过代码路径、类型检查与现有同步成功分支验证。
 
 ============================================================
 
-## 156. 【2026-07-18 09:59】- 提示词管理保存默认全局提示词并完成同步
+## 179. 【2026-07-20 00:42】- 复选框 hover 取消缩放并区分勾选状态
 
 ### 修改内容
 
-- 撤回设置页的系统提示词输入框，在 `/prompt-manager` 增加独立的全局系统提示词编辑与保存区。
-- 输入框优先显示数据库值；数据库值为空时显示代码默认模板作为待保存内容，用户点击保存后才写入数据库。
-- 修复该输入框被列表项通用鼠标规则覆盖后显示普通指针的问题。
+- 设置列表中已勾选和未勾选的复选框在 hover 时都不再产生缩放效果。
+- 未勾选框继续保留 2px 主色边框反馈；已勾选框 hover 时保持原有主色背景、边框和勾选图形，不再改变视觉尺寸。
 
 ### 实现方式
 
-- 保存按钮通过 `app-config` 配置同步显式写入 PostgreSQL；未点击保存前仅保留页面草稿，避免自动修改共享数据。
-- 对话组装实时使用已保存的完整模板，避免默认模板与保存值重复拼接；OpenAI 推理/GPT-5 请求继续读取相同的全局配置。
-- 以包含列表项选择器的 `cursor: text !important` 精确覆盖通用指针规则，不影响列表、按钮或其他交互元素。
+- 在复选框公共样式 owner `ui-lib.module.scss` 中拆分 `:not(:checked):hover` 与 `:checked:hover`，为两种状态都显式固定 `transform: none`。
+- 已勾选 hover 复用静态 checked 样式，并固定伪元素勾选图形为 `scale(1)`；未勾选 hover 只调整边框与轻量背景。
 
 ### 验证
 
-- 开发容器连接的 PostgreSQL 中，`user:admin` 的 `app-config.modelConfig.customSystemPrompt` 已保存默认模板，长度为 `344`，并逐字匹配代码默认模板。
-- `yarn lint`、`npx tsc --noEmit --pretty false`、`git diff --check` 通过；开发容器与宿主机相关源码 SHA-256 一致，热加载编译完成。
-- 浏览器已访问 `/prompt-manager`，确认默认模板、保存按钮和提示词列表均正常显示，控制台没有相关错误。
-- 浏览器计算样式确认“全局系统提示词”输入框的 `cursor` 为 `text`。
+- 深色主题热加载页面实测已勾选的“启用Artifacts”：强制 hover 前后均为 `20px × 20px`、`transform: none`，主色背景和勾选图形保持不变。
+- 页面截图确认复选框区域无布局位移，控制台无 warning/error；`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
 
 ### 潜在或遗留问题
 
-- 页面“全局系统提示词已保存”提示和容器 `app-config` 同步日志均已出现；未发送真实模型对话，避免产生不必要的上游请求。
+- 当前模型的可编辑复选框均已勾选，为避免改变配置并触发数据库同步，未通过点击制造未勾选状态；未勾选 hover 由独立 CSS 选择器和静态检查验证。
 
 ============================================================
 
-## 155. 【2026-07-17 22:48】- 适配停止按钮与自动错误重试
+## 178. 【2026-07-20 00:34】- 停止序列文本域统一输入控件交互样式
 
 ### 修改内容
 
-- 停止生成时同时终止当前请求、待执行的 Key/路径/兼容性重试、工具结果后续请求与跨模型/供应商候选循环，并覆盖两次候选切换之间的短暂空档。
-- 修复已中止但仍因备用 Key 状态持续调度响应动画的空转问题。
+- “停止序列”文本域复用设置页统一输入控件样式，补齐 2px 边框、hover、focus、过渡和鼠标反馈。
+- 可编辑态使用文本光标，禁用态明确使用 `not-allowed`，并继续保留深色主题禁用配色与原有宽度。
 
 ### 实现方式
 
-- 在 `app/utils/chat.ts` 的普通流式与 thinking 流式链路中统一通过可清理调度器发起所有延迟续请求，回调执行前复查 `AbortController.signal` 和完成状态。
-- 将助手消息同步函数提升到候选循环可见作用域；停止按钮同时标记 `streaming` 和 `retrying` 消息，每轮候选前从当前 Chat Store 按消息 ID 重新读取 `manualStopped` 并立即退出。
+- 在停止序列文本域上增加公共语义类 `nextchat-input-control`，由 `globals.scss` 的输入控件规则统一负责边框、背景、阴影和交互状态。
+- `model-config.module.scss` 只保留参数文本域的 10px 圆角及禁用光标覆盖，避免复制一套局部 hover/focus 规则。
 
 ### 验证
 
 - `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
-- 开发容器 `nextchat-dev` 正常运行，本地与容器内 `app/store/chat.ts`、`app/utils/chat.ts` SHA-256 完全一致，热加载编译成功。
-- 用户已在真实自动错误重试链路中复验，点击一次停止后不再继续尝试后续候选。
+- 深色主题热加载页面实测空闲态为 2px 边框、10px 圆角、260px 宽度和文本光标；点击聚焦后主色边框及 inset shadow 生效。
 
 ### 潜在或遗留问题
 
-- 无。
+- 浏览器调试接口未稳定取得纯 hover 状态的独立计算值；公共 hover 选择器已确认命中该 textarea，且同一公共类的交互规则未被局部样式覆盖。
 
 ============================================================
 
-## 154. 【2026-07-17 16:24】- 补充部署版本与模型探测回环防护文档
+## 177. 【2026-07-20 00:12】- 移除应用启动时的旧备份表清理 DDL
 
 ### 修改内容
 
-- 部署脚本改为始终从当前 Git `HEAD` 注入构建版本，避免服务器残留 `BUILD_COMMIT_*` 覆盖实际提交。
-- 在 `DEPLOY.md` 与 `README_BAOTA.md` 补充版本三点核对、模型探测容器内回环和 502 排查说明。
+- 删除主业务库五张旧备份表的运行时清理函数，以及 API 配置和对话自动备份调度器中的两个调用点。
+- 自动备份继续正常读写独立 `nextchat_backup` 数据库；应用启动不再执行 `DROP TABLE ... CASCADE`。
 
 ### 实现方式
 
-- `scripts/docker-compose-safe.sh` 每次构建都重新计算 `BUILD_COMMIT_HASH` 与 `BUILD_COMMIT_DATE`。
-- 文档明确要求核对容器环境、页面 meta、`deployment_metadata`，并规定容器内模型探测使用 `127.0.0.1:3000`。
+- 核对当前仓库、Schema、备份 repository 和迁移记录，确认现行备份表均为独立备份库的 `backup_*` 表，旧主库表已完成迁移并实际删除。
+- 开发文档明确：一次性主库清理不得挂在应用启动或定时任务上，后续必须使用显式、可审计的数据库维护操作。
 
 ### 验证
 
-- 待执行 shell 语法检查、`git diff --check` 与规则审计。
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过；全仓搜索确认旧清理函数、白名单、日志标签和对应 DROP 语句均不存在。
+- 重启 `nextchat-dev` 后两个正常备份调度器启动，日志不再出现 `[Backup Cleanup]`；Next.js 进入 Ready，首页返回 HTTP 200。
 
 ### 潜在或遗留问题
 
-- 本轮只更新本地部署脚本和文档，未重新部署生产容器。
+- 启动期间 PostgreSQL 曾出现一次可重试的 `tuple concurrently updated`，随后自动备份扫描正常完成；与已删除的 DROP 清理无关。
 
 ============================================================
 
-## 153. 【2026-07-17 16:14】- 修复模型探测容器内 HTTPS 回环 502
+## 176. 【2026-07-20 00:02】- 本地 Docker 构建切换为国内镜像源
 
 ### 修改内容
 
-- 修复线上模型获取返回 `model_probe_failed: fetch failed` 的问题。
-- 保持配置保存链路不变；已确认 `access-control` 保存返回成功。
+- 本地开发与生产 Dockerfile 的默认 BuildKit 前端、Node/Alpine、PostgreSQL、官方 NextChat 基础镜像、APK 源和 NPM/Yarn 源统一切换为国内镜像，不依赖本机代理。
+- PostgreSQL SSH 隧道镜像同步改用 DaoCloud Alpine 与阿里云 APK 源，解决 OrbStack 构建容器无法解析 Alpine 官方源的问题。
 
 ### 实现方式
 
-- `/api/model-probe` 不再从容器内请求公网 `https://chat.dyxcloud.com`，改为请求容器本地 `http://127.0.0.1:3000` 的代理路由。
-- 继续转发当前会话解析出的认证头和 `x-base-url`，避免宝塔/Nginx 公网 HTTPS 回环失败。
+- BuildKit 语法镜像以及 Node/Alpine、PostgreSQL、官方 NextChat 镜像使用 `docker.m.daocloud.io`，APK 使用 `https://mirrors.aliyun.com/alpine`，NPM/Yarn 使用 `https://registry.npmmirror.com/`；现有 Compose 的国内 build args 保持不变。
+- README 记录完整国内构建源链路与 SSH 隧道覆盖范围。
 
 ### 验证
 
-- `yarn lint`、生产构建和类型检查通过。
-- 生产容器健康，运行版本、页面 meta 和部署记录为 `488f8ecc07068636fe3408dffc034f53b10464dc`。
-- `/api/db/health` 返回 `200`，`nginx -t` 通过，DockerSite 容器 ID 已同步。
+- 无代理环境下，SSH 隧道镜像完成构建并启动；主开发镜像从 DaoCloud 拉取 BuildKit/Node、从阿里云安装 APK，并从 npmmirror 获取 Yarn 依赖后成功生成。
+- `git diff --check` 通过。用户确认自行测试后，`nextchat-dev` 使用现有国内源镜像以 `ccc` 免登录和 SSH 隧道配置启动，Next.js 约 1.4 秒进入 Ready，首页返回 HTTP 200。
 
 ### 潜在或遗留问题
 
-- 等待用户在线上重新获取模型，确认上游供应商返回和模型列表写入。
-
-============================================================
-
-## 152. 【2026-07-17 16:06】- 修复生产模型探测缺少认证头
-
-### 修改内容
-
-- 修复 `/api/model-probe` 在浏览器未携带供应商 `Authorization` 时无法获取模型的问题。
-- 保持本地免登录 `ccc` 与线上正常会话鉴权边界不变。
-
-### 实现方式
-
-- 模型探测接口优先使用浏览器已有认证头；缺失时按当前会话解析共享用户，通过 `x-base-url` 从数据库已解密供应商配置补齐模型 Key。
-- Key 仅在服务端转发给内部代理，不返回浏览器。
-
-### 验证
-
-- `yarn lint` 通过，生产构建类型检查和 Next.js 构建通过。
-- 生产容器健康，容器环境、页面 meta 和部署记录均为 `488f8ecc07068636fe3408dffc034f53b10464dc`。
-- `/api/db/health` 返回 `200`，`nginx -t` 通过，DockerSite 容器 ID 已同步。
-
-### 潜在或遗留问题
-
-- 已部署，等待用户在线上重新点击“获取模型”验证真实供应商返回。
-
-============================================================
+- `instrumentation.ts` 会无条件启动备份调度器，其首次运行调用 `DROP TABLE IF EXISTS ... CASCADE` 清理主库旧备份表；本次启动日志再次确认该路径执行。用户已知情并明确要求启动，后续仍建议改为仅显式维护命令可触发。

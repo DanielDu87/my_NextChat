@@ -865,45 +865,5 @@ export async function ensureSyncStorageSchema() {
   await globalThis.__nextchatSyncStorageSchemaReady;
 }
 
-declare global {
-  var __nextchatLegacyBackupTablesCleaned: boolean | undefined;
-}
-
-// 主业务库中已迁移到独立备份库（backup-postgres.ts）的旧备份表，
-// 保留会造成数据孤儿。下一次自动备份触发时调用本函数一次性清理。
-const LEGACY_MAIN_DB_BACKUP_TABLES = [
-  "chat_backup_conversation_snapshots",
-  "chat_backup_runs",
-  "chat_backup_settings",
-  "api_config_backups",
-  "api_config_backup_settings",
-];
-
-/**
- * 一次性清理主业务库里已迁移到独立备份库的旧备份表。
- * 进程内用全局标记只执行一次，drop 语句自带 if exists，重复调用安全；
- * 只删除固定白名单里的旧备份表，不触碰其它数据，失败只记录日志不抛出。
- */
-export async function cleanupLegacyMainDbBackupTables() {
-  if (globalThis.__nextchatLegacyBackupTablesCleaned) return;
-  try {
-    await ensureSyncStorageSchema();
-    for (const table of LEGACY_MAIN_DB_BACKUP_TABLES) {
-      // 表名来自固定常量白名单，非用户输入，无注入风险
-      await pgQuery(`drop table if exists ${table} cascade`);
-    }
-    globalThis.__nextchatLegacyBackupTablesCleaned = true;
-    console.log(
-      "[Backup Cleanup] 已清理主业务库遗留的旧备份表",
-      LEGACY_MAIN_DB_BACKUP_TABLES,
-    );
-  } catch (error) {
-    console.error(
-      "[Backup Cleanup] 清理主业务库遗留旧备份表失败",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
 export type PgResult<T extends QueryResultRow = QueryResultRow> =
   QueryResult<T>;

@@ -3,6 +3,7 @@ import {
   UPLOAD_URL,
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
+import type { ChatMessageAttachedFile } from "@/app/store/chat";
 import type { MultimodalContent, RequestMessage } from "@/app/client/api";
 import * as LocaleModule from "@/app/locales";
 import {
@@ -105,6 +106,38 @@ export function stripInternalChatHeaders<T extends Record<string, any>>(
     networkHeaders[key] = value;
   });
   return networkHeaders as T;
+}
+
+export function stripHiddenThinkingTags(
+  content: string,
+  isInsideThinkingTag: boolean,
+) {
+  let remaining = content;
+  let inside = isInsideThinkingTag;
+  let visible = "";
+
+  while (remaining.length > 0) {
+    if (inside) {
+      const closeIndex = remaining.indexOf("</think>");
+      if (closeIndex < 0) {
+        return { content: visible, isInsideThinkingTag: true };
+      }
+      remaining = remaining.slice(closeIndex + "</think>".length);
+      inside = false;
+      continue;
+    }
+
+    const openIndex = remaining.indexOf("<think>");
+    if (openIndex < 0) {
+      visible += remaining;
+      break;
+    }
+    visible += remaining.slice(0, openIndex);
+    remaining = remaining.slice(openIndex + "<think>".length);
+    inside = true;
+  }
+
+  return { content: visible, isInsideThinkingTag: inside };
 }
 
 function getApiKeyGroupName(
@@ -492,6 +525,229 @@ export function base64Image2Blob(base64Data: string, contentType: string) {
   return new Blob([byteArray], { type: contentType });
 }
 
+/**
+ * 从 DOCX 文件提取纯文本内容
+ * 使用 jszip 解析 DOCX 的 word/document.xml 并提取文本
+ * @param blob DOCX 文件的 Blob 数据
+ * @param maxLength 最大提取字符数，超过则截断
+ * @returns 提取的纯文本
+ */
+export async function extractTextFromDocx(
+  blob: Blob,
+  maxLength: number = 50000,
+): Promise<string> {
+  try {
+    const JSZip = (await import("jszip")).default;
+    const arrayBuffer = await blob.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+
+    if (!documentXml) {
+      return "[无法提取文本：文件格式异常，缺少 word/document.xml]";
+    }
+
+    // 提取 XML 中的所有 w:t 元素（Word 文本节点）
+    const textMatches = documentXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+    let fullText = textMatches
+      .map((match) => {
+        const content = match.replace(/<[^>]+>/g, "");
+        return content;
+      })
+      .join("")
+      .replace(/\n{3,}/g, "\n\n") // 合并多余空行
+      .trim();
+
+    // 截断超长文本
+    if (fullText.length > maxLength) {
+      fullText = fullText.substring(0, maxLength) + "\n\n[... 内容已截断 ...]";
+    }
+
+    return fullText;
+  } catch (error) {
+    console.error("[extractTextFromDocx] 提取 DOCX 文本失败:", error);
+    return `[提取文本失败: ${String(error)}]`;
+  }
+}
+
+/**
+ * 从 Blob 或 URL 获取文件内容
+ * @param source Blob 或 URL 字符串
+ * @returns 文件的 ArrayBuffer
+ */
+async function getFileArrayBuffer(source: Blob | string): Promise<ArrayBuffer> {
+  if (source instanceof Blob) {
+    return source.arrayBuffer();
+  }
+
+  // 如果是 URL，通过 fetch 获取
+  const response = await fetch(source, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`文件读取失败（${response.status}）`);
+  }
+  return response.arrayBuffer();
+}
+
+/**
+ * 从 PDF 文件提取文本内容
+ * @param blob PDF 文件的 Blob 数据
+ * @param maxLength 最大提取字符数
+ * @returns 提取的纯文本
+ */
+export async function extractTextFromPdf(
+  blob: Blob,
+  maxLength: number = 50000,
+): Promise<string> {
+  try {
+    const pdfjsLib = await import("pdfjs-dist");
+    // 设置 worker 以避免跨域问题
+    const pdfjsVersion = pdfjsLib.version;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsVersion}/pdf.worker.min.js`;
+
+    const arrayBuffer = await blob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    const textParts: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(" ");
+      if (pageText.trim()) {
+        textParts.push(pageText);
+      }
+    }
+
+    let fullText = textParts.join("\n\n").trim();
+
+    // 截断超长文本
+    if (fullText.length > maxLength) {
+      fullText = fullText.substring(0, maxLength) + "\n\n[... 内容已截断 ...]";
+    }
+
+    return fullText || "[PDF 文件未包含可提取的文本内容]";
+  } catch (error) {
+    console.error("[extractTextFromPdf] 提取 PDF 文本失败:", error);
+    return `[提取 PDF 文本失败: ${String(error)}]`;
+  }
+}
+
+/**
+ * 从 Excel 文件提取表格内容
+ * @param blob Excel 文件的 Blob 数据
+ * @param maxLength 最大提取字符数
+ * @returns 提取的纯文本
+ */
+export async function extractTextFromExcel(
+  blob: Blob,
+  maxLength: number = 50000,
+): Promise<string> {
+  try {
+    const XLSX = await import("xlsx");
+    const arrayBuffer = await blob.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+    const sheetParts: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(sheet);
+      if (csv.trim()) {
+        sheetParts.push(`【工作表: ${sheetName}】\n${csv}`);
+      }
+    }
+
+    let fullText = sheetParts.join("\n\n");
+    if (fullText.length > maxLength) {
+      fullText = fullText.substring(0, maxLength) + "\n\n[... 内容已截断 ...]";
+    }
+
+    return fullText || "[Excel 文件未包含可提取的表格内容]";
+  } catch (error) {
+    console.error("[extractTextFromExcel] 提取 Excel 文本失败:", error);
+    return `[提取 Excel 文本失败: ${String(error)}]`;
+  }
+}
+
+/**
+ * 从附件提取可发送给 AI 的文本内容
+ * 支持 DOCX、PDF、Excel 格式
+ * @param file 附件对象（包含 file 对象或 previewUrl）
+ * @returns 提取的文本，如果不支持则返回空字符串
+ */
+export async function extractAttachmentText(
+  file: ChatMessageAttachedFile & { file?: Blob },
+): Promise<string> {
+  const fileName = String(file.name || "").toLowerCase();
+
+  // 判断文件类型
+  const isDocx = fileName.endsWith(".docx");
+  const isPdf = fileName.endsWith(".pdf");
+  const isExcel = /\.(xlsx|xls|csv)$/.test(fileName);
+
+  if (!isDocx && !isPdf && !isExcel) {
+    return "";
+  }
+
+  console.log(
+    `[extractAttachmentText] 开始提取文件: ${fileName}, 类型: ${isDocx ? "docx" : isPdf ? "pdf" : "excel"}, hasFile: ${!!file.file}, hasPreviewUrl: ${!!file.previewUrl}`,
+  );
+
+  try {
+    let blob: Blob;
+
+    // 优先使用原始 file 对象
+    if (file.file instanceof Blob) {
+      blob = file.file;
+    } else if (file.previewUrl) {
+      // 通过 previewUrl 下载
+      const mimeTypes: Record<string, string> = {
+        ".docx":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pdf": "application/pdf",
+        ".xlsx":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".csv": "text/csv",
+      };
+      const ext = fileName.match(/\.[^.]+$/)?.[0] || "";
+      const mimeType = mimeTypes[ext] || "application/octet-stream";
+      console.log(
+        `[extractAttachmentText] 通过 previewUrl 下载: ${file.previewUrl}, mimeType: ${mimeType}`,
+      );
+      blob = new Blob([await getFileArrayBuffer(file.previewUrl)], {
+        type: mimeType,
+      });
+    } else {
+      console.log(`[extractAttachmentText] 没有 file 对象也没有 previewUrl`);
+      return "";
+    }
+
+    console.log(
+      `[extractAttachmentText] blob 大小: ${blob.size}, 类型: ${blob.type}`,
+    );
+
+    let text = "";
+    if (isDocx) {
+      text = await extractTextFromDocx(blob);
+    } else if (isPdf) {
+      text = await extractTextFromPdf(blob);
+    } else if (isExcel) {
+      text = await extractTextFromExcel(blob);
+    }
+
+    console.log(
+      `[extractAttachmentText] 提取结果: ${text.substring(0, 200)}${text.length > 200 ? "..." : ""}`,
+    );
+
+    if (!text || text.startsWith("[")) {
+      return ""; // 提取失败时不添加文本
+    }
+
+    return `【文件 "${file.name}" 的正文内容】\n${text}`;
+  } catch (error) {
+    console.error("[extractAttachmentText] 提取附件文本失败:", error);
+    return "";
+  }
+}
+
 export async function uploadImage(file: Blob): Promise<string> {
   try {
     return await uploadFile(file);
@@ -778,11 +1034,14 @@ export function stream(
     currentRequestAccepted = false;
     const requestSeq = ++activeRequestSeq;
     apiKeyRetry.logAttemptStart();
+    const hasTools = Array.isArray(tools) && tools.length > 0;
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
         ...requestPayload,
-        tools: tools && tools.length ? tools : undefined,
+        tools: hasTools ? tools : undefined,
+        tool_choice: hasTools ? requestPayload?.tool_choice : undefined,
+        toolConfig: hasTools ? requestPayload?.toolConfig : undefined,
       }),
       signal: controller.signal,
       headers: stripInternalChatHeaders(headers),
@@ -1228,11 +1487,14 @@ export function streamWithThink(
     currentRequestAccepted = false;
     const requestSeq = ++activeRequestSeq;
     apiKeyRetry.logAttemptStart();
+    const hasTools = Array.isArray(tools) && tools.length > 0;
     const chatPayload = {
       method: "POST",
       body: JSON.stringify({
         ...requestPayload,
-        tools: tools && tools.length ? tools : undefined,
+        tools: hasTools ? tools : undefined,
+        tool_choice: hasTools ? requestPayload?.tool_choice : undefined,
+        toolConfig: hasTools ? requestPayload?.toolConfig : undefined,
       }),
       signal: controller.signal,
       headers: stripInternalChatHeaders(headers),
@@ -1333,8 +1595,22 @@ export function streamWithThink(
             return;
           }
 
-          // deal with <think> and </think> tags start
-          if (!chunk.isThinking) {
+          // When thought display is disabled, preserve any final answer that
+          // shares an SSE chunk with <think> tags instead of dropping it.
+          if (options.config.includeThoughts === false) {
+            if (chunk.isThinking) {
+              return;
+            }
+            const stripped = stripHiddenThinkingTags(
+              chunk.content,
+              lastIsThinkingTagged,
+            );
+            lastIsThinkingTagged = stripped.isInsideThinkingTag;
+            chunk.content = stripped.content;
+            if (!chunk.content) {
+              return;
+            }
+          } else if (!chunk.isThinking) {
             if (chunk.content.startsWith("<think>")) {
               chunk.isThinking = true;
               chunk.content = chunk.content.slice(7).trim();
@@ -1347,7 +1623,6 @@ export function streamWithThink(
               chunk.isThinking = true;
             }
           }
-          // deal with <think> and </think> tags start
 
           // Check if thinking mode changed
           const isThinkingChanged = lastIsThinking !== chunk.isThinking;

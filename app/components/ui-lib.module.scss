@@ -167,15 +167,20 @@
     }
   }
 
-  &:not(:disabled):hover {
+  &:not(:checked):not(:disabled):hover {
     border-width: 2px;
     border-color: var(--primary);
     background: color-mix(in srgb, var(--primary) 12%, var(--white));
     transform: none !important;
+  }
 
-    &:checked {
-      border-color: var(--white);
-      background: color-mix(in srgb, var(--primary) 86%, var(--white));
+  &:checked:not(:disabled):hover {
+    border-color: var(--white);
+    background: var(--primary);
+    transform: none !important;
+
+    &::after {
+      transform: translate(-50%, -58%) rotate(45deg) scale(1);
     }
   }
 
@@ -207,6 +212,23 @@
       flex: 0 1 var(--session-config-control-width);
       width: var(--session-config-control-width);
       max-width: 45%;
+    }
+  }
+}
+
+.modal-container:global(.session-parameter-modal) {
+  .modal-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+
+    .modal-title {
+      grid-column: 2;
+      text-align: center;
+    }
+
+    .modal-header-actions {
+      grid-column: 3;
+      justify-self: end;
     }
   }
 }

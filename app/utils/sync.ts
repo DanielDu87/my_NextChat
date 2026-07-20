@@ -183,9 +183,16 @@ function stripProfileModelCacheFields<T extends Record<string, any>>(
 export function stripConfigLocalModelFields<T extends Record<string, any>>(
   config: T,
 ) {
-  const { models, ...configToSync } = config;
+  const { models, realtimeConfig, ...configToSync } = config;
   void models;
-  return configToSync as Omit<T, "models">;
+  // Realtime API credentials are device-local secrets, not shared settings.
+  // Keep the non-sensitive provider, model, voice and Azure routing options.
+  const { apiKey: _apiKey, ...sharedRealtimeConfig } = realtimeConfig || {};
+  void _apiKey;
+  return {
+    ...configToSync,
+    realtimeConfig: sharedRealtimeConfig,
+  } as Omit<T, "models">;
 }
 
 function getEnabledProfileId(profiles: Array<Record<string, any>>) {
@@ -253,8 +260,8 @@ function normalizeImportedConfigState<T>(state: T): T {
       ? useAppConfig.getState().models
       : [],
     modelConfig: {
+      ...useAppConfig.getState().modelConfig,
       ...((state as Record<string, any>).modelConfig || {}),
-      webSearch: true,
     },
   } as T;
 }
@@ -323,10 +330,10 @@ function getManagedProviderIdsFromProfiles(
       profile.provider === ServiceProvider.Custom
         ? `custom_${profile.name}`.toLowerCase()
         : profile.provider === ServiceProvider.Local
-        ? `${String(profile.provider).toLowerCase()}_${
-            profile.name
-          }`.toLowerCase()
-        : String(profile.provider).toLowerCase(),
+          ? `${String(profile.provider).toLowerCase()}_${
+              profile.name
+            }`.toLowerCase()
+          : String(profile.provider).toLowerCase(),
     ),
   );
 }
@@ -996,12 +1003,12 @@ const MergeStates: StateMerger = {
     const useRemoteModelSelection = preferRemoteOnBootstrap
       ? true
       : hasPendingLocalModelSelection
-      ? false
-      : remoteModelSelAt > localModelSelAt
-      ? true
-      : remoteModelSelAt < localModelSelAt
-      ? false
-      : remoteHasMeaningfulModel && !localHasMeaningfulModel;
+        ? false
+        : remoteModelSelAt > localModelSelAt
+          ? true
+          : remoteModelSelAt < localModelSelAt
+            ? false
+            : remoteHasMeaningfulModel && !localHasMeaningfulModel;
 
     logSyncDebug(
       `[Sync] 🔍 Config合并: model=${
@@ -1024,8 +1031,8 @@ const MergeStates: StateMerger = {
     const preferredConfig = useRemoteConfig ? remote : local;
 
     const mergedState = {
-      ...(preferRemoteOnBootstrap ? localState : remoteState),
-      ...(preferRemoteOnBootstrap ? remoteState : localState),
+      ...(useRemoteConfig ? localState : remoteState),
+      ...(useRemoteConfig ? remoteState : localState),
       theme: currentConfig.theme,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       tightBorder: preferredConfig.tightBorder ?? currentConfig.tightBorder,
@@ -1036,31 +1043,38 @@ const MergeStates: StateMerger = {
         remoteCustomModelsAt > localCustomModelsAt
           ? remoteCustomModelsStr
           : remoteCustomModelsAt < localCustomModelsAt
-          ? localCustomModelsStr
-          : remoteCustomModelsStr.length > localCustomModelsStr.length
-          ? remoteCustomModelsStr
-          : localCustomModelsStr,
+            ? localCustomModelsStr
+            : remoteCustomModelsStr.length > localCustomModelsStr.length
+              ? remoteCustomModelsStr
+              : localCustomModelsStr,
       customModelsUpdatedAt: Math.max(
         localCustomModelsAt,
         remoteCustomModelsAt,
       ),
       modelConfig: {
-        ...((preferRemoteOnBootstrap ? localState : remoteState) as any)
-          .modelConfig,
-        ...((preferRemoteOnBootstrap ? remoteState : localState) as any)
-          .modelConfig,
+        ...((useRemoteConfig ? localState : remoteState) as any).modelConfig,
+        ...((useRemoteConfig ? remoteState : localState) as any).modelConfig,
         model: useRemoteModelSelection
-          ? remote.modelConfig?.model ?? local.modelConfig?.model
-          : local.modelConfig?.model ?? remote.modelConfig?.model,
+          ? (remote.modelConfig?.model ?? local.modelConfig?.model)
+          : (local.modelConfig?.model ?? remote.modelConfig?.model),
         providerName: useRemoteModelSelection
-          ? remote.modelConfig?.providerName ?? local.modelConfig?.providerName
-          : local.modelConfig?.providerName ?? remote.modelConfig?.providerName,
+          ? (remote.modelConfig?.providerName ??
+            local.modelConfig?.providerName)
+          : (local.modelConfig?.providerName ??
+            remote.modelConfig?.providerName),
         providerId: useRemoteModelSelection
-          ? remote.modelConfig?.providerId ?? local.modelConfig?.providerId
-          : local.modelConfig?.providerId ?? remote.modelConfig?.providerId,
+          ? (remote.modelConfig?.providerId ?? local.modelConfig?.providerId)
+          : (local.modelConfig?.providerId ?? remote.modelConfig?.providerId),
       },
       modelSelectionUpdatedAt: Math.max(localModelSelAt, remoteModelSelAt),
       lastUpdateTime: markMergedUpdateTime(localUpdate, remoteUpdate),
+    };
+
+    // The API key is intentionally excluded from app-config synchronization.
+    // Preserve the current browser's local secret while applying shared fields.
+    (mergedState as any).realtimeConfig = {
+      ...((mergedState as any).realtimeConfig || {}),
+      apiKey: String(currentConfig.realtimeConfig?.apiKey || ""),
     };
 
     if (
@@ -1115,10 +1129,10 @@ const MergeStates: StateMerger = {
     const useRemoteProfileSelection = shouldPreferRemoteState
       ? true
       : remoteSelectionAt > localSelectionAt
-      ? true
-      : remoteSelectionAt < localSelectionAt
-      ? false
-      : !!remoteEnabledProfileId && !localEnabledProfileId;
+        ? true
+        : remoteSelectionAt < localSelectionAt
+          ? false
+          : !!remoteEnabledProfileId && !localEnabledProfileId;
     const selectedProfileId = useRemoteProfileSelection
       ? remoteEnabledProfileId || localEnabledProfileId
       : localEnabledProfileId || remoteEnabledProfileId;

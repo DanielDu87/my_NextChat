@@ -1,6 +1,6 @@
 # NextChat 开发指南
 
-> 本文档以当前代码为准（最后更新：2026-07-17）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
+> 本文档以当前代码为准（最后更新：2026-07-19）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
 >
 > 相关文档：[README.md](../README.md)、[AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md)、[docs/db/nextchat-postgres-schema.sql](db/nextchat-postgres-schema.sql)。
 
@@ -61,6 +61,18 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 
 历史内存摘要同样只使用当前对话最终保存的模型及其 API 配置，不再查找 `gpt-4o-mini` 或回退 AihubMix。每个会话同时只允许一个摘要请求；摘要输入只读取该目标会话的旧内存和最早一批尚未摘要的有效消息，按 `historyMessageCount` 与 `compressMessageLengthThreshold` 分批推进 `lastSummarizeIndex`，不能再用回复输出参数 `max_tokens` 裁剪输入或直接跳到会话末尾。摘要请求固定非流式并使用独立的 1000 Token 输出上限；流式/临时结果只保存在局部变量中，只有 HTTP 200、正文非空且不是 API 错误 payload 时，才一次性提交 `memoryPrompt` 与索引，失败时保留原摘要和原索引供后续重试。各平台客户端必须让请求级配置覆盖当前打开会话配置，保证后台处理非当前会话时仍使用目标会话的模型参数。该优化不修改会话持久化结构，也不重算、清空或迁移已有 `memoryPrompt`、`lastSummarizeIndex`、`clearContextIndex`；旧会话继续按原字段恢复上下文，只有达到下一次摘要阈值时才从原索引继续增量摘要。
 
+“全局对话设置”中的请求参数、预设上下文、Artifacts、代码折叠、历史摘要策略、系统提示开关，以及 TTS / 实时语音的非敏感选项统一属于共享 `StoreKey.Config`。保存时通过现有同步接口写入默认同步用户 `user:admin` 的 `app_settings.extra_settings['app-config']`，所有登录用户读取同一份配置；同步合并按 `lastUpdateTime` 选择较新的完整设置，不能再由各浏览器旧本地值覆盖数据库新值。模型、供应商和 API Profile 身份仍跟随当前会话，`memoryPrompt`、摘要索引和消息正文仍按会话隔离；实时语音 `apiKey` 始终只保留在当前浏览器，不能写入共享 `app-config`。每次实际请求把共享行为参数与当前会话模型身份组合后再按模型能力过滤。参数控件失焦会启动一次后台同步；用户点击确认时必须先同步写入脱敏的 `localStorage[StoreKey.Config]` 镜像和 `nextchat_sync_debounce` 恢复标记，再立即关闭弹窗，后台任务随后上传配置。刷新、路由恢复或重试遇到该标记时继续执行未完成的 `StoreKey.Config` 同步；本地镜像会在 IndexedDB 写入尚未完成时作为较新的恢复源，但不会写入实时语音 `apiKey`。`historyMessageCount` 同时限制普通请求携带的历史消息数和单次摘要批次消息数，最新用户输入始终保留；关闭系统提示后不再注入全局默认提示，关闭“展示思考”后不再把上游 reasoning 内容拼入回复或保存 reasoning details。
+
+质量优先的全局编程预设使用 `gpt-5.6-sol`、`reasoningEffort=high`、`temperature=0.2`、`top_p=1`、`top_k=0`（自动且不发送）、`presence_penalty=0`、`frequency_penalty=0`、`max_tokens=32768`；流式响应、联网搜索（`medium`）、历史摘要、Artifacts 和代码折叠默认开启，历史消息上限为 32，约 24000 字符后触发摘要。`reasoningMaxTokens=0` 表示由推理强度控制计算量；思考展示与无 schema 的结构化输出默认关闭。普通聊天/代码模型只降低 Temperature，Top-p 保留供应商默认值，避免同时大幅调整两种采样控制；GPT-5 / o 系列、Claude、Gemini 3、DeepSeek 思考模式、MiniMax-M3 和 xAI 推理模型仍在请求层移除不兼容字段，使用各厂商官方默认采样。`top_k` 仅对 Gemini 非 3 系列启用并映射为 `generationConfig.topK`。该预设是附件中的编程场景建议与官方模型约束的折中，不应解读为任何供应商对所有业务场景规定的唯一参数组合。
+
+所有新建、刷新后生成、删除最后一条对话后补建以及切换用户后生成的空白对话，都必须从当前共享 `StoreKey.Config` 复制模型身份和设置。只要共享配置存在 `modelSelectionUpdatedAt`，数据库同步值就是新对话的唯一默认来源；旧浏览器的 `nextchat:global-model-config` / `nextchat:last-model-selection` 只能在数据库配置尚未恢复时作为当前空白会话的临时启动兜底，不得刷新全局时间戳或反向覆盖数据库。用户在最新对话中主动切换模型，或在全局设置中主动修改参数后，新的共享值才成为后续新对话默认；历史对话仍保留自身模型和消息。
+
+“全局对话设置”固定显示完整对话参数集合，不随当前模型能力隐藏：采样、输出上限、上下文窗口、停止序列、生成数量、工具调用策略、安全等级、提示缓存、搜索、推理、Anthropic Beta、媒体分辨率、结构化输出、惩罚项、系统提示词、输入模板、历史摘要、Artifacts 和代码折叠均可见；绘图 29 项、视频尺寸和时长也始终在底部独立区域显示。关闭 Artifacts 或代码折叠后，其开关本身也必须保留以便重新开启。绘图区域直接复用 `app/utils/draw-model-params.ts` 中 Draw 页面的字段定义及模型规则，保持字段、选项、默认值和支持状态一致，并通过共享 `modelConfig.generationParams` 在 Draw 页面与参数设置之间双向同步实际值。当前生成模型不支持、当前请求客户端尚未实现或厂商明确建议锁定默认值的控件必须显示为禁用，并在副标题说明原因；各参数组分别以真实 `disabled` 状态自动排序，可用项在前、禁用项在后，同一状态内保持声明顺序，因此切换模型时参数顺序会跟随能力矩阵即时调整。禁用只影响编辑和请求透传，不能删除共享数据库中已保存的全局值。所有模型共享同一份预设，但实际请求必须按供应商官方能力使用等效推荐格式：GPT-5 / o 系列移除不支持的采样和停止序列字段并使用模型对应的 `reasoning_effort` 枚举；Claude 使用供应商默认采样、对 4.6+ 适配 `adaptive thinking + output_config.effort`，4.5+ 的受支持型号把 JSON Schema 合并到 `output_config.format`，显式提示缓存仅在稳定系统内容块上设置 `cache_control`；Gemini 3.x 使用默认采样、仅在当前型号支持且设置值属于官方枚举时发送 `thinkingConfig.thinkingLevel`，并把媒体分辨率与 JSON Schema 放入 `generationConfig`；DeepSeek 思考模式移除无效采样和 penalty，将兼容 effort 映射为 `high / max`，结构化输出使用 `json_object`；GLM 4.5+ 才启用 thinking，GLM 5.2 才透传 `reasoning_effort`，结构化输出同样使用 `json_object`；MiniMax-M3 固定官方 `temperature=1 / top_p=0.95`，只发送 adaptive/disabled thinking，工具策略仅 `auto/none`；Qwen DashScope 把停止、thinking、JSON Object 与工具策略放进 `parameters`；xAI Grok 按 4.3/4.5/4.20 型号限制 reasoning effort，推理模型不发送采样和 penalty。不能为了“参数一致”强制透传上游明确不支持或明确不推荐的字段。
+
+上下文窗口按当前模型官方或可信元数据只读显示，不作为请求字段发送；GPT-5.4 基础版、GPT-5.5/5.6 显示 1,050,000，GPT-5.4 mini/nano 显示 400,000，GPT-4.1 与 Gemini 2.5/3 显示约 1M，并覆盖当前 Claude、DeepSeek V4、GLM、MiniMax、Qwen、Kimi 和 Grok 的已知值；未知模型显示 0 并禁用。输出上限滑块同步使用已知型号的官方上限，未知模型保留兼容上限。停止序列使用每行一个值的全局文本，按模型分别限制：GLM 1 个、OpenAI 4 个、Gemini 5 个、DeepSeek 16 个，其他已知兼容模型最多 16 个，并映射到各供应商真实字段。聊天 UI 当前只消费一个候选，因此生成数量固定显示为 `n=1` 且禁用，不能开放一个实际无法展示其余候选的假控件。工具调用策略使用全局按钮式 `ButtonSelect`，GLM 只允许 `auto`，MiniMax/Qwen 只允许 `auto/none`，其他已知支持模型显示其真实选项；仅流式请求且实际存在已启用工具时发送，没有工具时请求层同时移除工具定义和策略。参数区所有有限枚举均复用 `ButtonSelect`，触发器固定为 `nextchat-select-trigger nextchat-control-surface`，菜单使用 `listbox/option` 语义；不支持的参数仍显示同款禁用按钮。模型选择器因包含大量分组模型选项而继续使用原有只读 `Select`。安全设置仅对 Gemini 启用，默认留空表示使用供应商安全策略，也可选择 `OFF` 或具体阻断等级。提示缓存保持显示：Claude 可编辑并发送 5 分钟 ephemeral `cache_control`；OpenAI、Gemini、DeepSeek、GLM、MiniMax、Qwen/Kimi 和 xAI 显示自动缓存但只读，不能把本地布尔值冒充上游缓存命中。Temperature 控件范围按供应商收敛为通用 0~2、GLM 0~1、MiniMax/Qwen 0.1 起步；Gemini 3、MiniMax-M3 和受约束推理模型仍使用官方默认采样并禁用该控件。深色主题的参数弹窗保持既有外围样式，所有禁用控件复用 Draw 的深色背景、边框和文字颜色，避免复用浅色禁用填充。GPT Image 2 显示 auto 与官方常用 1K/2K/4K 尺寸，GPT Image 1.x 只显示其三个固定尺寸；Sora 2 Pro 补齐 720p、1024 和 1080 纵横屏，并保留官方当前支持的 16/20 秒。
+
+深色主题参数设置中的禁用控件使用比内容区稍亮的深灰表面、更清晰的半透明边框和文字；禁用滑块的轨道与滑块同步提亮。该调整只作用于参数弹窗内部，不改变弹窗外围颜色、总宽度、布局或可编辑控件。
+
 控制台日志统一使用 `🔄 对话请求尝试`、`✅ 对话请求尝试成功`、`❌ 对话请求尝试失败`、`⏹️ 对话请求已停止`。预期中的模型和多 Key 分组故障转移使用普通日志级别，避免浏览器为每次候选失败展开告警调用栈；请求日志只保留尝试序号、供应商、模型和精简原因，不输出上游完整错误正文或 Request ID。临时 API Profile 只服务于同步生成请求参数，不再输出容易被误解为请求生命周期的“请求结束”日志。余额刷新被组件卸载或模型切换主动取消时按 `⏹️` 调试日志记录，不作为查询错误。
 
 ## 页面打开日志
@@ -69,12 +81,13 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 
 ### 输出格式
 
-| 页面                 | 日志标签                 | 示例输出                                                                                                                                            |
-| -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api_config`        | `[API Config] 📋`        | `[API Config] 📋 已读取 API 配置（7 个）：AihubMix、Ocoolai、YutoAPI、ToAPI、DeepSeek、晴辰云、OpenRouter`                                          |
-| `/backup/api_config` | `[API Config Backup] 📋` | `[API Config Backup] 📋 已读取 API 配置备份（10 条，最新 2026-07-09 23:33:22（auto，7 条配置））`                                                   |
+| 页面                 | 日志标签                 | 示例输出                                                                                                                                                   |
+| -------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api_config`        | `[API Config] 📋`        | `[API Config] 📋 已读取 API 配置（7 个）：AihubMix、Ocoolai、YutoAPI、ToAPI、DeepSeek、晴辰云、OpenRouter`                                                 |
+| `/backup/api_config` | `[API Config Backup] 📋` | `[API Config Backup] 📋 已读取 API 配置备份（10 条，最新 2026-07-09 23:33:22（auto，7 条配置））`                                                          |
 | `/backup/chat`       | `[Chat Backup] 📋`       | `[Chat Backup] 📋 已读取对话备份（3 个批次）：2026-07-09 23:33:23（auto/incremental，2 个用户，181 个会话 / 520 条消息；ccc 122 个会话，alice 59 个会话）` |
-| `/balances`          | `[Provider Balance] 📋`  | `[Provider Balance] 📋 已读取余额配置（7 个：Ocoolai、AihubMix、DeepSeek、OpenRouter、ToAPI、YutoAPI、晴辰云；已存管理 Key 6 个，已查过余额 7 个）` |
+| `/balances`          | `[Provider Balance] 📋`  | `[Provider Balance] 📋 已读取余额配置（7 个：Ocoolai、AihubMix、DeepSeek、OpenRouter、ToAPI、YutoAPI、晴辰云；已存管理 Key 6 个，已查过余额 7 个）`        |
+| `/prompt-manager`    | `[PromptManager]`        | `✅ 已读取提示词数量: 12 个`，随后完整输出当前生效的全局提示词；手动保存成功后再次输出已保存并同步的完整生效值及字符数                         |
 
 ### 触发位置
 
@@ -82,6 +95,7 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 - `/backup/api_config`：`app/components/api-config-backups.tsx` 的 `load()` 拿到 `/api/db/api-config-backups` 响应后。
 - `/backup/chat`：`app/components/chat-backups.tsx` 的 `load()` 拿到 `/api/db/chat-backups` 响应后；任何登录用户均读取全局备份批次。新建手动备份和自动扫描轮次以 `backup_chat_runs.batch_id` 聚合，`backup_chat_batches` 与 `backup_chat_batch_members` 另行记录每位用户的创建、跳过或失败结果；历史 `batch_id IS NULL` 的单用户记录保持独立显示，不与其他旧记录猜测合并。
 - `/balances`：`app/components/provider-balances.tsx` 的 `load()` 拿到 `/api/db/provider-balance` 响应后；带 profile 名称、已存管理 Key 数和已查询余额数。
+- `/prompt-manager`：`app/components/prompt-manager.tsx` 等提示词数据库读取和当前同步队列完成后，分别输出最终提示词数量与当前生效的全局提示词；点击“保存全局提示词”且 Config 同步成功后，再输出实际生效值。空白自定义值按请求链路使用 `DEFAULT_SYSTEM_TEMPLATE`，日志同样显示该默认值。
 
 ### 故障对照表
 
@@ -100,6 +114,7 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 
 - 主业务库：`app/utils/server/postgres.ts` 的 `SYNC_STORAGE_SCHEMA_VERSION`，当前值 `"2026-07-14-provider-model-key-route-cache"`。
 - 独立备份库：`app/utils/server/backup-postgres.ts` 的 `BACKUP_STORAGE_SCHEMA_VERSION`，当前值 `"2026-07-16-chat-backup-batch-audit"`。
+- 主业务库旧备份表的迁移与清理已经完成；应用启动和自动备份调度器不得再执行 `DROP TABLE` 等一次性清理 DDL。后续结构清理必须作为显式、可审计的数据库维护操作执行。
 - 一旦在 `ensureSyncStorageSchema()` / `ensureBackupStorageSchema()` 内新增 `ALTER TABLE` 或 `CREATE TABLE`，**必须同步 bump** 上述版本号常量。否则旧容器在缓存锁住 `globalThis.__nextchatSyncStorageSchemaReady` / `__nextchatBackupStorageSchemaReady` 时不会重跑迁移，新结构永远不会落库。
 - 完整 DDL 与历史变更：`docs/db/nextchat-postgres-schema.sql`。
 
@@ -119,6 +134,13 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 - `cache_file_references(cache_file_id, user_id, message_id, last_seen_at)`：消息写入时 `replaceConversationMessages` 批量 upsert，删除缓存文件前 `removeOwnedCacheFile` 先查此表（O(1)），仅当旧消息未登记时回退 LIKE 兜底。
 - `conversations.deleted_at timestamptz`：与 `is_deleted` 配对的软删除时间戳，partial 索引 `idx_conversations_user_deleted_at WHERE is_deleted = true` 给增量备份识别最近被删除的会话使用。
 - 相关代码：`app/utils/server/cache-file-repository.ts`、`app/utils/server/chat-conversation-repository.ts`、`app/utils/server/chat-backup-repository.ts`（`getChangedSessionIds` 含 `or c.is_deleted = true`）。
+
+## 附件正文读取与安全预览
+
+- 聊天提交与重发会调用 `POST /api/cache/extract`，按当前已认证用户读取已上传缓存文件，并仅支持 PDF、DOCX、XLS/XLSX、CSV、TSV。PDF 最多解析 80 页；表格最多 10 个工作表、每表 1000 行；单附件正文最多 24000 字符，单次消息附件正文总量最多 60000 字符。
+- 提取出的正文保存在 `ChatMessageAttachedFile.extractedText`，以显式开始/结束边界拼入该条用户消息的隐藏上下文；文件内指令不得覆盖系统提示词或用户当前问题。失败或不支持的格式保留文件元数据并在界面提示。
+- 缓存响应的 MIME 类型只能由文件名白名单推导，不信任上传方 MIME；未知格式强制下载，读取接口不再在每个 Range 分片请求中执行过期/孤儿文件清理。PDF 和受信任栅格图片才允许 inline，响应始终设置 `X-Content-Type-Options: nosniff`。
+- Excel 预览使用 React 表格节点而非 HTML 字符串注入；预览最多 500 行、80 列，完整范围通过 SheetJS `!fullref` 标记截断。
 
 ## 首屏数据汇总日志（admin / 本地免登录 ccc）
 

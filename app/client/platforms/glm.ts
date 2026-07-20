@@ -25,7 +25,10 @@ import { preProcessImageContent } from "@/app/utils/chat";
 import { joinUrlPath } from "@/app/utils/url";
 import {
   applyModelSamplingRules,
+  getModelParameterSupport,
   inferModelCapability,
+  isGlm52Model,
+  parseStopSequences,
 } from "../model-parameter-rules";
 
 interface BasePayload {
@@ -39,11 +42,19 @@ interface ChatPayload extends BasePayload {
   presence_penalty?: number;
   frequency_penalty?: number;
   top_p?: number;
+  max_tokens?: number;
+  stop?: string[];
+  tool_choice?: "auto" | "required" | "none";
+  thinking?: { type: "enabled" | "disabled"; clear_thinking?: boolean };
+  reasoning_effort?: string;
+  response_format?: { type: "text" | "json_object" };
 }
 
 interface ImageGenerationPayload extends BasePayload {
   prompt: string;
   size?: string;
+  quality?: string;
+  watermark_enabled?: boolean;
   user_id?: string;
 }
 
@@ -91,13 +102,35 @@ export class ChatGLMApi implements LLMApi {
 
     switch (modelType) {
       case "image":
+        const generationParams = modelConfig.generationParams ?? {};
         return {
           model: modelConfig.model,
           prompt,
-          size: options.config.size,
+          size:
+            generationParams.image_size ||
+            generationParams.resolution ||
+            options.config.size,
+          ...(generationParams.quality
+            ? { quality: generationParams.quality }
+            : {}),
+          ...(generationParams.watermark !== undefined &&
+          generationParams.watermark !== ""
+            ? {
+                watermark_enabled:
+                  generationParams.watermark === true ||
+                  generationParams.watermark === "true",
+              }
+            : {}),
         } as ImageGenerationPayload;
+      case "video":
+        return {
+          model: modelConfig.model,
+          prompt,
+          duration: Number(options.config.seconds || 4),
+          resolution: options.config.size,
+        } as VideoGenerationPayload;
       default:
-        return applyModelSamplingRules(modelConfig.model, {
+        const payload = applyModelSamplingRules(modelConfig.model, {
           messages,
           stream: options.config.stream,
           model: modelConfig.model,
@@ -105,10 +138,54 @@ export class ChatGLMApi implements LLMApi {
           presence_penalty: modelConfig.presence_penalty,
           frequency_penalty: modelConfig.frequency_penalty,
           top_p: modelConfig.top_p,
-          ...(options.config.outputTokenLimit
-            ? { max_tokens: modelConfig.max_tokens }
-            : {}),
+          max_tokens: modelConfig.max_tokens,
         }) as ChatPayload;
+        const parameterSupport = getModelParameterSupport(modelConfig.model);
+        const stopSequences = parseStopSequences(
+          modelConfig.stopSequences,
+          parameterSupport.stop_sequence_limit,
+        );
+        if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+          payload.stop = stopSequences;
+        }
+        if (parameterSupport.tool_choice && options.config.stream) {
+          payload.tool_choice = "auto";
+        }
+        const requestedEffort = String(modelConfig.reasoningEffort || "")
+          .trim()
+          .toLowerCase();
+
+        if (parameterSupport.reasoning) {
+          const thinkingDisabled = ["none", "minimal"].includes(
+            requestedEffort,
+          );
+          payload.thinking = {
+            type: thinkingDisabled ? "disabled" : "enabled",
+            clear_thinking: true,
+          };
+          if (
+            isGlm52Model(modelConfig.model) &&
+            !thinkingDisabled &&
+            requestedEffort
+          ) {
+            payload.reasoning_effort = ["max", "xhigh"].includes(
+              requestedEffort,
+            )
+              ? "max"
+              : ["low", "medium"].includes(requestedEffort)
+                ? "high"
+                : requestedEffort;
+          }
+        }
+
+        if (
+          parameterSupport.structured_output_mode === "json_object" &&
+          modelConfig.structuredOutput
+        ) {
+          payload.response_format = { type: "json_object" };
+        }
+
+        return payload;
     }
   }
 

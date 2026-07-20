@@ -36,7 +36,7 @@ fi
 
 if [ ! -f "$NODE_MODULES_DIR/.yarn-integrity" ] || [ "$CURRENT_DEPS_HASH" != "$STORED_DEPS_HASH" ]; then
   echo "[dev-container] 检测到依赖缺失或 package 清单变化，执行 yarn install"
-  yarn install --frozen-lockfile --network-timeout 600000
+  yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
   printf '%s' "$CURRENT_DEPS_HASH" > "$DEPS_HASH_FILE"
 else
   echo "[dev-container] 依赖已就绪，跳过 yarn install"

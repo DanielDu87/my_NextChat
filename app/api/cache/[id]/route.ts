@@ -7,6 +7,10 @@ import {
 } from "@/app/utils/server/postgres";
 import { resolveStoreSyncUserId } from "@/app/utils/server/sync-user";
 import {
+  getSafeAttachmentContentType,
+  isSafeInlineAttachment,
+} from "@/app/utils/attachment-file";
+import {
   getCacheFileById,
   getCacheFile,
   getCacheFileChunk,
@@ -15,7 +19,6 @@ import {
   getCacheFileMetaById,
   removeOwnedCacheFile,
   removeCacheFile,
-  purgeExpiredCacheFiles,
 } from "@/app/utils/server/cache-file-repository";
 
 export const runtime = "nodejs";
@@ -31,36 +34,10 @@ function extractUuid(id: string) {
 
 function getInlineContentType(
   fileName: string,
-  fileExt: string,
-  contentType: string,
+  _fileExt: string,
+  _contentType: string,
 ) {
-  const normalizedType = String(contentType || "").toLowerCase();
-  if (normalizedType && normalizedType !== "application/octet-stream") {
-    return normalizedType;
-  }
-
-  const normalizedName = `${fileName || ""}${fileExt || ""}`.toLowerCase();
-  if (normalizedName.endsWith(".pdf")) return "application/pdf";
-  if (/\.(png)$/i.test(normalizedName)) return "image/png";
-  if (/\.(jpe?g)$/i.test(normalizedName)) return "image/jpeg";
-  if (/\.(webp)$/i.test(normalizedName)) return "image/webp";
-  if (/\.(gif)$/i.test(normalizedName)) return "image/gif";
-  if (/\.(svg)$/i.test(normalizedName)) return "image/svg+xml";
-  if (/\.(txt|md|log)$/i.test(normalizedName))
-    return "text/plain; charset=utf-8";
-  if (/\.(json)$/i.test(normalizedName))
-    return "application/json; charset=utf-8";
-  if (/\.(csv)$/i.test(normalizedName)) return "text/csv; charset=utf-8";
-  if (/\.(tsv)$/i.test(normalizedName)) {
-    return "text/tab-separated-values; charset=utf-8";
-  }
-  if (/\.(docx)$/i.test(normalizedName)) {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  }
-  if (/\.(xlsx)$/i.test(normalizedName)) {
-    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  }
-  return "application/octet-stream";
+  return getSafeAttachmentContentType(fileName);
 }
 
 function parseRangeHeader(rangeHeader: string | null, sizeBytes: number) {
@@ -127,9 +104,10 @@ function buildInlineHeaders(
       file.contentType,
     ),
     "Cache-Control": buildCacheControl(),
-    "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(
-      file.fileName || "file",
-    )}`,
+    "Content-Disposition": `${
+      isSafeInlineAttachment(file.fileName) ? "inline" : "attachment"
+    }; filename*=UTF-8''${encodeURIComponent(file.fileName || "file")}`,
+    "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
     "Content-Length": String(file.sizeBytes),
   };
@@ -179,9 +157,6 @@ export async function HEAD(
     const uuid = extractUuid(rawId);
     const externalUserId = await resolveStoreSyncUserId(StoreKey.Chat, req);
 
-    await withRetryablePostgresOperation(() =>
-      purgeExpiredCacheFiles(externalUserId),
-    );
     const file = await resolveCacheFileMetaForRequest(externalUserId, uuid);
     if (!file) {
       return new NextResponse(null, { status: 404 });
@@ -218,9 +193,6 @@ export async function GET(
     const uuid = extractUuid(rawId);
     const externalUserId = await resolveStoreSyncUserId(StoreKey.Chat, req);
 
-    await withRetryablePostgresOperation(() =>
-      purgeExpiredCacheFiles(externalUserId),
-    );
     const fileMeta = await resolveCacheFileMetaForRequest(externalUserId, uuid);
     if (!fileMeta) {
       return NextResponse.json({ code: 1, msg: "not_found" }, { status: 404 });
@@ -324,9 +296,6 @@ export async function DELETE(
       .map((item) => item.trim())
       .filter(Boolean)
       .slice(0, 200);
-    await withRetryablePostgresOperation(() =>
-      purgeExpiredCacheFiles(externalUserId),
-    );
     await withRetryablePostgresOperation(() =>
       force
         ? removeOwnedCacheFile(externalUserId, uuid, {

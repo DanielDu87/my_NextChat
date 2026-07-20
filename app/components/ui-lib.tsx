@@ -659,6 +659,122 @@ export function Select(
   );
 }
 
+export type ButtonSelectOption = {
+  value: string;
+  label: React.ReactNode;
+  disabled?: boolean;
+};
+
+export function ButtonSelect(props: {
+  ariaLabel: string;
+  value: string;
+  options: ButtonSelectOption[];
+  disabled?: boolean;
+  className?: string;
+  onChange: (value: string) => void;
+}) {
+  const selectId = React.useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const selectedOption =
+    props.options.find((option) => option.value === props.value) ||
+    props.options[0];
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (props.disabled) setOpen(false);
+  }, [props.disabled]);
+
+  const commitValue = (value: string, disabled?: boolean) => {
+    if (props.disabled || disabled) return;
+    props.onChange(value);
+    setOpen(false);
+  };
+
+  return (
+    <div
+      className={clsx(
+        "nextchat-select",
+        {
+          "nextchat-select-open": open,
+          "nextchat-select-disabled": props.disabled,
+        },
+        props.className,
+      )}
+      ref={rootRef}
+    >
+      <button
+        aria-controls={open ? selectId : undefined}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={props.ariaLabel}
+        aria-disabled={props.disabled}
+        className="nextchat-select-trigger nextchat-control-surface"
+        disabled={props.disabled}
+        onClick={() => {
+          if (!props.disabled) setOpen((value) => !value);
+        }}
+        onKeyDown={(event) => {
+          if (props.disabled) return;
+          if (event.key === "Escape") setOpen(false);
+          if (
+            event.key === "ArrowDown" ||
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        type="button"
+      >
+        <span className="nextchat-select-text">
+          {selectedOption?.label ?? props.value}
+        </span>
+        <DownIcon className="nextchat-select-icon" />
+      </button>
+      {open && !props.disabled && (
+        <div className="nextchat-select-menu" id={selectId} role="listbox">
+          {props.options.map((option) => {
+            const selected = option.value === props.value;
+            return (
+              <button
+                aria-disabled={option.disabled}
+                aria-selected={selected}
+                className={clsx("nextchat-select-option", {
+                  "nextchat-select-option-active": selected,
+                })}
+                disabled={option.disabled}
+                key={option.value}
+                onClick={() => commitValue(option.value, option.disabled)}
+                role="option"
+                type="button"
+              >
+                <span className="nextchat-select-check" />
+                <span className="nextchat-select-option-text">
+                  {option.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type ShowConfirmOptions = {
   title?: string;
   cancelText?: string;
@@ -895,8 +1011,7 @@ export function Selector<T>(props: {
   onGroupFilterDisabledClick?: () => void;
   onGroupChange?: (group: string) => void;
   footer?:
-    | React.ReactNode
-    | ((ctx: { selectedGroup: string }) => React.ReactNode);
+    React.ReactNode | ((ctx: { selectedGroup: string }) => React.ReactNode);
   centerContent?: boolean;
   resetKey?: number | string;
   onDisabledItemClick?: () => void;
@@ -927,8 +1042,8 @@ export function Selector<T>(props: {
     Array.isArray(props.defaultSelectedValue)
       ? props.defaultSelectedValue
       : props.defaultSelectedValue !== undefined
-      ? [props.defaultSelectedValue]
-      : [],
+        ? [props.defaultSelectedValue]
+        : [],
   );
   const [searchInput, setSearchInput] = useState("");
   const [searchText, setSearchText] = useState("");
@@ -966,8 +1081,8 @@ export function Selector<T>(props: {
       Array.isArray(props.defaultSelectedValue)
         ? props.defaultSelectedValue
         : props.defaultSelectedValue !== undefined
-        ? [props.defaultSelectedValue]
-        : [],
+          ? [props.defaultSelectedValue]
+          : [],
     );
     const defaultGroup = props.defaultGroup ?? "All";
     setSelectedGroup(

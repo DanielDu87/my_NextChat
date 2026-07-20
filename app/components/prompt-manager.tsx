@@ -108,6 +108,10 @@ export function PromptManagerPage() {
   const [isLoadingPrompts, setIsLoadingPrompts] = useState(
     !hasCachedPromptsRef.current,
   );
+  const [loadedPromptCount, setLoadedPromptCount] = useState<number | null>(
+    null,
+  );
+  const hasLoggedPageEntryRef = useRef(false);
   const promptSyncingRef = useRef(false);
   const promptSyncTaskCountRef = useRef(0);
   const promptTitleInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +122,23 @@ export function PromptManagerPage() {
       setGlobalSystemPromptDraft(effectiveGlobalSystemPrompt);
     }
   }, [effectiveGlobalSystemPrompt]);
+
+  useEffect(() => {
+    if (loadedPromptCount === null || hasLoggedPageEntryRef.current) return;
+
+    // Config 可能在提示词列表之后完成水合；等待值稳定后再打印与页面一致的最终快照。
+    const logTimer = window.setTimeout(() => {
+      console.log(
+        `[PromptManager] ✅ 已读取提示词数量: ${loadedPromptCount} 个`,
+      );
+      console.log(
+        `[PromptManager] 🌐 当前全局提示词（${effectiveGlobalSystemPrompt.length} 字）:\n${effectiveGlobalSystemPrompt}`,
+      );
+      hasLoggedPageEntryRef.current = true;
+    }, 300);
+
+    return () => window.clearTimeout(logTimer);
+  }, [effectiveGlobalSystemPrompt, loadedPromptCount]);
 
   useEffect(() => {
     // 进入 /prompt-manager 时先清空控制台，避免上一页（如 /chat）的同步汇总混进本页日志。
@@ -177,7 +198,7 @@ export function PromptManagerPage() {
             return;
           }
           const totalCount = usePromptStore.getState().getUserPrompts().length;
-          console.log(`[PromptManager] ✅ 已同步提示词: ${totalCount} 个`);
+          setLoadedPromptCount(totalCount);
         }
       }
     };
@@ -297,6 +318,11 @@ export function PromptManagerPage() {
         });
       });
       globalSystemPromptDirtyRef.current = false;
+      const savedEffectiveGlobalSystemPrompt =
+        globalSystemPromptDraft || DEFAULT_GLOBAL_SYSTEM_PROMPT;
+      console.log(
+        `[PromptManager] ✅ 全局提示词保存并同步成功（${savedEffectiveGlobalSystemPrompt.length} 字）:\n${savedEffectiveGlobalSystemPrompt}`,
+      );
       showTopNotice("全局系统提示词已保存");
       showToast("全局系统提示词已保存");
     } catch (error) {

@@ -483,7 +483,7 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMENT ON TABLE app_users IS '用户主表';
 COMMENT ON TABLE auth_sessions IS '登录会话（token 哈希存储）';
-COMMENT ON TABLE app_settings IS '用户全局设置（JSONB key-value store）';
+COMMENT ON TABLE app_settings IS '应用设置（JSONB key-value store）；默认同步用户的 app-config 为全用户共享对话设置';
 COMMENT ON TABLE site_access_settings IS '站点访问密码';
 COMMENT ON TABLE deployment_metadata IS '部署成功后记录的实际线上 Git 版本';
 COMMENT ON TABLE user_draw_stores IS '绘画任务历史（payload_json 存 draw-list 快照）';

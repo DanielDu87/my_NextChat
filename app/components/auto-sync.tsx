@@ -502,25 +502,23 @@ export default function AutoSync() {
 
       const syncStore = useSyncStore.getState() as any;
       void Promise.resolve()
-        .then(
-          () =>
-            syncStore.resumePendingDebounceSync?.({
-              excludeKeys: [StoreKey.Config],
-              silentSummary: !shouldShowStartupSummary(activeRoutePath),
-            }),
+        .then(() =>
+          syncStore.resumePendingDebounceSync?.({
+            excludeKeys: [StoreKey.Config],
+            silentSummary: !shouldShowStartupSummary(activeRoutePath),
+          }),
         )
         .then(() => {
           if (shouldCancelAutoSync(expectedPath)) {
             return undefined;
           }
         })
-        .then(
-          () =>
-            syncStore.syncChatIfRemoteChanged?.({
-              source,
-              minIntervalMs: 0,
-              silentSummary: !shouldShowStartupSummary(activeRoutePath),
-            }),
+        .then(() =>
+          syncStore.syncChatIfRemoteChanged?.({
+            source,
+            minIntervalMs: 0,
+            silentSummary: !shouldShowStartupSummary(activeRoutePath),
+          }),
         )
         .catch((error: unknown) => {
           autoSyncConsole(
@@ -905,7 +903,7 @@ export default function AutoSync() {
                   const resumed = await syncStore.resumePendingDebounceSync?.({
                     ...(deferredScope === "draw"
                       ? { includeKeys: allowedPendingKeys }
-                      : { excludeKeys: [StoreKey.Config] }),
+                      : { includeKeys: allowedPendingKeys }),
                     silentSummary: !shouldShowStartupSummary(activeRoutePath),
                   });
                   if (resumed) {
@@ -1198,13 +1196,12 @@ export default function AutoSync() {
             silentSummary: !shouldShowStartupSummary(activeRoutePath),
           });
         })
-        .then(
-          () =>
-            (syncStore as any).syncChatIfRemoteChanged?.({
-              source: "foreground",
-              minIntervalMs: 0,
-              silentSummary: !shouldShowStartupSummary(activeRoutePath),
-            }),
+        .then(() =>
+          (syncStore as any).syncChatIfRemoteChanged?.({
+            source: "foreground",
+            minIntervalMs: 0,
+            silentSummary: !shouldShowStartupSummary(activeRoutePath),
+          }),
         )
         .catch((error: unknown) => {
           autoSyncConsole(

@@ -22,7 +22,13 @@ import {
 } from "@/app/utils";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
-import { applyModelSamplingRules } from "../model-parameter-rules";
+import {
+  applyModelSamplingRules,
+  getModelParameterSupport,
+  isDeepSeekV4Model,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
+} from "../model-parameter-rules";
 import { joinUrlPath } from "@/app/utils/url";
 import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
 
@@ -121,13 +127,49 @@ export class DeepSeekApi implements LLMApi {
         presence_penalty: modelConfig.presence_penalty,
         frequency_penalty: modelConfig.frequency_penalty,
         top_p: modelConfig.top_p,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
-        // max_tokens: Math.max(modelConfig.max_tokens, 1024),
-        // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
+        max_tokens: modelConfig.max_tokens,
       },
     );
+
+    const parameterSupport = getModelParameterSupport(modelConfig.model);
+    const stopSequences = parseStopSequences(
+      modelConfig.stopSequences,
+      parameterSupport.stop_sequence_limit,
+    );
+    if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+      requestPayload.stop = stopSequences;
+    }
+    if (parameterSupport.tool_choice && options.config.stream) {
+      requestPayload.tool_choice = normalizeToolChoiceForModel(
+        modelConfig.model,
+        modelConfig.toolChoice,
+      );
+    }
+    if (parameterSupport.reasoning && isDeepSeekV4Model(modelConfig.model)) {
+      const requestedEffort = String(modelConfig.reasoningEffort || "")
+        .trim()
+        .toLowerCase();
+      const thinkingDisabled = ["none", "minimal"].includes(requestedEffort);
+      requestPayload["thinking"] = {
+        type: thinkingDisabled ? "disabled" : "enabled",
+      };
+      if (!thinkingDisabled && requestedEffort) {
+        requestPayload["reasoning_effort"] = ["max", "xhigh"].includes(
+          requestedEffort,
+        )
+          ? "max"
+          : "high";
+      }
+    }
+
+    if (
+      parameterSupport.structured_output_mode === "json_object" &&
+      modelConfig.structuredOutput
+    ) {
+      (requestPayload as any)["response_format"] = {
+        type: "json_object",
+      };
+    }
 
     console.log("[Request] openai payload: ", requestPayload);
 

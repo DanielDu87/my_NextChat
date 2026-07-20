@@ -4,7 +4,6 @@ import {
   createChatBackupBatch,
   saveChatBackupBatchMember,
 } from "./chat-backup-repository";
-import { cleanupLegacyMainDbBackupTables } from "./postgres";
 import { randomUUID } from "crypto";
 
 const SCHEDULER_TICK_MS = 60_000;
@@ -26,12 +25,7 @@ async function runChatBackupScheduler() {
     const userResults: Array<{
       name: string;
       status:
-        | "created"
-        | "interval"
-        | "no_changes"
-        | "disabled"
-        | "other"
-        | "failed";
+        "created" | "interval" | "no_changes" | "disabled" | "other" | "failed";
       sessions?: number;
       messages?: number;
       error?: string;
@@ -121,8 +115,6 @@ async function runChatBackupScheduler() {
         }
       });
     }
-    // 备份完成后顺带清理主业务库遗留的旧备份表（进程内只执行一次）
-    await cleanupLegacyMainDbBackupTables();
   } catch (error) {
     console.error(
       "[Chat Backup Scheduler] 后台扫描失败",

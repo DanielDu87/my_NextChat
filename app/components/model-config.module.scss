@@ -1,34 +1,175 @@
 .select-compress-model {
-  width: min(260px, 45%);
+  width: min(var(--session-config-control-width, 260px), 45%);
   max-width: 45%;
   white-space: normal;
-  background: var(--chat-input-disabled-bg) !important;
-  background-color: var(--chat-input-disabled-bg) !important;
-  border: var(--border-in-light) !important;
-  color: var(--chat-input-disabled-placeholder) !important;
+  background: var(--model-config-disabled-bg, #d9dee5) !important;
+  background-color: var(--model-config-disabled-bg, #d9dee5) !important;
+  border-color: var(--model-config-disabled-border, #aeb6c0) !important;
+  color: var(--model-config-disabled-text, #6f7782) !important;
   box-shadow: none !important;
   cursor: not-allowed;
 }
 
+// Keep unsupported controls visibly disabled without turning into bright light
+// blocks when the parameter modal is opened in the dark theme.
+:global(html.dark) .model-parameter-list,
+:global(body.dark) .model-parameter-list,
+:global(html.dark) .select-compress-model,
+:global(body.dark) .select-compress-model,
+:global(html.dark) .readonly-model-select,
+:global(body.dark) .readonly-model-select {
+  // The local selector above keeps this dark-theme override CSS-Modules-safe.
+  --model-config-disabled-bg: #353535;
+  --model-config-disabled-border: rgba(255, 255, 255, 0.2);
+  --model-config-disabled-text: rgba(250, 250, 250, 0.68);
+  --model-config-disabled-track: rgba(255, 255, 255, 0.28);
+  --model-config-disabled-thumb: rgba(250, 250, 250, 0.62);
+}
+
 .model-config-range {
   box-sizing: border-box;
-  flex: 0 1 260px !important;
-  width: min(260px, 45%) !important;
+  border-width: 2px;
+  flex: 0 1 var(--session-config-control-width, 260px) !important;
+  width: min(var(--session-config-control-width, 260px), 45%) !important;
   max-width: 45% !important;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+
+  &:has(input[type="range"]:not(:disabled)):hover {
+    border-color: var(--input-control-hover-border-color);
+    box-shadow: var(--input-control-hover-shadow);
+  }
+
+  &:has(input[type="range"]:disabled) {
+    border-color: var(--model-config-disabled-border, #aeb6c0);
+    background: var(--model-config-disabled-bg, #d9dee5);
+    box-shadow: none;
+
+    > span {
+      color: var(--model-config-disabled-text, #6f7782);
+    }
+
+    input[type="range"] {
+      background: var(--model-config-disabled-track, #bcc3cc);
+      opacity: 1;
+
+      &::-webkit-slider-thumb {
+        border-color: var(--model-config-disabled-bg, #d9dee5);
+        background: var(--model-config-disabled-thumb, #8f99a5);
+        box-shadow: none;
+      }
+
+      &::-moz-range-track {
+        background: var(--model-config-disabled-track, #bcc3cc);
+      }
+
+      &::-moz-range-thumb {
+        border-color: var(--model-config-disabled-bg, #d9dee5);
+        background: var(--model-config-disabled-thumb, #8f99a5);
+        box-shadow: none;
+      }
+    }
+  }
+}
+
+textarea.model-config-control {
+  border-radius: 10px;
+}
+
+textarea.model-config-control:disabled {
+  cursor: not-allowed !important;
+}
+
+:global(.session-config-modal) .model-config-control:not([type="checkbox"]) {
+  box-sizing: border-box;
+  flex: 0 1 var(--session-config-control-width, 260px) !important;
+  width: min(var(--session-config-control-width, 260px), 45%) !important;
+  max-width: 45% !important;
+}
+
+.model-config-control:disabled {
+  border-color: var(--model-config-disabled-border, #aeb6c0) !important;
+  background: var(--model-config-disabled-bg, #d9dee5) !important;
+  color: var(--model-config-disabled-text, #6f7782) !important;
+  -webkit-text-fill-color: var(
+    --model-config-disabled-text,
+    #6f7782
+  ) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+.model-config-control[type="checkbox"]:disabled {
+  border-color: var(--model-config-disabled-border, #aeb6c0) !important;
+  background: var(--model-config-disabled-bg, #d9dee5) !important;
+
+  &::after {
+    border-color: var(--model-config-disabled-text, #6f7782) !important;
+  }
+}
+
+.model-parameter-list {
+  display: flex;
+  flex-direction: column;
+
+  > :has(:disabled) {
+    order: 1;
+  }
+}
+
+.generation-parameter-heading {
+  padding: 14px 20px 10px;
+  border-bottom: var(--border-in-light);
+  color: var(--primary);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.parameter-button-select {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 180px;
+  max-width: 180px;
+}
+
+.parameter-button-select:global(.nextchat-select-disabled) {
+  :global(.nextchat-select-trigger) {
+    border-color: var(--model-config-disabled-border, #aeb6c0) !important;
+    background: var(--model-config-disabled-bg, #d9dee5) !important;
+    color: var(--model-config-disabled-text, #6f7782) !important;
+    box-shadow: none !important;
+    opacity: 1;
+  }
+
+  :global(.nextchat-select-icon) {
+    color: var(--model-config-disabled-text, #6f7782) !important;
+    opacity: 1;
+  }
+}
+
+:global(.session-config-modal) .parameter-button-select {
+  flex: 0 1 var(--session-config-control-width, 260px);
+  width: min(var(--session-config-control-width, 260px), 45%);
+  max-width: 45%;
 }
 
 .select-compress-model:disabled {
   opacity: 1;
-  background: var(--chat-input-disabled-bg) !important;
-  background-color: var(--chat-input-disabled-bg) !important;
-  border: var(--border-in-light) !important;
-  -webkit-text-fill-color: var(--chat-input-disabled-placeholder) !important;
+  background: var(--model-config-disabled-bg, #d9dee5) !important;
+  background-color: var(--model-config-disabled-bg, #d9dee5) !important;
+  border-color: var(--model-config-disabled-border, #aeb6c0) !important;
+  -webkit-text-fill-color: var(
+    --model-config-disabled-text,
+    #6f7782
+  ) !important;
 }
 
 :global(.session-config-modal) .readonly-model-select {
   box-sizing: border-box;
-  flex: 0 1 260px !important;
-  width: min(260px, 45%) !important;
+  flex: 0 1 var(--session-config-control-width, 260px) !important;
+  width: min(var(--session-config-control-width, 260px), 45%) !important;
   min-width: 0 !important;
   max-width: 45% !important;
   transform: none !important;
@@ -47,18 +188,23 @@
     width: 100% !important;
     min-height: 36px;
     max-width: 100% !important;
-    border: var(--border-in-light) !important;
+    border-style: solid !important;
+    border-width: 2px !important;
+    border-color: var(--model-config-disabled-border, #aeb6c0) !important;
     border-radius: 10px;
     padding: 0 10px;
-    background: var(--chat-input-disabled-bg) !important;
-    color: var(--chat-input-disabled-placeholder) !important;
+    background: var(--model-config-disabled-bg, #d9dee5) !important;
+    color: var(--model-config-disabled-text, #6f7782) !important;
     font-weight: 400;
     box-shadow: none !important;
     cursor: not-allowed;
     outline: none;
     transform: none !important;
     transition: none !important;
-    -webkit-text-fill-color: var(--chat-input-disabled-placeholder) !important;
+    -webkit-text-fill-color: var(
+      --model-config-disabled-text,
+      #6f7782
+    ) !important;
   }
 
   svg {

@@ -6,27 +6,14 @@ import { Modal, showToast } from "@/app/components/ui-lib";
 import { AddModelSelector } from "@/app/components/add-model-modal";
 import Locale from "@/app/locales";
 import { useDrawStore } from "@/app/store/draw";
-import { useAccessStore } from "@/app/store";
+import { useAccessStore, useAppConfig } from "@/app/store";
 import { useMobileScreen } from "@/app/utils";
 import EditIcon from "@/app/icons/edit.svg";
 import DownIcon from "@/app/icons/down.svg";
 import clsx from "clsx";
 import { ServiceProvider } from "@/app/constant";
 import {
-  DRAW_ASPECT_RATIO_OPTIONS,
-  DRAW_DALLE_STYLE_OPTIONS,
-  DRAW_DOUBAO_OPTIMIZE_PROMPT_MODE_OPTIONS,
-  DRAW_RESPONSE_FORMAT_OPTIONS,
-  DRAW_GEMINI_THINKING_LEVEL_OPTIONS,
-  DRAW_GPT_IMAGE_QUALITY_OPTIONS,
-  DRAW_IDEOGRAM_MAGIC_PROMPT_OPTIONS,
-  DRAW_IDEOGRAM_V3_STYLE_TYPE_OPTIONS,
-  DRAW_OUTPUT_FORMAT_OPTIONS,
-  DRAW_RENDERING_SPEED_OPTIONS,
-  DRAW_RESOLUTION_OPTIONS,
-  DRAW_OPENAI_BACKGROUND_OPTIONS,
-  DRAW_PERSON_GENERATION_OPTIONS,
-  DRAW_STABILITY_STYLE_PRESET_OPTIONS,
+  DRAW_GENERATION_PARAM_DEFINITIONS,
   getDrawParamDefault,
   getDrawParamOptions,
   getDrawParamRange,
@@ -128,279 +115,7 @@ export const params = [
     default: DEFAULT_DRAW_MODELS[0],
     options: modelOptions,
   },
-  {
-    name: Locale.DrawPanel.NegativePrompt,
-    value: "negative_prompt",
-    type: "textarea",
-    placeholder: Locale.DrawPanel.PleaseInput(Locale.DrawPanel.NegativePrompt),
-    rows: 3,
-    sub: "写入不希望出现在画面中的元素。",
-  },
-  {
-    name: Locale.DrawPanel.AspectRatio,
-    value: "aspect_ratio",
-    type: "select",
-    default: "1:1",
-    help: "控制生成图片的画面比例（Flux/Ideogram 等模型使用）。",
-    options: DRAW_ASPECT_RATIO_OPTIONS,
-  },
-  {
-    name: "图像尺寸",
-    value: "image_size",
-    type: "select",
-    default: "1024x1024",
-    help: "选择生成图片的宽高尺寸。",
-    options: [
-      { name: "1024 x 1024", value: "1024x1024" },
-      { name: "1024 x 1536", value: "1024x1536" },
-      { name: "1536 x 1024", value: "1536x1024" },
-      { name: "768 x 1344", value: "768x1344" },
-      { name: "1344 x 768", value: "1344x768" },
-      { name: "512 x 512", value: "512x512" },
-    ],
-  },
-  {
-    name: "图像质量",
-    value: "quality",
-    type: "select",
-    default: "auto",
-    help: "控制生成质量，质量越高通常耗时或成本越高。",
-    options: [
-      ...DRAW_GPT_IMAGE_QUALITY_OPTIONS,
-      { name: "标准", value: "standard" },
-      { name: "高清", value: "hd" },
-    ],
-  },
-  {
-    name: "图片风格",
-    value: "style",
-    type: "select",
-    default: "vivid",
-    help: "DALL-E 3 支持的风格参数。",
-    options: DRAW_DALLE_STYLE_OPTIONS,
-  },
-  {
-    name: "分辨率",
-    value: "resolution",
-    type: "select",
-    default: "2K",
-    help: "选择模型生成时使用的分辨率档位。",
-    options: DRAW_RESOLUTION_OPTIONS,
-  },
-  {
-    name: "背景",
-    value: "background",
-    type: "select",
-    default: "auto",
-    help: "GPT-Image 支持的背景参数。",
-    options: DRAW_OPENAI_BACKGROUND_OPTIONS,
-  },
-  {
-    name: "输出压缩",
-    value: "output_compression",
-    type: "number",
-    default: 100,
-    min: 0,
-    max: 100,
-    help: "GPT-Image 在 JPEG/WebP 输出时支持的压缩质量。",
-  },
-  {
-    name: "人物生成",
-    value: "person_generation",
-    type: "select",
-    default: "allow_adult",
-    help: "Imagen 支持的人物生成策略。",
-    options: DRAW_PERSON_GENERATION_OPTIONS,
-  },
-  {
-    name: "Seed",
-    value: "seed",
-    type: "number",
-    default: 0,
-    min: 0,
-    max: 4294967294,
-    help: "相同 Seed 更容易复现接近的构图；0 表示自动。",
-  },
-  {
-    name: "思考模式",
-    value: "thinking_mode",
-    type: "select",
-    default: "true",
-    help: "Wan2.7 系列支持思考模式，提升生成质量但增加耗时。",
-    options: [
-      { name: "开启", value: "true" },
-      { name: "关闭", value: "false" },
-    ],
-  },
-  {
-    name: "思考级别",
-    value: "thinking_level",
-    type: "select",
-    default: "minimal",
-    help: "Gemini 3.1 Flash Image（Nano Banana 2）支持，high 用于复杂构图但更慢。",
-    options: DRAW_GEMINI_THINKING_LEVEL_OPTIONS,
-  },
-  {
-    name: "提示词智能改写",
-    value: "prompt_extend",
-    type: "select",
-    default: "true",
-    help: "Qwen-Image、Wan2.6 支持提示词智能改写。",
-    options: [
-      { name: "开启", value: "true" },
-      { name: "关闭", value: "false" },
-    ],
-  },
-  {
-    name: "提示词增强",
-    value: "magic_prompt",
-    type: "select",
-    default: "AUTO",
-    help: "Ideogram V3 提示词增强，AUTO 由模型自动判断。",
-    options: DRAW_IDEOGRAM_MAGIC_PROMPT_OPTIONS,
-  },
-  {
-    name: "水印",
-    value: "watermark",
-    type: "select",
-    default: "false",
-    help: "是否在生成的图片中添加水印。",
-    options: [
-      { name: "关闭", value: "false" },
-      { name: "开启", value: "true" },
-    ],
-  },
-  {
-    name: "安全审核容忍度",
-    value: "safety_tolerance",
-    type: "number",
-    default: 2,
-    min: 0,
-    max: 6,
-    help: "Flux 模型安全审核宽松度，0 最严格，6 最宽松。",
-  },
-  {
-    name: "提示词增强",
-    value: "prompt_upsampling",
-    type: "select",
-    default: "false",
-    help: "Flux-1.1-pro 是否对提示词进行增强优化。",
-    options: [
-      { name: "关闭", value: "false" },
-      { name: "开启", value: "true" },
-    ],
-  },
-  {
-    name: "中文翻译",
-    value: "enable_translation",
-    type: "select",
-    default: "true",
-    help: "FluxAPI Kontext 是否启用中文提示词自动翻译。",
-    options: [
-      { name: "开启", value: "true" },
-      { name: "关闭", value: "false" },
-    ],
-  },
-  {
-    name: "生成数量",
-    value: "n",
-    type: "number",
-    default: 1,
-    min: 1,
-    max: 10,
-    help: "一次生成图片数量（部分模型支持）。",
-  },
-  {
-    name: "渲染速度/质量",
-    value: "rendering_speed",
-    type: "select",
-    default: "DEFAULT",
-    help: "Ideogram V3 渲染质量偏好。",
-    options: DRAW_RENDERING_SPEED_OPTIONS,
-  },
-  {
-    name: "保真度",
-    value: "input_fidelity",
-    type: "select",
-    default: "low",
-    help: "GPT-Image 保真度，图生图模式下不支持。",
-    options: [
-      { name: "低", value: "low" },
-      { name: "高", value: "high" },
-    ],
-  },
-  {
-    name: "内容审核",
-    value: "moderation",
-    type: "select",
-    default: "auto",
-    help: "GPT-Image 内容审核严格程度。",
-    options: [
-      { name: "标准", value: "auto" },
-      { name: "宽松", value: "low" },
-    ],
-  },
-  {
-    name: Locale.DrawPanel.OutFormat,
-    value: "output_format",
-    type: "select",
-    default: "png",
-    help: "选择生成图片的保存格式。",
-    options: DRAW_OUTPUT_FORMAT_OPTIONS,
-  },
-  {
-    name: "返回格式",
-    value: "response_format",
-    type: "select",
-    default: "url",
-    help: "豆包 Seedream 支持 URL 或 Base64 JSON 返回。",
-    options: DRAW_RESPONSE_FORMAT_OPTIONS,
-  },
-  {
-    name: "指导系数",
-    value: "guidance_scale",
-    type: "number",
-    default: 2.5,
-    min: 1,
-    max: 10,
-    float: true,
-    help: "豆包 Seedream 3.0 t2i 支持，范围 1-10。",
-  },
-  {
-    name: "提示词优化模式",
-    value: "optimize_prompt_mode",
-    type: "select",
-    default: "standard",
-    help: "豆包 Seedream 4.0/4.5/5.0 lite 支持的提示词优化模式。",
-    options: DRAW_DOUBAO_OPTIMIZE_PROMPT_MODE_OPTIONS,
-  },
-  {
-    name: "联网搜索",
-    value: "web_search",
-    type: "select",
-    default: "false",
-    help: "豆包 Seedream 5.0 lite 支持的 web_search 工具。",
-    options: [
-      { name: "关闭", value: "false" },
-      { name: "开启", value: "true" },
-    ],
-  },
-  {
-    name: "风格预设",
-    value: "style_preset",
-    type: "select",
-    default: "",
-    help: "Stability 图片生成支持的风格预设。",
-    options: DRAW_STABILITY_STYLE_PRESET_OPTIONS,
-  },
-  {
-    name: "风格类型",
-    value: "style_type",
-    type: "select",
-    default: "AUTO",
-    help: "Ideogram V3 官方风格类型。",
-    options: DRAW_IDEOGRAM_V3_STYLE_TYPE_OPTIONS,
-  },
+  ...DRAW_GENERATION_PARAM_DEFINITIONS,
 ];
 
 const drawCommonParams = () => params;
@@ -663,14 +378,14 @@ export function ControlParam(props: {
         );
         const value = disabled
           ? ""
-          : props.data[item.value] ??
+          : (props.data[item.value] ??
             getDrawParamDefault(
               currentModel,
               item.value,
               item.default,
               props.provider,
             ) ??
-            "";
+            "");
         const numberRange =
           item.type === "number"
             ? getDrawParamRange(
@@ -1036,6 +751,9 @@ const paramGroups = [
 export function DrawPanel() {
   const drawStore = useDrawStore();
   const accessStore = useAccessStore();
+  const globalGenerationParams = useAppConfig(
+    (state) => state.modelConfig.generationParams,
+  );
   const [showModelManager, setShowModelManager] = React.useState(false);
   const currentModel = drawStore.currentModel;
   const setCurrentModel = drawStore.setCurrentModel;
@@ -1113,6 +831,27 @@ export function DrawPanel() {
       return;
     }
     setParams(nextParams);
+    const generationDefinition = DRAW_GENERATION_PARAM_DEFINITIONS.find(
+      (item) => item.value === field,
+    );
+    if (generationDefinition) {
+      useAppConfig.getState().update((config) => {
+        config.modelConfig.generationParams = {
+          ...(config.modelConfig.generationParams ?? {}),
+          [generationDefinition.value]: val,
+        };
+        if (
+          generationDefinition.value === "image_size" ||
+          generationDefinition.value === "resolution"
+        ) {
+          config.modelConfig.size = val;
+        } else if (generationDefinition.value === "quality") {
+          config.modelConfig.quality = val;
+        } else if (generationDefinition.value === "style") {
+          config.modelConfig.style = val;
+        }
+      });
+    }
   };
 
   const handleProviderChange = React.useCallback(
@@ -1244,6 +983,38 @@ export function DrawPanel() {
       });
     }
   }, [hasHydrated, setParams]);
+
+  React.useEffect(() => {
+    if (!hasHydrated || !globalGenerationParams) return;
+    const hasSavedGenerationValue = Object.values(globalGenerationParams).some(
+      (value) => value !== undefined && value !== null && value !== "",
+    );
+    if (!hasSavedGenerationValue) return;
+
+    const nextParams = sanitizeDrawParams(
+      currentModel.value,
+      {
+        ...currentParams,
+        ...globalGenerationParams,
+        model: currentModel.value,
+      },
+      selectedProviderType,
+    );
+    const isSame = DRAW_GENERATION_PARAM_DEFINITIONS.every(
+      (definition) =>
+        currentParams[definition.value] === nextParams[definition.value],
+    );
+    if (!isSame) {
+      setParams(nextParams);
+    }
+  }, [
+    currentModel.value,
+    currentParams,
+    globalGenerationParams,
+    hasHydrated,
+    selectedProviderType,
+    setParams,
+  ]);
 
   React.useEffect(() => {
     if (

@@ -10,7 +10,6 @@
   flex: 0 1 var(--session-config-control-width, auto);
   width: var(--session-config-control-width, auto);
   max-width: var(--session-config-control-max-width, 40%);
-  pointer-events: auto;
 
   .input-range-value {
     flex: 0 0 30px;
@@ -30,8 +29,6 @@
     border-radius: 999px;
     background: var(--bar-color);
     cursor: pointer;
-    pointer-events: auto;
-    touch-action: none;
 
     &:disabled {
       cursor: not-allowed;

@@ -114,9 +114,18 @@ function stripPersistedConfigModelFields(payload: unknown) {
     return payload;
   }
 
-  const { models, ...state } = unwrapped as Record<string, unknown>;
+  const { models, realtimeConfig, ...state } = unwrapped as Record<
+    string,
+    unknown
+  >;
   void models;
-  return buildPersistedStoreState(StoreKey.Config, state);
+  const { apiKey: _apiKey, ...sharedRealtimeConfig } =
+    (realtimeConfig as Record<string, unknown>) || {};
+  void _apiKey;
+  return buildPersistedStoreState(StoreKey.Config, {
+    ...state,
+    realtimeConfig: sharedRealtimeConfig,
+  });
 }
 
 function mergeAccessProfilesIntoPayload(payload: unknown, profiles: unknown[]) {

@@ -29,6 +29,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 多轮对话、上下文管理、历史摘要。
 - 支持文本、图片、多模态消息和生成媒体展示。
 - 支持消息复制、重发、编辑、语音朗读。
+- 支持将 PDF、DOCX、XLS/XLSX、CSV、TSV 附件正文提取为受限文本并随当前用户消息发送给模型；提取结果会持久化在消息附件元数据中，超出页数、工作表、行数或字符上限时明确标记截断。
 - 支持助手消息下方展示 Token 用量，窄屏和长文本会自动换行。
 - API 对话默认启用自动故障转移：当前模型失败后先识别 GPT、Claude、Gemini、DeepSeek、Qwen 等模型系列，跨供应商按版本由新到旧尝试同系列的其他普通聊天模型，同版本的后缀名称按字母顺序排列；同系列全部失败后，再尝试当前供应商的其余模型，并按供应商名称和模型名称顺序尝试其他供应商。每次尝试在助手消息中独占一行，只显示状态、供应商和模型，不展示上游错误正文；成功后立即把实际成功模型保存为跨页面、跨用户的全局模型。
 - 对话页顶部提供统一「配置管理」入口，悬停展开后可进入「API 配置」（`/api_config`）、「对话备份」（`/backup/chat`）、「API 备份」（`/backup/api_config`）和「余额查询」（`/balances`）。对话备份点击「立即备份」会为所有用户创建增量备份，可切换用户查看对应备份；历史对话默认只显示标题，点击后展开或收起消息内容，并可按快照合并恢复或删除某个对话快照，也可删除整次备份记录。
@@ -60,6 +61,8 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 - 模型商筛选菜单按最终可见名称排序；除保留“全部模型商”入口外，中文分组、模型家族别名和供应商品牌统一收敛为官方英文供应商名称。Claude、Gemini/Veo、GLM/ChatGLM、Qwen/Wan、Grok、Kimi 分别显示为 Anthropic、Google、Z.ai、Alibaba、xAI、Moonshot；官方大小写保持为 OpenAI、OpenRouter、DeepSeek、SiliconFlow、ElevenLabs、InclusionAI、FLUX、NVIDIA、MiniMax 等。没有本地图标资源的模型商与模型行统一使用项目内置的浅绿色默认图标，不得错误回退为 OpenAI 图标。
 - ElevenLabs 与 Mureka 使用各自官方品牌图标；StepFun 使用官网当前阶梯方块标识并与 Suno 一样铺满父级圆角矩形；Luma 保持官方黑色图形，并在图标资源内使用浅灰底以适配深色模式。
 - 模型获取、缓存、模型管理器、聊天模型选择器和绘图模型管理器都不按名称、类别、能力或端点过滤模型；模型管理器的浏览列表展示当前供应商完整获取结果，“已添加”、聊天选择器和绘图选择器展示用户自行添加的模型。系统不再维护 Image、Video、Web、Thinking 或普通聊天模型分类，也不再额外拉取 AihubMix 分类元数据。自动故障转移使用用户已添加的全部可用模型，只保留候选排序、供应商切换和失败重试。请求真正发出时仍会根据用户已选模型选择对应 API 和参数，这属于请求路由，不用于隐藏模型。旧 GPT/DeepSeek/豆包系列“自动模式”及其开关、配置和同步字段已移除，失败重试无需设置且始终启用。
+- 全局“参数设置”固定展示采样、输出、上下文窗口、停止序列、生成数量、工具调用策略、安全等级、提示缓存、联网、推理、结构化输出和媒体解析等完整参数；绘图 29 项、视频尺寸与时长也始终显示，当前模型不支持时保持禁用并说明原因。绘图区域与 Draw 页面共用 `draw-model-params` 字段、选项、默认值和能力矩阵，并通过全局 `generationParams` 双向同步实际保存值。编程场景共享预设为 `temperature=0.2`、`top_p=1`、`top_k=0`（自动且不发送）、`reasoningEffort=high`、`max_tokens=32768`、`n=1`、`toolChoice=auto` 且两项 penalty 为 0，只调 Temperature、保留 Top-p 默认值。有限枚举参数统一使用项目按钮式 listbox（`nextchat-select-trigger nextchat-control-surface`），不再显示原生下拉样式。每次切换模型后，各参数组都会按实际能力自动把可用项集中排在前面、不支持的禁用项排在后面，同一状态内保留原顺序。深色主题下，参数弹窗保留既有的外围视觉，禁用控件复用 Draw 的深色表面、边框与文字颜色，不会反白成浅色块。参数修改失焦即排队保存；确认时会先把脱敏配置镜像和待同步标记写入浏览器本地存储，立即关闭弹窗并在后台同步，刷新后的自动同步会继续执行未完成任务。请求层按 OpenAI、Anthropic、Gemini、DeepSeek、GLM、MiniMax、Qwen/Kimi 和 xAI 等模型系列自动过滤、改名或映射参数，切换模型不会清空共享数据库中已保存的全局值；Claude 的显式缓存开关会发送 `cache_control`，其他标记为自动缓存的供应商不伪造通用缓存参数。
+- 参数设置通过确认按钮、右上角关闭按钮或点击遮罩退出时，都先启动具备本地恢复标记的 Config 后台同步，再立即关闭弹窗；弹窗卸载不会等待或中止网络同步，刷新后仍会补跑未完成任务。
 - 支持自定义 Base URL 和 OpenAI 兼容接口。Custom 供应商走 `/api/proxy/[...path]` + `x-base-url` 服务端代理，避免浏览器 CORS。
 - 自定义供应商 baseURL 具备自动适配：上游对原始 URL 返回 HTML（即把请求当成网站路径，常见于 OpenRouter `https://openrouter.ai/api/v1`）时，服务端会自动尝试 `/api/v1`、`/api`、`/v1` 等常见前缀并把 path 中多余的 `v1/` 剥掉重试，命中后写入进程内缓存。命中失败返回 502 + `proxy_baseurl_adaptation_failed`，聊天页会展示中文友好提示和已尝试的候选地址。
 - 内置「余额查询」页面（`/balances`）：先从浏览器非敏感缓存立即显示余额，再在后台从 PostgreSQL 读取全局 API Profile、已保存余额与查询配置并校准缓存/UI，页面首开不自动请求上游余额；仅在手动单项更新或批量更新时，由服务端使用数据库中的管理 Key、查询 URL 和 New-API-User 配置发起请求。管理 Key 加密写入 `provider_balance_configs.encrypted_management_key`，查询结果、成功路径和错误信息同步落库。
@@ -176,7 +179,7 @@ app/
 
 - `app_users`：用户与同步身份。
 - `auth_sessions`：登录 session token 哈希。
-- `app_settings`：前端 store 快照和同步状态。
+- `app_settings`：前端 store 快照和同步状态；全局对话设置保存在默认同步用户 `user:admin` 的 `extra_settings['app-config']`，由所有用户共享。
 - `conversations`：聊天会话元数据。
 - `messages`：聊天消息内容。
 - `provider_configs`：供应商配置。
@@ -237,7 +240,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 环境变量：`.env.baota`
 - 域名：`chat.dyxcloud.com`
 - 上游：`http://127.0.0.1:3000`
-- Docker 构建阶段会让 `COREPACK_NPM_REGISTRY` 使用去除尾部 `/` 的 `NPM_REGISTRY`，并预装 `package.json` 声明的 Yarn 版本，确保依赖安装不会生成双斜杠 URL或再次访问海外 Yarn 源。
+- Docker 构建默认使用 DaoCloud 的 BuildKit、Node/Alpine、PostgreSQL 和官方 NextChat 镜像代理，APK 使用阿里云 Alpine 镜像，NPM/Yarn 使用 `https://registry.npmmirror.com/`；SSH PostgreSQL 隧道使用相同的国内基础镜像与 APK 源。Docker 构建阶段会让 `COREPACK_NPM_REGISTRY` 使用去除尾部 `/` 的 `NPM_REGISTRY`，并预装 `package.json` 声明的 Yarn 版本，确保依赖安装不会生成双斜杠 URL或再次访问海外 Yarn 源。
 
 详细流程见 [README_BAOTA.md](README_BAOTA.md)、[DEPLOY.md](DEPLOY.md) 和 [AGENTS.md](AGENTS.md) 的生产部署章节。
 

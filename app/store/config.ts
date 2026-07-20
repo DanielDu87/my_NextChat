@@ -1,4 +1,4 @@
-import { LLMModel } from "../client/api";
+import { LLMModel, type RequestMessage } from "../client/api";
 import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { getClientConfig } from "../config/client";
 import {
@@ -33,6 +33,7 @@ import {
   writeStoredGlobalModelConfig,
 } from "../utils/global-model-config";
 import type { Voice } from "rt-client";
+import type { DrawParamKey } from "../utils/draw-model-params";
 
 const LEGACY_UNKNOWN_MODEL_PUBLISHED_AT = 20260101;
 const LEGACY_UNKNOWN_MODEL_CUTOFF = 20260325;
@@ -254,14 +255,18 @@ export const DEFAULT_CONFIG = {
     model: LATEST_OPENAI_DEFAULT_MODEL as ModelType,
     providerName: "Custom" as ServiceProvider,
     stream: true,
-    temperature: 1,
+    // OpenAI 官方推荐默认值：temperature=1.0, top_p=1.0（不同时改两个），
+    // presence_penalty=0, frequency_penalty=0。受约束模型会在请求层移除采样字段。
+    temperature: 1.0,
     top_p: 1,
-    max_tokens: 4000,
+    // 0 means automatic: only supported providers receive an explicit top_k.
+    top_k: 0,
+    max_tokens: 16384,
     presence_penalty: 0,
     frequency_penalty: 0,
     sendMemory: true,
-    historyMessageCount: 12,
-    compressMessageLengthThreshold: 12000,
+    historyMessageCount: 32,
+    compressMessageLengthThreshold: 24000,
     compressModel: "",
     compressProviderName: "",
     enableInjectSystemPrompts: true,
@@ -271,16 +276,33 @@ export const DEFAULT_CONFIG = {
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
     seconds: "4",
-    webSearch: false,
+    generationParams: {} as Partial<
+      Record<DrawParamKey, string | number | boolean>
+    >,
+    webSearch: true,
     webSearchContextSize: "medium",
-    reasoningEffort: "none",
+    reasoningEffort: "high",
     reasoningMaxTokens: 0,
-    includeThoughts: true,
+    includeThoughts: false,
     anthropicBeta: "",
     mediaResolution: "",
-    structuredOutput: true,
+    structuredOutput: false,
     jsonSchema: "",
+    contextWindow: 0,
+    stopSequences: "",
+    candidateCount: 1,
+    toolChoice: "auto",
+    safetySettings: "",
+    promptCache: true,
+    // OpenAI 专用参数
+    seed: -1, // -1 表示不设置随机种子，由模型决定
+    modalities: [] as string[], // 输出模式，如 ["text"] 或 ["text", "audio"]
   },
+
+  // 对话设置中的预设上下文属于共享配置，由 StoreKey.Config 同步到数据库。
+  conversationContext: [] as Array<
+    RequestMessage & { id?: string; date?: string }
+  >,
 
   ttsConfig: {
     enable: false,
@@ -336,7 +358,7 @@ export function getOpenAIStandardReasoningEffort(model: string) {
   if (normalizedModel === "gpt-5-pro") {
     return "high";
   }
-  return "medium";
+  return "high";
 }
 
 export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
@@ -344,22 +366,30 @@ export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
 ): T {
   const model = String(modelConfig.model || DEFAULT_CONFIG.modelConfig.model);
   return {
-    ...modelConfig,
     stream: true,
-    temperature: 1,
+    temperature: 0.2,
     top_p: 1,
+    top_k: 0,
     presence_penalty: 0,
     frequency_penalty: 0,
     webSearchContextSize: "medium",
-    reasoningEffort: getOpenAIStandardReasoningEffort(model),
-    reasoningMaxTokens: 0,
-    includeThoughts: true,
     sendMemory: true,
     enableInjectSystemPrompts: true,
-    customSystemPrompt: modelConfig.customSystemPrompt ?? "",
-    historyMessageCount: 12,
-    structuredOutput: true,
+    historyMessageCount: 32,
+    structuredOutput: false,
     jsonSchema: "",
+    contextWindow: 0,
+    stopSequences: "",
+    candidateCount: 1,
+    toolChoice: "auto",
+    safetySettings: "",
+    promptCache: true,
+    ...modelConfig,
+    customSystemPrompt: modelConfig.customSystemPrompt ?? "",
+    reasoningEffort:
+      modelConfig.reasoningEffort ?? getOpenAIStandardReasoningEffort(model),
+    reasoningMaxTokens: modelConfig.reasoningMaxTokens ?? 0,
+    includeThoughts: modelConfig.includeThoughts ?? false,
   };
 }
 
@@ -424,6 +454,9 @@ export const ModalConfigValidator = {
   },
   top_p(x: number) {
     return limitNumber(x, 0, 1, 1);
+  },
+  top_k(x: number) {
+    return limitNumber(x, 0, 128, 0);
   },
 };
 
@@ -735,7 +768,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
         state.modelConfig.template =
           state.modelConfig.template !== DEFAULT_INPUT_TEMPLATE
             ? state.modelConfig.template
-            : config?.template ?? DEFAULT_INPUT_TEMPLATE;
+            : (config?.template ?? DEFAULT_INPUT_TEMPLATE);
       }
 
       if (version < 4.1) {

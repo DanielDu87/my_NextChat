@@ -22,7 +22,7 @@ const cn = {
   Chat: {
     SubTitle: (count: number) => `共 ${count} 条对话`,
     EditMessage: {
-      Title: "编辑",
+      Title: "参数设置",
       Topic: {
         Title: "聊天主题",
         SubTitle: "更改当前聊天主题",
@@ -280,7 +280,7 @@ const cn = {
     },
     HistoryCount: {
       Title: "附带历史消息数",
-      SubTitle: "每次请求携带的历史消息数",
+      SubTitle: "每次请求携带的历史消息上限，并限制单次摘要消息数",
     },
     CompressThreshold: {
       Title: "历史消息长度压缩阈值",
@@ -629,7 +629,7 @@ const cn = {
   },
   Context: {
     Toast: (x: any) => `包含 ${x} 条预设提示词`,
-    Edit: "当前对话设置",
+    Edit: "全局对话设置",
     Add: "新增一条对话",
     Clear: "上下文已清除",
     Revert: "恢复上下文",

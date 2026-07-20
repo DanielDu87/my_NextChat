@@ -117,9 +117,7 @@ export class DoubaoApi implements LLMApi {
         presence_penalty: modelConfig.presence_penalty,
         frequency_penalty: modelConfig.frequency_penalty,
         top_p: modelConfig.top_p,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
+        max_tokens: modelConfig.max_tokens,
       },
     );
 

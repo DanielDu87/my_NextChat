@@ -258,6 +258,9 @@ export type ChatMessageAttachedFile = {
   contentMd5?: string;
   typeLabel: string;
   typeKind: "document" | "spreadsheet" | "pdf" | "archive" | "file";
+  extractedText?: string;
+  extractionStatus?: "ready" | "unsupported" | "failed";
+  extractionTruncated?: boolean;
   previewText?: string;
   previewUrl?: string;
   localPreviewUrl?: string;
@@ -951,8 +954,8 @@ function getAccessProviderId(profile: {
   return profile.provider === ServiceProvider.Custom
     ? `custom_${profile.name}`.toLowerCase()
     : profile.provider === ServiceProvider.Local
-    ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
-    : String(profile.provider).toLowerCase();
+      ? `${String(profile.provider).toLowerCase()}_${profile.name}`.toLowerCase()
+      : String(profile.provider).toLowerCase();
 }
 
 function normalizeProviderLookup(value: unknown) {
@@ -1128,6 +1131,21 @@ function getProfileForModelConfig(modelConfig: ModelConfig) {
   }
 
   return getActiveAccessProfile(accessStore, modelConfig.providerName);
+}
+
+function applySharedGlobalConversationSettings(
+  selectedModelConfig: ModelConfig,
+): ModelConfig {
+  const sharedModelConfig = useAppConfig.getState().modelConfig;
+  return {
+    ...sharedModelConfig,
+    model: selectedModelConfig.model,
+    providerName: selectedModelConfig.providerName,
+    providerId: (selectedModelConfig as any).providerId,
+    profileId: (selectedModelConfig as any).profileId,
+    modelSelectionUpdatedAt: (selectedModelConfig as any)
+      .modelSelectionUpdatedAt,
+  } as ModelConfig;
 }
 
 function normalizeTitleCandidateProviderName(
@@ -1499,7 +1517,9 @@ async function refreshSessionTitle(targetSession: ChatSession) {
   }
   pendingTitleGenerationSessionIds.add(session.id);
   try {
-    const modelConfig = session.mask.modelConfig;
+    const modelConfig = applySharedGlobalConversationSettings(
+      session.mask.modelConfig,
+    );
     const messages = session.messages;
     const candidates = getRefreshTitleCandidates(session);
     const requestVersion = getSessionTitleRequestVersion(session);
@@ -1714,7 +1734,7 @@ function applySuccessfulChatFailoverGlobally(
 ) {
   const selectedAt = Date.now();
   const nextModelConfig = sanitizeModelConfigForCapability({
-    ...targetSession.mask.modelConfig,
+    ...applySharedGlobalConversationSettings(targetSession.mask.modelConfig),
     model: candidate.model as ModelType,
     providerName: candidate.providerName,
   });
@@ -2964,12 +2984,14 @@ export const useChatStore = createPersistStore(
         const manualModelSelection = readManualSessionModelSelection(
           session.id,
         );
-        const modelConfig = manualModelSelection
+        const selectedModelConfig = manualModelSelection
           ? ({
               ...session.mask.modelConfig,
               ...manualModelSelection,
             } as ModelConfig)
           : session.mask.modelConfig;
+        const modelConfig =
+          applySharedGlobalConversationSettings(selectedModelConfig);
         const appConfig = useAppConfig.getState();
         const accessStore = useAccessStore.getState();
         const allModels = collectModelsWithDefaultModel(
@@ -3219,9 +3241,7 @@ export const useChatStore = createPersistStore(
         const isBotMessageManuallyStopped = () => {
           if (botMessage.manualStopped) return true;
           return Boolean(
-            get()
-              .getSessionById(session.id)
-              ?.messages.find((message) => message.id === botMessage.id)
+            session.messages.find((message) => message.id === botMessage.id)
               ?.manualStopped,
           );
         };
@@ -3450,8 +3470,8 @@ export const useChatStore = createPersistStore(
                       botMessage.tools?.length
                         ? "blocked"
                         : providerBalanceExhausted
-                        ? "provider-balance-exhausted"
-                        : "failed",
+                          ? "provider-balance-exhausted"
+                          : "failed",
                     );
                     return;
                   }
@@ -3553,8 +3573,8 @@ export const useChatStore = createPersistStore(
                     botMessage.tools?.length
                       ? "blocked"
                       : isProviderBalanceFailure(error)
-                      ? "provider-balance-exhausted"
-                      : "failed",
+                        ? "provider-balance-exhausted"
+                        : "failed",
                   );
                 },
                 onController(controller) {
@@ -3589,8 +3609,8 @@ export const useChatStore = createPersistStore(
                 botMessage.tools?.length
                   ? "blocked"
                   : isProviderBalanceFailure(error)
-                  ? "provider-balance-exhausted"
-                  : "failed",
+                    ? "provider-balance-exhausted"
+                    : "failed",
               );
             });
           });
@@ -3686,19 +3706,20 @@ export const useChatStore = createPersistStore(
 
       async getMessagesWithMemory(modelConfigOverride?: ModelConfig) {
         const session = get().currentSession();
-        const modelConfig = modelConfigOverride ?? session.mask.modelConfig;
+        const modelConfig =
+          modelConfigOverride ??
+          applySharedGlobalConversationSettings(session.mask.modelConfig);
         const clearContextIndex = session.clearContextIndex ?? 0;
         const messages = session.messages.slice();
         const totalMessageCount = session.messages.length;
 
         // in-context prompts
-        const contextPrompts = session.mask.context.slice();
+        const contextPrompts = (
+          useAppConfig.getState().conversationContext as ChatMessage[]
+        ).slice();
 
         // system prompts, to get close to OpenAI Web ChatGPT
-        const shouldInjectSystemPrompts =
-          modelConfig.enableInjectSystemPrompts &&
-          (session.mask.modelConfig.model.startsWith("gpt-") ||
-            session.mask.modelConfig.model.startsWith("chatgpt-"));
+        const shouldInjectSystemPrompts = modelConfig.enableInjectSystemPrompts;
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
@@ -3708,43 +3729,25 @@ export const useChatStore = createPersistStore(
         const systemPromptTemplate =
           globalSystemPrompt || DEFAULT_SYSTEM_TEMPLATE;
 
-        var systemPrompts: ChatMessage[] = [];
-
-        if (shouldInjectSystemPrompts) {
-          const defaultSystemContent =
-            fillTemplateWith("", {
-              ...modelConfig,
-              template: systemPromptTemplate,
-            }) + mcpSystemPrompt;
-
-          systemPrompts = [
-            createMessage({
-              role: "system",
-              content: defaultSystemContent,
-            }),
-          ];
-        } else if (mcpEnabled) {
-          systemPrompts = [
-            createMessage({
-              role: "system",
-              content:
-                fillTemplateWith("", {
-                  ...modelConfig,
-                  template: systemPromptTemplate,
-                }) + mcpSystemPrompt,
-            }),
-          ];
-        } else {
-          systemPrompts = [
-            createMessage({
-              role: "system",
-              content: fillTemplateWith("", {
+        const systemPromptContent = [
+          shouldInjectSystemPrompts
+            ? fillTemplateWith("", {
                 ...modelConfig,
                 template: systemPromptTemplate,
+              })
+            : "",
+          mcpSystemPrompt,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const systemPrompts: ChatMessage[] = systemPromptContent
+          ? [
+              createMessage({
+                role: "system",
+                content: systemPromptContent,
               }),
-            }),
-          ];
-        }
+            ]
+          : [];
 
         // if (shouldInjectSystemPrompts || mcpEnabled) {
         //   console.log(
@@ -3763,9 +3766,7 @@ export const useChatStore = createPersistStore(
           shouldSendLongTermMemory && memoryPrompt ? [memoryPrompt] : [];
         const longTermMemoryStartIndex = session.lastSummarizeIndex;
 
-        // short term memory
-        // 不再机械截断最近固定条数，而是优先从当前会话的清空边界后尽可能多地携带上下文，
-        // 具体由后面的 token 上限控制。这样切换模型或供应商后继续追问时，上下文更连贯。
+        // short term memory：同时受全局历史消息数和 Token 上限约束。
         const shortTermMemoryStartIndex = clearContextIndex;
 
         // lets concat send messages, including 4 parts:
@@ -3783,15 +3784,38 @@ export const useChatStore = createPersistStore(
 
         // get recent messages as much as possible
         const reversedRecentMessages = [];
+        const historyMessageLimit = Math.max(
+          0,
+          modelConfig.historyMessageCount,
+        );
+        let hasNewestMessage = false;
+        let includedHistoryMessages = 0;
         for (
           let i = totalMessageCount - 1, tokenCount = 0;
           i >= contextStartIndex && tokenCount < maxTokenThreshold;
           i -= 1
         ) {
           const msg = messages[i];
-          if (!msg || msg.isError) continue;
+          if (
+            !msg ||
+            msg.isError ||
+            (msg.streaming && !getMessageTextContent(msg).trim())
+          ) {
+            continue;
+          }
+          if (
+            hasNewestMessage &&
+            includedHistoryMessages >= historyMessageLimit
+          ) {
+            break;
+          }
           tokenCount += estimateTokenLength(getMessageTextContent(msg));
           reversedRecentMessages.push(msg);
+          if (hasNewestMessage) {
+            includedHistoryMessages += 1;
+          } else {
+            hasNewestMessage = true;
+          }
         }
         // concat all messages
         const recentMessages = [
@@ -3859,7 +3883,9 @@ export const useChatStore = createPersistStore(
       ) {
         const config = useAppConfig.getState();
         const session = get().getSessionById(targetSession.id) ?? targetSession;
-        const modelConfig = session.mask.modelConfig;
+        const modelConfig = applySharedGlobalConversationSettings(
+          session.mask.modelConfig,
+        );
         // skip summarize when using dalle3?
         if (isDalle3(modelConfig.model)) {
           return;

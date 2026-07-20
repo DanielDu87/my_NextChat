@@ -37,6 +37,32 @@ function setLocalStorageValue(key: string, value: string) {
   }
 }
 
+function getLocalStorageMirror(name: string, value: string) {
+  if (name !== StoreKey.Config) {
+    return null;
+  }
+
+  try {
+    const persisted = JSON.parse(value) as {
+      state?: Record<string, unknown>;
+    };
+    const realtimeConfig = persisted.state?.realtimeConfig;
+    if (realtimeConfig && typeof realtimeConfig === "object") {
+      const { apiKey: _apiKey, ...safeRealtimeConfig } =
+        realtimeConfig as Record<string, unknown>;
+      void _apiKey;
+      persisted.state = {
+        ...persisted.state,
+        realtimeConfig: safeRealtimeConfig,
+      };
+    }
+    return JSON.stringify(persisted);
+  } catch {
+    // The IndexedDB cache remains the source of truth if a legacy payload is invalid.
+    return null;
+  }
+}
+
 function isBrowser() {
   return typeof window !== "undefined" && typeof indexedDB !== "undefined";
 }
@@ -334,6 +360,11 @@ class IndexedDbStateStorage implements StateStorage {
     this.cache.set(name, value);
     if (name === StoreKey.Access) {
       setLocalStorageValue(name, value);
+    }
+    const localStorageMirror = getLocalStorageMirror(name, value);
+    if (localStorageMirror) {
+      // Config must survive a refresh that happens before IndexedDB finishes writing.
+      setLocalStorageValue(name, localStorageMirror);
     }
 
     if (!this.hydrated.has(name) || this.hydrating.has(name)) {

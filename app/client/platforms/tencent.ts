@@ -127,9 +127,7 @@ export class HunyuanApi implements LLMApi {
         temperature: modelConfig.temperature,
         top_p: modelConfig.top_p,
         stream: options.config.stream,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
+        max_tokens: modelConfig.max_tokens,
       }),
     );
 

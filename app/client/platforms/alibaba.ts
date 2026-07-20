@@ -25,7 +25,12 @@ import {
   getTimeoutMSByModel,
   isVisionModel,
 } from "@/app/utils";
-import { applyModelSamplingRules } from "../model-parameter-rules";
+import {
+  applyModelSamplingRules,
+  getModelParameterSupport,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
+} from "../model-parameter-rules";
 import { fetch } from "@/app/utils/stream";
 import { joinUrlPath } from "@/app/utils/url";
 
@@ -51,6 +56,12 @@ interface RequestParam {
   repetition_penalty?: number;
   top_p: number;
   max_tokens?: number;
+  stop?: string[];
+  enable_thinking?: boolean;
+  thinking_budget?: number;
+  response_format?: { type: "json_object" };
+  tools?: unknown[];
+  tool_choice?: "auto" | "none";
 }
 interface RequestPayload {
   model: string;
@@ -114,14 +125,18 @@ export class QwenApi implements LLMApi {
         visionModel
           ? await preProcessImageContentForAlibabaDashScope(v.content)
           : v.role === "assistant"
-          ? getMessageTextContentWithoutThinking(v)
-          : getMessageTextContent(v)
+            ? getMessageTextContentWithoutThinking(v)
+            : getMessageTextContent(v)
       ) as any;
 
       messages.push({ role: v.role, content });
     }
 
     const shouldStream = !!options.config.stream;
+    const parameterSupport = getModelParameterSupport(modelConfig.model);
+    const thinkingDisabled = ["none", "minimal"].includes(
+      String(modelConfig.reasoningEffort || "").toLowerCase(),
+    );
     const requestPayload: RequestPayload = {
       model: modelConfig.model,
       input: {
@@ -131,13 +146,37 @@ export class QwenApi implements LLMApi {
         result_format: "message",
         incremental_output: shouldStream,
         temperature: modelConfig.temperature,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
-        // max_tokens: modelConfig.max_tokens,
-        top_p: modelConfig.top_p === 1 ? 0.99 : modelConfig.top_p, // qwen top_p is should be < 1
+        max_tokens: modelConfig.max_tokens,
+        top_p: modelConfig.top_p,
       }),
     };
+
+    const stopSequences = parseStopSequences(
+      modelConfig.stopSequences,
+      parameterSupport.stop_sequence_limit,
+    );
+    if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+      requestPayload.parameters.stop = stopSequences;
+    }
+    if (parameterSupport.reasoning) {
+      requestPayload.parameters.enable_thinking = !thinkingDisabled;
+      if (
+        !thinkingDisabled &&
+        parameterSupport.reasoning_max_tokens &&
+        modelConfig.reasoningMaxTokens > 0
+      ) {
+        requestPayload.parameters.thinking_budget =
+          modelConfig.reasoningMaxTokens;
+      }
+    }
+    if (
+      parameterSupport.structured_output_mode === "json_object" &&
+      modelConfig.structuredOutput
+    ) {
+      requestPayload.parameters.response_format = { type: "json_object" };
+      // DashScope JSON mode rejects enable_thinking=true.
+      requestPayload.parameters.enable_thinking = false;
+    }
 
     const controller = new AbortController();
     options.onController?.(controller);
@@ -168,11 +207,18 @@ export class QwenApi implements LLMApi {
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
           );
+        if (parameterSupport.tool_choice && tools.length > 0) {
+          requestPayload.parameters.tools = tools;
+          requestPayload.parameters.tool_choice = normalizeToolChoiceForModel(
+            modelConfig.model,
+            modelConfig.toolChoice,
+          ) as "auto" | "none";
+        }
         return streamWithThink(
           chatPath,
           requestPayload,
           headers,
-          tools as any,
+          [],
           funcs,
           controller,
           // parseSSE

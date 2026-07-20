@@ -1,15 +1,15 @@
-# syntax=docker/dockerfile:1
+# syntax=docker.m.daocloud.io/docker/dockerfile:1
 # =============================================================================
 # NextChat Dockerfile - 优化版
 # 支持本地开发热加载和服务器生产部署
 # =============================================================================
 
-# 基础镜像改为官方 Node Alpine，避免依赖安装受 Alpine 仓库内置 Node 小版本限制
-ARG NODE_IMAGE=node:20.19.0-alpine3.20
+# 固定 Node Alpine 版本，避免依赖安装受 Alpine 仓库内置 Node 小版本限制
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22.13.0-alpine3.20
 FROM ${NODE_IMAGE} AS base
 
-ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
-ARG NPM_REGISTRY=https://registry.npmjs.org/
+ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
+ARG NPM_REGISTRY=https://registry.npmmirror.com/
 ARG NODE_OPTIONS=--max-old-space-size=4096
 ARG ENABLE_GOOGLE_FONTS=false
 ARG GITHUB_BASE_URL=https://github.com
@@ -80,7 +80,7 @@ ENV HUSKY=0
 COPY package.json yarn.lock ./
 COPY vendor ./vendor
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
-    yarn install --frozen-lockfile --network-timeout 600000 && \
+    yarn install --frozen-lockfile --ignore-engines --network-timeout 600000 && \
     mkdir -p /opt/nextchat-node_modules && \
     cp -a node_modules/. /opt/nextchat-node_modules/ && \
     cat package.json yarn.lock | sha256sum | awk '{print $1}' > /opt/nextchat-node_modules/.nextchat-deps-hash
@@ -137,10 +137,10 @@ RUN --mount=type=cache,target=/app/.next/cache \
 # =============================================================================
 # 生产运行阶段 - 轻量化
 # =============================================================================
-ARG NODE_IMAGE=node:20.19.0-alpine3.20
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22.13.0-alpine3.20
 FROM ${NODE_IMAGE} AS runner
 
-ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
 ARG BUILD_COMMIT_DATE=unknown
 ARG BUILD_COMMIT_HASH=unknown
 ARG HTTP_PROXY

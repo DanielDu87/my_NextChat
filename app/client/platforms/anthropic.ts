@@ -12,7 +12,12 @@ import { preProcessImageContent, stream } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
-import { applyModelSamplingRules } from "../model-parameter-rules";
+import {
+  applyModelSamplingRules,
+  getModelParameterSupport,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
+} from "../model-parameter-rules";
 import { getDefaultReasoningSettings } from "../model-parameter-rules";
 import { joinUrlPath } from "@/app/utils/url";
 
@@ -24,6 +29,17 @@ export type MultiBlockContent = {
     data: string;
   };
   text?: string;
+  cache_control?: {
+    type: "ephemeral";
+  };
+};
+
+type AnthropicSystemBlock = {
+  type: "text";
+  text: string;
+  cache_control?: {
+    type: "ephemeral";
+  };
 };
 
 export type AnthropicMessage = {
@@ -34,6 +50,7 @@ export type AnthropicMessage = {
 export interface AnthropicChatRequest {
   model: string; // The model that will complete your prompt.
   messages: AnthropicMessage[]; // The prompt that you want Claude to complete.
+  system?: AnthropicSystemBlock[];
   max_tokens: number; // The maximum number of tokens to generate before stopping.
   stop_sequences?: string[]; // Sequences that will cause the model to stop generating completion text.
   temperature?: number; // Amount of randomness injected into the response.
@@ -42,8 +59,18 @@ export interface AnthropicChatRequest {
   metadata?: object; // An object describing metadata about the request.
   stream?: boolean; // Whether to incrementally stream the response using server-sent events.
   thinking?: {
-    type: "enabled";
+    type: "enabled" | "adaptive";
     budget_tokens?: number;
+  };
+  output_config?: {
+    effort?: string;
+    format?: {
+      type: "json_schema";
+      schema: Record<string, unknown>;
+    };
+  };
+  tool_choice?: {
+    type: "auto" | "any" | "none";
   };
 }
 
@@ -87,6 +114,30 @@ function mapReasoningEffortToBudgetTokens(effort: string) {
     high: 24576,
   };
   return mapping[normalized] ?? 0;
+}
+
+function supportsAnthropicEffort(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    lowerModel.includes("claude-opus-4-5") ||
+    lowerModel.includes("claude-opus-4-6") ||
+    lowerModel.includes("claude-opus-4-7") ||
+    lowerModel.includes("claude-opus-4-8") ||
+    lowerModel.includes("claude-sonnet-4-6") ||
+    /claude-(?:opus|sonnet)-[5-9]/.test(lowerModel) ||
+    lowerModel.includes("claude-fable-") ||
+    lowerModel.includes("claude-mythos")
+  );
+}
+
+function usesAnthropicAdaptiveThinking(model: string) {
+  const lowerModel = model.toLowerCase();
+  return (
+    /claude-opus-4-(?:6|7|8)/.test(lowerModel) ||
+    /claude-sonnet-(?:4-6|[5-9])/.test(lowerModel) ||
+    lowerModel.includes("claude-fable-") ||
+    lowerModel.includes("claude-mythos")
+  );
 }
 
 export class ClaudeApi implements LLMApi {
@@ -143,7 +194,16 @@ export class ClaudeApi implements LLMApi {
       }
     }
 
+    const system = messages
+      .filter((message) => message.role === "system")
+      .map((message) => ({
+        type: "text" as const,
+        text: getMessageTextContent(message),
+      }))
+      .filter((message) => message.text.trim());
+
     const prompt = messages
+      .filter((message) => message.role !== "system")
       .flat()
       .filter((v) => {
         if (!v.content) return false;
@@ -199,17 +259,44 @@ export class ClaudeApi implements LLMApi {
       });
     }
 
-    const requestBody: AnthropicChatRequest = {
-      messages: prompt,
-      stream: shouldStream,
+    const requestBody: AnthropicChatRequest = applyModelSamplingRules(
+      modelConfig.model,
+      {
+        messages: prompt,
+        ...(system.length > 0 ? { system } : {}),
+        stream: shouldStream,
 
-      model: modelConfig.model,
-      max_tokens: modelConfig.max_tokens,
-      temperature: modelConfig.temperature,
-      top_p: modelConfig.top_p,
-      // top_k: modelConfig.top_k,
-      top_k: 5,
-    };
+        model: modelConfig.model,
+        max_tokens: modelConfig.max_tokens,
+        temperature: modelConfig.temperature,
+        top_p: modelConfig.top_p,
+      },
+    );
+    const parameterSupport = getModelParameterSupport(modelConfig.model);
+    const stopSequences = parseStopSequences(
+      modelConfig.stopSequences,
+      parameterSupport.stop_sequence_limit,
+    );
+    if (stopSequences.length > 0) {
+      requestBody.stop_sequences = stopSequences;
+    }
+    if (options.config.stream) {
+      const toolChoice = normalizeToolChoiceForModel(
+        modelConfig.model,
+        modelConfig.toolChoice,
+      );
+      requestBody.tool_choice = {
+        type: toolChoice === "required" ? "any" : toolChoice,
+      };
+    }
+    if (parameterSupport.prompt_cache && modelConfig.promptCache !== false) {
+      // Anthropic only accepts cache_control on a content block. Pin the
+      // stable global system prefix instead of caching an entire conversation.
+      const cacheTarget = requestBody.system?.at(-1);
+      if (cacheTarget) {
+        cacheTarget.cache_control = { type: "ephemeral" };
+      }
+    }
 
     const reasoningSettings = getDefaultReasoningSettings(
       modelConfig.model,
@@ -217,14 +304,53 @@ export class ClaudeApi implements LLMApi {
       modelConfig.reasoningEffort,
       modelConfig.reasoningMaxTokens,
     );
+    const normalizedReasoningEffort = String(
+      reasoningSettings.reasoningEffort || "",
+    )
+      .trim()
+      .toLowerCase();
     const reasoningBudget =
       (reasoningSettings.reasoningMaxTokens ?? 0) > 0
         ? reasoningSettings.reasoningMaxTokens
-        : mapReasoningEffortToBudgetTokens(
-            reasoningSettings.reasoningEffort ?? "",
-          );
+        : mapReasoningEffortToBudgetTokens(normalizedReasoningEffort);
 
-    if (reasoningBudget > 0) {
+    if (
+      normalizedReasoningEffort &&
+      supportsAnthropicEffort(modelConfig.model)
+    ) {
+      requestBody.output_config = {
+        effort: normalizedReasoningEffort,
+      };
+    }
+
+    if (
+      parameterSupport.structured_output_mode === "json_schema" &&
+      modelConfig.structuredOutput &&
+      modelConfig.jsonSchema?.trim()
+    ) {
+      let schema: Record<string, unknown>;
+      try {
+        schema = JSON.parse(modelConfig.jsonSchema);
+      } catch {
+        options.onError?.(
+          new Error("JSON Schema 格式不正确，请检查结构化输出配置"),
+        );
+        return;
+      }
+      requestBody.output_config = {
+        ...requestBody.output_config,
+        format: {
+          type: "json_schema",
+          schema,
+        },
+      };
+    }
+
+    if (usesAnthropicAdaptiveThinking(modelConfig.model)) {
+      requestBody.thinking = {
+        type: "adaptive",
+      };
+    } else if (reasoningBudget > 0) {
       requestBody.thinking = {
         type: "enabled",
         budget_tokens: reasoningBudget,
@@ -234,10 +360,6 @@ export class ClaudeApi implements LLMApi {
       }
     }
 
-    Object.assign(
-      requestBody,
-      applyModelSamplingRules(modelConfig.model, requestBody),
-    );
     const requestHeaders = {
       ...getHeaders(),
       "anthropic-version": accessStore.anthropicApiVersion,
@@ -262,7 +384,7 @@ export class ClaudeApi implements LLMApi {
       const streamOptions = {
         ...options,
         onFinish(message: string, responseRes: Response) {
-          if (latestReasoningText.trim()) {
+          if (modelConfig.includeThoughts && latestReasoningText.trim()) {
             (responseRes as any).__reasoning_details = {
               type: "thinking",
               thinking: latestReasoningText,
@@ -416,7 +538,7 @@ export class ClaudeApi implements LLMApi {
               .map((item: any) => item?.thinking || item?.text || "")
               .join("")
           : "";
-        if (thinkingContent.trim()) {
+        if (modelConfig.includeThoughts && thinkingContent.trim()) {
           (res as any).__reasoning_details = {
             type: "thinking",
             thinking: thinkingContent,

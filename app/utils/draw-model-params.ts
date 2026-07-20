@@ -53,6 +53,22 @@ export type DrawParamRule = {
   ranges: Partial<Record<DrawParamKey, DrawNumberRange>>;
 };
 
+export type DrawParamDefinition = {
+  name: string;
+  value: DrawParamKey;
+  type: "select" | "number" | "textarea";
+  default?: string | number | boolean;
+  placeholder?: string;
+  required?: boolean;
+  rows?: number;
+  sub?: string;
+  help?: string;
+  min?: number;
+  max?: number;
+  float?: boolean;
+  options?: DrawSelectOption[];
+};
+
 export const DRAW_PARAM_KEYS: DrawParamKey[] = [
   "prompt",
   "model",
@@ -561,6 +577,260 @@ export const DRAW_STABILITY_STYLE_PRESET_OPTIONS = [
   option("photographic", "Photographic"),
   option("pixel-art", "Pixel Art"),
   option("tile-texture", "Tile Texture"),
+];
+
+// Draw 页面与全局“参数设置”共用这一份字段定义；模型支持范围、默认值、
+// 选项和数值边界继续由下方 DrawParamRule 动态覆盖，避免两个页面再次分叉。
+export const DRAW_GENERATION_PARAM_DEFINITIONS: DrawParamDefinition[] = [
+  {
+    name: "否定提示词",
+    value: "negative_prompt",
+    type: "textarea",
+    placeholder: "输入不希望出现在画面中的元素",
+    rows: 3,
+    sub: "写入不希望出现在画面中的元素。",
+  },
+  {
+    name: "画面比例",
+    value: "aspect_ratio",
+    type: "select",
+    default: "1:1",
+    help: "控制生成图片的画面比例（Flux/Ideogram 等模型使用）。",
+    options: DRAW_ASPECT_RATIO_OPTIONS,
+  },
+  {
+    name: "图像尺寸",
+    value: "image_size",
+    type: "select",
+    default: "1024x1024",
+    help: "选择生成图片的宽高尺寸。",
+    options: [
+      sizeOption("1024x1024"),
+      sizeOption("1024x1536"),
+      sizeOption("1536x1024"),
+      sizeOption("768x1344"),
+      sizeOption("1344x768"),
+      sizeOption("512x512"),
+    ],
+  },
+  {
+    name: "图像质量",
+    value: "quality",
+    type: "select",
+    default: "auto",
+    help: "控制生成质量，质量越高通常耗时或成本越高。",
+    options: [
+      ...DRAW_GPT_IMAGE_QUALITY_OPTIONS,
+      option("standard", "标准"),
+      option("hd", "高清"),
+    ],
+  },
+  {
+    name: "图片风格",
+    value: "style",
+    type: "select",
+    default: "vivid",
+    help: "按当前模型发送对应的图片风格参数。",
+    options: DRAW_DALLE_STYLE_OPTIONS,
+  },
+  {
+    name: "分辨率",
+    value: "resolution",
+    type: "select",
+    default: "2K",
+    help: "选择模型生成时使用的分辨率档位。",
+    options: DRAW_RESOLUTION_OPTIONS,
+  },
+  {
+    name: "背景",
+    value: "background",
+    type: "select",
+    default: "auto",
+    help: "GPT-Image 支持的背景参数。",
+    options: DRAW_OPENAI_BACKGROUND_OPTIONS,
+  },
+  {
+    name: "输出压缩",
+    value: "output_compression",
+    type: "number",
+    default: 100,
+    min: 0,
+    max: 100,
+    help: "GPT-Image 在 JPEG/WebP 输出时支持的压缩质量。",
+  },
+  {
+    name: "人物生成",
+    value: "person_generation",
+    type: "select",
+    default: "allow_adult",
+    help: "Imagen 支持的人物生成策略。",
+    options: DRAW_PERSON_GENERATION_OPTIONS,
+  },
+  {
+    name: "Seed",
+    value: "seed",
+    type: "number",
+    default: 0,
+    min: 0,
+    max: 4294967294,
+    help: "相同 Seed 更容易复现接近的构图；0 表示自动。",
+  },
+  {
+    name: "思考模式",
+    value: "thinking_mode",
+    type: "select",
+    default: "true",
+    help: "Wan2.7 系列支持思考模式，提升生成质量但增加耗时。",
+    options: [option("true", "开启"), option("false", "关闭")],
+  },
+  {
+    name: "思考级别",
+    value: "thinking_level",
+    type: "select",
+    default: "minimal",
+    help: "Gemini 3.1 Flash Image 支持，high 用于复杂构图但更慢。",
+    options: DRAW_GEMINI_THINKING_LEVEL_OPTIONS,
+  },
+  {
+    name: "提示词智能改写",
+    value: "prompt_extend",
+    type: "select",
+    default: "true",
+    help: "Qwen-Image、Wan2.6 支持提示词智能改写。",
+    options: [option("true", "开启"), option("false", "关闭")],
+  },
+  {
+    name: "提示词增强",
+    value: "magic_prompt",
+    type: "select",
+    default: "AUTO",
+    help: "Ideogram V3 提示词增强，AUTO 由模型自动判断。",
+    options: DRAW_IDEOGRAM_MAGIC_PROMPT_OPTIONS,
+  },
+  {
+    name: "水印",
+    value: "watermark",
+    type: "select",
+    default: "false",
+    help: "是否在生成的图片中添加水印。",
+    options: [option("false", "关闭"), option("true", "开启")],
+  },
+  {
+    name: "安全审核容忍度",
+    value: "safety_tolerance",
+    type: "number",
+    default: 2,
+    min: 0,
+    max: 6,
+    help: "Flux 模型安全审核宽松度，0 最严格，6 最宽松。",
+  },
+  {
+    name: "提示词增强",
+    value: "prompt_upsampling",
+    type: "select",
+    default: "false",
+    help: "Flux-1.1-pro 是否对提示词进行增强优化。",
+    options: [option("false", "关闭"), option("true", "开启")],
+  },
+  {
+    name: "中文翻译",
+    value: "enable_translation",
+    type: "select",
+    default: "true",
+    help: "FluxAPI Kontext 是否启用中文提示词自动翻译。",
+    options: [option("true", "开启"), option("false", "关闭")],
+  },
+  {
+    name: "生成数量",
+    value: "n",
+    type: "number",
+    default: 1,
+    min: 1,
+    max: 10,
+    help: "一次生成图片数量（部分模型支持）。",
+  },
+  {
+    name: "渲染速度/质量",
+    value: "rendering_speed",
+    type: "select",
+    default: "DEFAULT",
+    help: "Ideogram 渲染质量偏好。",
+    options: DRAW_RENDERING_SPEED_OPTIONS,
+  },
+  {
+    name: "保真度",
+    value: "input_fidelity",
+    type: "select",
+    default: "low",
+    help: "GPT-Image 图生图模式的输入保真度。",
+    options: [option("low", "低"), option("high", "高")],
+  },
+  {
+    name: "内容审核",
+    value: "moderation",
+    type: "select",
+    default: "auto",
+    help: "GPT-Image 内容审核严格程度。",
+    options: [option("auto", "标准"), option("low", "宽松")],
+  },
+  {
+    name: "输出格式",
+    value: "output_format",
+    type: "select",
+    default: "png",
+    help: "选择生成图片的保存格式。",
+    options: DRAW_OUTPUT_FORMAT_OPTIONS,
+  },
+  {
+    name: "返回格式",
+    value: "response_format",
+    type: "select",
+    default: "url",
+    help: "支持 URL 或 Base64 JSON 返回的模型使用。",
+    options: DRAW_RESPONSE_FORMAT_OPTIONS,
+  },
+  {
+    name: "指导系数",
+    value: "guidance_scale",
+    type: "number",
+    default: 2.5,
+    min: 1,
+    max: 10,
+    float: true,
+    help: "Seedream 3.0 t2i 支持，范围 1-10。",
+  },
+  {
+    name: "提示词优化模式",
+    value: "optimize_prompt_mode",
+    type: "select",
+    default: "standard",
+    help: "Seedream 4.0/4.5/5.0 lite 支持的提示词优化模式。",
+    options: DRAW_DOUBAO_OPTIMIZE_PROMPT_MODE_OPTIONS,
+  },
+  {
+    name: "联网搜索",
+    value: "web_search",
+    type: "select",
+    default: "false",
+    help: "Seedream 5.0 lite 支持的 web_search 工具。",
+    options: [option("false", "关闭"), option("true", "开启")],
+  },
+  {
+    name: "风格预设",
+    value: "style_preset",
+    type: "select",
+    default: "",
+    help: "Stability 图片生成支持的风格预设。",
+    options: DRAW_STABILITY_STYLE_PRESET_OPTIONS,
+  },
+  {
+    name: "风格类型",
+    value: "style_type",
+    type: "select",
+    default: "AUTO",
+    help: "Ideogram V3 官方风格类型。",
+    options: DRAW_IDEOGRAM_V3_STYLE_TYPE_OPTIONS,
+  },
 ];
 
 function makeRule(

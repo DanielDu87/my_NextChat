@@ -50,6 +50,11 @@ import {
   applyModelSamplingRules,
   getDefaultReasoningSettings,
   getModelParameterSupport,
+  isKimiModel,
+  isMiniMaxModel,
+  isQwenModel,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
 } from "../model-parameter-rules";
 import Locale from "../../locales";
 import { getClientConfig } from "@/app/config/client";
@@ -115,10 +120,7 @@ const DEFAULT_GENERIC_CHAT_ENDPOINT: GenericChatEndpointCandidate = {
 
 function buildGenericChatPayload(
   requestPayload:
-    | RequestPayload
-    | DalleRequestPayload
-    | Record<string, unknown>
-    | FormData,
+    RequestPayload | DalleRequestPayload | Record<string, unknown> | FormData,
   format: GenericChatEndpointFormat,
 ) {
   if (
@@ -173,6 +175,7 @@ function buildGenericChatPayload(
         1024,
       temperature: chatRequestPayload.temperature,
       top_p: chatRequestPayload.top_p,
+      stop_sequences: chatRequestPayload.stop,
       stream: chatRequestPayload.stream,
     };
   }
@@ -269,6 +272,7 @@ export interface RequestPayload {
   presence_penalty: number;
   frequency_penalty: number;
   top_p: number;
+  seed?: number;
   web_search_options?: {
     search_context_size?: string;
   };
@@ -280,6 +284,8 @@ export interface RequestPayload {
   thinking?: {
     type?: string;
   };
+  enable_thinking?: boolean;
+  thinking_budget?: number;
   media_resolution?: string;
   response_format?:
     | "url"
@@ -293,6 +299,9 @@ export interface RequestPayload {
       };
   max_tokens?: number;
   max_completion_tokens?: number;
+  stop?: string[];
+  n?: number;
+  tool_choice?: "auto" | "required" | "none";
 }
 
 export interface DalleRequestPayload {
@@ -1841,10 +1850,7 @@ export class ChatGPTApi implements LLMApi {
     };
 
     let requestPayload:
-      | RequestPayload
-      | DalleRequestPayload
-      | Record<string, unknown>
-      | FormData;
+      RequestPayload | DalleRequestPayload | Record<string, unknown> | FormData;
 
     const isDalle3 = _isDalle3(requestedModel);
     const isImageModel = isImageGenerationModel(requestedModel);
@@ -1868,8 +1874,8 @@ export class ChatGPTApi implements LLMApi {
         ? currentCustomProfileForRequest?.baseUrl ||
           currentAccessState.customUrl
         : modelConfig.providerName === ServiceProvider.Azure
-        ? currentAccessState.azureUrl
-        : currentAccessState.openaiUrl;
+          ? currentAccessState.azureUrl
+          : currentAccessState.openaiUrl;
     const shouldUseToApisImageReferenceEndpoint =
       shouldUseImageEditEndpoint && isToApisBaseUrl(currentBaseUrlForRequest);
     const requestCompatibilityKey = buildRequestCompatibilityKey({
@@ -1896,6 +1902,10 @@ export class ChatGPTApi implements LLMApi {
       requestedModel.startsWith("o5");
     const isGpt5 = requestedModel.startsWith("gpt-5");
     const parameterSupport = getModelParameterSupport(modelConfig.model);
+    const generationParams = (options.config?.generationParams ?? {}) as Record<
+      string,
+      string | number | boolean
+    >;
     if (shouldUseToApisImageReferenceEndpoint) {
       try {
         requestPayload = await buildToApisImageGenerationPayload(
@@ -1927,13 +1937,17 @@ export class ChatGPTApi implements LLMApi {
         },
       });
     } else if (aiHubMixPredictionPath) {
-      requestPayload = buildAiHubMixPredictionPayload(requestedModel, {
-        ...options,
-        config: {
-          ...options.config,
-          model: requestedModel,
+      requestPayload = buildAiHubMixPredictionPayload(
+        requestedModel,
+        {
+          ...options,
+          config: {
+            ...options.config,
+            model: requestedModel,
+          },
         },
-      });
+        generationParams,
+      );
     } else if (aiHubMixVideoPath) {
       requestPayload = await buildAiHubMixVideoRequestBody(requestedModel, {
         ...options,
@@ -1951,20 +1965,46 @@ export class ChatGPTApi implements LLMApi {
         prompt,
         // URLs are only valid for 60 minutes after the image has been generated.
         response_format: "b64_json", // using b64_json, and save image in CacheStorage
-        n: 1,
-        size: normalizeModelSize(requestedModel, options.config?.size),
+        n: Number(generationParams.n || 1),
+        size: normalizeModelSize(
+          requestedModel,
+          String(
+            generationParams.image_size ||
+              generationParams.resolution ||
+              options.config?.size ||
+              "",
+          ),
+        ),
         ...(lowerImageModel === "dall-e-2" || isGptImage15
           ? {}
           : {
               quality: normalizeImageQuality(
                 requestedModel,
-                options.config?.quality,
+                String(
+                  generationParams.quality || options.config?.quality || "",
+                ),
               ),
             }),
         ...(lowerImageModel === "dall-e-3"
           ? {
-              style: options.config?.style ?? "vivid",
+              style:
+                String(generationParams.style || options.config?.style || "") ||
+                "vivid",
             }
+          : {}),
+        ...(generationParams.output_format
+          ? { output_format: generationParams.output_format }
+          : {}),
+        ...(generationParams.background
+          ? { background: generationParams.background }
+          : {}),
+        ...(["jpeg", "webp"].includes(
+          String(generationParams.output_format || ""),
+        ) && generationParams.output_compression !== undefined
+          ? { output_compression: Number(generationParams.output_compression) }
+          : {}),
+        ...(generationParams.moderation
+          ? { moderation: generationParams.moderation }
           : {}),
       };
     } else {
@@ -1998,17 +2038,48 @@ export class ChatGPTApi implements LLMApi {
           ? modelConfig.frequency_penalty
           : 0,
         top_p: !isReasoningOpenAIModel ? modelConfig.top_p : 1,
-        ...(options.config.outputTokenLimit
-          ? { max_tokens: modelConfig.max_tokens }
-          : {}),
-        // max_tokens: Math.max(modelConfig.max_tokens, 1024),
-        // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
+        max_tokens: modelConfig.max_tokens,
       };
 
       requestPayload = applyModelSamplingRules(
         modelConfig.model,
         requestPayload,
       );
+
+      // 添加 OpenAI 专用参数：seed 和 modalities
+      // seed: 仅在非推理模型（o1/o3/o4/o5）且设置了有效值时添加
+      // GPT-5 和其他非推理模型支持 seed
+      if (
+        modelConfig.seed !== undefined &&
+        modelConfig.seed !== -1 &&
+        modelConfig.seed > 0 &&
+        !isReasoningOpenAIModel
+      ) {
+        requestPayload.seed = modelConfig.seed;
+      }
+
+      // modalities: 仅在支持且设置了值时添加
+      if (
+        parameterSupport.modalities &&
+        modelConfig.modalities &&
+        modelConfig.modalities.length > 0
+      ) {
+        requestPayload.modalities = modelConfig.modalities;
+      }
+
+      const stopSequences = parseStopSequences(
+        modelConfig.stopSequences,
+        parameterSupport.stop_sequence_limit,
+      );
+      if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+        requestPayload.stop = stopSequences;
+      }
+      if (parameterSupport.tool_choice && options.config.stream) {
+        requestPayload.tool_choice = normalizeToolChoiceForModel(
+          modelConfig.model,
+          modelConfig.toolChoice,
+        );
+      }
 
       const reasoningSettings = getDefaultReasoningSettings(
         modelConfig.model,
@@ -2019,6 +2090,7 @@ export class ChatGPTApi implements LLMApi {
 
       // web_search_options 仅 OpenAI 官方支持，第三方中转会报 Unknown parameter 错误
       if (
+        parameterSupport.web_search &&
         modelConfig.webSearch &&
         !isAiHubMixBaseUrl(currentBaseUrlForRequest)
       ) {
@@ -2034,19 +2106,43 @@ export class ChatGPTApi implements LLMApi {
       }
 
       const normalizedReasoningEffort = reasoningSettings.reasoningEffort;
-      if (normalizedReasoningEffort) {
+      if (isMiniMaxModel(modelConfig.model)) {
+        requestPayload["thinking"] = {
+          type: ["none", "minimal"].includes(
+            String(modelConfig.reasoningEffort || "").toLowerCase(),
+          )
+            ? "disabled"
+            : "adaptive",
+        };
+      } else if (
+        isQwenModel(modelConfig.model) ||
+        isKimiModel(modelConfig.model)
+      ) {
+        const thinkingDisabled = ["none", "minimal"].includes(
+          String(modelConfig.reasoningEffort || "").toLowerCase(),
+        );
+        requestPayload["enable_thinking"] = !thinkingDisabled;
+        if (
+          !thinkingDisabled &&
+          parameterSupport.reasoning_max_tokens &&
+          modelConfig.reasoningMaxTokens > 0
+        ) {
+          requestPayload["thinking_budget"] = modelConfig.reasoningMaxTokens;
+        }
+        if (normalizedReasoningEffort && !thinkingDisabled) {
+          requestPayload["reasoning_effort"] = normalizedReasoningEffort;
+        }
+      } else if (normalizedReasoningEffort) {
         requestPayload["reasoning_effort"] = normalizedReasoningEffort;
         requestPayload["reasoning"] = {
           ...(requestPayload["reasoning"] as
-            | Record<string, unknown>
-            | undefined),
+            Record<string, unknown> | undefined),
           effort: normalizedReasoningEffort,
         };
       } else if ((reasoningSettings.reasoningMaxTokens ?? 0) > 0) {
         requestPayload["reasoning"] = {
           ...(requestPayload["reasoning"] as
-            | Record<string, unknown>
-            | undefined),
+            Record<string, unknown> | undefined),
           max_tokens: reasoningSettings.reasoningMaxTokens,
         };
       }
@@ -2061,10 +2157,17 @@ export class ChatGPTApi implements LLMApi {
         };
       }
 
-      if (modelConfig.mediaResolution?.trim()) {
+      if (
+        parameterSupport.media_resolution &&
+        modelConfig.mediaResolution?.trim()
+      ) {
         requestPayload["media_resolution"] = modelConfig.mediaResolution.trim();
       }
-      if (modelConfig.structuredOutput && modelConfig.jsonSchema?.trim()) {
+      if (
+        parameterSupport.structured_output_mode === "json_schema" &&
+        modelConfig.structuredOutput &&
+        modelConfig.jsonSchema?.trim()
+      ) {
         requestPayload["response_format"] = {
           type: "json_schema",
           json_schema: {
@@ -2074,17 +2177,16 @@ export class ChatGPTApi implements LLMApi {
         };
       }
 
-      const globalSystemPrompt = String(
-        useAppConfig.getState().modelConfig.customSystemPrompt || "",
-      );
+      const globalSystemPrompt = String(modelConfig.customSystemPrompt || "");
 
-      if (isGpt5) {
-        if (globalSystemPrompt) {
-          (requestPayload as RequestPayload).messages.unshift({
-            role: "developer",
-            content: globalSystemPrompt,
-          });
-        }
+      if (
+        isMiniMaxModel(modelConfig.model) ||
+        isQwenModel(modelConfig.model) ||
+        isKimiModel(modelConfig.model)
+      ) {
+        delete requestPayload.max_tokens;
+        requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
+      } else if (isGpt5) {
         // Remove max_tokens if present
         delete requestPayload.max_tokens;
         // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
@@ -2095,7 +2197,10 @@ export class ChatGPTApi implements LLMApi {
         // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
         (requestPayload as RequestPayload).messages.unshift({
           role: "developer",
-          content: [globalSystemPrompt, "Formatting re-enabled"]
+          content: [
+            modelConfig.enableInjectSystemPrompts ? globalSystemPrompt : "",
+            "Formatting re-enabled",
+          ]
             .filter(Boolean)
             .join("\n"),
         });
@@ -2125,8 +2230,7 @@ export class ChatGPTApi implements LLMApi {
       const streamRequestPayload = requestPayload as Record<string, unknown>;
       streamRequestPayload["stream_options"] = {
         ...((streamRequestPayload["stream_options"] as
-          | Record<string, unknown>
-          | undefined) || {}),
+          Record<string, unknown> | undefined) || {}),
         include_usage: true,
       };
     }
@@ -2169,8 +2273,7 @@ export class ChatGPTApi implements LLMApi {
     let proxyBaseUrl = "";
     let shouldProbeChatPaths = false;
     let rememberedChatEndpoint:
-      | ReturnType<typeof getRememberedChatEndpoint>
-      | undefined;
+      ReturnType<typeof getRememberedChatEndpoint> | undefined;
     let chatPathMemoryParams:
       | {
           provider?: string;
@@ -2228,14 +2331,14 @@ export class ChatGPTApi implements LLMApi {
         const nextPath = aiHubMixPredictionPath
           ? `v1/models/${aiHubMixPredictionPath}/predictions`
           : aiHubMixVideoPath
-          ? aiHubMixVideoPath
-          : shouldUseToApisImageReferenceEndpoint
-          ? OpenaiPath.ImagePath
-          : shouldUseImageEditEndpoint
-          ? OpenaiPath.ImageEditPath
-          : shouldUseImageGenerationEndpoint
-          ? OpenaiPath.ImagePath
-          : OpenaiPath.ChatPath;
+            ? aiHubMixVideoPath
+            : shouldUseToApisImageReferenceEndpoint
+              ? OpenaiPath.ImagePath
+              : shouldUseImageEditEndpoint
+                ? OpenaiPath.ImageEditPath
+                : shouldUseImageGenerationEndpoint
+                  ? OpenaiPath.ImagePath
+                  : OpenaiPath.ChatPath;
         rememberedChatEndpoint =
           shouldProbeChatPaths && !shouldStream
             ? getRememberedChatEndpoint(chatPathMemoryParams)
@@ -2424,7 +2527,7 @@ export class ChatGPTApi implements LLMApi {
             }
           },
           onFinish(message: string, responseRes: Response) {
-            if (latestReasoningDetails) {
+            if (modelConfig.includeThoughts && latestReasoningDetails) {
               (responseRes as any).__reasoning_details = latestReasoningDetails;
             }
             if (latestUsage) {
@@ -2572,6 +2675,12 @@ export class ChatGPTApi implements LLMApi {
             }
 
             if (reasoning && reasoning.length > 0) {
+              if (!modelConfig.includeThoughts) {
+                return {
+                  isThinking: true,
+                  content: "",
+                };
+              }
               return {
                 isThinking: true,
                 content: reasoning,
@@ -2816,7 +2925,7 @@ export class ChatGPTApi implements LLMApi {
         const reasoningDetails =
           resJson?.choices?.[0]?.message?.reasoning_details ??
           resJson?.choices?.[0]?.delta?.reasoning_details;
-        if (reasoningDetails) {
+        if (modelConfig.includeThoughts && reasoningDetails) {
           (res as any).__reasoning_details = reasoningDetails;
         }
         if (resJson?.usage) {

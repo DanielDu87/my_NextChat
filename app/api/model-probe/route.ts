@@ -51,7 +51,12 @@ async function resolveModelAuthorization(req: NextRequest, baseUrl: string) {
     if (authType === "x-goog-api-key") return apiKey;
     if (authType === "none" || authType === "query-key") return null;
     return `Bearer ${apiKey}`;
-  } catch {
+  } catch (error) {
+    // 明确记录获取失败，不要静默返回 null 而误认为"未配置"。
+    console.error("[ModelProbe] 获取 API 配置失败，将尝试无认证请求", {
+      baseUrl: normalizedBaseUrl,
+      error: error instanceof Error ? error.message : error,
+    });
     return null;
   }
 }

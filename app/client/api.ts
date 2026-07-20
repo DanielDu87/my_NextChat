@@ -101,6 +101,7 @@ export interface LLMConfig {
   providerName?: string;
   temperature?: number;
   top_p?: number;
+  top_k?: number;
   stream?: boolean;
   presence_penalty?: number;
   frequency_penalty?: number;
@@ -118,6 +119,15 @@ export interface LLMConfig {
   mediaResolution?: string;
   structuredOutput?: boolean;
   jsonSchema?: string;
+  contextWindow?: number;
+  stopSequences?: string;
+  candidateCount?: number;
+  toolChoice?: string;
+  safetySettings?: string;
+  promptCache?: boolean;
+  seed?: number;
+  modalities?: string[];
+  generationParams?: Record<string, string | number | boolean>;
 }
 
 export interface SpeechOptions {
@@ -362,7 +372,7 @@ export function getHeaders(
           ...(currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig),
           ...requestModelConfig,
         }
-      : currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig;
+      : (currentSession?.mask?.modelConfig ?? DEFAULT_CONFIG.modelConfig);
     const isCustom = modelConfig.providerName === ServiceProvider.Custom;
     const isGoogle = modelConfig.providerName === ServiceProvider.Google;
     const isAzure = modelConfig.providerName === ServiceProvider.Azure;
@@ -480,34 +490,39 @@ export function getHeaders(
               effectiveProvider === ServiceProvider.Google
                 ? accessStore.googleApiKey
                 : effectiveProvider === ServiceProvider.Azure
-                ? accessStore.azureApiKey
-                : effectiveProvider === ServiceProvider.Anthropic
-                ? accessStore.anthropicApiKey
-                : effectiveProvider === ServiceProvider.ByteDance
-                ? accessStore.bytedanceApiKey
-                : effectiveProvider === ServiceProvider.Alibaba
-                ? accessStore.alibabaApiKey
-                : effectiveProvider === ServiceProvider.Moonshot
-                ? accessStore.moonshotApiKey
-                : effectiveProvider === ServiceProvider.XAI
-                ? accessStore.xaiApiKey
-                : effectiveProvider === ServiceProvider.DeepSeek
-                ? accessStore.deepseekApiKey
-                : effectiveProvider === ServiceProvider.ChatGLM
-                ? accessStore.chatglmApiKey
-                : effectiveProvider === ServiceProvider.SiliconFlow
-                ? accessStore.siliconflowApiKey
-                : effectiveProvider === ServiceProvider.Iflytek
-                ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
-                  ? accessStore.iflytekApiKey +
-                    ":" +
-                    accessStore.iflytekApiSecret
-                  : ""
-                : effectiveProvider === ServiceProvider["302.AI"]
-                ? accessStore.ai302ApiKey
-                : effectiveProvider === ServiceProvider.Local
-                ? accessStore.localApiKey
-                : accessStore.openaiApiKey,
+                  ? accessStore.azureApiKey
+                  : effectiveProvider === ServiceProvider.Anthropic
+                    ? accessStore.anthropicApiKey
+                    : effectiveProvider === ServiceProvider.ByteDance
+                      ? accessStore.bytedanceApiKey
+                      : effectiveProvider === ServiceProvider.Alibaba
+                        ? accessStore.alibabaApiKey
+                        : effectiveProvider === ServiceProvider.Moonshot
+                          ? accessStore.moonshotApiKey
+                          : effectiveProvider === ServiceProvider.XAI
+                            ? accessStore.xaiApiKey
+                            : effectiveProvider === ServiceProvider.DeepSeek
+                              ? accessStore.deepseekApiKey
+                              : effectiveProvider === ServiceProvider.ChatGLM
+                                ? accessStore.chatglmApiKey
+                                : effectiveProvider ===
+                                    ServiceProvider.SiliconFlow
+                                  ? accessStore.siliconflowApiKey
+                                  : effectiveProvider ===
+                                      ServiceProvider.Iflytek
+                                    ? accessStore.iflytekApiKey &&
+                                      accessStore.iflytekApiSecret
+                                      ? accessStore.iflytekApiKey +
+                                        ":" +
+                                        accessStore.iflytekApiSecret
+                                      : ""
+                                    : effectiveProvider ===
+                                        ServiceProvider["302.AI"]
+                                      ? accessStore.ai302ApiKey
+                                      : effectiveProvider ===
+                                          ServiceProvider.Local
+                                        ? accessStore.localApiKey
+                                        : accessStore.openaiApiKey,
             fallback: [],
           };
 
@@ -549,10 +564,10 @@ export function getHeaders(
     return isAzure
       ? "api-key"
       : isAnthropic
-      ? "x-api-key"
-      : isGoogle
-      ? "x-goog-api-key"
-      : "Authorization";
+        ? "x-api-key"
+        : isGoogle
+          ? "x-goog-api-key"
+          : "Authorization";
   }
 
   const {

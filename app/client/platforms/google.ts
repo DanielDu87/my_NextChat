@@ -24,12 +24,27 @@ import {
 } from "@/app/utils";
 import { preProcessImageContent } from "@/app/utils/chat";
 import { nanoid } from "nanoid";
-import { applyModelSamplingRules } from "../model-parameter-rules";
+import {
+  applyModelSamplingRules,
+  getReasoningEffortOptions,
+  getModelParameterSupport,
+  isGemini3Model,
+  normalizeToolChoiceForModel,
+  parseStopSequences,
+} from "../model-parameter-rules";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { joinUrlPath } from "@/app/utils/url";
 
 export class GeminiProApi implements LLMApi {
+  private parseStructuredOutputSchema(schemaText: string) {
+    try {
+      return JSON.parse(schemaText);
+    } catch {
+      throw new Error("JSON Schema 格式不正确，请检查结构化输出配置");
+    }
+  }
+
   private isAiHubMixGeminiBaseUrl(baseUrl: string) {
     return baseUrl.includes("aihubmix.com/gemini");
   }
@@ -168,7 +183,7 @@ export class GeminiProApi implements LLMApi {
     });
 
     // google requires that role in neighboring messages must not be the same
-    for (let i = 0; i < messages.length - 1; ) {
+    for (let i = 0; i < messages.length - 1;) {
       // Check if current and next item both have the role "model"
       if (messages[i].role === messages[i + 1].role) {
         // Concatenate the 'parts' of the current and next item
@@ -197,40 +212,129 @@ export class GeminiProApi implements LLMApi {
         model: options.config.model,
       },
     };
-    const requestPayload = {
-      contents: messages,
-      generationConfig: applyModelSamplingRules(options.config.model, {
-        // stopSequences: [
-        //   "Title"
-        // ],
-        temperature: modelConfig.temperature,
-        maxOutputTokens: modelConfig.max_tokens,
-        topP: modelConfig.top_p,
-        // "topK": modelConfig.top_k,
-      }),
-      ...(modelConfig.mediaResolution?.trim()
+    const parameterSupport = getModelParameterSupport(options.config.model);
+    const requestedReasoningEffort = String(modelConfig.reasoningEffort || "")
+      .trim()
+      .toLowerCase();
+    const supportedReasoningEfforts = new Set(
+      getReasoningEffortOptions(options.config.model).map(
+        (option) => option.value,
+      ),
+    );
+    const reasoningEffort = supportedReasoningEfforts.has(
+      requestedReasoningEffort,
+    )
+      ? requestedReasoningEffort
+      : "";
+    const generationConfig = applyModelSamplingRules(options.config.model, {
+      temperature: modelConfig.temperature,
+      maxOutputTokens: modelConfig.max_tokens,
+      topP: modelConfig.top_p,
+      ...(parameterSupport.top_k && Number(modelConfig.top_k) > 0
+        ? { topK: Number(modelConfig.top_k) }
+        : {}),
+      presencePenalty: modelConfig.presence_penalty,
+      frequencyPenalty: modelConfig.frequency_penalty,
+      ...(parameterSupport.stop_sequences &&
+      parseStopSequences(
+        modelConfig.stopSequences,
+        parameterSupport.stop_sequence_limit,
+      ).length > 0
         ? {
-            mediaResolution: modelConfig.mediaResolution.trim(),
+            stopSequences: parseStopSequences(
+              modelConfig.stopSequences,
+              parameterSupport.stop_sequence_limit,
+            ),
           }
         : {}),
-      safetySettings: [
-        {
-          category: "HARM_CATEGORY_HARASSMENT",
-          threshold: accessStore.googleSafetySettings,
-        },
-        {
-          category: "HARM_CATEGORY_HATE_SPEECH",
-          threshold: accessStore.googleSafetySettings,
-        },
-        {
-          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-          threshold: accessStore.googleSafetySettings,
-        },
-        {
-          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-          threshold: accessStore.googleSafetySettings,
-        },
-      ],
+      ...(parameterSupport.reasoning &&
+      (reasoningEffort || modelConfig.reasoningMaxTokens > 0)
+        ? {
+            thinkingConfig: {
+              includeThoughts: modelConfig.includeThoughts !== false,
+              ...(isGemini3Model(options.config.model)
+                ? reasoningEffort
+                  ? {
+                      thinkingLevel: reasoningEffort.toUpperCase(),
+                    }
+                  : {}
+                : modelConfig.reasoningMaxTokens > 0
+                  ? { thinkingBudget: modelConfig.reasoningMaxTokens }
+                  : {}),
+            },
+          }
+        : {}),
+      ...(parameterSupport.media_resolution &&
+      modelConfig.mediaResolution?.trim()
+        ? {
+            mediaResolution: `MEDIA_RESOLUTION_${modelConfig.mediaResolution
+              .trim()
+              .toUpperCase()}`,
+          }
+        : {}),
+      ...(parameterSupport.capability === "image"
+        ? {
+            imageConfig: {
+              ...(modelConfig.generationParams?.aspect_ratio
+                ? {
+                    aspectRatio: String(
+                      modelConfig.generationParams.aspect_ratio,
+                    ),
+                  }
+                : {}),
+              ...(modelConfig.generationParams?.resolution
+                ? {
+                    imageSize: String(modelConfig.generationParams.resolution),
+                  }
+                : {}),
+            },
+          }
+        : {}),
+      ...(parameterSupport.json_schema &&
+      modelConfig.structuredOutput &&
+      modelConfig.jsonSchema?.trim()
+        ? {
+            responseMimeType: "application/json",
+            responseJsonSchema: this.parseStructuredOutputSchema(
+              modelConfig.jsonSchema,
+            ),
+          }
+        : {}),
+    });
+    const requestPayload = {
+      contents: messages,
+      generationConfig,
+      ...(parameterSupport.tool_choice && options.config.stream
+        ? {
+            toolConfig: {
+              functionCallingConfig: {
+                mode:
+                  normalizeToolChoiceForModel(
+                    modelConfig.model,
+                    modelConfig.toolChoice,
+                  ) === "required"
+                    ? "ANY"
+                    : normalizeToolChoiceForModel(
+                        modelConfig.model,
+                        modelConfig.toolChoice,
+                      ).toUpperCase(),
+              },
+            },
+          }
+        : {}),
+      ...(modelConfig.safetySettings
+        ? {
+            safetySettings: [
+              "HARM_CATEGORY_HARASSMENT",
+              "HARM_CATEGORY_HATE_SPEECH",
+              "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              "HARM_CATEGORY_DANGEROUS_CONTENT",
+            ].map((category) => ({
+              category,
+              threshold: modelConfig.safetySettings,
+            })),
+          }
+        : {}),
     };
 
     let shouldStream = !!options.config.stream;
