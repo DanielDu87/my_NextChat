@@ -613,6 +613,14 @@
   border-radius: 4px;
 }
 
+// object/iframe 包装器，让 object fallback 到 iframe
+.file-preview-frame-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .file-preview-frame {
   width: 100%;
   height: min(640px, calc(var(--full-height) - 132px));
@@ -869,6 +877,10 @@
   }
 
   .file-preview-frame {
+    background: #24292f;
+  }
+
+  .file-preview-frame-wrapper {
     background: #24292f;
   }
 
