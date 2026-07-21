@@ -1,7 +1,13 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
-import { default as constants } from "@/app/constant";
-import type { ChatMessageTool } from "@/app/store/chat";
+import constants, {
+  CACHE_URL_PREFIX,
+  DEFAULT_SYSTEM_TEMPLATE,
+} from "@/app/constant";
+import type {
+  ChatMessageAttachedFile,
+  ChatMessageTool,
+} from "@/app/store/chat";
 import { useChatStore } from "@/app/store/chat";
 import { useAccessStore } from "@/app/store/access";
 import { useAppConfig } from "@/app/store/config";
@@ -35,6 +41,10 @@ import {
   rememberChatEndpoint,
 } from "@/app/utils/api-path-memory";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
+import {
+  getSafeAttachmentContentType,
+  isOpenAIFileInputSupported,
+} from "@/app/utils/attachment-file";
 import { ModelSize, DalleQuality, DalleStyle } from "@/app/typing";
 
 import {
@@ -117,6 +127,145 @@ const DEFAULT_GENERIC_CHAT_ENDPOINT: GenericChatEndpointCandidate = {
   method: "POST",
   format: "openai-chat",
 };
+
+const OPENAI_FILE_INPUT_MAX_BYTES = 50 * 1024 * 1024;
+
+type OpenAIResponsesInputContent =
+  | { type: "input_text"; text: string }
+  | { type: "output_text"; text: string }
+  | { type: "input_image"; image_url: string }
+  | {
+      type: "input_file";
+      filename: string;
+      file_data: string;
+      detail: "high";
+    };
+
+type CachedOpenAIFileAttachment = ChatMessageAttachedFile & {
+  previewUrl: string;
+};
+
+type RequestMessageWithAttachments = ChatOptions["messages"][number] & {
+  attachedFiles?: ChatMessageAttachedFile[];
+};
+
+function isOpenAIFileAttachment(
+  file: ChatMessageAttachedFile,
+): file is CachedOpenAIFileAttachment {
+  const candidate = file as Partial<CachedOpenAIFileAttachment>;
+  return (
+    candidate.extractionStatus !== "pending" &&
+    isOpenAIFileInputSupported(String(candidate.name || "")) &&
+    String(candidate.previewUrl || "").startsWith(`${CACHE_URL_PREFIX}/`)
+  );
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
+}
+
+async function readCachedFileAsOpenAIInput(file: CachedOpenAIFileAttachment) {
+  if (file.size > OPENAI_FILE_INPUT_MAX_BYTES) {
+    throw new Error(`File ${file.name} exceeds OpenAI's 50 MB input limit`);
+  }
+  const response = await fetch(file.previewUrl, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`Unable to read PDF attachment (${response.status})`);
+  }
+  const data = await response.arrayBuffer();
+  if (data.byteLength > OPENAI_FILE_INPUT_MAX_BYTES) {
+    throw new Error(`File ${file.name} exceeds OpenAI's 50 MB input limit`);
+  }
+  return {
+    bytes: data.byteLength,
+    input: {
+      type: "input_file" as const,
+      filename: file.name,
+      file_data: `data:${getSafeAttachmentContentType(file.name)};base64,${arrayBufferToBase64(data)}`,
+      detail: "high" as const,
+    },
+  };
+}
+
+async function buildOpenAIResponsesInput(
+  messages: RequestMessageWithAttachments[],
+) {
+  const attachedFileBytes = new Map<string, number>();
+  let totalFileBytes = 0;
+  const input = [] as Array<{
+    role: "developer" | "user" | "assistant";
+    content: OpenAIResponsesInputContent[];
+  }>;
+  const newestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+
+  for (const message of messages) {
+    const content: OpenAIResponsesInputContent[] = [];
+    const textType =
+      message.role === "assistant" ? "output_text" : "input_text";
+    if (typeof message.content === "string") {
+      if (message.content) {
+        content.push({ type: textType, text: message.content });
+      }
+    } else {
+      for (const part of message.content) {
+        if (part.type === "text" && part.text) {
+          content.push({ type: textType, text: part.text });
+        } else if (part.type === "image_url" && part.image_url?.url) {
+          content.push({ type: "input_image", image_url: part.image_url.url });
+        }
+      }
+    }
+
+    // Historical attachments retain bounded extracted text. Only the newest
+    // user message can add raw files to this Responses request.
+    if (message === newestUserMessage) {
+      const attachedFiles = (message.attachedFiles || []).filter(
+        isOpenAIFileAttachment,
+      );
+      for (const file of attachedFiles) {
+        const key = `${file.name}|${file.previewUrl}`;
+        if (attachedFileBytes.has(key)) continue;
+        const attachment = await readCachedFileAsOpenAIInput(file);
+        totalFileBytes += attachment.bytes;
+        if (totalFileBytes > OPENAI_FILE_INPUT_MAX_BYTES) {
+          throw new Error("OpenAI limits the combined file input to 50 MB");
+        }
+        attachedFileBytes.set(key, attachment.bytes);
+        content.push(attachment.input);
+      }
+    }
+
+    if (content.length > 0) {
+      input.push({
+        role: message.role === "system" ? "developer" : message.role,
+        content,
+      });
+    }
+  }
+
+  return input;
+}
+
+function hasNewestOpenAIFileAttachments(
+  messages: RequestMessageWithAttachments[],
+) {
+  const newestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  return Boolean(
+    newestUserMessage?.attachedFiles?.some(isOpenAIFileAttachment),
+  );
+}
 
 function buildGenericChatPayload(
   requestPayload:
@@ -1851,6 +2000,7 @@ export class ChatGPTApi implements LLMApi {
 
     let requestPayload:
       RequestPayload | DalleRequestPayload | Record<string, unknown> | FormData;
+    let usesOpenAIResponsesPdfInput = false;
 
     const isDalle3 = _isDalle3(requestedModel);
     const isImageModel = isImageGenerationModel(requestedModel);
@@ -2008,210 +2158,244 @@ export class ChatGPTApi implements LLMApi {
           : {}),
       };
     } else {
-      const messages: ChatOptions["messages"] = [];
+      const messages: RequestMessageWithAttachments[] = [];
+      const reasoningSystemPrompts: string[] = [];
       for (const v of options.messages) {
         const shouldSendImages = getMessageImages(v).length > 0;
         const content = shouldSendImages
           ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
-        if (!(isReasoningOpenAIModel && v.role === "system")) {
+        if (isReasoningOpenAIModel && v.role === "system") {
+          // Reasoning models reject system messages. Preserve the already
+          // rendered default/custom template as a single developer message.
+          if (typeof content === "string" && content) {
+            reasoningSystemPrompts.push(content);
+          }
+        } else {
           messages.push({
             role: v.role,
             content,
             reasoning_details: (v as any).reasoning_details,
+            attachedFiles: (v as RequestMessageWithAttachments).attachedFiles,
           });
         }
       }
 
-      // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.
-      requestPayload = {
-        messages,
-        ...(isGeminiImagePreview ? { modalities: ["text", "image"] } : {}),
-        stream: options.config.stream,
-        model: modelConfig.model,
-        temperature:
-          !isReasoningOpenAIModel && !isGpt5 ? modelConfig.temperature : 1,
-        presence_penalty: !isReasoningOpenAIModel
-          ? modelConfig.presence_penalty
-          : 0,
-        frequency_penalty: !isReasoningOpenAIModel
-          ? modelConfig.frequency_penalty
-          : 0,
-        top_p: !isReasoningOpenAIModel ? modelConfig.top_p : 1,
-        max_tokens: modelConfig.max_tokens,
-      };
+      const hasOpenAIFileAttachments = hasNewestOpenAIFileAttachments(messages);
 
-      requestPayload = applyModelSamplingRules(
-        modelConfig.model,
-        requestPayload,
-      );
-
-      // 添加 OpenAI 专用参数：seed 和 modalities
-      // seed: 仅在非推理模型（o1/o3/o4/o5）且设置了有效值时添加
-      // GPT-5 和其他非推理模型支持 seed
       if (
-        modelConfig.seed !== undefined &&
-        modelConfig.seed !== -1 &&
-        modelConfig.seed > 0 &&
-        !isReasoningOpenAIModel
+        modelConfig.providerName === ServiceProvider.OpenAI &&
+        hasOpenAIFileAttachments
       ) {
-        requestPayload.seed = modelConfig.seed;
-      }
+        try {
+          requestPayload = {
+            model: modelConfig.model,
+            input: await buildOpenAIResponsesInput(messages),
+            stream: options.config.stream,
+            max_output_tokens: modelConfig.max_tokens,
+          };
+          usesOpenAIResponsesPdfInput = true;
+        } catch (error) {
+          options.onError?.(error as Error);
+          return;
+        }
+      } else {
+        // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.
+        requestPayload = {
+          messages: messages.map(
+            ({ attachedFiles: _attachedFiles, ...message }) => message,
+          ),
+          ...(isGeminiImagePreview ? { modalities: ["text", "image"] } : {}),
+          stream: options.config.stream,
+          model: modelConfig.model,
+          temperature:
+            !isReasoningOpenAIModel && !isGpt5 ? modelConfig.temperature : 1,
+          presence_penalty: !isReasoningOpenAIModel
+            ? modelConfig.presence_penalty
+            : 0,
+          frequency_penalty: !isReasoningOpenAIModel
+            ? modelConfig.frequency_penalty
+            : 0,
+          top_p: !isReasoningOpenAIModel ? modelConfig.top_p : 1,
+          max_tokens: modelConfig.max_tokens,
+        };
 
-      // modalities: 仅在支持且设置了值时添加
-      if (
-        parameterSupport.modalities &&
-        modelConfig.modalities &&
-        modelConfig.modalities.length > 0
-      ) {
-        requestPayload.modalities = modelConfig.modalities;
-      }
-
-      const stopSequences = parseStopSequences(
-        modelConfig.stopSequences,
-        parameterSupport.stop_sequence_limit,
-      );
-      if (parameterSupport.stop_sequences && stopSequences.length > 0) {
-        requestPayload.stop = stopSequences;
-      }
-      if (parameterSupport.tool_choice && options.config.stream) {
-        requestPayload.tool_choice = normalizeToolChoiceForModel(
+        requestPayload = applyModelSamplingRules(
           modelConfig.model,
-          modelConfig.toolChoice,
+          requestPayload,
         );
-      }
 
-      const reasoningSettings = getDefaultReasoningSettings(
-        modelConfig.model,
-        modelConfig.max_tokens,
-        modelConfig.reasoningEffort,
-        modelConfig.reasoningMaxTokens,
-      );
-
-      // web_search_options 仅 OpenAI 官方支持，第三方中转会报 Unknown parameter 错误
-      if (
-        parameterSupport.web_search &&
-        modelConfig.webSearch &&
-        !isAiHubMixBaseUrl(currentBaseUrlForRequest)
-      ) {
-        requestPayload["web_search_options"] = {
-          ...(normalizeSearchContextSize(modelConfig.webSearchContextSize)
-            ? {
-                search_context_size: normalizeSearchContextSize(
-                  modelConfig.webSearchContextSize,
-                ),
-              }
-            : {}),
-        };
-      }
-
-      const normalizedReasoningEffort = reasoningSettings.reasoningEffort;
-      if (isMiniMaxModel(modelConfig.model)) {
-        requestPayload["thinking"] = {
-          type: ["none", "minimal"].includes(
-            String(modelConfig.reasoningEffort || "").toLowerCase(),
-          )
-            ? "disabled"
-            : "adaptive",
-        };
-      } else if (
-        isQwenModel(modelConfig.model) ||
-        isKimiModel(modelConfig.model)
-      ) {
-        const thinkingDisabled = ["none", "minimal"].includes(
-          String(modelConfig.reasoningEffort || "").toLowerCase(),
-        );
-        requestPayload["enable_thinking"] = !thinkingDisabled;
+        // 添加 OpenAI 专用参数：seed 和 modalities
+        // seed: 仅在非推理模型（o1/o3/o4/o5）且设置了有效值时添加
+        // GPT-5 和其他非推理模型支持 seed
         if (
-          !thinkingDisabled &&
-          parameterSupport.reasoning_max_tokens &&
-          modelConfig.reasoningMaxTokens > 0
+          modelConfig.seed !== undefined &&
+          modelConfig.seed !== -1 &&
+          modelConfig.seed > 0 &&
+          !isReasoningOpenAIModel
         ) {
-          requestPayload["thinking_budget"] = modelConfig.reasoningMaxTokens;
+          requestPayload.seed = modelConfig.seed;
         }
-        if (normalizedReasoningEffort && !thinkingDisabled) {
+
+        // modalities: 仅在支持且设置了值时添加
+        if (
+          parameterSupport.modalities &&
+          modelConfig.modalities &&
+          modelConfig.modalities.length > 0
+        ) {
+          requestPayload.modalities = modelConfig.modalities;
+        }
+
+        const stopSequences = parseStopSequences(
+          modelConfig.stopSequences,
+          parameterSupport.stop_sequence_limit,
+        );
+        if (parameterSupport.stop_sequences && stopSequences.length > 0) {
+          requestPayload.stop = stopSequences;
+        }
+        if (parameterSupport.tool_choice && options.config.stream) {
+          requestPayload.tool_choice = normalizeToolChoiceForModel(
+            modelConfig.model,
+            modelConfig.toolChoice,
+          );
+        }
+
+        const reasoningSettings = getDefaultReasoningSettings(
+          modelConfig.model,
+          modelConfig.max_tokens,
+          modelConfig.reasoningEffort,
+          modelConfig.reasoningMaxTokens,
+        );
+
+        // web_search_options 仅 OpenAI 官方支持，第三方中转会报 Unknown parameter 错误
+        if (
+          parameterSupport.web_search &&
+          modelConfig.webSearch &&
+          !isAiHubMixBaseUrl(currentBaseUrlForRequest)
+        ) {
+          requestPayload["web_search_options"] = {
+            ...(normalizeSearchContextSize(modelConfig.webSearchContextSize)
+              ? {
+                  search_context_size: normalizeSearchContextSize(
+                    modelConfig.webSearchContextSize,
+                  ),
+                }
+              : {}),
+          };
+        }
+
+        const normalizedReasoningEffort = reasoningSettings.reasoningEffort;
+        if (isMiniMaxModel(modelConfig.model)) {
+          requestPayload["thinking"] = {
+            type: ["none", "minimal"].includes(
+              String(modelConfig.reasoningEffort || "").toLowerCase(),
+            )
+              ? "disabled"
+              : "adaptive",
+          };
+        } else if (
+          isQwenModel(modelConfig.model) ||
+          isKimiModel(modelConfig.model)
+        ) {
+          const thinkingDisabled = ["none", "minimal"].includes(
+            String(modelConfig.reasoningEffort || "").toLowerCase(),
+          );
+          requestPayload["enable_thinking"] = !thinkingDisabled;
+          if (
+            !thinkingDisabled &&
+            parameterSupport.reasoning_max_tokens &&
+            modelConfig.reasoningMaxTokens > 0
+          ) {
+            requestPayload["thinking_budget"] = modelConfig.reasoningMaxTokens;
+          }
+          if (normalizedReasoningEffort && !thinkingDisabled) {
+            requestPayload["reasoning_effort"] = normalizedReasoningEffort;
+          }
+        } else if (normalizedReasoningEffort) {
           requestPayload["reasoning_effort"] = normalizedReasoningEffort;
+          requestPayload["reasoning"] = {
+            ...(requestPayload["reasoning"] as
+              Record<string, unknown> | undefined),
+            effort: normalizedReasoningEffort,
+          };
+        } else if ((reasoningSettings.reasoningMaxTokens ?? 0) > 0) {
+          requestPayload["reasoning"] = {
+            ...(requestPayload["reasoning"] as
+              Record<string, unknown> | undefined),
+            max_tokens: reasoningSettings.reasoningMaxTokens,
+          };
         }
-      } else if (normalizedReasoningEffort) {
-        requestPayload["reasoning_effort"] = normalizedReasoningEffort;
-        requestPayload["reasoning"] = {
-          ...(requestPayload["reasoning"] as
-            Record<string, unknown> | undefined),
-          effort: normalizedReasoningEffort,
-        };
-      } else if ((reasoningSettings.reasoningMaxTokens ?? 0) > 0) {
-        requestPayload["reasoning"] = {
-          ...(requestPayload["reasoning"] as
-            Record<string, unknown> | undefined),
-          max_tokens: reasoningSettings.reasoningMaxTokens,
-        };
-      }
 
-      // 豆包的 OpenAI 兼容接口默认可能把思考过程直接混进 content。
-      // 对自定义兼容渠道默认关闭 thinking，避免正文里出现思考文本和额外空白。
-      if (
-        isCustomDoubaoThinkingModel(modelConfig.providerName, modelConfig.model)
-      ) {
-        requestPayload["thinking"] = {
-          type: "disabled",
-        };
-      }
+        // 豆包的 OpenAI 兼容接口默认可能把思考过程直接混进 content。
+        // 对自定义兼容渠道默认关闭 thinking，避免正文里出现思考文本和额外空白。
+        if (
+          isCustomDoubaoThinkingModel(
+            modelConfig.providerName,
+            modelConfig.model,
+          )
+        ) {
+          requestPayload["thinking"] = {
+            type: "disabled",
+          };
+        }
 
-      if (
-        parameterSupport.media_resolution &&
-        modelConfig.mediaResolution?.trim()
-      ) {
-        requestPayload["media_resolution"] = modelConfig.mediaResolution.trim();
-      }
-      if (
-        parameterSupport.structured_output_mode === "json_schema" &&
-        modelConfig.structuredOutput &&
-        modelConfig.jsonSchema?.trim()
-      ) {
-        requestPayload["response_format"] = {
-          type: "json_schema",
-          json_schema: {
-            name: "nextchat_structured_output",
-            schema: parseStructuredOutputSchema(modelConfig.jsonSchema),
-          },
-        };
-      }
+        if (
+          parameterSupport.media_resolution &&
+          modelConfig.mediaResolution?.trim()
+        ) {
+          requestPayload["media_resolution"] =
+            modelConfig.mediaResolution.trim();
+        }
+        if (
+          parameterSupport.structured_output_mode === "json_schema" &&
+          modelConfig.structuredOutput &&
+          modelConfig.jsonSchema?.trim()
+        ) {
+          requestPayload["response_format"] = {
+            type: "json_schema",
+            json_schema: {
+              name: "nextchat_structured_output",
+              schema: parseStructuredOutputSchema(modelConfig.jsonSchema),
+            },
+          };
+        }
 
-      const globalSystemPrompt = String(modelConfig.customSystemPrompt || "");
+        if (
+          isMiniMaxModel(modelConfig.model) ||
+          isQwenModel(modelConfig.model) ||
+          isKimiModel(modelConfig.model)
+        ) {
+          delete requestPayload.max_tokens;
+          requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
+        } else if (isGpt5) {
+          // Remove max_tokens if present
+          delete requestPayload.max_tokens;
+          // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
+          requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
+        } else if (isReasoningOpenAIModel) {
+          // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
+          // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
+          // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
+          (requestPayload as RequestPayload).messages.unshift({
+            role: "developer",
+            content: [
+              modelConfig.enableInjectSystemPrompts
+                ? reasoningSystemPrompts.join("\n") || DEFAULT_SYSTEM_TEMPLATE
+                : "",
+              "Formatting re-enabled",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          });
 
-      if (
-        isMiniMaxModel(modelConfig.model) ||
-        isQwenModel(modelConfig.model) ||
-        isKimiModel(modelConfig.model)
-      ) {
-        delete requestPayload.max_tokens;
-        requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
-      } else if (isGpt5) {
-        // Remove max_tokens if present
-        delete requestPayload.max_tokens;
-        // Add max_completion_tokens (or max_completion_tokens if that's what you meant)
-        requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
-      } else if (isReasoningOpenAIModel) {
-        // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
-        // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
-        // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
-        (requestPayload as RequestPayload).messages.unshift({
-          role: "developer",
-          content: [
-            modelConfig.enableInjectSystemPrompts ? globalSystemPrompt : "",
-            "Formatting re-enabled",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        });
+          // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
+          requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
+        }
 
-        // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
-        requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
-      }
-
-      // 图片消息按多模态内容发送，是否支持由真实接口返回决定
-      if (hasImageMessages && !parameterSupport.max_completion_tokens) {
-        requestPayload["max_tokens"] = Math.max(modelConfig.max_tokens, 4000);
+        // 图片消息按多模态内容发送，是否支持由真实接口返回决定
+        if (hasImageMessages && !parameterSupport.max_completion_tokens) {
+          requestPayload["max_tokens"] = Math.max(modelConfig.max_tokens, 4000);
+        }
       }
     }
 
@@ -2223,6 +2407,7 @@ export class ChatGPTApi implements LLMApi {
 
     if (
       shouldStream &&
+      !usesOpenAIResponsesPdfInput &&
       !(requestPayload instanceof FormData) &&
       typeof requestPayload === "object" &&
       requestPayload
@@ -2332,13 +2517,15 @@ export class ChatGPTApi implements LLMApi {
           ? `v1/models/${aiHubMixPredictionPath}/predictions`
           : aiHubMixVideoPath
             ? aiHubMixVideoPath
-            : shouldUseToApisImageReferenceEndpoint
-              ? OpenaiPath.ImagePath
-              : shouldUseImageEditEndpoint
-                ? OpenaiPath.ImageEditPath
-                : shouldUseImageGenerationEndpoint
-                  ? OpenaiPath.ImagePath
-                  : OpenaiPath.ChatPath;
+            : usesOpenAIResponsesPdfInput
+              ? OpenaiPath.ResponsesPath
+              : shouldUseToApisImageReferenceEndpoint
+                ? OpenaiPath.ImagePath
+                : shouldUseImageEditEndpoint
+                  ? OpenaiPath.ImageEditPath
+                  : shouldUseImageGenerationEndpoint
+                    ? OpenaiPath.ImagePath
+                    : OpenaiPath.ChatPath;
         rememberedChatEndpoint =
           shouldProbeChatPaths && !shouldStream
             ? getRememberedChatEndpoint(chatPathMemoryParams)
@@ -2409,15 +2596,21 @@ export class ChatGPTApi implements LLMApi {
           (requestHeaders as any)["x-api-key-auth-query-param"],
         );
       let currentChatEndpoint: GenericChatEndpointCandidate =
-        rememberedChatEndpoint?.path
+        usesOpenAIResponsesPdfInput
           ? {
-              path: normalizeCandidatePath(rememberedChatEndpoint.path),
+              path: OpenaiPath.ResponsesPath,
               method: "POST",
-              format:
-                (rememberedChatEndpoint.format as GenericChatEndpointFormat) ||
-                "openai-chat",
+              format: "openai-responses",
             }
-          : DEFAULT_GENERIC_CHAT_ENDPOINT;
+          : rememberedChatEndpoint?.path
+            ? {
+                path: normalizeCandidatePath(rememberedChatEndpoint.path),
+                method: "POST",
+                format:
+                  (rememberedChatEndpoint.format as GenericChatEndpointFormat) ||
+                  "openai-chat",
+              }
+            : DEFAULT_GENERIC_CHAT_ENDPOINT;
       const chatEndpointCandidates = shouldProbeChatPaths
         ? [currentChatEndpoint, ...GENERIC_CHAT_ENDPOINT_CANDIDATES].filter(
             (candidate, index, all) =>
@@ -2548,6 +2741,15 @@ export class ChatGPTApi implements LLMApi {
           (text: string, runTools: ChatMessageTool[]) => {
             // console.log("parseSSE", text, runTools);
             const json = JSON.parse(text);
+            if (json?.type === "response.output_text.delta") {
+              return {
+                isThinking: false,
+                content: String(json.delta || ""),
+              };
+            }
+            if (json?.type === "response.completed" && json.response?.usage) {
+              latestUsage = json.response.usage;
+            }
             if (json?.usage) {
               latestUsage = json.usage;
             }

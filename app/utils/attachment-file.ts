@@ -22,6 +22,81 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 
 export type ExtractableAttachmentKind = "pdf" | "docx" | "spreadsheet";
 
+// These formats are safe to decode locally. Keeping this list separate from
+// preview MIME types lets every upload enter the analysis pipeline without
+// treating arbitrary binaries as text.
+const PLAIN_TEXT_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "log",
+  "json",
+  "jsonl",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "xml",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "less",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "mjs",
+  "cjs",
+  "py",
+  "java",
+  "go",
+  "rs",
+  "c",
+  "cc",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
+  "php",
+  "rb",
+  "sh",
+  "bash",
+  "zsh",
+  "sql",
+  "graphql",
+  "gql",
+  "vue",
+  "svelte",
+  "dockerfile",
+  "env",
+]);
+
+// File inputs accepted by the native OpenAI Responses API. PDF gains visual
+// understanding; the remaining document formats are still useful as native
+// files instead of being flattened into the local text fallback.
+const OPENAI_FILE_INPUT_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "ppt",
+  "pptx",
+  "xls",
+  "xlsx",
+  "csv",
+  "tsv",
+  "txt",
+  "md",
+  "rtf",
+  "odt",
+  "ods",
+  "odp",
+  "epub",
+  ...PLAIN_TEXT_EXTENSIONS,
+]);
+
 export function getAttachmentFileExtension(fileName: string) {
   const normalized = String(fileName || "")
     .trim()
@@ -66,4 +141,18 @@ export function getExtractableAttachmentKind(
     default:
       return null;
   }
+}
+
+export function isPlainTextAttachment(fileName: string) {
+  const extension = getAttachmentFileExtension(fileName);
+  return (
+    PLAIN_TEXT_EXTENSIONS.has(extension) ||
+    String(fileName || "")
+      .trim()
+      .toLowerCase() === "dockerfile"
+  );
+}
+
+export function isOpenAIFileInputSupported(fileName: string) {
+  return OPENAI_FILE_INPUT_EXTENSIONS.has(getAttachmentFileExtension(fileName));
 }

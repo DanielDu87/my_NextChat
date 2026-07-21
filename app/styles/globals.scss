@@ -9,6 +9,7 @@
   --black: rgb(48, 48, 48);
   --gray: rgb(250, 250, 250);
   --primary: rgb(29, 147, 171);
+  --chat-loading-primary: var(--primary);
   --primary-button-border: var(--primary);
   --primary-button-bg: color-mix(in srgb, var(--primary-button-border) 70%, white);
   --primary-button-hover-bg: var(--primary);
@@ -82,7 +83,7 @@
   --hover-color: #323232;
   --sidebar-search-placeholder: rgba(235, 235, 245, 0.52);
   --chat-input-placeholder: rgba(235, 235, 245, 0.24);
-  --chat-input-disabled-bg: rgba(255, 255, 255, 0.06);
+  --chat-input-disabled-bg: rgba(255, 255, 255, 0.08);
   --chat-input-disabled-placeholder: rgba(235, 235, 245, 0.24);
   --code-copy-bg: rgba(22, 27, 34, 0.86);
   --code-copy-hover-bg: #30363d;
@@ -1796,7 +1797,7 @@ pre {
     border-radius: 10px;
     background-image: linear-gradient(to bottom,
         rgba(0, 0, 0, 0.8),
-        rgba(0, 0, 0, 0.06));
+        rgba(0, 0, 0, 0.08));
 
     button {
       margin-top: 3em;
@@ -1895,6 +1896,19 @@ pre {
   background-color: var(--model-selector-overlay-bg) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
+}
+
+html.dark .model-selector-panel,
+html:not(.light):not(.light *) .model-selector-panel {
+  --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
+  --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .model-selector-panel {
+    --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
+    --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
+  }
 }
 
 /* 与提示词选择面板保持相同的桌面端顶边和安全留白。 */

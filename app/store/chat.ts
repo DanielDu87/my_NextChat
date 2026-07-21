@@ -1,4 +1,9 @@
-import { getMessageTextContent, isDalle3, trimTopic } from "../utils";
+import {
+  getMessageTextContent,
+  isDalle3,
+  isImageGenerationModel,
+  trimTopic,
+} from "../utils";
 import { safeLocalStorage } from "../utils/safe-local-storage";
 
 import { clearPersistedStateStorage } from "@/app/utils/indexeddb-state-storage";
@@ -69,11 +74,16 @@ import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
 import {
+  getExtractableAttachmentKind,
+  isSafeImageAttachment,
+} from "../utils/attachment-file";
+import {
   buildChatFailoverCandidates,
   isProviderBalanceFailure,
   type ChatFailoverCandidate,
 } from "../utils/chat-failover";
 import { writeStoredGlobalModelConfig } from "../utils/global-model-config";
+import { withSyncUserHeaders } from "../utils/sync-user-client";
 
 export {
   DEFAULT_TOPIC,
@@ -250,6 +260,12 @@ export type ChatRetryAttempt = {
   status: "trying" | "failed" | "success";
 };
 
+type SelectedModelConfig = ModelConfig & {
+  providerId?: string;
+  profileId?: string;
+  modelSelectionUpdatedAt?: number;
+};
+
 export type ChatMessageAttachedFile = {
   id: string;
   name: string;
@@ -259,8 +275,11 @@ export type ChatMessageAttachedFile = {
   typeLabel: string;
   typeKind: "document" | "spreadsheet" | "pdf" | "archive" | "file";
   extractedText?: string;
-  extractionStatus?: "ready" | "unsupported" | "failed";
+  extractionStatus?: "pending" | "ready" | "partial" | "metadata" | "failed";
   extractionTruncated?: boolean;
+  extractionMode?: "document" | "text" | "binary" | "metadata";
+  extractionSummary?: string;
+  requiresVisualInput?: boolean;
   previewText?: string;
   previewUrl?: string;
   localPreviewUrl?: string;
@@ -351,6 +370,127 @@ function withAiSelectionPromptText(message: ChatMessage): ChatMessage {
     message,
     String(message.aiSelectionPromptText || ""),
   );
+}
+
+function needsAttachmentVisionInput(files: ChatMessageAttachedFile[] = []) {
+  return files.some((file) => {
+    const kind = getExtractableAttachmentKind(file.name || "");
+    if (isSafeImageAttachment(file.name || "")) return true;
+    // Short-text PDFs retain their text fallback but also need visual pages.
+    // The selected non-native model receives those pages without capability
+    // list-based model switching.
+    return (
+      kind === "pdf" &&
+      (file.requiresVisualInput || !String(file.extractedText || "").trim())
+    );
+  });
+}
+
+function getCacheFileId(url: unknown) {
+  const value = String(url || "").trim();
+  if (!value.startsWith(`${CACHE_URL_PREFIX}/`)) return "";
+  const fileName = value.split(/[?#]/, 1)[0].split("/").pop() || "";
+  const id = fileName.split(".")[0];
+  return /^[0-9a-f-]{36}$/i.test(id) ? id : "";
+}
+
+async function appendAttachmentVisionPages(
+  messages: ChatMessage[],
+  userMessageId: string,
+) {
+  const targetMessage = messages.find(
+    (message) => message.id === userMessageId && message.role === "user",
+  );
+  const files = (targetMessage?.attachedFiles || []).filter(
+    (file) =>
+      needsAttachmentVisionInput([file]) &&
+      Boolean(getCacheFileId(file.previewUrl)),
+  );
+  if (files.length === 0) return messages;
+
+  try {
+    const response = await fetch(`${CACHE_URL_PREFIX}/visualize`, {
+      method: "POST",
+      credentials: "include",
+      headers: withSyncUserHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        ids: files.map((file) => getCacheFileId(file.previewUrl)),
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.code !== 0) return messages;
+
+    const visualizedFiles: Array<{
+      id?: unknown;
+      pages?: unknown;
+      totalPages?: unknown;
+      renderedPages?: unknown;
+      truncated?: unknown;
+      reason?: unknown;
+    }> = Array.isArray(payload?.data?.files) ? payload.data.files : [];
+    const images: string[] = visualizedFiles.flatMap((file) =>
+      Array.isArray(file?.pages)
+        ? (file.pages as unknown[]).filter(
+            (page): page is string => typeof page === "string",
+          )
+        : [],
+    );
+    const selectedFilesById = new Map(
+      files.map((file) => [getCacheFileId(file.previewUrl), file]),
+    );
+    const statusLines = visualizedFiles.flatMap((file) => {
+      const selectedFile = selectedFilesById.get(String(file.id || ""));
+      if (!selectedFile) return [];
+      const totalPages = Math.max(0, Number(file.totalPages) || 0);
+      const renderedPages = Math.max(0, Number(file.renderedPages) || 0);
+      if (!file.truncated && renderedPages > 0) return [];
+
+      if (file.truncated) {
+        return [
+          `“${selectedFile.name || "未命名 PDF"}”仅提供了 ${renderedPages}/${totalPages || "未知"} 页视觉内容；不要将其视为完整文件。`,
+        ];
+      }
+      return [
+        `“${selectedFile.name || "未命名 PDF"}”未能生成视觉页面；仅可依据已提供的文本或文件元信息回答。`,
+      ];
+    });
+    if (statusLines.length > 0) {
+      showToast("部分 PDF 未能完整转换，模型已收到具体限制", undefined, 6000);
+    }
+    if (images.length === 0 && statusLines.length === 0) return messages;
+
+    return messages.map((message) => {
+      if (message.id !== userMessageId || message.role !== "user") {
+        return message;
+      }
+      const content =
+        typeof message.content === "string"
+          ? [{ type: "text" as const, text: message.content }]
+          : Array.isArray(message.content)
+            ? message.content.slice()
+            : [];
+      return {
+        ...message,
+        content: [
+          ...content,
+          ...(statusLines.length > 0
+            ? [
+                {
+                  type: "text" as const,
+                  text: ["【附件视觉读取状态】", ...statusLines].join("\n"),
+                },
+              ]
+            : []),
+          ...images.map((url) => ({
+            type: "image_url" as const,
+            image_url: { url },
+          })),
+        ],
+      };
+    });
+  } catch {
+    return messages;
+  }
 }
 
 export interface ChatStat {
@@ -1134,18 +1274,17 @@ function getProfileForModelConfig(modelConfig: ModelConfig) {
 }
 
 function applySharedGlobalConversationSettings(
-  selectedModelConfig: ModelConfig,
-): ModelConfig {
+  selectedModelConfig: SelectedModelConfig,
+): SelectedModelConfig {
   const sharedModelConfig = useAppConfig.getState().modelConfig;
-  return {
+  return sanitizeModelConfigForCapability({
     ...sharedModelConfig,
     model: selectedModelConfig.model,
     providerName: selectedModelConfig.providerName,
-    providerId: (selectedModelConfig as any).providerId,
-    profileId: (selectedModelConfig as any).profileId,
-    modelSelectionUpdatedAt: (selectedModelConfig as any)
-      .modelSelectionUpdatedAt,
-  } as ModelConfig;
+    providerId: selectedModelConfig.providerId,
+    profileId: selectedModelConfig.profileId,
+    modelSelectionUpdatedAt: selectedModelConfig.modelSelectionUpdatedAt,
+  });
 }
 
 function normalizeTitleCandidateProviderName(
@@ -1176,12 +1315,47 @@ function triggerTitleSync() {
   });
 }
 
+function getGeneratedSessionTitleCandidate(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const jsonText = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  try {
+    const payload = JSON.parse(jsonText);
+    if (payload && typeof payload === "object") {
+      const title =
+        (payload as { title?: unknown; topic?: unknown }).title ??
+        (payload as { topic?: unknown }).topic;
+      if (typeof title === "string") {
+        return trimTopic(title);
+      }
+
+      // A provider can return a complete OpenAI response instead of the
+      // assistant text. It is diagnostic data, never a valid conversation
+      // title, even if the response itself is HTTP 200.
+      if (
+        (payload as { object?: unknown }).object === "chat.completion" ||
+        Array.isArray((payload as { choices?: unknown }).choices)
+      ) {
+        return "";
+      }
+    }
+  } catch {
+    // Plain model output is expected, so an unparsable string remains valid.
+  }
+
+  return trimTopic(raw);
+}
+
 function applyGeneratedSessionTitle(
   targetSession: ChatSession,
   title: string,
   requestVersion?: string,
 ) {
-  const nextTitle = trimTopic(title);
+  const nextTitle = getGeneratedSessionTitleCandidate(title);
   if (!nextTitle) {
     return false;
   }
@@ -1602,9 +1776,8 @@ async function refreshSessionTitle(targetSession: ChatSession) {
                     });
                   },
                   onFinish(message, responseRes) {
-                    success =
-                      responseRes?.status === 200 &&
-                      Boolean(trimTopic(message || ""));
+                    const title = getGeneratedSessionTitleCandidate(message);
+                    success = responseRes?.status === 200 && Boolean(title);
                     if (!success) {
                       providerBalanceExhausted = isProviderBalanceFailure(
                         message,
@@ -1615,7 +1788,7 @@ async function refreshSessionTitle(targetSession: ChatSession) {
                     if (success) {
                       success = applyGeneratedSessionTitle(
                         session,
-                        message,
+                        title,
                         requestVersion,
                       );
                     }
@@ -2972,8 +3145,12 @@ export const useChatStore = createPersistStore(
           attachedFilesPromptText?: string;
           aiSelectionText?: string;
           aiSelectionPromptText?: string;
+          onUserMessageCreated?: (
+            messageId: string,
+            signal?: AbortSignal,
+          ) => Promise<void> | void;
         },
-      ) {
+      ): Promise<{ userMessageId: string }> {
         logChatDebug("[Chat] 💬 用户输入:", {
           contentLength: content.length,
           hasImages: attachImages && attachImages.length > 0,
@@ -3167,6 +3344,59 @@ export const useChatStore = createPersistStore(
           }
         });
 
+        // Keep the message and loading placeholder responsive, but never let a
+        // provider receive an attachment while its extraction state is pending.
+        // Register a real preparation controller before attachment extraction.
+        // Without this marker the UI mistakes that intentional wait for a
+        // refresh interruption.
+        const attachmentPreparationController = options?.attachedFiles?.length
+          ? new AbortController()
+          : null;
+        if (attachmentPreparationController) {
+          ChatControllerPool.addController(
+            session.id,
+            botMessage.id ?? botMessageIndex,
+            attachmentPreparationController,
+          );
+        }
+        await options?.onUserMessageCreated?.(
+          submittedMessageMeta.userMessageId,
+          attachmentPreparationController?.signal,
+        );
+
+        const stoppedDuringAttachmentPreparation = Boolean(
+          attachmentPreparationController?.signal.aborted ||
+          get()
+            .getSessionById(session.id)
+            ?.messages.find((message) => message.id === botMessage.id)
+            ?.manualStopped,
+        );
+        if (stoppedDuringAttachmentPreparation) {
+          ChatControllerPool.remove(
+            session.id,
+            botMessage.id ?? botMessageIndex,
+          );
+          return submittedMessageMeta;
+        }
+
+        const submittedAttachmentFiles =
+          get()
+            .getSessionById(session.id)
+            ?.messages.find(
+              (message) =>
+                message.id === submittedMessageMeta.userMessageId &&
+                message.role === "user",
+            )?.attachedFiles || [];
+        const shouldUseAttachmentVision =
+          initialModelConfig.providerName !== ServiceProvider.OpenAI &&
+          needsAttachmentVisionInput(submittedAttachmentFiles);
+        if (shouldUseAttachmentVision) {
+          logger.chat.log("[Attachment Vision] 按当前所选模型直接发送附件", {
+            模型: initialModelConfig.model,
+            供应商: resolvedDisplayProviderName,
+          });
+        }
+
         // get recent messages
         const recentMessages = (
           await get().getMessagesWithMemory(initialModelConfig)
@@ -3174,7 +3404,12 @@ export const useChatStore = createPersistStore(
           .filter((message) => message.id !== botMessage.id)
           .map(withAttachedFilesPromptText)
           .map(withAiSelectionPromptText);
-        const sendMessages = recentMessages;
+        const sendMessages = shouldUseAttachmentVision
+          ? await appendAttachmentVisionPages(
+              recentMessages,
+              submittedMessageMeta.userMessageId,
+            )
+          : recentMessages;
         const messageIndex = botMessageIndex;
 
         const extractCacheUuid = (value: string) => {
@@ -3241,7 +3476,9 @@ export const useChatStore = createPersistStore(
         const isBotMessageManuallyStopped = () => {
           if (botMessage.manualStopped) return true;
           return Boolean(
-            session.messages.find((message) => message.id === botMessage.id)
+            get()
+              .getSessionById(session.id)
+              ?.messages.find((message) => message.id === botMessage.id)
               ?.manualStopped,
           );
         };
@@ -3250,6 +3487,13 @@ export const useChatStore = createPersistStore(
           candidate: ChatFailoverCandidate,
           attemptIndex: number,
         ) => {
+          // The stop action updates the current Store session, while this async
+          // chain retains its initial session snapshot. Always re-check the
+          // live message before entering another candidate.
+          if (isBotMessageManuallyStopped()) {
+            return "aborted" as const;
+          }
+
           // 动态检查模型可用性：非首个候选时重新确认模型当前可用
           if (attemptIndex > 0) {
             const currentModel = allModels.find(
@@ -3534,9 +3778,9 @@ export const useChatStore = createPersistStore(
                 onError(error) {
                   if (settled || finishing) return;
                   get().flushTargetSessionRefresh(session);
-                  const isAborted =
-                    isBotMessageManuallyStopped() ||
-                    /abort(?:ed)?/i.test(String(error.message || ""));
+                  // Only a user stop ends failover. Provider timeout aborts are
+                  // ordinary request failures and must retain automatic retry.
+                  const isAborted = isBotMessageManuallyStopped();
                   logger.chat.log(
                     isAborted ? "⏹️ 对话请求已停止:" : "❌ 对话请求尝试失败:",
                     {
@@ -3583,12 +3827,37 @@ export const useChatStore = createPersistStore(
                     botMessage.id ?? messageIndex,
                     controller,
                   );
+                  // A stop can race with controller creation between retries.
+                  // Abort this late controller instead of leaving a request live.
+                  if (isBotMessageManuallyStopped()) {
+                    controller.abort();
+                  }
                 },
               }),
             ).catch((error) => {
               if (settled) return;
               const message =
                 error instanceof Error ? error.message : String(error);
+              const isAborted = isBotMessageManuallyStopped();
+              if (isAborted) {
+                logger.chat.log("⏹️ 对话请求已停止（catch）:", {
+                  尝试: attemptLabel,
+                  供应商: candidate.providerDisplayName,
+                  模型: candidate.model,
+                });
+                botMessage.streaming = false;
+                botMessage.content = "";
+                botMessage.usage = undefined;
+                botMessage.retrying = false;
+                syncBotMessageToCurrentSession();
+                get().flushTargetSessionRefresh(session);
+                ChatControllerPool.remove(
+                  session.id,
+                  botMessage.id ?? messageIndex,
+                );
+                finalize("aborted");
+                return;
+              }
               logger.chat.log("❌ 对话请求尝试失败:", {
                 尝试: attemptLabel,
                 供应商: candidate.providerDisplayName,
@@ -3706,9 +3975,10 @@ export const useChatStore = createPersistStore(
 
       async getMessagesWithMemory(modelConfigOverride?: ModelConfig) {
         const session = get().currentSession();
-        const modelConfig =
+        const modelConfig = sanitizeModelConfigForCapability(
           modelConfigOverride ??
-          applySharedGlobalConversationSettings(session.mask.modelConfig);
+            applySharedGlobalConversationSettings(session.mask.modelConfig),
+        );
         const clearContextIndex = session.clearContextIndex ?? 0;
         const messages = session.messages.slice();
         const totalMessageCount = session.messages.length;
@@ -3994,9 +4264,10 @@ export const useChatStore = createPersistStore(
                               });
                             },
                             onFinish(message, responseRes) {
+                              const title =
+                                getGeneratedSessionTitleCandidate(message);
                               success =
-                                responseRes?.status === 200 &&
-                                Boolean(trimTopic(message || ""));
+                                responseRes?.status === 200 && Boolean(title);
                               if (!success) {
                                 providerBalanceExhausted =
                                   isProviderBalanceFailure(
@@ -4008,7 +4279,7 @@ export const useChatStore = createPersistStore(
                               if (success) {
                                 success = applyGeneratedSessionTitle(
                                   session,
-                                  message,
+                                  title,
                                   requestVersion,
                                 );
                               }

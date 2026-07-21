@@ -333,19 +333,6 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const prevPathRef = useRef(location.pathname);
-  useLayoutEffect(() => {
-    if (prevPathRef.current !== location.pathname) {
-      prevPathRef.current = location.pathname;
-      if (
-        typeof console !== "undefined" &&
-        typeof console.clear === "function"
-      ) {
-        console.clear();
-      }
-    }
-  }, [location.pathname]);
-
   const switchingUser = useAuthStore((state) => state.switchingUser);
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;

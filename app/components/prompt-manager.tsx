@@ -141,11 +141,6 @@ export function PromptManagerPage() {
   }, [effectiveGlobalSystemPrompt, loadedPromptCount]);
 
   useEffect(() => {
-    // 进入 /prompt-manager 时先清空控制台，避免上一页（如 /chat）的同步汇总混进本页日志。
-    if (typeof console !== "undefined" && typeof console.clear === "function") {
-      console.clear();
-    }
-
     const abortController = new AbortController();
     let cancelled = false;
 
@@ -207,8 +202,7 @@ export function PromptManagerPage() {
     return () => {
       cancelled = true;
       abortController.abort();
-      // 离开页面的「取消排队同步 + 清空控制台」由 auto-sync 的 handleRouteChangeRestart
-      // 统一处理，避免每个页面重复实现。
+      // 路由切换时由 auto-sync 统一取消排队同步，避免每个页面重复实现。
     };
   }, []);
 
@@ -327,8 +321,8 @@ export function PromptManagerPage() {
       showToast("全局系统提示词已保存");
     } catch (error) {
       console.error("[PromptManager] 保存全局系统提示词失败:", error);
-      showTopNotice("全局系统提示词保存失败，请稍后重试");
-      showToast("全局系统提示词保存失败，请检查数据库连接");
+      showTopNotice("全局系统提示词已保存到本机，暂未同步数据库");
+      showToast("本机已保存；数据库同步失败，请稍后重新保存");
     } finally {
       setIsSavingGlobalSystemPrompt(false);
       promptSyncTaskCountRef.current = Math.max(

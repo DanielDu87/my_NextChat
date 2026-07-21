@@ -248,10 +248,12 @@ interface ModalProps {
   defaultMax?: boolean;
   hideMaxToggle?: boolean;
   hideCloseButton?: boolean;
+  hideHeader?: boolean;
   isSmall?: boolean;
   footer?: React.ReactNode;
   onClose?: () => void;
   className?: string;
+  contentClassName?: string;
 }
 export function Modal(props: ModalProps) {
   const closeTouchHandledRef = useRef(false);
@@ -281,43 +283,51 @@ export function Modal(props: ModalProps) {
         props.className,
       )}
     >
-      <div className={styles["modal-header"]}>
-        <div className={styles["modal-title"]}>{props.title}</div>
+      {!props.hideHeader && (
+        <div className={styles["modal-header"]}>
+          <div className={styles["modal-title"]}>{props.title}</div>
 
-        <div className={styles["modal-header-actions"]}>
-          {!props.hideCloseButton && (
-            <button
-              type="button"
-              aria-label={Locale.UI.Close}
-              data-close-button="true"
-              className="nextchat-close-button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (closeTouchHandledRef.current) {
-                  closeTouchHandledRef.current = false;
-                  return;
-                }
-                props.onClose?.();
-              }}
-              onTouchStart={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onTouchEnd={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                closeTouchHandledRef.current = true;
-                props.onClose?.();
-              }}
-            >
-              <CloseIcon />
-            </button>
-          )}
+          <div className={styles["modal-header-actions"]}>
+            {!props.hideCloseButton && (
+              <button
+                type="button"
+                aria-label={Locale.UI.Close}
+                data-close-button="true"
+                className="nextchat-close-button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (closeTouchHandledRef.current) {
+                    closeTouchHandledRef.current = false;
+                    return;
+                  }
+                  props.onClose?.();
+                }}
+                onTouchStart={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onTouchEnd={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeTouchHandledRef.current = true;
+                  props.onClose?.();
+                }}
+              >
+                <CloseIcon />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={clsx(styles["modal-content"], "modal-content")}>
+      <div
+        className={clsx(
+          styles["modal-content"],
+          "modal-content",
+          props.contentClassName,
+        )}
+      >
         {props.children}
       </div>
 

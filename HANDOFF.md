@@ -4,238 +4,256 @@
 
 ============================================================
 
-## 185. 【2026-07-20 13:26】- 附件正文提取并注入模型上下文
+## 195. 【2026-07-21 22:25】- 收敛附件原文件与视觉 PDF 输入边界
 
 ### 修改内容
 
-- PDF、DOCX、XLS/XLSX、CSV、TSV 附件提交或重发时，服务端提取正文并与用户问题一起发送给模型，不再只提供文件名、类型和大小。
-- 修复缓存文件信任上传 MIME 并同源 inline 渲染的安全风险；Excel 预览不再注入 HTML。
-- 合并现有 detached worktree 的已验证聊天、模型参数、同步和样式改动到主工作区。
+- 原生 OpenAI Responses 现在仅发送最新用户消息的原始附件；历史附件继续以受限提取文本参与上下文，不再在每轮请求重复占用文件额度。
+- 文字层不足 120 字符的 PDF 保留已提取短文本，并为非原生 OpenAI Provider 追加视觉页；原生 OpenAI 只使用原始 `input_file`，避免与渲染页重复输入。
+- 视觉 PDF 返回总页数、实际渲染页数和截断/失败状态；模型与用户均会收到“未完整读取”的明确提示。停止按钮会取消浏览器中的附件提取请求。
 
 ### 实现方式
 
-- 新增 `/api/cache/extract`，按当前鉴权用户读取缓存文件；PDF 最多 80 页，表格最多 10 个工作表、每表 1000 行，单文件正文限制 24000 字符、单条消息总量限制 60000 字符，并记录截断状态。
-- PDF.js worker 由服务端显式加载并注册，避免 Next.js 服务端分包后默认 fake worker 指向不存在的 `.next/server/vendor-chunks/pdf.worker.mjs`。
-- 缓存 MIME 只按文件名白名单确定，未知格式仅下载；Range 读取不再重复触发缓存清理，响应加 `nosniff`。
-- `ChatMessageAttachedFile` 持久化提取结果；聊天消息使用明确正文边界与文件内指令降权说明注入上下文。
+- `/api/cache/extract` 以 `visualFallback` 标记短文字 PDF，`ChatMessageAttachedFile.requiresVisualInput` 让文本与视觉输入可同时保留。
+- `/api/cache/visualize` 为页数上限、超时、渲染失败、文件缺失和不支持类型返回结构化状态；调用方把限制作为临时请求内容拼入模型上下文，并显示提示。
+- 附件准备控制器的 `AbortSignal` 透传到 `/api/cache/extract` 请求；Responses 输入仅从最新用户消息读取可直传文件。
 
 ### 验证
 
-- 主工作区 `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
-- 开发容器热加载后，真实缓存 PDF 经 `/api/cache/extract` 返回 `ready`、127 个字符，按 80 页上限标记截断；`docker exec nextchat-dev yarn lint` 通过。
-- 当前 `npx tsc --noEmit --pretty false` 仅余既有 `app/mcp/client.ts` 的 Zod 泛型报错，PDF worker 路由不再产生类型错误；`git diff --check` 仍仅报告本轮前已存在的 `HANDOFF.md` 文件末尾空行。
+- `yarn lint` 通过，`git diff --check` 通过。
+- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 的两项 Zod 泛型错误，附件改动未产生新的 TypeScript 报错。
 
 ### 潜在或遗留问题
 
-- 扫描版 PDF 没有内嵌文字层时不会自动 OCR，会提示为没有可提取文本；本次修复不增加 OCR。
+- 未发送真实文件或模型请求，避免未经单独确认上传用户内容或消耗 API 额度；请用超过 9 页的扫描 PDF、短文字 PDF 和带历史附件的连续追问进行端到端确认。
 
 ============================================================
 
-## 184. 【2026-07-20 11:58】- 修复 React 组件命名导致的全量 lint 失败
+## 193. 【2026-07-21 22:20】- 修复全局默认提示词的推理模型注入与保存反馈
 
 ### 修改内容
 
-- 修复 `chat.tsx` 与 `markdown.tsx` 中内部组件使用下划线开头名称，导致 React Hooks 规则将其识别为普通函数的问题。
-- 全量 `yarn lint` 现已无错误、无警告。
+- OpenAI `o1`、`o3`、`o4`、`o5` 推理模型会将已渲染的系统提示词转换为 developer 消息，因此空白自定义值也会实际使用内置默认提示词。
+- 全局系统提示词的数据库同步失败后，页面明确提示“已保存到本机、尚未同步数据库”，不再误报为完全保存失败。
+- 删除用户提示词时优先按正常记录 key 直接删除，仅对历史 key 与 `prompt.id` 不一致的数据执行兼容查找。
 
 ### 实现方式
 
-- 将 `_Chat` 更名为 `ChatContent`，保留现有外层 `Chat` 的 URL/会话同步职责和基于会话 ID 的 remount 行为。
-- 将 `_MarkDownContent` 更名为 `MarkdownContentInner`，继续由既有的 `React.memo` 导出 `MarkdownContent`。
+- OpenAI 请求层在过滤推理模型不支持的 system 消息前保留其已替换模板变量后的内容，并连同格式化指令作为 developer 消息发送，避免重新使用未经渲染的原始配置。
+- 保持空白自定义提示词恢复 `DEFAULT_SYSTEM_TEMPLATE` 的既有语义；开发文档同步记录同步失败时的本地保存状态。
 
 ### 验证
 
-- `docker exec nextchat-dev yarn lint` 通过。
-- `docker exec nextchat-dev npx tsc --noEmit --pretty false` 与 `git diff --check` 通过；主页返回 `HTTP 200`。
+- 本机及 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
+- 确认 `nextchat-dev` 将当前仓库挂载至 `/app`，且容器内源码包含本次提示词修复，无需重建镜像。
 
 ### 潜在或遗留问题
 
-- 无。
+- 未向真实 OpenAI 推理模型发送测试请求，避免消耗 API 额度；可在 `o` 系列模型发送一条消息后按上游日志确认 developer 消息内容。
 
 ============================================================
 
-## 183. 【2026-07-20 11:52】- 开发容器升级 Node 22 并重建最新依赖
+## 194. 【2026-07-21 22:20】- 手动停止完整终止对话故障转移
 
 ### 修改内容
 
-- 将 Docker 开发与运行阶段的基础镜像统一升级为 `node:22.13.0-alpine3.20`，满足当前依赖的 Node 版本要求。
-- 重新生成 `yarn.lock`，并以最新锁文件完整重建本地 `nextchat-dev`。
+- 点击助手回复的停止图标后，当前消息不再把中断误判为失败，也不会继续尝试其他模型。
+- 用户停止覆盖附件准备、迟到创建的请求控制器、当前模型请求和后续全部故障转移候选；正常上游超时、网络和响应错误仍维持自动重试。
+- README 与开发文档同步说明手动停止和自动容错的行为边界。
 
 ### 实现方式
 
-- 保留现有 Docker 镜像源、Yarn 与开发容器启动流程，仅调整两个 `NODE_IMAGE` 参数。
-- 通过 `docker-compose-safe.sh` 构建并强制重建 `nextchat-dev`；容器继续挂载 `/Users/dyx/Code/NextChat` 到 `/app`。
+- 故障转移链路按消息 ID 从当前 Chat Store 实时读取 `manualStopped`，不再读取异步调用开始时捕获的旧会话快照；每次进入候选前再次硬拦截。
+- 控制器晚于停止操作才创建时立即中断，避免重试间隙遗留在途请求；只有用户停止才终止候选循环，Provider 的超时 Abort 继续作为可重试失败处理。
 
 ### 验证
 
-- 镜像构建成功，容器内 `node --version` 为 `v22.13.0`，容器保持运行且主页返回 `HTTP 200`。
-- `git diff --check` 通过。
-- `yarn lint` 未通过：现有 `app/components/chat.tsx` 中 `_Chat` 函数触发大量 `react-hooks/rules-of-hooks` 错误，未在本次容器配置任务中修改该聊天实现。
+- `docker exec nextchat-dev yarn lint`、`npx prettier --check app/store/chat.ts README.md docs/development.md` 和 `git diff --check` 通过；`/chat` 返回 `HTTP 200`。
+- 浏览器以 `ccc` 用户加载 `/chat`，页面正常渲染且没有应用错误；仅有项目既有 React Router v7 future flag 警告。
+- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 两项 Zod 泛型错误。
 
 ### 潜在或遗留问题
 
-- 依赖安装期间 `canvas` 的可选原生编译因 Alpine 镜像未安装 Python 而报错，但 Yarn 安装完成且 Next.js 开发服务正常启动；只有实际使用依赖 `canvas` 的功能时才需补充其编译工具链。
+- 未发送真实模型请求，避免未经单独确认消耗 API 额度；请用一个会触发自动回退的模型实际点击停止，确认不再出现下一候选状态行。
 
 ============================================================
 
-## 182. 【2026-07-20 10:35】- 修复缓存文件访问时意外清理问题
+## 192. 【2026-07-21 22:05】- 浅色主题聊天加载图标使用主题蓝
 
 ### 修改内容
 
-- 移除 `/api/cache/[id]/route.ts` 中 GET、HEAD、DELETE 请求时调用的 `purgeExpiredCacheFiles()`。
-- 原因：每次请求文件时都执行清理，会导致刚上传的文件被删除（如果过期或未 pin）。
-- 清理操作仅保留在上传文件时（`/api/cache/upload/route.ts`）执行。
-
-### 问题诊断
-
-- 生产日志显示 `cache_file_references` 外键约束冲突错误。
-- 根因：文件查看请求触发 `purgeExpiredCacheFiles()`，删除文件后再插入引用记录时失败。
-- 用户反馈"聊天记录只有文字可以看到文件看不到"：文件可能被清理后无法访问。
-
-### 验证
-
-- 部署后检查文件下载 API 是否正常。
-- 验证消息中的文件 URL 能否正确访问。
-
-### 潜在或遗留问题
-
-- 需要验证历史消息中的文件是否已恢复可访问状态。
-- 可能存在其他并发场景导致的外键约束问题。
-
-============================================================
-
-## 181. 【2026-07-20 10:10】- 提亮参数设置深色禁用态
-
-### 修改内容
-
-- 提高参数设置弹窗在 dark 模式下禁用控件的背景、边框和文字明度。
-- 同步提亮禁用滑块轨道与滑块，保留禁用语义、鼠标状态、弹窗外围颜色和原有尺寸布局。
+- 聊天流式回复的三点加载图标在浅色主题下不再被全局 SVG 反相滤镜处理为灰色，改为稳定显示当前主题的蓝色主色。
 
 ### 实现方式
 
-- 仅调整 `model-config.module.scss` 中参数弹窗的五个 dark 禁用态语义变量，不修改公共主题或其他页面。
-- 开发文档同步说明禁用控件的视觉层级和严格作用范围。
+- 在浅色主题根变量中保存 `--chat-loading-primary`，三点 SVG 优先读取该变量；加载 SVG 同时以内联 `filter: none` 覆盖 `div:not(.no-dark) > svg` 的 `invert(0.5)`，暗色主题仍按现有 `--primary` 继承逻辑显示。
 
 ### 验证
 
-- 按用户要求，本轮只修改，不继续运行浏览器、lint、类型检查或构建验证。
+- 两次 `docker exec nextchat-dev yarn lint` 均通过，`git diff --check` 通过，`/chat` 返回 `HTTP 200`。
+- 确认 `nextchat-dev` 挂载的源码已包含主题变量、SVG 引用和 `filter: none` 覆盖，无需重建镜像。
 
 ### 潜在或遗留问题
 
-- 新配色尚未完成最终浏览器视觉确认，由用户在当前热加载页面直接检查。
+- 内置浏览器的本地测试标签被运行时回收，未能取得流式占位的最终截图；请在浅色主题发送一条消息时确认三点图标为未反相的主题蓝。
 
 ============================================================
 
-## 180. 【2026-07-20 10:06】- 提示词管理读取与全局提示词保存日志
+## 191. 【2026-07-21 21:30】- PDF 文字层优先与本地 OCR 移除
 
 ### 修改内容
 
-- 打开 `/prompt-manager` 并完成数据库读取后，控制台分别输出最终提示词数量和当前实际生效的完整全局提示词。
-- 点击“保存全局提示词”且 Config 同步成功后，控制台输出保存成功、实际生效内容及字符数；失败继续使用既有错误日志。
+- PDF 仅通过 PDF.js 读取最多 80 页文字层；文字层少于 120 个字符时不再执行本地 OCR，改为向当前所选模型发送视觉内容。
+- 有效文字层 PDF 与 DOCX、表格和纯文本一样作为受限正文上下文发送；视觉 PDF 最多渲染前 9 页，普通图片始终直接作为视觉输入发送。
+- 移除 Tesseract 及本地 OCR 代码、类型和镜像依赖；保留 Ghostscript 仅用于视觉 PDF 的 JPEG 页面渲染。
+- Alpine 镜像补齐 `canvas` 源码编译所需的 Python、构建工具链及 Cairo/Pango/JPEG/GIF 库，解决 Node 22 arm64/musl 下可选依赖编译失败。
 
 ### 实现方式
 
-- 页面读取完成后记录提示词数量，并由依赖当前 `effectiveGlobalSystemPrompt` 的副作用延迟 300ms 输出稳定快照，避免热加载或 Config 水合竞态打印旧默认值。
-- 保存日志位于 `runWithImmediateStoreSyncPaused()` 和强制 Config 同步成功之后；自定义值为空时按真实请求逻辑输出 `DEFAULT_SYSTEM_TEMPLATE`。
-- 开发文档同步补充 `/prompt-manager` 页面进入日志和保存日志契约。
+- `extractPdfText()` 将缺少可用文字层的 PDF 标记为 `metadata`；`needsAttachmentVisionInput()` 只对该类 PDF 追加内存页图，不再让文字 PDF 重复走视觉路径。
+- 开发阶段安装 `build-base`、`python3`、`cairo-dev`、`pango-dev`、`jpeg-dev`、`giflib-dev`，运行阶段安装相应动态库，保证 `canvas` 编译和加载条件完整。
 
 ### 验证
 
-- 深色主题热加载页面直接打开 `/prompt-manager`，页面与控制台均确认 129 条提示词；页面文本框和控制台输出同一份 808 字中文全局提示词。
-- 页面无 warning/error；`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
+- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
+- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 两项 Zod 泛型错误。
+- `nextchat-nextchat-dev:latest` 本地镜像构建成功；Yarn 日志中 `canvas` 可选依赖构建阶段完成，未再出现 Python 缺失或可选依赖编译失败。
+- 经用户确认，`nextchat-dev` 已替换为新镜像容器；容器内不存在 `tesseract`、保留 `/usr/bin/gs`，挂载源码包含新的 PDF 文字层阈值逻辑，首页返回 `HTTP 200`。
 
 ### 潜在或遗留问题
 
-- 为避免测试过程额外改写共享 PostgreSQL，本轮未点击保存按钮；保存日志位置和数据源已通过代码路径、类型检查与现有同步成功分支验证。
+- 未向模型上游发送真实 PDF 或图片；视觉 PDF 的目标模型端到端识别需由用户实际验证。
 
 ============================================================
 
-## 179. 【2026-07-20 00:42】- 复选框 hover 取消缩放并区分勾选状态
+## 190. 【2026-07-21 20:46】- 取消页面默认清空控制台
 
 ### 修改内容
 
-- 设置列表中已勾选和未勾选的复选框在 hover 时都不再产生缩放效果。
-- 未勾选框继续保留 2px 主色边框反馈；已勾选框 hover 时保持原有主色背景、边框和勾选图形，不再改变视觉尺寸。
+- 移除首页路由切换、模型获取页进入和提示词管理页进入时的默认 `console.clear()`，保留页面切换前后的调试日志。
+- 保留用户主动执行保存、获取模型或导航操作时既有的清屏行为，不改变这些操作的独立日志语义。
+- README 与开发文档同步说明应用的页面进入与路由切换不会自动清空控制台。
 
 ### 实现方式
 
-- 在复选框公共样式 owner `ui-lib.module.scss` 中拆分 `:not(:checked):hover` 与 `:checked:hover`，为两种状态都显式固定 `transform: none`。
-- 已勾选 hover 复用静态 checked 样式，并固定伪元素勾选图形为 `scale(1)`；未勾选 hover 只调整边框与轻量背景。
+- 删除 `home.tsx` 中仅用于清屏的路径监听副作用；模型获取页和提示词管理页继续输出各自的初始化日志，但不再清除此前日志。
 
 ### 验证
 
-- 深色主题热加载页面实测已勾选的“启用Artifacts”：强制 hover 前后均为 `20px × 20px`、`transform: none`，主色背景和勾选图形保持不变。
-- 页面截图确认复选框区域无布局位移，控制台无 warning/error；`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
+- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过。
+- `git diff --check` 通过；容器内源码已确认不再包含路由切换的自动清屏调用。
 
 ### 潜在或遗留问题
 
-- 当前模型的可编辑复选框均已勾选，为避免改变配置并触发数据库同步，未通过点击制造未勾选状态；未勾选 hover 由独立 CSS 选择器和静态检查验证。
+- 本轮未在浏览器手动逐页切换确认；用户可直接切换页面，原控制台日志应持续保留。
 
 ============================================================
 
-## 178. 【2026-07-20 00:34】- 停止序列文本域统一输入控件交互样式
+## 189. 【2026-07-21 20:43】- 附件直传、OCR 等待与标题协议包修复
 
 ### 修改内容
 
-- “停止序列”文本域复用设置页统一输入控件样式，补齐 2px 边框、hover、focus、过渡和鼠标反馈。
-- 可编辑态使用文本光标，禁用态明确使用 `not-allowed`，并继续保留深色主题禁用配色与原有宽度。
+- PDF 和受信任栅格图片始终按当前所选模型发送，不依赖供应商模型清单、`visionModels`、模型名称或上游能力元数据判断、刷新和自动切换；原生 OpenAI 保留 Responses `input_file` 原文件输入，其他 Provider 接收临时渲染的 PDF 页面或原图 data URL。
+- 本地 OCR 保留为当前模型不支持视觉输入时的文本降级，不再决定扫描 PDF 或图片是否发送给当前模型。
+- 附件读取、OCR 和视觉页准备期间预先注册请求控制器，避免助手加载占位在控制器创建前被误标记为“刷新中断”。
+- 标题生成遇到上游误返回的完整 OpenAI `chat.completion` JSON 时，不再把协议包写入会话名称；只接受正文或显式 `title` / `topic` 字段。
+- 删除本轮 OCR 环境验证生成的 `tesseract_opencl_profile_devices.dat`；可恢复备份位于 `/tmp/nextchat-tesseract-opencl-profile-20260721-1633.bak`。
 
 ### 实现方式
 
-- 在停止序列文本域上增加公共语义类 `nextchat-input-control`，由 `globals.scss` 的输入控件规则统一负责边框、背景、阴影和交互状态。
-- `model-config.module.scss` 只保留参数文本域的 10px 圆角及禁用光标覆盖，避免复制一套局部 hover/focus 规则。
+- `needsAttachmentVisionInput()` 只按安全文件类型识别 PDF 和栅格图片，并驱动 `/api/cache/visualize` 的内存页图拼接；附件路径不读取或写入 `visionModels`、`customModels`，也不更新模型缓存或 API Key。
+- 消息入会话后、附件后台提取完成前向 `ChatControllerPool` 写入准备控制器；模型实际请求创建控制器后复用同一消息键覆盖准备控制器。用户在准备期停止时移除控制器且不再发起模型请求。
+- 自动和手动标题共用 `getGeneratedSessionTitleCandidate()` 解析：识别并拒绝 `choices` / `object: chat.completion` 响应包，缺少有效标题时保持既有回退标题。
+- README 与开发文档同步为“当前模型直接发送、上游决定是否支持、OCR 降级”的当前行为。
 
 ### 验证
 
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
-- 深色主题热加载页面实测空闲态为 2px 边框、10px 圆角、260px 宽度和文本光标；点击聚焦后主色边框及 inset shadow 生效。
+- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
+- `nextchat-dev` 中 Ghostscript、Tesseract、`chi_sim` 和 `eng` 可用；对图像化页面实测识别出 `SCANNED PDF OCR 12`。
+- 浏览器热加载后 `/chat/<session-id>` 正常完成渲染，未检测到“刷新中断”；控制台仅有项目既有 React Router v7 future flag 警告。
+- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 的两项 Zod 泛型错误。
 
 ### 潜在或遗留问题
 
-- 浏览器调试接口未稳定取得纯 hover 状态的独立计算值；公共 hover 选择器已确认命中该 textarea，且同一公共类的交互规则未被局部样式覆盖。
+- 未向模型上游或共享数据库上传测试附件，避免未经单独确认发送用户文件或消耗 API 额度；真实扫描 PDF 的端到端行为须由用户在当前选定模型上验证，不支持视觉时应由上游实际响应提示并自行切换模型。
 
 ============================================================
 
-## 177. 【2026-07-20 00:12】- 移除应用启动时的旧备份表清理 DDL
+## 188. 【2026-07-21 14:24】- 后台 OCR 读取图片与扫描 PDF
 
 ### 修改内容
 
-- 删除主业务库五张旧备份表的运行时清理函数，以及 API 配置和对话自动备份调度器中的两个调用点。
-- 自动备份继续正常读写独立 `nextchat_backup` 数据库；应用启动不再执行 `DROP TABLE ... CASCADE`。
+- 图片和文字层不足的 PDF 在附件后台读取任务中使用本地 OCR 识别简体中文和英文，识别文本与现有 DOCX、表格和纯文本提取结果一样保存到消息附件中。
+- OCR 结果新增 `ocr` 读取模式；识别失败、图片编解码不支持或未发现文字时保留明确元信息，不把附件读取失败伪装成有正文。
+- 开发与生产镜像均安装 Ghostscript、Tesseract 及中文/英文语言数据，开发容器已重建为最新镜像。
+- 原生 OpenAI Responses 只在用户角色中附加 `input_file`，附件类型改用 `ChatMessageAttachedFile`，缓存路径复用 `CACHE_URL_PREFIX`，避免角色校验失败和宽松 `any` 断言。
+- 合并共享全局对话设置后统一经能力矩阵清洗，并用局部 `SelectedModelConfig` 保存供应商/配置选择元数据；删除无调用方的客户端 DOCX、PDF、Excel 附件解析器，正式路径统一到服务端提取接口。
+- 扫描 PDF 或图片 OCR 为空时，本轮请求临时渲染 PDF 页面或编码原图片并交给视觉模型；当前模型不支持视觉时，从同一供应商已缓存的远端模型中选择视觉候选、自动补入模型和视觉能力名单后再发送，页面图像不持久化到会话。
 
 ### 实现方式
 
-- 核对当前仓库、Schema、备份 repository 和迁移记录，确认现行备份表均为独立备份库的 `backup_*` 表，旧主库表已完成迁移并实际删除。
-- 开发文档明确：一次性主库清理不得挂在应用启动或定时任务上，后续必须使用显式、可审计的数据库维护操作。
+- PDF 先读取文字层；文字不足 120 字符时，后台最多渲染并 OCR 前 9 页。图片直接走 Tesseract，PDF 页面通过 Ghostscript 的 stdin/stdout 管道交给 OCR，避免产生需清理的临时文件。
+- 单文件 OCR 输入限制为 30 MB，每次渲染或 OCR 子进程限制 30 秒和 16 MB 输出；用户消息和助手加载占位仍立即显示，但模型请求会等待附件从 `pending` 回写为最终读取结果后才开始。
+- 视觉兜底仅处理 OCR 为空的缓存 PDF/图片：`/api/cache/visualize` 最多返回 3 个文件、每个 PDF 9 页、总渲染预算 45 秒，使用 data URL 仅拼入当前请求的内存消息，不写回 `ChatMessage`；自动候选仅来自当前供应商已获取的模型缓存，缓存缺失时只刷新该供应商一次，避免向不支持的上游盲目添加模型。
 
 ### 验证
 
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过；全仓搜索确认旧清理函数、白名单、日志标签和对应 DROP 语句均不存在。
-- 重启 `nextchat-dev` 后两个正常备份调度器启动，日志不再出现 `[Backup Cleanup]`；Next.js 进入 Ready，首页返回 HTTP 200。
+- 本机和重建后的 `nextchat-dev` 内 `yarn lint` 通过，`git diff --check` 通过；容器内首页请求成功。
+- 本次附件请求时序调整后，本机与 `nextchat-dev` 内 `yarn lint` 均通过；容器内首页再次返回 `HTTP 200`。
+- 容器内确认 `tesseract --list-langs` 包含 `chi_sim`、`eng`，Ghostscript 为 10.05.1；内存 PDF 通过 Ghostscript stdin/stdout 管道实际输出 PNG 文件头。
+- `npx tsc --noEmit --pretty false` 仅保留既有 `app/mcp/client.ts` 的 Zod 泛型错误，本次附件代码未出现类型错误。
 
 ### 潜在或遗留问题
 
-- 启动期间 PostgreSQL 曾出现一次可重试的 `tuple concurrently updated`，随后自动备份扫描正常完成；与已删除的 DROP 清理无关。
+- 未向模型上游或共享数据库上传测试文件；用户可用实际扫描 PDF、图片及 Office/表格文件验证：消息立即显示、模型请求等待读取完成后才开始。
+- 专有格式、压缩包、音视频、CAD/PSD 等仍只能提供安全的可打印字符串或元信息；不能承诺所有私有二进制格式都能无损语义读取。
 
 ============================================================
 
-## 176. 【2026-07-20 00:02】- 本地 Docker 构建切换为国内镜像源
+## 187. 【2026-07-21 12:40】- 附件解析移出聊天发送关键路径
 
 ### 修改内容
 
-- 本地开发与生产 Dockerfile 的默认 BuildKit 前端、Node/Alpine、PostgreSQL、官方 NextChat 基础镜像、APK 源和 NPM/Yarn 源统一切换为国内镜像，不依赖本机代理。
-- PostgreSQL SSH 隧道镜像同步改用 DaoCloud Alpine 与阿里云 APK 源，解决 OrbStack 构建容器无法解析 Alpine 官方源的问题。
+- 按回车后聊天请求不再等待附件正文提取；用户消息与助手流式占位立即显示，附件以“后台读取”状态随消息保存。
+- 后台解析完成后按用户消息 ID 精确回写附件正文、读取模式和降级状态；重试与后续追问可使用已完成内容。
 
 ### 实现方式
 
-- BuildKit 语法镜像以及 Node/Alpine、PostgreSQL、官方 NextChat 镜像使用 `docker.m.daocloud.io`，APK 使用 `https://mirrors.aliyun.com/alpine`，NPM/Yarn 使用 `https://registry.npmmirror.com/`；现有 Compose 的国内 build args 保持不变。
-- README 记录完整国内构建源链路与 SSH 隧道覆盖范围。
+- `onUserInput` 在消息插入会话后立即调用新增的 `onUserMessageCreated` 回调，组件在该回调中发起不阻塞的 `/api/cache/extract` 请求。
+- 初始消息持久化 `pending` 状态与“本轮不等待解析完成”说明，避免 OpenAI 原文件读取和本地内容解析拖慢首轮请求；回写经现有 `updateTargetSession` 同步到持久化与远端同步路径。
 
 ### 验证
 
-- 无代理环境下，SSH 隧道镜像完成构建并启动；主开发镜像从 DaoCloud 拉取 BuildKit/Node、从阿里云安装 APK，并从 npmmirror 获取 Yarn 依赖后成功生成。
-- `git diff --check` 通过。用户确认自行测试后，`nextchat-dev` 使用现有国内源镜像以 `ccc` 免登录和 SSH 隧道配置启动，Next.js 约 1.4 秒进入 Ready，首页返回 HTTP 200。
+- `yarn lint` 通过；`npx prettier --write` 已格式化修改文件，`git diff --check` 通过。
+- `npx tsc --noEmit --pretty false` 未出现本次附件时序改动的错误；项目既有 `app/mcp/client.ts` Zod 泛型错误仍需单独处理。
 
 ### 潜在或遗留问题
 
-- `instrumentation.ts` 会无条件启动备份调度器，其首次运行调用 `DROP TABLE IF EXISTS ... CASCADE` 清理主库旧备份表；本次启动日志再次确认该路径执行。用户已知情并明确要求启动，后续仍建议改为仅显式维护命令可触发。
+- 首轮模型请求不会等待扫描 PDF 的 OCR 或页面视觉转换；当前模型若不支持原生文件/视觉输入，应在后台解析完成后重试或继续提问以使用提取结果。
+
+============================================================
+
+## 186. 【2026-07-21 12:17】- 扩展任意附件的 AI 可读降级链路
+
+### 修改内容
+
+- 聊天附件不再只对 PDF、DOCX 和表格调用提取接口：文本、代码、配置和未知二进制均会产生可供模型使用的正文、可打印字符串或明确元信息。
+- 原生 OpenAI 的 Responses 输入从仅缓存 PDF 扩展到常见 Office、表格和文本文件；其他 Provider 保持安全的本地文本/元信息降级。
+
+### 实现方式
+
+- `attachment-file.ts` 集中维护本地文本和 OpenAI 原生文件输入格式表；`/api/cache/extract` 依次选择专用解析、编码感知文本解码、二进制字符串扫描和元信息回退，并记录 `ready`、`partial`、`metadata`、`failed` 状态。
+- 消息附件持久化读取模式和摘要；提交、重发时所有缓存附件均进入分析，并在无法完整提取时把实际限制明确发送给模型和显示给用户。
+- 原生 OpenAI 以 `/v1/responses` 的 `input_file` data URL 传递支持格式的原文件，单文件及同请求总量维持 50 MB；PDF 继续使用 `detail: high`。
+
+### 验证
+
+- `npx prettier --check`、本机与 `nextchat-dev` 中的 `yarn lint`、`git diff --check` 均通过；开发首页返回 `HTTP 200`，容器确认已读取新文件。
+- `npx tsc --noEmit --pretty false` 仅保留既有 `app/mcp/client.ts` 的 Zod 泛型错误，本次附件代码未产生类型错误。
+- 未向真实模型上游上传测试附件，避免在未获单独授权时泄露用户文件或消耗 API 额度。
+
+### 潜在或遗留问题
+
+- OCR、音视频转写、压缩包展开和专有二进制的语义解析尚未引入；此类文件当前提供可打印字符串或元信息降级，原生 OpenAI 只直传其支持的格式。
+
+============================================================

@@ -378,7 +378,7 @@ export function Markdown(
       dir="auto"
     >
       {props.loading ? (
-        <LoadingIcon />
+        <LoadingIcon className="no-dark" style={{ filter: "none" }} />
       ) : (
         <MarkdownContent content={props.content} />
       )}

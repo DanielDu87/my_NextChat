@@ -60,7 +60,7 @@ WORKDIR /app
 # 一次性配置所有源和安装基础包（减少层数）
 RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
-    apk add --no-cache libc6-compat git && \
+    apk add --no-cache build-base cairo-dev ghostscript giflib-dev jpeg-dev libc6-compat pango-dev python3 git && \
     corepack enable && \
     COREPACK_NPM_REGISTRY="${NPM_REGISTRY%/}" corepack prepare yarn@1.22.19 --activate && \
     npm config set registry "${NPM_REGISTRY}" && \
@@ -85,8 +85,7 @@ RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
     cp -a node_modules/. /opt/nextchat-node_modules/ && \
     cat package.json yarn.lock | sha256sum | awk '{print $1}' > /opt/nextchat-node_modules/.nextchat-deps-hash
 
-COPY scripts/dev-container-start.sh /usr/local/bin/dev-container-start.sh
-RUN chmod +x /usr/local/bin/dev-container-start.sh
+COPY --chmod=755 scripts/dev-container-start.sh /usr/local/bin/dev-container-start.sh
 
 # 开发环境变量
 ENV HOSTNAME=0.0.0.0 \
@@ -171,7 +170,7 @@ ENV NODE_ENV=production \
 # 安装运行时依赖
 RUN set -eux; \
     sed -i "s#https\\?://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories && \
-    apk add --no-cache proxychains-ng dumb-init
+    apk add --no-cache cairo dumb-init ghostscript giflib libjpeg-turbo pango proxychains-ng
 
 WORKDIR /app
 

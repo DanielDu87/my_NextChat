@@ -126,15 +126,17 @@ export const usePromptStore = createPersistStore(
 
     remove(id: string) {
       get().update((state) => {
-        delete state.prompts[id];
-
-        Object.entries(state.prompts).some(([key, prompt]) => {
-          if (prompt.id === id) {
-            delete state.prompts[key];
-            return true;
+        if (state.prompts[id]) {
+          delete state.prompts[id];
+        } else {
+          // Older snapshots may use a record key that differs from prompt.id.
+          const legacyPromptKey = Object.entries(state.prompts).find(
+            ([, prompt]) => prompt.id === id,
+          )?.[0];
+          if (legacyPromptKey) {
+            delete state.prompts[legacyPromptKey];
           }
-          return false;
-        });
+        }
 
         state.deletedPromptIds = Array.from(
           new Set([...(state.deletedPromptIds ?? []), id]),

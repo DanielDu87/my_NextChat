@@ -747,7 +747,6 @@ export function UserMenu(props?: {
   };
 
   const renderRowAction = (managedUser: ManagedUser) => {
-    const isCurrent = currentEffectiveUserId === managedUser.id;
     const isSelected = selectedUserIds.includes(managedUser.id);
 
     if (deleteMode && isDeletableUser(managedUser)) {
@@ -772,10 +771,6 @@ export function UserMenu(props?: {
           </label>
         </div>
       );
-    }
-
-    if (!deleteMode && isCurrent) {
-      return <div className={styles.badge}>当前</div>;
     }
 
     return <div className={styles.rowAction} />;
@@ -951,67 +946,6 @@ export function UserMenu(props?: {
                           [styles.manageListItemActive]:
                             effectiveUser.id === managedUser.id,
                         })}
-                        title={
-                          <div className={styles.userRow}>
-                            <div className={styles.userIdentity}>
-                              <div className={styles.userAvatar}>
-                                {getUserInitial(
-                                  managedUser.displayName ||
-                                    managedUser.username,
-                                )}
-                              </div>
-                              <div className={styles.userIdentityText}>
-                                <div className={styles.userName}>
-                                  {managedUser.displayName ||
-                                    managedUser.username}
-                                </div>
-                                {!managedUser.isActive && (
-                                  <div className={styles.userMeta}>
-                                    <span className={styles.disabledState}>
-                                      已禁用
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className={styles.userDetails}>
-                              <div className={styles.userDetail}>
-                                <span className={styles.userInfoLabel}>
-                                  密码
-                                </span>
-                                <span className={styles.userInfoValue}>
-                                  {showAllPasswords
-                                    ? managedUser.username
-                                    : "******"}
-                                </span>
-                              </div>
-                              <div className={styles.userDetail}>
-                                <span className={styles.userInfoLabel}>
-                                  对话数量
-                                </span>
-                                <span className={styles.userInfoValue}>
-                                  {managedUser.conversationCount ?? "-"} 条
-                                </span>
-                              </div>
-                              <div
-                                className={clsx(
-                                  styles.userDetail,
-                                  styles.userDetailWide,
-                                )}
-                              >
-                                <span className={styles.userInfoLabel}>
-                                  最近对话
-                                </span>
-                                <span className={styles.userInfoValue}>
-                                  {formatLoginTime(
-                                    managedUser.lastConversationAt,
-                                  )}
-                                </span>
-                              </div>
-                            </div>
-                            {renderRowAction(managedUser)}
-                          </div>
-                        }
                         onClick={() => {
                           if (toggleUserSelection(managedUser)) {
                             return;
@@ -1024,7 +958,67 @@ export function UserMenu(props?: {
 
                           handleSwitchUser(managedUser);
                         }}
-                      />
+                      >
+                        <div className={styles.userRow}>
+                          <div className={styles.userIdentity}>
+                            <div className={styles.userAvatar}>
+                              {getUserInitial(
+                                managedUser.displayName || managedUser.username,
+                              )}
+                            </div>
+                            <div className={styles.userIdentityText}>
+                              <div className={styles.userName}>
+                                {managedUser.displayName ||
+                                  managedUser.username}
+                              </div>
+                              {!managedUser.isActive && (
+                                <div className={styles.userMeta}>
+                                  <span className={styles.disabledState}>
+                                    已禁用
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className={styles.userDetails}>
+                            <div className={styles.userDetail}>
+                              <span className={styles.userInfoLabel}>密码</span>
+                              <span className={styles.userInfoValue}>
+                                {showAllPasswords
+                                  ? managedUser.username
+                                  : "******"}
+                              </span>
+                            </div>
+                            <div className={styles.userDetail}>
+                              <span className={styles.userInfoLabel}>
+                                对话数量
+                              </span>
+                              <span className={styles.userInfoValue}>
+                                {managedUser.conversationCount ?? "-"} 条
+                              </span>
+                            </div>
+                            <div
+                              className={clsx(
+                                styles.userDetail,
+                                styles.userDetailWide,
+                              )}
+                            >
+                              <span className={styles.userInfoLabel}>
+                                最近对话
+                              </span>
+                              <span className={styles.userInfoValue}>
+                                {formatLoginTime(
+                                  managedUser.lastConversationAt,
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          {effectiveUser.id === managedUser.id && (
+                            <div className={styles.badge}>当前</div>
+                          )}
+                          {renderRowAction(managedUser)}
+                        </div>
+                      </ListItem>
                     ))
                   )}
                 </List>
@@ -1238,61 +1232,6 @@ export function UserMenu(props?: {
                       [styles.manageListItemActive]:
                         effectiveUser.id === managedUser.id,
                     })}
-                    title={
-                      <div className={styles.userRow}>
-                        <div className={styles.userIdentity}>
-                          <div className={styles.userAvatar}>
-                            {getUserInitial(
-                              managedUser.displayName || managedUser.username,
-                            )}
-                          </div>
-                          <div className={styles.userIdentityText}>
-                            <div className={styles.userName}>
-                              {managedUser.displayName || managedUser.username}
-                            </div>
-                            {!managedUser.isActive && (
-                              <div className={styles.userMeta}>
-                                <span className={styles.disabledState}>
-                                  已禁用
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className={styles.userDetails}>
-                          <div className={styles.userDetail}>
-                            <span className={styles.userInfoLabel}>密码</span>
-                            <span className={styles.userInfoValue}>
-                              {showAllPasswords
-                                ? managedUser.username
-                                : "******"}
-                            </span>
-                          </div>
-                          <div className={styles.userDetail}>
-                            <span className={styles.userInfoLabel}>
-                              对话数量
-                            </span>
-                            <span className={styles.userInfoValue}>
-                              {managedUser.conversationCount ?? "-"} 条
-                            </span>
-                          </div>
-                          <div
-                            className={clsx(
-                              styles.userDetail,
-                              styles.userDetailWide,
-                            )}
-                          >
-                            <span className={styles.userInfoLabel}>
-                              最近对话
-                            </span>
-                            <span className={styles.userInfoValue}>
-                              {formatLoginTime(managedUser.lastConversationAt)}
-                            </span>
-                          </div>
-                        </div>
-                        {renderRowAction(managedUser)}
-                      </div>
-                    }
                     onClick={() => {
                       if (toggleUserSelection(managedUser)) {
                         return;
@@ -1305,7 +1244,58 @@ export function UserMenu(props?: {
 
                       handleSwitchUser(managedUser);
                     }}
-                  />
+                  >
+                    <div className={styles.userRow}>
+                      <div className={styles.userIdentity}>
+                        <div className={styles.userAvatar}>
+                          {getUserInitial(
+                            managedUser.displayName || managedUser.username,
+                          )}
+                        </div>
+                        <div className={styles.userIdentityText}>
+                          <div className={styles.userName}>
+                            {managedUser.displayName || managedUser.username}
+                          </div>
+                          {!managedUser.isActive && (
+                            <div className={styles.userMeta}>
+                              <span className={styles.disabledState}>
+                                已禁用
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className={styles.userDetails}>
+                        <div className={styles.userDetail}>
+                          <span className={styles.userInfoLabel}>密码</span>
+                          <span className={styles.userInfoValue}>
+                            {showAllPasswords ? managedUser.username : "******"}
+                          </span>
+                        </div>
+                        <div className={styles.userDetail}>
+                          <span className={styles.userInfoLabel}>对话数量</span>
+                          <span className={styles.userInfoValue}>
+                            {managedUser.conversationCount ?? "-"} 条
+                          </span>
+                        </div>
+                        <div
+                          className={clsx(
+                            styles.userDetail,
+                            styles.userDetailWide,
+                          )}
+                        >
+                          <span className={styles.userInfoLabel}>最近对话</span>
+                          <span className={styles.userInfoValue}>
+                            {formatLoginTime(managedUser.lastConversationAt)}
+                          </span>
+                        </div>
+                      </div>
+                      {effectiveUser.id === managedUser.id && (
+                        <div className={styles.badge}>当前</div>
+                      )}
+                      {renderRowAction(managedUser)}
+                    </div>
+                  </ListItem>
                 ))
               )}
             </List>

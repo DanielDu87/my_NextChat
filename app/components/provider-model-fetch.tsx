@@ -107,7 +107,6 @@ export function ProviderModelFetchPage() {
   useEffect(() => {
     if (hasLoggedPageEntryRef.current) return;
     hasLoggedPageEntryRef.current = true;
-    console.clear();
     const configured = sortedProfiles.filter(
       (p) =>
         String(p.modelFetchApiKey || "").trim() &&
@@ -399,8 +398,8 @@ export function ProviderModelFetchPage() {
                         fetchStatusMap[profile.id]?.type === "error"
                           ? styles.balanceError
                           : recentlyUpdatedIds.has(profile.id)
-                          ? styles.balanceUpdated
-                          : ""
+                            ? styles.balanceUpdated
+                            : ""
                       }`}
                     >
                       {fetchStatusMap[profile.id]?.type === "error" && (

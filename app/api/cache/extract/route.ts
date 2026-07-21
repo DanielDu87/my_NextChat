@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { StoreKey } from "@/app/constant";
-import { getExtractableAttachmentKind } from "@/app/utils/attachment-file";
+import {
+  getExtractableAttachmentKind,
+  isPlainTextAttachment,
+  isSafeImageAttachment,
+} from "@/app/utils/attachment-file";
 import { AuthError } from "@/app/utils/server/auth";
 import {
   getCacheFile,
@@ -19,15 +23,26 @@ export const revalidate = 0;
 const MAX_FILES_PER_REQUEST = 9;
 const MAX_EXTRACTED_CHARS_PER_FILE = 24_000;
 const MAX_PDF_PAGES = 80;
+const MIN_PDF_TEXT_CHARS_FOR_TEXT_MODE = 120;
 const MAX_SPREADSHEET_SHEETS = 10;
 const MAX_SPREADSHEET_ROWS = 1_000;
 
 type ExtractionResult = {
   id: string;
-  status: "ready" | "unsupported" | "failed";
+  status: "ready" | "partial" | "metadata" | "failed";
   text: string;
   truncated: boolean;
+  mode: "document" | "text" | "binary" | "metadata";
+  summary: string;
+  visualFallback?: boolean;
   reason?: string;
+};
+
+type ExtractedFileText = {
+  text: string;
+  truncated: boolean;
+  mode?: ExtractionResult["mode"];
+  visualFallback?: boolean;
 };
 
 function isUuid(value: string) {
@@ -56,6 +71,43 @@ function limitText(value: string) {
   };
 }
 
+function buildFileSummary(
+  fileName: string,
+  contentType: string,
+  sizeBytes: number,
+) {
+  return [
+    `文件名：${fileName || "未命名文件"}`,
+    `类型：${contentType || "application/octet-stream"}`,
+    `大小：${Math.max(0, Number(sizeBytes) || 0)} 字节`,
+  ].join("；");
+}
+
+function decodePlainText(data: Buffer) {
+  const utf16Encoding =
+    data[0] === 0xff && data[1] === 0xfe
+      ? "utf-16le"
+      : data[0] === 0xfe && data[1] === 0xff
+        ? "utf-16be"
+        : "utf-8";
+  try {
+    return new TextDecoder(utf16Encoding, { fatal: true }).decode(data);
+  } catch {
+    // Some legacy logs/configs are not valid UTF-8. Decode lossily rather
+    // than rejecting an otherwise readable user-provided text file.
+    return new TextDecoder(utf16Encoding).decode(data);
+  }
+}
+
+function extractPrintableBinaryText(data: Buffer) {
+  const snippets =
+    data
+      .toString("latin1")
+      .match(/[\x20-\x7e]{4,}/g)
+      ?.slice(0, 300) || [];
+  return limitText(snippets.join("\n"));
+}
+
 async function extractPdfText(data: Buffer) {
   const [pdfjs, worker] = await Promise.all([
     import("pdfjs-dist/legacy/build/pdf.mjs"),
@@ -72,13 +124,14 @@ async function extractPdfText(data: Buffer) {
     data: new Uint8Array(data),
   });
   const document = await loadingTask.promise;
-  let truncated = document.numPages > MAX_PDF_PAGES;
+  const pageCount = document.numPages;
+  let truncated = pageCount > MAX_PDF_PAGES;
   let output = "";
 
   try {
     for (
       let pageNumber = 1;
-      pageNumber <= Math.min(document.numPages, MAX_PDF_PAGES);
+      pageNumber <= Math.min(pageCount, MAX_PDF_PAGES);
       pageNumber += 1
     ) {
       const page = await document.getPage(pageNumber);
@@ -95,6 +148,16 @@ async function extractPdfText(data: Buffer) {
     }
   } finally {
     await document.destroy();
+  }
+
+  if (output.trim().length < MIN_PDF_TEXT_CHARS_FOR_TEXT_MODE) {
+    // Keep the usable short text for text-only models while also requesting
+    // visual pages for models that can interpret the PDF layout.
+    return {
+      text: output,
+      truncated,
+      visualFallback: true,
+    };
   }
 
   return { text: output, truncated };
@@ -145,7 +208,10 @@ async function extractSpreadsheetText(data: Buffer) {
   return { text: output, truncated };
 }
 
-async function extractFileText(fileName: string, data: Buffer) {
+async function extractFileText(
+  fileName: string,
+  data: Buffer,
+): Promise<ExtractedFileText | null> {
   switch (getExtractableAttachmentKind(fileName)) {
     case "pdf":
       return extractPdfText(data);
@@ -154,6 +220,13 @@ async function extractFileText(fileName: string, data: Buffer) {
     case "spreadsheet":
       return extractSpreadsheetText(data);
     default:
+      if (isSafeImageAttachment(fileName)) {
+        // Images are passed to the selected model as visual input, not OCR text.
+        return { text: "", truncated: false, mode: "metadata" as const };
+      }
+      if (isPlainTextAttachment(fileName)) {
+        return { ...limitText(decodePlainText(data)), mode: "text" as const };
+      }
       return null;
   }
 }
@@ -201,27 +274,47 @@ export async function POST(req: NextRequest) {
           status: "failed",
           text: "",
           truncated: false,
+          mode: "metadata",
+          summary: "文件不存在、已过期，或当前用户无权读取。",
           reason: "not_found",
         });
         continue;
       }
 
       try {
+        const summary = buildFileSummary(
+          file.fileName,
+          file.contentType,
+          file.sizeBytes,
+        );
         const extracted = await extractFileText(file.fileName, file.data);
         if (!extracted) {
+          const binaryText = extractPrintableBinaryText(file.data);
           results.push({
             id,
-            status: "unsupported",
-            text: "",
-            truncated: false,
-            reason: "unsupported_format",
+            status: binaryText.text ? "partial" : "metadata",
+            text: binaryText.text,
+            truncated: binaryText.truncated,
+            mode: binaryText.text ? "binary" : "metadata",
+            summary,
+            reason: binaryText.text
+              ? "printable_binary_strings"
+              : "metadata_only",
           });
           continue;
         }
+        const extractionMode = extracted.mode || "document";
         results.push({
           id,
-          status: "ready",
+          status:
+            extracted.text.trim() ||
+            extractionMode === "document" ||
+            extractionMode === "text"
+              ? "ready"
+              : "metadata",
           ...extracted,
+          mode: extractionMode,
+          summary,
         });
       } catch (error) {
         results.push({
@@ -229,6 +322,12 @@ export async function POST(req: NextRequest) {
           status: "failed",
           text: "",
           truncated: false,
+          mode: "metadata",
+          summary: buildFileSummary(
+            file.fileName,
+            file.contentType,
+            file.sizeBytes,
+          ),
           reason: String((error as Error)?.message || "extract_failed").slice(
             0,
             160,
