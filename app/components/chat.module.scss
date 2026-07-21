@@ -568,6 +568,51 @@
   line-height: 18px;
 }
 
+// 新标题栏样式
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: var(--border-in-light);
+  background: var(--white);
+}
+
+.file-preview-header-icon {
+  flex-shrink: 0;
+}
+
+.file-preview-header-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--black);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 新元信息栏样式
+.file-preview-meta-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: var(--border-in-light);
+  background: var(--white);
+}
+
+.file-preview-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--black);
+  background: var(--gray-100);
+  border-radius: 4px;
+}
+
 .file-preview-frame {
   width: 100%;
   height: min(640px, calc(var(--full-height) - 132px));
@@ -804,6 +849,25 @@
     color: var(--black);
   }
 
+  .file-preview-header {
+    background: #2f343b;
+    border-bottom-color: var(--border-in-light);
+  }
+
+  .file-preview-header-title {
+    color: #f8fafc;
+  }
+
+  .file-preview-meta-bar {
+    background: #2f343b;
+    border-bottom-color: var(--border-in-light);
+  }
+
+  .file-preview-meta-badge {
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+  }
+
   .file-preview-frame {
     background: #24292f;
   }
@@ -870,6 +934,25 @@
     .file-preview-meta {
       border-bottom-color: var(--border-in-light);
       color: var(--black);
+    }
+
+    .file-preview-header {
+      background: #2f343b;
+      border-bottom-color: var(--border-in-light);
+    }
+
+    .file-preview-header-title {
+      color: #f8fafc;
+    }
+
+    .file-preview-meta-bar {
+      background: #2f343b;
+      border-bottom-color: var(--border-in-light);
+    }
+
+    .file-preview-meta-badge {
+      background: rgba(148, 163, 184, 0.18);
+      color: #e2e8f0;
     }
 
     .file-preview-frame {
