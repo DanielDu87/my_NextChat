@@ -4,6 +4,32 @@
 
 ============================================================
 
+## 203. 【2026-07-22 12:30】- API 配置页新增配置按钮桌面端固定在最右
+
+### 修改内容
+
+- `/api_config` 页"配置条目"卡片标题右侧的"新增配置"按钮在桌面端不再随副标题/容器宽度漂移到下方，按钮永远固定在标题右上角；移动端（≤900px）维持 column + 100% 宽度沾满，符合"电脑端右对齐、移动端沾满"的双端行为。
+
+### 实现方式
+
+- 根因不在 `.profileSectionTitle` 本身，而是 ListItem 多层 flex 容器链：ui-lib 的 `.list-item > .list-header` 默认 `max-width: 70% / flex-shrink: 0` 把标题容器限到 70%。ListItem 渲染时给标题容器加的是**全局类** `nextchat-list-header` / `nextchat-list-item-title`，但 ui-lib 内部的 `.list-header` 规则编译后变成 hash 类（如 `.ui-lib_list-header__xxx`），此前 `.sectionCard :global(.list-header)` 字面选择器**根本没命中**，全部被静默忽略。
+- `api-config.module.scss` 改用匹配**全局类** `.nextchat-list-header` / `.nextchat-list-item-title`，并加 `!important` 压过 ui-lib 的 hash 类同特异性规则。
+- `.sectionCard :global(.nextchat-list-header)`：`align-items: flex-start !important; max-width: 100% !important; flex-shrink: 1 !important; width: 100% !important; box-sizing: border-box !important`。
+- `.sectionCard :global(.nextchat-list-item-title), .sectionCard :global(.nextchat-list-item-title) > div`：`width: 100% !important; min-width: 0 !important; max-width: 100% !important; box-sizing: border-box !important; overflow: visible !important; text-overflow: clip !important; white-space: normal !important`。
+- `.profileSectionTitle` 加 `max-width:100%; box-sizing:border-box; position:relative`，按钮加 `position:relative; z-index:2`，锁定布局上下文与层叠，避免任何溢出与被遮罩问题。
+- `@media screen and (max-width: 900px)` 块的 `.profileSectionTitle { flex-direction: column; ... width: 100% !important }` 不动，移动端保持"独占一行沾满"。
+- 同步修复 `/backup/api_config` 页"配置备份历史"卡片的"立即备份"按钮：api-config-backups.module.scss 的 `.historyHeader` 加同款 `flex-wrap:nowrap/max-width:100%/box-sizing:border-box/position:relative`，按钮加 `flex:0 0 auto/flex-shrink:0/margin-left:auto/white-space:nowrap/position:relative/z-index:2`；并对 `.nextchat-hover-card` 内的 `:global(.nextchat-list-header)` / `:global(.nextchat-list-item-title)` 加与 api-config 同款的 `!important` 锁定规则。`@media (max-width: 700px)` 的 `.historyHeader { flex-direction: column }` 不动，保留移动端独占一行行为。
+- 同步修复 `/backup/chat` 页"对话备份历史"卡片的"立即备份"按钮：chat-backups.module.scss 的 `.historyHeader` 加全套 `!important`（`display:flex/flex-direction:row/justify-content:space-between`）防止被覆盖；`.createBackupButton` 关键修复是去掉原 `margin-right:15px`（把按钮推向右 15px 而非最右）改为 `margin-left:auto !important; margin-right:0 !important`，并加 `flex:0 0 auto/flex-shrink:0/align-self:flex-start/white-space:nowrap/position:relative/z-index:2`；并对 `.content > ... :global([class*="list-item"]).hoverCard` 内的 `:global(.nextchat-list-header)` / `:global(.nextchat-list-item-title)` 加同款 `!important` 锁定规则。chat-backups 用的是 CSS Modules 自引用 `.hoverCard` 而非 `nextchat-hover-card` 全局类（与 api-config-backups 不同），CSS Modules 自引用 `.hoverCard` 能正确匹配编译后的 hash 类。
+- 实际诉求仅是"按钮右缘贴齐下方表格的右边框"：之前对 `.profileTable` 去掉 `border / border-radius / padding` 的多改动属于误判，已撤回；表格的 1px 边框、14px 圆角、行 padding 恢复原样。按钮与表格右边框对齐通过上文 `:global(.nextchat-list-header/max-width:100% !important)` + 按钮 `margin-left:auto` 自动实现：`.profileTable` 是 `width:100%`，表格右外缘 = sectionCard 内容区右缘 = 按钮右缘（被 `margin-left:auto` 推到 `.profileSectionTitle` 右缘、而 `.profileSectionTitle` 与表格都受同一 sectionCard 内容区约束）。
+- 用户管理菜单（`user-menu.tsx` manageList 三行）"密码 / 对话数 / 最近对话"三列上下对齐：`user-menu.module.scss` 的 `.userIdentity` 由 `flex-shrink:0/min-width:0` 改为 `flex:0 0 130px; min-width:130px; max-width:130px`。`.userDetails` 是 grid + fr 列宽列宽依赖容器剩余宽度；用户名长度不同时 `.userIdentity` 自然宽窄不一，导致每行 `.userDetails` 剩余宽度不同，fr 列宽错位。把 `.userIdentity` 三轴定宽 130px 后，三行 `.userDetails` 剩余宽度严格一致，grid fr 比例列宽自然对齐，上下三行每列左/右缘对齐。
+- 移动端（≤600px）该区域同样修复：上面桌面端把 `.userIdentity` 锁 130px 后，移动端仍在窄屏下生效，导致 `.userDetails` 被压到只剩少量空间、"当前"徽章被 `.userDetails` 内容溢出覆盖。`@media screen and (max-width: 600px)` 块内：`.userIdentity` 改回 `flex:0 0 auto; min-width:0; max-width:none` 让其弹性收缩、`.userRow { padding-right:64px }` 给徽章和操作位留更多空间、`.userBadge { right:40px; z-index:2; pointer-events:none }` 贴右置顶、`.rowAction { right:2px; width:32px; z-index:3 }` 收紧操作位、`.userDetailWide` 加 `min-width:0; overflow:hidden` + `.userInfoValue` 用 `text-overflow:ellipsis` 防最近对话时间戳溢出覆盖徽章。后面用户反馈移动端右边部分太宽：`.userRow { padding-right: 64px }` 收紧到 `36px`、`.badge { right: 40px }` 调到 `38px`，让 `.userDetails` 视觉上更靠右、`.rowAction` 不显空。再后第三列 fr 过大导致最近对话时间戳不被 ellipsis 截断、反而覆盖"当前"徽章：移动端 `.userDetails` 第三列 `minmax(96px, 1.45fr)` 改为 `minmax(80px, 1.1fr)`，3 列 fr 比例 0.55:0.7:1.1（总和 2.35）让第三列占约 47%（之前 53.7%），最小宽从 96 降到 80，时间戳更易触发 ellipsis 截断，不再溢出覆盖徽章。再后用户要求徽章改相对定位靠右：移动端 `.badge` 与 `.rowAction` 都由 `position:absolute` 改为 `position:relative; top:auto; right:auto; transform:none`，`.userRow { padding-right:0 }`，`.rowAction { margin-left:auto; align-self:center }` 把徽章和操作位都用 flex 流自然排在行末靠右，徽章紧贴 `.userDetails` 右外侧、`.rowAction` 32px 在最右缘，不再 absolute 浮在上面导致覆盖。撤回，恢复绝对定位方案；最后 `.badge { right: 38px }` 用户反馈不够右，改为 `right: 6px` 几乎贴行末右缘、`.rowAction { right: 32px; width: 32px }` 让操作位左移 30px 让出徽章空间、`.badge z-index:3 / .rowAction z-index:2` 徽章浮在操作位之上避免视觉重叠、`.userRow { padding-right: 72px }` 保证 `.userDetails` 不与两个 absolute 元素重叠。再后用户反馈徽章导致其他元素移动（ccc 行徽章占位、其他行无徽章 DOM，子节点数不同 → flex 流布局不一致）：`user-menu.tsx` 两处 ListItem 把 `effectiveUser.id === managedUser.id && (<div className={styles.badge}>当前</div>)` 改为总是渲染 `<div className={clsx(styles.badge, { [styles.badgeActive]: ... })}>`，并在非当前用户行加 `aria-hidden="true"`；新增 `.badgeActive { visibility:visible; background:var(--primary); color:#ffffff; border-radius:999px }`，默认 `.badge` 在桌面端与移动端都 `visibility:hidden / color:transparent / background:transparent / width:30px; height:18px; box-sizing:border-box` 占位，确保三行子节点一致，徽章只对当前用户生效并显绿色，其余两行徽章隐形但仍占位，ccc 行 vs admin/dyx 行的 `.rowAction` 右缘位置严格对齐。
+
+### 验证
+
+- 待人工确认：浏览器 ≥ 901px 宽度打开 `/api_config`，左侧标题文案无论长短，"新增配置"按钮都固定在右上；≤ 900px 宽度下按钮仍沾满整行居中。
+
+============================================================
+
 ## 202. 【2026-07-22 11:50】- 修复 MCP client.ts 阻断 next build 的类型递归
 
 ### 修改内容
@@ -191,23 +217,4 @@
 - 未发送真实模型请求，避免未经单独确认消耗 API 额度；请用一个会触发自动回退的模型实际点击停止，确认不再出现下一候选状态行。
 
 ============================================================
-
-## 192. 【2026-07-21 22:05】- 浅色主题聊天加载图标使用主题蓝
-
-### 修改内容
-
-- 聊天流式回复的三点加载图标在浅色主题下不再被全局 SVG 反相滤镜处理为灰色，改为稳定显示当前主题的蓝色主色。
-
-### 实现方式
-
-- 在浅色主题根变量中保存 `--chat-loading-primary`，三点 SVG 优先读取该变量；加载 SVG 同时以内联 `filter: none` 覆盖 `div:not(.no-dark) > svg` 的 `invert(0.5)`，暗色主题仍按现有 `--primary` 继承逻辑显示。
-
-### 验证
-
-- 两次 `docker exec nextchat-dev yarn lint` 均通过，`git diff --check` 通过，`/chat` 返回 `HTTP 200`。
-- 确认 `nextchat-dev` 挂载的源码已包含主题变量、SVG 引用和 `filter: none` 覆盖，无需重建镜像。
-
-### 潜在或遗留问题
-
-- 内置浏览器的本地测试标签被运行时回收，未能取得流式占位的最终截图；请在浅色主题发送一条消息时确认三点图标为未反相的主题蓝。
 

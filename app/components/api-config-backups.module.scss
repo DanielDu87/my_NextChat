@@ -35,6 +35,25 @@
 .content > :global([class*="list"]) > :global([class*="list-item"]):global(.nextchat-hover-card) {
   border: var(--border-in-light);
   border-radius: 8px;
+
+  :global(.nextchat-list-header) {
+    align-items: flex-start !important;
+    max-width: 100% !important;
+    flex-shrink: 1 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  :global(.nextchat-list-item-title),
+  :global(.nextchat-list-item-title) > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
 }
 
 .settings {
@@ -74,12 +93,29 @@
   height: 18px;
 }
 .historyHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
   gap: 16px;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  position: relative;
+  padding-right: 0;
   white-space: normal;
+
+  :global(.nextchat-api-config-backup-create-button) {
+    flex: 0 0 auto !important;
+    flex-shrink: 0 !important;
+    align-self: flex-start !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    white-space: nowrap !important;
+    position: relative !important;
+    z-index: 2;
+  }
 }
 .historyHeaderText {
   min-width: 0;

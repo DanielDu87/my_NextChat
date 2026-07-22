@@ -52,6 +52,25 @@
 .content > :global([class*="list"]) > :global([class*="list-item"]).hoverCard {
   border: var(--border-in-light);
   border-radius: 8px;
+
+  :global(.nextchat-list-header) {
+    align-items: flex-start !important;
+    max-width: 100% !important;
+    flex-shrink: 1 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  :global(.nextchat-list-item-title),
+  :global(.nextchat-list-item-title) > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
 }
 
 .settings {
@@ -304,11 +323,17 @@
 }
 
 .historyHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
   gap: 16px;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  position: relative;
+  padding-right: 0;
   white-space: normal;
 }
 
@@ -331,13 +356,19 @@
 /* 绿底白字基础样式由 globals.scss 中 .nextchat-green-button 统一接管。
    本类只保留页面特殊微调：宽度、对齐方式。*/
 .createBackupButton {
-  align-self: center;
+  align-self: flex-start !important;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+  margin-right: 0 !important;
   width: 145px;
   min-width: 145px;
   height: 40px !important;
   min-height: 40px !important;
-  margin-right: 15px;
   justify-content: center;
+  white-space: nowrap !important;
+  position: relative !important;
+  z-index: 2;
 }
 
 .searchBar {

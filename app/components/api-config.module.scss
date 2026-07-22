@@ -37,15 +37,20 @@
   }
 }
 
-.sectionCard :global(.list-header) {
-  align-items: flex-start;
+.sectionCard :global(.nextchat-list-header) {
+  align-items: flex-start !important;
+  max-width: 100% !important;
+  flex-shrink: 1 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
-.sectionCard :global(.list-item-title),
-.sectionCard :global(.list-item-title > div) {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
+.sectionCard :global(.nextchat-list-item-title),
+.sectionCard :global(.nextchat-list-item-title) > div {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   overflow: visible !important;
   text-overflow: clip !important;
   white-space: normal !important;
@@ -357,9 +362,19 @@
   gap: 10px;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  position: relative;
 
   :global(.nextchat-api-config-add-button) {
     flex: 0 0 auto;
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-left: auto;
+    white-space: nowrap;
+    position: relative;
+    z-index: 2;
   }
 }
 

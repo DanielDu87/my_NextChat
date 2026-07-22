@@ -424,8 +424,9 @@
 }
 
 .userIdentity {
-  flex-shrink: 0;
-  min-width: 0;
+  flex: 0 0 130px;
+  min-width: 130px;
+  max-width: 130px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -550,6 +551,8 @@
   background: var(--primary);
   color: #ffffff;
   flex-shrink: 0;
+  pointer-events: none;
+  z-index: 2;
 }
 
 @media screen and (max-width: 600px) {
@@ -655,6 +658,16 @@
 
   .userRow {
     gap: 6px;
+    padding-right: 72px;
+  }
+
+  /* 移动端收回桌面端 .userIdentity 的固定 130px，让其随屏宽弹性收缩；
+     移动端列表宽度更窄，固定 130px 会导致 .userDetails 剩余空间被挤出，
+     "当前"徽章反而被 .userDetails 内容覆盖。 */
+  .userIdentity {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
   }
 
   .userAvatar {
@@ -666,10 +679,11 @@
 
   .userDetails {
     grid-template-columns: minmax(36px, 0.55fr) minmax(48px, 0.7fr) minmax(
-        96px,
-        1.45fr
+        80px,
+        1.1fr
       );
     gap: 5px;
+    min-width: 0;
   }
 
   .userInfoLabel {
@@ -684,25 +698,35 @@
   .badge {
     position: absolute;
     top: 50%;
-    right: 36px;
+    right: 6px;
     transform: translateY(-50%);
+    align-self: center;
     font-size: 10px;
-    padding: 1px 5px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    z-index: 3;
+    pointer-events: none;
   }
 
   .rowAction {
     position: absolute;
     top: 50%;
-    right: 2px;
+    right: 32px;
     width: 32px;
     transform: translateY(-50%);
+    z-index: 2;
+  }
+
+  .userDetailWide {
+    min-width: 0;
+    overflow: hidden;
   }
 
   .userDetailWide .userInfoValue {
     white-space: nowrap;
     line-height: 1.4;
     overflow: hidden;
-    text-overflow: clip;
+    text-overflow: ellipsis;
     font-size: 9px;
     letter-spacing: -0.15px;
   }
