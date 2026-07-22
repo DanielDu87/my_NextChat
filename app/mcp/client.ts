@@ -1,7 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { MCPClientLogger } from "./logger";
-import { ListToolsResponse, McpRequestMessage, ServerConfig } from "./types";
+import {
+  ListToolsResponse,
+  McpRequestMessage,
+  McpResponseMessageSchema,
+  ServerConfig,
+} from "./types";
 import { z } from "zod";
 
 const logger = new MCPClientLogger();
@@ -50,6 +55,15 @@ export async function listTools(client: Client): Promise<ListToolsResponse> {
 export async function executeRequest(
   client: Client,
   request: McpRequestMessage,
-) {
-  return client.request(request, z.any());
+): Promise<z.infer<typeof McpResponseMessageSchema>> {
+  // MCP SDK 的 `Client extends Protocol<Request, Notification, Result>` 把
+  // `request<T extends AnySchema>` 推过多层泛型后会报 "Type instantiation is
+  // excessively deep and possibly infinite"（TS2589）。这里用具名 schema 替代
+  // 原来的 `z.any()`，并把 request 方法签名收窄成本地具体函数，避免 TS 重新
+  // 推断 `Protocol` 类的递归泛型。
+  const requestWithSchema = client.request as unknown as (
+    req: McpRequestMessage,
+    schema: typeof McpResponseMessageSchema,
+  ) => Promise<z.infer<typeof McpResponseMessageSchema>>;
+  return requestWithSchema(request, McpResponseMessageSchema);
 }

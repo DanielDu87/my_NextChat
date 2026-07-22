@@ -4,6 +4,26 @@
 
 ============================================================
 
+## 202. 【2026-07-22 11:50】- 修复 MCP client.ts 阻断 next build 的类型递归
+
+### 修改内容
+
+- 部署时 `next build` 在 `app/mcp/client.ts:54` 失败：`Type instantiation is excessively deep and possibly infinite`（TS2589）。仓库历史 TypeScript 错误（CLAUDE.md 中也提及）但 `next build` 默认做类型校验所以会卡住构建。
+- 用具名 schema + 收窄方法签名绕过 `Client extends Protocol<Request, Notification, Result>` 多层泛型递归推断。
+
+### 实现方式
+
+- `app/mcp/client.ts` 的 `executeRequest` 导入 `McpResponseMessageSchema`（仓库已有 `z.ZodType<McpResponseMessage>`），把 `client.request(request, z.any())` 替换为 `client.request(request, McpResponseMessageSchema)`。
+- 由于 MCP SDK `Protocol.request<T extends AnySchema>` 的 `T` 在多层继承下仍会触发 TS2589，进一步把 `client.request` 通过 `as unknown as` 收窄成本地具名函数 `(req, schema) => Promise<...>`，TS 不再重新推断 `Protocol` 类的递归泛型。
+- 返回类型标注为 `Promise<z.infer<typeof McpResponseMessageSchema>>` 与原行为兼容（原来 `z.any()` 解出也是 `unknown`）。
+
+### 验证
+
+- 本地 `npx tsc --noEmit --pretty false` 已不再报 `mcp/client.ts` 的 TS2589 / TS2345；其余 chat.tsx 未使用变量属于历史遗留，本次不动。
+- 待生产服务器 `git pull` 后重新执行 `docker compose up -d --build`，确认 `next build` 通过、容器重启、`https://chat.dyxcloud.com` 能打开。
+
+============================================================
+
 ## 201. 【2026-07-22 00:40】- 对话记录图片附件加描边
 
 ### 修改内容
@@ -147,30 +167,6 @@
 
 ============================================================
 
-## 193. 【2026-07-21 22:20】- 修复全局默认提示词的推理模型注入与保存反馈
-
-### 修改内容
-
-- OpenAI `o1`、`o3`、`o4`、`o5` 推理模型会将已渲染的系统提示词转换为 developer 消息，因此空白自定义值也会实际使用内置默认提示词。
-- 全局系统提示词的数据库同步失败后，页面明确提示“已保存到本机、尚未同步数据库”，不再误报为完全保存失败。
-- 删除用户提示词时优先按正常记录 key 直接删除，仅对历史 key 与 `prompt.id` 不一致的数据执行兼容查找。
-
-### 实现方式
-
-- OpenAI 请求层在过滤推理模型不支持的 system 消息前保留其已替换模板变量后的内容，并连同格式化指令作为 developer 消息发送，避免重新使用未经渲染的原始配置。
-- 保持空白自定义提示词恢复 `DEFAULT_SYSTEM_TEMPLATE` 的既有语义；开发文档同步记录同步失败时的本地保存状态。
-
-### 验证
-
-- 本机及 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
-- 确认 `nextchat-dev` 将当前仓库挂载至 `/app`，且容器内源码包含本次提示词修复，无需重建镜像。
-
-### 潜在或遗留问题
-
-- 未向真实 OpenAI 推理模型发送测试请求，避免消耗 API 额度；可在 `o` 系列模型发送一条消息后按上游日志确认 developer 消息内容。
-
-============================================================
-
 ## 194. 【2026-07-21 22:20】- 手动停止完整终止对话故障转移
 
 ### 修改内容
@@ -214,6 +210,4 @@
 ### 潜在或遗留问题
 
 - 内置浏览器的本地测试标签被运行时回收，未能取得流式占位的最终截图；请在浅色主题发送一条消息时确认三点图标为未反相的主题蓝。
-
-============================================================
 
