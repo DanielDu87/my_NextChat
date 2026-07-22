@@ -121,7 +121,6 @@ import { isAbortLikeError } from "../utils/stale-revalidate";
 import Locale from "../locales";
 
 import { IconButton } from "./button";
-import { LoadingPanel } from "./loading-panel";
 import { LoadingView } from "./loading-view";
 import { Markdown } from "./markdown";
 import styles from "./chat.module.scss";
@@ -698,6 +697,17 @@ type AttachImagesDraftPayload = {
 };
 
 type AttachmentTypeKind = ChatMessageAttachedFile["typeKind"];
+
+function AttachmentFileGlyph({ typeKind }: { typeKind: AttachmentTypeKind }) {
+  return (
+    <span
+      className={clsx(
+        styles["attach-file-glyph"],
+        typeKind === "pdf" && styles["attach-file-pdf-glyph"],
+      )}
+    ></span>
+  );
+}
 
 type ComposerUploadingAttachment = {
   id: string;
@@ -1559,50 +1569,81 @@ function FilePreviewState(props: {
   onCancel?: () => void;
   metaItems?: string[];
 }) {
-  const actions = [
-    props.onAction
-      ? {
-          label: props.actionLabel || "重试",
-          onClick: props.onAction,
-          tone: "primary" as const,
-        }
-      : null,
-    props.onCancel
-      ? {
-          label: props.cancelLabel || "取消下载",
-          onClick: props.onCancel,
-          tone: "secondary" as const,
-        }
-      : null,
-  ].filter(Boolean) as Array<{
-    label: string;
-    onClick?: () => void;
-    tone?: "primary" | "secondary";
-  }>;
+  const progress =
+    typeof props.progress === "number"
+      ? Math.min(1, Math.max(0, props.progress))
+      : undefined;
 
   return (
-    <LoadingPanel
-      title={props.title}
-      message={props.message}
-      progress={props.progress}
-      progressLabel={props.progressLabel}
-      fileName={props.file.name || "未命名文件"}
-      metaItems={props.metaItems}
-      actions={actions}
-      icon={
-        <div
-          className={clsx(
-            styles["file-preview-state-icon"],
-            styles[`attach-file-${props.file.typeKind}`],
-          )}
-        >
-          <div className={styles["attach-file-icon"]}>
-            <span className={styles["attach-file-glyph"]}></span>
+    <div className={styles["file-preview-state"]}>
+      <div className={styles["file-preview-state-card"]}>
+        <div className={styles["file-preview-state-icon"]}>
+          <div className={styles[`attach-file-${props.file.typeKind}`]}>
+            <div className={styles["attach-file-icon"]}>
+              <AttachmentFileGlyph typeKind={props.file.typeKind} />
+            </div>
           </div>
         </div>
-      }
-      className={styles["file-preview-state"]}
-    />
+        <div className={styles["file-preview-state-title"]}>{props.title}</div>
+        {props.file.name && (
+          <div className={styles["file-preview-state-file-name"]}>
+            {props.file.name}
+          </div>
+        )}
+        {props.message && (
+          <div className={styles["file-preview-state-message"]}>
+            {props.message}
+          </div>
+        )}
+        {typeof progress === "number" && (
+          <div className={styles["file-preview-state-progress"]}>
+            <div className={styles["file-preview-state-progress-track"]}>
+              <div
+                className={styles["file-preview-state-progress-bar"]}
+                style={{ width: `${Math.round(progress * 100)}%` }}
+              />
+            </div>
+            <div className={styles["file-preview-state-progress-label"]}>
+              {props.progressLabel || `${Math.round(progress * 100)}%`}
+            </div>
+          </div>
+        )}
+        {props.metaItems && props.metaItems.length > 0 && (
+          <div className={styles["file-preview-state-meta"]}>
+            {props.metaItems.map((item) => (
+              <span
+                key={item}
+                className={styles["file-preview-state-meta-item"]}
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        )}
+        {(props.onAction || props.onCancel) && (
+          <div className={styles["file-preview-state-actions"]}>
+            {props.onAction && (
+              <button
+                type="button"
+                className={styles["file-preview-state-action-primary"]}
+                onClick={props.onAction}
+              >
+                {props.actionLabel || "重试"}
+              </button>
+            )}
+            {props.onCancel && (
+              <button
+                type="button"
+                className={styles["file-preview-state-action-secondary"]}
+                onClick={props.onCancel}
+              >
+                {props.cancelLabel || "取消下载"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1614,6 +1655,7 @@ function FilePreviewContent(props: {
   const previewUrl = String(file.previewUrl || "").trim();
   const fileKind = getPreviewFileKind(file);
   const hostRef = useRef<HTMLDivElement>(null);
+  const docxRootRef = useRef<HTMLDivElement>(null);
   const [blobUrl, setBlobUrl] = useState("");
   const [textContent, setTextContent] = useState("");
   const [spreadsheetSheets, setSpreadsheetSheets] = useState<
@@ -1635,6 +1677,44 @@ function FilePreviewContent(props: {
     setDownloadCancelled(false);
     setReloadKey((value) => value + 1);
   }, []);
+
+  // 让 Word（docx）预览页在窄容器（尤其移动端）内自动缩放适配宽度：
+  // docx-preview 渲染出的页面是固定 pt 宽度、无法回流，只能测量后用 zoom 等比缩小。
+  // 桌面端容器足够宽时 scale=1，不做任何缩放。
+  const applyDocxAutoScale = useCallback(() => {
+    const host = hostRef.current;
+    const root = docxRootRef.current;
+    if (!host || !root) return;
+    const section = host.querySelector("section.docx") as HTMLElement | null;
+    if (!section) return;
+    // 先还原为原始尺寸再测量自然宽度。
+    section.style.zoom = "1";
+    const rootStyle = window.getComputedStyle(root);
+    const paddingX =
+      parseFloat(rootStyle.paddingLeft || "0") +
+      parseFloat(rootStyle.paddingRight || "0");
+    const available = root.clientWidth - paddingX;
+    const pageWidth = section.offsetWidth;
+    if (pageWidth > 0 && available > 0 && pageWidth > available) {
+      section.style.zoom = String(available / pageWidth);
+    } else {
+      section.style.zoom = "";
+    }
+  }, []);
+
+  // 渲染完成（loading 结束）后测量并缩放，并用 ResizeObserver 跟随容器尺寸变化
+  // （旋转屏幕、弹窗尺寸变化等）重新适配。
+  useEffect(() => {
+    if (fileKind !== "document" || loading) return;
+    const root = docxRootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") {
+      applyDocxAutoScale();
+      return;
+    }
+    const observer = new ResizeObserver(() => applyDocxAutoScale());
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [fileKind, loading, reloadKey, applyDocxAutoScale]);
 
   const cancelDownload = useCallback(() => {
     userCancelledDownloadRef.current = true;
@@ -2001,13 +2081,10 @@ function FilePreviewContent(props: {
   if (isImageAttachmentFile(file)) {
     // 图片预览也需要新标题栏
     const FileTypeIcon = () => (
-      <div
-        className={clsx(
-          styles["attach-file-icon"],
-          styles["attach-file-image"],
-        )}
-      >
-        <span className={styles["attach-file-glyph"]}></span>
+      <div className={styles["attach-file-file"]}>
+        <div className={styles["attach-file-icon"]}>
+          <AttachmentFileGlyph typeKind="file" />
+        </div>
       </div>
     );
     const MetaBadge = ({ children }: { children: React.ReactNode }) => (
@@ -2046,10 +2123,10 @@ function FilePreviewContent(props: {
   if (fileKind === "generic") {
     // 文件类型图标
     const FileTypeIcon = () => (
-      <div
-        className={clsx(styles["attach-file-icon"], styles["attach-file-file"])}
-      >
-        <span className={styles["attach-file-glyph"]}></span>
+      <div className={styles["attach-file-file"]}>
+        <div className={styles["attach-file-icon"]}>
+          <AttachmentFileGlyph typeKind="file" />
+        </div>
       </div>
     );
     // 元信息徽章
@@ -2097,10 +2174,10 @@ function FilePreviewContent(props: {
   if (fileKind === "pdf") {
     // 文件类型图标
     const FileTypeIcon = () => (
-      <div
-        className={clsx(styles["attach-file-icon"], styles["attach-file-pdf"])}
-      >
-        <span className={styles["attach-file-glyph"]}></span>
+      <div className={styles["attach-file-pdf"]}>
+        <div className={styles["attach-file-icon"]}>
+          <AttachmentFileGlyph typeKind="pdf" />
+        </div>
       </div>
     );
     // 元信息徽章
@@ -2210,6 +2287,7 @@ function FilePreviewContent(props: {
       />
     ) : (
       <div
+        ref={docxRootRef}
         className={clsx(styles["docx-preview-root"], {
           [styles["docx-preview-root-loading"]]: loading,
         })}
@@ -2331,15 +2409,14 @@ function FilePreviewContent(props: {
 
   const typeKind = file.typeKind || "file";
 
-  // 文件类型图标
+  // 文件类型图标（与对话记录中的附件图标保持一致：类型类放在父级，
+  // .attach-file-icon 作为子级，复用 `.attach-file-{kind} .attach-file-icon`
+  // 的底色与 `.attach-file-{kind} .attach-file-glyph` 的字形规则）。
   const FileTypeIcon = () => (
-    <div
-      className={clsx(
-        styles["attach-file-icon"],
-        styles[`attach-file-${typeKind}`],
-      )}
-    >
-      <span className={styles["attach-file-glyph"]}></span>
+    <div className={styles[`attach-file-${typeKind}`]}>
+      <div className={styles["attach-file-icon"]}>
+        <AttachmentFileGlyph typeKind={typeKind} />
+      </div>
     </div>
   );
 
@@ -5129,8 +5206,10 @@ function ChatContent() {
         defaultMax: false,
         className: clsx(styles["file-preview-modal"], {
           [styles["file-preview-modal-office"]]:
-            previewFileKind === "spreadsheet" ||
-            (previewFileKind === "document" && isDocxPreviewFile(file)),
+            previewFileKind === "spreadsheet",
+          // 文档（docx）预览高度随内容自适应，短文档不再在底部留大片空白。
+          [styles["file-preview-modal-document"]]:
+            previewFileKind === "document" && isDocxPreviewFile(file),
         }),
         contentClassName: clsx(styles["file-preview-modal-content"], {
           [styles["file-preview-modal-content-office"]]:
@@ -11092,13 +11171,9 @@ function ChatContent() {
                                                         ]
                                                       }
                                                     >
-                                                      <span
-                                                        className={
-                                                          styles[
-                                                            "attach-file-glyph"
-                                                          ]
-                                                        }
-                                                      ></span>
+                                                      <AttachmentFileGlyph
+                                                        typeKind={file.typeKind}
+                                                      />
                                                     </div>
                                                     <div
                                                       className={
@@ -11557,9 +11632,9 @@ function ChatContent() {
                                 }}
                               >
                                 <div className={styles["attach-file-icon"]}>
-                                  <span
-                                    className={styles["attach-file-glyph"]}
-                                  ></span>
+                                  <AttachmentFileGlyph
+                                    typeKind={file.typeKind}
+                                  />
                                 </div>
                                 <div className={styles["attach-file-info"]}>
                                   <div className={styles["attach-file-name"]}>
@@ -11613,9 +11688,9 @@ function ChatContent() {
                                       styles["attach-file-icon-uploading"],
                                     )}
                                   >
-                                    <span
-                                      className={styles["attach-file-glyph"]}
-                                    ></span>
+                                    <AttachmentFileGlyph
+                                      typeKind={attachment.typeKind}
+                                    />
                                     <div
                                       className={
                                         styles["attach-file-icon-mask"]

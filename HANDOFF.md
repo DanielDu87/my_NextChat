@@ -4,6 +4,124 @@
 
 ============================================================
 
+## 201. 【2026-07-22 00:40】- 对话记录图片附件加描边
+
+### 修改内容
+
+- 对话记录里的图片附件加上与文件附件卡片一致的描边（`1px solid color-mix(in srgb, var(--black) 24%, transparent)`），light/dark 通过 color-mix 自适应，视觉与其他附件统一。
+
+### 实现方式
+
+- `chat.module.scss` 的 `.chat-message-attached-image`（图片外层 wrapper，含 `overflow:hidden` 裁剪圆角）加 `border` + `box-sizing: border-box`；内层 `<img>` 已有 `object-fit: cover` 与 `border-radius: inherit`，描边显示在外沿、图片在内部被裁剪。
+
+### 验证
+
+- 待人工确认：对话记录中用户发送的图片附件四周有与文件卡片一致的细描边，light/dark 都清晰。
+
+============================================================
+
+## 200. 【2026-07-22 00:30】- Word 预览移动端按容器宽度自动缩放
+
+### 修改内容
+
+- Word（docx）预览页在窄容器（尤其移动端）下自动等比缩放适配宽度，不再横向溢出/滚动，也不再用写死的 `zoom: 0.72`。桌面端容器足够宽时 scale=1，不缩放，排版与真实文档一致。
+
+### 实现方式
+
+- `chat.tsx` 新增 `docxRootRef` 与 `applyDocxAutoScale`：docx-preview 渲染出的页面是固定 pt 宽度、无法回流，先把 `section.docx` 的 `zoom` 还原为 1 测量自然宽度，再按 `docx-preview-root` 可用宽度（clientWidth − 左右 padding）计算 `zoom = available / pageWidth`（仅在 pageWidth > available 时缩小）。
+- 用 `ResizeObserver` 观察 root，渲染完成（loading 结束）后及容器尺寸变化（旋转屏幕、弹窗改尺寸）时重新适配；无 ResizeObserver 时降级为一次性计算。
+- `chat.module.scss` 移动端媒体查询移除 `.docx-preview-container section.docx` 的写死 `zoom: 0.72` 与 `padding-left/right: 12px !important`，缩放全权交给 JS，保持与桌面一致的真实排版。
+
+### 验证
+
+- 待人工确认：移动端（或窄窗口）打开 docx 预览，页面自动缩小铺满宽度、无横向滚动；旋转屏幕后重新适配；桌面端不缩放。
+
+============================================================
+
+## 199. 【2026-07-22 00:20】- Word/Excel 预览内容部分 light/dark 统一白底黑字
+
+### 修改内容
+
+- Word 文档页与 Excel 表格单元格（仅「内容部分」）在 light 与 dark 主题下统一保持白底黑字；标题栏、元信息栏、工作表标签、外围画布仍按主题走深色。
+- 根因：暗色主题里 `--white: rgb(30,30,30)`、`--black: rgb(187,187,187)`，之前 Excel 内容规则用 `var(--white)/var(--black)`，暗色下被反转成深底浅字。
+- 附带修复：dark 主题下预览标题栏与元信息栏下方的两条「白线」——原 `border-bottom-color: var(--border-in-light)` 把颜色设成了完整 shorthand（无效值被忽略），回退到基础 `border-bottom: rgba(255,255,255,0.192)` 亮线；改为有效的 `rgba(255,255,255,0.06)` 细分隔线。
+
+### 实现方式
+
+- `chat.module.scss` 把 `.xlsx-preview-sheet` 的 `table/td/th` 底色与文字色从 `var(--white)/var(--black)` 改为字面量 `#fff` / `#1f2937`，与主题无关。
+- 删除两个暗色块（`:global(.dark)` 与 `@media prefers-color-scheme: dark`）里对 `.xlsx-preview-sheet` 内容的深色覆盖，只保留暗色下略深的表格阴影。
+- `section.docx` 显式加 `background: #fff` 兜底（docx-preview 本身默认白底黑字，暗色不反转）。
+- 两个暗色块的 `.file-preview-header` / `.file-preview-meta-bar` 的 `border-bottom-color` 改为 `rgba(255,255,255,0.06)`。
+
+### 验证
+
+- 待人工确认：dark 主题下打开 Excel、Word 预览，单元格/文档页为白底黑字，周边容器仍是深色。
+
+============================================================
+
+## 198. 【2026-07-22 00:10】- 文件预览标题栏图标与对话记录图标统一
+
+### 修改内容
+
+- 文件预览左上角（及加载/错误状态卡片）的类型图标改为与对话记录中的附件图标完全一致：字形用 `AttachmentFileGlyph`，底色按类型正确显示（文档蓝 `#3b82f6`、表格绿 `#34a853`、PDF 红 `#ef4444`）。
+- 修复前：预览标题栏把 `attach-file-icon` 与 `attach-file-{typeKind}` 放在同一元素，导致 `.attach-file-{kind} .attach-file-icon` 后代选择器不命中，底色统一回退成默认蓝色（Excel/PDF 颜色错误）。
+
+### 实现方式
+
+- `chat.tsx` 把 4 处标题栏 `FileTypeIcon` 及 `FilePreviewState` 卡片图标改为与对话记录一致的结构：类型类放在父级 `div`，`.attach-file-icon` 作为子级，内部用 `<AttachmentFileGlyph typeKind={...}>`。这样复用既有 `.attach-file-{kind} .attach-file-icon`（底色）与 `.attach-file-{kind} .attach-file-glyph`（字形）规则，无需改 CSS。
+
+### 验证
+
+- 待人工确认：Word / Excel / PDF 预览标题栏左上角图标与对话记录中同类型附件图标的形状和颜色一致。
+
+============================================================
+
+## 197. 【2026-07-22 00:00】- 修复文件预览正文区被 ui-lib 40vh 截断的空白
+
+### 修改内容
+
+- 文件预览弹窗（Word / Excel / PDF）正文区被截断到 `40vh`、下方露出大片空白的问题统一修复。
+- 根因（由用户 computed style 定位）：ui-lib 的 `.modal-container .modal-content { max-height: 40vh; padding: 20px }` 与本组件 `.file-preview-modal .modal-content` 覆盖同为 (0,2,0) 特异性，源码顺序打平后 40vh 生效，导致 720px 弹窗内正文区只有 40vh 高。此前误判为 flex 子元素未撑满，实为内容盒被 40vh 封顶，内部再 flex 也无效。
+
+### 实现方式
+
+- `chat.tsx` 将 docx 与 spreadsheet 拆成不同弹窗类，docx 用新增 `file-preview-modal-document`。
+- `chat.module.scss` 新增统一规则 `.file-preview-modal.file-preview-modal :global(.modal-content)`：双写类名把特异性提到 (0,3,0)，稳定覆盖 `max-height: none; padding: 0`。PDF / Excel / Word 三种预览弹窗都带 `.file-preview-modal`，一并生效，正文盒不再被 40vh 截断。
+- docx 高度链：`height: min(720px, calc(var(--full-height, 100dvh) - 48px))` + `file-preview-root height:100%` + `file-preview-body flex:1`（灰色兜底底色）+ `docx-preview-root flex:1 1 auto; min-height:0` 撑满画布。
+- PDF：`.file-preview-frame`（object/iframe）原为固定 `height: min(640px, ...)` + `flex:0 0 auto`，撑不满更高的包装器、下方留白；改为 `flex:1 1 auto; height:100%; min-height:0` 撑满正文区。
+- `file-preview-state-card` 用 `margin:auto` 垂直居中。
+
+### 验证
+
+- 用户已确认 Word 正常。待确认 Excel、PDF 硬刷新后正文区铺满、无空白。
+
+============================================================
+
+## 196. 【2026-07-21 23:34】- 统一附件图标与 Office 深色预览画布
+
+### 修改内容
+
+- PDF 附件改为与 Word 文档图标相同的文件页轮廓和尺寸，仅以红色背景与 `PDF` 标识区分；已发送附件、输入框附件、上传中状态与预览标题均复用同一实现。
+- 任意主题下，Word 的实际文档页与 Excel 的表格单元格均使用白底深字；深色主题下 Excel 工作表容器与表格外留白为浅灰，工作表标签区使用深灰底与绿色当前项，弹窗容器、文件名、类型和大小等区域均沿用当前主题。
+- PDF 预览弹窗在刷新后直接以视口高度建立确定的高度链并显式设定最小高度，避免 portal 内 `--full-height: 100%` 失去参照后按浏览器默认高度塌缩并留下大块空白。
+
+### 实现方式
+
+- `AttachmentFileGlyph` 统一选择 PDF 专属标识或既有文件页字形，减少同一附件在不同展示位置的视觉差异。
+- Office 模态预览仅覆盖 DOCX 的实际页面和 Excel 的表格/单元格色；Word 页面在浅色主题也显式固定纯白，Excel 工作表容器使用浅灰、工作表标签使用深色主题色与深灰蓝分隔线，避免内容留白或元信息栏被错误改为浅色；深色标题与元信息栏的分隔线改用低对比度灰色。
+- 弹窗高度改为 `100vh` / `100dvh` 直接计算、强制覆盖 UI 库高度并保留同值最小高度；`modal-content`、预览根节点和内容区都建立确定的 `flex: 1 1 0` 高度链，预览包装器占满内容区，`object` 和其 iframe fallback 绝对定位铺满包装器，彻底隔离浏览器替换元素的默认高度。
+
+### 验证
+
+- `yarn lint` 与 `git diff --check` 通过；`nextchat-dev` 和 `postgres-ssh-tunnel` 均处于运行状态，开发容器通过挂载读取当前源码。
+- 本地聊天页已确认已发送 PDF 附件输出 `attach-file-pdf-glyph`，点击 `123(1).pdf` 能打开 PDF 预览并显示同一图标。
+
+### 潜在或遗留问题
+
+- 浏览器截图通道未正常绘制本地聊天界面，未取得可用视觉截图；请在深色主题下分别打开现有 Word 与 Excel 附件进行最终人工确认。
+
+============================================================
+
 ## 195. 【2026-07-21 22:25】- 收敛附件原文件与视觉 PDF 输入边界
 
 ### 修改内容
@@ -99,161 +217,3 @@
 
 ============================================================
 
-## 191. 【2026-07-21 21:30】- PDF 文字层优先与本地 OCR 移除
-
-### 修改内容
-
-- PDF 仅通过 PDF.js 读取最多 80 页文字层；文字层少于 120 个字符时不再执行本地 OCR，改为向当前所选模型发送视觉内容。
-- 有效文字层 PDF 与 DOCX、表格和纯文本一样作为受限正文上下文发送；视觉 PDF 最多渲染前 9 页，普通图片始终直接作为视觉输入发送。
-- 移除 Tesseract 及本地 OCR 代码、类型和镜像依赖；保留 Ghostscript 仅用于视觉 PDF 的 JPEG 页面渲染。
-- Alpine 镜像补齐 `canvas` 源码编译所需的 Python、构建工具链及 Cairo/Pango/JPEG/GIF 库，解决 Node 22 arm64/musl 下可选依赖编译失败。
-
-### 实现方式
-
-- `extractPdfText()` 将缺少可用文字层的 PDF 标记为 `metadata`；`needsAttachmentVisionInput()` 只对该类 PDF 追加内存页图，不再让文字 PDF 重复走视觉路径。
-- 开发阶段安装 `build-base`、`python3`、`cairo-dev`、`pango-dev`、`jpeg-dev`、`giflib-dev`，运行阶段安装相应动态库，保证 `canvas` 编译和加载条件完整。
-
-### 验证
-
-- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
-- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 两项 Zod 泛型错误。
-- `nextchat-nextchat-dev:latest` 本地镜像构建成功；Yarn 日志中 `canvas` 可选依赖构建阶段完成，未再出现 Python 缺失或可选依赖编译失败。
-- 经用户确认，`nextchat-dev` 已替换为新镜像容器；容器内不存在 `tesseract`、保留 `/usr/bin/gs`，挂载源码包含新的 PDF 文字层阈值逻辑，首页返回 `HTTP 200`。
-
-### 潜在或遗留问题
-
-- 未向模型上游发送真实 PDF 或图片；视觉 PDF 的目标模型端到端识别需由用户实际验证。
-
-============================================================
-
-## 190. 【2026-07-21 20:46】- 取消页面默认清空控制台
-
-### 修改内容
-
-- 移除首页路由切换、模型获取页进入和提示词管理页进入时的默认 `console.clear()`，保留页面切换前后的调试日志。
-- 保留用户主动执行保存、获取模型或导航操作时既有的清屏行为，不改变这些操作的独立日志语义。
-- README 与开发文档同步说明应用的页面进入与路由切换不会自动清空控制台。
-
-### 实现方式
-
-- 删除 `home.tsx` 中仅用于清屏的路径监听副作用；模型获取页和提示词管理页继续输出各自的初始化日志，但不再清除此前日志。
-
-### 验证
-
-- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过。
-- `git diff --check` 通过；容器内源码已确认不再包含路由切换的自动清屏调用。
-
-### 潜在或遗留问题
-
-- 本轮未在浏览器手动逐页切换确认；用户可直接切换页面，原控制台日志应持续保留。
-
-============================================================
-
-## 189. 【2026-07-21 20:43】- 附件直传、OCR 等待与标题协议包修复
-
-### 修改内容
-
-- PDF 和受信任栅格图片始终按当前所选模型发送，不依赖供应商模型清单、`visionModels`、模型名称或上游能力元数据判断、刷新和自动切换；原生 OpenAI 保留 Responses `input_file` 原文件输入，其他 Provider 接收临时渲染的 PDF 页面或原图 data URL。
-- 本地 OCR 保留为当前模型不支持视觉输入时的文本降级，不再决定扫描 PDF 或图片是否发送给当前模型。
-- 附件读取、OCR 和视觉页准备期间预先注册请求控制器，避免助手加载占位在控制器创建前被误标记为“刷新中断”。
-- 标题生成遇到上游误返回的完整 OpenAI `chat.completion` JSON 时，不再把协议包写入会话名称；只接受正文或显式 `title` / `topic` 字段。
-- 删除本轮 OCR 环境验证生成的 `tesseract_opencl_profile_devices.dat`；可恢复备份位于 `/tmp/nextchat-tesseract-opencl-profile-20260721-1633.bak`。
-
-### 实现方式
-
-- `needsAttachmentVisionInput()` 只按安全文件类型识别 PDF 和栅格图片，并驱动 `/api/cache/visualize` 的内存页图拼接；附件路径不读取或写入 `visionModels`、`customModels`，也不更新模型缓存或 API Key。
-- 消息入会话后、附件后台提取完成前向 `ChatControllerPool` 写入准备控制器；模型实际请求创建控制器后复用同一消息键覆盖准备控制器。用户在准备期停止时移除控制器且不再发起模型请求。
-- 自动和手动标题共用 `getGeneratedSessionTitleCandidate()` 解析：识别并拒绝 `choices` / `object: chat.completion` 响应包，缺少有效标题时保持既有回退标题。
-- README 与开发文档同步为“当前模型直接发送、上游决定是否支持、OCR 降级”的当前行为。
-
-### 验证
-
-- 本机与 `nextchat-dev` 容器内 `yarn lint` 通过，`git diff --check` 通过。
-- `nextchat-dev` 中 Ghostscript、Tesseract、`chi_sim` 和 `eng` 可用；对图像化页面实测识别出 `SCANNED PDF OCR 12`。
-- 浏览器热加载后 `/chat/<session-id>` 正常完成渲染，未检测到“刷新中断”；控制台仅有项目既有 React Router v7 future flag 警告。
-- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 的两项 Zod 泛型错误。
-
-### 潜在或遗留问题
-
-- 未向模型上游或共享数据库上传测试附件，避免未经单独确认发送用户文件或消耗 API 额度；真实扫描 PDF 的端到端行为须由用户在当前选定模型上验证，不支持视觉时应由上游实际响应提示并自行切换模型。
-
-============================================================
-
-## 188. 【2026-07-21 14:24】- 后台 OCR 读取图片与扫描 PDF
-
-### 修改内容
-
-- 图片和文字层不足的 PDF 在附件后台读取任务中使用本地 OCR 识别简体中文和英文，识别文本与现有 DOCX、表格和纯文本提取结果一样保存到消息附件中。
-- OCR 结果新增 `ocr` 读取模式；识别失败、图片编解码不支持或未发现文字时保留明确元信息，不把附件读取失败伪装成有正文。
-- 开发与生产镜像均安装 Ghostscript、Tesseract 及中文/英文语言数据，开发容器已重建为最新镜像。
-- 原生 OpenAI Responses 只在用户角色中附加 `input_file`，附件类型改用 `ChatMessageAttachedFile`，缓存路径复用 `CACHE_URL_PREFIX`，避免角色校验失败和宽松 `any` 断言。
-- 合并共享全局对话设置后统一经能力矩阵清洗，并用局部 `SelectedModelConfig` 保存供应商/配置选择元数据；删除无调用方的客户端 DOCX、PDF、Excel 附件解析器，正式路径统一到服务端提取接口。
-- 扫描 PDF 或图片 OCR 为空时，本轮请求临时渲染 PDF 页面或编码原图片并交给视觉模型；当前模型不支持视觉时，从同一供应商已缓存的远端模型中选择视觉候选、自动补入模型和视觉能力名单后再发送，页面图像不持久化到会话。
-
-### 实现方式
-
-- PDF 先读取文字层；文字不足 120 字符时，后台最多渲染并 OCR 前 9 页。图片直接走 Tesseract，PDF 页面通过 Ghostscript 的 stdin/stdout 管道交给 OCR，避免产生需清理的临时文件。
-- 单文件 OCR 输入限制为 30 MB，每次渲染或 OCR 子进程限制 30 秒和 16 MB 输出；用户消息和助手加载占位仍立即显示，但模型请求会等待附件从 `pending` 回写为最终读取结果后才开始。
-- 视觉兜底仅处理 OCR 为空的缓存 PDF/图片：`/api/cache/visualize` 最多返回 3 个文件、每个 PDF 9 页、总渲染预算 45 秒，使用 data URL 仅拼入当前请求的内存消息，不写回 `ChatMessage`；自动候选仅来自当前供应商已获取的模型缓存，缓存缺失时只刷新该供应商一次，避免向不支持的上游盲目添加模型。
-
-### 验证
-
-- 本机和重建后的 `nextchat-dev` 内 `yarn lint` 通过，`git diff --check` 通过；容器内首页请求成功。
-- 本次附件请求时序调整后，本机与 `nextchat-dev` 内 `yarn lint` 均通过；容器内首页再次返回 `HTTP 200`。
-- 容器内确认 `tesseract --list-langs` 包含 `chi_sim`、`eng`，Ghostscript 为 10.05.1；内存 PDF 通过 Ghostscript stdin/stdout 管道实际输出 PNG 文件头。
-- `npx tsc --noEmit --pretty false` 仅保留既有 `app/mcp/client.ts` 的 Zod 泛型错误，本次附件代码未出现类型错误。
-
-### 潜在或遗留问题
-
-- 未向模型上游或共享数据库上传测试文件；用户可用实际扫描 PDF、图片及 Office/表格文件验证：消息立即显示、模型请求等待读取完成后才开始。
-- 专有格式、压缩包、音视频、CAD/PSD 等仍只能提供安全的可打印字符串或元信息；不能承诺所有私有二进制格式都能无损语义读取。
-
-============================================================
-
-## 187. 【2026-07-21 12:40】- 附件解析移出聊天发送关键路径
-
-### 修改内容
-
-- 按回车后聊天请求不再等待附件正文提取；用户消息与助手流式占位立即显示，附件以“后台读取”状态随消息保存。
-- 后台解析完成后按用户消息 ID 精确回写附件正文、读取模式和降级状态；重试与后续追问可使用已完成内容。
-
-### 实现方式
-
-- `onUserInput` 在消息插入会话后立即调用新增的 `onUserMessageCreated` 回调，组件在该回调中发起不阻塞的 `/api/cache/extract` 请求。
-- 初始消息持久化 `pending` 状态与“本轮不等待解析完成”说明，避免 OpenAI 原文件读取和本地内容解析拖慢首轮请求；回写经现有 `updateTargetSession` 同步到持久化与远端同步路径。
-
-### 验证
-
-- `yarn lint` 通过；`npx prettier --write` 已格式化修改文件，`git diff --check` 通过。
-- `npx tsc --noEmit --pretty false` 未出现本次附件时序改动的错误；项目既有 `app/mcp/client.ts` Zod 泛型错误仍需单独处理。
-
-### 潜在或遗留问题
-
-- 首轮模型请求不会等待扫描 PDF 的 OCR 或页面视觉转换；当前模型若不支持原生文件/视觉输入，应在后台解析完成后重试或继续提问以使用提取结果。
-
-============================================================
-
-## 186. 【2026-07-21 12:17】- 扩展任意附件的 AI 可读降级链路
-
-### 修改内容
-
-- 聊天附件不再只对 PDF、DOCX 和表格调用提取接口：文本、代码、配置和未知二进制均会产生可供模型使用的正文、可打印字符串或明确元信息。
-- 原生 OpenAI 的 Responses 输入从仅缓存 PDF 扩展到常见 Office、表格和文本文件；其他 Provider 保持安全的本地文本/元信息降级。
-
-### 实现方式
-
-- `attachment-file.ts` 集中维护本地文本和 OpenAI 原生文件输入格式表；`/api/cache/extract` 依次选择专用解析、编码感知文本解码、二进制字符串扫描和元信息回退，并记录 `ready`、`partial`、`metadata`、`failed` 状态。
-- 消息附件持久化读取模式和摘要；提交、重发时所有缓存附件均进入分析，并在无法完整提取时把实际限制明确发送给模型和显示给用户。
-- 原生 OpenAI 以 `/v1/responses` 的 `input_file` data URL 传递支持格式的原文件，单文件及同请求总量维持 50 MB；PDF 继续使用 `detail: high`。
-
-### 验证
-
-- `npx prettier --check`、本机与 `nextchat-dev` 中的 `yarn lint`、`git diff --check` 均通过；开发首页返回 `HTTP 200`，容器确认已读取新文件。
-- `npx tsc --noEmit --pretty false` 仅保留既有 `app/mcp/client.ts` 的 Zod 泛型错误，本次附件代码未产生类型错误。
-- 未向真实模型上游上传测试附件，避免在未获单独授权时泄露用户文件或消耗 API 额度。
-
-### 潜在或遗留问题
-
-- OCR、音视频转写、压缩包展开和专有二进制的语义解析尚未引入；此类文件当前提供可打印字符串或元信息降级，原生 OpenAI 只直传其支持的格式。
-
-============================================================

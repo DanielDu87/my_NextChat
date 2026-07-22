@@ -33,6 +33,16 @@
 
 .loading-panel-surface {
   padding: 24px;
+
+  .loading-panel-card {
+    align-self: center;
+    width: min(520px, 100%);
+    // 确保卡片不会被 flex 容器拉伸到填满高度
+    flex-shrink: 0;
+    // 卡片内容仍然居中，但卡片本身不会撑满容器
+    height: fit-content;
+    max-height: 100%;
+  }
 }
 
 .loading-panel-plain {
