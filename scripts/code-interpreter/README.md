@@ -132,6 +132,7 @@ scp -r scripts/code-interpreter/* root@42.193.15.117:/www/dk_project/code_interp
 ```
 
 需要上传的文件：
+
 - `app.py`（上游入口）
 - `requirements.txt`（上游依赖）
 - `requirements.nextchat.txt`（NextChat 扩展依赖）
@@ -340,6 +341,6 @@ curl -i -k -X POST https://chat.dyxcloud.com/codeinterpreter/runcode \
 - 镜像安装的扩展库：`python-docx`、`openpyxl`、`pandas`、`matplotlib`、`Pillow`、`pypdf`。
 - 上游固定使用 `PyYAML==5.4.1`，Dockerfile 将 pip、setuptools、wheel 和 Cython
   限制在兼容版本，并关闭构建隔离；不要直接升级到最新构建工具链。
-- Python 包默认从阿里云 PyPI 镜像安装。
+- Debian 构建依赖与 Python 包默认分别从阿里云 Debian、PyPI 镜像安装，避免生产服务器访问官方源过慢导致构建长时间停滞。
 - 内存限制 512M；Python `import numpy/pandas` 类大包启动会变慢。
 - `subprocess.run` 没有沙箱隔离；**别放敏感数据到 `/app/data`**。

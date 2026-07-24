@@ -3,11 +3,17 @@ FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
+ARG APT_MIRROR=https://mirrors.aliyun.com
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 COPY requirements.txt requirements.nextchat.txt ./
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eux; \
+    sed -i \
+      -e "s|http://deb.debian.org/debian-security|${APT_MIRROR}/debian-security|g" \
+      -e "s|http://deb.debian.org/debian|${APT_MIRROR}/debian|g" \
+      /etc/apt/sources.list.d/debian.sources; \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
     libffi-dev \

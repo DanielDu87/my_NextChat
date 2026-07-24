@@ -2523,10 +2523,16 @@ export const useChatStore = createPersistStore(
       },
 
       async resetForUserSwitch(options?: { sync?: boolean }) {
+        // 重置所有内存缓存，确保旧用户的数据不会残留
+        chatPersistStorage.resetAll();
+
         // 在触发任何 Zustand 状态变更（即 set）之前，先对齐 lastHydratedUserId 允许写入
         chatPersistStorage.setLastHydratedUserId(
           getActiveChatStoreScopeUserId(),
         );
+
+        // 重置 _hasHydrated，强制后续 initialize 从 IndexedDB 重新加载，而不是读内存
+        (useChatStore.getState() as any).setHasHydrated?.(false);
 
         const newSessions = [createEmptySession()];
         set(() => ({

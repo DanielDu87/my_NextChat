@@ -46,7 +46,11 @@ import { ChatControllerPool } from "../client/controller";
 import { createSyncClient, ProviderType } from "../utils/cloud";
 import { useAppConfig } from "./config";
 import { normalizeAccessStateDerivedFields, useAccessStore } from "./access";
-import { useAuthStore } from "./auth";
+import {
+  useAuthStore,
+  getActiveSwitchGeneration,
+  getCurrentCacheMarkerUserId,
+} from "./auth";
 import type { StoreSnapshotMeta } from "../utils/cloud/database";
 import {
   buildSessionSummaries,
@@ -141,6 +145,37 @@ function isSyncAbortError(error: unknown) {
     (ABORTED_DB_SYNC_ERROR.test(error.message) ||
       ABORTED_SYNC_ERROR.test(error.message))
   );
+}
+
+/**
+ * 用户切换时调用，清除所有同步相关的全局状态。
+ * 防止旧用户的同步任务在新用户环境下继续执行并写入错误数据。
+ */
+export function clearSyncStateForUserSwitch() {
+  // 清除正在进行的同步
+  syncInFlight = null;
+  syncInFlightManual = false;
+
+  // 清除队列
+  queuedSyncKeys = new Set<SyncStoreKey>();
+
+  // 清除防抖定时器
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  clearPendingDebounceTask();
+
+  // 清除 startup 同步
+  startupChatSyncInFlight = null;
+
+  // 重置冷却时间，新用户不应受旧用户冷却限制
+  lastChatSyncCompletedAt = 0;
+
+  // 清除控制台去重映射
+  syncConsoleDedupMap.clear();
+
+  logSyncDebug("[Sync] 🧹 用户切换，已清除所有同步状态");
 }
 
 function formatSyncLogTimestamp(date = new Date()) {
@@ -2124,8 +2159,8 @@ export const useSyncStore = createPersistStore(
         ...(lightMode
           ? []
           : Array.isArray(localChatState?.hydratedSessionIds)
-          ? localChatState.hydratedSessionIds
-          : []),
+            ? localChatState.hydratedSessionIds
+            : []),
         ...((remoteIndex.sessions || []) as ChatIndexSessionEntry[])
           .slice(0, lightMode ? 2 : INITIAL_HYDRATED_RECENT_SESSION_LIMIT)
           .map((entry) => entry.id),
@@ -3010,6 +3045,28 @@ export const useSyncStore = createPersistStore(
             options?.isolateQueue || options?.manual ? targetQueue : null;
           const startedManualGeneration = getManualDatabaseSyncGeneration();
 
+          // 捕获同步开始时的用户上下文，用于后续验证是否仍属于同一用户
+          const syncStartedAt = Date.now();
+          const syncUserId = getCurrentCacheMarkerUserId();
+          const syncGeneration = getActiveSwitchGeneration();
+
+          // 验证函数：检查用户是否已切换，若切换则丢弃此次同步结果
+          const isStaleSync = () => {
+            // 用户已切换
+            if (getActiveSwitchGeneration() !== syncGeneration) {
+              logSyncDebug(`[Sync] ⏹️ 检测到用户切换，同步已过时，丢弃结果`);
+              return true;
+            }
+            // cache marker 用户 ID 变化（虽然 generation 可能相同）
+            if (getCurrentCacheMarkerUserId() !== syncUserId) {
+              logSyncDebug(
+                `[Sync] ⏹️ 检测到 cache marker 变化，同步已过时，丢弃结果`,
+              );
+              return true;
+            }
+            return false;
+          };
+
           while ((isolatedQueue ?? queuedSyncKeys).size > 0) {
             ensureNotAborted();
             if (
@@ -3133,6 +3190,17 @@ export const useSyncStore = createPersistStore(
                   localAppStateCache[key],
                 );
 
+                // 🔐 关键验证：写回前检查用户是否已切换
+                if (isStaleSync()) {
+                  warnSyncDebug(
+                    `[Sync] ⚠️ 跳过写回: 用户已切换，丢弃过时同步结果`,
+                  );
+                  return {
+                    summary: "用户已切换，跳过写回",
+                    status: "skipped" as const,
+                  };
+                }
+
                 setLocalStoreState(key, resolvedStoreState);
                 localAppStateCache[key] = resolvedStoreState;
                 const modelDiffs =
@@ -3179,8 +3247,9 @@ export const useSyncStore = createPersistStore(
                     logHomepageSync(
                       `[Sync] 🔍 Config远端为空，上传本地状态` +
                         ` | hasMeta=${!!currentMeta}` +
-                        ` | localModel=${(localAppStateCache[key] as any)
-                          ?.modelConfig?.model}` +
+                        ` | localModel=${
+                          (localAppStateCache[key] as any)?.modelConfig?.model
+                        }` +
                         ` | localCustomModels=${String(
                           (localAppStateCache[key] as any)?.customModels || "",
                         ).slice(0, 60)}`,
@@ -3713,6 +3782,15 @@ export const useSyncStore = createPersistStore(
                       continue;
                     }
 
+                    // 🔐 关键验证：写回前检查用户是否已切换，防止旧用户数据污染新用户
+                    if (isStaleSync()) {
+                      syncConsole(
+                        "warn",
+                        "[Sync] ⚠️ 跳过会话写回: 用户已切换，丢弃过时同步结果",
+                      );
+                      continue;
+                    }
+
                     setLocalStoreState(key, appliedChatState as any);
                     localAppStateCache[key] = appliedChatState as any;
                     logPerfSummary("Sync", {
@@ -3858,7 +3936,10 @@ export const useSyncStore = createPersistStore(
                 currentStoreKeys.length === 1 &&
                 currentStoreKeys[0] === StoreKey.Chat
               ) {
-                lastChatSyncCompletedAt = Date.now();
+                // 🔐 只在同步仍然有效时更新冷却时间，防止旧同步污染新用户的冷却状态
+                if (!isStaleSync()) {
+                  lastChatSyncCompletedAt = Date.now();
+                }
                 if (options?.broadcastChatHint !== false) {
                   emitChatSyncHint();
                 }
@@ -3877,6 +3958,12 @@ export const useSyncStore = createPersistStore(
               }
               syncConsole("error", "[Sync] ❌ 同步失败:", e);
               throw e;
+            }
+
+            // 🔐 最终检查：同步完成后再次确认用户未切换
+            if (isStaleSync()) {
+              logSyncDebug("[Sync] ⏹️ 同步完成时用户已切换，丢弃结果");
+              return;
             }
 
             this.markSyncTime();

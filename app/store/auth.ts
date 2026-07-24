@@ -24,6 +24,20 @@ function isCurrentUserSwitch(generation: number) {
   return generation === activeSwitchGeneration;
 }
 
+/**
+ * 获取当前活跃的用户切换 generation。
+ */
+export function getActiveSwitchGeneration(): number {
+  return activeSwitchGeneration;
+}
+
+/**
+ * 获取当前 cache marker 指向的用户 ID（通过 cache marker，不依赖 auth store）。
+ */
+export function getCurrentCacheMarkerUserId(): string {
+  return String(localStorage?.getItem(AUTH_CACHE_MARKER_KEY) || "").trim();
+}
+
 function logSwitchPerf(message: string) {
   if (isPerfDebugEnabled()) {
     console.info(message);
@@ -266,6 +280,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // 立即设置 cache marker，让持久化存储知道我们要切换到新用户
     setCacheMarker(userId);
 
+    // 清除旧用户的同步状态，防止切换期间旧同步继续执行并污染新用户数据
+    // 使用动态 import 避免循环依赖
+    void import("./sync").then(({ clearSyncStateForUserSwitch }) => {
+      clearSyncStateForUserSwitch();
+    });
+
     // 立即重置 UI，避免 API 等待期间保留旧数据
     const chatStoreModule = import("./chat");
     const chatIndexModule = import("./chat-index");
@@ -351,8 +371,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           username: String(payload.effectiveUser.username || ""),
           displayName: String(payload.effectiveUser.displayName || ""),
           role: (payload.effectiveUser.role === "admin" ? "admin" : "user") as
-            | "admin"
-            | "user",
+            "admin" | "user",
         }
       : null;
 
@@ -397,10 +416,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       publishStartupChatSyncStatus("done");
 
       // 远端同步作为后台任务执行，不阻塞返回，实现真正的秒级响应。
+      // 使用 force: true 避免被旧用户的冷却时间跳过，确保新用户数据能正确同步。
       void (async () => {
         try {
           await useSyncStore.getState().sync([StoreKey.Chat], {
             isolateQueue: true,
+            force: true,
             downloadOnlyChat: true,
           });
           if (!isCurrent()) return;
@@ -423,11 +444,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ switchingUser: false });
       publishStartupChatSyncStatus("done");
 
-      // 远端同步作为后台任务执行
+      // 远端同步作为后台任务执行，使用 force: true 避免冷却跳过
       void (async () => {
         try {
           await useSyncStore.getState().sync([StoreKey.Chat], {
             isolateQueue: true,
+            force: true,
             downloadOnlyChat: true,
           });
           if (!isCurrent()) return;

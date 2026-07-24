@@ -4,6 +4,77 @@
 
 ============================================================
 
+## 214. 【2026-07-24 11:30】- 修复用户切换时对话跨用户污染问题
+
+### 修改内容
+
+- 修复用户切换后，A 用户的对话可能被错误合并到 B 用户的问题（P1 高优先级）。
+- 修复每次切换用户都重复执行完整同步链路的问题（P2）。
+- 修复 `_hasHydrated` 标志未在用户切换时重置，导致本地缓存被忽略的问题。
+
+### 实现方式
+
+**P1 修复：同步流程增加用户上下文绑定**
+- `app/store/sync.ts`：在 `sync()` 方法中捕获同步开始时的 `userId` 和 `generation`。
+- 新增 `isStaleSync()` 验证函数，在关键写回点检查用户是否已切换。
+- 聊天同步写回前 (`setLocalStoreState`) 和常规 store 写回前均添加用户验证，过时结果直接丢弃。
+- 同步完成后再次检查用户上下文，确保污染结果不会写入。
+- `lastChatSyncCompletedAt` 更新前验证用户状态，防止旧冷却时间影响新用户。
+
+**P1 修复：用户切换时清理同步状态**
+- `app/store/sync.ts`：新增 `clearSyncStateForUserSwitch()` 函数，清除 `syncInFlight`、`queuedSyncKeys`、防抖定时器、`startupChatSyncInFlight` 和冷却时间。
+- `app/store/auth.ts`：`switchUser()` 中在设置新 cache marker 后立即调用清理函数。
+
+**P2 修复：已有缓存用户快速切换**
+- `app/utils/chat-persist-storage.ts`：新增 `resetAll()` 方法，清除 `cache`、`hydrated`、`hydrating`、`pendingWrites`。
+- `app/store/chat.ts`：`resetForUserSwitch()` 中调用 `resetAll()` 并显式重置 `_hasHydrated = false`，强制后续从 IndexedDB 重新加载。
+- `app/store/auth.ts`：切换时的远端同步添加 `force: true`，避免被旧用户冷却时间跳过。
+
+**P2 修复：getItem fallback 路径增加 ownerId 校验**
+- `app/utils/chat-persist-storage.ts`：`getItem()` 的 fallback 分支（无 index 时）添加 `isScopedChatStoreKeyActive` 检查，确保不返回旧用户缓存。
+
+**其他**
+- `app/store/auth.ts`：导出 `getActiveSwitchGeneration()` 和 `getCurrentCacheMarkerUserId()` 供 sync.ts 验证使用。
+- `app/store/chat.ts`：`hydrateSessionIntoMemory()` 已有用户验证逻辑保持不变。
+
+### 验证
+
+- `yarn lint` 和 `npx tsc --noEmit --pretty false` 全部通过。
+- 预期行为：切换到已有缓存的用户时，立即显示本地缓存；远端同步在后台增量执行；有变化时才拉取最新数据。
+
+### 潜在或遗留问题
+
+- 未在真实多用户环境下触发竞态测试；通过代码路径审查、用户上下文捕获点和写回验证覆盖主要污染路径。
+
+============================================================
+
+## 213. 【2026-07-24 10:47】- 部署生产 Code Interpreter 文件下载链路
+
+### 修改内容
+
+- 将生产服务器独立 `codeinterpreter` 服务更新到仓库内已验证的文件生成包装版本，线上现在会返回 `files.base64`，NextChat 可以继续写入 `/api/cache` 并生成真实下载链接。
+- 修复旧生产镜像使用不存在的 `wget` 探活而长期显示 `unhealthy`，新版 Compose 改用 Python 标准库请求根路径。
+- Code Interpreter 构建阶段新增阿里云 Debian 镜像源，解决生产服务器从 Debian 官方源下载约 102MB 编译依赖时长时间停滞的问题；Python 包继续使用阿里云 PyPI。
+
+### 实现方式
+
+- 生产目录 `/www/dk_project/code_interpreter_api` 同步 `app.py`、`Dockerfile`、`docker-compose.codeinterpreter.yml`、`requirements.txt`、`requirements.nextchat.txt` 和 `nextchat_runtime.py`，保留原 `.env.codeinterpreter`、Nginx、数据卷与 NextChat 主容器。
+- `scripts/code-interpreter/Dockerfile` 新增 `APT_MIRROR`，构建前把 Debian 与 Debian Security 源替换为阿里云镜像；`scripts/code-interpreter/README.md` 同步记录 Debian/PyPI 双镜像边界。
+- 覆盖前备份旧文件到 `/root/codeinterpreter-backup-20260724-103317`，并将旧镜像保留为 `codeinterpreter-api-baota:rollback-20260724-103317`；新版镜像构建成功后才由 Compose 替换旧容器。
+
+### 验证
+
+- 线上公网 `/codeinterpreter/runcode` 未带 Token 返回 HTTP 401，使用生产 Token 返回 HTTP 200。
+- 真实生成 `online_download_check.txt` 后响应包含 `files` 与 `output`；文件 MIME 为 `text/plain`、大小 18 字节，base64 解码内容为 `online download ok`，响应后容器内临时文件不存在。
+- 线上解释器可导入 `python-docx 1.1.2`；公网根路径返回 HTTP 200，`codeinterpreter` 容器状态为 `healthy`。
+- `git diff --check` 通过；生产文件与仓库对应版本的 SHA-256 一致。
+
+### 潜在或遗留问题
+
+- 为避免消耗模型额度和向生产聊天库写入测试会话，未通过真实聊天再次触发文件生成；生产解释器返回结构与此前已通过的本地 `/api/cache` 完整链路现已一致。
+
+============================================================
+
 ## 212. 【2026-07-24 09:58】- 限制生成标题不超过十五个字符
 
 ### 修改内容
@@ -246,32 +317,4 @@
 
 ### 潜在或遗留问题
 
-- 未获生产部署授权，因此服务器现有 Code Interpreter 镜像尚未重建；公网服务仍可能在 30 秒超时或缺少依赖，但本地 `localhost:3000` 已不再调用它。
-
-============================================================
-
-## 203. 【2026-07-22 12:30】- API 配置页新增配置按钮桌面端固定在最右
-
-### 修改内容
-
-- `/api_config` 页"配置条目"卡片标题右侧的"新增配置"按钮在桌面端不再随副标题/容器宽度漂移到下方，按钮永远固定在标题右上角；移动端（≤900px）维持 column + 100% 宽度沾满，符合"电脑端右对齐、移动端沾满"的双端行为。
-
-### 实现方式
-
-- 根因不在 `.profileSectionTitle` 本身，而是 ListItem 多层 flex 容器链：ui-lib 的 `.list-item > .list-header` 默认 `max-width: 70% / flex-shrink: 0` 把标题容器限到 70%。ListItem 渲染时给标题容器加的是**全局类** `nextchat-list-header` / `nextchat-list-item-title`，但 ui-lib 内部的 `.list-header` 规则编译后变成 hash 类（如 `.ui-lib_list-header__xxx`），此前 `.sectionCard :global(.list-header)` 字面选择器**根本没命中**，全部被静默忽略。
-- `api-config.module.scss` 改用匹配**全局类** `.nextchat-list-header` / `.nextchat-list-item-title`，并加 `!important` 压过 ui-lib 的 hash 类同特异性规则。
-- `.sectionCard :global(.nextchat-list-header)`：`align-items: flex-start !important; max-width: 100% !important; flex-shrink: 1 !important; width: 100% !important; box-sizing: border-box !important`。
-- `.sectionCard :global(.nextchat-list-item-title), .sectionCard :global(.nextchat-list-item-title) > div`：`width: 100% !important; min-width: 0 !important; max-width: 100% !important; box-sizing: border-box !important; overflow: visible !important; text-overflow: clip !important; white-space: normal !important`。
-- `.profileSectionTitle` 加 `max-width:100%; box-sizing:border-box; position:relative`，按钮加 `position:relative; z-index:2`，锁定布局上下文与层叠，避免任何溢出与被遮罩问题。
-- `@media screen and (max-width: 900px)` 块的 `.profileSectionTitle { flex-direction: column; ... width: 100% !important }` 不动，移动端保持"独占一行沾满"。
-- 同步修复 `/backup/api_config` 页"配置备份历史"卡片的"立即备份"按钮：api-config-backups.module.scss 的 `.historyHeader` 加同款 `flex-wrap:nowrap/max-width:100%/box-sizing:border-box/position:relative`，按钮加 `flex:0 0 auto/flex-shrink:0/margin-left:auto/white-space:nowrap/position:relative/z-index:2`；并对 `.nextchat-hover-card` 内的 `:global(.nextchat-list-header)` / `:global(.nextchat-list-item-title)` 加与 api-config 同款的 `!important` 锁定规则。`@media (max-width: 700px)` 的 `.historyHeader { flex-direction: column }` 不动，保留移动端独占一行行为。
-- 同步修复 `/backup/chat` 页"对话备份历史"卡片的"立即备份"按钮：chat-backups.module.scss 的 `.historyHeader` 加全套 `!important`（`display:flex/flex-direction:row/justify-content:space-between`）防止被覆盖；`.createBackupButton` 关键修复是去掉原 `margin-right:15px`（把按钮推向右 15px 而非最右）改为 `margin-left:auto !important; margin-right:0 !important`，并加 `flex:0 0 auto/flex-shrink:0/align-self:flex-start/white-space:nowrap/position:relative/z-index:2`；并对 `.content > ... :global([class*="list-item"]).hoverCard` 内的 `:global(.nextchat-list-header)` / `:global(.nextchat-list-item-title)` 加同款 `!important` 锁定规则。chat-backups 用的是 CSS Modules 自引用 `.hoverCard` 而非 `nextchat-hover-card` 全局类（与 api-config-backups 不同），CSS Modules 自引用 `.hoverCard` 能正确匹配编译后的 hash 类。
-- 实际诉求仅是"按钮右缘贴齐下方表格的右边框"：之前对 `.profileTable` 去掉 `border / border-radius / padding` 的多改动属于误判，已撤回；表格的 1px 边框、14px 圆角、行 padding 恢复原样。按钮与表格右边框对齐通过上文 `:global(.nextchat-list-header/max-width:100% !important)` + 按钮 `margin-left:auto` 自动实现：`.profileTable` 是 `width:100%`，表格右外缘 = sectionCard 内容区右缘 = 按钮右缘（被 `margin-left:auto` 推到 `.profileSectionTitle` 右缘、而 `.profileSectionTitle` 与表格都受同一 sectionCard 内容区约束）。
-- 用户管理菜单（`user-menu.tsx` manageList 三行）"密码 / 对话数 / 最近对话"三列上下对齐：`user-menu.module.scss` 的 `.userIdentity` 由 `flex-shrink:0/min-width:0` 改为 `flex:0 0 130px; min-width:130px; max-width:130px`。`.userDetails` 是 grid + fr 列宽列宽依赖容器剩余宽度；用户名长度不同时 `.userIdentity` 自然宽窄不一，导致每行 `.userDetails` 剩余宽度不同，fr 列宽错位。把 `.userIdentity` 三轴定宽 130px 后，三行 `.userDetails` 剩余宽度严格一致，grid fr 比例列宽自然对齐，上下三行每列左/右缘对齐。
-- 移动端（≤600px）该区域同样修复：上面桌面端把 `.userIdentity` 锁 130px 后，移动端仍在窄屏下生效，导致 `.userDetails` 被压到只剩少量空间、"当前"徽章被 `.userDetails` 内容溢出覆盖。`@media screen and (max-width: 600px)` 块内：`.userIdentity` 改回 `flex:0 0 auto; min-width:0; max-width:none` 让其弹性收缩、`.userRow { padding-right:64px }` 给徽章和操作位留更多空间、`.userBadge { right:40px; z-index:2; pointer-events:none }` 贴右置顶、`.rowAction { right:2px; width:32px; z-index:3 }` 收紧操作位、`.userDetailWide` 加 `min-width:0; overflow:hidden` + `.userInfoValue` 用 `text-overflow:ellipsis` 防最近对话时间戳溢出覆盖徽章。后面用户反馈移动端右边部分太宽：`.userRow { padding-right: 64px }` 收紧到 `36px`、`.badge { right: 40px }` 调到 `38px`，让 `.userDetails` 视觉上更靠右、`.rowAction` 不显空。再后第三列 fr 过大导致最近对话时间戳不被 ellipsis 截断、反而覆盖"当前"徽章：移动端 `.userDetails` 第三列 `minmax(96px, 1.45fr)` 改为 `minmax(80px, 1.1fr)`，3 列 fr 比例 0.55:0.7:1.1（总和 2.35）让第三列占约 47%（之前 53.7%），最小宽从 96 降到 80，时间戳更易触发 ellipsis 截断，不再溢出覆盖徽章。再后用户要求徽章改相对定位靠右：移动端 `.badge` 与 `.rowAction` 都由 `position:absolute` 改为 `position:relative; top:auto; right:auto; transform:none`，`.userRow { padding-right:0 }`，`.rowAction { margin-left:auto; align-self:center }` 把徽章和操作位都用 flex 流自然排在行末靠右，徽章紧贴 `.userDetails` 右外侧、`.rowAction` 32px 在最右缘，不再 absolute 浮在上面导致覆盖。撤回，恢复绝对定位方案；最后 `.badge { right: 38px }` 用户反馈不够右，改为 `right: 6px` 几乎贴行末右缘、`.rowAction { right: 32px; width: 32px }` 让操作位左移 30px 让出徽章空间、`.badge z-index:3 / .rowAction z-index:2` 徽章浮在操作位之上避免视觉重叠、`.userRow { padding-right: 72px }` 保证 `.userDetails` 不与两个 absolute 元素重叠。再后用户反馈徽章导致其他元素移动（ccc 行徽章占位、其他行无徽章 DOM，子节点数不同 → flex 流布局不一致）：`user-menu.tsx` 两处 ListItem 把 `effectiveUser.id === managedUser.id && (<div className={styles.badge}>当前</div>)` 改为总是渲染 `<div className={clsx(styles.badge, { [styles.badgeActive]: ... })}>`，并在非当前用户行加 `aria-hidden="true"`；新增 `.badgeActive { visibility:visible; background:var(--primary); color:#ffffff; border-radius:999px }`，默认 `.badge` 在桌面端与移动端都 `visibility:hidden / color:transparent / background:transparent / width:30px; height:18px; box-sizing:border-box` 占位，确保三行子节点一致，徽章只对当前用户生效并显绿色，其余两行徽章隐形但仍占位，ccc 行 vs admin/dyx 行的 `.rowAction` 右缘位置严格对齐。
-
-### 验证
-
-- 待人工确认：浏览器 ≥ 901px 宽度打开 `/api_config`，左侧标题文案无论长短，"新增配置"按钮都固定在右上；≤ 900px 宽度下按钮仍沾满整行居中。
-
-============================================================
+- 本条记录当时未获生产部署授权；生产镜像更新与公网文件返回验证现已由记录 213 完成。

@@ -316,6 +316,17 @@ class ChatPersistStorage implements StateStorage {
     return this.lastHydratedUserId;
   }
 
+  /**
+   * 重置所有内存中的缓存状态。用户切换时调用，清除旧用户的所有缓存数据。
+   */
+  public resetAll() {
+    this.cache.clear();
+    this.hydrated.clear();
+    this.hydrating.clear();
+    this.pendingWrites.clear();
+    // lastHydratedUserId 保持在切换时由外部调用 setLastHydratedUserId 设置
+  }
+
   private isAvailable() {
     return typeof window !== "undefined";
   }
@@ -586,18 +597,28 @@ class ChatPersistStorage implements StateStorage {
       if (pendingValue) {
         await this.flushPendingWrite(name, scopedName);
       }
-      const resolvedValue =
+      // fallback 路径：缓存或 pendingWrite 中没有 index 时，需要校验它们的 ownerId 是否匹配
+      // 防止旧用户的数据被新用户读取
+      const cachedValue =
         this.pendingWrites.get(scopedName) ??
         this.cache.get(scopedName) ??
         null;
+      // 如果有缓存值但没有 index（即之前读取失败或 index 被删除），用缓存值但需要再次确认 active
+      if (cachedValue && !isScopedChatStoreKeyActive(scopedName)) {
+        this.lastHydratedUserId = expectedOwnerId;
+        return null;
+      }
       this.lastHydratedUserId = expectedOwnerId;
-      return resolvedValue;
+      return cachedValue;
     } catch (error) {
       logger.chatPersist.error(`读取 ${name} 失败`, error);
       this.lastHydratedUserId = expectedOwnerId;
-      return (
-        this.pendingWrites.get(scopedName) ?? this.cache.get(scopedName) ?? null
-      );
+      // 错误时也只返回属于当前用户的缓存
+      const cachedValue =
+        this.pendingWrites.get(scopedName) ??
+        this.cache.get(scopedName) ??
+        null;
+      return cachedValue;
     } finally {
       this.hydrating.delete(scopedName);
     }
