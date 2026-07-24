@@ -119,7 +119,7 @@ export const STORE_PERSIST_VERSION: Record<
   number
 > = {
   [StoreKey.Chat]: 3.7,
-  [StoreKey.Plugin]: 6,
+  [StoreKey.Plugin]: 7,
   [StoreKey.Access]: 4,
   [StoreKey.Config]: 4.6,
   [StoreKey.ModelCache]: 1,

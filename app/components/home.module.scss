@@ -84,7 +84,7 @@
 }
 
 @media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .container {
     min-height: unset;
     min-width: var(--window-min-width);
@@ -289,7 +289,7 @@
 }
 
 @media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .chat-list-filter-input {
     font-size: 16px;
   }
@@ -398,7 +398,6 @@
   box-shadow: var(--card-shadow);
   transition:
     background-color 0.3s ease,
-    border-color 0.25s ease,
     padding-left 0.25s ease;
   cursor: pointer;
   user-select: none;
@@ -549,7 +548,7 @@
 }
 
 @media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .chat-item-delete {
     display: none;
   }
@@ -753,7 +752,7 @@
 }
 
 @media only screen and (max-width: 650px),
-	only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
+  only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   .sidebar-tail {
     gap: 10px;
   }

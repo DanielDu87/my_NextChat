@@ -40,6 +40,7 @@ import {
   getRememberedChatEndpoint,
   rememberChatEndpoint,
 } from "@/app/utils/api-path-memory";
+import { isAbortLikeError } from "@/app/utils/stale-revalidate";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import {
   getSafeAttachmentContentType,
@@ -3150,6 +3151,14 @@ export class ChatGPTApi implements LLMApi {
         options.onFinish(message, res);
       }
     } catch (e) {
+      if (isAbortLikeError(e)) {
+        console.debug("⏹️ [Chat Request] aborted", {
+          provider: modelConfig.providerName,
+          model: modelConfig.model,
+        });
+        options.onError?.(e as Error);
+        return;
+      }
       console.log("[Request] failed to make a chat request", e);
       console.error("[Chat Request Error]", {
         provider: modelConfig.providerName,

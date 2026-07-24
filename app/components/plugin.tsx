@@ -17,7 +17,12 @@ import ReloadIcon from "../icons/reload.svg";
 import GithubIcon from "../icons/github.svg";
 import PowerIcon from "../icons/power.svg";
 
-import { Plugin, usePluginStore, FunctionToolService } from "../store/plugin";
+import {
+  Plugin,
+  usePluginStore,
+  FunctionToolService,
+  isFixedPluginId,
+} from "../store/plugin";
 import {
   PasswordInput,
   List,
@@ -30,7 +35,7 @@ import { NextChatBrandIcon, SideBarHeader } from "./sidebar";
 import { DrawSelect } from "./draw/draw-panel";
 import Locale from "../locales";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 
 function resolvePluginUrl(loadUrl: string) {
@@ -71,8 +76,8 @@ export function PluginPage() {
   const onSearch = (text: string) => {
     setSearchText(text);
     if (text.length > 0) {
-      const result = allPlugins.filter(
-        (m) => m?.title.toLowerCase().includes(text.toLowerCase()),
+      const result = allPlugins.filter((m) =>
+        m?.title.toLowerCase().includes(text.toLowerCase()),
       );
       setSearchPlugins(result);
     } else {
@@ -82,6 +87,7 @@ export function PluginPage() {
 
   const [editingPluginId, setEditingPluginId] = useState<string | undefined>();
   const editingPlugin = pluginStore.get(editingPluginId);
+  const isEditingFixedPlugin = isFixedPluginId(editingPlugin?.id);
   const editingPluginTool = FunctionToolService.get(editingPlugin?.id);
   const closePluginModal = () => setEditingPluginId(undefined);
 
@@ -114,6 +120,15 @@ export function PluginPage() {
   }, 100).bind(null, editingPlugin);
 
   const [loadUrl, setLoadUrl] = useState<string>("");
+  useEffect(() => {
+    if (!editingPlugin || !isEditingFixedPlugin) return;
+    try {
+      const definition = yaml.load(editingPlugin.content) as any;
+      setLoadUrl(String(definition?.servers?.[0]?.url || ""));
+    } catch {
+      setLoadUrl("");
+    }
+  }, [editingPlugin, isEditingFixedPlugin]);
   const loadFromUrl = (loadUrl: string) =>
     fetch(resolvePluginUrl(loadUrl))
       .catch((e) => {
@@ -355,6 +370,7 @@ export function PluginPage() {
                 <DrawSelect
                   ariaLabel={Locale.Plugin.EditModal.Auth}
                   value={editingPlugin?.authType ?? ""}
+                  readOnly={isEditingFixedPlugin}
                   options={[
                     { name: Locale.Plugin.Auth.None, value: "" },
                     { name: Locale.Plugin.Auth.Bearer, value: "bearer" },
@@ -362,6 +378,7 @@ export function PluginPage() {
                     { name: Locale.Plugin.Auth.Custom, value: "custom" },
                   ]}
                   onChange={(value) => {
+                    if (isEditingFixedPlugin) return;
                     pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                       plugin.authType = value;
                     });
@@ -375,6 +392,7 @@ export function PluginPage() {
                   <DrawSelect
                     ariaLabel={Locale.Plugin.Auth.Location}
                     value={editingPlugin?.authLocation ?? "header"}
+                    readOnly={isEditingFixedPlugin}
                     options={[
                       {
                         name: Locale.Plugin.Auth.LocationHeader,
@@ -387,6 +405,7 @@ export function PluginPage() {
                       { name: Locale.Plugin.Auth.LocationBody, value: "body" },
                     ]}
                     onChange={(value) => {
+                      if (isEditingFixedPlugin) return;
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authLocation = value;
                       });
@@ -403,6 +422,7 @@ export function PluginPage() {
                     aria-autocomplete="none"
                     className="nextchat-input-control"
                     value={editingPlugin?.authHeader ?? ""}
+                    readOnly={isEditingFixedPlugin}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authHeader = e.target.value;
@@ -421,6 +441,7 @@ export function PluginPage() {
                     aria-autocomplete="none"
                     className="nextchat-input-control"
                     value={editingPlugin?.authToken ?? ""}
+                    readOnly={isEditingFixedPlugin}
                     onChange={(e) => {
                       pluginStore.updatePlugin(editingPlugin.id, (plugin) => {
                         plugin.authToken = e.currentTarget.value;
@@ -439,6 +460,7 @@ export function PluginPage() {
                     autoComplete="new-password"
                     aria-autocomplete="none"
                     value={loadUrl}
+                    disabled={isEditingFixedPlugin}
                     className={clsx(
                       pluginStyles["plugin-schema-input"],
                       "nextchat-input-control",
@@ -449,6 +471,7 @@ export function PluginPage() {
                     className={`${pluginStyles["plugin-schema-load"]} nextchat-action-button`}
                     icon={<ReloadIcon />}
                     text={Locale.Plugin.EditModal.Load}
+                    disabled={isEditingFixedPlugin}
                     onClick={() => loadFromUrl(loadUrl)}
                   />
                 </div>
@@ -460,7 +483,7 @@ export function PluginPage() {
                     <pre>
                       <code
                         className="nextchat-input-control nextchat-no-hover-motion"
-                        contentEditable={true}
+                        contentEditable={!isEditingFixedPlugin}
                         dangerouslySetInnerHTML={{
                           __html: editingPlugin.content,
                         }}

@@ -47,6 +47,7 @@ dev
 .env.baota
 .env.production
 .env.docker.bak
+.env.codeinterpreter
 
 *.key
 *.key.pub

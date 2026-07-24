@@ -255,6 +255,8 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 部署入口：[DEPLOY.md](DEPLOY.md)
 - 宝塔当前线上说明：[README_BAOTA.md](README_BAOTA.md)
 - 当前生产固定命令、DockerSite 路径、同步脚本和验证步骤：[AGENTS.md](AGENTS.md)
+- Code Interpreter 独立服务：[scripts/code-interpreter/README.md](scripts/code-interpreter/README.md)
+- `Tavily Search & Extract` 与 `CodeInterpreter` 是固定插件，schema/content 和参数只读；插件页保留新增、自定义插件编辑、URL 读取及删除能力。
 
 ### 功能与维护
 

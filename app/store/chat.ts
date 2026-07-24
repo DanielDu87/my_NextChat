@@ -70,6 +70,7 @@ import {
 import { buildCachedExtraModels } from "../utils/model-pool";
 import { createEmptyMask, Mask } from "./mask";
 import { BUILTIN_PLUGIN_IDS } from "./plugin";
+import { rewriteGeneratedFileLinksFromTools } from "../utils/generated-file-links";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import { sanitizeModelConfigForCapability } from "../client/model-parameter-rules";
@@ -84,6 +85,7 @@ import {
 } from "../utils/chat-failover";
 import { writeStoredGlobalModelConfig } from "../utils/global-model-config";
 import { withSyncUserHeaders } from "../utils/sync-user-client";
+import { isAbortLikeError } from "../utils/stale-revalidate";
 
 export {
   DEFAULT_TOPIC,
@@ -95,6 +97,7 @@ import { createSyncClient, ProviderType } from "../utils/cloud";
 const localStorage = safeLocalStorage();
 const STREAM_REFRESH_DELAY = 48;
 const AUTO_TITLE_REFINEMENT_MAX_USER_MESSAGES = 3;
+const SESSION_TITLE_MAX_CHARACTERS = 15;
 const MEMORY_SUMMARY_MAX_TOKENS = 1000;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
@@ -320,6 +323,16 @@ export function createMessage(override: Partial<ChatMessage>): ChatMessage {
     content: "",
     ...override,
   };
+}
+
+export function countCompletedSessionMessages(
+  messages: readonly ChatMessage[] | undefined,
+) {
+  return Array.isArray(messages)
+    ? messages.filter(
+        (message) => message.role !== "assistant" || message.streaming !== true,
+      ).length
+    : 0;
 }
 
 function appendHiddenPromptText(
@@ -558,24 +571,13 @@ function isDefaultTopic(topic: string | undefined) {
   );
 }
 
-function getSessionFallbackTopic(session: ChatSession) {
-  const firstUserMessage = session.messages.find(
-    (message) =>
-      message.role === "user" &&
-      Boolean(getMessageTextContent(message).trim()) &&
-      !message.isError,
+function hasLegacySessionFallbackTitle(session: ChatSession) {
+  const legacyFallbackTitle = String(session.titleFallbackText || "").trim();
+  return (
+    !session.titleGeneratedByAI &&
+    Boolean(legacyFallbackTitle) &&
+    trimTopic(String(session.topic || "")) === trimTopic(legacyFallbackTitle)
   );
-  const firstValidMessage =
-    firstUserMessage ??
-    session.messages.find(
-      (message) =>
-        Boolean(getMessageTextContent(message).trim()) && !message.isError,
-    );
-  const rawTopic = firstValidMessage
-    ? getMessageTextContent(firstValidMessage).trim()
-    : "";
-
-  return trimTopic(rawTopic);
 }
 
 function isFreshDefaultSession(session: ChatSession | undefined) {
@@ -713,10 +715,27 @@ export function normalizeSession(
   const fallbackMask = fallbackSession.mask;
   const currentMask =
     session.mask && typeof session.mask === "object" ? session.mask : undefined;
+  const resetLegacyFallbackTitle = hasLegacySessionFallbackTitle(session);
+  const normalizedTopic = resetLegacyFallbackTitle
+    ? getDefaultTopic()
+    : String(session.topic || fallbackSession.topic);
 
   return {
     ...fallbackSession,
     ...session,
+    topic: normalizedTopic,
+    titleGeneratedByAI: resetLegacyFallbackTitle
+      ? false
+      : session.titleGeneratedByAI,
+    titleFallbackText: resetLegacyFallbackTitle
+      ? ""
+      : session.titleFallbackText,
+    titleGeneratedMessageCount: resetLegacyFallbackTitle
+      ? 0
+      : session.titleGeneratedMessageCount,
+    titleGeneratedUserMessageCount: resetLegacyFallbackTitle
+      ? 0
+      : session.titleGeneratedUserMessageCount,
     createdAt: getSessionCreatedAt(session) || fallbackSession.createdAt,
     messages: Array.isArray(session.messages) ? session.messages : [],
     stat:
@@ -729,6 +748,9 @@ export function normalizeSession(
     mask: {
       ...fallbackMask,
       ...currentMask,
+      name: resetLegacyFallbackTitle
+        ? normalizedTopic
+        : currentMask?.name || fallbackMask.name,
       syncGlobalConfig: true,
       context:
         currentMask && Array.isArray(currentMask.context)
@@ -755,9 +777,7 @@ export function buildSessionSummary(session: ChatSession): ChatSessionSummary {
   return {
     id: normalizedSession.id,
     topic: normalizedSession.topic,
-    messageCount: Array.isArray(normalizedSession.messages)
-      ? normalizedSession.messages.length
-      : 0,
+    messageCount: countCompletedSessionMessages(normalizedSession.messages),
     createdAt: normalizedSession.createdAt,
     displayTime:
       normalizedSession.lastUpdate || normalizedSession.createdAt || Date.now(),
@@ -832,12 +852,10 @@ function shouldRefreshSessionSummary(
   previousSession: ChatSession,
   nextSession: ChatSession,
 ) {
-  const previousMessageCount = Array.isArray(previousSession.messages)
-    ? previousSession.messages.length
-    : 0;
-  const nextMessageCount = Array.isArray(nextSession.messages)
-    ? nextSession.messages.length
-    : 0;
+  const previousMessageCount = countCompletedSessionMessages(
+    previousSession.messages,
+  );
+  const nextMessageCount = countCompletedSessionMessages(nextSession.messages);
   const previousAvatar = previousSession.mask?.avatar || "";
   const nextAvatar = nextSession.mask?.avatar || "";
   const previousModel = previousSession.mask?.modelConfig?.model || "";
@@ -1315,6 +1333,27 @@ function triggerTitleSync() {
   });
 }
 
+function normalizeGeneratedSessionTitle(value: string) {
+  const firstLine =
+    value
+      .replace(/^```(?:\w+)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || "";
+  const normalized = trimTopic(
+    firstLine
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^(?:标题|主题|title|topic)\s*[:：-]\s*/i, ""),
+  );
+
+  // Reject non-compliant output instead of truncating a full answer into a
+  // misleading title.
+  return Array.from(normalized).length <= SESSION_TITLE_MAX_CHARACTERS
+    ? normalized
+    : "";
+}
+
 function getGeneratedSessionTitleCandidate(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -1325,29 +1364,27 @@ function getGeneratedSessionTitleCandidate(value: unknown) {
     .trim();
   try {
     const payload = JSON.parse(jsonText);
+    if (typeof payload === "string") {
+      return normalizeGeneratedSessionTitle(payload);
+    }
+
     if (payload && typeof payload === "object") {
       const title =
         (payload as { title?: unknown; topic?: unknown }).title ??
         (payload as { topic?: unknown }).topic;
       if (typeof title === "string") {
-        return trimTopic(title);
+        return normalizeGeneratedSessionTitle(title);
       }
 
-      // A provider can return a complete OpenAI response instead of the
-      // assistant text. It is diagnostic data, never a valid conversation
-      // title, even if the response itself is HTTP 200.
-      if (
-        (payload as { object?: unknown }).object === "chat.completion" ||
-        Array.isArray((payload as { choices?: unknown }).choices)
-      ) {
-        return "";
-      }
+      // Provider protocol envelopes and error objects are diagnostic payloads,
+      // not titles. Only explicit title/topic fields are accepted from JSON.
+      return "";
     }
   } catch {
     // Plain model output is expected, so an unparsable string remains valid.
   }
 
-  return trimTopic(raw);
+  return normalizeGeneratedSessionTitle(raw);
 }
 
 function applyGeneratedSessionTitle(
@@ -1397,6 +1434,7 @@ const pendingMemorySummarySessionIds = new Set<string>();
 
 function getSessionTitleRequestVersion(session: ChatSession) {
   const modelConfig = session.mask.modelConfig;
+  const profile = getProfileForModelConfig(modelConfig);
   const lastMessage = session.messages.at(-1);
   return [
     session.messages.length,
@@ -1404,28 +1442,18 @@ function getSessionTitleRequestVersion(session: ChatSession) {
     lastMessage?.date || "",
     modelConfig.model || "",
     modelConfig.providerName || "",
-    String((modelConfig as any).providerId || ""),
-    String((modelConfig as any).profileId || ""),
+    profile
+      ? getAccessProviderId(profile)
+      : String((modelConfig as any).providerId || ""),
+    profile?.id || String((modelConfig as any).profileId || ""),
   ].join("\u0000");
-}
-
-function isSessionFallbackTitle(session: ChatSession) {
-  const currentTopic = String(session.topic || "").trim();
-  const fallbackTopic =
-    String(session.titleFallbackText || "").trim() ||
-    getSessionFallbackTopic(session);
-
-  return (
-    !session.titleGeneratedByAI &&
-    Boolean(fallbackTopic) &&
-    trimTopic(currentTopic) === trimTopic(fallbackTopic)
-  );
 }
 
 function shouldBackfillSessionTitle(session: ChatSession) {
   return (
     canAutoGenerateSessionTitle(session.messages) &&
-    isSessionFallbackTitle(session)
+    !session.titleGeneratedByAI &&
+    isDefaultTopic(session.topic)
   );
 }
 
@@ -1444,6 +1472,9 @@ function scheduleSessionTitleBackfill(sessionId: string, delayMs = 1200) {
     }
 
     const store = useChatStore.getState();
+    if (store.currentSessionId() !== sessionId) {
+      return;
+    }
     const session = store.getSessionById(sessionId);
     if (
       !session ||
@@ -1469,10 +1500,16 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
         .trim()
         .toLowerCase();
   if (!modelConfig.model || !currentProviderId) {
+    logger.chat.log("⚠️ 标题候选模型为空，model 或 providerId 缺失:", {
+      对话ID: targetSession.id,
+      model: modelConfig.model,
+      currentProviderName,
+      currentProviderId,
+    });
     return [];
   }
 
-  return [
+  const candidates = [
     {
       model: modelConfig.model,
       providerName: normalizeTitleCandidateProviderName(
@@ -1483,6 +1520,16 @@ function getRefreshTitleCandidates(targetSession: ChatSession) {
       providerId: currentProviderId,
     },
   ];
+
+  logger.chat.log("[标题候选] 获取候选模型:", {
+    对话ID: targetSession.id,
+    候选数量: candidates.length,
+    模型: candidates[0].model,
+    供应商: candidates[0].providerName,
+    profileName: candidates[0].profile?.name,
+  });
+
+  return candidates;
 }
 
 function resolveDisplayProviderName(
@@ -1680,13 +1727,162 @@ function logRequestBanner(
   );
 }
 
+function buildSessionTitleMessages(
+  messages: ChatMessage[],
+  historyMessageCount: number,
+) {
+  const titleSourceMessages = messages
+    .filter(
+      (message) =>
+        !message.isError &&
+        (message.role === "user" || message.role === "assistant") &&
+        Boolean(getMessageTextContent(message).trim()),
+    )
+    .map((message) =>
+      createMessage({
+        role: message.role,
+        // Title generation only needs text. Do not resend image URLs, tool
+        // payloads, attachment metadata, or other message-only state.
+        content: getMessageTextContent(message).trim(),
+      }),
+    );
+  const contextMessageCount = Math.max(1, historyMessageCount || 1);
+
+  return titleSourceMessages.slice(-contextMessageCount).concat(
+    createMessage({
+      role: "user",
+      content: `${Locale.Store.Prompt.Topic}\n\n标题最终长度不得超过 ${SESSION_TITLE_MAX_CHARACTERS} 个字符（包括空格和标点），只返回标题。The final title must not exceed ${SESSION_TITLE_MAX_CHARACTERS} characters, including spaces and punctuation. Return only the title.`,
+    }),
+  );
+}
+
+async function requestSessionTitleCandidate(
+  session: ChatSession,
+  modelConfig: SelectedModelConfig,
+  candidate: ReturnType<typeof getRefreshTitleCandidates>[number],
+  requestVersion: string,
+  mode: "auto" | "manual",
+) {
+  const api: ClientApi = getClientApi(
+    candidate.providerName as ServiceProvider,
+  );
+  const titleRequestConfig = {
+    ...modelConfig,
+    model: candidate.model as ModelType,
+    stream: false,
+    providerName: candidate.providerName,
+  };
+  (titleRequestConfig as any).providerId = candidate.providerId;
+  (titleRequestConfig as any).profileId = candidate.profile?.id || "";
+  const topicMessages = buildSessionTitleMessages(
+    session.messages,
+    modelConfig.historyMessageCount,
+  );
+
+  return withTemporaryCustomProfile(candidate.profile, async () => {
+    let success = false;
+    let providerBalanceExhausted = false;
+    let finalError: unknown;
+
+    for (let requestAttempt = 1; requestAttempt <= 2; requestAttempt++) {
+      let requestError: unknown;
+      try {
+        await api.llm.chat({
+          messages: topicMessages,
+          config: titleRequestConfig,
+          onRequest(request) {
+            logRequestBanner("title", {
+              model: request.model,
+              provider: request.provider,
+              baseUrl: request.baseUrl,
+              chatPath: request.chatPath,
+              stream: request.stream,
+              profileName: candidate.profile?.name || null,
+              attempt: `${requestAttempt}/2（${
+                mode === "auto" ? "自动" : "手动"
+              }）`,
+            });
+          },
+          onFinish(message, responseRes) {
+            const title = getGeneratedSessionTitleCandidate(message);
+            success = responseRes?.status === 200 && Boolean(title);
+            if (!success) {
+              providerBalanceExhausted = isProviderBalanceFailure(
+                message,
+                responseRes?.status,
+              );
+              if (!String(message || "").trim()) {
+                requestError = new Error("empty response");
+              }
+            }
+
+            if (success) {
+              success = applyGeneratedSessionTitle(
+                session,
+                title,
+                requestVersion,
+              );
+            }
+          },
+          onError(err) {
+            requestError = err;
+            providerBalanceExhausted = isProviderBalanceFailure(err);
+          },
+        });
+      } catch (error) {
+        requestError = error;
+      }
+
+      if (isAbortLikeError(requestError)) {
+        logger.chat.log("⏹️ 标题请求已取消:", {
+          类型: mode === "auto" ? "自动" : "手动",
+          供应商: candidate.profile?.name || candidate.providerName,
+          模型: candidate.model,
+        });
+        return {
+          success: false,
+          providerBalanceExhausted: false,
+          aborted: true,
+        };
+      }
+
+      if (success || providerBalanceExhausted) {
+        break;
+      }
+      finalError = requestError;
+      if (
+        requestAttempt >= 2 ||
+        !isTransientTitleRequestFailure(requestError)
+      ) {
+        break;
+      }
+      logger.chat.log(
+        `🔄 ${mode === "auto" ? "自动" : "手动"}标题网络请求失败，准备重试:`,
+        {
+          供应商: candidate.profile?.name || candidate.providerName,
+          模型: candidate.model,
+          原因: getChatFailureLogReason(requestError),
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+
+    if (!success && finalError) {
+      logger.chat.error(
+        `${mode === "auto" ? "自动生成" : "手动刷新"}标题出错:`,
+        finalError,
+      );
+    }
+
+    return { success, providerBalanceExhausted, aborted: false };
+  });
+}
+
 async function refreshSessionTitle(targetSession: ChatSession) {
   const session =
     useChatStore.getState().getSessionById(targetSession.id) ?? targetSession;
   if (pendingTitleGenerationSessionIds.has(session.id)) {
-    logger.chat.log("⏭️ 标题请求已在进行，跳过重复刷新:", {
-      对话ID: session.id,
-    });
+    showToast("标题正在生成，请稍后再试");
     return false;
   }
   pendingTitleGenerationSessionIds.add(session.id);
@@ -1694,138 +1890,22 @@ async function refreshSessionTitle(targetSession: ChatSession) {
     const modelConfig = applySharedGlobalConversationSettings(
       session.mask.modelConfig,
     );
-    const messages = session.messages;
     const candidates = getRefreshTitleCandidates(session);
     const requestVersion = getSessionTitleRequestVersion(session);
 
-    if (messages.length === 0) {
+    if (!canAutoGenerateSessionTitle(session.messages)) {
       showToast("没有可用于刷新标题的对话内容");
       return false;
     }
 
-    const titleSourceMessages = messages.filter(
-      (message) =>
-        !message.isError && Boolean(getMessageTextContent(message).trim()),
-    );
-    const startIndex = Math.max(
-      0,
-      titleSourceMessages.length - modelConfig.historyMessageCount,
-    );
-    const topicMessages = titleSourceMessages
-      .slice(
-        startIndex < titleSourceMessages.length
-          ? startIndex
-          : titleSourceMessages.length - 1,
-        titleSourceMessages.length,
-      )
-      .concat(
-        createMessage({
-          role: "user",
-          content: Locale.Store.Prompt.Topic,
-        }),
-      );
-
     for (const candidate of candidates) {
-      logger.chat.log("正在尝试标题候选模型:", {
-        模型: candidate.model,
-        供应商ID: candidate.providerId,
-        配置名称: candidate.profile?.name,
-        配置地址: candidate.profile?.baseUrl,
-        是否有配置: !!candidate.profile,
-      });
-
-      const api: ClientApi = getClientApi(
-        candidate.providerName as ServiceProvider,
-      );
-      const titleRequestConfig = {
-        ...modelConfig,
-        model: candidate.model as ModelType,
-        stream: false,
-        providerName: candidate.providerName,
-      };
-      (titleRequestConfig as any).providerId = candidate.providerId;
-      (titleRequestConfig as any).profileId = candidate.profile?.id || "";
-
       try {
-        const result = await withTemporaryCustomProfile(
-          candidate.profile,
-          async () => {
-            let success = false;
-            let providerBalanceExhausted = false;
-            let finalError: unknown;
-
-            for (
-              let requestAttempt = 1;
-              requestAttempt <= 2;
-              requestAttempt++
-            ) {
-              let requestError: unknown;
-              try {
-                await api.llm.chat({
-                  messages: topicMessages,
-                  config: titleRequestConfig,
-                  onRequest(request) {
-                    logRequestBanner("title", {
-                      model: request.model,
-                      provider: request.provider,
-                      baseUrl: request.baseUrl,
-                      chatPath: request.chatPath,
-                      stream: request.stream,
-                      profileName: candidate.profile?.name || null,
-                      attempt: `${requestAttempt}/2（手动）`,
-                    });
-                  },
-                  onFinish(message, responseRes) {
-                    const title = getGeneratedSessionTitleCandidate(message);
-                    success = responseRes?.status === 200 && Boolean(title);
-                    if (!success) {
-                      providerBalanceExhausted = isProviderBalanceFailure(
-                        message,
-                        responseRes?.status,
-                      );
-                    }
-
-                    if (success) {
-                      success = applyGeneratedSessionTitle(
-                        session,
-                        title,
-                        requestVersion,
-                      );
-                    }
-                  },
-                  onError(err) {
-                    requestError = err;
-                    providerBalanceExhausted = isProviderBalanceFailure(err);
-                  },
-                });
-              } catch (error) {
-                requestError = error;
-              }
-
-              if (success || providerBalanceExhausted) {
-                break;
-              }
-              finalError = requestError;
-              if (
-                requestAttempt >= 2 ||
-                !isTransientTitleRequestFailure(requestError)
-              ) {
-                break;
-              }
-              logger.chat.log("🔄 手动标题网络请求失败，准备重试:", {
-                供应商: candidate.profile?.name || candidate.providerName,
-                模型: candidate.model,
-                原因: getChatFailureLogReason(requestError),
-              });
-              await new Promise((resolve) => setTimeout(resolve, 400));
-            }
-
-            if (!success && finalError) {
-              logger.chat.error("手动刷新标题出错:", finalError);
-            }
-
-            return { success, providerBalanceExhausted };
-          },
+        const result = await requestSessionTitleCandidate(
+          session,
+          modelConfig,
+          candidate,
+          requestVersion,
+          "manual",
         );
 
         if (result.success) {
@@ -1843,9 +1923,13 @@ async function refreshSessionTitle(targetSession: ChatSession) {
           logger.chat.log("💳 当前对话模型余额或额度不足，标题生成停止:", {
             当前供应商: candidate.profile?.name || candidate.providerName,
           });
+          return false;
+        }
+        if (result.aborted) {
+          return false;
         }
       } catch (error) {
-        logger.chat.error("刷新标题候选模型失败", candidate, error);
+        logger.chat.error("刷新标题失败", error);
       }
     }
 
@@ -2030,7 +2114,7 @@ function shouldAutoRefreshSessionTitle(session: ChatSession) {
     return false;
   }
 
-  if (!session.titleGeneratedByAI || isSessionFallbackTitle(session)) {
+  if (!session.titleGeneratedByAI) {
     return true;
   }
 
@@ -2207,16 +2291,14 @@ export const useChatStore = createPersistStore(
         });
 
         sessions.forEach((session) => {
-          if (session.messages.length > 0 && isDefaultTopic(session.topic)) {
-            const fallbackTopic = getSessionFallbackTopic(session);
-            if (fallbackTopic) {
-              session.topic = fallbackTopic;
-              session.titleGeneratedByAI = false;
-              session.titleFallbackText = fallbackTopic;
-              session.titleGeneratedMessageCount = 0;
-              session.titleGeneratedUserMessageCount = 0;
-              changed = true;
-            }
+          if (hasLegacySessionFallbackTitle(session)) {
+            session.topic = getDefaultTopic();
+            session.mask.name = session.topic;
+            session.titleGeneratedByAI = false;
+            session.titleFallbackText = "";
+            session.titleGeneratedMessageCount = 0;
+            session.titleGeneratedUserMessageCount = 0;
+            changed = true;
           }
         });
 
@@ -2318,11 +2400,10 @@ export const useChatStore = createPersistStore(
         );
 
         get().pruneInactiveSessionsInMemory();
-        sessions.forEach((session) => {
-          if (shouldBackfillSessionTitle(session)) {
-            scheduleSessionTitleBackfill(session.id);
-          }
-        });
+        const selectedSession = sessions[newIndex];
+        if (selectedSession && shouldBackfillSessionTitle(selectedSession)) {
+          scheduleSessionTitleBackfill(selectedSession.id);
+        }
 
         // 首开页面对“新空对话”的本地整理不再触发远端聊天同步，
         // 避免首次进入就因为空会话变更打远端接口。
@@ -3313,14 +3394,10 @@ export const useChatStore = createPersistStore(
             ...initialModelConfig,
           };
           if (isDefaultTopic(session.topic)) {
-            const fallbackTopic = trimTopic(content.trim());
-            if (fallbackTopic) {
-              session.topic = fallbackTopic;
-              session.titleGeneratedByAI = false;
-              session.titleFallbackText = fallbackTopic;
-              session.titleGeneratedMessageCount = 0;
-              session.titleGeneratedUserMessageCount = 0;
-            }
+            session.titleGeneratedByAI = false;
+            session.titleFallbackText = "";
+            session.titleGeneratedMessageCount = 0;
+            session.titleGeneratedUserMessageCount = 0;
           }
           if (reusedUserMessage) {
             const userIndex = session.messages.findIndex(
@@ -3399,7 +3476,7 @@ export const useChatStore = createPersistStore(
 
         // get recent messages
         const recentMessages = (
-          await get().getMessagesWithMemory(initialModelConfig)
+          await get().getMessagesWithMemory(initialModelConfig, session)
         )
           .filter((message) => message.id !== botMessage.id)
           .map(withAttachedFilesPromptText)
@@ -3644,7 +3721,10 @@ export const useChatStore = createPersistStore(
                   if (isBotMessageManuallyStopped()) return;
                   botMessage.streaming = true;
                   if (message && !isApiFailurePayload(message)) {
-                    botMessage.content = message;
+                    botMessage.content = rewriteGeneratedFileLinksFromTools(
+                      message,
+                      botMessage.tools,
+                    );
                   }
                   syncBotMessageToCurrentSession();
                   get().scheduleTargetSessionRefresh(session);
@@ -3721,7 +3801,10 @@ export const useChatStore = createPersistStore(
                   }
 
                   finishing = true;
-                  botMessage.content = finalMessage;
+                  botMessage.content = rewriteGeneratedFileLinksFromTools(
+                    finalMessage,
+                    botMessage.tools,
+                  );
                   botMessage.date = new Date().toISOString();
                   botMessage.reasoning_details = (responseRes as any)
                     ?.__reasoning_details;
@@ -3973,8 +4056,13 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      async getMessagesWithMemory(modelConfigOverride?: ModelConfig) {
-        const session = get().currentSession();
+      async getMessagesWithMemory(
+        modelConfigOverride?: ModelConfig,
+        targetSession?: ChatSession,
+      ) {
+        const session = targetSession
+          ? (get().getSessionById(targetSession.id) ?? targetSession)
+          : get().currentSession();
         const modelConfig = sanitizeModelConfigForCapability(
           modelConfigOverride ??
             applySharedGlobalConversationSettings(session.mask.modelConfig),
@@ -4165,190 +4253,58 @@ export const useChatStore = createPersistStore(
           return refreshSessionTitle(session);
         }
 
-        // remove error messages if any
         const messages = session.messages;
 
         if (
           config.enableAutoGenerateTitle &&
-          shouldAutoRefreshSessionTitle(session)
+          shouldAutoRefreshSessionTitle(session) &&
+          !pendingTitleGenerationSessionIds.has(session.id)
         ) {
-          if (pendingTitleGenerationSessionIds.has(session.id)) {
-            logger.chat.log("⏭️ 标题请求已在进行，跳过重复自动生成:", {
-              对话ID: session.id,
-            });
-          } else {
-            pendingTitleGenerationSessionIds.add(session.id);
-            try {
-              const requestVersion = getSessionTitleRequestVersion(session);
-              const titleSourceMessages = messages.filter(
-                (message) =>
-                  !message.isError &&
-                  Boolean(getMessageTextContent(message).trim()),
-              );
-              const startIndex = Math.max(
-                0,
-                titleSourceMessages.length - modelConfig.historyMessageCount,
-              );
-              const topicMessages = titleSourceMessages
-                .slice(
-                  startIndex < titleSourceMessages.length
-                    ? startIndex
-                    : titleSourceMessages.length - 1,
-                  titleSourceMessages.length,
-                )
-                .concat(
-                  createMessage({
-                    role: "user",
-                    content: Locale.Store.Prompt.Topic,
-                  }),
+          pendingTitleGenerationSessionIds.add(session.id);
+          try {
+            const requestVersion = getSessionTitleRequestVersion(session);
+            // 标题只使用当前对话最终模型，不额外切换模型或供应商。
+            const candidates = getRefreshTitleCandidates(session);
+
+            for (const candidate of candidates) {
+              try {
+                const result = await requestSessionTitleCandidate(
+                  session,
+                  modelConfig,
+                  candidate,
+                  requestVersion,
+                  "auto",
                 );
 
-              // 标题只使用当前对话最终模型，不额外切换模型或供应商。
-              const candidates = getRefreshTitleCandidates(session);
-              logChatDebug(
-                "[自动生成标题] 正在尝试",
-                candidates.length,
-                "个候选模型",
-              );
-
-              for (const candidate of candidates) {
-                logChatDebug("[自动生成标题] 正在尝试候选模型:", {
-                  模型: candidate.model,
-                  供应商ID: candidate.providerId,
-                  配置名称: candidate.profile?.name,
-                  配置地址: candidate.profile?.baseUrl,
-                  是否有配置: !!candidate.profile,
-                });
-
-                const candidateApi: ClientApi = getClientApi(
-                  candidate.providerName as ServiceProvider,
-                );
-
-                try {
-                  const result = await withTemporaryCustomProfile(
-                    candidate.profile,
-                    async () => {
-                      let success = false;
-                      let providerBalanceExhausted = false;
-                      let finalError: unknown;
-                      const titleRequestConfig = {
-                        ...modelConfig,
-                        model: candidate.model as ModelType,
-                        stream: false,
-                        providerName: candidate.providerName,
-                      };
-                      (titleRequestConfig as any).providerId =
-                        candidate.providerId;
-                      (titleRequestConfig as any).profileId =
-                        candidate.profile?.id || "";
-
-                      for (
-                        let requestAttempt = 1;
-                        requestAttempt <= 2;
-                        requestAttempt++
-                      ) {
-                        let requestError: unknown;
-                        try {
-                          await candidateApi.llm.chat({
-                            messages: topicMessages,
-                            config: titleRequestConfig,
-                            onRequest(request) {
-                              logRequestBanner("title", {
-                                model: request.model,
-                                provider: request.provider,
-                                baseUrl: request.baseUrl,
-                                chatPath: request.chatPath,
-                                stream: request.stream,
-                                profileName: candidate.profile?.name || null,
-                                attempt: `${requestAttempt}/2`,
-                              });
-                            },
-                            onFinish(message, responseRes) {
-                              const title =
-                                getGeneratedSessionTitleCandidate(message);
-                              success =
-                                responseRes?.status === 200 && Boolean(title);
-                              if (!success) {
-                                providerBalanceExhausted =
-                                  isProviderBalanceFailure(
-                                    message,
-                                    responseRes?.status,
-                                  );
-                              }
-
-                              if (success) {
-                                success = applyGeneratedSessionTitle(
-                                  session,
-                                  title,
-                                  requestVersion,
-                                );
-                              }
-                            },
-                            onError(err) {
-                              requestError = err;
-                              providerBalanceExhausted =
-                                isProviderBalanceFailure(err);
-                            },
-                          });
-                        } catch (error) {
-                          requestError = error;
-                        }
-
-                        if (success || providerBalanceExhausted) {
-                          break;
-                        }
-                        finalError = requestError;
-                        if (
-                          requestAttempt >= 2 ||
-                          !isTransientTitleRequestFailure(requestError)
-                        ) {
-                          break;
-                        }
-                        logger.chat.log("🔄 自动标题网络请求失败，准备重试:", {
-                          供应商:
-                            candidate.profile?.name || candidate.providerName,
-                          模型: candidate.model,
-                          原因: getChatFailureLogReason(requestError),
-                        });
-                        await new Promise((resolve) =>
-                          setTimeout(resolve, 400),
-                        );
-                      }
-
-                      if (!success && finalError) {
-                        logger.chat.error("自动生成标题出错:", finalError);
-                      }
-
-                      return { success, providerBalanceExhausted };
+                if (result.success) {
+                  const latestTitle =
+                    get().getSessionById(session.id)?.topic || session.topic;
+                  logger.chat.log("✅ 自动标题更新成功:", {
+                    供应商: candidate.profile?.name || candidate.providerName,
+                    模型: candidate.model,
+                    标题: latestTitle,
+                  });
+                  break;
+                }
+                if (result.providerBalanceExhausted) {
+                  logger.chat.log(
+                    "💳 当前对话模型余额或额度不足，自动标题生成停止:",
+                    {
+                      当前供应商:
+                        candidate.profile?.name || candidate.providerName,
                     },
                   );
-
-                  if (result.success) {
-                    const latestTitle =
-                      get().getSessionById(session.id)?.topic || session.topic;
-                    logger.chat.log("✅ 自动标题更新成功:", {
-                      供应商: candidate.profile?.name || candidate.providerName,
-                      模型: candidate.model,
-                      标题: latestTitle,
-                    });
-                    break;
-                  }
-                  if (result.providerBalanceExhausted) {
-                    logger.chat.log(
-                      "💳 当前对话模型余额或额度不足，自动标题生成停止:",
-                      {
-                        当前供应商:
-                          candidate.profile?.name || candidate.providerName,
-                      },
-                    );
-                  }
-                } catch (error) {
-                  logger.chat.error("自动生成标题候选模型失败", error);
+                  break;
                 }
+                if (result.aborted) {
+                  break;
+                }
+              } catch (error) {
+                logger.chat.error("自动生成标题候选模型失败", error);
               }
-            } finally {
-              pendingTitleGenerationSessionIds.delete(session.id);
             }
+          } finally {
+            pendingTitleGenerationSessionIds.delete(session.id);
           }
         }
         const summarizeIndex = Math.max(

@@ -2864,11 +2864,8 @@
 
   .chat-message-tool {
     display: flex;
-    align-items: flex-end;
-    svg {
-      margin-left: 5px;
-      margin-right: 5px;
-    }
+    align-items: center;
+    gap: 5px;
   }
 }
 

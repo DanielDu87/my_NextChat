@@ -7,13 +7,116 @@ import yaml from "js-yaml";
 import { adapter, getOperationId } from "../utils";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { getCurrentAutoSyncScope } from "../utils/startup-sync-scope";
+import { appendGeneratedFileDownloadLinks } from "../utils/generated-file-links";
+import tavilySchema from "../../public/plugins-schemas/tavilysearch.json";
+import codeInterpreterSchema from "../../public/plugins-schemas/codeinterpreterapi.json";
 
 const isApp = getClientConfig()?.isApp !== false;
-export const BUILTIN_PLUGIN_IDS = [
+export const CODE_INTERPRETER_PLUGIN_ID = "PGy3Tgi25BQL4AU88lI5_";
+export const BUILTIN_PLUGIN_IDS = ["tavilysearch"] as const;
+export const FIXED_PLUGIN_IDS = [
   "tavilysearch",
-  "codeinterpreterapi",
+  CODE_INTERPRETER_PLUGIN_ID,
 ] as const;
 export const BUILTIN_PLUGIN_ID_SET = new Set<string>(BUILTIN_PLUGIN_IDS);
+export const FIXED_PLUGIN_ID_SET = new Set<string>(FIXED_PLUGIN_IDS);
+
+const FIXED_PLUGIN_DEFINITIONS: Record<
+  string,
+  Partial<Plugin> & { id: string; title: string; createdAt: number }
+> = {
+  tavilysearch: {
+    id: "tavilysearch",
+    title: "Tavily Search & Extract",
+    version: "1.0.0",
+    content: JSON.stringify(tavilySchema, null, "  "),
+    builtin: true,
+    authType: "bearer",
+    authLocation: "header",
+    createdAt: 1784728408042,
+  },
+  [CODE_INTERPRETER_PLUGIN_ID]: {
+    id: CODE_INTERPRETER_PLUGIN_ID,
+    title: "CodeInterpreter",
+    version: "1.0.0",
+    content: JSON.stringify(codeInterpreterSchema, null, "  "),
+    builtin: true,
+    authType: "bearer",
+    authLocation: "header",
+    createdAt: 1784728297583,
+  },
+};
+
+// 旧版自定义插件 ID，曾作为内置插件使用，现已迁移到固定 ID
+const LEGACY_CODE_INTERPRETER_ID = "codeinterpreterapi";
+
+export function isFixedPluginId(id?: string) {
+  return FIXED_PLUGIN_ID_SET.has(String(id || ""));
+}
+
+function isLegacyPluginId(id?: string) {
+  const normalized = String(id || "");
+  return normalized === LEGACY_CODE_INTERPRETER_ID;
+}
+
+function normalizeFixedPlugin(plugin: Plugin | undefined, id: string): Plugin {
+  const fixed = FIXED_PLUGIN_DEFINITIONS[id];
+  const existing = plugin || ({} as Partial<Plugin>);
+  const now = Date.now();
+  const normalized = {
+    ...existing,
+    ...fixed,
+    enabled: true,
+    enabledUpdatedAt: existing.enabledUpdatedAt || fixed.createdAt || now,
+    configUpdatedAt: existing.configUpdatedAt || fixed.createdAt || now,
+  } as Plugin;
+
+  if (fixed.authType) {
+    normalized.authType = fixed.authType;
+  }
+  if (fixed.authLocation) {
+    normalized.authLocation = fixed.authLocation;
+  }
+
+  // Token 仍来自本地/数据库配置，避免把真实密钥写进代码。
+  if (existing.authToken) {
+    normalized.authToken = existing.authToken;
+  }
+  if (existing.authHeader) {
+    normalized.authHeader = existing.authHeader;
+  }
+
+  return normalized;
+}
+
+export function normalizeFixedPluginState(state: any) {
+  const sourcePlugins = state?.plugins || {};
+  const deletedPluginIds = Array.isArray(state?.deletedPluginIds)
+    ? state.deletedPluginIds.filter((id: string) => !isFixedPluginId(id))
+    : [];
+  const deletedPluginIdSet = new Set(deletedPluginIds);
+  const customPlugins = Object.fromEntries(
+    Object.entries(sourcePlugins).filter(
+      ([id, plugin]) =>
+        !isFixedPluginId(id) &&
+        !isLegacyPluginId(id) &&
+        !deletedPluginIdSet.has(id) &&
+        isValidCustomPlugin(plugin as Plugin),
+    ),
+  );
+  const fixedPlugins = Object.fromEntries(
+    FIXED_PLUGIN_IDS.map((id) => [
+      id,
+      normalizeFixedPlugin(sourcePlugins[id] as Plugin | undefined, id),
+    ]),
+  ) as Record<string, Plugin>;
+
+  return {
+    ...(state || {}),
+    plugins: { ...customPlugins, ...fixedPlugins },
+    deletedPluginIds,
+  };
+}
 
 function isValidCustomPlugin(plugin?: Plugin) {
   return (
@@ -25,16 +128,11 @@ function isValidCustomPlugin(plugin?: Plugin) {
 
 export function prunePlugins<T extends Record<string, Plugin | undefined>>(
   plugins: T | undefined,
-  deletedPluginIds: string[] = [],
 ) {
-  const deletedPluginIdSet = new Set(deletedPluginIds);
-  return Object.fromEntries(
-    Object.entries(plugins || {}).filter(
-      ([id, plugin]) =>
-        !deletedPluginIdSet.has(id) &&
-        (BUILTIN_PLUGIN_ID_SET.has(id) || isValidCustomPlugin(plugin)),
-    ),
-  ) as Record<string, Plugin>;
+  return normalizeFixedPluginState({ plugins }).plugins as Record<
+    string,
+    Plugin
+  >;
 }
 
 function getPluginErrorDetail(error: any) {
@@ -49,6 +147,98 @@ function getPluginErrorDetail(error: any) {
     statusText: error?.response?.statusText,
     responseData: dataText ? dataText.slice(0, 500) : undefined,
   };
+}
+
+type PluginGeneratedFile = {
+  base64?: string;
+  contentType?: string;
+  size?: number;
+};
+
+function decodeBase64File(value: string) {
+  const binary = window.atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function getGeneratedCacheFileId(url: string) {
+  const fileName = url.split(/[?#]/, 1)[0].split("/").pop() || "";
+  const id = fileName.split(".")[0];
+  return /^[0-9a-f-]{36}$/i.test(id) ? id : "";
+}
+
+async function materializePluginGeneratedFiles(result: any) {
+  const generatedFiles = result?.data?.files as
+    Record<string, PluginGeneratedFile> | undefined;
+  if (!generatedFiles || typeof generatedFiles !== "object") {
+    return result;
+  }
+
+  const downloadableFiles: Record<
+    string,
+    { url: string; contentType: string; size: number }
+  > = {};
+  const cacheIds: string[] = [];
+
+  for (const [rawName, generated] of Object.entries(generatedFiles)) {
+    const fileName = rawName.split(/[\\/]/).pop()?.trim() || "generated-file";
+    const base64 = generated?.base64;
+    if (!base64) continue;
+
+    const contentType = generated.contentType || "application/octet-stream";
+    const bytes = decodeBase64File(base64);
+    const form = new FormData();
+    form.append("file", new File([bytes], fileName, { type: contentType }));
+
+    const uploadResponse = await fetch("/api/cache/upload", {
+      method: "POST",
+      body: form,
+    });
+    const uploaded = await uploadResponse.json().catch(() => null);
+    if (!uploadResponse.ok || uploaded?.code !== 0 || !uploaded?.data) {
+      throw new Error(`生成文件保存失败: ${fileName}`);
+    }
+
+    const url = String(uploaded.data);
+    downloadableFiles[fileName] = {
+      url,
+      contentType,
+      size: generated.size ?? bytes.byteLength,
+    };
+    console.log("[Plugin] 生成文件已保存", {
+      fileName,
+      url,
+      size: generated.size ?? bytes.byteLength,
+    });
+    const cacheId = getGeneratedCacheFileId(url);
+    if (cacheId) cacheIds.push(cacheId);
+  }
+
+  if (cacheIds.length > 0) {
+    const commitResponse = await fetch("/api/cache/commit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: cacheIds }),
+    }).catch(() => undefined);
+    if (!commitResponse?.ok) {
+      console.warn("[Plugin] 生成文件缓存提交失败", {
+        count: cacheIds.length,
+        status: commitResponse?.status,
+      });
+    }
+  }
+
+  result.data.files = downloadableFiles;
+  if (Object.keys(downloadableFiles).length > 0) {
+    result.data.output = appendGeneratedFileDownloadLinks(
+      String(result.data.output || ""),
+      downloadableFiles,
+    );
+  }
+  return result;
 }
 
 const PLUGIN_CONFIG_FIELDS: Array<keyof Plugin> = [
@@ -105,11 +295,21 @@ function isPluginRunnable(plugin?: Plugin) {
     return false;
   }
 
-  if (plugin.authType && !plugin.authToken?.trim()) {
-    return false;
+  const needsAuth = plugin.authType && !plugin.authToken?.trim();
+  if (!needsAuth) {
+    return true;
   }
 
-  return true;
+  // 本地 Code Interpreter 允许无 Token 运行
+  const isLocalCodeInterpreter =
+    plugin.id === CODE_INTERPRETER_PLUGIN_ID &&
+    typeof window !== "undefined" &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (isLocalCodeInterpreter) {
+    return true;
+  }
+
+  return false;
 }
 
 function getPluginConfigSignature(plugin: Plugin) {
@@ -118,46 +318,6 @@ function getPluginConfigSignature(plugin: Plugin) {
       PLUGIN_CONFIG_FIELDS.map((field) => [field, plugin[field] ?? null]),
     ),
   );
-}
-
-function shouldPrefetchBuiltinPluginSchema(schemaUrl?: string) {
-  const url = String(schemaUrl || "").trim();
-  if (!url) {
-    return false;
-  }
-
-  // 开发环境下 raw.githubusercontent.com 经常不可达，页面启动时不预拉取，
-  // 避免控制台持续出现 500。需要时用户仍可在插件页手动加载。
-  if (url.startsWith("/api/github-raw/")) {
-    return false;
-  }
-
-  return true;
-}
-
-function fetchPluginSchema(schemaUrl: string) {
-  return fetch(schemaUrl)
-    .then((res) => {
-      if (res.ok) {
-        return res;
-      }
-
-      throw new Error(`schema_fetch_failed:${res.status}`);
-    })
-    .catch(() => {
-      const url = new URL(schemaUrl);
-      return fetch(`/api/proxy/${url.pathname}?${url.search}`, {
-        headers: {
-          "X-Base-URL": url.origin,
-        },
-      }).then((res) => {
-        if (res.ok) {
-          return res;
-        }
-
-        throw new Error(`schema_proxy_failed:${res.status}`);
-      });
-    });
 }
 
 export type Plugin = {
@@ -203,19 +363,32 @@ export const FunctionToolService = {
     const tokenValue = !rawAuthToken
       ? undefined
       : plugin?.authType == "basic"
-      ? `Basic ${rawAuthToken}`
-      : plugin?.authType == "bearer"
-      ? `Bearer ${rawAuthToken}`
-      : rawAuthToken;
+        ? `Basic ${rawAuthToken}`
+        : plugin?.authType == "bearer"
+          ? `Bearer ${rawAuthToken}`
+          : rawAuthToken;
     const authLocation = plugin?.authLocation || "header";
     const definition = yaml.load(plugin.content) as any;
-    const serverURL = definition?.servers?.[0]?.url;
+    const configuredServerURL = definition?.servers?.[0]?.url;
+    const isNextChatCodeInterpreter =
+      plugin.id === CODE_INTERPRETER_PLUGIN_ID ||
+      /^https:\/\/chat\.dyxcloud\.com\/codeinterpreter\/?$/i.test(
+        String(configuredServerURL || "").trim(),
+      );
+    const serverURL =
+      !isApp &&
+      isNextChatCodeInterpreter &&
+      ["localhost", "127.0.0.1"].includes(window.location.hostname)
+        ? "http://codeinterpreter-local:5000"
+        : configuredServerURL;
     const baseURL = !isApp ? "/api/proxy" : serverURL;
-    const headers: Record<string, string | undefined> = {
-      "X-Base-URL": !isApp ? serverURL : undefined,
+    const headers: Record<string, any> = {
+      common: {
+        ...(!isApp ? { "X-Base-URL": serverURL } : {}),
+      },
     };
     if (authLocation == "header" && headerName && tokenValue) {
-      headers[headerName] = tokenValue;
+      headers.common[headerName] = tokenValue;
     }
     const api = new OpenAPIClientAxios({
       definition: yaml.load(plugin.content) as any,
@@ -314,6 +487,7 @@ export const FunctionToolService = {
               requestArgs,
               api.axiosConfigDefaults,
             );
+            await materializePluginGeneratedFiles(result);
             console.log("[Plugin] 调用成功", {
               pluginId: plugin.id,
               operationId,
@@ -322,12 +496,16 @@ export const FunctionToolService = {
             });
             return result;
           } catch (error) {
+            const detail = getPluginErrorDetail(error);
             console.error("[Plugin] 调用失败", {
               pluginId: plugin.id,
               operationId,
               durationMs: Math.round(performance.now() - startedAt),
-              error: getPluginErrorDetail(error),
+              error: detail,
             });
+            if (detail.responseData) {
+              console.error("[Plugin] 上游错误正文:", detail.responseData);
+            }
             throw error;
           }
         };
@@ -363,21 +541,21 @@ export const usePluginStore = createPersistStore(
 
   (set, get) => ({
     create(plugin?: Partial<Plugin>) {
-      const plugins = get().plugins;
+      const plugins = normalizeFixedPluginState(get()).plugins;
       const id = plugin?.id || nanoid();
       const deletedPluginIds = get().deletedPluginIds.filter(
         (deletedId) => deletedId !== id,
       );
-      plugins[id] = {
-        ...createEmptyPlugin(),
-        ...plugin,
-        id,
-        builtin: false,
-      };
-
+      plugins[id] = isFixedPluginId(id)
+        ? normalizeFixedPlugin(plugin as Plugin, id)
+        : {
+            ...createEmptyPlugin(),
+            ...plugin,
+            id,
+            builtin: false,
+          };
       set(() => ({ plugins, deletedPluginIds }));
       get().markUpdate();
-
       return plugins[id];
     },
     updatePlugin(
@@ -388,6 +566,9 @@ export const usePluginStore = createPersistStore(
       const plugins = get().plugins;
       const plugin = plugins[id];
       if (!plugin) return;
+      if (isFixedPluginId(id)) {
+        return;
+      }
       const updatePlugin = { ...plugin };
       const beforePlugin = JSON.stringify(updatePlugin);
       const beforeEnabled = updatePlugin.enabled;
@@ -427,18 +608,24 @@ export const usePluginStore = createPersistStore(
     },
     delete(id: string) {
       const plugins = get().plugins;
+      if (isFixedPluginId(id)) {
+        set(() => normalizeFixedPluginState(get()));
+        return;
+      }
       delete plugins[id];
       delete FunctionToolService.tools[id];
       const deletedPluginIds = [...new Set([...get().deletedPluginIds, id])];
-      set(() => ({ plugins, deletedPluginIds }));
+      set(() =>
+        normalizeFixedPluginState({ ...get(), plugins, deletedPluginIds }),
+      );
       get().markUpdate();
     },
 
     getAsTools(
       _ids?: string[],
     ): [FunctionToolItem[], Record<string, Function>] {
-      const selected = Object.values(
-        prunePlugins(get().plugins, get().deletedPluginIds),
+      const selected = (
+        Object.values(normalizeFixedPluginState(get()).plugins) as Plugin[]
       )
         .filter((i) => isPluginRunnable(i))
         .map((p) => FunctionToolService.add(p));
@@ -451,28 +638,28 @@ export const usePluginStore = createPersistStore(
       ];
     },
     get(id?: string) {
-      return get().plugins[id ?? 1145141919810];
+      if (!id) return undefined;
+      return normalizeFixedPluginState(get()).plugins[id];
     },
-    getAll() {
-      return Object.values(
-        prunePlugins(get().plugins, get().deletedPluginIds),
+    getAll(): Plugin[] {
+      return (
+        Object.values(normalizeFixedPluginState(get()).plugins) as Plugin[]
       ).sort((a, b) => b.createdAt - a.createdAt);
     },
   }),
   {
     name: StoreKey.Plugin,
-    version: 6,
+    version: 7,
     migrate(state: any, version: number) {
-      const newState = JSON.parse(JSON.stringify(state));
+      const newState = normalizeFixedPluginState(
+        JSON.parse(JSON.stringify(state || {})),
+      );
       newState.deletedPluginIds = Array.isArray(newState.deletedPluginIds)
         ? newState.deletedPluginIds
         : [];
-      // 当前插件页只保留内置的三个插件，历史插件和空插件统一清理。
+      // 插件集合固定为两个内置能力，历史插件和空插件统一清理。
       if (version < 3) {
-        newState.plugins = prunePlugins(
-          newState.plugins,
-          newState.deletedPluginIds,
-        );
+        newState.plugins = prunePlugins(newState.plugins);
       }
       if (version < 4) {
         Object.entries(newState.plugins || {}).forEach(([id, plugin]: any) => {
@@ -503,133 +690,32 @@ export const usePluginStore = createPersistStore(
             Date.now();
         });
       }
-      return newState;
+      return normalizeFixedPluginState(newState);
     },
-    onRehydrateStorage(state) {
+    onRehydrateStorage(_state) {
       // Skip store rehydration on server side
       if (typeof window === "undefined") {
         return;
       }
 
-      fetch("/plugins.json")
-        .then((res) => {
-          const contentType = res.headers.get("content-type") || "";
-          if (!res.ok || !contentType.includes("application/json")) {
-            throw new Error(
-              `[Plugin] plugins.json load failed: ${res.status} ${contentType}`,
-            );
+      return () => {
+        runWithImmediateStoreSyncPaused(async () => undefined).finally(() => {
+          if (getCurrentAutoSyncScope() === "draw") {
+            return;
           }
-          return res.json();
-        })
-        .then((res) => {
-          runWithImmediateStoreSyncPaused(async () => {
-            const deletedPluginIds = state.deletedPluginIds.filter(
-              (id) => !BUILTIN_PLUGIN_ID_SET.has(id),
-            );
-            if (deletedPluginIds.length !== state.deletedPluginIds.length) {
-              state.update((updater) => {
-                updater.deletedPluginIds = deletedPluginIds;
-              });
-            }
-
-            // 清理不在 plugins.json 中的历史插件和空插件。
-            const validIds = new Set(
-              res
-                .map((item: any) => item.id)
-                .filter((id: string) => BUILTIN_PLUGIN_ID_SET.has(id)),
-            );
-            const existingPlugins = Object.values(state.plugins || {});
-            existingPlugins.forEach((p) => {
-              if (!validIds.has(p.id) && !isValidCustomPlugin(p)) {
-                state.delete(p.id);
-              } else if (
-                BUILTIN_PLUGIN_ID_SET.has(p.id) &&
-                p.enabled === undefined
-              ) {
-                state.updatePlugin(p.id, (plugin) => {
-                  plugin.enabled = true;
-                  plugin.enabledUpdatedAt = Date.now();
-                });
-              } else if (BUILTIN_PLUGIN_ID_SET.has(p.id)) {
-                state.updatePlugin(
-                  p.id,
-                  (plugin) => {
-                    applyBuiltinPluginDefaults(plugin);
-                  },
-                  { preserveConfigUpdatedAt: true },
-                );
-              }
-            });
-
-            const builtinPlugins = await Promise.all(
-              res.map((item: any) =>
-                // skip get schema
-                !shouldPrefetchBuiltinPluginSchema(item.schema)
-                  ? item
-                  : fetchPluginSchema(item.schema)
-                      .then((res) => res.text())
-                      .then((content) => ({
-                        ...item,
-                        content,
-                      }))
-                      .catch(() => item),
-              ),
-            );
-
-            builtinPlugins
-              .filter((item: any) => item?.content)
-              .forEach((item: any) => {
-                const plugin = state.get(item.id) || state.create(item);
-                state.updatePlugin(
-                  plugin.id,
-                  (plugin) => {
-                    plugin.content = item.content;
-                    const tool = FunctionToolService.add(plugin, true);
-                    const info = tool?.api?.definition?.info;
-                    plugin.title =
-                      info?.title ||
-                      plugin.title ||
-                      item.title ||
-                      item.name ||
-                      item.id;
-                    plugin.version = info?.version || plugin.version || "";
-                    plugin.builtin = true;
-                    applyBuiltinPluginDefaults(plugin);
-                    if (plugin.enabled !== true) {
-                      plugin.enabled = true;
-                      plugin.enabledUpdatedAt = Date.now();
-                    }
-                  },
-                  { preserveConfigUpdatedAt: true },
-                );
-              });
-          })
+          // 不再打印任何「页面初始化后同步插件状态」相关日志：
+          // 同步结果由 sync.ts 的 logOverallSyncSummary 统一输出（已同步插件: N 个），
+          // 这里属于「启动」阶段，再加提示会污染页面打开数据汇总。
+          // 失败路径走 console.error 兜底即可。
+          import("./sync")
+            .then(({ useSyncStore }) =>
+              useSyncStore.getState().sync([StoreKey.Plugin]),
+            )
             .catch((error) => {
-              console.error("[Plugin] ❌ 初始化内置插件失败:", error);
-            })
-            .finally(() => {
-              if (getCurrentAutoSyncScope() === "draw") {
-                return;
-              }
-              // 不再打印任何「页面初始化后同步插件状态」相关日志：
-              // 同步结果由 sync.ts 的 logOverallSyncSummary 统一输出（已同步插件: N 个），
-              // 这里属于「启动」阶段，再加提示会污染页面打开数据汇总。
-              // 失败路径走 console.error 兜底即可。
-              import("./sync")
-                .then(({ useSyncStore }) =>
-                  useSyncStore.getState().sync([StoreKey.Plugin]),
-                )
-                .catch((error) => {
-                  console.error(
-                    "[Plugin] ❌ 页面初始化插件状态同步失败",
-                    error,
-                  );
-                });
+              console.error("[Plugin] ❌ 页面初始化插件状态同步失败", error);
             });
-        })
-        .catch((error) => {
-          console.warn("[Plugin] 内置插件配置加载失败:", error);
         });
+      };
     },
   },
 );

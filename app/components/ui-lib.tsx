@@ -616,9 +616,10 @@ export function Input(props: InputProps) {
 export function PasswordInput(
   props: HTMLProps<HTMLInputElement> & { aria?: string },
 ) {
-  const { aria, className, ...inputProps } = props;
+  const { aria, className, readOnly, ...inputProps } = props;
   const [visible, setVisible] = useState(false);
   function changeVisibility() {
+    if (readOnly) return;
     setVisible(!visible);
   }
 
@@ -627,14 +628,25 @@ export function PasswordInput(
       <input
         {...inputProps}
         type={visible ? "text" : "password"}
-        className={clsx("password-input", className)}
+        disabled={readOnly}
+        className={clsx("password-input", className, {
+          "password-input-disabled": readOnly,
+        })}
       />
       <button
         type="button"
         aria-label={aria}
         onClick={changeVisibility}
         tabIndex={-1}
-        className={clsx("clickable", "password-eye", "nextchat-default-button")}
+        disabled={readOnly}
+        className={clsx(
+          "clickable",
+          "password-eye",
+          "nextchat-default-button",
+          {
+            "password-eye-disabled": readOnly,
+          },
+        )}
       >
         {visible ? <EyeIcon /> : <EyeOffIcon />}
       </button>

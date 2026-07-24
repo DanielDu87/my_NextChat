@@ -53,6 +53,7 @@ import {
   ChatSession,
   ChatMessage,
   ChatMessageAttachedFile,
+  countCompletedSessionMessages,
   createMessage,
   createEmptySession,
   normalizeSession,
@@ -113,6 +114,7 @@ import {
 import { isLegacyGeneratedCustomProviderId } from "../utils/access-profiles";
 import { getModelVendorGroupName } from "../utils/model-vendor-normalize";
 import { getModelDisplayGroup } from "../utils/model-display-group";
+import { rewriteGeneratedFileLinksFromTools } from "../utils/generated-file-links";
 
 import { ChatControllerPool } from "../client/controller";
 import { Prompt, usePromptStore } from "../store/prompt";
@@ -166,6 +168,41 @@ const CHAT_BACKUP_ENTRIES = [
 ];
 
 const SEARCH_TOOL_NAME_PATTERN = /search|搜索/i;
+
+// 判断工具是否处于加载中：消息正在流式输出且工具尚未返回结果（非 error 状态）
+const isToolLoading = (
+  tool: { isError?: boolean; content?: string; function?: { name?: string } },
+  messageStreaming: boolean,
+) => {
+  // 如果消息不在流式输出，加载已完成
+  if (!messageStreaming) {
+    return false;
+  }
+  // 如果工具已标记为错误，不显示加载
+  if (tool.isError === true) {
+    return false;
+  }
+  // 搜索类工具：名称匹配且流式中
+  if (SEARCH_TOOL_NAME_PATTERN.test(String(tool?.function?.name || ""))) {
+    return true;
+  }
+  // 其他工具（CodeInterpreter 等）：消息流式中即显示加载
+  return true;
+};
+
+// 渲染工具图标：根据状态显示加载动画、错误图标或插件标识
+function renderToolIcon(
+  tool: { isError?: boolean; content?: string; function?: { name?: string } },
+  isLoading: boolean,
+) {
+  if (tool.isError === true) {
+    return <CloseIcon />;
+  }
+  if (isLoading) {
+    return <LoadingIcon className="no-dark" />;
+  }
+  return <span>&lt;插件&gt;</span>;
+}
 
 function syncModelSelectionNow(includeGlobalDefault: boolean) {
   const syncStore = useSyncStore.getState();
@@ -4242,6 +4279,10 @@ function ChatContent() {
   const sessionMessages = useMemo(
     () => (Array.isArray(safeSession.messages) ? safeSession.messages : []),
     [safeSession.messages],
+  );
+  const completedMessageCount = useMemo(
+    () => countCompletedSessionMessages(sessionMessages),
+    [sessionMessages],
   );
 
   useEffect(() => {
@@ -10379,7 +10420,7 @@ function ChatContent() {
               {!safeSession.topic ? DEFAULT_TOPIC : safeSession.topic}
             </div>
             <div className="window-header-sub-title">
-              {Locale.Chat.SubTitle(sessionMessages.length)}
+              {Locale.Chat.SubTitle(completedMessageCount)}
             </div>
           </div>
           <div
@@ -10751,7 +10792,10 @@ function ChatContent() {
                               messageModelName;
                         const isContext = i < context.length;
                         const messageTextContent =
-                          getMessageTextContent(message);
+                          rewriteGeneratedFileLinksFromTools(
+                            getMessageTextContent(message),
+                            message.tools,
+                          );
                         const messageImages = getMessageImages(message);
                         const messageAttachedFiles =
                           message.attachedFiles || [];
@@ -11018,38 +11062,24 @@ function ChatContent() {
                                           </span>
                                         </div>
                                       ))}
-                                      {uniqueMessageTools.map((tool) => (
-                                        <div
-                                          key={tool.id}
-                                          title={tool?.errorMsg}
-                                          className={
-                                            styles["chat-message-tool"]
-                                          }
-                                        >
-                                          {tool.isError === true ? (
-                                            <CloseIcon />
-                                          ) : (
-                                            <span>&lt;插件&gt;</span>
-                                          )}
-                                          <span>{tool?.function?.name}</span>
-                                          {showSearchToolLoading &&
-                                            SEARCH_TOOL_NAME_PATTERN.test(
-                                              String(tool.function?.name || ""),
-                                            ) && (
-                                              <span
-                                                className={
-                                                  styles[
-                                                    "chat-message-search-loading"
-                                                  ]
-                                                }
-                                                role="status"
-                                                aria-label="搜索中"
-                                              >
-                                                <LoadingIcon className="no-dark" />
-                                              </span>
-                                            )}
-                                        </div>
-                                      ))}
+                                      {uniqueMessageTools.map((tool) => {
+                                        const toolLoading = isToolLoading(
+                                          tool,
+                                          Boolean(message.streaming),
+                                        );
+                                        return (
+                                          <div
+                                            key={tool.id}
+                                            title={tool?.errorMsg}
+                                            className={
+                                              styles["chat-message-tool"]
+                                            }
+                                          >
+                                            {renderToolIcon(tool, toolLoading)}
+                                            <span>{tool?.function?.name}</span>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   )}
                                 <div
@@ -11309,6 +11339,13 @@ function ChatContent() {
                                               ((message as any).preview ||
                                                 message.streaming) &&
                                               !messageTextContent
+                                            }
+                                            showBlueDots={
+                                              !isUser &&
+                                              !message.manualStopped &&
+                                              !message.refreshInterrupted &&
+                                              !message.isError &&
+                                              message.streaming
                                             }
                                             onDoubleClickCapture={() => {
                                               if (!isMobileScreen || !isUser)

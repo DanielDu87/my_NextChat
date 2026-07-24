@@ -4,6 +4,252 @@
 
 ============================================================
 
+## 212. 【2026-07-24 09:58】- 限制生成标题不超过十五个字符
+
+### 修改内容
+
+- 自动标题和手动刷新标题生成的最终文字统一限制为最多 15 个字符，空格和标点也计入长度。
+- 超长结果不截断、不写回，避免把完整回答前 15 个字符误当作标题。
+
+### 实现方式
+
+- `app/store/chat.ts` 新增 `SESSION_TITLE_MAX_CHARACTERS=15`，标题请求在现有本地化提示词后追加中英文硬限制。
+- `normalizeGeneratedSessionTitle()` 使用 Unicode 字符数组校验最终标题，超过限制返回无效结果并保留原有默认或旧标题。
+- `docs/development.md` 同步将原 80 字符边界更新为 15 字符。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 通过。
+- 宿主机与 `nextchat-dev` 容器内 `app/store/chat.ts`、`docs/development.md` SHA-256 完全一致。
+
+### 潜在或遗留问题
+
+- 为避免消耗 API 额度和写入远端聊天记录，未触发真实标题请求；提示词和返回值校验两层限制已完成。
+
+============================================================
+
+## 211. 【2026-07-24 09:57】- 统一侧边栏与标题栏消息计数
+
+### 修改内容
+
+- 侧边栏会话卡片与对话页标题栏统一消息计数口径：用户消息立即计入，流式助手占位不计入，助手回复落定后两处同时增加。
+- 历史已完成消息的数量保持不变，不修改持久化结构。
+
+### 实现方式
+
+- `app/store/chat.ts` 新增共享 `countCompletedSessionMessages()`，`buildSessionSummary()` 使用该函数生成侧边栏 `messageCount`。
+- `shouldRefreshSessionSummary()` 改为比较已完成消息数，保证助手由 `streaming=true` 变为完成时即使数组长度不变也会刷新侧边栏摘要。
+- `app/components/chat.tsx` 的标题栏统计复用同一函数，`docs/development.md` 同步记录统一口径。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 通过。
+- 浏览器打开“随机数字规律”会话，侧边栏显示“8 条对话”，标题栏显示“共 8 条对话”，URL 和选中态正确，控制台无 warning/error。
+
+### 潜在或遗留问题
+
+- 为避免写入远端聊天库，未发送真实流式测试消息；流式完成时的摘要刷新条件已通过代码检查和类型检查覆盖。
+
+============================================================
+
+## 210. 【2026-07-24 09:53】- 消除对话选中边框延迟
+
+### 修改内容
+
+- 对话列表点击切换时，主题色选中边框立即显示，不再先出现 hover 背景、随后才补上边框。
+- 保留原有背景色渐变和多选模式左右位移动画，不改变列表尺寸、颜色或交互结构。
+
+### 实现方式
+
+- `app/components/home.module.scss` 从 `.chat-item` 的 `transition` 中移除 `border-color 0.25s ease`，让 `.chat-item-selected` 的边框颜色同步生效。
+- `docs/development.md` 同步记录选中边框的即时反馈边界。
+
+### 验证
+
+- `yarn lint`、Prettier 与 `git diff --check` 通过。
+- 浏览器在点击后 80ms 检查“孕妇饮食建议”会话，URL、标题、统计和主题色选中边框均已显示，控制台无 warning/error。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
+## 209. 【2026-07-24 09:50】- 修复消息统计时机和流式回复期间会话切换
+
+### 修改内容
+
+- 对话页标题下方的消息数在用户消息发送后立即增加，流式助手占位消息不再提前计数；助手回复落定后再增加。
+- 修复启用 React Router 过渡后，流式回复期间点击其他会话可能被旧 URL 选中态切回的问题。
+- 后台回复在用户切换会话后仍按原会话 ID 读取上下文和写回结果，避免误用新打开会话的消息。
+
+### 实现方式
+
+- `app/components/chat.tsx` 的标题栏统计排除 `role=assistant && streaming=true` 的消息。
+- `app/components/home.tsx` 只在 URL 会话 ID 真正变化时从路由校正 Store 选中态，移除选中态变化反向触发旧路由校正的竞态。
+- `app/store/chat.ts` 为 `getMessagesWithMemory()` 增加可选目标会话，发送链路显式传入发起请求的会话。
+- `docs/development.md` 同步记录统计、切换和后台请求隔离规则。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
+- 浏览器连续切换“孕妇饮食建议”和“更正收款账户”，两次 URL、页面标题、选中态及“共 2 条对话”均同步更新，控制台无 warning/error。
+- `nextchat-dev` 正常运行，宿主机与容器内三个修改代码文件的 SHA-256 完全一致。
+
+### 潜在或遗留问题
+
+- 为避免消耗 API 额度和向远端聊天库写入测试记录，未发送真实流式测试消息；流式计数与原会话后台写回边界已通过代码路径、Lint 和类型检查验证。
+
+============================================================
+
+## 208. 【2026-07-24 09:42】- 标题生成完成前保持默认新的聊天
+
+### 修改内容
+
+- 用户发送首条消息后、AI 标题成功写回前，会话列表和聊天页继续显示当前语言的默认标题“新的聊天 / New Conversation”，不再用首条用户消息或截断正文充当临时标题。
+- 标题请求失败、取消或返回无效内容时继续保留默认标题；只有通过解析和版本校验的 AI 标题才能更新 `session.topic` 与 `session.mask.name`。
+- 已保存的旧版首条消息临时标题在加载与正文水合时自动迁回默认标题，并继续进入当前可见会话的标题回填流程。
+
+### 实现方式
+
+- `app/store/chat.ts` 移除首条消息生成临时标题的逻辑；默认标题阶段只维护标题生成元数据，不改写 `session.topic`。
+- `normalizeSession()` 识别 `titleFallbackText` 与当前 topic 相同的旧版临时标题，恢复默认 topic、mask 名称与待生成状态；手工命名或已生成标题不受影响。
+- `shouldBackfillSessionTitle()` 仅处理已有完整问答、尚未生成 AI 标题且 topic 仍为默认值的会话。
+- `docs/development.md` 同步明确默认标题、失败保留和旧数据迁移边界。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 全部通过。
+- 浏览器只读加载 `http://localhost:3000/`，新会话按钮和聊天页主标题均显示“新的聊天”，控制台无 warning/error。
+- `nextchat-dev` 正常运行；宿主机与容器内 `app/store/chat.ts`、`docs/development.md` SHA-256 完全一致。
+
+### 潜在或遗留问题
+
+- 为避免写入远程聊天库和消耗 API 额度，本轮未发送真实测试消息；“发送后保持默认标题直到模型返回”的状态转换已通过写入点审查、类型检查和现有页面默认态验证。
+
+============================================================
+
+## 207. 【2026-07-24 09:33】- 消除路由升级警告并收敛标题回填取消日志
+
+### 修改内容
+
+- `BrowserRouter` 显式启用 `v7_startTransition` 与 `v7_relativeSplatPath`，消除 React Router v7 兼容警告；React DevTools 下载提示属于正常开发提示，不做拦截。
+- 修复页面初始化标题回填产生 `[Chat Request Error] AbortError` 红色调用栈：主动取消统一识别为正常取消，只输出 `⏹️` 调试日志，不重试也不再记录标题生成错误。
+- 页面初始化只为当前选中的可见会话安排标题回填；计时器触发时再次核对当前会话，避免为侧边栏多条历史会话并发发送隐藏标题请求。
+
+### 实现方式
+
+- `app/components/home.tsx` 在唯一 `BrowserRouter` owner 上设置两项 future flags。
+- `app/utils/stale-revalidate.ts` 的 `isAbortLikeError()` 补充普通 `Error.name === "AbortError"` 识别；`app/client/platforms/openai.ts` 在通用请求 catch 中将主动取消与真实请求失败分流。
+- `app/store/chat.ts` 在标题候选请求层返回明确 `aborted` 状态，自动与手动标题均静默终止；`scheduleSessionTitleBackfill()` 要求目标会话仍是当前会话。
+- `docs/development.md` 同步记录路由兼容标志、可见会话回填边界和取消日志语义。
+
+### 验证
+
+- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 全部通过。
+- 干净加载 `http://localhost:3000/`，等待 2.2 秒覆盖标题回填窗口后，页面标题为 `NextChat`，浏览器控制台 warning/error 数量为 0。
+- `nextchat-dev` 正常运行；宿主机与容器内 5 个目标文件 SHA-256 完全一致，开发容器已读取最新源码。
+
+### 潜在或遗留问题
+
+- 未人为构造真实模型请求中途取消；浏览器验证覆盖了首屏加载和标题回填等待窗口，主动取消分流同时通过静态类型与 lint 检查。
+
+============================================================
+
+## 206. 【2026-07-24 00:11】- 优化并修复自动与手动标题生成
+
+### 修改内容
+
+- 修复手动刷新已写回标题却仍返回失败的问题；自动与手动标题统一复用同一请求、重试、解析和写回链路，避免两套逻辑再次漂移。
+- 恢复自动标题的有限触发策略：首次完整问答生成标题，只允许在前 3 条用户消息内再润色一次，不再每轮对话重复请求和持续改名。
+- 标题请求锁只阻止重复标题请求，不再提前退出并跳过同一轮历史内存摘要。
+- 标题 JSON 只接受显式 `title` / `topic` 字段，拒绝完整 `chat.completion`、错误对象和其他协议包；纯文本标题移除 Markdown 与常见标题前缀，超过 80 个字符时拒绝写回。
+- 优化中英文标题提示词，中文建议 6 到 12 个汉字，其他语言不超过 6 个词，并要求沿用对话主要语言。
+
+### 实现方式
+
+- `app/store/chat.ts` 新增统一的标题文本规范化、纯文本上下文构建和候选请求函数；上下文只保留有效的用户/助手文本，按 `historyMessageCount` 截取，不重复发送图片、工具载荷、附件元数据和消息状态。
+- 标题请求版本增加实际解析到的 `providerId` / `profileId`，返回时会重新核对消息数量、末条消息、模型与 Profile 身份，过期结果不写回。
+- 网络瞬时失败仍只在同一最终模型和 API 上等待 400ms 后重试一次；手动请求与自动请求分别保留完整日志和余额不足终止语义。
+- `docs/development.md` 同步记录触发频率、共享请求链、上下文边界、解析边界和内存摘要互不阻断的约定。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint warning/error。
+- `npx tsc --noEmit --pretty false` 通过，无 TypeScript 错误。
+- `git diff --check` 与目标文件 Prettier 检查通过。
+- `nextchat-dev` 处于运行状态，仓库挂载到 `/app`；宿主机与容器内 4 个目标文件 SHA-256 完全一致，容器已读取最新源码。
+
+### 潜在或遗留问题
+
+- 未发起真实模型标题请求，避免消耗 API 额度和向远程聊天库写入测试会话；浏览器端自动生成、前三轮有限润色及手动刷新提示仍需用真实会话最终确认。
+
+============================================================
+
+## 205. 【2026-07-23 23:05】- 代码审查修复、插件加载动画优化
+
+### 修改内容
+
+- 代码审查修复：新增 `isLegacyPluginId()` 明确排除旧 `codeinterpreterapi` 插件 ID；重构 `isPluginRunnable` 条件逻辑为早返回模式，语义更清晰；`fetchOpenApiSpec` 统一使用 `CODE_INTERPRETER_PLUGIN_ID` 常量；Schema `files` 对象增加 `base64` 属性定义；删除未使用的 `shouldPrefetchBuiltinPluginSchema` 和 `fetchPluginSchema` 函数；`onRehydrateStorage(state)` 参数加下划线前缀。
+- `PasswordInput` 组件禁用态优化：输入框和眼睛按钮在 `readOnly` 时同步禁用；添加 `password-input-disabled` 和 `password-eye-disabled` CSS 样式（cursor、opacity、灰色背景）。
+- 插件加载动画优化：新增 `isToolLoading()` 函数统一判断工具加载状态；所有插件（搜索、CodeInterpreter 等）加载中时统一显示转圈图标；图标与文字改为垂直居中对齐（`align-items: center`，`gap: 5px`）。
+- Code Interpreter 目录补充：新增上游 `requirements.txt` 和 `app.py`；本地构建 `codeinterpreter-api-local:latest` 镜像并启动 `codeinterpreter-local` 容器。
+- Code Interpreter 部署文档：重写 `scripts/code-interpreter/README.md`，包含首次部署、日常操作、鉴权说明、回滚步骤等完整说明。
+
+### 验证
+
+- `npx tsc --noEmit` 通过，无类型错误。
+- `yarn lint` 通过，无 ESLint 警告/错误。
+
+============================================================
+
+## 204. 【2026-07-23 13:27】- 固定插件集合并修复 Code Interpreter 下载链路
+
+### 修改内容
+
+- 保留 `codeinterpreterapi` 的内置插件身份，避免页面初始化时删除并重建插件后丢失 Bearer Token；插件请求头改用 Axios 默认请求头的 `common` 结构，使 Web 代理的 `X-Base-URL` 与鉴权头稳定随请求发送。
+- Code Interpreter schema 切换到 `https://chat.dyxcloud.com/codeinterpreter` 自建入口并声明 Bearer 鉴权。
+- 新增可复用 Dockerfile 和扩展依赖清单，安装 Gunicorn 以及 DOCX、XLSX、数据处理、图表、图片与 PDF 常用 Python 包，修复运行代码时 `ModuleNotFoundError: No module named 'docx'`，并确保干净镜像具备实际启动命令。
+- Compose 健康检查改用 Python 标准库，不再依赖 `python:3.10-slim` 默认不存在的 `wget`；根 README 登记独立服务运维文档。
+- 修复生成文件下载：自建解释器不再只返回 stdout/图片，而是捕获工作目录和 `/mnt/data` 中新生成的常见文件；NextChat 将其写入用户文件缓存并把真实下载 URL 返回模型，替代浏览器无法处理的 `sandbox:/mnt/data/...`。
+- 本地 `localhost:3000` 自动把内置 Code Interpreter 以及指向项目公网解释器地址的现有自定义插件路由到 Docker 网络别名 `codeinterpreter-local:5000`，不再误调尚未更新的公网服务；Python 执行与 gunicorn worker 超时分别提高到 90/120 秒。
+- 代理收到上游 HTML 5xx 时保留原始错误，不再错误触发 baseURL 自适配并重复 POST；插件错误正文改为独立日志，文件写入缓存成功后记录文件名、真实 URL 与大小。
+- 本地隔离解释器不映射宿主机端口并关闭 Token 校验，避免现有自定义插件保存的生产 Token 与临时本地 Token 不一致而返回 401；生产 Compose 仍要求 `.env.codeinterpreter` 提供非空 Token。
+- `Tavily Search & Extract` 和 `CodeInterpreter` 改为不可删除的内置固定只读插件，schema/content 从项目文件硬编码加载；插件页保留原有新增、启用、删除、URL 读取和内容编辑 UI，但固定插件的鉴权参数、URL 读取和 schema 内容只能查看，自定义插件仍可完整编辑。
+- 同步与初始化统一通过 `normalizeFixedPluginState` 收敛固定插件数据，清除旧 Code 类插件并保证两个固定项始终存在；敏感 Token 不写入代码，Tavily 继续沿用已有 Token，CodeInterpreter 本地固定为无 Token 鉴权，同时保留后续用户新增的自定义插件及删除标记。
+- 提交前安全审计确认 `.env.codeinterpreter.example` 只保留 `replace-with-a-random-secret` 占位符，真实 Bearer Token 不进入 Git 历史。
+
+### 实现方式
+
+- 固定插件 ID 为 `tavilysearch` 与 `PGy3Tgi25BQL4AU88lI5_`；`normalizeFixedPluginState` 在初始化、读取和同步合并时覆盖名称、schema、content、鉴权类型和启用状态，同时保留 Tavily 的既有 Token。
+- CodeInterpreter 固定展示公网服务 URL 与 Bearer 授权定义；在 `localhost` / `127.0.0.1` 上自动改走 Docker 内网并允许本地无 Token 解释器运行，生产页面继续使用公网地址和已保存的生产 Token。
+- `axiosConfigDefaults.headers.common` 同时承载代理目标与 Authorization；本地 Code Interpreter 固定无 Token，并通过 Docker 内网访问不映射宿主机端口的解释器。
+- `scripts/code-interpreter/Dockerfile` 在构建阶段同时安装上游 `requirements.txt` 与仓库维护的 `requirements.nextchat.txt`，运行阶段继续复用原有双阶段镜像结构。
+- 上游 `PyYAML==5.4.1` 需要兼容版 pip/setuptools/wheel/Cython 和关闭构建隔离；Dockerfile 固定构建工具范围、补充 `libpq-dev`，并默认使用阿里云 PyPI 镜像，避免干净构建的 `cython_sources` 与官方 PyPI 下载中断问题。
+- 健康检查执行 `python -c` 请求容器内 Flask 根路径，避免额外安装探活工具。
+- `nextchat_runtime.py` 包装上游 `/runcode` 入口，对 30MB 以内的 DOCX/XLSX/PDF/PPTX/CSV/文本/ZIP 等文件返回 base64、MIME 和大小后删除容器临时文件；`plugin.ts` 在工具结果进入模型前上传 `/api/cache/upload`、从 URL 提取 UUID 提交缓存，并将结果改写为 `/api/cache/<id>.<ext>`。
+- Web 端只在页面主机为 `localhost` 或 `127.0.0.1`，且插件 ID 为 `codeinterpreterapi` 或配置地址精确匹配 `https://chat.dyxcloud.com/codeinterpreter` 时覆盖服务地址，生产页面及其他自定义插件不受影响。
+
+### 验证
+
+- `yarn lint` 通过，无 ESLint warning/error。
+- Prettier 检查 `app/store/plugin.ts`、插件 schema、根 README、Code Interpreter README 和 Compose 均通过。
+- `js-yaml` 与 JSON 针对性解析检查通过，确认 Compose 包含健康检查且 schema 指向预期自建 URL；`git diff --check` 通过。
+- Apple Silicon 本地从干净上游源码成功构建 `codeinterpreter-api-local:latest`，所有 Python 扩展依赖和 Gunicorn 均安装成功。
+- 本地容器只加入 `nextchat_default` Docker 网络、不映射宿主机端口；通过现有 `http://localhost:3000/api/proxy/runcode` 验证：无 Token 返回 HTTP 401，普通 Python 返回 HTTP 200 + `2`，导入 `python-docx` 并创建文档返回 HTTP 200 + `local docx ok`。
+- 本地生成 `random_document.docx` 后，解释器返回正确 DOCX MIME、36587 字节和文件内容；经 3000 端口写入 `/api/cache/upload` 得到真实 `.docx` URL，随后下载返回 HTTP 200/36587 字节，解压 `word/document.xml` 确认包含 `download works`。
+- 浏览器首次复测仍返回 sandbox 链接，定位为自定义插件实际指向 Compose 自动启动的旧 `codeinterpreter-local`，而先前新版只接管了 `codeinterpreter-local-v2`；已停止旧容器并由 `codeinterpreter-local-v6` 接管原网络别名。通过插件原地址再次生成 `/mnt/data/active_document.docx`，确认返回 files、正确 DOCX MIME 和 36590 字节。
+- `npx tsc --noEmit --pretty false`、更新后的 `yarn lint` 和 `git diff --check` 均通过。
+- 已重写当前 `ccc` 用户插件同步数据：只剩 `tavilysearch` 与 `PGy3Tgi25BQL4AU88lI5_`，方法数分别为 2 和 1，`deletedPluginIds` 清空。
+- 未删除旧容器或镜像；最新 `codeinterpreter-local-v8` 使用 `TIMEOUT=90`、gunicorn `--timeout 120` 接管本地网络别名，仅加入 `nextchat_default`、无宿主机端口映射且 `AUTH_TOKEN` 为空；使用任意旧插件 Token 请求 `/runcode` 成功返回 `python-docx 1.1.2`。
+- 经现有 3000 端口生成 `local_download_test.docx`，返回正确 MIME、36600 字节和 48800 字符 base64 文件内容；完整缓存链路返回 `/api/cache/939bef6e-b86a-4a2a-b2fb-6688e8c3fcad.docx`，提交 HTTP 200、下载 HTTP 200/36590 字节。
+
+### 潜在或遗留问题
+
+- 未获生产部署授权，因此服务器现有 Code Interpreter 镜像尚未重建；公网服务仍可能在 30 秒超时或缺少依赖，但本地 `localhost:3000` 已不再调用它。
+
+============================================================
+
 ## 203. 【2026-07-22 12:30】- API 配置页新增配置按钮桌面端固定在最右
 
 ### 修改内容
@@ -29,192 +275,3 @@
 - 待人工确认：浏览器 ≥ 901px 宽度打开 `/api_config`，左侧标题文案无论长短，"新增配置"按钮都固定在右上；≤ 900px 宽度下按钮仍沾满整行居中。
 
 ============================================================
-
-## 202. 【2026-07-22 11:50】- 修复 MCP client.ts 阻断 next build 的类型递归
-
-### 修改内容
-
-- 部署时 `next build` 在 `app/mcp/client.ts:54` 失败：`Type instantiation is excessively deep and possibly infinite`（TS2589）。仓库历史 TypeScript 错误（CLAUDE.md 中也提及）但 `next build` 默认做类型校验所以会卡住构建。
-- 用具名 schema + 收窄方法签名绕过 `Client extends Protocol<Request, Notification, Result>` 多层泛型递归推断。
-
-### 实现方式
-
-- `app/mcp/client.ts` 的 `executeRequest` 导入 `McpResponseMessageSchema`（仓库已有 `z.ZodType<McpResponseMessage>`），把 `client.request(request, z.any())` 替换为 `client.request(request, McpResponseMessageSchema)`。
-- 由于 MCP SDK `Protocol.request<T extends AnySchema>` 的 `T` 在多层继承下仍会触发 TS2589，进一步把 `client.request` 通过 `as unknown as` 收窄成本地具名函数 `(req, schema) => Promise<...>`，TS 不再重新推断 `Protocol` 类的递归泛型。
-- 返回类型标注为 `Promise<z.infer<typeof McpResponseMessageSchema>>` 与原行为兼容（原来 `z.any()` 解出也是 `unknown`）。
-
-### 验证
-
-- 本地 `npx tsc --noEmit --pretty false` 已不再报 `mcp/client.ts` 的 TS2589 / TS2345；其余 chat.tsx 未使用变量属于历史遗留，本次不动。
-- 待生产服务器 `git pull` 后重新执行 `docker compose up -d --build`，确认 `next build` 通过、容器重启、`https://chat.dyxcloud.com` 能打开。
-
-============================================================
-
-## 201. 【2026-07-22 00:40】- 对话记录图片附件加描边
-
-### 修改内容
-
-- 对话记录里的图片附件加上与文件附件卡片一致的描边（`1px solid color-mix(in srgb, var(--black) 24%, transparent)`），light/dark 通过 color-mix 自适应，视觉与其他附件统一。
-
-### 实现方式
-
-- `chat.module.scss` 的 `.chat-message-attached-image`（图片外层 wrapper，含 `overflow:hidden` 裁剪圆角）加 `border` + `box-sizing: border-box`；内层 `<img>` 已有 `object-fit: cover` 与 `border-radius: inherit`，描边显示在外沿、图片在内部被裁剪。
-
-### 验证
-
-- 待人工确认：对话记录中用户发送的图片附件四周有与文件卡片一致的细描边，light/dark 都清晰。
-
-============================================================
-
-## 200. 【2026-07-22 00:30】- Word 预览移动端按容器宽度自动缩放
-
-### 修改内容
-
-- Word（docx）预览页在窄容器（尤其移动端）下自动等比缩放适配宽度，不再横向溢出/滚动，也不再用写死的 `zoom: 0.72`。桌面端容器足够宽时 scale=1，不缩放，排版与真实文档一致。
-
-### 实现方式
-
-- `chat.tsx` 新增 `docxRootRef` 与 `applyDocxAutoScale`：docx-preview 渲染出的页面是固定 pt 宽度、无法回流，先把 `section.docx` 的 `zoom` 还原为 1 测量自然宽度，再按 `docx-preview-root` 可用宽度（clientWidth − 左右 padding）计算 `zoom = available / pageWidth`（仅在 pageWidth > available 时缩小）。
-- 用 `ResizeObserver` 观察 root，渲染完成（loading 结束）后及容器尺寸变化（旋转屏幕、弹窗改尺寸）时重新适配；无 ResizeObserver 时降级为一次性计算。
-- `chat.module.scss` 移动端媒体查询移除 `.docx-preview-container section.docx` 的写死 `zoom: 0.72` 与 `padding-left/right: 12px !important`，缩放全权交给 JS，保持与桌面一致的真实排版。
-
-### 验证
-
-- 待人工确认：移动端（或窄窗口）打开 docx 预览，页面自动缩小铺满宽度、无横向滚动；旋转屏幕后重新适配；桌面端不缩放。
-
-============================================================
-
-## 199. 【2026-07-22 00:20】- Word/Excel 预览内容部分 light/dark 统一白底黑字
-
-### 修改内容
-
-- Word 文档页与 Excel 表格单元格（仅「内容部分」）在 light 与 dark 主题下统一保持白底黑字；标题栏、元信息栏、工作表标签、外围画布仍按主题走深色。
-- 根因：暗色主题里 `--white: rgb(30,30,30)`、`--black: rgb(187,187,187)`，之前 Excel 内容规则用 `var(--white)/var(--black)`，暗色下被反转成深底浅字。
-- 附带修复：dark 主题下预览标题栏与元信息栏下方的两条「白线」——原 `border-bottom-color: var(--border-in-light)` 把颜色设成了完整 shorthand（无效值被忽略），回退到基础 `border-bottom: rgba(255,255,255,0.192)` 亮线；改为有效的 `rgba(255,255,255,0.06)` 细分隔线。
-
-### 实现方式
-
-- `chat.module.scss` 把 `.xlsx-preview-sheet` 的 `table/td/th` 底色与文字色从 `var(--white)/var(--black)` 改为字面量 `#fff` / `#1f2937`，与主题无关。
-- 删除两个暗色块（`:global(.dark)` 与 `@media prefers-color-scheme: dark`）里对 `.xlsx-preview-sheet` 内容的深色覆盖，只保留暗色下略深的表格阴影。
-- `section.docx` 显式加 `background: #fff` 兜底（docx-preview 本身默认白底黑字，暗色不反转）。
-- 两个暗色块的 `.file-preview-header` / `.file-preview-meta-bar` 的 `border-bottom-color` 改为 `rgba(255,255,255,0.06)`。
-
-### 验证
-
-- 待人工确认：dark 主题下打开 Excel、Word 预览，单元格/文档页为白底黑字，周边容器仍是深色。
-
-============================================================
-
-## 198. 【2026-07-22 00:10】- 文件预览标题栏图标与对话记录图标统一
-
-### 修改内容
-
-- 文件预览左上角（及加载/错误状态卡片）的类型图标改为与对话记录中的附件图标完全一致：字形用 `AttachmentFileGlyph`，底色按类型正确显示（文档蓝 `#3b82f6`、表格绿 `#34a853`、PDF 红 `#ef4444`）。
-- 修复前：预览标题栏把 `attach-file-icon` 与 `attach-file-{typeKind}` 放在同一元素，导致 `.attach-file-{kind} .attach-file-icon` 后代选择器不命中，底色统一回退成默认蓝色（Excel/PDF 颜色错误）。
-
-### 实现方式
-
-- `chat.tsx` 把 4 处标题栏 `FileTypeIcon` 及 `FilePreviewState` 卡片图标改为与对话记录一致的结构：类型类放在父级 `div`，`.attach-file-icon` 作为子级，内部用 `<AttachmentFileGlyph typeKind={...}>`。这样复用既有 `.attach-file-{kind} .attach-file-icon`（底色）与 `.attach-file-{kind} .attach-file-glyph`（字形）规则，无需改 CSS。
-
-### 验证
-
-- 待人工确认：Word / Excel / PDF 预览标题栏左上角图标与对话记录中同类型附件图标的形状和颜色一致。
-
-============================================================
-
-## 197. 【2026-07-22 00:00】- 修复文件预览正文区被 ui-lib 40vh 截断的空白
-
-### 修改内容
-
-- 文件预览弹窗（Word / Excel / PDF）正文区被截断到 `40vh`、下方露出大片空白的问题统一修复。
-- 根因（由用户 computed style 定位）：ui-lib 的 `.modal-container .modal-content { max-height: 40vh; padding: 20px }` 与本组件 `.file-preview-modal .modal-content` 覆盖同为 (0,2,0) 特异性，源码顺序打平后 40vh 生效，导致 720px 弹窗内正文区只有 40vh 高。此前误判为 flex 子元素未撑满，实为内容盒被 40vh 封顶，内部再 flex 也无效。
-
-### 实现方式
-
-- `chat.tsx` 将 docx 与 spreadsheet 拆成不同弹窗类，docx 用新增 `file-preview-modal-document`。
-- `chat.module.scss` 新增统一规则 `.file-preview-modal.file-preview-modal :global(.modal-content)`：双写类名把特异性提到 (0,3,0)，稳定覆盖 `max-height: none; padding: 0`。PDF / Excel / Word 三种预览弹窗都带 `.file-preview-modal`，一并生效，正文盒不再被 40vh 截断。
-- docx 高度链：`height: min(720px, calc(var(--full-height, 100dvh) - 48px))` + `file-preview-root height:100%` + `file-preview-body flex:1`（灰色兜底底色）+ `docx-preview-root flex:1 1 auto; min-height:0` 撑满画布。
-- PDF：`.file-preview-frame`（object/iframe）原为固定 `height: min(640px, ...)` + `flex:0 0 auto`，撑不满更高的包装器、下方留白；改为 `flex:1 1 auto; height:100%; min-height:0` 撑满正文区。
-- `file-preview-state-card` 用 `margin:auto` 垂直居中。
-
-### 验证
-
-- 用户已确认 Word 正常。待确认 Excel、PDF 硬刷新后正文区铺满、无空白。
-
-============================================================
-
-## 196. 【2026-07-21 23:34】- 统一附件图标与 Office 深色预览画布
-
-### 修改内容
-
-- PDF 附件改为与 Word 文档图标相同的文件页轮廓和尺寸，仅以红色背景与 `PDF` 标识区分；已发送附件、输入框附件、上传中状态与预览标题均复用同一实现。
-- 任意主题下，Word 的实际文档页与 Excel 的表格单元格均使用白底深字；深色主题下 Excel 工作表容器与表格外留白为浅灰，工作表标签区使用深灰底与绿色当前项，弹窗容器、文件名、类型和大小等区域均沿用当前主题。
-- PDF 预览弹窗在刷新后直接以视口高度建立确定的高度链并显式设定最小高度，避免 portal 内 `--full-height: 100%` 失去参照后按浏览器默认高度塌缩并留下大块空白。
-
-### 实现方式
-
-- `AttachmentFileGlyph` 统一选择 PDF 专属标识或既有文件页字形，减少同一附件在不同展示位置的视觉差异。
-- Office 模态预览仅覆盖 DOCX 的实际页面和 Excel 的表格/单元格色；Word 页面在浅色主题也显式固定纯白，Excel 工作表容器使用浅灰、工作表标签使用深色主题色与深灰蓝分隔线，避免内容留白或元信息栏被错误改为浅色；深色标题与元信息栏的分隔线改用低对比度灰色。
-- 弹窗高度改为 `100vh` / `100dvh` 直接计算、强制覆盖 UI 库高度并保留同值最小高度；`modal-content`、预览根节点和内容区都建立确定的 `flex: 1 1 0` 高度链，预览包装器占满内容区，`object` 和其 iframe fallback 绝对定位铺满包装器，彻底隔离浏览器替换元素的默认高度。
-
-### 验证
-
-- `yarn lint` 与 `git diff --check` 通过；`nextchat-dev` 和 `postgres-ssh-tunnel` 均处于运行状态，开发容器通过挂载读取当前源码。
-- 本地聊天页已确认已发送 PDF 附件输出 `attach-file-pdf-glyph`，点击 `123(1).pdf` 能打开 PDF 预览并显示同一图标。
-
-### 潜在或遗留问题
-
-- 浏览器截图通道未正常绘制本地聊天界面，未取得可用视觉截图；请在深色主题下分别打开现有 Word 与 Excel 附件进行最终人工确认。
-
-============================================================
-
-## 195. 【2026-07-21 22:25】- 收敛附件原文件与视觉 PDF 输入边界
-
-### 修改内容
-
-- 原生 OpenAI Responses 现在仅发送最新用户消息的原始附件；历史附件继续以受限提取文本参与上下文，不再在每轮请求重复占用文件额度。
-- 文字层不足 120 字符的 PDF 保留已提取短文本，并为非原生 OpenAI Provider 追加视觉页；原生 OpenAI 只使用原始 `input_file`，避免与渲染页重复输入。
-- 视觉 PDF 返回总页数、实际渲染页数和截断/失败状态；模型与用户均会收到“未完整读取”的明确提示。停止按钮会取消浏览器中的附件提取请求。
-
-### 实现方式
-
-- `/api/cache/extract` 以 `visualFallback` 标记短文字 PDF，`ChatMessageAttachedFile.requiresVisualInput` 让文本与视觉输入可同时保留。
-- `/api/cache/visualize` 为页数上限、超时、渲染失败、文件缺失和不支持类型返回结构化状态；调用方把限制作为临时请求内容拼入模型上下文，并显示提示。
-- 附件准备控制器的 `AbortSignal` 透传到 `/api/cache/extract` 请求；Responses 输入仅从最新用户消息读取可直传文件。
-
-### 验证
-
-- `yarn lint` 通过，`git diff --check` 通过。
-- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 的两项 Zod 泛型错误，附件改动未产生新的 TypeScript 报错。
-
-### 潜在或遗留问题
-
-- 未发送真实文件或模型请求，避免未经单独确认上传用户内容或消耗 API 额度；请用超过 9 页的扫描 PDF、短文字 PDF 和带历史附件的连续追问进行端到端确认。
-
-============================================================
-
-## 194. 【2026-07-21 22:20】- 手动停止完整终止对话故障转移
-
-### 修改内容
-
-- 点击助手回复的停止图标后，当前消息不再把中断误判为失败，也不会继续尝试其他模型。
-- 用户停止覆盖附件准备、迟到创建的请求控制器、当前模型请求和后续全部故障转移候选；正常上游超时、网络和响应错误仍维持自动重试。
-- README 与开发文档同步说明手动停止和自动容错的行为边界。
-
-### 实现方式
-
-- 故障转移链路按消息 ID 从当前 Chat Store 实时读取 `manualStopped`，不再读取异步调用开始时捕获的旧会话快照；每次进入候选前再次硬拦截。
-- 控制器晚于停止操作才创建时立即中断，避免重试间隙遗留在途请求；只有用户停止才终止候选循环，Provider 的超时 Abort 继续作为可重试失败处理。
-
-### 验证
-
-- `docker exec nextchat-dev yarn lint`、`npx prettier --check app/store/chat.ts README.md docs/development.md` 和 `git diff --check` 通过；`/chat` 返回 `HTTP 200`。
-- 浏览器以 `ccc` 用户加载 `/chat`，页面正常渲染且没有应用错误；仅有项目既有 React Router v7 future flag 警告。
-- `npx tsc --noEmit --pretty false` 仍只报既有 `app/mcp/client.ts` 两项 Zod 泛型错误。
-
-### 潜在或遗留问题
-
-- 未发送真实模型请求，避免未经单独确认消耗 API 额度；请用一个会触发自动回退的模型实际点击停止，确认不再出现下一候选状态行。
-
-============================================================
-

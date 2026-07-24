@@ -428,11 +428,16 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   });
 
   useEffect(() => {
-    if (!urlSessionId || selectedSessionId === urlSessionId) {
+    if (!urlSessionId) {
       return;
     }
+
+    // The chat list updates the selected session immediately so switching
+    // remains responsive while another session is streaming. Only reconcile
+    // from the URL when the URL itself changes; otherwise the previous route
+    // can momentarily switch the selection back during a deferred navigation.
     selectChatSessionById(urlSessionId);
-  }, [selectedSessionId, urlSessionId]);
+  }, [urlSessionId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -967,7 +972,12 @@ export function Home() {
 
   return (
     <ErrorBoundary>
-      <Router>
+      <Router
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <Screen chatBootstrapped={chatBootstrapped} />
       </Router>
     </ErrorBoundary>

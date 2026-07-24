@@ -1839,10 +1839,21 @@ pre {
 
   .password-eye {
     margin-right: 4px;
+
+    &.password-eye-disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
   }
 
   .password-input {
     min-width: 80%;
+
+    &.password-input-disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+      background-color: rgba(128, 128, 128, 0.15);
+    }
   }
 }
 

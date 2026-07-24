@@ -1,0 +1,62 @@
+# =============================================================================
+# Code Interpreter API 独立部署 Compose
+# =============================================================================
+# 路径：/www/dk_project/code_interpreter_api/docker-compose.codeinterpreter.yml
+# 上游：leezhuuuuu/Code-Interpreter-Api @ 541a065（app.py 单进程 Flask）
+# 扩展依赖：requirements.nextchat.txt（文档、表格和图表处理）
+# 鉴权：AUTH_TOKEN Bearer（与 NextChat 插件 authToken 一致）
+# 数据：/app/data 持久化
+# 端口：127.0.0.1:5000 → 容器 5000；Nginx chat.dyxcloud.com/codeinterpreter/ 反代
+# =============================================================================
+
+services:
+  codeinterpreter:
+    image: codeinterpreter-api-baota:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codeinterpreter
+    restart: unless-stopped
+
+    ports:
+      # 仅允许宿主机 127.0.0.1 访问；公网入口走 Nginx 反代
+      - "127.0.0.1:5000:5000"
+
+    env_file:
+      - .env.codeinterpreter
+
+    environment:
+      # Python 子进程先于 gunicorn 的 120 秒上限结束，便于返回明确的 504。
+      TIMEOUT: "90"
+
+    volumes:
+      - codeinterpreter-data:/app/data
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 资源限制：单进程 Flask，gunicorn 默认 1 worker；内存 512m 足够
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  codeinterpreter-data:
+    driver: local

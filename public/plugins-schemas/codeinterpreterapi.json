@@ -2,12 +2,26 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CodeInterpreter",
-    "description": "Run Python code through Code Interpreter API. The public hosted endpoint does not require authentication; self-hosted deployments may optionally enable Bearer Token authentication.",
+    "description": "Run Python code through Code Interpreter API. The NextChat self-hosted endpoint is reverse-proxied behind chat.dyxcloud.com and requires Bearer Token authentication.",
     "version": "1.0.0"
   },
   "servers": [
     {
-      "url": "https://code.leez.tech"
+      "url": "https://chat.dyxcloud.com/codeinterpreter"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token shared between NextChat and the self-hosted Code Interpreter API."
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
     }
   ],
   "paths": {
@@ -61,6 +75,29 @@
                         "type": "string"
                       },
                       "description": "Generated image filenames mapped to accessible image URLs."
+                    },
+                    "files": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "base64": {
+                            "type": "string",
+                            "description": "Base64-encoded file content. Present when the file is newly generated during code execution."
+                          },
+                          "url": {
+                            "type": "string",
+                            "description": "Accessible download URL after NextChat uploads the file to cache."
+                          },
+                          "contentType": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "description": "Generated files mapped to downloadable NextChat cache URLs. Use these URLs instead of sandbox:/mnt/data links."
                     }
                   }
                 }

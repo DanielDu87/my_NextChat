@@ -288,7 +288,9 @@ async function fetchWithBaseUrlAdaptation(opts: {
     throw error;
   }
 
-  if (!looksLikeHtmlResponse(res)) {
+  // 5xx HTML 通常是反向代理的真实错误页，不能当成 baseURL 填错后重复 POST。
+  // 保留原始响应也能让调用方看到上游的具体故障，而不是适配失败的二次错误。
+  if (!looksLikeHtmlResponse(res) || res.status >= 500) {
     return { response: res, resolvedBaseUrl: baseUrl, adapted: false };
   }
 

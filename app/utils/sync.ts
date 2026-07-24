@@ -6,7 +6,7 @@ import { useModelCacheStore } from "../store/model-cache";
 import {
   applyBuiltinPluginDefaults,
   FunctionToolService,
-  prunePlugins,
+  normalizeFixedPluginState,
   usePluginStore,
 } from "../store/plugin";
 import { useUpdateStore } from "../store/update";
@@ -220,10 +220,7 @@ const LocalStateGetters = {
   [StoreKey.Chat]: () => getNonFunctionFileds(useChatStore.getState()),
   [StoreKey.Plugin]: () => {
     const pluginState = getNonFunctionFileds(usePluginStore.getState()) as any;
-    return {
-      ...pluginState,
-      plugins: prunePlugins(pluginState.plugins, pluginState.deletedPluginIds),
-    };
+    return normalizeFixedPluginState(pluginState);
   },
   [StoreKey.Access]: () => {
     const access = getNonFunctionFileds(useAccessStore.getState()) as any;
@@ -921,7 +918,10 @@ const MergeStates: StateMerger = {
     });
 
     (localState as any).deletedPluginIds = deletedPluginIds;
-    localState.plugins = prunePlugins(mergedPlugins, deletedPluginIds);
+    localState.plugins = normalizeFixedPluginState({
+      plugins: mergedPlugins,
+      deletedPluginIds,
+    }).plugins;
     Object.values(localState.plugins || {}).forEach((plugin: any) => {
       applyBuiltinPluginDefaults(plugin);
     });

@@ -291,7 +291,11 @@ function tryWrapHtmlCode(text: string) {
 
 function MarkdownContentInner(props: { content: string }) {
   const escapedContent = useMemo(() => {
-    return tryWrapHtmlCode(escapeBrackets(props.content));
+    // 将 HTML <br> 标签转换为 Markdown 换行
+    const contentWithoutBr = props.content
+      .replace(/<br\s*\/?>/gi, "\n\n")
+      .trim();
+    return tryWrapHtmlCode(escapeBrackets(contentWithoutBr));
   }, [props.content]);
 
   const transformLinkUri = (href: string) => {
@@ -358,6 +362,7 @@ export function Markdown(
   props: {
     content: string;
     loading?: boolean;
+    showBlueDots?: boolean;
     fontSize?: number;
     fontFamily?: string;
     parentRef?: RefObject<HTMLDivElement>;
@@ -380,7 +385,20 @@ export function Markdown(
       {props.loading ? (
         <LoadingIcon className="no-dark" style={{ filter: "none" }} />
       ) : (
-        <MarkdownContent content={props.content} />
+        <>
+          <MarkdownContent content={props.content} />
+          {props.showBlueDots && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                marginLeft: 4,
+              }}
+            >
+              <LoadingIcon className="no-dark" />
+            </span>
+          )}
+        </>
       )}
     </div>
   );

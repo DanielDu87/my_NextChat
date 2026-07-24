@@ -127,6 +127,7 @@ export function DrawSelect(props: {
   value: string;
   options: DrawSelectOption[];
   disabled?: boolean;
+  readOnly?: boolean;
   openOnHover?: boolean;
   shrinkLongText?: boolean;
   onChange: (value: string) => void;
@@ -138,6 +139,7 @@ export function DrawSelect(props: {
   );
   const [open, setOpen] = React.useState(false);
   const isMobileScreen = useMobileScreen();
+  const immutable = props.disabled || props.readOnly;
   const selectedOption =
     props.options.find((option) => option.value === props.value) ||
     props.options[0];
@@ -155,7 +157,7 @@ export function DrawSelect(props: {
   };
 
   const openSelectOnHover = () => {
-    if (props.disabled || !props.openOnHover || isMobileScreen) return;
+    if (immutable || !props.openOnHover || isMobileScreen) return;
     clearHoverCloseTimer();
     setOpen(true);
   };
@@ -186,7 +188,7 @@ export function DrawSelect(props: {
   }, []);
 
   const commitValue = (value: string) => {
-    if (props.disabled) return;
+    if (immutable) return;
     props.onChange(value);
     setOpen(false);
   };
@@ -195,7 +197,7 @@ export function DrawSelect(props: {
     <div
       className={clsx("nextchat-select", {
         "nextchat-select-open": open,
-        "nextchat-select-disabled": props.disabled,
+        "nextchat-select-disabled": immutable,
       })}
       ref={rootRef}
       onMouseEnter={openSelectOnHover}
@@ -206,15 +208,15 @@ export function DrawSelect(props: {
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={props.ariaLabel}
-        aria-disabled={props.disabled}
+        aria-disabled={immutable}
         className="nextchat-select-trigger nextchat-control-surface"
-        disabled={props.disabled}
+        disabled={immutable}
         onClick={() => {
-          if (props.disabled) return;
+          if (immutable) return;
           setOpen((value) => !value);
         }}
         onKeyDown={(event) => {
-          if (props.disabled) return;
+          if (immutable) return;
           if (event.key === "Escape") {
             setOpen(false);
           }
@@ -234,7 +236,7 @@ export function DrawSelect(props: {
         </span>
         <DownIcon className="nextchat-select-icon" />
       </button>
-      {open && !props.disabled && (
+      {open && !immutable && (
         <div
           className="nextchat-select-menu"
           id={selectId}
