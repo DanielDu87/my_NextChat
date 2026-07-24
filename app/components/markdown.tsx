@@ -6,7 +6,7 @@ import RehypeKatex from "rehype-katex";
 import RemarkGfm from "remark-gfm";
 import RehypeHighlight from "rehype-highlight";
 import { useRef, useState, RefObject, useEffect, useMemo } from "react";
-import { copyToClipboard, useWindowSize } from "../utils";
+import { copyToClipboard, useWindowSize, downloadAs } from "../utils";
 import Locale from "../locales";
 import LoadingIcon from "../icons/three-dots.svg";
 import ReloadButtonIcon from "../icons/reload.svg";
@@ -20,6 +20,8 @@ import {
 } from "./artifacts";
 import { isRememberedRuntimeBlobUrl } from "../client/platforms/openai";
 import { IconButton } from "./button";
+import DownloadIcon from "../icons/download.svg";
+import EyeIcon from "../icons/eye.svg";
 
 import { useAppConfig } from "../store/config";
 import clsx from "clsx";
@@ -343,6 +345,106 @@ function MarkdownContentInner(props: { content: string }) {
               <video controls width="99.9%">
                 <source src={href} />
               </video>
+            );
+          }
+          // 可预览的文件类型（图片、PDF、Office 文档等）
+          if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|tiff?)$/i.test(href)) {
+            return (
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <a
+                  {...aProps}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    showImageModal(href);
+                  }}
+                  style={{ cursor: "pointer" }}
+                  title="预览图片"
+                >
+                  {aProps.children}
+                </a>
+                <IconButton
+                  icon={<EyeIcon />}
+                  onClick={() => showImageModal(href)}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="预览"
+                />
+                <IconButton
+                  icon={<DownloadIcon />}
+                  onClick={() => {
+                    const fileName = href.split("/").pop() || "image";
+                    downloadAs(`<img src="${href}">`, fileName);
+                  }}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="下载"
+                />
+              </span>
+            );
+          }
+          // PDF 文件预览
+          if (/\.pdf$/i.test(href)) {
+            return (
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <a {...aProps} target="_blank" />
+                <IconButton
+                  icon={<EyeIcon />}
+                  onClick={() => window.open(href, "_blank")}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="在新标签页预览"
+                />
+                <IconButton
+                  icon={<DownloadIcon />}
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = href;
+                    a.download = href.split("/").pop() || "document.pdf";
+                    a.click();
+                  }}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="下载"
+                />
+              </span>
+            );
+          }
+          // Office 文档（Word、Excel、PPT）和其他可下载文件
+          if (
+            /\.(docx?|xlsx?|pptx?|txt|csv|json|xml|html?|css|js|ts)$/i.test(
+              href,
+            )
+          ) {
+            const fileName = href.split("/").pop() || "document";
+            return (
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <a {...aProps} target="_blank" />
+                <IconButton
+                  icon={<EyeIcon />}
+                  onClick={() => window.open(href, "_blank")}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="在新标签页预览"
+                />
+                <IconButton
+                  icon={<DownloadIcon />}
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = href;
+                    a.download = fileName;
+                    a.click();
+                  }}
+                  className="no-dark"
+                  style={{ padding: "2px 4px" }}
+                  title="下载"
+                />
+              </span>
             );
           }
           const isInternal = /^\/(?!\/)/i.test(href);
