@@ -84,9 +84,11 @@ ssh ss 'curl -sS http://127.0.0.1:3000/ | grep -o "commitHash[^,]*" | head -1'
 ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash, image_name, git_branch, deployed_at from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
 ```
 
-最后一段 SQL 调用同步使用最新表列名：
+最后一段 SQL 调用同步使用最新表列名，可直接复用 `scripts/probe-deployment.cjs`（仓库内已入仓，镜像自带，无需外部上传）：
 ```bash
-ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash, image_name, git_branch, deployed_at from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
+ssh ss 'docker exec nextchat node scripts/probe-deployment.cjs'                  # 仅看最近 1 行
+ssh ss 'docker exec nextchat node scripts/probe-deployment.cjs --limit 5'        # 最近 5 行
+ssh ss 'LIMIT=10 docker exec nextchat node scripts/probe-deployment.cjs'         # 兼容环境变量
 ```
 
 > ⚠️ **重要**：部署后必须执行 `fix-pg-hba.sh` 脚本修复数据库连接（详见 §3.1）。

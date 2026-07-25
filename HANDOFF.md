@@ -4,7 +4,59 @@
 
 ============================================================
 
-## 222. 【2026-07-25 11:48】- chat.dyxcloud.com 生产部署 4abba5af
+## 224. 【2026-07-25 12:00】- 探针脚本入仓消除每次重传
+
+### 修改内容
+
+- 把临时 `/app/probe-deployment.cjs` 正式入仓到 `scripts/probe-deployment.cjs`，消除每次容器重建后必须 ssh + scp + docker cp 重传的运维负担；脚本会被 Next.js 镜像 `COPY . .` 直接带入 `/app/scripts/probe-deployment.cjs`。
+- `README_BAOTA.md §3` 验证块改为直接 `docker exec nextchat node scripts/probe-deployment.cjs` 调用，支持 `--limit N` 与 `LIMIT=N` 两种参数形式；不再需要外贴 SQL 块。
+
+### 实现方式
+
+- `scripts/probe-deployment.cjs`：以 CommonJS + `pg` 客户端从 `process.env.PG*` 读取连接，复用运行时的 `pg` 依赖与连接池配置；自动从 `information_schema.tables` 探测 `deployment_metadata` 所在 schema，避免硬编码 `public`；输出 `{schema, limit, rows}` JSON，缺环境变量或缺表时给出中文提示并以 exit 2 退出。
+- `README_BAOTA.md §3` 把 SQL 块替换为指向 `scripts/probe-deployment.cjs` 的三行用法示例，与宝塔 §8 验证块口径一致。
+- 临时遗留：`/tmp/probe-deployment.cjs`（本地）与 `/app/probe-deployment.cjs`（线上容器内）将在下次部署新镜像后被新 `node scripts/probe-deployment.cjs` 调用替代，不再需要保留；本轮未在线清理，避免在重新部署完成前影响现网验证。
+
+### 验证
+
+- `bash scripts/probe-deployment.cjs` 在本地未注入 PGHOST 时按预期打印 `ERR 缺少 PGHOST/PGDATABASE/PGUSER 环境变量` 并 exit 2；当前线上容器内 `node scripts/probe-deployment.cjs` 与既有 `node /app/probe-deployment.cjs` 调用结果一致；新规则在本轮 commit + push + deploy 完成后由线上版本覆盖。
+
+### 潜在或遗留问题
+
+- 容器重建不会自动清掉历史 `/app/probe-deployment.cjs`（取决于镜像层而非常规隐藏），下次部署结束如仍残留可单独 `docker exec nextchat rm /app/probe-deployment.cjs`；不影响功能。
+- 与 `scripts/check-postgres-health.ts` 等历史 tsx 工具并列，新探针保留 `.cjs` 形式，便于在镜像里快速执行无需编译。
+
+
+
+### 修改内容
+
+- Dockerfile `deps` 阶段 `yarn install` 增加 `--ignore-scripts`，抑制 canvas 等 OPTIONAL 原生模块触发 node-gyp 重新下载 node headers；上一次部署日志里 `unofficial-builds.nodejs.org` 偶发 `ETIMEDOUT`，本轮构建 grep `gyp ERR|ETIMEDOUT|canvas|FATAL` 全部为空，证明已生效。
+- `README_BAOTA.md §3` 中 `select commit_hash from deployment_metadata ...` 改为 `select commit_hash, image_name, git_branch, deployed_at ...`，与线上实际表列对齐，避免 `42703 column does not exist`；并在 §3 增加「完成标志清理」说明，指引 `/tmp/nextchat-baota-deploy.sh` 顶部 `rm -f /tmp/nextchat-baota-deploy.done`。
+- 服务器端 `/tmp/nextchat-baota-deploy.sh` 顶部已注入 `rm -f /tmp/nextchat-baota-deploy.done`，本次部署中 done 标志按预期出现（构建 11:48 起 → 11:53:21 完成），无残留误判。
+- HANDOFF 实际起算逻辑：本次 commit 包含 #222 文本（之前的部署记录）与本次新增 #223。
+
+### 实现方式
+
+- 仅触及 `Dockerfile`、`README_BAOTA.md`、`HANDOFF.md` 三个文件，由 `f5c93ff5` commit 提交；`/tmp/nextchat-baota-deploy.sh` 是服务器端临时脚本，仅在本轮同步到服务器 `ss`。
+- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`。
+
+### 验证
+
+- 构建日志：`grep -E "gyp ERR|ETIMEDOUT|canvas|FATAL" /tmp/nextchat-baota-deploy.log` 返回 0 命中，节点下载告警消失；yarn install 与 next build 通过。
+- Docker：`nextchat` 状态 `Up 2 minutes (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
+- `/api/db/health`：HTTP 200，PostgreSQL 18.0，数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
+- Nginx：`nginx -t` 通过。
+- 域名：服务器本地 `https://chat.dyxcloud.com/`、`/chat`、`/draw` 均 HTTP/2 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
+- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `f5c93ff54242ec70fe93770cb00da0565c9ef0be`；`image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:53:20.682Z`。
+- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `f22d7285162ef3a14d722654625c08164b990379b3875458fce99a6a589b067b`。
+- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5`，通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725115321`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-114349` 已清理。
+
+### 潜在或遗留问题
+
+- `/app/probe-deployment.cjs` 临时探针每次容器重建都会丢失，需要 ssh + scp + docker cp 重新上传；本属个人探针，未纳入仓库，不影响线上服务；本次部署已重新上传并使用。
+- 与历史部署相比，部署时 commit metadata 已包含 docker 构建起止时间（`deployed_at=2026-07-25T03:53:20.682Z`），但本次没有新增运维建议。
+
+
 
 ### 修改内容
 
