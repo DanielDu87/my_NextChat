@@ -4,6 +4,34 @@
 
 ============================================================
 
+## 226. 【2026-07-25 17:35】- chat.dyxcloud.com 部署 c666dede 并补 HANDOFF #225
+
+### 修改内容
+
+- 把 `c666dede`（提示词选择器视觉与模型选择器完全对齐，HANDOFF #225）部署到生产 `chat.dyxcloud.com`，重建 `nextchat-baota:latest` 并以 `--force-recreate` 重启 `nextchat` 容器，写入 PostgreSQL `deployment_metadata`，同步宝塔 DockerSite 容器 ID。
+
+### 实现方式
+
+- 服务器 `ss`（默认部署路径 `/www/dk_project/my_NextChat`）上 `tmux new-session -d -s nextchat-baota-deploy` 执行标准命令：`git pull --ff-only` → `docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat` → `docker rm -f nextchat` → `docker image rm nextchat:latest` → `up -d --force-recreate nextchat` → `scripts/sync-baota-dockersite-container-id.sh`。
+- `git pull --ff-only` 从 Gitee `origin/main`（服务器 origin 当前指向 Gitee，符合 `AGENTS.md §Git 提交规则`）拉取 `0f84684e..c666dede`，更新成功。
+- 构建耗时 215.3s，新镜像 `nextchat-baota:latest`（sha `3ced7f71e795534a7c5300c09ea2bc5c29dff4ebbce2c`）。
+- `sync-baota-dockersite-container-id.sh` 写入 `deployment_metadata`（commit `c666dede923de11d84187602b431d682b4ec78ae` / image `nextchat-baota:latest` / branch `main` / deployedAt `2026-07-25T09:34:45.575Z`），同步 `docker_sites.name='chat.dyxcloud.com'.container_id = 416829fbd68b...`，备份 `/root/docker.db.bak-nextchat-20260725-173439`，清理上一轮 `/root/docker.db.bak-nextchat-20260725-121013`。
+
+### 验证
+
+- `docker ps --filter name=nextchat` → `nextchat` `Up 15 seconds (healthy)`，监听 `127.0.0.1:3000->3000/tcp`，镜像 `nextchat-baota:latest`。
+- `curl http://127.0.0.1:3000/api/db/health` → `HTTP/1.1 200 OK` + `{"ok":true,"postgres":{"now":"2026-07-25 17:34:54.518914+08","version":"PostgreSQL 18.0 ...","database":"nextchat","user":"dyx","configuredHost":"172.20.0.1","configuredPort":5432}}`。
+- `curl -k -I https://chat.dyxcloud.com/` → `HTTP/2 200` + `x-powered-by: Next.js`。
+- `docker exec nextchat node scripts/probe-deployment.cjs` → schema `public`、limit 1、命中 1 行 `commit_hash=c666dede923de11d84187602b431d682b4ec78ae` / `image_name=nextchat-baota:latest` / `deployed_at=2026-07-25T09:34:45.575Z`，与本地 HEAD 一致。
+- 浏览器端 light / dark 视觉对齐需要在登录态或免登录模式（默认 `ccc` 用户）打开 `/chat` 顶部「提示词」与「模型」两个弹窗，对比确认；本会话无浏览器侧视觉证据，差异需人工对照。
+
+### 潜在或遗留问题
+
+- 本会话 `nextchat-dev` 容器未运行，HANDOFF #225 的 CSS 改动无截图验证；prod 已部署但用户侧视觉对照（count 徽章 / 列表容器 / 列表项 / hover / 图标边框 / 副标题 / 工具栏按钮 light + dark）需手工完成。
+- `.prompt-picker-search::placeholder` 与 `.prompt-search-highlight` dark 端的有意硬编码未同步（见 HANDOFF #225 遗留项）。
+
+============================================================
+
 ## 225. 【2026-07-25 17:29】- 提示词选择器视觉与模型选择器完全对齐
 
 ### 修改内容
