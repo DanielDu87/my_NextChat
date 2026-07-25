@@ -183,6 +183,10 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/.next/server ./.next/server
 COPY --from=builder /app/scripts/record-deployment-version.mjs ./scripts/record-deployment-version.mjs
+# 部署后验证探针：运行时由 README_BAOTA.md §3 调用，缺它会让 docker exec
+# `node scripts/probe-deployment.cjs` 报告 MODULE_NOT_FOUND；显式同步保证
+# scripts 目录存在的前提下镜像必带该脚本。
+COPY --from=builder /app/scripts/probe-deployment.cjs ./scripts/probe-deployment.cjs
 
 # MCP 配置
 RUN mkdir -p /app/app/mcp && chmod 777 /app/app/mcp
