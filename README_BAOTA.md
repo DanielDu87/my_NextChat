@@ -75,15 +75,26 @@
 `BUILD_COMMIT_HASH` / `BUILD_COMMIT_DATE`，覆盖 shell 或面板残留的旧环境变量。
 部署完成后必须同时核对：
 
+> `deployment_metadata` 实际表列是 `commit_hash` / `image_name` / `git_branch` / `deployed_at`，
+> 读取 SQL 形如 `select commit_hash, image_name, git_branch, deployed_at from deployment_metadata order by deployed_at desc limit 1`。
+
 ```bash
 ssh ss 'docker exec nextchat printenv BUILD_COMMIT_HASH'
 ssh ss 'curl -sS http://127.0.0.1:3000/ | grep -o "commitHash[^,]*" | head -1'
-ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
+ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash, image_name, git_branch, deployed_at from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
 ```
 
-三处哈希必须一致；如果不一致，说明构建使用了旧镜像或旧环境变量，不能继续把部署结果视为最新版本。
+最后一段 SQL 调用同步使用最新表列名：
+```bash
+ssh ss 'docker exec nextchat node -e "const{Client}=require(\"pg\");const c=new Client({host:process.env.PGHOST,port:process.env.PGPORT,user:process.env.PGUSER,password:process.env.PGPASSWORD,database:process.env.PGDATABASE});c.query(\"select commit_hash, image_name, git_branch, deployed_at from deployment_metadata order by deployed_at desc limit 1\").then(r=>{console.log(r.rows[0]);c.end()})"'
+```
 
 > ⚠️ **重要**：部署后必须执行 `fix-pg-hba.sh` 脚本修复数据库连接（详见 §3.1）。
+
+> 完成标志清理：标准重部署临时脚本（`/tmp/nextchat-baota-deploy.sh`，不在仓库内）
+> 应在脚本顶部先 `rm -f /tmp/nextchat-baota-deploy.done`，避免上一次部署残留的完成
+> 标志让外部脚本误判本次部署是否已完成；本次提交（2026-07-25 11:50）已在服务器端
+> 同步加入该清理。
 
 ```bash
 ssh ss 'tmux new-session -d -s nextchat-baota-deploy "cd /www/dk_project/my_NextChat && bash -lc '\''

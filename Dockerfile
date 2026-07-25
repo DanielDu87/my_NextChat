@@ -109,8 +109,11 @@ COPY package.json yarn.lock ./
 COPY vendor ./vendor
 
 # 仓库仅维护 yarn.lock，生产构建统一使用 Yarn 安装依赖
+# --ignore-scripts 抑制 canvas 等 OPTIONAL 原生模块触发 node-gyp 重新下载 node
+# headers（线上历史日志显示 unofficial-builds.nodejs.org 偶发 ETIMEDOUT），
+# canvas 仅用于 scripts/generate-ico.js 的一次性 favicon 生成，生产运行时不需要。
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
-    yarn install --frozen-lockfile --network-timeout 600000
+    yarn install --frozen-lockfile --ignore-scripts --network-timeout 600000
 
 # =============================================================================
 # 构建阶段

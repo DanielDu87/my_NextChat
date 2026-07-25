@@ -4,7 +4,35 @@
 
 ============================================================
 
-## 221. 【2026-07-25 11:38】- chat.dyxcloud.com 生产部署 5db2df74
+## 222. 【2026-07-25 11:48】- chat.dyxcloud.com 生产部署 4abba5af
+
+### 修改内容
+
+- 把 `4abba5af chat.dyxcloud.com 部署 5db2df74 并补 HANDOFF #221`（仅含 HANDOFF 记录）推送到 chat.dyxcloud.com 宝塔 DockerSite。
+
+### 实现方式
+
+- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、强制重建容器、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`；脚本继续沿用 `/tmp/nextchat-baota-deploy.sh`，但首次完成后 `touch /tmp/nextchat-baota-deploy.done` 残留被误判为本次结束，本轮已在线清理。
+- 构建过程中 `node-gyp` 尝试从 `https://unofficial-builds.nodejs.org/download/release/v22.13.0/node-v22.13.0-headers.tar.gz` 下载 node 头文件并失败（`ETIMEDOUT`）；日志自带 `info This module is OPTIONAL, you can safely ignore this error`，不影响最终镜像与 Next.js 构建，yarn install 与 next build 都已通过。
+
+### 验证
+
+- Docker：`nextchat` 状态 `Up 2 minutes (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
+- `/api/db/health`：HTTP 200，PostgreSQL 18.0，数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
+- Nginx：`nginx -t` 通过。
+- 域名：服务器本地 `https://chat.dyxcloud.com/`、`/chat`、`/draw` 均 HTTP/2 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
+- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `4abba5af2aa36fd98be8557658e08f66a7dad1d2`；`image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:43:56.481Z`。
+- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `0ab67de8d5c5138a709c64213c49ca847b1c7615d5d23d7ae8513ceab183c49c`。
+- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5`，通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725114357`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-113443` 已清理。
+
+### 潜在或遗留问题
+
+- `/tmp/nextchat-baota-deploy.done` 文件不带时间戳且未在每次部署开始时清空，下一次部署脚本若快速完成会让外部脚本误判；建议在 `nextchat-baota-deploy.sh` 顶部加 `rm -f /tmp/nextchat-baota-deploy.done`，避免下一轮再出现这次发现的「done 残留 = 上轮已完成」诊断歧义。
+- `/app/probe-deployment.cjs` 临时探针每次容器重建都会丢失，需要 ssh + scp + docker cp 重新上传；本属个人探针，未纳入仓库，不影响线上服务。
+- `node-gyp` 下载 node 头文件失败在 `yarn install` 阶段输出 `info This module is OPTIONAL, you can safely ignore this error`；本次未影响镜像与线上行为，可考虑未来为 Dockerfile 增加 `yarn config set ignore-scripts true` 或本地预下载 vendor，避免每次重新构建时再做 OPTIONAL 下载失败。
+- 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用旧列名（实际表列是 `image_name` / `git_branch`），下次文档同步修订时一起校正。
+
+
 
 ### 修改内容
 
