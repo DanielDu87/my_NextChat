@@ -2235,6 +2235,8 @@ body.dark .model-selector-panel .nextchat-default-button.nextchat-selector-group
   border: 2px solid var(--selector-control-border-color, var(--input-control-border-color));
   background: var(--white) !important;
   color: var(--primary);
+  font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
+    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
   font-weight: 600;
   box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -3049,4 +3051,188 @@ only screen and (max-height: 650px) and (hover: none) and (pointer: coarse) {
   // touch-action 阻止触摸 / 鼠标滚轮继续滚动子内容
   overflow: hidden !important;
   touch-action: none !important;
+}
+
+/* ---------- Markdown 内嵌文件卡片（全局共用） ----------
+   与 chat.module.scss 中 .chat-message-attached-file 共享视觉，
+   让 markdown.tsx 等模块外文件也能渲染同款文件按钮。
+   使用 .markdown-body 限定作用域，避免污染聊天附件区。 */
+.markdown-body .chat-message-attached-file {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 236px;
+  height: 62px;
+  flex: 0 0 236px;
+  min-width: 0;
+  max-width: none;
+  padding: 8px 12px 8px 8px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--black) 24%, transparent);
+  border-radius: 12px;
+  background: var(--white);
+  box-shadow: none;
+  cursor: pointer;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  color: var(--black);
+  overflow: hidden;
+  text-decoration: none;
+  vertical-align: middle;
+  margin: 2px 4px 2px 0;
+}
+
+.markdown-body .chat-message-attached-file:disabled {
+  cursor: default;
+  opacity: 0.86;
+}
+
+.markdown-body .chat-message-attached-file .attach-file-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 10px;
+  background: #3b82f6;
+  color: #fff;
+  overflow: hidden;
+}
+
+.markdown-body .chat-message-attached-file .attach-file-glyph {
+  position: relative;
+  box-sizing: border-box;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-document .attach-file-glyph,
+.markdown-body .chat-message-attached-file.attach-file-file .attach-file-glyph {
+  width: 17px;
+  height: 22px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-document .attach-file-glyph::before,
+.markdown-body .chat-message-attached-file.attach-file-file .attach-file-glyph::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 3px;
+  width: 8px;
+  height: 2px;
+  background: currentColor;
+  box-shadow:
+    0 5px 0 currentColor,
+    0 10px 0 currentColor;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-pdf .attach-file-icon {
+  background: #ef4444;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-icon {
+  background: #34a853;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph {
+  width: 22px;
+  height: 22px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::before,
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::before {
+  top: 4px;
+  left: 3px;
+  right: 3px;
+  height: 2px;
+  box-shadow:
+    0 5px 0 currentColor,
+    0 10px 0 currentColor;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-spreadsheet .attach-file-glyph::after {
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-icon {
+  background: #f59e0b;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-glyph {
+  width: 22px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.markdown-body .chat-message-attached-file.attach-file-archive .attach-file-glyph::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 5px 0 currentColor;
+}
+
+.markdown-body .chat-message-attached-file-info {
+  min-width: 0;
+  flex: 1;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.markdown-body .chat-message-attached-file-name {
+  overflow: hidden;
+  color: var(--black);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.markdown-body .chat-message-attached-file-type {
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--black);
+  opacity: 0.65;
+  font-size: 13px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+body.dark .markdown-body .chat-message-attached-file,
+.dark .markdown-body .chat-message-attached-file {
+  background: var(--white);
+  color: var(--black);
+  border-color: color-mix(in srgb, var(--black) 24%, transparent);
 }

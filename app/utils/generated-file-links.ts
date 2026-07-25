@@ -2,6 +2,7 @@ type GeneratedDownloadFile = {
   url?: string;
   contentType?: string;
   size?: number;
+  aliases?: string[];
 };
 
 type ToolWithContent = {
@@ -17,10 +18,101 @@ function replaceAllLiteral(value: string, search: string, replacement: string) {
 function getFileNameVariants(fileName: string) {
   const variants = new Set([fileName]);
   try {
+    variants.add(decodeURIComponent(fileName));
+  } catch {}
+  try {
     variants.add(encodeURI(fileName));
     variants.add(encodeURIComponent(fileName));
   } catch {}
   return Array.from(variants).sort((left, right) => right.length - left.length);
+}
+
+function getPathFileName(path: string) {
+  const normalized = String(path || "").split(/[?#]/, 1)[0];
+  const fileName = normalized.split(/[\\/]/).pop() || "";
+  try {
+    return decodeURIComponent(fileName);
+  } catch {
+    return fileName;
+  }
+}
+
+function getFileExtension(fileName: string) {
+  const normalized = getPathFileName(fileName).toLowerCase();
+  const lastDot = normalized.lastIndexOf(".");
+  return lastDot >= 0 ? normalized.slice(lastDot + 1) : "";
+}
+
+export function extractGeneratedSandboxFilePaths(content: string) {
+  const matches = String(content || "").match(
+    /sandbox:\/(?:mnt\/data|tmp)\/[^\s)\]}>"']+/gi,
+  );
+  return Array.from(new Set(matches || []));
+}
+
+export function assignGeneratedFileAliases(
+  output: string,
+  files: GeneratedDownloadFiles,
+) {
+  const sandboxPaths = extractGeneratedSandboxFilePaths(output);
+  if (sandboxPaths.length === 0) return files;
+
+  const entries = Object.entries(files).filter(([, file]) =>
+    Boolean(file?.url),
+  );
+  const assignedPaths = new Set<string>();
+  const assignedFiles = new Set<string>();
+
+  for (const sandboxPath of sandboxPaths) {
+    const sandboxFileName = getPathFileName(sandboxPath);
+    const exactEntry = entries.find(
+      ([fileName]) =>
+        !assignedFiles.has(fileName) &&
+        getPathFileName(fileName).toLowerCase() ===
+          sandboxFileName.toLowerCase(),
+    );
+    if (!exactEntry) continue;
+    const [fileName, file] = exactEntry;
+    file.aliases = Array.from(new Set([...(file.aliases || []), sandboxPath]));
+    assignedPaths.add(sandboxPath);
+    assignedFiles.add(fileName);
+  }
+
+  const extensions = new Set(
+    sandboxPaths
+      .filter((path) => !assignedPaths.has(path))
+      .map(getFileExtension)
+      .filter(Boolean),
+  );
+
+  for (const extension of extensions) {
+    const remainingPaths = sandboxPaths.filter(
+      (path) =>
+        !assignedPaths.has(path) && getFileExtension(path) === extension,
+    );
+    const remainingEntries = entries.filter(
+      ([fileName]) =>
+        !assignedFiles.has(fileName) &&
+        getFileExtension(fileName) === extension,
+    );
+    if (
+      remainingPaths.length === 0 ||
+      remainingPaths.length !== remainingEntries.length
+    ) {
+      continue;
+    }
+
+    remainingPaths.forEach((sandboxPath, index) => {
+      const [fileName, file] = remainingEntries[index];
+      file.aliases = Array.from(
+        new Set([...(file.aliases || []), sandboxPath]),
+      );
+      assignedPaths.add(sandboxPath);
+      assignedFiles.add(fileName);
+    });
+  }
+
+  return files;
 }
 
 export function rewriteGeneratedFileLinks(
@@ -32,13 +124,17 @@ export function rewriteGeneratedFileLinks(
     const url = String(file?.url || "").trim();
     if (!fileName || !url) continue;
 
+    const aliases = new Set(file.aliases || []);
     for (const nameVariant of getFileNameVariants(fileName)) {
-      rewritten = replaceAllLiteral(
-        rewritten,
-        `sandbox:/mnt/data/${nameVariant}`,
-        url,
-      );
-      rewritten = replaceAllLiteral(rewritten, `/mnt/data/${nameVariant}`, url);
+      aliases.add(`sandbox:/mnt/data/${nameVariant}`);
+      aliases.add(`/mnt/data/${nameVariant}`);
+      aliases.add(`sandbox:/tmp/${nameVariant}`);
+      aliases.add(`/tmp/${nameVariant}`);
+    }
+    for (const alias of Array.from(aliases).sort(
+      (left, right) => right.length - left.length,
+    )) {
+      rewritten = replaceAllLiteral(rewritten, alias, url);
     }
   }
   return rewritten;

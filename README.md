@@ -88,6 +88,7 @@ NextChat 是一个面向个人和团队使用的 AI 聊天 Web 应用，基于 N
 
 - Mask / Prompt 预设。
 - 插件系统。
+- Code Interpreter 生成的 DOCX、XLSX 等文件会写入当前用户的 `/api/cache` 并提供下载与预览；模型返回的 `/mnt/data`、`/tmp` 沙箱路径会在可安全关联时自动改写，无法确定映射时显示失效提示而不会请求浏览器不支持的 `sandbox:` 地址。
 - MCP（Model Context Protocol）扩展入口。
 - Tauri 桌面端构建能力。
 - PWA 形态。
@@ -255,7 +256,7 @@ NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tu
 - 部署入口：[DEPLOY.md](DEPLOY.md)
 - 宝塔当前线上说明：[README_BAOTA.md](README_BAOTA.md)
 - 当前生产固定命令、DockerSite 路径、同步脚本和验证步骤：[AGENTS.md](AGENTS.md)
-- Code Interpreter 独立服务：[scripts/code-interpreter/README.md](scripts/code-interpreter/README.md)
+- Code Interpreter 独立服务：[scripts/code-interpreter/README.md](scripts/code-interpreter/README.md)；本地热加载通过 Compose 的 `codeinterpreter-local` profile 一键启动，详见 [CLAUDE.md 本地开发章节](./CLAUDE.md)
 - `Tavily Search & Extract` 与 `CodeInterpreter` 是固定插件，schema/content 和参数只读；插件页保留新增、自定义插件编辑、URL 读取及删除能力。
 
 ### 功能与维护

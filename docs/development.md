@@ -1,6 +1,6 @@
 # NextChat 开发指南
 
-> 本文档以当前代码为准（最后更新：2026-07-19）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
+> 本文档以当前代码为准（最后更新：2026-07-25）。开发过程中如发现内容与代码不一致，以代码为准并同步更新本文档。
 >
 > 相关文档：[README.md](../README.md)、[AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md)、[docs/db/nextchat-postgres-schema.sql](db/nextchat-postgres-schema.sql)。
 
@@ -54,6 +54,10 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 重试状态 UI 与插件状态行共用同一个 `.chat-message-tools` 容器和 `.chat-message-tool` 行：使用相同的灰色 `12px` 文字、行高、上下间距、左侧缩进和移动端归零规则，不额外绘制卡片、边框或彩色状态。每个候选独占一行，格式为 `<对话尝试中> 供应商 / 模型`、`<对话尝试失败> 供应商 / 模型` 或 `<对话尝试成功> 供应商 / 模型`。点击该回复的停止图标后，停止标记必须从当前 Chat Store 按消息 ID 实时读取；它终止附件准备、正在创建或已创建的请求控制器以及整个候选循环，绝不能把用户停止登记为失败或尝试下一模型。上游超时、网络和响应错误没有手动停止标记时，仍继续既有自动故障转移。
 
 工具真正开始执行前的 `onBeforeTool` 必须立即按消息 ID 将工具写回当前 Chat Store，不能等待工具返回或后续模型正文才刷新 UI；`onAfterTool` 同样立即写回成功或失败结果。搜索工具一旦出现在当前助手消息的工具列表中，只要该消息仍处于 `streaming` 状态，搜索工具行就持续显示三点省略号动画；工具返回不能提前隐藏，只有整条回答成功、失败或被停止后才隐藏。动画在亮色主题使用页面 `var(--primary)` 主题蓝色，暗色主题固定使用中性浅灰 `#c8cbd2`。
+
+Code Interpreter 返回的生成文件必须先写入当前用户的 `/api/cache/<uuid>.<ext>`，再把工具结果和助手正文中的临时沙箱路径改写为缓存链接。链接改写同时兼容 `sandbox:/mnt/data/...` 与 `sandbox:/tmp/...`；文件被解释器重命名时，先按文件名精确匹配，无法同名时仅在相同扩展名的沙箱引用与生成文件能够一一对应时按返回顺序建立别名，数量不一致或存在歧义时不得猜测。工具结果会持久化这些别名，使流式更新、最终写回和历史消息重新渲染复用同一映射。Markdown 与文件预览允许同源 `/api/cache/...`、HTTP(S) 和受控 Blob 地址；未能映射的 `sandbox:` 链接只显示失效提示，不得发起 Fetch 或提供无效预览入口，用户继续使用工具结果末尾自动追加的真实下载链接。
+
+Word（DOCX）预览弹窗使用 `docx-preview` 渲染。预览根容器 `.docx-preview-root` 是滚动 owner，固定 `flex: 1; min-height: 0; overflow-y: auto`，内部 `.docx-preview-container` 仅作为普通纵向 flex 容器，不再写死 `height: 100% / flex: 1`，由 docx-preview 输出的 `section.docx` 按内容自身高度增长。`applyDocxSectionSizing()`（`file-preview.tsx`）在渲染同步帧、`requestAnimationFrame` 和 100ms 延时后再次把渲染出的 `section.docx` 强制设为 `width: 100%; max-width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto`，确保宽度撑满预览区、高度交由内容决定，超过根容器视口时由外层滚动条接管；不要恢复把 `section.docx` 强制为 `height: 100% / flex: 1` 的写法，否则长文档会被父级 flex 容器截断。该约束同样适用于移动端 `.docx-preview-container { align-items: flex-start; }` 重写；移动端的宽度自适应仍由 `applyDocxAutoScale` 按容器宽度等比缩放负责。
 
 候选成功后必须走全局模型的 localStorage-first 链路：先将成功候选写入当前会话的手动模型选择记录和 `nextchat:global-model-config`，再更新当前会话、Config Store 与 Access Store，最后后台同步 `Config` / `Access` / `Chat`。因此当前消息、页面顶部模型选择器、下一轮请求、后续新对话和跨用户默认模型都会立即切换到成功候选；旧的会话级手动选择记录不能覆盖自动重试成功结果。对话页余额栏必须优先使用最近一次重试成功消息保存的 `profileId` / `providerId`，不能在会话配置异步同步期间继续显示原 API 的余额；回复完成后触发的自动余额查询也必须查询并写回该成功 API 对应的 Profile。API 切换或状态同步导致在途余额请求被主动取消时，必须释放对应刷新信号，让稳定后的最终 Profile 自动重新查询，不能把已取消请求误记为已完成。对话页自动余额查询在刷新信号稳定 250ms 后再发起，成功后必须通过统一 `[Chat]` 日志输出最终 Profile 和余额值。自动重试始终启用，不提供按钮、设置项或人工上限。
 
@@ -175,3 +179,23 @@ AGICTO 未声明模型厂商时，已核实的名称规则如下：`360gpt*` →
 会话正文异步水合期间允许用户立即发送消息。水合结果写回内存前必须检查会话是否已被本地交互更新；若已更新，则以消息 ID 合并持久化历史和水合期间新增或更新的消息，并保留当前会话配置，禁止旧快照覆盖刚发送的用户消息。
 
 聊天页随首屏直接加载 Markdown 渲染器。用户提交后必须在同一次状态更新中立即显示真实用户正文，以及带模型头像和三点动画的助手回复区域；助手占位消息只用于界面反馈，构造模型请求上下文时必须按消息 ID 排除。不得把渲染器代码分片的加载占位省略号显示在用户消息中；三点动画只用于尚未收到正文的助手回复或明确的后台工具状态。
+
+## 本地 Code Interpreter 容器
+
+NextChat 的 `CodeInterpreter` 插件在 `localhost` / `127.0.0.1` 访问时，固定把请求转发到容器名 `codeinterpreter-local:5000`（`app/store/plugin.ts`）。本仓库在 `docker-compose.yml` 通过 `codeinterpreter-local` profile 提供这个容器：
+
+```bash
+# 启动 dev 时同时拉起 Code Interpreter
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc \
+  PGHOST=postgres-ssh-tunnel PGPORT=5432 \
+  SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 \
+  ./scripts/docker-compose-safe.sh --env-file .env.docker \
+    --profile dev --profile ssh-tunnel --profile codeinterpreter-local up -d
+```
+
+约束：
+
+- 必须始终加上 `--profile codeinterpreter-local`，否则插件调用会得到 `proxy_fetch_failed` 502。
+- 镜像基于 `scripts/code-interpreter/Dockerfile` 构建，名称固定为 `codeinterpreter-api-local:latest`；`build` 时同步重建。普通业务代码改动通过 `nextchat-dev` 热加载即可，**不要**重启或重建 Code Interpreter 容器。
+- 只有改了 `scripts/code-interpreter/Dockerfile`、`requirements.nextchat.txt` 或 `nextchat_runtime.py` 才需要 `--build codeinterpreter-local`。
+- 容器不映射宿主机端口，5000 只通过 Docker 内网暴露给 `nextchat-dev`；生产和灾备仍走 `scripts/code-interpreter/docker-compose.codeinterpreter.yml`（`codeinterpreter-api-baota:latest`）。

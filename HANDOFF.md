@@ -4,6 +4,91 @@
 
 ============================================================
 
+## 217. 【2026-07-25 09:10】- 抽出文件预览与 Code Interpreter 本地容器接入
+
+### 修改内容
+
+- 把散落在 `app/components/chat.tsx` 的附件 Glyph、文件预览对象 URL 缓存、Blob 读取、文件大小请求、PDF/Office 预览分支统一收敛到 `app/hooks/useFilePreview.tsx` 与 `app/components/file-preview.tsx`，新增 `app/hooks/` 目录。
+- Markdown 链接与聊天附件的同款文件卡片样式从 `chat.module.scss` 抽到 `app/styles/globals.scss` 的 `.markdown-body .chat-message-attached-file` 公共作用域，让 `markdown.tsx` 也能渲染统一视觉。
+- `app/utils/attachment-file.ts` 新增 `isFetchableAttachmentUrl` URL 守卫与 `AttachmentTypeKind` / `AttachmentLike` 类型与 `getAttachmentTypeKind` / `getAttachmentTypeLabel` / `formatAttachmentSize` 等判断函数；`markdown.tsx` 复用同一套判断和 hook。
+- `app/utils/generated-file-links.ts` 新增 `assignGeneratedFileAliases`：先按精确文件名匹配，重命名时仅在相同扩展名的沙箱引用与生成文件能一一对应时按顺序建立别名；`plugin.ts` 在 `materializePluginGeneratedFiles` 中调用，把别名持久化进 `result.data.files.aliases`，使流式更新、最终写回和历史消息重渲染复用同一映射。
+- `docker-compose.yml` 新增 `codeinterpreter-local` 服务（基于 `scripts/code-interpreter/Dockerfile` 构建，固定镜像名 `codeinterpreter-api-local:latest`，`expose 5000` + `codeinterpreter-local-data` 数据卷），并把本地启动命令改为带 `--profile codeinterpreter-local`；`CLAUDE.md` / `README.md` / `docs/development.md` 同步记录本地容器接入、Code Interpreter 文件下载链路与 DOCX 预览滚动 owner 约束。
+- 新建 `.githooks/commit-msg` 校验脚本，强制提交首行必须是 `YYYY-MM-DD HH:MM ` 时间戳前缀；`git config core.hooksPath .githooks` 切换到独立钩子目录，最近 5 次提交格式审计已通过、无需 filter-branch。
+
+### 实现方式
+
+- `app/hooks/useFilePreview.tsx` 暴露 `useFilePreview()`：`openFilePreview(url, name, options)` 维护对象 URL 缓存（最大 24 条命中 LRU）、按内容类型派发到 PDF/Office/图片/纯文本分支；`app/components/file-preview.tsx` 提供 `FilePreviewModal` 与 `AttachmentFileGlyph`，缓存 blob 与下载 blob 两条 DOCX 渲染分支均通过 `applyDocxSectionSizing()` 把渲染出的 `section.docx` 强制设为 `width: 100%; max-width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto`。
+- `app/components/chat.tsx` 移除已抽出的 `AttachmentFileGlyph` / `filePreviewObjectUrlCache` / `getCachedPreviewBlob` / `setCachedPreviewBlob` 等实现，仅保留 `clearComposerAttachmentDraftCache` 等写回逻辑；`app/components/chat.module.scss` 同步删除对应 `.docx-preview-*`、`.file-preview-*` 重复样式，仅保留布局/尺寸/暗色图标。
+- `app/styles/globals.scss` 新增 187 行 Markdown 卡片公共样式，并补齐 `nextchat-primary-button` 的 `font-family` 兜底（避免本机缺字体时按钮高度被异常撑高）。
+- `app/utils/generated-file-links.ts` 在 `getFileNameVariants` 中补 `decodeURIComponent` 变体；新增 `getPathFileName` / `getFileExtension` 帮助函数与顺序回退匹配；`plugin.ts` 在文件上传并提交缓存后调用 `assignGeneratedFileAliases` 写回别名。
+- `.githooks/commit-msg` 使用 `head -1 | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} '` 校验，首行不合规直接 `exit 1`；`git config core.hooksPath .githooks` 切换到独立目录。
+
+### 验证
+
+- `yarn lint` 通过；`npx tsc --noEmit --pretty false` 通过；`git diff --check` 与 Prettier 通过。
+- `.githooks/commit-msg` 通过两条手工测试：无时间戳消息 exit 1，合规消息 exit 0。
+- 远程分支 `origin/main` 当前 HEAD = `012e30ea`，与本地一致；`gitee/main` 与 `ss/main` 待推送后由 `git ls-remote` 验证。
+
+### 潜在或遗留问题
+
+- 本地未启用 in-app Browser pane，本轮未通过浏览器工具手动点击 DOCX 滚动；HANDOFF #215/#216 完成的运行态与缓存接口验证仍然有效，本次主要是把已有能力抽到独立 hook/组件并接入本地 Code Interpreter 容器。
+- `scripts/git-commit-push.sh` 当前仓库内不存在，本次提交直接走 `git add` + `git commit` + `git push`，未走脚本；后续如需引入该脚本需补齐 `rules-audit.sh` 与脚本文件。
+
+============================================================
+
+## 216. 【2026-07-25 09:10】- Word 预览支持纵向滚动查看长文档
+
+### 修改内容
+
+- 修复 Code Interpreter 生成的 Word 文档在弹窗内只能看到上半部分、长内容被截断的问题；改为由预览根容器内部纵向滚动，可完整查看整份文档。
+- 保留桌面端宽度自适应、移动端等比缩放、PDF/Excel/图片/纯文本等其它预览不受影响。
+
+### 实现方式
+
+- `app/components/chat.module.scss` 调整 `.docx-preview-container.docx-preview-container`：移除对自身的 `height: 100% / flex: 1`，让内部 `section.docx` 按内容自然增长；`:global(section.docx)` 改为 `height: auto; min-height: 0; max-height: none; flex: 0 0 auto; margin: 0 auto`，只保留宽度自适应并保持白底/边框/阴影。
+- 滚动 owner 仍是 `.docx-preview-root`（`flex: 1; min-height: 0; overflow-y: auto; padding: 16px`），文档页超出根视口时由外层滚动条接管；移动端 `.docx-preview-container` 的 `align-items: flex-start` 不变，宽度缩放仍交由 `applyDocxAutoScale` 处理。
+- `app/components/file-preview.tsx` 新增 `applyDocxSectionSizing()`：把渲染出的 `section.docx` 强制设为 `width: 100%; max-width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto`，并在渲染同步帧、`requestAnimationFrame` 与 100ms 延时各执行一次，覆盖 `docx-preview` 内联样式。两条 DOCX 渲染分支（缓存 blob 与全新下载 blob）均改用该 helper，删除旧 `fixDocxSection`。
+- `docs/development.md` 在 Code Interpreter 文件预览段后新增规则说明滚动 owner、容器/段落约束和禁止恢复 `height: 100% / flex: 1`。
+
+### 验证
+
+- `yarn lint` 通过，仅保留 `file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、Prettier、`git diff --check` 通过。
+- 针对性 `tsx` 检查：文件中 `applyDocxSectionSizing` 引用 7 处（1 定义 + 6 调用：缓存分支 + 下载分支 × `fixDocxSection + rAF + setTimeout`），旧 `fixDocxSection` 已为 0；helper 内含全部 6 个期望属性赋值。
+- `nextchat-dev` 正常运行，`/chat` 返回 HTTP 200，热加载编译成功；宿主机与容器内 `app/components/file-preview.tsx` 与 `app/components/chat.module.scss` SHA-256 完全一致，真实 `HEAD /api/cache/<uuid>.docx` 仍返回 HTTP 200。
+
+### 潜在或遗留问题
+
+- 当前安装未启用 in-app Browser pane，未通过该工具在浏览器中拖动滚动条验证长文档；运行态、热加载、容器源码一致性、纯函数行为已完成替代验证；建议在启用 Browser pane 后用真实 DOCX 做最终滚动确认。
+
+============================================================
+
+## 215. 【2026-07-25 08:50】- 修复 Code Interpreter 生成文件预览失败
+
+### 修改内容
+
+- 修复模型正文保留 `sandbox:/tmp/...` 时，Markdown 和文件预览对浏览器不支持的沙箱协议发起请求的问题。
+- 支持 Code Interpreter 生成文件被重命名后，仍将原始沙箱路径安全改写为当前用户的 `/api/cache/<uuid>.<ext>` 下载与预览地址。
+- 修复文件预览原先拒绝同源 `/api/cache/...` 相对 URL 的协议判断。
+
+### 实现方式
+
+- `app/utils/generated-file-links.ts` 为生成文件增加持久化 aliases：先按文件名精确匹配；重命名时仅在相同扩展名的沙箱引用与生成文件能够一一对应时按顺序关联，数量不一致或有歧义时不猜测。
+- `app/store/plugin.ts` 在文件上传并提交缓存后，从原始工具输出提取 `sandbox:/mnt/data/...` 与 `sandbox:/tmp/...`，把映射写回工具结果并复用现有下载链接追加逻辑。
+- `app/utils/attachment-file.ts` 新增共享 URL 守卫；Markdown 文件大小请求和文件预览统一允许同源根相对 URL、HTTP(S) 及受控 Blob，拒绝其他协议。
+- `app/components/markdown.tsx` 对无法映射的 `sandbox:` 链接显示非交互失效提示，不再创建无效文件卡片；`README.md` 与 `docs/development.md` 同步记录行为边界。
+
+### 验证
+
+- `yarn lint` 通过，仅保留 `file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、Prettier、`git diff --check` 通过。
+- 针对性 `tsx` 检查覆盖重命名单 DOCX 映射与多 DOCX 数量不一致时不猜测，全部通过。
+- `nextchat-dev` 正常运行，`/chat` 返回 HTTP 200，热加载编译成功；目标源码与容器 `/app` 内 SHA-256 一致，真实 `HEAD /api/cache/...docx` 返回 HTTP 200。
+
+### 潜在或遗留问题
+
+- 当前安装未启用 in-app Browser pane，专用预览工具无法附加到现有 Docker 页面，因此未通过该工具点击 Word/Excel 预览；运行态、缓存接口、编译、类型与纯函数映射已完成替代验证。
+
+============================================================
+
 ## 214. 【2026-07-24 11:30】- 修复用户切换时对话跨用户污染问题
 
 ### 修改内容
@@ -15,6 +100,7 @@
 ### 实现方式
 
 **P1 修复：同步流程增加用户上下文绑定**
+
 - `app/store/sync.ts`：在 `sync()` 方法中捕获同步开始时的 `userId` 和 `generation`。
 - 新增 `isStaleSync()` 验证函数，在关键写回点检查用户是否已切换。
 - 聊天同步写回前 (`setLocalStoreState`) 和常规 store 写回前均添加用户验证，过时结果直接丢弃。
@@ -22,18 +108,22 @@
 - `lastChatSyncCompletedAt` 更新前验证用户状态，防止旧冷却时间影响新用户。
 
 **P1 修复：用户切换时清理同步状态**
+
 - `app/store/sync.ts`：新增 `clearSyncStateForUserSwitch()` 函数，清除 `syncInFlight`、`queuedSyncKeys`、防抖定时器、`startupChatSyncInFlight` 和冷却时间。
 - `app/store/auth.ts`：`switchUser()` 中在设置新 cache marker 后立即调用清理函数。
 
 **P2 修复：已有缓存用户快速切换**
+
 - `app/utils/chat-persist-storage.ts`：新增 `resetAll()` 方法，清除 `cache`、`hydrated`、`hydrating`、`pendingWrites`。
 - `app/store/chat.ts`：`resetForUserSwitch()` 中调用 `resetAll()` 并显式重置 `_hasHydrated = false`，强制后续从 IndexedDB 重新加载。
 - `app/store/auth.ts`：切换时的远端同步添加 `force: true`，避免被旧用户冷却时间跳过。
 
 **P2 修复：getItem fallback 路径增加 ownerId 校验**
+
 - `app/utils/chat-persist-storage.ts`：`getItem()` 的 fallback 分支（无 index 时）添加 `isScopedChatStoreKeyActive` 检查，确保不返回旧用户缓存。
 
 **其他**
+
 - `app/store/auth.ts`：导出 `getActiveSwitchGeneration()` 和 `getCurrentCacheMarkerUserId()` 供 sync.ts 验证使用。
 - `app/store/chat.ts`：`hydrateSessionIntoMemory()` 已有用户验证逻辑保持不变。
 
@@ -224,97 +314,3 @@
 ### 潜在或遗留问题
 
 - 未人为构造真实模型请求中途取消；浏览器验证覆盖了首屏加载和标题回填等待窗口，主动取消分流同时通过静态类型与 lint 检查。
-
-============================================================
-
-## 206. 【2026-07-24 00:11】- 优化并修复自动与手动标题生成
-
-### 修改内容
-
-- 修复手动刷新已写回标题却仍返回失败的问题；自动与手动标题统一复用同一请求、重试、解析和写回链路，避免两套逻辑再次漂移。
-- 恢复自动标题的有限触发策略：首次完整问答生成标题，只允许在前 3 条用户消息内再润色一次，不再每轮对话重复请求和持续改名。
-- 标题请求锁只阻止重复标题请求，不再提前退出并跳过同一轮历史内存摘要。
-- 标题 JSON 只接受显式 `title` / `topic` 字段，拒绝完整 `chat.completion`、错误对象和其他协议包；纯文本标题移除 Markdown 与常见标题前缀，超过 80 个字符时拒绝写回。
-- 优化中英文标题提示词，中文建议 6 到 12 个汉字，其他语言不超过 6 个词，并要求沿用对话主要语言。
-
-### 实现方式
-
-- `app/store/chat.ts` 新增统一的标题文本规范化、纯文本上下文构建和候选请求函数；上下文只保留有效的用户/助手文本，按 `historyMessageCount` 截取，不重复发送图片、工具载荷、附件元数据和消息状态。
-- 标题请求版本增加实际解析到的 `providerId` / `profileId`，返回时会重新核对消息数量、末条消息、模型与 Profile 身份，过期结果不写回。
-- 网络瞬时失败仍只在同一最终模型和 API 上等待 400ms 后重试一次；手动请求与自动请求分别保留完整日志和余额不足终止语义。
-- `docs/development.md` 同步记录触发频率、共享请求链、上下文边界、解析边界和内存摘要互不阻断的约定。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint warning/error。
-- `npx tsc --noEmit --pretty false` 通过，无 TypeScript 错误。
-- `git diff --check` 与目标文件 Prettier 检查通过。
-- `nextchat-dev` 处于运行状态，仓库挂载到 `/app`；宿主机与容器内 4 个目标文件 SHA-256 完全一致，容器已读取最新源码。
-
-### 潜在或遗留问题
-
-- 未发起真实模型标题请求，避免消耗 API 额度和向远程聊天库写入测试会话；浏览器端自动生成、前三轮有限润色及手动刷新提示仍需用真实会话最终确认。
-
-============================================================
-
-## 205. 【2026-07-23 23:05】- 代码审查修复、插件加载动画优化
-
-### 修改内容
-
-- 代码审查修复：新增 `isLegacyPluginId()` 明确排除旧 `codeinterpreterapi` 插件 ID；重构 `isPluginRunnable` 条件逻辑为早返回模式，语义更清晰；`fetchOpenApiSpec` 统一使用 `CODE_INTERPRETER_PLUGIN_ID` 常量；Schema `files` 对象增加 `base64` 属性定义；删除未使用的 `shouldPrefetchBuiltinPluginSchema` 和 `fetchPluginSchema` 函数；`onRehydrateStorage(state)` 参数加下划线前缀。
-- `PasswordInput` 组件禁用态优化：输入框和眼睛按钮在 `readOnly` 时同步禁用；添加 `password-input-disabled` 和 `password-eye-disabled` CSS 样式（cursor、opacity、灰色背景）。
-- 插件加载动画优化：新增 `isToolLoading()` 函数统一判断工具加载状态；所有插件（搜索、CodeInterpreter 等）加载中时统一显示转圈图标；图标与文字改为垂直居中对齐（`align-items: center`，`gap: 5px`）。
-- Code Interpreter 目录补充：新增上游 `requirements.txt` 和 `app.py`；本地构建 `codeinterpreter-api-local:latest` 镜像并启动 `codeinterpreter-local` 容器。
-- Code Interpreter 部署文档：重写 `scripts/code-interpreter/README.md`，包含首次部署、日常操作、鉴权说明、回滚步骤等完整说明。
-
-### 验证
-
-- `npx tsc --noEmit` 通过，无类型错误。
-- `yarn lint` 通过，无 ESLint 警告/错误。
-
-============================================================
-
-## 204. 【2026-07-23 13:27】- 固定插件集合并修复 Code Interpreter 下载链路
-
-### 修改内容
-
-- 保留 `codeinterpreterapi` 的内置插件身份，避免页面初始化时删除并重建插件后丢失 Bearer Token；插件请求头改用 Axios 默认请求头的 `common` 结构，使 Web 代理的 `X-Base-URL` 与鉴权头稳定随请求发送。
-- Code Interpreter schema 切换到 `https://chat.dyxcloud.com/codeinterpreter` 自建入口并声明 Bearer 鉴权。
-- 新增可复用 Dockerfile 和扩展依赖清单，安装 Gunicorn 以及 DOCX、XLSX、数据处理、图表、图片与 PDF 常用 Python 包，修复运行代码时 `ModuleNotFoundError: No module named 'docx'`，并确保干净镜像具备实际启动命令。
-- Compose 健康检查改用 Python 标准库，不再依赖 `python:3.10-slim` 默认不存在的 `wget`；根 README 登记独立服务运维文档。
-- 修复生成文件下载：自建解释器不再只返回 stdout/图片，而是捕获工作目录和 `/mnt/data` 中新生成的常见文件；NextChat 将其写入用户文件缓存并把真实下载 URL 返回模型，替代浏览器无法处理的 `sandbox:/mnt/data/...`。
-- 本地 `localhost:3000` 自动把内置 Code Interpreter 以及指向项目公网解释器地址的现有自定义插件路由到 Docker 网络别名 `codeinterpreter-local:5000`，不再误调尚未更新的公网服务；Python 执行与 gunicorn worker 超时分别提高到 90/120 秒。
-- 代理收到上游 HTML 5xx 时保留原始错误，不再错误触发 baseURL 自适配并重复 POST；插件错误正文改为独立日志，文件写入缓存成功后记录文件名、真实 URL 与大小。
-- 本地隔离解释器不映射宿主机端口并关闭 Token 校验，避免现有自定义插件保存的生产 Token 与临时本地 Token 不一致而返回 401；生产 Compose 仍要求 `.env.codeinterpreter` 提供非空 Token。
-- `Tavily Search & Extract` 和 `CodeInterpreter` 改为不可删除的内置固定只读插件，schema/content 从项目文件硬编码加载；插件页保留原有新增、启用、删除、URL 读取和内容编辑 UI，但固定插件的鉴权参数、URL 读取和 schema 内容只能查看，自定义插件仍可完整编辑。
-- 同步与初始化统一通过 `normalizeFixedPluginState` 收敛固定插件数据，清除旧 Code 类插件并保证两个固定项始终存在；敏感 Token 不写入代码，Tavily 继续沿用已有 Token，CodeInterpreter 本地固定为无 Token 鉴权，同时保留后续用户新增的自定义插件及删除标记。
-- 提交前安全审计确认 `.env.codeinterpreter.example` 只保留 `replace-with-a-random-secret` 占位符，真实 Bearer Token 不进入 Git 历史。
-
-### 实现方式
-
-- 固定插件 ID 为 `tavilysearch` 与 `PGy3Tgi25BQL4AU88lI5_`；`normalizeFixedPluginState` 在初始化、读取和同步合并时覆盖名称、schema、content、鉴权类型和启用状态，同时保留 Tavily 的既有 Token。
-- CodeInterpreter 固定展示公网服务 URL 与 Bearer 授权定义；在 `localhost` / `127.0.0.1` 上自动改走 Docker 内网并允许本地无 Token 解释器运行，生产页面继续使用公网地址和已保存的生产 Token。
-- `axiosConfigDefaults.headers.common` 同时承载代理目标与 Authorization；本地 Code Interpreter 固定无 Token，并通过 Docker 内网访问不映射宿主机端口的解释器。
-- `scripts/code-interpreter/Dockerfile` 在构建阶段同时安装上游 `requirements.txt` 与仓库维护的 `requirements.nextchat.txt`，运行阶段继续复用原有双阶段镜像结构。
-- 上游 `PyYAML==5.4.1` 需要兼容版 pip/setuptools/wheel/Cython 和关闭构建隔离；Dockerfile 固定构建工具范围、补充 `libpq-dev`，并默认使用阿里云 PyPI 镜像，避免干净构建的 `cython_sources` 与官方 PyPI 下载中断问题。
-- 健康检查执行 `python -c` 请求容器内 Flask 根路径，避免额外安装探活工具。
-- `nextchat_runtime.py` 包装上游 `/runcode` 入口，对 30MB 以内的 DOCX/XLSX/PDF/PPTX/CSV/文本/ZIP 等文件返回 base64、MIME 和大小后删除容器临时文件；`plugin.ts` 在工具结果进入模型前上传 `/api/cache/upload`、从 URL 提取 UUID 提交缓存，并将结果改写为 `/api/cache/<id>.<ext>`。
-- Web 端只在页面主机为 `localhost` 或 `127.0.0.1`，且插件 ID 为 `codeinterpreterapi` 或配置地址精确匹配 `https://chat.dyxcloud.com/codeinterpreter` 时覆盖服务地址，生产页面及其他自定义插件不受影响。
-
-### 验证
-
-- `yarn lint` 通过，无 ESLint warning/error。
-- Prettier 检查 `app/store/plugin.ts`、插件 schema、根 README、Code Interpreter README 和 Compose 均通过。
-- `js-yaml` 与 JSON 针对性解析检查通过，确认 Compose 包含健康检查且 schema 指向预期自建 URL；`git diff --check` 通过。
-- Apple Silicon 本地从干净上游源码成功构建 `codeinterpreter-api-local:latest`，所有 Python 扩展依赖和 Gunicorn 均安装成功。
-- 本地容器只加入 `nextchat_default` Docker 网络、不映射宿主机端口；通过现有 `http://localhost:3000/api/proxy/runcode` 验证：无 Token 返回 HTTP 401，普通 Python 返回 HTTP 200 + `2`，导入 `python-docx` 并创建文档返回 HTTP 200 + `local docx ok`。
-- 本地生成 `random_document.docx` 后，解释器返回正确 DOCX MIME、36587 字节和文件内容；经 3000 端口写入 `/api/cache/upload` 得到真实 `.docx` URL，随后下载返回 HTTP 200/36587 字节，解压 `word/document.xml` 确认包含 `download works`。
-- 浏览器首次复测仍返回 sandbox 链接，定位为自定义插件实际指向 Compose 自动启动的旧 `codeinterpreter-local`，而先前新版只接管了 `codeinterpreter-local-v2`；已停止旧容器并由 `codeinterpreter-local-v6` 接管原网络别名。通过插件原地址再次生成 `/mnt/data/active_document.docx`，确认返回 files、正确 DOCX MIME 和 36590 字节。
-- `npx tsc --noEmit --pretty false`、更新后的 `yarn lint` 和 `git diff --check` 均通过。
-- 已重写当前 `ccc` 用户插件同步数据：只剩 `tavilysearch` 与 `PGy3Tgi25BQL4AU88lI5_`，方法数分别为 2 和 1，`deletedPluginIds` 清空。
-- 未删除旧容器或镜像；最新 `codeinterpreter-local-v8` 使用 `TIMEOUT=90`、gunicorn `--timeout 120` 接管本地网络别名，仅加入 `nextchat_default`、无宿主机端口映射且 `AUTH_TOKEN` 为空；使用任意旧插件 Token 请求 `/runcode` 成功返回 `python-docx 1.1.2`。
-- 经现有 3000 端口生成 `local_download_test.docx`，返回正确 MIME、36600 字节和 48800 字符 base64 文件内容；完整缓存链路返回 `/api/cache/939bef6e-b86a-4a2a-b2fb-6688e8c3fcad.docx`，提交 HTTP 200、下载 HTTP 200/36590 字节。
-
-### 潜在或遗留问题
-
-- 本条记录当时未获生产部署授权；生产镜像更新与公网文件返回验证现已由记录 213 完成。

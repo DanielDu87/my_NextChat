@@ -141,19 +141,21 @@ git push
 
 ```bash
 cp .env.docker.example .env.docker
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev build
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile codeinterpreter-local build
 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile ssh-tunnel up -d --build postgres-ssh-tunnel
-NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel up -d
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel logs -f nextchat-dev
+NEXTCHAT_DISABLE_AUTH=true NEXTCHAT_LOCAL_BYPASS_USER=ccc PGHOST=postgres-ssh-tunnel PGPORT=5432 SSH_TUNNEL_HOST=42.193.15.117 SSH_TUNNEL_PORT=222 SSH_TUNNEL_USER=root SSH_TUNNEL_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel --profile codeinterpreter-local up -d
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile ssh-tunnel --profile codeinterpreter-local logs -f nextchat-dev
 
 # Tauri 桌面应用开发（例外，不走 Docker）
 yarn app:dev
 ```
 
+**Code Interpreter 本地容器**：本地热加载必须同时启用 `--profile codeinterpreter-local`，对应的服务名固定为 `codeinterpreter-local`，端口 5000 通过 Docker 内网暴露给 `nextchat-dev`，不要在宿主机再做端口映射。`app/store/plugin.ts` 在 `localhost` / `127.0.0.1` 时自动把 NextChat `CodeInterpreter` 插件请求转发到 `http://codeinterpreter-local:5000`，因此不启动这个 profile 会得到 `proxy_fetch_failed` 502。镜像基于 `scripts/code-interpreter/Dockerfile` 构建，名称固定为 `codeinterpreter-api-local:latest`；只有改了 Dockerfile、扩展依赖（`requirements.nextchat.txt`）或运行时入口（`nextchat_runtime.py`）才需要 `--build` 重新构建镜像，普通业务代码改动走 nextchat-dev 热加载即可，Code Interpreter 容器无需重启。生产环境请继续使用 `scripts/code-interpreter/docker-compose.codeinterpreter.yml`。
+
 停止开发环境：
 
 ```bash
-./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev down
+./scripts/docker-compose-safe.sh --env-file .env.docker --profile dev --profile codeinterpreter-local down
 ```
 
 常用页面：

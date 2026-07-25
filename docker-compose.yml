@@ -273,6 +273,29 @@ services:
       - ${SSH_TUNNEL_KEY_FILE:-${HOME}/.ssh/id_ed25519}:/root/.ssh/id_ed25519:ro
 
   # ---------------------------------------------------------------------------
+  # Code Interpreter 本地容器
+  # 配合 `--profile dev` 使用；容器名固定为 `codeinterpreter-local`，让
+  # NextChat 插件（app/store/plugin.ts）在 localhost / 127.0.0.1 时自动路由到
+  # `http://codeinterpreter-local:5000`。
+  # ---------------------------------------------------------------------------
+  codeinterpreter-local:
+    profiles: [codeinterpreter-local]
+    build:
+      context: ./scripts/code-interpreter
+      dockerfile: Dockerfile
+    image: codeinterpreter-api-local:latest
+    container_name: codeinterpreter-local
+    restart: unless-stopped
+    expose:
+      - "5000"
+    environment:
+      # 本地开发不校验 token；生产请改用 docker-compose.codeinterpreter.yml
+      - AUTH_TOKEN=
+      - TIMEOUT=90
+    volumes:
+      - codeinterpreter-local-data:/app/data
+
+  # ---------------------------------------------------------------------------
   # 生产环境 - 使用官方镜像（快速部署）
   # ---------------------------------------------------------------------------
   nextchat-official:
@@ -328,3 +351,4 @@ volumes:
   nextchat-next_cache:
   nextchat-data:
   nextchat-postgres-data:
+  codeinterpreter-local-data:

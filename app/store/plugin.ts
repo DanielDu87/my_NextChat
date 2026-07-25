@@ -7,7 +7,10 @@ import yaml from "js-yaml";
 import { adapter, getOperationId } from "../utils";
 import { runWithImmediateStoreSyncPaused } from "../utils/store";
 import { getCurrentAutoSyncScope } from "../utils/startup-sync-scope";
-import { appendGeneratedFileDownloadLinks } from "../utils/generated-file-links";
+import {
+  appendGeneratedFileDownloadLinks,
+  assignGeneratedFileAliases,
+} from "../utils/generated-file-links";
 import tavilySchema from "../../public/plugins-schemas/tavilysearch.json";
 import codeInterpreterSchema from "../../public/plugins-schemas/codeinterpreterapi.json";
 
@@ -231,7 +234,10 @@ async function materializePluginGeneratedFiles(result: any) {
     }
   }
 
-  result.data.files = downloadableFiles;
+  result.data.files = assignGeneratedFileAliases(
+    String(result.data.output || ""),
+    downloadableFiles,
+  );
   if (Object.keys(downloadableFiles).length > 0) {
     result.data.output = appendGeneratedFileDownloadLinks(
       String(result.data.output || ""),

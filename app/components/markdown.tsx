@@ -25,6 +25,44 @@ import EyeIcon from "../icons/eye.svg";
 
 import { useAppConfig } from "../store/config";
 import clsx from "clsx";
+import {
+  getAttachmentTypeKind,
+  getAttachmentTypeLabel,
+  formatAttachmentSize,
+  isFetchableAttachmentUrl,
+} from "../utils/attachment-file";
+import { useFilePreview } from "../hooks/useFilePreview";
+
+// 文件大小缓存，避免重复请求
+const fileSizeCache = new Map<string, number>();
+const pendingFileSizeFetches = new Set<string>();
+function ensureFileSize(
+  href: string,
+  setFileSizes: (
+    updater: (prev: Record<string, number>) => Record<string, number>,
+  ) => void,
+) {
+  if (!href || fileSizeCache.has(href) || pendingFileSizeFetches.has(href))
+    return;
+  // 只请求同源相对地址或 http(s) URL，避免 sandbox:、blob: 等地址报错
+  if (!isFetchableAttachmentUrl(href)) return;
+  pendingFileSizeFetches.add(href);
+  fetch(href, { method: "HEAD", credentials: "include" })
+    .then((response) => {
+      if (response.ok) {
+        const cl = response.headers.get("content-length");
+        if (cl) {
+          const size = parseInt(cl, 10);
+          if (size > 0) {
+            fileSizeCache.set(href, size);
+            setFileSizes((prev) => ({ ...prev, [href]: size }));
+          }
+        }
+      }
+    })
+    .catch(() => {})
+    .finally(() => pendingFileSizeFetches.delete(href));
+}
 
 let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
 
@@ -292,12 +330,34 @@ function tryWrapHtmlCode(text: string) {
 }
 
 function MarkdownContentInner(props: { content: string }) {
+  const { openFilePreview } = useFilePreview();
+  const [fileSizes, setFileSizes] = useState<Record<string, number>>({});
+
   const escapedContent = useMemo(() => {
     // 将 HTML <br> 标签转换为 Markdown 换行
     const contentWithoutBr = props.content
       .replace(/<br\s*\/?>/gi, "\n\n")
       .trim();
     return tryWrapHtmlCode(escapeBrackets(contentWithoutBr));
+  }, [props.content]);
+
+  // 预取 markdown 内容中所有文件链接的大小
+  useEffect(() => {
+    const filePatterns = [
+      /\.pdf$/i,
+      /\.(docx?|xlsx?|pptx?|txt|csv|json|xml|html?|css|js|ts)$/i,
+    ];
+    const hrefRegex = /\]\((https?:\/\/[^)\s]+)\)/gi;
+    const seen = new Set<string>();
+    let match;
+    while ((match = hrefRegex.exec(props.content)) !== null) {
+      const href = match[1];
+      if (!href || seen.has(href)) continue;
+      seen.add(href);
+      if (filePatterns.some((p) => p.test(href))) {
+        ensureFileSize(href, setFileSizes);
+      }
+    }
   }, [props.content]);
 
   const transformLinkUri = (href: string) => {
@@ -327,6 +387,13 @@ function MarkdownContentInner(props: { content: string }) {
         p: (pProps) => <p {...pProps} dir="auto" />,
         a: (aProps) => {
           const href = aProps.href || "";
+          if (/^sandbox:/i.test(href)) {
+            return (
+              <span title="临时文件地址已失效">
+                临时文件地址已失效，请使用下方生成文件下载链接
+              </span>
+            );
+          }
           if (/^blob:/i.test(href) && !isRememberedRuntimeBlobUrl(href)) {
             return <span>本地媒体缓存已失效</span>;
           }
@@ -386,31 +453,51 @@ function MarkdownContentInner(props: { content: string }) {
           }
           // PDF 文件预览
           if (/\.pdf$/i.test(href)) {
+            const fileName = href.split("/").pop() || "document.pdf";
+            const typeKind = getAttachmentTypeKind({
+              name: fileName,
+              type: "",
+            });
+            const typeLabel = getAttachmentTypeLabel({
+              name: fileName,
+              type: "",
+            });
+            const fileSize = fileSizes[href] || fileSizeCache.get(href) || 0;
+            ensureFileSize(href, setFileSizes);
+            const cardClassName = `chat-message-attached-file attach-file-${typeKind}`;
             return (
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              <button
+                type="button"
+                className={cardClassName}
+                onClick={() => {
+                  const file: import("../store/chat").ChatMessageAttachedFile =
+                    {
+                      id: `markdown-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                      name: fileName,
+                      type: "",
+                      size: fileSize,
+                      typeLabel,
+                      typeKind: typeKind as
+                        "document" | "spreadsheet" | "pdf" | "archive" | "file",
+                      previewUrl: href,
+                    };
+                  openFilePreview(file);
+                }}
+                title={`${fileName}\n${typeLabel}`}
               >
-                <a {...aProps} target="_blank" />
-                <IconButton
-                  icon={<EyeIcon />}
-                  onClick={() => window.open(href, "_blank")}
-                  className="no-dark"
-                  style={{ padding: "2px 4px" }}
-                  title="在新标签页预览"
-                />
-                <IconButton
-                  icon={<DownloadIcon />}
-                  onClick={() => {
-                    const a = document.createElement("a");
-                    a.href = href;
-                    a.download = href.split("/").pop() || "document.pdf";
-                    a.click();
-                  }}
-                  className="no-dark"
-                  style={{ padding: "2px 4px" }}
-                  title="下载"
-                />
-              </span>
+                <span className="attach-file-icon">
+                  <span className="attach-file-glyph" />
+                </span>
+                <span className="chat-message-attached-file-info">
+                  <span className="chat-message-attached-file-name">
+                    {fileName}
+                  </span>
+                  <span className="chat-message-attached-file-type">
+                    {typeLabel}
+                    {fileSize > 0 ? ` · ${formatAttachmentSize(fileSize)}` : ""}
+                  </span>
+                </span>
+              </button>
             );
           }
           // Office 文档（Word、Excel、PPT）和其他可下载文件
@@ -420,31 +507,50 @@ function MarkdownContentInner(props: { content: string }) {
             )
           ) {
             const fileName = href.split("/").pop() || "document";
+            const typeKind = getAttachmentTypeKind({
+              name: fileName,
+              type: "",
+            });
+            const typeLabel = getAttachmentTypeLabel({
+              name: fileName,
+              type: "",
+            });
+            const fileSize = fileSizes[href] || fileSizeCache.get(href) || 0;
+            ensureFileSize(href, setFileSizes);
+            const cardClassName = `chat-message-attached-file attach-file-${typeKind}`;
             return (
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              <button
+                type="button"
+                className={cardClassName}
+                onClick={() => {
+                  const file: import("../store/chat").ChatMessageAttachedFile =
+                    {
+                      id: `markdown-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                      name: fileName,
+                      type: "",
+                      size: fileSize,
+                      typeLabel,
+                      typeKind: typeKind as
+                        "document" | "spreadsheet" | "pdf" | "archive" | "file",
+                      previewUrl: href,
+                    };
+                  openFilePreview(file);
+                }}
+                title={`${fileName}\n${typeLabel}`}
               >
-                <a {...aProps} target="_blank" />
-                <IconButton
-                  icon={<EyeIcon />}
-                  onClick={() => window.open(href, "_blank")}
-                  className="no-dark"
-                  style={{ padding: "2px 4px" }}
-                  title="在新标签页预览"
-                />
-                <IconButton
-                  icon={<DownloadIcon />}
-                  onClick={() => {
-                    const a = document.createElement("a");
-                    a.href = href;
-                    a.download = fileName;
-                    a.click();
-                  }}
-                  className="no-dark"
-                  style={{ padding: "2px 4px" }}
-                  title="下载"
-                />
-              </span>
+                <span className="attach-file-icon">
+                  <span className="attach-file-glyph" />
+                </span>
+                <span className="chat-message-attached-file-info">
+                  <span className="chat-message-attached-file-name">
+                    {fileName}
+                  </span>
+                  <span className="chat-message-attached-file-type">
+                    {typeLabel}
+                    {fileSize > 0 ? ` · ${formatAttachmentSize(fileSize)}` : ""}
+                  </span>
+                </span>
+              </button>
             );
           }
           const isInternal = /^\/(?!\/)/i.test(href);
