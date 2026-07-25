@@ -1915,8 +1915,22 @@ html:not(.light):not(.light *) .model-selector-panel {
   --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
 }
 
+/* 提示词选择器在 dark 下同样依赖 --model-selector-hover-bg / -selected-bg，
+   在 .prompt-picker-panel 作用域里局部重定义为白透明叠加，
+   使 hover / 选中色与模型选择器完全一致。 */
+html.dark .prompt-picker-panel,
+html:not(.light):not(.light *) .prompt-picker-panel {
+  --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
+  --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not(.light) .model-selector-panel {
+    --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
+    --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
+  }
+
+  :root:not(.light) .prompt-picker-panel {
     --model-selector-selected-bg: rgba(255, 255, 255, 0.13);
     --model-selector-hover-bg: rgba(255, 255, 255, 0.08);
   }
@@ -2948,23 +2962,26 @@ button.nextchat-pill-button {
   font-weight: 700;
 }
 
-/* 已选数量徽章：白色背景 + 2px 边框。 */
+/* 已选数量徽章：与 .model-selector-hint-count 完全对齐，确保提示词选择器
+   与模型选择器在边框 / 圆角 / 字号 / 字重 / 颜色 / 阴影 / 过渡 / 字体上一致。 */
 .nextchat-modal-count {
   display: inline-flex;
   align-items: center;
-  height: 30px;
   min-height: 30px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 14px;
   box-sizing: border-box;
   border-radius: 999px;
-  background: var(--white);
-  border-style: solid;
-  border-width: 2px;
-  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  border: 2px solid var(--selector-control-border-color, var(--input-control-border-color));
+  background: var(--white) !important;
   color: var(--primary);
+  font-family: "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons",
+    "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 自定义输入卡在暗色主题下保持卡片悬浮感。 */

@@ -4,7 +4,39 @@
 
 ============================================================
 
-## 224. 【2026-07-25 12:00】- 探针脚本入仓消除每次重传
+## 225. 【2026-07-25 17:29】- 提示词选择器视觉与模型选择器完全对齐
+
+### 修改内容
+
+- 把 `/chat` 顶部「提示词」按钮点开的提示词选择器（`.prompt-picker-*`）从边框 / 圆角 / 字号 / 字重 / 阴影 / 字体 / 颜色到 hover 反馈、dark 主题适配，逐项对齐到模型选择器（`.model-selector-panel .nextchat-selector-*`）。
+- 同时把 `.prompt-picker-*` 内部散落的 dark 写死色（`rgb(30,41,59)` / `#1e293b` / `#e5e7eb` / `#9ca3af` / `rgba(71,85,105,*)` / `rgba(148,163,184,*)` 等）整体替换为共享 CSS 变量（`var(--black)` / `var(--model-selector-list-bg)` / `var(--selector-control-border-color)` / `var(--border-in-light)` / `var(--model-selector-hover-bg)` 等），删掉 160 行 `@media (prefers-color-scheme: dark)` 镜像块，让 globals 主题变量统一驱动。
+
+### 实现方式
+
+- `app/styles/globals.scss`：在 `.nextchat-modal-count` 规则集按 `.model-selector-hint-count` 完全重写（边框 2px / 共享变量 / 600 字重 / Noto Sans 字体栈 / 阴影 / 过渡）；并在 `html.dark .model-selector-panel` 旁追加 `html.dark .prompt-picker-panel` / `@media (prefers-color-scheme: dark) :root:not(.light) .prompt-picker-panel` 局部重定义 `--model-selector-hover-bg/-selected-bg = rgba(255,255,255,0.08 / 0.13)`，使 dark hover 与模型选择器相同。
+- `app/components/chat.module.scss`：
+  - `.prompt-picker-count` 模块覆盖清空，全部交给 globals；
+  - `.prompt-picker-list`：边框 2px、圆角 10px、单层 `--card-shadow`、背景 `var(--model-selector-list-bg)`；
+  - `.prompt-picker-item`：min-height 44 / padding 12 16 / 移除偶数行 slate 斑马纹 / hover 背景 `color-mix(primary 6%, white) !important` + 标题强制 primary；
+  - dark `.prompt-picker-item:hover` 改走 `var(--model-selector-hover-bg)`；
+  - `.prompt-picker-item-icon` light 边框走 `var(--selector-control-border-color, var(--input-control-border-color))`，dark 改用 `var(--model-selector-list-bg)` + `var(--selector-control-border-color)`；
+  - `.prompt-picker-panel` 内的 `nextchat-default-button` 仅保留 `box-sizing`，其余全部交给 globals；
+  - 删掉 160+ 行 `@media (prefers-color-scheme: dark) :global(body:not(.light):not(.dark))` 镜像块；
+  - 删掉 `:global(body.dark) .prompt-picker-header` 写死的 `rgba(55,65,81,0.9)` 边框覆盖，由 light 端 `var(--border-in-light)` 自动驱动；
+  - `.prompt-picker-title-sub` / `.prompt-picker-content` / `.prompt-picker-empty` 的 dark 颜色统一改为 `var(--black)` + opacity 公式。
+
+### 验证
+
+- 本会话内 `nextchat-dev` Docker 容器未运行，没法截图；改动是机械等价覆盖。
+- 部署后需在 dev 容器或 `https://chat.dyxcloud.com/` 上验证：light / dark 下打开提示词选择器，count 徽章 / 列表容器 / 列表项 / hover / 图标边框 / 副标题 / 工具栏按钮颜色与模型选择器对应位置一致；跟随系统暗色同样一致。
+
+### 潜在或遗留问题
+
+- `.prompt-picker-search::placeholder` 仍写死 `#94a3b8`（slate-400），与模型选择器 placeholder 默认色不同；保留为可读性选择，如需主题化可后续切到共享变量。
+- `.prompt-search-highlight` 的 dark slate 高亮是有意去主题色处理，未同步；light 端保留 primary 高亮。
+- `chat.module.scss` 内其他模块（侧边栏 / 聊天消息 / 设置等）仍存在 60+ 处 slate 硬编码（`rgba(148,163,184,*)` / `rgba(100,116,139,*)` / `#94a3b8`），属于「全局 slate 主题化」更大议题，本次未触碰。
+
+============================================================
 
 ### 修改内容
 
