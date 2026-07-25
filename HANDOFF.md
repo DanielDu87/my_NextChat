@@ -4,7 +4,33 @@
 
 ============================================================
 
-## 220. 【2026-07-25 10:08】- chat.dyxcloud.com 生产部署 7992b382
+## 221. 【2026-07-25 11:38】- chat.dyxcloud.com 生产部署 5db2df74
+
+### 修改内容
+
+- 把 `5db2df74 chat.dyxcloud.com 部署 7992b382 并补 HANDOFF #220`（仅含 HANDOFF 部署记录）推送到 chat.dyxcloud.com 宝塔 DockerSite，确保线上版本与本地提交一致、上一轮 #220 记录也进入线上仓库。
+
+### 实现方式
+
+- 标准重部署流程（README_BAOTA.md §3），tmux 会话 `nextchat-baota-deploy` 后台执行 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`；脚本继续沿用 `/tmp/nextchat-baota-deploy.sh`。
+
+### 验证
+
+- Docker：`nextchat` 状态 `Up About a minute (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
+- `/api/db/health`：HTTP 200，PostgreSQL 18.0 数据库 `nextchat`，用户 `dyx`，`configuredHost=172.20.0.1`。
+- Nginx：`nginx -t` 通过。
+- 域名：服务器本地 `https://chat.dyxcloud.com/` HTTP/2 200，/`/chat`、`/draw` 均 200；公网 `https://chat.dyxcloud.com/` HTTP/2 200。
+- 三处哈希一致：`docker exec nextchat printenv BUILD_COMMIT_HASH`、首页 HTML `commitHash`、`public.deployment_metadata.commit_hash` 全部为 `5db2df741a7ba07243f688e6b71c01591f45fb22`；deployment 行 `image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T03:34:50.346Z`。
+- 宝塔 DockerSite chat.dyxcloud.com (id=13) 返回 `healthy=1`，容器 ID 已同步为 `40bb064269ac8078017d7801a35aea62821cfe77f4cea3a2f3cebf1e6303dea2`。
+- `fix-pg-hba.sh` 自动检测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5` 并通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份 `pg_hba.conf` 到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725113451`；旧 `docker.db` 备份 `/root/docker.db.bak-nextchat-20260725-100459` 已清理。
+
+### 潜在或遗留问题
+
+- 本轮仅包含 HANDOFF 文案修改，未触碰代码 / 样式 / 配置 / 数据库 / 容器化结构，未对生产服务器、数据库或容器做删除或回滚操作；回滚路径仍是上一次成功部署的 `7992b382` 构建层。
+- 容器重建会让 `/app/probe-deployment.cjs` 随镜像消失，`deployment_metadata` 验证脚本需每次重新 `docker cp`；属于个人临时探针，未纳入仓库，不影响线上服务。
+- 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用了旧列名；线上表实际列是 `image_name` / `git_branch`，下次文档同步修订时一起校正。
+
+
 
 ### 修改内容
 
