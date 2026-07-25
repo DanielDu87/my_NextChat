@@ -4,7 +4,32 @@
 
 ============================================================
 
-## 219. 【2026-07-25 09:40】- 短 Word 文档默认铺满并收敛内联页边距
+## 220. 【2026-07-25 10:08】- chat.dyxcloud.com 生产部署 7992b382
+
+### 修改内容
+
+- 把 `7992b382 短 Word 文档默认铺满并收敛内联页边距` 推送到 `chat.dyxcloud.com` 宝塔 DockerSite 容器，线上版本与本地提交一致。
+
+### 实现方式
+
+- 标准重部署流程（README_BAOTA.md §3）：在 SSH alias `ss` 服务器（42.193.15.117:222）的 `/www/dk_project/my_NextChat` 目录中放入 `git pull --ff-only`、`./scripts/docker-compose-safe.sh -f docker-compose.baota.yml --env-file .env.baota build nextchat`、`docker rm -f nextchat`、`docker image rm nextchat:latest`、`./scripts/docker-compose-safe.sh ... up -d --force-recreate nextchat`、`./scripts/sync-baota-dockersite-container-id.sh`、`./scripts/fix-pg-hba.sh`，整体放入 tmux 会话 `nextchat-baota-deploy` 防止 SSH 超时；脚本文件 `/tmp/nextchat-baota-deploy.sh` 已上传服务器执行。
+
+### 验证
+
+- Docker：`nextchat` 状态 `Up About a minute (healthy)`，镜像 `nextchat-baota:latest`，端口 `127.0.0.1:3000->3000/tcp`。
+- `/api/db/health`：HTTP 200，`{"ok":true,"postgres":{"now":"2026-07-25 10:06:27+08","version":"PostgreSQL 18.0","database":"nextchat","user":"dyx","configuredHost":"172.20.0.1","configuredPort":5432}}`。
+- Nginx：`nginx -t` 通过。
+- 域名：`https://chat.dyxcloud.com/` 服务器本地与公网均 `HTTP/2 200`；服务器本地 `/chat` 与 `/` 均返回 200。
+- 容器内 `printenv BUILD_COMMIT_HASH = 7992b382a5d2f4831df5772b009e434ea4c96be5`；首页 HTML `commitHash` 同样为 `7992b382a5d2f4831df5772b009e434ea4c96be5`；`public.deployment_metadata` 最新行 `commit_hash=7992b382a5d2f4831df5772b009e434ea4c96be5, image_name=nextchat-baota:latest, git_branch=main, deployed_at=2026-07-25T02:05:05.994Z`，三处哈希全部一致。
+- 宝塔 DockerSite（chat.dyxcloud.com id=13）返回 `healthy=1`，容器 ID `19368c350549334560e06bc22a6cc9ad8fd16aa387e3374832a4db0d9a216fa6` 与本轮同步一致。
+- `fix-pg-hba.sh` 探测容器网络 `172.20.0.2`，写入 `host nextchat|nextchat_backup dyx 172.20.0.0/16 md5` 并通过 `pg_ctl reload` 完成 PostgreSQL 重载，备份到 `/www/server/pgsql/data/pg_hba.conf.backup.20260725100506`。
+
+### 潜在或遗留问题
+
+- 本轮仅包含代码 / 样式 / 文档修改，未涉及 `.env.baota`、Nginx vhost、证书、数据库表结构、镜像基础镜像、Docker 容器名或端口；未对生产服务器、数据库、容器做任何删除或回滚操作，回滚路径仍是上一次成功部署时使用的镜像 `nextchat-baota:latest` 的 `c10e6e10` 构建层。
+- `deployment_metadata` 表的列名是 `image_name` 与 `git_branch`（不是 README 中误写的 `image` / `branch`）；后续 `§8 标准验证命令`的 SQL `select commit_hash, image, branch, ...` 因列名差异会返回 `42703 column does not exist`，下次更新文档时同步校正。
+
+
 
 ### 修改内容
 
