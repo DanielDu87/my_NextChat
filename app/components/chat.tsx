@@ -1965,7 +1965,9 @@ function PromptPickerModal(props: {
             </div>
           </div>
           <div className={styles["prompt-picker-header-actions"]}>
-            <span className={styles["prompt-picker-count"]}>
+            <span
+              className={`${styles["prompt-picker-count"]} nextchat-modal-count`}
+            >
               共 {visiblePrompts.length} 条
             </span>
             <IconButton

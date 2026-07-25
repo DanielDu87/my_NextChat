@@ -4,6 +4,57 @@
 
 ============================================================
 
+## 219. 【2026-07-25 09:40】- 短 Word 文档默认铺满并收敛内联页边距
+
+### 修改内容
+
+- 修复只有几行文字的 Word（DOCX）在聊天文件预览中白色文档页高度过小的问题；短文档默认铺满预览正文区，长文档仍可完整纵向滚动。
+- 同时收敛 `docx-preview` 自带的内联页边距（常见值 `72pt 90pt`），把上下/左右 padding 收敛为响应式 `clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px)`，避免预览窗口中正文有效宽度被严重压缩。
+- 桌面端与移动端共用同一高度策略；窗口尺寸或手机方向变化时会重新计算，移动端缩放后仍铺满可见区域。
+
+### 实现方式
+
+- `app/components/file-preview.tsx` 的 `applyDocxSectionSizing()` 现在读取 `.docx-preview-root` 扣除上下 padding 后的可用高度，并结合 `section.docx` 当前 zoom 反算动态 `min-height`；同步直接覆盖 `section.style.padding` 为响应式小边距、`box-sizing: border-box` 把 Word 页内边距计入铺满高度。`height: auto`、`max-height: none` 和 `flex: 0 0 auto` 保留，避免重新引入长文档截断。
+- `applyDocxAutoScale()` 在每次 `ResizeObserver` 回调完成宽度缩放后同步重算页面最小高度；缓存 Blob 与新下载 Blob 两条渲染路径继续在同步帧、`requestAnimationFrame` 和 100ms 延时执行尺寸修正。
+- `app/components/chat.module.scss` 为 `section.docx` 增加同值 `padding: clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px) !important;` 兜底与 `box-sizing: border-box`，确保首帧和后续重排覆盖库内联样式；`min-height: 100%` 与 `flex: 0 0 auto` 保留。
+- `docs/development.md` 同步记录短文档铺满、DOCX 原始页边距覆盖与新响应式 padding 边界。
+
+### 验证
+
+- `yarn prettier --check app/components/file-preview.tsx app/components/chat.module.scss docs/development.md`、`yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 全部通过；Lint 仅保留 `file-preview.tsx` 既有 `<img>` 性能提示。
+- `nextchat-dev`、`codeinterpreter-local` 和 PostgreSQL SSH 隧道容器均保持运行；`/chat` 返回 HTTP 200，热加载日志显示 5760 modules 编译成功。
+
+### 潜在或遗留问题
+
+- 当前安装未启用 in-app Browser pane，Playwright 又受系统临时目录权限限制，因此未能用浏览器工具点击真实短 DOCX 检查计算高度与最终样式；已完成样式、类型、编译和响应式尺寸链路验证。
+- 开发容器旧日志中存在与本次无关的 `cache_file_references` 外键约束错误，本轮未修改数据库或缓存引用链路。
+
+============================================================
+
+## 218. 【2026-07-25 09:17】- 提示词数量徽章复用全局样式
+
+### 修改内容
+
+- 提示词选择弹窗的“共 N 条”数量徽章改为复用 `app/styles/globals.scss` 现有 `.nextchat-modal-count` 公共类，不再由 `app/components/chat.module.scss` 重复声明胶囊外观和暗色覆盖；并通过本地 `.prompt-picker-count` 仅覆盖边框粗细和颜色为 `var(--close-button-border-width)` 与 `var(--close-button-border-color)`，满足特定场景的 1px / `rgba(100, 116, 139, 0.24)` 视觉。
+- 关闭按钮继续使用现有 `.nextchat-close-button` 公共样式，不做局部覆盖。
+
+### 实现方式
+
+- `app/styles/globals.scss` 将 `.nextchat-modal-count` 的 `border` 简写拆为 `border-style/border-width/border-color` 三条独立声明，方便后续只覆盖颜色或粗细时无需 `!important`。
+- `app/components/chat.tsx` 为数量徽章追加 `nextchat-modal-count` 类，同时保留本地 `prompt-picker-count` 作为移动端隐藏选择器和边框覆盖锚点；关闭按钮不再追加任何本地类。
+- `app/components/chat.module.scss` 删除数量徽章的尺寸、边框、背景、字体、阴影及两套暗色外观，只保留既有移动端布局规则中的隐藏行为；本地 `.prompt-picker-count` 仅覆盖边框粗细和颜色，无需 `!important`。
+
+### 验证
+
+- `yarn prettier --check app/components/chat.module.scss`、`yarn lint` 和 `git diff --check` 通过；`chat.tsx` 在修改前已存在全文件 Prettier 基线差异，本次修改片段与 Prettier 输出一致。
+- `nextchat-dev` 容器保持运行并完成热加载编译，最新日志显示 5760 modules 编译成功。
+
+### 潜在或遗留问题
+
+- 当前安装未启用 in-app Browser pane，无法附着现有 Docker 页面做截图和计算样式检查；未修改 Browser 配置或产品全局样式。
+
+============================================================
+
 ## 217. 【2026-07-25 09:10】- 抽出文件预览与 Code Interpreter 本地容器接入
 
 ### 修改内容
@@ -235,82 +286,3 @@
 - 无。
 
 ============================================================
-
-## 209. 【2026-07-24 09:50】- 修复消息统计时机和流式回复期间会话切换
-
-### 修改内容
-
-- 对话页标题下方的消息数在用户消息发送后立即增加，流式助手占位消息不再提前计数；助手回复落定后再增加。
-- 修复启用 React Router 过渡后，流式回复期间点击其他会话可能被旧 URL 选中态切回的问题。
-- 后台回复在用户切换会话后仍按原会话 ID 读取上下文和写回结果，避免误用新打开会话的消息。
-
-### 实现方式
-
-- `app/components/chat.tsx` 的标题栏统计排除 `role=assistant && streaming=true` 的消息。
-- `app/components/home.tsx` 只在 URL 会话 ID 真正变化时从路由校正 Store 选中态，移除选中态变化反向触发旧路由校正的竞态。
-- `app/store/chat.ts` 为 `getMessagesWithMemory()` 增加可选目标会话，发送链路显式传入发起请求的会话。
-- `docs/development.md` 同步记录统计、切换和后台请求隔离规则。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
-- 浏览器连续切换“孕妇饮食建议”和“更正收款账户”，两次 URL、页面标题、选中态及“共 2 条对话”均同步更新，控制台无 warning/error。
-- `nextchat-dev` 正常运行，宿主机与容器内三个修改代码文件的 SHA-256 完全一致。
-
-### 潜在或遗留问题
-
-- 为避免消耗 API 额度和向远端聊天库写入测试记录，未发送真实流式测试消息；流式计数与原会话后台写回边界已通过代码路径、Lint 和类型检查验证。
-
-============================================================
-
-## 208. 【2026-07-24 09:42】- 标题生成完成前保持默认新的聊天
-
-### 修改内容
-
-- 用户发送首条消息后、AI 标题成功写回前，会话列表和聊天页继续显示当前语言的默认标题“新的聊天 / New Conversation”，不再用首条用户消息或截断正文充当临时标题。
-- 标题请求失败、取消或返回无效内容时继续保留默认标题；只有通过解析和版本校验的 AI 标题才能更新 `session.topic` 与 `session.mask.name`。
-- 已保存的旧版首条消息临时标题在加载与正文水合时自动迁回默认标题，并继续进入当前可见会话的标题回填流程。
-
-### 实现方式
-
-- `app/store/chat.ts` 移除首条消息生成临时标题的逻辑；默认标题阶段只维护标题生成元数据，不改写 `session.topic`。
-- `normalizeSession()` 识别 `titleFallbackText` 与当前 topic 相同的旧版临时标题，恢复默认 topic、mask 名称与待生成状态；手工命名或已生成标题不受影响。
-- `shouldBackfillSessionTitle()` 仅处理已有完整问答、尚未生成 AI 标题且 topic 仍为默认值的会话。
-- `docs/development.md` 同步明确默认标题、失败保留和旧数据迁移边界。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 全部通过。
-- 浏览器只读加载 `http://localhost:3000/`，新会话按钮和聊天页主标题均显示“新的聊天”，控制台无 warning/error。
-- `nextchat-dev` 正常运行；宿主机与容器内 `app/store/chat.ts`、`docs/development.md` SHA-256 完全一致。
-
-### 潜在或遗留问题
-
-- 为避免写入远程聊天库和消耗 API 额度，本轮未发送真实测试消息；“发送后保持默认标题直到模型返回”的状态转换已通过写入点审查、类型检查和现有页面默认态验证。
-
-============================================================
-
-## 207. 【2026-07-24 09:33】- 消除路由升级警告并收敛标题回填取消日志
-
-### 修改内容
-
-- `BrowserRouter` 显式启用 `v7_startTransition` 与 `v7_relativeSplatPath`，消除 React Router v7 兼容警告；React DevTools 下载提示属于正常开发提示，不做拦截。
-- 修复页面初始化标题回填产生 `[Chat Request Error] AbortError` 红色调用栈：主动取消统一识别为正常取消，只输出 `⏹️` 调试日志，不重试也不再记录标题生成错误。
-- 页面初始化只为当前选中的可见会话安排标题回填；计时器触发时再次核对当前会话，避免为侧边栏多条历史会话并发发送隐藏标题请求。
-
-### 实现方式
-
-- `app/components/home.tsx` 在唯一 `BrowserRouter` owner 上设置两项 future flags。
-- `app/utils/stale-revalidate.ts` 的 `isAbortLikeError()` 补充普通 `Error.name === "AbortError"` 识别；`app/client/platforms/openai.ts` 在通用请求 catch 中将主动取消与真实请求失败分流。
-- `app/store/chat.ts` 在标题候选请求层返回明确 `aborted` 状态，自动与手动标题均静默终止；`scheduleSessionTitleBackfill()` 要求目标会话仍是当前会话。
-- `docs/development.md` 同步记录路由兼容标志、可见会话回填边界和取消日志语义。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 全部通过。
-- 干净加载 `http://localhost:3000/`，等待 2.2 秒覆盖标题回填窗口后，页面标题为 `NextChat`，浏览器控制台 warning/error 数量为 0。
-- `nextchat-dev` 正常运行；宿主机与容器内 5 个目标文件 SHA-256 完全一致，开发容器已读取最新源码。
-
-### 潜在或遗留问题
-
-- 未人为构造真实模型请求中途取消；浏览器验证覆盖了首屏加载和标题回填等待窗口，主动取消分流同时通过静态类型与 lint 检查。

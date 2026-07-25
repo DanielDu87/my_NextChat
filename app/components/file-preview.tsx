@@ -74,17 +74,33 @@ function setCachedPreviewBlob(previewUrl: string, blob: Blob) {
   return cached;
 }
 
-// docx-preview 内联渲染出的 section.docx 默认按页面宽度排版、长文档会被父级
-// flex 容器强制 height: 100% 而把下半部分截断。这里把宽度撑满、把高度交给内容
-// 自身，再依赖 docx-preview-root 的 overflow-y: auto 完成纵向滚动。
-function applyDocxSectionSizing(host: HTMLElement | null) {
+// docx-preview 内联渲染出的 section.docx 默认按页面宽度排版。短文档至少铺满
+// 预览正文区，长文档继续由内容撑高，再依赖 docx-preview-root 的
+// overflow-y: auto 完成纵向滚动。
+function applyDocxSectionSizing(
+  host: HTMLElement | null,
+  root: HTMLElement | null,
+) {
   if (!host) return;
   const section = host.querySelector("section.docx") as HTMLElement | null;
   if (!section) return;
+  const rootStyle = root ? window.getComputedStyle(root) : null;
+  const availableHeight = root
+    ? Math.max(
+        0,
+        root.clientHeight -
+          parseFloat(rootStyle?.paddingTop || "0") -
+          parseFloat(rootStyle?.paddingBottom || "0"),
+      )
+    : 0;
+  const scale = Math.max(0.01, parseFloat(section.style.zoom || "1") || 1);
   section.style.width = "100%";
   section.style.maxWidth = "100%";
+  section.style.boxSizing = "border-box";
+  section.style.padding = "clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px)";
   section.style.height = "auto";
-  section.style.minHeight = "0";
+  section.style.minHeight =
+    availableHeight > 0 ? `${availableHeight / scale}px` : "100%";
   section.style.maxHeight = "none";
   section.style.flex = "0 0 auto";
 }
@@ -409,6 +425,7 @@ export function FilePreviewContent(props: {
     } else {
       section.style.zoom = "";
     }
+    applyDocxSectionSizing(host, root);
   }, []);
 
   useEffect(() => {
@@ -598,12 +615,16 @@ export function FilePreviewContent(props: {
               ignoreWidth: false,
               ignoreHeight: true,
             });
-            applyDocxSectionSizing(hostRef.current);
+            applyDocxSectionSizing(hostRef.current, docxRootRef.current);
             // 监听渲染完成后再强制覆盖一次
             requestAnimationFrame(() =>
-              applyDocxSectionSizing(hostRef.current),
+              applyDocxSectionSizing(hostRef.current, docxRootRef.current),
             );
-            setTimeout(() => applyDocxSectionSizing(hostRef.current), 100);
+            setTimeout(
+              () =>
+                applyDocxSectionSizing(hostRef.current, docxRootRef.current),
+              100,
+            );
           }
           return;
         }
@@ -750,10 +771,15 @@ export function FilePreviewContent(props: {
             ignoreWidth: false,
             ignoreHeight: true,
           });
-          applyDocxSectionSizing(hostRef.current);
+          applyDocxSectionSizing(hostRef.current, docxRootRef.current);
           // 监听渲染完成后再强制覆盖一次
-          requestAnimationFrame(() => applyDocxSectionSizing(hostRef.current));
-          setTimeout(() => applyDocxSectionSizing(hostRef.current), 100);
+          requestAnimationFrame(() =>
+            applyDocxSectionSizing(hostRef.current, docxRootRef.current),
+          );
+          setTimeout(
+            () => applyDocxSectionSizing(hostRef.current, docxRootRef.current),
+            100,
+          );
         }
       } catch (error) {
         if (!cancelled) {

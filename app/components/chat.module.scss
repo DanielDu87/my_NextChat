@@ -1261,11 +1261,14 @@
 
   :global(section.docx) {
     // 渲染出来的 Word 页面：宽随容器自适应（配合 applyDocxAutoScale 缩放），
-    // 高度由内容决定，超过 docx-preview-root 视口时由外层滚动条接管。
+    // 短文档至少铺满预览正文区，长文档继续按内容增长并由外层滚动。
     width: 100%;
     max-width: 100%;
+    box-sizing: border-box;
+    // 覆盖 docx-preview 写入的 72pt 90pt 内联页边距，避免窄预览区正文过度收缩。
+    padding: clamp(20px, 4vw, 36px) clamp(16px, 5vw, 48px) !important;
     height: auto;
-    min-height: 0;
+    min-height: 100%;
     flex: 0 0 auto;
     margin-left: auto;
     margin-right: auto;
@@ -4060,23 +4063,8 @@
 }
 
 .prompt-picker-count {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  min-height: 30px;
-  padding: 0 14px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  border: 2px solid
-    var(--selector-control-border-color, var(--input-control-border-color));
-  background: var(--white) !important;
-  color: var(--primary);
-  font-family:
-    "Noto Sans", "SF Pro SC", "SF Pro Text", "SF Pro Icons", "PingFang SC",
-    "Helvetica Neue", "Helvetica", "Arial", sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  box-shadow: 0 2px 4px color-mix(in srgb, var(--primary) 4%, transparent);
+  border-width: var(--close-button-border-width);
+  border-color: var(--close-button-border-color);
 }
 
 .prompt-picker-toolbar {
@@ -4301,14 +4289,6 @@
   }
 }
 
-// dark 模式下改用页面主题色（var(--primary)），避免使用 blue-600/blue-400 硬编码蓝色。
-:global(body.dark) .prompt-picker-count {
-  // dark 模式使用中性 slate 黑灰色调，与 panel/list 协调
-  background: rgba(71, 85, 105, 0.32); // slate-600 透明
-  border-color: rgba(148, 163, 184, 0.4); // slate-400 透明
-  color: #e5e7eb;
-}
-
 // prompt-picker 深色模式样式
 :global(body.dark) .prompt-picker-mask {
   background-color: var(--nextchat-picker-overlay-bg);
@@ -4458,13 +4438,6 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :global(body:not(.light):not(.dark)) .prompt-picker-count {
-    // 镜像块：dark 模式使用中性 slate 黑灰色调
-    background: rgba(71, 85, 105, 0.32); // slate-600 透明
-    border-color: rgba(148, 163, 184, 0.4); // slate-400 透明
-    color: #e5e7eb;
-  }
-
   :global(body:not(.light):not(.dark)) .prompt-picker-mask {
     background-color: var(--nextchat-picker-overlay-bg);
   }
