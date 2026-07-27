@@ -658,16 +658,20 @@
 
   .userRow {
     gap: 6px;
-    padding-right: 72px;
+    padding-right: 0;
   }
 
-  /* 移动端收回桌面端 .userIdentity 的固定 130px，让其随屏宽弹性收缩；
-     移动端列表宽度更窄，固定 130px 会导致 .userDetails 剩余空间被挤出，
-     "当前"徽章反而被 .userDetails 内容覆盖。 */
+  /* 用户名长度不能影响后续详情列的起点；移动端使用紧凑且固定的身份列。 */
   .userIdentity {
-    flex: 0 0 auto;
+    flex: 0 0 88px;
+    min-width: 88px;
+    max-width: 88px;
+    gap: 6px;
+  }
+
+  .userIdentityText {
+    flex: 1;
     min-width: 0;
-    max-width: none;
   }
 
   .userAvatar {
@@ -678,10 +682,8 @@
   }
 
   .userDetails {
-    grid-template-columns: minmax(36px, 0.55fr) minmax(48px, 0.7fr) minmax(
-        80px,
-        1.1fr
-      );
+    flex: 1 1 0;
+    grid-template-columns: 36px 48px minmax(64px, 1fr);
     gap: 5px;
     min-width: 0;
   }
