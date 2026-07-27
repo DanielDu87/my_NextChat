@@ -4,6 +4,39 @@
 
 ============================================================
 
+## 227. 【2026-07-27 09:52】- 修复新建聊天刷新感与空白会话生命周期
+
+### 修改内容
+
+- 修复历史会话刚打开、后台同步仍在进行或旧回复仍在流式输出时点击“新的聊天”会卸载聊天主体并闪出全屏加载页的问题；侧边栏按钮、聊天命令、快捷键和移动端入口现在直接创建或选中空白会话并跳转 `/chat`。
+- 修复页面首开默认空白会话和新建空白会话被迟到同步短暂覆盖、删除或重新显示历史恢复遮罩的问题；已加载的历史消息也不会再被远端空占位符覆盖。
+- 修复从历史会话新建后发送第一条消息时，URL 从 `/chat` 补全为 `/chat/<id>` 又触发一轮整页自动同步、导致回复过程中出现刷新感的问题。
+- 修复对话完成和同步写回后列表自动补出另一条空白“新的聊天”的问题；空白会话只在主动新建、页面刷新初始化或删除最后一条会话等明确入口创建。
+
+### 实现方式
+
+- `app/utils/new-chat.ts` 集中 `startNewChat()` 与默认空会话识别，用短时事务标记包住会话创建和路由更新；`app/components/home.tsx` 的 URL 恢复守卫在该事务期间不误判加载。侧边栏、聊天快捷入口及 `/new-chat` 兜底组件复用同一入口，既不会卸载聊天主体，也不会被旧会话 URL 写回。
+- `app/store/sync.ts` 与 `app/utils/sync.ts` 在同步合并、孤儿清理和写回 rebase 阶段保留本地新空会话及已水合消息；`app/components/chat.tsx` 只在确有历史消息待恢复时显示聊天主体加载遮罩，默认空白会话不再被遮住。
+- `app/utils/route-sync-entry.ts` 将 `/chat` 与 `/chat/<id>` 规范化为同一个聊天页同步作用域；首次发送仍正常补全地址栏会话 ID，但不会把同页地址变化当成重新进入页面。
+- `app/store/sync.ts` 只保留当前仍被选中的默认空会话，不再把未选中的空会话 prepend 回已完成对话列表。
+- `app/store/chat.ts` 将 `initializeForNewPage()` 限制为每个文档生命周期只初始化一次，用户切换时显式重置；`app/components/home.tsx` 等待聊天 store 的 `_hasHydrated` 后才执行该初始化，避免先初始化默认内存状态又被 IndexedDB 水合覆盖，也避免回复完成后的同页再次水合被误判成完整刷新。
+- `app/components/home.tsx` 同步加载轻量 `/new-chat` 兜底组件，`docs/development.md` 记录路由、同步与加载遮罩边界。
+
+### 验证
+
+- `yarn lint` 通过，仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、本次目标文件 Prettier 与 `git diff --check` 通过；`app/components/chat.tsx` 仍保留任务开始前已有的两处 Prettier 基线差异，未扩大无关格式改动。
+- 应用内浏览器验证历史会话打开后点击“新的聊天”：立即与同步晚到 8 秒后均保持 `/chat`、标题“新的聊天”和 0 条对话，无历史恢复遮罩，控制台无 warning/error；连续“历史→历史→新建”、快捷键和 `:new` 命令入口结果相同。
+- 真实发起两轮无敏感内容的流式回复回归：第一轮复现旧顺序在新建后约 160ms 的加载遮罩，调整为路由先行后，第二轮从点击后 0ms 至旧请求晚到 7 秒的全部采样点均为 0 个聊天/外壳加载遮罩，空白新会话和 `/chat` 路由始终稳定。
+- 按“选择历史会话 → 点击新对话 → 发送第一条消息”的精确顺序再次回归；修复同页 URL 补全触发的重复路由同步后，从首次发送到回复和标题完成后的 12 秒内，聊天主体/外壳加载遮罩始终为 0，控制台无 warning/error。
+- 应用内浏览器连续观察默认 `/chat` 首开 6.85 秒，并在默认空会话重复点击“新的聊天”：聊天主体出现后始终没有 `chat-main-loading`，无框架错误覆盖层；宿主机与 `nextchat-dev` 容器内相关代码和文档 SHA-256 一致，`GET /chat` 返回 200。
+- 最终应用内浏览器按“随机数字规律历史会话 → 新的聊天 → 发送‘空白会话生命周期回归，只回复OK。’”真实回归：发送前恰有 1 个 `0 条对话`，发送后第 1–18 秒始终为 0，回复第 3 秒完成，URL 稳定为 `/chat/<新 ID>`，聊天/外壳加载遮罩始终为 0，控制台无 warning/error；完整刷新后第 1–10 秒始终恰有 1 个 `0 条对话`，无框架错误覆盖层。
+
+### 潜在或遗留问题
+
+- 未执行生产部署，线上仍是提交 `c666dede`；本次仅验证本地 `nextchat-dev` 热加载环境。
+
+============================================================
+
 ## 226. 【2026-07-25 17:35】- chat.dyxcloud.com 部署 c666dede 并补 HANDOFF #225
 
 ### 修改内容
@@ -86,8 +119,6 @@
 - 容器重建不会自动清掉历史 `/app/probe-deployment.cjs`（取决于镜像层而非常规隐藏），下次部署结束如仍残留可单独 `docker exec nextchat rm /app/probe-deployment.cjs`；不影响功能。
 - 与 `scripts/check-postgres-health.ts` 等历史 tsx 工具并列，新探针保留 `.cjs` 形式，便于在镜像里快速执行无需编译。
 
-
-
 ### 修改内容
 
 - Dockerfile `deps` 阶段 `yarn install` 增加 `--ignore-scripts`，抑制 canvas 等 OPTIONAL 原生模块触发 node-gyp 重新下载 node headers；上一次部署日志里 `unofficial-builds.nodejs.org` 偶发 `ETIMEDOUT`，本轮构建 grep `gyp ERR|ETIMEDOUT|canvas|FATAL` 全部为空，证明已生效。
@@ -116,8 +147,6 @@
 - `/app/probe-deployment.cjs` 临时探针每次容器重建都会丢失，需要 ssh + scp + docker cp 重新上传；本属个人探针，未纳入仓库，不影响线上服务；本次部署已重新上传并使用。
 - 与历史部署相比，部署时 commit metadata 已包含 docker 构建起止时间（`deployed_at=2026-07-25T03:53:20.682Z`），但本次没有新增运维建议。
 
-
-
 ### 修改内容
 
 - 把 `4abba5af chat.dyxcloud.com 部署 5db2df74 并补 HANDOFF #221`（仅含 HANDOFF 记录）推送到 chat.dyxcloud.com 宝塔 DockerSite。
@@ -144,8 +173,6 @@
 - `node-gyp` 下载 node 头文件失败在 `yarn install` 阶段输出 `info This module is OPTIONAL, you can safely ignore this error`；本次未影响镜像与线上行为，可考虑未来为 Dockerfile 增加 `yarn config set ignore-scripts true` 或本地预下载 vendor，避免每次重新构建时再做 OPTIONAL 下载失败。
 - 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用旧列名（实际表列是 `image_name` / `git_branch`），下次文档同步修订时一起校正。
 
-
-
 ### 修改内容
 
 - 把 `5db2df74 chat.dyxcloud.com 部署 7992b382 并补 HANDOFF #220`（仅含 HANDOFF 部署记录）推送到 chat.dyxcloud.com 宝塔 DockerSite，确保线上版本与本地提交一致、上一轮 #220 记录也进入线上仓库。
@@ -170,8 +197,6 @@
 - 容器重建会让 `/app/probe-deployment.cjs` 随镜像消失，`deployment_metadata` 验证脚本需每次重新 `docker cp`；属于个人临时探针，未纳入仓库，不影响线上服务。
 - 持续待办：`README_BAOTA.md §3` 中 `select commit_hash, image, branch from deployment_metadata` 用了旧列名；线上表实际列是 `image_name` / `git_branch`，下次文档同步修订时一起校正。
 
-
-
 ### 修改内容
 
 - 把 `7992b382 短 Word 文档默认铺满并收敛内联页边距` 推送到 `chat.dyxcloud.com` 宝塔 DockerSite 容器，线上版本与本地提交一致。
@@ -194,8 +219,6 @@
 
 - 本轮仅包含代码 / 样式 / 文档修改，未涉及 `.env.baota`、Nginx vhost、证书、数据库表结构、镜像基础镜像、Docker 容器名或端口；未对生产服务器、数据库、容器做任何删除或回滚操作，回滚路径仍是上一次成功部署时使用的镜像 `nextchat-baota:latest` 的 `c10e6e10` 构建层。
 - `deployment_metadata` 表的列名是 `image_name` 与 `git_branch`（不是 README 中误写的 `image` / `branch`）；后续 `§8 标准验证命令`的 SQL `select commit_hash, image, branch, ...` 因列名差异会返回 `42703 column does not exist`，下次更新文档时同步校正。
-
-
 
 ### 修改内容
 
@@ -430,50 +453,5 @@
 - 为避免消耗 API 额度和写入远端聊天记录，未触发真实标题请求；提示词和返回值校验两层限制已完成。
 
 ============================================================
-
-## 211. 【2026-07-24 09:57】- 统一侧边栏与标题栏消息计数
-
-### 修改内容
-
-- 侧边栏会话卡片与对话页标题栏统一消息计数口径：用户消息立即计入，流式助手占位不计入，助手回复落定后两处同时增加。
-- 历史已完成消息的数量保持不变，不修改持久化结构。
-
-### 实现方式
-
-- `app/store/chat.ts` 新增共享 `countCompletedSessionMessages()`，`buildSessionSummary()` 使用该函数生成侧边栏 `messageCount`。
-- `shouldRefreshSessionSummary()` 改为比较已完成消息数，保证助手由 `streaming=true` 变为完成时即使数组长度不变也会刷新侧边栏摘要。
-- `app/components/chat.tsx` 的标题栏统计复用同一函数，`docs/development.md` 同步记录统一口径。
-
-### 验证
-
-- `yarn lint`、`npx tsc --noEmit --pretty false`、Prettier 与 `git diff --check` 通过。
-- 浏览器打开“随机数字规律”会话，侧边栏显示“8 条对话”，标题栏显示“共 8 条对话”，URL 和选中态正确，控制台无 warning/error。
-
-### 潜在或遗留问题
-
-- 为避免写入远端聊天库，未发送真实流式测试消息；流式完成时的摘要刷新条件已通过代码检查和类型检查覆盖。
-
-============================================================
-
-## 210. 【2026-07-24 09:53】- 消除对话选中边框延迟
-
-### 修改内容
-
-- 对话列表点击切换时，主题色选中边框立即显示，不再先出现 hover 背景、随后才补上边框。
-- 保留原有背景色渐变和多选模式左右位移动画，不改变列表尺寸、颜色或交互结构。
-
-### 实现方式
-
-- `app/components/home.module.scss` 从 `.chat-item` 的 `transition` 中移除 `border-color 0.25s ease`，让 `.chat-item-selected` 的边框颜色同步生效。
-- `docs/development.md` 同步记录选中边框的即时反馈边界。
-
-### 验证
-
-- `yarn lint`、Prettier 与 `git diff --check` 通过。
-- 浏览器在点击后 80ms 检查“孕妇饮食建议”会话，URL、标题、统计和主题色选中边框均已显示，控制台无 warning/error。
-
-### 潜在或遗留问题
-
-- 无。
 
 ============================================================

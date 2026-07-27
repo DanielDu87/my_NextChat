@@ -24,7 +24,7 @@ import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
 import { useLocation, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
-import { isCurrentFreshDefaultChat } from "../utils/new-chat";
+import { isCurrentFreshDefaultChat, startNewChat } from "../utils/new-chat";
 import dynamic from "next/dynamic";
 import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
@@ -701,7 +701,7 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                 ) {
                   return;
                 }
-                navigate(Path.NewChat);
+                startNewChat(navigate);
               }}
             />
           </>

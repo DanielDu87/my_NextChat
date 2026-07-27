@@ -55,6 +55,14 @@ function getCurrentRoutePath() {
 }
 
 function normalizeRouteSyncPath(path: string) {
+  // `/chat` 与 `/chat/:id` 只是同一聊天页面内的会话定位变化。
+  // 新对话发送第一条消息时会把 URL 从 `/chat` 补全为 `/chat/:id`，
+  // 不能因此重新调度整页自动同步，否则历史 -> 新对话的首轮回复期间
+  // 会出现一次类似页面刷新的重新水合。
+  if (path === Path.Chat || /^\/chat\/[^/]+$/.test(path)) {
+    return Path.Chat;
+  }
+
   if (path === "/sd") {
     return Path.Draw;
   }

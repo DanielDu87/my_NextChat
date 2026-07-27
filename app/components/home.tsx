@@ -28,6 +28,8 @@ import {
 } from "react-router-dom";
 import { SideBar } from "./sidebar";
 import { Chat } from "./chat";
+import { NewChat } from "./new-chat";
+import { isNewChatTransitionPending } from "../utils/new-chat";
 import { useAppConfig } from "../store/config";
 import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
@@ -111,10 +113,6 @@ const ProviderModelFetchPage = dynamic(
   async () => (await import("./provider-model-fetch")).ProviderModelFetchPage,
   { loading: () => <LoadingView size="splash" className="no-dark" /> },
 );
-
-const NewChat = dynamic(async () => (await import("./new-chat")).NewChat, {
-  loading: () => <LoadingView size="splash" className="no-dark" />,
-});
 
 const PluginPage = dynamic(async () => (await import("./plugin")).PluginPage, {
   loading: () => <LoadingView size="splash" className="no-dark" />,
@@ -415,6 +413,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
   }, [routeSession?.messages, currentSessionLoading]);
   const isUrlSessionPending =
     !!urlSessionId &&
+    !isNewChatTransitionPending() &&
     (selectedSessionId !== urlSessionId ||
       hydratingSessionId === urlSessionId ||
       isTargetUrlSessionPlaceholder);
@@ -717,6 +716,9 @@ export function Home() {
   useTransientScrollbars();
   useWindowHeaderScrollToTop();
   const hasHydrated = useHasHydrated();
+  const chatStoreHydrated = useChatStore((state) =>
+    Boolean((state as any)._hasHydrated),
+  );
   const authInitialized = useAuthStore((state) => state.initialized);
   const authUser = useAuthStore((state) => state.user);
   const [chatBootstrapped, setChatBootstrapped] = useState(false);
@@ -777,7 +779,7 @@ export function Home() {
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated || !authInitialized) {
+    if (!hasHydrated || !chatStoreHydrated || !authInitialized) {
       return;
     }
 
@@ -882,13 +884,13 @@ export function Home() {
     void bootstrapChat();
 
     return () => {
-      // 不再 abort bootstrapSyncController：useEffect 依赖 [authInitialized, hasHydrated] 在
+      // 不再 abort bootstrapSyncController：effect 在身份或聊天水合状态变化时会重跑，
       // 切换用户（auth 状态翻转）时会重跑，旧的 abort 会掐断目标用户的首次同步，
       // 导致「切换用户后看不到新对话」「同步状态卡在 syncing」等问题。
       // 这里仅保留 React 状态保护 `cancelled`，让 bootstrapChat 自身的早返逻辑生效。
       cancelled = true;
     };
-  }, [authInitialized, hasHydrated]);
+  }, [authInitialized, chatStoreHydrated, hasHydrated]);
 
   useEffect(() => {
     if (!chatBootstrapped || !authUser?.id) {

@@ -101,6 +101,7 @@ const SESSION_TITLE_MAX_CHARACTERS = 15;
 const MEMORY_SUMMARY_MAX_TOKENS = 1000;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
+let hasInitializedChatForCurrentPage = false;
 export const CHAT_DELETE_UI_GUARD_UNTIL_KEY =
   "nextchat_chat_delete_ui_guard_until";
 const CHAT_DELETE_UI_GUARD_MS = 8000;
@@ -515,6 +516,7 @@ export interface ChatStat {
 export interface ChatSession {
   id: string;
   topic: string;
+  explicitEmptySession?: boolean;
   titleGeneratedByAI?: boolean;
   titleFallbackText?: string;
   titleGeneratedMessageCount?: number;
@@ -633,7 +635,10 @@ function ensureFreshDefaultSession(
     return normalizedSessions;
   }
 
-  return [createEmptySession(), ...normalizedSessions];
+  return [
+    createEmptySession({ explicitEmptySession: true }),
+    ...normalizedSessions,
+  ];
 }
 
 function areSessionArraysEqual(
@@ -672,11 +677,14 @@ function sortSessionsByCreatedAt(sessions: ChatSession[]) {
   });
 }
 
-export function createEmptySession(): ChatSession {
+export function createEmptySession(options?: {
+  explicitEmptySession?: boolean;
+}): ChatSession {
   const now = Date.now();
   return {
     id: nanoid(),
     topic: getDefaultTopic(),
+    explicitEmptySession: options?.explicitEmptySession,
     memoryPrompt: "",
     messages: [],
     stat: {
@@ -2270,6 +2278,15 @@ export const useChatStore = createPersistStore(
 
     const methods = {
       initializeForNewPage() {
+        // Store hydration may toggle more than once while a page stays open. Only a
+        // real document load (or an explicit user switch reset) may run page init
+        // again; otherwise a completed reply can be mistaken for a browser refresh
+        // and create an extra empty session.
+        if (hasInitializedChatForCurrentPage) {
+          return;
+        }
+        hasInitializedChatForCurrentPage = true;
+
         const currentState = get();
         const currentSessions = Array.isArray(currentState.sessions)
           ? currentState.sessions.slice()
@@ -2327,7 +2344,9 @@ export const useChatStore = createPersistStore(
           !!resolveSessionById(urlId);
 
         if (isNewTab) {
-          const startupSession = createEmptySession();
+          const startupSession = createEmptySession({
+            explicitEmptySession: true,
+          });
           sessions = [
             startupSession,
             ...sessions.filter((session) => !isFreshDefaultSession(session)),
@@ -2344,13 +2363,17 @@ export const useChatStore = createPersistStore(
           if (idx >= 0) newIndex = idx;
 
           if (!sessions.some((s) => isFreshDefaultSession(s))) {
-            const emptySession = createEmptySession();
+            const emptySession = createEmptySession({
+              explicitEmptySession: true,
+            });
             sessions = [emptySession, ...sessions];
             changed = true;
             newIndex += 1;
           }
         } else {
-          const startupSession = createEmptySession();
+          const startupSession = createEmptySession({
+            explicitEmptySession: true,
+          });
           sessions = [
             startupSession,
             ...sessions.filter((session) => !isFreshDefaultSession(session)),
@@ -2523,6 +2546,8 @@ export const useChatStore = createPersistStore(
       },
 
       async resetForUserSwitch(options?: { sync?: boolean }) {
+        hasInitializedChatForCurrentPage = false;
+
         // 重置所有内存缓存，确保旧用户的数据不会残留
         chatPersistStorage.resetAll();
 
@@ -2663,7 +2688,7 @@ export const useChatStore = createPersistStore(
           }
         }
 
-        const session = createEmptySession();
+        const session = createEmptySession({ explicitEmptySession: true });
 
         if (mask) {
           const config = useAppConfig.getState();

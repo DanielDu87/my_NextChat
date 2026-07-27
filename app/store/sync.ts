@@ -1038,15 +1038,18 @@ function normalizeMergedChatState(chatState: any) {
     return false;
   };
 
-  // 保留规则：有完整消息的 + 占位符（远端有数据但未下载） + 当前选中的空对话 + 唯一一个默认空对话
-  let foundDefaultEmpty = false;
+  // 默认空会话只在它仍是当前选中会话时保留。发送第一条消息后，
+  // 不在同步写回中自动补另一个空会话；新的空会话只能由刷新初始化
+  // 或用户主动点击“新的聊天”创建。
   const sessions = rawSessions.filter((session: any) => {
     const sessionId = String(session?.id || "");
     if (hasBothSides(session)) return true;
     if (isPlaceholder(session)) return true;
     if (selectedId && sessionId === selectedId) return true;
-    if (isDefaultEmptyChatSession(session) && !foundDefaultEmpty) {
-      foundDefaultEmpty = true;
+    if (
+      isDefaultEmptyChatSession(session) &&
+      session?.explicitEmptySession === true
+    ) {
       return true;
     }
     return false;
@@ -1147,7 +1150,6 @@ function pruneEmptyChatSessionsForDisplay(chatState: any) {
         String(session?.id || "") === selectedSessionId &&
         isDefaultEmptyChatSession(session),
     )?.id || "";
-  let hasKeptDefaultEmptySession = false;
   let selectedIndex = 0;
   const nextSessions = sessions.filter((session: any) => {
     const sessionId = String(session?.id || "");
@@ -1158,11 +1160,11 @@ function pruneEmptyChatSessionsForDisplay(chatState: any) {
     }
 
     if (isDefaultEmptyChatSession(session)) {
-      const keep = selectedDefaultEmptySessionId
-        ? sessionId === selectedDefaultEmptySessionId
-        : !hasKeptDefaultEmptySession;
-      hasKeptDefaultEmptySession = hasKeptDefaultEmptySession || keep;
-      return keep;
+      return Boolean(
+        (selectedDefaultEmptySessionId &&
+          sessionId === selectedDefaultEmptySessionId) ||
+        session?.explicitEmptySession === true,
+      );
     }
 
     return sessionId && sessionId === selectedSessionId;
@@ -1223,6 +1225,70 @@ function getChatInteractionSignature(chatState: any) {
   });
 }
 
+/**
+ * 防止 mergedStoreState 中的远端占位符（_syncPlaceholder，messages 为空）
+ * 覆盖 live state 中已有真实消息的会话。
+ *
+ * 场景：切换用户后的后台同步，sync 开始时本地 session 还没 hydrate（messages 为空），
+ * 远端 placeholder 就 merge 进来了。同步结束时 live state 可能已经 hydrate 出了消息，
+ * 但如果交互签名恰好相同，rebaseChatSyncResultOnLiveState 会直接返回 mergedStoreState，
+ * 跳过 live state rebase。此时 placeholder 会覆盖掉 live 的真实消息，导致正在进行的
+ * 对话瞬间变成 pruned 状态并触发全屏 loading 遮罩。
+ */
+function preserveLiveSessionsFromPlaceholders(
+  mergedStoreState: any,
+  liveChatState: any,
+) {
+  const liveSessions = Array.isArray(liveChatState?.sessions)
+    ? liveChatState.sessions
+    : [];
+  if (liveSessions.length === 0) {
+    return mergedStoreState;
+  }
+
+  const liveSessionsWithMessages = new Map<string, any>();
+  for (const session of liveSessions) {
+    const sessionId = String(session?.id || "");
+    if (!sessionId) continue;
+    const messages = Array.isArray(session?.messages)
+      ? session.messages
+      : getSessionMessages(session);
+    if (messages.length > 0) {
+      liveSessionsWithMessages.set(sessionId, session);
+    }
+  }
+
+  if (liveSessionsWithMessages.size === 0) {
+    return mergedStoreState;
+  }
+
+  const mergedSessions = Array.isArray(mergedStoreState?.sessions)
+    ? mergedStoreState.sessions
+    : [];
+  let patched = false;
+  const nextSessions = mergedSessions.map((session: any) => {
+    const sessionId = String(session?.id || "");
+    if (!session?._syncPlaceholder) {
+      return session;
+    }
+    const liveSession = liveSessionsWithMessages.get(sessionId);
+    if (!liveSession) {
+      return session;
+    }
+    patched = true;
+    return liveSession;
+  });
+
+  if (!patched) {
+    return mergedStoreState;
+  }
+
+  return {
+    ...mergedStoreState,
+    sessions: nextSessions,
+  };
+}
+
 function rebaseChatSyncResultOnLiveState(
   mergedStoreState: any,
   syncBaseState: any,
@@ -1233,7 +1299,14 @@ function rebaseChatSyncResultOnLiveState(
     getChatInteractionSignature(liveChatState) ===
     getChatInteractionSignature(syncBaseState)
   ) {
-    return mergedStoreState;
+    // 即使签名相同（sync 期间无交互变化），也要防止 mergedStoreState 中的
+    // 远端占位符覆盖了 live state 中已有消息的会话——这在切换用户后的后台
+    // 同步中尤其危险：mergedStoreState 是基于 sync 开始时的快照 merge 的，
+    // 可能那时本地 session 还是空的，placeholder 就趁虚而入了。
+    return preserveLiveSessionsFromPlaceholders(
+      mergedStoreState,
+      liveChatState,
+    );
   }
 
   const rebasedState = mergeStoreState(
@@ -2021,12 +2094,22 @@ export const useSyncStore = createPersistStore(
           );
         })();
       const syncableLocalSessions = getSyncableChatSessions(localSessions);
-      const localLeadingEmptySession =
+      const selectedLocalSessionId = String(
+        materializedLocalChatState?.selectedSessionId || "",
+      );
+      const localEmptySessionCandidate =
         findLocalLeadingEmptySession(localSessions);
+      // 只携带仍被用户选中的空会话。未选中的空会话不能在一次普通
+      // 对话同步中被 prepend 回列表，否则回复完成后会凭空多出新对话。
+      const localLeadingEmptySession =
+        String(localEmptySessionCandidate?.id || "") ===
+          selectedLocalSessionId ||
+        localEmptySessionCandidate?.explicitEmptySession === true
+          ? localEmptySessionCandidate
+          : undefined;
       const preferLeadingEmptySession =
         Boolean(localLeadingEmptySession?.id) &&
-        String(materializedLocalChatState?.selectedSessionId || "") ===
-          String(localLeadingEmptySession?.id || "");
+        selectedLocalSessionId === String(localLeadingEmptySession?.id || "");
       const remoteIndex =
         options?.remoteIndex ??
         (await callClientWithSignal(client.getChatIndex, []));
@@ -2457,6 +2540,18 @@ export const useSyncStore = createPersistStore(
           ]?.id ||
           "",
       );
+      // 本地新建的空默认对话（用户点 + 刚创建的）远端还没有，绝不能当作孤儿删掉，
+      // 否则 sync 期间 sidebar 会瞬间把它从第一挤下去再被 prepend 救回，造成 UI 闪烁。
+      // 跨设备"已删除的本地空对话"由 deleteSessionIds / normalizeMergedChatState 处理。
+      const localDefaultEmptyIds = new Set<string>(
+        (Array.isArray(materializedLocalChatState?.sessions)
+          ? materializedLocalChatState.sessions
+          : []
+        )
+          .filter((s: any) => isDefaultEmptyChatSession(s))
+          .map((s: any) => String(s?.id || ""))
+          .filter(Boolean),
+      );
       const orphanSessionIds = hasPendingChatRequest
         ? new Set<string>()
         : new Set<string>(
@@ -2469,6 +2564,8 @@ export const useSyncStore = createPersistStore(
                 if (!sessionId) return false;
                 // 当前正在聚焦的会话即使暂时还是空的，也不能在同步里当作孤儿删掉。
                 if (sessionId === selectedSessionId) return false;
+                // 本地新建的空默认对话（远端还没来得及上传）不是 orphan。
+                if (localDefaultEmptyIds.has(sessionId)) return false;
                 const messages = Array.isArray(session?.messages)
                   ? session.messages
                   : [];

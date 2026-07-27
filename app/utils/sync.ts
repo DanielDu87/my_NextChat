@@ -672,6 +672,18 @@ const MergeStates: StateMerger = {
         ? new Date(localSession.lastUpdate).getTime()
         : 0;
 
+      // ⚠️ 远端占位符（_syncPlaceholder）只有元数据、没有真实消息，
+      // 绝不能用空占位符覆盖本地已加载出消息的会话，否则会让正在进行的
+      // 对话瞬间变成 pruned 状态并触发全屏 loading 遮罩。
+      if (
+        (remoteSession as any)?._syncPlaceholder &&
+        localSession &&
+        getSessionMessages(localSession).length > 0
+      ) {
+        keptLocalCount += 1;
+        return;
+      }
+
       // 如果远程更新时间更新，或者本地没有该会话，使用远程的
       if (!localSession || remoteUpdateTime > localUpdateTime) {
         remoteSession.createdAt = localSession

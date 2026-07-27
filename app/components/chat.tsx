@@ -101,6 +101,7 @@ import {
   compareProviderDisplayNames,
 } from "../utils/model-series-order";
 import { convertHeicImage } from "../utils/chat";
+import { isFreshDefaultChatSession, startNewChat } from "../utils/new-chat";
 import {
   getSafeAttachmentContentType,
   isSafeImageAttachment,
@@ -4479,8 +4480,8 @@ function ChatContent() {
 
   // chat commands shortcuts
   const chatCommands = useChatCommand({
-    new: () => navigate(Path.NewChat),
-    newm: () => navigate(Path.NewChat),
+    new: () => startNewChat(navigate),
+    newm: () => startNewChat(navigate),
     prev: () => chatStore.nextSession(-1),
     next: () => chatStore.nextSession(1),
     clear: () =>
@@ -8320,8 +8321,30 @@ function ChatContent() {
 
   // 已有本地会话缓存时立即展示正文；模型配置和远端会话在后台更新，
   // 仅限制发送能力，不再用同步加载态遮住已缓存的聊天记录。
-  const shouldHideChatMessages = sessionLoading || enterLoading;
-  const shouldShowChatRestoreNotice = sessionLoading || enterLoading;
+  // ⚠️ 如果当前 session 已经有可显示的消息内容（包括正在流式输出的），
+  // 绝不因 sessionLoading 短暂为 true（如 sync 写回触发的 hydrate）而用
+  // loading 遮罩盖住已有内容——这会导致对话快完成时页面闪过刷新。
+  // 注意：用 liveSession（store 实时快照）而不是 sessionMessages（可能已被
+  // sync prune 成空），否则全新对话时 sessionMessages 为空就拦不住了。
+  const liveSessionMessages = useMemo(
+    () => (Array.isArray(liveSession?.messages) ? liveSession.messages : []),
+    [liveSession],
+  );
+  const hasDisplayableMessages =
+    liveSessionMessages.some(
+      (message) =>
+        message.streaming ||
+        getMessageTextContent(message).trim().length > 0 ||
+        getMessageImages(message).length > 0 ||
+        message.tools?.length,
+    ) || isAssistantStreaming;
+  const isFreshDefaultChat = isFreshDefaultChatSession(liveSession);
+  const shouldHideChatMessages =
+    (sessionLoading && !hasDisplayableMessages && !isFreshDefaultChat) ||
+    enterLoading;
+  const shouldShowChatRestoreNotice =
+    (sessionLoading && !hasDisplayableMessages && !isFreshDefaultChat) ||
+    enterLoading;
   const shouldShowScrollToBottomButton =
     chatBodyOverflowing &&
     !hitBottom &&
@@ -9156,7 +9179,7 @@ function ChatContent() {
         event.key.toLowerCase() === "o"
       ) {
         event.preventDefault();
-        setTimeout(() => navigate(Path.NewChat), 10);
+        setTimeout(() => startNewChat(navigate), 10);
       }
       // 聚焦聊天输入 shift + esc
       else if (event.shiftKey && event.key.toLowerCase() === "escape") {
@@ -9226,25 +9249,39 @@ function ChatContent() {
   const [showChatSidePanel, setShowChatSidePanel] = useState(false);
 
   useEffect(() => {
+    // 如果已经有内容或无 session，跳过
     if (
       isMobileScreen ||
       isChatUnavailableForSync ||
       !safeSession.id ||
-      syncReadyFocusSessionRef.current === safeSession.id ||
       hasUserInputContent
     ) {
       return;
     }
 
+    // 防止重复聚焦：在 StrictMode 下，组件挂载→卸载→重新挂载，
+    // cleanup 中重置 ref，确保重新挂载时能正确执行聚焦
+    if (syncReadyFocusSessionRef.current === safeSession.id) {
+      return;
+    }
+
     syncReadyFocusSessionRef.current = safeSession.id;
     const timer = window.setTimeout(() => {
+      // 检查会话是否已切换（组件可能已卸载）
+      if (syncReadyFocusSessionRef.current !== safeSession.id) {
+        return;
+      }
       if (inputRef.current?.value.trim()) {
         return;
       }
       inputRef.current?.focus({ preventScroll: true });
     }, 80);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      // StrictMode 下重置 ref，确保重新挂载时 effect 能正确执行
+      syncReadyFocusSessionRef.current = "";
+    };
   }, [
     hasUserInputContent,
     isChatUnavailableForSync,
@@ -9460,7 +9497,7 @@ function ChatContent() {
                 }}
                 onClick={() => {
                   if (isMobileScreen) {
-                    navigate(Path.NewChat);
+                    startNewChat(navigate);
                     return;
                   }
                   if (refreshTouchTriggeredRef.current) {
