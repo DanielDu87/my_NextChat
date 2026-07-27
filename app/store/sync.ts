@@ -1362,6 +1362,17 @@ function rebaseChatSyncResultOnLiveState(
     }
   }
 
+  // 同步期间用户可能刚新建并选中空会话。即使该会话已被合并结果保留，
+  // merged state 仍可能携带同步开始时的旧 selectedSessionId；必须以实时
+  // store 的焦点为准，否则新会话虽出现在列表中却不会被选中。
+  const liveSelectedIndex = normalizedAfterDeletes.sessions.findIndex(
+    (session: any) => String(session?.id || "") === liveSelectedSessionId,
+  );
+  if (liveSelectedIndex >= 0) {
+    normalizedAfterDeletes.currentSessionIndex = liveSelectedIndex;
+    normalizedAfterDeletes.selectedSessionId = liveSelectedSessionId;
+  }
+
   logSyncDebug("[Sync] 🧭 同步写回前保留当前会话焦点", {
     selectedSessionId: getSelectedChatSessionId(normalizedAfterDeletes),
   });

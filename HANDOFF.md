@@ -10,16 +10,19 @@
 
 - 调整移动端“用户管理”列表的用户身份、密码、对话数量、最近对话四列；不同用户名不再推移详情列，`admin`、`ccc`、`dyx` 均可完整显示。
 - 收窄最近对话日期的最小宽度，使身份列获得足够空间；日期列在填满剩余横向空间时正常显示，空间不足才省略。
+- 修复首页首轮回复完成期间新建对话已出现但焦点被旧会话同步写回的问题。
 
 ### 实现方式
 
 - `app/components/user-menu.module.scss` 将移动端身份列固定为 88px，密码和对话数量列固定为 36px、48px，最近对话列用 `minmax(64px, 1fr)` 吃满所有剩余宽度；当前徽章和删除勾选继续绝对定位覆盖右侧，不再占用表格宽度。未改桌面端布局、用户数据或切换逻辑。
+- `app/store/sync.ts` 在聊天同步结果写回前总是以实时 `selectedSessionId` 重算索引；即使新建空会话已在合并结果中，也不能由同步开始时的旧焦点覆盖。
 - `docs/development.md` 同步记录移动端用户管理列表的固定列宽和日期省略规则。
 
 ### 验证
 
 - 393px 应用内浏览器中打开“用户管理”，三条用户卡片的字段起点一致，用户名完整显示；最终布局通过 CSS 复核确认 `.userDetails` 使用 `flex: 1` 填满身份列右侧剩余宽度。控制台无 warning/error。
 - `yarn prettier --check app/components/user-menu.module.scss docs/development.md`、`npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 提示。
+- 同步焦点补丁后再次运行 `npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仍仅保留既有 `<img>` 提示。
 
 ### 潜在或遗留问题
 
