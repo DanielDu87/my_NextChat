@@ -4,6 +4,31 @@
 
 ============================================================
 
+## 230. 【2026-08-02 19:45】- 新建对话时聚焦侧栏顶部会话
+
+### 修改内容
+
+- 修复侧边栏停留在较早历史会话时，点击“新的聊天”后新空白会话虽然已置顶并选中，但列表仍保留旧滚动位置、导致第一条不可见的问题。
+- 主动新建时同时清除会隐藏空白会话的搜索条件；当前已经是空白会话时重复点击也会恢复侧栏顶部，不会重复创建会话。
+
+### 实现方式
+
+- `app/utils/new-chat.ts` 的统一 `startNewChat()` 入口在完成会话与路由更新后派发侧栏聚焦事件，覆盖侧边栏按钮、聊天命令、快捷入口和 `/new-chat` 兜底。
+- `app/components/chat-list.tsx` 收到事件后同步重置真实滚动容器 `scrollTop` 和虚拟列表窗口 state，并在下一帧复核一次；`app/components/sidebar.tsx` 不再因当前已经是空白会话而提前跳过统一入口。
+- `docs/development.md` 同步记录主动新建对话必须清除筛选并聚焦侧栏第一条的交互边界。
+
+### 验证
+
+- 真实 `ccc` 用户数据加载 80 条以上会话并启用虚拟列表后，从深层历史位置选择会话再点击“新的聊天”：侧栏 `scrollTop` 从 `5218` 变为 `0`，新会话位于列表顶部、保持选中且完整可见，URL 为 `/chat`。
+- 当前已经是空白会话且搜索无匹配结果时重复点击“新的聊天”：搜索内容清空、`scrollTop=0`，仍只有当前空白会话处于选中状态。
+- `npx tsc --noEmit --pretty false`、目标文件 Prettier、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
+
+### 潜在或遗留问题
+
+- 本轮已获提交与生产部署授权；提交、双远程推送和生产健康结果以本轮发布核验为准。
+
+============================================================
+
 ## 229. 【2026-08-02 17:45】- 隔离聊天站内导航与 Next 页面刷新
 
 ### 修改内容
@@ -405,55 +430,6 @@
 ### 潜在或遗留问题
 
 - 当前安装未启用 in-app Browser pane，专用预览工具无法附加到现有 Docker 页面，因此未通过该工具点击 Word/Excel 预览；运行态、缓存接口、编译、类型与纯函数映射已完成替代验证。
-
-============================================================
-
-## 214. 【2026-07-24 11:30】- 修复用户切换时对话跨用户污染问题
-
-### 修改内容
-
-- 修复用户切换后，A 用户的对话可能被错误合并到 B 用户的问题（P1 高优先级）。
-- 修复每次切换用户都重复执行完整同步链路的问题（P2）。
-- 修复 `_hasHydrated` 标志未在用户切换时重置，导致本地缓存被忽略的问题。
-
-### 实现方式
-
-**P1 修复：同步流程增加用户上下文绑定**
-
-- `app/store/sync.ts`：在 `sync()` 方法中捕获同步开始时的 `userId` 和 `generation`。
-- 新增 `isStaleSync()` 验证函数，在关键写回点检查用户是否已切换。
-- 聊天同步写回前 (`setLocalStoreState`) 和常规 store 写回前均添加用户验证，过时结果直接丢弃。
-- 同步完成后再次检查用户上下文，确保污染结果不会写入。
-- `lastChatSyncCompletedAt` 更新前验证用户状态，防止旧冷却时间影响新用户。
-
-**P1 修复：用户切换时清理同步状态**
-
-- `app/store/sync.ts`：新增 `clearSyncStateForUserSwitch()` 函数，清除 `syncInFlight`、`queuedSyncKeys`、防抖定时器、`startupChatSyncInFlight` 和冷却时间。
-- `app/store/auth.ts`：`switchUser()` 中在设置新 cache marker 后立即调用清理函数。
-
-**P2 修复：已有缓存用户快速切换**
-
-- `app/utils/chat-persist-storage.ts`：新增 `resetAll()` 方法，清除 `cache`、`hydrated`、`hydrating`、`pendingWrites`。
-- `app/store/chat.ts`：`resetForUserSwitch()` 中调用 `resetAll()` 并显式重置 `_hasHydrated = false`，强制后续从 IndexedDB 重新加载。
-- `app/store/auth.ts`：切换时的远端同步添加 `force: true`，避免被旧用户冷却时间跳过。
-
-**P2 修复：getItem fallback 路径增加 ownerId 校验**
-
-- `app/utils/chat-persist-storage.ts`：`getItem()` 的 fallback 分支（无 index 时）添加 `isScopedChatStoreKeyActive` 检查，确保不返回旧用户缓存。
-
-**其他**
-
-- `app/store/auth.ts`：导出 `getActiveSwitchGeneration()` 和 `getCurrentCacheMarkerUserId()` 供 sync.ts 验证使用。
-- `app/store/chat.ts`：`hydrateSessionIntoMemory()` 已有用户验证逻辑保持不变。
-
-### 验证
-
-- `yarn lint` 和 `npx tsc --noEmit --pretty false` 全部通过。
-- 预期行为：切换到已有缓存的用户时，立即显示本地缓存；远端同步在后台增量执行；有变化时才拉取最新数据。
-
-### 潜在或遗留问题
-
-- 未在真实多用户环境下触发竞态测试；通过代码路径审查、用户上下文捕获点和写回验证覆盖主要污染路径。
 
 ============================================================
 

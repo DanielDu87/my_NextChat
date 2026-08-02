@@ -33,6 +33,7 @@ import {
   useStartupChatSyncStatus,
 } from "../utils/chat-startup-loading";
 import { getSidebarRouteState } from "../utils/sidebar-route-state";
+import { CHAT_LIST_FOCUS_NEW_CHAT_EVENT } from "../utils/new-chat";
 
 const VIRTUAL_LIST_THRESHOLD = 80;
 const VIRTUAL_OVERSCAN = 6;
@@ -206,6 +207,7 @@ export function ChatList() {
   const deferredFilterText = useDeferredValue(filterText.trim().toLowerCase());
   const loadingMoreTimerRef = useRef<number | null>(null);
   const scrollRafRef = useRef<number | null>(null);
+  const focusNewChatRafRef = useRef<number | null>(null);
   const pendingScrollElementRef = useRef<HTMLDivElement | null>(null);
   // 标记本次页面加载是否已将当前会话滚动到可视区（仅刷新场景执行一次）
   const scrolledToCurrentOnMountRef = useRef(false);
@@ -250,6 +252,41 @@ export function ChatList() {
     window.addEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
     return () =>
       window.removeEventListener(CHAT_LIST_SCROLL_TO_TOP_EVENT, scrollToTop);
+  }, []);
+
+  useEffect(() => {
+    const focusNewChat = () => {
+      // 搜索条件会把置顶的新空会话过滤掉；主动新建时应恢复完整列表。
+      setFilterText("");
+
+      const moveToTop = () => {
+        const dom = listRef.current;
+        if (!dom) return;
+
+        dom.scrollTop = 0;
+        dom.scrollTo({ top: 0, behavior: "auto" });
+        // 虚拟列表的渲染窗口由 React state 决定，不能只改 DOM scrollTop。
+        setScrollTop(0);
+      };
+
+      moveToTop();
+      if (focusNewChatRafRef.current !== null) {
+        window.cancelAnimationFrame(focusNewChatRafRef.current);
+      }
+      focusNewChatRafRef.current = window.requestAnimationFrame(() => {
+        focusNewChatRafRef.current = null;
+        moveToTop();
+      });
+    };
+
+    window.addEventListener(CHAT_LIST_FOCUS_NEW_CHAT_EVENT, focusNewChat);
+    return () => {
+      window.removeEventListener(CHAT_LIST_FOCUS_NEW_CHAT_EVENT, focusNewChat);
+      if (focusNewChatRafRef.current !== null) {
+        window.cancelAnimationFrame(focusNewChatRafRef.current);
+        focusNewChatRafRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {

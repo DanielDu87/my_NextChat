@@ -24,7 +24,7 @@ import { DEFAULT_SIDEBAR_WIDTH, Path } from "../constant";
 
 import { useLocation, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
-import { isCurrentFreshDefaultChat, startNewChat } from "../utils/new-chat";
+import { startNewChat } from "../utils/new-chat";
 import dynamic from "next/dynamic";
 import { showConfirm, showToast } from "./ui-lib";
 import clsx from "clsx";
@@ -692,15 +692,8 @@ export function SideBar(props: { className?: string; loading?: boolean }) {
                   showToast("管理员查看他人数据时为只读模式，不能新建会话");
                   return;
                 }
-                // 移动端列表页点击应直接进入新对话视图；
-                // 桌面端列表与对话面板同屏，已是空白新对话时无需跳转
-                if (
-                  !isMobileScreen &&
-                  location.pathname === Path.Chat &&
-                  isCurrentFreshDefaultChat()
-                ) {
-                  return;
-                }
+                // startNewChat 会复用当前空白会话；即使不需要创建新会话，
+                // 也要让统一入口把侧栏筛选和滚动位置恢复到第一条。
                 startNewChat(navigate);
               }}
             />

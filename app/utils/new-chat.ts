@@ -6,6 +6,9 @@ type NewChatNavigate = (path: string, options?: { replace?: boolean }) => void;
 
 let newChatTransitionPendingUntil = 0;
 
+export const CHAT_LIST_FOCUS_NEW_CHAT_EVENT =
+  "nextchat:chat-list-focus-new-chat";
+
 export function isNewChatTransitionPending() {
   return Date.now() <= newChatTransitionPendingUntil;
 }
@@ -31,6 +34,12 @@ export function startNewChat(
   }
 
   navigate(Path.Chat, { replace: options?.replace });
+
+  // 会话列表可能仍停留在很靠后的历史位置，虚拟列表也会继续按旧
+  // scrollTop 渲染旧窗口。统一通知侧栏回到第一条，确保新会话可见。
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CHAT_LIST_FOCUS_NEW_CHAT_EVENT));
+  }
 }
 
 export function isFreshDefaultChatSession(
