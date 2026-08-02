@@ -51,6 +51,7 @@ import {
   isHomepageOrChatPage,
 } from "../utils/startup-sync-scope";
 import {
+  installReactRouterHistoryBridge,
   markRouteSyncStart,
   prepareRouteEntryForSync,
 } from "../utils/route-sync-entry";
@@ -750,6 +751,15 @@ export function Home() {
       bootPerfObserverRef.current?.disconnect();
       bootPerfObserverRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    // BrowserRouter 与 Next App Router 共用 window.history。Next 在父级 effect
+    // 中安装包装器，所以先立即桥接，再在当前 effect 队列结束后复核一次，
+    // 避免 `/chat/:id` -> `/chat` 产生服务端 RSC 导航和整页副作用重连。
+    installReactRouterHistoryBridge();
+    const timer = window.setTimeout(installReactRouterHistoryBridge, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {

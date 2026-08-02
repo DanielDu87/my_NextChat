@@ -4,6 +4,34 @@
 
 ============================================================
 
+## 229. 【2026-08-02 17:45】- 隔离聊天站内导航与 Next 页面刷新
+
+### 修改内容
+
+- 修复“先选择历史对话，再点新的聊天”时 Next.js 把 React Router 普通路径变化当成 App Router 页面导航、重新请求 catch-all 页面并重连整棵客户端副作用的问题。
+- 保留新建会话短时事务中的旧 URL 恢复守卫；页面初始化幂等标记改为当前 `window` 文档生命周期，Fast Refresh 可保留，真实硬刷新会自动清空。
+- 清除本轮定位使用的 `DEBUG-FETCH-ME`、`DEBUG-SELECT-SESSION`、`DEBUG-INIT-NEW-PAGE`、`DEBUG-NEW-CHAT` 临时控制台日志；同步更新开发文档。
+
+### 实现方式
+
+- `app/utils/route-sync-entry.ts` 新增 `installReactRouterHistoryBridge()`：React Router 写入 `pushState` / `replaceState` 时合并当前 Next 内部 history tree 并补上 `__NA`，只更新 BrowserRouter 与地址栏，不触发 Next 再拉 RSC。
+- `app/components/home.tsx` 在客户端挂载时立即安装 history 桥接，并在 effect 队列结束后复核一次，覆盖 Next 父级 effect 较晚包装 history 的时序。
+- `app/components/chat.tsx` 在 `startNewChat()` 的 1500ms 事务窗口内跳过旧 `urlSessionId` 回写；`app/store/chat.ts` 用 `window` 属性保存同一文档内的初始化标记，切换用户时显式清除。
+- `docs/development.md` 补充 BrowserRouter / Next App Router history 边界和页面初始化生命周期约束。
+
+### 验证
+
+- `npx tsc --noEmit --pretty false`、目标文件 Prettier、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。`app/components/chat.tsx` 仍有任务开始前两处与 Prettier 基线不一致的 `openFilePreview` 换行，未扩大无关格式改动。
+- 本地 `nextchat-dev` 使用 `ccc` 用户真实回归“数字输入与计算澄清历史会话 → 新的聊天”：URL 从 `/chat/zXjTUKVdlXRB-bwFObgY0` 立即回到 `/chat`，当前用户仍为 `ccc`，空会话恰有 1 个，加载遮罩为 0。
+- 容器日志在 `dyx` 与 `ccc` 两轮“历史 → 新建”站内导航期间均没有 `POST /chat...` 或 `POST /new-chat`，只保留首次页面打开的 `GET /chat`；宿主机与 `nextchat-dev:/app` 内 5 个修改文件 SHA-256 全部一致，热加载容器已是最新代码。
+
+### 潜在或遗留问题
+
+- 未发送真实模型消息，因此没有产生外部模型请求；首条消息把 URL 补全为 `/chat/<新 ID>` 的代码走同一 history 桥接入口，已完成类型与静态检查，但本轮未用真实流式回复再次消耗模型额度验证。
+- 切换到 `ccc` 时出现一次既有余额配置读取失败日志，不影响会话切换与新建结果；本轮未修改余额链路。提交、双远程推送与生产部署结果以本轮发布核验为准。
+
+============================================================
+
 ## 228. 【2026-07-27 11:36】- 固定移动端用户切换卡片列宽
 
 ### 修改内容
@@ -426,33 +454,6 @@
 ### 潜在或遗留问题
 
 - 未在真实多用户环境下触发竞态测试；通过代码路径审查、用户上下文捕获点和写回验证覆盖主要污染路径。
-
-============================================================
-
-## 213. 【2026-07-24 10:47】- 部署生产 Code Interpreter 文件下载链路
-
-### 修改内容
-
-- 将生产服务器独立 `codeinterpreter` 服务更新到仓库内已验证的文件生成包装版本，线上现在会返回 `files.base64`，NextChat 可以继续写入 `/api/cache` 并生成真实下载链接。
-- 修复旧生产镜像使用不存在的 `wget` 探活而长期显示 `unhealthy`，新版 Compose 改用 Python 标准库请求根路径。
-- Code Interpreter 构建阶段新增阿里云 Debian 镜像源，解决生产服务器从 Debian 官方源下载约 102MB 编译依赖时长时间停滞的问题；Python 包继续使用阿里云 PyPI。
-
-### 实现方式
-
-- 生产目录 `/www/dk_project/code_interpreter_api` 同步 `app.py`、`Dockerfile`、`docker-compose.codeinterpreter.yml`、`requirements.txt`、`requirements.nextchat.txt` 和 `nextchat_runtime.py`，保留原 `.env.codeinterpreter`、Nginx、数据卷与 NextChat 主容器。
-- `scripts/code-interpreter/Dockerfile` 新增 `APT_MIRROR`，构建前把 Debian 与 Debian Security 源替换为阿里云镜像；`scripts/code-interpreter/README.md` 同步记录 Debian/PyPI 双镜像边界。
-- 覆盖前备份旧文件到 `/root/codeinterpreter-backup-20260724-103317`，并将旧镜像保留为 `codeinterpreter-api-baota:rollback-20260724-103317`；新版镜像构建成功后才由 Compose 替换旧容器。
-
-### 验证
-
-- 线上公网 `/codeinterpreter/runcode` 未带 Token 返回 HTTP 401，使用生产 Token 返回 HTTP 200。
-- 真实生成 `online_download_check.txt` 后响应包含 `files` 与 `output`；文件 MIME 为 `text/plain`、大小 18 字节，base64 解码内容为 `online download ok`，响应后容器内临时文件不存在。
-- 线上解释器可导入 `python-docx 1.1.2`；公网根路径返回 HTTP 200，`codeinterpreter` 容器状态为 `healthy`。
-- `git diff --check` 通过；生产文件与仓库对应版本的 SHA-256 一致。
-
-### 潜在或遗留问题
-
-- 为避免消耗模型额度和向生产聊天库写入测试会话，未通过真实聊天再次触发文件生成；生产解释器返回结构与此前已通过的本地 `/api/cache` 完整链路现已一致。
 
 ============================================================
 

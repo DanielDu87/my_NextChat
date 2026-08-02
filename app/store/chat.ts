@@ -101,7 +101,31 @@ const SESSION_TITLE_MAX_CHARACTERS = 15;
 const MEMORY_SUMMARY_MAX_TOKENS = 1000;
 const TAB_INITIALIZED_KEY = "nextchat_tab_initialized";
 const TAB_CURRENT_SESSION_ID_KEY = "nextchat_tab_current_session_id";
-let hasInitializedChatForCurrentPage = false;
+const CHAT_PAGE_INIT_WINDOW_KEY = "__nextchatChatPageInitialized";
+let hasInitializedChatForCurrentPageFallback = false;
+
+function readChatPageInitialized() {
+  if (typeof window === "undefined") {
+    return hasInitializedChatForCurrentPageFallback;
+  }
+  return (window as any)[CHAT_PAGE_INIT_WINDOW_KEY] === true;
+}
+
+function writeChatPageInitialized() {
+  hasInitializedChatForCurrentPageFallback = true;
+  if (typeof window === "undefined") {
+    return;
+  }
+  (window as any)[CHAT_PAGE_INIT_WINDOW_KEY] = true;
+}
+
+function clearChatPageInitialized() {
+  hasInitializedChatForCurrentPageFallback = false;
+  if (typeof window === "undefined") {
+    return;
+  }
+  delete (window as any)[CHAT_PAGE_INIT_WINDOW_KEY];
+}
 export const CHAT_DELETE_UI_GUARD_UNTIL_KEY =
   "nextchat_chat_delete_ui_guard_until";
 const CHAT_DELETE_UI_GUARD_MS = 8000;
@@ -2282,10 +2306,10 @@ export const useChatStore = createPersistStore(
         // real document load (or an explicit user switch reset) may run page init
         // again; otherwise a completed reply can be mistaken for a browser refresh
         // and create an extra empty session.
-        if (hasInitializedChatForCurrentPage) {
+        if (readChatPageInitialized()) {
           return;
         }
-        hasInitializedChatForCurrentPage = true;
+        writeChatPageInitialized();
 
         const currentState = get();
         const currentSessions = Array.isArray(currentState.sessions)
@@ -2546,7 +2570,7 @@ export const useChatStore = createPersistStore(
       },
 
       async resetForUserSwitch(options?: { sync?: boolean }) {
-        hasInitializedChatForCurrentPage = false;
+        clearChatPageInitialized();
 
         // 重置所有内存缓存，确保旧用户的数据不会残留
         chatPersistStorage.resetAll();

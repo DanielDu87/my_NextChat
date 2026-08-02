@@ -101,7 +101,11 @@ import {
   compareProviderDisplayNames,
 } from "../utils/model-series-order";
 import { convertHeicImage } from "../utils/chat";
-import { isFreshDefaultChatSession, startNewChat } from "../utils/new-chat";
+import {
+  isFreshDefaultChatSession,
+  isNewChatTransitionPending,
+  startNewChat,
+} from "../utils/new-chat";
 import {
   getSafeAttachmentContentType,
   isSafeImageAttachment,
@@ -11633,6 +11637,13 @@ export function Chat() {
   // 从 URL 恢复对话选中
   useEffect(() => {
     if (urlSessionId) {
+      // startNewChat 会先 newSession 再 navigate('/chat')，中间存在一个 sessionIdListKey
+      // 已经变化、urlSessionId 还没同步到新值的空窗期。这时 effect 跑会用旧 urlSessionId
+      // 把刚 newSession 出来的新空会话切回去，造成"页面刷新"的观感。
+      // 利用 new-chat.ts 已有的 1500ms 事务窗口跳过这个同步。
+      if (isNewChatTransitionPending()) {
+        return;
+      }
       const store = useChatStore.getState();
       const currentSession = store.sessions[store.currentSessionIndex];
       const currentId = currentSession?.id;

@@ -18,6 +18,81 @@ declare global {
 
 let lastPreparedRoute = "";
 
+const REACT_ROUTER_HISTORY_BRIDGE_MARK = "__nextchatReactRouterHistoryBridge";
+
+type MarkedHistoryMethod = History["pushState"] & {
+  [REACT_ROUTER_HISTORY_BRIDGE_MARK]?: true;
+};
+
+function mergeNextHistoryState(data: unknown) {
+  const currentState = window.history.state;
+  const currentObject =
+    currentState && typeof currentState === "object" ? currentState : {};
+  const nextObject = data && typeof data === "object" ? data : {};
+
+  // Next.js 14 会包装 pushState/replaceState，并把 React Router 的普通路径
+  // 变化当作 App Router 导航。保留当前 Next tree 且标记为内部 history
+  // 写入，可以只更新地址栏与 BrowserRouter，不重新请求同一个 catch-all 页面。
+  return {
+    ...currentObject,
+    ...nextObject,
+    __NA: true,
+  };
+}
+
+/**
+ * 让 React Router 的站内普通路径导航不触发 Next App Router 重新取 RSC。
+ *
+ * Next 的 history 包装在父组件 effect 中安装，因此本函数允许重复调用：如果
+ * Fast Refresh 或 Next 后续重新包装了 history，外层会再次补上桥接；已是当前
+ * 最外层时则直接跳过。
+ */
+export function installReactRouterHistoryBridge() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const history = window.history;
+  const currentPushState = history.pushState as MarkedHistoryMethod;
+  const currentReplaceState = history.replaceState as MarkedHistoryMethod;
+  if (
+    currentPushState[REACT_ROUTER_HISTORY_BRIDGE_MARK] &&
+    currentReplaceState[REACT_ROUTER_HISTORY_BRIDGE_MARK]
+  ) {
+    return;
+  }
+
+  const pushState: MarkedHistoryMethod = function (
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    return currentPushState.call(
+      history,
+      mergeNextHistoryState(data),
+      unused,
+      url,
+    );
+  };
+  const replaceState: MarkedHistoryMethod = function (
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) {
+    return currentReplaceState.call(
+      history,
+      mergeNextHistoryState(data),
+      unused,
+      url,
+    );
+  };
+
+  pushState[REACT_ROUTER_HISTORY_BRIDGE_MARK] = true;
+  replaceState[REACT_ROUTER_HISTORY_BRIDGE_MARK] = true;
+  history.pushState = pushState;
+  history.replaceState = replaceState;
+}
+
 // 跨模块共享的首开同步节流窗口：home-bootstrap 和 auto-sync 启动都会更新这个时间戳，
 // 双方在判断「是否要跳过重复同步」时统一读这个值，避免 /chat 等路由进入时
 // home-bootstrap 跑完 Chat 拉取后又紧跟着被 auto-sync 重复触发一次。
