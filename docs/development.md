@@ -75,6 +75,8 @@ Word（DOCX）预览弹窗使用 `docx-preview` 渲染。预览根容器 `.docx-
 
 主动新建对话时，侧边栏必须清除会隐藏空白会话的搜索条件，同时把真实滚动容器和虚拟列表窗口同步重置到顶部；即使用户此前停留在很靠后的历史会话，新会话卡片也必须立即出现在第一条并保持选中。
 
+移动端已发送消息气泡中的图片必须优先响应原图预览：触摸未发生明显位移时，由图片自身在 `touchend` 阶段直接打开预览并阻止随后合成的 `click` 被气泡操作菜单截获；触摸位移超过阈值时仍交给聊天区域原生滚动，不能误开图片。纯文本气泡点击显示操作菜单、桌面端鼠标点击和键盘打开图片的行为保持不变。
+
 移动端“用户管理”的当前徽章和删除勾选绝对定位覆盖卡片右侧；四列信息不再预留右侧操作空间，始终占满可用横向宽度。
 
 “全局对话设置”固定显示完整对话参数集合，不随当前模型能力隐藏：采样、输出上限、上下文窗口、停止序列、生成数量、工具调用策略、安全等级、提示缓存、搜索、推理、Anthropic Beta、媒体分辨率、结构化输出、惩罚项、系统提示词、输入模板、历史摘要、Artifacts 和代码折叠均可见；绘图 29 项、视频尺寸和时长也始终在底部独立区域显示。关闭 Artifacts 或代码折叠后，其开关本身也必须保留以便重新开启。绘图区域直接复用 `app/utils/draw-model-params.ts` 中 Draw 页面的字段定义及模型规则，保持字段、选项、默认值和支持状态一致，并通过共享 `modelConfig.generationParams` 在 Draw 页面与参数设置之间双向同步实际值。当前生成模型不支持、当前请求客户端尚未实现或厂商明确建议锁定默认值的控件必须显示为禁用，并在副标题说明原因；各参数组分别以真实 `disabled` 状态自动排序，可用项在前、禁用项在后，同一状态内保持声明顺序，因此切换模型时参数顺序会跟随能力矩阵即时调整。禁用只影响编辑和请求透传，不能删除共享数据库中已保存的全局值。所有模型共享同一份预设，但实际请求必须按供应商官方能力使用等效推荐格式：GPT-5 / o 系列移除不支持的采样和停止序列字段并使用模型对应的 `reasoning_effort` 枚举；Claude 使用供应商默认采样、对 4.6+ 适配 `adaptive thinking + output_config.effort`，4.5+ 的受支持型号把 JSON Schema 合并到 `output_config.format`，显式提示缓存仅在稳定系统内容块上设置 `cache_control`；Gemini 3.x 使用默认采样、仅在当前型号支持且设置值属于官方枚举时发送 `thinkingConfig.thinkingLevel`，并把媒体分辨率与 JSON Schema 放入 `generationConfig`；DeepSeek 思考模式移除无效采样和 penalty，将兼容 effort 映射为 `high / max`，结构化输出使用 `json_object`；GLM 4.5+ 才启用 thinking，GLM 5.2 才透传 `reasoning_effort`，结构化输出同样使用 `json_object`；MiniMax-M3 固定官方 `temperature=1 / top_p=0.95`，只发送 adaptive/disabled thinking，工具策略仅 `auto/none`；Qwen DashScope 把停止、thinking、JSON Object 与工具策略放进 `parameters`；xAI Grok 按 4.3/4.5/4.20 型号限制 reasoning effort，推理模型不发送采样和 penalty。不能为了“参数一致”强制透传上游明确不支持或明确不推荐的字段。

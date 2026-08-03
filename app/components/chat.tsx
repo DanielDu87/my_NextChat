@@ -2870,6 +2870,8 @@ function ChatImage(props: {
   onOpen: (url: string) => void;
 }) {
   const { url, className, onOpen } = props;
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchMovedRef = useRef(false);
   // 加载状态：loading 时显示占位符，加载完成或失败后移除占位层
   const [status, setStatus] = useState<"loading" | "loaded" | "error">(
     "loading",
@@ -2905,7 +2907,46 @@ function ChatImage(props: {
         title="点击查看原图"
         onLoad={() => setStatus("loaded")}
         onError={() => setStatus("error")}
-        onClick={() => onOpen(url)}
+        onTouchStart={(event) => {
+          const touch = event.touches[0];
+          touchStartRef.current = touch
+            ? { x: touch.clientX, y: touch.clientY }
+            : null;
+          touchMovedRef.current = false;
+        }}
+        onTouchMove={(event) => {
+          const start = touchStartRef.current;
+          const touch = event.touches[0];
+          if (
+            start &&
+            touch &&
+            (Math.abs(touch.clientX - start.x) > 8 ||
+              Math.abs(touch.clientY - start.y) > 8)
+          ) {
+            touchMovedRef.current = true;
+          }
+        }}
+        onTouchEnd={(event) => {
+          const shouldOpen =
+            touchStartRef.current !== null && !touchMovedRef.current;
+          touchStartRef.current = null;
+          touchMovedRef.current = false;
+          if (!shouldOpen) return;
+
+          // 移动端气泡按下时会先显示消息操作菜单；在原始触摸目标上
+          // 直接打开图片，并阻止随后合成的 click 被浮层截获。
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen(url);
+        }}
+        onTouchCancel={() => {
+          touchStartRef.current = null;
+          touchMovedRef.current = false;
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen(url);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();

@@ -4,6 +4,32 @@
 
 ============================================================
 
+## 231. 【2026-08-03 11:00】- 移动端消息图片轻点优先打开预览
+
+### 修改内容
+
+- 修复移动端已发送消息气泡内含图片时，轻点图片被气泡操作菜单抢占、无法打开原图的问题。
+- 图片轻点现在直接打开原图预览；手指滑动超过阈值时视为滚动，不误触预览。纯文本气泡菜单、桌面端点击和键盘操作保持原行为。
+
+### 实现方式
+
+- `app/components/chat.tsx` 的 `ChatImage` 记录触摸起点，并以横向或纵向 8px 作为移动阈值；未发生明显移动时在 `touchend` 阶段阻止事件继续传给消息气泡并直接打开预览。
+- 合成 click 与普通桌面 click 均停止向气泡冒泡，键盘 Enter / Space 仍复用原预览入口。
+- `docs/development.md` 同步记录移动端图片点击优先级与滚动手势边界。
+
+### 验证
+
+- 393×852 移动端视口打开 `ccc` 用户已有“附件内容”会话，确认已发送消息内存在 1 张图片；点击图片后 `.image-preview-modal` 与原图预览图片均唯一出现。
+- `npx tsc --noEmit --pretty false`、`git diff --check` 与 `yarn lint` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。`docs/development.md` Prettier 检查通过，新代码片段符合 Prettier 输出。
+- 本地 `nextchat-dev`、`codeinterpreter-local` 与 `postgres-ssh-tunnel` 已重启；`/chat` 返回 HTTP 200，Next 开发服务完成编译，宿主机与容器内 `app/components/chat.tsx` SHA-256 一致。
+
+### 潜在或遗留问题
+
+- 应用内浏览器的 CDP 不支持派发原生 `touchStart/touchEnd`，因此本轮运行态验证使用移动端视口点击；触摸移动阈值逻辑由 TypeScript、Lint、静态代码路径与热加载编译覆盖。
+- `app/components/chat.tsx` 全文件 Prettier 检查仍仅命中任务开始前两处 `openFilePreview` 换行差异，本轮未扩大无关格式修改。提交、双远程推送和生产部署结果以本轮发布核验为准。
+
+============================================================
+
 ## 230. 【2026-08-02 19:45】- 新建对话时聚焦侧栏顶部会话
 
 ### 修改内容
@@ -403,33 +429,6 @@
 ### 潜在或遗留问题
 
 - 当前安装未启用 in-app Browser pane，未通过该工具在浏览器中拖动滚动条验证长文档；运行态、热加载、容器源码一致性、纯函数行为已完成替代验证；建议在启用 Browser pane 后用真实 DOCX 做最终滚动确认。
-
-============================================================
-
-## 215. 【2026-07-25 08:50】- 修复 Code Interpreter 生成文件预览失败
-
-### 修改内容
-
-- 修复模型正文保留 `sandbox:/tmp/...` 时，Markdown 和文件预览对浏览器不支持的沙箱协议发起请求的问题。
-- 支持 Code Interpreter 生成文件被重命名后，仍将原始沙箱路径安全改写为当前用户的 `/api/cache/<uuid>.<ext>` 下载与预览地址。
-- 修复文件预览原先拒绝同源 `/api/cache/...` 相对 URL 的协议判断。
-
-### 实现方式
-
-- `app/utils/generated-file-links.ts` 为生成文件增加持久化 aliases：先按文件名精确匹配；重命名时仅在相同扩展名的沙箱引用与生成文件能够一一对应时按顺序关联，数量不一致或有歧义时不猜测。
-- `app/store/plugin.ts` 在文件上传并提交缓存后，从原始工具输出提取 `sandbox:/mnt/data/...` 与 `sandbox:/tmp/...`，把映射写回工具结果并复用现有下载链接追加逻辑。
-- `app/utils/attachment-file.ts` 新增共享 URL 守卫；Markdown 文件大小请求和文件预览统一允许同源根相对 URL、HTTP(S) 及受控 Blob，拒绝其他协议。
-- `app/components/markdown.tsx` 对无法映射的 `sandbox:` 链接显示非交互失效提示，不再创建无效文件卡片；`README.md` 与 `docs/development.md` 同步记录行为边界。
-
-### 验证
-
-- `yarn lint` 通过，仅保留 `file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、Prettier、`git diff --check` 通过。
-- 针对性 `tsx` 检查覆盖重命名单 DOCX 映射与多 DOCX 数量不一致时不猜测，全部通过。
-- `nextchat-dev` 正常运行，`/chat` 返回 HTTP 200，热加载编译成功；目标源码与容器 `/app` 内 SHA-256 一致，真实 `HEAD /api/cache/...docx` 返回 HTTP 200。
-
-### 潜在或遗留问题
-
-- 当前安装未启用 in-app Browser pane，专用预览工具无法附加到现有 Docker 页面，因此未通过该工具点击 Word/Excel 预览；运行态、缓存接口、编译、类型与纯函数映射已完成替代验证。
 
 ============================================================
 
