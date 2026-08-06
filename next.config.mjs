@@ -28,7 +28,23 @@ const nextConfig = {
   webpack(config, { dev }) {
     config.module.rules.push({
       test: /\.svg$/,
-      use: ["@svgr/webpack"],
+      use: [
+        {
+          loader: "@svgr/webpack",
+          options: {
+            // 禁用 SVGO 的 removeViewBox，确保 SVG 被缩放时
+            // 内部坐标始终随 viewBox 正确变换，图标不会偏到左上角。
+            svgoConfig: {
+              plugins: [
+                {
+                  name: "removeViewBox",
+                  active: false,
+                },
+              ],
+            },
+          },
+        },
+      ],
     });
 
     if (disableChunk) {

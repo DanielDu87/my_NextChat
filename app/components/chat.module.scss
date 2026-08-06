@@ -1647,9 +1647,11 @@
   filter: none !important;
   transition: none !important;
 
-  // 图标颜色跟随主题变量，覆盖 SVG 内联 stroke:#333
+  // 图标颜色对齐 invert(0.5) 后的视觉亮度：chat-export-action 因 no-dark 排除了
+  // 全局 invert(0.5) 滤镜，直接用 var(--black) 会比旁边经过 invert 的图标深太多。
+  // color-mix 62% 在亮暗模式都产出 ~rgb(127)，精确匹配 #333 经 invert(0.5) 的结果。
   :global(svg path) {
-    stroke: var(--black) !important;
+    stroke: color-mix(in srgb, var(--black) 62%, var(--white)) !important;
     fill: none !important;
   }
 
@@ -1679,7 +1681,7 @@
     filter: none !important;
 
     :global(svg path) {
-      stroke: var(--black) !important;
+      stroke: color-mix(in srgb, var(--black) 62%, var(--white)) !important;
     }
 
     :global([class*="icon-button-icon"]),
@@ -1720,7 +1722,7 @@
   }
 }
 
-// 暗色模式：禁用态用深灰底 + 浅灰描边，避免和 idle 状态难以区分
+// 暗色模式：idle 图标颜色由上方 color-mix 统一处理，此处只覆盖 hover/active 和禁用态
 :where(:global(html.dark)) .chat-export-action[class*="chat-export-action"],
 :global(body.dark) .chat-export-action[class*="chat-export-action"] {
   &:not(:disabled):hover,
@@ -1729,7 +1731,7 @@
     color: var(--black) !important;
 
     :global(svg path) {
-      stroke: var(--black) !important;
+      stroke: color-mix(in srgb, var(--black) 62%, var(--white)) !important;
     }
   }
 

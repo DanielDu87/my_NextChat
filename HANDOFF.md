@@ -4,6 +4,29 @@
 
 ============================================================
 
+## 232. 【2026-08-06 22:42】- 修复移动端 SVG 图标缩放偏移和 chat-export-action 图标颜色不一致
+
+### 修改内容
+
+- 修复移动端侧边栏底部设置/主题图标 SVG 被 CSS 缩放时内容偏移到左上角的问题（@svgr/webpack 默认 SVGO 配置 removeViewBox 剥离了 viewBox）。
+- 修复移动端聊天头部"新建对话"加号图标颜色与旁边图标不一致：暗色模式过亮（bright white）、亮色模式过深（near black）。
+
+### 实现方式
+
+- `next.config.mjs`：webpack svg 规则添加 `svgoConfig.plugins` 禁用 `removeViewBox`，保留 SVG 源文件中的 viewBox 属性。
+- `app/components/chat.module.scss`：`.chat-export-action` 的 idle/hover svg path stroke 从 `var(--black)` 改为 `color-mix(in srgb, var(--black) 62%, var(--white))`，在亮暗模式下都精确产出 ~rgb(127)，匹配旁边非 chat-export-action 图标经 `filter: invert(0.5)` 后的视觉亮度。
+
+### 验证
+
+- CDP 验证修复前 svg viewBox 为 null，修复后为 "0 0 16 16"；图标内容渲染尺寸从 15.3×15.3 提升到 19.2×19.2（20px 容器）。
+- 暗色模式截图 AI 分析确认加号图标从 bright white 变为 medium gray，与旁边图标一致。
+- 亮色模式截图 AI 分析确认加号图标颜色与 sliders 图标同色。
+
+### 潜在或遗留问题
+
+- `add.svg` 和 `export.svg` 是 stroke 描边图标（stroke-width 1.333），而 `config.svg` 等是 fill 实心图标，视觉权重天然有差异；颜色已对齐但笔画粗细差异属于图标设计风格，非 bug。
+
+
 ## 231. 【2026-08-03 11:00】- 移动端消息图片轻点优先打开预览
 
 ### 修改内容
