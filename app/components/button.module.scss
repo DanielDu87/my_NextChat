@@ -74,14 +74,6 @@
   }
 }
 
-.icon-button[data-close-button="true"] .icon-button-icon > svg {
-  transform: none;
-}
-
-.icon-button[data-close-button="true"] .icon-button-icon > svg > g {
-  transform: none !important;
-}
-
 .icon-button-icon {
   width: 16px;
   height: 16px;
@@ -129,30 +121,6 @@
 
     .icon-button-text {
       display: none !important;
-    }
-  }
-
-  .icon-button[data-close-button="true"] {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
-    padding: 0 !important;
-  }
-
-  .icon-button[data-close-button="true"] .icon-button-icon {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
-  }
-
-  .icon-button[data-close-button="true"] .icon-button-icon > svg {
-    width: 16px !important;
-    height: 16px !important;
-    transform: none !important;
-
-    > g {
-      transform: none !important;
     }
   }
 

@@ -425,14 +425,6 @@
     justify-content: center;
   }
 
-  .page :global(.window-actions button[data-close-button="true"]) {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
-    border-width: 2px !important;
-  }
-
   .batchAction {
     display: flex;
     margin-bottom: 10px;

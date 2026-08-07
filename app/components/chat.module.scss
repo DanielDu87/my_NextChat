@@ -628,9 +628,38 @@
   flex-shrink: 0;
 }
 
-// 下载按钮：复用 nextchat-close-button 的 38×38 样式，仅调整间距
+// 下载按钮与关闭按钮同尺寸，但不复用关闭动作的语义类
 .file-preview-header-download {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
   margin-right: -4px;
+  padding: 0;
+  border: 2px solid var(--close-button-idle-border-color);
+  border-radius: 10px;
+  background-color: var(--white);
+  box-shadow: var(--card-shadow);
+  color: var(--black);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible,
+  &:active {
+    border-color: var(--primary);
+    background-color: var(--input-control-hover-bg);
+    box-shadow: none;
+    outline: none;
+  }
+
+  svg {
+    width: 16px;
+    height: 16px;
+    filter: none;
+  }
 }
 
 .file-preview-header-title {

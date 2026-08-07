@@ -849,7 +849,7 @@ export function FilePreviewContent(props: {
             type="button"
             aria-label="下载文件"
             title="下载文件"
-            className={`nextchat-close-button ${previewStyles["file-preview-header-download"]}`}
+            className={previewStyles["file-preview-header-download"]}
             onClick={() => {
               const a = document.createElement("a");
               a.href = previewUrl;
@@ -923,7 +923,7 @@ export function FilePreviewContent(props: {
             type="button"
             aria-label="下载文件"
             title="下载文件"
-            className={`nextchat-close-button ${previewStyles["file-preview-header-download"]}`}
+            className={previewStyles["file-preview-header-download"]}
             onClick={() => {
               const a = document.createElement("a");
               a.href = previewUrl;
@@ -1041,7 +1041,7 @@ export function FilePreviewContent(props: {
             type="button"
             aria-label="下载文件"
             title="下载文件"
-            className={`nextchat-close-button ${previewStyles["file-preview-header-download"]}`}
+            className={previewStyles["file-preview-header-download"]}
             onClick={() => {
               const a = document.createElement("a");
               a.href = blobUrl || previewUrl;
@@ -1260,7 +1260,7 @@ export function FilePreviewContent(props: {
           type="button"
           aria-label="下载文件"
           title="下载文件"
-          className={`nextchat-close-button ${previewStyles["file-preview-header-download"]}`}
+          className={previewStyles["file-preview-header-download"]}
           onClick={() => {
             const a = document.createElement("a");
             a.href = blobUrl || previewUrl;

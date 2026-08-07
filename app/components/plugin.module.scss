@@ -344,47 +344,6 @@
       }
     }
 
-    :global([class*="button_icon-button"][data-close-button="true"]) {
-      width: 38px !important;
-      min-width: 38px !important;
-      height: 38px !important;
-      min-height: 38px !important;
-      padding: 0 !important;
-      border-width: 2px !important;
-      border-color: var(--close-button-idle-border-color) !important;
-      border-radius: 10px !important;
-      background-color: var(--white) !important;
-      box-shadow: var(--card-shadow) !important;
-      transform: none !important;
-      filter: none !important;
-    }
-
-    :global([class*="button_icon-button"][data-close-button="true"]:hover),
-    :global([class*="button_icon-button"][data-close-button="true"]:focus-visible),
-    :global([class*="button_icon-button"][data-close-button="true"]:active) {
-      border-color: var(--primary) !important;
-      background-color: color-mix(in srgb, var(--primary) 4%, var(--white)) !important;
-      box-shadow: none !important;
-      outline: none !important;
-      transform: none !important;
-      filter: none !important;
-    }
-
-    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"]),
-    :global([class*="button_icon-button"][data-close-button="true"] svg) {
-      width: 16px !important;
-      height: 16px !important;
-      margin: 0 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      transform: none !important;
-    }
-
-    :global([class*="button_icon-button"][data-close-button="true"] svg > g) {
-      transform: none !important;
-    }
-
     :global([class*="button_icon-button"]:not([data-close-button="true"]) [class*="button_icon-button-icon"]) {
       width: 20px !important;
       height: 20px !important;
@@ -400,17 +359,6 @@
       height: 20px !important;
     }
 
-    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"]),
-    :global([class*="button_icon-button"][data-close-button="true"] [class*="button_icon-button-icon"] > svg),
-    :global([class*="button_icon-button"][data-close-button="true"] svg) {
-      width: 16px !important;
-      height: 16px !important;
-      margin: 0 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      transform: none !important;
-    }
   }
 
   .plugin-page .plugin-page-body {

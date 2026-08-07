@@ -10916,7 +10916,6 @@ function ChatContent() {
                           </div>
                           <button
                             type="button"
-                            data-close-button="true"
                             className={
                               styles["chat-ai-selection-context-close"]
                             }

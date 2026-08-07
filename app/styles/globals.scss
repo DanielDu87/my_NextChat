@@ -757,6 +757,7 @@ button[data-close-button="true"] svg {
 .nextchat-close-button svg,
 button[data-close-button="true"] svg {
   display: block !important;
+  filter: none !important;
 }
 
 .nextchat-close-button svg>g,

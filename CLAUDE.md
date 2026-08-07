@@ -479,7 +479,7 @@ yarn db:seed-chat-performance     # 性能压测数据填充
 - `.nextchat-primary-button`：主操作实心按钮（如"保存"、"添加"）。
 - `.nextchat-action-button`：列表行内可点击操作按钮（如"查看并编辑"）。
 - `.nextchat-danger-button`：危险描边按钮（如"删除"）。
-- `.nextchat-close-button`：38×38 关闭按钮（`IconButton` 设 `close` 时自动应用）。
+- `.nextchat-close-button`：38×38 关闭按钮（`IconButton` 设 `close` 时自动应用），SVG 统一使用 `currentColor` 并排除暗色模式的全局反相滤镜。
 
 约定：
 

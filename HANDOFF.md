@@ -4,6 +4,34 @@
 
 ============================================================
 
+## 233. 【2026-08-08 00:48】- 所有关闭按钮统一为 model-fetch 基准样式
+
+### 修改内容
+
+- 以 `/model-fetch` 页头关闭按钮为唯一视觉基准，统一所有真实关闭按钮的 38×38 尺寸、2px 边框、背景、阴影、圆角、图标颜色和 hover / focus / active 状态。
+- 修复暗色模式通用 SVG 反相滤镜导致相同关闭图标因 DOM 包装不同而变色的问题；同步更新 `CLAUDE.md` 公共类约束。
+- 移除插件页及 API 配置、备份、模型获取相关页面复制的关闭按钮外观规则；纠正文件下载和“移除选中文本”按钮误用关闭按钮语义类的问题。
+
+### 实现方式
+
+- `app/styles/globals.scss` 继续作为关闭按钮唯一样式 owner，并在关闭 SVG 公共规则增加 `filter: none !important`；现有 `stroke: currentcolor !important` 统一覆盖 SVG 内联颜色。
+- 删除 `plugin.module.scss`、`provider-balances.module.scss`、`api-config.module.scss`、`api-config-backups.module.scss`、`chat-backups.module.scss` 与 `button.module.scss` 中重复或不可达的关闭按钮外观规则，各页面只保留页头定位布局。
+- `chat.tsx` 的“移除选中文本”按钮移除 `data-close-button`；`file-preview.tsx` 下载按钮改用专用 `.file-preview-header-download`，保持同尺寸操作按钮外观但不冒充关闭动作。
+
+### 验证
+
+- `npx tsc --noEmit --pretty false`、`yarn lint` 与 `git diff --check` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
+- 全仓静态审计确认剩余 `.nextchat-close-button`、`data-close-button="true"` 和 `IconButton close` 均为真实关闭动作，组件级 SCSS 不再覆盖关闭按钮视觉；本地热加载连续编译成功。
+- 浏览器在 393×852 暗色 `/api_config` 实测关闭按钮 `color=rgb(187, 187, 187)`、SVG `filter=none`，两条 path 的计算 `stroke` 均为 `rgb(187, 187, 187)`，与用户提供的 `/model-fetch` 基准一致。
+- 全文件 Prettier 检查仍命中多个大文件的既有格式基线差异；本次改动通过 `git diff --check`，未整体格式化这些文件以避免无关大面积变更。
+
+### 潜在或遗留问题
+
+- 内嵌浏览器后续出现标签无法恢复且新 webview 未附着，未能再次逐页执行 hover 和截图对比；已完成公共 owner、静态消费者、类型、Lint、热加载与 `/api_config` 计算样式验证。
+- 未执行生产部署；本次仅在本地 `nextchat-dev` 热加载环境验证。
+
+============================================================
+
 ## 232. 【2026-08-06 22:42】- 修复移动端 SVG 图标缩放偏移和 chat-export-action 图标颜色不一致
 
 ### 修改内容
@@ -394,65 +422,5 @@
 ### 潜在或遗留问题
 
 - 当前安装未启用 in-app Browser pane，无法附着现有 Docker 页面做截图和计算样式检查；未修改 Browser 配置或产品全局样式。
-
-============================================================
-
-## 217. 【2026-07-25 09:10】- 抽出文件预览与 Code Interpreter 本地容器接入
-
-### 修改内容
-
-- 把散落在 `app/components/chat.tsx` 的附件 Glyph、文件预览对象 URL 缓存、Blob 读取、文件大小请求、PDF/Office 预览分支统一收敛到 `app/hooks/useFilePreview.tsx` 与 `app/components/file-preview.tsx`，新增 `app/hooks/` 目录。
-- Markdown 链接与聊天附件的同款文件卡片样式从 `chat.module.scss` 抽到 `app/styles/globals.scss` 的 `.markdown-body .chat-message-attached-file` 公共作用域，让 `markdown.tsx` 也能渲染统一视觉。
-- `app/utils/attachment-file.ts` 新增 `isFetchableAttachmentUrl` URL 守卫与 `AttachmentTypeKind` / `AttachmentLike` 类型与 `getAttachmentTypeKind` / `getAttachmentTypeLabel` / `formatAttachmentSize` 等判断函数；`markdown.tsx` 复用同一套判断和 hook。
-- `app/utils/generated-file-links.ts` 新增 `assignGeneratedFileAliases`：先按精确文件名匹配，重命名时仅在相同扩展名的沙箱引用与生成文件能一一对应时按顺序建立别名；`plugin.ts` 在 `materializePluginGeneratedFiles` 中调用，把别名持久化进 `result.data.files.aliases`，使流式更新、最终写回和历史消息重渲染复用同一映射。
-- `docker-compose.yml` 新增 `codeinterpreter-local` 服务（基于 `scripts/code-interpreter/Dockerfile` 构建，固定镜像名 `codeinterpreter-api-local:latest`，`expose 5000` + `codeinterpreter-local-data` 数据卷），并把本地启动命令改为带 `--profile codeinterpreter-local`；`CLAUDE.md` / `README.md` / `docs/development.md` 同步记录本地容器接入、Code Interpreter 文件下载链路与 DOCX 预览滚动 owner 约束。
-- 新建 `.githooks/commit-msg` 校验脚本，强制提交首行必须是 `YYYY-MM-DD HH:MM ` 时间戳前缀；`git config core.hooksPath .githooks` 切换到独立钩子目录，最近 5 次提交格式审计已通过、无需 filter-branch。
-
-### 实现方式
-
-- `app/hooks/useFilePreview.tsx` 暴露 `useFilePreview()`：`openFilePreview(url, name, options)` 维护对象 URL 缓存（最大 24 条命中 LRU）、按内容类型派发到 PDF/Office/图片/纯文本分支；`app/components/file-preview.tsx` 提供 `FilePreviewModal` 与 `AttachmentFileGlyph`，缓存 blob 与下载 blob 两条 DOCX 渲染分支均通过 `applyDocxSectionSizing()` 把渲染出的 `section.docx` 强制设为 `width: 100%; max-width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto`。
-- `app/components/chat.tsx` 移除已抽出的 `AttachmentFileGlyph` / `filePreviewObjectUrlCache` / `getCachedPreviewBlob` / `setCachedPreviewBlob` 等实现，仅保留 `clearComposerAttachmentDraftCache` 等写回逻辑；`app/components/chat.module.scss` 同步删除对应 `.docx-preview-*`、`.file-preview-*` 重复样式，仅保留布局/尺寸/暗色图标。
-- `app/styles/globals.scss` 新增 187 行 Markdown 卡片公共样式，并补齐 `nextchat-primary-button` 的 `font-family` 兜底（避免本机缺字体时按钮高度被异常撑高）。
-- `app/utils/generated-file-links.ts` 在 `getFileNameVariants` 中补 `decodeURIComponent` 变体；新增 `getPathFileName` / `getFileExtension` 帮助函数与顺序回退匹配；`plugin.ts` 在文件上传并提交缓存后调用 `assignGeneratedFileAliases` 写回别名。
-- `.githooks/commit-msg` 使用 `head -1 | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} '` 校验，首行不合规直接 `exit 1`；`git config core.hooksPath .githooks` 切换到独立目录。
-
-### 验证
-
-- `yarn lint` 通过；`npx tsc --noEmit --pretty false` 通过；`git diff --check` 与 Prettier 通过。
-- `.githooks/commit-msg` 通过两条手工测试：无时间戳消息 exit 1，合规消息 exit 0。
-- 远程分支 `origin/main` 当前 HEAD = `012e30ea`，与本地一致；`gitee/main` 与 `ss/main` 待推送后由 `git ls-remote` 验证。
-
-### 潜在或遗留问题
-
-- 本地未启用 in-app Browser pane，本轮未通过浏览器工具手动点击 DOCX 滚动；HANDOFF #215/#216 完成的运行态与缓存接口验证仍然有效，本次主要是把已有能力抽到独立 hook/组件并接入本地 Code Interpreter 容器。
-- `scripts/git-commit-push.sh` 当前仓库内不存在，本次提交直接走 `git add` + `git commit` + `git push`，未走脚本；后续如需引入该脚本需补齐 `rules-audit.sh` 与脚本文件。
-
-============================================================
-
-## 216. 【2026-07-25 09:10】- Word 预览支持纵向滚动查看长文档
-
-### 修改内容
-
-- 修复 Code Interpreter 生成的 Word 文档在弹窗内只能看到上半部分、长内容被截断的问题；改为由预览根容器内部纵向滚动，可完整查看整份文档。
-- 保留桌面端宽度自适应、移动端等比缩放、PDF/Excel/图片/纯文本等其它预览不受影响。
-
-### 实现方式
-
-- `app/components/chat.module.scss` 调整 `.docx-preview-container.docx-preview-container`：移除对自身的 `height: 100% / flex: 1`，让内部 `section.docx` 按内容自然增长；`:global(section.docx)` 改为 `height: auto; min-height: 0; max-height: none; flex: 0 0 auto; margin: 0 auto`，只保留宽度自适应并保持白底/边框/阴影。
-- 滚动 owner 仍是 `.docx-preview-root`（`flex: 1; min-height: 0; overflow-y: auto; padding: 16px`），文档页超出根视口时由外层滚动条接管；移动端 `.docx-preview-container` 的 `align-items: flex-start` 不变，宽度缩放仍交由 `applyDocxAutoScale` 处理。
-- `app/components/file-preview.tsx` 新增 `applyDocxSectionSizing()`：把渲染出的 `section.docx` 强制设为 `width: 100%; max-width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto`，并在渲染同步帧、`requestAnimationFrame` 与 100ms 延时各执行一次，覆盖 `docx-preview` 内联样式。两条 DOCX 渲染分支（缓存 blob 与全新下载 blob）均改用该 helper，删除旧 `fixDocxSection`。
-- `docs/development.md` 在 Code Interpreter 文件预览段后新增规则说明滚动 owner、容器/段落约束和禁止恢复 `height: 100% / flex: 1`。
-
-### 验证
-
-- `yarn lint` 通过，仅保留 `file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false`、Prettier、`git diff --check` 通过。
-- 针对性 `tsx` 检查：文件中 `applyDocxSectionSizing` 引用 7 处（1 定义 + 6 调用：缓存分支 + 下载分支 × `fixDocxSection + rAF + setTimeout`），旧 `fixDocxSection` 已为 0；helper 内含全部 6 个期望属性赋值。
-- `nextchat-dev` 正常运行，`/chat` 返回 HTTP 200，热加载编译成功；宿主机与容器内 `app/components/file-preview.tsx` 与 `app/components/chat.module.scss` SHA-256 完全一致，真实 `HEAD /api/cache/<uuid>.docx` 仍返回 HTTP 200。
-
-### 潜在或遗留问题
-
-- 当前安装未启用 in-app Browser pane，未通过该工具在浏览器中拖动滚动条验证长文档；运行态、热加载、容器源码一致性、纯函数行为已完成替代验证；建议在启用 Browser pane 后用真实 DOCX 做最终滚动确认。
-
-============================================================
 
 ============================================================
