@@ -727,7 +727,7 @@
   /* 备份历史标题区域优化 */
   .historyHeader {
     align-items: flex-start;
-    flex-direction: column;
+    flex-direction: column !important;
     gap: 12px;
   }
 
