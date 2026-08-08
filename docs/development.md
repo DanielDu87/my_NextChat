@@ -174,7 +174,7 @@ Word（DOCX）预览弹窗使用 `docx-preview` 渲染。预览根容器 `.docx-
 
 客户端唯一的 `BrowserRouter` owner 位于 `app/components/home.tsx`，固定启用 React Router v7 兼容标志 `v7_startTransition` 与 `v7_relativeSplatPath`。新增或调整路由时必须在当前 v6 运行态下保持这两项兼容行为，避免开发控制台重复输出升级警告，也避免升级到 v7 时状态更新调度和 splat 相对路径语义突然变化。
 
-`app/utils/route-sync-entry.ts` 的 `installReactRouterHistoryBridge()` 是 React Router 与 Next App Router 的 history 边界：它合并当前 Next 内部 history state，并给 React Router 的普通路径写入补上 `__NA` 标记，确保站内切页只由 BrowserRouter 消费，不触发 Next 对同一个 catch-all 页面再发 RSC 请求。`home.tsx` 在挂载时立即安装，并在 effect 队列结束后复核一次，以覆盖 Next 父级 effect 较晚安装 history 包装器的时序。不要把该桥接改成 hash 路由，也不要丢弃 Next 当前的 tree state，否则普通路径、浏览器前进后退或 App Router 自身 history 会失去一致性。
+`app/utils/route-sync-entry.ts` 的 `installReactRouterHistoryBridge()` 是 React Router 与 Next App Router 的 history 边界：它合并当前 Next 内部 history state，并给 React Router 的普通路径写入补上 `__NA` 标记，确保站内切页只由 BrowserRouter 消费，不触发 Next 对同一个 catch-all 页面再发 RSC 请求。`home.tsx` 在挂载时立即安装，并在 effect 队列结束后复核一次，以覆盖 Next 父级 effect 较晚安装 history 包装器的时序。`chat.tsx` 在首条消息把 `/chat` 补全为 `/chat/<id>` 前会再次确保 bridge 已生效，避免流式回复期间出现页面刷新感；`app/utils/chat-startup-loading.ts` 会在持久化的 `syncing` 状态超时后自动退回为非阻塞状态，防止刷新/取消后全屏加载永久挂住。不要把该桥接改成 hash 路由，也不要丢弃 Next 当前的 tree state，否则普通路径、浏览器前进后退或 App Router 自身 history 会失去一致性。
 
 `app/utils/route-sync-entry.ts` 提供 `markRouteSyncBootstrap()` / `shouldSkipAutoSyncByRecentBootstrap()` / `resetRouteSyncBootstrap()` 共享去重窗口（默认 5 秒）。`home.tsx` 的 home-bootstrap 在调用 `syncChatOnStartup` 前调 `markRouteSyncBootstrap("home-bootstrap")`；`auto-sync.tsx` 的 `attemptAutoSync` 用 `shouldSkipAutoSyncByRecentBootstrap()` 判定，命中即跳过；路由切换时 `resetRouteSyncBootstrap()` 清空窗口。
 

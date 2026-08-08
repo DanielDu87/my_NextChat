@@ -165,6 +165,7 @@ import {
 import { useSyncStore } from "../store/sync";
 import { ProviderType } from "../utils/cloud";
 import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
+import { installReactRouterHistoryBridge } from "../utils/route-sync-entry";
 
 const CHAT_BACKUP_ENTRIES = [
   { name: "API 配置", path: Path.ApiConfig, icon: <ConnectionIcon /> },
@@ -3121,6 +3122,8 @@ function ChatContent() {
       return;
     }
 
+    installReactRouterHistoryBridge();
+
     try {
       window.sessionStorage.setItem(
         "nextchat_tab_current_session_id",
@@ -3490,6 +3493,7 @@ function ChatContent() {
     centeredLatestUserMessageSpacerHeight,
     setCenteredLatestUserMessageSpacerHeight,
   ] = useState(0);
+  const [messageNormalizationTick, setMessageNormalizationTick] = useState(0);
   const inputFontSize = isMobileScreen
     ? Math.max(Number(config.fontSize) || 16, 16)
     : config.fontSize;
@@ -4919,7 +4923,50 @@ function ChatContent() {
     ChatControllerPool.stopSession(session.id);
   };
 
-  // Effect A：消息标准化（修复残留 streaming 和空响应）
+  useEffect(() => {
+    const staleStreamingMessages = sessionMessages.filter((message) => {
+      if (!message.streaming) {
+        return false;
+      }
+
+      if (!message.id || ChatControllerPool.has(session.id, message.id)) {
+        return false;
+      }
+
+      const messageTime = new Date(message.date).getTime();
+      if (!Number.isFinite(messageTime)) {
+        return true;
+      }
+
+      return Date.now() - messageTime < STREAMING_CONTROLLER_STARTUP_GRACE_MS;
+    });
+
+    if (staleStreamingMessages.length === 0) {
+      return;
+    }
+
+    const remaining = staleStreamingMessages.reduce((minRemaining, message) => {
+      const messageTime = new Date(message.date).getTime();
+      if (!Number.isFinite(messageTime)) {
+        return 0;
+      }
+
+      return Math.min(
+        minRemaining,
+        Math.max(
+          0,
+          STREAMING_CONTROLLER_STARTUP_GRACE_MS - (Date.now() - messageTime),
+        ),
+      );
+    }, STREAMING_CONTROLLER_STARTUP_GRACE_MS);
+
+    const timer = window.setTimeout(() => {
+      setMessageNormalizationTick((tick) => tick + 1);
+    }, remaining + 1);
+
+    return () => window.clearTimeout(timer);
+  }, [session.id, sessionMessages]);
+
   useEffect(() => {
     const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
     const shouldNormalizeMessages = sessionMessages.some((m) => {
@@ -5023,6 +5070,7 @@ function ChatContent() {
     chatStore,
     isStaleAssistantLoadingBubble,
     isStaleStreamingMessage,
+    messageNormalizationTick,
     session,
     sessionMessages,
   ]);
@@ -11727,6 +11775,7 @@ export function Chat() {
       session?.id &&
       session.messages.length > 0
     ) {
+      installReactRouterHistoryBridge();
       navigate(`/chat/${session.id}`, { replace: true });
     }
   }, [location.pathname, navigate, session?.id, session?.messages.length]);

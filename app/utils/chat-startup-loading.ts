@@ -55,6 +55,7 @@ export function useStartupChatSyncStatus() {
       try {
         const raw = window.localStorage.getItem(STARTUP_CHAT_SYNC_STATUS_KEY);
         if (!raw) {
+          setStartupChatSyncStatus(null);
           return;
         }
 
@@ -65,8 +66,11 @@ export function useStartupChatSyncStatus() {
           Number.isFinite(parsed.updatedAt)
         ) {
           setStartupChatSyncStatus(parsed);
+          return;
         }
       } catch {}
+
+      setStartupChatSyncStatus(null);
     };
 
     readStatus();
@@ -114,6 +118,29 @@ export function useStartupChatSyncStatus() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!startupChatSyncStatus || startupChatSyncStatus.status !== "syncing") {
+      return;
+    }
+
+    const elapsed = Date.now() - startupChatSyncStatus.updatedAt;
+    const remaining = STARTUP_CHAT_SYNC_WAIT_MS - elapsed;
+    if (remaining <= 0) {
+      setStartupChatSyncStatus((current) =>
+        current?.status === "syncing" ? { ...current, status: "error" } : current,
+      );
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setStartupChatSyncStatus((current) =>
+        current?.status === "syncing" ? { ...current, status: "error" } : current,
+      );
+    }, remaining);
+
+    return () => window.clearTimeout(timer);
+  }, [startupChatSyncStatus]);
 
   return startupChatSyncStatus;
 }

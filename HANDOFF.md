@@ -4,6 +4,32 @@
 
 ============================================================
 
+## 235. 【2026-08-08 22:46】- 修复对话刷新感与加载卡住
+
+### 修改内容
+
+- 修复聊天首条消息把 `/chat` 补全为 `/chat/<id>` 时可能出现的页面刷新感，避免流式回复期间 Next 重新接管站内 history 写入。
+- 修复持久化的启动同步状态在刷新或取消后可能长期停在 `syncing`，从而让聊天页全屏加载一直不退出的问题。
+- 为重新加载后没有 controller 的旧 `streaming` 占位消息补一次到期重算，避免回复中的三点加载无限残留。
+
+### 实现方式
+
+- `app/components/chat.tsx` 在首条消息同步 URL 前显式重新安装 React Router history bridge，保证 `/chat` -> `/chat/<id>` 仍然只更新地址栏，不触发 Next 的整页副作用重连。
+- `app/utils/chat-startup-loading.ts` 在读取和监听启动同步状态时补充超时唤醒；当本地持久化状态超过 30 秒仍停留在 `syncing` 时，自动转为非阻塞状态，避免全屏加载永久卡住。
+- `app/components/chat.tsx` 给无 controller 的旧流式消息增加一次到期后触发的消息标准化 tick，保证宽限期结束后会回收刷新中断态。
+- `docs/development.md` 记录聊天路由 bridge 与启动同步状态的恢复边界。
+
+### 验证
+
+- `npx tsc --noEmit --pretty false`、`yarn lint` 与 `git diff --check` 通过；Lint 仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示。
+- 本地 `http://localhost:3000/chat` 返回 HTTP 200；真实发送无敏感消息 `hello` 后，地址从 `/chat` 更新为 `/chat/_ENm8TX1Sc6sLhZ33kx-E`，流式加载气泡正常落定为回复文本与 Token 用量，未出现全屏加载遮罩或页面重载。
+
+### 潜在或遗留问题
+
+- 无。
+
+============================================================
+
 ## 234. 【2026-08-08 12:46】- 修复备份历史移动端标题逐字换行
 
 ### 修改内容
