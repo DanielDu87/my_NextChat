@@ -255,10 +255,9 @@ export const DEFAULT_CONFIG = {
     model: LATEST_OPENAI_DEFAULT_MODEL as ModelType,
     providerName: "Custom" as ServiceProvider,
     stream: true,
-    // OpenAI 官方推荐默认值：temperature=1.0, top_p=1.0（不同时改两个），
-    // presence_penalty=0, frequency_penalty=0。受约束模型会在请求层移除采样字段。
-    temperature: 1.0,
-    top_p: 1,
+    // 默认采样值可在设置中针对所有模型编辑；受约束模型仍由请求层移除不兼容字段。
+    temperature: 0.4,
+    top_p: 0.9,
     // 0 means automatic: only supported providers receive an explicit top_k.
     top_k: 0,
     max_tokens: 16384,
@@ -671,7 +670,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
   }),
   {
     name: StoreKey.Config,
-    version: 4.7,
+    version: 4.8,
     partialize(state) {
       const { models, ...persistedState } = state as ChatConfig;
       void models;
@@ -810,6 +809,11 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
       if (version < 4.7) {
         delete (state as any).autoModelSeries;
         delete (state as any).autoModelSeriesUpdatedAt;
+      }
+
+      if (version < 4.8) {
+        state.modelConfig.temperature = 0.4;
+        state.modelConfig.top_p = 0.9;
       }
 
       state.modelConfig = sanitizeLegacyGeneratedCustomModelConfig(

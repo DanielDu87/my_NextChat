@@ -4,6 +4,30 @@
 
 ============================================================
 
+## 236. 【2026-08-09 18:42】- 开放全局模型参数编辑并更新采样默认值
+
+### 修改内容
+
+- 全局设置中的模型参数固定显示并可编辑，不再因当前模型能力矩阵禁用；工具调用策略的全部选项、提示缓存和绘图参数同样可预先保存。
+- 默认与既有本地配置迁移后的采样值统一为 `temperature=0.4`、`top_p=0.9`。
+- 同步更新 README 与开发文档，明确上游不支持的字段仍由请求层自动过滤。
+
+### 实现方式
+
+- `ModelConfigList` 仅在显式只读场景锁住参数；设置页传入 `showAllParameters`，并保留能力提示作为请求层过滤说明。
+- 配置持久化版本升级至 `4.8`，迁移时覆盖旧本地配置的两个采样值；新安装使用相同默认值。
+
+### 验证
+
+- `yarn lint` 通过，仅保留 `app/components/file-preview.tsx` 既有 `<img>` 性能提示；`npx tsc --noEmit --pretty false` 与 `git diff --check` 通过。
+- 本地 Docker socket 无访问权限，未能确认 `nextchat-dev` 热加载容器的挂载与运行态。
+
+### 潜在或遗留问题
+
+- 不支持该字段的上游模型仍会忽略已保存值，这是避免请求被拒绝的既有请求层保护。
+
+============================================================
+
 ## 235. 【2026-08-08 22:46】- 修复对话刷新感与加载卡住
 
 ### 修改内容
@@ -447,29 +471,5 @@
 
 - 当前安装未启用 in-app Browser pane，Playwright 又受系统临时目录权限限制，因此未能用浏览器工具点击真实短 DOCX 检查计算高度与最终样式；已完成样式、类型、编译和响应式尺寸链路验证。
 - 开发容器旧日志中存在与本次无关的 `cache_file_references` 外键约束错误，本轮未修改数据库或缓存引用链路。
-
-============================================================
-
-## 218. 【2026-07-25 09:17】- 提示词数量徽章复用全局样式
-
-### 修改内容
-
-- 提示词选择弹窗的“共 N 条”数量徽章改为复用 `app/styles/globals.scss` 现有 `.nextchat-modal-count` 公共类，不再由 `app/components/chat.module.scss` 重复声明胶囊外观和暗色覆盖；并通过本地 `.prompt-picker-count` 仅覆盖边框粗细和颜色为 `var(--close-button-border-width)` 与 `var(--close-button-border-color)`，满足特定场景的 1px / `rgba(100, 116, 139, 0.24)` 视觉。
-- 关闭按钮继续使用现有 `.nextchat-close-button` 公共样式，不做局部覆盖。
-
-### 实现方式
-
-- `app/styles/globals.scss` 将 `.nextchat-modal-count` 的 `border` 简写拆为 `border-style/border-width/border-color` 三条独立声明，方便后续只覆盖颜色或粗细时无需 `!important`。
-- `app/components/chat.tsx` 为数量徽章追加 `nextchat-modal-count` 类，同时保留本地 `prompt-picker-count` 作为移动端隐藏选择器和边框覆盖锚点；关闭按钮不再追加任何本地类。
-- `app/components/chat.module.scss` 删除数量徽章的尺寸、边框、背景、字体、阴影及两套暗色外观，只保留既有移动端布局规则中的隐藏行为；本地 `.prompt-picker-count` 仅覆盖边框粗细和颜色，无需 `!important`。
-
-### 验证
-
-- `yarn prettier --check app/components/chat.module.scss`、`yarn lint` 和 `git diff --check` 通过；`chat.tsx` 在修改前已存在全文件 Prettier 基线差异，本次修改片段与 Prettier 输出一致。
-- `nextchat-dev` 容器保持运行并完成热加载编译，最新日志显示 5760 modules 编译成功。
-
-### 潜在或遗留问题
-
-- 当前安装未启用 in-app Browser pane，无法附着现有 Docker 页面做截图和计算样式检查；未修改 Browser 配置或产品全局样式。
 
 ============================================================

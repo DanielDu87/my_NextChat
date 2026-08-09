@@ -1731,6 +1731,7 @@ export function Settings() {
               updater(modelConfig);
               config.update((config) => (config.modelConfig = modelConfig));
             }}
+            showAllParameters
           />
         </List>
 

@@ -142,7 +142,6 @@ export function ModelConfigList(props: {
   const supportsSeed = parameterSupport.seed;
   const supportsModalities = parameterSupport.modalities;
   const stopSequenceLimit = parameterSupport.stop_sequence_limit;
-  const toolChoiceModes = parameterSupport.tool_choice_modes;
   const temperatureRange = getTemperatureRange(props.modelConfig.model);
   const topPRange = getTopPRange(props.modelConfig.model);
   const contextWindowTokens = getKnownContextWindow(props.modelConfig.model);
@@ -177,7 +176,9 @@ export function ModelConfigList(props: {
     parameterGroup,
   );
   const showParameter = (supported: boolean) => showAllParameters || supported;
-  const parameterDisabled = (supported: boolean) => readonly || !supported;
+  // 全局设置应允许预先保存任意参数值；请求层仍会按实际模型能力过滤
+  // 不兼容字段，避免 UI 的可编辑性被上游能力矩阵限制。
+  const parameterDisabled = (_supported: boolean) => readonly;
   const parameterSubTitle = (
     supported: boolean,
     supportedText: string,
@@ -581,17 +582,17 @@ export function ModelConfigList(props: {
                   {
                     value: "auto",
                     label: "auto",
-                    disabled: !toolChoiceModes.includes("auto"),
+                    disabled: false,
                   },
                   {
                     value: "required",
                     label: "required",
-                    disabled: !toolChoiceModes.includes("required"),
+                    disabled: false,
                   },
                   {
                     value: "none",
                     label: "none",
-                    disabled: !toolChoiceModes.includes("none"),
+                    disabled: false,
                   },
                 ]}
                 onChange={(value) =>
@@ -784,7 +785,7 @@ export function ModelConfigList(props: {
                 type="checkbox"
                 checked={props.modelConfig.promptCache !== false}
                 disabled={parameterDisabled(supportsPromptCache)}
-                readOnly={!supportsPromptCache}
+                readOnly={readonly}
                 onChange={(e) =>
                   props.updateConfig(
                     (config) => (config.promptCache = e.currentTarget.checked),
@@ -855,14 +856,11 @@ export function ModelConfigList(props: {
               const conditionallyDisabled =
                 definition.value === "output_compression" &&
                 !["jpeg", "webp"].includes(outputFormat);
-              const disabled =
-                parameterDisabled(supported) || conditionallyDisabled;
-              const value = supported
-                ? getGenerationParamValue(definition.value)
-                : "";
+              const disabled = parameterDisabled(supported);
+              const value = getGenerationParamValue(definition.value);
               const subTitle = supported
                 ? conditionallyDisabled
-                  ? "仅在输出格式为 JPEG 或 WebP 时可用"
+                  ? "仅在输出格式为 JPEG 或 WebP 时发送；可预先保存"
                   : definition.help || definition.sub || "按当前绘图模型发送"
                 : "当前绘图模型不支持，发送请求时自动忽略";
 
