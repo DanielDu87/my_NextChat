@@ -24,7 +24,7 @@ import {
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -50,12 +50,12 @@ interface RequestPayloadForByteDance {
 }
 
 export class DoubaoApi implements LLMApi {
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.bytedanceUrl;
     }
 
@@ -73,7 +73,7 @@ export class DoubaoApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -125,12 +125,17 @@ export class DoubaoApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(ByteDance.ChatPath);
+      const chatPath = this.path(ByteDance.ChatPath, options.requestBaseUrl);
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // make a fetch request
@@ -148,7 +153,12 @@ export class DoubaoApi implements LLMApi {
         return streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          getHeaders(
+            false,
+            modelConfig,
+            options.disableAutoFallback,
+            options.requestApiKey,
+          ),
           tools as any,
           funcs,
           controller,

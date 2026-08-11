@@ -91,13 +91,6 @@ const Artifacts = dynamic(async () => (await import("./artifacts")).Artifacts, {
   loading: () => <LoadingView size="splash" className="no-dark" />,
 });
 
-const ApiConfigPage = dynamic(
-  async () => (await import("./api-config")).ApiConfigPage,
-  {
-    loading: () => <LoadingView size="splash" className="no-dark" />,
-  },
-);
-
 const ApiConfigBackupsPage = dynamic(
   async () => (await import("./api-config-backups")).ApiConfigBackupsPage,
   { loading: () => <LoadingView size="splash" className="no-dark" /> },
@@ -110,11 +103,6 @@ const ProviderBalancesPage = dynamic(
   async () => (await import("./provider-balances")).ProviderBalancesPage,
   { loading: () => <LoadingView size="splash" className="no-dark" /> },
 );
-const ProviderModelFetchPage = dynamic(
-  async () => (await import("./provider-model-fetch")).ProviderModelFetchPage,
-  { loading: () => <LoadingView size="splash" className="no-dark" /> },
-);
-
 const PluginPage = dynamic(async () => (await import("./plugin")).PluginPage, {
   loading: () => <LoadingView size="splash" className="no-dark" />,
 });
@@ -556,7 +544,7 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
             />
             <Route path={Path.ChatWithId} element={<Chat />} />
             <Route path={Path.Chat} element={<Chat />} />
-            <Route path={Path.ApiConfig} element={<ApiConfigPage />} />
+            <Route path={Path.ApiConfig} element={<ProviderBalancesPage />} />
             <Route
               path={Path.LegacyApiConfig}
               element={<Navigate to={Path.ApiConfig} replace />}
@@ -575,19 +563,19 @@ function Screen({ chatBootstrapped }: { chatBootstrapped: boolean }) {
             />
             <Route
               path={Path.ProviderBalances}
-              element={<ProviderBalancesPage />}
+              element={<Navigate to={Path.ApiConfig} replace />}
             />
             <Route
               path={Path.ProviderModelFetch}
-              element={<ProviderModelFetchPage />}
+              element={<Navigate to={Path.ApiConfig} replace />}
             />
             <Route
               path={Path.LegacyProviderBalances}
-              element={<Navigate to={Path.ProviderBalances} replace />}
+              element={<Navigate to={Path.ApiConfig} replace />}
             />
             <Route
               path="/info/balances"
-              element={<Navigate to={Path.ProviderBalances} replace />}
+              element={<Navigate to={Path.ApiConfig} replace />}
             />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
             <Route path={Path.PromptManager} element={<PromptManagerPage />} />

@@ -67,12 +67,12 @@ function capitalizeKeys(obj: any): any {
 }
 
 export class HunyuanApi implements LLMApi {
-  path(): string {
+  path(requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.tencentUrl;
     }
 
@@ -138,12 +138,17 @@ export class HunyuanApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path();
+      const chatPath = this.path(options.requestBaseUrl);
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // make a fetch request

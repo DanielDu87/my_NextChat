@@ -23,7 +23,7 @@ import { getClientConfig } from "@/app/config/client";
 import { getMessageTextContent, getTimeoutMSByModel } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -49,12 +49,12 @@ interface RequestPayload {
 }
 
 export class ErnieApi implements LLMApi {
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.baiduUrl;
     }
 
@@ -73,7 +73,7 @@ export class ErnieApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -135,7 +135,10 @@ export class ErnieApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      let chatPath = this.path(Baidu.ChatPath(modelConfig.model));
+      let chatPath = this.path(
+        Baidu.ChatPath(modelConfig.model),
+        options.requestBaseUrl,
+      );
 
       // getAccessToken can not run in browser, because cors error
       if (!!getClientConfig()?.isApp) {
@@ -156,7 +159,12 @@ export class ErnieApi implements LLMApi {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // make a fetch request

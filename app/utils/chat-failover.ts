@@ -90,6 +90,8 @@ export function buildChatFailoverCandidates(
     providerId?: string;
     profileId?: string;
     providerDisplayName?: string;
+    /** 当前供应商在配置页已添加的模型；未提供时仅保留当前模型。 */
+    allowedFallbackModelNames?: ReadonlySet<string>;
   },
 ): ChatFailoverCandidate[] {
   const normalizedCurrentProviderId = String(current.providerId || "")
@@ -118,8 +120,7 @@ export function buildChatFailoverCandidates(
       .trim()
       .toLowerCase();
     const modelProviderName = model.provider?.providerName as
-      | ServiceProvider
-      | undefined;
+      ServiceProvider | undefined;
     if (!providerId || !modelProviderName) continue;
 
     const profile = profiles.find(
@@ -129,7 +130,11 @@ export function buildChatFailoverCandidates(
     if (providerName === ServiceProvider.Custom && !profile?.baseUrl) {
       continue;
     }
-    if (!profile && providerId !== currentProviderId) {
+    // 故障转移绝不跨供应商，并且只使用当前供应商在配置页已添加的模型。
+    if (
+      providerId !== currentProviderId ||
+      !current.allowedFallbackModelNames?.has(model.name)
+    ) {
       continue;
     }
 
@@ -175,7 +180,6 @@ export function buildChatFailoverCandidates(
     } satisfies ChatFailoverCandidate);
 
   const currentProviderCandidates: ChatFailoverCandidate[] = [];
-  const otherProviderCandidates: ChatFailoverCandidate[] = [];
 
   for (const candidate of candidateByKey.values()) {
     if (
@@ -184,11 +188,7 @@ export function buildChatFailoverCandidates(
     ) {
       continue;
     }
-    if (candidate.providerId === currentProviderId) {
-      currentProviderCandidates.push(candidate);
-    } else {
-      otherProviderCandidates.push(candidate);
-    }
+    currentProviderCandidates.push(candidate);
   }
 
   const sortModels = (candidates: ChatFailoverCandidate[]) =>
@@ -218,25 +218,9 @@ export function buildChatFailoverCandidates(
     }
   }
 
-  const otherProviderGroups = new Map<string, ChatFailoverCandidate[]>();
-  for (const candidate of otherProviderCandidates) {
-    const group = otherProviderGroups.get(candidate.providerId) || [];
-    group.push(candidate);
-    otherProviderGroups.set(candidate.providerId, group);
-  }
-  const otherProvidersSorted = [...otherProviderGroups.values()]
-    .sort((left, right) =>
-      compareProviderDisplayNames(
-        left[0]?.providerDisplayName || "",
-        right[0]?.providerDisplayName || "",
-      ),
-    )
-    .flatMap(flattenVendorGroups);
-
   return [
     currentModelCandidate,
     ...sortModels(currentVendorCandidates),
     ...flattenVendorGroups(currentProviderOtherVendors),
-    ...otherProvidersSorted,
   ];
 }

@@ -19,7 +19,7 @@ import {
   parseStopSequences,
 } from "../model-parameter-rules";
 import { getDefaultReasoningSettings } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export type MultiBlockContent = {
   type: "image" | "text";
@@ -361,14 +361,19 @@ export class ClaudeApi implements LLMApi {
     }
 
     const requestHeaders = {
-      ...getHeaders(),
+      ...getHeaders(
+        false,
+        modelConfig,
+        options.disableAutoFallback,
+        options.requestApiKey,
+      ),
       "anthropic-version": accessStore.anthropicApiVersion,
       ...(modelConfig.anthropicBeta?.trim()
         ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
         : {}),
     };
 
-    const path = this.path(Anthropic.ChatPath);
+    const path = this.path(Anthropic.ChatPath, options.requestBaseUrl);
 
     const controller = new AbortController();
     options.onController?.(controller);
@@ -599,12 +604,12 @@ export class ClaudeApi implements LLMApi {
       // },
     ];
   }
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl: string = "";
+    let baseUrl: string = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.anthropicUrl;
     }
 
@@ -622,7 +627,7 @@ export class ClaudeApi implements LLMApi {
     baseUrl = trimEnd(baseUrl, "/");
 
     // try rebuild url, when using cloudflare ai gateway in client
-    return cloudflareAIGatewayUrl(joinUrlPath(baseUrl, path));
+    return cloudflareAIGatewayUrl(joinChatUrl(baseUrl, path));
   }
 }
 

@@ -80,7 +80,7 @@ import {
   normalizeImageQuality,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
-import { joinUrlPath } from "@/app/utils/url";
+import { isExplicitChatEndpointUrl, joinUrlPath } from "@/app/utils/url";
 import {
   getDrawModelFamily,
   parseDrawImageSize,
@@ -122,6 +122,18 @@ type GenericChatEndpointCandidate = {
   method: "POST";
   format: GenericChatEndpointFormat;
 };
+
+function isOfficialDeepSeekBaseUrl(baseUrl?: string) {
+  try {
+    const url = new URL(String(baseUrl || "").trim());
+    return (
+      url.hostname.toLowerCase() === "api.deepseek.com" &&
+      url.pathname.replace(/\/+$/, "") === ""
+    );
+  } catch {
+    return false;
+  }
+}
 
 const DEFAULT_GENERIC_CHAT_ENDPOINT: GenericChatEndpointCandidate = {
   path: normalizeCandidatePath(OpenaiPath.ChatPath),
@@ -1651,6 +1663,20 @@ function buildProxyPathForBaseUrl(baseUrl: string, path: string) {
   if (proxyBaseUrl.endsWith("/")) {
     proxyBaseUrl = proxyBaseUrl.slice(0, -1);
   }
+
+  if (isExplicitChatEndpointUrl(proxyBaseUrl)) {
+    try {
+      const endpoint = new URL(proxyBaseUrl);
+      proxyBaseUrl = endpoint.origin;
+      return {
+        chatPath: `/api/proxy/${endpoint.pathname.replace(/^\/+/, "")}${endpoint.search}`,
+        proxyBaseUrl,
+      };
+    } catch {
+      // 非标准 URL 继续沿用既有拼接与代理逻辑。
+    }
+  }
+
   const proxyPath = joinUrlPath(
     "",
     joinUrlPath(proxyBaseUrl, path).replace(proxyBaseUrl, ""),
@@ -1664,7 +1690,11 @@ function buildProxyPathForBaseUrl(baseUrl: string, path: string) {
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
-  path(path: string, modelConfig?: Partial<ChatOptions["config"]>): string {
+  path(
+    path: string,
+    modelConfig?: Partial<ChatOptions["config"]>,
+    requestBaseUrl?: string,
+  ): string {
     const accessStore = useAccessStore.getState() as any;
     const configStore = useChatStore.getState();
     const currentProvider = normalizeServiceProvider(
@@ -1677,10 +1707,10 @@ export class ChatGPTApi implements LLMApi {
         ? getCustomProfileForModelConfig(accessStore, modelConfig)
         : undefined;
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
     const isAzure = path.includes("deployments");
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       if (isAzure && !accessStore.isValidAzure()) {
         throw Error(
           "incomplete azure config, please check it in your settings page",
@@ -1727,6 +1757,10 @@ export class ChatGPTApi implements LLMApi {
       !baseUrl.startsWith(ApiPath.OpenAI)
     ) {
       baseUrl = "https://" + baseUrl;
+    }
+
+    if (isExplicitChatEndpointUrl(baseUrl)) {
+      return cloudflareAIGatewayUrl(baseUrl);
     }
 
     // 自动补全 /v1 路径（用于 OpenAI 兼容 API）
@@ -1980,9 +2014,10 @@ export class ChatGPTApi implements LLMApi {
   }
 
   async chat(options: ChatOptions) {
-    const requestedModel = normalizeReservedDisplayModelName(
-      options.config.model,
-    );
+    const disableAutoFallback = options.disableAutoFallback === true;
+    const requestedModel = disableAutoFallback
+      ? options.config.model
+      : normalizeReservedDisplayModelName(options.config.model);
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
@@ -2022,11 +2057,13 @@ export class ChatGPTApi implements LLMApi {
         : undefined;
     const currentBaseUrlForRequest =
       modelConfig.providerName === ServiceProvider.Custom
-        ? currentCustomProfileForRequest?.baseUrl ||
+        ? options.requestBaseUrl?.trim() ||
+          currentCustomProfileForRequest?.baseUrl ||
           currentAccessState.customUrl
-        : modelConfig.providerName === ServiceProvider.Azure
-          ? currentAccessState.azureUrl
-          : currentAccessState.openaiUrl;
+        : options.requestBaseUrl?.trim() ||
+          (modelConfig.providerName === ServiceProvider.Azure
+            ? currentAccessState.azureUrl
+            : currentAccessState.openaiUrl);
     const shouldUseToApisImageReferenceEndpoint =
       shouldUseImageEditEndpoint && isToApisBaseUrl(currentBaseUrlForRequest);
     const requestCompatibilityKey = buildRequestCompatibilityKey({
@@ -2427,6 +2464,9 @@ export class ChatGPTApi implements LLMApi {
     );
 
     const tryRequestCompatibilityRetry = (reason: string) => {
+      if (disableAutoFallback) {
+        return false;
+      }
       const fallback = getRequestCompatibilityFallback(
         reason,
         requestCompatibilityState,
@@ -2495,6 +2535,7 @@ export class ChatGPTApi implements LLMApi {
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
           modelConfig,
+          options.requestBaseUrl,
         );
       } else {
         const configuredCustomProfileForRequest =
@@ -2510,10 +2551,19 @@ export class ChatGPTApi implements LLMApi {
           profileName: configuredCustomProfileForRequest?.name,
           baseUrl: currentBaseUrlForRequest,
         };
+        const isOfficialDeepSeekCustomEndpoint =
+          modelConfig.providerName === ServiceProvider.Custom &&
+          isOfficialDeepSeekBaseUrl(currentBaseUrlForRequest);
+        const hasExplicitCustomChatEndpoint =
+          modelConfig.providerName === ServiceProvider.Custom &&
+          isExplicitChatEndpointUrl(currentBaseUrlForRequest);
         shouldProbeChatPaths =
+          (!disableAutoFallback || options.enableChatPathFallback === true) &&
           modelConfig.providerName === ServiceProvider.Custom &&
           !shouldUseImageEndpoint &&
-          Boolean(currentBaseUrlForRequest);
+          Boolean(currentBaseUrlForRequest) &&
+          !isOfficialDeepSeekCustomEndpoint &&
+          !hasExplicitCustomChatEndpoint;
         const nextPath = aiHubMixPredictionPath
           ? `v1/models/${aiHubMixPredictionPath}/predictions`
           : aiHubMixVideoPath
@@ -2526,7 +2576,9 @@ export class ChatGPTApi implements LLMApi {
                   ? OpenaiPath.ImageEditPath
                   : shouldUseImageGenerationEndpoint
                     ? OpenaiPath.ImagePath
-                    : OpenaiPath.ChatPath;
+                    : isOfficialDeepSeekCustomEndpoint
+                      ? "chat/completions"
+                      : OpenaiPath.ChatPath;
         rememberedChatEndpoint =
           shouldProbeChatPaths && !shouldStream
             ? getRememberedChatEndpoint(chatPathMemoryParams)
@@ -2558,13 +2610,22 @@ export class ChatGPTApi implements LLMApi {
           chatPath = proxyTarget.chatPath;
           proxyBaseUrl = proxyTarget.proxyBaseUrl;
         } else {
-          chatPath = this.path(initialNextPath, modelConfig);
+          chatPath = this.path(
+            initialNextPath,
+            modelConfig,
+            options.requestBaseUrl,
+          );
         }
       }
 
       currentBaseUrl = currentBaseUrlForRequest;
       const requestHeaders = {
-        ...getHeaders(requestPayload instanceof FormData, modelConfig),
+        ...getHeaders(
+          requestPayload instanceof FormData,
+          modelConfig,
+          disableAutoFallback,
+          options.requestApiKey,
+        ),
         ...(modelConfig.anthropicBeta?.trim()
           ? { "anthropic-beta": modelConfig.anthropicBeta.trim() }
           : {}),
@@ -2587,7 +2648,11 @@ export class ChatGPTApi implements LLMApi {
                 proxyBaseUrl,
                 normalizeCandidatePath(candidatePath),
               ).chatPath
-            : this.path(normalizeCandidatePath(candidatePath), modelConfig),
+            : this.path(
+                normalizeCandidatePath(candidatePath),
+                modelConfig,
+                options.requestBaseUrl,
+              ),
           (requestHeaders as any).Authorization ||
             (requestHeaders as any)["x-api-key"] ||
             (requestHeaders as any)["api-key"] ||
@@ -2665,18 +2730,22 @@ export class ChatGPTApi implements LLMApi {
         const toolCallIndexByServerIndex = new Map<number, number>();
         let latestReasoningDetails: Record<string, unknown> | undefined;
         let latestUsage: Record<string, unknown> | undefined;
-        const effectivePluginIds = usePluginStore
-          .getState()
-          .getAll()
-          .filter((plugin) => plugin.enabled !== false)
-          .map((plugin) => plugin.id);
-        const [tools, funcs] = usePluginStore
-          .getState()
-          .getAsTools(effectivePluginIds);
-        console.log("[Plugin] 当前会话工具", {
-          enabledPluginIds: effectivePluginIds,
-          toolNames: tools.map((tool: any) => tool?.function?.name),
-        });
+        const effectivePluginIds = options.disablePlugins
+          ? []
+          : usePluginStore
+              .getState()
+              .getAll()
+              .filter((plugin) => plugin.enabled !== false)
+              .map((plugin) => plugin.id);
+        const [tools, funcs] = options.disablePlugins
+          ? [[], {}]
+          : usePluginStore.getState().getAsTools(effectivePluginIds);
+        if (!options.disablePlugins) {
+          console.log("[Plugin] 当前会话工具", {
+            enabledPluginIds: effectivePluginIds,
+            toolNames: tools.map((tool: any) => tool?.function?.name),
+          });
+        }
         const streamOptions = {
           ...options,
           onPathRetry(

@@ -60,11 +60,11 @@ function getCustomProfileForModelConfig(
   }
 
   return accessStore.apiProfiles.find((profile) => {
-    if (profile.provider !== ServiceProvider.Custom) {
-      return false;
-    }
     if (profileId && profile.id === profileId) {
       return true;
+    }
+    if (profile.provider !== ServiceProvider.Custom) {
+      return false;
     }
     return providerId && getAccessProviderId(profile) === providerId;
   });
@@ -142,6 +142,19 @@ export interface SpeechOptions {
 export interface ChatOptions {
   messages: RequestMessage[];
   config: LLMConfig;
+
+  /** 仅用于连通性测试等一次性请求，禁止客户端自动改写或重试请求。 */
+  disableAutoFallback?: boolean;
+
+  /** 即使禁用其他回退，也保留自定义供应商既有的对话路径探测与记忆。 */
+  enableChatPathFallback?: boolean;
+
+  /** 连通性测试不应将当前会话已启用的插件作为工具发送给上游。 */
+  disablePlugins?: boolean;
+
+  /** 一次性请求可显式指定连接目标，避免依赖当前对话的全局供应商配置。 */
+  requestBaseUrl?: string;
+  requestApiKey?: string;
 
   onRequest?: (request: {
     provider: string;
@@ -351,6 +364,8 @@ export function validString(x: string): boolean {
 export function getHeaders(
   ignoreHeaders: boolean = false,
   requestModelConfig?: Partial<LLMConfig>,
+  disableAutoFallback: boolean = false,
+  requestApiKey?: string,
 ) {
   const accessStore = useAccessStore.getState();
   const appConfigStore = useAppConfig.getState();
@@ -426,9 +441,19 @@ export function getHeaders(
       return profile.apiKey === accessStore.customApiKey;
     });
 
+    // Profile ID 是模型选择器的权威连接目标。专用供应商（如 DeepSeek）
+    // 也必须优先使用该 Profile 的 Key，不能退回可能过期的旧全局字段。
+    const configuredProviderProfile = getCustomProfileForModelConfig(
+      accessStore,
+      modelConfig,
+    );
     const configuredCustomProfile = isCustom
-      ? getCustomProfileForModelConfig(accessStore, modelConfig)
+      ? configuredProviderProfile
       : undefined;
+    const configuredProviderApiKey =
+      configuredProviderProfile?.provider === modelConfig.providerName
+        ? String(configuredProviderProfile.apiKey || "").trim()
+        : "";
     const currentCustomProfile =
       configuredCustomProfile ??
       activeCustomProfile ??
@@ -459,6 +484,13 @@ export function getHeaders(
       activeLocalProfile ?? enabledLocalProfile ?? undefined;
 
     const resolveCustomApiKey = () => {
+      if (requestApiKey?.trim()) {
+        return {
+          current: requestApiKey.trim(),
+          fallback: [] as string[],
+          fallbackGroups: [] as string[],
+        };
+      }
       if (!currentCustomProfile) {
         return {
           current: accessStore.customApiKey,
@@ -482,8 +514,14 @@ export function getHeaders(
       );
     };
 
-    const apiKeyInfo =
-      effectiveProvider === ServiceProvider.Custom
+    const explicitRequestApiKey = String(requestApiKey || "").trim();
+    const apiKeyInfo = explicitRequestApiKey
+      ? {
+          current: explicitRequestApiKey,
+          fallback: [] as string[],
+          fallbackGroups: [] as string[],
+        }
+      : effectiveProvider === ServiceProvider.Custom
         ? resolveCustomApiKey()
         : {
             current:
@@ -502,7 +540,8 @@ export function getHeaders(
                           : effectiveProvider === ServiceProvider.XAI
                             ? accessStore.xaiApiKey
                             : effectiveProvider === ServiceProvider.DeepSeek
-                              ? accessStore.deepseekApiKey
+                              ? configuredProviderApiKey ||
+                                accessStore.deepseekApiKey
                               : effectiveProvider === ServiceProvider.ChatGLM
                                 ? accessStore.chatglmApiKey
                                 : effectiveProvider ===
@@ -643,6 +682,7 @@ export function getHeaders(
   }
 
   const shouldEnableFallbackApiKeys =
+    !disableAutoFallback &&
     !isLocal &&
     isCustom &&
     Boolean(
@@ -674,7 +714,7 @@ export function getHeaders(
     if (rememberedApiKeyGroup) {
       (headers as any)["x-remembered-api-key-group"] = rememberedApiKeyGroup;
     }
-  } else if (!isLocal) {
+  } else if (!isLocal && !disableAutoFallback) {
     logger.chat.log(
       "[MultiKey] 当前 API 未配置备用 Key；仍可继续模型和供应商故障转移",
     );

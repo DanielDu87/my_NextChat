@@ -757,7 +757,7 @@ export function ModelConfigList(props: {
                 aria-label="展示思考"
                 className={styles["model-config-control"]}
                 type="checkbox"
-                checked={props.modelConfig.includeThoughts ?? false}
+                checked={props.modelConfig.includeThoughts ?? true}
                 disabled={parameterDisabled(supportsThoughtDisplay)}
                 onChange={(e) =>
                   props.updateConfig(

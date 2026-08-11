@@ -5,6 +5,7 @@ type ProfileLike = {
   id: string;
   name: string;
   provider: ServiceProvider;
+  cachedModels?: string;
 };
 
 type CacheLike = {
@@ -20,11 +21,10 @@ export function buildCachedExtraModels(
   cacheMap: Record<string, CacheLike>,
 ): LLMModel[] {
   const extras: LLMModel[] = [];
-  Object.entries(cacheMap || {}).forEach(([profileId, cache]) => {
-    const cachedModelsStr = cache?.cachedModels || "";
+  profiles.forEach((profile) => {
+    const cache = cacheMap?.[profile.id];
+    const cachedModelsStr = cache?.cachedModels || profile.cachedModels || "";
     if (!cachedModelsStr) return;
-    const profile = profiles.find((p) => p.id === profileId);
-    if (!profile) return;
     const providerId =
       profile.provider === ServiceProvider.Custom
         ? `custom_${profile.name}`.toLowerCase()

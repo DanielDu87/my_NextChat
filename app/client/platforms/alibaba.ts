@@ -32,7 +32,7 @@ import {
   parseStopSequences,
 } from "../model-parameter-rules";
 import { fetch } from "@/app/utils/stream";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -70,12 +70,12 @@ interface RequestPayload {
 }
 
 export class QwenApi implements LLMApi {
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.alibabaUrl;
     }
 
@@ -93,7 +93,7 @@ export class QwenApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -183,11 +183,19 @@ export class QwenApi implements LLMApi {
 
     try {
       const headers = {
-        ...getHeaders(),
+        ...getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
         "X-DashScope-SSE": shouldStream ? "enable" : "disable",
       };
 
-      const chatPath = this.path(Alibaba.ChatPath(modelConfig.model));
+      const chatPath = this.path(
+        Alibaba.ChatPath(modelConfig.model),
+        options.requestBaseUrl,
+      );
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),

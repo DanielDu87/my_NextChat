@@ -50,10 +50,10 @@ export class LocalApi implements LLMApi {
     );
   }
 
-  private resolveBaseUrl(): string {
-    let baseUrl = "";
+  private resolveBaseUrl(requestBaseUrl?: string): string {
+    let baseUrl = String(requestBaseUrl || "").trim();
     const profile = this.getCurrentProfile();
-    baseUrl = profile?.baseUrl || "";
+    baseUrl ||= profile?.baseUrl || "";
 
     if (baseUrl.length === 0) {
       baseUrl = Local.ExampleEndpoint;
@@ -61,18 +61,20 @@ export class LocalApi implements LLMApi {
     return normalizeSub2ApiBaseUrl(baseUrl);
   }
 
-  private buildHeaders() {
+  private buildHeaders(requestBaseUrl?: string, requestApiKey?: string) {
     const profile = this.getCurrentProfile();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
-      "x-base-url": this.resolveBaseUrl(),
+      "x-base-url": this.resolveBaseUrl(requestBaseUrl),
     };
 
     const defaultGroupApiKey = String(
       profile?.apiKeyGroups?.default || "",
     ).trim();
-    const apiKey = String(defaultGroupApiKey || profile?.apiKey || "").trim();
+    const apiKey = String(
+      requestApiKey || defaultGroupApiKey || profile?.apiKey || "",
+    ).trim();
 
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;
@@ -81,8 +83,8 @@ export class LocalApi implements LLMApi {
     return { headers, profile };
   }
 
-  path(path: string): string {
-    const baseUrl = this.resolveBaseUrl();
+  path(path: string, requestBaseUrl?: string): string {
+    const baseUrl = this.resolveBaseUrl(requestBaseUrl);
 
     console.log("[Local API Endpoint] ", baseUrl, path);
 
@@ -158,8 +160,11 @@ export class LocalApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(Local.ChatPath);
-      const { headers } = this.buildHeaders();
+      const chatPath = this.path(Local.ChatPath, options.requestBaseUrl);
+      const { headers } = this.buildHeaders(
+        options.requestBaseUrl,
+        options.requestApiKey,
+      );
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),

@@ -28,17 +28,17 @@ import { fetch } from "@/app/utils/stream";
 
 import { RequestPayload } from "./openai";
 import { applyModelSamplingRules } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export class SparkApi implements LLMApi {
   private disableListModels = true;
 
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.iflytekUrl;
     }
 
@@ -57,7 +57,7 @@ export class SparkApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -109,12 +109,17 @@ export class SparkApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(Iflytek.ChatPath);
+      const chatPath = this.path(Iflytek.ChatPath, options.requestBaseUrl);
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // Make a fetch request

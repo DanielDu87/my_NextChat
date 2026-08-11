@@ -22,7 +22,7 @@ import {
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import { preProcessImageContent } from "@/app/utils/chat";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 import {
   applyModelSamplingRules,
   getModelParameterSupport,
@@ -204,11 +204,11 @@ export class ChatGLMApi implements LLMApi {
     }
   }
 
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.chatglmUrl;
     }
 
@@ -226,7 +226,7 @@ export class ChatGLMApi implements LLMApi {
     }
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -261,7 +261,10 @@ export class ChatGLMApi implements LLMApi {
     };
     const modelType = this.getModelType(modelConfig.model);
     const requestPayload = this.createPayload(messages, modelConfig, options);
-    const path = this.path(this.getModelPath(modelType));
+    const path = this.path(
+      this.getModelPath(modelType),
+      options.requestBaseUrl,
+    );
 
     console.log(`[Request] glm ${modelType} payload: `, requestPayload);
 
@@ -273,7 +276,12 @@ export class ChatGLMApi implements LLMApi {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       const requestTimeoutId = setTimeout(
@@ -302,7 +310,12 @@ export class ChatGLMApi implements LLMApi {
         return stream(
           path,
           requestPayload,
-          getHeaders(),
+          getHeaders(
+            false,
+            modelConfig,
+            options.disableAutoFallback,
+            options.requestApiKey,
+          ),
           tools as any,
           funcs,
           controller,

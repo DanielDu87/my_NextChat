@@ -25,7 +25,6 @@ import LoadingIcon from "../icons/three-dots.svg";
 import LoadingButtonIcon from "../icons/loading.svg";
 import PromptIcon from "../icons/prompt.svg";
 import ResetIcon from "../icons/reload.svg";
-import ReloadIcon from "../icons/reload.svg";
 import DownIcon from "../icons/down.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import SelectorCheckIcon from "../icons/selector-check.svg";
@@ -33,7 +32,6 @@ import ConfigIcon from "../icons/config.svg";
 import ConnectionIcon from "../icons/connection.svg";
 import DownloadIcon from "../icons/download.svg";
 import HistoryIcon from "../icons/history.svg";
-import MoneyIcon from "../icons/money.svg";
 import UserIcon from "../icons/user.svg";
 import DeleteIcon from "../icons/clear.svg";
 import CloseIcon from "../icons/close.svg";
@@ -168,11 +166,9 @@ import { getEffectiveProviderBaseUrl } from "../utils/provider-url";
 import { installReactRouterHistoryBridge } from "../utils/route-sync-entry";
 
 const CHAT_BACKUP_ENTRIES = [
-  { name: "API 配置", path: Path.ApiConfig, icon: <ConnectionIcon /> },
+  { name: "供应商管理", path: Path.ApiConfig, icon: <ConnectionIcon /> },
   { name: "API 备份", path: Path.ApiConfigBackups, icon: <DownloadIcon /> },
   { name: "对话备份", path: Path.ChatBackups, icon: <HistoryIcon /> },
-  { name: "余额查询", path: Path.ProviderBalances, icon: <MoneyIcon /> },
-  { name: "模型获取", path: Path.ProviderModelFetch, icon: <ReloadIcon /> },
 ];
 
 const SEARCH_TOOL_NAME_PATTERN = /search|搜索/i;

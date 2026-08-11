@@ -26,17 +26,17 @@ import {
   normalizeToolChoiceForModel,
   parseStopSequences,
 } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 
 export class XAIApi implements LLMApi {
   private disableListModels = true;
 
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.xaiUrl;
     }
 
@@ -55,7 +55,7 @@ export class XAIApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -155,12 +155,17 @@ export class XAIApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(XAI.ChatPath);
+      const chatPath = this.path(XAI.ChatPath, options.requestBaseUrl);
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // make a fetch request
@@ -178,7 +183,12 @@ export class XAIApi implements LLMApi {
         return stream(
           chatPath,
           requestPayload,
-          getHeaders(),
+          getHeaders(
+            false,
+            modelConfig,
+            options.disableAutoFallback,
+            options.requestApiKey,
+          ),
           tools as any,
           funcs,
           controller,

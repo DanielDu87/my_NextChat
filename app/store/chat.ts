@@ -65,6 +65,7 @@ import {
   collectModelsWithDefaultModel,
   getPreferredDisplayModelConfig,
   getPreferredRuntimeModelConfig,
+  getModelProvider,
   resolveModelProviderId,
 } from "../utils/model";
 import { buildCachedExtraModels } from "../utils/model-pool";
@@ -1795,14 +1796,16 @@ async function requestSessionTitleCandidate(
   requestVersion: string,
   mode: "auto" | "manual",
 ) {
-  const api: ClientApi = getClientApi(
+  const requestProviderName = getProfileChatRequestProvider(
     candidate.providerName as ServiceProvider,
+    candidate.profile,
   );
+  const api: ClientApi = getClientApi(requestProviderName);
   const titleRequestConfig = {
     ...modelConfig,
     model: candidate.model as ModelType,
     stream: false,
-    providerName: candidate.providerName,
+    providerName: requestProviderName,
   };
   (titleRequestConfig as any).providerId = candidate.providerId;
   (titleRequestConfig as any).profileId = candidate.profile?.id || "";
@@ -1822,6 +1825,8 @@ async function requestSessionTitleCandidate(
         await api.llm.chat({
           messages: topicMessages,
           config: titleRequestConfig,
+          requestBaseUrl: candidate.profile?.baseUrl,
+          requestApiKey: candidate.profile?.apiKey,
           onRequest(request) {
             logRequestBanner("title", {
               model: request.model,
@@ -1908,6 +1913,20 @@ async function requestSessionTitleCandidate(
 
     return { success, providerBalanceExhausted, aborted: false };
   });
+}
+
+function getProfileChatRequestProvider(
+  providerName: ServiceProvider,
+  profile?: {
+    baseUrl?: string;
+    openAICompatible?: boolean;
+  },
+) {
+  // 配置页测试对话统一使用 OpenAI 兼容客户端。已明确标记兼容的 Profile
+  // 在正常聊天、标题和摘要中也沿用同一请求与代理链路。
+  return profile?.baseUrl?.trim() && profile.openAICompatible === true
+    ? ServiceProvider.Custom
+    : providerName;
 }
 
 async function refreshSessionTitle(targetSession: ChatSession) {
@@ -3307,8 +3326,13 @@ export const useChatStore = createPersistStore(
           applySharedGlobalConversationSettings(selectedModelConfig);
         const appConfig = useAppConfig.getState();
         const accessStore = useAccessStore.getState();
+        const modelCacheStore = useModelCacheStore.getState();
+        const cachedExtraModels = buildCachedExtraModels(
+          accessStore.apiProfiles,
+          modelCacheStore.profiles || {},
+        );
         const allModels = collectModelsWithDefaultModel(
-          appConfig.models,
+          [...appConfig.models, ...cachedExtraModels],
           appConfig.customModels,
           accessStore.defaultModel,
         );
@@ -3354,6 +3378,40 @@ export const useChatStore = createPersistStore(
         }
         const resolvedDisplayProviderName =
           resolvedProfile?.name || displayProviderName;
+        const profileCachedModels = String(
+          modelCacheStore.profiles?.[resolvedProfile?.id || ""]?.cachedModels ||
+            resolvedProfile?.cachedModels ||
+            "",
+        );
+        const allowedFallbackModelNames = new Set(
+          profileCachedModels
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean),
+        );
+        String(appConfig.customModels || "")
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.startsWith("+"))
+          .forEach((entry) => {
+            const [modelName, providerId] = getModelProvider(
+              entry.slice(1).split("=")[0],
+            );
+            if (
+              modelName &&
+              String(providerId || "")
+                .trim()
+                .toLowerCase() === resolvedProviderId
+            ) {
+              allowedFallbackModelNames.add(modelName.trim());
+            }
+          });
+        if (manualModelSelection) {
+          logger.chat.log("[Chat Failover] 手动选择已锁定供应商:", {
+            供应商: resolvedDisplayProviderName,
+            模型: initialModelConfig.model,
+          });
+        }
         const retryCandidates = buildChatFailoverCandidates(
           allModels,
           accessStore.apiProfiles,
@@ -3365,6 +3423,7 @@ export const useChatStore = createPersistStore(
             providerId: resolvedProviderId,
             profileId: resolvedProfile?.id,
             providerDisplayName: resolvedDisplayProviderName,
+            allowedFallbackModelNames,
           },
         );
 
@@ -3662,10 +3721,14 @@ export const useChatStore = createPersistStore(
           const candidateProfile =
             candidate.profile ||
             getProfileForModel(candidate.providerId, candidate.providerName);
+          const requestProviderName = getProfileChatRequestProvider(
+            candidate.providerName,
+            candidateProfile,
+          );
           const candidateConfig = sanitizeModelConfigForCapability({
             ...initialModelConfig,
             model: candidate.model as ModelType,
-            providerName: candidate.providerName,
+            providerName: requestProviderName,
           });
           (candidateConfig as any).providerId = candidate.providerId;
           (candidateConfig as any).profileId = String(
@@ -3707,7 +3770,7 @@ export const useChatStore = createPersistStore(
 
           syncBotMessageToCurrentSession();
 
-          const api: ClientApi = getClientApi(candidate.providerName);
+          const api: ClientApi = getClientApi(requestProviderName);
           const attemptLabel = `${attemptIndex + 1}/${retryCandidates.length}`;
 
           return new Promise<
@@ -3761,6 +3824,10 @@ export const useChatStore = createPersistStore(
                   ...candidateConfig,
                   stream: candidateConfig.stream !== false,
                 },
+                // 对 Profile 供应商显式传递本次候选的连接信息，避免专用客户端
+                // 回退到其他会话或旧全局配置中的 Base URL / Key。
+                requestBaseUrl: candidateProfile?.baseUrl,
+                requestApiKey: candidateProfile?.apiKey,
                 onRequest(request: { chatPath: string; baseUrl: string }) {
                   logRequestBanner("chat", {
                     model: candidate.model,
@@ -4433,7 +4500,11 @@ export const useChatStore = createPersistStore(
             logger.chat.error("[Summarize] 当前对话没有可用模型");
             return;
           }
-          const api: ClientApi = getClientApi(providerName);
+          const requestProviderName = getProfileChatRequestProvider(
+            providerName,
+            summarizeTarget.profile,
+          );
+          const api: ClientApi = getClientApi(requestProviderName);
           let pendingMemoryPrompt = "";
 
           pendingMemorySummarySessionIds.add(session.id);
@@ -4454,8 +4525,10 @@ export const useChatStore = createPersistStore(
                   reasoningEffort: "none",
                   reasoningMaxTokens: 0,
                   model,
-                  providerName,
+                  providerName: requestProviderName,
                 },
+                requestBaseUrl: summarizeTarget.profile?.baseUrl,
+                requestApiKey: summarizeTarget.profile?.apiKey,
                 onUpdate(message) {
                   pendingMemoryPrompt = message;
                 },

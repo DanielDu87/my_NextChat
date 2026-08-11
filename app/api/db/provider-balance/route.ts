@@ -193,7 +193,9 @@ export async function POST(req: NextRequest) {
       apiKey: "",
       enabled: true,
     };
-    const managementKey = balanceConfig?.managementKey || "";
+    // 专用余额 Key 留空时复用对话 Key。不要把回退值写回余额配置，
+    // 这样用户之后更新对话 Key 时，余额查询也会自动使用新值。
+    const managementKey = balanceConfig?.managementKey || profile.apiKey || "";
     const customBalanceUrl = balanceConfig?.customBalanceUrl || "";
     const effectiveManagementKey =
       balanceConfig?.useNewApiUserFormat && balanceConfig.newApiUserId

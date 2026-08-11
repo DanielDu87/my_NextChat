@@ -13,12 +13,20 @@
   max-width: 980px;
   margin: 0 auto 10px;
   width: 100%;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.batchActionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .actionButton:disabled,
 .actionButton:disabled * {
   opacity: 0.85 !important;
+  cursor: not-allowed !important;
 }
 
 // 余额页与模型获取页在暗色模式下共用同一套按钮。纯白文字对深色卡片
@@ -124,7 +132,16 @@
   font-weight: 700;
 }
 
+.modelCount {
+  color: var(--primary);
+  font-weight: 700;
+}
+
 .balanceUpdated {
+  color: var(--backup-green);
+}
+
+.modelUpdated {
   color: var(--backup-green);
 }
 
@@ -151,7 +168,48 @@
   margin-bottom: 8px;
 }
 
+.sectionCaption {
+  margin: 16px 0 8px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.configurationSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.modelUrlRow,
+.balanceUrlRow {
+  order: 1;
+}
+
+.modelKeyRow,
+.balanceKeyRow {
+  order: 2;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.footerStatus {
+  flex: 1;
+  min-width: 0;
+}
+
+.footerStatus .statusSuccess,
+.footerStatus .statusError {
+  margin-top: 0;
+}
+
 .inputLabel {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   padding: 0 12px;
@@ -165,7 +223,8 @@
   user-select: none;
   margin-right: 4px;
   min-height: 40px;
-  flex: 0 0 70px;
+  width: var(--provider-label-width);
+  flex: 0 0 var(--provider-label-width);
   justify-content: center;
 }
 
@@ -177,6 +236,8 @@
 }
 
 .inputWithLabel {
+  // 保持原先 70px 内容宽度加内边距和边框后的 98px 标签外框尺寸。
+  --provider-label-width: 98px;
   display: flex;
   align-items: stretch;
   flex: 1;
@@ -186,6 +247,19 @@
 .inputWithLabel input {
   border-radius: 6px;
   flex: 1;
+}
+
+.balanceKeyInputs {
+  display: grid;
+  // 普通输入行的标签还带 4px 右边距；把它纳入第一列，
+  // 使网格中的 Key / User ID / UUID 与 Flex 的查询 URL 共用同一输入起点。
+  grid-template-columns: calc(var(--provider-label-width) + 4px) minmax(0, 1fr);
+  gap: 4px;
+}
+
+.balanceKeyInputs .newApiUserInput {
+  width: auto !important;
+  flex: initial !important;
 }
 
 :global(body.dark) .inputWithLabel input,
@@ -259,6 +333,10 @@
 
 .row :global(.nextchat-input-control):focus::placeholder {
   opacity: 0;
+}
+
+.row :global(.nextchat-input-control):disabled {
+  cursor: not-allowed;
 }
 
 .hint {
@@ -427,8 +505,13 @@
 
   .batchAction {
     display: flex;
+    flex-wrap: wrap;
     margin-bottom: 10px;
     justify-content: stretch;
+  }
+
+  .batchActionGroup {
+    width: 100%;
   }
 
   .batchAction :global(.nextchat-green-button) {
@@ -506,6 +589,7 @@
     overflow-wrap: anywhere;
   }
 
+  .modelCount,
   .balance {
     flex: 0 0 auto;
     max-width: none;
@@ -522,11 +606,17 @@
   }
 
   .inputWithLabel {
+    --provider-label-width: 88px;
     display: grid;
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: var(--provider-label-width) minmax(0, 1fr);
     align-items: stretch;
     gap: 8px;
     width: 100%;
+  }
+
+  // 移动端没有标签右边距，因此与查询 URL 直接共用同一列宽。
+  .balanceKeyInputs {
+    grid-template-columns: var(--provider-label-width) minmax(0, 1fr);
   }
 
   .inputLabel {
@@ -595,5 +685,48 @@
     font-size: 12px;
     line-height: 1.6;
     overflow-wrap: anywhere;
+  }
+
+  .cardFooter {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .footerStatus {
+    width: 100%;
+  }
+
+  .cardFooter :global(button[class*="icon-button"]) {
+    display: inline-flex !important;
+    flex: 0 0 auto;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 44px !important;
+    height: 44px !important;
+    padding: 0 14px !important;
+    justify-content: center !important;
+    gap: 6px;
+  }
+
+  .cardFooter :global([class*="icon-button-text"]) {
+    display: inline-flex !important;
+    align-items: center;
+    margin-left: 0 !important;
+    white-space: nowrap;
+  }
+
+  .cardFooter :global([class*="icon-button-icon"]) {
+    display: inline-flex !important;
+    flex: 0 0 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+  }
+
+  .cardFooter :global([class*="icon-button-icon"] > svg) {
+    width: 16px !important;
+    height: 16px !important;
   }
 }

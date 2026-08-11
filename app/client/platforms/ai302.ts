@@ -25,7 +25,7 @@ import { RequestPayload } from "./openai";
 
 import { fetch } from "@/app/utils/stream";
 import { applyModelSamplingRules } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 export interface Ai302ListModelResponse {
   object: string;
   data: Array<{
@@ -38,12 +38,12 @@ export interface Ai302ListModelResponse {
 export class Ai302Api implements LLMApi {
   private disableListModels = false;
 
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = accessStore.ai302Url;
     }
 
@@ -62,7 +62,7 @@ export class Ai302Api implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -122,12 +122,17 @@ export class Ai302Api implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(AI302.ChatPath);
+      const chatPath = this.path(AI302.ChatPath, options.requestBaseUrl);
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
       };
 
       // console.log(chatPayload);
@@ -147,7 +152,12 @@ export class Ai302Api implements LLMApi {
         return streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          getHeaders(
+            false,
+            modelConfig,
+            options.disableAutoFallback,
+            options.requestApiKey,
+          ),
           tools as any,
           funcs,
           controller,

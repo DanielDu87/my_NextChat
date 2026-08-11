@@ -11,7 +11,7 @@ import {
 } from "../store/plugin";
 import { useUpdateStore } from "../store/update";
 import { useDrawStore } from "../store/draw";
-import { DEFAULT_CONFIG } from "../store/config";
+import { applyReasoningDefaults, DEFAULT_CONFIG } from "../store/config";
 import { normalizeAccessStateDerivedFields } from "../store/access";
 import { LLMModel } from "../client/api";
 import merge from "lodash-es/merge";
@@ -251,8 +251,8 @@ function normalizeImportedConfigState<T>(state: T): T {
     return state;
   }
 
-  return {
-    ...state,
+  return applyReasoningDefaults({
+    ...(state as Record<string, any>),
     models: Array.isArray(useAppConfig.getState().models)
       ? useAppConfig.getState().models
       : [],
@@ -260,7 +260,7 @@ function normalizeImportedConfigState<T>(state: T): T {
       ...useAppConfig.getState().modelConfig,
       ...((state as Record<string, any>).modelConfig || {}),
     },
-  } as T;
+  } as any) as T;
 }
 
 function resetPluginToolCache() {

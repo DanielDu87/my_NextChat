@@ -164,15 +164,15 @@ export function ProviderModelFetchPage() {
     if (!profile) return false;
     const modelFetchApiKey = getKey(profile).trim();
     const modelFetchUrl = getUrl(profile).trim();
-    if (!modelFetchApiKey || !modelFetchUrl) {
+    if (!modelFetchUrl) {
       setFetchStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "error",
-          text: "请填写模型获取 API Key 和 URL",
+          text: "请填写模型获取 URL",
         },
       }));
-      showToast("请填写模型获取 API Key 和 URL");
+      showToast("请填写模型获取 URL");
       return false;
     }
     try {
@@ -310,10 +310,10 @@ export function ProviderModelFetchPage() {
   const fetchAll = async () => {
     console.clear();
     const configured = sortedProfiles.filter(
-      (profile) => getKey(profile).trim() && getUrl(profile).trim(),
+      (profile) => getUrl(profile).trim(),
     );
     if (configured.length === 0) {
-      showToast("暂无已配置 API Key 和 URL 的供应商");
+      showToast("暂无已配置模型获取 URL 的供应商");
       return;
     }
     setFetchAllRunning(true);

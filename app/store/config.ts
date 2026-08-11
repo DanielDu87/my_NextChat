@@ -66,6 +66,8 @@ const TIGHT_BORDER_KEY = "appConfig.tightBorder";
 const SIDEBAR_WIDTH_KEY = "sidebarWidth";
 const DEFAULT_THEME = Theme.Light;
 const DEFAULT_TIGHT_BORDER = true;
+export const DEFAULT_REASONING_MAX_TOKENS = 4096;
+export const REASONING_DEFAULTS_VERSION = 2;
 
 function readThemeFromLocalStorage() {
   const stored = String(localStorage.getItem(THEME_KEY) || "").trim();
@@ -250,6 +252,7 @@ export const DEFAULT_CONFIG = {
   // 字段级同步时间戳：跨浏览器同步时按字段独立判定胜方，避免相互覆盖
   customModelsUpdatedAt: 0,
   modelSelectionUpdatedAt: 0,
+  reasoningDefaultsVersion: REASONING_DEFAULTS_VERSION,
 
   modelConfig: {
     model: LATEST_OPENAI_DEFAULT_MODEL as ModelType,
@@ -280,9 +283,9 @@ export const DEFAULT_CONFIG = {
     >,
     webSearch: true,
     webSearchContextSize: "medium",
-    reasoningEffort: "high",
-    reasoningMaxTokens: 0,
-    includeThoughts: false,
+    reasoningEffort: "medium",
+    reasoningMaxTokens: DEFAULT_REASONING_MAX_TOKENS,
+    includeThoughts: true,
     anthropicBeta: "",
     mediaResolution: "",
     structuredOutput: false,
@@ -350,14 +353,8 @@ export type TTSConfig = ChatConfig["ttsConfig"];
 export type RealtimeConfig = ChatConfig["realtimeConfig"];
 
 export function getOpenAIStandardReasoningEffort(model: string) {
-  const normalizedModel = String(model || "").toLowerCase();
-  if (normalizedModel === "gpt-5.1") {
-    return "none";
-  }
-  if (normalizedModel === "gpt-5-pro") {
-    return "high";
-  }
-  return "high";
+  void model;
+  return "medium";
 }
 
 export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
@@ -387,9 +384,44 @@ export function applyOpenAIStandardModelConfig<T extends Partial<ModelConfig>>(
     customSystemPrompt: modelConfig.customSystemPrompt ?? "",
     reasoningEffort:
       modelConfig.reasoningEffort ?? getOpenAIStandardReasoningEffort(model),
-    reasoningMaxTokens: modelConfig.reasoningMaxTokens ?? 0,
-    includeThoughts: modelConfig.includeThoughts ?? false,
+    reasoningMaxTokens:
+      modelConfig.reasoningMaxTokens ?? DEFAULT_REASONING_MAX_TOKENS,
+    includeThoughts: modelConfig.includeThoughts ?? true,
   };
+}
+
+export function applyReasoningDefaults<
+  T extends {
+    modelConfig?: Partial<ModelConfig>;
+    reasoningDefaultsVersion?: number;
+  },
+>(state: T): T {
+  if (
+    Number(state.reasoningDefaultsVersion || 0) >=
+    REASONING_DEFAULTS_VERSION
+  ) {
+    return state;
+  }
+
+  const modelConfig = state.modelConfig || {};
+  return {
+    ...state,
+    reasoningDefaultsVersion: REASONING_DEFAULTS_VERSION,
+    modelConfig: {
+      ...modelConfig,
+      // Preserve an explicitly disabled reasoning effort, but upgrade the
+      // legacy empty/default values so every capable model starts enabled.
+      reasoningEffort:
+        modelConfig.reasoningEffort === "high"
+          ? "medium"
+          : modelConfig.reasoningEffort || "medium",
+      reasoningMaxTokens:
+        Number(modelConfig.reasoningMaxTokens || 0) > 0
+          ? Number(modelConfig.reasoningMaxTokens)
+          : DEFAULT_REASONING_MAX_TOKENS,
+      includeThoughts: true,
+    },
+  } as T;
 }
 
 function sanitizeLegacyGeneratedCustomModelConfig<
@@ -670,7 +702,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
   }),
   {
     name: StoreKey.Config,
-    version: 4.8,
+    version: 4.9,
     partialize(state) {
       const { models, ...persistedState } = state as ChatConfig;
       void models;
@@ -686,7 +718,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
         const storedGlobalModelConfigPatch = storedGlobalModelConfig as Partial<
           typeof currentState.modelConfig
         > | null;
-        return {
+        return applyReasoningDefaults({
           ...currentState,
           modelConfig: sanitizeLegacyGeneratedCustomModelConfig(
             applyOpenAIStandardModelConfig({
@@ -695,10 +727,11 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
             }),
           ),
           modelSelectionUpdatedAt: storedGlobalSelectionUpdatedAt,
+          reasoningDefaultsVersion: 0,
           theme: readThemeFromLocalStorage(),
           tightBorder: readTightBorderFromLocalStorage(),
           sidebarWidth: readSidebarWidthFromLocalStorage(),
-        } as typeof currentState;
+        } as typeof currentState);
       }
       const persistedModelSelectionUpdatedAt =
         Number((state as any).modelSelectionUpdatedAt) || 0;
@@ -711,7 +744,7 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
       const storedGlobalModelConfigPatch = shouldApplyStoredGlobalModelConfig
         ? (storedGlobalModelConfig as Partial<typeof currentState.modelConfig>)
         : undefined;
-      return {
+      return applyReasoningDefaults({
         ...currentState,
         ...state,
         customModels: pruneLegacyGeneratedCustomModels(state.customModels),
@@ -727,12 +760,14 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
           persistedModelSelectionUpdatedAt,
           storedGlobalSelectionUpdatedAt,
         ),
+        reasoningDefaultsVersion:
+          Number((state as any).reasoningDefaultsVersion) || 0,
         theme: state.theme ?? readThemeFromLocalStorage(),
         tightBorder: hasStoredTightBorderPreference()
           ? readTightBorderFromLocalStorage()
           : DEFAULT_TIGHT_BORDER,
         sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
-      } as typeof currentState;
+      } as typeof currentState);
     },
 
     migrate(persistedState, version) {
@@ -814,6 +849,10 @@ export const useAppConfig = createPersistStore<ChatConfig, AppConfigMethods>(
       if (version < 4.8) {
         state.modelConfig.temperature = 0.4;
         state.modelConfig.top_p = 0.9;
+      }
+
+      if (version < 4.9) {
+        Object.assign(state, applyReasoningDefaults(state));
       }
 
       state.modelConfig = sanitizeLegacyGeneratedCustomModelConfig(

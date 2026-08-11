@@ -1,6 +1,11 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
-import { ApiPath, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
+import {
+  ApiPath,
+  DEEPSEEK_BASE_URL,
+  DeepSeek,
+  ServiceProvider,
+} from "@/app/constant";
 import type { ChatMessageTool } from "@/app/store/chat";
 import { useChatStore } from "@/app/store/chat";
 import { useAccessStore } from "@/app/store/access";
@@ -20,7 +25,7 @@ import {
   getMessageTextContentWithoutThinking,
   getTimeoutMSByModel,
 } from "@/app/utils";
-import { RequestPayload } from "./openai";
+import { ChatGPTApi, RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 import {
   applyModelSamplingRules,
@@ -29,18 +34,38 @@ import {
   normalizeToolChoiceForModel,
   parseStopSequences,
 } from "../model-parameter-rules";
-import { joinUrlPath } from "@/app/utils/url";
+import { joinChatUrl } from "@/app/utils/url";
 import { getEffectiveProviderBaseUrl } from "@/app/utils/provider-url";
+
+function isOfficialDeepSeekApiBaseUrl(baseUrl?: string) {
+  try {
+    return new URL(String(baseUrl || "")).hostname === "api.deepseek.com";
+  } catch {
+    return false;
+  }
+}
+
+function buildProxyChatEndpoint(chatPath: string) {
+  try {
+    const upstream = new URL(chatPath);
+    return {
+      chatPath: `/api/proxy/${upstream.pathname.replace(/^\/+/, "")}${upstream.search}`,
+      baseUrl: upstream.origin,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 export class DeepSeekApi implements LLMApi {
   private disableListModels = true;
 
-  path(path: string): string {
+  path(path: string, requestBaseUrl?: string): string {
     const accessStore = useAccessStore.getState();
 
-    let baseUrl = "";
+    let baseUrl = String(requestBaseUrl || "").trim();
 
-    if (accessStore.useCustomConfig) {
+    if (!baseUrl && accessStore.useCustomConfig) {
       baseUrl = getEffectiveProviderBaseUrl(
         "DeepSeek",
         accessStore.deepseekUrl,
@@ -62,7 +87,7 @@ export class DeepSeekApi implements LLMApi {
 
     console.log("[Proxy Endpoint] ", baseUrl, path);
 
-    return joinUrlPath(baseUrl, path);
+    return joinChatUrl(baseUrl, path);
   }
 
   extractMessage(res: any) {
@@ -74,6 +99,19 @@ export class DeepSeekApi implements LLMApi {
   }
 
   async chat(options: ChatOptions) {
+    // 官方 DeepSeek 的聊天接口是 OpenAI 兼容接口。复用配置页“测试对话”
+    // 已验证的代理与请求构造，避免专用旧实现与官方端点出现字段差异。
+    if (isOfficialDeepSeekApiBaseUrl(options.requestBaseUrl)) {
+      return new ChatGPTApi().chat({
+        ...options,
+        config: {
+          ...options.config,
+          providerName: ServiceProvider.Custom,
+        },
+        disablePlugins: true,
+      });
+    }
+
     const messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
       if (v.role === "assistant") {
@@ -145,7 +183,14 @@ export class DeepSeekApi implements LLMApi {
         modelConfig.toolChoice,
       );
     }
-    if (parameterSupport.reasoning && isDeepSeekV4Model(modelConfig.model)) {
+    // 官方 DeepSeek 的 OpenAI 兼容端点只接收其公开支持的标准字段。
+    // `deepseek-v4-*` 等本地模型别名在部分账户下会拒绝私有 thinking 参数，
+    // 因而保持普通对话与配置页测试一致的基础请求格式。
+    if (
+      parameterSupport.reasoning &&
+      isDeepSeekV4Model(modelConfig.model) &&
+      !isOfficialDeepSeekApiBaseUrl(options.requestBaseUrl)
+    ) {
       const requestedEffort = String(modelConfig.reasoningEffort || "")
         .trim()
         .toLowerCase();
@@ -178,12 +223,26 @@ export class DeepSeekApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(DeepSeek.ChatPath);
+      const directChatPath = this.path(
+        DeepSeek.ChatPath,
+        options.requestBaseUrl,
+      );
+      const proxyEndpoint = buildProxyChatEndpoint(directChatPath);
+      const chatPath = proxyEndpoint?.chatPath || directChatPath;
+      const requestHeaders = {
+        ...getHeaders(
+          false,
+          modelConfig,
+          options.disableAutoFallback,
+          options.requestApiKey,
+        ),
+        ...(proxyEndpoint ? { "x-base-url": proxyEndpoint.baseUrl } : {}),
+      };
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: requestHeaders,
       };
 
       // make a fetch request
@@ -193,15 +252,22 @@ export class DeepSeekApi implements LLMApi {
       );
 
       if (shouldStream) {
-        const [tools, funcs] = usePluginStore
-          .getState()
-          .getAsTools(
-            useChatStore.getState().currentSession().mask?.plugin || [],
-          );
+        // DeepSeek 官方端点会拒绝当前内置插件中不兼容的工具 schema；普通
+        // 对话先按官方基础协议请求，避免工具定义使整次聊天在建立流前返回 400。
+        const disablePlugins =
+          options.disablePlugins ||
+          isOfficialDeepSeekApiBaseUrl(options.requestBaseUrl);
+        const [tools, funcs] = disablePlugins
+          ? [[], {}]
+          : usePluginStore
+              .getState()
+              .getAsTools(
+                useChatStore.getState().currentSession().mask?.plugin || [],
+              );
         return streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          requestHeaders,
           tools as any,
           funcs,
           controller,

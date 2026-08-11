@@ -4,8 +4,13 @@ import { useNavigate } from "react-router-dom";
 import CloseIcon from "../icons/close.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import ReloadIcon from "../icons/reload.svg";
-import { Path } from "../constant";
-import { useAccessStore } from "../store";
+import AddIcon from "../icons/add.svg";
+import TrashIcon from "../icons/trash.svg";
+import { Path, ServiceProvider, StoreKey } from "../constant";
+import { useAccessStore, useAppConfig } from "../store";
+import { useModelCacheStore } from "../store/model-cache";
+import { useSyncStore } from "../store/sync";
+import { getClientApi } from "../client/api";
 import {
   cacheProviderBalanceProfiles,
   getProviderBalanceErrorMessage,
@@ -19,6 +24,9 @@ import {
   type ProviderBalanceAttempt,
 } from "../utils/provider-balance";
 import { prepareRouteEntryForSync } from "../utils/route-sync-entry";
+import { syncProfileModels } from "../utils/provider-sync";
+import { isAbortLikeError } from "../utils/stale-revalidate";
+import { logger } from "../utils/logger";
 import { IconButton } from "./button";
 import { showConfirm, showToast } from "./ui-lib";
 import styles from "./provider-balances.module.scss";
@@ -41,8 +49,13 @@ type QueryStatus =
       type: "error";
       text: string;
       attempts: ProviderBalanceAttempt[];
-      mode?: "custom" | "auto";
-    };
+    mode?: "custom" | "auto";
+  };
+
+type FetchStatus = {
+  type: "querying" | "success" | "error";
+  text: string;
+};
 
 function toFullBalanceUrl(baseUrl: string, path: string) {
   const trimmedPath = path.trim();
@@ -110,6 +123,7 @@ function mergeProfiles(
 export function ProviderBalancesPage() {
   const navigate = useNavigate();
   const apiProfiles = useAccessStore((state) => state.apiProfiles || []);
+  const modelCacheProfiles = useModelCacheStore((state) => state.profiles);
   const cachedProfiles = useMemo(() => {
     const profiles = readCachedProviderBalanceProfiles();
     const cachedIds = new Set(profiles.map((profile) => profile.profileId));
@@ -167,8 +181,24 @@ export function ProviderBalancesPage() {
   const [recentlyUpdatedIds, setRecentlyUpdatedIds] = useState<Set<string>>(
     new Set(),
   );
+  const [recentlyUpdatedModelIds, setRecentlyUpdatedModelIds] = useState<
+    Set<string>
+  >(new Set());
+  const [fetchingModelIds, setFetchingModelIds] = useState<string[]>([]);
+  const [isFetchingAllModels, setIsFetchingAllModels] = useState(false);
+  const [modelStatusMap, setModelStatusMap] = useState<
+    Record<string, FetchStatus>
+  >({});
+  const [testModels, setTestModels] = useState<Record<string, string>>({});
+  const [testingProfileIds, setTestingProfileIds] = useState<string[]>([]);
+  const [testStatusMap, setTestStatusMap] = useState<
+    Record<string, FetchStatus>
+  >({});
+  const [hasUnsavedConfigEdits, setHasUnsavedConfigEdits] = useState(false);
+  const [syncingConfig, setSyncingConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const balanceLogSignatureRef = useRef("");
+  const unsavedConfigPromptShownRef = useRef(false);
   const hasUnsavedDrafts = useMemo(() => {
     const keyChanged = Object.entries(drafts).some(([profileId, value]) => {
       const savedValue =
@@ -199,10 +229,24 @@ export function ProviderBalancesPage() {
     return keyChanged || urlChanged || userIdChanged || formatChanged;
   }, [customUrls, drafts, newApiUserFormats, newApiUserIds, profiles]);
   const isSaving = working.startsWith("save:");
+  const isBatchOperationRunning = isFetchingAllModels || working === "all";
+
+  const markConfigEdited = () => {
+    setHasUnsavedConfigEdits(true);
+    if (!unsavedConfigPromptShownRef.current) {
+      unsavedConfigPromptShownRef.current = true;
+      showToast("配置已修改，请点击“保存并同步”");
+    }
+  };
+
+  const clearUnsavedConfigEdits = () => {
+    setHasUnsavedConfigEdits(false);
+    unsavedConfigPromptShownRef.current = false;
+  };
 
   useEffect(() => {
-    prepareRouteEntryForSync(Path.ProviderBalances, {
-      source: "provider-balances-page",
+    prepareRouteEntryForSync(Path.ApiConfig, {
+      source: "provider-management-page",
     });
   }, []);
 
@@ -332,6 +376,316 @@ export function ProviderBalancesPage() {
     );
   };
 
+  const getApiProfile = (profileId: string) =>
+    apiProfiles.find((profile) => profile.id === profileId);
+
+  const updateApiProfile = (profileId: string, changes: Record<string, any>) => {
+    useAccessStore.getState().update((access: any) => {
+      access.lastUpdateTime = Date.now();
+      access.apiProfiles = (access.apiProfiles || []).map((profile: any) =>
+        profile.id === profileId ? { ...profile, ...changes } : profile,
+      );
+    });
+    markConfigEdited();
+  };
+
+  const syncApiConfig = async (options?: { silent?: boolean }) => {
+    setSyncingConfig(true);
+    try {
+      await useSyncStore.getState().sync([StoreKey.Access], {
+        force: true,
+        isolateQueue: true,
+        manual: true,
+      });
+      if (!options?.silent) showToast("API 配置已保存并同步");
+      return true;
+    } catch (error) {
+      console.error("[Provider Management] API 配置同步失败", error);
+      showToast("API 配置同步失败，请检查数据库连接");
+      return false;
+    } finally {
+      setSyncingConfig(false);
+    }
+  };
+
+  const addApiProfile = () => {
+    const timestamp = Date.now();
+    useAccessStore.getState().update((access: any) => {
+      access.lastUpdateTime = timestamp;
+      access.apiProfiles = [
+        ...(access.apiProfiles || []),
+        {
+          id: `profile_${timestamp}`,
+          name: "默认新增配置",
+          provider: ServiceProvider.Custom,
+          baseUrl: "",
+          apiKey: "",
+          modelFetchApiKey: "",
+          modelFetchUrl: "",
+          enabled: false,
+          openAICompatible: true,
+        },
+      ];
+    });
+    markConfigEdited();
+    setProfiles((current) => [
+      ...current,
+      {
+        profileId: `profile_${timestamp}`,
+        profileName: "默认新增配置",
+        baseUrl: "",
+        hasManagementKey: false,
+        maskedManagementKey: "",
+        managementKey: "",
+        balance: null,
+        lastError: "",
+        customBalanceUrl: "",
+        cachedPath: "",
+        cachedBaseUrl: "",
+        useNewApiUserFormat: false,
+        newApiUserId: "",
+        useUuidQueryFormat: false,
+        uuidQueryValue: "",
+      },
+    ]);
+  };
+
+  const clearAddedModels = async () => {
+    const confirmed = await showConfirm(
+      "确定要清空已添加模型吗？这会删除会同步到数据库的用户已添加模型，并清空当前浏览器的临时模型缓存。",
+    );
+    if (!confirmed) return;
+    useAppConfig.getState().update((config: any) => {
+      config.models = [];
+      config.customModels = "";
+      config.customModelsUpdatedAt = Date.now();
+    });
+    useAccessStore.getState().update((access: any) => {
+      access.lastUpdateTime = Date.now();
+      access.customModels = "";
+      access.apiProfiles = (access.apiProfiles || []).map((profile: any) => ({
+        ...profile,
+        cachedModels: undefined,
+        modelCount: undefined,
+      }));
+    });
+    useModelCacheStore.getState().clearProfileCaches();
+    setRecentlyUpdatedModelIds(new Set());
+    try {
+      await useSyncStore.getState().sync([StoreKey.Access, StoreKey.Config], {
+        force: true,
+        isolateQueue: true,
+        manual: true,
+      });
+      showToast("已清空已添加模型并同步");
+    } catch (error) {
+      console.error("[Provider Management] 清空模型同步失败", error);
+      showToast("已清空本地模型，但同步到数据库失败");
+    }
+  };
+
+  const deleteApiProfile = async (profileId: string) => {
+    const profile = getApiProfile(profileId);
+    if (!profile) return;
+    const confirmed = await showConfirm(
+      `确定删除“${profile.name || profile.id}”吗？该配置在保存并同步后将不再可用。`,
+    );
+    if (!confirmed) return;
+    useAccessStore.getState().update((access: any) => {
+      access.lastUpdateTime = Date.now();
+      access.apiProfiles = (access.apiProfiles || []).filter(
+        (item: any) => item.id !== profileId,
+      );
+    });
+    await syncApiConfig({ silent: true });
+    await load();
+  };
+
+  const fetchModels = async (
+    profileId: string,
+    options?: { silentToast?: boolean },
+  ) => {
+    const profile = getApiProfile(profileId);
+    if (!profile) return false;
+    if (!String(profile.modelFetchUrl || "").trim()) {
+      setModelStatusMap((value) => ({
+        ...value,
+        [profileId]: { type: "error", text: "请先填写模型获取 URL" },
+      }));
+      if (!options?.silentToast) showToast("请先填写模型获取 URL");
+      return false;
+    }
+    setFetchingModelIds((ids) => [...new Set([...ids, profileId])]);
+    setModelStatusMap((value) => ({
+      ...value,
+      [profileId]: { type: "querying", text: "正在获取模型..." },
+    }));
+    if (!options?.silentToast) showToast("开始获取模型");
+    try {
+      const result = await syncProfileModels(profileId, {
+        reason: "manual",
+        silent: true,
+      });
+      setModelStatusMap((value) => ({
+        ...value,
+        [profileId]: {
+          type: "success",
+          text: `获取成功：${result.total} 个模型`,
+        },
+      }));
+      setRecentlyUpdatedModelIds((ids) => new Set(ids).add(profileId));
+      if (!options?.silentToast) showToast("模型获取成功");
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setModelStatusMap((value) => ({
+        ...value,
+        [profileId]: { type: "error", text: message },
+      }));
+      if (!options?.silentToast) showToast(message);
+      return false;
+    } finally {
+      setFetchingModelIds((ids) => ids.filter((id) => id !== profileId));
+    }
+  };
+
+  const fetchAllModels = async () => {
+    const fetchableProfiles = apiProfiles.filter((profile) =>
+      String(profile.modelFetchUrl || "").trim(),
+    );
+    if (fetchableProfiles.length === 0) {
+      showToast("没有填写模型获取 URL 的供应商");
+      return;
+    }
+    setIsFetchingAllModels(true);
+    try {
+      const results = await Promise.all(
+        fetchableProfiles.map((profile) =>
+          fetchModels(profile.id, { silentToast: true }),
+        ),
+      );
+      const succeeded = results.filter(Boolean).length;
+      showToast(`模型批量获取完成：成功 ${succeeded}/${results.length}`);
+    } finally {
+      setIsFetchingAllModels(false);
+    }
+  };
+
+  const getTestModel = (profileId: string) => testModels[profileId] || "";
+
+  const testChat = async (profileId: string) => {
+    const profile = getApiProfile(profileId);
+    const model = getTestModel(profileId).trim();
+    if (!profile?.apiKey?.trim() || !profile.baseUrl?.trim()) {
+      showToast("请先填写对话 Base URL 和 API Key");
+      return;
+    }
+    if (!model) {
+      showToast("请输入测试对话模型");
+      return;
+    }
+    setTestingProfileIds((ids) => [...new Set([...ids, profileId])]);
+    setTestStatusMap((value) => ({
+      ...value,
+      [profileId]: { type: "querying", text: "正在测试对话..." },
+    }));
+    showToast("开始测试对话");
+    try {
+      let reply = "";
+      let requestError: Error | null = null;
+      let finished = false;
+      let responseStatus: number | undefined;
+      // 流式客户端在连接建立后即返回 Promise，完成信号只会通过回调到达。
+      // 将回调包装为 Promise，避免上游已返回 200 时被误判为“响应未正常完成”。
+      await new Promise<void>((resolve, reject) => {
+        void getClientApi(ServiceProvider.Custom).llm
+          .chat({
+            messages: [{ role: "user", content: "请只回复 OK" }],
+            config: {
+              model,
+              providerName: ServiceProvider.Custom,
+              profileId,
+              stream: true,
+            } as any,
+            // 固定模型、Key 与请求参数，但保留既有路径探测以兼容不同 OpenAI 兼容端点。
+            disableAutoFallback: true,
+            enableChatPathFallback: true,
+            disablePlugins: true,
+            requestBaseUrl: profile.baseUrl,
+            requestApiKey: profile.apiKey,
+            onRequest: (request) => {
+              logger.chat.log("🔄 对话请求尝试 测试:", {
+                尝试: "测试",
+                供应商: profile.name || profile.id,
+                模型: model,
+                基础地址: request.baseUrl,
+                请求路径: request.chatPath,
+                流式请求: request.stream,
+              });
+            },
+            onUpdate: (message) => {
+              reply = message;
+            },
+            onFinish: (message, response) => {
+              finished = true;
+              responseStatus = response.status;
+              reply = message || reply;
+              if (!response.ok) {
+                requestError = new Error(`HTTP ${response.status}`);
+              }
+              resolve();
+            },
+            onError: (error) => {
+              requestError = error;
+              reject(error);
+            },
+          })
+          .catch(reject);
+      });
+      if (requestError) throw requestError;
+      if (!finished) throw new Error("响应未正常完成");
+      const finalReply = reply.trim();
+      if (!finalReply) throw new Error("上游未返回有效回复");
+      logger.chat.log("✅ 对话请求尝试成功:", {
+        尝试: "测试",
+        供应商: profile.name || profile.id,
+        模型: model,
+        状态码: responseStatus,
+      });
+      setTestStatusMap((value) => ({
+        ...value,
+        [profileId]: {
+          type: "success",
+          text: `对话测试成功：${finalReply.slice(0, 80)}`,
+        },
+      }));
+      showToast(`对话测试成功：${finalReply.slice(0, 80)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.chat.log(
+        isAbortLikeError(error)
+          ? "⏹️ 对话请求已停止:"
+          : "❌ 对话请求尝试失败:",
+        {
+          尝试: "测试",
+          供应商: profile.name || profile.id,
+          模型: model,
+          原因: isAbortLikeError(error) ? "请求已中止" : message,
+        },
+      );
+      setTestStatusMap((value) => ({
+        ...value,
+        [profileId]: {
+          type: "error",
+          text: `对话测试失败：${message}`,
+        },
+      }));
+      showToast(`对话测试失败：${message}`);
+    } finally {
+      setTestingProfileIds((ids) => ids.filter((id) => id !== profileId));
+    }
+  };
+
   const queryOne = async (
     profileId: string,
     options?: { batch?: boolean; signal?: AbortSignal },
@@ -348,25 +702,37 @@ export function ProviderBalancesPage() {
         : "auto";
 
     if (profileHasUnsavedChanges(profileId)) {
+      // 余额查询需要服务端读取余额专用配置；仅保存当前卡片，
+      // 不等待或阻塞其他供应商的模型获取、余额查询和对话测试。
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
-          type: "error",
-          text: "配置尚未保存，请先保存后再查询",
-          attempts: [],
+          type: "querying",
+          text: "正在保存余额配置...",
           mode: queryMode,
         },
       }));
-      if (!options?.batch) showToast("配置尚未保存，请先保存后再查询");
-      return;
+      const saved = await saveKey(profileId);
+      if (!saved) {
+        setQueryStatusMap((value) => ({
+          ...value,
+          [profileId]: {
+            type: "error",
+            text: "余额配置保存失败，已取消查询",
+            attempts: [],
+            mode: queryMode,
+          },
+        }));
+        return;
+      }
     }
 
-    if (!profile?.hasManagementKey) {
+    if (!profile?.hasManagementKey && !getApiProfile(profileId)?.apiKey?.trim()) {
       setQueryStatusMap((value) => ({
         ...value,
         [profileId]: {
           type: "error",
-          text: "未设置管理 API Key，已跳过查询",
+          text: "未设置余额专用 Key 或对话 API Key，已跳过查询",
           attempts: [],
           mode: queryMode,
         },
@@ -489,7 +855,7 @@ export function ProviderBalancesPage() {
     );
   };
 
-  const saveKey = async (profileId: string) => {
+  const saveKey = async (profileId: string): Promise<boolean> => {
     const profile = profiles.find((profile) => profile.profileId === profileId);
     const profileName = profile?.profileName || profileId;
     const managementKey = getManagementInputValue(profileId);
@@ -508,12 +874,12 @@ export function ProviderBalancesPage() {
 
     if (useNewApiUser && !newApiUserId.trim()) {
       showToast("请填写 User ID");
-      return;
+      return false;
     }
 
     if (useUuidQuery && !uuidValue.trim()) {
       showToast("请填写 UUID");
-      return;
+      return false;
     }
 
     setWorking(`save:${profileId}`);
@@ -575,6 +941,7 @@ export function ProviderBalancesPage() {
         },
       }));
       showToast("保存成功");
+      return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "保存失败";
       console.error(
@@ -589,6 +956,7 @@ export function ProviderBalancesPage() {
         },
       }));
       showToast("保存失败");
+      return false;
     } finally {
       setWorking("");
       setSavingProfileIds((ids) => ids.filter((id) => id !== profileId));
@@ -652,11 +1020,11 @@ export function ProviderBalancesPage() {
       );
       if (!confirmed) return;
     }
-    if (hasUnsavedDrafts || isSaving) {
+    if (hasUnsavedDrafts || hasUnsavedConfigEdits || isSaving) {
       const confirmed = await showConfirm(
         isSaving
           ? "管理 API Key 正在保存中，确认离开吗？"
-          : "有未保存的管理 API Key，确认离开吗？",
+          : "有未保存的供应商配置，确认离开吗？",
       );
       if (!confirmed) return;
     }
@@ -667,9 +1035,9 @@ export function ProviderBalancesPage() {
     <div className={styles.page} data-top-notice-anchor="true">
       <div className={`window-header`} data-tauri-drag-region>
         <div className="window-header-title">
-          <div className="window-header-main-title">余额查询</div>
+          <div className="window-header-main-title">供应商管理</div>
           <div className="window-header-sub-title">
-            独立管理查询 Key、批量更新并保存到数据库
+            在同一处管理对话、模型获取与余额查询；专用 Key 留空时使用对话 API Key
           </div>
         </div>
         <div className="window-actions">
@@ -703,26 +1071,92 @@ export function ProviderBalancesPage() {
           />
         </form>
         <div className={styles.batchAction}>
-          <IconButton
-            icon={<ReloadIcon />}
-            text="全部查询"
-            type="green"
-            className={styles.actionButton}
-            disabled={
-              isLoading ||
-              working === "all" ||
-              savingProfileIds.length > 0 ||
-              (profiles.length > 0 &&
-                queryingProfileIds.length === profiles.length)
-            }
-            onClick={() => void queryAll()}
-          />
+          <div className={styles.batchActionGroup}>
+            <IconButton
+              icon={<AddIcon />}
+              text="新增配置"
+              type="green"
+              className={styles.actionButton}
+              disabled={syncingConfig || isBatchOperationRunning}
+              onClick={addApiProfile}
+            />
+            <IconButton
+              icon={<TrashIcon />}
+              text="清空已添加模型"
+              className={`${styles.actionButton} nextchat-danger-button-filled`}
+              disabled={syncingConfig || isLoading || isBatchOperationRunning}
+              onClick={() => void clearAddedModels()}
+            />
+          </div>
+          <div className={styles.batchActionGroup}>
+            <IconButton
+              icon={<ConfirmIcon />}
+              text={
+                syncingConfig
+                  ? "同步中..."
+                  : hasUnsavedConfigEdits || hasUnsavedDrafts
+                  ? "保存并同步（有修改）"
+                  : "保存并同步"
+              }
+              type="primary"
+              className={styles.actionButton}
+              disabled={syncingConfig || isLoading || isBatchOperationRunning}
+              onClick={() =>
+                void (async () => {
+                  if (!(await syncApiConfig({ silent: true }))) return;
+                  await Promise.all(
+                    profiles
+                      .filter((profile) =>
+                        profileHasUnsavedChanges(profile.profileId),
+                      )
+                      .map((profile) => saveKey(profile.profileId)),
+                  );
+                  clearUnsavedConfigEdits();
+                  showToast("所有供应商配置已保存并同步");
+                })()
+              }
+            />
+            <IconButton
+              icon={<ReloadIcon />}
+              text={isFetchingAllModels ? "模型获取中..." : "全部获取模型"}
+              type="green"
+              className={styles.actionButton}
+              disabled={
+                isLoading || isFetchingAllModels || apiProfiles.length === 0
+              }
+              onClick={() => void fetchAllModels()}
+            />
+            <IconButton
+              icon={<ReloadIcon />}
+              text={working === "all" ? "余额查询中..." : "全部查询余额"}
+              type="green"
+              className={styles.actionButton}
+              disabled={
+                isLoading ||
+                working === "all" ||
+                savingProfileIds.length > 0 ||
+                (profiles.length > 0 &&
+                  queryingProfileIds.length === profiles.length)
+              }
+              onClick={() => void queryAll()}
+            />
+          </div>
         </div>
         <div className={styles.list}>
           {profiles.length === 0 ? (
             <div className={styles.empty}>暂无 API 配置</div>
           ) : (
-            profiles.map((profile) => (
+            profiles.map((profile) => {
+              const apiProfile = getApiProfile(profile.profileId);
+              if (!apiProfile) return null;
+              const isDialogueTestRunning = testingProfileIds.includes(
+                profile.profileId,
+              );
+              const isModelFetchRunning =
+                isFetchingAllModels || fetchingModelIds.includes(profile.profileId);
+              const isBalanceQueryRunning =
+                working === "all" || queryingProfileIds.includes(profile.profileId);
+              return (
               <div
                 className={`${styles.card} ${styles.desktopHoverCard}`}
                 key={profile.profileId}
@@ -735,6 +1169,7 @@ export function ProviderBalancesPage() {
                       <input
                         type="checkbox"
                         checked={getNewApiUserFormatValue(profile.profileId)}
+                        disabled={isBalanceQueryRunning}
                         onChange={(e) => {
                           const newValue = e.target.checked;
                           setNewApiUserFormats((value) => ({
@@ -757,6 +1192,7 @@ export function ProviderBalancesPage() {
                               ),
                             }));
                           }
+                          markConfigEdited();
                         }}
                       />
                       <span>New-API-User</span>
@@ -765,6 +1201,7 @@ export function ProviderBalancesPage() {
                       <input
                         type="checkbox"
                         checked={getUuidQueryFormatValue(profile.profileId)}
+                        disabled={isBalanceQueryRunning}
                         onChange={(e) => {
                           const newValue = e.target.checked;
                           setUuidQueryFormats((value) => ({
@@ -787,12 +1224,43 @@ export function ProviderBalancesPage() {
                               ),
                             }));
                           }
+                          markConfigEdited();
                         }}
                       />
                       <span>UUID 查询</span>
                     </label>
                   </div>
                   <div className={styles.headerRight}>
+                    <span
+                      className={`${styles.modelCount} ${
+                        recentlyUpdatedModelIds.has(profile.profileId)
+                          ? styles.modelUpdated
+                          : ""
+                      }`}
+                    >
+                      {recentlyUpdatedModelIds.has(profile.profileId) && (
+                        <svg
+                          className={`${styles.balanceStatusIcon} ${styles.balanceSuccessIcon}`}
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path
+                            d="M3 8.25 6.5 11.5 13 4.75"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                      模型：
+                      {modelCacheProfiles[profile.profileId]?.modelCount ??
+                        apiProfile.modelCount ??
+                        0}
+                      个
+                    </span>
                     <span
                       className={`${styles.balance} ${
                         queryStatusMap[profile.profileId]?.type === "error" ||
@@ -842,8 +1310,157 @@ export function ProviderBalancesPage() {
                     </span>
                   </div>
                 </div>
+                <div className={styles.sectionCaption}>对话配置</div>
                 <div className={styles.row}>
                   <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>Base URL</span>
+                    <input
+                      className={`nextchat-input-control ${
+                        apiProfile.baseUrl?.trim() ? styles.fixedUrlInput : ""
+                      }`}
+                      type="text"
+                      value={apiProfile.baseUrl || ""}
+                      onChange={(event) =>
+                        updateApiProfile(profile.profileId, {
+                          baseUrl: event.target.value,
+                        })
+                      }
+                      placeholder="对话 Base URL"
+                      disabled={isDialogueTestRunning}
+                    />
+                  </div>
+                </div>
+                <div className={styles.row}>
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>对话 Key</span>
+                    <input
+                      className="nextchat-input-control"
+                      type="text"
+                      value={apiProfile.apiKey || ""}
+                      onChange={(event) =>
+                        updateApiProfile(profile.profileId, {
+                          apiKey: event.target.value,
+                        })
+                      }
+                      placeholder="对话 API Key"
+                      disabled={isDialogueTestRunning}
+                    />
+                  </div>
+                </div>
+                <div className={styles.sectionCaption}>测试对话</div>
+                <div className={styles.row}>
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>测试模型</span>
+                    <input
+                      className="nextchat-input-control"
+                      type="text"
+                      value={getTestModel(profile.profileId)}
+                      onChange={(event) =>
+                        setTestModels((value) => ({
+                          ...value,
+                          [profile.profileId]: event.target.value,
+                        }))
+                      }
+                      placeholder="输入用于测试对话的模型名"
+                      disabled={isDialogueTestRunning}
+                    />
+                  </div>
+                  <IconButton
+                    icon={<ReloadIcon />}
+                    text={
+                      testingProfileIds.includes(profile.profileId)
+                        ? "测试中..."
+                        : "测试对话"
+                    }
+                    type="primary"
+                    className={styles.actionButton}
+                    disabled={testingProfileIds.includes(profile.profileId)}
+                    onClick={() => void testChat(profile.profileId)}
+                  />
+                </div>
+                {testStatusMap[profile.profileId] && (
+                  <div
+                    className={
+                      testStatusMap[profile.profileId].type === "error"
+                        ? styles.statusError
+                        : styles.statusSuccess
+                    }
+                  >
+                    {testStatusMap[profile.profileId].text}
+                  </div>
+                )}
+                <div className={styles.sectionCaption}>模型获取</div>
+                <div className={styles.configurationSection}>
+                <div className={`${styles.row} ${styles.modelKeyRow}`}>
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>模型 Key</span>
+                    <input
+                      className="nextchat-input-control"
+                      type="text"
+                      value={apiProfile.modelFetchApiKey || ""}
+                      onChange={(event) =>
+                        updateApiProfile(profile.profileId, {
+                          modelFetchApiKey: event.target.value,
+                        })
+                      }
+                      placeholder="留空则使用对话 API Key"
+                      disabled={isModelFetchRunning}
+                    />
+                  </div>
+                </div>
+                <div className={`${styles.row} ${styles.modelUrlRow}`}>
+                  <div className={styles.inputWithLabel}>
+                    <span className={styles.inputLabel}>获取 URL</span>
+                    <input
+                      className={`nextchat-input-control ${
+                        apiProfile.modelFetchUrl?.trim()
+                          ? styles.fixedUrlInput
+                          : ""
+                      }`}
+                      type="text"
+                      value={apiProfile.modelFetchUrl || ""}
+                      onChange={(event) =>
+                        updateApiProfile(profile.profileId, {
+                          modelFetchUrl: event.target.value,
+                        })
+                      }
+                      placeholder="模型列表 URL"
+                      disabled={isModelFetchRunning}
+                    />
+                  </div>
+                  <IconButton
+                    icon={<ReloadIcon />}
+                    text={
+                      fetchingModelIds.includes(profile.profileId)
+                        ? "获取中..."
+                        : "获取模型"
+                    }
+                    type="green"
+                    className={`${styles.actionButton} nextchat-action-button`}
+                    disabled={
+                      isModelFetchRunning
+                    }
+                    onClick={() => void fetchModels(profile.profileId)}
+                  />
+                </div>
+                </div>
+                {modelStatusMap[profile.profileId] && (
+                  <div
+                    className={
+                      modelStatusMap[profile.profileId].type === "error"
+                        ? styles.statusError
+                        : styles.statusSuccess
+                    }
+                  >
+                    {modelStatusMap[profile.profileId].text}
+                  </div>
+                )}
+                <div className={styles.sectionCaption}>余额查询</div>
+                <div className={styles.configurationSection}>
+                <div className={`${styles.row} ${styles.balanceKeyRow}`}>
+                  <div
+                    className={`${styles.inputWithLabel} ${styles.balanceKeyInputs}`}
+                  >
                     <span className={styles.inputLabel}>API Key</span>
                     <input
                       className="nextchat-input-control"
@@ -865,14 +1482,15 @@ export function ProviderBalancesPage() {
                           ? drafts[profile.profileId]
                           : profile.managementKey || ""
                       }
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setDrafts((value) => ({
                           ...value,
                           [profile.profileId]: event.target.value,
-                        }))
-                      }
-                      placeholder="API Key"
-                      disabled={isLoading}
+                        }));
+                        markConfigEdited();
+                      }}
+                      placeholder="留空则使用对话 API Key"
+                      disabled={isLoading || isBalanceQueryRunning}
                     />
                     {getNewApiUserFormatValue(profile.profileId) && (
                       <>
@@ -890,14 +1508,15 @@ export function ProviderBalancesPage() {
                           data-form-type="other"
                           name={`balance-new-api-user-${profile.profileId}`}
                           value={getNewApiUserIdInputValue(profile.profileId)}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setNewApiUserIds((value) => ({
                               ...value,
                               [profile.profileId]: event.target.value,
-                            }))
-                          }
+                            }));
+                            markConfigEdited();
+                          }}
                           placeholder="用户ID"
-                          disabled={isLoading}
+                          disabled={isLoading || isBalanceQueryRunning}
                         />
                       </>
                     )}
@@ -917,38 +1536,21 @@ export function ProviderBalancesPage() {
                           data-form-type="other"
                           name={`balance-uuid-query-${profile.profileId}`}
                           value={getUuidQueryValue(profile.profileId)}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setUuidQueryValues((value) => ({
                               ...value,
                               [profile.profileId]: event.target.value,
-                            }))
-                          }
+                            }));
+                            markConfigEdited();
+                          }}
                           placeholder="账户UUID"
-                          disabled={isLoading}
+                          disabled={isLoading || isBalanceQueryRunning}
                         />
                       </>
                     )}
                   </div>
-                  <IconButton
-                    icon={<ConfirmIcon />}
-                    type="primary"
-                    className={`${styles.actionButton} nextchat-primary-button`}
-                    text={
-                      savingProfileIds.includes(profile.profileId)
-                        ? "保存中..."
-                        : "保存"
-                    }
-                    disabled={
-                      isLoading ||
-                      profiles.length === 0 ||
-                      working === "all" ||
-                      savingProfileIds.includes(profile.profileId) ||
-                      queryingProfileIds.includes(profile.profileId)
-                    }
-                    onClick={() => void saveKey(profile.profileId)}
-                  />
                 </div>
-                <div className={styles.row}>
+                <div className={`${styles.row} ${styles.balanceUrlRow}`}>
                   <div className={styles.inputWithLabel}>
                     <span className={styles.inputLabel}>查询 URL</span>
                     {(() => {
@@ -1004,14 +1606,15 @@ export function ProviderBalancesPage() {
                           data-form-type="other"
                           name={`balance-custom-url-${profile.profileId}`}
                           value={displayUrlValue}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setCustomUrls((value) => ({
                               ...value,
                               [profile.profileId]: event.target.value,
-                            }))
-                          }
+                            }));
+                            markConfigEdited();
+                          }}
                           placeholder={isAutoFixed ? "" : "自定义余额查询 URL"}
-                          disabled={isLoading}
+                          disabled={isLoading || isBalanceQueryRunning}
                         />
                       );
                     })()}
@@ -1023,10 +1626,11 @@ export function ProviderBalancesPage() {
                     text={
                       queryingProfileIds.includes(profile.profileId)
                         ? "获取中..."
-                        : "更新"
+                        : "获取余额"
                     }
                     disabled={
                       isLoading ||
+                      working === "all" ||
                       profiles.length === 0 ||
                       savingProfileIds.includes(profile.profileId) ||
                       queryingProfileIds.includes(profile.profileId)
@@ -1034,52 +1638,8 @@ export function ProviderBalancesPage() {
                     onClick={() => void queryOne(profile.profileId)}
                   />
                 </div>
-                {queryStatusMap[profile.profileId] ? (
-                  <div
-                    className={
-                      queryStatusMap[profile.profileId].type === "error"
-                        ? styles.statusError
-                        : styles.statusSuccess
-                    }
-                  >
-                    <div>{queryStatusMap[profile.profileId].text}</div>
-                    {queryStatusMap[profile.profileId].type === "error" &&
-                      (() => {
-                        const status = queryStatusMap[profile.profileId];
-                        const atts: ProviderBalanceAttempt[] =
-                          "attempts" in status && Array.isArray(status.attempts)
-                            ? status.attempts
-                            : [];
-                        if (atts.length === 0) return null;
-                        const okAtts = atts.filter((a) => a.ok);
-                        const failAtts = atts.filter((a) => !a.ok);
-                        const modeTag =
-                          status.mode === "custom"
-                            ? "（指定 URL）"
-                            : "（兼容已有配置）";
-                        return (
-                          <div className={styles.attemptsLog}>
-                            <div className={styles.attemptsSummary}>
-                              上游尝试 {atts.length} 次：成功 {okAtts.length}
-                              ，失败 {failAtts.length} {modeTag}
-                            </div>
-                            {[
-                              ...new Set(
-                                atts.map((attempt) =>
-                                  toFullBalanceUrl(
-                                    attempt.baseUrl,
-                                    attempt.path,
-                                  ),
-                                ),
-                              ),
-                            ].map((url) => (
-                              <div key={url}>{url}</div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                  </div>
-                ) : (
+                </div>
+                {!queryStatusMap[profile.profileId] && (
                   <div
                     className={
                       profile.lastError
@@ -1098,8 +1658,70 @@ export function ProviderBalancesPage() {
                       : "尚未查询"}
                   </div>
                 )}
+                <div className={styles.cardFooter}>
+                  {queryStatusMap[profile.profileId] && (
+                    <div className={styles.footerStatus}>
+                      {queryStatusMap[profile.profileId] && (
+                        <div
+                          className={
+                            queryStatusMap[profile.profileId].type === "error"
+                              ? styles.statusError
+                              : styles.statusSuccess
+                          }
+                        >
+                          <div>{queryStatusMap[profile.profileId].text}</div>
+                          {queryStatusMap[profile.profileId].type === "error" &&
+                            (() => {
+                              const status = queryStatusMap[profile.profileId];
+                              const atts: ProviderBalanceAttempt[] =
+                                "attempts" in status &&
+                                Array.isArray(status.attempts)
+                                  ? status.attempts
+                                  : [];
+                              if (atts.length === 0) return null;
+                              const okAtts = atts.filter((a) => a.ok);
+                              const failAtts = atts.filter((a) => !a.ok);
+                              const modeTag =
+                                status.mode === "custom"
+                                  ? "（指定 URL）"
+                                  : "（兼容已有配置）";
+                              return (
+                                <div className={styles.attemptsLog}>
+                                  <div className={styles.attemptsSummary}>
+                                    上游尝试 {atts.length} 次：成功 {okAtts.length}
+                                    ，失败 {failAtts.length} {modeTag}
+                                  </div>
+                                  {[
+                                    ...new Set(
+                                      atts.map((attempt) =>
+                                        toFullBalanceUrl(
+                                          attempt.baseUrl,
+                                          attempt.path,
+                                        ),
+                                      ),
+                                    ),
+                                  ].map((url) => (
+                                    <div key={url}>{url}</div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <IconButton
+                    icon={<TrashIcon />}
+                    text="删除配置"
+                    type="danger"
+                    className={`${styles.actionButton} nextchat-danger-button-filled`}
+                    disabled={isBatchOperationRunning}
+                    onClick={() => void deleteApiProfile(profile.profileId)}
+                  />
+                </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
